@@ -1,0 +1,54 @@
+# =============================================================================
+# CnesData — .gitignore
+# Padrão: Ambientes Python, dados sensíveis e arquivos de IDE
+# =============================================================================
+
+# --- Ambiente Virtual ---
+env/
+venv/
+.venv/
+ENV/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.spec
+
+# --- Pytest ---
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# --- Dados e Relatórios Gerados ---
+# Os arquivos gerados são resultado do pipeline e não devem ir ao Git.
+# Somente os arquivos de exemplo (data/raw/) podem ser versionados.
+data/processed/
+logs/
+
+# --- Credenciais e Configuração Local ---
+# NUNCA versione o .env!
+.env
+*.env
+
+# --- VSCode ---
+.vscode/*.log
+
+# --- Sistema Operacional ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Arquivos Temporários de Debug ---
+*.txt.bak
+win_test*.txt
+intersect*.txt
+*_out.txt
+export_log.txt
+output.txt

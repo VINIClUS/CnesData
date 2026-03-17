@@ -1,51 +1,101 @@
 """
-Arquivo principal (Orquestrador) do Projeto CnesData.
-É por aqui que o fluxo de dados principal será iniciado e gerenciado.
-"""
-from ingestion.api_client import fetch_data_from_api
-from ingestion.file_client import load_csv
-from processing.transformer import clean_employee_data
-from analysis.analyzer import analyze_and_export
-# importaremos a leitura de bancos de dados futuramente!
+main.py — Ponto de Entrada do Pipeline CnesData
 
-def main():
-    print("="*40)
-    print("Iniciando o pipeline do Projeto CnesData")
-    print("="*40)
-    
-    print("\n--- Teste de Ingestão 1: API (ViaCEP) ---")
-    # API pública brasileira livre e sem necessidade de tokens, perfeita para testes.
-    # Vamos pesquisar as informações da Avenida Paulista pelo CEP
-    url_teste = "https://viacep.com.br/ws/01310100/json/"
-    
-    dados = fetch_data_from_api(url_teste)
-    
-    if dados:
-        print("Sucesso! O Dicionário Python gerado a partir do JSON recebido é:")
-        print(f"> CEP: {dados.get('cep')}")
-        print(f"> Logradouro: {dados.get('logradouro')}")
-        print(f"> Bairro: {dados.get('bairro')}")
-        print(f"> Cidade/UF: {dados.get('localidade')} / {dados.get('uf')}")
-        
-    print("\n--- Teste de Ingestão 2: Planilhas (CSV) ---")
-    caminho_csv = r"data\raw\funcionarios.csv"
-    df = load_csv(caminho_csv)
-    
-    
-    if df is not None:
-        print("\nOs primeiros registros do nosso DataFrame (tabela BRUTA) são:")
-        print(df.head())
-        
-        # --- Fase 2: Processamento e Limpeza ---
-        df_limpo = clean_employee_data(df)
-        print("\nOs registros do nosso DataFrame (tabela LIMPA) ficaram assim:")
-        print(df_limpo.head())
-        
-        # --- Fase 3: Análise e Exportação ---
-        caminho_saida = r"data\processed\funcionarios_limpos.csv"
-        analyze_and_export(df_limpo, caminho_saida)
+Este arquivo é responsável por:
+  1. Configurar o sistema de logging (formato, nível, saída em arquivo e console).
+  2. Chamar o pipeline de extração do CNES.
+
+Por que separar main.py do cnes_exporter.py?
+  - O main.py cuida do "ambiente de execução" (logging, argumentos, etc.).
+  - O cnes_exporter.py cuida da lógica de negócio (ETL do CNES).
+  - Isso permite que o cnes_exporter seja importado e testado de forma independente,
+    sem efeitos colaterais de logging ou configuração de ambiente.
+
+Como executar:
+  python src/main.py
+"""
+
+import logging
+import sys
+from pathlib import Path
+
+import config
+import cnes_exporter
+
+
+def configurar_logging() -> None:
+    """
+    Configura o sistema de logging do projeto.
+
+    Comportamento:
+      - Nível mínimo: DEBUG (todos os níveis são capturados).
+      - Console (StreamHandler): exibe INFO e acima — mensagens de progresso.
+      - Arquivo (FileHandler): registra DEBUG e acima — rastreamento completo.
+      - O arquivo de log é criado em logs/cnes_exporter.log (definido em config.py).
+
+    Formato das mensagens:
+      2026-03-17 08:30:00 [INFO    ] cnes_exporter: Pipeline concluído.
+    """
+    fmt = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Cria a pasta de logs se não existir
+    config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Handler 1: Console — mostra apenas INFO e acima (menos verboso)
+    handler_console = logging.StreamHandler(sys.stdout)
+    handler_console.setLevel(logging.INFO)
+    handler_console.setFormatter(fmt)
+
+    # Handler 2: Arquivo — registra tudo (DEBUG e acima) para rastreamento posterior
+    handler_arquivo = logging.FileHandler(config.LOG_FILE, encoding="utf-8")
+    handler_arquivo.setLevel(logging.DEBUG)
+    handler_arquivo.setFormatter(fmt)
+
+    # Configura o logger raiz do projeto (captura os loggers de todos os módulos)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(handler_console)
+    root_logger.addHandler(handler_arquivo)
+
+
+def main() -> int:
+    """
+    Ponto de entrada principal do pipeline CnesData.
+
+    Returns:
+        int: Código de saída (0 = sucesso, 1 = erro).
+    """
+    configurar_logging()
+
+    # Após configurar o logging, qualquer módulo que use logging.getLogger(__name__)
+    # já terá seu output direcionado para o console e para o arquivo.
+    logger = logging.getLogger(__name__)
+    logger.info("Iniciando CnesData Pipeline — Prefeitura de Presidente Epitácio")
+    logger.debug("Diretório raiz do projeto: %s", config.RAIZ_PROJETO)
+    logger.debug("Log completo disponível em: %s", config.LOG_FILE)
+
+    try:
+        cnes_exporter.pipeline()
+        return 0  # Retorna 0: sucesso (convenção Unix)
+
+    except EnvironmentError as e:
+        # Erro de configuração: variável de ambiente ausente no .env
+        logger.error("Erro de configuração: %s", e)
+        return 1
+
+    except FileNotFoundError as e:
+        # Arquivo necessário não encontrado (ex: DLL do Firebird)
+        logger.error("Arquivo não encontrado: %s", e)
+        return 1
+
+    except Exception as e:
+        # Qualquer outro erro inesperado: registra o traceback completo
+        logger.exception("Erro inesperado durante o pipeline: %s", e)
+        return 1
 
 
 if __name__ == "__main__":
-    # Garante que o main só será chamado se executarmos este arquivo diretamente.
-    main()
+    sys.exit(main())
