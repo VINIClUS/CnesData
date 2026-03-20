@@ -1,0 +1,31 @@
+﻿CD_VINCULACAO;TP_VINCULO;TP_SUBVINCULO;IND_VINC;DS_SUBVINCULO;ST_HABILITADO;ST_SOLICITA_CNPJ;DS_CONCEITO
+00;00;00;000000;A CONFIRMAR;N;N;
+01;00;00;010000;NAO SE APLICA;N;N;
+01;01;00;010100;NAO SE APLICA;N;N;
+01;01;01;010101;SERVIDOR PROPRIO;S;N;"Servidor da Administração Pública Direta ou Indireta, ocupante de cargo efetivo do próprio ente público regido pelo Regime Jurídico Único (federal, estadual e municipal) e militar, vinculado a Regime Próprio de Previdência ou ao Regime Geral de Previdência Social. Equivalência com a RAIS: 30, 31. Algumas referências legais: Art. 37 da Constituição Federal 88; Lei 8.112/90; outras leis específicas federais, municipais ou estaduais."
+01;01;02;010102;SERVIDOR CEDIDO;S;S;"Servidor da Administração Pública Direta ou Indireta ocupante de cargo efetivo, cedido por outro ente público, regido pelo Regime Jurídico Único (federal, estadual e municipal) e militar, vinculado a Regime Próprio de Previdência ou ao Regime Geral de Previdência Social. Preenchimento obrigatório da informação de CNPJ do Empregador. Equivalência com a RAIS: 30, 31. Algumas referências legais: Art. 37 da Constituição Federal 88; Lei 8.112/90; outras leis específicas federais, municipais ou estaduais."
+01;02;00;010200;NAO SE APLICA;N;N;
+01;02;01;010201;CLT;N;N;
+01;02;02;010202;PROPRIO;S;N;"Empregado público do próprio ente/entidade pública da Administração Pública Direta ou Indireta, ocupante de emprego público, contratado pelo regime CLT por prazo indeterminado. Equivalência com a RAIS: 10. Algumas referências legais: Art. 37 da Constituição Federal 88; Decreto-Lei n.º 5.452/43 (CLT); Lei nº 9.962/00; outras leis específicas federais, municipais ou estaduais."
+01;02;03;010203;CEDIDO;S;S;"Empregado público, cedido por outro ente/entidade pública da Administração Direta ou Indireta, ocupante de emprego público, contratado pela CLT por prazo indeterminado. Preenchimento obrigatório da informação de CNPJ do Empregador. Equivalência com a RAIS: 10. Algumas referências legais: Art. 37 da Constituição Federal 88; Decreto-Lei n.º 5.452/43 (CLT); Lei nº 9.962/00; outras leis específicas federais, municipais ou estaduais."
+01;03;00;010300;NAO SE APLICA;N;N;
+01;03;01;010301;PUBLICO;S;N;"Trabalhador temporário, contratado pela Administração Pública  Direta ou Indireta por prazo/tempo determinado, regido por lei específica (federal, estadual, distrital ou municipal) ou pela CLT. Equivalência com a RAIS: 95, 96, 97. Algumas referências legais: Lei nº 8.745/93; Decreto-Lei n.º 5.452/43 (CLT); art. 37, inciso IX da Constituição Federal 88; outras leis específicas federais, municipais ou estaduais."
+01;03;02;010302;PRIVADO;S;N;"Trabalhador temporário, contratado por pessoa física ou jurídica por prazo determinado, regido pela CLT. Equivalência com a RAIS: 40, 50, 55, 60, 65, 70, 75, 80, 90. Algumas referências legais: Lei nº 9.601/98 (Contrato Prazo Determinado); Lei nº 6.019/74 (Temporário); Decreto-Lei n.º 5.452/43 (CLT); Decreto nº 2.490/98; outras legislações aplicáveis."
+01;04;00;010400;NAO SE APLICA;N;N;
+01;04;01;010401;CARGO COMISSIONADO NAO CEDIDO;N;N;
+01;04;02;010402;CARGO COMISSIONADO CEDIDO;N;N;
+01;04;03;010403;SERVIDOR PUBLICO PROPRIO;S;N;"Servidor ou empregado público efetivo, próprio do ente ou entidade pública da Administração Direta ou Indireta, ocupante de cargos de livre nomeação e exoneração. Equivalência com a RAIS: 10, 30, 31, 35. Algumas referências legais: Art. 37 da Constituição Federal 88; Lei nº 8.112/90; outras leis específicas federais, municipais ou estaduais."
+01;04;04;010404;SERVIDOR PUBLICO CEDIDO;S;S;"Servidor ou empregado público efetivo da Administração Pública Direta ou Indireta, cedido por outro ente ou entidade pública, ocupante de cargos de livre nomeação e exoneração. Preenchimento obrigatório da informação de CNPJ do Empregador que cedeu o servidor. Equivalência com a RAIS: 10, 30, 31, 35. Algumas referências legais: Art. 37 da Constituição Federal 88; Lei nº 8.112/90; outras leis específicas federais, municipais ou estaduais."
+01;04;05;010405;SEM VINCULO COM O SETOR PUBLICO;S;N;"Trabalhador não efetivo ocupante de cargos de livre nomeação e exoneração, sem vínculo com setor público. Equivalência com a RAIS: 35. Algumas referências legais: Art. 37 da Constituição Federal 88; Lei nº 8.112/90; outras leis específicas federais, municipais ou estaduais."
+01;05;00;010500;NAO SE APLICA;S;N;Trabalhador vinculado a empregador pessoa jurídica de natureza privada ou pessoa física, por contrato de trabalho regido pela CLT, por prazo indeterminado. Equivalência com a RAIS: 10, 15, 20, 25. Algumas referências legais: Decreto-Lei n.º 5.452/43 (CLT).
+01;05;01;010501;CONTRATO POR OSCIP/OS;N;N;
+01;05;02;010502;CONTRATO POR ONG;N;N;
+01;05;03;010503;CONTRATO POR ENTIDADE FILANTROPICA;N;N;
+01;05;04;010504;CONTRATO POR REDE PRIVADA;N;N;
+02;00;00;020000;NAO SE APLICA;N;N;
+02;01;00;020100;NAO SE APLICA;N;N;
+02;02;00;020200;NAO SE APLICA;N;N;
+02;03;00;020300;NAO SE APLICA;N;N;
+02;04;00;020400;NAO SE APLICA;N;N;
+02;05;00;020500;NAO SE APLICA;N;N;
+02;06;00;020600;NAO SE APLICA;N;N;
