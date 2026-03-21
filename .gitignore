@@ -28,8 +28,7 @@ coverage.xml
 
 # --- Dados e Relatórios Gerados ---
 # Os arquivos gerados são resultado do pipeline e não devem ir ao Git.
-# Somente os arquivos de exemplo (data/raw/) podem ser versionados.
-data/processed/
+data/
 logs/
 
 # --- Credenciais e Configuração Local ---
