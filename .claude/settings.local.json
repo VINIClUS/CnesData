@@ -6,7 +6,9 @@
       "Bash(Out-Null)",
       "Bash(\"venv/Scripts/python.exe\" -m pytest tests/ -m \"not integration\" -v --tb=short)",
       "Bash(python:*)",
-      "Bash(pip freeze:*)"
+      "Bash(pip freeze:*)",
+      "Bash(venv/Scripts/python.exe -m pytest tests/ingestion/test_cnes_client.py -v 2>&1)",
+      "Bash(venv/Scripts/python.exe -m pytest tests/ -m \"not integration\" -q 2>&1)"
     ]
   }
 }

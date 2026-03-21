@@ -10,6 +10,18 @@ Por que cursor manual em vez de pd.read_sql()?
   contorna isso ao iterar cursor.fetchall() e construir o DataFrame
   com os nomes vindos de cursor.description.
 
+Por que 3 queries separadas em vez de um único SELECT com JOINs?
+  O Firebird 2.5 embedado possui dois bugs que inviabilizam o JOIN direto
+  LFCES048 → LFCES060:
+  1. LFCES060.COD_MUN difere de LFCES048.COD_MUN para as mesmas equipes
+     (LFCES060 armazena o município de origem do cadastro nacional, não o
+     município gestor local).
+  2. LFCES060.SEQ_EQUIPE é um código nacional de 6-7 dígitos cujos primeiros
+     4 caracteres correspondem ao LFCES048.SEQ_EQUIPE (código local de 4 dígitos).
+     Não há função de substring disponível neste Firebird, impossibilitando o
+     JOIN por prefixo em SQL.
+  Solução H2: queries separadas + merge Python via str[:4].
+
 Por que TP_SUS_NAO_SUS e não TP_SUS_NAO?
   A Query Master foi validada com 367 registros contra o banco real
   usando TP_SUS_NAO_SUS. A tabela de colunas do dicionário registra
@@ -31,10 +43,7 @@ import config
 
 logger = logging.getLogger(__name__)
 
-# ── Query Master Validada ──────────────────────────────────────────────────────
-# Fonte de verdade: data_dictionary.md (seção "Query Master Validada").
-# Resultado confirmado: 367 vínculos, ~330 profissionais únicos, 2026-03.
-_SQL_PROFISSIONAIS: str = """
+_SQL_VINCULOS: str = """
     SELECT
         prof.CPF_PROF            AS CPF,
         prof.COD_CNS             AS CNS,
@@ -54,25 +63,37 @@ _SQL_PROFISSIONAIS: str = """
         est.CNES                 AS COD_CNES,
         est.NOME_FANTA           AS ESTABELECIMENTO,
         est.TP_UNID_ID           AS COD_TIPO_UNIDADE,
-        est.CODMUNGEST           AS COD_MUN_GESTOR,
-        eq.INE                   AS COD_INE_EQUIPE,
-        eq.DS_AREA               AS NOME_EQUIPE,
-        eq.TP_EQUIPE             AS COD_TIPO_EQUIPE
+        est.CODMUNGEST           AS COD_MUN_GESTOR
     FROM       LFCES021 vinc
     INNER JOIN LFCES004 est  ON  est.UNIDADE_ID = vinc.UNIDADE_ID
     INNER JOIN LFCES018 prof ON  prof.PROF_ID   = vinc.PROF_ID
-    LEFT  JOIN LFCES048 me   ON  me.CPF_PROF    = prof.CPF_PROF
-                             AND me.COD_CBO     = vinc.COD_CBO
-                             AND me.COD_MUN     = est.CODMUNGEST
-    LEFT  JOIN LFCES060 eq   ON  eq.SEQ_EQUIPE  = me.SEQ_EQUIPE
-                             AND eq.COD_AREA    = me.COD_AREA
-                             AND eq.COD_MUN     = me.COD_MUN
     WHERE est.CODMUNGEST = '{cod_mun}'
       AND est.CNPJ_MANT  = '{cnpj}'
     ORDER BY prof.NOME_PROF, vinc.COD_CBO
 """
 
-# Colunas esperadas na ordem do SELECT — referência para validação pós-extração.
+# Membros de equipe: chave de ligação CPF+CBO → SEQ_EQUIPE (código local 4 dígitos)
+_SQL_MEMBROS: str = """
+    SELECT
+        me.CPF_PROF   AS CPF,
+        me.COD_CBO    AS CBO,
+        me.SEQ_EQUIPE AS SEQ_EQUIPE
+    FROM LFCES048 me
+    WHERE me.COD_MUN    = '{cod_mun}'
+      AND me.SEQ_EQUIPE IS NOT NULL
+"""
+
+# Registro de equipes: código nacional 6-7 dígitos — primeiros 4 = SEQ de LFCES048
+_SQL_EQUIPES: str = """
+    SELECT
+        eq.SEQ_EQUIPE AS SEQ_EQUIPE,
+        eq.INE        AS COD_INE_EQUIPE,
+        eq.DS_AREA    AS NOME_EQUIPE,
+        eq.TP_EQUIPE  AS COD_TIPO_EQUIPE
+    FROM LFCES060 eq
+    WHERE eq.COD_MUN = '{cod_mun}'
+"""
+
 COLUNAS_ESPERADAS: tuple[str, ...] = (
     "CPF", "CNS", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "DATA_NASCIMENTO",
     "CBO", "COD_VINCULO", "SUS_NAO_SUS",
@@ -134,49 +155,95 @@ def conectar() -> fdb.Connection:
 
 def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:
     """
-    Extrai os vínculos profissional↔estabelecimento via cursor manual.
+    Extrai os vínculos profissional↔estabelecimento com dados de equipe.
 
-    O cursor é fechado em um bloco `finally` mesmo que execute() falhe,
-    garantindo que recursos do banco não fiquem presos. A conexão em si
-    NÃO é fechada aqui — é responsabilidade do chamador.
+    Executa 3 queries separadas e faz o enriquecimento via merge Python:
+      1. Vínculos base (LFCES021 + LFCES004 + LFCES018)
+      2. Membros de equipe (LFCES048)
+      3. Registro de equipes (LFCES060)
 
     Args:
         con: Conexão ativa com o banco Firebird (aberta, não fechada).
 
     Returns:
-        pd.DataFrame: DataFrame bruto com 20 colunas (ver COLUNAS_ESPERADAS).
+        pd.DataFrame: DataFrame com 20 colunas (ver COLUNAS_ESPERADAS).
 
     Raises:
-        ValueError: Se a query não retornar nenhum registro.
+        ValueError: Se a query de vínculos não retornar nenhum registro.
         fdb.fbcore.DatabaseError: Se ocorrer erro de SQL no banco.
     """
-    query: str = _SQL_PROFISSIONAIS.format(
-        cod_mun=config.COD_MUN_IBGE,
-        cnpj=config.CNPJ_MANTENEDORA,
-    )
-
     logger.info(
         "Executando extração para município IBGE=%s, CNPJ=%s ...",
         config.COD_MUN_IBGE,
         config.CNPJ_MANTENEDORA,
     )
 
-    cur = con.cursor()
-    try:
-        cur.execute(query)
-        linhas = cur.fetchall()
-        nomes_colunas: list[str] = [descricao[0] for descricao in cur.description]
-    finally:
-        cur.close()
+    df_vinculos = _executar_query(
+        con,
+        _SQL_VINCULOS.format(cod_mun=config.COD_MUN_IBGE, cnpj=config.CNPJ_MANTENEDORA),
+    )
 
-    df: pd.DataFrame = pd.DataFrame(linhas, columns=nomes_colunas)
-    logger.info("Extração concluída. Total de vínculos: %d", len(df))
-
-    if df.empty:
+    if df_vinculos.empty:
         raise ValueError(
             "A query não retornou dados. "
             f"Verifique os filtros: COD_MUN_IBGE={config.COD_MUN_IBGE}, "
             f"CNPJ={config.CNPJ_MANTENEDORA}."
         )
 
+    df_membros = _executar_query(
+        con,
+        _SQL_MEMBROS.format(cod_mun=config.COD_MUN_IBGE),
+    )
+    df_equipes = _executar_query(
+        con,
+        _SQL_EQUIPES.format(cod_mun=config.COD_MUN_IBGE),
+    )
+
+    df = _enriquecer_com_equipe(df_vinculos, df_membros, df_equipes)
+    logger.info("Extração concluída. Total de vínculos: %d", len(df))
     return df
+
+
+def _executar_query(con: fdb.Connection, sql: str) -> pd.DataFrame:
+    cur = con.cursor()
+    try:
+        cur.execute(sql)
+        linhas = cur.fetchall()
+        colunas: list[str] = [d[0] for d in cur.description]
+    finally:
+        cur.close()
+    return pd.DataFrame(linhas, columns=colunas)
+
+
+def _enriquecer_com_equipe(
+    df_vinculos: pd.DataFrame,
+    df_membros: pd.DataFrame,
+    df_equipes: pd.DataFrame,
+) -> pd.DataFrame:
+    # LFCES060.SEQ_EQUIPE é um código nacional de 6-7 dígitos;
+    # os primeiros 4 caracteres equivalem ao LFCES048.SEQ_EQUIPE (código local).
+    df_eq = df_equipes.copy()
+    df_eq["SEQ_BASE"] = df_eq["SEQ_EQUIPE"].astype(str).str[:4].astype(int)
+
+    df_mem = df_membros.copy()
+    df_mem["CPF"] = df_mem["CPF"].str.strip()
+    df_mem["CBO"] = df_mem["CBO"].str.strip()
+
+    df_mem_eq = df_mem.merge(
+        df_eq[["SEQ_BASE", "COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE"]],
+        left_on="SEQ_EQUIPE",
+        right_on="SEQ_BASE",
+        how="left",
+    ).drop(columns=["SEQ_EQUIPE", "SEQ_BASE"], errors="ignore")
+
+    df_mem_eq = df_mem_eq.drop_duplicates(subset=["CPF", "CBO"])
+
+    df_base = df_vinculos.copy()
+    df_base["CPF"] = df_base["CPF"].str.strip()
+    df_base["CBO"] = df_base["CBO"].str.strip()
+
+    return df_base.merge(
+        df_mem_eq[["CPF", "CBO", "COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE"]],
+        on=["CPF", "CBO"],
+        how="left",
+    )
