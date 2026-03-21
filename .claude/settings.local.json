@@ -10,5 +10,28 @@
       "Bash(venv/Scripts/python.exe -m pytest tests/ingestion/test_cnes_client.py -v 2>&1)",
       "Bash(venv/Scripts/python.exe -m pytest tests/ -m \"not integration\" -q 2>&1)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$TOOL_INPUT\" | grep -q '\\.py'; then pytest -x --tb=line -q 2>&1 | tail -5; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "You are a JSON-only evaluator. Respond with ONLY a raw JSON object, no markdown, no fences, no explanation.\n\nReview the assistant's final response. Reject if ANY of these are true:\n- Tests were not run before declaring completion\n- Any test is failing, skipped, or marked xfail without justification\n- Implementation was written before failing tests existed\n- Tests were modified during the GREEN phase instead of fixing implementation\n- The assistant said 'done' but left TODO/FIXME/HACK markers in the code\n\nIf any apply, respond:\n{\"ok\": false, \"reason\": \"TDD violation: [specific issue]. Go back and fix it.\"}\n\nOtherwise respond:\n{\"ok\": true}"
+          }
+        ]
+      }
+    ]
   }
 }
