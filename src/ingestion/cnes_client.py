@@ -1,127 +1,181 @@
 """
-cnes_client.py - Cliente de Ingestão do CNES
-Encapsula a conexão e regras de extração com o banco Firebird, contornando
-problemas conhecidos do driver fdb com o pandas.
+cnes_client.py — Camada de Ingestão: Cliente do Banco CNES Firebird
+
+Responsabilidade: carregar o driver Firebird, abrir a conexão e extrair
+os dados brutos de profissionais vinculados ao CNPJ da mantenedora.
+
+Por que cursor manual em vez de pd.read_sql()?
+  O driver `fdb` emite erro -501 ("Invalid cursor state") quando
+  pd.read_sql() é usado com LEFT JOINs encadeados. O cursor manual
+  contorna isso ao iterar cursor.fetchall() e construir o DataFrame
+  com os nomes vindos de cursor.description.
+
+Por que TP_SUS_NAO_SUS e não TP_SUS_NAO?
+  A Query Master foi validada com 367 registros contra o banco real
+  usando TP_SUS_NAO_SUS. A tabela de colunas do dicionário registra
+  TP_SUS_NAO (inferido antes da validação) e está desatualizada nesse campo.
+
+Por que TP_EQUIPE e não DS_SEGMENT / DS_SEGMENTO?
+  DS_SEGMENT retorna erro -206 (Column unknown) quando acessado via alias
+  em LEFT JOIN aninhado no Firebird 2.5. A Query Master usa TP_EQUIPE
+  (código numérico do tipo de equipe) conforme nota do data_dictionary.md.
 """
 
 import logging
+from pathlib import Path
+
 import fdb
 import pandas as pd
 
+import config
+
 logger = logging.getLogger(__name__)
 
-class CnesClient:
+# ── Query Master Validada ──────────────────────────────────────────────────────
+# Fonte de verdade: data_dictionary.md (seção "Query Master Validada").
+# Resultado confirmado: 367 vínculos, ~330 profissionais únicos, 2026-03.
+_SQL_PROFISSIONAIS: str = """
+    SELECT
+        prof.CPF_PROF            AS CPF,
+        prof.NOME_PROF           AS NOME_PROFISSIONAL,
+        prof.NO_SOCIAL           AS NOME_SOCIAL,
+        prof.SEXO                AS SEXO,
+        prof.DATA_NASC           AS DATA_NASCIMENTO,
+        vinc.COD_CBO             AS CBO,
+        vinc.IND_VINC            AS COD_VINCULO,
+        vinc.TP_SUS_NAO_SUS      AS SUS_NAO_SUS,
+        (COALESCE(vinc.CG_HORAAMB,  0)
+         + COALESCE(vinc.CGHORAOUTR, 0)
+         + COALESCE(vinc.CGHORAHOSP, 0)) AS CARGA_HORARIA_TOTAL,
+        COALESCE(vinc.CG_HORAAMB,  0)    AS CH_AMBULATORIAL,
+        COALESCE(vinc.CGHORAOUTR,  0)    AS CH_OUTRAS,
+        COALESCE(vinc.CGHORAHOSP,  0)    AS CH_HOSPITALAR,
+        est.CNES                 AS COD_CNES,
+        est.NOME_FANTA           AS ESTABELECIMENTO,
+        est.TP_UNID_ID           AS COD_TIPO_UNIDADE,
+        est.CODMUNGEST           AS COD_MUN_GESTOR,
+        eq.INE                   AS COD_INE_EQUIPE,
+        eq.DS_AREA               AS NOME_EQUIPE,
+        eq.TP_EQUIPE             AS COD_TIPO_EQUIPE
+    FROM       LFCES021 vinc
+    INNER JOIN LFCES004 est  ON  est.UNIDADE_ID = vinc.UNIDADE_ID
+    INNER JOIN LFCES018 prof ON  prof.PROF_ID   = vinc.PROF_ID
+    LEFT  JOIN LFCES048 me   ON  me.CPF_PROF    = prof.CPF_PROF
+                             AND me.COD_CBO     = vinc.COD_CBO
+                             AND me.COD_MUN     = est.CODMUNGEST
+    LEFT  JOIN LFCES060 eq   ON  eq.SEQ_EQUIPE  = me.SEQ_EQUIPE
+                             AND eq.COD_AREA    = me.COD_AREA
+                             AND eq.COD_MUN     = me.COD_MUN
+    WHERE est.CODMUNGEST = '{cod_mun}'
+      AND est.CNPJ_MANT  = '{cnpj}'
+    ORDER BY prof.NOME_PROF, vinc.COD_CBO
+"""
+
+# Colunas esperadas na ordem do SELECT — referência para validação pós-extração.
+COLUNAS_ESPERADAS: tuple[str, ...] = (
+    "CPF", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "DATA_NASCIMENTO",
+    "CBO", "COD_VINCULO", "SUS_NAO_SUS",
+    "CARGA_HORARIA_TOTAL", "CH_AMBULATORIAL", "CH_OUTRAS", "CH_HOSPITALAR",
+    "COD_CNES", "ESTABELECIMENTO", "COD_TIPO_UNIDADE", "COD_MUN_GESTOR",
+    "COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE",
+)
+
+
+def carregar_driver(dll_path: Path) -> None:
     """
-    Cliente para extração segura e enriquecimento básico de dados do CNES.
+    Carrega a DLL do Firebird 64-bits no processo Python.
+
+    Deve ser chamado antes de qualquer fdb.connect(). Chamadas repetidas
+    são seguras — o fdb verifica internamente se a API já foi carregada.
+
+    Args:
+        dll_path: Caminho absoluto para a fbembed.dll ou fbclient.dll.
+
+    Raises:
+        FileNotFoundError: Se a DLL não existir no caminho informado.
     """
-    def __init__(self, dsn: str, user: str, password: str):
-        self.dsn = dsn
-        self.user = user
-        self.password = password
+    if not dll_path.exists():
+        raise FileNotFoundError(
+            f"DLL do Firebird não encontrada em: {dll_path}\n"
+            "Verifique a variável FIREBIRD_DLL no arquivo .env"
+        )
+    logger.debug("Carregando driver Firebird de: %s", dll_path)
+    fdb.load_api(str(dll_path))
+    logger.info("Driver Firebird (64-bits) carregado com sucesso.")
 
-    def extract_safe(self, query: str) -> pd.DataFrame:
-        """
-        Diretriz 1: Extração Segura.
-        Executa a query contornando as limitações do pandas.read_sql
-        com joins esquerdos (LEFT JOIN) complexos no Firebird (Erro -501).
-        Gerencia o cursor manualmente, garantindo consistência.
-        """
-        logger.debug("Conectando ao banco CNES para extração segura: %s", self.dsn)
-        conn = None
-        try:
-            conn = fdb.connect(dsn=self.dsn, user=self.user, password=self.password)
-            cursor = conn.cursor()
-            
-            logger.debug("Executando a query na base de dados...")
-            cursor.execute(query)
-            
-            # Recupera todos os dados do cursor manualmente
-            rows = cursor.fetchall()
-            
-            # Recupera os nomes das colunas de forma explícita via cursor.description
-            # description retorna uma lista de tuplas onde index 0 é o header
-            col_names = [desc[0] for desc in cursor.description]
-            
-            logger.info("Extração concluída com sucesso. Registros carregados: %d", len(rows))
-            
-            # Instancia o DataFrame depois que a conexão do banco já completou o seu lado
-            return pd.DataFrame(rows, columns=col_names)
-            
-        finally:
-            if conn:
-                conn.close()
 
-    def decode_ind_vinc(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Diretriz 2A: Decodificação Python-Side.
-        Decodifica o código IND_VINC para o domínio legível mapeado no Dicionário de Dados.
-        """
-        # Mapeamento estático dos valores mapeados no discovery (Cnes)
-        MAPA_VINCULOS = {
-            "1": "SIM",
-            "2": "NAO",
-            "3": "AFASTADO",
-            # Outros códigos seriam adicionados conforme o Mapeamento Master
-        }
-        
-        df_out = df.copy()
-        if "IND_VINC" in df_out.columns:
-            # Mapeamento dos valores transformando para string primeiro,
-            # com fallback para "DESCONHECIDO" em valores não estipulados
-            df_out["IND_VINC_DESC"] = (
-                df_out["IND_VINC"]
-                .astype(str)
-                .map(MAPA_VINCULOS)
-                .fillna("NAO MAPEADO")
-            )
-        return df_out
+def conectar() -> fdb.Connection:
+    """
+    Abre e retorna uma conexão ativa com o banco CNES Firebird.
 
-    def apply_multiple_vinculos_flag(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Diretriz 2B: Enriquecimento Python-Side.
-        Infere a flag MULTIPLOS_VINCULOS identificando profissionais vinculados mais de
-        uma vez pela contagem de 'CPF' ou 'PROF_ID'.
-        """
-        df_out = df.copy()
-        
-        # Prioriza o CPF e PROF_ID dependendo de qual coluna estiver preenchida corretamente
-        chave_agrupamento = "CPF" if "CPF" in df_out.columns else "PROF_ID"
-        
-        if chave_agrupamento in df_out.columns:
-            # Conta o número de ocorrências por Chave
-            contagem = df_out.groupby(chave_agrupamento)[chave_agrupamento].transform("size")
-            # Verdadeiro para todo mundo que obteve contagem maior do que 1
-            df_out["MULTIPLOS_VINCULOS"] = contagem > 1
-        else:
-            # Fall-back passivo se a query base não tiver a chave (não quebre a execução)
-            df_out["MULTIPLOS_VINCULOS"] = False
-            
-        return df_out
+    A conexão deve ser fechada pelo chamador, preferencialmente em um
+    bloco `finally` para garantir o fechamento mesmo em caso de exceção.
 
-    def validate_domain_rules(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Diretriz 3: Validação Algorítmica de Domínio (RQs)
-        Valida criticamente a veracidade de alguns campos chaves baseados
-        em cruzamentos CBO x TP_UNID conforme normativo do Ministério da Saúde.
-        """
-        df_out = df.copy()
-        
-        # Só opera essa qualidade se os dois campos vitais existirem
-        if "CBO" in df_out.columns and "TP_UNID" in df_out.columns:
-            
-            # Subconjunto de validação de Agentes
-            cbo_acs_ace = ["515105", "515140"]
-            tp_unid_validos_acs = ["02", "04"] # Tipos simulados do ESF na Prefeitura
-            
-            mascara_eh_acs_ace = df_out["CBO"].isin(cbo_acs_ace)
-            mascara_tp_valido = df_out["TP_UNID"].isin(tp_unid_validos_acs)
-            
-            # Regra lógica de inconsistência: 
-            # SE (Agente ACS) ENTÃO (Deve estar em Tipo Unidade Válida)
-            # Todo o restante da base passará direto: ~mascara_eh_acs_ace
-            df_out["RQ_DOMINIO_VALIDO"] = ~mascara_eh_acs_ace | (mascara_eh_acs_ace & mascara_tp_valido)
-        else:
-            # Passa no teste de qualidade se os campos vitais não foram requisitados
-            df_out["RQ_DOMINIO_VALIDO"] = True
-            
-        return df_out
+    Returns:
+        fdb.Connection: Conexão ativa com o banco.
+
+    Raises:
+        FileNotFoundError: Se a DLL do Firebird não for encontrada.
+        fdb.fbcore.DatabaseError: Se a conexão com o banco falhar
+            (banco offline, credenciais incorretas, DSN inválido).
+    """
+    carregar_driver(Path(config.FIREBIRD_DLL))
+
+    logger.debug("Conectando ao banco: %s", config.DB_DSN)
+    con: fdb.Connection = fdb.connect(
+        dsn=config.DB_DSN,
+        user=config.DB_USER,
+        password=config.DB_PASSWORD,
+    )
+    logger.info("Conexão estabelecida com o banco CNES.")
+    return con
+
+
+def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:
+    """
+    Extrai os vínculos profissional↔estabelecimento via cursor manual.
+
+    O cursor é fechado em um bloco `finally` mesmo que execute() falhe,
+    garantindo que recursos do banco não fiquem presos. A conexão em si
+    NÃO é fechada aqui — é responsabilidade do chamador.
+
+    Args:
+        con: Conexão ativa com o banco Firebird (aberta, não fechada).
+
+    Returns:
+        pd.DataFrame: DataFrame bruto com 19 colunas (ver COLUNAS_ESPERADAS).
+
+    Raises:
+        ValueError: Se a query não retornar nenhum registro.
+        fdb.fbcore.DatabaseError: Se ocorrer erro de SQL no banco.
+    """
+    query: str = _SQL_PROFISSIONAIS.format(
+        cod_mun=config.COD_MUN_IBGE,
+        cnpj=config.CNPJ_MANTENEDORA,
+    )
+
+    logger.info(
+        "Executando extração para município IBGE=%s, CNPJ=%s ...",
+        config.COD_MUN_IBGE,
+        config.CNPJ_MANTENEDORA,
+    )
+
+    cur = con.cursor()
+    try:
+        cur.execute(query)
+        linhas = cur.fetchall()
+        nomes_colunas: list[str] = [descricao[0] for descricao in cur.description]
+    finally:
+        cur.close()
+
+    df: pd.DataFrame = pd.DataFrame(linhas, columns=nomes_colunas)
+    logger.info("Extração concluída. Total de vínculos: %d", len(df))
+
+    if df.empty:
+        raise ValueError(
+            "A query não retornou dados. "
+            f"Verifique os filtros: COD_MUN_IBGE={config.COD_MUN_IBGE}, "
+            f"CNPJ={config.CNPJ_MANTENEDORA}."
+        )
+
+    return df

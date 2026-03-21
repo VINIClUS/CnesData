@@ -43,6 +43,36 @@ CRITICAL RULE: You MUST consult this dictionary to understand the exact Firebird
 - <rule>Pedagogy:</rule> When proposing a refactoring or architectural pattern, briefly explain the "why" behind your decision to maintain our shared context.
 </engineering_and_quality_rules>
 
+<token_efficiency>
+THESE RULES APPLY TO ALL CODE, LOGS, AND RESPONSES GENERATED:
+
+CODE:
+- Zero inline/block comments. Code must self-document via names + types.
+- Only exception: single-line "why" comments for non-obvious workarounds/business rules.
+- Docstrings ONLY on public functions/classes. Format: Args/Returns/Raises, no prose. Max 6 lines.
+- Private functions: NO docstring. Name + type hints = documentation.
+- Module docstring: ONE line max.
+- No dead code, no commented-out code, no unused imports.
+- Specific imports (`from X import Y`) over module imports.
+- Compact error messages: key=value style, no prose.
+
+VISUAL:
+- Zero ASCII art, separators, box-drawing, banners, or decorative lines anywhere.
+- Zero emoji in code, logs, or comments.
+- Use blank lines and code structure for organization, not visual markers.
+
+LOGGING:
+- Structured key=value format: `logger.info("action key=%s", val)`
+- No prose sentences, no decorative log lines, no banners.
+- One log line per event. No multi-line log blocks for a single event.
+
+AI RESPONSES:
+- Start with action/code. No preamble ("Sure!", "Great question!", "I understand...").
+- Surgical edits over full rewrites. Describe ONLY what changed.
+- No post-task summary. Test output = summary.
+- Telegraphic explanations: "Switched to cursor — fdb LEFT JOIN bug" not paragraphs.
+</token_efficiency>
+
 <workflow>
 We operate under STRICT Test-Driven Development (TDD). For every new feature or business rule, you MUST follow this exact sequence:
 1. Analyze: Review the current state against the `<project_architecture>` and identify any inconsistencies or architectural smells.

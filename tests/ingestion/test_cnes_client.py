@@ -1,143 +1,217 @@
-import pytest
-import pandas as pd
+"""
+test_cnes_client.py — Testes Unitários da Camada de Ingestão CNES
+
+Objetivo: verificar que cnes_client.py se comporta corretamente sem
+precisar de conexão com o banco Firebird.
+
+Estratégia de mock:
+  - fdb.load_api é mockado para evitar carregamento de DLL real.
+  - O cursor é simulado via MagicMock com .description e .fetchall()
+    configurados para retornar dados controlados por cada teste.
+  - A conexão (fdb.Connection) é simulada — nunca instanciada de verdade.
+
+Por que não usar unittest.mock.patch("fdb.connect") aqui?
+  extrair_profissionais() recebe uma conexão já aberta como argumento
+  (injeção de dependência). Isso permite testar sem mockar o módulo fdb
+  globalmente — cada teste controla exatamente o que o cursor retorna.
+"""
+
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# No TDD estrito, importamos a classe que ainda será criada para garantir
-# que o design atenda às nossas assinaturas de testes.
-from ingestion.cnes_client import CnesClient
+import pandas as pd
+import pytest
+
+# conftest.py (tests/) já adicionou src/ ao sys.path
+from ingestion.cnes_client import (
+    carregar_driver,
+    extrair_profissionais,
+    COLUNAS_ESPERADAS,
+)
 
 
-@pytest.fixture
-def mock_fdb_cursor():
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _criar_cursor_mock(linhas: list, nomes_colunas: list) -> MagicMock:
     """
-    Simula o cursor do banco de dados fdb, garantindo os cenários das descobertas:
-    - Um profissional padrão.
-    - Um profissional com múltiplos vínculos (para testar a flag MULTIPLOS_VINCULOS).
-    - Um caso de ACS alocado corretamente para validarmos os domínios.
+    Cria um mock de cursor fdb com description e fetchall configurados.
+
+    cursor.description segue a especificação DBAPI2: sequência de tuplas
+    de 7 elementos onde o índice [0] é o nome da coluna.
     """
     cursor_mock = MagicMock()
-    
-    # Simula o attribute 'description' que contém as definições das colunas (nome da coluna no índice 0)
-    cursor_mock.description = [
-        ("CPF", None), 
-        ("PROF_ID", None), 
-        ("NOME_PROFISSIONAL", None),
-        ("CBO", None), 
-        ("TP_UNID", None), 
-        ("IND_VINC", None)
-    ]
-    
-    # Retorno simulado do fetchall() em conformidade estrita aos requisitos
-    cursor_mock.fetchall.return_value = [
-        # Caso 1: Profissional padrão
-        ("11111111111", "ID_1", "PROFISSIONAL PADRAO", "225125", "02", "1"),
-        # Caso 2 e 3: Profissional com Múltiplos Vínculos (mesmo CPF e PROF_ID)
-        ("22222222222", "ID_2", "PROFISSIONAL MULTIPLO", "225124", "02", "1"),
-        ("22222222222", "ID_2", "PROFISSIONAL MULTIPLO", "225203", "04", "2"),
-        # Caso 4: Profissional ACS (CBO 515105)
-        ("33333333333", "ID_3", "AGENTE COMUNITARIO", "515105", "02", "1"),
-    ]
-    
+    cursor_mock.description = [(nome,) + (None,) * 6 for nome in nomes_colunas]
+    cursor_mock.fetchall.return_value = linhas
     return cursor_mock
 
 
-@pytest.fixture
-def mock_fdb_connect(mock_fdb_cursor):
-    """
-    Fixture que faz o patch mandatório de `fdb.connect`, e fornece a conexão
-    mockada e seu cursor.
-    """
-    with patch("ingestion.cnes_client.fdb.connect") as mock_connect:
-        conn_mock = MagicMock()
-        conn_mock.cursor.return_value = mock_fdb_cursor
-        mock_connect.return_value = conn_mock
-        yield mock_connect, conn_mock, mock_fdb_cursor
+def _criar_conexao_mock(linhas: list, nomes_colunas: list) -> MagicMock:
+    """Cria um mock de fdb.Connection com cursor já configurado."""
+    cursor_mock = _criar_cursor_mock(linhas, nomes_colunas)
+    con_mock = MagicMock()
+    con_mock.cursor.return_value = cursor_mock
+    return con_mock
 
 
-class TestCnesClient:
-    
-    def test_extract_safe_query_bypasses_pandas_read_sql(self, mock_fdb_connect):
-        """
-        Diretriz 1 (Extração Segura): Garante que a ingestão não use pd.read_sql
-        devido a falhas documentadas com fdb (-501 left joins). Deve gerenciar
-        o cursor manualmente via execute, fetchall, description.
-        """
-        mock_connect, mock_conn, mock_cursor = mock_fdb_connect
-        
-        # O construtor provisório pede as strings de conexão
-        client = CnesClient(dsn="fake:cnes.gdb", user="sysdba", password="key")
-        
-        # Emulando uma string de query master abstrata
-        df_result = client.extract_safe("SELECT MOCK")
-        
-        # Validação do Mocking Mandatório
-        mock_connect.assert_called_once_with(dsn="fake:cnes.gdb", user="sysdba", password="key")
-        mock_conn.cursor.assert_called_once()
-        mock_cursor.execute.assert_called_once_with("SELECT MOCK")
-        mock_cursor.fetchall.assert_called_once()
-        
-        # Validação do DataFrame instanciado corretamente do cursor abstrato
-        assert isinstance(df_result, pd.DataFrame)
-        assert len(df_result) == 4
-        assert list(df_result.columns) == ["CPF", "PROF_ID", "NOME_PROFISSIONAL", "CBO", "TP_UNID", "IND_VINC"]
+def _linha_valida() -> tuple:
+    """Retorna uma linha de dados válida com 19 colunas (COLUNAS_ESPERADAS)."""
+    return (
+        "11716723817",        # CPF
+        "ZELIA RIBEIRO",      # NOME_PROFISSIONAL
+        None,                 # NOME_SOCIAL
+        "F",                  # SEXO
+        "1975-04-12",         # DATA_NASCIMENTO
+        "514225",             # CBO
+        "010101",             # COD_VINCULO
+        "S",                  # SUS_NAO_SUS
+        40,                   # CARGA_HORARIA_TOTAL
+        40,                   # CH_AMBULATORIAL
+        0,                    # CH_OUTRAS
+        0,                    # CH_HOSPITALAR
+        "0985333",            # COD_CNES
+        "ESF VILA GERONIMO",  # ESTABELECIMENTO
+        "02",                 # COD_TIPO_UNIDADE
+        "354130",             # COD_MUN_GESTOR
+        None,                 # COD_INE_EQUIPE
+        None,                 # NOME_EQUIPE
+        None,                 # COD_TIPO_EQUIPE
+    )
 
-    def test_decode_ind_vinc(self):
-        """
-        Diretriz 2A: Testar a decodificação do campo IND_VINC com o dicionário
-        mapeado nas descobertas (script 3).
-        """
-        df_mock = pd.DataFrame({
-            "IND_VINC": ["1", "2"]
-        })
-        client = CnesClient(dsn="", user="", password="")
-        
-        df_result = client.decode_ind_vinc(df_mock)
-        
-        assert "IND_VINC_DESC" in df_result.columns
-        # Assumindo que o dev vai implementar uma lógica de map(), checamos
-        # apenas se existem outputs validados/não nulos.
-        assert not df_result["IND_VINC_DESC"].isnull().all()
 
-    def test_apply_multiple_vinculos_flag(self):
-        """
-        Diretriz 2B: Verifica se flag MULTIPLOS_VINCULOS é extraída gerando True/False
-        Agrupando contagem por CPF ou PROF_ID ativo.
-        """
-        # Dados de exemplo contendo duplicidades
-        df_mock = pd.DataFrame({
-            "CPF": ["111", "222", "222", "333"],
-            "PROF_ID": ["ID_1", "ID_2", "ID_2", "ID_3"]
-        })
-        client = CnesClient(dsn="", user="", password="")
-        
-        df_result = client.apply_multiple_vinculos_flag(df_mock)
-        
-        assert "MULTIPLOS_VINCULOS" in df_result.columns
-        assert df_result["MULTIPLOS_VINCULOS"].dtype == bool
-        
-        # CPF 222 tem duas ocorrências: MULTIPLOS_VINCULOS = True
-        mask_multiplo = df_result["CPF"] == "222"
-        assert bool(df_result.loc[mask_multiplo, "MULTIPLOS_VINCULOS"].all()) is True
-        
-        # CPF 111 e 333 têm uma ocorrência: MULTIPLOS_VINCULOS = False
-        mask_unico = df_result["CPF"] != "222"
-        assert bool(df_result.loc[mask_unico, "MULTIPLOS_VINCULOS"].all()) is False
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo 1: carregar_driver()
+# ─────────────────────────────────────────────────────────────────────────────
 
-    def test_validate_domain_rules_cbo_acs_ace(self):
+class TestCarregarDriver:
+
+    def test_levanta_file_not_found_quando_dll_ausente(self, tmp_path: Path):
+        """carregar_driver() deve levantar FileNotFoundError para DLL inexistente."""
+        dll_inexistente = tmp_path / "fbembed_fake.dll"
+        with pytest.raises(FileNotFoundError, match="DLL do Firebird"):
+            carregar_driver(dll_inexistente)
+
+    def test_chama_fdb_load_api_com_path_string(self, tmp_path: Path):
+        """carregar_driver() deve chamar fdb.load_api() passando o path como str."""
+        dll_fake = tmp_path / "fbembed.dll"
+        dll_fake.write_bytes(b"fake_dll_content")
+
+        with patch("ingestion.cnes_client.fdb.load_api") as mock_load_api:
+            carregar_driver(dll_fake)
+            mock_load_api.assert_called_once_with(str(dll_fake))
+
+    def test_nao_chama_load_api_quando_dll_ausente(self, tmp_path: Path):
+        """fdb.load_api() NÃO deve ser chamado quando a DLL não existe."""
+        dll_inexistente = tmp_path / "inexistente.dll"
+
+        with patch("ingestion.cnes_client.fdb.load_api") as mock_load_api:
+            with pytest.raises(FileNotFoundError):
+                carregar_driver(dll_inexistente)
+            mock_load_api.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo 2: extrair_profissionais()
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestExtrairProfissionais:
+
+    def test_retorna_dataframe_com_colunas_esperadas(self):
+        """Deve retornar DataFrame com as 19 colunas de COLUNAS_ESPERADAS."""
+        con_mock = _criar_conexao_mock(
+            linhas=[_linha_valida()],
+            nomes_colunas=list(COLUNAS_ESPERADAS),
+        )
+        resultado = extrair_profissionais(con_mock)
+
+        assert isinstance(resultado, pd.DataFrame)
+        assert list(resultado.columns) == list(COLUNAS_ESPERADAS)
+        assert len(resultado) == 1
+
+    def test_colunas_vem_de_cursor_description(self):
         """
-        Diretriz 3 (RQs): Teste estrutural para regras de domínio garantindo
-        as validações da NFCES026 (ACS = 515105, ACE = 515140) x TP_UNID.
+        Os nomes de coluna do DataFrame devem vir de cursor.description,
+        não de constantes hardcoded — os aliases SQL definem o schema de saída.
         """
-        df_mock = pd.DataFrame({
-            "CBO": ["515105", "515140", "225125"],
-            "TP_UNID": ["02", "02", "04"] # Assume 02 como um TP válido para estes CBOs
-        })
-        client = CnesClient(dsn="", user="", password="")
-        
-        df_result = client.validate_domain_rules(df_mock)
-        
-        # Flag ou coluna analítica de validação
-        assert "RQ_DOMINIO_VALIDO" in df_result.columns
-        # O CBO 515105 para TP_UNID=02 deve ser qualificado e retornado corretamente
-        # Neste estágio garantimos apenas que não lança erro e adiciona a respectiva validação
-        assert not df_result["RQ_DOMINIO_VALIDO"].isnull().any()
+        colunas_customizadas = ["COL_A", "COL_B", "COL_C"]
+        con_mock = _criar_conexao_mock(
+            linhas=[("val_a", "val_b", "val_c")],
+            nomes_colunas=colunas_customizadas,
+        )
+        resultado = extrair_profissionais(con_mock)
+
+        assert list(resultado.columns) == colunas_customizadas
+
+    def test_levanta_value_error_quando_query_vazia(self):
+        """Deve levantar ValueError com mensagem descritiva quando não há dados."""
+        con_mock = _criar_conexao_mock(
+            linhas=[],
+            nomes_colunas=list(COLUNAS_ESPERADAS),
+        )
+        with pytest.raises(ValueError, match="não retornou dados"):
+            extrair_profissionais(con_mock)
+
+    def test_fecha_cursor_mesmo_quando_execute_falha(self):
+        """
+        cursor.close() deve ser chamado no bloco finally mesmo se execute() falhar.
+        Garante que recursos do banco não fiquem presos em caso de erro SQL.
+        """
+        cursor_mock = MagicMock()
+        cursor_mock.execute.side_effect = Exception("Erro simulado de SQL")
+        con_mock = MagicMock()
+        con_mock.cursor.return_value = cursor_mock
+
+        with pytest.raises(Exception, match="Erro simulado"):
+            extrair_profissionais(con_mock)
+
+        cursor_mock.close.assert_called_once()
+
+    def test_fecha_cursor_mesmo_quando_fetchall_falha(self):
+        """cursor.close() deve ser chamado no finally mesmo se fetchall() falhar."""
+        cursor_mock = MagicMock()
+        cursor_mock.fetchall.side_effect = Exception("Erro no fetchall")
+        con_mock = MagicMock()
+        con_mock.cursor.return_value = cursor_mock
+
+        with pytest.raises(Exception, match="Erro no fetchall"):
+            extrair_profissionais(con_mock)
+
+        cursor_mock.close.assert_called_once()
+
+    def test_nao_fecha_conexao(self):
+        """
+        extrair_profissionais() NÃO deve fechar a conexão.
+        Gerenciar o ciclo de vida da conexão é responsabilidade do main.py.
+        """
+        con_mock = _criar_conexao_mock(
+            linhas=[_linha_valida()],
+            nomes_colunas=list(COLUNAS_ESPERADAS),
+        )
+        extrair_profissionais(con_mock)
+        con_mock.close.assert_not_called()
+
+    def test_retorna_multiplas_linhas(self):
+        """Deve retornar DataFrame com o número correto de linhas."""
+        con_mock = _criar_conexao_mock(
+            linhas=[_linha_valida(), _linha_valida(), _linha_valida()],
+            nomes_colunas=list(COLUNAS_ESPERADAS),
+        )
+        resultado = extrair_profissionais(con_mock)
+        assert len(resultado) == 3
+
+    def test_valores_nulos_do_left_join_sao_preservados(self):
+        """
+        Valores None das colunas opcionais do LEFT JOIN devem ser preservados
+        no DataFrame — o transformer é responsável por preenchê-los.
+        """
+        con_mock = _criar_conexao_mock(
+            linhas=[_linha_valida()],
+            nomes_colunas=list(COLUNAS_ESPERADAS),
+        )
+        resultado = extrair_profissionais(con_mock)
+
+        # As três últimas colunas (equipe) têm None na _linha_valida()
+        assert resultado["COD_INE_EQUIPE"].iloc[0] is None
+        assert resultado["NOME_EQUIPE"].iloc[0] is None
+        assert resultado["COD_TIPO_EQUIPE"].iloc[0] is None

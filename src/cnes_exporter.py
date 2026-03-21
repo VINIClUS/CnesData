@@ -1,4 +1,20 @@
 """
+cnes_exporter.py — Pipeline de Extração de Dados do CNES [DEPRECATED]
+
+.. deprecated::
+    Este módulo está obsoleto desde 2026-03-21.
+    Use os módulos da arquitetura em camadas:
+      - Ingestão:     src/ingestion/cnes_client.py
+      - Processamento: src/processing/transformer.py
+      - Análise:      src/analysis/rules_engine.py
+      - Exportação:   src/export/csv_exporter.py
+      - Orquestração: src/main.py
+
+    Mantido apenas para compatibilidade com testes de integração legados.
+    Será removido após migração completa dos testes de integração.
+
+----
+
 cnes_exporter.py — Pipeline de Extração de Dados do CNES
 
 Este módulo é o coração do projeto. Ele realiza a extração, transformação
