@@ -56,9 +56,10 @@ def _criar_conexao_mock(linhas: list, nomes_colunas: list) -> MagicMock:
 
 
 def _linha_valida() -> tuple:
-    """Retorna uma linha de dados válida com 19 colunas (COLUNAS_ESPERADAS)."""
+    """Retorna uma linha de dados válida com 20 colunas (COLUNAS_ESPERADAS)."""
     return (
         "11716723817",        # CPF
+        "702002887429583",    # CNS
         "ZELIA RIBEIRO",      # NOME_PROFISSIONAL
         None,                 # NOME_SOCIAL
         "F",                  # SEXO

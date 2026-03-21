@@ -2,17 +2,15 @@
 rules_engine.py — Camada de Análise: Motor de Regras de Auditoria
 
 Implementa as regras de reconciliação definidas no data_dictionary.md.
-Cada função recebe um DataFrame já transformado e retorna um subconjunto
-com os registros que violam a regra, prontos para exportação como relatório.
+Cada função recebe DataFrames já transformados e retorna os registros
+que violam a regra, prontos para exportação como relatório.
 
 Regras implementadas:
   - RQ-003-B: Profissionais com vínculos em múltiplas unidades.
   - RQ-005 (ACS/TACS): Agentes Comunitários de Saúde lotados em unidade incorreta.
   - RQ-005 (ACE/TACE): Agentes de Combate às Endemias lotados em unidade incorreta.
-
-Regras pendentes (dependem de hr_client.py — WP-001):
-  - Ghost Payroll: ativo no CNES, inativo ou ausente no RH.
-  - Missing Registration: no RH mas ausente/desatualizado no CNES.
+  - Ghost Payroll (WP-003): ativo no CNES, ausente ou inativo no RH.
+  - Missing Registration (WP-004): ativo no RH, ausente no CNES.
 
 Fonte de verdade dos domínios: data_dictionary.md (seção RQ-005).
 """
@@ -108,6 +106,9 @@ def auditar_lotacao_acs_tacs(df: pd.DataFrame) -> pd.DataFrame:
     return resultado
 
 
+_STATUS_ATIVO: str = "ATIVO"
+
+
 def auditar_lotacao_ace_tace(df: pd.DataFrame) -> pd.DataFrame:
     """
     RQ-005 (Grupo ACE/TACE): Detecta ACE e TACE lotados em unidade incorreta.
@@ -133,6 +134,84 @@ def auditar_lotacao_ace_tace(df: pd.DataFrame) -> pd.DataFrame:
 
     logger.info(
         "RQ-005 (ACE/TACE): %d anomalia(s) de lotação encontrada(s).",
+        len(resultado),
+    )
+    return resultado
+
+
+def detectar_folha_fantasma(
+    df_cnes: pd.DataFrame,
+    df_rh: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    WP-003: Identifica profissionais ativos no CNES mas ausentes ou inativos no RH.
+
+    Dois motivos possíveis:
+      - AUSENTE_NO_RH: CPF não encontrado no sistema de RH.
+      - INATIVO_NO_RH: CPF no RH mas STATUS ≠ 'ATIVO'.
+
+    Args:
+        df_cnes: DataFrame do Firebird (CPF já normalizado).
+        df_rh: DataFrame do sistema de RH (CPF já normalizado, coluna STATUS).
+
+    Returns:
+        Subconjunto de df_cnes com coluna MOTIVO_GHOST adicionada.
+    """
+    if df_cnes.empty:
+        return df_cnes.copy().assign(MOTIVO_GHOST=pd.Series(dtype=str))
+
+    cpfs_rh_ativos: frozenset[str] = frozenset(
+        df_rh.loc[df_rh["STATUS"] == _STATUS_ATIVO, "CPF"]
+    )
+    cpfs_rh_todos: frozenset[str] = frozenset(df_rh["CPF"])
+
+    def _motivo(cpf: str) -> str | None:
+        if cpf not in cpfs_rh_todos:
+            return "AUSENTE_NO_RH"
+        if cpf not in cpfs_rh_ativos:
+            return "INATIVO_NO_RH"
+        return None
+
+    resultado = df_cnes.copy()
+    resultado["MOTIVO_GHOST"] = resultado["CPF"].map(_motivo)
+    resultado = resultado[resultado["MOTIVO_GHOST"].notna()].reset_index(drop=True)
+
+    logger.info(
+        "ghost_payroll total=%d ausentes=%d inativos=%d",
+        len(resultado),
+        (resultado["MOTIVO_GHOST"] == "AUSENTE_NO_RH").sum(),
+        (resultado["MOTIVO_GHOST"] == "INATIVO_NO_RH").sum(),
+    )
+    return resultado
+
+
+def detectar_registro_ausente(
+    df_cnes: pd.DataFrame,
+    df_rh: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    WP-004: Identifica profissionais ativos no RH mas ausentes no CNES local.
+
+    Apenas STATUS='ATIVO' no RH é considerado anomalia. STATUS='INATIVO' ou
+    'AFASTADO' são desconsiderados — profissional desligado ou em licença
+    não precisa de vínculo CNES ativo.
+
+    Args:
+        df_cnes: DataFrame do Firebird (CPF já normalizado).
+        df_rh: DataFrame do sistema de RH (CPF já normalizado, coluna STATUS).
+
+    Returns:
+        Subconjunto de df_rh (STATUS=ATIVO) com CPF ausente no CNES.
+    """
+    if df_rh.empty:
+        return df_rh.copy()
+
+    cpfs_cnes: frozenset[str] = frozenset(df_cnes["CPF"])
+    rh_ativos = df_rh[df_rh["STATUS"] == _STATUS_ATIVO]
+    resultado = rh_ativos[~rh_ativos["CPF"].isin(cpfs_cnes)].copy().reset_index(drop=True)
+
+    logger.info(
+        "missing_registration total=%d",
         len(resultado),
     )
     return resultado

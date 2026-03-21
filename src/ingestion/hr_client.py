@@ -1,19 +1,103 @@
-"""
-hr_client.py — Camada de Ingestão: Cliente do Sistema de RH (STUB)
+"""Cliente de ingestão de planilhas de RH (folha de pagamento e ponto eletrônico)."""
 
-[WP-001] Módulo pendente de implementação.
+import logging
+from pathlib import Path
 
-Responsabilidade planejada:
-  Parsear planilhas de folha de pagamento e ponto eletrônico
-  (.xlsx / .csv) com validação estrita de schema antes de carregar.
+import pandas as pd
 
-Dependências planejadas:
-  - openpyxl (já no requirements.txt)
-  - pandas (já no requirements.txt)
+logger = logging.getLogger(__name__)
 
-Regras de negócio que serão atendidas:
-  - Ghost Payroll: profissional ativo no CNES mas inativo/ausente no RH.
-  - Missing Registration: no RH mas ausente ou desatualizado no CNES.
-"""
+_EXTENSOES_SUPORTADAS: frozenset[str] = frozenset({".xlsx", ".csv"})
 
-# TODO [WP-001]: implementar parse de .xlsx/.csv com validação de schema
+COLUNAS_OBRIGATORIAS_FOLHA: frozenset[str] = frozenset({"CPF", "NOME", "STATUS"})
+COLUNAS_OBRIGATORIAS_PONTO: frozenset[str] = frozenset({"CPF", "NOME", "STATUS"})
+
+
+class HrSchemaError(Exception):
+    """Schema do arquivo de RH inválido ou extensão não suportada."""
+
+
+def carregar_folha(caminho: Path) -> pd.DataFrame:
+    """Carrega e valida planilha de folha de pagamento.
+
+    Args:
+        caminho: Caminho para arquivo .xlsx ou .csv.
+
+    Returns:
+        DataFrame com CPF normalizado (sem pontuação).
+
+    Raises:
+        HrSchemaError: Extensão não suportada ou colunas obrigatórias ausentes.
+    """
+    df = _ler_arquivo(caminho)
+    _validar_schema(df, COLUNAS_OBRIGATORIAS_FOLHA, caminho.name)
+    resultado = _normalizar_cpf(df.copy())
+    _logar_cpf_invalido(resultado, caminho.name)
+    logger.info("carregar_folha arquivo=%s rows=%d", caminho.name, len(resultado))
+    return resultado
+
+
+def carregar_ponto(caminho: Path) -> pd.DataFrame:
+    """Carrega e valida planilha de ponto eletrônico.
+
+    Args:
+        caminho: Caminho para arquivo .xlsx ou .csv.
+
+    Returns:
+        DataFrame com CPF normalizado (sem pontuação).
+
+    Raises:
+        HrSchemaError: Extensão não suportada ou colunas obrigatórias ausentes.
+    """
+    df = _ler_arquivo(caminho)
+    _validar_schema(df, COLUNAS_OBRIGATORIAS_PONTO, caminho.name)
+    resultado = _normalizar_cpf(df.copy())
+    _logar_cpf_invalido(resultado, caminho.name)
+    logger.info("carregar_ponto arquivo=%s rows=%d", caminho.name, len(resultado))
+    return resultado
+
+
+def _ler_arquivo(caminho: Path) -> pd.DataFrame:
+    extensao = caminho.suffix.lower()
+    if extensao not in _EXTENSOES_SUPORTADAS:
+        raise HrSchemaError(
+            f"extensão não suportada arquivo={caminho.name} extensao={extensao}"
+        )
+    if extensao == ".xlsx":
+        return pd.read_excel(caminho)
+    return pd.read_csv(caminho)
+
+
+def _validar_schema(
+    df: pd.DataFrame,
+    colunas_obrigatorias: frozenset[str],
+    fonte: str,
+) -> None:
+    ausentes = colunas_obrigatorias - set(df.columns)
+    if ausentes:
+        raise HrSchemaError(
+            f"colunas_ausentes={sorted(ausentes)} fonte={fonte}"
+        )
+
+
+def _normalizar_cpf(df: pd.DataFrame) -> pd.DataFrame:
+    df["CPF"] = (
+        df["CPF"]
+        .astype(str)
+        .str.replace(".", "", regex=False)
+        .str.replace("-", "", regex=False)
+        .str.strip()
+        .where(df["CPF"].notna(), other=None)
+    )
+    return df
+
+
+def _logar_cpf_invalido(df: pd.DataFrame, fonte: str) -> None:
+    invalidos = df[
+        df["CPF"].isna() | (df["CPF"].astype(str).str.len() != 11)
+    ]
+    for idx, linha in invalidos.iterrows():
+        logger.warning(
+            "cpf_invalido nome=%s fonte=%s idx=%d",
+            linha.get("NOME", "?"), fonte, idx,
+        )

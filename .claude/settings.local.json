@@ -4,7 +4,9 @@
       "Skill(update-config)",
       "Bash(New-Item -ItemType File -Path \"C:\\\\Users\\\\Vinicius\\\\Projetos\\\\CnesData\\\\src\\\\ingestion\\\\cnes_client.py\" -Force)",
       "Bash(Out-Null)",
-      "Bash(\"venv/Scripts/python.exe\" -m pytest tests/ -m \"not integration\" -v --tb=short)"
+      "Bash(\"venv/Scripts/python.exe\" -m pytest tests/ -m \"not integration\" -v --tb=short)",
+      "Bash(python:*)",
+      "Bash(pip freeze:*)"
     ]
   }
 }

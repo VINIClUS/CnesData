@@ -39,6 +39,7 @@ def df_profissionais_bruto() -> pd.DataFrame:
     """
     return pd.DataFrame({
         "CPF":                ["11716723817 ", " 22730768866", "27943602803"],
+        "CNS":                ["702002887429583", "700402168923850", "708609133020390"],
         "NOME_PROFISSIONAL":  [
             "ZELIA APARECIDA RIBEIRO LIMA ",
             "VANESSA COSTA PAIXAO",
@@ -74,6 +75,7 @@ def df_com_equipe() -> pd.DataFrame:
     """
     return pd.DataFrame({
         "CPF":                ["22730768866"],
+        "CNS":                ["700402168923850"],
         "NOME_PROFISSIONAL":  ["VANESSA COSTA PAIXAO"],
         "NOME_SOCIAL":        [None],
         "SEXO":               ["F"],
@@ -105,6 +107,7 @@ def df_com_cpf_invalido() -> pd.DataFrame:
     """
     return pd.DataFrame({
         "CPF":                [None, "123456789", "27943602803"],
+        "CNS":                [None, None, "708609133020390"],
         "NOME_PROFISSIONAL":  ["NOME COM CPF NULO", "NOME COM CPF CURTO", "NOME VALIDO"],
         "NOME_SOCIAL":        [None, None, None],
         "SEXO":               ["F", "M", "F"],
@@ -137,6 +140,7 @@ def df_com_carga_horaria_zero() -> pd.DataFrame:
     """
     return pd.DataFrame({
         "CPF":                ["11111111111", "22222222222"],
+        "CNS":                ["702002887429583", "700402168923850"],
         "NOME_PROFISSIONAL":  ["PROF ZUMBI", "PROF NORMAL"],
         "NOME_SOCIAL":        [None, None],
         "SEXO":               ["M", "F"],

@@ -58,6 +58,9 @@ FIREBIRD_DLL: str = _exigir("FIREBIRD_DLL")
 COD_MUN_IBGE: str = _exigir("COD_MUN_IBGE")
 CNPJ_MANTENEDORA: str = _exigir("CNPJ_MANTENEDORA")
 
+# ── Snapshots Históricos ──────────────────────────────────────────────────
+SNAPSHOTS_DIR: Path = RAIZ_PROJETO / os.getenv("SNAPSHOTS_DIR", "data/snapshots")
+
 # ── Saída de Dados ─────────────────────────────────────────────────────────
 _output_dir = os.getenv("OUTPUT_DIR", "data/processed")
 _output_filename = os.getenv("OUTPUT_FILENAME", "Relatorio_Profissionais_CNES.csv")
@@ -65,6 +68,14 @@ _output_filename = os.getenv("OUTPUT_FILENAME", "Relatorio_Profissionais_CNES.cs
 # Usa a raiz do projeto para garantir que o caminho é absoluto,
 # independente de onde o script for chamado.
 OUTPUT_PATH: Path = RAIZ_PROJETO / _output_dir / _output_filename
+
+# ── Google Cloud / BigQuery ────────────────────────────────────────────────
+GCP_PROJECT_ID: str = _exigir("GCP_PROJECT_ID")
+
+# ── RH / Folha de Pagamento (opcional) ────────────────────────────────────
+# Se não configurado, o cross-check CNES × RH é ignorado silenciosamente.
+_folha_hr_path = os.getenv("FOLHA_HR_PATH")
+FOLHA_HR_PATH: Path | None = Path(_folha_hr_path) if _folha_hr_path else None
 
 # ── Logs ───────────────────────────────────────────────────────────────────
 LOGS_DIR: Path = RAIZ_PROJETO / "logs"

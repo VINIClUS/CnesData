@@ -1,18 +1,22 @@
 """
 test_rules_engine.py — Testes Unitários do Motor de Regras de Auditoria
 
-Objetivo: verificar que as regras RQ-003-B e RQ-005 detectam corretamente
-anomalias sem precisar de banco de dados.
+Objetivo: verificar que as regras RQ-003-B, RQ-005, Ghost Payroll e
+Missing Registration detectam corretamente anomalias sem banco de dados.
 
 Cobertura:
   - RQ-003-B: detecção de profissionais com vínculos em múltiplas unidades.
   - RQ-005 (ACS/TACS): lotação em unidade incorreta.
   - RQ-005 (ACE/TACE): lotação em unidade incorreta.
+  - Ghost Payroll (WP-003): ativo no CNES, ausente ou inativo no RH.
+  - Missing Registration (WP-004): ativo no RH, ausente no CNES.
   - Casos negativos: sem anomalias → retorno de DataFrame vazio.
-  - Edge cases: DataFrame vazio, profissional com 3 unidades.
+  - Edge cases: DataFrame vazio, STATUS afastado não é anomalia.
 
 Fonte dos CBOs e TP_UNID_IDs válidos: data_dictionary.md (seção RQ-005).
 """
+
+import logging
 
 import pandas as pd
 import pytest
@@ -22,6 +26,8 @@ from analysis.rules_engine import (
     detectar_multiplas_unidades,
     auditar_lotacao_acs_tacs,
     auditar_lotacao_ace_tace,
+    detectar_folha_fantasma,
+    detectar_registro_ausente,
     CBOS_ACS_TACS,
     CBOS_ACE_TACE,
     TP_UNID_VALIDOS_ACS_TACS,
@@ -230,3 +236,200 @@ class TestDominiosCbo:
         """
         assert "516220" not in CBOS_ACS_TACS
         assert "516220" not in CBOS_ACE_TACE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers para WP-003 e WP-004
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _df_cnes(*cpfs: str) -> pd.DataFrame:
+    """DataFrame mínimo simulando registros do Firebird (um vínculo por CPF)."""
+    return pd.DataFrame({
+        "CPF":              list(cpfs),
+        "NOME_PROFISSIONAL": [f"PROF {c}" for c in cpfs],
+        "CBO":              ["515105"] * len(cpfs),
+        "COD_CNES":         ["0985333"] * len(cpfs),
+        "ESTABELECIMENTO":  ["UBS TESTE"] * len(cpfs),
+    })
+
+
+def _df_rh(cpfs_status: list[tuple[str, str]]) -> pd.DataFrame:
+    """DataFrame mínimo simulando registros do sistema de RH."""
+    cpfs, statuses = zip(*cpfs_status) if cpfs_status else ([], [])
+    return pd.DataFrame({
+        "CPF":    list(cpfs),
+        "NOME":   [f"PROF {c}" for c in cpfs],
+        "STATUS": list(statuses),
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo 5: detectar_folha_fantasma() — WP-003
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestGhostPayroll:
+
+    def test_detecta_cpf_ausente_no_rh(self):
+        """CPF no CNES mas não encontrado no RH → AUSENTE_NO_RH."""
+        df_cnes = _df_cnes("11111111111", "22222222222")
+        df_rh = _df_rh([("22222222222", "ATIVO")])  # 11111111111 ausente
+
+        resultado = detectar_folha_fantasma(df_cnes, df_rh)
+
+        assert len(resultado) == 1
+        assert resultado["CPF"].iloc[0] == "11111111111"
+        assert resultado["MOTIVO_GHOST"].iloc[0] == "AUSENTE_NO_RH"
+
+    def test_detecta_cpf_inativo_no_rh(self):
+        """CPF no CNES e no RH mas STATUS=INATIVO → INATIVO_NO_RH."""
+        df_cnes = _df_cnes("11111111111")
+        df_rh = _df_rh([("11111111111", "INATIVO")])
+
+        resultado = detectar_folha_fantasma(df_cnes, df_rh)
+
+        assert len(resultado) == 1
+        assert resultado["MOTIVO_GHOST"].iloc[0] == "INATIVO_NO_RH"
+
+    def test_nao_detecta_cpf_ativo_em_ambos(self):
+        """CPF no CNES e STATUS=ATIVO no RH → sem anomalia."""
+        df_cnes = _df_cnes("11111111111")
+        df_rh = _df_rh([("11111111111", "ATIVO")])
+
+        resultado = detectar_folha_fantasma(df_cnes, df_rh)
+
+        assert resultado.empty
+
+    def test_retorna_vazio_quando_todos_ativos(self):
+        df_cnes = _df_cnes("11111111111", "22222222222")
+        df_rh = _df_rh([("11111111111", "ATIVO"), ("22222222222", "ATIVO")])
+
+        assert detectar_folha_fantasma(df_cnes, df_rh).empty
+
+    def test_retorna_vazio_quando_cnes_vazio(self):
+        df_cnes = _df_cnes()
+        df_rh = _df_rh([("11111111111", "ATIVO")])
+
+        assert detectar_folha_fantasma(df_cnes, df_rh).empty
+
+    def test_retorna_vazio_quando_rh_vazio_e_cnes_vazio(self):
+        assert detectar_folha_fantasma(_df_cnes(), _df_rh([])).empty
+
+    def test_resultado_tem_coluna_motivo_ghost(self):
+        df_cnes = _df_cnes("11111111111")
+        df_rh = _df_rh([])
+
+        resultado = detectar_folha_fantasma(df_cnes, df_rh)
+
+        assert "MOTIVO_GHOST" in resultado.columns
+
+    def test_colunas_do_cnes_preservadas_no_resultado(self):
+        """O resultado deve conter as colunas originais do CNES (CPF, CBO, etc.)."""
+        df_cnes = _df_cnes("11111111111")
+        df_rh = _df_rh([])
+
+        resultado = detectar_folha_fantasma(df_cnes, df_rh)
+
+        assert "CBO" in resultado.columns
+        assert "ESTABELECIMENTO" in resultado.columns
+
+    def test_detecta_multiplos_ghosts_com_motivos_distintos(self):
+        """Resultado pode conter mistura de AUSENTE e INATIVO."""
+        df_cnes = _df_cnes("11111111111", "22222222222", "33333333333")
+        df_rh = _df_rh([
+            ("22222222222", "ATIVO"),
+            ("33333333333", "INATIVO"),
+            # 11111111111 ausente
+        ])
+
+        resultado = detectar_folha_fantasma(df_cnes, df_rh)
+
+        assert len(resultado) == 2
+        motivos = set(resultado["MOTIVO_GHOST"].tolist())
+        assert motivos == {"AUSENTE_NO_RH", "INATIVO_NO_RH"}
+
+    def test_logging_registra_contagem(self, caplog):
+        df_cnes = _df_cnes("11111111111", "22222222222")
+        df_rh = _df_rh([("22222222222", "ATIVO")])
+
+        with caplog.at_level(logging.INFO, logger="analysis.rules_engine"):
+            detectar_folha_fantasma(df_cnes, df_rh)
+
+        assert "ghost" in caplog.text.lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grupo 6: detectar_registro_ausente() — WP-004
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMissingRegistration:
+
+    def test_detecta_cpf_ativo_no_rh_ausente_no_cnes(self):
+        """CPF com STATUS=ATIVO no RH mas não no CNES → anomalia."""
+        df_cnes = _df_cnes("22222222222")
+        df_rh = _df_rh([("11111111111", "ATIVO"), ("22222222222", "ATIVO")])
+
+        resultado = detectar_registro_ausente(df_cnes, df_rh)
+
+        assert len(resultado) == 1
+        assert resultado["CPF"].iloc[0] == "11111111111"
+
+    def test_nao_detecta_cpf_inativo_ausente_no_cnes(self):
+        """STATUS=INATIVO fora do CNES não é anomalia — profissional desligado."""
+        df_cnes = _df_cnes("22222222222")
+        df_rh = _df_rh([("11111111111", "INATIVO"), ("22222222222", "ATIVO")])
+
+        resultado = detectar_registro_ausente(df_cnes, df_rh)
+
+        assert resultado.empty
+
+    def test_nao_detecta_cpf_afastado_ausente_no_cnes(self):
+        """STATUS=AFASTADO não é anomalia — afastamento temporário documentado."""
+        df_cnes = _df_cnes("22222222222")
+        df_rh = _df_rh([("11111111111", "AFASTADO"), ("22222222222", "ATIVO")])
+
+        resultado = detectar_registro_ausente(df_cnes, df_rh)
+
+        assert resultado.empty
+
+    def test_nao_detecta_cpf_presente_em_ambos(self):
+        """CPF no RH(ATIVO) e no CNES → sem anomalia."""
+        df_cnes = _df_cnes("11111111111")
+        df_rh = _df_rh([("11111111111", "ATIVO")])
+
+        assert detectar_registro_ausente(df_cnes, df_rh).empty
+
+    def test_retorna_vazio_quando_rh_vazio(self):
+        assert detectar_registro_ausente(_df_cnes("11111111111"), _df_rh([])).empty
+
+    def test_retorna_vazio_quando_todos_presentes_no_cnes(self):
+        df_cnes = _df_cnes("11111111111", "22222222222")
+        df_rh = _df_rh([("11111111111", "ATIVO"), ("22222222222", "ATIVO")])
+
+        assert detectar_registro_ausente(df_cnes, df_rh).empty
+
+    def test_colunas_do_rh_preservadas_no_resultado(self):
+        """O resultado deve conter as colunas originais do RH (CPF, NOME, STATUS)."""
+        df_cnes = _df_cnes("22222222222")
+        df_rh = _df_rh([("11111111111", "ATIVO"), ("22222222222", "ATIVO")])
+
+        resultado = detectar_registro_ausente(df_cnes, df_rh)
+
+        assert "NOME" in resultado.columns
+        assert "STATUS" in resultado.columns
+
+    def test_detecta_multiplos_ausentes(self):
+        df_cnes = _df_cnes()
+        df_rh = _df_rh([("11111111111", "ATIVO"), ("22222222222", "ATIVO")])
+
+        resultado = detectar_registro_ausente(df_cnes, df_rh)
+
+        assert len(resultado) == 2
+
+    def test_logging_registra_contagem(self, caplog):
+        df_cnes = _df_cnes("22222222222")
+        df_rh = _df_rh([("11111111111", "ATIVO"), ("22222222222", "ATIVO")])
+
+        with caplog.at_level(logging.INFO, logger="analysis.rules_engine"):
+            detectar_registro_ausente(df_cnes, df_rh)
+
+        assert "missing" in caplog.text.lower() or "ausente" in caplog.text.lower()

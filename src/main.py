@@ -19,16 +19,29 @@ Como executar:
 
 import logging
 import sys
+from pathlib import Path
+
+import pandas as pd
 
 import config
 from ingestion.cnes_client import conectar, extrair_profissionais
+from ingestion.hr_client import carregar_folha
 from processing.transformer import transformar
 from analysis.rules_engine import (
     detectar_multiplas_unidades,
     auditar_lotacao_acs_tacs,
     auditar_lotacao_ace_tace,
+    detectar_folha_fantasma,
+    detectar_registro_ausente,
 )
+from analysis.evolution_tracker import criar_snapshot, salvar_snapshot
 from export.csv_exporter import exportar_csv
+from export.report_generator import gerar_relatorio
+
+
+def _exportar_se_nao_vazio(df: pd.DataFrame, nome_arquivo: str) -> None:
+    if not df.empty:
+        exportar_csv(df, config.OUTPUT_PATH.parent / nome_arquivo)
 
 
 def configurar_logging() -> None:
@@ -90,31 +103,52 @@ def main() -> int:
         # ── Camada 2: Processamento ───────────────────────────────────────────
         df_processado = transformar(df_bruto)
 
-        # ── Camada 3: Análise (relatórios de auditoria) ───────────────────────
+        # ── Camada 3: Análise CNES ────────────────────────────────────────────
         df_multi_unidades = detectar_multiplas_unidades(df_processado)
         df_acs_incorretos = auditar_lotacao_acs_tacs(df_processado)
         df_ace_incorretos = auditar_lotacao_ace_tace(df_processado)
 
+        # ── Camada 3B: Cross-check CNES × RH (opcional) ──────────────────────
+        df_ghost: pd.DataFrame = pd.DataFrame()
+        df_missing: pd.DataFrame = pd.DataFrame()
+        if config.FOLHA_HR_PATH is not None:
+            df_rh = carregar_folha(config.FOLHA_HR_PATH)
+            df_ghost = detectar_folha_fantasma(df_processado, df_rh)
+            df_missing = detectar_registro_ausente(df_processado, df_rh)
+        else:
+            logger.warning("hr_cross_check=skipped motivo=FOLHA_HR_PATH_nao_configurado")
+
         # ── Camada 4: Exportação ──────────────────────────────────────────────
         exportar_csv(df_processado, config.OUTPUT_PATH)
+        _exportar_se_nao_vazio(df_multi_unidades, "auditoria_rq003b_multiplas_unidades.csv")
+        _exportar_se_nao_vazio(df_acs_incorretos, "auditoria_rq005_acs_tacs_incorretos.csv")
+        _exportar_se_nao_vazio(df_ace_incorretos, "auditoria_rq005_ace_tace_incorretos.csv")
+        _exportar_se_nao_vazio(df_ghost, "auditoria_ghost_payroll.csv")
+        _exportar_se_nao_vazio(df_missing, "auditoria_missing_registration.csv")
 
-        # Relatórios de auditoria são gerados apenas quando há anomalias,
-        # evitando arquivos vazios que poluem o diretório de saída.
-        if not df_multi_unidades.empty:
-            exportar_csv(
-                df_multi_unidades,
-                config.OUTPUT_PATH.parent / "auditoria_rq003b_multiplas_unidades.csv",
-            )
-        if not df_acs_incorretos.empty:
-            exportar_csv(
-                df_acs_incorretos,
-                config.OUTPUT_PATH.parent / "auditoria_rq005_acs_tacs_incorretos.csv",
-            )
-        if not df_ace_incorretos.empty:
-            exportar_csv(
-                df_ace_incorretos,
-                config.OUTPUT_PATH.parent / "auditoria_rq005_ace_tace_incorretos.csv",
-            )
+        # ── Camada 4B: Relatório Excel consolidado ────────────────────────────
+        gerar_relatorio(
+            config.OUTPUT_PATH.with_suffix(".xlsx"),
+            df_processado,
+            df_ghost,
+            df_missing,
+            df_multi_unidades,
+            df_acs_incorretos,
+            df_ace_incorretos,
+        )
+
+        # ── Camada 5: Snapshot histórico ──────────────────────────────────────
+        competencia = config.OUTPUT_PATH.stem.split("_")[-1] if "_" in config.OUTPUT_PATH.stem else "desconhecida"
+        snapshot = criar_snapshot(
+            competencia,
+            df_processado,
+            df_ghost,
+            df_missing,
+            df_multi_unidades,
+            df_acs_incorretos,
+            df_ace_incorretos,
+        )
+        salvar_snapshot(snapshot, config.SNAPSHOTS_DIR)
 
         logger.info("Pipeline concluído com êxito.")
         logger.info("Relatório principal: %s", config.OUTPUT_PATH)

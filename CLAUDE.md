@@ -40,7 +40,6 @@ CRITICAL RULE: You MUST consult this dictionary to understand the exact Firebird
 - <rule>Zero Shortcuts:</rule> NEVER modify, simplify, or bypass goals and tests to speed up delivery. Edge-case handling is non-negotiable.
 - <rule>Readability:</rule> Prioritize highly descriptive variable names, strict static typing (Type Hints), and clear docstrings (Google or Sphinx standard).
 - <rule>Observability:</rule> Implement robust structured logging (DEBUG, INFO, ERROR levels) to track all data transformations. Silent failures are unacceptable.
-- <rule>Pedagogy:</rule> When proposing a refactoring or architectural pattern, briefly explain the "why" behind your decision to maintain our shared context.
 </engineering_and_quality_rules>
 
 <token_efficiency>

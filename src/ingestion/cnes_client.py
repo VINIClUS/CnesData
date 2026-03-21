@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 _SQL_PROFISSIONAIS: str = """
     SELECT
         prof.CPF_PROF            AS CPF,
+        prof.COD_CNS             AS CNS,
         prof.NOME_PROF           AS NOME_PROFISSIONAL,
         prof.NO_SOCIAL           AS NOME_SOCIAL,
         prof.SEXO                AS SEXO,
@@ -73,7 +74,7 @@ _SQL_PROFISSIONAIS: str = """
 
 # Colunas esperadas na ordem do SELECT — referência para validação pós-extração.
 COLUNAS_ESPERADAS: tuple[str, ...] = (
-    "CPF", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "DATA_NASCIMENTO",
+    "CPF", "CNS", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "DATA_NASCIMENTO",
     "CBO", "COD_VINCULO", "SUS_NAO_SUS",
     "CARGA_HORARIA_TOTAL", "CH_AMBULATORIAL", "CH_OUTRAS", "CH_HOSPITALAR",
     "COD_CNES", "ESTABELECIMENTO", "COD_TIPO_UNIDADE", "COD_MUN_GESTOR",
@@ -143,7 +144,7 @@ def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:
         con: Conexão ativa com o banco Firebird (aberta, não fechada).
 
     Returns:
-        pd.DataFrame: DataFrame bruto com 19 colunas (ver COLUNAS_ESPERADAS).
+        pd.DataFrame: DataFrame bruto com 20 colunas (ver COLUNAS_ESPERADAS).
 
     Raises:
         ValueError: Se a query não retornar nenhum registro.

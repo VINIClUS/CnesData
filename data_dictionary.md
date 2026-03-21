@@ -28,6 +28,7 @@
 |---|---|---|---|---|
 | `PROF_ID` | VARYING | 16 | ✅ | **PK** — chave surrogada interna |
 | `CPF_PROF` | VARYING | 11 | ✅ | CPF sem formatação — chave de JOIN com LFCES048 |
+| `COD_CNS` | VARYING | 60 | ❌ | **Cartão Nacional de Saúde (15 dígitos)** — chave de JOIN com BigQuery (`br_ms_cnes.profissional.cartao_nacional_saude`). Confirmado via amostra: 5/5 profissionais com valores de 15 dígitos. |
 | `NOME_PROF` | VARYING | 60 | ✅ | Nome completo |
 | `NO_SOCIAL` | VARYING | 60 | ❌ | Nome social (novo campo LGPD) |
 | `STATUS` | TEXT | 1 | ❌ | Status do registro (**domínio desconhecido — descobrir**) |
