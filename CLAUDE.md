@@ -32,7 +32,7 @@ We are developing a mission-critical data extraction and reconciliation pipeline
 </project_architecture>
 
 <resources>
-- Data Dictionary: Located at `C:\Users\Vinicius\Projetos\CnesData\data\data_dictionary.md`. 
+- Data Dictionary: Located at `C:\Users\Vinicius\Projetos\CnesData\data_dictionary.md`. 
 CRITICAL RULE: You MUST consult this dictionary to understand the exact Firebird database schema, table relationships, and column names BEFORE writing any SQL queries, data extraction logic, or creating pandas mock DataFrames. Never hallucinate or guess schema details.
 </resources>
 
