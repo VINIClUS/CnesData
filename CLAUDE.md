@@ -372,16 +372,32 @@ to use them — context preservation, not just specialization.
 ```yaml
 ---
 name: security-reviewer
-description: >
-  Reviews code changes for security vulnerabilities, injection risks,
-  authentication flaws, and data exposure. Use for PR security reviews,
-  pre-commit audits, or when user says "security review", "audit",
-  or "check for vulnerabilities". Read-only — does not modify code.
-model: sonnet                     # sonnet (fast/cheap) | opus (powerful) | haiku (fastest) | inherit
-tools:                            # Restrict to minimum necessary
-  - Read
-  - Grep
-  - Glob
+description: |
+  Use this agent to perform comprehensive security reviews of code changes, pull requests,
+  or entire modules. Triggers when the user mentions security review, vulnerability scan,
+  security audit, pen-test prep, OWASP check, or requests a review focused on auth, injection,
+  XSS, access control, secrets, or supply chain risks.
+
+  Examples:
+
+  Context: User has just implemented a new authentication flow.
+  user: "Review the auth changes I just made for security issues"
+  assistant: "I'll run a security review on your authentication changes."
+  <uses Task tool to launch security-reviewer agent>
+
+  Context: User wants to check a PR before merging.
+  user: "Do a security scan on this PR branch"
+  assistant: "Let me delegate a thorough security review of this branch."
+  <uses Task tool to launch security-reviewer agent>
+
+  Context: User asks about hardening an API.
+  user: "Check my API endpoints for vulnerabilities"
+  assistant: "I'll have the security reviewer audit your API surface."
+  <uses Task tool to launch security-reviewer agent>
+
+tools: Read, Grep, Glob, Bash
+model: inherit
+memory: project
 ---
 
 You are a senior application security engineer with expertise in OWASP Top 10,
@@ -686,7 +702,7 @@ If it triggers on the wrong tasks, tighten the anti-triggers.
 
 ---
 
-## 7 · Anti-Patterns — MUST Avoid
+## 7 · Anti-Patterns — MUST AVOID
 
 | Anti-Pattern                                     | Why It's Wrong                                         | What To Do Instead                                      |
 |--------------------------------------------------|--------------------------------------------------------|---------------------------------------------------------|
