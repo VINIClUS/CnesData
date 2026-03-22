@@ -70,11 +70,10 @@ def _aplicar_rq002_validar_cpf(df: pd.DataFrame) -> pd.DataFrame:
 
     total_invalidos: int = int(mascara_invalido.sum())
     if total_invalidos > 0:
-        cpfs_invalidos = df.loc[mascara_invalido, "CPF"].tolist()
         logger.warning(
-            "RQ-002: %d registro(s) excluído(s) por CPF inválido: %s",
+            "RQ-002: cpf_invalido_count=%d indices=%s",
             total_invalidos,
-            cpfs_invalidos,
+            df.index[mascara_invalido].tolist(),
         )
 
     return df[~mascara_invalido].copy()

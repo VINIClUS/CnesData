@@ -143,7 +143,7 @@ def conectar() -> fdb.Connection:
     """
     carregar_driver(Path(config.FIREBIRD_DLL))
 
-    logger.debug("Conectando ao banco: %s", config.DB_DSN)
+    logger.debug("db_host=%s", config.DB_HOST)
     con: fdb.Connection = fdb.connect(
         dsn=config.DB_DSN,
         user=config.DB_USER,

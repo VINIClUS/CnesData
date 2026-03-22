@@ -13,6 +13,7 @@ Como executar:
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import pandas as pd
@@ -110,7 +111,9 @@ def configurar_logging(verbose: bool = False) -> None:
     handler_console.setLevel(logging.DEBUG if verbose else logging.INFO)
     handler_console.setFormatter(fmt)
 
-    handler_arquivo = logging.FileHandler(config.LOG_FILE, encoding="utf-8")
+    handler_arquivo = RotatingFileHandler(
+        config.LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
     handler_arquivo.setLevel(logging.DEBUG)
     handler_arquivo.setFormatter(fmt)
 
@@ -138,7 +141,7 @@ def main() -> int:
         competencia_mes = config.COMPETENCIA_MES
 
     if args.output_dir is not None:
-        output_path = Path(args.output_dir) / config.OUTPUT_PATH.name
+        output_path = (Path(args.output_dir) / config.OUTPUT_PATH.name).resolve()
     else:
         output_path = config.OUTPUT_PATH
 

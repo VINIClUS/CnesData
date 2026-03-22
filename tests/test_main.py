@@ -431,4 +431,5 @@ class TestIntegracaoCli:
                 main()
 
         caminhos = [c.args[1] for c in mock_exportar.call_args_list]
-        assert any(Path("/tmp/teste") in p.parents for p in caminhos)
+        expected_dir = Path("/tmp/teste").resolve()
+        assert any(expected_dir in p.parents for p in caminhos)

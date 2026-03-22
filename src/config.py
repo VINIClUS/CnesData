@@ -13,6 +13,7 @@ Como funciona:
 """
 
 import os
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -26,6 +27,11 @@ RAIZ_PROJETO = Path(__file__).parent.parent
 # override=False garante que variáveis já definidas no sistema operacional
 # têm prioridade sobre o .env (boa prática para deploys em produção).
 load_dotenv(RAIZ_PROJETO / ".env", override=False)
+
+
+_RE_COD_MUN_6: re.Pattern[str] = re.compile(r"^\d{6}$")
+_RE_IBGE7: re.Pattern[str] = re.compile(r"^\d{7}$")
+_RE_CNPJ_14: re.Pattern[str] = re.compile(r"^\d{14}$")
 
 
 def _exigir(nome: str) -> str:
@@ -42,6 +48,20 @@ def _exigir(nome: str) -> str:
     return valor
 
 
+def _validar_formato(nome: str, valor: str, padrao: re.Pattern[str]) -> str:
+    if not padrao.match(valor):
+        raise EnvironmentError(f"variavel={nome} valor='{valor}' formato_invalido")
+    return valor
+
+
+def _exigir_inteiro(nome: str, padrao: int) -> int:
+    valor = os.getenv(nome, str(padrao))
+    try:
+        return int(valor)
+    except ValueError:
+        raise EnvironmentError(f"variavel={nome} valor='{valor}' tipo_esperado=int")
+
+
 # ── Banco de Dados Firebird ────────────────────────────────────────────────
 DB_HOST: str = os.getenv("DB_HOST", "localhost")
 DB_PATH: str = _exigir("DB_PATH")
@@ -55,9 +75,15 @@ DB_DSN: str = f"{DB_HOST}:{DB_PATH}"
 FIREBIRD_DLL: str = _exigir("FIREBIRD_DLL")
 
 # ── Filtros do Município ───────────────────────────────────────────────────
-COD_MUN_IBGE: str = _exigir("COD_MUN_IBGE")           # 6 dígitos — usado no Firebird local
-ID_MUNICIPIO_IBGE7: str = _exigir("ID_MUNICIPIO_IBGE7")  # 7 dígitos — usado no BigQuery
-CNPJ_MANTENEDORA: str = _exigir("CNPJ_MANTENEDORA")
+COD_MUN_IBGE: str = _validar_formato(
+    "COD_MUN_IBGE", _exigir("COD_MUN_IBGE"), _RE_COD_MUN_6
+)
+ID_MUNICIPIO_IBGE7: str = _validar_formato(
+    "ID_MUNICIPIO_IBGE7", _exigir("ID_MUNICIPIO_IBGE7"), _RE_IBGE7
+)
+CNPJ_MANTENEDORA: str = _validar_formato(
+    "CNPJ_MANTENEDORA", _exigir("CNPJ_MANTENEDORA"), _RE_CNPJ_14
+)
 
 # ── Snapshots Históricos ──────────────────────────────────────────────────
 SNAPSHOTS_DIR: Path = RAIZ_PROJETO / os.getenv("SNAPSHOTS_DIR", "data/snapshots")
@@ -75,8 +101,8 @@ GCP_PROJECT_ID: str = _exigir("GCP_PROJECT_ID")
 
 # ── Competência da Base Nacional (BigQuery) ───────────────────────────────
 # Usada como parâmetro de partição nas queries ao basedosdados.
-COMPETENCIA_ANO: int = int(os.getenv("COMPETENCIA_ANO", "2026"))
-COMPETENCIA_MES: int = int(os.getenv("COMPETENCIA_MES", "01"))
+COMPETENCIA_ANO: int = _exigir_inteiro("COMPETENCIA_ANO", 2026)
+COMPETENCIA_MES: int = _exigir_inteiro("COMPETENCIA_MES", 1)
 
 # ── RH / Folha de Pagamento (opcional) ────────────────────────────────────
 # Se não configurado, o cross-check CNES × RH é ignorado silenciosamente.

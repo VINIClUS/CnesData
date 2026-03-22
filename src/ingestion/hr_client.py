@@ -96,8 +96,5 @@ def _logar_cpf_invalido(df: pd.DataFrame, fonte: str) -> None:
     invalidos = df[
         df["CPF"].isna() | (df["CPF"].astype(str).str.len() != 11)
     ]
-    for idx, linha in invalidos.iterrows():
-        logger.warning(
-            "cpf_invalido nome=%s fonte=%s idx=%d",
-            linha.get("NOME", "?"), fonte, idx,
-        )
+    for idx in invalidos.index:
+        logger.warning("cpf_invalido fonte=%s idx=%d", fonte, idx)
