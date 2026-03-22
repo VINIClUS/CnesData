@@ -18,6 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 import config
+from cli import parse_args
 from ingestion.cnes_client import conectar
 from ingestion.cnes_local_adapter import CnesLocalAdapter
 from ingestion.cnes_nacional_adapter import CnesNacionalAdapter
@@ -41,12 +42,51 @@ from export.csv_exporter import exportar_csv
 from export.report_generator import gerar_relatorio
 
 
-def _exportar_se_nao_vazio(df: pd.DataFrame, nome_arquivo: str) -> None:
+def _exportar_se_nao_vazio(df: pd.DataFrame, nome_arquivo: str, output_dir: Path) -> None:
     if not df.empty:
-        exportar_csv(df, config.OUTPUT_PATH.parent / nome_arquivo)
+        exportar_csv(df, output_dir / nome_arquivo)
 
 
-def configurar_logging() -> None:
+def _cruzar_nacional(
+    df_prof_local: pd.DataFrame,
+    df_estab_local: pd.DataFrame,
+    df_estab_nacional: pd.DataFrame,
+    df_prof_nacional: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
+    _log = logging.getLogger(__name__)
+    resultado: dict[str, pd.DataFrame] = {
+        k: pd.DataFrame()
+        for k in (
+            "estab_fantasma", "estab_ausente",
+            "prof_fantasma", "prof_ausente", "cbo_diverg", "ch_diverg",
+        )
+    }
+    if not df_estab_nacional.empty:
+        resultado["estab_fantasma"] = detectar_estabelecimentos_fantasma(
+            df_estab_local, df_estab_nacional
+        )
+        resultado["estab_ausente"] = detectar_estabelecimentos_ausentes_local(
+            df_estab_local, df_estab_nacional
+        )
+    else:
+        _log.warning("estab_cross_check=skipped motivo=estabelecimentos_nacionais_vazios")
+    if not df_prof_nacional.empty:
+        resultado["prof_fantasma"] = detectar_profissionais_fantasma(
+            df_prof_local, df_prof_nacional
+        )
+        resultado["prof_ausente"] = detectar_profissionais_ausentes_local(
+            df_prof_local, df_prof_nacional
+        )
+        resultado["cbo_diverg"] = detectar_divergencia_cbo(df_prof_local, df_prof_nacional)
+        resultado["ch_diverg"] = detectar_divergencia_carga_horaria(
+            df_prof_local, df_prof_nacional
+        )
+    else:
+        _log.warning("prof_cross_check=skipped motivo=profissionais_nacionais_vazios")
+    return resultado
+
+
+def configurar_logging(verbose: bool = False) -> None:
     """
     Configura o sistema de logging do projeto.
 
@@ -67,7 +107,7 @@ def configurar_logging() -> None:
     config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     handler_console = logging.StreamHandler(sys.stdout)
-    handler_console.setLevel(logging.INFO)
+    handler_console.setLevel(logging.DEBUG if verbose else logging.INFO)
     handler_console.setFormatter(fmt)
 
     handler_arquivo = logging.FileHandler(config.LOG_FILE, encoding="utf-8")
@@ -87,8 +127,24 @@ def main() -> int:
     Returns:
         int: Código de saída Unix (0 = sucesso, 1 = erro).
     """
-    configurar_logging()
+    args = parse_args()
+    configurar_logging(verbose=args.verbose)
     logger = logging.getLogger(__name__)
+
+    if args.competencia is not None:
+        competencia_ano, competencia_mes = args.competencia
+    else:
+        competencia_ano = config.COMPETENCIA_ANO
+        competencia_mes = config.COMPETENCIA_MES
+
+    if args.output_dir is not None:
+        output_path = Path(args.output_dir) / config.OUTPUT_PATH.name
+    else:
+        output_path = config.OUTPUT_PATH
+
+    executar_hr = not args.skip_hr and config.FOLHA_HR_PATH is not None
+    executar_nacional = not args.skip_nacional
+    output_dir = output_path.parent
 
     con = None
     try:
@@ -99,10 +155,17 @@ def main() -> int:
         df_estab_local = repo_local.listar_estabelecimentos()
 
         # ── Camada 1B: Ingestão Nacional ─────────────────────────────────────
-        repo_nacional = CnesNacionalAdapter(config.GCP_PROJECT_ID, config.ID_MUNICIPIO_IBGE7)
-        competencia = (config.COMPETENCIA_ANO, config.COMPETENCIA_MES)
-        df_prof_nacional = repo_nacional.listar_profissionais(competencia)
-        df_estab_nacional = repo_nacional.listar_estabelecimentos(competencia)
+        df_prof_nacional: pd.DataFrame = pd.DataFrame()
+        df_estab_nacional: pd.DataFrame = pd.DataFrame()
+        if executar_nacional:
+            repo_nacional = CnesNacionalAdapter(
+                config.GCP_PROJECT_ID, config.ID_MUNICIPIO_IBGE7
+            )
+            competencia = (competencia_ano, competencia_mes)
+            df_prof_nacional = repo_nacional.listar_profissionais(competencia)
+            df_estab_nacional = repo_nacional.listar_estabelecimentos(competencia)
+        else:
+            logger.warning("nacional_cross_check=skipped motivo=skip_nacional_flag")
 
         # ── Camada 2: Processamento (apenas dados locais) ────────────────────
         df_processado = transformar(df_prof_local)
@@ -120,7 +183,7 @@ def main() -> int:
         # ── Camada 3B: Cross-check CNES × RH (opcional) ──────────────────────
         df_ghost: pd.DataFrame = pd.DataFrame()
         df_missing: pd.DataFrame = pd.DataFrame()
-        if config.FOLHA_HR_PATH is not None:
+        if executar_hr:
             df_rh = carregar_folha(config.FOLHA_HR_PATH)
             df_ghost = detectar_folha_fantasma(df_processado, df_rh)
             df_missing = detectar_registro_ausente(df_processado, df_rh)
@@ -128,74 +191,74 @@ def main() -> int:
             logger.warning("hr_cross_check=skipped motivo=FOLHA_HR_PATH_nao_configurado")
 
         # ── Camada 3C: Cross-check local × nacional ───────────────────────────
-        df_estab_fantasma: pd.DataFrame = pd.DataFrame()
-        df_estab_ausente: pd.DataFrame = pd.DataFrame()
-        df_prof_fantasma: pd.DataFrame = pd.DataFrame()
-        df_prof_ausente: pd.DataFrame = pd.DataFrame()
-        df_cbo_diverg: pd.DataFrame = pd.DataFrame()
-        df_ch_diverg: pd.DataFrame = pd.DataFrame()
-
-        if df_estab_nacional.empty and df_prof_nacional.empty:
-            logger.warning(
-                "nacional_cross_check=skipped motivo=dados_nacionais_vazios "
-                "competencia=%d-%02d (dados ainda não publicados?)",
-                config.COMPETENCIA_ANO, config.COMPETENCIA_MES,
+        nac: dict[str, pd.DataFrame] = {
+            k: pd.DataFrame()
+            for k in (
+                "estab_fantasma", "estab_ausente",
+                "prof_fantasma", "prof_ausente", "cbo_diverg", "ch_diverg",
             )
-        else:
-            if not df_estab_nacional.empty:
-                df_estab_fantasma = detectar_estabelecimentos_fantasma(
-                    df_estab_local, df_estab_nacional
-                )
-                df_estab_ausente = detectar_estabelecimentos_ausentes_local(
-                    df_estab_local, df_estab_nacional
+        }
+
+        if executar_nacional:
+            if df_estab_nacional.empty and df_prof_nacional.empty:
+                logger.warning(
+                    "nacional_cross_check=skipped motivo=dados_nacionais_vazios "
+                    "competencia=%d-%02d (dados ainda não publicados?)",
+                    competencia_ano, competencia_mes,
                 )
             else:
-                logger.warning(
-                    "estab_cross_check=skipped motivo=estabelecimentos_nacionais_vazios"
+                nac = _cruzar_nacional(
+                    df_processado, df_estab_local, df_estab_nacional, df_prof_nacional
                 )
 
-            if not df_prof_nacional.empty:
-                df_prof_fantasma = detectar_profissionais_fantasma(df_processado, df_prof_nacional)
-                df_prof_ausente = detectar_profissionais_ausentes_local(
-                    df_processado, df_prof_nacional
-                )
-                df_cbo_diverg = detectar_divergencia_cbo(df_processado, df_prof_nacional)
-                df_ch_diverg = detectar_divergencia_carga_horaria(df_processado, df_prof_nacional)
-            else:
-                logger.warning(
-                    "prof_cross_check=skipped motivo=profissionais_nacionais_vazios"
-                )
+        df_estab_fantasma = nac["estab_fantasma"]
+        df_estab_ausente = nac["estab_ausente"]
+        df_prof_fantasma = nac["prof_fantasma"]
+        df_prof_ausente = nac["prof_ausente"]
+        df_cbo_diverg = nac["cbo_diverg"]
+        df_ch_diverg = nac["ch_diverg"]
 
         # ── Camada 4: Exportação ──────────────────────────────────────────────
-        exportar_csv(df_processado, config.OUTPUT_PATH)
+        exportar_csv(df_processado, output_path)
 
-        _exportar_se_nao_vazio(df_multi_unidades, "auditoria_rq003b_multiplas_unidades.csv")
-        _exportar_se_nao_vazio(df_acs_incorretos, "auditoria_rq005_acs_tacs_incorretos.csv")
-        _exportar_se_nao_vazio(df_ace_incorretos, "auditoria_rq005_ace_tace_incorretos.csv")
-        _exportar_se_nao_vazio(df_ghost, "auditoria_ghost_payroll.csv")
-        _exportar_se_nao_vazio(df_missing, "auditoria_missing_registration.csv")
-        _exportar_se_nao_vazio(df_estab_fantasma, "auditoria_rq006_estab_fantasma.csv")
-        _exportar_se_nao_vazio(df_estab_ausente, "auditoria_rq007_estab_ausente_local.csv")
-        _exportar_se_nao_vazio(df_prof_fantasma, "auditoria_rq008_prof_fantasma_cns.csv")
-        _exportar_se_nao_vazio(df_prof_ausente, "auditoria_rq009_prof_ausente_local_cns.csv")
-        _exportar_se_nao_vazio(df_cbo_diverg, "auditoria_rq010_divergencia_cbo.csv")
-        _exportar_se_nao_vazio(df_ch_diverg, "auditoria_rq011_divergencia_ch.csv")
+        exp = _exportar_se_nao_vazio
+        exp(df_multi_unidades, "auditoria_rq003b_multiplas_unidades.csv", output_dir)
+        exp(df_acs_incorretos, "auditoria_rq005_acs_tacs_incorretos.csv", output_dir)
+        exp(df_ace_incorretos, "auditoria_rq005_ace_tace_incorretos.csv", output_dir)
+        exp(df_ghost, "auditoria_ghost_payroll.csv", output_dir)
+        exp(df_missing, "auditoria_missing_registration.csv", output_dir)
+        exp(df_estab_fantasma, "auditoria_rq006_estab_fantasma.csv", output_dir)
+        exp(df_estab_ausente, "auditoria_rq007_estab_ausente_local.csv", output_dir)
+        exp(df_prof_fantasma, "auditoria_rq008_prof_fantasma_cns.csv", output_dir)
+        exp(df_prof_ausente, "auditoria_rq009_prof_ausente_local_cns.csv", output_dir)
+        exp(df_cbo_diverg, "auditoria_rq010_divergencia_cbo.csv", output_dir)
+        exp(df_ch_diverg, "auditoria_rq011_divergencia_ch.csv", output_dir)
 
         # ── Camada 4B: Relatório Excel consolidado ────────────────────────────
+        competencia_str = f"{competencia_ano}-{competencia_mes:02d}"
         gerar_relatorio(
-            config.OUTPUT_PATH.with_suffix(".xlsx"),
-            df_processado,
-            df_ghost,
-            df_missing,
-            df_multi_unidades,
-            df_acs_incorretos,
-            df_ace_incorretos,
+            output_path.with_suffix(".xlsx"),
+            {
+                "principal":             df_processado,
+                "ghost":                 df_ghost,
+                "missing":               df_missing,
+                "multi_unidades":        df_multi_unidades,
+                "acs_tacs":              df_acs_incorretos,
+                "ace_tace":              df_ace_incorretos,
+                "rq006_estab_fantasma":  df_estab_fantasma,
+                "rq007_estab_ausente":   df_estab_ausente,
+                "rq008_prof_fantasma":   df_prof_fantasma,
+                "rq009_prof_ausente":    df_prof_ausente,
+                "rq010_divergencia_cbo": df_cbo_diverg,
+                "rq011_divergencia_ch":  df_ch_diverg,
+            },
+            competencia=competencia_str,
         )
 
         # ── Camada 5: Snapshot histórico ──────────────────────────────────────
         competencia_stem = (
-            config.OUTPUT_PATH.stem.split("_")[-1]
-            if "_" in config.OUTPUT_PATH.stem
+            output_path.stem.split("_")[-1]
+            if "_" in output_path.stem
             else "desconhecida"
         )
         snapshot = criar_snapshot(
@@ -210,7 +273,7 @@ def main() -> int:
         salvar_snapshot(snapshot, config.SNAPSHOTS_DIR)
 
         logger.info("Pipeline concluído com êxito.")
-        logger.info("Relatório principal: %s", config.OUTPUT_PATH)
+        logger.info("Relatório principal: %s", output_path)
         return 0
 
     except EnvironmentError as e:

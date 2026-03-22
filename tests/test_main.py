@@ -19,6 +19,16 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from cli import CliArgs
+
+_CLI_DEFAULTS = CliArgs(
+    competencia=None,
+    output_dir=None,
+    skip_nacional=False,
+    skip_hr=False,
+    verbose=False,
+)
+
 
 _DF_VAZIO = pd.DataFrame()
 _OUTPUT = Path("data/processed/Relatorio.csv")
@@ -109,6 +119,7 @@ def _aplicar_patches(
     mock_config.CNPJ_MANTENEDORA = "55293427000117"
     mock_config.RAIZ_PROJETO = Path(".")
 
+    stack.enter_context(patch("main.parse_args", return_value=_CLI_DEFAULTS))
     stack.enter_context(patch("main.configurar_logging"))
     stack.enter_context(patch("main.conectar", return_value=MagicMock()))
     stack.enter_context(patch("main.CnesLocalAdapter", return_value=adapter_local))
@@ -317,6 +328,7 @@ class TestCodigosDeSaida:
             mock_config.LOGS_DIR = Path("logs")
             mock_config.LOG_FILE = Path("logs/cnes_exporter.log")
 
+            stack.enter_context(patch("main.parse_args", return_value=_CLI_DEFAULTS))
             stack.enter_context(patch("main.configurar_logging"))
             stack.enter_context(patch("main.conectar", side_effect=EnvironmentError("sem variavel")))
             stack.enter_context(patch("main.config", mock_config))
@@ -331,6 +343,7 @@ class TestCodigosDeSaida:
             mock_config.LOGS_DIR = Path("logs")
             mock_config.LOG_FILE = Path("logs/cnes_exporter.log")
 
+            stack.enter_context(patch("main.parse_args", return_value=_CLI_DEFAULTS))
             stack.enter_context(patch("main.configurar_logging"))
             stack.enter_context(patch("main.conectar", side_effect=RuntimeError("erro inesperado")))
             stack.enter_context(patch("main.config", mock_config))
@@ -349,6 +362,7 @@ class TestCodigosDeSaida:
             mock_config.LOGS_DIR = Path("logs")
             mock_config.LOG_FILE = Path("logs/cnes_exporter.log")
 
+            stack.enter_context(patch("main.parse_args", return_value=_CLI_DEFAULTS))
             stack.enter_context(patch("main.configurar_logging"))
             stack.enter_context(patch("main.conectar", return_value=con_mock))
             stack.enter_context(patch("main.CnesLocalAdapter", return_value=adapter_local))
@@ -358,3 +372,63 @@ class TestCodigosDeSaida:
             main()
 
         con_mock.close.assert_called_once()
+
+
+class TestIntegracaoCli:
+
+    def test_skip_nacional_pula_adapter_nacional(self):
+        cli_args = CliArgs(
+            competencia=None, output_dir=None,
+            skip_nacional=True, skip_hr=False, verbose=False,
+        )
+        mock_nacional_cls = MagicMock()
+        stack, _, _ = _mocks_simples()
+        with stack:
+            with patch("main.parse_args", return_value=cli_args), \
+                 patch("main.CnesNacionalAdapter", mock_nacional_cls):
+                from main import main
+                main()
+
+        mock_nacional_cls.assert_not_called()
+
+    def test_skip_hr_pula_carregar_folha(self):
+        cli_args = CliArgs(
+            competencia=None, output_dir=None,
+            skip_nacional=False, skip_hr=True, verbose=False,
+        )
+        stack, _, mock_carregar = _mocks_simples(folha_hr_path=Path("folha.xlsx"))
+        with stack:
+            with patch("main.parse_args", return_value=cli_args):
+                from main import main
+                main()
+
+        mock_carregar.assert_not_called()
+
+    def test_competencia_cli_sobrescreve_env(self):
+        cli_args = CliArgs(
+            competencia=(2025, 6), output_dir=None,
+            skip_nacional=False, skip_hr=False, verbose=False,
+        )
+        adapter_nacional_inst = _mock_adapter_nacional()
+        stack, _, _ = _mocks_simples(adapter_nacional=adapter_nacional_inst)
+        with stack:
+            with patch("main.parse_args", return_value=cli_args):
+                from main import main
+                main()
+
+        adapter_nacional_inst.listar_profissionais.assert_called_once_with((2025, 6))
+        adapter_nacional_inst.listar_estabelecimentos.assert_called_once_with((2025, 6))
+
+    def test_output_dir_cli_sobrescreve_env(self):
+        cli_args = CliArgs(
+            competencia=None, output_dir="/tmp/teste",
+            skip_nacional=False, skip_hr=False, verbose=False,
+        )
+        stack, mock_exportar, _ = _mocks_simples()
+        with stack:
+            with patch("main.parse_args", return_value=cli_args):
+                from main import main
+                main()
+
+        caminhos = [c.args[1] for c in mock_exportar.call_args_list]
+        assert any(Path("/tmp/teste") in p.parents for p in caminhos)
