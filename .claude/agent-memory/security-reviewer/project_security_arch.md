@@ -24,3 +24,12 @@ type: project
 **Dependency audit:** pip-audit failed to install into venv due to protobuf==6.33.6 dependency conflict. Manual audit needed. No known CVE packages identified from version scan.
 
 **No web server, no HTTP endpoints, no user authentication layer** — this is a local batch pipeline run by a trusted operator. OWASP A01 (access control) and A07 (auth failures) are not applicable.
+
+**CBO Lookup (added commit d1cdaf9):**
+- `_SQL_CBO_LOOKUP` in cnes_client.py:98 — fully static SELECT, no user input, no injection surface.
+- `extrair_lookup_cbo()` builds a `dict[str, str]` (CBO code → job description). Max ~3,000 rows (standard CBO table). Memory footprint negligible.
+- `cbo_lookup` passed as optional param through `transformar()` and `detectar_divergencia_cbo()`. No validation at boundary — dict values are job title strings from a reference table, not PII. Low risk.
+- DESCRICAO_CBO values (job titles, e.g. "AGENTE COMUNITARIO DE SAUDE") are NOT PII under LGPD. Safe to export in CSV.
+- `extrair_lookup_cbo()` returns `{}` on empty table — pipeline continues silently (graceful degradation). If query fails with DatabaseError, exception propagates to main()'s broad handler (returns exit code 1). Acceptable.
+- Docstring of `transformar()` not updated to document the `cbo_lookup` parameter in Args section. Minor documentation gap, not a security issue.
+- Test coverage: 4 tests in TestExtrairLookupCbo, 4 tests in TestCboEnrichment. Cursor close verified.

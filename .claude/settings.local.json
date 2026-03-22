@@ -22,7 +22,18 @@
       "Bash(grep -rn --include=*.py -E \"\\\\.exception\\\\\\(|traceback\\\\.|sys\\\\.exc_info\" src/)",
       "Bash(grep -rn --include=*.py -E \"read_excel|read_csv\" src/)",
       "Bash(grep -rn --include=*.py \"FOLHA_HR_PATH\\\\|carregar_folha\" src/)",
-      "Bash(grep -rn --include=*.py -E \"CNPJ_MANTENEDORA|COD_MUN_IBGE|ID_MUNICIPIO_IBGE7\" src/)"
+      "Bash(grep -rn --include=*.py -E \"CNPJ_MANTENEDORA|COD_MUN_IBGE|ID_MUNICIPIO_IBGE7\" src/)",
+      "Bash(rm src/cnes_exporter.py tests/test_exporter_integration.py src/exemplos/analyzer.py src/exemplos/api_client.py src/exemplos/file_client.py src/exemplos/transformer.py)",
+      "Bash(rmdir src/exemplos)",
+      "Bash(C:/Users/Vinicius/Projetos/CnesData/venv/Scripts/ruff.exe check:*)",
+      "Bash(pip show:*)",
+      "Bash(py -m ruff --version)",
+      "Bash(C:/Users/Vinicius/Projetos/CnesData/venv/Scripts/pytest.exe tests/ -m \"not integration\" -q --tb=short)",
+      "Bash(C:/Users/Vinicius/Projetos/CnesData/venv/Scripts/pytest.exe --collect-only tests/test_pipeline_integration.py)",
+      "Skill(tdd)",
+      "Bash(venv\\\\Scripts\\\\ruff.exe check:*)",
+      "Bash(./venv/Scripts/ruff.exe check:*)",
+      "Bash(pip install:*)"
     ]
   },
   "hooks": {

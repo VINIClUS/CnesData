@@ -1,6 +1,6 @@
 ---
 name: Performance baseline and optimizations — 2026-03-22
-description: First profiling pass on CnesData pipeline. Records bottlenecks found, changes applied, changes rejected, and reasons.
+description: Full profiling pass on CnesData pipeline. Records bottlenecks found, changes applied/rejected, and thresholds. Updated after second analysis pass.
 type: project
 ---
 
@@ -11,7 +11,7 @@ type: project
 - Pipeline: Firebird extraction → BigQuery fetch → transform → 11 audit rules → CSV + Excel export
 - Test suite: 313 passing at analysis time
 
-## Bottlenecks identified (all files read 2026-03-22)
+## Bottlenecks identified — first pass (2026-03-22)
 
 | File | Location | Issue | Type |
 |------|----------|-------|------|
@@ -23,13 +23,13 @@ type: project
 | web_client.py:123,155,181,207 | 4 fetch methods | `.copy()` after `bd.read_sql()` | Memory |
 | report_generator.py:224-228 | `_formatar_cabecalho` | O(rows×cols) full column scan for width | CPU |
 
-## Optimizations APPLIED
+## Optimizations APPLIED (first pass)
 
 ### 1 — transformer.py: `_aplicar_rq003_flag_carga_horaria`
-- **Before:** `df_out = df.copy()` then `.apply(lambda ch: ... if ch == 0 else ...)`
-- **After:** mutate argument in place (`df["ALERTA_STATUS_CH"] = np.where(df["CH_TOTAL"] == 0, ...)`)
-- **Why faster:** `np.where` is C-level vectorized; no per-row Python call; no extra full copy
-- **Safety:** caller (`transformar`) passes a DataFrame it already owns (result of rq002 copy)
+- Before: `df_out = df.copy()` then `.apply(lambda ch: ... if ch == 0 else ...)`
+- After: mutate argument in place (`df["ALERTA_STATUS_CH"] = np.where(df["CH_TOTAL"] == 0, ...)`)
+- Why faster: `np.where` is C-level vectorized; no per-row Python call; no extra full copy
+- Safety: caller (`transformar`) passes a DataFrame it already owns (result of rq002 copy)
 
 ### 2 — cnes_local_adapter.py: removed `.copy()` after `.rename()` in 3 methods
 - `listar_profissionais`, `listar_estabelecimentos`, `listar_equipes`
@@ -40,27 +40,41 @@ type: project
 - Same reason as above
 
 ### 4 — rules_engine.py: `detectar_folha_fantasma` vectorized
-- **Before:** `frozenset` lookups inside a Python function called via `.map()` — O(n) with Python overhead
-- **After:** two `.isin()` calls (C-level) then `.loc` assignment; no Python per row
+- Before: `frozenset` lookups inside a Python function called via `.map()` — O(n) with Python overhead
+- After: two `.isin()` calls (C-level) then `.loc` assignment; no Python per row
 - Pattern: compute `mascara_ausente` and `mascara_inativo` separately, assign via `.loc`, then filter
 
 ### 5 — report_generator.py: `_formatar_cabecalho` column width scan capped
-- **Before:** iterated ALL cells in each column (O(rows × cols))
-- **After:** `amostra = list(coluna)[:101]` — header + first 100 rows only
-- **Why safe:** column width is determined by typical content, not outliers in row 5000
+- Before: iterated ALL cells in each column (O(rows × cols))
+- After: `amostra = list(coluna)[:101]` — header + first 100 rows only
+- Why safe: column width is determined by typical content, not outliers in row 5000
 
-## Optimizations REJECTED
+## Optimizations REJECTED (first pass)
 
 ### web_client.py — remove `.copy()` after BigQuery fetch
-- **Reason:** test `TestQualidade::test_resultado_e_copia_independente` explicitly contracts that
+- Reason: test `TestQualidade::test_resultado_e_copia_independente` explicitly contracts that
   the returned DF must NOT be the same object as the one from `bd.read_sql()`.
   This is an intentional defensive copy — the test documents it as a behavioural requirement, not an implementation detail.
-- **Rule:** "If a single test fails, revert."
 
 ### cnes_client.py `_enriquecer_com_equipe` — remove pre-merge copies
-- **Reason:** CLAUDE.md convention: "Data transformations work on `.copy()`, never mutate originals."
+- Reason: CLAUDE.md convention: "Data transformations work on `.copy()`, never mutate originals."
   The private function receives DataFrames as arguments. Even though callers don't reuse them,
   removing the copies would violate the project's stated style rule. Impact is negligible at 367 rows.
+
+## Remaining opportunities identified — second pass (2026-03-22)
+
+| Priority | File | Location | Issue | Impact |
+|----------|------|----------|-------|--------|
+| P1 | transformer.py | `transformar()` lines 131-134 | `_COLUNAS_TEXTO` loop calls `.astype(str)` on every column including numeric ones unnecessarily; CNES/COD_MUNICIPIO not in raw output columns | Low-medium |
+| P1 | transformer.py | `_aplicar_rq002_validar_cpf` line 64 | Double `.astype(str).str.strip()` — CPF already stripped in step 1 of `transformar` | Low |
+| P2 | rules_engine.py | `detectar_estabelecimentos_fantasma` line 209 | `.astype(str).str.strip()` computed twice: once for `cnes_nacionais` frozenset and once for `resultado` filter | Medium at 10K+ rows |
+| P2 | rules_engine.py | `detectar_estabelecimentos_ausentes_local` lines 231,238 | Same double `.astype(str).str.strip()` pattern on CNES column | Medium |
+| P2 | rules_engine.py | `detectar_profissionais_fantasma` lines 258,261 | Same double `.astype(str).str.strip()` pattern on CNS column | Medium |
+| P2 | rules_engine.py | `detectar_profissionais_ausentes_local` lines 288,294 | Same pattern on CNS column | Medium |
+| P3 | cnes_local_adapter.py | `listar_estabelecimentos` line 71 | `_extrair()` returns cache, then `.str.strip().str.zfill(7)` applied again on CNES (already done in `listar_profissionais`) | Low |
+| P3 | rules_engine.py | `detectar_multiplas_unidades` | merge on CPF after groupby could be replaced with a direct boolean index filter | Low |
+| P4 | main.py | lines 197-201 | `df_estab_local[["CNES","TIPO_UNIDADE"]]` merge in main for RQ-005; TIPO_UNIDADE should come from the standardized schema directly | Structural |
+| P4 | web_client.py | `_SQL_EQUIPES` line 64 | `SELECT *` fetches all columns from equipe table; only 3-4 are used | Minor at municipality scale |
 
 ## Not worth optimizing
 
@@ -69,6 +83,7 @@ type: project
 - `_aplicar_rq002_validar_cpf` `.copy()` return: the returned DF is immediately mutated by rq003
   (column assignment). Removing the `.copy()` risks SettingWithCopyWarning in pandas. Keep it.
 - All functions operating on 367-row local data: even worst-case Python loops finish in <5ms.
+- `_adicionar_recomendacao` in report_generator.py: one `.copy()` + scalar assignment. Negligible.
 
 ## Data volume thresholds
 
