@@ -300,12 +300,14 @@ def detectar_profissionais_ausentes_local(
 def detectar_divergencia_cbo(
     df_local: pd.DataFrame,
     df_nacional: pd.DataFrame,
+    cbo_lookup: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """RQ-010: Mesmo profissional+estabelecimento com CBO diferente entre fontes.
 
     Args:
         df_local: Profissionais locais (colunas CNS, CNES, CBO).
         df_nacional: Profissionais nacionais (colunas CNS, CNES, CBO).
+        cbo_lookup: Dict CBO → descrição para enriquecimento visual opcional.
 
     Returns:
         DataFrame com pares (CNS, CNES) divergentes e colunas CBO_LOCAL, CBO_NACIONAL.
@@ -314,6 +316,13 @@ def detectar_divergencia_cbo(
     df_n = df_nacional[["CNS", "CNES", "CBO"]].rename(columns={"CBO": "CBO_NACIONAL"})
     merged = df_l.merge(df_n, on=["CNS", "CNES"], how="inner")
     resultado = merged[merged["CBO_LOCAL"] != merged["CBO_NACIONAL"]].copy()
+    if cbo_lookup is not None and not resultado.empty:
+        resultado["DESCRICAO_CBO_LOCAL"] = (
+            resultado["CBO_LOCAL"].map(cbo_lookup).fillna("CBO NAO CATALOGADO")
+        )
+        resultado["DESCRICAO_CBO_NACIONAL"] = (
+            resultado["CBO_NACIONAL"].map(cbo_lookup).fillna("CBO NAO CATALOGADO")
+        )
     logger.info("RQ-010: %d divergência(s) de CBO.", len(resultado))
     return resultado
 

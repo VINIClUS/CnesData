@@ -112,7 +112,10 @@ def _aplicar_rq003_flag_carga_horaria(df: pd.DataFrame) -> pd.DataFrame:
 
 # ── Função Pública ────────────────────────────────────────────────────────────
 
-def transformar(df: pd.DataFrame) -> pd.DataFrame:
+def transformar(
+    df: pd.DataFrame,
+    cbo_lookup: dict[str, str] | None = None,
+) -> pd.DataFrame:
     """
     Aplica o pipeline completo de limpeza e validação ao DataFrame bruto.
 
@@ -171,6 +174,11 @@ def transformar(df: pd.DataFrame) -> pd.DataFrame:
                     "Coluna '%s': %d nulo(s) preenchido(s) com '%s'.",
                     coluna, nulos, valor_padrao,
                 )
+
+    if cbo_lookup is not None:
+        resultado["DESCRICAO_CBO"] = (
+            resultado["CBO"].map(cbo_lookup).fillna("CBO NAO CATALOGADO")
+        )
 
     logger.info(
         "Transformação concluída. Entrada: %d → Saída: %d registro(s).",

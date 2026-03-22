@@ -20,7 +20,7 @@ import pandas as pd
 
 import config
 from cli import parse_args
-from ingestion.cnes_client import conectar
+from ingestion.cnes_client import conectar, extrair_lookup_cbo
 from ingestion.cnes_local_adapter import CnesLocalAdapter
 from ingestion.cnes_nacional_adapter import CnesNacionalAdapter
 from ingestion.hr_client import carregar_folha
@@ -53,6 +53,7 @@ def _cruzar_nacional(
     df_estab_local: pd.DataFrame,
     df_estab_nacional: pd.DataFrame,
     df_prof_nacional: pd.DataFrame,
+    cbo_lookup: dict[str, str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     _log = logging.getLogger(__name__)
     resultado: dict[str, pd.DataFrame] = {
@@ -84,7 +85,9 @@ def _cruzar_nacional(
         resultado["prof_ausente"] = detectar_profissionais_ausentes_local(
             df_prof_local, df_prof_nacional, cnes_excluir=_cnes_ausentes
         )
-        resultado["cbo_diverg"] = detectar_divergencia_cbo(df_prof_local, df_prof_nacional)
+        resultado["cbo_diverg"] = detectar_divergencia_cbo(
+            df_prof_local, df_prof_nacional, cbo_lookup=cbo_lookup
+        )
         resultado["ch_diverg"] = detectar_divergencia_carga_horaria(
             df_prof_local, df_prof_nacional
         )
@@ -159,6 +162,7 @@ def main() -> int:
     try:
         # ── Camada 1: Ingestão Local ──────────────────────────────────────────
         con = conectar()
+        cbo_lookup = extrair_lookup_cbo(con)
         repo_local = CnesLocalAdapter(con)
         df_prof_local = repo_local.listar_profissionais()
         df_estab_local = repo_local.listar_estabelecimentos()
@@ -177,7 +181,7 @@ def main() -> int:
             logger.warning("nacional_cross_check=skipped motivo=skip_nacional_flag")
 
         # ── Camada 2: Processamento (apenas dados locais) ────────────────────
-        df_processado = transformar(df_prof_local)
+        df_processado = transformar(df_prof_local, cbo_lookup=cbo_lookup)
 
         # ── Camada 3: Análise — regras locais ────────────────────────────────
         df_multi_unidades = detectar_multiplas_unidades(df_processado)
@@ -217,7 +221,8 @@ def main() -> int:
                 )
             else:
                 nac = _cruzar_nacional(
-                    df_processado, df_estab_local, df_estab_nacional, df_prof_nacional
+                    df_processado, df_estab_local, df_estab_nacional, df_prof_nacional,
+                    cbo_lookup=cbo_lookup,
                 )
 
         df_estab_fantasma = nac["estab_fantasma"]

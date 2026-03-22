@@ -292,3 +292,31 @@ class TestCasosDeBorda:
             resultado_1x.reset_index(drop=True),
             resultado_2x.reset_index(drop=True),
         )
+
+
+class TestCboEnrichment:
+
+    def test_adiciona_descricao_cbo_quando_lookup_fornecido(self):
+        lookup = {"515105": "AGENTE COMUNITARIO DE SAUDE"}
+        df = _df_minimo(cpf="11716723817")
+        resultado = transformar(df, cbo_lookup=lookup)
+        assert "DESCRICAO_CBO" in resultado.columns
+        assert resultado["DESCRICAO_CBO"].iloc[0] == "AGENTE COMUNITARIO DE SAUDE"
+
+    def test_nao_adiciona_descricao_sem_lookup(self):
+        df = _df_minimo(cpf="11716723817")
+        resultado = transformar(df)
+        assert "DESCRICAO_CBO" not in resultado.columns
+
+    def test_cbo_desconhecido_recebe_fallback(self):
+        lookup = {"515105": "AGENTE COMUNITARIO DE SAUDE"}
+        df = _df_minimo(cpf="11716723817")
+        df = df.copy()
+        df["CBO"] = ["999999"]
+        resultado = transformar(df, cbo_lookup=lookup)
+        assert resultado["DESCRICAO_CBO"].iloc[0] == "CBO NAO CATALOGADO"
+
+    def test_lookup_vazio_todos_recebem_fallback(self):
+        df = _df_minimo(cpf="11716723817")
+        resultado = transformar(df, cbo_lookup={})
+        assert resultado["DESCRICAO_CBO"].iloc[0] == "CBO NAO CATALOGADO"

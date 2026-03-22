@@ -21,6 +21,7 @@ import pytest
 
 from ingestion.cnes_client import (
     carregar_driver,
+    extrair_lookup_cbo,
     extrair_profissionais,
     COLUNAS_ESPERADAS,
 )
@@ -237,3 +238,48 @@ class TestExtrairProfissionais:
 
         assert len(resultado) == 1
         assert pd.isna(resultado["COD_INE_EQUIPE"].iloc[0])
+
+
+class TestExtrairLookupCbo:
+
+    def test_retorna_dict_cbo_descricao(self):
+        linhas = [("515105", "AGENTE COMUNITARIO DE SAUDE"),
+                  ("322255", "TECNICO EM AGENTE COMUNITARIO DE SAUDE")]
+        cursor_mock = _criar_cursor_mock(linhas, ["CBO", "DESCRICAO_CBO"])
+        con_mock = MagicMock()
+        con_mock.cursor.return_value = cursor_mock
+
+        resultado = extrair_lookup_cbo(con_mock)
+
+        assert isinstance(resultado, dict)
+        assert resultado["515105"] == "AGENTE COMUNITARIO DE SAUDE"
+        assert resultado["322255"] == "TECNICO EM AGENTE COMUNITARIO DE SAUDE"
+
+    def test_aplica_strip_nas_chaves_e_valores(self):
+        linhas = [("515105 ", " AGENTE COMUNITARIO ")]
+        cursor_mock = _criar_cursor_mock(linhas, ["CBO", "DESCRICAO_CBO"])
+        con_mock = MagicMock()
+        con_mock.cursor.return_value = cursor_mock
+
+        resultado = extrair_lookup_cbo(con_mock)
+
+        assert "515105" in resultado
+        assert resultado["515105"] == "AGENTE COMUNITARIO"
+
+    def test_retorna_dict_vazio_quando_tabela_vazia(self):
+        cursor_mock = _criar_cursor_mock([], ["CBO", "DESCRICAO_CBO"])
+        con_mock = MagicMock()
+        con_mock.cursor.return_value = cursor_mock
+
+        resultado = extrair_lookup_cbo(con_mock)
+
+        assert resultado == {}
+
+    def test_fecha_cursor_apos_execucao(self):
+        cursor_mock = _criar_cursor_mock([], ["CBO", "DESCRICAO_CBO"])
+        con_mock = MagicMock()
+        con_mock.cursor.return_value = cursor_mock
+
+        extrair_lookup_cbo(con_mock)
+
+        cursor_mock.close.assert_called_once()

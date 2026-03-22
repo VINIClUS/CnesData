@@ -299,3 +299,30 @@ class TestRQ011DivergenciaCargaHoraria:
         nacional = _df_prof([cns], [cnes], ["515105"], [39], "NACIONAL")
         resultado = detectar_divergencia_carga_horaria(local, nacional)
         assert resultado.empty
+
+
+class TestRQ010CboEnrichment:
+
+    def test_adiciona_descricao_quando_lookup_fornecido(self):
+        cns, cnes = "123456789012345", "0985333"
+        local = _df_prof([cns], [cnes], ["515105"], [40], "LOCAL")
+        nacional = _df_prof([cns], [cnes], ["322255"], [40], "NACIONAL")
+        lookup = {"515105": "ACS", "322255": "TACS"}
+        resultado = detectar_divergencia_cbo(local, nacional, cbo_lookup=lookup)
+        assert resultado["DESCRICAO_CBO_LOCAL"].iloc[0] == "ACS"
+        assert resultado["DESCRICAO_CBO_NACIONAL"].iloc[0] == "TACS"
+
+    def test_nao_adiciona_descricao_sem_lookup(self):
+        cns, cnes = "123456789012345", "0985333"
+        local = _df_prof([cns], [cnes], ["515105"], [40], "LOCAL")
+        nacional = _df_prof([cns], [cnes], ["322255"], [40], "NACIONAL")
+        resultado = detectar_divergencia_cbo(local, nacional)
+        assert "DESCRICAO_CBO_LOCAL" not in resultado.columns
+
+    def test_cbo_nao_encontrado_recebe_fallback(self):
+        cns, cnes = "123456789012345", "0985333"
+        local = _df_prof([cns], [cnes], ["999999"], [40], "LOCAL")
+        nacional = _df_prof([cns], [cnes], ["888888"], [40], "NACIONAL")
+        resultado = detectar_divergencia_cbo(local, nacional, cbo_lookup={})
+        assert resultado["DESCRICAO_CBO_LOCAL"].iloc[0] == "CBO NAO CATALOGADO"
+        assert resultado["DESCRICAO_CBO_NACIONAL"].iloc[0] == "CBO NAO CATALOGADO"

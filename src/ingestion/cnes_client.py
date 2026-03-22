@@ -94,6 +94,10 @@ _SQL_EQUIPES: str = """
     WHERE eq.COD_MUN = '{cod_mun}'
 """
 
+_SQL_CBO_LOOKUP: str = """
+    SELECT COD_CBO AS CBO, DESCRICAO AS DESCRICAO_CBO FROM NFCES026
+"""
+
 COLUNAS_ESPERADAS: tuple[str, ...] = (
     "CPF", "CNS", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "DATA_NASCIMENTO",
     "CBO", "COD_VINCULO", "SUS_NAO_SUS",
@@ -151,6 +155,23 @@ def conectar() -> fdb.Connection:
     )
     logger.info("Conexão estabelecida com o banco CNES.")
     return con
+
+
+def extrair_lookup_cbo(con: fdb.Connection) -> dict[str, str]:
+    """Extrai mapeamento CBO → descrição da tabela NFCES026.
+
+    Args:
+        con: Conexão ativa com o banco Firebird.
+
+    Returns:
+        Dict com chave=código CBO (6 dígitos), valor=descrição do cargo.
+    """
+    df = _executar_query(con, _SQL_CBO_LOOKUP)
+    if df.empty:
+        return {}
+    df["CBO"] = df["CBO"].astype(str).str.strip()
+    df["DESCRICAO_CBO"] = df["DESCRICAO_CBO"].astype(str).str.strip()
+    return dict(zip(df["CBO"], df["DESCRICAO_CBO"]))
 
 
 def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:
