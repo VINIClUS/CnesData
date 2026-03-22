@@ -15,6 +15,7 @@ Regras de qualidade implementadas (fonte: data_dictionary.md):
 import logging
 from typing import Final
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -93,12 +94,11 @@ def _aplicar_rq003_flag_carga_horaria(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Cópia do DataFrame com nova coluna ALERTA_STATUS_CH.
     """
-    df_out = df.copy()
-    df_out["ALERTA_STATUS_CH"] = df_out["CH_TOTAL"].apply(
-        lambda ch: ALERTA_ATIVO_SEM_CH if ch == 0 else ALERTA_CH_OK
+    df["ALERTA_STATUS_CH"] = np.where(
+        df["CH_TOTAL"] == 0, ALERTA_ATIVO_SEM_CH, ALERTA_CH_OK
     )
 
-    total_zumbis: int = int((df_out["ALERTA_STATUS_CH"] == ALERTA_ATIVO_SEM_CH).sum())
+    total_zumbis: int = int((df["ALERTA_STATUS_CH"] == ALERTA_ATIVO_SEM_CH).sum())
     if total_zumbis > 0:
         logger.warning(
             "RQ-003: %d vínculo(s) com carga horária zero (ATIVO_SEM_CH).",
@@ -107,7 +107,7 @@ def _aplicar_rq003_flag_carga_horaria(df: pd.DataFrame) -> pd.DataFrame:
     else:
         logger.debug("RQ-003: nenhum vínculo zumbi encontrado.")
 
-    return df_out
+    return df
 
 
 # ── Função Pública ────────────────────────────────────────────────────────────

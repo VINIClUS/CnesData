@@ -171,15 +171,13 @@ def detectar_folha_fantasma(
     )
     cpfs_rh_todos: frozenset[str] = frozenset(df_rh["CPF"])
 
-    def _motivo(cpf: str) -> str | None:
-        if cpf not in cpfs_rh_todos:
-            return "AUSENTE_NO_RH"
-        if cpf not in cpfs_rh_ativos:
-            return "INATIVO_NO_RH"
-        return None
-
     resultado = df_cnes.copy()
-    resultado["MOTIVO_GHOST"] = resultado["CPF"].map(_motivo)
+    mascara_ausente = ~resultado["CPF"].isin(cpfs_rh_todos)
+    mascara_inativo = resultado["CPF"].isin(cpfs_rh_todos) & ~resultado["CPF"].isin(cpfs_rh_ativos)
+
+    resultado["MOTIVO_GHOST"] = None
+    resultado.loc[mascara_ausente, "MOTIVO_GHOST"] = "AUSENTE_NO_RH"
+    resultado.loc[mascara_inativo, "MOTIVO_GHOST"] = "INATIVO_NO_RH"
     resultado = resultado[resultado["MOTIVO_GHOST"].notna()].reset_index(drop=True)
 
     logger.info(

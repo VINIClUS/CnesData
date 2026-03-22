@@ -49,7 +49,7 @@ class CnesLocalAdapter:
         Returns:
             DataFrame conforme SCHEMA_PROFISSIONAL.
         """
-        df = self._extrair().rename(columns=_MAP_PROFISSIONAL).copy()
+        df = self._extrair().rename(columns=_MAP_PROFISSIONAL)
         for col in ("CNS", "CPF", "CNES"):
             df[col] = df[col].str.strip()
         df["FONTE"] = _FONTE_LOCAL
@@ -66,11 +66,7 @@ class CnesLocalAdapter:
             DataFrame conforme SCHEMA_ESTABELECIMENTO.
         """
         df = self._extrair()
-        estab = (
-            df[list(_MAP_ESTABELECIMENTO.keys())]
-            .rename(columns=_MAP_ESTABELECIMENTO)
-            .copy()
-        )
+        estab = df[list(_MAP_ESTABELECIMENTO.keys())].rename(columns=_MAP_ESTABELECIMENTO)
         estab["CNES"] = estab["CNES"].str.strip()
         estab = estab.drop_duplicates("CNES")
         estab["CNPJ_MANTENEDORA"] = None
@@ -93,7 +89,6 @@ class CnesLocalAdapter:
         eq = (
             df[["COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE", "COD_CNES", "COD_MUN_GESTOR"]]
             .rename(columns=_MAP_EQUIPE)
-            .copy()
         )
         eq = eq.dropna(subset=["INE"]).drop_duplicates("INE")
         eq["INE"] = eq["INE"].str.strip()

@@ -56,7 +56,7 @@ class CnesNacionalAdapter:
             raise ValueError("nacional_adapter competencia=obrigatoria")
         ano, mes = competencia
         df = self._client.fetch_estabelecimentos(self._id_municipio, ano, mes)
-        df = df.rename(columns=_MAP_ESTABELECIMENTO).copy()
+        df = df.rename(columns=_MAP_ESTABELECIMENTO)
         df["NOME_FANTASIA"] = None
         df["VINCULO_SUS"] = df["VINCULO_SUS"].map({1: "S", 0: "N"}).fillna("N")
         df["FONTE"] = _FONTE_NACIONAL
@@ -79,7 +79,7 @@ class CnesNacionalAdapter:
             raise ValueError("nacional_adapter competencia=obrigatoria")
         ano, mes = competencia
         df = self._client.fetch_profissionais(self._id_municipio, ano, mes)
-        df = df.rename(columns=_MAP_PROFISSIONAL).copy()
+        df = df.rename(columns=_MAP_PROFISSIONAL)
         df["CPF"] = None
         df["SUS"] = df["SUS"].map({1: "S", 0: "N"}).fillna("N")
         df["CH_TOTAL"] = (
