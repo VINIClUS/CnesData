@@ -103,7 +103,7 @@ Firebird CNES.GDB (local)          BigQuery (national)
 | `export/csv_exporter.py` | CSV output (Brazilian format) | — |
 | `export/report_generator.py` | Excel workbook with RESUMO + tabs | 25+ |
 
-**Total: 271+ unit tests**, all passing. Integration tests require live Firebird.
+**Total: 345 unit tests**, all passing. Integration tests require live Firebird.
 
 ---
 
@@ -124,10 +124,10 @@ Firebird CNES.GDB (local)          BigQuery (national)
 | Rule | What It Detects | Key | Severity |
 |---|---|---|---|
 | RQ-006 | Establishment in local but not in national | CNES | ALTA |
-| RQ-007 | Establishment in national but not in local | CNES | ALTA |
+| RQ-007 | Establishment in national but not in local | CNES | ALTA | Excludes tipo 22 (private clinics, other maintainers) |
 | RQ-008 | Professional in local but not in national | CNS | CRÍTICA |
-| RQ-009 | Professional in national but not in local | CNS | ALTA |
-| RQ-010 | Same professional+establishment, different CBO | CNS+CNES | MÉDIA |
+| RQ-009 | Professional in national but not in local | CNS | ALTA | Cascade-filters professionals from RQ-007 missing establishments |
+| RQ-010 | Same professional+establishment, different CBO | CNS+CNES | MÉDIA | Includes DESCRICAO_CBO_LOCAL/NACIONAL columns |
 | RQ-011 | Same professional+establishment, workload delta > 0h | CNS+CNES | BAIXA |
 
 ### HR Cross-Check Rules (Local × Payroll — dormant, awaiting data)
@@ -144,7 +144,7 @@ Firebird CNES.GDB (local)          BigQuery (national)
 ### Firebird Local (CNES.GDB)
 
 - **Engine:** Firebird 2.5 embedded (accessed via `fdb` + `fbembed.dll`)
-- **Key tables:** LFCES018 (professionals), LFCES004 (establishments), LFCES021 (links), LFCES048 (team members), LFCES060 (teams)
+- **Key tables:** LFCES018 (professionals), LFCES004 (establishments), LFCES021 (links), LFCES048 (team members), LFCES060 (teams), NFCES026 (CBO domain — job title lookup)
 - **Municipality filter:** `CODMUNGEST = '354130'` AND `CNPJ_MANT = '55293427000117'`
 - **Current data:** ~357 professional-establishment links, ~330 unique professionals, ~20 establishments
 - **Quirks:** No declared foreign keys between LFCES048 and LFCES060. LEFT JOIN via fdb's `pd.read_sql()` fails with error -501. TRIM() unavailable in embedded engine. `CD_SEGMENT`/`DS_SEGMENT` columns return error -206 via alias in nested LEFT JOIN.
@@ -175,8 +175,8 @@ These are concrete next steps, ordered by value:
 
 | Priority | Task | Status | Why |
 |---|---|---|---|
-| 1 | Run data validation prompt | Ready | Verify real output makes sense before sharing |
-| 2 | CBO enrichment (human-readable job titles) | Not started | Reports show codes like `515105` — coordinators need "Agente Comunitário de Saúde" |
+| 1 | Data validation + 5 defect fixes | ✅ Done | CPF/CNES zero-padding, RQ-007/009 cascade false positives, COVEPE type 50 |
+| 2 | CBO enrichment (human-readable job titles) | ✅ Done | DESCRICAO_CBO column in all reports via NFCES026 |
 | 3 | HR template generation | Not started | Formatted .xlsx the RH team can fill in to unlock Ghost Payroll |
 | 4 | Evolution dashboard in Excel | Not started | Trend tab comparing snapshots month-over-month (needs 2+ runs) |
 | 5 | Engage HR team with template | Blocked on #3 | Ghost Payroll is the highest-impact audit rule but has no data |
@@ -243,7 +243,8 @@ e-SUS (Sistema Único de Saúde) and SISAB (Sistema de Informação em Saúde pa
 | GCP Project | `bd-prof-cnes` |
 | IDE | VS Code |
 | AI Tooling | Claude Code (CLI) for development, Claude (web) for prompt design |
-| Test Framework | pytest (271+ unit tests, integration tests with live Firebird) |
+| Test Framework | pytest (345 unit tests, integration tests with live Firebird) |
+| Automation | PowerShell (scripts/Run-CnesAudit.ps1 + Windows Task Scheduler via Schedule-CnesAudit.ps1) |
 | Excel Engine | openpyxl |
 | Task Scheduler | Windows Task Scheduler via PowerShell script |
 | Version Control | Git (local, not yet on remote) |
@@ -278,3 +279,7 @@ If starting a new Claude Code or Claude session for this project:
 6. **CLI:** `python src/main.py --help` shows all options.
 7. **The Firebird LEFT JOIN bug is real** — do not try to simplify `cnes_client.py` back to a single query. It will silently return NULLs for all team data. The 3-query + Python merge approach is intentional and documented.
 8. **BigQuery column names are confirmed empirically** — the data_dictionary.md notes which columns were wrong in earlier iterations (e.g., `id_cbo` doesn't exist, `indicador_sus` doesn't exist). Trust the confirmed schema, not guesses.
+9. **CLI:** `python src/main.py --help` — pipeline accepts `-c YYYY-MM`, `--skip-nacional`, `--skip-hr`, `-o OUTPUT_DIR`, `-v`/`--verbose`.
+10. **CBO lookup:** `extrair_lookup_cbo(con)` returns `dict[str, str]` CBO→description from NFCES026. Passed as optional parameter to `transformar()` and `detectar_divergencia_cbo()`.
+11. **Zero-padding is intentional:** CPF gets `zfill(11)` and CNES gets `zfill(7)`. Firebird omits leading zeros. Do not remove these zfills.
+12. **RQ-009 cascade filter:** professionals from establishments already flagged by RQ-007 are excluded. Without this, 87% of RQ-009 results are false positives. See `cnes_excluir` parameter in `detectar_profissionais_ausentes_local()`.

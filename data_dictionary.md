@@ -1,6 +1,6 @@
 # Dicionário de Dados — CNES Firebird (CNES.GDB)
-> **Versão:** 0.4 — Iteração 4 (cross-check local × nacional documentado)
-> **Status:** ✅ CONCLUÍDO — RQ-001 a RQ-011 documentados, schema Firebird e BigQuery mapeados
+> **Versão:** 0.5 — Iteração 5 (validação de dados + CBO enrichment)
+> **Status:** ✅ CONCLUÍDO — RQ-001 a RQ-012 documentados, zero-padding, filtragem de cascata, CBO enrichment implementados
 
 ---
 
@@ -13,6 +13,7 @@
 | `LFCES021` | **Vínculos Prof → Estabelecimento** | [(PROF_ID, UNIDADE_ID)](file:///c:/Users/CPD/Projetos/CnesData/scripts/db_profiling_04_final_audit_and_master_query.py#69-80) | Tabela de fatos: CBO, carga horária, lotação |
 | `LFCES048` | **Membros de Equipe de Saúde** | [(CPF_PROF, COD_CBO, COD_MUN, SEQ_EQUIPE)](file:///c:/Users/CPD/Projetos/CnesData/scripts/db_profiling_04_final_audit_and_master_query.py#69-80) | Bridge: liga profissional à equipe |
 | `LFCES060` | **Equipes de Saúde (ESF/NASF/etc)** | [(SEQ_EQUIPE, COD_AREA, COD_MUN)](file:///c:/Users/CPD/Projetos/CnesData/scripts/db_profiling_04_final_audit_and_master_query.py#69-80) | Entidade: dados da equipe (INE, área, segmento) |
+| `NFCES026` | **Domínio CBO (Classificação Brasileira de Ocupações)** | `COD_CBO` | Lookup: código → descrição do cargo |
 
 > [!NOTE]
 > As PKs acima são **inferidas** pelos JOINs do [cnes_exporter.py](file:///c:/Users/CPD/Projetos/CnesData/src/cnes_exporter.py). Precisam ser confirmadas
@@ -90,6 +91,15 @@
 | `DS_SEGMENT` | VARYING | 60 | ❌ | Descrição do segmento (ex: "ESF ALTO DA MINA") |
 | `DS_AREA` | VARYING | 60 | ❌ | Nome da equipe (ex: "ESF ILHA DE SANTANA I") |
 | `INE` | VARYING | 10 | ❌ | Identificador Nacional de Equipe |
+
+### `NFCES026` — Domínio CBO (Classificação Brasileira de Ocupações)
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `COD_CBO` | VARYING(6) | Código CBO (chave) |
+| `DESCRICAO` | VARYING | Descrição do cargo (ex: "AGENTE COMUNITARIO DE SAUDE") |
+
+Usada como lookup para enriquecimento: `extrair_lookup_cbo()` em `cnes_client.py` gera `dict[str, str]` CBO→descrição. Coluna `DESCRICAO_CBO` adicionada a todos os relatórios pelo transformer. Confirmado via `data/discovery/03_nfces026_cbo_descricao.csv`.
 
 ---
 
@@ -186,6 +196,10 @@
 - **Impacto:** Quebra JOIN com LFCES048; profissional some do relatório.
 - **Ação:** Logar `WARNING`; excluir da carga e registrar no log de auditoria.
 
+### RQ-012 — Normalização de Zero-Padding (CPF e CNES)
+- **CPF:** Firebird pode retornar CPFs com 9-10 dígitos quando o valor começa com zero. Pipeline aplica `zfill(11)` no transformer ANTES do RQ-002. Corrigido em 2026-03-22 (ALERTA-1 da validação).
+- **CNES:** Firebird pode retornar CNES com 6 dígitos. Pipeline aplica `zfill(7)` no CnesLocalAdapter. Corrigido em 2026-03-22 (ALERTA-2).
+
 ### RQ-003 — Vínculo sem Carga Horária ("Vínculo Zumbi")
 - **Condição:** `CG_HORAAMB = 0 AND CGHORAOUTR = 0 AND CGHORAHOSP = 0`
 - **Impacto:** Profissional no cadastro sem horas declaradas.
@@ -216,9 +230,11 @@
 #### Grupo ACE (Vigilância e Controle de Endemias)
 | CBO | Cargo | Lotação Correta (TP_UNID_ID) | Observação |
 |---|---|---|---|
-| `515140` | Agente de Combate às Endemias (legado) | `02`, `69`, `22`, `15` | CBO em transição |
-| `322210` | Técn. Agente de Combate (legado) | `02`, `69`, `22`, `15` | CBO em transição |
-| `322260` | Técn. em Agente de Combate às Endemias (TACE) | `02`, `69`, `22`, `15` | CBO atual |
+| `515140` | Agente de Combate às Endemias (legado) | `02`, `69`, `22`, `15`, `50` | CBO em transição |
+| `322210` | Técn. Agente de Combate (legado) | `02`, `69`, `22`, `15`, `50` | CBO em transição |
+| `322260` | Técn. em Agente de Combate às Endemias (TACE) | `02`, `69`, `22`, `15`, `50` | CBO atual |
+
+> Tipo 50 = COVEPE / órgão de gestão de vigilância epidemiológica. Lotação administrativa válida para ACE/TACE em Presidente Epitácio (confirmado pela validação de dados 2026-03-22).
 
 #### Grupo Saúde Mental (lotação CORRETA confirmada)
 | CBO | Cargo | Lotação Correta |
@@ -239,7 +255,7 @@ WHERE vinc.COD_CBO IN ('515105', '322255')   -- ACS e TACS
 **SQL de Auditoria ACE/TACE fora de unidade correta:**
 ```sql
 WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
-  AND est.TP_UNID_ID NOT IN ('02', '69', '22', '15')
+  AND est.TP_UNID_ID NOT IN ('02', '69', '22', '15', '50')
   AND est.CODMUNGEST = '354130'
 ```
 
@@ -255,7 +271,9 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 - **Chave de JOIN:** `CNES` (7 dígitos)
 - **Impacto:** Estabelecimento registrado no DATASUS nacional mas não no banco Firebird local.
 - **Output:** `auditoria_rq007_estab_ausente_local.csv` — subconjunto de `df_nacional` sem correspondência
-- **Função:** `detectar_estabelecimentos_ausentes_local(df_local, df_nacional)`
+- **Função:** `detectar_estabelecimentos_ausentes_local(df_local, df_nacional, tipos_excluir=None)`
+
+> **Exclusão de escopo (implementada 2026-03-22):** Consultórios Isolados (TIPO_UNIDADE=22) são excluídos do RQ-007 pois pertencem a outros mantenedores (profissionais autônomos), não à prefeitura. Parâmetro `tipos_excluir` na função.
 
 ### RQ-008 — Profissionais Fantasma por CNS (local sem correspondência nacional) ✅ IMPLEMENTADO
 - **Condição:** CNS presente em `df_local` mas ausente em `df_nacional`
@@ -271,14 +289,16 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 - **Impacto:** Profissional registrado no DATASUS nacional mas sem vínculo no Firebird local.
 - **Nota:** Registros com CNS nulo em `df_nacional` são excluídos da comparação.
 - **Output:** `auditoria_rq009_prof_ausente_local_cns.csv` — subconjunto de `df_nacional` (com CNS) sem correspondência
-- **Função:** `detectar_profissionais_ausentes_local(df_local, df_nacional)`
+- **Função:** `detectar_profissionais_ausentes_local(df_local, df_nacional, cnes_excluir=None)`
+
+> **Filtragem de cascata (implementada 2026-03-22):** Profissionais cujo CNES já consta no resultado do RQ-007 (estabelecimento ausente no local) são excluídos do RQ-009 para evitar falsos positivos em cascata. Parâmetro `cnes_excluir` na função.
 
 ### RQ-010 — Divergência de CBO entre Local e Nacional ✅ IMPLEMENTADO
 - **Condição:** Mesmo par (CNS + CNES) com `CBO_LOCAL ≠ CBO_NACIONAL`
 - **Chave de JOIN:** `(CNS, CNES)` — inner join entre local e nacional
 - **Impacto:** Profissional cadastrado com ocupação diferente nas duas fontes — possível erro de registro.
-- **Output:** `auditoria_rq010_divergencia_cbo.csv` — colunas `CNS`, `CNES`, `CBO_LOCAL`, `CBO_NACIONAL`
-- **Função:** `detectar_divergencia_cbo(df_local, df_nacional)`
+- **Output:** `auditoria_rq010_divergencia_cbo.csv` — colunas `CNS`, `CNES`, `CBO_LOCAL`, `CBO_NACIONAL`, `DESCRICAO_CBO_LOCAL`, `DESCRICAO_CBO_NACIONAL`
+- **Função:** `detectar_divergencia_cbo(df_local, df_nacional, cbo_lookup=None)`
 
 ### RQ-011 — Divergência de Carga Horária entre Local e Nacional ✅ IMPLEMENTADO
 - **Condição:** Mesmo par (CNS + CNES) com `|CH_LOCAL - CH_NACIONAL| > tolerancia` (padrão: 0h)
