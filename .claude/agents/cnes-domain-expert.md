@@ -5,7 +5,8 @@ description: |
   national data structure, adapter mapping logic, or SQL query construction.
   Triggers when the user mentions: writing SQL, Firebird query, schema question,
   column mapping, SEQ_EQUIPE, CODMUNGEST, LEFT JOIN error, cursor vs read_sql,
-  new adapter method, new audit rule, or cross-check logic.
+  new adapter method, cross-check logic, Firebird error codes (-501, -206, -104),
+  or "how do I avoid [Firebird error]" (preventive guidance, not runtime debugging).
 
   Examples:
 
@@ -25,7 +26,10 @@ description: |
   <uses Task tool to launch cnes-domain-expert agent>
 
   Does NOT activate for: general Python questions, test writing (use tdd-workflow),
-  security reviews (use security-reviewer), documentation changes, or UI/export formatting.
+  security reviews (use security-reviewer), documentation changes, UI/export formatting,
+  or validating test coverage of existing rules (use data-quality-auditor).
+  For designing new audit rules: this agent advises on schema/join keys BEFORE
+  implementation. For validating rule coverage AFTER implementation, use data-quality-auditor.
 
 tools: Read, Grep, Glob
 model: inherit

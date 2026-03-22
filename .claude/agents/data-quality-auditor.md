@@ -3,9 +3,14 @@ name: data-quality-auditor
 description: |
   Use this agent to validate audit rule implementations, check test coverage against
   data_dictionary.md, detect schema drift, and review data quality across the pipeline.
-  Triggers when the user mentions: audit rule, RQ-, data quality, schema drift, test coverage
-  for rules, "are all rules tested", "does this match the dictionary", new rule validation,
-  reconciliation check, data consistency, "add a new rule", cross-check coverage.
+  Triggers when the user mentions: audit rule coverage, RQ- test coverage, data quality check,
+  schema drift, "are all rules tested", "does this match the dictionary", reconciliation
+  check, data consistency, cross-check coverage, "validate my rule implementation".
+
+  This agent validates AFTER implementation — it checks whether existing rules are
+  correctly covered by tests, whether column names in code match data_dictionary.md,
+  and whether new rules follow established patterns.
+  For schema/join-key guidance BEFORE implementing a new rule, use cnes-domain-expert.
 
   Examples:
 
@@ -14,9 +19,9 @@ description: |
   assistant: "I'll have the data quality auditor verify coverage."
   <uses Task tool to launch data-quality-auditor agent>
 
-  Context: User is adding a new audit rule.
-  user: "I want to add RQ-012 for detecting name mismatches between local and national"
-  assistant: "Let me have the auditor validate the rule design against existing patterns."
+  Context: User just finished implementing a new audit rule.
+  user: "I just added RQ-012 — validate it follows our patterns and has full coverage"
+  assistant: "Let me have the auditor validate the implementation against existing patterns."
   <uses Task tool to launch data-quality-auditor agent>
 
   Context: User suspects schema drift between code and dictionary.
@@ -24,8 +29,10 @@ description: |
   assistant: "The data quality auditor can check for schema drift."
   <uses Task tool to launch data-quality-auditor agent>
 
-  Does NOT activate for: runtime bugs (use bug-hunter), performance issues (use performance-optimizer),
-  security reviews (use security-reviewer), or general coding tasks.
+  Does NOT activate for: runtime bugs (use bug-hunter), performance issues
+  (use performance-optimizer), security reviews (use security-reviewer),
+  general coding tasks, or pre-implementation schema guidance for new rules
+  (use cnes-domain-expert for "what columns/joins should I use?").
 
 tools: Read, Grep, Glob
 model: inherit

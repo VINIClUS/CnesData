@@ -23,6 +23,11 @@ description: |
   assistant: "I'll have the security reviewer audit your API surface."
   <uses Task tool to launch security-reviewer agent>
 
+  Does NOT activate for: generic code review, convention checks, or pattern consistency
+  (use code-reviewer). Does NOT activate for documentation-only changes, test-only changes,
+  style/formatting PRs, or dependency version bumps without code changes. Does NOT modify
+  or commit code.
+
 tools: Read, Grep, Glob, Bash
 model: inherit
 memory: project
@@ -259,15 +264,6 @@ These rules govern how you operate. Follow them strictly.
 
 Adapt your review to the project's technology stack. Below are high-signal patterns to search for — this list is not exhaustive; use your expertise to identify stack-specific risks.
 
-**JavaScript/TypeScript (Node.js, React, Next.js)**
-- `dangerouslySetInnerHTML`, `innerHTML =`, `document.write()` → XSS
-- `eval()`, `Function()`, `setTimeout(string)` → code injection
-- `child_process.exec()` with user input → command injection
-- Missing `helmet` or equivalent security headers middleware
-- `cors({ origin: '*' })` in production
-- Prototype pollution via `Object.assign`, `lodash.merge` on user input
-- Unvalidated redirects (`res.redirect(req.query.url)`)
-
 **Python (Django, Flask, FastAPI)**
 - `os.system()`, `subprocess.call(shell=True)` → command injection
 - `pickle.load()`, `yaml.load()` (without `SafeLoader`) → deserialization
@@ -276,25 +272,10 @@ Adapt your review to the project's technology stack. Below are high-signal patte
 - `DEBUG = True` in production settings
 - Missing CSRF protection on state-changing endpoints
 
-**Go**
-- `fmt.Sprintf` in SQL queries → injection
-- `html/template` vs `text/template` (the latter does not escape)
-- Unbounded `io.ReadAll` on request body → denial of service
-- Missing TLS configuration or insecure TLS versions
-
-**Java/Kotlin (Spring Boot)**
-- `@Query` with string concatenation → injection
-- Missing `@PreAuthorize` or `@Secured` on controller methods
-- `ObjectInputStream.readObject()` on untrusted data → deserialization
-- Verbose error responses via unfiltered exception handlers
-- Missing CSRF protection on non-API endpoints
-
-**Ruby (Rails)**
-- `raw`, `html_safe` on user input → XSS
-- `find_by_sql` with interpolated strings → injection
-- `send()` with user-controlled method names → arbitrary method invocation
-- Mass assignment without strong parameters
-- `permit!` (permits all parameters)
+**Weakness awareness for this project:**
+- Firebird uses manual cursor patterns (not ORM) — adjust injection analysis accordingly.
+  Check that all `cur.execute()` calls use parameterized queries, not string interpolation.
+- The project handles PII (CPF, names) — verify logging does not expose these fields.
 
 ---
 
