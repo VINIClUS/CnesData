@@ -105,7 +105,6 @@ class CnesWebClient:
 
         Raises:
             CnesWebError: Falha no BigQuery.
-            ValueError: Nenhum estabelecimento encontrado.
         """
         sql = _SQL_ESTABELECIMENTOS.format(
             id_municipio=id_municipio, ano=ano, mes=mes
@@ -116,9 +115,10 @@ class CnesWebClient:
             id_municipio, ano, mes, len(df),
         )
         if df.empty:
-            raise ValueError(
-                f"Nenhum estabelecimento encontrado. id_municipio={id_municipio} "
-                f"ano={ano} mes={mes}"
+            logger.warning(
+                "fetch_estabelecimentos id_municipio=%s ano=%d mes=%d rows=0 "
+                "(dados ainda não publicados?)",
+                id_municipio, ano, mes,
             )
         return df.copy()
 
@@ -146,6 +146,12 @@ class CnesWebClient:
             "fetch_profissionais id_municipio=%s ano=%d mes=%d rows=%d",
             id_municipio, ano, mes, len(df),
         )
+        if df.empty:
+            logger.warning(
+                "fetch_profissionais id_municipio=%s ano=%d mes=%d rows=0 "
+                "(dados ainda não publicados?)",
+                id_municipio, ano, mes,
+            )
         return df.copy()
 
     def fetch_profissionais_por_estabelecimento(

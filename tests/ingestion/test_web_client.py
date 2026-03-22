@@ -171,13 +171,17 @@ class TestRetorno:
             assert isinstance(resultado, pd.DataFrame)
             assert len(resultado) == 1
 
-    def test_fetch_estabelecimentos_vazio_levanta_value_error(self):
+    def test_fetch_estabelecimentos_vazio_retorna_dataframe_vazio(self, caplog):
         with patch("ingestion.web_client.bd.read_sql") as mock_read_sql:
             mock_read_sql.return_value = pd.DataFrame()
             client = CnesWebClient(_BILLING_PROJECT)
 
-            with pytest.raises(ValueError):
-                client.fetch_estabelecimentos(_ID_MUNICIPIO, _ANO, _MES)
+            import logging
+            with caplog.at_level(logging.WARNING, logger="ingestion.web_client"):
+                resultado = client.fetch_estabelecimentos(_ID_MUNICIPIO, _ANO, _MES)
+
+            assert resultado.empty
+            assert "ainda não publicados" in caplog.text
 
     def test_fetch_profissionais_retorna_dataframe_com_cns(self):
         with patch("ingestion.web_client.bd.read_sql") as mock_read_sql:

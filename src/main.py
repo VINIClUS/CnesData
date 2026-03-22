@@ -128,12 +128,43 @@ def main() -> int:
             logger.warning("hr_cross_check=skipped motivo=FOLHA_HR_PATH_nao_configurado")
 
         # ── Camada 3C: Cross-check local × nacional ───────────────────────────
-        df_estab_fantasma = detectar_estabelecimentos_fantasma(df_estab_local, df_estab_nacional)
-        df_estab_ausente = detectar_estabelecimentos_ausentes_local(df_estab_local, df_estab_nacional)
-        df_prof_fantasma = detectar_profissionais_fantasma(df_processado, df_prof_nacional)
-        df_prof_ausente = detectar_profissionais_ausentes_local(df_processado, df_prof_nacional)
-        df_cbo_diverg = detectar_divergencia_cbo(df_processado, df_prof_nacional)
-        df_ch_diverg = detectar_divergencia_carga_horaria(df_processado, df_prof_nacional)
+        df_estab_fantasma: pd.DataFrame = pd.DataFrame()
+        df_estab_ausente: pd.DataFrame = pd.DataFrame()
+        df_prof_fantasma: pd.DataFrame = pd.DataFrame()
+        df_prof_ausente: pd.DataFrame = pd.DataFrame()
+        df_cbo_diverg: pd.DataFrame = pd.DataFrame()
+        df_ch_diverg: pd.DataFrame = pd.DataFrame()
+
+        if df_estab_nacional.empty and df_prof_nacional.empty:
+            logger.warning(
+                "nacional_cross_check=skipped motivo=dados_nacionais_vazios "
+                "competencia=%d-%02d (dados ainda não publicados?)",
+                config.COMPETENCIA_ANO, config.COMPETENCIA_MES,
+            )
+        else:
+            if not df_estab_nacional.empty:
+                df_estab_fantasma = detectar_estabelecimentos_fantasma(
+                    df_estab_local, df_estab_nacional
+                )
+                df_estab_ausente = detectar_estabelecimentos_ausentes_local(
+                    df_estab_local, df_estab_nacional
+                )
+            else:
+                logger.warning(
+                    "estab_cross_check=skipped motivo=estabelecimentos_nacionais_vazios"
+                )
+
+            if not df_prof_nacional.empty:
+                df_prof_fantasma = detectar_profissionais_fantasma(df_processado, df_prof_nacional)
+                df_prof_ausente = detectar_profissionais_ausentes_local(
+                    df_processado, df_prof_nacional
+                )
+                df_cbo_diverg = detectar_divergencia_cbo(df_processado, df_prof_nacional)
+                df_ch_diverg = detectar_divergencia_carga_horaria(df_processado, df_prof_nacional)
+            else:
+                logger.warning(
+                    "prof_cross_check=skipped motivo=profissionais_nacionais_vazios"
+                )
 
         # ── Camada 4: Exportação ──────────────────────────────────────────────
         exportar_csv(df_processado, config.OUTPUT_PATH)
