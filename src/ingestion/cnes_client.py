@@ -168,10 +168,13 @@ def extrair_lookup_cbo(con: fdb.Connection) -> dict[str, str]:
     """
     df = _executar_query(con, _SQL_CBO_LOOKUP)
     if df.empty:
+        logger.warning("cbo_lookup=vazio tabela=NFCES026 descricoes_cbo_indisponiveis=True")
         return {}
     df["CBO"] = df["CBO"].astype(str).str.strip()
     df["DESCRICAO_CBO"] = df["DESCRICAO_CBO"].astype(str).str.strip()
-    return dict(zip(df["CBO"], df["DESCRICAO_CBO"]))
+    lookup = dict(zip(df["CBO"], df["DESCRICAO_CBO"]))
+    logger.info("cbo_lookup count=%d", len(lookup))
+    return lookup
 
 
 def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:

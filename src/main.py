@@ -13,6 +13,7 @@ Como executar:
 
 import logging
 import sys
+from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -43,16 +44,21 @@ from export.csv_exporter import exportar_csv
 from export.report_generator import gerar_relatorio
 
 
+@dataclass
+class _InsumosCruzamento:
+    df_prof_local: pd.DataFrame
+    df_estab_local: pd.DataFrame
+    df_estab_nacional: pd.DataFrame
+    df_prof_nacional: pd.DataFrame
+
+
 def _exportar_se_nao_vazio(df: pd.DataFrame, nome_arquivo: str, output_dir: Path) -> None:
     if not df.empty:
         exportar_csv(df, output_dir / nome_arquivo)
 
 
 def _cruzar_nacional(
-    df_prof_local: pd.DataFrame,
-    df_estab_local: pd.DataFrame,
-    df_estab_nacional: pd.DataFrame,
-    df_prof_nacional: pd.DataFrame,
+    insumos: _InsumosCruzamento,
     cbo_lookup: dict[str, str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     _log = logging.getLogger(__name__)
@@ -63,19 +69,20 @@ def _cruzar_nacional(
             "prof_fantasma", "prof_ausente", "cbo_diverg", "ch_diverg",
         )
     }
-    if not df_estab_nacional.empty:
+    if not insumos.df_estab_nacional.empty:
         resultado["estab_fantasma"] = detectar_estabelecimentos_fantasma(
-            df_estab_local, df_estab_nacional
+            insumos.df_estab_local, insumos.df_estab_nacional
         )
         _TIPOS_EXCLUIR_RQ007: frozenset[str] = frozenset({"22"})
         resultado["estab_ausente"] = detectar_estabelecimentos_ausentes_local(
-            df_estab_local, df_estab_nacional, tipos_excluir=_TIPOS_EXCLUIR_RQ007
+            insumos.df_estab_local, insumos.df_estab_nacional,
+            tipos_excluir=_TIPOS_EXCLUIR_RQ007,
         )
     else:
         _log.warning("estab_cross_check=skipped motivo=estabelecimentos_nacionais_vazios")
-    if not df_prof_nacional.empty:
+    if not insumos.df_prof_nacional.empty:
         resultado["prof_fantasma"] = detectar_profissionais_fantasma(
-            df_prof_local, df_prof_nacional
+            insumos.df_prof_local, insumos.df_prof_nacional
         )
         _cnes_ausentes = (
             frozenset(resultado["estab_ausente"]["CNES"])
@@ -83,13 +90,13 @@ def _cruzar_nacional(
             else frozenset()
         )
         resultado["prof_ausente"] = detectar_profissionais_ausentes_local(
-            df_prof_local, df_prof_nacional, cnes_excluir=_cnes_ausentes
+            insumos.df_prof_local, insumos.df_prof_nacional, cnes_excluir=_cnes_ausentes
         )
         resultado["cbo_diverg"] = detectar_divergencia_cbo(
-            df_prof_local, df_prof_nacional, cbo_lookup=cbo_lookup
+            insumos.df_prof_local, insumos.df_prof_nacional, cbo_lookup=cbo_lookup
         )
         resultado["ch_diverg"] = detectar_divergencia_carga_horaria(
-            df_prof_local, df_prof_nacional
+            insumos.df_prof_local, insumos.df_prof_nacional
         )
     else:
         _log.warning("prof_cross_check=skipped motivo=profissionais_nacionais_vazios")
@@ -221,7 +228,9 @@ def main() -> int:
                 )
             else:
                 nac = _cruzar_nacional(
-                    df_processado, df_estab_local, df_estab_nacional, df_prof_nacional,
+                    _InsumosCruzamento(
+                        df_processado, df_estab_local, df_estab_nacional, df_prof_nacional,
+                    ),
                     cbo_lookup=cbo_lookup,
                 )
 

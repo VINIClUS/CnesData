@@ -116,22 +116,14 @@ def transformar(
     df: pd.DataFrame,
     cbo_lookup: dict[str, str] | None = None,
 ) -> pd.DataFrame:
-    """
-    Aplica o pipeline completo de limpeza e validação ao DataFrame bruto.
-
-    Pipeline (em ordem):
-      1. Strip em colunas de texto (remove espaços que o Firebird CHAR padding gera).
-      2. RQ-002: exclusão de registros com CPF nulo ou fora de 11 caracteres.
-      3. RQ-003: adição da coluna ALERTA_STATUS_CH (flag de vínculo zumbi).
-      4. Preenchimento de nulos nas colunas opcionais de equipe (LEFT JOIN).
+    """Aplica strip, RQ-002 (CPF), RQ-003 (CH flag) e fillna de equipe.
 
     Args:
-        df: DataFrame bruto retornado por cnes_client.extrair_profissionais().
+        df: DataFrame bruto de cnes_client.extrair_profissionais().
+        cbo_lookup: Dict CBO → descrição; adiciona coluna DESCRICAO_CBO quando fornecido.
 
     Returns:
-        pd.DataFrame: DataFrame transformado. Inclui a coluna adicional
-            ALERTA_STATUS_CH. Pode ter menos linhas que a entrada se houver
-            CPFs inválidos (RQ-002).
+        DataFrame transformado com ALERTA_STATUS_CH; pode ter menos linhas (RQ-002).
     """
     logger.debug("Iniciando transformação. Registros de entrada: %d", len(df))
     resultado = df.copy()

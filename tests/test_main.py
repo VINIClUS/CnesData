@@ -121,6 +121,7 @@ def _aplicar_patches(
     stack.enter_context(patch("main.parse_args", return_value=_CLI_DEFAULTS))
     stack.enter_context(patch("main.configurar_logging"))
     stack.enter_context(patch("main.conectar", return_value=MagicMock()))
+    stack.enter_context(patch("main.extrair_lookup_cbo", return_value={}))
     stack.enter_context(patch("main.CnesLocalAdapter", return_value=adapter_local))
     stack.enter_context(patch("main.CnesNacionalAdapter", return_value=adapter_nacional))
     stack.enter_context(patch("main.transformar", return_value=df_cnes))
