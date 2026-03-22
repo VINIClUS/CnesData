@@ -11,13 +11,12 @@ logger = logging.getLogger(__name__)
 _SQL_ESTABELECIMENTOS: str = """
     SELECT
         ano, mes, id_municipio,
+        id_municipio_6,
         id_estabelecimento_cnes,
-        nome_fantasia,
-        nome_razao_social,
-        natureza_juridica,
+        cnpj_mantenedora,
+        id_natureza_juridica,
         tipo_unidade,
         tipo_gestao,
-        cnpj,
         indicador_vinculo_sus
     FROM `basedosdados.br_ms_cnes.estabelecimento`
     WHERE id_municipio = '{id_municipio}'
@@ -30,9 +29,10 @@ _SQL_PROFISSIONAIS: str = """
         ano, mes, id_municipio,
         id_estabelecimento_cnes,
         cartao_nacional_saude,
-        id_cbo,
+        nome,
+        cbo_2002,
         tipo_vinculo,
-        indicador_sus,
+        indicador_atende_sus,
         carga_horaria_ambulatorial,
         carga_horaria_outros,
         carga_horaria_hospitalar
@@ -47,9 +47,10 @@ _SQL_PROFISSIONAIS_POR_CNES: str = """
         ano, mes, id_municipio,
         id_estabelecimento_cnes,
         cartao_nacional_saude,
-        id_cbo,
+        nome,
+        cbo_2002,
         tipo_vinculo,
-        indicador_sus,
+        indicador_atende_sus,
         carga_horaria_ambulatorial,
         carga_horaria_outros,
         carga_horaria_hospitalar

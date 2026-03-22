@@ -57,10 +57,10 @@ class TestPreservacaoDeDados:
         assert "ALERTA_STATUS_CH" in resultado.columns
 
     def test_preserva_valores_numericos(self, df_profissionais_bruto):
-        """CARGA_HORARIA_TOTAL é numérica e não deve ser alterada."""
+        """CH_TOTAL é numérica e não deve ser alterada."""
         resultado = transformar(df_profissionais_bruto)
-        assert list(resultado["CARGA_HORARIA_TOTAL"]) == list(
-            df_profissionais_bruto["CARGA_HORARIA_TOTAL"]
+        assert list(resultado["CH_TOTAL"]) == list(
+            df_profissionais_bruto["CH_TOTAL"]
         )
 
 
@@ -138,7 +138,7 @@ class TestRQ002ValidacaoCpf:
 class TestRQ003FlagCargaHoraria:
 
     def test_flag_ativo_sem_ch_quando_carga_zero(self, df_com_carga_horaria_zero):
-        """Registro com CARGA_HORARIA_TOTAL=0 deve receber ALERTA_ATIVO_SEM_CH."""
+        """Registro com CH_TOTAL=0 deve receber ALERTA_ATIVO_SEM_CH."""
         resultado = transformar(df_com_carga_horaria_zero)
         flags = resultado["ALERTA_STATUS_CH"].tolist()
         assert flags[0] == ALERTA_ATIVO_SEM_CH, (
@@ -179,24 +179,24 @@ class TestPreenchimentoDeNulos:
         assert resultado["NOME_EQUIPE"].isna().sum() == 0
         assert all(v == VALOR_SEM_EQUIPE for v in resultado["NOME_EQUIPE"])
 
-    def test_cod_ine_equipe_nulo_vira_traco(self, df_profissionais_bruto):
-        """COD_INE_EQUIPE nulo deve virar VALOR_SEM_INE ('-')."""
+    def test_ine_nulo_vira_traco(self, df_profissionais_bruto):
+        """INE nulo deve virar VALOR_SEM_INE ('-')."""
         resultado = transformar(df_profissionais_bruto)
-        assert resultado["COD_INE_EQUIPE"].isna().sum() == 0
-        assert all(v == VALOR_SEM_INE for v in resultado["COD_INE_EQUIPE"])
+        assert resultado["INE"].isna().sum() == 0
+        assert all(v == VALOR_SEM_INE for v in resultado["INE"])
 
-    def test_cod_tipo_equipe_nulo_vira_traco(self, df_profissionais_bruto):
-        """COD_TIPO_EQUIPE nulo deve virar VALOR_SEM_INE ('-')."""
+    def test_tipo_equipe_nulo_vira_traco(self, df_profissionais_bruto):
+        """TIPO_EQUIPE nulo deve virar VALOR_SEM_INE ('-')."""
         resultado = transformar(df_profissionais_bruto)
-        assert resultado["COD_TIPO_EQUIPE"].isna().sum() == 0
-        assert all(v == VALOR_SEM_INE for v in resultado["COD_TIPO_EQUIPE"])
+        assert resultado["TIPO_EQUIPE"].isna().sum() == 0
+        assert all(v == VALOR_SEM_INE for v in resultado["TIPO_EQUIPE"])
 
     def test_equipe_preenchida_nao_e_sobrescrita(self, df_com_equipe):
         """Equipe já preenchida (não nula) não deve ser sobrescrita pelo fillna."""
         resultado = transformar(df_com_equipe)
         assert resultado["NOME_EQUIPE"].iloc[0] == "ESF VILA GERONIMO"
-        assert resultado["COD_TIPO_EQUIPE"].iloc[0] == "70"
-        assert resultado["COD_INE_EQUIPE"].iloc[0] == "0001365993"
+        assert resultado["TIPO_EQUIPE"].iloc[0] == "70"
+        assert resultado["INE"].iloc[0] == "0001365993"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -228,10 +228,10 @@ class TestCasosDeBorda:
         """transformar() deve aceitar um DataFrame vazio sem lançar exceção."""
         df_vazio = pd.DataFrame(columns=[
             "CPF", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "DATA_NASCIMENTO",
-            "CBO", "COD_VINCULO", "SUS_NAO_SUS",
-            "CARGA_HORARIA_TOTAL", "CH_AMBULATORIAL", "CH_OUTRAS", "CH_HOSPITALAR",
-            "COD_CNES", "ESTABELECIMENTO", "COD_TIPO_UNIDADE", "COD_MUN_GESTOR",
-            "COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE",
+            "CBO", "TIPO_VINCULO", "SUS",
+            "CH_TOTAL", "CH_AMBULATORIAL", "CH_OUTRAS", "CH_HOSPITALAR",
+            "CNES", "ESTABELECIMENTO", "TIPO_UNIDADE", "COD_MUNICIPIO",
+            "INE", "NOME_EQUIPE", "TIPO_EQUIPE",
         ])
         resultado = transformar(df_vazio)
         assert len(resultado) == 0

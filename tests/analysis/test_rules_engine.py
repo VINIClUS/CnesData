@@ -39,14 +39,14 @@ from analysis.rules_engine import (
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _df_base(cpf: str, cbo: str, cod_tipo_unidade: str, cod_cnes: str = "0985333") -> dict:
+def _df_base(cpf: str, cbo: str, tipo_unidade: str, cnes: str = "0985333") -> dict:
     """Retorna um dicionário com as colunas mínimas para testes de auditoria."""
     return {
         "CPF": cpf,
         "NOME_PROFISSIONAL": f"PROF {cpf}",
         "CBO": cbo,
-        "COD_TIPO_UNIDADE": cod_tipo_unidade,
-        "COD_CNES": cod_cnes,
+        "TIPO_UNIDADE": tipo_unidade,
+        "CNES": cnes,
         "ESTABELECIMENTO": "UBS TESTE",
         "ALERTA_STATUS_CH": "OK",
     }
@@ -94,7 +94,7 @@ class TestDetectarMultiplasUnidades:
 
     def test_retorna_vazio_para_dataframe_vazio(self):
         """DataFrame vazio não deve causar exceção."""
-        df = pd.DataFrame(columns=["CPF", "CBO", "COD_CNES", "COD_TIPO_UNIDADE",
+        df = pd.DataFrame(columns=["CPF", "CBO", "CNES", "TIPO_UNIDADE",
                                     "NOME_PROFISSIONAL", "ESTABELECIMENTO", "ALERTA_STATUS_CH"])
         resultado = detectar_multiplas_unidades(df)
         assert resultado.empty
@@ -143,8 +143,8 @@ class TestAuditarLotacaoAcsTacs:
 
     def test_retorna_vazio_para_dataframe_vazio(self):
         """DataFrame vazio não deve causar exceção."""
-        df = pd.DataFrame(columns=["CPF", "CBO", "COD_TIPO_UNIDADE",
-                                    "NOME_PROFISSIONAL", "COD_CNES",
+        df = pd.DataFrame(columns=["CPF", "CBO", "TIPO_UNIDADE",
+                                    "NOME_PROFISSIONAL", "CNES",
                                     "ESTABELECIMENTO", "ALERTA_STATUS_CH"])
         resultado = auditar_lotacao_acs_tacs(df)
         assert resultado.empty
@@ -248,7 +248,7 @@ def _df_cnes(*cpfs: str) -> pd.DataFrame:
         "CPF":              list(cpfs),
         "NOME_PROFISSIONAL": [f"PROF {c}" for c in cpfs],
         "CBO":              ["515105"] * len(cpfs),
-        "COD_CNES":         ["0985333"] * len(cpfs),
+        "CNES":             ["0985333"] * len(cpfs),
         "ESTABELECIMENTO":  ["UBS TESTE"] * len(cpfs),
     })
 

@@ -31,16 +31,16 @@ ALERTA_CH_OK: Final[str] = "OK"
 
 # Colunas de texto que recebem strip() para remover espaços do Firebird.
 _COLUNAS_TEXTO: Final[tuple[str, ...]] = (
-    "CPF", "NOME_PROFISSIONAL", "CBO", "COD_CNES", "ESTABELECIMENTO",
-    "NOME_SOCIAL", "SEXO", "COD_VINCULO", "SUS_NAO_SUS",
-    "COD_TIPO_UNIDADE", "COD_MUN_GESTOR",
+    "CPF", "CNS", "NOME_PROFISSIONAL", "CBO", "CNES", "ESTABELECIMENTO",
+    "NOME_SOCIAL", "SEXO", "TIPO_VINCULO", "SUS",
+    "TIPO_UNIDADE", "COD_MUNICIPIO",
 )
 
 # Colunas opcionais de equipe que chegam NULL no LEFT JOIN sem correspondência.
 _MAPEAMENTO_NULOS_EQUIPE: Final[dict[str, str]] = {
-    "NOME_EQUIPE":     VALOR_SEM_EQUIPE,
-    "COD_INE_EQUIPE":  VALOR_SEM_INE,
-    "COD_TIPO_EQUIPE": VALOR_SEM_INE,
+    "NOME_EQUIPE": VALOR_SEM_EQUIPE,
+    "INE":         VALOR_SEM_INE,
+    "TIPO_EQUIPE": VALOR_SEM_INE,
 }
 
 
@@ -84,18 +84,18 @@ def _aplicar_rq003_flag_carga_horaria(df: pd.DataFrame) -> pd.DataFrame:
     """
     RQ-003: Sinaliza vínculos com carga horária total igual a zero.
 
-    Profissionais com CARGA_HORARIA_TOTAL == 0 estão cadastrados sem
+    Profissionais com CH_TOTAL == 0 estão cadastrados sem
     nenhuma hora declarada. Eles NÃO são excluídos — são marcados com
     ALERTA_STATUS_CH = 'ATIVO_SEM_CH' para revisão pelo RH.
 
     Args:
-        df: DataFrame com coluna numérica CARGA_HORARIA_TOTAL.
+        df: DataFrame com coluna numérica CH_TOTAL.
 
     Returns:
         pd.DataFrame: Cópia do DataFrame com nova coluna ALERTA_STATUS_CH.
     """
     df_out = df.copy()
-    df_out["ALERTA_STATUS_CH"] = df_out["CARGA_HORARIA_TOTAL"].apply(
+    df_out["ALERTA_STATUS_CH"] = df_out["CH_TOTAL"].apply(
         lambda ch: ALERTA_ATIVO_SEM_CH if ch == 0 else ALERTA_CH_OK
     )
 

@@ -1,6 +1,6 @@
 # Dicionário de Dados — CNES Firebird (CNES.GDB)
-> **Versão:** 0.3 — Iteração 3 (domínios e auditoria confirmados)
-> **Status:** ✅ ITERAÇÃO 2 CONCLUÍDA | 🔍 Script 3: auditoria ACS/ACE + lookup de domínios NFCES
+> **Versão:** 0.4 — Iteração 4 (cross-check local × nacional documentado)
+> **Status:** ✅ CONCLUÍDO — RQ-001 a RQ-011 documentados, schema Firebird e BigQuery mapeados
 
 ---
 
@@ -93,6 +93,75 @@
 
 ---
 
+## Schema BigQuery Confirmado — `br_ms_cnes.profissional`
+
+> **Confirmado em 2026-03-21 contra a tabela real.** Erros anteriores (`id_cbo`, `indicador_sus`) corrigidos.
+
+| Coluna BigQuery | Tipo | Mapeamento → Schema Padronizado |
+|---|---|---|
+| `ano` | INTEGER | (partição — filtro WHERE, não mapear) |
+| `mes` | INTEGER | (partição — filtro WHERE, não mapear) |
+| `id_municipio` | STRING | (filtro WHERE, não mapear) |
+| `id_estabelecimento_cnes` | STRING | → `CNES` |
+| `cartao_nacional_saude` | STRING | → `CNS` |
+| `nome` | STRING | → `NOME_PROFISSIONAL` |
+| `cbo_2002` | STRING | → `CBO` ⚠️ (não `id_cbo` — campo inexistente) |
+| `tipo_vinculo` | STRING | → `TIPO_VINCULO` |
+| `indicador_atende_sus` | INTEGER | → `SUS` via `.map({1: "S", 0: "N"})` ⚠️ (não `indicador_sus`) |
+| `carga_horaria_ambulatorial` | INTEGER | → `CH_AMBULATORIAL` |
+| `carga_horaria_outros` | INTEGER | → `CH_OUTRAS` |
+| `carga_horaria_hospitalar` | INTEGER | → `CH_HOSPITALAR` |
+| `sigla_uf` | STRING | (não usado) |
+| `id_municipio_6_residencia` | STRING | (não usado) |
+| `cbo_2002_original` | STRING | (não usado — preferir `cbo_2002` tratado) |
+| `cbo_1994` | STRING | (não usado) |
+| `indicador_estabelecimento_terceiro` | INTEGER | (não usado) |
+| `indicador_vinculo_contratado_sus` | INTEGER | (não usado) |
+| `indicador_vinculo_autonomo_sus` | INTEGER | (não usado) |
+| `indicador_vinculo_outros` | INTEGER | (não usado) |
+| `indicador_atende_nao_sus` | INTEGER | (não usado — inverso de `indicador_atende_sus`) |
+| `id_registro_conselho` | STRING | (não usado) |
+| `tipo_conselho` | STRING | (não usado) |
+
+**`CPF` indisponível no BigQuery** — campo `CPF` do schema canônico recebe `None` na fonte nacional.
+
+---
+
+## Schema BigQuery Confirmado — `br_ms_cnes.estabelecimento`
+
+> **Confirmado em 2026-03-21.** Tabela tem 204 colunas; apenas as relevantes para o schema são listadas.
+
+| Coluna BigQuery | Tipo | Mapeamento → Schema Padronizado |
+|---|---|---|
+| `ano` | INTEGER | (partição — filtro WHERE) |
+| `mes` | INTEGER | (partição — filtro WHERE) |
+| `id_municipio` | STRING | (filtro WHERE — 7 dígitos) |
+| `id_municipio_6` | STRING | → `COD_MUNICIPIO` (já 6 dígitos) |
+| `id_estabelecimento_cnes` | STRING | → `CNES` |
+| `cnpj_mantenedora` | STRING | → `CNPJ_MANTENEDORA` ⚠️ (não `cnpj` — campo inexistente) |
+| `id_natureza_juridica` | STRING | → `NATUREZA_JURIDICA` ⚠️ (não `natureza_juridica`) |
+| `tipo_unidade` | STRING | → `TIPO_UNIDADE` |
+| `indicador_vinculo_sus` | INTEGER | → `VINCULO_SUS` via `.map({1: "S", 0: "N"})` |
+| `tipo_gestao` | STRING | (não usado no schema) |
+
+**`NOME_FANTASIA` indisponível no BigQuery** — campo `NOME_FANTASIA` do schema canônico recebe `None` na fonte nacional.
+
+## Schema BigQuery Confirmado — `br_ms_cnes.equipe`
+
+> **Confirmado em 2026-03-21.** Tabela tem 24 colunas.
+
+| Coluna BigQuery | Tipo | Mapeamento potencial |
+|---|---|---|
+| `id_estabelecimento_cnes` | STRING | → `CNES` |
+| `id_equipe` | STRING | → possível `INE` (18 chars — formato diferente do Firebird) |
+| `tipo_equipe` | STRING | → `TIPO_EQUIPE` |
+| `equipe` | STRING | → `NOME_EQUIPE` |
+| `area` | STRING | (área de atuação) |
+| `id_municipio` | STRING | (filtro WHERE) |
+
+> [!NOTE]
+> O adapter nacional não implementa `listar_equipes()` — a tabela `equipe` do BigQuery usa `id_equipe` (18 chars) como identificador, que não casa diretamente com o `INE` de 10 chars do Firebird. Cross-check de equipes requer análise adicional do formato de junção.
+
 ## Tabelas Prioritárias Não Exploradas
 
 | Tabela | Hipótese | Colunas | Prioridade |
@@ -173,6 +242,51 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
   AND est.TP_UNID_ID NOT IN ('02', '69', '22', '15')
   AND est.CODMUNGEST = '354130'
 ```
+
+### RQ-006 — Estabelecimentos Fantasma (local sem correspondência nacional) ✅ IMPLEMENTADO
+- **Condição:** CNES presente em `df_local` mas ausente em `df_nacional` (base BigQuery)
+- **Chave de JOIN:** `CNES` (7 dígitos)
+- **Impacto:** Estabelecimento ativo no Firebird local mas sem cadastro na base nacional DATASUS.
+- **Output:** `auditoria_rq006_estab_fantasma.csv` — subconjunto de `df_local` sem correspondência
+- **Função:** `detectar_estabelecimentos_fantasma(df_local, df_nacional)`
+
+### RQ-007 — Estabelecimentos Ausentes no Local (nacional sem correspondência local) ✅ IMPLEMENTADO
+- **Condição:** CNES presente em `df_nacional` mas ausente em `df_local`
+- **Chave de JOIN:** `CNES` (7 dígitos)
+- **Impacto:** Estabelecimento registrado no DATASUS nacional mas não no banco Firebird local.
+- **Output:** `auditoria_rq007_estab_ausente_local.csv` — subconjunto de `df_nacional` sem correspondência
+- **Função:** `detectar_estabelecimentos_ausentes_local(df_local, df_nacional)`
+
+### RQ-008 — Profissionais Fantasma por CNS (local sem correspondência nacional) ✅ IMPLEMENTADO
+- **Condição:** CNS presente em `df_local` mas ausente em `df_nacional`
+- **Chave de JOIN:** `CNS` (15 dígitos — `LFCES018.COD_CNS` ↔ `br_ms_cnes.profissional.cartao_nacional_saude`)
+- **Impacto:** Vínculo ativo no Firebird local sem correspondência na base CNES nacional.
+- **Nota:** Registros com CNS nulo em `df_local` são excluídos da comparação.
+- **Output:** `auditoria_rq008_prof_fantasma_cns.csv` — subconjunto de `df_local` (com CNS) sem correspondência
+- **Função:** `detectar_profissionais_fantasma(df_local, df_nacional)`
+
+### RQ-009 — Profissionais Ausentes no Local por CNS (nacional sem correspondência local) ✅ IMPLEMENTADO
+- **Condição:** CNS presente em `df_nacional` mas ausente em `df_local`
+- **Chave de JOIN:** `CNS` (15 dígitos)
+- **Impacto:** Profissional registrado no DATASUS nacional mas sem vínculo no Firebird local.
+- **Nota:** Registros com CNS nulo em `df_nacional` são excluídos da comparação.
+- **Output:** `auditoria_rq009_prof_ausente_local_cns.csv` — subconjunto de `df_nacional` (com CNS) sem correspondência
+- **Função:** `detectar_profissionais_ausentes_local(df_local, df_nacional)`
+
+### RQ-010 — Divergência de CBO entre Local e Nacional ✅ IMPLEMENTADO
+- **Condição:** Mesmo par (CNS + CNES) com `CBO_LOCAL ≠ CBO_NACIONAL`
+- **Chave de JOIN:** `(CNS, CNES)` — inner join entre local e nacional
+- **Impacto:** Profissional cadastrado com ocupação diferente nas duas fontes — possível erro de registro.
+- **Output:** `auditoria_rq010_divergencia_cbo.csv` — colunas `CNS`, `CNES`, `CBO_LOCAL`, `CBO_NACIONAL`
+- **Função:** `detectar_divergencia_cbo(df_local, df_nacional)`
+
+### RQ-011 — Divergência de Carga Horária entre Local e Nacional ✅ IMPLEMENTADO
+- **Condição:** Mesmo par (CNS + CNES) com `|CH_LOCAL - CH_NACIONAL| > tolerancia` (padrão: 2h)
+- **Chave de JOIN:** `(CNS, CNES)` — inner join entre local e nacional; usa `CH_TOTAL` de ambas as fontes
+- **Impacto:** Carga horária declarada difere entre Firebird e BigQuery além da tolerância aceita.
+- **Parâmetro:** `tolerancia: int = 2` — diferença mínima em horas para ser considerada divergência
+- **Output:** `auditoria_rq011_divergencia_ch.csv` — colunas `CNS`, `CNES`, `CH_LOCAL`, `CH_NACIONAL`, `DELTA_CH`
+- **Função:** `detectar_divergencia_carga_horaria(df_local, df_nacional, tolerancia=2)`
 
 ---
 

@@ -8,7 +8,10 @@
       "Bash(python:*)",
       "Bash(pip freeze:*)",
       "Bash(venv/Scripts/python.exe -m pytest tests/ingestion/test_cnes_client.py -v 2>&1)",
-      "Bash(venv/Scripts/python.exe -m pytest tests/ -m \"not integration\" -q 2>&1)"
+      "Bash(venv/Scripts/python.exe -m pytest tests/ -m \"not integration\" -q 2>&1)",
+      "Bash(venvScriptspython -m pytest tests/ingestion/test_base.py tests/ingestion/test_cnes_local_adapter.py tests/ingestion/test_cnes_nacional_adapter.py tests/analysis/test_cross_check.py tests/test_main.py -v --tb=short)",
+      "Bash(\"venv/Scripts/python.exe\" -m pytest tests/ingestion/test_base.py tests/ingestion/test_cnes_local_adapter.py tests/ingestion/test_cnes_nacional_adapter.py tests/analysis/test_cross_check.py tests/test_main.py -v --tb=short)",
+      "Bash(\"venv/Scripts/python.exe\" -m pytest \"tests/analysis/test_cross_check.py::TestRQ006EstabelecimentosFantasma::test_resultado_vazio_quando_ambas_fontes_vazias\" \"tests/analysis/test_cross_check.py::TestRQ008ProfissionaisFantasma::test_detecta_cns_local_ausente_no_nacional\" \"tests/test_main.py::TestExportacaoPrincipal::test_exporta_rq003b_quando_nao_vazio\" -v --tb=long)"
     ]
   },
   "hooks": {

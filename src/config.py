@@ -55,7 +55,8 @@ DB_DSN: str = f"{DB_HOST}:{DB_PATH}"
 FIREBIRD_DLL: str = _exigir("FIREBIRD_DLL")
 
 # ── Filtros do Município ───────────────────────────────────────────────────
-COD_MUN_IBGE: str = _exigir("COD_MUN_IBGE")
+COD_MUN_IBGE: str = _exigir("COD_MUN_IBGE")           # 6 dígitos — usado no Firebird local
+ID_MUNICIPIO_IBGE7: str = _exigir("ID_MUNICIPIO_IBGE7")  # 7 dígitos — usado no BigQuery
 CNPJ_MANTENEDORA: str = _exigir("CNPJ_MANTENEDORA")
 
 # ── Snapshots Históricos ──────────────────────────────────────────────────
@@ -71,6 +72,11 @@ OUTPUT_PATH: Path = RAIZ_PROJETO / _output_dir / _output_filename
 
 # ── Google Cloud / BigQuery ────────────────────────────────────────────────
 GCP_PROJECT_ID: str = _exigir("GCP_PROJECT_ID")
+
+# ── Competência da Base Nacional (BigQuery) ───────────────────────────────
+# Usada como parâmetro de partição nas queries ao basedosdados.
+COMPETENCIA_ANO: int = int(os.getenv("COMPETENCIA_ANO", "2026"))
+COMPETENCIA_MES: int = int(os.getenv("COMPETENCIA_MES", "01"))
 
 # ── RH / Folha de Pagamento (opcional) ────────────────────────────────────
 # Se não configurado, o cross-check CNES × RH é ignorado silenciosamente.

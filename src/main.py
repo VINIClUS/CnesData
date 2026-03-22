@@ -2,16 +2,10 @@
 main.py — Ponto de Entrada do Pipeline CnesData
 
 Orquestra as quatro camadas da arquitetura limpa:
-  1. Ingestão     → ingestion.cnes_client  (extração do Firebird)
+  1. Ingestão     → adapters padronizados (local + nacional)
   2. Processamento → processing.transformer (limpeza + RQ-002/003)
-  3. Análise      → analysis.rules_engine  (auditoria RQ-003-B, RQ-005)
+  3. Análise      → analysis.rules_engine  (auditoria local + cross-check)
   4. Exportação   → export.csv_exporter    (CSV padrão BR)
-
-Responsabilidade deste arquivo:
-  - Configurar o sistema de logging antes de qualquer operação.
-  - Gerenciar o ciclo de vida da conexão com o banco (abrir/fechar).
-  - Orquestrar a sequência das camadas e exportar relatórios de auditoria.
-  - Tratar e registrar exceções de forma adequada.
 
 Como executar:
   python src/main.py
@@ -24,7 +18,9 @@ from pathlib import Path
 import pandas as pd
 
 import config
-from ingestion.cnes_client import conectar, extrair_profissionais
+from ingestion.cnes_client import conectar
+from ingestion.cnes_local_adapter import CnesLocalAdapter
+from ingestion.cnes_nacional_adapter import CnesNacionalAdapter
 from ingestion.hr_client import carregar_folha
 from processing.transformer import transformar
 from analysis.rules_engine import (
@@ -33,6 +29,12 @@ from analysis.rules_engine import (
     auditar_lotacao_ace_tace,
     detectar_folha_fantasma,
     detectar_registro_ausente,
+    detectar_estabelecimentos_fantasma,
+    detectar_estabelecimentos_ausentes_local,
+    detectar_profissionais_fantasma,
+    detectar_profissionais_ausentes_local,
+    detectar_divergencia_cbo,
+    detectar_divergencia_carga_horaria,
 )
 from analysis.evolution_tracker import criar_snapshot, salvar_snapshot
 from export.csv_exporter import exportar_csv
@@ -88,25 +90,32 @@ def main() -> int:
     configurar_logging()
     logger = logging.getLogger(__name__)
 
-    logger.info("=" * 60)
-    logger.info("Iniciando CnesData Pipeline — Prefeitura de Presidente Epitácio")
-    logger.info("=" * 60)
-    logger.debug("Raiz do projeto: %s", config.RAIZ_PROJETO)
-    logger.debug("Log completo em: %s", config.LOG_FILE)
-
     con = None
     try:
-        # ── Camada 1: Ingestão ────────────────────────────────────────────────
+        # ── Camada 1: Ingestão Local ──────────────────────────────────────────
         con = conectar()
-        df_bruto = extrair_profissionais(con)
+        repo_local = CnesLocalAdapter(con)
+        df_prof_local = repo_local.listar_profissionais()
+        df_estab_local = repo_local.listar_estabelecimentos()
 
-        # ── Camada 2: Processamento ───────────────────────────────────────────
-        df_processado = transformar(df_bruto)
+        # ── Camada 1B: Ingestão Nacional ─────────────────────────────────────
+        repo_nacional = CnesNacionalAdapter(config.GCP_PROJECT_ID, config.ID_MUNICIPIO_IBGE7)
+        competencia = (config.COMPETENCIA_ANO, config.COMPETENCIA_MES)
+        df_prof_nacional = repo_nacional.listar_profissionais(competencia)
+        df_estab_nacional = repo_nacional.listar_estabelecimentos(competencia)
 
-        # ── Camada 3: Análise CNES ────────────────────────────────────────────
+        # ── Camada 2: Processamento (apenas dados locais) ────────────────────
+        df_processado = transformar(df_prof_local)
+
+        # ── Camada 3: Análise — regras locais ────────────────────────────────
         df_multi_unidades = detectar_multiplas_unidades(df_processado)
-        df_acs_incorretos = auditar_lotacao_acs_tacs(df_processado)
-        df_ace_incorretos = auditar_lotacao_ace_tace(df_processado)
+
+        # RQ-005 precisa de TIPO_UNIDADE que vem dos estabelecimentos
+        df_prof_com_unidade = df_processado.merge(
+            df_estab_local[["CNES", "TIPO_UNIDADE"]], on="CNES", how="left"
+        )
+        df_acs_incorretos = auditar_lotacao_acs_tacs(df_prof_com_unidade)
+        df_ace_incorretos = auditar_lotacao_ace_tace(df_prof_com_unidade)
 
         # ── Camada 3B: Cross-check CNES × RH (opcional) ──────────────────────
         df_ghost: pd.DataFrame = pd.DataFrame()
@@ -118,13 +127,28 @@ def main() -> int:
         else:
             logger.warning("hr_cross_check=skipped motivo=FOLHA_HR_PATH_nao_configurado")
 
+        # ── Camada 3C: Cross-check local × nacional ───────────────────────────
+        df_estab_fantasma = detectar_estabelecimentos_fantasma(df_estab_local, df_estab_nacional)
+        df_estab_ausente = detectar_estabelecimentos_ausentes_local(df_estab_local, df_estab_nacional)
+        df_prof_fantasma = detectar_profissionais_fantasma(df_processado, df_prof_nacional)
+        df_prof_ausente = detectar_profissionais_ausentes_local(df_processado, df_prof_nacional)
+        df_cbo_diverg = detectar_divergencia_cbo(df_processado, df_prof_nacional)
+        df_ch_diverg = detectar_divergencia_carga_horaria(df_processado, df_prof_nacional)
+
         # ── Camada 4: Exportação ──────────────────────────────────────────────
         exportar_csv(df_processado, config.OUTPUT_PATH)
+
         _exportar_se_nao_vazio(df_multi_unidades, "auditoria_rq003b_multiplas_unidades.csv")
         _exportar_se_nao_vazio(df_acs_incorretos, "auditoria_rq005_acs_tacs_incorretos.csv")
         _exportar_se_nao_vazio(df_ace_incorretos, "auditoria_rq005_ace_tace_incorretos.csv")
         _exportar_se_nao_vazio(df_ghost, "auditoria_ghost_payroll.csv")
         _exportar_se_nao_vazio(df_missing, "auditoria_missing_registration.csv")
+        _exportar_se_nao_vazio(df_estab_fantasma, "auditoria_rq006_estab_fantasma.csv")
+        _exportar_se_nao_vazio(df_estab_ausente, "auditoria_rq007_estab_ausente_local.csv")
+        _exportar_se_nao_vazio(df_prof_fantasma, "auditoria_rq008_prof_fantasma_cns.csv")
+        _exportar_se_nao_vazio(df_prof_ausente, "auditoria_rq009_prof_ausente_local_cns.csv")
+        _exportar_se_nao_vazio(df_cbo_diverg, "auditoria_rq010_divergencia_cbo.csv")
+        _exportar_se_nao_vazio(df_ch_diverg, "auditoria_rq011_divergencia_ch.csv")
 
         # ── Camada 4B: Relatório Excel consolidado ────────────────────────────
         gerar_relatorio(
@@ -138,9 +162,13 @@ def main() -> int:
         )
 
         # ── Camada 5: Snapshot histórico ──────────────────────────────────────
-        competencia = config.OUTPUT_PATH.stem.split("_")[-1] if "_" in config.OUTPUT_PATH.stem else "desconhecida"
+        competencia_stem = (
+            config.OUTPUT_PATH.stem.split("_")[-1]
+            if "_" in config.OUTPUT_PATH.stem
+            else "desconhecida"
+        )
         snapshot = criar_snapshot(
-            competencia,
+            competencia_stem,
             df_processado,
             df_ghost,
             df_missing,
@@ -169,7 +197,7 @@ def main() -> int:
     finally:
         if con is not None:
             con.close()
-            logger.info("Conexão com o banco encerrada.")
+            logging.getLogger(__name__).info("Conexão com o banco encerrada.")
 
 
 if __name__ == "__main__":
