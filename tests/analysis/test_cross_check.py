@@ -326,3 +326,36 @@ class TestRQ010CboEnrichment:
         resultado = detectar_divergencia_cbo(local, nacional, cbo_lookup={})
         assert resultado["DESCRICAO_CBO_LOCAL"].iloc[0] == "CBO NAO CATALOGADO"
         assert resultado["DESCRICAO_CBO_NACIONAL"].iloc[0] == "CBO NAO CATALOGADO"
+
+
+class TestContratoNormalizacaoCnes:
+    """Documenta que cada função de cross-check normaliza CNES/CNS uma única vez.
+
+    A refatoração de normalize-once (perf: 26cde47) eliminou a segunda aplicação
+    de astype(str).str.strip(). Estes testes garantem que o strip único preserva
+    a correspondência correta mesmo com dados não-limpos.
+    """
+
+    def test_rq006_cnes_com_espacos_no_local_nao_e_considerado_fantasma(self):
+        local = _df_estab([" 1111111 "], "LOCAL")
+        nacional = _df_estab(["1111111"], "NACIONAL")
+        resultado = detectar_estabelecimentos_fantasma(local, nacional)
+        assert resultado.empty
+
+    def test_rq007_cnes_com_espacos_no_nacional_nao_e_considerado_ausente(self):
+        local = _df_estab(["1111111"], "LOCAL")
+        nacional = _df_estab([" 1111111 "], "NACIONAL")
+        resultado = detectar_estabelecimentos_ausentes_local(local, nacional)
+        assert resultado.empty
+
+    def test_rq008_cns_com_espacos_no_local_nao_e_considerado_fantasma(self):
+        local = _df_prof([" 123456789012345 "], ["0985333"], ["515105"], [40], "LOCAL")
+        nacional = _df_prof(["123456789012345"], ["0985333"], ["515105"], [40], "NACIONAL")
+        resultado = detectar_profissionais_fantasma(local, nacional)
+        assert resultado.empty
+
+    def test_rq009_cns_com_espacos_no_nacional_nao_e_considerado_ausente(self):
+        local = _df_prof(["123456789012345"], ["0985333"], ["515105"], [40], "LOCAL")
+        nacional = _df_prof([" 123456789012345 "], ["0985333"], ["515105"], [40], "NACIONAL")
+        resultado = detectar_profissionais_ausentes_local(local, nacional)
+        assert resultado.empty

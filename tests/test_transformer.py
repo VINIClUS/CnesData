@@ -320,3 +320,29 @@ class TestCboEnrichment:
         df = _df_minimo(cpf="11716723817")
         resultado = transformar(df, cbo_lookup={})
         assert resultado["DESCRICAO_CBO"].iloc[0] == "CBO NAO CATALOGADO"
+
+
+class TestContratoNormalizacaoCPF:
+    """Documenta que transformar() realiza strip antes de chamar _aplicar_rq002_validar_cpf.
+
+    _aplicar_rq002_validar_cpf não faz strip próprio — depende desta pré-condição.
+    Estes testes garantem que remover o strip defensivo da função privada é seguro.
+    """
+
+    def test_cpf_com_espaco_final_e_stripado_e_preservado(self):
+        df = _df_minimo(cpf="11716723817 ")
+        resultado = transformar(df)
+        assert len(resultado) == 1
+        assert resultado["CPF"].iloc[0] == "11716723817"
+
+    def test_cpf_com_espaco_inicial_e_stripado_e_preservado(self):
+        df = _df_minimo(cpf=" 11716723817")
+        resultado = transformar(df)
+        assert len(resultado) == 1
+        assert resultado["CPF"].iloc[0] == "11716723817"
+
+    def test_cpf_com_espacos_e_zeros_faltantes_e_normalizado(self):
+        df = _df_minimo(cpf=" 1716723817")
+        resultado = transformar(df)
+        assert len(resultado) == 1
+        assert resultado["CPF"].iloc[0] == "01716723817"
