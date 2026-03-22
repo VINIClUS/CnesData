@@ -7,7 +7,7 @@ Implement the following using strict Test-Driven Development:
 
 $ARGUMENTS
 
-Follow the <workflow> TDD protocol from .claude\skills\tdd-workflow\SKILL.md exactly:
+Follow the TDD protocol from .claude\skills\tdd-workflow\SKILL.md exactly:
 1. Phase 0: Analyze the requirement and plan test cases — present the plan for confirmation.
 2. Phase 1 (RED): Write ALL failing tests FIRST. Run them. Confirm all fail. Commit.
 3. Phase 2 (GREEN): Write minimal implementation. Do NOT modify tests. Run until all pass. Commit.
