@@ -203,10 +203,11 @@ def detectar_estabelecimentos_fantasma(
     Returns:
         Subconjunto de df_local com estabelecimentos sem correspondência nacional.
     """
+    cnes_locais_norm = df_local["CNES"].astype(str).str.strip()
     cnes_nacionais: frozenset[str] = frozenset(
         df_nacional["CNES"].dropna().astype(str).str.strip()
     )
-    resultado = df_local[~df_local["CNES"].astype(str).str.strip().isin(cnes_nacionais)].copy()
+    resultado = df_local[~cnes_locais_norm.isin(cnes_nacionais)].copy()
     logger.info("RQ-006: %d estabelecimento(s) fantasma detectado(s).", len(resultado))
     return resultado
 
@@ -235,7 +236,8 @@ def detectar_estabelecimentos_ausentes_local(
         df_escopo = df_nacional[
             ~df_nacional["TIPO_UNIDADE"].astype(str).isin(tipos_excluir)
         ]
-    resultado = df_escopo[~df_escopo["CNES"].astype(str).str.strip().isin(cnes_locais)].copy()
+    cnes_escopo_norm = df_escopo["CNES"].astype(str).str.strip()
+    resultado = df_escopo[~cnes_escopo_norm.isin(cnes_locais)].copy()
     logger.info("RQ-007: %d estabelecimento(s) ausente(s) no local.", len(resultado))
     return resultado
 
@@ -253,13 +255,12 @@ def detectar_profissionais_fantasma(
     Returns:
         Subconjunto de df_local com vínculos sem correspondência nacional por CNS.
     """
-    df_local_com_cns = df_local[df_local["CNS"].notna()].copy()
+    df_local_com_cns = df_local[df_local["CNS"].notna()]
+    cns_locais_norm = df_local_com_cns["CNS"].astype(str).str.strip()
     cns_nacionais: frozenset[str] = frozenset(
         df_nacional["CNS"].dropna().astype(str).str.strip()
     )
-    resultado = df_local_com_cns[
-        ~df_local_com_cns["CNS"].astype(str).str.strip().isin(cns_nacionais)
-    ].copy()
+    resultado = df_local_com_cns[~cns_locais_norm.isin(cns_nacionais)].copy()
     logger.info(
         "RQ-008: %d vínculo(s) fantasma, %d CNS único(s).",
         len(resultado),
@@ -290,9 +291,8 @@ def detectar_profissionais_ausentes_local(
     df_escopo = df_nacional[df_nacional["CNS"].notna()]
     if cnes_excluir:
         df_escopo = df_escopo[~df_escopo["CNES"].astype(str).str.strip().isin(cnes_excluir)]
-    resultado = df_escopo[
-        ~df_escopo["CNS"].astype(str).str.strip().isin(cns_locais)
-    ].copy()
+    cns_escopo_norm = df_escopo["CNS"].astype(str).str.strip()
+    resultado = df_escopo[~cns_escopo_norm.isin(cns_locais)].copy()
     logger.info("RQ-009: %d profissional(is) ausente(s) no local.", len(resultado))
     return resultado
 

@@ -61,7 +61,7 @@ def _aplicar_rq002_validar_cpf(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Cópia do DataFrame sem registros com CPF inválido.
     """
-    cpf_str = df["CPF"].astype(str).str.strip()
+    cpf_str = df["CPF"]  # já str e stripado pelo chamador (transformar etapas 1 e 1B)
 
     # Captura nulos que viraram strings e comprimentos fora do padrão.
     mascara_invalido = (
