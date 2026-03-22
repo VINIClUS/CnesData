@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from ingestion.base import EstabelecimentoRepository, ProfissionalRepository, EquipeRepository
 from ingestion.cnes_local_adapter import CnesLocalAdapter

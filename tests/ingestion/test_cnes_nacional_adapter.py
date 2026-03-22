@@ -1,6 +1,6 @@
 """test_cnes_nacional_adapter.py — Testes do adapter BigQuery → schema padronizado."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest

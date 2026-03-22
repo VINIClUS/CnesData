@@ -19,7 +19,6 @@ Fonte dos CBOs e TP_UNID_IDs válidos: data_dictionary.md (seção RQ-005).
 import logging
 
 import pandas as pd
-import pytest
 
 # conftest.py (tests/) já adicionou src/ ao sys.path
 from analysis.rules_engine import (
@@ -189,6 +188,12 @@ class TestAuditarLotacaoAceTace:
         resultado = auditar_lotacao_ace_tace(df)
         assert resultado.empty
 
+    def test_nao_detecta_ace_em_covepe_tipo_50(self):
+        """ACE no COVEPE (tipo 50 — orgao de gestao) NAO e anomalia — lotacao administrativa valida."""
+        df = pd.DataFrame([_df_base("11111111111", "515140", "50")])
+        resultado = auditar_lotacao_ace_tace(df)
+        assert resultado.empty
+
     def test_detecta_todos_os_cbos_do_grupo_ace(self):
         """Os três CBOs do grupo ACE/TACE devem ser detectados quando fora da lotação."""
         cbos_fora_lotacao = [
@@ -227,7 +232,7 @@ class TestDominiosCbo:
         assert TP_UNID_VALIDOS_ACS_TACS == frozenset({"01", "02", "15"})
 
     def test_tp_unid_validos_ace_tace(self):
-        assert TP_UNID_VALIDOS_ACE_TACE == frozenset({"02", "69", "22", "15"})
+        assert TP_UNID_VALIDOS_ACE_TACE == frozenset({"02", "69", "22", "15", "50"})
 
     def test_cbo_516220_nao_esta_em_nenhum_grupo_ace_acs(self):
         """

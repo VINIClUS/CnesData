@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
 from ingestion.schemas import SCHEMA_PROFISSIONAL, SCHEMA_ESTABELECIMENTO, SCHEMA_EQUIPE
 from ingestion.cnes_local_adapter import CnesLocalAdapter
@@ -153,6 +152,34 @@ class TestListarEquipes:
         adapter, _ = _adapter_com_mock(df=df_dup)
         resultado = adapter.listar_equipes()
         assert resultado["INE"].nunique() == len(resultado)
+
+
+class TestZeroPaddingCNES:
+
+    def test_cnes_6_digitos_recebe_zero_a_esquerda_profissionais(self):
+        df = _DF_FIREBIRD.copy()
+        df["COD_CNES"] = ["985333"]
+        adapter, _ = _adapter_com_mock(df=df)
+        resultado = adapter.listar_profissionais()
+        assert resultado["CNES"].iloc[0] == "0985333"
+
+    def test_cnes_7_digitos_nao_muda_profissionais(self):
+        adapter, _ = _adapter_com_mock()
+        resultado = adapter.listar_profissionais()
+        assert resultado["CNES"].iloc[0] == "0985333"
+
+    def test_cnes_6_digitos_recebe_zero_a_esquerda_estabelecimentos(self):
+        df = _DF_FIREBIRD.copy()
+        df["COD_CNES"] = ["985333"]
+        adapter, _ = _adapter_com_mock(df=df)
+        resultado = adapter.listar_estabelecimentos()
+        assert resultado["CNES"].iloc[0] == "0985333"
+
+    def test_cnes_zfill_em_equipes(self):
+        adapter, _ = _adapter_com_mock()
+        resultado = adapter.listar_equipes()
+        assert not resultado.empty
+        assert (resultado["CNES"].str.len() == 7).all()
 
 
 class TestCacheInterno:

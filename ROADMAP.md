@@ -156,6 +156,21 @@ Base estabilizada em 2026-03-21. Pipeline canônico em camadas, 271 testes unit�
 | 8 | WP-008 | Desbloqueia WP-009; elimina acoplamento infra-negócio |
 | 9 | WP-009 | Cross-check nacional amplia cobertura de auditoria |
 
+---
+
+### Cleanup — Remoção de Código Legado
+**Data:** 2026-03-22
+**Removidos:**
+- `src/cnes_exporter.py` (deprecated desde WP-005)
+- `tests/test_exporter_integration.py` (testava módulo removido)
+- `src/exemplos/` (material didático, não usado no pipeline)
+
+**Adicionados:**
+- `tests/test_pipeline_integration.py` (integração real via main.py + CLI)
+- `README.md` reescrito com docs CLI e guia de onboarding
+
+---
+
 ## Estado Atual da Base
 
 | Módulo | Status | Testes |

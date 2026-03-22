@@ -1,7 +1,6 @@
 """test_cross_check.py — Testes das regras de reconciliação local × nacional (RQ-006 a RQ-011)."""
 
 import pandas as pd
-import pytest
 
 from analysis.rules_engine import (
     detectar_estabelecimentos_fantasma,
@@ -145,6 +144,72 @@ class TestRQ009ProfissionaisAusentesLocal:
         })
         resultado = detectar_profissionais_ausentes_local(local, nacional)
         assert resultado.empty
+
+
+class TestRQ007FiltroTipoUnidade:
+
+    def test_exclui_tipo_unidade_especificado(self):
+        local = _df_estab(["2222222"], "LOCAL")
+        nacional = pd.DataFrame({
+            "CNES": ["1111111", "3333333"],
+            "NOME_FANTASIA": ["CONSULTORIO X", "UBS Y"],
+            "TIPO_UNIDADE": ["22", "02"],
+            "FONTE": ["NACIONAL", "NACIONAL"],
+        })
+        resultado = detectar_estabelecimentos_ausentes_local(
+            local, nacional, tipos_excluir=frozenset({"22"})
+        )
+        assert len(resultado) == 1
+        assert resultado["CNES"].iloc[0] == "3333333"
+
+    def test_sem_tipos_excluir_retorna_todos(self):
+        local = _df_estab(["2222222"], "LOCAL")
+        nacional = pd.DataFrame({
+            "CNES": ["1111111", "3333333"],
+            "NOME_FANTASIA": ["CONSULTORIO X", "UBS Y"],
+            "TIPO_UNIDADE": ["22", "02"],
+            "FONTE": ["NACIONAL", "NACIONAL"],
+        })
+        resultado = detectar_estabelecimentos_ausentes_local(local, nacional)
+        assert len(resultado) == 2
+
+
+class TestRQ009FiltragemCascata:
+
+    def test_exclui_profissionais_de_cnes_ausente(self):
+        local = _df_prof([], [], [], [], "LOCAL")
+        nacional = _df_prof(
+            ["111111111111111", "222222222222222"],
+            ["0985333", "9999999"],
+            ["515105", "515105"],
+            [40, 40],
+            "NACIONAL",
+        )
+        resultado = detectar_profissionais_ausentes_local(
+            local, nacional, cnes_excluir=frozenset({"9999999"})
+        )
+        assert len(resultado) == 1
+        assert resultado["CNS"].iloc[0] == "111111111111111"
+
+    def test_sem_cnes_excluir_retorna_todos(self):
+        local = _df_prof([], [], [], [], "LOCAL")
+        nacional = _df_prof(
+            ["111111111111111", "222222222222222"],
+            ["0985333", "9999999"],
+            ["515105", "515105"],
+            [40, 40],
+            "NACIONAL",
+        )
+        resultado = detectar_profissionais_ausentes_local(local, nacional)
+        assert len(resultado) == 2
+
+    def test_cnes_excluir_vazio_nao_filtra_nada(self):
+        local = _df_prof([], [], [], [], "LOCAL")
+        nacional = _df_prof(["111111111111111"], ["0985333"], ["515105"], [40], "NACIONAL")
+        resultado = detectar_profissionais_ausentes_local(
+            local, nacional, cnes_excluir=frozenset()
+        )
+        assert len(resultado) == 1
 
 
 class TestRQ010DivergenciaCbo:

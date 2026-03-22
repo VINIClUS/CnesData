@@ -50,8 +50,9 @@ class CnesLocalAdapter:
             DataFrame conforme SCHEMA_PROFISSIONAL.
         """
         df = self._extrair().rename(columns=_MAP_PROFISSIONAL)
-        for col in ("CNS", "CPF", "CNES"):
+        for col in ("CNS", "CPF"):
             df[col] = df[col].str.strip()
+        df["CNES"] = df["CNES"].str.strip().str.zfill(7)
         df["FONTE"] = _FONTE_LOCAL
         logger.debug("listar_profissionais fonte=LOCAL rows=%d", len(df))
         return df[list(SCHEMA_PROFISSIONAL)]
@@ -67,7 +68,7 @@ class CnesLocalAdapter:
         """
         df = self._extrair()
         estab = df[list(_MAP_ESTABELECIMENTO.keys())].rename(columns=_MAP_ESTABELECIMENTO)
-        estab["CNES"] = estab["CNES"].str.strip()
+        estab["CNES"] = estab["CNES"].str.strip().str.zfill(7)
         estab = estab.drop_duplicates("CNES")
         estab["CNPJ_MANTENEDORA"] = None
         estab["NATUREZA_JURIDICA"] = None
@@ -92,7 +93,7 @@ class CnesLocalAdapter:
         )
         eq = eq.dropna(subset=["INE"]).drop_duplicates("INE")
         eq["INE"] = eq["INE"].str.strip()
-        eq["CNES"] = eq["CNES"].str.strip()
+        eq["CNES"] = eq["CNES"].str.strip().str.zfill(7)
         eq["FONTE"] = _FONTE_LOCAL
         logger.debug("listar_equipes fonte=LOCAL rows=%d", len(eq))
         return eq[list(SCHEMA_EQUIPE)]

@@ -138,6 +138,15 @@ def transformar(df: pd.DataFrame) -> pd.DataFrame:
         if coluna in resultado.columns:
             resultado[coluna] = resultado[coluna].astype(str).str.strip()
 
+    # ── Etapa 1B: Zero-padding de CPF ─────────────────────────────────────────
+    # Firebird omite zeros à esquerda em CPFs que começam com 0.
+    # Aplicamos zfill(11) apenas em valores que não são sentinelas de nulo
+    # para preservar a exclusão correta pelo RQ-002.
+    if "CPF" in resultado.columns:
+        _sentinelas = {"None", "nan", "NaN", "NaT", ""}
+        _mask_pad = ~resultado["CPF"].isin(_sentinelas)
+        resultado.loc[_mask_pad, "CPF"] = resultado.loc[_mask_pad, "CPF"].str.zfill(11)
+
     registros_antes_rq002 = len(resultado)
 
     # ── Etapa 2: RQ-002 — validação de CPF ───────────────────────────────────

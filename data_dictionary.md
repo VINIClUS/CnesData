@@ -281,12 +281,12 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 - **Função:** `detectar_divergencia_cbo(df_local, df_nacional)`
 
 ### RQ-011 — Divergência de Carga Horária entre Local e Nacional ✅ IMPLEMENTADO
-- **Condição:** Mesmo par (CNS + CNES) com `|CH_LOCAL - CH_NACIONAL| > tolerancia` (padrão: 2h)
+- **Condição:** Mesmo par (CNS + CNES) com `|CH_LOCAL - CH_NACIONAL| > tolerancia` (padrão: 0h)
 - **Chave de JOIN:** `(CNS, CNES)` — inner join entre local e nacional; usa `CH_TOTAL` de ambas as fontes
 - **Impacto:** Carga horária declarada difere entre Firebird e BigQuery além da tolerância aceita.
-- **Parâmetro:** `tolerancia: int = 2` — diferença mínima em horas para ser considerada divergência
+- **Parâmetro:** `tolerancia: int = 0` — diferença mínima em horas para ser considerada divergência
 - **Output:** `auditoria_rq011_divergencia_ch.csv` — colunas `CNS`, `CNES`, `CH_LOCAL`, `CH_NACIONAL`, `DELTA_CH`
-- **Função:** `detectar_divergencia_carga_horaria(df_local, df_nacional, tolerancia=2)`
+- **Função:** `detectar_divergencia_carga_horaria(df_local, df_nacional, tolerancia=0)`
 
 ---
 

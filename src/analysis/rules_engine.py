@@ -46,8 +46,9 @@ CBOS_ACE_TACE: Final[frozenset[str]] = frozenset({
 # ACS/TACS devem estar em: UBS (01), CS II (02) ou equivalente (15).
 TP_UNID_VALIDOS_ACS_TACS: Final[frozenset[str]] = frozenset({"01", "02", "15"})
 
-# ACE/TACE devem estar em: CS II (02), CCZ/COVEPE (69), Distrito (22) ou (15).
-TP_UNID_VALIDOS_ACE_TACE: Final[frozenset[str]] = frozenset({"02", "69", "22", "15"})
+# ACE/TACE devem estar em: CS II (02), CCZ/COVEPE (69), Distrito (22), (15) ou
+# Secretaria/Orgao Gestor (50) — lotacao administrativa valida no municipio 354130.
+TP_UNID_VALIDOS_ACE_TACE: Final[frozenset[str]] = frozenset({"02", "69", "22", "15", "50"})
 
 
 def detectar_multiplas_unidades(df: pd.DataFrame) -> pd.DataFrame:
@@ -213,12 +214,15 @@ def detectar_estabelecimentos_fantasma(
 def detectar_estabelecimentos_ausentes_local(
     df_local: pd.DataFrame,
     df_nacional: pd.DataFrame,
+    tipos_excluir: frozenset[str] | None = None,
 ) -> pd.DataFrame:
     """RQ-007: CNES presente na base nacional mas AUSENTE no local.
 
     Args:
         df_local: Estabelecimentos locais (schema padronizado, coluna CNES).
         df_nacional: Estabelecimentos nacionais (schema padronizado, coluna CNES).
+        tipos_excluir: Tipos de unidade a excluir do escopo (ex: consultórios
+            de outros mantenedores). Requer coluna TIPO_UNIDADE no df_nacional.
 
     Returns:
         Subconjunto de df_nacional com estabelecimentos sem correspondência local.
@@ -226,7 +230,12 @@ def detectar_estabelecimentos_ausentes_local(
     cnes_locais: frozenset[str] = frozenset(
         df_local["CNES"].dropna().astype(str).str.strip()
     )
-    resultado = df_nacional[~df_nacional["CNES"].astype(str).str.strip().isin(cnes_locais)].copy()
+    df_escopo = df_nacional
+    if tipos_excluir and "TIPO_UNIDADE" in df_nacional.columns:
+        df_escopo = df_nacional[
+            ~df_nacional["TIPO_UNIDADE"].astype(str).isin(tipos_excluir)
+        ]
+    resultado = df_escopo[~df_escopo["CNES"].astype(str).str.strip().isin(cnes_locais)].copy()
     logger.info("RQ-007: %d estabelecimento(s) ausente(s) no local.", len(resultado))
     return resultado
 
@@ -262,12 +271,15 @@ def detectar_profissionais_fantasma(
 def detectar_profissionais_ausentes_local(
     df_local: pd.DataFrame,
     df_nacional: pd.DataFrame,
+    cnes_excluir: frozenset[str] | None = None,
 ) -> pd.DataFrame:
     """RQ-009: CNS presente na base nacional mas AUSENTE no local.
 
     Args:
         df_local: Profissionais locais (schema padronizado, coluna CNS).
         df_nacional: Profissionais nacionais (schema padronizado, coluna CNS).
+        cnes_excluir: CNES cujos profissionais devem ser ignorados — tipicamente
+            os CNES já detectados pelo RQ-007, evitando falsos positivos em cascata.
 
     Returns:
         Subconjunto de df_nacional com vínculos sem correspondência local por CNS.
@@ -275,9 +287,11 @@ def detectar_profissionais_ausentes_local(
     cns_locais: frozenset[str] = frozenset(
         df_local["CNS"].dropna().astype(str).str.strip()
     )
-    df_nacional_com_cns = df_nacional[df_nacional["CNS"].notna()]
-    resultado = df_nacional_com_cns[
-        ~df_nacional_com_cns["CNS"].astype(str).str.strip().isin(cns_locais)
+    df_escopo = df_nacional[df_nacional["CNS"].notna()]
+    if cnes_excluir:
+        df_escopo = df_escopo[~df_escopo["CNES"].astype(str).str.strip().isin(cnes_excluir)]
+    resultado = df_escopo[
+        ~df_escopo["CNS"].astype(str).str.strip().isin(cns_locais)
     ].copy()
     logger.info("RQ-009: %d profissional(is) ausente(s) no local.", len(resultado))
     return resultado

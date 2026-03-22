@@ -13,7 +13,6 @@ from pathlib import Path
 
 import openpyxl
 import pandas as pd
-import pytest
 
 from export.report_generator import gerar_relatorio
 

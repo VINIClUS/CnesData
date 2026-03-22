@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from analysis.evolution_tracker import (
     Snapshot,

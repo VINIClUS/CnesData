@@ -102,11 +102,14 @@ def df_com_cpf_invalido() -> pd.DataFrame:
     """
     DataFrame com CPFs inválidos para testar RQ-002.
 
-    Inclui: CPF None, CPF com comprimento errado (9 dígitos), CPF válido.
+    Inclui: CPF None, CPF com 12 dígitos (irreparavelmente longo), CPF válido.
+    O CPF de 9 dígitos foi substituído por 12 dígitos porque, após a correção
+    de zero-padding (ALERTA-1), CPFs de 9/10 dígitos são promovidos para 11
+    com zfill e se tornam válidos — não são mais "inválidos" de remover.
     Após transformar(), apenas o terceiro registro deve sobreviver.
     """
     return pd.DataFrame({
-        "CPF":                [None, "123456789", "27943602803"],
+        "CPF":                [None, "123456789012", "27943602803"],
         "CNS":                [None, None, "708609133020390"],
         "NOME_PROFISSIONAL":  ["NOME COM CPF NULO", "NOME COM CPF CURTO", "NOME VALIDO"],
         "NOME_SOCIAL":        [None, None, None],

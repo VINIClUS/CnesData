@@ -66,8 +66,9 @@ def _cruzar_nacional(
         resultado["estab_fantasma"] = detectar_estabelecimentos_fantasma(
             df_estab_local, df_estab_nacional
         )
+        _TIPOS_EXCLUIR_RQ007: frozenset[str] = frozenset({"22"})
         resultado["estab_ausente"] = detectar_estabelecimentos_ausentes_local(
-            df_estab_local, df_estab_nacional
+            df_estab_local, df_estab_nacional, tipos_excluir=_TIPOS_EXCLUIR_RQ007
         )
     else:
         _log.warning("estab_cross_check=skipped motivo=estabelecimentos_nacionais_vazios")
@@ -75,8 +76,13 @@ def _cruzar_nacional(
         resultado["prof_fantasma"] = detectar_profissionais_fantasma(
             df_prof_local, df_prof_nacional
         )
+        _cnes_ausentes = (
+            frozenset(resultado["estab_ausente"]["CNES"])
+            if not resultado["estab_ausente"].empty
+            else frozenset()
+        )
         resultado["prof_ausente"] = detectar_profissionais_ausentes_local(
-            df_prof_local, df_prof_nacional
+            df_prof_local, df_prof_nacional, cnes_excluir=_cnes_ausentes
         )
         resultado["cbo_diverg"] = detectar_divergencia_cbo(df_prof_local, df_prof_nacional)
         resultado["ch_diverg"] = detectar_divergencia_carga_horaria(

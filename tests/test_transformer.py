@@ -18,7 +18,6 @@ Categorias de teste:
 """
 
 import pandas as pd
-import pytest
 
 # conftest.py adicionou src/ ao sys.path
 from processing.transformer import (
@@ -33,6 +32,50 @@ from processing.transformer import (
 # ─────────────────────────────────────────────────────────────────────────────
 # Grupo 1: Preservação de Dados
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _df_minimo(cpf="11716723817", ch_total=40) -> pd.DataFrame:
+    return pd.DataFrame({
+        "CPF":               [cpf],
+        "CNS":               ["702002887429583"],
+        "NOME_PROFISSIONAL": ["TESTE"],
+        "NOME_SOCIAL":       [None],
+        "SEXO":              ["F"],
+        "DATA_NASCIMENTO":   ["1990-01-01"],
+        "CBO":               ["515105"],
+        "TIPO_VINCULO":      ["010101"],
+        "SUS":               ["S"],
+        "CH_TOTAL":          [ch_total],
+        "CH_AMBULATORIAL":   [ch_total],
+        "CH_OUTRAS":         [0],
+        "CH_HOSPITALAR":     [0],
+        "CNES":              ["0985333"],
+        "ESTABELECIMENTO":   ["UBS TESTE"],
+        "TIPO_UNIDADE":      ["02"],
+        "COD_MUNICIPIO":     ["354130"],
+        "INE":               [None],
+        "NOME_EQUIPE":       [None],
+        "TIPO_EQUIPE":       [None],
+    })
+
+
+class TestZeroPaddingCPF:
+
+    def test_cpf_10_digitos_recebe_zero_a_esquerda(self):
+        resultado = transformar(_df_minimo(cpf="1234567890"))
+        assert resultado["CPF"].iloc[0] == "01234567890"
+
+    def test_cpf_9_digitos_recebe_dois_zeros(self):
+        resultado = transformar(_df_minimo(cpf="123456789"))
+        assert resultado["CPF"].iloc[0] == "00123456789"
+
+    def test_cpf_11_digitos_nao_muda(self):
+        resultado = transformar(_df_minimo(cpf="11716723817"))
+        assert resultado["CPF"].iloc[0] == "11716723817"
+
+    def test_cpf_nulo_nao_recebe_zfill_e_excluido(self):
+        resultado = transformar(_df_minimo(cpf=None))
+        assert len(resultado) == 0
+
 
 class TestPreservacaoDeDados:
 

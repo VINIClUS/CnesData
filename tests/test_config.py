@@ -9,8 +9,6 @@ Estes testes são 100% unitários: não precisam de banco de dados,
 não fazem I/O de rede e rodam em milissegundos.
 """
 
-import os
-import sys
 from pathlib import Path
 import pytest
 
