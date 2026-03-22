@@ -8,32 +8,51 @@ We are developing a mission-critical data extraction and reconciliation pipeline
 </project_context>
 
 <project_architecture>
-1. Ingestion Layer (Extract)
-- CNES Module (`src/ingestion/cnes_client.py`): Fetches active professionals and history using optimized Firebird (`fdb`) queries.
-- HR/Timeclock Module (`src/ingestion/hr_client.py`): Parses `.xlsx` and `.csv` files with strict schema validation.
-- DATASUS/Web Module (`src/ingestion/web_client.py`): Fetches open data via `requests` with robust retry policies.
 
-2. Standardization Layer (Transform)
-- Universal PK: Cleaned CPF (no dots/dashes) as the primary JOIN key.
-- Type Normalization: ISO 8601 dates, uppercase strings, accent removal.
+Ingestion Layer (Extract)
 
-3. Audit & Cross-matching Engine (Analyze - The Core)
-- False Positives (Ghost Payroll): Active in CNES, but inactive or lacking attendance in the HR system.
-- False Negatives (Missing Registration): Clocking in and on payroll, but missing/outdated in the local CNES.
-- Allocation & Transparency Audit: Validates structural links vs. physical reality. CRITICAL: Ensure professionals like community health workers are accurately linked to administrative control departments (e.g., COVEPE, CCZ) rather than physical health units (e.g., CSII).
 
-4. Export & Alerts Layer (Load/Report)
-- Inconsistency Reports: Segmented reports (Excel/CSV) detailing the violated rule, the affected CPF, and actionable correction recommendations.
-- Evolution Tracking: Historical snapshots to measure metrics and improvements over time.
+CNES Module (src/ingestion/cnes_client.py): Fetches active professionals and history using optimized Firebird (fdb) queries.
+HR/Timeclock Module (src/ingestion/hr_client.py): Parses .xlsx and .csv files with strict schema validation.
+DATASUS/Web Module (src/ingestion/web_client.py): Fetches open data via requests with robust retry policies.
+Adapters (src/ingestion/cnes_local_adapter.py, cnes_nacional_adapter.py): PEP 544 Protocols → schema canônico (schemas.py).
 
-5. Quality & Testing Strategy
-- FDB Mocks: Strict use of `unittest.mock.patch` for pandas queries to inject controlled DataFrames. NEVER use live DB connections in tests.
-- Edge Cases: Explicitly test invalid CPFs, slight name misspellings (e.g., "Silva" vs "Siva"), and null fields in CNES.
+
+Standardization Layer (Transform)
+
+
+src/processing/transformer.py: Universal PK (cleaned CPF), ISO 8601 dates, uppercase strings, accent removal. RQ-002 (CPF validation), RQ-003 (zero CH flag).
+
+
+Audit & Cross-matching Engine (Analyze - The Core)
+
+
+src/analysis/rules_engine.py: 11 audit rules (RQ-003-B, RQ-005, RQ-006–011, Ghost Payroll, Missing Registration).
+src/analysis/evolution_tracker.py: Historical JSON snapshots for trend tracking.
+False Positives (Ghost Payroll): Active in CNES, but inactive or lacking attendance in the HR system.
+False Negatives (Missing Registration): Clocking in and on payroll, but missing/outdated in the local CNES.
+Allocation & Transparency Audit: Validates structural links vs. physical reality. CRITICAL: Ensure professionals like community health workers are accurately linked to administrative control departments (e.g., COVEPE, CCZ) rather than physical health units (e.g., CSII).
+
+
+Export & Alerts Layer (Load/Report)
+
+
+src/export/csv_exporter.py: CSV padrão BR (; separator, utf-8-sig).
+src/export/report_generator.py: Excel multi-aba com recomendações (openpyxl).
+Up to 11 conditional audit CSVs per execution.
+
+
+Quality & Testing Strategy
+
+
+271 testes unitários passando. FDB Mocks: Strict use of unittest.mock.patch for pandas queries to inject controlled DataFrames. NEVER use live DB connections in tests.
+Edge Cases: Explicitly test invalid CPFs, slight name misspellings, and null fields in CNES.
 </project_architecture>
 
 <resources>
-- Data Dictionary: Located at `C:\Users\Vinicius\Projetos\CnesData\data_dictionary.md`. 
-CRITICAL RULE: You MUST consult this dictionary to understand the exact Firebird database schema, table relationships, and column names BEFORE writing any SQL queries, data extraction logic, or creating pandas mock DataFrames. Never hallucinate or guess schema details.
+- **Data Dictionary:** `data_dictionary.md` — Firebird schema, BigQuery schema, regras de auditoria.
+  CRITICAL: Consult this dictionary BEFORE writing any SQL, data extraction logic, or mock DataFrames.
+- **Skills/Agents Authoring Guide:** `.claude/skills/skill-authoring/SKILL.md` — Read only when creating or modifying skills/agents/commands.
 </resources>
 
 <engineering_and_quality_rules>
@@ -138,586 +157,6 @@ If any verification command is not yet defined for this project, ask the user fo
 
 </engineering_and_quality_rules>
 
-<skills_and_agents>
-
-## 1 · Core Concepts — When to Use What
-
-| Mechanism      | What It Is                                       | When To Use                                                    | Scope               |
-|----------------|--------------------------------------------------|----------------------------------------------------------------|----------------------|
-| **CLAUDE.md**  | Persistent context loaded every session           | Universal rules, style guides, project conventions              | Always in context    |
-| **Skill**      | Directory with SKILL.md + optional resources      | Reusable procedural knowledge Claude loads on-demand            | Loaded when relevant |
-| **Slash Command** | Single .md file in `.claude/commands/`         | User-invoked parameterized procedures ("inner loop" workflows)  | Loaded when invoked  |
-| **Subagent**   | Isolated Claude instance with own context window  | Focused tasks that would bloat main context (research, review)  | Own context, returns summary |
-| **Agent Team** | Multiple parallel sessions that communicate       | Large tasks needing real-time coordination between workers      | Multiple sessions    |
-
-**Decision tree:**
-- Is it a universal rule Claude must always follow? → **CLAUDE.md**
-- Is it a reusable workflow/expertise Claude should load automatically when relevant? → **Skill**
-- Is it a user-triggered procedure you run repeatedly? → **Slash Command** (or Skill with `invocation: user`)
-- Would the task pollute your main context with research/exploration? → **Subagent**
-- Do the workers need to communicate with each other? → **Agent Team**
-
----
-
-## 2 · Authoring Skills
-
-### 2.1 · Architecture — Progressive Disclosure
-
-<important>
-The context window is a public good. At startup, only skill `name` and `description`
-are pre-loaded (~15,000 character budget for ALL skill metadata combined). Claude reads
-SKILL.md only when it decides the skill is relevant. Additional files are read only when
-referenced. Design for this: keep SKILL.md lean, put detail in reference files.
-</important>
-
-**Directory structure:**
-```
-.claude/skills/<skill-name>/
-├── SKILL.md              # Core instructions (≤500 lines, ≤2000 words)
-├── references/           # Detailed docs Claude reads on-demand
-│   ├── API_REFERENCE.md
-│   ├── PATTERNS.md
-│   └── EXAMPLES.md
-├── scripts/              # Executable utilities (output enters context, code does NOT)
-│   ├── validate.py
-│   └── generate_template.sh
-└── assets/               # Templates, schemas, configs
-    └── base_template.json
-```
-
-**Progressive disclosure layers:**
-1. **Metadata** (always loaded): `name` + `description` in frontmatter → Claude decides whether to load
-2. **SKILL.md body** (loaded on activation): Core workflow, essential rules, file pointers → Claude executes
-3. **Reference files** (loaded on demand): Deep documentation, API specs, examples → Claude reads only what's needed
-4. **Scripts** (executed, never read): Utility code that runs via bash → only output enters context
-
-### 2.2 · SKILL.md Frontmatter
-
-```yaml
----
-name: my-skill-name              # Lowercase, hyphens only, ≤64 chars. Becomes /my-skill-name
-description: >                   # ≤1024 chars. THE most important field for activation.
-  What the skill does AND when Claude should use it.
-  Include trigger phrases: "Use when user asks to...",
-  "Activates for...", "Trigger phrases include..."
-invocation: auto                 # auto (default) | user | agent
-  # auto  = Claude loads it when relevant OR user invokes with /name
-  # user  = Only loads when user types /name (never auto-triggered)
-  # agent = Only available to subagents, not main conversation
-context: append                  # append (default) | fork
-  # append = Instructions injected into current conversation
-  # fork   = Runs in a new subagent context (isolates research/exploration)
-agent: Explore                   # Only with context: fork. Which subagent type to use.
-  # Options: Explore (read-only), Plan (research), general-purpose, or custom agent name
-allowed-tools:                   # Optional: restrict which tools the skill can use
-  - Read
-  - Bash(pytest:*)
-  - Bash(ruff:*)
----
-```
-
-### 2.3 · Writing Effective Descriptions (Activation Reliability)
-
-The description determines whether Claude discovers and loads your skill. Community research
-across 200+ prompts shows activation reliability varies dramatically with description quality:
-
-| Description Quality           | Activation Rate |
-|-------------------------------|-----------------|
-| Generic, vague                | ~20%            |
-| Specific with trigger phrases | ~50%            |
-| Specific + example phrases    | ~72-90%         |
-
-**Rules for high-activation descriptions:**
-- State WHAT the skill does in the first sentence.
-- State WHEN Claude should use it in the second sentence.
-- Include 3-5 explicit trigger phrases the user might say.
-- Include anti-triggers (what the skill does NOT do) to prevent false activations.
-- Use gerund form for the name (verb-ing): `code-reviewing`, `test-writing`, `db-migrating`.
-
-**Good example:**
-```yaml
-description: >
-  Reviews Python code for bugs, security issues, and style violations.
-  Use when reviewing pull requests, checking code quality, analyzing diffs,
-  or when user mentions "review", "PR", "code quality", "audit", or "check this code".
-  Does NOT run tests or modify code — only analyzes and reports.
-```
-
-**Bad example:**
-```yaml
-description: Code review tool
-```
-
-### 2.4 · SKILL.md Body — Content Principles
-
-**Include only what Claude does NOT already know.** Challenge every line:
-- Does Claude already know this from training? → Delete it.
-- Will this become outdated? → Move it to a reference file or use `!`command`` for live data.
-- Is this a style preference, not a procedure? → Put it in CLAUDE.md instead.
-- Is this executable logic? → Move it to `scripts/` — Claude runs it, only output enters context.
-
-**Structure the body for scanning, not reading:**
-```markdown
-## Quick Start
-[1-3 sentences: what to do when this skill activates]
-
-## Workflow
-[Numbered steps — the core procedure]
-
-## Rules
-[Non-negotiable constraints — use MUST/MUST NOT sparingly but deliberately]
-
-## Reference Files
-- [PATTERNS.md](references/PATTERNS.md) — Common patterns and anti-patterns
-- [API_REFERENCE.md](references/API_REFERENCE.md) — Endpoint specs (read when building API calls)
-
-## Scripts
-- `scripts/validate.py <file>` — Validates output format (run after generation)
-```
-
-**Dynamic context injection:** Use `!`command`` in SKILL.md to inject live data at activation:
-```markdown
-## Current branch info
-!`git branch --show-current`
-
-## Project dependencies
-!`cat pyproject.toml | head -30`
-```
-Claude runs these on invocation and sees only the output — the command itself is replaced.
-
-### 2.5 · Reference Files — Supporting Materials
-
-Reference files provide depth without bloating SKILL.md:
-
-| File                | Purpose                                      | When Claude reads it         |
-|---------------------|----------------------------------------------|------------------------------|
-| `PATTERNS.md`       | Approved patterns and anti-patterns           | When implementing            |
-| `API_REFERENCE.md`  | API endpoint specs, schemas, auth details     | When building API calls      |
-| `EXAMPLES.md`       | Input/output examples of correct behavior     | When uncertain about format  |
-| `STYLE_GUIDE.md`    | Domain-specific style rules                   | When generating content      |
-| `TROUBLESHOOTING.md`| Common errors and fixes                       | When encountering errors     |
-
-**Rules:**
-- Prefer pointers over copies: reference the actual source file when possible (`See src/models/user.py for the canonical schema`) rather than duplicating code that will go stale.
-- Keep each reference file ≤1000 lines. Split further if needed.
-- Name files descriptively — Claude uses the filename to decide whether to read them.
-
-### 2.6 · Scripts — Executable Utilities
-
-Scripts are tools Claude runs via bash. Their code never enters the context window — only their output does. This makes them dramatically more efficient than having Claude generate equivalent logic.
-
-**Script rules:**
-- Every script must be executable: `chmod +x scripts/*.py`
-- Every script must have a `--help` flag explaining usage.
-- Scripts should exit 0 on success, non-zero on failure.
-- Output should be concise and parseable — not verbose logging.
-- Include a validation script when the skill produces structured output.
-
-**Example pattern:**
-```python
-#!/usr/bin/env python3
-"""Validate generated API schema against project conventions."""
-import sys, json
-
-def validate(filepath):
-    with open(filepath) as f:
-        schema = json.load(f)
-    errors = []
-    if "version" not in schema:
-        errors.append("Missing 'version' field")
-    if not schema.get("endpoints"):
-        errors.append("No endpoints defined")
-    return errors
-
-if __name__ == "__main__":
-    if "--help" in sys.argv:
-        print("Usage: validate.py <schema.json>")
-        sys.exit(0)
-    errors = validate(sys.argv[1])
-    if errors:
-        print("VALIDATION FAILED:")
-        for e in errors:
-            print(f"  - {e}")
-        sys.exit(1)
-    print("OK")
-```
-
----
-
-## 3 · Authoring Subagents
-
-### 3.1 · When to Use Subagents vs Skills
-
-| Situation                                         | Use         |
-|---------------------------------------------------|-------------|
-| Claude needs to follow a procedure in the current session | Skill       |
-| Research/exploration would bloat main context       | Subagent    |
-| The task needs a focused persona (security auditor, QA reviewer) | Subagent    |
-| The task needs restricted tool access (read-only reviewer) | Subagent    |
-| Multiple independent tasks can run in parallel      | Subagent(s) |
-| Workers need to communicate and coordinate          | Agent Team  |
-
-**Key insight:** Subagents keep your main context clean. The parent session sees only the
-subagent's summary, not every file it read or command it ran. This is the primary reason
-to use them — context preservation, not just specialization.
-
-### 3.2 · Subagent File Structure
-
-```
-.claude/agents/<agent-name>.md
-```
-
-**Subagents are defined as single markdown files with YAML frontmatter:**
-
-```yaml
----
-name: security-reviewer
-description: |
-  Use this agent to perform comprehensive security reviews of code changes, pull requests,
-  or entire modules. Triggers when the user mentions security review, vulnerability scan,
-  security audit, pen-test prep, OWASP check, or requests a review focused on auth, injection,
-  XSS, access control, secrets, or supply chain risks.
-
-  Examples:
-
-  Context: User has just implemented a new authentication flow.
-  user: "Review the auth changes I just made for security issues"
-  assistant: "I'll run a security review on your authentication changes."
-  <uses Task tool to launch security-reviewer agent>
-
-  Context: User wants to check a PR before merging.
-  user: "Do a security scan on this PR branch"
-  assistant: "Let me delegate a thorough security review of this branch."
-  <uses Task tool to launch security-reviewer agent>
-
-  Context: User asks about hardening an API.
-  user: "Check my API endpoints for vulnerabilities"
-  assistant: "I'll have the security reviewer audit your API surface."
-  <uses Task tool to launch security-reviewer agent>
-
-tools: Read, Grep, Glob, Bash
-model: inherit
-memory: project
----
-
-You are a senior application security engineer with expertise in OWASP Top 10,
-secure coding patterns, and vulnerability triage.
-
-## Review Protocol
-
-1. **Scope:** Read the diff or files provided. Identify all security-relevant changes.
-2. **Categorize** each finding by severity: CRITICAL / HIGH / MEDIUM / LOW / INFO.
-3. **For each finding:**
-   - State the vulnerability class (e.g., SQL Injection, XSS, SSRF)
-   - Show the specific code location
-   - Explain the attack scenario
-   - Provide a concrete fix with code
-4. **Summary:** List total findings by severity. Recommend APPROVE or REQUEST CHANGES.
-
-## Rules
-
-- NEVER suggest "it might be fine" — either it's secure or it needs a fix.
-- NEVER recommend disabling security features as a fix.
-- Flag ALL uses of `eval()`, `exec()`, `subprocess.run(shell=True)`, raw SQL strings.
-- If no issues found, explicitly state "No security findings" — do not invent issues.
-
-## Weakness Awareness
-
-- You may miss business logic flaws that require domain context. Flag areas where
-  you lack context rather than approving them.
-- You tend to over-flag logging of non-sensitive data. Only flag if PII or secrets
-  are genuinely at risk.
-```
-
-### 3.3 · Model Selection Guide
-
-| Model    | When to Use                                              | Cost     |
-|----------|----------------------------------------------------------|----------|
-| `haiku`  | Fast triage, formatting, simple lookups, high-frequency tasks | Lowest   |
-| `sonnet` | Standard code review, research, implementation, most tasks  | Medium   |
-| `opus`   | Complex reasoning, architectural decisions, security audits  | Highest  |
-| `inherit`| Use whatever the parent session is using                     | Varies   |
-
-**Rule of thumb:** Use `sonnet` as the default. Reserve `opus` for tasks where the quality
-gap justifies 5x the cost. Use `haiku` for lightweight agents invoked frequently (e.g.,
-formatting checker, commit message generator).
-
-### 3.4 · Tool Permissions by Role
-
-| Agent Role               | Tools                                    | Rationale                           |
-|--------------------------|------------------------------------------|-------------------------------------|
-| Reviewer / Auditor       | Read, Grep, Glob                         | Read-only — analyze without risk    |
-| Researcher / Analyst     | Read, Grep, Glob, WebFetch, WebSearch    | Gather information from code + web  |
-| Implementer / Developer  | Read, Write, Edit, Bash, Glob, Grep      | Full code creation and execution    |
-| Documentation writer     | Read, Write, Edit, Glob, Grep            | Write docs, no arbitrary bash       |
-
-**Principle of least privilege:** Every subagent gets the minimum tools needed for its job.
-A code reviewer that can Write and Edit is a code reviewer that might "helpfully" fix
-things instead of just reporting them.
-
-### 3.5 · System Prompt Best Practices
-
-**Persona matters.** A subagent with the persona "senior security auditor who has triaged
-hundreds of injection bugs" approaches code differently than "a helpful assistant." The
-system prompt shapes what the agent notices, prioritizes, and warns about.
-
-**Include weakness awareness.** LLMs default to agreeable behavior. Override this by:
-- Explicitly naming the subagent's known blind spots.
-- Instructing it to be critical, not agreeable: "Your job is to find problems, not to praise code."
-- Telling it to ask clarifying questions when context is insufficient.
-- Giving it permission to say "I cannot assess this without more context" rather than guessing.
-
-**Structure the system prompt:**
-```markdown
-[1-2 sentence persona and expertise statement]
-
-## Protocol
-[Numbered steps — the core workflow]
-
-## Rules
-[Non-negotiable constraints]
-
-## Output Format
-[What the response should look like — headers, sections, severity labels]
-
-## Weakness Awareness
-[Known limitations and how to handle them honestly]
-```
-
-### 3.6 · Built-In Subagents (Reference)
-
-Claude Code ships with these built-in subagents. Know them so you don't recreate their functionality:
-
-| Agent             | Purpose                              | Tools          | Invocation               |
-|-------------------|--------------------------------------|----------------|--------------------------|
-| **Explore**       | Read-only codebase exploration       | Read, Grep, Glob | Claude delegates automatically |
-| **Plan**          | Research for plan mode               | Read, Grep, Glob | During `/plan` or plan mode   |
-| **General-purpose** | Complex multi-step tasks           | All available   | Claude delegates for complex tasks |
-
-**When to create a custom subagent instead of using built-ins:**
-- You need a specialized persona (security auditor, QA engineer, domain expert).
-- You need specific tool restrictions the built-ins don't enforce.
-- You want consistent output format that the built-ins don't provide.
-- You need domain-specific checklists or review criteria.
-
----
-
-## 4 · Skill + Agent Composition Patterns
-
-### 4.1 · Skill That Forks to a Subagent
-
-Use `context: fork` when the skill's work would bloat the main context:
-
-```yaml
----
-name: codebase-research
-description: >
-  Researches a codebase topic thoroughly. Use when user asks "how does X work",
-  "find all uses of Y", or "map the architecture of Z". Runs in a separate
-  context to keep main conversation clean.
-context: fork
-agent: Explore
----
-
-Research $ARGUMENTS thoroughly:
-
-1. Use Glob to find relevant files by name and path pattern.
-2. Use Grep to find specific references, imports, and usages.
-3. Read the key files — focus on public APIs, type definitions, and entry points.
-4. Summarize findings with:
-   - File paths and line numbers for each key component.
-   - How the components connect (call graph, data flow).
-   - Any patterns or conventions observed.
-   - Potential gotchas or inconsistencies.
-
-Keep the summary under 500 words. The user's main session only sees this summary.
-```
-
-### 4.2 · Slash Command That Orchestrates Agents
-
-A command that invokes multiple subagents in sequence or parallel:
-
-```markdown
----
-allowed-tools: Bash(pytest:*), Bash(ruff:*), Bash(git:*), Write, Edit, Task
-description: Full feature implementation with TDD and code review
----
-
-Implement the following feature using the full development lifecycle:
-
-$ARGUMENTS
-
-## Execution Plan
-
-### Step 1 — Research (Subagent: Explore)
-Spawn an Explore subagent to investigate the codebase:
-- Find existing patterns related to this feature.
-- Identify files that will need modification.
-- Map dependencies and integration points.
-
-### Step 2 — Plan
-Based on the research summary, create a plan:
-- List the test cases (behaviors, edge cases, errors).
-- List the files to create/modify.
-- Identify risks or ambiguities — ask the user if needed.
-
-### Step 3 — Implement (TDD)
-Follow the <workflow> TDD protocol:
-- Phase 1: Write failing tests.
-- Phase 2: Minimal implementation until green.
-- Phase 3: Refactor.
-- Phase 4: Verify (lint, type check, full suite).
-
-### Step 4 — Review (Subagent: security-reviewer)
-Spawn the security-reviewer agent to audit the changes.
-Fix any CRITICAL or HIGH findings before proceeding.
-
-### Step 5 — Commit and Report
-Commit with conventional message. Report summary to user.
-```
-
-### 4.3 · Agent Team for Large Features
-
-For tasks that benefit from parallel, communicating workers:
-
-```
-Prompt:
-"Create an agent team to implement the new payment system:
-- Backend developer: implement the payment service, API endpoints, and database migrations
-- Test engineer: write comprehensive test suites (TDD style — tests before implementation)
-- Security reviewer: audit all payment code for vulnerabilities as it's written
-The test engineer and backend developer should coordinate: tests should be written
-BEFORE implementation, and the developer should implement to pass those tests.
-The security reviewer should review each completed module."
-```
-
----
-
-## 5 · Organization & File Layout
-
-### 5.1 · Project-Level (checked into git, shared with team)
-
-```
-.claude/
-├── skills/                        # Project-specific skills
-│   ├── api-generation/
-│   │   ├── SKILL.md
-│   │   ├── references/
-│   │   │   └── ENDPOINT_PATTERNS.md
-│   │   └── scripts/
-│   │       └── validate_openapi.py
-│   └── db-migration/
-│       ├── SKILL.md
-│       └── references/
-│           └── MIGRATION_CHECKLIST.md
-├── agents/                        # Project-specific subagents
-│   ├── domain-expert.md
-│   └── qa-reviewer.md
-├── commands/                      # Slash commands
-│   ├── tdd.md
-│   ├── review-pr.md
-│   └── deploy.md
-└── settings.json                  # Project hooks, permissions
-```
-
-### 5.2 · User-Level (personal, applies across all projects)
-
-```
-~/.claude/
-├── skills/                        # Personal skills
-│   ├── code-explaining/
-│   │   └── SKILL.md
-│   └── commit-writing/
-│       └── SKILL.md
-├── agents/                        # Personal subagents
-│   ├── security-reviewer.md
-│   └── performance-analyst.md
-├── commands/                      # Personal commands
-│   ├── standup.md
-│   └── fix-issue.md
-├── CLAUDE.md                      # Global rules
-└── settings.json                  # Global hooks, permissions
-```
-
-**Precedence:** Project-level overrides user-level when names conflict.
-
----
-
-## 6 · Testing & Iteration Protocol
-
-### 6.1 · The Claude A / Claude B Pattern
-
-<important>
-Never ship a skill or agent without testing it with real tasks. The Claude A / Claude B
-pattern is the most reliable way to iterate:
-- Claude A = the author session (helps you write/refine the skill)
-- Claude B = the user session (uses the skill on real work, doesn't know it's being tested)
-</important>
-
-**Iteration cycle:**
-1. **Write** the skill with Claude A (or manually).
-2. **Test** with Claude B on a real task (not a toy example).
-3. **Observe** Claude B's behavior — note where it struggles, takes wrong paths, or misses instructions.
-4. **Diagnose** with Claude A — share SKILL.md and your observations.
-5. **Fix** — Claude A suggests reorganization, stronger language, or structural changes.
-6. **Repeat** until Claude B handles the task correctly on the first attempt.
-
-### 6.2 · What to Watch For During Testing
-
-| Observation                                        | Likely Fix                                              |
-|----------------------------------------------------|---------------------------------------------------------|
-| Skill never activates                              | Description is too vague — add trigger phrases and examples |
-| Skill activates on irrelevant tasks                | Add anti-triggers ("Does NOT handle...")                 |
-| Claude ignores a rule in SKILL.md                  | Make the rule more prominent — use MUST, move it earlier, or convert to a hook |
-| Claude reads reference files it doesn't need       | File names are misleading — rename for clarity           |
-| Claude never reads a reference file                | Either remove it or add explicit pointers in SKILL.md    |
-| Claude re-reads the same file repeatedly           | That content should be in SKILL.md directly              |
-| Subagent returns too much detail                   | Add "Keep summary under N words" to system prompt        |
-| Subagent misses important findings                 | Checklist is missing items — add them to the protocol    |
-
-### 6.3 · Measuring Activation Reliability
-
-Track whether your skills activate when they should:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "jq -r '\"[\" + (now | todate) + \"] SKILL: \" + .tool_input.name' >> ~/.claude/skill-usage.log"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Review `~/.claude/skill-usage.log` weekly. If a skill is never triggered, revise its description.
-If it triggers on the wrong tasks, tighten the anti-triggers.
-
----
-
-## 7 · Anti-Patterns — MUST AVOID
-
-| Anti-Pattern                                     | Why It's Wrong                                         | What To Do Instead                                      |
-|--------------------------------------------------|--------------------------------------------------------|---------------------------------------------------------|
-| Putting everything in SKILL.md                   | Bloats context; key rules get lost in noise             | ≤500 lines in SKILL.md; move detail to reference files  |
-| Duplicating code snippets in skills              | Goes stale immediately as codebase changes              | Point to the actual source file with a relative path    |
-| Creating a skill for something Claude already knows | Wastes instruction budget; reduces adherence to other rules | Only add context Claude DOESN'T already have         |
-| Generic subagent (e.g., "helpful assistant")     | No better than main Claude; wastes a context window     | Give a specific persona, protocol, and output format    |
-| Subagent with all tools enabled                  | Defeats principle of least privilege; may modify when it should only read | Restrict to minimum tools for the role             |
-| Skill with no anti-triggers                      | False activations on unrelated tasks burn tokens        | Add "Does NOT..." section to description                |
-| Testing skills on toy examples only              | Misses real-world edge cases and context interactions   | Use Claude A/B pattern with real project tasks          |
-| Nesting subagents (subagent spawns subagent)     | Not supported — subagents cannot spawn other subagents  | Design flat: one orchestrator that delegates to subagents |
-| Over-engineering with 5+ subagents               | Context switching overhead exceeds benefit; you lose track | Start with 2-3 focused agents; add only as needed     |
-
-</skills_and_agents>
-
 <token_efficiency>
 THESE RULES APPLY TO ALL CODE, LOGS, AND RESPONSES GENERATED:
 
@@ -771,10 +210,12 @@ Before writing any code, you MUST wrap your analysis and TDD planning inside a `
 
 ## Important Firebird Quirks
 
-- `pd.read_sql()` with LEFT JOIN fails with error -501 → use manual cursor
-- `ORDER BY` positional references unsupported on system tables
-- `TRIM()` unavailable in `RDB$` system queries
-- Windows cp1252 encoding issues → reconfigure `sys.stdout`
+- pd.read_sql() with LEFT JOIN fails with error -501 → use manual cursor
+- ORDER BY positional references unsupported on system tables
+- TRIM() unavailable in RDB$ system queries
+- Windows cp1252 encoding issues → reconfigure sys.stdout
+- LFCES060.SEQ_EQUIPE is national (6-7 digits); first 4 chars = LFCES048.SEQ_EQUIPE (local)
+- CD_SEGMENT/DS_SEGMENT return error -206 via alias in nested LEFT JOIN — recover in separate subquery
 
 ## Conventions
 
