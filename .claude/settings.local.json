@@ -11,7 +11,18 @@
       "Bash(venv/Scripts/python.exe -m pytest tests/ -m \"not integration\" -q 2>&1)",
       "Bash(venvScriptspython -m pytest tests/ingestion/test_base.py tests/ingestion/test_cnes_local_adapter.py tests/ingestion/test_cnes_nacional_adapter.py tests/analysis/test_cross_check.py tests/test_main.py -v --tb=short)",
       "Bash(\"venv/Scripts/python.exe\" -m pytest tests/ingestion/test_base.py tests/ingestion/test_cnes_local_adapter.py tests/ingestion/test_cnes_nacional_adapter.py tests/analysis/test_cross_check.py tests/test_main.py -v --tb=short)",
-      "Bash(\"venv/Scripts/python.exe\" -m pytest \"tests/analysis/test_cross_check.py::TestRQ006EstabelecimentosFantasma::test_resultado_vazio_quando_ambas_fontes_vazias\" \"tests/analysis/test_cross_check.py::TestRQ008ProfissionaisFantasma::test_detecta_cns_local_ausente_no_nacional\" \"tests/test_main.py::TestExportacaoPrincipal::test_exporta_rq003b_quando_nao_vazio\" -v --tb=long)"
+      "Bash(\"venv/Scripts/python.exe\" -m pytest \"tests/analysis/test_cross_check.py::TestRQ006EstabelecimentosFantasma::test_resultado_vazio_quando_ambas_fontes_vazias\" \"tests/analysis/test_cross_check.py::TestRQ008ProfissionaisFantasma::test_detecta_cns_local_ausente_no_nacional\" \"tests/test_main.py::TestExportacaoPrincipal::test_exporta_rq003b_quando_nao_vazio\" -v --tb=long)",
+      "Bash(ruff check:*)",
+      "Bash(grep -rn --include=*.py -E .format\\\\\\(src/)",
+      "Bash(pip-audit -r requirements.txt --format json)",
+      "Bash(pip-audit -r requirements.txt)",
+      "Bash(pip-audit -r /c/Users/Vinicius/Projetos/CnesData/requirements.txt)",
+      "Bash(/dev/null -i)",
+      "Bash(grep -rn --include=*.py -E \"TODO|FIXME|HACK|XXX\" src/)",
+      "Bash(grep -rn --include=*.py -E \"\\\\.exception\\\\\\(|traceback\\\\.|sys\\\\.exc_info\" src/)",
+      "Bash(grep -rn --include=*.py -E \"read_excel|read_csv\" src/)",
+      "Bash(grep -rn --include=*.py \"FOLHA_HR_PATH\\\\|carregar_folha\" src/)",
+      "Bash(grep -rn --include=*.py -E \"CNPJ_MANTENEDORA|COD_MUN_IBGE|ID_MUNICIPIO_IBGE7\" src/)"
     ]
   },
   "hooks": {
