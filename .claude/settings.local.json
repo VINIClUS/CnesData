@@ -44,7 +44,8 @@
       "mcp__excalidraw__*",
       "mcp__github__*",
       "Read(//c/Users/CPD/.claude/**)",
-      "Bash(find C:/Users/CPD/.claude -name *.mcp.json -o -name mcp.json)"
+      "Bash(find C:/Users/CPD/.claude -name *.mcp.json -o -name mcp.json)",
+      "Bash(claude mcp:*)"
     ],
     "Deny": [
       "mcp__playwright__browser_file_upload"
