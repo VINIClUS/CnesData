@@ -8,7 +8,6 @@ env/
 venv/
 .venv/
 ENV/
-.mcp.json
 
 # --- Python ---
 __pycache__/
