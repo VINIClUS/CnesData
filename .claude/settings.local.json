@@ -33,10 +33,35 @@
       "Skill(tdd)",
       "Bash(venv\\\\Scripts\\\\ruff.exe check:*)",
       "Bash(./venv/Scripts/ruff.exe check:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "mcp__context7__*",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_tab_list",
+      "mcp__deepwiki__*",
+      "mcp__excalidraw__*",
+      "mcp__github__*",
+      "Read(//c/Users/CPD/.claude/**)",
+      "Bash(find C:/Users/CPD/.claude -name *.mcp.json -o -name mcp.json)"
+    ],
+    "Deny": [
+      "mcp__playwright__browser_file_upload"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__playwright__browser_file_upload",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'DENY: File upload via Playwright is blocked' >&2 && exit 2"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",

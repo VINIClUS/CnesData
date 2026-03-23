@@ -1,8 +1,8 @@
 {
-    "python.defaultInterpreterPath": "c:\\Users\\CPD\\Projetos\\CnesData\\env\\Scripts\\python.exe",
+    "python.defaultInterpreterPath": "c:\\Users\\CPD\\Projetos\\CnesData\\venv\\Scripts\\python.exe",
     "python.analysis.extraPaths": [
         "c:\\Users\\CPD\\Projetos\\CnesData\\src",
-        "c:\\Users\\CPD\\Projetos\\CnesData\\env\\Lib\\site-packages"
+        "c:\\Users\\CPD\\Projetos\\CnesData\\venv\\Lib\\site-packages"
     ],
     "python.testing.pytestEnabled": true,
     "python.testing.pytestArgs": [
