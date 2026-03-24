@@ -45,7 +45,14 @@
       "mcp__github__*",
       "Read(//c/Users/CPD/.claude/**)",
       "Bash(find C:/Users/CPD/.claude -name *.mcp.json -o -name mcp.json)",
-      "Bash(claude mcp:*)"
+      "Bash(claude mcp:*)",
+      "Bash(npm install:*)",
+      "Bash(npm search:*)",
+      "Bash(git reset:*)",
+      "Bash(git restore:*)",
+      "Bash(git commit:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)"
     ],
     "Deny": [
       "mcp__playwright__browser_file_upload"
@@ -69,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$TOOL_INPUT\" | grep -q '\\.py'; then pytest -x --tb=line -q 2>&1 | tail -5; fi"
+            "command": "FILE=\"$CLAUDE_TOOL_INPUT_FILE_PATH\"; if [[ \"$FILE\" == *.py ]]; then ./venv/Scripts/python.exe -m pytest tests/ -x --tb=line -q 2>&1 | tail -5; fi"
           }
         ]
       }
@@ -79,7 +86,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "You are a JSON-only evaluator. Respond with ONLY a raw JSON object, no markdown, no fences, no explanation.\n\nReview the assistant's final response. Reject if ANY of these are true:\n- Tests were not run before declaring completion\n- Any test is failing, skipped, or marked xfail without justification\n- Implementation was written before failing tests existed\n- Tests were modified during the GREEN phase instead of fixing implementation\n- The assistant said 'done' but left TODO/FIXME/HACK markers in the code\n\nIf any apply, respond:\n{\"ok\": false, \"reason\": \"TDD violation: [specific issue]. Go back and fix it.\"}\n\nOtherwise respond:\n{\"ok\": true}"
+            "prompt": "You are a JSON-only evaluator. Respond with ONLY a raw JSON object, no markdown, no fences, no explanation.\n\nIMPORTANT: If this session involved NO Python (.py) file writes or edits — e.g. it was a documentation audit, config change, research task, or conversation — respond immediately with {\"ok\": true}. TDD rules only apply to code implementation sessions.\n\nReview the assistant's final response. Reject if ANY of these are true:\n- Tests were not run before declaring completion\n- Any test is failing, skipped, or marked xfail without justification\n- Implementation was written before failing tests existed\n- Tests were modified during the GREEN phase instead of fixing implementation\n- The assistant said 'done' but left TODO/FIXME/HACK markers in the code\n\nIf any apply, respond:\n{\"ok\": false, \"reason\": \"TDD violation: [specific issue]. Go back and fix it.\"}\n\nOtherwise respond:\n{\"ok\": true}"
           }
         ]
       }
