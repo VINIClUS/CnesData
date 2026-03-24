@@ -45,7 +45,12 @@
       "mcp__github__*",
       "Read(//c/Users/CPD/.claude/**)",
       "Bash(find C:/Users/CPD/.claude -name *.mcp.json -o -name mcp.json)",
-      "Bash(claude mcp:*)"
+      "Bash(claude mcp:*)",
+      "Bash(npm install:*)",
+      "Bash(npm search:*)",
+      "Bash(git reset:*)",
+      "Bash(git restore:*)",
+      "Bash(git commit:*)"
     ],
     "Deny": [
       "mcp__playwright__browser_file_upload"
