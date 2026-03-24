@@ -50,7 +50,9 @@
       "Bash(npm search:*)",
       "Bash(git reset:*)",
       "Bash(git restore:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)"
     ],
     "Deny": [
       "mcp__playwright__browser_file_upload"
