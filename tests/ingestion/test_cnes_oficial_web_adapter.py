@@ -26,3 +26,13 @@ def _sessao_com_resposta(status_code: int) -> requests.Session:
 def test_http_200_retorna_status_lag():
     adapter = CnesOficialWebAdapter(session=_sessao_com_resposta(200))
     assert adapter.verificar_estabelecimento(_CNES) == STATUS_LAG
+
+
+def test_http_404_retorna_status_confirmado():
+    adapter = CnesOficialWebAdapter(session=_sessao_com_resposta(404))
+    assert adapter.verificar_estabelecimento(_CNES) == STATUS_CONFIRMADO
+
+
+def test_http_204_retorna_status_confirmado():
+    adapter = CnesOficialWebAdapter(session=_sessao_com_resposta(204))
+    assert adapter.verificar_estabelecimento(_CNES) == STATUS_CONFIRMADO
