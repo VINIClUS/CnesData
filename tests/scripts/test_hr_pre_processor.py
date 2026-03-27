@@ -297,6 +297,24 @@ class TestSalvarHrPadronizado:
         resultado = pd.read_csv(destino, sep=";", dtype=str)
         assert "ORIGEM_MATCH" not in resultado.columns
 
+    def test_campos_entre_aspas_no_csv_gerado(self, tmp_path):
+        # Arrange — NOME com potencial de fórmula CSV injection
+        df = pd.DataFrame({
+            "CPF": ["00700515852"],
+            "NOME": ["=HYPERLINK(\"http://evil.com\",\"click\")"],
+            "STATUS": ["ATIVO"],
+            "ORIGEM_MATCH": ["PIS"],
+        })
+        destino = tmp_path / "hr_padronizado.csv"
+
+        # Act
+        salvar_hr_padronizado(df, destino)
+
+        # Assert — todos os campos devem estar entre aspas duplas
+        conteudo = destino.read_text(encoding="utf-8-sig")
+        primeira_linha_dados = conteudo.splitlines()[1]
+        assert primeira_linha_dados.startswith('"'), "campos não estão entre aspas (QUOTE_ALL ausente)"
+
     def test_cria_diretorio_pai_se_inexistente(self, tmp_path):
         # Arrange
         df = pd.DataFrame({"CPF": ["123"], "NOME": ["X"], "STATUS": ["ATIVO"], "ORIGEM_MATCH": ["PIS"]})

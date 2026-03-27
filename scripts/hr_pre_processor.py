@@ -1,5 +1,6 @@
 """Script pré-processador de higienização de RH — crosswalk PIS→CPF via LFCES018."""
 
+import csv
 import logging
 import re
 import sys
@@ -16,7 +17,6 @@ from ingestion.cnes_client import conectar  # noqa: E402
 logger = logging.getLogger(__name__)
 
 _COLUNAS_SAIDA = ["CPF", "NOME", "STATUS"]
-_COLUNAS_FIREBIRD = ["PISPASEP", "CPF_PROF", "NOME_PROF"]
 
 _SQL_PISPASEP = """
     SELECT PISPASEP, CPF_PROF, NOME_PROF
@@ -95,12 +95,8 @@ def crosswalk_pis_cpf(df_rh: pd.DataFrame, df_firebird: pd.DataFrame) -> pd.Data
         return pd.DataFrame(columns=[*_COLUNAS_SAIDA, "ORIGEM_MATCH"])
 
     pis_map = dict(zip(df_firebird["PISPASEP"].str.strip(), df_firebird["CPF_PROF"].str.strip()))
-    nome_cpf_map = {
-        _normalizar_nome(r["NOME_PROF"]): r["CPF_PROF"].strip()
-        for _, r in df_firebird.iterrows()
-    }
-    nome_prof_map = {
-        _normalizar_nome(r["NOME_PROF"]): r["NOME_PROF"].strip()
+    nome_map: dict[str, tuple[str, str]] = {
+        _normalizar_nome(r["NOME_PROF"]): (r["CPF_PROF"].strip(), r["NOME_PROF"].strip())
         for _, r in df_firebird.iterrows()
     }
 
@@ -116,15 +112,16 @@ def crosswalk_pis_cpf(df_rh: pd.DataFrame, df_firebird: pd.DataFrame) -> pd.Data
                 "STATUS": "ATIVO",
                 "ORIGEM_MATCH": "PIS",
             })
-        elif nome_norm in nome_cpf_map:
+        elif nome_norm in nome_map:
+            cpf, nome_oficial = nome_map[nome_norm]
             resultados.append({
-                "CPF": nome_cpf_map[nome_norm],
-                "NOME": nome_prof_map[nome_norm],
+                "CPF": cpf,
+                "NOME": nome_oficial,
                 "STATUS": "ATIVO",
                 "ORIGEM_MATCH": "NOME",
             })
         else:
-            logger.warning("sem_match pis=%s nome=%s", pis, row["Nome"])
+            logger.warning("sem_match pis=***%s nome=***%s", pis[-4:], str(row["Nome"])[-4:])
 
     return pd.DataFrame(resultados, columns=[*_COLUNAS_SAIDA, "ORIGEM_MATCH"])
 
@@ -138,7 +135,9 @@ def salvar_hr_padronizado(df: pd.DataFrame, caminho: Path) -> None:
         caminho: Destino do arquivo CSV.
     """
     caminho.parent.mkdir(parents=True, exist_ok=True)
-    df[_COLUNAS_SAIDA].to_csv(caminho, sep=";", index=False, encoding="utf-8-sig")
+    df[_COLUNAS_SAIDA].to_csv(
+        caminho, sep=";", index=False, encoding="utf-8-sig", quoting=csv.QUOTE_ALL
+    )
     logger.info("hr_padronizado gravado path=%s linhas=%d", caminho, len(df))
 
 
@@ -148,6 +147,9 @@ def main() -> None:
     caminho_csv = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     if caminho_csv is None:
         logger.error("uso=hr_pre_processor.py <caminho_csv_rh>")
+        sys.exit(1)
+    if not caminho_csv.exists():
+        logger.error("arquivo_nao_encontrado path=%s", caminho_csv)
         sys.exit(1)
 
     caminho_saida = config.OUTPUT_PATH.parent / "hr_padronizado.csv"
