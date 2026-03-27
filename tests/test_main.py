@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
 from cli import CliArgs
 
@@ -102,11 +103,17 @@ def _aplicar_patches(
     df_missing: pd.DataFrame,
     mock_carregar: MagicMock,
     folha_hr_path,
+    folha_hr_existe: bool = True,
 ) -> MagicMock:
     """Aplica todos os patches no ExitStack e retorna o mock de exportar_csv."""
     mock_config = MagicMock()
     mock_config.OUTPUT_PATH = _OUTPUT
-    mock_config.FOLHA_HR_PATH = folha_hr_path
+    if folha_hr_path is not None:
+        _hr_path = MagicMock()
+        _hr_path.exists.return_value = folha_hr_existe
+        mock_config.FOLHA_HR_PATH = _hr_path
+    else:
+        mock_config.FOLHA_HR_PATH = None
     mock_config.LOGS_DIR = Path("logs")
     mock_config.LOG_FILE = Path("logs/cnes_exporter.log")
     mock_config.SNAPSHOTS_DIR = Path("data/snapshots")
@@ -158,6 +165,7 @@ def _mocks_simples(
     df_ghost=None,
     df_missing=None,
     folha_hr_path=None,
+    folha_hr_existe: bool = True,
     adapter_local=None,
     adapter_nacional=None,
 ):
@@ -180,6 +188,7 @@ def _mocks_simples(
         df_missing=df_missing if df_missing is not None else _DF_VAZIO,
         mock_carregar=mock_carregar,
         folha_hr_path=folha_hr_path,
+        folha_hr_existe=folha_hr_existe,
     )
     return stack, mock_exportar, mock_carregar
 
@@ -251,13 +260,24 @@ class TestCrossCheckHr:
         mock_carregar.assert_not_called()
 
     def test_com_folha_hr_chama_carregar_folha(self):
-        caminho_hr = Path("folha.xlsx")
-        stack, _, mock_carregar = _mocks_simples(folha_hr_path=caminho_hr)
+        stack, _, mock_carregar = _mocks_simples(folha_hr_path=Path("folha.xlsx"))
         with stack:
             from main import main
             main()
 
-        mock_carregar.assert_called_once_with(caminho_hr)
+        mock_carregar.assert_called_once()
+
+    def test_retorna_1_quando_hr_padronizado_ausente(self):
+        stack, _, mock_carregar = _mocks_simples(
+            folha_hr_path=Path("hr_padronizado.csv"),
+            folha_hr_existe=False,
+        )
+        with stack:
+            from main import main
+            resultado = main()
+
+        assert resultado == 1
+        mock_carregar.assert_not_called()
 
     def test_exporta_ghost_quando_nao_vazio(self):
         df_ghost = _df_cnes_minimo().assign(MOTIVO_GHOST=["AUSENTE_NO_RH"])

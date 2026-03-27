@@ -206,6 +206,11 @@ def main() -> int:
         df_ghost: pd.DataFrame = pd.DataFrame()
         df_missing: pd.DataFrame = pd.DataFrame()
         if executar_hr:
+            if not config.FOLHA_HR_PATH.exists():
+                raise FileNotFoundError(
+                    f"Arquivo ausente: {config.FOLHA_HR_PATH}. "
+                    "Execute scripts/hr_pre_processor.py para gerar hr_padronizado.csv."
+                )
             df_rh = carregar_folha(config.FOLHA_HR_PATH)
             df_ghost = detectar_folha_fantasma(df_processado, df_rh)
             df_missing = detectar_registro_ausente(df_processado, df_rh)
