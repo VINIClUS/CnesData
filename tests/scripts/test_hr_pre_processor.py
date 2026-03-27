@@ -30,9 +30,7 @@ Estratégia de mock:
   - tmp_path para I/O de arquivos de saída
 """
 
-from io import StringIO
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
