@@ -51,3 +51,4 @@ intersect*.txt
 *_out.txt
 export_log.txt
 output.txt
+.worktrees/
