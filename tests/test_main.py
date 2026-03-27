@@ -17,7 +17,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
 from cli import CliArgs
 
@@ -35,43 +34,49 @@ _OUTPUT = Path("data/processed/Relatorio.csv")
 
 
 def _df_cnes_minimo() -> pd.DataFrame:
-    return pd.DataFrame({
-        "CPF": ["11111111111"],
-        "CNS": ["702002887429583"],
-        "NOME_PROFISSIONAL": ["ZELIA"],
-        "CBO": ["515105"],
-        "CNES": ["0985333"],
-        "TIPO_VINCULO": ["010101"],
-        "SUS": ["S"],
-        "CH_TOTAL": [40],
-        "CH_AMBULATORIAL": [40],
-        "CH_OUTRAS": [0],
-        "CH_HOSPITALAR": [0],
-        "FONTE": ["LOCAL"],
-        "TIPO_UNIDADE": ["01"],
-        "ALERTA_STATUS_CH": ["OK"],
-    })
+    return pd.DataFrame(
+        {
+            "CPF": ["11111111111"],
+            "CNS": ["702002887429583"],
+            "NOME_PROFISSIONAL": ["ZELIA"],
+            "CBO": ["515105"],
+            "CNES": ["0985333"],
+            "TIPO_VINCULO": ["010101"],
+            "SUS": ["S"],
+            "CH_TOTAL": [40],
+            "CH_AMBULATORIAL": [40],
+            "CH_OUTRAS": [0],
+            "CH_HOSPITALAR": [0],
+            "FONTE": ["LOCAL"],
+            "TIPO_UNIDADE": ["01"],
+            "ALERTA_STATUS_CH": ["OK"],
+        }
+    )
 
 
 def _df_rh_minimo() -> pd.DataFrame:
-    return pd.DataFrame({
-        "CPF": ["11111111111"],
-        "NOME": ["ZELIA"],
-        "STATUS": ["ATIVO"],
-    })
+    return pd.DataFrame(
+        {
+            "CPF": ["11111111111"],
+            "NOME": ["ZELIA"],
+            "STATUS": ["ATIVO"],
+        }
+    )
 
 
 def _df_estab_minimo() -> pd.DataFrame:
-    return pd.DataFrame({
-        "CNES": ["0985333"],
-        "NOME_FANTASIA": ["ESF TESTE"],
-        "TIPO_UNIDADE": ["02"],
-        "CNPJ_MANTENEDORA": [None],
-        "NATUREZA_JURIDICA": [None],
-        "COD_MUNICIPIO": ["354130"],
-        "VINCULO_SUS": [None],
-        "FONTE": ["LOCAL"],
-    })
+    return pd.DataFrame(
+        {
+            "CNES": ["0985333"],
+            "NOME_FANTASIA": ["ESF TESTE"],
+            "TIPO_UNIDADE": ["02"],
+            "CNPJ_MANTENEDORA": [None],
+            "NATUREZA_JURIDICA": [None],
+            "COD_MUNICIPIO": ["354130"],
+            "VINCULO_SUS": [None],
+            "FONTE": ["LOCAL"],
+        }
+    )
 
 
 def _mock_adapter_local(df_prof=None) -> MagicMock:
@@ -130,28 +135,47 @@ def _aplicar_patches(
     stack.enter_context(patch("main.conectar", return_value=MagicMock()))
     stack.enter_context(patch("main.extrair_lookup_cbo", return_value={}))
     stack.enter_context(patch("main.CnesLocalAdapter", return_value=adapter_local))
-    stack.enter_context(patch("main.CnesNacionalAdapter", return_value=adapter_nacional))
+    stack.enter_context(
+        patch("main.CnesNacionalAdapter", return_value=adapter_nacional)
+    )
     stack.enter_context(patch("main.transformar", return_value=df_cnes))
-    stack.enter_context(patch("main.detectar_multiplas_unidades", return_value=df_multi))
+    stack.enter_context(
+        patch("main.detectar_multiplas_unidades", return_value=df_multi)
+    )
     stack.enter_context(patch("main.auditar_lotacao_acs_tacs", return_value=df_acs))
     stack.enter_context(patch("main.auditar_lotacao_ace_tace", return_value=df_ace))
     stack.enter_context(patch("main.detectar_folha_fantasma", return_value=df_ghost))
-    stack.enter_context(patch("main.detectar_registro_ausente", return_value=df_missing))
-    stack.enter_context(patch("main.carregar_folha", new=mock_carregar))
-    stack.enter_context(patch("main.detectar_estabelecimentos_fantasma", return_value=_DF_VAZIO))
-    stack.enter_context(patch("main.detectar_estabelecimentos_ausentes_local", return_value=_DF_VAZIO))
-    stack.enter_context(patch("main.detectar_profissionais_fantasma", return_value=_DF_VAZIO))
-    stack.enter_context(patch("main.detectar_profissionais_ausentes_local", return_value=_DF_VAZIO))
-    stack.enter_context(patch("main.detectar_divergencia_cbo", return_value=_DF_VAZIO))
-    stack.enter_context(patch("main.detectar_divergencia_carga_horaria", return_value=_DF_VAZIO))
     stack.enter_context(
-        patch("main.CnesOficialWebAdapter",
-              return_value=MagicMock(verificar_estabelecimento=lambda cnes: "CRITICO"))
+        patch("main.detectar_registro_ausente", return_value=df_missing)
+    )
+    stack.enter_context(patch("main.carregar_folha", new=mock_carregar))
+    stack.enter_context(
+        patch("main.detectar_estabelecimentos_fantasma", return_value=_DF_VAZIO)
+    )
+    stack.enter_context(
+        patch("main.detectar_estabelecimentos_ausentes_local", return_value=_DF_VAZIO)
+    )
+    stack.enter_context(
+        patch("main.detectar_profissionais_fantasma", return_value=_DF_VAZIO)
+    )
+    stack.enter_context(
+        patch("main.detectar_profissionais_ausentes_local", return_value=_DF_VAZIO)
+    )
+    stack.enter_context(patch("main.detectar_divergencia_cbo", return_value=_DF_VAZIO))
+    stack.enter_context(
+        patch("main.detectar_divergencia_carga_horaria", return_value=_DF_VAZIO)
+    )
+    stack.enter_context(
+        patch(
+            "main.CnesOficialWebAdapter",
+            return_value=MagicMock(verificar_estabelecimento=lambda cnes: "CRITICO"),
+        )
     )
     mock_exportar = stack.enter_context(patch("main.exportar_csv"))
     stack.enter_context(patch("main.criar_snapshot"))
     stack.enter_context(patch("main.salvar_snapshot"))
     stack.enter_context(patch("main.gerar_relatorio"))
+    stack.enter_context(patch("main.DatabaseLoader"))
     stack.enter_context(patch("main.config", mock_config))
     return mock_exportar
 
@@ -177,8 +201,12 @@ def _mocks_simples(
     stack = contextlib.ExitStack()
     mock_exportar = _aplicar_patches(
         stack=stack,
-        adapter_local=adapter_local if adapter_local is not None else _mock_adapter_local(df_prof=df_cnes),
-        adapter_nacional=adapter_nacional if adapter_nacional is not None else _mock_adapter_nacional(),
+        adapter_local=adapter_local
+        if adapter_local is not None
+        else _mock_adapter_local(df_prof=df_cnes),
+        adapter_nacional=adapter_nacional
+        if adapter_nacional is not None
+        else _mock_adapter_nacional(),
         df_cnes=df_cnes,
         df_rh=df_rh,
         df_multi=df_multi if df_multi is not None else _DF_VAZIO,
@@ -194,17 +222,25 @@ def _mocks_simples(
 
 
 class TestExportacaoPrincipal:
-
     def test_relatorio_principal_sempre_exportado(self):
         with contextlib.ExitStack() as stack:
             df_cnes = _df_cnes_minimo()
             mock_exportar = _aplicar_patches(
-                stack, _mock_adapter_local(), _mock_adapter_nacional(),
-                df_cnes, _df_rh_minimo(),
-                _DF_VAZIO, _DF_VAZIO, _DF_VAZIO, _DF_VAZIO, _DF_VAZIO,
-                MagicMock(), None,
+                stack,
+                _mock_adapter_local(),
+                _mock_adapter_nacional(),
+                df_cnes,
+                _df_rh_minimo(),
+                _DF_VAZIO,
+                _DF_VAZIO,
+                _DF_VAZIO,
+                _DF_VAZIO,
+                _DF_VAZIO,
+                MagicMock(),
+                None,
             )
             from main import main
+
             main()
 
         caminhos = [c.args[1] for c in mock_exportar.call_args_list]
@@ -216,6 +252,7 @@ class TestExportacaoPrincipal:
         stack, mock_exportar, _ = _mocks_simples(df_multi=df_anomalia)
         with stack:
             from main import main
+
             main()
 
         nomes = [c.args[1].name for c in mock_exportar.call_args_list]
@@ -225,6 +262,7 @@ class TestExportacaoPrincipal:
         stack, mock_exportar, _ = _mocks_simples(df_multi=_DF_VAZIO)
         with stack:
             from main import main
+
             main()
 
         nomes = [c.args[1].name for c in mock_exportar.call_args_list]
@@ -234,6 +272,7 @@ class TestExportacaoPrincipal:
         stack, mock_exportar, _ = _mocks_simples(df_acs=_df_cnes_minimo())
         with stack:
             from main import main
+
             main()
 
         nomes = [c.args[1].name for c in mock_exportar.call_args_list]
@@ -243,6 +282,7 @@ class TestExportacaoPrincipal:
         stack, mock_exportar, _ = _mocks_simples(df_ace=_df_cnes_minimo())
         with stack:
             from main import main
+
             main()
 
         nomes = [c.args[1].name for c in mock_exportar.call_args_list]
@@ -250,11 +290,11 @@ class TestExportacaoPrincipal:
 
 
 class TestCrossCheckHr:
-
     def test_sem_folha_hr_nao_chama_carregar_folha(self):
         stack, _, mock_carregar = _mocks_simples(folha_hr_path=None)
         with stack:
             from main import main
+
             main()
 
         mock_carregar.assert_not_called()
@@ -263,6 +303,7 @@ class TestCrossCheckHr:
         stack, _, mock_carregar = _mocks_simples(folha_hr_path=Path("folha.xlsx"))
         with stack:
             from main import main
+
             main()
 
         mock_carregar.assert_called_once()
@@ -274,6 +315,7 @@ class TestCrossCheckHr:
         )
         with stack:
             from main import main
+
             resultado = main()
 
         assert resultado == 1
@@ -286,6 +328,7 @@ class TestCrossCheckHr:
         )
         with stack:
             from main import main
+
             main()
 
         nomes = [c.args[1].name for c in mock_exportar.call_args_list]
@@ -297,6 +340,7 @@ class TestCrossCheckHr:
         )
         with stack:
             from main import main
+
             main()
 
         nomes = [c.args[1].name for c in mock_exportar.call_args_list]
@@ -308,6 +352,7 @@ class TestCrossCheckHr:
         )
         with stack:
             from main import main
+
             main()
 
         nomes = [c.args[1].name for c in mock_exportar.call_args_list]
@@ -317,6 +362,7 @@ class TestCrossCheckHr:
         stack, mock_exportar, _ = _mocks_simples(folha_hr_path=None)
         with stack:
             from main import main
+
             main()
 
         nomes = [c.args[1].name for c in mock_exportar.call_args_list]
@@ -325,24 +371,26 @@ class TestCrossCheckHr:
 
 
 class TestCrossCheckNacional:
-
     def test_chama_adapter_nacional_com_competencia(self):
         adapter_nacional_inst = _mock_adapter_nacional()
         stack, _, _ = _mocks_simples(adapter_nacional=adapter_nacional_inst)
         with stack:
             from main import main
+
             main()
 
         adapter_nacional_inst.listar_profissionais.assert_called_once_with((2024, 12))
-        adapter_nacional_inst.listar_estabelecimentos.assert_called_once_with((2024, 12))
+        adapter_nacional_inst.listar_estabelecimentos.assert_called_once_with(
+            (2024, 12)
+        )
 
 
 class TestCodigosDeSaida:
-
     def test_retorna_0_em_sucesso(self):
         stack, _, _ = _mocks_simples()
         with stack:
             from main import main
+
             assert main() == 0
 
     def test_retorna_1_em_environment_error(self):
@@ -354,10 +402,13 @@ class TestCodigosDeSaida:
 
             stack.enter_context(patch("main.parse_args", return_value=_CLI_DEFAULTS))
             stack.enter_context(patch("main.configurar_logging"))
-            stack.enter_context(patch("main.conectar", side_effect=EnvironmentError("sem variavel")))
+            stack.enter_context(
+                patch("main.conectar", side_effect=EnvironmentError("sem variavel"))
+            )
             stack.enter_context(patch("main.config", mock_config))
 
             from main import main
+
             assert main() == 1
 
     def test_retorna_1_em_excecao_generica(self):
@@ -369,10 +420,13 @@ class TestCodigosDeSaida:
 
             stack.enter_context(patch("main.parse_args", return_value=_CLI_DEFAULTS))
             stack.enter_context(patch("main.configurar_logging"))
-            stack.enter_context(patch("main.conectar", side_effect=RuntimeError("erro inesperado")))
+            stack.enter_context(
+                patch("main.conectar", side_effect=RuntimeError("erro inesperado"))
+            )
             stack.enter_context(patch("main.config", mock_config))
 
             from main import main
+
             assert main() == 1
 
     def test_conexao_fechada_mesmo_com_erro(self):
@@ -389,55 +443,71 @@ class TestCodigosDeSaida:
             stack.enter_context(patch("main.parse_args", return_value=_CLI_DEFAULTS))
             stack.enter_context(patch("main.configurar_logging"))
             stack.enter_context(patch("main.conectar", return_value=con_mock))
-            stack.enter_context(patch("main.CnesLocalAdapter", return_value=adapter_local))
+            stack.enter_context(
+                patch("main.CnesLocalAdapter", return_value=adapter_local)
+            )
             stack.enter_context(patch("main.config", mock_config))
 
             from main import main
+
             main()
 
         con_mock.close.assert_called_once()
 
 
 class TestIntegracaoCli:
-
     def test_skip_nacional_pula_adapter_nacional(self):
         cli_args = CliArgs(
-            competencia=None, output_dir=None,
-            skip_nacional=True, skip_hr=False, verbose=False,
+            competencia=None,
+            output_dir=None,
+            skip_nacional=True,
+            skip_hr=False,
+            verbose=False,
         )
         mock_nacional_cls = MagicMock()
         stack, _, _ = _mocks_simples()
         with stack:
-            with patch("main.parse_args", return_value=cli_args), \
-                 patch("main.CnesNacionalAdapter", mock_nacional_cls):
+            with (
+                patch("main.parse_args", return_value=cli_args),
+                patch("main.CnesNacionalAdapter", mock_nacional_cls),
+            ):
                 from main import main
+
                 main()
 
         mock_nacional_cls.assert_not_called()
 
     def test_skip_hr_pula_carregar_folha(self):
         cli_args = CliArgs(
-            competencia=None, output_dir=None,
-            skip_nacional=False, skip_hr=True, verbose=False,
+            competencia=None,
+            output_dir=None,
+            skip_nacional=False,
+            skip_hr=True,
+            verbose=False,
         )
         stack, _, mock_carregar = _mocks_simples(folha_hr_path=Path("folha.xlsx"))
         with stack:
             with patch("main.parse_args", return_value=cli_args):
                 from main import main
+
                 main()
 
         mock_carregar.assert_not_called()
 
     def test_competencia_cli_sobrescreve_env(self):
         cli_args = CliArgs(
-            competencia=(2025, 6), output_dir=None,
-            skip_nacional=False, skip_hr=False, verbose=False,
+            competencia=(2025, 6),
+            output_dir=None,
+            skip_nacional=False,
+            skip_hr=False,
+            verbose=False,
         )
         adapter_nacional_inst = _mock_adapter_nacional()
         stack, _, _ = _mocks_simples(adapter_nacional=adapter_nacional_inst)
         with stack:
             with patch("main.parse_args", return_value=cli_args):
                 from main import main
+
                 main()
 
         adapter_nacional_inst.listar_profissionais.assert_called_once_with((2025, 6))
@@ -445,13 +515,17 @@ class TestIntegracaoCli:
 
     def test_output_dir_cli_sobrescreve_env(self):
         cli_args = CliArgs(
-            competencia=None, output_dir="/tmp/teste",
-            skip_nacional=False, skip_hr=False, verbose=False,
+            competencia=None,
+            output_dir="/tmp/teste",
+            skip_nacional=False,
+            skip_hr=False,
+            verbose=False,
         )
         stack, mock_exportar, _ = _mocks_simples()
         with stack:
             with patch("main.parse_args", return_value=cli_args):
                 from main import main
+
                 main()
 
         caminhos = [c.args[1] for c in mock_exportar.call_args_list]
