@@ -4,6 +4,7 @@ import logging
 
 import requests
 from tenacity import (
+    RetryError,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -49,7 +50,11 @@ class CnesOficialWebAdapter:
         Returns:
             STATUS_CONFIRMADO | STATUS_LAG | STATUS_INDISPONIVEL
         """
-        raise NotImplementedError
+        try:
+            return self._chamar_com_retry(cnes)
+        except (RetryError, requests.Timeout, requests.ConnectionError):
+            logger.warning("api_oficial=indisponivel cnes=%s", cnes)
+            return STATUS_INDISPONIVEL
 
     @retry(
         stop=stop_after_attempt(3),
@@ -58,4 +63,7 @@ class CnesOficialWebAdapter:
         reraise=False,
     )
     def _chamar_com_retry(self, cnes: str) -> str:
-        raise NotImplementedError
+        resp = self._session.get(f"{_BASE_URL}/{cnes}", timeout=10)
+        if resp.status_code in (500, 503):
+            raise _ServidorIndisponivel(f"status={resp.status_code} cnes={cnes}")
+        return STATUS_LAG if resp.status_code == 200 else STATUS_CONFIRMADO
