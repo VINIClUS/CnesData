@@ -107,3 +107,57 @@ class TestGravarMetricas:
         df = _ler_metricas(tmp_path / "test.duckdb")
         assert len(df) == 2
         assert set(df["data_competencia"]) == {"2024-11", "2024-12"}
+
+
+def _ler_auditoria(caminho_db: Path):
+    con = duckdb.connect(str(caminho_db), read_only=True)
+    df = con.execute(
+        "SELECT * FROM gold.auditoria_resultados ORDER BY regra"
+    ).df()
+    con.close()
+    return df
+
+
+class TestGravarAuditoria:
+
+    def test_insere_contagem_por_regra(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+
+        # Act
+        loader.gravar_auditoria("2024-12", "RQ006", 3)
+
+        # Assert
+        df = _ler_auditoria(tmp_path / "test.duckdb")
+        assert len(df) == 1
+        assert df["regra"].iloc[0] == "RQ006"
+        assert df["total_anomalias"].iloc[0] == 3
+
+    def test_upsert_atualiza_contagem_existente(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_auditoria("2024-12", "RQ006", 3)
+
+        # Act — reexecução com nova contagem
+        loader.gravar_auditoria("2024-12", "RQ006", 5)
+
+        # Assert — linha única com valor atualizado
+        df = _ler_auditoria(tmp_path / "test.duckdb")
+        assert len(df) == 1
+        assert df["total_anomalias"].iloc[0] == 5
+
+    def test_insere_multiplas_regras_mesma_competencia(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+
+        # Act
+        loader.gravar_auditoria("2024-12", "RQ006", 2)
+        loader.gravar_auditoria("2024-12", "RQ008", 7)
+
+        # Assert
+        df = _ler_auditoria(tmp_path / "test.duckdb")
+        assert len(df) == 2
+        assert set(df["regra"]) == {"RQ006", "RQ008"}

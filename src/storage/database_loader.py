@@ -73,3 +73,27 @@ class DatabaseLoader:
             snapshot.data_competencia,
             snapshot.total_vinculos,
         )
+
+    def gravar_auditoria(self, data_competencia: str, regra: str, total: int) -> None:
+        """UPSERT de contagem de anomalias por regra em gold.auditoria_resultados.
+
+        Args:
+            data_competencia: Competência no formato 'YYYY-MM'.
+            regra: Código da regra de auditoria (ex: 'RQ006').
+            total: Total de anomalias detectadas.
+        """
+        with duckdb.connect(str(self._caminho_db)) as con:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO gold.auditoria_resultados
+                    (data_competencia, regra, total_anomalias)
+                VALUES (?, ?, ?)
+                """,
+                [data_competencia, regra, total],
+            )
+        logger.info(
+            "auditoria gravada competencia=%s regra=%s total=%d",
+            data_competencia,
+            regra,
+            total,
+        )
