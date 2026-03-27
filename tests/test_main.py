@@ -137,6 +137,10 @@ def _aplicar_patches(
     stack.enter_context(patch("main.detectar_profissionais_ausentes_local", return_value=_DF_VAZIO))
     stack.enter_context(patch("main.detectar_divergencia_cbo", return_value=_DF_VAZIO))
     stack.enter_context(patch("main.detectar_divergencia_carga_horaria", return_value=_DF_VAZIO))
+    stack.enter_context(
+        patch("main.CnesOficialWebAdapter",
+              return_value=MagicMock(verificar_estabelecimento=lambda cnes: "CRITICO"))
+    )
     mock_exportar = stack.enter_context(patch("main.exportar_csv"))
     stack.enter_context(patch("main.criar_snapshot"))
     stack.enter_context(patch("main.salvar_snapshot"))

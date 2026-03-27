@@ -39,6 +39,8 @@ from analysis.rules_engine import (
     detectar_divergencia_cbo,
     detectar_divergencia_carga_horaria,
 )
+from analysis.cascade_resolver import resolver_lag_rq006
+from ingestion.cnes_oficial_web_adapter import CnesOficialWebAdapter
 from analysis.evolution_tracker import criar_snapshot, salvar_snapshot
 from export.csv_exporter import exportar_csv
 from export.report_generator import gerar_relatorio
@@ -235,6 +237,9 @@ def main() -> int:
                 )
 
         df_estab_fantasma = nac["estab_fantasma"]
+        if executar_nacional and not df_estab_fantasma.empty:
+            _adapter = CnesOficialWebAdapter()
+            df_estab_fantasma = resolver_lag_rq006(df_estab_fantasma, _adapter)
         df_estab_ausente = nac["estab_ausente"]
         df_prof_fantasma = nac["prof_fantasma"]
         df_prof_ausente = nac["prof_ausente"]
