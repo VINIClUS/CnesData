@@ -30,6 +30,19 @@ def _normalizar_nome(nome: str) -> str:
     return re.sub(r"\s+", " ", s.upper().strip())
 
 
+def _criar_registro(cpf: str, nome: str, origem: str) -> dict:
+    return {"CPF": cpf, "NOME": nome, "STATUS": "ATIVO", "ORIGEM_MATCH": origem}
+
+
+def _logar_stats(df_resultado: pd.DataFrame, total_rh: int) -> None:
+    via_pis = (df_resultado["ORIGEM_MATCH"] == "PIS").sum()
+    via_nome = (df_resultado["ORIGEM_MATCH"] == "NOME").sum()
+    logger.info(
+        "crosswalk total=%d/%d via_pis=%d via_nome=%d nao_encontrado=%d",
+        len(df_resultado), total_rh, via_pis, via_nome, total_rh - len(df_resultado),
+    )
+
+
 def carregar_csv_rh(caminho: Path) -> pd.DataFrame:
     """
     Lê CSV sujo do RH e normaliza a coluna PIS.
@@ -106,20 +119,10 @@ def crosswalk_pis_cpf(df_rh: pd.DataFrame, df_firebird: pd.DataFrame) -> pd.Data
         nome_norm = _normalizar_nome(str(row["Nome"]))
 
         if pis in pis_map:
-            resultados.append({
-                "CPF": pis_map[pis],
-                "NOME": str(row["Nome"]).strip(),
-                "STATUS": "ATIVO",
-                "ORIGEM_MATCH": "PIS",
-            })
+            resultados.append(_criar_registro(pis_map[pis], str(row["Nome"]).strip(), "PIS"))
         elif nome_norm in nome_map:
             cpf, nome_oficial = nome_map[nome_norm]
-            resultados.append({
-                "CPF": cpf,
-                "NOME": nome_oficial,
-                "STATUS": "ATIVO",
-                "ORIGEM_MATCH": "NOME",
-            })
+            resultados.append(_criar_registro(cpf, nome_oficial, "NOME"))
         else:
             logger.warning("sem_match pis=***%s nome=***%s", pis[-4:], str(row["Nome"])[-4:])
 
@@ -160,14 +163,7 @@ def main() -> None:
         df_firebird = consultar_pispasep_firebird(con)
         df_resultado = crosswalk_pis_cpf(df_rh, df_firebird)
 
-        via_pis = (df_resultado["ORIGEM_MATCH"] == "PIS").sum()
-        via_nome = (df_resultado["ORIGEM_MATCH"] == "NOME").sum()
-        logger.info(
-            "crosswalk total=%d/%d via_pis=%d via_nome=%d nao_encontrado=%d",
-            len(df_resultado), len(df_rh), via_pis, via_nome,
-            len(df_rh) - len(df_resultado),
-        )
-
+        _logar_stats(df_resultado, len(df_rh))
         salvar_hr_padronizado(df_resultado, caminho_saida)
     finally:
         con.close()
