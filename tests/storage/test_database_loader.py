@@ -65,7 +65,6 @@ def _ler_metricas(caminho_db: Path):
 
 
 class TestGravarMetricas:
-
     def test_insere_snapshot_na_tabela_gold(self, tmp_path):
         # Arrange
         loader = DatabaseLoader(tmp_path / "test.duckdb")
@@ -111,15 +110,12 @@ class TestGravarMetricas:
 
 def _ler_auditoria(caminho_db: Path):
     con = duckdb.connect(str(caminho_db), read_only=True)
-    df = con.execute(
-        "SELECT * FROM gold.auditoria_resultados ORDER BY regra"
-    ).df()
+    df = con.execute("SELECT * FROM gold.auditoria_resultados ORDER BY regra").df()
     con.close()
     return df
 
 
 class TestGravarAuditoria:
-
     def test_insere_contagem_por_regra(self, tmp_path):
         # Arrange
         loader = DatabaseLoader(tmp_path / "test.duckdb")
@@ -161,3 +157,49 @@ class TestGravarAuditoria:
         df = _ler_auditoria(tmp_path / "test.duckdb")
         assert len(df) == 2
         assert set(df["regra"]) == {"RQ006", "RQ008"}
+
+
+class TestCarregarHistorico:
+    def test_retorna_lista_vazia_quando_banco_sem_dados(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+
+        # Act
+        resultado = loader.carregar_historico()
+
+        # Assert
+        assert resultado == []
+
+    def test_retorna_snapshots_em_ordem_cronologica(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_metricas(_snapshot("2024-11", vinculos=300))
+        loader.gravar_metricas(_snapshot("2024-12", vinculos=357))
+
+        # Act
+        resultado = loader.carregar_historico()
+
+        # Assert
+        assert len(resultado) == 2
+        assert resultado[0].data_competencia == "2024-11"
+        assert resultado[1].data_competencia == "2024-12"
+        assert resultado[1].total_vinculos == 357
+
+    def test_snapshot_retornado_tem_todos_os_campos(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_metricas(_snapshot("2024-12"))
+
+        # Act
+        resultado = loader.carregar_historico()
+
+        # Assert
+        s = resultado[0]
+        assert s.data_competencia == "2024-12"
+        assert s.total_vinculos == 357
+        assert s.total_ghost == 5
+        assert s.total_missing == 3
+        assert s.total_rq005 == 8

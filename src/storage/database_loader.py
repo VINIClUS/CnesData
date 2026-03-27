@@ -97,3 +97,25 @@ class DatabaseLoader:
             regra,
             total,
         )
+
+    def carregar_historico(self) -> list[Snapshot]:
+        """Retorna todos os snapshots do Gold ordenados por competência.
+
+        Returns:
+            Lista de Snapshot em ordem cronológica crescente.
+        """
+        with duckdb.connect(str(self._caminho_db), read_only=True) as con:
+            df = con.execute(
+                "SELECT * FROM gold.evolucao_metricas_mensais ORDER BY data_competencia"
+            ).df()
+
+        return [
+            Snapshot(
+                data_competencia=row["data_competencia"],
+                total_vinculos=int(row["total_vinculos"]),
+                total_ghost=int(row["total_ghost"]),
+                total_missing=int(row["total_missing"]),
+                total_rq005=int(row["total_rq005"]),
+            )
+            for _, row in df.iterrows()
+        ]
