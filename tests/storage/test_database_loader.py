@@ -5,6 +5,7 @@ from pathlib import Path
 import duckdb
 
 from storage.database_loader import DatabaseLoader
+from analysis.evolution_tracker import Snapshot
 
 
 def _tabelas_existentes(caminho_db: Path) -> list[str]:
@@ -44,3 +45,65 @@ class TestInicializarSchema:
         # Act — não deve levantar exceção
         loader.inicializar_schema()
         loader.inicializar_schema()
+
+
+def _snapshot(competencia: str = "2024-12", vinculos: int = 357) -> Snapshot:
+    return Snapshot(
+        data_competencia=competencia,
+        total_vinculos=vinculos,
+        total_ghost=5,
+        total_missing=3,
+        total_rq005=8,
+    )
+
+
+def _ler_metricas(caminho_db: Path):
+    con = duckdb.connect(str(caminho_db), read_only=True)
+    df = con.execute("SELECT * FROM gold.evolucao_metricas_mensais").df()
+    con.close()
+    return df
+
+
+class TestGravarMetricas:
+
+    def test_insere_snapshot_na_tabela_gold(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+
+        # Act
+        loader.gravar_metricas(_snapshot())
+
+        # Assert
+        df = _ler_metricas(tmp_path / "test.duckdb")
+        assert len(df) == 1
+        assert df["data_competencia"].iloc[0] == "2024-12"
+        assert df["total_vinculos"].iloc[0] == 357
+
+    def test_upsert_substitui_competencia_existente(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_metricas(_snapshot(vinculos=100))
+
+        # Act — mesma competência, vinculos diferentes
+        loader.gravar_metricas(_snapshot(vinculos=357))
+
+        # Assert — deve haver apenas 1 linha (UPSERT, não INSERT duplo)
+        df = _ler_metricas(tmp_path / "test.duckdb")
+        assert len(df) == 1
+        assert df["total_vinculos"].iloc[0] == 357
+
+    def test_multiplas_competencias_inseridas(self, tmp_path):
+        # Arrange
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+
+        # Act
+        loader.gravar_metricas(_snapshot("2024-11"))
+        loader.gravar_metricas(_snapshot("2024-12"))
+
+        # Assert
+        df = _ler_metricas(tmp_path / "test.duckdb")
+        assert len(df) == 2
+        assert set(df["data_competencia"]) == {"2024-11", "2024-12"}

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import duckdb
 
+from analysis.evolution_tracker import Snapshot
+
 logger = logging.getLogger(__name__)
 
 _DDL_SCHEMA_GOLD = "CREATE SCHEMA IF NOT EXISTS gold"
@@ -44,3 +46,30 @@ class DatabaseLoader:
             con.execute(_DDL_EVOLUCAO)
             con.execute(_DDL_AUDITORIA)
         logger.info("schema_gold inicializado db=%s", self._caminho_db)
+
+    def gravar_metricas(self, snapshot: Snapshot) -> None:
+        """UPSERT das métricas do snapshot em gold.evolucao_metricas_mensais.
+
+        Args:
+            snapshot: Snapshot da competência a persistir.
+        """
+        with duckdb.connect(str(self._caminho_db)) as con:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO gold.evolucao_metricas_mensais
+                    (data_competencia, total_vinculos, total_ghost, total_missing, total_rq005)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    snapshot.data_competencia,
+                    snapshot.total_vinculos,
+                    snapshot.total_ghost,
+                    snapshot.total_missing,
+                    snapshot.total_rq005,
+                ],
+            )
+        logger.info(
+            "metricas gravadas competencia=%s vinculos=%d",
+            snapshot.data_competencia,
+            snapshot.total_vinculos,
+        )
