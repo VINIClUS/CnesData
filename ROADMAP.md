@@ -271,9 +271,37 @@ Base estabilizada em 2026-03-22. Pipeline canônico em camadas, 345 testes unit�
 | `processing/transformer.py` | ✅ RQ-002 + RQ-003 + CBO enrichment | ~25 |
 | `analysis/rules_engine.py` | ✅ RQ-003-B + RQ-005 + RQ-006–011 | 24 (cross-check) + 30+ (local) |
 | `analysis/evolution_tracker.py` | ✅ WP-006 — JSON snapshots | 33 |
+| `storage/database_loader.py` | ✅ Epic 2 — DuckDB Gold layer (dual-write) | 12 |
 | `export/csv_exporter.py` | ✅ Implementado | — |
 | `export/report_generator.py` | ✅ WP-011 — Excel RESUMO + 13 abas | 25+ |
 | Ghost Payroll | ✅ WP-003 | 10 |
 | Missing Registration | ✅ WP-004 | 9 |
 | `scripts/Run-CnesAudit.ps1` | ✅ WP-013 — automação mensal | manual |
 | `scripts/Schedule-CnesAudit.ps1` | ✅ WP-013 — agendamento Task Scheduler | manual |
+
+---
+
+## Epics
+
+### ✅ Epic 1 — Double-Check API DATASUS (cascade_resolver)
+**Módulo:** `src/analysis/cascade_resolver.py`
+**Objetivo:** Verificar estabelecimentos RQ-006 contra a API oficial CNES antes de confirmar anomalia, evitando falsos positivos por lag de publicação.
+**Status:** ✅ Implementado (2026-03)
+**Critério de Aceite:** ✅
+- `CnesOficialWebAdapter` com retry tenacity (503 + exaustão → STATUS_INDISPONIVEL)
+- `resolver_lag_rq006(df_fantasma, adapter)` — filtra estabelecimentos que existem na API
+- Integrado em `main.py` após `detectar_estabelecimentos_fantasma`
+
+---
+
+### ✅ Epic 2 — DuckDB Medallion POC (Gold Layer)
+**Módulo:** `src/storage/database_loader.py`
+**Objetivo:** Adicionar persistência analítica DuckDB (schema Gold) ao pipeline, em dual-write com os JSONs existentes.
+**Status:** ✅ POC implementado (2026-03) — Gold layer: evolucao_metricas_mensais + auditoria_resultados
+**Nota:** Dual-write com JSON durante POC. Bronze/Silver e remoção de JSON são work packages futuros.
+**Critério de Aceite:** ✅
+- `DatabaseLoader` com `inicializar_schema()`, `gravar_metricas(snapshot)`, `gravar_auditoria(competencia, regra, total)`, `carregar_historico()`
+- Schema Gold com `CREATE IF NOT EXISTS` (idempotente)
+- UPSERT via `INSERT OR REPLACE` com PRIMARY KEY por competência
+- 12 testes unitários passando (`tests/storage/test_database_loader.py`)
+- Integrado em `main.py` após `salvar_snapshot`

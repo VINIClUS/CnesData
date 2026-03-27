@@ -177,9 +177,10 @@ These are concrete next steps, ordered by value:
 |---|---|---|---|
 | 1 | Data validation + 5 defect fixes | ✅ Done | CPF/CNES zero-padding, RQ-007/009 cascade false positives, COVEPE type 50 |
 | 2 | CBO enrichment (human-readable job titles) | ✅ Done | DESCRICAO_CBO column in all reports via NFCES026 |
-| 3 | HR template generation | Not started | Formatted .xlsx the RH team can fill in to unlock Ghost Payroll |
-| 4 | Evolution dashboard in Excel | Not started | Trend tab comparing snapshots month-over-month (needs 2+ runs) |
-| 5 | Engage HR team with template | Blocked on #3 | Ghost Payroll is the highest-impact audit rule but has no data |
+| 3 | DuckDB Medallion POC (Gold layer) | ✅ Done (POC) | Analytic persistence: evolucao_metricas_mensais + auditoria_resultados |
+| 4 | HR Pre-processor (PIS→CPF crosswalk) | ✅ Done | scripts/hr_pre_processor.py via LFCES018 — 61% coverage (240/395) |
+| 5 | Evolution dashboard in Excel | Not started | Trend tab comparing snapshots month-over-month (needs 2+ runs) |
+| 6 | Engage HR team with template | Blocked on #5 | Ghost Payroll is the highest-impact audit rule but has no data |
 
 ---
 
