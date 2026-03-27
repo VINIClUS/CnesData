@@ -36,3 +36,19 @@ def test_http_404_retorna_status_confirmado():
 def test_http_204_retorna_status_confirmado():
     adapter = CnesOficialWebAdapter(session=_sessao_com_resposta(204))
     assert adapter.verificar_estabelecimento(_CNES) == STATUS_CONFIRMADO
+
+
+def test_timeout_retorna_status_indisponivel():
+    sessao = MagicMock(spec=requests.Session)
+    sessao.get.side_effect = requests.Timeout()
+    sessao.headers = {}
+    adapter = CnesOficialWebAdapter(session=sessao)
+    assert adapter.verificar_estabelecimento(_CNES) == STATUS_INDISPONIVEL
+
+
+def test_connection_error_retorna_status_indisponivel():
+    sessao = MagicMock(spec=requests.Session)
+    sessao.get.side_effect = requests.ConnectionError()
+    sessao.headers = {}
+    adapter = CnesOficialWebAdapter(session=sessao)
+    assert adapter.verificar_estabelecimento(_CNES) == STATUS_INDISPONIVEL
