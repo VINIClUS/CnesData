@@ -1,7 +1,9 @@
 """DatabaseLoader — persistência DuckDB com schema Gold (Medallion POC)."""
 
 import logging
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Generator
 
 import duckdb
 
@@ -39,9 +41,16 @@ class DatabaseLoader:
     def __init__(self, caminho_db: Path) -> None:
         self._caminho_db = caminho_db
 
+    @contextmanager
+    def _conectar(
+        self, read_only: bool = False
+    ) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        with duckdb.connect(str(self._caminho_db), read_only=read_only) as con:
+            yield con
+
     def inicializar_schema(self) -> None:
         """Cria schemas e tabelas Gold se ainda não existirem."""
-        with duckdb.connect(str(self._caminho_db)) as con:
+        with self._conectar() as con:
             con.execute(_DDL_SCHEMA_GOLD)
             con.execute(_DDL_EVOLUCAO)
             con.execute(_DDL_AUDITORIA)
@@ -53,7 +62,7 @@ class DatabaseLoader:
         Args:
             snapshot: Snapshot da competência a persistir.
         """
-        with duckdb.connect(str(self._caminho_db)) as con:
+        with self._conectar() as con:
             con.execute(
                 """
                 INSERT OR REPLACE INTO gold.evolucao_metricas_mensais
@@ -82,7 +91,7 @@ class DatabaseLoader:
             regra: Código da regra de auditoria (ex: 'RQ006').
             total: Total de anomalias detectadas.
         """
-        with duckdb.connect(str(self._caminho_db)) as con:
+        with self._conectar() as con:
             con.execute(
                 """
                 INSERT OR REPLACE INTO gold.auditoria_resultados
@@ -104,9 +113,13 @@ class DatabaseLoader:
         Returns:
             Lista de Snapshot em ordem cronológica crescente.
         """
-        with duckdb.connect(str(self._caminho_db), read_only=True) as con:
+        with self._conectar(read_only=True) as con:
             df = con.execute(
-                "SELECT * FROM gold.evolucao_metricas_mensais ORDER BY data_competencia"
+                """
+                SELECT data_competencia, total_vinculos, total_ghost, total_missing, total_rq005
+                FROM gold.evolucao_metricas_mensais
+                ORDER BY data_competencia
+                """
             ).df()
 
         return [
