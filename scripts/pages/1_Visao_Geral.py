@@ -41,8 +41,19 @@ competencia = st.sidebar.selectbox(
     index=0,
 )
 
-kpis   = reader.carregar_kpis(competencia)
-deltas = reader.carregar_delta(competencia)
+kpis           = reader.carregar_kpis(competencia)
+deltas         = reader.carregar_delta(competencia)
+total_vinculos = reader.carregar_total_vinculos(competencia)
+
+col_vinculos, *_ = st.columns([1, 1, 1, 1, 1, 1])
+with col_vinculos:
+    st.metric(
+        label="Vínculos processados",
+        value=total_vinculos,
+        help="Total de vínculos profissionais na competência selecionada",
+    )
+
+st.divider()
 
 cols = st.columns(len(_KPI_DESTAQUE))
 for i, regra in enumerate(_KPI_DESTAQUE):
@@ -56,6 +67,22 @@ for i, regra in enumerate(_KPI_DESTAQUE):
             delta_color="inverse",
             help=f"Regra {regra} — Severidade: {sev}",
         )
+
+st.divider()
+
+if total_vinculos == 0:
+    st.warning(
+        "Pipeline rodou mas não processou vínculos. Verifique os logs."
+    )
+elif not kpis:
+    st.warning(
+        "Dados de auditoria não encontrados para esta competência. Reexecute o pipeline."
+    )
+elif sum(kpis.values()) == 0:
+    st.info(
+        "Nenhuma anomalia detectada nesta competência. "
+        "Se esperava resultados, verifique se o pipeline rodou com dados nacionais (BigQuery habilitado)."
+    )
 
 st.divider()
 
