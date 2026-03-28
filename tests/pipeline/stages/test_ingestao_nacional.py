@@ -2,7 +2,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
 from pipeline.state import PipelineState
 from pipeline.stages.ingestao_nacional import IngestaoNacionalStage
