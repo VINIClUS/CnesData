@@ -49,9 +49,12 @@ class CachingVerificadorCnes:
                 return status
 
         status = self._verificador.verificar_estabelecimento(cnes)
-        self._cache[cnes] = (status, agora)
-        self._persistir()
+        self._atualizar_cache(cnes, status)
         return status
+
+    def _atualizar_cache(self, cnes: str, status: str) -> None:
+        self._cache[cnes] = (status, time.time())
+        self._persistir()
 
     def _carregar(self) -> dict[str, tuple[str, float]]:
         if not self._caminho_cache.exists():
