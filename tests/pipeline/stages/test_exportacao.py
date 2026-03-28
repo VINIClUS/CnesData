@@ -116,13 +116,12 @@ def test_persistir_usa_competencia_str_nao_nome_arquivo(
     )
     mock_loader_cls.return_value = MagicMock()
     state = _state()
-    # Filename real de produção — split("_")[-1] seria "CNES", não "2024-12"
     state.output_path = tmp_path / "Relatorio_Profissionais_CNES.csv"
 
     ExportacaoStage().execute(state)
 
     args = mock_criar.call_args[0]
-    assert args[0] == "2024-12"  # state.competencia_str, não "CNES"
+    assert args[0] == "2024-12"
 
 
 @patch("pipeline.stages.exportacao.exportar_csv")
@@ -131,7 +130,7 @@ def test_persistir_usa_competencia_str_nao_nome_arquivo(
 @patch("pipeline.stages.exportacao.salvar_snapshot")
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
-def test_persistir_grava_todas_11_regras(
+def test_persistir_grava_12_chaves_auditoria(
     mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
 ):
     mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
