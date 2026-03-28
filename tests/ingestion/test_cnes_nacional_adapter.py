@@ -1,5 +1,8 @@
 """test_cnes_nacional_adapter.py — Testes do adapter BigQuery → schema padronizado."""
 
+import pickle
+import time as _time
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -169,3 +172,62 @@ class TestListarProfissionais:
         adapter = _adapter_com_mock()
         adapter.listar_profissionais(_COMPETENCIA)
         adapter._client.fetch_profissionais.assert_called_once_with("3541307", 2024, 12)
+
+
+class TestCachePickle:
+
+    def _adapter_com_cache(self, tmp_path: Path, mocker) -> CnesNacionalAdapter:
+        adapter = CnesNacionalAdapter("proj", "1234567", cache_dir=tmp_path)
+        mocker.patch.object(
+            adapter._client,
+            "fetch_estabelecimentos",
+            return_value=_DF_ESTAB_BQ.copy(),
+        )
+        mocker.patch.object(
+            adapter._client,
+            "fetch_profissionais",
+            return_value=_DF_PROF_BQ.copy(),
+        )
+        return adapter
+
+    def test_cache_miss_grava_arquivo_pickle(self, tmp_path, mocker):
+        adapter = self._adapter_com_cache(tmp_path, mocker)
+
+        adapter.listar_estabelecimentos((2024, 12))
+
+        arquivos = list(tmp_path.glob("*.pkl"))
+        assert len(arquivos) == 1
+
+    def test_cache_hit_nao_chama_client(self, tmp_path, mocker):
+        adapter = self._adapter_com_cache(tmp_path, mocker)
+        adapter.listar_estabelecimentos((2024, 12))
+
+        adapter.listar_estabelecimentos((2024, 12))
+
+        assert adapter._client.fetch_estabelecimentos.call_count == 1
+
+    def test_cache_expirado_chama_client_novamente(self, tmp_path, mocker):
+        adapter = CnesNacionalAdapter("proj", "1234567", cache_dir=tmp_path, ttl_cache_segundos=0)
+        mocker.patch.object(
+            adapter._client,
+            "fetch_estabelecimentos",
+            return_value=_DF_ESTAB_BQ.copy(),
+        )
+        adapter.listar_estabelecimentos((2024, 12))
+
+        _time.sleep(0.01)
+        adapter.listar_estabelecimentos((2024, 12))
+
+        assert adapter._client.fetch_estabelecimentos.call_count == 2
+
+    def test_cache_nao_usado_quando_cache_dir_none(self, mocker):
+        adapter = CnesNacionalAdapter("proj", "1234567")
+        mocker.patch.object(
+            adapter._client,
+            "fetch_estabelecimentos",
+            return_value=_DF_ESTAB_BQ.copy(),
+        )
+        adapter.listar_estabelecimentos((2024, 12))
+        adapter.listar_estabelecimentos((2024, 12))
+
+        assert adapter._client.fetch_estabelecimentos.call_count == 2
