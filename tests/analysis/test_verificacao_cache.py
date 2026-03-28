@@ -1,10 +1,8 @@
 """Testes do CachingVerificadorCnes — cache TTL para verificações DATASUS."""
 
 import time
-from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from analysis.verificacao_cache import CachingVerificadorCnes
 

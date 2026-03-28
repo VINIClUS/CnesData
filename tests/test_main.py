@@ -171,6 +171,7 @@ def _aplicar_patches(
             return_value=MagicMock(verificar_estabelecimento=lambda cnes: "CRITICO"),
         )
     )
+    stack.enter_context(patch("main.CachingVerificadorCnes"))
     mock_exportar = stack.enter_context(patch("main.exportar_csv"))
     stack.enter_context(patch("main.criar_snapshot"))
     stack.enter_context(patch("main.salvar_snapshot"))

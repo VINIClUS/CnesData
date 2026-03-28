@@ -88,6 +88,7 @@ CNPJ_MANTENEDORA: str = _validar_formato(
 # ── Snapshots Históricos ──────────────────────────────────────────────────
 SNAPSHOTS_DIR: Path = RAIZ_PROJETO / os.getenv("SNAPSHOTS_DIR", "data/snapshots")
 DUCKDB_PATH: Path = RAIZ_PROJETO / os.getenv("DUCKDB_PATH", "data/cnesdata.duckdb")
+CACHE_DIR: Path = RAIZ_PROJETO / os.getenv("CACHE_DIR", "data/cache")
 
 # ── Saída de Dados ─────────────────────────────────────────────────────────
 _output_dir = os.getenv("OUTPUT_DIR", "data/processed")
