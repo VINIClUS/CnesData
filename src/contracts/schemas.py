@@ -33,7 +33,7 @@ class EstabelecimentoContract(pa.DataFrameModel):
     CNPJ_MANTENEDORA: Series[str] = pa.Field(nullable=True)
     NATUREZA_JURIDICA: Series[str] = pa.Field(nullable=True)
     COD_MUNICIPIO: Series[str]
-    VINCULO_SUS: Series[str] = pa.Field(isin=["S", "N"])
+    VINCULO_SUS: Series[str] = pa.Field(isin=["S", "N"], nullable=True)
     FONTE: Series[str] = pa.Field(isin=["LOCAL", "NACIONAL"])
 
     class Config:
