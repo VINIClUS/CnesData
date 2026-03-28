@@ -177,12 +177,10 @@ These are concrete next steps, ordered by value:
 |---|---|---|---|
 | 1 | Data validation + 5 defect fixes | ✅ Done | CPF/CNES zero-padding, RQ-007/009 cascade false positives, COVEPE type 50 |
 | 2 | CBO enrichment (human-readable job titles) | ✅ Done | DESCRICAO_CBO column in all reports via NFCES026 |
-| 3 | HR Pre-processor (PIS cross-walking) | Planned | `scripts/hr_pre_processor.py` — generates `hr_padronizado.csv` to unlock Ghost Payroll without manual HR template |
-| 4 | "Double-Check" Nacional (CnesOficialWebAdapter) | Planned | API DATASUS cascade validation — eliminates false positives in RQ-006 caused by publication lag |
-| 5 | DuckDB Medallion Architecture | Planned | Replace JSON snapshots with Bronze/Silver/Gold queryable storage for future PEC/SIAH integration |
-| 6 | Evolution dashboard in Excel | Planned | Consume Gold layer from DuckDB for month-over-month trend chart |
-
-> **Nota (2026-03):** HR template generation e engajamento direto com RH suspensos. O sistema agora opera com princípio "Garbage In, NADA Out" — requer `hr_padronizado.csv` pré-processado via Epic 3.
+| 3 | "Double-Check" Nacional (cascade_resolver) | ✅ Done | API DATASUS cascade validation — eliminates RQ-006 false positives from publication lag |
+| 4 | DuckDB Medallion POC (Gold layer) | ✅ Done (POC) | Analytic persistence: evolucao_metricas_mensais + auditoria_resultados |
+| 5 | HR Pre-processor (PIS→CPF crosswalk) | ✅ Done | scripts/hr_pre_processor.py via LFCES018 — 61% coverage (240/395) |
+| 6 | Evolution dashboard in Excel | Not started | Trend tab comparing snapshots month-over-month (needs 2+ runs) |
 
 ---
 

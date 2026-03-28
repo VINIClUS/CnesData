@@ -40,6 +40,7 @@ from analysis.rules_engine import (
     detectar_divergencia_carga_horaria,
 )
 from analysis.cascade_resolver import resolver_lag_rq006
+from storage.database_loader import DatabaseLoader
 from ingestion.cnes_oficial_web_adapter import CnesOficialWebAdapter
 from analysis.evolution_tracker import criar_snapshot, salvar_snapshot
 from export.csv_exporter import exportar_csv
@@ -54,7 +55,9 @@ class _InsumosCruzamento:
     df_prof_nacional: pd.DataFrame
 
 
-def _exportar_se_nao_vazio(df: pd.DataFrame, nome_arquivo: str, output_dir: Path) -> None:
+def _exportar_se_nao_vazio(
+    df: pd.DataFrame, nome_arquivo: str, output_dir: Path
+) -> None:
     if not df.empty:
         exportar_csv(df, output_dir / nome_arquivo)
 
@@ -67,8 +70,12 @@ def _cruzar_nacional(
     resultado: dict[str, pd.DataFrame] = {
         k: pd.DataFrame()
         for k in (
-            "estab_fantasma", "estab_ausente",
-            "prof_fantasma", "prof_ausente", "cbo_diverg", "ch_diverg",
+            "estab_fantasma",
+            "estab_ausente",
+            "prof_fantasma",
+            "prof_ausente",
+            "cbo_diverg",
+            "ch_diverg",
         )
     }
     if not insumos.df_estab_nacional.empty:
@@ -77,11 +84,14 @@ def _cruzar_nacional(
         )
         _TIPOS_EXCLUIR_RQ007: frozenset[str] = frozenset({"22"})
         resultado["estab_ausente"] = detectar_estabelecimentos_ausentes_local(
-            insumos.df_estab_local, insumos.df_estab_nacional,
+            insumos.df_estab_local,
+            insumos.df_estab_nacional,
             tipos_excluir=_TIPOS_EXCLUIR_RQ007,
         )
     else:
-        _log.warning("estab_cross_check=skipped motivo=estabelecimentos_nacionais_vazios")
+        _log.warning(
+            "estab_cross_check=skipped motivo=estabelecimentos_nacionais_vazios"
+        )
     if not insumos.df_prof_nacional.empty:
         resultado["prof_fantasma"] = detectar_profissionais_fantasma(
             insumos.df_prof_local, insumos.df_prof_nacional
@@ -215,14 +225,20 @@ def main() -> int:
             df_ghost = detectar_folha_fantasma(df_processado, df_rh)
             df_missing = detectar_registro_ausente(df_processado, df_rh)
         else:
-            logger.warning("hr_cross_check=skipped motivo=FOLHA_HR_PATH_nao_configurado")
+            logger.warning(
+                "hr_cross_check=skipped motivo=FOLHA_HR_PATH_nao_configurado"
+            )
 
         # ── Camada 3C: Cross-check local × nacional ───────────────────────────
         nac: dict[str, pd.DataFrame] = {
             k: pd.DataFrame()
             for k in (
-                "estab_fantasma", "estab_ausente",
-                "prof_fantasma", "prof_ausente", "cbo_diverg", "ch_diverg",
+                "estab_fantasma",
+                "estab_ausente",
+                "prof_fantasma",
+                "prof_ausente",
+                "cbo_diverg",
+                "ch_diverg",
             )
         }
 
@@ -231,12 +247,16 @@ def main() -> int:
                 logger.warning(
                     "nacional_cross_check=skipped motivo=dados_nacionais_vazios "
                     "competencia=%d-%02d (dados ainda não publicados?)",
-                    competencia_ano, competencia_mes,
+                    competencia_ano,
+                    competencia_mes,
                 )
             else:
                 nac = _cruzar_nacional(
                     _InsumosCruzamento(
-                        df_processado, df_estab_local, df_estab_nacional, df_prof_nacional,
+                        df_processado,
+                        df_estab_local,
+                        df_estab_nacional,
+                        df_prof_nacional,
                     ),
                     cbo_lookup=cbo_lookup,
                 )
@@ -272,18 +292,18 @@ def main() -> int:
         gerar_relatorio(
             output_path.with_suffix(".xlsx"),
             {
-                "principal":             df_processado,
-                "ghost":                 df_ghost,
-                "missing":               df_missing,
-                "multi_unidades":        df_multi_unidades,
-                "acs_tacs":              df_acs_incorretos,
-                "ace_tace":              df_ace_incorretos,
-                "rq006_estab_fantasma":  df_estab_fantasma,
-                "rq007_estab_ausente":   df_estab_ausente,
-                "rq008_prof_fantasma":   df_prof_fantasma,
-                "rq009_prof_ausente":    df_prof_ausente,
+                "principal": df_processado,
+                "ghost": df_ghost,
+                "missing": df_missing,
+                "multi_unidades": df_multi_unidades,
+                "acs_tacs": df_acs_incorretos,
+                "ace_tace": df_ace_incorretos,
+                "rq006_estab_fantasma": df_estab_fantasma,
+                "rq007_estab_ausente": df_estab_ausente,
+                "rq008_prof_fantasma": df_prof_fantasma,
+                "rq009_prof_ausente": df_prof_ausente,
                 "rq010_divergencia_cbo": df_cbo_diverg,
-                "rq011_divergencia_ch":  df_ch_diverg,
+                "rq011_divergencia_ch": df_ch_diverg,
             },
             competencia=competencia_str,
         )
@@ -305,6 +325,19 @@ def main() -> int:
         )
         salvar_snapshot(snapshot, config.SNAPSHOTS_DIR)
 
+        _loader = DatabaseLoader(config.DUCKDB_PATH)
+        _loader.inicializar_schema()
+        _loader.gravar_metricas(snapshot)
+        _loader.gravar_auditoria(
+            snapshot.data_competencia, "GHOST", snapshot.total_ghost
+        )
+        _loader.gravar_auditoria(
+            snapshot.data_competencia, "MISSING", snapshot.total_missing
+        )
+        _loader.gravar_auditoria(
+            snapshot.data_competencia, "RQ005", snapshot.total_rq005
+        )
+
         logger.info("Pipeline concluído com êxito.")
         logger.info("Relatório principal: %s", output_path)
         return 0
@@ -318,7 +351,9 @@ def main() -> int:
         return 1
 
     except Exception as e:
-        logging.getLogger(__name__).exception("Erro inesperado durante o pipeline: %s", e)
+        logging.getLogger(__name__).exception(
+            "Erro inesperado durante o pipeline: %s", e
+        )
         return 1
 
     finally:
