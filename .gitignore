@@ -55,3 +55,6 @@ output.txt
 .playwright/
 .vscode/
 .ruff_cache/
+
+# Visual brainstorming companion
+.superpowers/
