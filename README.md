@@ -175,6 +175,19 @@ pytest tests/ -v
 
 313+ testes unitários passando.
 
+## Dashboard Analítico
+
+Visualização interativa de tendências e drill-down de anomalias (requer ao menos uma execução do pipeline):
+
+```bash
+./venv/Scripts/streamlit.exe run scripts/dashboard.py
+```
+
+Abre automaticamente em http://localhost:8501. Três páginas:
+- **Visão Geral** — KPIs do mês selecionado + tabela por severidade
+- **Tendências** — gráfico de linhas multi-regra (Plotly, responsivo)
+- **Por Regra** — drill-down de registros individuais com download CSV
+
 ## Estrutura do Projeto
 
 ```
