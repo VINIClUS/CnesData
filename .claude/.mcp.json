@@ -35,12 +35,14 @@
         "excalidraw-mcp"
       ]
     },
-    "duckdb": {
+    "DuckDB (in-memory, r/w)": {
       "command": "uvx",
       "args": [
-        "mcp-server-duckdb",
+        "mcp-server-motherduck",
         "--db-path",
-        "~/mcp-server-duckdb/data/data.db"
+        ":memory:",
+        "--read-write",
+        "--allow-switch-databases"
       ]
     }
   }
