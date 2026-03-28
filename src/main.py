@@ -13,6 +13,7 @@ Como executar:
 
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -195,8 +196,11 @@ def main() -> int:
                 config.GCP_PROJECT_ID, config.ID_MUNICIPIO_IBGE7
             )
             competencia = (competencia_ano, competencia_mes)
-            df_prof_nacional = repo_nacional.listar_profissionais(competencia)
-            df_estab_nacional = repo_nacional.listar_estabelecimentos(competencia)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                fut_prof = pool.submit(repo_nacional.listar_profissionais, competencia)
+                fut_estab = pool.submit(repo_nacional.listar_estabelecimentos, competencia)
+            df_prof_nacional = fut_prof.result()
+            df_estab_nacional = fut_estab.result()
         else:
             logger.warning("nacional_cross_check=skipped motivo=skip_nacional_flag")
 
