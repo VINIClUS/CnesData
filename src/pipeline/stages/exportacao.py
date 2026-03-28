@@ -1,5 +1,6 @@
 """ExportacaoStage — CSV, Excel, snapshot JSON e DuckDB."""
 import logging
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +11,7 @@ from export.csv_exporter import exportar_csv
 from export.report_generator import gerar_relatorio
 from pipeline.state import PipelineState
 from storage.database_loader import DatabaseLoader
+from storage.historico_reader import CSV_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -89,4 +91,15 @@ class ExportacaoStage:
         loader.gravar_auditoria(competencia, "RQ009", len(state.df_prof_ausente))
         loader.gravar_auditoria(competencia, "RQ010", len(state.df_cbo_diverg))
         loader.gravar_auditoria(competencia, "RQ011", len(state.df_ch_diverg))
+        self._arquivar_csvs(state, competencia)
         logger.info("exportacao concluida output=%s", state.output_path)
+
+    def _arquivar_csvs(self, state: PipelineState, competencia: str) -> None:
+        src_dir = state.output_path.parent
+        dest_dir = src_dir / "historico" / competencia
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for nome in CSV_MAP.values():
+            src = src_dir / nome
+            if src.exists():
+                shutil.copy2(src, dest_dir / nome)
+        logger.info("csvs_arquivados competencia=%s dest=%s", competencia, dest_dir)

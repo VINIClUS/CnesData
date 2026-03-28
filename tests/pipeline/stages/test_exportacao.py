@@ -150,3 +150,30 @@ def test_persistir_grava_12_chaves_auditoria(
         "RQ003B", "RQ005_ACS", "RQ005_ACE",
         "RQ006", "RQ007", "RQ008", "RQ009", "RQ010", "RQ011",
     }
+
+
+def test_arquivar_csvs_copia_para_historico(tmp_path):
+    output_dir = tmp_path / "processed"
+    output_dir.mkdir()
+    (output_dir / "auditoria_rq008_prof_fantasma_cns.csv").write_text(
+        "CNS,NOME\n7001234567890123,Ana\n", encoding="utf-8"
+    )
+    state = _state()
+    state.output_path = output_dir / "Relatorio_Profissionais_CNES.csv"
+
+    ExportacaoStage()._arquivar_csvs(state, "2024-12")
+
+    dest = output_dir / "historico" / "2024-12" / "auditoria_rq008_prof_fantasma_cns.csv"
+    assert dest.exists()
+    assert "Ana" in dest.read_text(encoding="utf-8")
+
+
+def test_arquivar_csvs_ignora_arquivos_ausentes(tmp_path):
+    output_dir = tmp_path / "processed"
+    output_dir.mkdir()
+    state = _state()
+    state.output_path = output_dir / "Relatorio_Profissionais_CNES.csv"
+
+    ExportacaoStage()._arquivar_csvs(state, "2024-12")
+
+    assert (output_dir / "historico" / "2024-12").exists()
