@@ -96,3 +96,5 @@ uritemplate==4.2.0
 urllib3==2.6.3
 win32_setctime==1.2.0
 yarl==1.23.0
+streamlit>=1.32.0
+plotly>=5.20.0
