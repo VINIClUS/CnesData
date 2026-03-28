@@ -63,13 +63,9 @@ class ExportacaoStage:
         )
 
     def _persistir_historico(self, state: PipelineState) -> None:
-        competencia_stem = (
-            state.output_path.stem.split("_")[-1]
-            if "_" in state.output_path.stem
-            else "desconhecida"
-        )
+        competencia = state.competencia_str
         snapshot = criar_snapshot(
-            competencia_stem,
+            competencia,
             state.df_processado,
             state.df_ghost,
             state.df_missing,
@@ -81,7 +77,16 @@ class ExportacaoStage:
         loader = DatabaseLoader(config.DUCKDB_PATH)
         loader.inicializar_schema()
         loader.gravar_metricas(snapshot)
-        loader.gravar_auditoria(snapshot.data_competencia, "GHOST", snapshot.total_ghost)
-        loader.gravar_auditoria(snapshot.data_competencia, "MISSING", snapshot.total_missing)
-        loader.gravar_auditoria(snapshot.data_competencia, "RQ005", snapshot.total_rq005)
+        loader.gravar_auditoria(competencia, "GHOST", snapshot.total_ghost)
+        loader.gravar_auditoria(competencia, "MISSING", snapshot.total_missing)
+        loader.gravar_auditoria(competencia, "RQ005", snapshot.total_rq005)
+        loader.gravar_auditoria(competencia, "RQ003B", len(state.df_multi_unidades))
+        loader.gravar_auditoria(competencia, "RQ005_ACS", len(state.df_acs_incorretos))
+        loader.gravar_auditoria(competencia, "RQ005_ACE", len(state.df_ace_incorretos))
+        loader.gravar_auditoria(competencia, "RQ006", len(state.df_estab_fantasma))
+        loader.gravar_auditoria(competencia, "RQ007", len(state.df_estab_ausente))
+        loader.gravar_auditoria(competencia, "RQ008", len(state.df_prof_fantasma))
+        loader.gravar_auditoria(competencia, "RQ009", len(state.df_prof_ausente))
+        loader.gravar_auditoria(competencia, "RQ010", len(state.df_cbo_diverg))
+        loader.gravar_auditoria(competencia, "RQ011", len(state.df_ch_diverg))
         logger.info("exportacao concluida output=%s", state.output_path)
