@@ -31,7 +31,7 @@ if not competencias:
 regras_sel = st.sidebar.multiselect(
     "Regras",
     options=_TODAS_REGRAS,
-    default=["RQ008", "RQ006", "RQ009"],
+    default=_TODAS_REGRAS,
 )
 comp_ini = st.sidebar.selectbox("De", options=competencias, index=0)
 comp_fim = st.sidebar.selectbox("Até", options=competencias, index=len(competencias) - 1)
