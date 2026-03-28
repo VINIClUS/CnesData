@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import streamlit as st
 
-from storage.historico_reader import CSV_MAP, HistoricoReader
+from storage.historico_reader import HistoricoReader
 
 _REGRA_DESC: dict[str, str] = {
     "RQ003B":    "RQ-003-B — Múltiplas Unidades",
