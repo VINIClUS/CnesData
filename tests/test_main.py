@@ -122,6 +122,8 @@ def _aplicar_patches(
     mock_config.LOGS_DIR = Path("logs")
     mock_config.LOG_FILE = Path("logs/cnes_exporter.log")
     mock_config.SNAPSHOTS_DIR = Path("data/snapshots")
+    mock_config.DUCKDB_PATH = Path("data/metrics.duckdb")
+    mock_config.CACHE_DIR = Path("data/cache")
     mock_config.GCP_PROJECT_ID = "test-project"
     mock_config.COMPETENCIA_ANO = 2024
     mock_config.COMPETENCIA_MES = 12
