@@ -152,9 +152,12 @@ def test_persistir_grava_12_chaves_auditoria(
     }
 
 
-def test_arquivar_csvs_copia_para_historico(tmp_path):
+@patch("pipeline.stages.exportacao.config")
+def test_arquivar_csvs_copia_para_historico(mock_config, tmp_path):
     output_dir = tmp_path / "processed"
     output_dir.mkdir()
+    historico_dir = tmp_path / "historico"
+    mock_config.HISTORICO_DIR = historico_dir
     (output_dir / "auditoria_rq008_prof_fantasma_cns.csv").write_text(
         "CNS,NOME\n7001234567890123,Ana\n", encoding="utf-8"
     )
@@ -163,17 +166,20 @@ def test_arquivar_csvs_copia_para_historico(tmp_path):
 
     ExportacaoStage()._arquivar_csvs(state, "2024-12")
 
-    dest = output_dir / "historico" / "2024-12" / "auditoria_rq008_prof_fantasma_cns.csv"
+    dest = historico_dir / "2024-12" / "auditoria_rq008_prof_fantasma_cns.csv"
     assert dest.exists()
     assert "Ana" in dest.read_text(encoding="utf-8")
 
 
-def test_arquivar_csvs_ignora_arquivos_ausentes(tmp_path):
+@patch("pipeline.stages.exportacao.config")
+def test_arquivar_csvs_ignora_arquivos_ausentes(mock_config, tmp_path):
     output_dir = tmp_path / "processed"
     output_dir.mkdir()
+    historico_dir = tmp_path / "historico"
+    mock_config.HISTORICO_DIR = historico_dir
     state = _state()
     state.output_path = output_dir / "Relatorio_Profissionais_CNES.csv"
 
     ExportacaoStage()._arquivar_csvs(state, "2024-12")
 
-    assert (output_dir / "historico" / "2024-12").exists()
+    assert (historico_dir / "2024-12").exists()

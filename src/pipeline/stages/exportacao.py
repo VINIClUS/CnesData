@@ -96,7 +96,7 @@ class ExportacaoStage:
 
     def _arquivar_csvs(self, state: PipelineState, competencia: str) -> None:
         src_dir = state.output_path.parent
-        dest_dir = src_dir / "historico" / competencia
+        dest_dir = config.HISTORICO_DIR / competencia
         dest_dir.mkdir(parents=True, exist_ok=True)
         for nome in CSV_MAP.values():
             src = src_dir / nome
