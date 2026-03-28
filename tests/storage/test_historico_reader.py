@@ -106,3 +106,11 @@ def test_listar_competencias_para_regra_filtra_por_arquivo(reader):
     disponiveis = reader.listar_competencias_para_regra("RQ008")
     assert "2024-12" in disponiveis
     assert "2024-11" not in disponiveis
+
+
+def test_carregar_total_vinculos_retorna_valor_correto(reader):
+    assert reader.carregar_total_vinculos("2024-12") == 357
+
+
+def test_carregar_total_vinculos_retorna_zero_quando_competencia_ausente(reader):
+    assert reader.carregar_total_vinculos("2099-01") == 0

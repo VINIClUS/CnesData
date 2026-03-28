@@ -149,3 +149,20 @@ class HistoricoReader:
         if not nome:
             return []
         return sorted(p.parent.name for p in self._historico_dir.glob(f"*/{nome}"))
+
+    def carregar_total_vinculos(self, competencia: str) -> int:
+        """Retorna total de vínculos processados para uma competência.
+
+        Args:
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            Total de vínculos ou 0 se a competência não existir.
+        """
+        with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
+            df = con.execute(
+                "SELECT total_vinculos FROM gold.evolucao_metricas_mensais "
+                "WHERE data_competencia = ?",
+                [competencia],
+            ).df()
+        return int(df["total_vinculos"].iloc[0]) if not df.empty else 0
