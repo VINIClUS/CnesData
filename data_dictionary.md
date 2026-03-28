@@ -1,4 +1,5 @@
 # Dicionário de Dados — CNES Firebird (CNES.GDB)
+>
 > **Versão:** 0.5 — Iteração 5 (validação de dados + CBO enrichment)
 > **Status:** ✅ CONCLUÍDO — RQ-001 a RQ-012 documentados, zero-padding, filtragem de cascata, CBO enrichment implementados
 
@@ -187,30 +188,36 @@ Usada como lookup para enriquecimento: `extrair_lookup_cbo()` em `cnes_client.py
 ## Regras de Qualidade Mapeadas
 
 ### RQ-001 — Filtro de Status ✅ RESOLVIDA
+
 - **Descoberta:** `STATUSMOV = '2'` é o estado ativo em todas as três tabelas principais.
 - **Conclusão:** A query atual não precisa de filtro adicional de STATUS — todos os 813 vínculos no banco local já são `STATUSMOV='2'`.
 - **Monitoramento:** Em versões futuras com carga de competência, adicionar `WHERE vinc.STATUSMOV = '2'`.
 
 ### RQ-002 — CPF Nulo ou Inválido em LFCES018
+
 - **Condição:** `CPF_PROF IS NULL OR LENGTH(TRIM(CPF_PROF)) != 11`
 - **Impacto:** Quebra JOIN com LFCES048; profissional some do relatório.
 - **Ação:** Logar `WARNING`; excluir da carga e registrar no log de auditoria.
 
 ### RQ-012 — Normalização de Zero-Padding (CPF e CNES)
+
 - **CPF:** Firebird pode retornar CPFs com 9-10 dígitos quando o valor começa com zero. Pipeline aplica `zfill(11)` no transformer ANTES do RQ-002. Corrigido em 2026-03-22 (ALERTA-1 da validação).
 - **CNES:** Firebird pode retornar CNES com 6 dígitos. Pipeline aplica `zfill(7)` no CnesLocalAdapter. Corrigido em 2026-03-22 (ALERTA-2).
 
 ### RQ-003 — Vínculo sem Carga Horária ("Vínculo Zumbi")
+
 - **Condição:** `CG_HORAAMB = 0 AND CGHORAOUTR = 0 AND CGHORAHOSP = 0`
 - **Impacto:** Profissional no cadastro sem horas declaradas.
 - **Ação:** Flag `STATUS_CH = 'ATIVO_SEM_CH'`.
 
 ### RQ-004 — Múltiplos Vínculos na Mesma Unidade ✅ RESOLVIDA
+
 - **Descoberta:** 0 casos encontrados no banco atual.
 - **Conclusão:** A PK composta de 5 campos de LFCES021 garante não duplicatas de vínculos por (Prof+Unidade+CBO+IND_VINC+SUS).
 - **Monitoramento:** Manter verificação na pipeline de transformação.
 
 ### RQ-003-B — Profissionais com Vínculos em Múltiplas Unidades 🔍 MAPEADO
+
 - **Descoberta:** **24 profissionais** com vínculos em 2+ unidades (2 deles com 3 unidades: KATIA MIZUKI BORDIN e LAYLA IZABELLY KONDO).
 - **Padrão dominante:** Profissionais com carga mínima (2h) na Residência Terapêutica + carga principal no CAPS — parece estrutural.
 - **Ação:** Exportar `03_rq003_multiplas_unidades.csv` para revisão de RH.
@@ -222,12 +229,14 @@ Usada como lookup para enriquecimento: `extrair_lookup_cbo()` em `cnes_client.py
 ### RQ-005 — Auditoria de Lotação ✅ REGRAS CONFIRMADAS PELO USUÁRIO
 
 #### Grupo ACS (Atenção Básica de Saúde da Família)
+
 | CBO | Cargo | Lotação Correta (TP_UNID_ID) |
 |---|---|---|
 | `515105` | Agente Comunitário de Saúde (ACS) | `01`, `02`, `15` |
 | `322255` | Técnico em Agente Comunitário de Saúde (TACS) | `01`, `02`, `15` |
 
 #### Grupo ACE (Vigilância e Controle de Endemias)
+
 | CBO | Cargo | Lotação Correta (TP_UNID_ID) | Observação |
 |---|---|---|---|
 | `515140` | Agente de Combate às Endemias (legado) | `02`, `69`, `22`, `15`, `50` | CBO em transição |
@@ -237,11 +246,13 @@ Usada como lookup para enriquecimento: `extrair_lookup_cbo()` em `cnes_client.py
 > Tipo 50 = COVEPE / órgão de gestão de vigilância epidemiológica. Lotação administrativa válida para ACE/TACE em Presidente Epitácio (confirmado pela validação de dados 2026-03-22).
 
 #### Grupo Saúde Mental (lotação CORRETA confirmada)
+
 | CBO | Cargo | Lotação Correta |
 |---|---|---|
 | `516220` | Cuidador em Saúde | CAPS (70) / Res. Terapêutica (70) ✅ |
 
 **SQL de Auditoria ACS/TACS fora de unidade correta:**
+
 ```sql
 SELECT prof.CPF_PROF, prof.NOME_PROF, vinc.COD_CBO, est.NOME_FANTA, est.TP_UNID_ID
 FROM LFCES021 vinc
@@ -253,6 +264,7 @@ WHERE vinc.COD_CBO IN ('515105', '322255')   -- ACS e TACS
 ```
 
 **SQL de Auditoria ACE/TACE fora de unidade correta:**
+
 ```sql
 WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
   AND est.TP_UNID_ID NOT IN ('02', '69', '22', '15', '50')
@@ -260,6 +272,7 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 ```
 
 ### RQ-006 — Estabelecimentos Fantasma (local sem correspondência nacional) ✅ IMPLEMENTADO
+
 - **Condição:** CNES presente em `df_local` mas ausente em `df_nacional` (base BigQuery)
 - **Chave de JOIN:** `CNES` (7 dígitos)
 - **Impacto:** Estabelecimento ativo no Firebird local mas sem cadastro na base nacional DATASUS.
@@ -267,6 +280,7 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 - **Função:** `detectar_estabelecimentos_fantasma(df_local, df_nacional)`
 
 ### RQ-007 — Estabelecimentos Ausentes no Local (nacional sem correspondência local) ✅ IMPLEMENTADO
+
 - **Condição:** CNES presente em `df_nacional` mas ausente em `df_local`
 - **Chave de JOIN:** `CNES` (7 dígitos)
 - **Impacto:** Estabelecimento registrado no DATASUS nacional mas não no banco Firebird local.
@@ -276,6 +290,7 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 > **Exclusão de escopo (implementada 2026-03-22):** Consultórios Isolados (TIPO_UNIDADE=22) são excluídos do RQ-007 pois pertencem a outros mantenedores (profissionais autônomos), não à prefeitura. Parâmetro `tipos_excluir` na função.
 
 ### RQ-008 — Profissionais Fantasma por CNS (local sem correspondência nacional) ✅ IMPLEMENTADO
+
 - **Condição:** CNS presente em `df_local` mas ausente em `df_nacional`
 - **Chave de JOIN:** `CNS` (15 dígitos — `LFCES018.COD_CNS` ↔ `br_ms_cnes.profissional.cartao_nacional_saude`)
 - **Impacto:** Vínculo ativo no Firebird local sem correspondência na base CNES nacional.
@@ -284,6 +299,7 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 - **Função:** `detectar_profissionais_fantasma(df_local, df_nacional)`
 
 ### RQ-009 — Profissionais Ausentes no Local por CNS (nacional sem correspondência local) ✅ IMPLEMENTADO
+
 - **Condição:** CNS presente em `df_nacional` mas ausente em `df_local`
 - **Chave de JOIN:** `CNS` (15 dígitos)
 - **Impacto:** Profissional registrado no DATASUS nacional mas sem vínculo no Firebird local.
@@ -294,6 +310,7 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 > **Filtragem de cascata (implementada 2026-03-22):** Profissionais cujo CNES já consta no resultado do RQ-007 (estabelecimento ausente no local) são excluídos do RQ-009 para evitar falsos positivos em cascata. Parâmetro `cnes_excluir` na função.
 
 ### RQ-010 — Divergência de CBO entre Local e Nacional ✅ IMPLEMENTADO
+
 - **Condição:** Mesmo par (CNS + CNES) com `CBO_LOCAL ≠ CBO_NACIONAL`
 - **Chave de JOIN:** `(CNS, CNES)` — inner join entre local e nacional
 - **Impacto:** Profissional cadastrado com ocupação diferente nas duas fontes — possível erro de registro.
@@ -301,6 +318,7 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 - **Função:** `detectar_divergencia_cbo(df_local, df_nacional, cbo_lookup=None)`
 
 ### RQ-011 — Divergência de Carga Horária entre Local e Nacional ✅ IMPLEMENTADO
+
 - **Condição:** Mesmo par (CNS + CNES) com `|CH_LOCAL - CH_NACIONAL| > tolerancia` (padrão: 0h)
 - **Chave de JOIN:** `(CNS, CNES)` — inner join entre local e nacional; usa `CH_TOTAL` de ambas as fontes
 - **Impacto:** Carga horária declarada difere entre Firebird e BigQuery além da tolerância aceita.
@@ -337,6 +355,7 @@ LFCES060 (Equipe)               ⚠️ SEM PK
 
 > [!WARNING]
 > **Dois joins sem FK declarada** no caminho crítico do relatório:
+>
 > 1. `LFCES021 → LFCES048` via `CPF_PROF` — sem garantia referencial
 > 2. `LFCES048 → LFCES060` via `SEQ_EQUIPE+COD_AREA+COD_MUN` — sem PK destino
 
@@ -364,6 +383,7 @@ LFCES060 (Equipe)               ⚠️ SEM PK
 ---
 
 ## Validação CODMUNGEST ✅ SEM MISMATCH
+
 - `LFCES004.CODMUNGEST = '354130'` (6 dígitos, mesmo sem padding)
 - `LFCES048.COD_MUN = '354130'` (6 dígitos, 197 membros de equipe)
 - **Join funciona corretamente.**

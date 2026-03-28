@@ -35,15 +35,13 @@
         "excalidraw-mcp"
       ]
     },
-    "github": {
-      "command": "npx",
+    "duckdb": {
+      "command": "uvx",
       "args": [
-        "-y",
-        "@modelcontextprotocol/server-github"
-      ],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
-      }
+        "mcp-server-duckdb",
+        "--db-path",
+        "~/mcp-server-duckdb/data/data.db"
+      ]
     }
   }
 }
