@@ -193,7 +193,9 @@ def main() -> int:
         df_estab_nacional: pd.DataFrame = pd.DataFrame()
         if executar_nacional:
             repo_nacional = CnesNacionalAdapter(
-                config.GCP_PROJECT_ID, config.ID_MUNICIPIO_IBGE7
+                config.GCP_PROJECT_ID,
+                config.ID_MUNICIPIO_IBGE7,
+                cache_dir=config.CACHE_DIR,
             )
             competencia = (competencia_ano, competencia_mes)
             with ThreadPoolExecutor(max_workers=2) as pool:

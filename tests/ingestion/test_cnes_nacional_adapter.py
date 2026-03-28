@@ -1,6 +1,5 @@
 """test_cnes_nacional_adapter.py — Testes do adapter BigQuery → schema padronizado."""
 
-import pickle
 import time as _time
 from pathlib import Path
 from unittest.mock import MagicMock
