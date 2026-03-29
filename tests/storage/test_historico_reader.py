@@ -15,7 +15,8 @@ def _popular_duckdb(path):
                 total_vinculos INTEGER,
                 total_ghost INTEGER,
                 total_missing INTEGER,
-                total_rq005 INTEGER
+                total_rq005 INTEGER,
+                gravado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         con.execute("""
@@ -26,8 +27,8 @@ def _popular_duckdb(path):
                 PRIMARY KEY (data_competencia, regra)
             )
         """)
-        con.execute("INSERT INTO gold.evolucao_metricas_mensais VALUES ('2024-11',350,2,3,5)")
-        con.execute("INSERT INTO gold.evolucao_metricas_mensais VALUES ('2024-12',357,3,2,7)")
+        con.execute("INSERT INTO gold.evolucao_metricas_mensais VALUES ('2024-11',350,2,3,5,NULL)")
+        con.execute("INSERT INTO gold.evolucao_metricas_mensais VALUES ('2024-12',357,3,2,7,NULL)")
         con.execute("INSERT INTO gold.auditoria_resultados VALUES ('2024-11','RQ008',9)")
         con.execute("INSERT INTO gold.auditoria_resultados VALUES ('2024-11','RQ006',4)")
         con.execute("INSERT INTO gold.auditoria_resultados VALUES ('2024-12','RQ008',12)")
