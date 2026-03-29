@@ -51,3 +51,10 @@ intersect*.txt
 *_out.txt
 export_log.txt
 output.txt
+.worktrees/
+.playwright/
+.vscode/
+.ruff_cache/
+
+# Visual brainstorming companion
+.superpowers/

@@ -34,7 +34,6 @@ ALERTA_CH_OK: Final[str] = "OK"
 _COLUNAS_TEXTO: Final[tuple[str, ...]] = (
     "CPF", "CNS", "NOME_PROFISSIONAL", "CBO", "CNES", "ESTABELECIMENTO",
     "NOME_SOCIAL", "SEXO", "TIPO_VINCULO", "SUS",
-    "TIPO_UNIDADE", "COD_MUNICIPIO",
 )
 
 # Colunas opcionais de equipe que chegam NULL no LEFT JOIN sem correspondência.

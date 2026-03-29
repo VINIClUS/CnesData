@@ -35,15 +35,15 @@
         "excalidraw-mcp"
       ]
     },
-    "github": {
-      "command": "npx",
+    "DuckDB (in-memory, r/w)": {
+      "command": "uvx",
       "args": [
-        "-y",
-        "@modelcontextprotocol/server-github"
-      ],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
-      }
+        "mcp-server-motherduck",
+        "--db-path",
+        ":memory:",
+        "--read-write",
+        "--allow-switch-databases"
+      ]
     }
   }
 }

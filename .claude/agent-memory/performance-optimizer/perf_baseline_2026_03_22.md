@@ -85,8 +85,37 @@ type: project
 - All functions operating on 367-row local data: even worst-case Python loops finish in <5ms.
 - `_adicionar_recomendacao` in report_generator.py: one `.copy()` + scalar assignment. Negligible.
 
+## Third pass findings — 2026-03-27 (after cascade_resolver + DatabaseLoader added)
+
+### New bottleneck: cascade_resolver.py — resolver_lag_rq006 (HIGH)
+- Sequential HTTP loop: one DATASUS API call per ghost establishment, 0.5s sleep between calls
+- 10 ghost CNES = 5s minimum wait, 100 = 50s. Dominated by network RTT + enforced sleep
+- Retry policy adds up to (1+2+4)×3 = 21s per failed host before fallback
+- No parallelism, no result caching across pipeline runs
+- Fix (not yet applied): asyncio/ThreadPoolExecutor with shared semaphore; pickle cache with TTL per CNES
+
+### New bottleneck: DatabaseLoader — multiple connections per run (LOW)
+- Opens/closes a new duckdb.connect() for each of inicializar_schema(), gravar_metricas(),
+  gravar_auditoria() ×3 calls = 5 separate open/close cycles on a file-based DuckDB
+- At DuckDB file sizes involved this is negligible in absolute terms, but pattern is inconsistent
+  with single-connection-per-pipeline discipline used for Firebird
+
+### Confirmed remaining P2 opportunities from second pass (still not applied)
+- rules_engine.py: 4 functions (RQ-006 through RQ-009) each recompute `.astype(str).str.strip()`
+  twice — once to build the frozenset, once on the comparison side. At 10K+ national rows these
+  double-normalize ~20K–40K cells redundantly. Fix: normalize to a local variable once per function.
+- transformer.py: `_COLUNAS_TEXTO` tuple contains TIPO_UNIDADE and COD_MUNICIPIO which are NOT
+  present in SCHEMA_PROFISSIONAL (the raw output from `extrair_profissionais`). The `if coluna in
+  resultado.columns` guard prevents a crash but causes 2 pointless in-check iterations every run.
+
+### Confirmed NOT-yet-applied P1 opportunities from second pass
+- transformer.py `_aplicar_rq002_validar_cpf` line 64: comment says CPF is already stripped,
+  but the variable `cpf_str = df["CPF"]` is used directly without re-stripping — the note
+  in the second pass about "double strip" was a misread; no actual P1 remaining here.
+
 ## Data volume thresholds
 
 - Under 10K rows national: current implementation is fast enough even before optimization
 - At 10K+ national rows: ghost detection vectorization and column-width cap become measurably relevant
 - At 100K+ rows: consider O6 (chunked BigQuery fetch) from the optimization guide
+- cascade_resolver becomes the pipeline's slowest step if RQ-006 returns > ~5 ghost establishments

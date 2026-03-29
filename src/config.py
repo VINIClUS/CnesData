@@ -87,6 +87,8 @@ CNPJ_MANTENEDORA: str = _validar_formato(
 
 # ── Snapshots Históricos ──────────────────────────────────────────────────
 SNAPSHOTS_DIR: Path = RAIZ_PROJETO / os.getenv("SNAPSHOTS_DIR", "data/snapshots")
+DUCKDB_PATH: Path = RAIZ_PROJETO / os.getenv("DUCKDB_PATH", "data/cnesdata.duckdb")
+CACHE_DIR: Path = RAIZ_PROJETO / os.getenv("CACHE_DIR", "data/cache")
 
 # ── Saída de Dados ─────────────────────────────────────────────────────────
 _output_dir = os.getenv("OUTPUT_DIR", "data/processed")
@@ -95,6 +97,7 @@ _output_filename = os.getenv("OUTPUT_FILENAME", "Relatorio_Profissionais_CNES.cs
 # Usa a raiz do projeto para garantir que o caminho é absoluto,
 # independente de onde o script for chamado.
 OUTPUT_PATH: Path = RAIZ_PROJETO / _output_dir / _output_filename
+HISTORICO_DIR: Path = OUTPUT_PATH.parent / "historico"
 
 # ── Google Cloud / BigQuery ────────────────────────────────────────────────
 GCP_PROJECT_ID: str = _exigir("GCP_PROJECT_ID")

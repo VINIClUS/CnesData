@@ -8,6 +8,7 @@ Mission-critical data extraction and reconciliation pipeline. Reconciliation Rul
 </project_context>
 
 <project_architecture>
+
 - **Ingestion:** cnes_client (Firebird/fdb cursor), hr_client (.xlsx/.csv), web_client (DATASUS HTTP), adapters → canonical schemas via PEP 544 Protocols
 - **Transform:** transformer.py — CPF cleaning, ISO 8601 dates, dedup (RQ-002, RQ-003)
 - **Analyze:** rules_engine.py — 11 audit rules (RQ-003-B, RQ-005–011, Ghost Payroll, Missing Registration). evolution_tracker.py — JSON snapshots
@@ -49,6 +50,7 @@ Mission-critical data extraction and reconciliation pipeline. Reconciliation Rul
 THESE RULES APPLY TO ALL CODE, LOGS, AND RESPONSES GENERATED:
 
 CODE:
+
 - Zero inline/block comments. Code must self-document via names + types.
 - Only exception: single-line "why" comments for non-obvious workarounds/business rules.
 - Docstrings ONLY on public functions/classes. Format: Args/Returns/Raises, no prose. Max 6 lines.
@@ -59,16 +61,19 @@ CODE:
 - Compact error messages: key=value style, no prose.
 
 VISUAL:
+
 - Zero ASCII art, separators, box-drawing, banners, or decorative lines anywhere.
 - Zero emoji in code, logs, or comments.
 - Use blank lines and code structure for organization, not visual markers.
 
 LOGGING:
+
 - Structured key=value format: `logger.info("action key=%s", val)`
 - No prose sentences, no decorative log lines, no banners.
 - One log line per event. No multi-line log blocks for a single event.
 
 AI RESPONSES:
+
 - Start with action/code. No preamble ("Sure!", "Great question!", "I understand...")
 - Surgical edits over full rewrites. Describe ONLY what changed.
 - No post-task summary. Test output = summary.
