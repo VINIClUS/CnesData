@@ -103,6 +103,8 @@ def _consultar_range_bigquery() -> tuple[str, str] | None:
 def _executar_range_query(project_id: str, id_municipio: str) -> tuple[str, str] | None:
     if not project_id or not id_municipio:
         return None
+    if not id_municipio.isdigit():  # bd.read_sql não suporta bind params; validar antes de interpolar
+        return None
     try:
         import basedosdados as bd
         query = f"""
