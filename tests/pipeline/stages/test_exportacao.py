@@ -37,16 +37,18 @@ def _state() -> PipelineState:
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
 def test_exporta_csv_principal(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
 ):
-    mock_config.SNAPSHOTS_DIR = Path("data/snapshots")
-    mock_config.DUCKDB_PATH = Path("data/cnesdata.duckdb")
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.HISTORICO_DIR = tmp_path / "historico"
     mock_criar.return_value = MagicMock(
         data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
     )
     mock_loader_cls.return_value = MagicMock()
 
     state = _state()
+    state.output_path = tmp_path / "processed" / "Relatorio_2024-12.csv"
     ExportacaoStage().execute(state)
 
     mock_exportar.assert_any_call(state.df_processado, state.output_path)
@@ -59,10 +61,11 @@ def test_exporta_csv_principal(
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
 def test_grava_snapshot_no_duckdb(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
 ):
-    mock_config.SNAPSHOTS_DIR = Path("data/snapshots")
-    mock_config.DUCKDB_PATH = Path("data/cnesdata.duckdb")
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.HISTORICO_DIR = tmp_path / "historico"
     snapshot = MagicMock(
         data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
     )
@@ -70,7 +73,9 @@ def test_grava_snapshot_no_duckdb(
     mock_loader = MagicMock()
     mock_loader_cls.return_value = mock_loader
 
-    ExportacaoStage().execute(_state())
+    state = _state()
+    state.output_path = tmp_path / "processed" / "Relatorio_2024-12.csv"
+    ExportacaoStage().execute(state)
 
     mock_loader.inicializar_schema.assert_called_once()
     mock_loader.gravar_metricas.assert_called_once_with(snapshot)
@@ -83,16 +88,18 @@ def test_grava_snapshot_no_duckdb(
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
 def test_nao_exporta_csv_para_df_vazio(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
 ):
-    mock_config.SNAPSHOTS_DIR = Path("data/snapshots")
-    mock_config.DUCKDB_PATH = Path("data/cnesdata.duckdb")
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.HISTORICO_DIR = tmp_path / "historico"
     mock_criar.return_value = MagicMock(
         data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
     )
     mock_loader_cls.return_value = MagicMock()
 
     state = _state()
+    state.output_path = tmp_path / "processed" / "Relatorio_2024-12.csv"
     ExportacaoStage().execute(state)
 
     exported_paths = [c.args[1] for c in mock_exportar.call_args_list]
