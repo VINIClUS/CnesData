@@ -148,8 +148,14 @@ for tab, (_, regra) in zip(tabs, _TABS):
         gb = GridOptionsBuilder.from_dataframe(df_display)
         gb.configure_default_column(resizable=True, sortable=True, filter=True)
         gb.configure_grid_options(domLayout="autoHeight")
-        AgGrid(df_display, gridOptions=gb.build(), use_container_width=True,
-               fit_columns_on_grid_load=False, theme="streamlit", key=f"grid_{regra}")
+        AgGrid(
+            df_display,
+            gridOptions=gb.build(),
+            use_container_width=True,
+            fit_columns_on_grid_load=False,
+            theme="streamlit",
+            key=f"grid_{regra}",
+        )
 
         st.download_button(
             f"⬇ Baixar CSV — {regra} / {competencia}",
