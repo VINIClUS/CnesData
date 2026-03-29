@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -190,3 +191,59 @@ def test_arquivar_csvs_ignora_arquivos_ausentes(mock_config, tmp_path):
     ExportacaoStage()._arquivar_csvs(state, "2024-12")
 
     assert (historico_dir / "2024-12").exists()
+
+
+def _state_nacional() -> PipelineState:
+    """State com dados nacionais carregados."""
+    s = _state()
+    s.executar_nacional = True
+    s.df_prof_nacional = pd.DataFrame({"CNS": ["001"]})
+    s.df_estab_nacional = pd.DataFrame({"CNES": ["001"]})
+    return s
+
+
+def _state_sem_nacional() -> PipelineState:
+    s = _state()
+    s.executar_nacional = False
+    return s
+
+
+class TestGravarLastRun:
+
+    def test_grava_arquivo_json(self, tmp_path):
+        from pipeline.stages.exportacao import _gravar_last_run
+        path = tmp_path / "last_run.json"
+
+        _gravar_last_run(_state_nacional(), path)
+
+        assert path.exists()
+        dados = json.loads(path.read_text(encoding="utf-8"))
+        assert set(dados.keys()) == {"firebird", "bigquery", "hr", "duckdb"}
+
+    def test_firebird_sempre_ok_quando_pipeline_concluiu(self, tmp_path):
+        from pipeline.stages.exportacao import _gravar_last_run
+        path = tmp_path / "last_run.json"
+
+        _gravar_last_run(_state_nacional(), path)
+
+        dados = json.loads(path.read_text(encoding="utf-8"))
+        assert dados["firebird"]["ok"] is True
+        assert dados["firebird"]["ts"] is not None
+
+    def test_bigquery_ok_false_quando_nacional_nao_executado(self, tmp_path):
+        from pipeline.stages.exportacao import _gravar_last_run
+        path = tmp_path / "last_run.json"
+
+        _gravar_last_run(_state_sem_nacional(), path)
+
+        dados = json.loads(path.read_text(encoding="utf-8"))
+        assert dados["bigquery"]["ok"] is False
+        assert dados["bigquery"]["ts"] is None
+
+    def test_cria_diretorio_pai_se_nao_existir(self, tmp_path):
+        from pipeline.stages.exportacao import _gravar_last_run
+        path = tmp_path / "subdir" / "last_run.json"
+
+        _gravar_last_run(_state_nacional(), path)
+
+        assert path.exists()
