@@ -56,37 +56,73 @@ def carregar_status(last_run_path: Path, duckdb_path: Path) -> dict[str, DepStat
 def renderizar_container_status(
     status: dict[str, DepStatus],
     competencias: list[str],
+    cobertura: tuple[int, int],
 ) -> None:
     """Renderiza st.expander com cards de status das 4 dependências.
 
     Args:
         status: Resultado de carregar_status().
-        competencias: Lista de competências disponíveis no DuckDB (YYYY-MM).
+        competencias: Lista de competências válidas no DuckDB (YYYY-MM).
+        cobertura: Tupla (válidas, total) de reader.contar_competencias().
     """
     algum_problema = any(s.ok is False for s in status.values())
-    range_str = (
+    local_range = (
         f"{competencias[0]} → {competencias[-1]}"
         if len(competencias) >= 2
         else (competencias[0] if competencias else "—")
     )
+    validas, total = cobertura
+    duckdb_range = f"{validas} válidas / {total} disponíveis"
+
+    bq_result = _consultar_range_bigquery() if status["bigquery"].ok is not None else None
+    bq_range_str = f"{bq_result[0]} → {bq_result[1]}" if bq_result else "—"
+
     with st.expander("⚙ Status das dependências", expanded=algum_problema):
         cols = st.columns(4)
-        _render_card(cols[0], CardInfo("CNES Local", "Firebird", range_str), status["firebird"])
         _render_card(
-            cols[1],
-            CardInfo(
-                "CNES Nacional",
-                "BigQuery",
-                range_str if status["bigquery"].ok is True else "—",
-            ),
-            status["bigquery"],
+            cols[0], CardInfo("CNES Local", "Firebird", local_range), status["firebird"]
         )
         _render_card(
-            cols[2],
-            CardInfo("Histórico", "DuckDB", f"{len(competencias)} competência(s)"),
-            status["duckdb"],
+            cols[1], CardInfo("CNES Nacional", "BigQuery", bq_range_str), status["bigquery"]
+        )
+        _render_card(
+            cols[2], CardInfo("Histórico", "DuckDB", duckdb_range), status["duckdb"]
         )
         _render_card(cols[3], CardInfo("RH / Folha", "HR/XLSX"), status["hr"])
+
+
+@st.cache_data(ttl=86_400)
+def _consultar_range_bigquery() -> tuple[str, str] | None:
+    project_id = os.getenv("GCP_PROJECT_ID")
+    id_municipio = os.getenv("ID_MUNICIPIO_IBGE7")
+    if not project_id or not id_municipio:
+        return None
+    return _executar_range_query(project_id, id_municipio)
+
+
+def _executar_range_query(project_id: str, id_municipio: str) -> tuple[str, str] | None:
+    if not project_id or not id_municipio:
+        return None
+    try:
+        import basedosdados as bd
+        query = f"""
+            SELECT
+                MIN(CONCAT(CAST(ano AS STRING), '-',
+                    LPAD(CAST(mes AS STRING), 2, '0'))) AS min_comp,
+                MAX(CONCAT(CAST(ano AS STRING), '-',
+                    LPAD(CAST(mes AS STRING), 2, '0'))) AS max_comp
+            FROM (
+                SELECT DISTINCT ano, mes
+                FROM `basedosdados.br_ms_cnes.profissional`
+                WHERE id_municipio = '{id_municipio}'
+            )
+        """
+        df = bd.read_sql(query, billing_project_id=project_id)
+        if df.empty or df["min_comp"].iloc[0] is None:
+            return None
+        return str(df["min_comp"].iloc[0]), str(df["max_comp"].iloc[0])
+    except Exception:
+        return None
 
 
 def _render_card(col, info: CardInfo, s: DepStatus) -> None:

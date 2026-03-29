@@ -1,8 +1,10 @@
 """Testes de dashboard_status.carregar_status — diagnóstico de dependências."""
 import json
+import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from dashboard_status import DepStatus, carregar_status
@@ -76,3 +78,43 @@ class TestCarregarStatus:
             status = carregar_status(path, duckdb_path)
 
         assert isinstance(status["firebird"], DepStatus)
+
+
+class TestExecutarRangeBigquery:
+
+    def test_retorna_none_quando_project_id_vazio(self):
+        from dashboard_status import _executar_range_query
+        assert _executar_range_query("", "3523008") is None
+
+    def test_retorna_none_quando_id_municipio_vazio(self):
+        from dashboard_status import _executar_range_query
+        assert _executar_range_query("proj-123", "") is None
+
+    def test_retorna_none_quando_bd_levanta_excecao(self, monkeypatch):
+        mock_bd = MagicMock()
+        mock_bd.read_sql.side_effect = Exception("BQ error")
+        monkeypatch.setitem(sys.modules, "basedosdados", mock_bd)
+
+        from importlib import reload
+        import dashboard_status
+        reload(dashboard_status)
+        from dashboard_status import _executar_range_query
+
+        result = _executar_range_query("proj-123", "3523008")
+        assert result is None
+
+    def test_retorna_range_quando_bd_disponivel(self, monkeypatch):
+        mock_bd = MagicMock()
+        mock_bd.read_sql.return_value = pd.DataFrame({
+            "min_comp": ["2024-01"],
+            "max_comp": ["2026-03"],
+        })
+        monkeypatch.setitem(sys.modules, "basedosdados", mock_bd)
+
+        from importlib import reload
+        import dashboard_status
+        reload(dashboard_status)
+        from dashboard_status import _executar_range_query
+
+        result = _executar_range_query("proj-123", "3523008")
+        assert result == ("2024-01", "2026-03")
