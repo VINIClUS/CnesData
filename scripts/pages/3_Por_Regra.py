@@ -1,4 +1,4 @@
-"""Página 3 — Por Regra: drill-down de registros individuais com máscara CPF/CNS."""
+"""Página 3 — Por Regra: drill-down com tabs horizontais por regra."""
 import sys
 from pathlib import Path
 
@@ -7,6 +7,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 import streamlit as st
 
 from storage.historico_reader import HistoricoReader
+
+_TABS: list[tuple[str, str]] = [
+    ("🔴 RQ-008",  "RQ008"),
+    ("🔴 Ghost",   "GHOST"),
+    ("🟠 RQ-006",  "RQ006"),
+    ("🟠 RQ-007",  "RQ007"),
+    ("🟠 RQ-009",  "RQ009"),
+    ("🟠 Missing", "MISSING"),
+    ("🟠 RQ-005a", "RQ005_ACS"),
+    ("🟠 RQ-005b", "RQ005_ACE"),
+    ("🟡 RQ-003B", "RQ003B"),
+    ("🟡 RQ-010",  "RQ010"),
+    ("🟢 RQ-011",  "RQ011"),
+]
 
 _REGRA_DESC: dict[str, str] = {
     "RQ003B":    "RQ-003-B — Múltiplas Unidades",
@@ -25,63 +39,65 @@ _REGRA_DESC: dict[str, str] = {
 st.title("🔍 Por Regra")
 
 reader: HistoricoReader = st.session_state["reader"]
+competencias = reader.listar_competencias()
 
-regra = st.sidebar.selectbox(
-    "Regra",
-    options=list(_REGRA_DESC.keys()),
-    format_func=lambda r: _REGRA_DESC[r],
-)
-
-disponiveis = reader.listar_competencias_para_regra(regra)
-
-if not disponiveis:
-    st.warning(
-        f"Sem registros arquivados para **{_REGRA_DESC[regra]}**. "
-        "Execute o pipeline para gerar o histórico."
-    )
+if not competencias:
+    st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
     st.stop()
 
 competencia = st.sidebar.selectbox(
     "Competência",
-    options=disponiveis[::-1],
+    options=competencias[::-1],
     index=0,
 )
 
 kpis   = reader.carregar_kpis(competencia)
 deltas = reader.carregar_delta(competencia)
-valor  = kpis.get(regra, 0)
-delta  = deltas.get(regra, 0)
 
-col_metric, _ = st.columns([1, 4])
-with col_metric:
-    st.metric(
-        label=_REGRA_DESC[regra],
-        value=valor,
-        delta=f"+{delta}" if delta > 0 else str(delta),
-        delta_color="inverse",
-    )
+tabs = st.tabs([label for label, _ in _TABS])
 
-df = reader.carregar_registros(regra, competencia)
+for tab, (_, regra) in zip(tabs, _TABS):
+    with tab:
+        valor = kpis.get(regra, 0)
+        delta = deltas.get(regra, 0)
 
-if df.empty:
-    st.warning(f"Sem registros para {_REGRA_DESC[regra]} em {competencia}.")
-    st.stop()
-
-mostrar_completo = st.checkbox("Mostrar dados completos (CPF/CNS sem máscara)")
-df_display = df.copy()
-if not mostrar_completo:
-    for col in df_display.select_dtypes(include="object").columns:
-        upper = col.upper()
-        if "CPF" in upper or "CNS" in upper:
-            df_display[col] = df_display[col].apply(
-                lambda v: f"***{str(v)[-4:]}" if isinstance(v, str) and len(v) >= 4 else v
+        col_metric, _ = st.columns([1, 4])
+        with col_metric:
+            st.metric(
+                label=_REGRA_DESC[regra],
+                value=valor,
+                delta=f"+{delta}" if delta > 0 else str(delta),
+                delta_color="inverse",
             )
 
-st.dataframe(df_display, use_container_width=True, hide_index=True)
+        df = reader.carregar_registros(regra, competencia)
 
-st.download_button(
-    f"⬇ Baixar CSV — {regra} / {competencia}",
-    data=df.to_csv(index=False).encode("utf-8-sig"),
-    file_name=f"auditoria_{regra.lower()}_{competencia}.csv",
-    mime="text/csv",
-)
+        if df.empty:
+            st.warning(
+                f"Sem registros arquivados para **{_REGRA_DESC[regra]}** em {competencia}. "
+                "Verifique se o pipeline rodou para essa competência."
+            )
+            continue
+
+        mostrar_completo = st.checkbox(
+            "Mostrar dados completos (CPF/CNS sem máscara)",
+            key=f"mask_{regra}",
+        )
+        df_display = df.copy()
+        if not mostrar_completo:
+            for col in df_display.select_dtypes(include="object").columns:
+                upper = col.upper()
+                if "CPF" in upper or "CNS" in upper:
+                    df_display[col] = df_display[col].apply(
+                        lambda v: f"***{str(v)[-4:]}" if isinstance(v, str) and len(v) >= 4 else v
+                    )
+
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+        st.download_button(
+            f"⬇ Baixar CSV — {regra} / {competencia}",
+            data=df.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"auditoria_{regra.lower()}_{competencia}.csv",
+            mime="text/csv",
+            key=f"dl_{regra}",
+        )
