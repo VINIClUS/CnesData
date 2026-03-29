@@ -99,3 +99,4 @@ yarl==1.23.0
 streamlit>=1.32.0
 plotly>=5.20.0
 streamlit-aggrid==0.3.4.post3
+holidays>=0.46
