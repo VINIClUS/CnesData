@@ -67,16 +67,17 @@ st.sidebar.caption("Presidente Epitácio/SP")
 st.title("📊 Visão Geral")
 
 reader: HistoricoReader = st.session_state["reader"]
-competencias = reader.listar_competencias()
+competencias = reader.listar_competencias_validas()
+cobertura = reader.contar_competencias()
 
 if not competencias:
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
     status = _get_status()
-    renderizar_container_status(status, [])
+    renderizar_container_status(status, [], (0, 0))
     st.stop()
 
 status = _get_status()
-renderizar_container_status(status, competencias)
+renderizar_container_status(status, competencias, cobertura)
 
 competencia = st.sidebar.selectbox("Competência", options=competencias[::-1], index=0)
 
