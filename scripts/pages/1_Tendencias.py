@@ -3,10 +3,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import plotly.express as px
 import streamlit as st
 
+import config
 from storage.historico_reader import CSV_MAP, HistoricoReader
 
 _TODAS_REGRAS = list(CSV_MAP.keys())
@@ -20,6 +22,9 @@ _CORES: dict[str, str] = {
 }
 
 st.title("📈 Tendências")
+
+if "reader" not in st.session_state:
+    st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
 
 reader: HistoricoReader = st.session_state["reader"]
 competencias = reader.listar_competencias()
@@ -65,6 +70,7 @@ fig = px.line(
     template="plotly_dark",
 )
 fig.update_layout(hovermode="x unified", legend_title_text="Regra")
+fig.update_xaxes(type="category", tickangle=-45)
 st.plotly_chart(fig, use_container_width=True)
 
 if st.checkbox("Mostrar dados brutos"):

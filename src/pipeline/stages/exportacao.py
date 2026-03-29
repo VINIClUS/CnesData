@@ -1,6 +1,8 @@
 """ExportacaoStage — CSV, Excel, snapshot JSON e DuckDB."""
+import json
 import logging
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -14,6 +16,27 @@ from storage.database_loader import DatabaseLoader
 from storage.historico_reader import CSV_MAP
 
 logger = logging.getLogger(__name__)
+
+
+def _gravar_last_run(state: PipelineState, last_run_path: Path) -> None:
+    agora = datetime.now().isoformat(timespec="seconds")
+    nacional_ok = state.executar_nacional and not state.df_prof_nacional.empty
+    hr_ok = state.executar_hr
+
+    dados = {
+        "firebird": {"ts": agora, "ok": True},
+        "bigquery": {
+            "ts": agora if nacional_ok else None,
+            "ok": nacional_ok,
+        },
+        "hr": {
+            "ts": agora if hr_ok else None,
+            "ok": hr_ok if state.executar_hr else None,
+        },
+        "duckdb": {"ts": agora, "ok": True},
+    }
+    last_run_path.parent.mkdir(parents=True, exist_ok=True)
+    last_run_path.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _exportar_se_nao_vazio(df: pd.DataFrame, path: Path) -> None:
@@ -92,6 +115,7 @@ class ExportacaoStage:
         loader.gravar_auditoria(competencia, "RQ010", len(state.df_cbo_diverg))
         loader.gravar_auditoria(competencia, "RQ011", len(state.df_ch_diverg))
         self._arquivar_csvs(state, competencia)
+        _gravar_last_run(state, config.LAST_RUN_PATH)
         logger.info("exportacao concluida output=%s", state.output_path)
 
     def _arquivar_csvs(self, state: PipelineState, competencia: str) -> None:
