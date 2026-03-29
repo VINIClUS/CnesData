@@ -1,6 +1,7 @@
 """Testes do HistoricoReader — DuckDB Gold + CSVs arquivados."""
 import duckdb
 import pytest
+from datetime import datetime
 
 from storage.historico_reader import HistoricoReader
 
@@ -114,3 +115,103 @@ def test_carregar_total_vinculos_retorna_valor_correto(reader):
 
 def test_carregar_total_vinculos_retorna_zero_quando_competencia_ausente(reader):
     assert reader.carregar_total_vinculos("2099-01") == 0
+
+
+def _popular_duckdb_com_timestamps(path):
+    with duckdb.connect(str(path)) as con:
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE gold.evolucao_metricas_mensais (
+                data_competencia VARCHAR PRIMARY KEY,
+                total_vinculos   INTEGER,
+                total_ghost      INTEGER,
+                total_missing    INTEGER,
+                total_rq005      INTEGER,
+                gravado_em       TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE gold.auditoria_resultados (
+                data_competencia VARCHAR,
+                regra            VARCHAR,
+                total_anomalias  INTEGER,
+                PRIMARY KEY (data_competencia, regra)
+            )
+        """)
+        con.execute(
+            "INSERT INTO gold.evolucao_metricas_mensais VALUES (?,?,?,?,?,?)",
+            ["2024-11", 350, 2, 3, 5, datetime(2024, 11, 10)],
+        )
+        con.execute(
+            "INSERT INTO gold.evolucao_metricas_mensais VALUES (?,?,?,?,?,?)",
+            ["2024-12", 357, 3, 2, 7, datetime(2024, 12, 10)],
+        )
+        con.execute(
+            "INSERT INTO gold.evolucao_metricas_mensais VALUES (?,?,?,?,?,?)",
+            ["2024-10", 300, 1, 1, 3, datetime(2024, 11, 20)],
+        )
+
+
+@pytest.fixture
+def reader_com_timestamps(tmp_path):
+    db = tmp_path / "test_ts.duckdb"
+    _popular_duckdb_com_timestamps(db)
+    return HistoricoReader(db, tmp_path / "historico")
+
+
+class TestListarCompetenciasValidas:
+
+    def test_exclui_competencia_capturada_fora_da_janela(self, reader_com_timestamps):
+        validas = reader_com_timestamps.listar_competencias_validas()
+        assert "2024-10" not in validas
+
+    def test_inclui_competencias_capturadas_dentro_da_janela(self, reader_com_timestamps):
+        validas = reader_com_timestamps.listar_competencias_validas()
+        assert "2024-11" in validas
+        assert "2024-12" in validas
+
+    def test_retorna_em_ordem_cronologica(self, reader_com_timestamps):
+        validas = reader_com_timestamps.listar_competencias_validas()
+        assert validas == sorted(validas)
+
+    def test_retorna_lista_vazia_quando_sem_dados(self, tmp_path):
+        db = tmp_path / "empty.duckdb"
+        with duckdb.connect(str(db)) as con:
+            con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+            con.execute("""
+                CREATE TABLE gold.evolucao_metricas_mensais (
+                    data_competencia VARCHAR PRIMARY KEY,
+                    total_vinculos INTEGER,
+                    total_ghost INTEGER,
+                    total_missing INTEGER,
+                    total_rq005 INTEGER,
+                    gravado_em TIMESTAMP
+                )
+            """)
+        r = HistoricoReader(db, tmp_path / "historico")
+        assert r.listar_competencias_validas() == []
+
+
+class TestContarCompetencias:
+
+    def test_retorna_validas_e_total(self, reader_com_timestamps):
+        validas, total = reader_com_timestamps.contar_competencias()
+        assert total == 3
+        assert validas == 2
+
+    def test_zeros_quando_sem_dados(self, tmp_path):
+        db = tmp_path / "empty2.duckdb"
+        with duckdb.connect(str(db)) as con:
+            con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+            con.execute("""
+                CREATE TABLE gold.evolucao_metricas_mensais (
+                    data_competencia VARCHAR PRIMARY KEY,
+                    total_vinculos INTEGER,
+                    total_ghost INTEGER,
+                    total_missing INTEGER,
+                    total_rq005 INTEGER,
+                    gravado_em TIMESTAMP
+                )
+            """)
+        r = HistoricoReader(db, tmp_path / "historico")
+        assert r.contar_competencias() == (0, 0)

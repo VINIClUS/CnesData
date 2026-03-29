@@ -5,6 +5,8 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from storage.competencia_utils import janela_valida
+
 logger = logging.getLogger(__name__)
 
 CSV_MAP: dict[str, str] = {
@@ -166,3 +168,32 @@ class HistoricoReader:
                 [competencia],
             ).df()
         return int(df["total_vinculos"].iloc[0]) if not df.empty else 0
+
+    def listar_competencias_validas(self) -> list[str]:
+        """Competências com gravado_em dentro da janela de coleta CNES Local.
+
+        Returns:
+            Lista de competências YYYY-MM em ordem ascendente.
+        """
+        with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
+            rows = con.execute(
+                "SELECT data_competencia, MIN(gravado_em) AS primeiro_gravado "
+                "FROM gold.evolucao_metricas_mensais "
+                "GROUP BY data_competencia ORDER BY data_competencia"
+            ).fetchall()
+        validas = []
+        for comp, primeiro_gravado in rows:
+            inicio, fim = janela_valida(comp)
+            if inicio <= primeiro_gravado.date() < fim:
+                validas.append(comp)
+        return validas
+
+    def contar_competencias(self) -> tuple[int, int]:
+        """Retorna (válidas, total) de competências no DuckDB.
+
+        Returns:
+            Tupla (n_validas, n_total).
+        """
+        total = len(self.listar_competencias())
+        validas = len(self.listar_competencias_validas())
+        return validas, total
