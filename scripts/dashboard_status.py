@@ -17,6 +17,15 @@ class DepStatus:
     erro: str | None = None
 
 
+@dataclass
+class CardInfo:
+    """Informações de exibição para um card de status."""
+
+    titulo: str
+    fonte: str
+    range_str: str | None = None
+
+
 def carregar_status(last_run_path: Path, duckdb_path: Path) -> dict[str, DepStatus]:
     """Lê last_run.json e vars de ambiente para diagnosticar cada dependência.
 
@@ -54,31 +63,25 @@ def renderizar_container_status(
     )
     with st.expander("⚙ Status das dependências", expanded=algum_problema):
         cols = st.columns(4)
-        _render_card(cols[0], "CNES Local", "Firebird", status["firebird"], range_str)
+        _render_card(cols[0], CardInfo("CNES Local", "Firebird", range_str), status["firebird"])
         _render_card(
             cols[1],
-            "CNES Nacional",
-            "BigQuery",
+            CardInfo(
+                "CNES Nacional",
+                "BigQuery",
+                range_str if status["bigquery"].ok is True else "—",
+            ),
             status["bigquery"],
-            range_str if status["bigquery"].ok is True else "—",
         )
         _render_card(
             cols[2],
-            "Histórico",
-            "DuckDB",
+            CardInfo("Histórico", "DuckDB", f"{len(competencias)} competência(s)"),
             status["duckdb"],
-            f"{len(competencias)} competência(s)",
         )
-        _render_card(cols[3], "RH / Folha", "HR/XLSX", status["hr"])
+        _render_card(cols[3], CardInfo("RH / Folha", "HR/XLSX"), status["hr"])
 
 
-def _render_card(
-    col,
-    titulo: str,
-    fonte: str,
-    s: DepStatus,
-    range_str: str | None = None,
-) -> None:
+def _render_card(col, info: CardInfo, s: DepStatus) -> None:
     with col:
         if s.ok is True:
             icon, label = "🟢", "con."
@@ -89,15 +92,15 @@ def _render_card(
         ts_str = f" · {s.ts[:16].replace('T', ' ')}" if s.ts else ""
         range_html = (
             f'<div style="font-size:10px;margin-top:4px;color:#aaa">'
-            f"Range: <strong>{range_str}</strong></div>"
-            if range_str
+            f"Range: <strong>{info.range_str}</strong></div>"
+            if info.range_str
             else ""
         )
         st.markdown(
             f'<div style="border:1px solid #2d4a7a;border-radius:6px;'
             f'padding:8px;background:#0d1b2a">'
-            f'<div style="font-size:10px;color:#888">{titulo}</div>'
-            f"<div>{icon} <strong>{fonte}</strong></div>"
+            f'<div style="font-size:10px;color:#888">{info.titulo}</div>'
+            f"<div>{icon} <strong>{info.fonte}</strong></div>"
             f'<div style="color:#888;font-size:11px">{label}{ts_str}</div>'
             f"{range_html}</div>",
             unsafe_allow_html=True,
