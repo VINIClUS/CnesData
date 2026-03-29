@@ -65,6 +65,7 @@ fig = px.line(
     template="plotly_dark",
 )
 fig.update_layout(hovermode="x unified", legend_title_text="Regra")
+fig.update_xaxes(type="category", tickangle=-45)
 st.plotly_chart(fig, use_container_width=True)
 
 if st.checkbox("Mostrar dados brutos"):
