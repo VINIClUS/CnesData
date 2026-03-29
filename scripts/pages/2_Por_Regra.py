@@ -9,7 +9,7 @@ import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 
 import config
-from dashboard_status import carregar_status
+from dashboard_status import carregar_status, REGRAS_FONTE
 from storage.historico_reader import HistoricoReader
 
 _TABS: list[tuple[str, str]] = [
@@ -38,13 +38,6 @@ _REGRA_DESC: dict[str, str] = {
     "RQ009":     "RQ-009 — Profissionais Ausentes Local",
     "RQ010":     "RQ-010 — Divergência CBO",
     "RQ011":     "RQ-011 — Divergência CH",
-}
-
-_REGRAS_FONTE: dict[str, str] = {
-    "RQ008": "firebird", "GHOST": "hr",       "RQ006": "bigquery",
-    "RQ007": "bigquery", "RQ009": "bigquery",  "MISSING": "hr",
-    "RQ005_ACS": "firebird", "RQ005_ACE": "firebird",
-    "RQ003B": "firebird", "RQ010": "bigquery", "RQ011": "bigquery",
 }
 
 
@@ -95,10 +88,13 @@ def _render_metrica(regra: str, fonte_ok: bool, kpis: dict, deltas: dict) -> Non
             )
         else:
             st.metric(label=_REGRA_DESC[regra], value="—",
-                      help=f"Fonte '{_REGRAS_FONTE[regra]}' não configurada")
+                      help=f"Fonte '{REGRAS_FONTE[regra]}' não configurada")
 
 
 st.title("🔍 Por Regra")
+
+if "reader" not in st.session_state:
+    st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
 
 reader: HistoricoReader = st.session_state["reader"]
 competencias = reader.listar_competencias()
@@ -118,7 +114,7 @@ tabs = st.tabs([label for label, _ in _TABS])
 
 for tab, (_, regra) in zip(tabs, _TABS):
     with tab:
-        fonte = _REGRAS_FONTE[regra]
+        fonte = REGRAS_FONTE[regra]
         fonte_ok: bool = status[fonte].ok is True
 
         _render_metrica(regra, fonte_ok, kpis, deltas)

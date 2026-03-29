@@ -9,7 +9,7 @@ import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 
 import config
-from dashboard_status import carregar_status, renderizar_container_status
+from dashboard_status import carregar_status, renderizar_container_status, REGRAS_FONTE
 from storage.historico_reader import HistoricoReader
 
 st.set_page_config(
@@ -46,13 +46,6 @@ _REGRAS_META: dict[str, tuple[str, str]] = {
 _SEV_ORDER = {"CRÍTICA": 0, "ALTA": 1, "MÉDIA": 2, "BAIXA": 3}
 _SEV_ICON  = {"CRÍTICA": "🔴", "ALTA": "🟠", "MÉDIA": "🟡", "BAIXA": "🟢"}
 _KPI_DESTAQUE = ["RQ008", "RQ006", "RQ009", "GHOST", "MISSING"]
-
-_REGRAS_FONTE: dict[str, str] = {
-    "RQ008": "firebird", "GHOST": "hr",       "RQ006": "bigquery",
-    "RQ007": "bigquery", "RQ009": "bigquery",  "MISSING": "hr",
-    "RQ005_ACS": "firebird", "RQ005_ACE": "firebird",
-    "RQ003B": "firebird", "RQ010": "bigquery", "RQ011": "bigquery",
-}
 
 
 @st.cache_resource
@@ -104,7 +97,7 @@ st.divider()
 cols = st.columns(len(_KPI_DESTAQUE))
 for i, regra in enumerate(_KPI_DESTAQUE):
     desc, sev = _REGRAS_META[regra]
-    fonte_ok = status[_REGRAS_FONTE[regra]].ok is True
+    fonte_ok = status[REGRAS_FONTE[regra]].ok is True
     delta = deltas.get(regra, 0)
     with cols[i]:
         if fonte_ok:
@@ -116,7 +109,7 @@ for i, regra in enumerate(_KPI_DESTAQUE):
                 help=f"Regra {regra} — Severidade: {sev}",
             )
         else:
-            fonte_nome = _REGRAS_FONTE[regra].capitalize()
+            fonte_nome = REGRAS_FONTE[regra].capitalize()
             st.metric(
                 label=f"{_SEV_ICON[sev]} {desc}",
                 value="—",
@@ -132,7 +125,7 @@ elif not kpis:
 elif all(
     kpis.get(r, 0) == 0
     for r, _ in _REGRAS_META.items()
-    if status[_REGRAS_FONTE[r]].ok is True
+    if status[REGRAS_FONTE[r]].ok is True
 ):
     st.info(
         "Nenhuma anomalia detectada nas fontes configuradas. "
@@ -141,7 +134,7 @@ elif all(
 
 rows = []
 for regra, (desc, sev) in sorted(_REGRAS_META.items(), key=lambda x: _SEV_ORDER[x[1][1]]):
-    fonte_ok = status[_REGRAS_FONTE[regra]].ok is True
+    fonte_ok = status[REGRAS_FONTE[regra]].ok is True
     rows.append({
         "Regra":      regra,
         "Descrição":  desc,

@@ -26,6 +26,14 @@ class CardInfo:
     range_str: str | None = None
 
 
+REGRAS_FONTE: dict[str, str] = {
+    "RQ008": "firebird", "GHOST": "hr",       "RQ006": "bigquery",
+    "RQ007": "bigquery", "RQ009": "bigquery",  "MISSING": "hr",
+    "RQ005_ACS": "firebird", "RQ005_ACE": "firebird",
+    "RQ003B": "firebird", "RQ010": "bigquery", "RQ011": "bigquery",
+}
+
+
 def carregar_status(last_run_path: Path, duckdb_path: Path) -> dict[str, DepStatus]:
     """Lê last_run.json e vars de ambiente para diagnosticar cada dependência.
 
