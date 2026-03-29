@@ -81,6 +81,23 @@ def _mascarar_pii(df, mostrar_completo: bool):
     return df_display
 
 
+def _render_metrica(regra: str, fonte_ok: bool, kpis: dict, deltas: dict) -> None:
+    col_metric, _ = st.columns([1, 4])
+    with col_metric:
+        if fonte_ok:
+            valor = kpis.get(regra, 0)
+            delta = deltas.get(regra, 0)
+            st.metric(
+                label=_REGRA_DESC[regra],
+                value=valor,
+                delta=f"+{delta}" if delta > 0 else str(delta),
+                delta_color="inverse",
+            )
+        else:
+            st.metric(label=_REGRA_DESC[regra], value="—",
+                      help=f"Fonte '{_REGRAS_FONTE[regra]}' não configurada")
+
+
 st.title("🔍 Por Regra")
 
 reader: HistoricoReader = st.session_state["reader"]
@@ -104,20 +121,7 @@ for tab, (_, regra) in zip(tabs, _TABS):
         fonte = _REGRAS_FONTE[regra]
         fonte_ok: bool = status[fonte].ok is True
 
-        col_metric, _ = st.columns([1, 4])
-        with col_metric:
-            if fonte_ok:
-                valor = kpis.get(regra, 0)
-                delta = deltas.get(regra, 0)
-                st.metric(
-                    label=_REGRA_DESC[regra],
-                    value=valor,
-                    delta=f"+{delta}" if delta > 0 else str(delta),
-                    delta_color="inverse",
-                )
-            else:
-                st.metric(label=_REGRA_DESC[regra], value="—",
-                          help=f"Fonte '{fonte}' não configurada")
+        _render_metrica(regra, fonte_ok, kpis, deltas)
 
         if not fonte_ok:
             st.warning(
