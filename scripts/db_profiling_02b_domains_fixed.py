@@ -191,7 +191,7 @@ ORDER BY 3 DESC
 # ─────────────────────────────────────────────────────────────────────────────
 # ETAPA 6 — Validação CODMUNGEST (LFCES004) vs COD_MUN (LFCES048)
 # ─────────────────────────────────────────────────────────────────────────────
-SQL_CODMUN_LFCES004 = f"""
+SQL_CODMUN_LFCES004 = """
 SELECT DISTINCT
     e.CODMUNGEST,
     CHAR_LENGTH(e.CODMUNGEST) AS LEN_CODMUNGEST

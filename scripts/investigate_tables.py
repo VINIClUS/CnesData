@@ -22,7 +22,7 @@ def run():
                 f.write(f"\n--- Tabela: {t} ---\n")
                 f.write(f"Colunas: {col_names}\n")
                 f.write(f"Exemplo: {row}\n")
-            except Exception as e:
+            except Exception:
                 f.write(f"Erro ao ler {t}\n")
 
     con.close()

@@ -18,7 +18,6 @@ COMO EXECUTAR:
 
 import logging
 import sys
-import traceback
 import warnings
 from pathlib import Path
 

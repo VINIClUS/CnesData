@@ -154,7 +154,7 @@ ORDER BY vinc.COD_CBO, est.TP_UNID_ID
 # ETAPA 3 — Validação do mismatch CODMUNGEST vs COD_MUN
 # FIX: usar CAST e SUBSTRING em vez de CHAR_LENGTH (não suportado neste Firebird)
 # ─────────────────────────────────────────────────────────────────────────────
-SQL_CODMUN_CAST = f"""
+SQL_CODMUN_CAST = """
 SELECT DISTINCT
     e.CODMUNGEST,
     CAST(e.CODMUNGEST AS VARCHAR(10)) AS CODMUNGEST_CAST
@@ -162,7 +162,7 @@ FROM LFCES004 e
 WHERE e.CODMUNGEST STARTING WITH '354130'
 """
 
-SQL_COD_MUN_LFCES048 = f"""
+SQL_COD_MUN_LFCES048 = """
 SELECT DISTINCT
     m.COD_MUN,
     COUNT(*) AS QTD
