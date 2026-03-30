@@ -40,6 +40,7 @@ regras_sel = st.sidebar.multiselect(
 )
 comp_ini = st.sidebar.selectbox("De", options=competencias, index=0)
 comp_fim = st.sidebar.selectbox("Até", options=competencias, index=len(competencias) - 1)
+escala_log = st.sidebar.checkbox("Escala logarítmica", value=False)
 
 if not regras_sel:
     st.info("Selecione ao menos uma regra na sidebar.")
@@ -71,7 +72,11 @@ fig = px.line(
 )
 fig.update_layout(hovermode="x unified", legend_title_text="Regra")
 fig.update_xaxes(type="category", tickangle=-45)
+if escala_log:
+    fig.update_yaxes(type="log")
 st.plotly_chart(fig, use_container_width=True)
+if escala_log:
+    st.caption("Valores zero não são exibidos em escala logarítmica.")
 
 if st.checkbox("Mostrar dados brutos"):
     st.dataframe(df, use_container_width=True, hide_index=True)
