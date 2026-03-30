@@ -127,6 +127,31 @@ def _executar_range_query(project_id: str, id_municipio: str) -> tuple[str, str]
         return None
 
 
+@st.cache_data(ttl=3_600)
+def _verificar_datasus() -> DepStatus:
+    token = os.getenv("DATASUS_AUTH_TOKEN")
+    if not token:
+        return DepStatus(ok=None)
+    return _executar_health_check_datasus(
+        "https://apidadosabertos.saude.gov.br/v1/cnes/estabelecimentos",
+        token,
+    )
+
+
+def _executar_health_check_datasus(url: str, token: str) -> DepStatus:
+    try:
+        import requests
+        headers = {"Authorization": f"Bearer {token}"}
+        r = requests.get(url, headers=headers, params={"limit": 1}, timeout=5)
+        if r.status_code < 300:
+            return DepStatus(ok=True)
+        if r.status_code == 401:
+            return DepStatus(ok=False, erro="token inválido")
+        return DepStatus(ok=False, erro=f"HTTP {r.status_code}")
+    except Exception:
+        return DepStatus(ok=False, erro="inacessível")
+
+
 def _render_card(col, info: CardInfo, s: DepStatus) -> None:
     with col:
         if s.ok is True:

@@ -1,11 +1,9 @@
 """Testes de dashboard_status.carregar_status — diagnóstico de dependências."""
 import json
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
 from dashboard_status import DepStatus, carregar_status
 
@@ -118,3 +116,52 @@ class TestExecutarRangeBigquery:
 
         result = _executar_range_query("proj-123", "3523008")
         assert result == ("2024-01", "2026-03")
+
+
+class TestExecutarHealthCheckDatasus:
+
+    def test_retorna_ok_true_quando_resposta_2xx(self, monkeypatch):
+        mock_requests = MagicMock()
+        mock_requests.get.return_value.status_code = 200
+        monkeypatch.setitem(sys.modules, "requests", mock_requests)
+        from importlib import reload
+        import dashboard_status
+        reload(dashboard_status)
+        from dashboard_status import _executar_health_check_datasus
+        assert _executar_health_check_datasus("https://url", "token-abc").ok is True
+
+    def test_retorna_false_token_invalido_quando_401(self, monkeypatch):
+        mock_requests = MagicMock()
+        mock_requests.get.return_value.status_code = 401
+        monkeypatch.setitem(sys.modules, "requests", mock_requests)
+        from importlib import reload
+        import dashboard_status
+        reload(dashboard_status)
+        from dashboard_status import _executar_health_check_datasus
+        result = _executar_health_check_datasus("https://url", "token-abc")
+        assert result.ok is False
+        assert "token" in result.erro
+
+    def test_retorna_false_inacessivel_quando_excecao(self, monkeypatch):
+        mock_requests = MagicMock()
+        mock_requests.get.side_effect = Exception("timeout")
+        monkeypatch.setitem(sys.modules, "requests", mock_requests)
+        from importlib import reload
+        import dashboard_status
+        reload(dashboard_status)
+        from dashboard_status import _executar_health_check_datasus
+        result = _executar_health_check_datasus("https://url", "token-abc")
+        assert result.ok is False
+        assert "inacessível" in result.erro
+
+    def test_retorna_false_com_codigo_quando_503(self, monkeypatch):
+        mock_requests = MagicMock()
+        mock_requests.get.return_value.status_code = 503
+        monkeypatch.setitem(sys.modules, "requests", mock_requests)
+        from importlib import reload
+        import dashboard_status
+        reload(dashboard_status)
+        from dashboard_status import _executar_health_check_datasus
+        result = _executar_health_check_datasus("https://url", "token-abc")
+        assert result.ok is False
+        assert "503" in result.erro
