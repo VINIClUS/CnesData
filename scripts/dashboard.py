@@ -9,7 +9,12 @@ import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 
 import config
-from dashboard_status import carregar_status, renderizar_container_status, REGRAS_FONTE
+from dashboard_status import (
+    carregar_status,
+    renderizar_container_status,
+    renderizar_container_diretorios,
+    REGRAS_FONTE,
+)
 from storage.historico_reader import HistoricoReader
 
 st.set_page_config(
@@ -73,11 +78,13 @@ cobertura = reader.contar_competencias()
 if not competencias:
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
     status = _get_status()
-    renderizar_container_status(status, [], (0, 0))
+    renderizar_container_status(status, [], (0, 0), config.DUCKDB_PATH)
+    renderizar_container_diretorios(config.OUTPUT_PATH, config.HISTORICO_DIR, config.DUCKDB_PATH)
     st.stop()
 
 status = _get_status()
-renderizar_container_status(status, competencias, cobertura)
+renderizar_container_status(status, competencias, cobertura, config.DUCKDB_PATH)
+renderizar_container_diretorios(config.OUTPUT_PATH, config.HISTORICO_DIR, config.DUCKDB_PATH)
 
 competencia = st.sidebar.selectbox("Competência", options=competencias[::-1], index=0)
 

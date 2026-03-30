@@ -116,6 +116,7 @@ Before writing any code, wrap analysis and TDD planning inside a `<thinking>` bl
 | `CNPJ_MANTENEDORA` | yes | 14-digit CNPJ (no punctuation) |
 | `GCP_PROJECT_ID` | yes | BigQuery project ID |
 | `FOLHA_HR_PATH` | no | Path to HR payroll spreadsheet |
+| `DATASUS_AUTH_TOKEN` | no | Bearer token para apidadosabertos.saude.gov.br |
 | `OUTPUT_DIR` | no | Output dir (default: `data/processed`) |
 | `DB_HOST` | no | Firebird host (default: `localhost`) |
 | `DB_USER` | no | Firebird user (default: `SYSDBA`) |
