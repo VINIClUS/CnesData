@@ -24,6 +24,7 @@ class CardInfo:
     titulo: str
     fonte: str
     range_str: str | None = None
+    detalhe: str | None = None
 
 
 REGRAS_FONTE: dict[str, str] = {
@@ -57,13 +58,15 @@ def renderizar_container_status(
     status: dict[str, DepStatus],
     competencias: list[str],
     cobertura: tuple[int, int],
+    duckdb_path: Path,
 ) -> None:
-    """Renderiza st.expander com cards de status das 4 dependências.
+    """Renderiza st.expander com cards de status das 5 dependências.
 
     Args:
         status: Resultado de carregar_status().
         competencias: Lista de competências válidas no DuckDB (YYYY-MM).
         cobertura: Tupla (válidas, total) de reader.contar_competencias().
+        duckdb_path: Caminho do arquivo DuckDB (para detalhe do card).
     """
     algum_problema = any(s.ok is False for s in status.values())
     local_range = (
@@ -73,22 +76,39 @@ def renderizar_container_status(
     )
     validas, total = cobertura
     duckdb_range = f"{validas} válidas / {total} disponíveis"
-
     bq_result = _consultar_range_bigquery() if status["bigquery"].ok is not None else None
     bq_range_str = f"{bq_result[0]} → {bq_result[1]}" if bq_result else "—"
-
+    datasus_status = _verificar_datasus()
+    token_detalhe = "token: configurado" if os.getenv("DATASUS_AUTH_TOKEN") else "sem token"
+    hr_path = os.getenv("FOLHA_HR_PATH", "")
+    hr_detalhe = Path(hr_path).name if hr_path else "não configurado"
     with st.expander("⚙ Status das dependências", expanded=algum_problema):
-        cols = st.columns(4)
+        cols = st.columns(5)
         _render_card(
-            cols[0], CardInfo("CNES Local", "Firebird", local_range), status["firebird"]
+            cols[0],
+            CardInfo("CNES Local", "Firebird", local_range,
+                     Path(os.getenv("DB_PATH", "")).name or "—"),
+            status["firebird"],
         )
         _render_card(
-            cols[1], CardInfo("CNES Nacional", "BigQuery", bq_range_str), status["bigquery"]
+            cols[1],
+            CardInfo("CNES Nacional", "BigQuery", bq_range_str,
+                     os.getenv("GCP_PROJECT_ID", "—")),
+            status["bigquery"],
         )
         _render_card(
-            cols[2], CardInfo("Histórico", "DuckDB", duckdb_range), status["duckdb"]
+            cols[2],
+            CardInfo("Histórico", "DuckDB", duckdb_range, duckdb_path.name),
+            status["duckdb"],
         )
-        _render_card(cols[3], CardInfo("RH / Folha", "HR/XLSX"), status["hr"])
+        _render_card(
+            cols[3], CardInfo("RH / Folha", "HR/XLSX", None, hr_detalhe), status["hr"]
+        )
+        _render_card(
+            cols[4],
+            CardInfo("API DATASUS", "DATASUS", "apidadosabertos.saude.gov.br", token_detalhe),
+            datasus_status,
+        )
 
 
 @st.cache_data(ttl=86_400)
@@ -167,15 +187,38 @@ def _render_card(col, info: CardInfo, s: DepStatus) -> None:
             if info.range_str
             else ""
         )
+        detalhe_html = (
+            f'<div style="font-size:9px;margin-top:2px;color:#777">{info.detalhe}</div>'
+            if info.detalhe
+            else ""
+        )
         st.markdown(
             f'<div style="border:1px solid #2d4a7a;border-radius:6px;'
             f'padding:8px;background:#0d1b2a">'
             f'<div style="font-size:10px;color:#888">{info.titulo}</div>'
             f"<div>{icon} <strong>{info.fonte}</strong></div>"
             f'<div style="color:#888;font-size:11px">{label}{ts_str}</div>'
-            f"{range_html}</div>",
+            f"{range_html}{detalhe_html}</div>",
             unsafe_allow_html=True,
         )
+
+
+def renderizar_container_diretorios(
+    output_path: Path,
+    historico_dir: Path,
+    duckdb_path: Path,
+) -> None:
+    """Renderiza expander com os diretórios de saída configurados.
+
+    Args:
+        output_path: Caminho do CSV principal de saída.
+        historico_dir: Diretório de histórico de CSVs.
+        duckdb_path: Caminho do arquivo DuckDB.
+    """
+    with st.expander("📁 Diretórios de Saída", expanded=False):
+        st.markdown(f"**DuckDB:** `{duckdb_path}`")
+        st.markdown(f"**Histórico:** `{historico_dir}`")
+        st.markdown(f"**CSV saída:** `{output_path}`")
 
 
 def _ler_last_run(path: Path) -> dict:
