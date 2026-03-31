@@ -38,6 +38,10 @@ class PipelineState:
     df_cbo_diverg: pd.DataFrame = field(default_factory=pd.DataFrame)
     df_ch_diverg: pd.DataFrame = field(default_factory=pd.DataFrame)
 
+    nacional_validado: bool = False
+    fingerprint_local: str = ""
+    metricas_avancadas: dict = field(default_factory=dict)
+
     @property
     def competencia_str(self) -> str:
         return f"{self.competencia_ano}-{self.competencia_mes:02d}"

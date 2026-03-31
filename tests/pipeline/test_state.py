@@ -47,3 +47,16 @@ def test_competencia_str_formata_corretamente():
     )
 
     assert state.competencia_str == "2024-03"
+
+
+def test_state_tem_campos_novos():
+    state = PipelineState(
+        competencia_ano=2026,
+        competencia_mes=3,
+        output_path=Path("x.csv"),
+        executar_nacional=True,
+        executar_hr=False,
+    )
+    assert state.nacional_validado is False
+    assert state.fingerprint_local == ""
+    assert state.metricas_avancadas == {}
