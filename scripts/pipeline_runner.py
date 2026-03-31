@@ -45,7 +45,6 @@ def iniciar_pipeline(
 
 def iniciar_leitor(proc: subprocess.Popen) -> queue.Queue:
     """Inicia thread daemon que lê proc.stdout linha a linha para fila.
-
     Args:
         proc: Processo iniciado com stdout em PIPE.
     Returns:

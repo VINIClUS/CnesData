@@ -2,6 +2,7 @@ import io
 import queue
 import subprocess
 import sys
+import threading
 import time
 from datetime import date
 from unittest.mock import MagicMock, patch
@@ -95,8 +96,6 @@ class TestIniciarLeitor:
         assert "linha três\n" in linhas
 
     def test_thread_e_daemon(self):
-        import threading as _threading
-
         class BlockingStdout:
             def __iter__(self):
                 return self
@@ -110,7 +109,7 @@ class TestIniciarLeitor:
         iniciar_leitor(proc)
         time.sleep(0.1)
         threads_daemon = [
-            t for t in _threading.enumerate() if t.daemon and "leitor" in t.name
+            t for t in threading.enumerate() if t.daemon and "leitor" in t.name
         ]
         assert len(threads_daemon) >= 1
 
