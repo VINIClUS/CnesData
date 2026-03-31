@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from pipeline_runner import competencia_atual, iniciar_pipeline
 
+_POPEN_SPEC = subprocess.Popen
+
 
 class TestCompetenciaAtual:
     def test_retorna_ano_e_mes_de_hoje(self):
@@ -18,10 +20,7 @@ class TestCompetenciaAtual:
 
 class TestIniciarPipeline:
     def _mock_popen(self, mock_cls, returncode=None):
-        proc = MagicMock()
-        proc.returncode = returncode
-        mock_cls.return_value = proc
-        return proc
+        mock_cls.return_value = MagicMock(spec=_POPEN_SPEC, returncode=returncode)
 
     @patch("pipeline_runner.subprocess.Popen")
     def test_sem_flags(self, mock_popen):

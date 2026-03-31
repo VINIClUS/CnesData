@@ -17,6 +17,15 @@ def iniciar_pipeline(
     skip_nacional: bool,
     skip_hr: bool,
 ) -> subprocess.Popen:
+    """Inicia src/main.py como subprocesso com as flags CLI fornecidas.
+
+    Args:
+        competencia: Período no formato YYYY-MM.
+        skip_nacional: Se True, passa --skip-nacional.
+        skip_hr: Se True, passa --skip-hr.
+    Returns:
+        Processo iniciado com stdout+stderr unificados em PIPE texto.
+    """
     cmd = [sys.executable, str(_MAIN), "-c", competencia]
     if skip_nacional:
         cmd.append("--skip-nacional")
