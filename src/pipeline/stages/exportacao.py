@@ -85,6 +85,7 @@ class ExportacaoStage:
                 "rq011_divergencia_ch": state.df_ch_diverg,
             },
             competencia=state.competencia_str,
+            metricas=state.metricas_avancadas or None,
         )
 
     def _persistir_historico(self, state: PipelineState) -> None:

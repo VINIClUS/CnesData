@@ -208,6 +208,34 @@ def _state_sem_nacional() -> PipelineState:
     return s
 
 
+@patch("pipeline.stages.exportacao.exportar_csv")
+@patch("pipeline.stages.exportacao.gerar_relatorio")
+@patch("pipeline.stages.exportacao.criar_snapshot")
+@patch("pipeline.stages.exportacao.salvar_snapshot")
+@patch("pipeline.stages.exportacao.DatabaseLoader")
+@patch("pipeline.stages.exportacao.config")
+def test_gerar_relatorio_passa_metricas_quando_presentes(
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
+):
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.HISTORICO_DIR = tmp_path / "historico"
+    mock_criar.return_value = MagicMock(
+        data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
+    )
+    mock_loader_cls.return_value = MagicMock()
+
+    state = _state()
+    state.output_path = tmp_path / "processed" / "Relatorio_2024-12.csv"
+    state.metricas_avancadas = {"taxa_anomalia_geral": 0.1}
+
+    ExportacaoStage().execute(state)
+
+    mock_gerar.assert_called_once()
+    call_kwargs = mock_gerar.call_args[1]
+    assert call_kwargs["metricas"] == {"taxa_anomalia_geral": 0.1}
+
+
 class TestGravarLastRun:
 
     def test_grava_arquivo_json(self, tmp_path):
