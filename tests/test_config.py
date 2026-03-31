@@ -111,3 +111,8 @@ class TestFalhaSemVariaveisObrigatorias:
 
         with pytest.raises(EnvironmentError, match="não encontrada"):
             config._exigir("VARIAVEL_INEXISTENTE_PARA_TESTE")
+
+
+def test_nacional_cache_ttl_dias_padrao():
+    """NACIONAL_CACHE_TTL_DIAS deve ter padrão de 7 dias."""
+    assert config.NACIONAL_CACHE_TTL_DIAS == 7

@@ -116,3 +116,6 @@ FOLHA_HR_PATH: Path | None = Path(_folha_hr_path) if _folha_hr_path else None
 # ── Logs ───────────────────────────────────────────────────────────────────
 LOGS_DIR: Path = RAIZ_PROJETO / "logs"
 LOG_FILE: Path = LOGS_DIR / "cnes_exporter.log"
+
+# ── Cache Nacional (BigQuery) ──────────────────────────────────────────────
+NACIONAL_CACHE_TTL_DIAS: int = _exigir_inteiro("NACIONAL_CACHE_TTL_DIAS", 7)
