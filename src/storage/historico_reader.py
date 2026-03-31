@@ -179,6 +179,7 @@ class HistoricoReader:
             rows = con.execute(
                 "SELECT data_competencia, MIN(gravado_em) AS primeiro_gravado "
                 "FROM gold.evolucao_metricas_mensais "
+                "WHERE regexp_matches(data_competencia, '^\\d{4}-\\d{2}$') "
                 "GROUP BY data_competencia ORDER BY data_competencia"
             ).fetchall()
         validas = []
@@ -197,3 +198,28 @@ class HistoricoReader:
         total = len(self.listar_competencias())
         validas = len(self.listar_competencias_validas())
         return validas, total
+
+    def carregar_glosas_historicas(
+        self,
+        competencia_inicio: str | None = None,
+    ) -> pd.DataFrame:
+        """Retorna todas as glosas de gold.glosas_profissional.
+
+        Args:
+            competencia_inicio: Filtra competencias >= este valor (YYYY-MM). None retorna todas.
+
+        Returns:
+            DataFrame com todas as colunas de gold.glosas_profissional.
+        """
+        conditions: list[str] = []
+        params: list = []
+        if competencia_inicio:
+            conditions.append("competencia >= ?")
+            params.append(competencia_inicio)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"SELECT * FROM gold.glosas_profissional {where}"
+        try:
+            with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
+                return con.execute(sql, params).df()
+        except duckdb.CatalogException:
+            return pd.DataFrame()

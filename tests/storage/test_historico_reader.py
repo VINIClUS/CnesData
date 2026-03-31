@@ -216,3 +216,89 @@ class TestContarCompetencias:
             """)
         r = HistoricoReader(db, tmp_path / "historico")
         assert r.contar_competencias() == (0, 0)
+
+
+def _popular_duckdb_com_glosas(path):
+    with duckdb.connect(str(path)) as con:
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE gold.glosas_profissional (
+                competencia             VARCHAR NOT NULL,
+                regra                   VARCHAR NOT NULL,
+                cpf                     VARCHAR,
+                cns                     VARCHAR,
+                nome_profissional       VARCHAR,
+                sexo                    VARCHAR(1),
+                cnes_estabelecimento    VARCHAR,
+                motivo                  VARCHAR,
+                criado_em_firebird      TIMESTAMP,
+                criado_em_pipeline      TIMESTAMP NOT NULL,
+                atualizado_em_pipeline  TIMESTAMP NOT NULL
+            )
+        """)
+
+
+class TestCarregarGlosasHistoricas:
+
+    def test_carregar_glosas_historicas_sem_filtro(self, tmp_path):
+        db = tmp_path / "test_glosas.duckdb"
+        _popular_duckdb_com_glosas(db)
+        with duckdb.connect(str(db)) as con:
+            con.execute("""
+                INSERT INTO gold.glosas_profissional VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                "2026-01", "RQ008", "12345678901", "7001234567890123",
+                "Ana Silva", "F", "2795001", "Motivo 1",
+                datetime(2026, 1, 10), datetime(2026, 1, 15), datetime(2026, 1, 15)
+            ])
+            con.execute("""
+                INSERT INTO gold.glosas_profissional VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                "2026-02", "RQ009", "98765432101", "7009876543210987",
+                "Bruno Costa", "M", "2795002", "Motivo 2",
+                datetime(2026, 2, 10), datetime(2026, 2, 15), datetime(2026, 2, 15)
+            ])
+        reader = HistoricoReader(db, tmp_path / "historico")
+        df = reader.carregar_glosas_historicas()
+        assert len(df) == 2
+        assert set(df.columns) >= {
+            "competencia", "regra", "cpf", "cns", "nome_profissional",
+            "sexo", "cnes_estabelecimento", "motivo",
+            "criado_em_firebird", "criado_em_pipeline", "atualizado_em_pipeline"
+        }
+
+    def test_carregar_glosas_historicas_com_filtro(self, tmp_path):
+        db = tmp_path / "test_glosas_filtro.duckdb"
+        _popular_duckdb_com_glosas(db)
+        with duckdb.connect(str(db)) as con:
+            con.execute("""
+                INSERT INTO gold.glosas_profissional VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                "2026-01", "RQ008", "12345678901", "7001234567890123",
+                "Ana Silva", "F", "2795001", "Motivo 1",
+                datetime(2026, 1, 10), datetime(2026, 1, 15), datetime(2026, 1, 15)
+            ])
+            con.execute("""
+                INSERT INTO gold.glosas_profissional VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                "2026-02", "RQ009", "98765432101", "7009876543210987",
+                "Bruno Costa", "M", "2795002", "Motivo 2",
+                datetime(2026, 2, 10), datetime(2026, 2, 15), datetime(2026, 2, 15)
+            ])
+        reader = HistoricoReader(db, tmp_path / "historico")
+        df = reader.carregar_glosas_historicas(competencia_inicio="2026-02")
+        assert len(df) == 1
+        assert df.iloc[0]["competencia"] == "2026-02"
+        assert df.iloc[0]["nome_profissional"] == "Bruno Costa"
+
+    def test_carregar_glosas_historicas_tabela_ausente(self, tmp_path):
+        db = tmp_path / "test_glosas_ausente.duckdb"
+        with duckdb.connect(str(db)) as con:
+            con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        reader = HistoricoReader(db, tmp_path / "historico")
+        df = reader.carregar_glosas_historicas()
+        assert df.empty
