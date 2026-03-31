@@ -1,6 +1,8 @@
 """pipeline_runner — spawns main.py subprocess and streams its output."""
+import queue
 import subprocess
 import sys
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -39,3 +41,22 @@ def iniciar_pipeline(
         encoding="utf-8",
         errors="replace",
     )
+
+
+def iniciar_leitor(proc: subprocess.Popen) -> queue.Queue:
+    """Inicia thread daemon que lê proc.stdout linha a linha para fila.
+
+    Args:
+        proc: Processo iniciado com stdout em PIPE.
+    Returns:
+        Fila que recebe linhas do stdout do processo.
+    """
+    q: queue.Queue = queue.Queue()
+
+    def _ler() -> None:
+        for linha in proc.stdout:
+            q.put(linha)
+
+    t = threading.Thread(target=_ler, name="pipeline-leitor", daemon=True)
+    t.start()
+    return q

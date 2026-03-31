@@ -1,9 +1,12 @@
+import io
+import queue
 import subprocess
 import sys
+import time
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-from pipeline_runner import competencia_atual, iniciar_pipeline
+from pipeline_runner import competencia_atual, iniciar_leitor, iniciar_pipeline
 
 _POPEN_SPEC = subprocess.Popen
 
@@ -71,3 +74,47 @@ class TestIniciarPipeline:
         assert kwargs["stdout"] == subprocess.PIPE
         assert kwargs["stderr"] == subprocess.STDOUT
         assert kwargs["text"] is True
+
+
+class TestIniciarLeitor:
+    def _proc_com_saida(self, linhas: list[str]) -> MagicMock:
+        texto = "\n".join(linhas) + "\n"
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.stdout = io.StringIO(texto)
+        return proc
+
+    def test_enfileira_linhas_do_stdout(self):
+        proc = self._proc_com_saida(["linha um", "linha dois", "linha três"])
+        q = iniciar_leitor(proc)
+        time.sleep(0.2)
+        linhas = []
+        while not q.empty():
+            linhas.append(q.get_nowait())
+        assert "linha um\n" in linhas
+        assert "linha dois\n" in linhas
+        assert "linha três\n" in linhas
+
+    def test_thread_e_daemon(self):
+        import threading as _threading
+
+        class BlockingStdout:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                time.sleep(10)
+                raise StopIteration
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.stdout = BlockingStdout()
+        iniciar_leitor(proc)
+        time.sleep(0.1)
+        threads_daemon = [
+            t for t in _threading.enumerate() if t.daemon and "leitor" in t.name
+        ]
+        assert len(threads_daemon) >= 1
+
+    def test_retorna_queue(self):
+        proc = self._proc_com_saida([])
+        resultado = iniciar_leitor(proc)
+        assert isinstance(resultado, queue.Queue)
