@@ -24,12 +24,17 @@ def find_columns():
         for table, col in rows:
             table = table.strip()
             col = col.strip()
-            
-            if 'CPF' in col: tables_with_cpf.add(table)
-            if 'CNES' in col: tables_with_cnes.add(table)
-            if 'NOME' in col: tables_with_nome.add(table)
-            if 'EQUIP' in col: tables_with_equipe.add(table)
-            if 'CNS' in col: tables_with_cns.add(table)
+
+            if 'CPF' in col:
+                tables_with_cpf.add(table)
+            if 'CNES' in col:
+                tables_with_cnes.add(table)
+            if 'NOME' in col:
+                tables_with_nome.add(table)
+            if 'EQUIP' in col:
+                tables_with_equipe.add(table)
+            if 'CNS' in col:
+                tables_with_cns.add(table)
             
         print("Tabelas com CPF e NOME:", tables_with_cpf.intersection(tables_with_nome))
         print("Tabelas com CNES e NOME:", tables_with_cnes.intersection(tables_with_nome))
