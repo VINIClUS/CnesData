@@ -9,6 +9,7 @@ class ProfissionalContract(pa.DataFrameModel):
     CNS: Series[str]
     CPF: Series[str] = pa.Field(nullable=True)
     NOME_PROFISSIONAL: Series[str]
+    SEXO: Series[str] = pa.Field(nullable=True)
     CBO: Series[str]
     CNES: Series[str]
     TIPO_VINCULO: Series[str]

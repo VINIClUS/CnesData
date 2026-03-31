@@ -133,6 +133,7 @@ class CnesNacionalAdapter:
         df = self._client.fetch_profissionais(self._id_municipio, ano, mes)
         df = df.rename(columns=_MAP_PROFISSIONAL)
         df["CPF"] = None
+        df["SEXO"] = None
         df["SUS"] = df["SUS"].map({1: "S", 0: "N"}).fillna("N")
         df["CH_TOTAL"] = (
             df["CH_AMBULATORIAL"].fillna(0)

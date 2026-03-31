@@ -10,6 +10,7 @@ def _df_prof_valido() -> pd.DataFrame:
         "CNS": ["123456789012345"],
         "CPF": ["12345678901"],
         "NOME_PROFISSIONAL": ["Ana Silva"],
+        "SEXO": ["F"],
         "CBO": ["515105"],
         "CNES": ["1234567"],
         "TIPO_VINCULO": ["30"],
@@ -88,3 +89,9 @@ def test_estabelecimento_vinculo_sus_invalido_levanta_schema_error():
     df["VINCULO_SUS"] = "Z"
     with pytest.raises(pa.errors.SchemaError):
         EstabelecimentoContract.validate(df)
+
+
+def test_profissional_contract_aceita_sexo_nullable():
+    df = _df_prof_valido().copy()
+    df["SEXO"] = None
+    ProfissionalContract.validate(df, lazy=False)

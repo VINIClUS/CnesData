@@ -172,6 +172,12 @@ class TestListarProfissionais:
         adapter.listar_profissionais(_COMPETENCIA)
         adapter._client.fetch_profissionais.assert_called_once_with("3541307", 2024, 12)
 
+    def test_listar_profissionais_tem_coluna_sexo(self):
+        adapter = _adapter_com_mock()
+        df = adapter.listar_profissionais(_COMPETENCIA)
+        assert "SEXO" in df.columns
+        assert df["SEXO"].isna().all()
+
 
 class TestCachePickle:
 
