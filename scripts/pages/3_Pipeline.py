@@ -6,9 +6,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import os
+
 import streamlit as st
 
-import config
 from pipeline_runner import competencia_atual, iniciar_leitor, iniciar_pipeline
 
 _ANO_MIN = 2000
@@ -28,7 +29,7 @@ for key, default in [
 
 # ── Opções avançadas ──────────────────────────────────────────────────────
 ano_default, mes_default = competencia_atual()
-hr_disponivel = config.FOLHA_HR_PATH is not None
+hr_disponivel = os.getenv("FOLHA_HR_PATH") is not None
 
 with st.expander("Opções avançadas"):
     col1, col2 = st.columns(2)
@@ -68,34 +69,34 @@ elif status == "error":
     st.error("Pipeline encerrado com erro ou interrompido. Verifique os logs abaixo.")
 
 # ── Fragment de streaming ─────────────────────────────────────────────────
+@st.fragment(run_every=1)
+def _streaming() -> None:
+    q: queue.Queue = st.session_state["pipeline_log_queue"]
+    proc = st.session_state["pipeline_proc"]
+
+    for _ in range(50):
+        try:
+            linha = q.get_nowait()
+            st.session_state["pipeline_logs"].append(linha)
+        except queue.Empty:
+            break
+
+    with st.expander("Logs", expanded=True):
+        st.code("".join(st.session_state["pipeline_logs"]), language=None)
+
+    if st.button("Parar execução", type="secondary"):
+        proc.terminate()
+        st.session_state["pipeline_status"] = "error"
+        st.rerun()
+        return
+
+    returncode = proc.poll()
+    if returncode is not None:
+        st.session_state["pipeline_status"] = "done" if returncode == 0 else "error"
+        st.rerun()
+
+
 if st.session_state["pipeline_status"] == "running":
-
-    @st.fragment(run_every=1)
-    def _streaming():
-        q: queue.Queue = st.session_state["pipeline_log_queue"]
-        proc = st.session_state["pipeline_proc"]
-
-        for _ in range(50):
-            try:
-                linha = q.get_nowait()
-                st.session_state["pipeline_logs"].append(linha)
-            except queue.Empty:
-                break
-
-        with st.expander("Logs", expanded=True):
-            st.code("".join(st.session_state["pipeline_logs"]), language=None)
-
-        if st.button("Parar execução", type="secondary"):
-            proc.terminate()
-            st.session_state["pipeline_status"] = "error"
-            st.rerun()
-            return
-
-        returncode = proc.poll()
-        if returncode is not None:
-            st.session_state["pipeline_status"] = "done" if returncode == 0 else "error"
-            st.rerun()
-
     _streaming()
 
 elif st.session_state["pipeline_logs"]:
