@@ -418,3 +418,52 @@ class TestCompatibilidade:
         ws = wb["RESUMO"]
         valores_b = [ws.cell(r, 2).value for r in range(1, 5)]
         assert 0 in valores_b
+
+
+def _metricas_sample() -> dict:
+    return {
+        "taxa_anomalia_geral": 0.15,
+        "p90_ch_total": 40.0,
+        "proporcao_feminina_geral": 0.6,
+        "n_reincidentes": 3,
+        "taxa_resolucao": 0.5,
+        "velocidade_regularizacao_media": 2.0,
+        "top_glosas_json": '[{"cpf":"12345678901","cns":null,"nome":"Ana Silva","total":5}]',
+        "anomalias_por_cbo_json": '[{"cbo":"515105","descricao":"ACS","total":3,"taxa":0.1}]',
+        "proporcao_feminina_por_cnes_json": '[{"cnes":"1234567","proporcao_f":0.6,"total":10}]',
+        "ranking_cnes_json": (
+            '[{"cnes":"1234567","nome":"UBS Centro","total_anomalias":2,"indice_conformidade":0.8}]'
+        ),
+    }
+
+
+class TestAbaMetricas:
+
+    def test_aba_metricas_ausente_sem_metricas(self, tmp_path: Path):
+        caminho = tmp_path / "relatorio.xlsx"
+        gerar_relatorio(caminho, {"principal": _df_vinculos()}, metricas=None)
+        assert "Métricas Avançadas" not in _abas(caminho)
+
+    def test_aba_metricas_criada_com_metricas(self, tmp_path: Path):
+        caminho = tmp_path / "relatorio.xlsx"
+        gerar_relatorio(caminho, {"principal": _df_vinculos()}, metricas=_metricas_sample())
+        assert "Métricas Avançadas" in _abas(caminho)
+
+    def test_aba_metricas_contem_indicadores(self, tmp_path: Path):
+        caminho = tmp_path / "relatorio.xlsx"
+        gerar_relatorio(caminho, {"principal": _df_vinculos()}, metricas=_metricas_sample())
+        wb = openpyxl.load_workbook(caminho)
+        ws = wb["Métricas Avançadas"]
+        valores = [ws.cell(r, 1).value for r in range(1, 10)]
+        assert "Taxa de anomalia" in valores
+
+    def test_aba_metricas_bloco_top_glosas(self, tmp_path: Path):
+        caminho = tmp_path / "relatorio.xlsx"
+        metricas = _metricas_sample()
+        metricas["top_glosas_json"] = '[{"cpf":"123","cns":null,"nome":"Ana","total":5}]'
+        gerar_relatorio(caminho, {"principal": _df_vinculos()}, metricas=metricas)
+        wb = openpyxl.load_workbook(caminho)
+        ws = wb["Métricas Avançadas"]
+        todos_valores = [ws.cell(r, c).value for r in range(1, 30) for c in range(1, 5)]
+        assert any("Top Profissionais" in str(v) for v in todos_valores if v)
+        assert "Ana" in todos_valores

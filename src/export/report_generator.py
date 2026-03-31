@@ -1,5 +1,6 @@
 """Gerador de relatórios Excel multi-aba segmentados por tipo de anomalia — WP-007."""
 
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -110,6 +111,7 @@ def gerar_relatorio(
     resultados: dict[str, pd.DataFrame],
     competencia: str = "",
     municipio: str = "Presidente Epitácio/SP",
+    metricas: dict | None = None,
 ) -> None:
     """Gera relatório Excel multi-aba com DataFrames de auditoria segmentados.
 
@@ -118,12 +120,15 @@ def gerar_relatorio(
         resultados: Dicionário chave → DataFrame (aba criada apenas se não vazio).
         competencia: Período no formato AAAA-MM para o cabeçalho do RESUMO.
         municipio: Nome do município exibido no RESUMO.
+        metricas: Métricas avançadas opcionais para aba extra.
     """
     caminho.parent.mkdir(parents=True, exist_ok=True)
 
     with pd.ExcelWriter(caminho, engine="openpyxl") as writer:
         _escrever_abas_dados(writer, resultados)
         _gerar_aba_resumo(writer.book, resultados, competencia, municipio)
+        if metricas:
+            _gerar_aba_metricas(writer.book, metricas)
         total_abas = len(writer.book.sheetnames)
 
     vinculos = len(resultados.get("principal", pd.DataFrame()))
@@ -209,6 +214,67 @@ def _adicionar_recomendacao(df: pd.DataFrame, texto: str) -> pd.DataFrame:
     resultado = df.copy()
     resultado["RECOMENDACAO"] = texto
     return resultado
+
+
+def _gerar_aba_metricas(wb, metricas: dict) -> None:
+    ws = wb.create_sheet("Métricas Avançadas", 1)
+    font_bold = Font(bold=True)
+    linha = 1
+
+    ws.cell(row=linha, column=1, value="Indicadores Gerais").font = font_bold
+    linha += 1
+    indicadores = [
+        ("Taxa de anomalia", metricas.get("taxa_anomalia_geral")),
+        ("P90 CH Total", metricas.get("p90_ch_total")),
+        ("Proporção feminina geral", metricas.get("proporcao_feminina_geral")),
+        ("Reincidentes", metricas.get("n_reincidentes")),
+        ("Taxa de resolução", metricas.get("taxa_resolucao")),
+        ("Velocidade de regularização (meses)", metricas.get("velocidade_regularizacao_media")),
+    ]
+    for rotulo, valor in indicadores:
+        ws.cell(row=linha, column=1, value=rotulo)
+        ws.cell(row=linha, column=2, value=valor)
+        linha += 1
+    linha += 1
+
+    linha = _escrever_bloco_json(
+        ws, metricas.get("top_glosas_json", "[]"), linha,
+        ["CPF", "CNS", "Nome", "Total"],
+        "Top Profissionais com Mais Glosas",
+    )
+    linha = _escrever_bloco_json(
+        ws, metricas.get("anomalias_por_cbo_json", "[]"), linha,
+        ["CBO", "Descrição", "Total", "Taxa"],
+        "Anomalias por CBO",
+    )
+    _escrever_bloco_json(
+        ws, metricas.get("ranking_cnes_json", "[]"), linha,
+        ["CNES", "Nome", "Total Anomalias", "Índice de Conformidade"],
+        "Ranking CNES por Conformidade",
+    )
+    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["B"].width = 30
+
+
+def _escrever_bloco_json(ws, json_str, linha_ini: int, colunas: list, titulo: str) -> int:
+    font_bold = Font(bold=True)
+    try:
+        items = json.loads(json_str) if json_str else []
+    except (json.JSONDecodeError, TypeError):
+        items = []
+    if not items:
+        return linha_ini
+
+    ws.cell(row=linha_ini, column=1, value=titulo).font = font_bold
+    for col, cabecalho in enumerate(colunas, start=1):
+        ws.cell(row=linha_ini + 1, column=col, value=cabecalho).font = font_bold
+
+    chaves = list(items[0].keys())
+    for offset, item in enumerate(items):
+        for col, chave in enumerate(chaves, start=1):
+            ws.cell(row=linha_ini + 2 + offset, column=col, value=item.get(chave))
+
+    return linha_ini + 1 + 1 + len(items) + 1
 
 
 def _formatar_cabecalho(ws) -> None:
