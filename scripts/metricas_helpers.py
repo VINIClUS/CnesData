@@ -3,18 +3,10 @@ import json
 
 
 def _parsear_metricas(raw: dict) -> dict:
-    """Converte campos JSON em estruturas tipadas.
-
-    Args:
-        raw: Dict com colunas de gold.metricas_avancadas.
-
-    Returns:
-        Dict com JSON fields parseados para list/dict.
-    """
-    def _json_list(val) -> list:
+    def _json_list(val: str | None) -> list:
         return json.loads(val) if val else []
 
-    def _json_dict(val) -> dict:
+    def _json_dict(val: str | None) -> dict:
         return json.loads(val) if val else {}
 
     return {
