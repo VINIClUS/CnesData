@@ -302,3 +302,58 @@ class TestCarregarGlosasHistoricas:
         reader = HistoricoReader(db, tmp_path / "historico")
         df = reader.carregar_glosas_historicas()
         assert df.empty
+
+    def test_filtrar_por_regra_retorna_apenas_regra_solicitada(self, tmp_path):
+        db = tmp_path / "test_glosas_regra.duckdb"
+        _popular_duckdb_com_glosas(db)
+        agora = datetime(2026, 3, 1)
+        with duckdb.connect(str(db)) as con:
+            con.execute(
+                "INSERT INTO gold.glosas_profissional VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ["2026-03", "RQ008", "11111111111", "7001111111111111",
+                 "Carlos", "M", "2795001", "Motivo A", agora, agora, agora],
+            )
+            con.execute(
+                "INSERT INTO gold.glosas_profissional VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ["2026-03", "RQ009", "22222222222", "7002222222222222",
+                 "Dora", "F", "2795002", "Motivo B", agora, agora, agora],
+            )
+        reader = HistoricoReader(db, tmp_path / "historico")
+        df = reader.carregar_glosas_historicas(regra="RQ008")
+        assert len(df) == 1
+        assert df.iloc[0]["regra"] == "RQ008"
+
+    def test_filtrar_por_regra_e_competencia(self, tmp_path):
+        db = tmp_path / "test_glosas_regra_comp.duckdb"
+        _popular_duckdb_com_glosas(db)
+        agora = datetime(2026, 3, 1)
+        with duckdb.connect(str(db)) as con:
+            con.execute(
+                "INSERT INTO gold.glosas_profissional VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ["2026-02", "RQ008", "11111111111", "7001111111111111",
+                 "Carlos", "M", "2795001", "Motivo A", agora, agora, agora],
+            )
+            con.execute(
+                "INSERT INTO gold.glosas_profissional VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ["2026-03", "RQ008", "22222222222", "7002222222222222",
+                 "Dora", "F", "2795002", "Motivo B", agora, agora, agora],
+            )
+        reader = HistoricoReader(db, tmp_path / "historico")
+        df = reader.carregar_glosas_historicas(competencia_inicio="2026-03", regra="RQ008")
+        assert len(df) == 1
+        assert df.iloc[0]["competencia"] == "2026-03"
+
+    def test_regra_none_retorna_todas_as_regras(self, tmp_path):
+        db = tmp_path / "test_glosas_todas.duckdb"
+        _popular_duckdb_com_glosas(db)
+        agora = datetime(2026, 3, 1)
+        with duckdb.connect(str(db)) as con:
+            for regra in ("RQ008", "RQ009", "GHOST"):
+                con.execute(
+                    "INSERT INTO gold.glosas_profissional VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    ["2026-03", regra, "11111111111", None,
+                     "Profissional", "M", "2795001", "Motivo", agora, agora, agora],
+                )
+        reader = HistoricoReader(db, tmp_path / "historico")
+        df = reader.carregar_glosas_historicas()
+        assert len(df) == 3

@@ -202,11 +202,13 @@ class HistoricoReader:
     def carregar_glosas_historicas(
         self,
         competencia_inicio: str | None = None,
+        regra: str | None = None,
     ) -> pd.DataFrame:
         """Retorna todas as glosas de gold.glosas_profissional.
 
         Args:
             competencia_inicio: Filtra competencias >= este valor (YYYY-MM). None retorna todas.
+            regra: Filtra por regra específica (ex.: 'RQ008'). None retorna todas.
 
         Returns:
             DataFrame com todas as colunas de gold.glosas_profissional.
@@ -216,6 +218,9 @@ class HistoricoReader:
         if competencia_inicio:
             conditions.append("competencia >= ?")
             params.append(competencia_inicio)
+        if regra:
+            conditions.append("regra = ?")
+            params.append(regra)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         sql = f"SELECT * FROM gold.glosas_profissional {where}"
         try:
