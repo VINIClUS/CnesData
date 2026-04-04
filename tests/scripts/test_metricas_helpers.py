@@ -14,9 +14,9 @@ def _raw() -> dict:
         "taxa_resolucao":                 0.80,
         "velocidade_regularizacao_media":  12.5,
         "top_glosas_json":                '[{"regra": "RQ008", "n": 5}]',
-        "anomalias_por_cbo_json":         '{"225125": 3, "225170": 2}',
+        "anomalias_por_cbo_json":         '[{"cbo": "225125", "descricao": "Médico", "total": 3, "taxa": 0.5}]',
         "proporcao_feminina_por_cnes_json": '{"2795001": 0.7}',
-        "ranking_cnes_json":              '[{"cnes": "2795001", "n": 8}]',
+        "ranking_cnes_json":              '[{"cnes": "2795001", "nome": "UBS X", "total_anomalias": 8, "indice_conformidade": 0.9}]',
         "gravado_em":                     None,
     }
 
@@ -33,15 +33,17 @@ class TestParsearMetricas:
         assert isinstance(result["top_glosas"], list)
         assert result["top_glosas"][0]["regra"] == "RQ008"
 
-    def test_anomalias_por_cbo_e_dict_parseado(self):
+    def test_anomalias_por_cbo_e_lista_parseada(self):
         result = _parsear_metricas(_raw())
-        assert isinstance(result["anomalias_por_cbo"], dict)
-        assert result["anomalias_por_cbo"]["225125"] == 3
+        assert isinstance(result["anomalias_por_cbo"], list)
+        assert result["anomalias_por_cbo"][0]["cbo"] == "225125"
+        assert result["anomalias_por_cbo"][0]["total"] == 3
 
     def test_ranking_cnes_e_lista_parseada(self):
         result = _parsear_metricas(_raw())
         assert isinstance(result["ranking_cnes"], list)
         assert result["ranking_cnes"][0]["cnes"] == "2795001"
+        assert result["ranking_cnes"][0]["total_anomalias"] == 8
 
     def test_proporcao_feminina_por_cnes_e_dict_parseado(self):
         result = _parsear_metricas(_raw())
@@ -56,6 +58,6 @@ class TestParsearMetricas:
         raw["proporcao_feminina_por_cnes_json"] = None
         result = _parsear_metricas(raw)
         assert result["top_glosas"] == []
-        assert result["anomalias_por_cbo"] == {}
+        assert result["anomalias_por_cbo"] == []
         assert result["ranking_cnes"] == []
         assert result["proporcao_feminina_por_cnes"] == {}

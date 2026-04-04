@@ -97,7 +97,7 @@ if "reader" not in st.session_state:
     st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
 
 reader: HistoricoReader = st.session_state["reader"]
-competencias = reader.listar_competencias_validas()
+competencias = reader.listar_competencias()
 
 if not competencias:
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")

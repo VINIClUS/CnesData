@@ -72,7 +72,7 @@ st.sidebar.caption("Presidente Epitácio/SP")
 st.title("📊 Visão Geral")
 
 reader: HistoricoReader = st.session_state["reader"]
-competencias = reader.listar_competencias_validas()
+competencias = reader.listar_competencias()
 cobertura = reader.contar_competencias()
 
 if not competencias:

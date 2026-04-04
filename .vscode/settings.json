@@ -8,5 +8,19 @@
     "python.testing.pytestArgs": [
         "tests"
     ],
-    "python.testing.unittestEnabled": false
+    "python.testing.unittestEnabled": false,
+    "workbench.editorAssociations": {
+        "*.parquet": "duckdb.dataFileViewer",
+        "*.csv": "duckdb.dataFileViewer",
+        "*.tsv": "duckdb.dataFileViewer"
+    },
+    "duckdb.databases": [
+        {
+            "alias": "cnesdata",
+            "type": "file",
+            "path": "c:\\Users\\Vinicius\\Projetos\\CnesData\\data\\cnesdata.duckdb",
+            "attached": true
+        }
+    ],
+    "duckdb.defaultDatabase": "a"
 }

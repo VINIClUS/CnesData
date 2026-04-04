@@ -28,7 +28,7 @@ if "reader" not in st.session_state:
     st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
 
 reader: HistoricoReader = st.session_state["reader"]
-competencias = reader.listar_competencias_validas()
+competencias = reader.listar_competencias()
 
 if not competencias:
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
@@ -61,14 +61,15 @@ if m["ranking_cnes"]:
     st.subheader("Ranking CNES por Anomalias")
     df_rank = pd.DataFrame(m["ranking_cnes"])
     st.plotly_chart(
-        px.bar(df_rank, x="cnes", y="n", labels={"cnes": "CNES", "n": "Anomalias"}),
+        px.bar(df_rank, x="cnes", y="total_anomalias", labels={"cnes": "CNES", "total_anomalias": "Anomalias"}),
         use_container_width=True,
     )
 
 if m["anomalias_por_cbo"]:
     st.subheader("Top 15 CBOs com Anomalias")
     df_cbo = (
-        pd.DataFrame([{"cbo": k, "n": v} for k, v in m["anomalias_por_cbo"].items()])
+        pd.DataFrame(m["anomalias_por_cbo"])[["cbo", "total"]]
+        .rename(columns={"total": "n"})
         .sort_values("n", ascending=False)
         .head(15)
     )
