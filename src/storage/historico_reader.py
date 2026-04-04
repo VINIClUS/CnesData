@@ -31,6 +31,12 @@ class HistoricoReader:
         self._duckdb_path = duckdb_path
         self._historico_dir = historico_dir
 
+    def _ler_df(
+        self, sql: str, params: list | None = None
+    ) -> pd.DataFrame:
+        with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
+            return con.execute(sql, params or []).df()
+
     def carregar_tendencias(
         self,
         regras: list[str] | None = None,
@@ -224,8 +230,7 @@ class HistoricoReader:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         sql = f"SELECT * FROM gold.glosas_profissional {where}"
         try:
-            with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
-                return con.execute(sql, params).df()
+            return self._ler_df(sql, params)
         except duckdb.CatalogException:
             return pd.DataFrame()
 
@@ -239,11 +244,10 @@ class HistoricoReader:
             Dict com todas as colunas de gold.metricas_avancadas, ou None se ausente.
         """
         try:
-            with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
-                df = con.execute(
-                    "SELECT * FROM gold.metricas_avancadas WHERE competencia = ?",
-                    [competencia],
-                ).df()
+            df = self._ler_df(
+                "SELECT * FROM gold.metricas_avancadas WHERE competencia = ?",
+                [competencia],
+            )
         except duckdb.CatalogException:
             return None
         if df.empty:
