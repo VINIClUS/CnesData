@@ -66,6 +66,7 @@ def main() -> int:
     configurar_logging(verbose=args.verbose)
     state = _criar_estado(args)
     db_loader = DatabaseLoader(config.DUCKDB_PATH)
+    db_loader.inicializar_schema()
     historico_reader = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
     orchestrator = PipelineOrchestrator([
         IngestaoLocalStage(),
