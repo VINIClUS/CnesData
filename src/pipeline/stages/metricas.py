@@ -49,6 +49,9 @@ class MetricasStage:
 
         self._db.gravar_metricas_avancadas(competencia, metricas)
         state.metricas_avancadas = metricas
+        if state.delta_local:
+            self._db.gravar_delta_snapshot(competencia, state.delta_local)
+            logger.info("delta_snapshot gravado competencia=%s", competencia)
         logger.info("action=metricas_concluidas competencia=%s", competencia)
 
     def _persistir_glosas(self, competencia: str, df_glosas: pd.DataFrame) -> None:

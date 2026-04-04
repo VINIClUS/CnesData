@@ -77,6 +77,19 @@ _DDL_METRICAS_AVANCADAS = """
     )
 """
 
+_DDL_DELTA_SNAPSHOT = """
+    CREATE TABLE IF NOT EXISTS gold.delta_local_snapshot (
+        competencia    VARCHAR PRIMARY KEY,
+        n_novos        INTEGER NOT NULL DEFAULT 0,
+        n_removidos    INTEGER NOT NULL DEFAULT 0,
+        n_alterados    INTEGER NOT NULL DEFAULT 0,
+        novos_json     VARCHAR,
+        removidos_json VARCHAR,
+        alterados_json VARCHAR,
+        gravado_em     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
 
 class DatabaseLoader:
     """Gerencia a conexão e persistência no banco DuckDB local."""
@@ -100,6 +113,7 @@ class DatabaseLoader:
             con.execute(_DDL_GLOSAS)
             con.execute(_DDL_CACHE_NACIONAL)
             con.execute(_DDL_METRICAS_AVANCADAS)
+            con.execute(_DDL_DELTA_SNAPSHOT)
         logger.info("schema_gold inicializado db=%s", self._caminho_db)
 
     def gravar_metricas(self, snapshot: Snapshot) -> None:
@@ -243,6 +257,34 @@ class DatabaseLoader:
                 ],
             )
         logger.info("metricas_avancadas gravadas competencia=%s", competencia)
+
+    def gravar_delta_snapshot(self, competencia: str, delta: dict) -> None:
+        """INSERT OR REPLACE do delta de snapshot em gold.delta_local_snapshot.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+            delta: Dicionário com chaves n_novos, n_removidos, n_alterados,
+                   novos_json, removidos_json, alterados_json.
+        """
+        with self._conectar() as con:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO gold.delta_local_snapshot
+                    (competencia, n_novos, n_removidos, n_alterados,
+                     novos_json, removidos_json, alterados_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    competencia,
+                    delta.get("n_novos", 0),
+                    delta.get("n_removidos", 0),
+                    delta.get("n_alterados", 0),
+                    delta.get("novos_json"),
+                    delta.get("removidos_json"),
+                    delta.get("alterados_json"),
+                ],
+            )
+        logger.info("delta_snapshot gravado competencia=%s", competencia)
 
     def carregar_historico(self) -> list[Snapshot]:
         """Retorna todos os snapshots do Gold ordenados por competência.

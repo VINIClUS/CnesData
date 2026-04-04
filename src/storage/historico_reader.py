@@ -253,3 +253,23 @@ class HistoricoReader:
         if df.empty:
             return None
         return df.iloc[0].to_dict()
+
+    def carregar_delta_snapshot(self, competencia: str) -> dict | None:
+        """Retorna o delta de snapshot para uma competência específica.
+
+        Args:
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            Dict com todas as colunas de gold.delta_local_snapshot, ou None se ausente.
+        """
+        try:
+            df = self._ler_df(
+                "SELECT * FROM gold.delta_local_snapshot WHERE competencia = ?",
+                [competencia],
+            )
+        except duckdb.CatalogException:
+            return None
+        if df.empty:
+            return None
+        return df.iloc[0].to_dict()

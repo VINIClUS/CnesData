@@ -5,6 +5,7 @@ from pathlib import Path
 import duckdb
 
 from storage.database_loader import DatabaseLoader
+from storage.historico_reader import HistoricoReader
 from analysis.evolution_tracker import Snapshot
 
 
@@ -315,3 +316,51 @@ class TestMetricasAvancadas:
                 "SELECT taxa_anomalia_geral FROM gold.metricas_avancadas WHERE competencia='2026-03'"
             ).df()
         assert abs(df.iloc[0]["taxa_anomalia_geral"] - 0.12) < 1e-6
+
+
+class TestDeltaLocalSnapshot:
+    def test_cria_tabela_delta_local_snapshot(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        assert "delta_local_snapshot" in _tabelas_existentes(tmp_path / "test.duckdb")
+
+    def test_gravar_e_ler_delta(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        delta = {
+            "n_novos": 3,
+            "n_removidos": 1,
+            "n_alterados": 2,
+            "novos_json": '[{"CPF": "00000000001", "CNES": "1111111"}]',
+            "removidos_json": "[]",
+            "alterados_json": "[]",
+        }
+        loader.gravar_delta_snapshot("2026-03", delta)
+
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        resultado = reader.carregar_delta_snapshot("2026-03")
+
+        assert resultado is not None
+        assert resultado["n_novos"] == 3
+        assert resultado["n_removidos"] == 1
+        assert resultado["n_alterados"] == 2
+
+    def test_gravar_delta_upsert_idempotente(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        delta_v1 = {"n_novos": 1, "n_removidos": 0, "n_alterados": 0,
+                    "novos_json": "[]", "removidos_json": "[]", "alterados_json": "[]"}
+        delta_v2 = {"n_novos": 5, "n_removidos": 2, "n_alterados": 1,
+                    "novos_json": "[]", "removidos_json": "[]", "alterados_json": "[]"}
+        loader.gravar_delta_snapshot("2026-03", delta_v1)
+        loader.gravar_delta_snapshot("2026-03", delta_v2)
+
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        resultado = reader.carregar_delta_snapshot("2026-03")
+        assert resultado["n_novos"] == 5
+
+    def test_carregar_delta_retorna_none_quando_ausente(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        assert reader.carregar_delta_snapshot("2026-03") is None
