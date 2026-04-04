@@ -15,6 +15,7 @@ from pipeline.stages.ingestao_local import IngestaoLocalStage
 from pipeline.stages.ingestao_nacional import IngestaoNacionalStage
 from pipeline.stages.metricas import MetricasStage
 from pipeline.stages.processamento import ProcessamentoStage
+from pipeline.stages.snapshot_local import SnapshotLocalStage
 from storage.database_loader import DatabaseLoader
 from storage.historico_reader import HistoricoReader
 
@@ -53,6 +54,7 @@ def _criar_estado(args) -> PipelineState:
         output_path=output_path,
         executar_nacional=not args.skip_nacional,
         executar_hr=not args.skip_hr and config.FOLHA_HR_PATH is not None,
+        force_reingestao=args.force_reingestao,
     )
 
 
@@ -69,8 +71,9 @@ def main() -> int:
     db_loader.inicializar_schema()
     historico_reader = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
     orchestrator = PipelineOrchestrator([
-        IngestaoLocalStage(),
+        IngestaoLocalStage(config.HISTORICO_DIR),
         ProcessamentoStage(),
+        SnapshotLocalStage(config.HISTORICO_DIR),
         IngestaoNacionalStage(db_loader),
         AuditoriaLocalStage(),
         AuditoriaNacionalStage(),

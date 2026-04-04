@@ -6,6 +6,7 @@ import pytest
 
 from pipeline.state import PipelineState
 from pipeline.stages.ingestao_local import IngestaoLocalStage
+from storage.snapshot_local import SnapshotLocal, salvar_snapshot
 
 
 def _state() -> PipelineState:
@@ -15,6 +16,17 @@ def _state() -> PipelineState:
         output_path=Path("data/processed/report.csv"),
         executar_nacional=True,
         executar_hr=False,
+    )
+
+
+def _state_com_force(force: bool = False) -> PipelineState:
+    return PipelineState(
+        competencia_ano=2024,
+        competencia_mes=12,
+        output_path=Path("data/processed/report.csv"),
+        executar_nacional=True,
+        executar_hr=False,
+        force_reingestao=force,
     )
 
 
@@ -59,6 +71,7 @@ def test_popula_state_com_dados_locais(
     mock_adapter_cls,
     mock_cbo,
     mock_conectar,
+    tmp_path,
 ):
     mock_con = MagicMock()
     mock_conectar.return_value = mock_con
@@ -69,7 +82,7 @@ def test_popula_state_com_dados_locais(
     mock_adapter_cls.return_value = mock_adapter
 
     state = _state()
-    IngestaoLocalStage().execute(state)
+    IngestaoLocalStage(tmp_path).execute(state)
 
     assert state.con is mock_con
     assert state.cbo_lookup == {"515105": "Agente Comunitário"}
@@ -88,6 +101,7 @@ def test_valida_contratos_apos_ingestao(
     mock_adapter_cls,
     mock_cbo,
     mock_conectar,
+    tmp_path,
 ):
     mock_conectar.return_value = MagicMock()
     mock_cbo.return_value = {}
@@ -96,7 +110,7 @@ def test_valida_contratos_apos_ingestao(
     mock_adapter.listar_estabelecimentos.return_value = _df_estab()
     mock_adapter_cls.return_value = mock_adapter
 
-    IngestaoLocalStage().execute(_state())
+    IngestaoLocalStage(tmp_path).execute(_state())
 
     mock_prof_contract.validate.assert_called_once()
     mock_estab_contract.validate.assert_called_once()
@@ -113,8 +127,78 @@ def test_falha_conexao_propaga_excecao(
     mock_adapter_cls,
     mock_cbo,
     mock_conectar,
+    tmp_path,
 ):
     mock_conectar.side_effect = RuntimeError("BD indisponivel")
 
     with pytest.raises(RuntimeError, match="BD indisponivel"):
-        IngestaoLocalStage().execute(_state())
+        IngestaoLocalStage(tmp_path).execute(_state())
+
+
+@patch("pipeline.stages.ingestao_local.conectar")
+@patch("pipeline.stages.ingestao_local.extrair_lookup_cbo")
+@patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
+@patch("pipeline.stages.ingestao_local.ProfissionalContract")
+@patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+def test_usa_snapshot_quando_existe_e_sem_force(
+    mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, tmp_path
+):
+    snap = SnapshotLocal(df_prof=_df_prof(), df_estab=_df_estab(), cbo_lookup={"515105": "ACS"})
+    salvar_snapshot("2024-12", tmp_path, snap)
+
+    state = _state_com_force(force=False)
+    IngestaoLocalStage(tmp_path).execute(state)
+
+    mock_conectar.assert_not_called()
+    assert state.snapshot_carregado is True
+    assert len(state.df_prof_local) == 1
+    assert state.cbo_lookup == {"515105": "ACS"}
+
+
+@patch("pipeline.stages.ingestao_local.conectar")
+@patch("pipeline.stages.ingestao_local.extrair_lookup_cbo")
+@patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
+@patch("pipeline.stages.ingestao_local.ProfissionalContract")
+@patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+def test_usa_firebird_quando_force_reingestao(
+    mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, tmp_path
+):
+    snap = SnapshotLocal(df_prof=_df_prof(), df_estab=_df_estab(), cbo_lookup={})
+    salvar_snapshot("2024-12", tmp_path, snap)
+
+    mock_con = MagicMock()
+    mock_conectar.return_value = mock_con
+    mock_cbo.return_value = {}
+    mock_adapter = MagicMock()
+    mock_adapter.listar_profissionais.return_value = _df_prof()
+    mock_adapter.listar_estabelecimentos.return_value = _df_estab()
+    mock_adapter_cls.return_value = mock_adapter
+
+    state = _state_com_force(force=True)
+    IngestaoLocalStage(tmp_path).execute(state)
+
+    mock_conectar.assert_called_once()
+    assert state.snapshot_carregado is False
+
+
+@patch("pipeline.stages.ingestao_local.conectar")
+@patch("pipeline.stages.ingestao_local.extrair_lookup_cbo")
+@patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
+@patch("pipeline.stages.ingestao_local.ProfissionalContract")
+@patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+def test_usa_firebird_quando_sem_snapshot(
+    mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, tmp_path
+):
+    mock_con = MagicMock()
+    mock_conectar.return_value = mock_con
+    mock_cbo.return_value = {}
+    mock_adapter = MagicMock()
+    mock_adapter.listar_profissionais.return_value = _df_prof()
+    mock_adapter.listar_estabelecimentos.return_value = _df_estab()
+    mock_adapter_cls.return_value = mock_adapter
+
+    state = _state_com_force(force=False)
+    IngestaoLocalStage(tmp_path).execute(state)
+
+    mock_conectar.assert_called_once()
+    assert state.snapshot_carregado is False

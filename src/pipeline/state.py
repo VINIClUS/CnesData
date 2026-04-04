@@ -41,6 +41,9 @@ class PipelineState:
     nacional_validado: bool = False
     fingerprint_local: str = ""
     metricas_avancadas: dict = field(default_factory=dict)
+    force_reingestao: bool = False
+    snapshot_carregado: bool = False
+    delta_local: dict = field(default_factory=dict)
 
     @property
     def competencia_str(self) -> str:

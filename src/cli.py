@@ -18,6 +18,7 @@ class CliArgs:
     skip_nacional: bool
     skip_hr: bool
     verbose: bool
+    force_reingestao: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> CliArgs:
@@ -69,6 +70,12 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         help="Ativa log DEBUG no console.",
     )
     parser.add_argument(
+        "--force-reingestao",
+        action="store_true",
+        default=False,
+        help="Força re-ingestão do Firebird mesmo quando snapshot local existir.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -89,6 +96,7 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         skip_nacional=args.skip_nacional,
         skip_hr=args.skip_hr,
         verbose=args.verbose,
+        force_reingestao=args.force_reingestao,
     )
 
 
