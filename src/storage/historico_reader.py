@@ -228,3 +228,24 @@ class HistoricoReader:
                 return con.execute(sql, params).df()
         except duckdb.CatalogException:
             return pd.DataFrame()
+
+    def carregar_metricas_avancadas(self, competencia: str) -> dict | None:
+        """Retorna as métricas avançadas de uma competência específica.
+
+        Args:
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            Dict com todas as colunas de gold.metricas_avancadas, ou None se ausente.
+        """
+        try:
+            with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
+                df = con.execute(
+                    "SELECT * FROM gold.metricas_avancadas WHERE competencia = ?",
+                    [competencia],
+                ).df()
+        except duckdb.CatalogException:
+            return None
+        if df.empty:
+            return None
+        return df.iloc[0].to_dict()

@@ -1,7 +1,8 @@
 """Testes do HistoricoReader — DuckDB Gold + CSVs arquivados."""
+from datetime import datetime
+
 import duckdb
 import pytest
-from datetime import datetime
 
 from storage.historico_reader import HistoricoReader
 
@@ -357,3 +358,65 @@ class TestCarregarGlosasHistoricas:
         reader = HistoricoReader(db, tmp_path / "historico")
         df = reader.carregar_glosas_historicas()
         assert len(df) == 3
+
+
+def _popular_duckdb_com_metricas(path):
+    with duckdb.connect(str(path)) as con:
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE gold.metricas_avancadas (
+                competencia                      VARCHAR PRIMARY KEY,
+                taxa_anomalia_geral              DOUBLE,
+                p90_ch_total                     DOUBLE,
+                proporcao_feminina_geral         DOUBLE,
+                n_reincidentes                   INTEGER,
+                taxa_resolucao                   DOUBLE,
+                velocidade_regularizacao_media   DOUBLE,
+                top_glosas_json                  VARCHAR,
+                anomalias_por_cbo_json           VARCHAR,
+                proporcao_feminina_por_cnes_json VARCHAR,
+                ranking_cnes_json                VARCHAR,
+                gravado_em                       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+
+class TestCarregarMetricasAvancadas:
+
+    def test_retorna_dict_quando_competencia_existe(self, tmp_path):
+        db = tmp_path / "test_metricas.duckdb"
+        _popular_duckdb_com_metricas(db)
+        with duckdb.connect(str(db)) as con:
+            con.execute(
+                """INSERT INTO gold.metricas_avancadas
+                   (competencia, taxa_anomalia_geral, p90_ch_total,
+                    proporcao_feminina_geral, n_reincidentes, taxa_resolucao,
+                    velocidade_regularizacao_media, top_glosas_json,
+                    anomalias_por_cbo_json, proporcao_feminina_por_cnes_json,
+                    ranking_cnes_json)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                ["2026-03", 0.15, 40.0, 0.62, 3, 0.80, 12.5,
+                 '[{"regra": "RQ008", "n": 5}]',
+                 '{"225125": 3, "225170": 2}',
+                 '{"2795001": 0.7}',
+                 '[{"cnes": "2795001", "n": 8}]'],
+            )
+        reader = HistoricoReader(db, tmp_path / "historico")
+        result = reader.carregar_metricas_avancadas("2026-03")
+        assert result is not None
+        assert result["taxa_anomalia_geral"] == pytest.approx(0.15)
+        assert result["n_reincidentes"] == 3
+        assert result["top_glosas_json"] == '[{"regra": "RQ008", "n": 5}]'
+
+    def test_retorna_none_quando_competencia_ausente(self, tmp_path):
+        db = tmp_path / "test_metricas_vazio.duckdb"
+        _popular_duckdb_com_metricas(db)
+        reader = HistoricoReader(db, tmp_path / "historico")
+        assert reader.carregar_metricas_avancadas("2026-03") is None
+
+    def test_retorna_none_quando_tabela_nao_existe(self, tmp_path):
+        db = tmp_path / "test_metricas_sem_tabela.duckdb"
+        with duckdb.connect(str(db)) as con:
+            con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        reader = HistoricoReader(db, tmp_path / "historico")
+        assert reader.carregar_metricas_avancadas("2026-03") is None
