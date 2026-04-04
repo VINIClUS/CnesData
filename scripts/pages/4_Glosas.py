@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 
@@ -32,7 +33,7 @@ busca = st.sidebar.text_input("Buscar por nome ou CPF")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _carregar(comp: str) -> object:
+def _carregar(comp: str) -> pd.DataFrame:
     return reader.carregar_glosas_historicas(competencia_inicio=comp)
 
 

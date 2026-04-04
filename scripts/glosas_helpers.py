@@ -37,7 +37,7 @@ def _mascarar_pii_glosas(df: pd.DataFrame, mostrar_completo: bool) -> pd.DataFra
         DataFrame com mascaramento aplicado (cópia).
     """
     if mostrar_completo:
-        return df
+        return df.copy()
     result = df.copy()
     for col in ("cpf", "cns"):
         if col in result.columns:

@@ -63,3 +63,9 @@ class TestMascaraGlosas:
         df = self._df()
         _mascarar_pii_glosas(df, mostrar_completo=False)
         assert df.iloc[0]["cpf"] == "12345678901"
+
+    def test_sem_mascara_nao_muta_df_original(self):
+        df = self._df()
+        result = _mascarar_pii_glosas(df, mostrar_completo=True)
+        result["cpf"] = ["mutated"]
+        assert df.iloc[0]["cpf"] == "12345678901"
