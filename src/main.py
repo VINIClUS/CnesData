@@ -8,11 +8,15 @@ import config
 from cli import parse_args
 from pipeline.orchestrator import PipelineOrchestrator
 from pipeline.state import PipelineState
-from pipeline.stages.auditoria import AuditoriaStage
+from pipeline.stages.auditoria_local import AuditoriaLocalStage
+from pipeline.stages.auditoria_nacional import AuditoriaNacionalStage
 from pipeline.stages.exportacao import ExportacaoStage
 from pipeline.stages.ingestao_local import IngestaoLocalStage
 from pipeline.stages.ingestao_nacional import IngestaoNacionalStage
+from pipeline.stages.metricas import MetricasStage
 from pipeline.stages.processamento import ProcessamentoStage
+from storage.database_loader import DatabaseLoader
+from storage.historico_reader import HistoricoReader
 
 
 def configurar_logging(verbose: bool = False) -> None:
@@ -61,11 +65,15 @@ def main() -> int:
     args = parse_args()
     configurar_logging(verbose=args.verbose)
     state = _criar_estado(args)
+    db_loader = DatabaseLoader(config.DUCKDB_PATH)
+    historico_reader = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
     orchestrator = PipelineOrchestrator([
         IngestaoLocalStage(),
-        IngestaoNacionalStage(),
         ProcessamentoStage(),
-        AuditoriaStage(),
+        IngestaoNacionalStage(db_loader),
+        AuditoriaLocalStage(),
+        AuditoriaNacionalStage(),
+        MetricasStage(db_loader, historico_reader),
         ExportacaoStage(),
     ])
     try:
