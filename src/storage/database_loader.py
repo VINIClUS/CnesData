@@ -207,13 +207,13 @@ class DatabaseLoader:
             snapshot.total_vinculos,
         )
 
-    def gravar_auditoria(self, data_competencia: str, regra: str, total: int) -> None:
+    def gravar_auditoria(self, data_competencia: str, regra: str, total: int | None) -> None:
         """UPSERT de contagem de anomalias por regra em gold.auditoria_resultados.
 
         Args:
             data_competencia: Competência no formato 'YYYY-MM'.
             regra: Código da regra de auditoria (ex: 'RQ006').
-            total: Total de anomalias detectadas.
+            total: Total de anomalias detectadas, ou None se a regra não foi executada.
         """
         with self._conectar() as con:
             con.execute(
@@ -225,7 +225,7 @@ class DatabaseLoader:
                 [data_competencia, regra, total],
             )
         logger.info(
-            "auditoria gravada competencia=%s regra=%s total=%d",
+            "auditoria gravada competencia=%s regra=%s total=%s",
             data_competencia,
             regra,
             total,
