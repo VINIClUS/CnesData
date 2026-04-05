@@ -57,7 +57,7 @@ def _carregar_tab(reader: HistoricoReader, regra: str, competencia: str):
     key = f"df_{regra}_{competencia}"
     if key not in st.session_state:
         with st.spinner(f"Carregando {_REGRA_DESC[regra]}..."):
-            st.session_state[key] = reader.carregar_registros(regra, competencia)
+            st.session_state[key] = reader.carregar_glosas_periodo(regra, competencia)
     return st.session_state[key]
 
 

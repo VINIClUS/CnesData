@@ -9,9 +9,9 @@ import plotly.express as px
 import streamlit as st
 
 import config
-from storage.historico_reader import CSV_MAP, HistoricoReader
+from storage.historico_reader import REGRAS_AUDITORIA, HistoricoReader
 
-_TODAS_REGRAS = list(CSV_MAP.keys())
+_TODAS_REGRAS = list(REGRAS_AUDITORIA)
 
 _CORES: dict[str, str] = {
     "RQ008": "#e74c3c", "GHOST":     "#c0392b",

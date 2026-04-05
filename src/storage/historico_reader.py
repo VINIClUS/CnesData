@@ -14,21 +14,6 @@ REGRAS_AUDITORIA: tuple[str, ...] = (
     "RQ006", "RQ007", "RQ008", "RQ009", "RQ010", "RQ011",
 )
 
-# Mantido por compatibilidade — remover em Task 10
-CSV_MAP: dict[str, str] = {
-    "RQ003B":    "auditoria_rq003b_multiplas_unidades.csv",
-    "RQ005_ACS": "auditoria_rq005_acs_tacs_incorretos.csv",
-    "RQ005_ACE": "auditoria_rq005_ace_tace_incorretos.csv",
-    "GHOST":     "auditoria_ghost_payroll.csv",
-    "MISSING":   "auditoria_missing_registration.csv",
-    "RQ006":     "auditoria_rq006_estab_fantasma.csv",
-    "RQ007":     "auditoria_rq007_estab_ausente_local.csv",
-    "RQ008":     "auditoria_rq008_prof_fantasma_cns.csv",
-    "RQ009":     "auditoria_rq009_prof_ausente_local_cns.csv",
-    "RQ010":     "auditoria_rq010_divergencia_cbo.csv",
-    "RQ011":     "auditoria_rq011_divergencia_ch.csv",
-}
-
 
 class HistoricoReader:
     """Lê tendências do DuckDB Gold e registros individuais de CSVs arquivados."""
@@ -117,26 +102,6 @@ class HistoricoReader:
         anterior = self.carregar_kpis(competencias[idx - 1])
         return {regra: total - anterior.get(regra, 0) for regra, total in atual.items()}
 
-    def carregar_registros(self, regra: str, competencia: str) -> pd.DataFrame:
-        """Lê CSV arquivado via DuckDB read_csv_auto. Retorna DataFrame vazio se ausente.
-
-        Args:
-            regra: Chave da regra (ex.: "RQ008").
-            competencia: Competência no formato YYYY-MM.
-
-        Returns:
-            DataFrame com os registros ou DataFrame vazio se o arquivo não existir.
-        """
-        nome = CSV_MAP.get(regra)
-        if not nome:
-            return pd.DataFrame()
-        path = self._historico_dir / competencia / nome
-        if not path.exists():
-            logger.warning("csv_ausente regra=%s competencia=%s", regra, competencia)
-            return pd.DataFrame()
-        with duckdb.connect(":memory:") as con:
-            return con.execute("SELECT * FROM read_csv_auto(?)", [str(path)]).df()
-
     def listar_competencias(self) -> list[str]:
         """Lista competências disponíveis em gold.evolucao_metricas_mensais, ordem crescente.
 
@@ -149,20 +114,6 @@ class HistoricoReader:
                 "FROM gold.evolucao_metricas_mensais ORDER BY data_competencia"
             ).df()
         return df["data_competencia"].tolist()
-
-    def listar_competencias_para_regra(self, regra: str) -> list[str]:
-        """Lista competências com CSV arquivado para a regra, ordem crescente.
-
-        Args:
-            regra: Chave da regra (ex.: "RQ008").
-
-        Returns:
-            Lista de strings YYYY-MM com arquivos disponíveis.
-        """
-        nome = CSV_MAP.get(regra)
-        if not nome:
-            return []
-        return sorted(p.parent.name for p in self._historico_dir.glob(f"*/{nome}"))
 
     def carregar_total_vinculos(self, competencia: str) -> int:
         """Retorna total de vínculos processados para uma competência.
@@ -346,8 +297,6 @@ class HistoricoReader:
 
     def carregar_glosas_periodo(self, regra: str, competencia: str) -> pd.DataFrame:
         """Carrega glosas de uma regra e competência de gold.glosas_profissional.
-
-        Substitui carregar_registros (que lia de CSVs arquivados).
 
         Args:
             regra: Código da regra (ex: 'RQ008').

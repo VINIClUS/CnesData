@@ -11,9 +11,9 @@ from st_aggrid import AgGrid, GridOptionsBuilder
 
 import config
 from glosas_helpers import _filtrar_glosas, _mascarar_pii_glosas
-from storage.historico_reader import CSV_MAP, HistoricoReader
+from storage.historico_reader import REGRAS_AUDITORIA, HistoricoReader
 
-_TODAS_REGRAS = list(CSV_MAP.keys())
+_TODAS_REGRAS = list(REGRAS_AUDITORIA)
 
 st.title("Glosas por Profissional")
 
