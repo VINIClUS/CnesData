@@ -31,42 +31,29 @@ def _state() -> PipelineState:
     return state
 
 
-@patch("pipeline.stages.exportacao.exportar_csv")
-@patch("pipeline.stages.exportacao.gerar_relatorio")
-@patch("pipeline.stages.exportacao.criar_snapshot")
-@patch("pipeline.stages.exportacao.salvar_snapshot")
-@patch("pipeline.stages.exportacao.DatabaseLoader")
-@patch("pipeline.stages.exportacao.config")
-def test_exporta_csv_principal(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
-):
-    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
-    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
-    mock_config.HISTORICO_DIR = tmp_path / "historico"
-    mock_criar.return_value = MagicMock(
-        data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
-    )
-    mock_loader_cls.return_value = MagicMock()
-
-    state = _state()
-    state.output_path = tmp_path / "processed" / "Relatorio_2024-12.csv"
-    ExportacaoStage().execute(state)
-
-    mock_exportar.assert_any_call(state.df_processado, state.output_path)
+def _state_nacional() -> PipelineState:
+    s = _state()
+    s.executar_nacional = True
+    s.df_prof_nacional = pd.DataFrame({"CNS": ["001"]})
+    s.df_estab_nacional = pd.DataFrame({"CNES": ["001"]})
+    return s
 
 
-@patch("pipeline.stages.exportacao.exportar_csv")
-@patch("pipeline.stages.exportacao.gerar_relatorio")
+def _state_sem_nacional() -> PipelineState:
+    s = _state()
+    s.executar_nacional = False
+    return s
+
+
 @patch("pipeline.stages.exportacao.criar_snapshot")
 @patch("pipeline.stages.exportacao.salvar_snapshot")
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
 def test_grava_snapshot_no_duckdb(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, tmp_path
 ):
     mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
     mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
-    mock_config.HISTORICO_DIR = tmp_path / "historico"
     snapshot = MagicMock(
         data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
     )
@@ -82,43 +69,15 @@ def test_grava_snapshot_no_duckdb(
     mock_loader.gravar_metricas.assert_called_once_with(snapshot)
 
 
-@patch("pipeline.stages.exportacao.exportar_csv")
-@patch("pipeline.stages.exportacao.gerar_relatorio")
-@patch("pipeline.stages.exportacao.criar_snapshot")
-@patch("pipeline.stages.exportacao.salvar_snapshot")
-@patch("pipeline.stages.exportacao.DatabaseLoader")
-@patch("pipeline.stages.exportacao.config")
-def test_nao_exporta_csv_para_df_vazio(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
-):
-    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
-    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
-    mock_config.HISTORICO_DIR = tmp_path / "historico"
-    mock_criar.return_value = MagicMock(
-        data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
-    )
-    mock_loader_cls.return_value = MagicMock()
-
-    state = _state()
-    state.output_path = tmp_path / "processed" / "Relatorio_2024-12.csv"
-    ExportacaoStage().execute(state)
-
-    exported_paths = [c.args[1] for c in mock_exportar.call_args_list]
-    assert not any("ghost" in str(p) for p in exported_paths)
-
-
-@patch("pipeline.stages.exportacao.exportar_csv")
-@patch("pipeline.stages.exportacao.gerar_relatorio")
 @patch("pipeline.stages.exportacao.criar_snapshot")
 @patch("pipeline.stages.exportacao.salvar_snapshot")
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
 def test_persistir_usa_competencia_str_nao_nome_arquivo(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, tmp_path
 ):
     mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
     mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
-    mock_config.HISTORICO_DIR = tmp_path / "historico"
     mock_criar.return_value = MagicMock(
         data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
     )
@@ -132,18 +91,15 @@ def test_persistir_usa_competencia_str_nao_nome_arquivo(
     assert args[0] == "2024-12"
 
 
-@patch("pipeline.stages.exportacao.exportar_csv")
-@patch("pipeline.stages.exportacao.gerar_relatorio")
 @patch("pipeline.stages.exportacao.criar_snapshot")
 @patch("pipeline.stages.exportacao.salvar_snapshot")
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
 def test_persistir_grava_12_chaves_auditoria(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, tmp_path
 ):
     mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
     mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
-    mock_config.HISTORICO_DIR = tmp_path / "historico"
     mock_criar.return_value = MagicMock(
         data_competencia="2024-12", total_ghost=1, total_missing=2, total_rq005=3
     )
@@ -160,80 +116,68 @@ def test_persistir_grava_12_chaves_auditoria(
     }
 
 
-@patch("pipeline.stages.exportacao.config")
-def test_arquivar_csvs_copia_para_historico(mock_config, tmp_path):
-    output_dir = tmp_path / "processed"
-    output_dir.mkdir()
-    historico_dir = tmp_path / "historico"
-    mock_config.HISTORICO_DIR = historico_dir
-    (output_dir / "auditoria_rq008_prof_fantasma_cns.csv").write_text(
-        "CNS,NOME\n7001234567890123,Ana\n", encoding="utf-8"
-    )
-    state = _state()
-    state.output_path = output_dir / "Relatorio_Profissionais_CNES.csv"
-
-    ExportacaoStage()._arquivar_csvs(state, "2024-12")
-
-    dest = historico_dir / "2024-12" / "auditoria_rq008_prof_fantasma_cns.csv"
-    assert dest.exists()
-    assert "Ana" in dest.read_text(encoding="utf-8")
-
-
-@patch("pipeline.stages.exportacao.config")
-def test_arquivar_csvs_ignora_arquivos_ausentes(mock_config, tmp_path):
-    output_dir = tmp_path / "processed"
-    output_dir.mkdir()
-    historico_dir = tmp_path / "historico"
-    mock_config.HISTORICO_DIR = historico_dir
-    state = _state()
-    state.output_path = output_dir / "Relatorio_Profissionais_CNES.csv"
-
-    ExportacaoStage()._arquivar_csvs(state, "2024-12")
-
-    assert (historico_dir / "2024-12").exists()
-
-
-def _state_nacional() -> PipelineState:
-    """State com dados nacionais carregados."""
-    s = _state()
-    s.executar_nacional = True
-    s.df_prof_nacional = pd.DataFrame({"CNS": ["001"]})
-    s.df_estab_nacional = pd.DataFrame({"CNES": ["001"]})
-    return s
-
-
-def _state_sem_nacional() -> PipelineState:
-    s = _state()
-    s.executar_nacional = False
-    return s
-
-
-@patch("pipeline.stages.exportacao.exportar_csv")
-@patch("pipeline.stages.exportacao.gerar_relatorio")
+@patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.criar_snapshot")
 @patch("pipeline.stages.exportacao.salvar_snapshot")
-@patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
-def test_gerar_relatorio_passa_metricas_quando_presentes(
-    mock_config, mock_loader_cls, mock_salvar, mock_criar, mock_gerar, mock_exportar, tmp_path
-):
+def test_nao_escreve_csv(mock_config, mock_salvar, mock_criar, mock_loader_cls, tmp_path):
     mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
     mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
-    mock_config.HISTORICO_DIR = tmp_path / "historico"
+    mock_config.LAST_RUN_PATH = tmp_path / "cache" / "last_run.json"
     mock_criar.return_value = MagicMock(
         data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
     )
-    mock_loader_cls.return_value = MagicMock()
+    loader_instance = MagicMock()
+    mock_loader_cls.return_value = loader_instance
 
     state = _state()
     state.output_path = tmp_path / "processed" / "Relatorio_2024-12.csv"
-    state.metricas_avancadas = {"taxa_anomalia_geral": 0.1}
-
     ExportacaoStage().execute(state)
 
-    mock_gerar.assert_called_once()
-    call_kwargs = mock_gerar.call_args[1]
-    assert call_kwargs["metricas"] == {"taxa_anomalia_geral": 0.1}
+    assert not (tmp_path / "processed" / "Relatorio_2024-12.csv").exists()
+
+
+@patch("pipeline.stages.exportacao.DatabaseLoader")
+@patch("pipeline.stages.exportacao.criar_snapshot")
+@patch("pipeline.stages.exportacao.salvar_snapshot")
+@patch("pipeline.stages.exportacao.config")
+def test_grava_pipeline_run(mock_config, mock_salvar, mock_criar, mock_loader_cls, tmp_path):
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.LAST_RUN_PATH = tmp_path / "cache" / "last_run.json"
+    mock_criar.return_value = MagicMock(
+        data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
+    )
+    loader_instance = MagicMock()
+    mock_loader_cls.return_value = loader_instance
+
+    state = _state()
+    state.nacional_disponivel = True
+    state.output_path = tmp_path / "processed" / "report.csv"
+    ExportacaoStage().execute(state)
+
+    loader_instance.gravar_pipeline_run.assert_called_once()
+    call_args = loader_instance.gravar_pipeline_run.call_args[0]
+    assert call_args[0] == "2024-12"
+    assert call_args[4] == "completo"
+
+
+@patch("pipeline.stages.exportacao.DatabaseLoader")
+@patch("pipeline.stages.exportacao.config")
+def test_status_sem_dados_locais_quando_local_indisponivel(mock_config, mock_loader_cls, tmp_path):
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.LAST_RUN_PATH = tmp_path / "cache" / "last_run.json"
+    loader_instance = MagicMock()
+    mock_loader_cls.return_value = loader_instance
+
+    state = _state()
+    state.local_disponivel = False
+    state.nacional_disponivel = True
+    ExportacaoStage().execute(state)
+
+    call_args = loader_instance.gravar_pipeline_run.call_args[0]
+    assert call_args[4] == "sem_dados_locais"
 
 
 class TestGravarLastRun:
@@ -248,7 +192,7 @@ class TestGravarLastRun:
         dados = json.loads(path.read_text(encoding="utf-8"))
         assert set(dados.keys()) == {"firebird", "bigquery", "hr", "duckdb"}
 
-    def test_firebird_sempre_ok_quando_pipeline_concluiu(self, tmp_path):
+    def test_firebird_ok_quando_local_disponivel(self, tmp_path):
         from pipeline.stages.exportacao import _gravar_last_run
         path = tmp_path / "last_run.json"
 

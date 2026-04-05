@@ -132,3 +132,16 @@ def test_taxa_resolucao_zero_sem_competencia_anterior():
         stage.execute(state)
 
     assert state.metricas_avancadas["taxa_resolucao"] == 0.0
+
+
+def test_skip_quando_local_indisponivel():
+    state = PipelineState(
+        competencia_ano=2024, competencia_mes=12,
+        output_path=Path("data/processed/report.csv"),
+        executar_nacional=False, executar_hr=False,
+        local_disponivel=False,
+    )
+    db = MagicMock(spec=DatabaseLoader)
+    reader = MagicMock(spec=HistoricoReader)
+    MetricasStage(db, reader).execute(state)
+    db.gravar_metricas_avancadas.assert_not_called()
