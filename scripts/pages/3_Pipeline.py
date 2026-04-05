@@ -10,10 +10,21 @@ import os
 
 import streamlit as st
 
+import config
+from dashboard_components import inject_css, setup_sidebar
 from pipeline_runner import competencia_atual, iniciar_leitor, iniciar_pipeline
+from storage.historico_reader import HistoricoReader
 
 _ANO_MIN = 2000
 _ANO_MAX = 2099
+
+inject_css()
+
+if "reader" not in st.session_state:
+    st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
+
+reader: HistoricoReader = st.session_state["reader"]
+_ = setup_sidebar(reader)
 
 st.title("Executar Pipeline")
 
@@ -88,7 +99,6 @@ def _streaming() -> None:
         proc.terminate()
         st.session_state["pipeline_status"] = "error"
         st.rerun()
-        return
 
     returncode = proc.poll()
     if returncode is not None:
