@@ -298,6 +298,7 @@ class HistoricoReader:
                 [competencia],
             )
         except duckdb.CatalogException:
+            logger.warning("tabela_ausente table=gold.profissionais_processados competencia=%s", competencia)
             return pd.DataFrame()
         return df.rename(columns=str.upper)
 
@@ -318,6 +319,7 @@ class HistoricoReader:
                 [competencia],
             )
         except duckdb.CatalogException:
+            logger.warning("tabela_ausente table=gold.estabelecimentos competencia=%s", competencia)
             return pd.DataFrame()
         return df.rename(columns=str.upper)
 
@@ -336,6 +338,7 @@ class HistoricoReader:
                 [competencia],
             )
         except duckdb.CatalogException:
+            logger.warning("tabela_ausente table=gold.pipeline_runs competencia=%s", competencia)
             return None
         if df.empty:
             return None
@@ -359,4 +362,5 @@ class HistoricoReader:
                 [competencia, regra],
             )
         except duckdb.CatalogException:
+            logger.warning("tabela_ausente table=gold.glosas_profissional competencia=%s", competencia)
             return pd.DataFrame()

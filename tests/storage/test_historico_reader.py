@@ -479,7 +479,7 @@ def _popular_tabelas_novas(path):
         """)
 
 
-class TestNovosMétodosHistoricoReader:
+class TestNovosMetodosHistoricoReader:
     def test_carregar_profissionais(self, tmp_path):
         _popular_tabelas_novas(tmp_path / "test.duckdb")
         reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
@@ -522,4 +522,10 @@ class TestNovosMétodosHistoricoReader:
         _popular_tabelas_novas(tmp_path / "test.duckdb")
         reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
         df = reader.carregar_glosas_periodo("RQ010", "2026-03")
+        assert df.empty
+
+    def test_carregar_estabelecimentos_vazio(self, tmp_path):
+        _popular_tabelas_novas(tmp_path / "test.duckdb")
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        df = reader.carregar_estabelecimentos("2025-01")
         assert df.empty
