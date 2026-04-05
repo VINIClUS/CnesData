@@ -10,6 +10,7 @@ import plotly.express as px
 import streamlit as st
 
 import config
+from dashboard_components import inject_css, setup_sidebar
 from export.report_generator import exportar_xlsx_periodo
 from metricas_helpers import _parsear_metricas
 from storage.historico_reader import HistoricoReader
@@ -24,6 +25,7 @@ def _num(v, decimais: int = 1) -> str:
 
 
 st.title("Métricas Avançadas")
+inject_css()
 
 if "reader" not in st.session_state:
     st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
@@ -35,7 +37,7 @@ if not competencias:
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
     st.stop()
 
-competencia = st.sidebar.selectbox("Competência", options=competencias[::-1], index=0)
+competencia = setup_sidebar(reader)
 raw = reader.carregar_metricas_avancadas(competencia)
 
 if raw is None:

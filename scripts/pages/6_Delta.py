@@ -10,9 +10,11 @@ import pandas as pd
 import streamlit as st
 
 import config
+from dashboard_components import inject_css, setup_sidebar
 from storage.historico_reader import HistoricoReader
 
 st.title("Delta — Drift do CNES Local")
+inject_css()
 
 if "reader" not in st.session_state:
     st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
@@ -24,7 +26,7 @@ if not competencias:
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
     st.stop()
 
-competencia = st.sidebar.selectbox("Competência", options=competencias[::-1], index=0)
+competencia = setup_sidebar(reader)
 raw = reader.carregar_delta_snapshot(competencia)
 
 if raw is None:
