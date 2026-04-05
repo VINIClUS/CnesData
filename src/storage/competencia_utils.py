@@ -43,3 +43,9 @@ def janela_valida(competencia: str) -> tuple[date, date]:
     mes_prox = mes + 1 if mes < 12 else 1
     fim = quinto_dia_util(ano_prox, mes_prox)
     return inicio, fim
+
+
+def periodo_atual() -> str:
+    """Retorna competência do mês calendário atual no formato YYYY-MM."""
+    hoje = date.today()
+    return f"{hoje.year}-{hoje.month:02d}"

@@ -38,6 +38,8 @@ class PipelineState:
     df_cbo_diverg: pd.DataFrame = field(default_factory=pd.DataFrame)
     df_ch_diverg: pd.DataFrame = field(default_factory=pd.DataFrame)
 
+    local_disponivel: bool = True
+    nacional_disponivel: bool = False
     nacional_validado: bool = False
     fingerprint_local: str = ""
     metricas_avancadas: dict = field(default_factory=dict)

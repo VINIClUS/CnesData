@@ -1,7 +1,8 @@
 """Testes de competencia_utils — cálculo do 5º dia útil e janela de coleta."""
 from datetime import date
+from unittest.mock import patch
 
-from storage.competencia_utils import janela_valida, quinto_dia_util
+from storage.competencia_utils import janela_valida, periodo_atual, quinto_dia_util
 
 
 class TestQuintoDiaUtil:
@@ -40,3 +41,24 @@ class TestJanelaValida:
         inicio, fim = janela_valida("2024-11")
         assert inicio == date(2024, 11, 7)
         assert fim == date(2024, 12, 6)
+
+
+class TestPeriodoAtual:
+    def test_formato_yyyy_mm(self):
+        resultado = periodo_atual()
+        partes = resultado.split("-")
+        assert len(partes) == 2
+        assert len(partes[0]) == 4
+        assert len(partes[1]) == 2
+
+    def test_retorna_mes_atual(self):
+        with patch("storage.competencia_utils.date") as mock_date:
+            mock_date.today.return_value = date(2026, 4, 4)
+            mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
+            assert periodo_atual() == "2026-04"
+
+    def test_retorna_dezembro_correto(self):
+        with patch("storage.competencia_utils.date") as mock_date:
+            mock_date.today.return_value = date(2025, 12, 1)
+            mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
+            assert periodo_atual() == "2025-12"

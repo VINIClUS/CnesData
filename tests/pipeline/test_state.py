@@ -60,3 +60,19 @@ def test_state_tem_campos_novos():
     assert state.nacional_validado is False
     assert state.fingerprint_local == ""
     assert state.metricas_avancadas == {}
+
+
+def test_state_local_disponivel_default_true():
+    state = PipelineState(
+        competencia_ano=2024, competencia_mes=12,
+        output_path=Path("x.csv"), executar_nacional=False, executar_hr=False,
+    )
+    assert state.local_disponivel is True
+
+
+def test_state_nacional_disponivel_default_false():
+    state = PipelineState(
+        competencia_ano=2024, competencia_mes=12,
+        output_path=Path("x.csv"), executar_nacional=False, executar_hr=False,
+    )
+    assert state.nacional_disponivel is False
