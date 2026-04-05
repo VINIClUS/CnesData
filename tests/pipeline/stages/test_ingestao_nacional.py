@@ -204,6 +204,33 @@ def test_nacional_validado_setado_apos_fetch(mock_config, mock_adapter_cls):
     assert state.nacional_validado is True
 
 
+def test_seta_nacional_disponivel_apos_busca(tmp_path):
+    state = PipelineState(
+        competencia_ano=2024, competencia_mes=12,
+        output_path=Path("data/processed/report.csv"),
+        executar_nacional=True, executar_hr=False,
+    )
+    state.df_processado = pd.DataFrame({"CPF": ["001"], "CBO": ["515105"], "CNES": ["111"]})
+
+    loader = DatabaseLoader(tmp_path / "test.duckdb")
+    loader.inicializar_schema()
+
+    with patch("pipeline.stages.ingestao_nacional.CnesNacionalAdapter") as mock_cls, \
+         patch("pipeline.stages.ingestao_nacional.config") as mock_cfg:
+        mock_cfg.NACIONAL_CACHE_TTL_DIAS = 7
+        mock_cfg.GCP_PROJECT_ID = "proj"
+        mock_cfg.ID_MUNICIPIO_IBGE7 = "3543105"
+        mock_cfg.CACHE_DIR = tmp_path
+        mock_adapter = MagicMock()
+        mock_adapter.listar_profissionais.return_value = pd.DataFrame({"CNS": ["123456789012345"]})
+        mock_adapter.listar_estabelecimentos.return_value = pd.DataFrame({"CNES": ["1234567"]})
+        mock_cls.return_value = mock_adapter
+
+        IngestaoNacionalStage(loader).execute(state)
+
+    assert state.nacional_disponivel is True
+
+
 @patch("pipeline.stages.ingestao_nacional.CnesNacionalAdapter")
 @patch("pipeline.stages.ingestao_nacional.config")
 def test_fingerprint_armazenado_em_state(mock_config, mock_adapter_cls):

@@ -50,6 +50,9 @@ class IngestaoNacionalStage:
             return
         self._db.gravar_cache_nacional(state.competencia_str, fingerprint)
         state.nacional_validado = True
+        state.nacional_disponivel = (
+            not state.df_prof_nacional.empty or not state.df_estab_nacional.empty
+        )
 
     def _cache_valido(self, competencia: str, fingerprint: str) -> bool:
         cache = self._db.ler_cache_nacional(competencia)

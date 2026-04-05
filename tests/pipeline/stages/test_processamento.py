@@ -44,3 +44,14 @@ def test_df_processado_populado_no_state(mock_transformar):
 
     assert len(state.df_processado) == 1
     assert state.df_processado["CPF"].iloc[0] == "99988877766"
+
+
+def test_skip_quando_local_indisponivel():
+    state = PipelineState(
+        competencia_ano=2024, competencia_mes=12,
+        output_path=Path("data/processed/report.csv"),
+        executar_nacional=False, executar_hr=False,
+        local_disponivel=False,
+    )
+    ProcessamentoStage().execute(state)
+    assert state.df_processado.empty
