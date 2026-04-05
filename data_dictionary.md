@@ -1,7 +1,7 @@
 # Dicionário de Dados — CNES Firebird (CNES.GDB)
 >
-> **Versão:** 0.5 — Iteração 5 (validação de dados + CBO enrichment)
-> **Status:** ✅ CONCLUÍDO — RQ-001 a RQ-012 documentados, zero-padding, filtragem de cascata, CBO enrichment implementados
+> **Versão:** 0.6 — Iteração 6 (schema completo + diagrama ER)
+> **Status:** ✅ CONCLUÍDO — Schema completo confirmado via RDB$; ER diagram em docs/schema/
 
 ---
 
@@ -15,10 +15,12 @@
 | `LFCES048` | **Membros de Equipe de Saúde** | [(CPF_PROF, COD_CBO, COD_MUN, SEQ_EQUIPE)](file:///c:/Users/CPD/Projetos/CnesData/scripts/db_profiling_04_final_audit_and_master_query.py#69-80) | Bridge: liga profissional à equipe |
 | `LFCES060` | **Equipes de Saúde (ESF/NASF/etc)** | [(SEQ_EQUIPE, COD_AREA, COD_MUN)](file:///c:/Users/CPD/Projetos/CnesData/scripts/db_profiling_04_final_audit_and_master_query.py#69-80) | Entidade: dados da equipe (INE, área, segmento) |
 | `NFCES026` | **Domínio CBO (Classificação Brasileira de Ocupações)** | `COD_CBO` | Lookup: código → descrição do cargo |
-
-> [!NOTE]
-> As PKs acima são **inferidas** pelos JOINs do [cnes_exporter.py](file:///c:/Users/CPD/Projetos/CnesData/src/cnes_exporter.py). Precisam ser confirmadas
-> via `RDB$RELATION_FIELDS` e `RDB$INDICES` (ver Script 1 abaixo).
+| `LFCES020` | Inventário de Equipamentos | `(UNIDADE_ID, COD_EQUIP, CODTPEQUIP)` | Equipamentos/dispositivos por estabelecimento |
+| `LFCES027` | Serviços de Hemoterapia | `UNIDADE_ID` | Banco de sangue/hemocentro vinculado a LFCES004 |
+| `NFCES005` | Municípios (Referência) | `COD_MUN` | Tabela de referência de municípios com UF, população, coordenadas |
+| `NFCES010` | Domínio Tipo de Unidade | `TP_UNID_ID` | Lookup: código → descrição do tipo de unidade |
+| `NFCES046` | Domínio Tipo de Equipe | `TP_EQUIPE` | Lookup: código → descrição do tipo de equipe |
+| `NFCES058` | Domínio IND_VINC (Subvínculos) | `IND_VINC` | Lookup: código 6 dígitos → descrição do vínculo |
 
 ---
 
@@ -102,6 +104,78 @@
 
 Usada como lookup para enriquecimento: `extrair_lookup_cbo()` em `cnes_client.py` gera `dict[str, str]` CBO→descrição. Coluna `DESCRICAO_CBO` adicionada a todos os relatórios pelo transformer. Confirmado via `data/discovery/03_nfces026_cbo_descricao.csv`.
 
+### `LFCES020` — Inventário de Equipamentos por Estabelecimento (11 colunas)
+
+| Coluna | Tipo | Tamanho | Obrig. | Descrição |
+|---|---|---|---|---|
+| `UNIDADE_ID` | VARYING | 31 | ✅ | **PK+FK** → LFCES004 |
+| `COD_EQUIP` | VARYING | 2 | ✅ | **PK** — código do equipamento |
+| `CODTPEQUIP` | TEXT | 2 | ✅ | **PK+FK** — tipo do equipamento |
+| `QTDE_EXIST` | LONG | 4 | ❌ | Quantidade existente |
+| `QTDE_USO` | LONG | 4 | ❌ | Quantidade em uso |
+| `QT_SUS` | LONG | 4 | ❌ | Quantidade habilitada SUS |
+| `IND_SUS` | TEXT | 1 | ❌ | `1`=SUS / `2`=não-SUS |
+| `STATUS` | TEXT | 1 | ❌ | Status do registro |
+| `STATUSMOV` | TEXT | 1 | ❌ | Status de movimentação |
+| `DATA_ATU` | DATE | — | ❌ | Data de última atualização |
+| `USUARIO` | VARYING | 60 | ❌ | Usuário que realizou a atualização |
+
+### `LFCES027` — Serviços de Hemoterapia (46 colunas, selecionados)
+
+| Coluna | Tipo | Tamanho | Obrig. | Descrição |
+|---|---|---|---|---|
+| `UNIDADE_ID` | VARYING | 31 | ✅ | **PK+FK** → LFCES004 |
+| `NOMRHEMOT` | VARYING | 60 | ❌ | Nome do responsável técnico hematologia |
+| `CPFMRHEMOT` | VARYING | 11 | ❌ | CPF do responsável técnico hematologia |
+| `NORETECSO` | VARYING | 60 | ❌ | Nome responsável técnico sociotransfusional |
+| `NSRECEPCAD` | VARYING | 3 | ❌ | Número de setores de recepção/cadastro |
+| `NSTRIAGHMT` | VARYING | 3 | ❌ | Número de setores de triagem hemoterápica |
+| `STATUS` | TEXT | 1 | ❌ | Status do registro |
+| `STATUSMOV` | TEXT | 1 | ❌ | Status de movimentação |
+
+### `NFCES005` — Municípios (Referência)
+
+| Coluna | Tipo | Tamanho | Obrig. | Descrição |
+|---|---|---|---|---|
+| `COD_MUN` | VARYING | 6 | ✅ | **PK** — código IBGE 6 dígitos |
+| `NOME_MUN` | VARYING | 60 | ✅ | Nome do município |
+| `UF` | VARYING | 2 | ✅ | Sigla da UF |
+| `TP_CADASTR` | TEXT | 1 | ❌ | Tipo de cadastro |
+| `POPULACAO` | INT64 | 8 | ❌ | População estimada |
+| `NU_LATITUD` | VARYING | 10 | ❌ | Latitude geográfica |
+| `NU_LONGITU` | VARYING | 10 | ❌ | Longitude geográfica |
+
+### `NFCES010` — Domínio Tipo de Unidade de Saúde
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `TP_UNID_ID` | VARYING(2) | **PK** — código do tipo de unidade (ex: `01`=UBS, `02`=CS II) |
+| `DESCRICAO` | VARYING | Descrição completa do tipo |
+
+> FK alvo de `LFCES004.TP_UNID_ID`. Substituiu a hipótese incorreta de que NFCES088 seria este domínio.
+
+### `NFCES046` — Domínio Tipo de Equipe de Saúde
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `TP_EQUIPE` | VARYING(2) | **PK** — código do tipo de equipe |
+| `DS_EQUIPE` | VARYING(60) | Descrição (ex: "Equipe de Saúde da Família") |
+| `CO_GRUPO_E` | VARYING(2) | Código do grupo de equipe |
+
+### `NFCES058` — Domínio IND_VINC (Subvínculos Funcionais)
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `IND_VINC` | VARYING(6) | **PK** — código 6 dígitos (ex: `010101`) |
+| `CD_VINCULA` | VARYING(2) | Código do grupo de vínculo |
+| `TP_VINCULO` | VARYING(2) | Tipo de vínculo |
+| `TP_SUBVINC` | VARYING(2) | Subtipo de vínculo |
+| `DS_SUBVINC` | VARYING(60) | Descrição resumida |
+| `DS_CONCEIT` | VARYING(2000) | Conceito completo |
+| `ST_HABILIT` | TEXT(1) | Status de habilitação |
+
+> FK alvo de `LFCES021.IND_VINC`. Os valores já foram mapeados na seção Decodificação IND_VINC abaixo.
+
 ---
 
 ## Schema BigQuery Confirmado — `br_ms_cnes.profissional`
@@ -173,15 +247,18 @@ Usada como lookup para enriquecimento: `extrair_lookup_cbo()` em `cnes_client.py
 > [!NOTE]
 > O adapter nacional não implementa `listar_equipes()` — a tabela `equipe` do BigQuery usa `id_equipe` (18 chars) como identificador, que não casa diretamente com o `INE` de 10 chars do Firebird. Cross-check de equipes requer análise adicional do formato de junção.
 
-## Tabelas Prioritárias Não Exploradas
+## Tabelas Periféricas Mapeadas (Exploradas via RDB$)
 
-| Tabela | Hipótese | Colunas | Prioridade |
+| Tabela | Papel | Chave | Nota |
 |---|---|---|---|
-| `LFCES020` | Vínculos históricos / Competência | 11 | 🔴 Alta |
-| `NFCES005` | Domínios principais (20 colunas!) | 20 | 🔴 Alta |
-| `NFCES088` | Tipo de estabelecimento (13 colunas) | 13 | 🔴 Alta — mapear `TP_UNID_ID` |
-| `LFCES000` | Tabela-mãe de estabelecimentos (40 colunas) | 40 | 🟡 Média |
-| `LFCES027` | Leitos/Serviços? (46 colunas) | 46 | 🟡 Média |
+| `LFCES020` | Inventário de Equipamentos | PK=(UNIDADE_ID, COD_EQUIP, CODTPEQUIP) | FK→LFCES004 |
+| `LFCES027` | Serviços de Hemoterapia | PK=UNIDADE_ID | FK→LFCES004 |
+| `NFCES005` | Referência de Municípios | PK=COD_MUN | FK alvo de LFCES004.CODMUNGEST |
+| `NFCES010` | Domínio Tipo de Unidade | PK=TP_UNID_ID | FK alvo de LFCES004.TP_UNID_ID |
+| `LFCES000` | Configuração do CNES Local | PK=NU_MAC | Dados técnicos da máquina; sem relação com relatórios |
+| `NFCES088` | Snapshot Desnormalizado Prof×Est | — | Vista somente-leitura; não usar para JOIN |
+
+> O banco tem 250 tabelas no total (LFCES + NFCES). As tabelas acima e as 6 tabelas core são as relevantes para o pipeline de auditoria municipal.
 
 ---
 
@@ -331,33 +408,41 @@ WHERE vinc.COD_CBO IN ('515140', '322210', '322260')  -- ACE e TACE
 ## Grafo de Relacionamentos (**CONFIRMADO** via `RDB$`)
 
 ```
-                    NFCES088 (Domínio TP_UNID)
-                         ▲ FK
-LFCES018 (Profissional)  │
-    │ PK=PROF_ID          │
-    │ FK: PROF_ID ────────┤
-    ▼                     │
-LFCES021 (Vínculo)        │
-  PK=(UNIDADE_ID,          │
-      PROF_ID,             │
-      COD_CBO,      ───► LFCES004 (Estabelecimento)
-      IND_VINC,             PK=UNIDADE_ID
-      TP_SUS_NAO)           COD_MUN→354130
-    │                       CNES (7 chars)
-    │ CPF_PROF + COD_CBO + COD_MUN (⚠️ sem FK declarada)
-    ▼
-LFCES048 (Membro Equipe)        ⚠️ SEM PK
-    │ SEQ_EQUIPE + COD_AREA + COD_MUN (⚠️ sem FK declarada)
-    ▼
-LFCES060 (Equipe)               ⚠️ SEM PK
-  join via CNES → LFCES004.CNES (não UNIDADE_ID!)
+NFCES005 (Municípios)       NFCES010 (Tipo Unidade)
+  PK=COD_MUN                  PK=TP_UNID_ID
+    ▲ FK (CODMUNGEST)             ▲ FK (TP_UNID_ID)
+    │                             │
+LFCES004 (Estabelecimentos) ──────┘
+    PK=UNIDADE_ID
+    │ FK: UNIDADE_ID ─────────────┐
+    │                             │
+    ├─► LFCES020 (Equipamentos)   │
+    │     PK=(UNIDADE_ID,         │
+    │         COD_EQUIP,          │
+    │         CODTPEQUIP)         │
+    │                             │
+    └─► LFCES027 (Hemoterapia)    │
+          PK=UNIDADE_ID           │
+                                  │
+LFCES018 (Profissional)           │
+    PK=PROF_ID ────────────────►  │
+                              LFCES021 (Vínculo)
+                                PK=(UNIDADE_ID,
+                                    PROF_ID,
+                                    COD_CBO,  ◄── FK → NFCES026 (CBO)
+                                    IND_VINC, ◄── FK → NFCES058 (IND_VINC)
+                                    TP_SUS_NAO)
+                                    │
+                             CPF_PROF + COD_CBO + COD_MUN (⚠️ sem FK)
+                                    ▼
+                            LFCES048 (Membro Equipe)  ⚠️ SEM PK
+                                    │
+                     SEQ_EQUIPE + COD_AREA + COD_MUN (⚠️ sem FK)
+                                    ▼
+                            LFCES060 (Equipe) ⚠️ SEM PK
+                              join via CNES → LFCES004.CNES
+                              TP_EQUIPE → NFCES046 (lookup)
 ```
-
-> [!WARNING]
-> **Dois joins sem FK declarada** no caminho crítico do relatório:
->
-> 1. `LFCES021 → LFCES048` via `CPF_PROF` — sem garantia referencial
-> 2. `LFCES048 → LFCES060` via `SEQ_EQUIPE+COD_AREA+COD_MUN` — sem PK destino
 
 ---
 
@@ -410,6 +495,7 @@ LFCES060 (Equipe)               ⚠️ SEM PK
 - [x] **Script 2b** — STATUS ativo=STATUSMOV='2', TP_UNID_ID mapeados, NFCES088 é Prof×CAPS
 - [x] **Script 3** — Domínios NFCES, IND_VINC decodificado, CBOs corrigidos, 24 profs multi-unidade
 - [x] **Script 4** — Auditoria ACS/ACE limpa (0 anomalias), Query Master validada (367 vínculos)
+- [x] **Iteração 6** — Identidades corrigidas (LFCES020/LFCES027/NFCES088), schema completo, diagrama ER gerado
 
 ---
 
