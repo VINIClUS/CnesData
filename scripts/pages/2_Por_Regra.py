@@ -6,7 +6,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder
+
+from dashboard_components import inject_css, render_aggrid_table, setup_sidebar
 
 import config
 from dashboard_status import carregar_status, REGRAS_FONTE
@@ -92,6 +93,7 @@ def _render_metrica(regra: str, fonte_ok: bool, kpis: dict, deltas: dict) -> Non
 
 
 st.title("🔍 Por Regra")
+inject_css()
 
 if "reader" not in st.session_state:
     st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
@@ -103,7 +105,7 @@ if not competencias:
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
     st.stop()
 
-competencia = st.sidebar.selectbox("Competência", options=competencias[::-1], index=0)
+competencia = setup_sidebar(reader)
 _invalidar_cache_se_competencia_mudou(competencia)
 
 status = _get_status()
@@ -141,16 +143,7 @@ for tab, (_, regra) in zip(tabs, _TABS):
         )
         df_display = _mascarar_pii(df, mostrar_completo)
 
-        gb = GridOptionsBuilder.from_dataframe(df_display)
-        gb.configure_default_column(resizable=True, sortable=True, filter=True)
-        gb.configure_grid_options(domLayout="autoHeight")
-        AgGrid(
-            df_display,
-            gridOptions=gb.build(),
-            use_container_width=True,
-            theme="streamlit",
-            key=f"grid_{regra}",
-        )
+        render_aggrid_table(df_display)
 
         st.download_button(
             f"⬇ Baixar CSV — {regra} / {competencia}",
