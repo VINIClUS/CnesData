@@ -1,12 +1,17 @@
 """Gerador de relatórios Excel multi-aba segmentados por tipo de anomalia — WP-007."""
 
+import io
 import json
 import logging
 from datetime import datetime
 from pathlib import Path
 
-from openpyxl.styles import Alignment, Font, PatternFill
+import duckdb
 import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+
+from storage.historico_reader import REGRAS_AUDITORIA
 
 logger = logging.getLogger(__name__)
 
@@ -296,14 +301,6 @@ def _formatar_cabecalho(ws) -> None:
         ws.column_dimensions[coluna[0].column_letter].width = min(largura + 4, 60)
 
 
-import io as _io
-
-import duckdb as _duckdb
-from openpyxl import Workbook as _Workbook
-
-from storage.historico_reader import REGRAS_AUDITORIA
-
-
 def exportar_xlsx_periodo(competencia: str, duckdb_path: Path) -> bytes:
     """Gera XLSX em memória para uma competência a partir do DuckDB.
 
@@ -314,10 +311,10 @@ def exportar_xlsx_periodo(competencia: str, duckdb_path: Path) -> bytes:
     Returns:
         Bytes do arquivo XLSX gerado.
     """
-    wb = _Workbook()
+    wb = Workbook()
     wb.remove(wb.active)
 
-    with _duckdb.connect(str(duckdb_path), read_only=True) as con:
+    with duckdb.connect(str(duckdb_path), read_only=True) as con:
         _adicionar_aba_xlsx(wb, "Profissionais", _ler_df_safe(con, """
             SELECT cns, cpf, nome_profissional, sexo, cbo, cnes, tipo_vinculo,
                    sus, ch_total, ch_ambulatorial, ch_outras, ch_hospitalar,
@@ -339,7 +336,7 @@ def exportar_xlsx_periodo(competencia: str, duckdb_path: Path) -> bytes:
             FROM gold.metricas_avancadas WHERE competencia = ?
         """, [competencia]))
 
-    buf = _io.BytesIO()
+    buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
@@ -351,7 +348,7 @@ def _ler_df_safe(con, sql: str, params: list) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _adicionar_aba_xlsx(wb: _Workbook, nome: str, df: pd.DataFrame) -> None:
+def _adicionar_aba_xlsx(wb: Workbook, nome: str, df: pd.DataFrame) -> None:
     ws = wb.create_sheet(title=nome)
     if df.empty:
         return

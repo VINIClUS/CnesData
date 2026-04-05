@@ -8,7 +8,7 @@ from ingestion.cnes_local_adapter import CnesLocalAdapter
 from pipeline.state import PipelineState
 from storage.competencia_utils import periodo_atual
 from storage.database_loader import DatabaseLoader
-from storage.snapshot_local import SnapshotLocal, carregar_snapshot, snapshot_existe
+from storage.snapshot_local import carregar_snapshot, snapshot_existe
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,7 @@ class IngestaoLocalStage:
         state.df_estab_local = repo.listar_estabelecimentos()
         ProfissionalContract.validate(state.df_prof_local, lazy=False)
         EstabelecimentoContract.validate(state.df_estab_local, lazy=False)
+        state.local_disponivel = True
         logger.info(
             "ingestao_local profissionais=%d estabelecimentos=%d",
             len(state.df_prof_local),

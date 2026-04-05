@@ -24,6 +24,8 @@ class SnapshotLocalStage:
         self._db = db_loader
 
     def execute(self, state: PipelineState) -> None:
+        if not state.local_disponivel:
+            return
         if state.snapshot_carregado:
             return
 

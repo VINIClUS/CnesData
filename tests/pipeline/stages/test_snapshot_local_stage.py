@@ -156,3 +156,11 @@ class TestSnapshotLocalStageDuckDB:
         state = _state_com_db(tmp_path, snapshot_carregado=True)
         SnapshotLocalStage(tmp_path, loader).execute(state)
         assert not loader.profissional_existe("2026-03")
+
+    def test_nao_grava_quando_local_indisponivel(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        state = _state_com_db(tmp_path)
+        state.local_disponivel = False
+        SnapshotLocalStage(tmp_path, loader).execute(state)
+        assert not loader.profissional_existe("2026-03")

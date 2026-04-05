@@ -4,8 +4,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
-
 import config
 from analysis.evolution_tracker import criar_snapshot, salvar_snapshot
 from pipeline.state import PipelineState
