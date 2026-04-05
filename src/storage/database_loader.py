@@ -213,7 +213,7 @@ class DatabaseLoader:
         Args:
             data_competencia: Competência no formato 'YYYY-MM'.
             regra: Código da regra de auditoria (ex: 'RQ006').
-            total: Total de anomalias detectadas; None se regra não executada.
+            total: Total de anomalias detectadas, ou None se a regra não foi executada.
         """
         with self._conectar() as con:
             con.execute(

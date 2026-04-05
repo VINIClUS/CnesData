@@ -5,7 +5,6 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from storage.competencia_utils import janela_valida
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +65,14 @@ class HistoricoReader:
         with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
             return con.execute(sql, params).df()
 
-    def carregar_kpis(self, competencia: str) -> dict[str, int]:
+    def carregar_kpis(self, competencia: str) -> dict[str, int | None]:
         """Retorna {regra: total} para uma competência específica.
 
         Args:
             competencia: Competência no formato YYYY-MM.
 
         Returns:
-            Dicionário regra → total_anomalias.
+            Dicionário regra → total_anomalias (None se regra não executada).
         """
         with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
             df = con.execute(
@@ -81,7 +80,10 @@ class HistoricoReader:
                 "WHERE data_competencia = ?",
                 [competencia],
             ).df()
-        return dict(zip(df["regra"], df["total_anomalias"].astype(int)))
+        return {
+            row["regra"]: None if pd.isna(row["total_anomalias"]) else int(row["total_anomalias"])
+            for _, row in df.iterrows()
+        }
 
     def carregar_delta(self, competencia: str) -> dict[str, int]:
         """Retorna variação de cada regra vs competência anterior (0 se não houver anterior).
@@ -132,25 +134,19 @@ class HistoricoReader:
         return int(df["total_vinculos"].iloc[0]) if not df.empty else 0
 
     def listar_competencias_validas(self) -> list[str]:
-        """Competências cujo pipeline_run.concluido_em está dentro da janela de coleta CNES.
+        """Competências com local_disponivel=TRUE em gold.pipeline_runs.
 
         Returns:
             Lista de competências YYYY-MM em ordem ascendente.
         """
         with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
-            rows = con.execute(
-                "SELECT competencia, concluido_em FROM gold.pipeline_runs "
-                "WHERE regexp_matches(competencia, '^\\d{4}-\\d{2}$') "
+            df = con.execute(
+                "SELECT competencia FROM gold.pipeline_runs "
+                "WHERE local_disponivel = TRUE "
+                "AND regexp_matches(competencia, '^\\d{4}-\\d{2}$') "
                 "ORDER BY competencia"
-            ).fetchall()
-        validas = []
-        for comp, concluido_em in rows:
-            if concluido_em is None:
-                continue
-            inicio, fim = janela_valida(comp)
-            if inicio <= concluido_em.date() < fim:
-                validas.append(comp)
-        return validas
+            ).df()
+        return df["competencia"].tolist()
 
     def contar_competencias(self) -> tuple[int, int]:
         """Retorna (válidas, total) de competências no DuckDB.

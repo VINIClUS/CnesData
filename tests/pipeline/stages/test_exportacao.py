@@ -45,6 +45,12 @@ def _state_sem_nacional() -> PipelineState:
     return s
 
 
+def _make_state(tmp_path: Path) -> PipelineState:
+    s = _state()
+    s.output_path = tmp_path / "processed" / "report.csv"
+    return s
+
+
 @patch("pipeline.stages.exportacao.criar_snapshot")
 @patch("pipeline.stages.exportacao.salvar_snapshot")
 @patch("pipeline.stages.exportacao.DatabaseLoader")
@@ -95,7 +101,7 @@ def test_persistir_usa_competencia_str_nao_nome_arquivo(
 @patch("pipeline.stages.exportacao.salvar_snapshot")
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
-def test_persistir_grava_12_chaves_auditoria(
+def test_persistir_grava_11_chaves_auditoria(
     mock_config, mock_loader_cls, mock_salvar, mock_criar, tmp_path
 ):
     mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
@@ -110,7 +116,7 @@ def test_persistir_grava_12_chaves_auditoria(
 
     regras = {call.args[1] for call in mock_loader.gravar_auditoria.call_args_list}
     assert regras == {
-        "GHOST", "MISSING", "RQ005",
+        "GHOST", "MISSING",
         "RQ003B", "RQ005_ACS", "RQ005_ACE",
         "RQ006", "RQ007", "RQ008", "RQ009", "RQ010", "RQ011",
     }
@@ -241,3 +247,21 @@ class TestGravarLastRun:
         _gravar_last_run(_state_nacional(), path)
 
         assert path.exists()
+
+
+def test_grava_null_para_regras_nacionais_sem_nacional(tmp_path):
+    """Quando nacional_disponivel=False, RQ006–RQ011 devem ser gravadas como NULL."""
+    state = _make_state(tmp_path)
+    state.nacional_disponivel = False
+    loader = MagicMock()
+    with (
+        patch("pipeline.stages.exportacao.DatabaseLoader", return_value=loader),
+        patch("pipeline.stages.exportacao.criar_snapshot"),
+        patch("pipeline.stages.exportacao.salvar_snapshot"),
+        patch("pipeline.stages.exportacao._gravar_last_run"),
+    ):
+        ExportacaoStage().execute(state)
+    chamadas = {c.args[1]: c.args[2] for c in loader.gravar_auditoria.call_args_list}
+    for regra in ("RQ006", "RQ007", "RQ008", "RQ009", "RQ010", "RQ011"):
+        assert chamadas[regra] is None, f"{regra} deveria ser None mas foi {chamadas[regra]}"
+    assert "RQ005" not in chamadas, "RQ005 fantasma não deve ser gravado"

@@ -61,16 +61,16 @@ class ExportacaoStage:
             loader.gravar_metricas(snapshot)
             loader.gravar_auditoria(competencia, "GHOST", snapshot.total_ghost)
             loader.gravar_auditoria(competencia, "MISSING", snapshot.total_missing)
-            loader.gravar_auditoria(competencia, "RQ005", snapshot.total_rq005)
             loader.gravar_auditoria(competencia, "RQ003B", len(state.df_multi_unidades))
             loader.gravar_auditoria(competencia, "RQ005_ACS", len(state.df_acs_incorretos))
             loader.gravar_auditoria(competencia, "RQ005_ACE", len(state.df_ace_incorretos))
-            loader.gravar_auditoria(competencia, "RQ006", len(state.df_estab_fantasma))
-            loader.gravar_auditoria(competencia, "RQ007", len(state.df_estab_ausente))
-            loader.gravar_auditoria(competencia, "RQ008", len(state.df_prof_fantasma))
-            loader.gravar_auditoria(competencia, "RQ009", len(state.df_prof_ausente))
-            loader.gravar_auditoria(competencia, "RQ010", len(state.df_cbo_diverg))
-            loader.gravar_auditoria(competencia, "RQ011", len(state.df_ch_diverg))
+            nacional = state.nacional_disponivel
+            loader.gravar_auditoria(competencia, "RQ006", len(state.df_estab_fantasma) if nacional else None)
+            loader.gravar_auditoria(competencia, "RQ007", len(state.df_estab_ausente) if nacional else None)
+            loader.gravar_auditoria(competencia, "RQ008", len(state.df_prof_fantasma) if nacional else None)
+            loader.gravar_auditoria(competencia, "RQ009", len(state.df_prof_ausente) if nacional else None)
+            loader.gravar_auditoria(competencia, "RQ010", len(state.df_cbo_diverg) if nacional else None)
+            loader.gravar_auditoria(competencia, "RQ011", len(state.df_ch_diverg) if nacional else None)
 
         _gravar_last_run(state, config.LAST_RUN_PATH)
         loader.gravar_pipeline_run(
