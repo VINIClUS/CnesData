@@ -1,8 +1,7 @@
 """Testes de calcular_delta — drift entre df_processado atual e snapshot anterior."""
 import pandas as pd
-import pytest
 
-from analysis.delta_snapshot import DeltaSnapshot, calcular_delta
+from analysis.delta_snapshot import calcular_delta
 
 
 def _base() -> pd.DataFrame:

@@ -103,17 +103,16 @@ class HistoricoReader:
         return {regra: total - anterior.get(regra, 0) for regra, total in atual.items()}
 
     def listar_competencias(self) -> list[str]:
-        """Lista competências disponíveis em gold.evolucao_metricas_mensais, ordem crescente.
+        """Lista competências com execução registrada em gold.pipeline_runs, ordem crescente.
 
         Returns:
             Lista de strings YYYY-MM em ordem cronológica.
         """
         with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
             df = con.execute(
-                "SELECT DISTINCT data_competencia "
-                "FROM gold.evolucao_metricas_mensais ORDER BY data_competencia"
+                "SELECT DISTINCT competencia FROM gold.pipeline_runs ORDER BY competencia"
             ).df()
-        return df["data_competencia"].tolist()
+        return df["competencia"].tolist()
 
     def carregar_total_vinculos(self, competencia: str) -> int:
         """Retorna total de vínculos processados para uma competência.
@@ -133,22 +132,23 @@ class HistoricoReader:
         return int(df["total_vinculos"].iloc[0]) if not df.empty else 0
 
     def listar_competencias_validas(self) -> list[str]:
-        """Competências com gravado_em dentro da janela de coleta CNES Local.
+        """Competências cujo pipeline_run.concluido_em está dentro da janela de coleta CNES.
 
         Returns:
             Lista de competências YYYY-MM em ordem ascendente.
         """
         with duckdb.connect(str(self._duckdb_path), read_only=True) as con:
             rows = con.execute(
-                "SELECT data_competencia, MIN(gravado_em) AS primeiro_gravado "
-                "FROM gold.evolucao_metricas_mensais "
-                "WHERE regexp_matches(data_competencia, '^\\d{4}-\\d{2}$') "
-                "GROUP BY data_competencia ORDER BY data_competencia"
+                "SELECT competencia, concluido_em FROM gold.pipeline_runs "
+                "WHERE regexp_matches(competencia, '^\\d{4}-\\d{2}$') "
+                "ORDER BY competencia"
             ).fetchall()
         validas = []
-        for comp, primeiro_gravado in rows:
+        for comp, concluido_em in rows:
+            if concluido_em is None:
+                continue
             inicio, fim = janela_valida(comp)
-            if inicio <= primeiro_gravado.date() < fim:
+            if inicio <= concluido_em.date() < fim:
                 validas.append(comp)
         return validas
 
@@ -249,7 +249,7 @@ class HistoricoReader:
                 [competencia],
             )
         except duckdb.CatalogException:
-            logger.warning("tabela_ausente table=gold.profissionais_processados competencia=%s", competencia)
+            logger.warning("tabela_ausente table=gold.profissionais_processados comp=%s", competencia)
             return pd.DataFrame()
         return df.rename(columns=str.upper)
 

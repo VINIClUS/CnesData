@@ -15,7 +15,6 @@ from pathlib import Path
 import duckdb
 import openpyxl
 import pandas as pd
-import pytest
 
 from export.report_generator import exportar_xlsx_periodo, gerar_relatorio
 

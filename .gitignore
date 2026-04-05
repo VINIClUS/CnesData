@@ -37,7 +37,7 @@ logs/
 *.env
 
 # --- VSCode ---
-.vscode/*.log
+.vscode/
 
 # --- Sistema Operacional ---
 .DS_Store
@@ -53,8 +53,16 @@ export_log.txt
 output.txt
 .worktrees/
 .playwright/
-.vscode/
 .ruff_cache/
+.github/
+.streamlit/
+excalidraw.log
 
 # Visual brainstorming companion
 .superpowers/
+
+# --- Node (headroom-ai MCP) ---
+node_modules/
+package-lock.json
+package.json
+test_headroom.py

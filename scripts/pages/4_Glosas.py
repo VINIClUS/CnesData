@@ -57,7 +57,6 @@ AgGrid(
     df_display,
     gridOptions=gb.build(),
     use_container_width=True,
-    fit_columns_on_grid_load=False,
     theme="streamlit",
     key="grid_glosas",
 )

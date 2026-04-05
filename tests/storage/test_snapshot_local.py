@@ -1,9 +1,6 @@
 """Testes de snapshot_local — persistência de snapshots parquet por competência."""
-import json
-from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from storage.snapshot_local import (
     SnapshotLocal,

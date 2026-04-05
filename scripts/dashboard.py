@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pandas as pd
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder
+from st_aggrid import AgGrid, ColumnsAutoSizeMode, GridOptionsBuilder
 
 import config
 from dashboard_status import (
@@ -51,6 +51,21 @@ _REGRAS_META: dict[str, tuple[str, str]] = {
 _SEV_ORDER = {"CRÍTICA": 0, "ALTA": 1, "MÉDIA": 2, "BAIXA": 3}
 _SEV_ICON  = {"CRÍTICA": "🔴", "ALTA": "🟠", "MÉDIA": "🟡", "BAIXA": "🟢"}
 _KPI_DESTAQUE = ["RQ008", "RQ006", "RQ009", "GHOST", "MISSING"]
+_FONTE_BIGQUERY = "bigquery"
+_FONTE_HR = "hr"
+
+
+def _fonte_ok(regra: str, status: dict, pipeline_run: dict | None) -> bool:
+    if pipeline_run is None:
+        return status[REGRAS_FONTE[regra]].ok is True
+    if not pipeline_run.get("local_disponivel"):
+        return False
+    fonte = REGRAS_FONTE[regra]
+    if fonte == _FONTE_BIGQUERY and not pipeline_run.get("nacional_disponivel"):
+        return False
+    if fonte == _FONTE_HR and not pipeline_run.get("hr_disponivel"):
+        return False
+    return True
 
 
 @st.cache_resource
@@ -88,9 +103,16 @@ renderizar_container_diretorios(config.OUTPUT_PATH, config.HISTORICO_DIR, config
 
 competencia = st.sidebar.selectbox("Competência", options=competencias[::-1], index=0)
 
+pipeline_run   = reader.carregar_pipeline_run(competencia)
 kpis           = reader.carregar_kpis(competencia)
 deltas         = reader.carregar_delta(competencia)
 total_vinculos = reader.carregar_total_vinculos(competencia)
+
+if pipeline_run and not pipeline_run.get("local_disponivel"):
+    st.info(
+        "Competência processada sem dados locais (CNES Firebird indisponível). "
+        "Auditorias requerem dados locais — KPIs exibidos como —."
+    )
 
 col_vinculos, *_ = st.columns([1, 1, 1, 1, 1, 1])
 with col_vinculos:
@@ -105,7 +127,7 @@ st.divider()
 cols = st.columns(len(_KPI_DESTAQUE))
 for i, regra in enumerate(_KPI_DESTAQUE):
     desc, sev = _REGRAS_META[regra]
-    fonte_ok = status[REGRAS_FONTE[regra]].ok is True
+    fonte_ok = _fonte_ok(regra, status, pipeline_run)
     delta = deltas.get(regra, 0)
     with cols[i]:
         if fonte_ok:
@@ -126,14 +148,14 @@ for i, regra in enumerate(_KPI_DESTAQUE):
 
 st.divider()
 
-if total_vinculos == 0:
+if total_vinculos == 0 and pipeline_run and pipeline_run.get("local_disponivel"):
     st.warning("Pipeline rodou mas não processou vínculos. Verifique os logs.")
-elif not kpis:
+elif not kpis and pipeline_run and pipeline_run.get("local_disponivel"):
     st.warning("Dados de auditoria não encontrados para esta competência.")
-elif all(
+elif kpis and all(
     kpis.get(r, 0) == 0
     for r, _ in _REGRAS_META.items()
-    if status[REGRAS_FONTE[r]].ok is True
+    if _fonte_ok(r, status, pipeline_run)
 ):
     st.info(
         "Nenhuma anomalia detectada nas fontes configuradas. "
@@ -142,7 +164,7 @@ elif all(
 
 rows = []
 for regra, (desc, sev) in sorted(_REGRAS_META.items(), key=lambda x: _SEV_ORDER[x[1][1]]):
-    fonte_ok = status[REGRAS_FONTE[regra]].ok is True
+    fonte_ok = _fonte_ok(regra, status, pipeline_run)
     rows.append({
         "Regra":      regra,
         "Descrição":  desc,
@@ -157,4 +179,4 @@ gb = GridOptionsBuilder.from_dataframe(df_resumo)
 gb.configure_default_column(resizable=True, sortable=True, filter=True)
 gb.configure_grid_options(domLayout="autoHeight")
 AgGrid(df_resumo, gridOptions=gb.build(), use_container_width=True,
-       fit_columns_on_grid_load=True, theme="streamlit")
+       columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS, theme="streamlit")

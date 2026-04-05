@@ -96,7 +96,7 @@ uritemplate==4.2.0
 urllib3==2.6.3
 win32_setctime==1.2.0
 yarl==1.23.0
-streamlit>=1.32.0
+streamlit>=1.56.0
 plotly>=5.20.0
-streamlit-aggrid==0.3.4.post3
+streamlit-aggrid==1.2.1.post2
 holidays>=0.46

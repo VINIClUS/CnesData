@@ -1,9 +1,7 @@
 """Testes do SnapshotLocalStage — persistência de snapshot pós-processamento."""
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
 from pipeline.state import PipelineState
 from pipeline.stages.snapshot_local import SnapshotLocalStage

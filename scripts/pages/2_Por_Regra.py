@@ -148,7 +148,6 @@ for tab, (_, regra) in zip(tabs, _TABS):
             df_display,
             gridOptions=gb.build(),
             use_container_width=True,
-            fit_columns_on_grid_load=False,
             theme="streamlit",
             key=f"grid_{regra}",
         )

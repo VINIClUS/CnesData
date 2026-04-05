@@ -180,6 +180,28 @@ def test_status_sem_dados_locais_quando_local_indisponivel(mock_config, mock_loa
     assert call_args[4] == "sem_dados_locais"
 
 
+@patch("pipeline.stages.exportacao.DatabaseLoader")
+@patch("pipeline.stages.exportacao.config")
+def test_nacional_only_nao_grava_metricas_mas_grava_pipeline_run(
+    mock_config, mock_loader_cls, tmp_path
+):
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.LAST_RUN_PATH = tmp_path / "cache" / "last_run.json"
+    loader_instance = MagicMock()
+    mock_loader_cls.return_value = loader_instance
+
+    state = _state()
+    state.local_disponivel = False
+    state.nacional_disponivel = True
+    ExportacaoStage().execute(state)
+
+    loader_instance.gravar_metricas.assert_not_called()
+    loader_instance.gravar_auditoria.assert_not_called()
+    loader_instance.gravar_pipeline_run.assert_called_once_with(
+        "2024-12", False, True, False, "sem_dados_locais"
+    )
+
+
 class TestGravarLastRun:
 
     def test_grava_arquivo_json(self, tmp_path):
