@@ -71,7 +71,7 @@ def main() -> int:
     db_loader.inicializar_schema()
     historico_reader = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
     orchestrator = PipelineOrchestrator([
-        IngestaoLocalStage(config.HISTORICO_DIR),
+        IngestaoLocalStage(config.HISTORICO_DIR, db_loader),
         ProcessamentoStage(),
         SnapshotLocalStage(config.HISTORICO_DIR),
         IngestaoNacionalStage(db_loader),
