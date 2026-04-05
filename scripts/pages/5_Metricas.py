@@ -61,23 +61,30 @@ col5.metric("Taxa de Resolução",            _pct(m.get("taxa_resolucao")))
 col6.metric("Velocidade Regularização (d)", _num(m.get("velocidade_regularizacao_media")))
 
 if m["ranking_cnes"]:
-    st.subheader("Ranking CNES por Anomalias")
+    nomes_cnes = reader.carregar_nomes_cnes(competencia)
     df_rank = pd.DataFrame(m["ranking_cnes"])
+    df_rank["label"] = df_rank["cnes"].astype(str).map(lambda c: nomes_cnes.get(c, c))
+    st.subheader("Ranking CNES por Anomalias")
     st.plotly_chart(
-        px.bar(df_rank, x="cnes", y="total_anomalias", labels={"cnes": "CNES", "total_anomalias": "Anomalias"}),
+        px.bar(
+            df_rank, x="label", y="total_anomalias",
+            labels={"label": "Estabelecimento", "total_anomalias": "Anomalias"},
+        ),
         use_container_width=True,
     )
 
 if m["anomalias_por_cbo"]:
-    st.subheader("Top 15 CBOs com Anomalias")
+    cbo_desc = reader.carregar_cbo_descricoes(competencia)
     df_cbo = (
         pd.DataFrame(m["anomalias_por_cbo"])[["cbo", "total"]]
         .rename(columns={"total": "n"})
         .sort_values("n", ascending=False)
         .head(15)
     )
+    df_cbo["label"] = df_cbo["cbo"].astype(str).map(lambda c: cbo_desc.get(c, c))
+    st.subheader("Top 15 CBOs com Anomalias")
     st.plotly_chart(
-        px.bar(df_cbo, x="cbo", y="n", labels={"cbo": "CBO", "n": "Anomalias"}),
+        px.bar(df_cbo, x="label", y="n", labels={"label": "CBO", "n": "Anomalias"}),
         use_container_width=True,
     )
 

@@ -309,3 +309,39 @@ class HistoricoReader:
         except duckdb.CatalogException:
             logger.warning("tabela_ausente table=gold.glosas_profissional competencia=%s", competencia)
             return pd.DataFrame()
+
+    def carregar_cbo_descricoes(self, competencia: str) -> dict[str, str]:
+        """Retorna {cbo: descricao_cbo} de gold.profissionais_processados.
+
+        Args:
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            Dicionário cbo → descricao. Vazio se tabela ausente.
+        """
+        try:
+            df = self._ler_df(
+                "SELECT DISTINCT cbo, descricao_cbo FROM gold.profissionais_processados WHERE competencia = ?",
+                [competencia],
+            )
+        except duckdb.CatalogException:
+            return {}
+        return dict(zip(df["cbo"].astype(str), df["descricao_cbo"].fillna("").astype(str)))
+
+    def carregar_nomes_cnes(self, competencia: str) -> dict[str, str]:
+        """Retorna {cnes: nome_fantasia} de gold.estabelecimentos.
+
+        Args:
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            Dicionário cnes → nome_fantasia. Vazio se tabela ausente.
+        """
+        try:
+            df = self._ler_df(
+                "SELECT DISTINCT cnes, nome_fantasia FROM gold.estabelecimentos WHERE competencia = ?",
+                [competencia],
+            )
+        except duckdb.CatalogException:
+            return {}
+        return dict(zip(df["cnes"].astype(str), df["nome_fantasia"].fillna("").astype(str)))

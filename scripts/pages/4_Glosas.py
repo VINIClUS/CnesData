@@ -33,11 +33,11 @@ busca = st.sidebar.text_input("Buscar por nome ou CPF")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _carregar(comp: str) -> pd.DataFrame:
-    return reader.carregar_glosas_historicas(competencia_inicio=comp)
+def _carregar(_reader: HistoricoReader, comp: str) -> pd.DataFrame:
+    return _reader.carregar_glosas_historicas(competencia_inicio=comp)
 
 
-df_raw = _carregar(competencia)
+df_raw = _carregar(reader, competencia)
 df_raw = df_raw[df_raw["competencia"] == competencia] if not df_raw.empty else df_raw
 df_filtrado = _filtrar_glosas(df_raw, regras_sel, busca)
 
