@@ -34,6 +34,8 @@ REGRAS_FONTE: dict[str, str] = {
     "RQ003B": "firebird", "RQ010": "bigquery", "RQ011": "bigquery",
 }
 
+REGRAS_LOCAL_OR_NACIONAL: frozenset[str] = frozenset({"RQ003B", "RQ005_ACS", "RQ005_ACE"})
+
 
 def carregar_status(last_run_path: Path, duckdb_path: Path) -> dict[str, DepStatus]:
     """Lê last_run.json e vars de ambiente para diagnosticar cada dependência.

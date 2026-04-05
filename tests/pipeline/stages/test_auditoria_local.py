@@ -7,16 +7,55 @@ from pipeline.state import PipelineState
 from pipeline.stages.auditoria_local import AuditoriaLocalStage
 
 
-def test_skip_quando_local_indisponivel():
+def test_skip_quando_sem_dados_locais_e_nacionais():
     state = PipelineState(
         competencia_ano=2024, competencia_mes=12,
         output_path=Path("data/processed/report.csv"),
         executar_nacional=False, executar_hr=False,
         local_disponivel=False,
+        nacional_disponivel=False,
     )
     AuditoriaLocalStage().execute(state)
     assert state.df_multi_unidades.empty
     assert state.df_acs_incorretos.empty
+
+
+def _make_nacional_state() -> PipelineState:
+    state = PipelineState(
+        competencia_ano=2024,
+        competencia_mes=12,
+        output_path=Path("data/processed/report.csv"),
+        executar_nacional=True,
+        executar_hr=False,
+        local_disponivel=False,
+        nacional_disponivel=True,
+    )
+    state.df_prof_nacional = pd.DataFrame({
+        "CNS": ["111111111111111", "111111111111111", "222222222222222"],
+        "CBO": ["515105", "515105", "322255"],
+        "CNES": ["1234567", "9999999", "1234567"],
+    })
+    state.df_estab_nacional = pd.DataFrame({
+        "CNES": ["1234567", "9999999"],
+        "TIPO_UNIDADE": ["99", "01"],
+    })
+    return state
+
+
+def test_usa_dados_nacionais_quando_local_indisponivel():
+    """Quando local_disponivel=False e nacional_disponivel=True, executa regras nacionais."""
+    state = _make_nacional_state()
+    AuditoriaLocalStage().execute(state)
+    assert state.df_multi_unidades is not None
+    assert state.df_acs_incorretos is not None
+    assert state.df_ace_incorretos is not None
+
+
+def test_multiplas_unidades_usa_cns_com_dados_nacionais():
+    state = _make_nacional_state()
+    AuditoriaLocalStage().execute(state)
+    assert "QTD_UNIDADES" in state.df_multi_unidades.columns
+    assert not state.df_multi_unidades.empty
 
 
 def _state() -> PipelineState:

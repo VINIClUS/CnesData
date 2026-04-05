@@ -51,7 +51,7 @@ TP_UNID_VALIDOS_ACS_TACS: Final[frozenset[str]] = frozenset({"01", "02", "15"})
 TP_UNID_VALIDOS_ACE_TACE: Final[frozenset[str]] = frozenset({"02", "69", "22", "15", "50"})
 
 
-def detectar_multiplas_unidades(df: pd.DataFrame) -> pd.DataFrame:
+def detectar_multiplas_unidades(df: pd.DataFrame, id_col: str = "CPF") -> pd.DataFrame:
     """
     RQ-003-B: Identifica profissionais com vínculos em mais de uma unidade.
 
@@ -60,25 +60,27 @@ def detectar_multiplas_unidades(df: pd.DataFrame) -> pd.DataFrame:
     permite à equipe de RH validar se a dupla lotação é estrutural ou erro.
 
     Args:
-        df: DataFrame transformado com colunas CPF e CNES.
+        df: DataFrame transformado com colunas id_col e CNES.
+        id_col: Coluna identificadora do profissional (CPF para dados locais,
+            CNS para dados nacionais onde CPF não está disponível).
 
     Returns:
         pd.DataFrame: Subconjunto dos profissionais multi-unidade, acrescido
-            da coluna QTD_UNIDADES (contagem de unidades distintas por CPF).
+            da coluna QTD_UNIDADES (contagem de unidades distintas por id_col).
     """
     contagem_unidades: pd.DataFrame = (
-        df.groupby("CPF")["CNES"]
+        df.groupby(id_col)["CNES"]
         .nunique()
         .rename("QTD_UNIDADES")
         .reset_index()
     )
 
     multi_unidades = contagem_unidades[contagem_unidades["QTD_UNIDADES"] > 1]
-    resultado = df.merge(multi_unidades[["CPF", "QTD_UNIDADES"]], on="CPF", how="inner")
+    resultado = df.merge(multi_unidades[[id_col, "QTD_UNIDADES"]], on=id_col, how="inner")
 
     logger.info(
         "RQ-003-B: %d profissional(is) com vínculos em múltiplas unidades (%d registros).",
-        multi_unidades["CPF"].nunique(),
+        multi_unidades[id_col].nunique(),
         len(resultado),
     )
     return resultado

@@ -10,7 +10,7 @@ import streamlit as st
 from dashboard_components import inject_css, render_aggrid_table, setup_sidebar
 
 import config
-from dashboard_status import carregar_status, REGRAS_FONTE
+from dashboard_status import carregar_status, REGRAS_FONTE, REGRAS_LOCAL_OR_NACIONAL
 from storage.historico_reader import HistoricoReader
 
 _TABS: list[tuple[str, str]] = [
@@ -111,13 +111,29 @@ _invalidar_cache_se_competencia_mudou(competencia)
 status = _get_status()
 kpis   = reader.carregar_kpis(competencia)
 deltas = reader.carregar_delta(competencia)
+pipeline_run = reader.carregar_pipeline_run(competencia)
 
 tabs = st.tabs([label for label, _ in _TABS])
 
 for tab, (_, regra) in zip(tabs, _TABS):
     with tab:
-        fonte = REGRAS_FONTE[regra]
-        fonte_ok: bool = status[fonte].ok is True
+        if regra in REGRAS_LOCAL_OR_NACIONAL:
+            fonte_ok: bool = bool(
+                (pipeline_run or {}).get("local_disponivel")
+                or (pipeline_run or {}).get("nacional_disponivel")
+                or status["firebird"].ok is True
+                or status["bigquery"].ok is True
+            )
+        else:
+            fonte = REGRAS_FONTE[regra]
+            if pipeline_run:
+                fonte_ok = bool(
+                    pipeline_run.get("local_disponivel")
+                    and (fonte != "bigquery" or pipeline_run.get("nacional_disponivel"))
+                    and (fonte != "hr" or pipeline_run.get("hr_disponivel"))
+                )
+            else:
+                fonte_ok = status[fonte].ok is True
 
         _render_metrica(regra, fonte_ok, kpis, deltas)
 

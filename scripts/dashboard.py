@@ -17,6 +17,7 @@ from dashboard_components import (
 )
 from dashboard_status import (
     REGRAS_FONTE,
+    REGRAS_LOCAL_OR_NACIONAL,
     carregar_status,
     renderizar_container_diretorios,
     renderizar_container_status,
@@ -52,9 +53,15 @@ _FONTE_HR = "hr"
 
 
 def _fonte_ok(regra: str, status: dict, pipeline_run: dict | None) -> bool:
+    if regra in REGRAS_LOCAL_OR_NACIONAL:
+        if pipeline_run:
+            return bool(
+                pipeline_run.get("local_disponivel") or pipeline_run.get("nacional_disponivel")
+            )
+        return status["firebird"].ok is True or status["bigquery"].ok is True
     if pipeline_run is None:
         return status[REGRAS_FONTE[regra]].ok is True
-    if not pipeline_run.get("local_disponivel"):
+    if not pipeline_run.get("local_disponivel") and not pipeline_run.get("nacional_disponivel"):
         return False
     fonte = REGRAS_FONTE[regra]
     if fonte == _FONTE_BIGQUERY and not pipeline_run.get("nacional_disponivel"):
@@ -104,10 +111,10 @@ kpis           = reader.carregar_kpis(competencia)
 deltas         = reader.carregar_delta(competencia)
 total_vinculos = reader.carregar_total_vinculos(competencia)
 
-if pipeline_run and not pipeline_run.get("local_disponivel"):
+if pipeline_run and not pipeline_run.get("local_disponivel") and not pipeline_run.get("nacional_disponivel"):
     render_status_banner(
-        "Competência processada sem dados locais (CNES Firebird indisponível). "
-        "Auditorias requerem dados locais — KPIs exibidos como —.",
+        "Competência processada sem dados locais ou nacionais. "
+        "Auditorias indisponíveis — KPIs exibidos como —.",
         "info",
     )
 

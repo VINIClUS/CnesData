@@ -19,24 +19,37 @@ class AuditoriaLocalStage:
     nome = "auditoria_local"
 
     def execute(self, state: PipelineState) -> None:
-        """Executa regras locais e cruzamento HR.
+        """Executa regras locais/nacionais e cruzamento HR.
 
         Args:
             state: Estado compartilhado do pipeline.
         """
-        if not state.local_disponivel:
+        if state.local_disponivel:
+            self._regras_com_dados_locais(state)
+        elif state.nacional_disponivel:
+            self._regras_com_dados_nacionais(state)
+        else:
             logger.info(
-                "auditoria_local=skipped motivo=sem_dados_locais competencia=%s",
+                "auditoria_local=skipped motivo=sem_dados competencia=%s",
                 state.competencia_str,
             )
-            return
+        self._regras_hr(state)
+
+    def _regras_com_dados_locais(self, state: PipelineState) -> None:
         state.df_multi_unidades = detectar_multiplas_unidades(state.df_processado)
         df_com_unidade = state.df_processado.merge(
             state.df_estab_local[["CNES", "TIPO_UNIDADE"]], on="CNES", how="left"
         )
         state.df_acs_incorretos = auditar_lotacao_acs_tacs(df_com_unidade)
         state.df_ace_incorretos = auditar_lotacao_ace_tace(df_com_unidade)
-        self._regras_hr(state)
+
+    def _regras_com_dados_nacionais(self, state: PipelineState) -> None:
+        state.df_multi_unidades = detectar_multiplas_unidades(state.df_prof_nacional, id_col="CNS")
+        df_com_unidade = state.df_prof_nacional.merge(
+            state.df_estab_nacional[["CNES", "TIPO_UNIDADE"]], on="CNES", how="left"
+        )
+        state.df_acs_incorretos = auditar_lotacao_acs_tacs(df_com_unidade)
+        state.df_ace_incorretos = auditar_lotacao_ace_tace(df_com_unidade)
 
     def _regras_hr(self, state: PipelineState) -> None:
         if not state.executar_hr:
