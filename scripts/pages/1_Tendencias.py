@@ -9,6 +9,7 @@ import plotly.express as px
 import streamlit as st
 
 import config
+from dashboard_components import inject_css, setup_sidebar
 from storage.historico_reader import REGRAS_AUDITORIA, HistoricoReader
 
 _TODAS_REGRAS = list(REGRAS_AUDITORIA)
@@ -21,7 +22,7 @@ _CORES: dict[str, str] = {
     "RQ010": "#f39c12", "RQ011": "#2ecc71",
 }
 
-st.title("📈 Tendências")
+inject_css()
 
 if "reader" not in st.session_state:
     st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
@@ -32,6 +33,10 @@ competencias = reader.listar_competencias()
 if not competencias:
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
     st.stop()
+
+setup_sidebar(reader)
+
+st.title("Tendencias")
 
 regras_sel = st.sidebar.multiselect(
     "Regras",
