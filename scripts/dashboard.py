@@ -6,14 +6,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pandas as pd
 import streamlit as st
-from st_aggrid import AgGrid, ColumnsAutoSizeMode, GridOptionsBuilder
 
 import config
+from dashboard_components import (
+    inject_css,
+    render_aggrid_table,
+    render_kpi_card,
+    render_status_banner,
+    setup_sidebar,
+)
 from dashboard_status import (
-    carregar_status,
-    renderizar_container_status,
-    renderizar_container_diretorios,
     REGRAS_FONTE,
+    carregar_status,
+    renderizar_container_diretorios,
+    renderizar_container_status,
 )
 from storage.historico_reader import HistoricoReader
 
@@ -23,17 +29,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-_CSS = """
-<style>
-@media (prefers-color-scheme: light) {
-    .stApp { background-color: #ffffff !important; color: #1a1a2e !important; }
-    section[data-testid="stSidebar"] { background-color: #f0f2f6 !important; }
-}
-.stDataFrame { overflow-x: auto; }
-</style>
-"""
-st.markdown(_CSS, unsafe_allow_html=True)
+inject_css()
 
 _REGRAS_META: dict[str, tuple[str, str]] = {
     "RQ008":     ("Prof Fantasma (CNS)",   "CRÍTICA"),
@@ -81,9 +77,6 @@ def _get_status() -> dict:
 if "reader" not in st.session_state:
     st.session_state["reader"] = _get_reader()
 
-st.sidebar.title("CnesData Analytics")
-st.sidebar.caption("Presidente Epitácio/SP")
-
 st.title("📊 Visão Geral")
 
 reader: HistoricoReader = st.session_state["reader"]
@@ -91,7 +84,10 @@ competencias = reader.listar_competencias()
 cobertura = reader.contar_competencias()
 
 if not competencias:
-    st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
+    render_status_banner(
+        "Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.",
+        "warning",
+    )
     status = _get_status()
     renderizar_container_status(status, [], (0, 0), config.DUCKDB_PATH)
     renderizar_container_diretorios(config.OUTPUT_PATH, config.HISTORICO_DIR, config.DUCKDB_PATH)
@@ -101,7 +97,7 @@ status = _get_status()
 renderizar_container_status(status, competencias, cobertura, config.DUCKDB_PATH)
 renderizar_container_diretorios(config.OUTPUT_PATH, config.HISTORICO_DIR, config.DUCKDB_PATH)
 
-competencia = st.sidebar.selectbox("Competência", options=competencias[::-1], index=0)
+competencia = setup_sidebar(reader)
 
 pipeline_run   = reader.carregar_pipeline_run(competencia)
 kpis           = reader.carregar_kpis(competencia)
@@ -109,18 +105,14 @@ deltas         = reader.carregar_delta(competencia)
 total_vinculos = reader.carregar_total_vinculos(competencia)
 
 if pipeline_run and not pipeline_run.get("local_disponivel"):
-    st.info(
+    render_status_banner(
         "Competência processada sem dados locais (CNES Firebird indisponível). "
-        "Auditorias requerem dados locais — KPIs exibidos como —."
+        "Auditorias requerem dados locais — KPIs exibidos como —.",
+        "info",
     )
 
 col_vinculos, *_ = st.columns([1, 1, 1, 1, 1, 1])
-with col_vinculos:
-    st.metric(
-        label="Vínculos processados",
-        value=total_vinculos,
-        help="Total de vínculos profissionais na competência selecionada",
-    )
+render_kpi_card(col_vinculos, label="Vínculos processados", value=total_vinculos)
 
 st.divider()
 
@@ -129,37 +121,31 @@ for i, regra in enumerate(_KPI_DESTAQUE):
     desc, sev = _REGRAS_META[regra]
     fonte_ok = _fonte_ok(regra, status, pipeline_run)
     delta = deltas.get(regra, 0)
-    with cols[i]:
-        if fonte_ok:
-            st.metric(
-                label=f"{_SEV_ICON[sev]} {desc}",
-                value=kpis.get(regra, 0),
-                delta=f"+{delta}" if delta > 0 else str(delta),
-                delta_color="inverse",
-                help=f"Regra {regra} — Severidade: {sev}",
-            )
-        else:
-            fonte_nome = REGRAS_FONTE[regra].capitalize()
-            st.metric(
-                label=f"{_SEV_ICON[sev]} {desc}",
-                value="—",
-                help=f"Regra {regra} — {fonte_nome} não configurado",
-            )
+    if fonte_ok:
+        render_kpi_card(
+            cols[i],
+            label=f"{_SEV_ICON[sev]} {desc}",
+            value=kpis.get(regra, 0),
+            delta=f"+{delta}" if delta > 0 else str(delta),
+        )
+    else:
+        render_kpi_card(cols[i], label=f"{_SEV_ICON[sev]} {desc}", value="—")
 
 st.divider()
 
 if total_vinculos == 0 and pipeline_run and pipeline_run.get("local_disponivel"):
-    st.warning("Pipeline rodou mas não processou vínculos. Verifique os logs.")
+    render_status_banner("Pipeline rodou mas não processou vínculos. Verifique os logs.", "warning")
 elif not kpis and pipeline_run and pipeline_run.get("local_disponivel"):
-    st.warning("Dados de auditoria não encontrados para esta competência.")
+    render_status_banner("Dados de auditoria não encontrados para esta competência.", "warning")
 elif kpis and all(
     kpis.get(r, 0) == 0
     for r, _ in _REGRAS_META.items()
     if _fonte_ok(r, status, pipeline_run)
 ):
-    st.info(
+    render_status_banner(
         "Nenhuma anomalia detectada nas fontes configuradas. "
-        "Se esperava resultados, verifique os logs do pipeline."
+        "Se esperava resultados, verifique os logs do pipeline.",
+        "info",
     )
 
 rows = []
@@ -175,8 +161,4 @@ for regra, (desc, sev) in sorted(_REGRAS_META.items(), key=lambda x: _SEV_ORDER[
     })
 
 df_resumo = pd.DataFrame(rows)
-gb = GridOptionsBuilder.from_dataframe(df_resumo)
-gb.configure_default_column(resizable=True, sortable=True, filter=True)
-gb.configure_grid_options(domLayout="autoHeight")
-AgGrid(df_resumo, gridOptions=gb.build(), use_container_width=True,
-       columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS, theme="streamlit")
+render_aggrid_table(df_resumo)
