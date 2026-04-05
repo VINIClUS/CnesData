@@ -149,7 +149,7 @@ def _popular_duckdb_com_timestamps(path):
                                datetime(2024, 11, 10), datetime(2024, 11, 10)])
         con.execute(_sql_run, ["2024-12", True, True, False, "completo",
                                datetime(2024, 12, 10), datetime(2024, 12, 10)])
-        con.execute(_sql_run, ["2024-10", True, False, False, "parcial",
+        con.execute(_sql_run, ["2024-10", False, False, False, "sem_dados_locais",
                                datetime(2024, 11, 20), datetime(2024, 11, 20)])
 
 
@@ -162,11 +162,11 @@ def reader_com_timestamps(tmp_path):
 
 class TestListarCompetenciasValidas:
 
-    def test_exclui_competencia_capturada_fora_da_janela(self, reader_com_timestamps):
+    def test_exclui_competencia_sem_local_disponivel(self, reader_com_timestamps):
         validas = reader_com_timestamps.listar_competencias_validas()
         assert "2024-10" not in validas
 
-    def test_inclui_competencias_capturadas_dentro_da_janela(self, reader_com_timestamps):
+    def test_inclui_competencias_com_local_disponivel(self, reader_com_timestamps):
         validas = reader_com_timestamps.listar_competencias_validas()
         assert "2024-11" in validas
         assert "2024-12" in validas
@@ -196,3 +196,55 @@ class TestContarCompetencias:
             _criar_schema_base(con)
         r = HistoricoReader(db, tmp_path / "historico")
         assert r.contar_competencias() == (0, 0)
+
+
+@pytest.fixture
+def reader_com_runs(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    db = duckdb.connect(str(db_path))
+    db.execute("CREATE SCHEMA gold")
+    db.execute("""CREATE TABLE gold.pipeline_runs (
+        competencia VARCHAR PRIMARY KEY,
+        local_disponivel BOOLEAN,
+        nacional_disponivel BOOLEAN,
+        hr_disponivel BOOLEAN,
+        status VARCHAR,
+        iniciado_em TIMESTAMP,
+        concluido_em TIMESTAMP
+    )""")
+    db.execute("INSERT INTO gold.pipeline_runs VALUES ('2024-01', TRUE, FALSE, FALSE, 'parcial', NULL, NULL)")
+    db.execute("INSERT INTO gold.pipeline_runs VALUES ('2024-02', FALSE, TRUE, FALSE, 'sem_dados_locais', NULL, NULL)")
+    db.execute("INSERT INTO gold.pipeline_runs VALUES ('2024-03', TRUE, TRUE, FALSE, 'completo', NULL, NULL)")
+    db.close()
+    return HistoricoReader(db_path, tmp_path)
+
+
+def test_listar_competencias_validas_usa_local_disponivel(reader_com_runs):
+    """Competências válidas = aquelas com local_disponivel=TRUE no pipeline_runs."""
+    resultado = reader_com_runs.listar_competencias_validas()
+    assert resultado == ["2024-01", "2024-03"]
+
+
+@pytest.fixture
+def reader_com_auditoria(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    db = duckdb.connect(str(db_path))
+    db.execute("CREATE SCHEMA gold")
+    db.execute("""CREATE TABLE gold.auditoria_resultados (
+        data_competencia VARCHAR,
+        regra VARCHAR,
+        total_anomalias INTEGER,
+        gravado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (data_competencia, regra)
+    )""")
+    db.execute("INSERT INTO gold.auditoria_resultados (data_competencia, regra, total_anomalias) VALUES ('2024-01', 'RQ003B', 5)")
+    db.execute("INSERT INTO gold.auditoria_resultados (data_competencia, regra, total_anomalias) VALUES ('2024-01', 'RQ006', NULL)")
+    db.close()
+    return HistoricoReader(db_path, tmp_path)
+
+
+def test_carregar_kpis_retorna_none_para_regra_nula(reader_com_auditoria):
+    """carregar_kpis() deve retornar None para total_anomalias NULL (regra não executada)."""
+    kpis = reader_com_auditoria.carregar_kpis("2024-01")
+    assert kpis["RQ003B"] == 5
+    assert kpis["RQ006"] is None
