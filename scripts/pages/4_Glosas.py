@@ -7,27 +7,27 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 import streamlit as st
-from st_aggrid import AgGrid, GridOptionsBuilder
 
 import config
+from dashboard_components import inject_css, render_aggrid_table, setup_sidebar
 from glosas_helpers import _filtrar_glosas, _mascarar_pii_glosas
 from storage.historico_reader import REGRAS_AUDITORIA, HistoricoReader
 
 _TODAS_REGRAS = list(REGRAS_AUDITORIA)
 
+inject_css()
 st.title("Glosas por Profissional")
 
 if "reader" not in st.session_state:
     st.session_state["reader"] = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
 
 reader: HistoricoReader = st.session_state["reader"]
-competencias = reader.listar_competencias()
 
-if not competencias:
+if not reader.listar_competencias():
     st.warning("Nenhuma competência no DuckDB. Execute o pipeline ao menos uma vez.")
     st.stop()
 
-competencia = st.sidebar.selectbox("Competência", options=competencias[::-1], index=0)
+competencia = setup_sidebar(reader)
 regras_sel = st.sidebar.multiselect("Regra", options=_TODAS_REGRAS, default=[])
 busca = st.sidebar.text_input("Buscar por nome ou CPF")
 
@@ -50,16 +50,7 @@ if df_filtrado.empty:
 mostrar_completo = st.checkbox("Mostrar dados completos (CPF/CNS sem máscara)")
 df_display = _mascarar_pii_glosas(df_filtrado, mostrar_completo)
 
-gb = GridOptionsBuilder.from_dataframe(df_display)
-gb.configure_default_column(resizable=True, sortable=True, filter=True)
-gb.configure_grid_options(domLayout="autoHeight")
-AgGrid(
-    df_display,
-    gridOptions=gb.build(),
-    use_container_width=True,
-    theme="streamlit",
-    key="grid_glosas",
-)
+render_aggrid_table(df_display)
 
 st.download_button(
     "Baixar CSV",
