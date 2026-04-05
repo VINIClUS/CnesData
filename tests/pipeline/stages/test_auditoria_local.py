@@ -7,6 +7,18 @@ from pipeline.state import PipelineState
 from pipeline.stages.auditoria_local import AuditoriaLocalStage
 
 
+def test_skip_quando_local_indisponivel():
+    state = PipelineState(
+        competencia_ano=2024, competencia_mes=12,
+        output_path=Path("data/processed/report.csv"),
+        executar_nacional=False, executar_hr=False,
+        local_disponivel=False,
+    )
+    AuditoriaLocalStage().execute(state)
+    assert state.df_multi_unidades.empty
+    assert state.df_acs_incorretos.empty
+
+
 def _state() -> PipelineState:
     state = PipelineState(
         competencia_ano=2024,

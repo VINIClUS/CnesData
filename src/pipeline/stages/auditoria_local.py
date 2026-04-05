@@ -24,6 +24,12 @@ class AuditoriaLocalStage:
         Args:
             state: Estado compartilhado do pipeline.
         """
+        if not state.local_disponivel:
+            logger.info(
+                "auditoria_local=skipped motivo=sem_dados_locais competencia=%s",
+                state.competencia_str,
+            )
+            return
         state.df_multi_unidades = detectar_multiplas_unidades(state.df_processado)
         df_com_unidade = state.df_processado.merge(
             state.df_estab_local[["CNES", "TIPO_UNIDADE"]], on="CNES", how="left"

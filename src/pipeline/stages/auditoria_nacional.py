@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 _TIPOS_EXCLUIR_RQ007: Final[frozenset[str]] = frozenset({"22"})
 
 
+class PeriodoInvariantError(Exception):
+    """Flags de disponibilidade inconsistentes com dados reais no estado do pipeline."""
+
+
 class AuditoriaNacionalStage:
     nome = "auditoria_nacional"
 
@@ -30,12 +34,26 @@ class AuditoriaNacionalStage:
         Args:
             state: Estado compartilhado do pipeline.
         """
-        if state.df_estab_nacional.empty and state.df_prof_nacional.empty:
+        if not state.local_disponivel and not state.nacional_disponivel:
             logger.warning(
-                "nacional_cross_check=skipped motivo=dados_nacionais_vazios "
-                "competencia=%s", state.competencia_str,
+                "auditoria_nacional=skipped motivo=sem_dados competencia=%s",
+                state.competencia_str,
             )
             return
+
+        pode_cruzar = state.local_disponivel and state.nacional_disponivel
+        if not pode_cruzar:
+            logger.info(
+                "cross_check=skipped motivo=dados_parciais local=%s nacional=%s competencia=%s",
+                state.local_disponivel, state.nacional_disponivel, state.competencia_str,
+            )
+            return
+
+        if state.df_estab_nacional.empty and state.df_prof_nacional.empty:
+            raise PeriodoInvariantError(
+                f"nacional_disponivel=True mas dados nacionais vazios competencia={state.competencia_str}"
+            )
+
         self._cruzar_estabelecimentos(state)
         self._cruzar_profissionais(state)
 
