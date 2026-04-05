@@ -73,7 +73,7 @@ def main() -> int:
     orchestrator = PipelineOrchestrator([
         IngestaoLocalStage(config.HISTORICO_DIR, db_loader),
         ProcessamentoStage(),
-        SnapshotLocalStage(config.HISTORICO_DIR),
+        SnapshotLocalStage(config.HISTORICO_DIR, db_loader),
         IngestaoNacionalStage(db_loader),
         AuditoriaLocalStage(),
         AuditoriaNacionalStage(),

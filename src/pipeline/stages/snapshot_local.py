@@ -1,10 +1,11 @@
-"""SnapshotLocalStage — persiste snapshot pós-processamento e calcula delta."""
+"""SnapshotLocalStage — persiste snapshot pós-processamento em parquet e DuckDB."""
 import json
 import logging
 from pathlib import Path
 
 from analysis.delta_snapshot import DeltaSnapshot, calcular_delta
 from pipeline.state import PipelineState
+from storage.database_loader import DatabaseLoader
 from storage.snapshot_local import (
     SnapshotLocal,
     carregar_snapshot,
@@ -18,8 +19,9 @@ logger = logging.getLogger(__name__)
 class SnapshotLocalStage:
     nome = "snapshot_local"
 
-    def __init__(self, historico_dir: Path) -> None:
+    def __init__(self, historico_dir: Path, db_loader: DatabaseLoader) -> None:
         self._historico_dir = historico_dir
+        self._db = db_loader
 
     def execute(self, state: PipelineState) -> None:
         if state.snapshot_carregado:
@@ -41,6 +43,9 @@ class SnapshotLocalStage:
             cbo_lookup=state.cbo_lookup,
         )
         salvar_snapshot(competencia, self._historico_dir, snap)
+        self._db.gravar_profissionais(competencia, state.df_processado)
+        self._db.gravar_estabelecimentos(competencia, state.df_estab_local)
+        self._db.gravar_cbo_lookup(competencia, state.cbo_lookup)
         logger.info("snapshot_local salvo competencia=%s", competencia)
 
 
