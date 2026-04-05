@@ -378,3 +378,5 @@ def test_force_reingestao_ignora_firebird_para_periodo_passado(mock_periodo, tmp
     with patch("pipeline.stages.ingestao_local.conectar") as mock_con:
         IngestaoLocalStage(tmp_path, loader).execute(state)
         mock_con.assert_not_called()
+        assert state.snapshot_carregado is True
+        assert state.local_disponivel is True

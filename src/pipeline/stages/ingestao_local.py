@@ -52,6 +52,7 @@ class IngestaoLocalStage:
         state.df_estab_local = self._db.carregar_estabelecimentos(competencia)
         state.cbo_lookup = self._db.carregar_cbo_lookup(competencia)
         state.snapshot_carregado = True
+        state.local_disponivel = True
         logger.info("local_duckdb carregado competencia=%s", competencia)
 
     def _backfill_do_parquet(self, state: PipelineState) -> None:
@@ -64,6 +65,7 @@ class IngestaoLocalStage:
         self._db.gravar_estabelecimentos(competencia, snap.df_estab)
         self._db.gravar_cbo_lookup(competencia, snap.cbo_lookup)
         state.snapshot_carregado = True
+        state.local_disponivel = True
         logger.info("local_parquet_backfill competencia=%s", competencia)
 
     def _ingerir_do_firebird(self, state: PipelineState) -> None:
