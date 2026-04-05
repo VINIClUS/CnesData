@@ -90,6 +90,66 @@ _DDL_DELTA_SNAPSHOT = """
     )
 """
 
+_DDL_PROFISSIONAIS_PROCESSADOS = """
+    CREATE TABLE IF NOT EXISTS gold.profissionais_processados (
+        competencia        VARCHAR NOT NULL,
+        cpf                VARCHAR NOT NULL,
+        cnes               VARCHAR NOT NULL,
+        cns                VARCHAR,
+        nome_profissional  VARCHAR,
+        sexo               VARCHAR(1),
+        cbo                VARCHAR,
+        tipo_vinculo       VARCHAR,
+        sus                VARCHAR(1),
+        ch_total           INTEGER,
+        ch_ambulatorial    INTEGER,
+        ch_outras          INTEGER,
+        ch_hospitalar      INTEGER,
+        fonte              VARCHAR,
+        alerta_status_ch   VARCHAR,
+        descricao_cbo      VARCHAR,
+        gravado_em         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (competencia, cpf, cnes)
+    )
+"""
+
+_DDL_ESTABELECIMENTOS = """
+    CREATE TABLE IF NOT EXISTS gold.estabelecimentos (
+        competencia        VARCHAR NOT NULL,
+        cnes               VARCHAR NOT NULL,
+        nome_fantasia      VARCHAR,
+        tipo_unidade       VARCHAR,
+        cnpj_mantenedora   VARCHAR,
+        natureza_juridica  VARCHAR,
+        cod_municipio      VARCHAR,
+        vinculo_sus        VARCHAR(1),
+        fonte              VARCHAR,
+        gravado_em         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (competencia, cnes)
+    )
+"""
+
+_DDL_CBO_LOOKUP = """
+    CREATE TABLE IF NOT EXISTS gold.cbo_lookup (
+        competencia  VARCHAR NOT NULL,
+        codigo_cbo   VARCHAR NOT NULL,
+        descricao    VARCHAR,
+        PRIMARY KEY (competencia, codigo_cbo)
+    )
+"""
+
+_DDL_PIPELINE_RUNS = """
+    CREATE TABLE IF NOT EXISTS gold.pipeline_runs (
+        competencia          VARCHAR PRIMARY KEY,
+        local_disponivel     BOOLEAN NOT NULL DEFAULT FALSE,
+        nacional_disponivel  BOOLEAN NOT NULL DEFAULT FALSE,
+        hr_disponivel        BOOLEAN NOT NULL DEFAULT FALSE,
+        status               VARCHAR NOT NULL,
+        iniciado_em          TIMESTAMP,
+        concluido_em         TIMESTAMP
+    )
+"""
+
 
 class DatabaseLoader:
     """Gerencia a conexão e persistência no banco DuckDB local."""
@@ -114,6 +174,10 @@ class DatabaseLoader:
             con.execute(_DDL_CACHE_NACIONAL)
             con.execute(_DDL_METRICAS_AVANCADAS)
             con.execute(_DDL_DELTA_SNAPSHOT)
+            con.execute(_DDL_PROFISSIONAIS_PROCESSADOS)
+            con.execute(_DDL_ESTABELECIMENTOS)
+            con.execute(_DDL_CBO_LOOKUP)
+            con.execute(_DDL_PIPELINE_RUNS)
         logger.info("schema_gold inicializado db=%s", self._caminho_db)
 
     def gravar_metricas(self, snapshot: Snapshot) -> None:
@@ -285,6 +349,179 @@ class DatabaseLoader:
                 ],
             )
         logger.info("delta_snapshot gravado competencia=%s", competencia)
+
+    def gravar_profissionais(self, competencia: str, df: pd.DataFrame) -> None:
+        """DELETE + INSERT de profissionais processados para uma competência.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+            df: DataFrame com colunas do SCHEMA_PROFISSIONAL + ALERTA_STATUS_CH + DESCRICAO_CBO.
+        """
+        df_insert = df.rename(columns=str.lower).copy()
+        df_insert.insert(0, "competencia", competencia)
+        with self._conectar() as con:
+            con.execute(
+                "DELETE FROM gold.profissionais_processados WHERE competencia = ?",
+                [competencia],
+            )
+            con.register("_tmp_prof", df_insert)
+            con.execute("""
+                INSERT INTO gold.profissionais_processados
+                    (competencia, cpf, cnes, cns, nome_profissional, sexo, cbo,
+                     tipo_vinculo, sus, ch_total, ch_ambulatorial, ch_outras,
+                     ch_hospitalar, fonte, alerta_status_ch, descricao_cbo, gravado_em)
+                SELECT competencia, cpf, cnes, cns, nome_profissional, sexo, cbo,
+                       tipo_vinculo, sus, ch_total, ch_ambulatorial, ch_outras,
+                       ch_hospitalar, fonte, alerta_status_ch, descricao_cbo,
+                       CURRENT_TIMESTAMP
+                FROM _tmp_prof
+            """)
+        logger.info("profissionais gravados competencia=%s total=%d", competencia, len(df))
+
+    def gravar_estabelecimentos(self, competencia: str, df: pd.DataFrame) -> None:
+        """DELETE + INSERT de estabelecimentos para uma competência.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+            df: DataFrame com colunas do SCHEMA_ESTABELECIMENTO.
+        """
+        df_insert = df.rename(columns=str.lower).copy()
+        df_insert.insert(0, "competencia", competencia)
+        with self._conectar() as con:
+            con.execute(
+                "DELETE FROM gold.estabelecimentos WHERE competencia = ?",
+                [competencia],
+            )
+            con.register("_tmp_estab", df_insert)
+            con.execute("""
+                INSERT INTO gold.estabelecimentos
+                    (competencia, cnes, nome_fantasia, tipo_unidade, cnpj_mantenedora,
+                     natureza_juridica, cod_municipio, vinculo_sus, fonte, gravado_em)
+                SELECT competencia, cnes, nome_fantasia, tipo_unidade, cnpj_mantenedora,
+                       natureza_juridica, cod_municipio, vinculo_sus, fonte, CURRENT_TIMESTAMP
+                FROM _tmp_estab
+            """)
+        logger.info("estabelecimentos gravados competencia=%s total=%d", competencia, len(df))
+
+    def gravar_cbo_lookup(self, competencia: str, lookup: dict[str, str]) -> None:
+        """DELETE + INSERT do dicionário CBO para uma competência.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+            lookup: Dicionário codigo_cbo → descricao.
+        """
+        if not lookup:
+            return
+        df = pd.DataFrame(
+            [{"competencia": competencia, "codigo_cbo": k, "descricao": v}
+             for k, v in lookup.items()]
+        )
+        with self._conectar() as con:
+            con.execute(
+                "DELETE FROM gold.cbo_lookup WHERE competencia = ?",
+                [competencia],
+            )
+            con.register("_tmp_cbo", df)
+            con.execute("INSERT INTO gold.cbo_lookup SELECT * FROM _tmp_cbo")
+        logger.info("cbo_lookup gravado competencia=%s total=%d", competencia, len(lookup))
+
+    def gravar_pipeline_run(
+        self,
+        competencia: str,
+        local_disponivel: bool,
+        nacional_disponivel: bool,
+        hr_disponivel: bool,
+        status: str,
+    ) -> None:
+        """INSERT OR REPLACE do status de execução em gold.pipeline_runs.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+            local_disponivel: True se dados locais estavam disponíveis.
+            nacional_disponivel: True se dados nacionais foram ingeridos.
+            hr_disponivel: True se cross-check HR foi executado.
+            status: 'completo' | 'parcial' | 'sem_dados_locais' | 'sem_dados'.
+        """
+        with self._conectar() as con:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO gold.pipeline_runs
+                    (competencia, local_disponivel, nacional_disponivel, hr_disponivel,
+                     status, iniciado_em, concluido_em)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                [competencia, local_disponivel, nacional_disponivel, hr_disponivel, status],
+            )
+        logger.info("pipeline_run gravado competencia=%s status=%s", competencia, status)
+
+    def profissional_existe(self, competencia: str) -> bool:
+        """Retorna True se existirem profissionais processados para a competência.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+
+        Returns:
+            True quando pelo menos uma linha existir em gold.profissionais_processados.
+        """
+        with self._conectar(read_only=True) as con:
+            df = con.execute(
+                "SELECT COUNT(*) AS n FROM gold.profissionais_processados WHERE competencia = ?",
+                [competencia],
+            ).df()
+        return int(df["n"].iloc[0]) > 0
+
+    def carregar_profissionais(self, competencia: str) -> pd.DataFrame:
+        """Carrega profissionais processados de uma competência.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+
+        Returns:
+            DataFrame com colunas em maiúsculas (SCHEMA_PROFISSIONAL + ALERTA_STATUS_CH + DESCRICAO_CBO).
+        """
+        with self._conectar(read_only=True) as con:
+            df = con.execute(
+                """SELECT cns, cpf, nome_profissional, sexo, cbo, cnes, tipo_vinculo,
+                          sus, ch_total, ch_ambulatorial, ch_outras, ch_hospitalar,
+                          fonte, alerta_status_ch, descricao_cbo
+                   FROM gold.profissionais_processados WHERE competencia = ?""",
+                [competencia],
+            ).df()
+        return df.rename(columns=str.upper)
+
+    def carregar_estabelecimentos(self, competencia: str) -> pd.DataFrame:
+        """Carrega estabelecimentos de uma competência.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+
+        Returns:
+            DataFrame com colunas em maiúsculas (SCHEMA_ESTABELECIMENTO).
+        """
+        with self._conectar(read_only=True) as con:
+            df = con.execute(
+                """SELECT cnes, nome_fantasia, tipo_unidade, cnpj_mantenedora,
+                          natureza_juridica, cod_municipio, vinculo_sus, fonte
+                   FROM gold.estabelecimentos WHERE competencia = ?""",
+                [competencia],
+            ).df()
+        return df.rename(columns=str.upper)
+
+    def carregar_cbo_lookup(self, competencia: str) -> dict[str, str]:
+        """Carrega dicionário CBO de uma competência.
+
+        Args:
+            competencia: Competência no formato 'YYYY-MM'.
+
+        Returns:
+            Dicionário codigo_cbo → descricao.
+        """
+        with self._conectar(read_only=True) as con:
+            df = con.execute(
+                "SELECT codigo_cbo, descricao FROM gold.cbo_lookup WHERE competencia = ?",
+                [competencia],
+            ).df()
+        return dict(zip(df["codigo_cbo"], df["descricao"].fillna("")))
 
     def carregar_historico(self) -> list[Snapshot]:
         """Retorna todos os snapshots do Gold ordenados por competência.

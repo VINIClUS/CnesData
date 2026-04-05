@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 
 from storage.database_loader import DatabaseLoader
 from storage.historico_reader import HistoricoReader
@@ -364,3 +365,144 @@ class TestDeltaLocalSnapshot:
         loader.inicializar_schema()
         reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
         assert reader.carregar_delta_snapshot("2026-03") is None
+
+
+def _df_prof_sample() -> pd.DataFrame:
+    return pd.DataFrame({
+        "CNS":              ["123456789012345"],
+        "CPF":              ["12345678901"],
+        "NOME_PROFISSIONAL":["Ana Silva"],
+        "SEXO":             ["F"],
+        "CBO":              ["515105"],
+        "CNES":             ["2795001"],
+        "TIPO_VINCULO":     ["30"],
+        "SUS":              ["S"],
+        "CH_TOTAL":         [40],
+        "CH_AMBULATORIAL":  [20],
+        "CH_OUTRAS":        [10],
+        "CH_HOSPITALAR":    [10],
+        "FONTE":            ["LOCAL"],
+        "ALERTA_STATUS_CH": ["OK"],
+        "DESCRICAO_CBO":    ["Agente Comunitário"],
+    })
+
+
+def _df_estab_sample() -> pd.DataFrame:
+    return pd.DataFrame({
+        "CNES":             ["2795001"],
+        "NOME_FANTASIA":    ["UBS Centro"],
+        "TIPO_UNIDADE":     ["01"],
+        "CNPJ_MANTENEDORA": ["55293427000117"],
+        "NATUREZA_JURIDICA":["1023"],
+        "COD_MUNICIPIO":    ["354130"],
+        "VINCULO_SUS":      ["S"],
+        "FONTE":            ["LOCAL"],
+    })
+
+
+class TestNovasTabelasDDL:
+    def test_cria_profissionais_processados(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        assert "profissionais_processados" in _tabelas_existentes(tmp_path / "test.duckdb")
+
+    def test_cria_estabelecimentos(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        assert "estabelecimentos" in _tabelas_existentes(tmp_path / "test.duckdb")
+
+    def test_cria_cbo_lookup(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        assert "cbo_lookup" in _tabelas_existentes(tmp_path / "test.duckdb")
+
+    def test_cria_pipeline_runs(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        assert "pipeline_runs" in _tabelas_existentes(tmp_path / "test.duckdb")
+
+
+class TestGravarCarregarProfissionais:
+    def test_profissional_existe_falso_quando_vazio(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        assert not loader.profissional_existe("2026-03")
+
+    def test_profissional_existe_verdadeiro_apos_gravar(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_profissionais("2026-03", _df_prof_sample())
+        assert loader.profissional_existe("2026-03")
+
+    def test_roundtrip_profissionais(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        df = _df_prof_sample()
+        loader.gravar_profissionais("2026-03", df)
+        resultado = loader.carregar_profissionais("2026-03")
+        assert list(resultado["CPF"]) == ["12345678901"]
+        assert list(resultado["CNES"]) == ["2795001"]
+
+    def test_gravar_profissionais_substitui_existentes(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_profissionais("2026-03", _df_prof_sample())
+        df2 = _df_prof_sample().copy()
+        df2["CPF"] = ["99999999999"]
+        df2["CNES"] = ["9999999"]
+        loader.gravar_profissionais("2026-03", df2)
+        resultado = loader.carregar_profissionais("2026-03")
+        assert len(resultado) == 1
+        assert resultado["CPF"].iloc[0] == "99999999999"
+
+
+class TestGravarCarregarEstabelecimentos:
+    def test_roundtrip_estabelecimentos(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        df = _df_estab_sample()
+        loader.gravar_estabelecimentos("2026-03", df)
+        resultado = loader.carregar_estabelecimentos("2026-03")
+        assert list(resultado["CNES"]) == ["2795001"]
+        assert list(resultado["NOME_FANTASIA"]) == ["UBS Centro"]
+
+
+class TestGravarCarregarCboLookup:
+    def test_roundtrip_cbo_lookup(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        lookup = {"515105": "Agente Comunitário", "225125": "Médico"}
+        loader.gravar_cbo_lookup("2026-03", lookup)
+        resultado = loader.carregar_cbo_lookup("2026-03")
+        assert resultado == lookup
+
+    def test_lookup_vazio_retorna_dict_vazio(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        assert loader.carregar_cbo_lookup("2026-03") == {}
+
+
+class TestGravarPipelineRun:
+    def test_gravar_pipeline_run_completo(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_pipeline_run("2026-03", True, True, False, "completo")
+        with duckdb.connect(str(tmp_path / "test.duckdb"), read_only=True) as con:
+            df = con.execute(
+                "SELECT * FROM gold.pipeline_runs WHERE competencia='2026-03'"
+            ).df()
+        assert len(df) == 1
+        assert df["status"].iloc[0] == "completo"
+        assert df["local_disponivel"].iloc[0] == True  # noqa: E712 — np.True_ vs True
+
+    def test_gravar_pipeline_run_upsert(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_pipeline_run("2026-03", False, True, False, "sem_dados_locais")
+        loader.gravar_pipeline_run("2026-03", True, True, False, "completo")
+        with duckdb.connect(str(tmp_path / "test.duckdb"), read_only=True) as con:
+            df = con.execute(
+                "SELECT status FROM gold.pipeline_runs WHERE competencia='2026-03'"
+            ).df()
+        assert len(df) == 1
+        assert df["status"].iloc[0] == "completo"
