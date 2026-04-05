@@ -138,7 +138,7 @@ if total_vinculos == 0 and pipeline_run and pipeline_run.get("local_disponivel")
 elif not kpis and pipeline_run and pipeline_run.get("local_disponivel"):
     render_status_banner("Dados de auditoria não encontrados para esta competência.", "warning")
 elif kpis and all(
-    kpis.get(r, 0) == 0
+    (kpis.get(r) or 0) == 0
     for r, _ in _REGRAS_META.items()
     if _fonte_ok(r, status, pipeline_run)
 ):
