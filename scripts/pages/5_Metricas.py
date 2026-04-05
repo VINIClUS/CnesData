@@ -10,6 +10,7 @@ import plotly.express as px
 import streamlit as st
 
 import config
+from export.report_generator import exportar_xlsx_periodo
 from metricas_helpers import _parsear_metricas
 from storage.historico_reader import HistoricoReader
 
@@ -81,3 +82,13 @@ if m["anomalias_por_cbo"]:
 if m["top_glosas"]:
     st.subheader("Top Glosas por Regra")
     st.dataframe(pd.DataFrame(m["top_glosas"]), use_container_width=True)
+
+st.divider()
+if st.button("Gerar relatório XLSX"):
+    dados = exportar_xlsx_periodo(competencia, config.DUCKDB_PATH)
+    st.download_button(
+        label="Baixar XLSX",
+        data=dados,
+        file_name=f"Relatorio_CNES_{competencia}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )

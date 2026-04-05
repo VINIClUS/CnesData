@@ -294,3 +294,67 @@ def _formatar_cabecalho(ws) -> None:
             for celula in amostra
         )
         ws.column_dimensions[coluna[0].column_letter].width = min(largura + 4, 60)
+
+
+import io as _io
+
+import duckdb as _duckdb
+from openpyxl import Workbook as _Workbook
+
+from storage.historico_reader import REGRAS_AUDITORIA
+
+
+def exportar_xlsx_periodo(competencia: str, duckdb_path: Path) -> bytes:
+    """Gera XLSX em memória para uma competência a partir do DuckDB.
+
+    Args:
+        competencia: Competência no formato YYYY-MM.
+        duckdb_path: Caminho para o arquivo DuckDB.
+
+    Returns:
+        Bytes do arquivo XLSX gerado.
+    """
+    wb = _Workbook()
+    wb.remove(wb.active)
+
+    with _duckdb.connect(str(duckdb_path), read_only=True) as con:
+        _adicionar_aba_xlsx(wb, "Profissionais", _ler_df_safe(con, """
+            SELECT cns, cpf, nome_profissional, sexo, cbo, cnes, tipo_vinculo,
+                   sus, ch_total, ch_ambulatorial, ch_outras, ch_hospitalar,
+                   fonte, alerta_status_ch, descricao_cbo
+            FROM gold.profissionais_processados WHERE competencia = ?
+        """, [competencia]))
+
+        for regra in REGRAS_AUDITORIA:
+            df_regra = _ler_df_safe(con, """
+                SELECT * FROM gold.glosas_profissional
+                WHERE competencia = ? AND regra = ?
+            """, [competencia, regra])
+            if not df_regra.empty:
+                _adicionar_aba_xlsx(wb, regra[:31], df_regra)
+
+        _adicionar_aba_xlsx(wb, "Metricas", _ler_df_safe(con, """
+            SELECT taxa_anomalia_geral, p90_ch_total, proporcao_feminina_geral,
+                   n_reincidentes, taxa_resolucao, velocidade_regularizacao_media
+            FROM gold.metricas_avancadas WHERE competencia = ?
+        """, [competencia]))
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _ler_df_safe(con, sql: str, params: list) -> pd.DataFrame:
+    try:
+        return con.execute(sql, params).df()
+    except Exception:
+        return pd.DataFrame()
+
+
+def _adicionar_aba_xlsx(wb: _Workbook, nome: str, df: pd.DataFrame) -> None:
+    ws = wb.create_sheet(title=nome)
+    if df.empty:
+        return
+    ws.append(list(df.columns))
+    for row in df.itertuples(index=False):
+        ws.append(list(row))

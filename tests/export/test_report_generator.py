@@ -9,12 +9,15 @@ Cobertura:
   - Qualidade: contagem de linhas preservada, diretório pai criado.
 """
 
+import io
 from pathlib import Path
 
+import duckdb
 import openpyxl
 import pandas as pd
+import pytest
 
-from export.report_generator import gerar_relatorio
+from export.report_generator import exportar_xlsx_periodo, gerar_relatorio
 
 
 def _df_vinculos(n: int = 3) -> pd.DataFrame:
@@ -467,3 +470,75 @@ class TestAbaMetricas:
         todos_valores = [ws.cell(r, c).value for r in range(1, 30) for c in range(1, 5)]
         assert any("Top Profissionais" in str(v) for v in todos_valores if v)
         assert "Ana" in todos_valores
+
+
+def _popular_duckdb_para_export(path: Path) -> None:
+    with duckdb.connect(str(path)) as con:
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE gold.profissionais_processados (
+                competencia VARCHAR, cpf VARCHAR, cnes VARCHAR, cns VARCHAR,
+                nome_profissional VARCHAR, sexo VARCHAR, cbo VARCHAR,
+                tipo_vinculo VARCHAR, sus VARCHAR, ch_total INTEGER,
+                ch_ambulatorial INTEGER, ch_outras INTEGER, ch_hospitalar INTEGER,
+                fonte VARCHAR, alerta_status_ch VARCHAR, descricao_cbo VARCHAR,
+                gravado_em TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE gold.glosas_profissional (
+                competencia VARCHAR, regra VARCHAR, cpf VARCHAR, cns VARCHAR,
+                nome_profissional VARCHAR, sexo VARCHAR, cnes_estabelecimento VARCHAR,
+                motivo VARCHAR, criado_em_firebird TIMESTAMP,
+                criado_em_pipeline TIMESTAMP, atualizado_em_pipeline TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE gold.metricas_avancadas (
+                competencia VARCHAR PRIMARY KEY, taxa_anomalia_geral DOUBLE,
+                p90_ch_total DOUBLE, proporcao_feminina_geral DOUBLE,
+                n_reincidentes INTEGER, taxa_resolucao DOUBLE,
+                velocidade_regularizacao_media DOUBLE, top_glosas_json VARCHAR,
+                anomalias_por_cbo_json VARCHAR, proporcao_feminina_por_cnes_json VARCHAR,
+                ranking_cnes_json VARCHAR, gravado_em TIMESTAMP
+            )
+        """)
+        con.execute("""
+            INSERT INTO gold.profissionais_processados VALUES
+            ('2026-03','12345678901','2795001','123456789012345','Ana','F',
+             '515105','30','S',40,20,10,10,'LOCAL','OK','ACS','2026-03-01')
+        """)
+        con.execute("""
+            INSERT INTO gold.glosas_profissional VALUES
+            ('2026-03','RQ008','12345678901','123456789012345','Ana','F',
+             '2795001','motivo',NULL,'2026-03-01','2026-03-01')
+        """)
+        con.execute("""
+            INSERT INTO gold.metricas_avancadas VALUES
+            ('2026-03',0.1,40.0,0.6,2,0.5,3.0,'[]','[]','[]','[]','2026-03-01')
+        """)
+
+
+class TestExportarXlsxPeriodo:
+    def test_retorna_bytes(self, tmp_path):
+        _popular_duckdb_para_export(tmp_path / "test.duckdb")
+        resultado = exportar_xlsx_periodo("2026-03", tmp_path / "test.duckdb")
+        assert isinstance(resultado, bytes)
+        assert len(resultado) > 0
+
+    def test_bytes_e_xlsx_valido(self, tmp_path):
+        _popular_duckdb_para_export(tmp_path / "test.duckdb")
+        resultado = exportar_xlsx_periodo("2026-03", tmp_path / "test.duckdb")
+        wb = openpyxl.load_workbook(io.BytesIO(resultado))
+        assert "Profissionais" in wb.sheetnames
+
+    def test_contem_aba_metricas(self, tmp_path):
+        _popular_duckdb_para_export(tmp_path / "test.duckdb")
+        resultado = exportar_xlsx_periodo("2026-03", tmp_path / "test.duckdb")
+        wb = openpyxl.load_workbook(io.BytesIO(resultado))
+        assert "Metricas" in wb.sheetnames
+
+    def test_periodo_sem_dados_retorna_bytes(self, tmp_path):
+        _popular_duckdb_para_export(tmp_path / "test.duckdb")
+        resultado = exportar_xlsx_periodo("2025-01", tmp_path / "test.duckdb")
+        assert isinstance(resultado, bytes)
