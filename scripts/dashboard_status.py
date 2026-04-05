@@ -28,7 +28,7 @@ class CardInfo:
 
 
 REGRAS_FONTE: dict[str, str] = {
-    "RQ008": "firebird", "GHOST": "hr",       "RQ006": "bigquery",
+    "RQ008": "bigquery", "GHOST": "hr",       "RQ006": "bigquery",
     "RQ007": "bigquery", "RQ009": "bigquery",  "MISSING": "hr",
     "RQ005_ACS": "firebird", "RQ005_ACE": "firebird",
     "RQ003B": "firebird", "RQ010": "bigquery", "RQ011": "bigquery",

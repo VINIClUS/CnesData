@@ -125,7 +125,7 @@ for i, regra in enumerate(_KPI_DESTAQUE):
         render_kpi_card(
             cols[i],
             label=f"{_SEV_ICON[sev]} {desc}",
-            value=kpis.get(regra, 0),
+            value=kpis.get(regra),
             delta=f"+{delta}" if delta > 0 else str(delta),
         )
     else:
@@ -154,7 +154,7 @@ for regra, (desc, sev) in sorted(_REGRAS_META.items(), key=lambda x: _SEV_ORDER[
     rows.append({
         "Regra":      regra,
         "Descrição":  desc,
-        "Anomalias":  kpis.get(regra, 0) if fonte_ok else "—",
+        "Anomalias":  kpis.get(regra) if fonte_ok else "—",
         "Δ mês":      (f"+{deltas.get(regra,0)}" if deltas.get(regra,0) > 0
                        else str(deltas.get(regra,0))) if fonte_ok else "—",
         "Severidade": f"{_SEV_ICON[sev]} {sev}",

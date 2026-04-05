@@ -43,10 +43,10 @@ def render_status_banner(message: str, kind: str = "info") -> None:
 def render_kpi_card(
     col,
     label: str,
-    value: int | str,
+    value: int | str | None,
     delta: int | str | None = None,
 ) -> None:
-    if value == "—":
+    if value is None or value == "—":
         col.metric(label=label, value="—")
         return
     col.metric(
