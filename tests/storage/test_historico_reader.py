@@ -420,3 +420,106 @@ class TestCarregarMetricasAvancadas:
             con.execute("CREATE SCHEMA IF NOT EXISTS gold")
         reader = HistoricoReader(db, tmp_path / "historico")
         assert reader.carregar_metricas_avancadas("2026-03") is None
+
+
+def _popular_tabelas_novas(path):
+    with duckdb.connect(str(path)) as con:
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS gold.profissionais_processados (
+                competencia VARCHAR, cpf VARCHAR, cnes VARCHAR,
+                cns VARCHAR, nome_profissional VARCHAR, sexo VARCHAR,
+                cbo VARCHAR, tipo_vinculo VARCHAR, sus VARCHAR,
+                ch_total INTEGER, ch_ambulatorial INTEGER, ch_outras INTEGER,
+                ch_hospitalar INTEGER, fonte VARCHAR, alerta_status_ch VARCHAR,
+                descricao_cbo VARCHAR, gravado_em TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS gold.estabelecimentos (
+                competencia VARCHAR, cnes VARCHAR, nome_fantasia VARCHAR,
+                tipo_unidade VARCHAR, cnpj_mantenedora VARCHAR,
+                natureza_juridica VARCHAR, cod_municipio VARCHAR,
+                vinculo_sus VARCHAR, fonte VARCHAR, gravado_em TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS gold.pipeline_runs (
+                competencia VARCHAR PRIMARY KEY, local_disponivel BOOLEAN,
+                nacional_disponivel BOOLEAN, hr_disponivel BOOLEAN,
+                status VARCHAR, iniciado_em TIMESTAMP, concluido_em TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS gold.glosas_profissional (
+                competencia VARCHAR, regra VARCHAR, cpf VARCHAR,
+                cns VARCHAR, nome_profissional VARCHAR, sexo VARCHAR,
+                cnes_estabelecimento VARCHAR, motivo VARCHAR,
+                criado_em_firebird TIMESTAMP, criado_em_pipeline TIMESTAMP,
+                atualizado_em_pipeline TIMESTAMP
+            )
+        """)
+        con.execute("""
+            INSERT INTO gold.profissionais_processados VALUES
+            ('2026-03','12345678901','2795001','123456789012345','Ana Silva','F',
+             '515105','30','S',40,20,10,10,'LOCAL','OK','Agente','2026-03-01')
+        """)
+        con.execute("""
+            INSERT INTO gold.estabelecimentos VALUES
+            ('2026-03','2795001','UBS Centro','01','55293427000117','1023','354130','S','LOCAL','2026-03-01')
+        """)
+        con.execute("""
+            INSERT INTO gold.pipeline_runs VALUES
+            ('2026-03',TRUE,TRUE,FALSE,'completo','2026-03-01','2026-03-01')
+        """)
+        con.execute("""
+            INSERT INTO gold.glosas_profissional VALUES
+            ('2026-03','RQ008','12345678901','123456789012345','Ana','F','2795001',
+             'motivo','2026-03-01','2026-03-01','2026-03-01')
+        """)
+
+
+class TestNovosMétodosHistoricoReader:
+    def test_carregar_profissionais(self, tmp_path):
+        _popular_tabelas_novas(tmp_path / "test.duckdb")
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        df = reader.carregar_profissionais("2026-03")
+        assert len(df) == 1
+        assert df["CPF"].iloc[0] == "12345678901"
+
+    def test_carregar_profissionais_vazio(self, tmp_path):
+        _popular_tabelas_novas(tmp_path / "test.duckdb")
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        df = reader.carregar_profissionais("2025-01")
+        assert df.empty
+
+    def test_carregar_estabelecimentos(self, tmp_path):
+        _popular_tabelas_novas(tmp_path / "test.duckdb")
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        df = reader.carregar_estabelecimentos("2026-03")
+        assert list(df["CNES"]) == ["2795001"]
+
+    def test_carregar_pipeline_run(self, tmp_path):
+        _popular_tabelas_novas(tmp_path / "test.duckdb")
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        resultado = reader.carregar_pipeline_run("2026-03")
+        assert resultado is not None
+        assert resultado["status"] == "completo"
+
+    def test_carregar_pipeline_run_ausente(self, tmp_path):
+        _popular_tabelas_novas(tmp_path / "test.duckdb")
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        assert reader.carregar_pipeline_run("2025-01") is None
+
+    def test_carregar_glosas_periodo(self, tmp_path):
+        _popular_tabelas_novas(tmp_path / "test.duckdb")
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        df = reader.carregar_glosas_periodo("RQ008", "2026-03")
+        assert len(df) == 1
+        assert df["cpf"].iloc[0] == "12345678901"
+
+    def test_carregar_glosas_periodo_regra_ausente(self, tmp_path):
+        _popular_tabelas_novas(tmp_path / "test.duckdb")
+        reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+        df = reader.carregar_glosas_periodo("RQ010", "2026-03")
+        assert df.empty

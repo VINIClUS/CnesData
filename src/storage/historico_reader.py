@@ -9,6 +9,12 @@ from storage.competencia_utils import janela_valida
 
 logger = logging.getLogger(__name__)
 
+REGRAS_AUDITORIA: tuple[str, ...] = (
+    "RQ003B", "RQ005_ACS", "RQ005_ACE", "GHOST", "MISSING",
+    "RQ006", "RQ007", "RQ008", "RQ009", "RQ010", "RQ011",
+)
+
+# Mantido por compatibilidade — remover em Task 10
 CSV_MAP: dict[str, str] = {
     "RQ003B":    "auditoria_rq003b_multiplas_unidades.csv",
     "RQ005_ACS": "auditoria_rq005_acs_tacs_incorretos.csv",
@@ -273,3 +279,84 @@ class HistoricoReader:
         if df.empty:
             return None
         return df.iloc[0].to_dict()
+
+    def carregar_profissionais(self, competencia: str) -> pd.DataFrame:
+        """Carrega profissionais processados de uma competência.
+
+        Args:
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            DataFrame com colunas em maiúsculas; vazio se ausente.
+        """
+        try:
+            df = self._ler_df(
+                """SELECT cns, cpf, nome_profissional, sexo, cbo, cnes, tipo_vinculo,
+                          sus, ch_total, ch_ambulatorial, ch_outras, ch_hospitalar,
+                          fonte, alerta_status_ch, descricao_cbo
+                   FROM gold.profissionais_processados WHERE competencia = ?""",
+                [competencia],
+            )
+        except duckdb.CatalogException:
+            return pd.DataFrame()
+        return df.rename(columns=str.upper)
+
+    def carregar_estabelecimentos(self, competencia: str) -> pd.DataFrame:
+        """Carrega estabelecimentos de uma competência.
+
+        Args:
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            DataFrame com colunas em maiúsculas; vazio se ausente.
+        """
+        try:
+            df = self._ler_df(
+                """SELECT cnes, nome_fantasia, tipo_unidade, cnpj_mantenedora,
+                          natureza_juridica, cod_municipio, vinculo_sus, fonte
+                   FROM gold.estabelecimentos WHERE competencia = ?""",
+                [competencia],
+            )
+        except duckdb.CatalogException:
+            return pd.DataFrame()
+        return df.rename(columns=str.upper)
+
+    def carregar_pipeline_run(self, competencia: str) -> dict | None:
+        """Retorna o registro de execução de pipeline para uma competência.
+
+        Args:
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            Dict com todas as colunas de gold.pipeline_runs, ou None se ausente.
+        """
+        try:
+            df = self._ler_df(
+                "SELECT * FROM gold.pipeline_runs WHERE competencia = ?",
+                [competencia],
+            )
+        except duckdb.CatalogException:
+            return None
+        if df.empty:
+            return None
+        return df.iloc[0].to_dict()
+
+    def carregar_glosas_periodo(self, regra: str, competencia: str) -> pd.DataFrame:
+        """Carrega glosas de uma regra e competência de gold.glosas_profissional.
+
+        Substitui carregar_registros (que lia de CSVs arquivados).
+
+        Args:
+            regra: Código da regra (ex: 'RQ008').
+            competencia: Competência no formato YYYY-MM.
+
+        Returns:
+            DataFrame com registros ou DataFrame vazio se ausente.
+        """
+        try:
+            return self._ler_df(
+                "SELECT * FROM gold.glosas_profissional WHERE competencia = ? AND regra = ?",
+                [competencia, regra],
+            )
+        except duckdb.CatalogException:
+            return pd.DataFrame()
