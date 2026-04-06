@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 class SnapshotLocalStage:
     """Persiste snapshot local e computa delta contra competência anterior no DuckDB."""
 
+    nome = "snapshot_local"
+
     def __init__(self, historico_dir: Path, db_loader: DatabaseLoader) -> None:
         self._historico_dir = historico_dir
         self._db = db_loader
