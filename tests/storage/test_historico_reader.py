@@ -2,6 +2,7 @@
 from datetime import datetime
 
 import duckdb
+import pandas as pd
 import pytest
 
 from storage.historico_reader import HistoricoReader
@@ -248,3 +249,56 @@ def test_carregar_kpis_retorna_none_para_regra_nula(reader_com_auditoria):
     kpis = reader_com_auditoria.carregar_kpis("2024-01")
     assert kpis["RQ003B"] == 5
     assert kpis["RQ006"] is None
+
+
+def test_carregar_profissionais_retorna_coluna_fontes(tmp_path):
+    from storage.database_loader import DatabaseLoader
+
+    loader = DatabaseLoader(tmp_path / "test.duckdb")
+    loader.inicializar_schema()
+    df_input = pd.DataFrame({
+        "CNS": ["123456789012345"],
+        "CPF": ["12345678901"],
+        "NOME_PROFISSIONAL": ["Ana Silva"],
+        "SEXO": ["F"],
+        "CBO": ["515105"],
+        "CNES": ["2795001"],
+        "TIPO_VINCULO": ["30"],
+        "SUS": ["S"],
+        "CH_TOTAL": [40],
+        "CH_AMBULATORIAL": [20],
+        "CH_OUTRAS": [10],
+        "CH_HOSPITALAR": [10],
+        "FONTE": ["LOCAL"],
+        "ALERTA_STATUS_CH": ["OK"],
+        "DESCRICAO_CBO": ["Agente Comunitário"],
+    })
+    loader.gravar_profissionais("2026-03", df_input)
+    reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+    df = reader.carregar_profissionais("2026-03")
+    assert "FONTES" in df.columns
+    assert "FONTE" not in df.columns
+    assert isinstance(df["FONTES"].iloc[0], list)
+
+
+def test_carregar_estabelecimentos_retorna_coluna_fontes(tmp_path):
+    from storage.database_loader import DatabaseLoader
+
+    loader = DatabaseLoader(tmp_path / "test.duckdb")
+    loader.inicializar_schema()
+    df_input = pd.DataFrame({
+        "CNES": ["2795001"],
+        "NOME_FANTASIA": ["UBS Centro"],
+        "TIPO_UNIDADE": ["02"],
+        "CNPJ_MANTENEDORA": ["55293427000117"],
+        "NATUREZA_JURIDICA": ["1023"],
+        "COD_MUNICIPIO": ["330455"],
+        "VINCULO_SUS": ["S"],
+        "FONTE": ["LOCAL"],
+    })
+    loader.gravar_estabelecimentos("2026-03", df_input)
+    reader = HistoricoReader(tmp_path / "test.duckdb", tmp_path / "historico")
+    df = reader.carregar_estabelecimentos("2026-03")
+    assert "FONTES" in df.columns
+    assert "FONTE" not in df.columns
+    assert isinstance(df["FONTES"].iloc[0], list)
