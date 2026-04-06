@@ -57,6 +57,14 @@ output.txt
 .github/
 .streamlit/
 excalidraw.log
+.github/
+.streamlit/
+.coverage.xml.gz
+.coverage.xml.gz.part
+.coverage.xml.gz.part.1
+
+# Claude
+
 
 # Visual brainstorming companion
 .superpowers/

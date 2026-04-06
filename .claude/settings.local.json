@@ -129,7 +129,8 @@
       "Bash(\"C:/Users/Vinicius/Projetos/CnesData/venv/Scripts/python.exe\" -c \"import sys; sys.path.insert\\(0, ''src''\\); import config; from storage.historico_reader import HistoricoReader; print\\(''OK''\\)\")",
       "Bash(\"C:/Users/Vinicius/Projetos/CnesData/venv/Scripts/python.exe\" -m pytest \"C:/Users/Vinicius/Projetos/CnesData/.worktrees/feature/streamlit-dashboard/tests/\" -m \"not integration\" -q --tb=short)",
       "Bash(C:/Users/Vinicius/Projetos/CnesData/venv/Scripts/pip.exe install:*)",
-      "Bash(where gh:*)"
+      "Bash(where gh:*)",
+      "Bash(cat .claude/skills/*/SKILL.md)"
     ],
     "Deny": [
       "mcp__playwright__browser_file_upload"
