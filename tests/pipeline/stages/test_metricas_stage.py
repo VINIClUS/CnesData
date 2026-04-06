@@ -134,6 +134,28 @@ def test_taxa_resolucao_zero_sem_competencia_anterior():
     assert state.metricas_avancadas["taxa_resolucao"] == 0.0
 
 
+def test_executa_quando_local_indisponivel_mas_df_processado_populado():
+    stage, db, reader = _make_stage()
+    state = PipelineState(
+        competencia_ano=2026, competencia_mes=3,
+        output_path=Path("data/processed/r.csv"),
+        executar_nacional=False, executar_hr=False,
+        local_disponivel=False,
+    )
+    state.df_processado = pd.DataFrame({
+        "CPF": ["12345678901"], "CNS": ["123456789012345"],
+        "CBO": ["515105"], "CNES": ["1234567"],
+        "CH_TOTAL": [40], "SEXO": ["F"],
+    })
+    state.df_estab_local = pd.DataFrame({"CNES": ["1234567"], "NOME_FANTASIA": ["UBS Centro"]})
+    state.cbo_lookup = {"515105": "ACS"}
+
+    with patch("pipeline.stages.metricas.construir_glosas", return_value=_EMPTY_GLOSAS):
+        stage.execute(state)
+
+    db.gravar_metricas_avancadas.assert_called_once()
+
+
 def test_skip_quando_local_indisponivel():
     state = PipelineState(
         competencia_ano=2024, competencia_mes=12,
