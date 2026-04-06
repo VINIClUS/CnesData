@@ -102,7 +102,10 @@ class HistoricoReader:
         if idx == 0:
             return {regra: 0 for regra in atual}
         anterior = self.carregar_kpis(competencias[idx - 1])
-        return {regra: total - anterior.get(regra, 0) for regra, total in atual.items()}
+        return {
+            regra: (total - (anterior.get(regra) or 0)) if total is not None else 0
+            for regra, total in atual.items()
+        }
 
     def listar_competencias(self) -> list[str]:
         """Lista competências com execução registrada em gold.pipeline_runs, ordem crescente.

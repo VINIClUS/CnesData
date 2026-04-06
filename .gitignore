@@ -38,6 +38,7 @@ logs/
 
 # --- VSCode ---
 .vscode/
+.claudeignore.json
 
 # --- Sistema Operacional ---
 .DS_Store
@@ -56,6 +57,7 @@ output.txt
 .ruff_cache/
 .github/
 .streamlit/
+docs/superpowers/
 excalidraw.log
 
 # Visual brainstorming companion
@@ -66,3 +68,4 @@ node_modules/
 package-lock.json
 package.json
 test_headroom.py
+
