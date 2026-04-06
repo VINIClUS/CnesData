@@ -367,19 +367,27 @@ class DatabaseLoader:
         logger.info("delta_snapshot gravado competencia=%s", competencia)
 
     def gravar_profissionais(self, competencia: str, df: pd.DataFrame) -> None:
-        """DELETE + INSERT de profissionais processados para uma competência.
+        """UPSERT de profissionais processados para uma competência.
 
         Args:
             competencia: Competência no formato 'YYYY-MM'.
-            df: DataFrame com colunas do SCHEMA_PROFISSIONAL + ALERTA_STATUS_CH + DESCRICAO_CBO.
+            df: DataFrame com colunas SCHEMA_PROFISSIONAL + ALERTA_STATUS_CH + DESCRICAO_CBO + FONTE.
         """
         df_insert = df.rename(columns=str.lower).copy()
         df_insert.insert(0, "competencia", competencia)
+        df_insert["cns"] = df_insert["cns"].fillna("").astype(str).str.strip()
+        mask_sem_cns = df_insert["cns"] == ""
+        df_insert.loc[mask_sem_cns, "cns"] = (
+            "SEM:"
+            + df_insert.loc[mask_sem_cns, "cpf"].fillna("").astype(str)
+            + ":"
+            + df_insert.loc[mask_sem_cns, "cnes"].fillna("").astype(str)
+        )
+        df_insert["fontes"] = (
+            df_insert["fonte"].fillna("desconhecido").str.lower().apply(lambda x: [x])
+        )
+        df_insert = df_insert.drop(columns=["fonte"], errors="ignore")
         with self._conectar() as con:
-            con.execute(
-                "DELETE FROM gold.profissionais_processados WHERE competencia = ?",
-                [competencia],
-            )
             con.register("_tmp_prof", df_insert)
             con.execute("""
                 INSERT INTO gold.profissionais_processados
@@ -391,23 +399,26 @@ class DatabaseLoader:
                        ch_hospitalar, fontes, alerta_status_ch, descricao_cbo,
                        CURRENT_TIMESTAMP
                 FROM _tmp_prof
+                ON CONFLICT (competencia, cpf, cnes) DO UPDATE SET
+                    fontes = list_distinct(list_concat(fontes, EXCLUDED.fontes)),
+                    gravado_em = now()
             """)
         logger.info("profissionais gravados competencia=%s total=%d", competencia, len(df))
 
     def gravar_estabelecimentos(self, competencia: str, df: pd.DataFrame) -> None:
-        """DELETE + INSERT de estabelecimentos para uma competência.
+        """UPSERT de estabelecimentos para uma competência.
 
         Args:
             competencia: Competência no formato 'YYYY-MM'.
-            df: DataFrame com colunas do SCHEMA_ESTABELECIMENTO.
+            df: DataFrame com colunas do SCHEMA_ESTABELECIMENTO + FONTE.
         """
         df_insert = df.rename(columns=str.lower).copy()
         df_insert.insert(0, "competencia", competencia)
+        df_insert["fontes"] = (
+            df_insert["fonte"].fillna("desconhecido").str.lower().apply(lambda x: [x])
+        )
+        df_insert = df_insert.drop(columns=["fonte"], errors="ignore")
         with self._conectar() as con:
-            con.execute(
-                "DELETE FROM gold.estabelecimentos WHERE competencia = ?",
-                [competencia],
-            )
             con.register("_tmp_estab", df_insert)
             con.execute("""
                 INSERT INTO gold.estabelecimentos
@@ -416,28 +427,32 @@ class DatabaseLoader:
                 SELECT competencia, cnes, nome_fantasia, tipo_unidade, cnpj_mantenedora,
                        natureza_juridica, cod_municipio, vinculo_sus, fontes, CURRENT_TIMESTAMP
                 FROM _tmp_estab
+                ON CONFLICT (competencia, cnes) DO UPDATE SET
+                    fontes = list_distinct(list_concat(fontes, EXCLUDED.fontes)),
+                    gravado_em = now()
             """)
         logger.info("estabelecimentos gravados competencia=%s total=%d", competencia, len(df))
 
-    def gravar_cbo_lookup(self, competencia: str, lookup: dict[str, str]) -> None:
-        """INSERT OR REPLACE no dicionário CBO global.
+    def gravar_cbo_lookup(self, competencia: str, cbo_lookup: dict[str, str]) -> None:
+        """Insere CBOs globais sem duplicatas.
 
         Args:
-            competencia: Não utilizado; mantido por compatibilidade de interface.
-            lookup: Dicionário codigo_cbo → descricao.
+            competencia: Ignorado; mantido para compatibilidade de API.
+            cbo_lookup: Dicionário codigo_cbo → descricao.
         """
-        if not lookup:
+        if not cbo_lookup:
             return
-        df = pd.DataFrame(
-            [{"codigo_cbo": k, "descricao": v} for k, v in lookup.items()]
+        df_cbo = pd.DataFrame(
+            [{"codigo_cbo": k, "descricao": v} for k, v in cbo_lookup.items()]
         )
         with self._conectar() as con:
-            con.register("_tmp_cbo", df)
-            con.execute(
-                "INSERT OR REPLACE INTO gold.cbo_lookup (codigo_cbo, descricao) "
-                "SELECT codigo_cbo, descricao FROM _tmp_cbo"
-            )
-        logger.info("cbo_lookup gravado total=%d", len(lookup))
+            con.register("_tmp_cbo", df_cbo)
+            con.execute("""
+                INSERT INTO gold.cbo_lookup (codigo_cbo, descricao, created_at)
+                SELECT codigo_cbo, descricao, CURRENT_TIMESTAMP FROM _tmp_cbo
+                ON CONFLICT (codigo_cbo) DO NOTHING
+            """)
+        logger.info("cbo_lookup gravado total=%d", len(cbo_lookup))
 
     def gravar_pipeline_run(
         self,
@@ -467,6 +482,18 @@ class DatabaseLoader:
                 [competencia, local_disponivel, nacional_disponivel, hr_disponivel, status],
             )
         logger.info("pipeline_run gravado competencia=%s status=%s", competencia, status)
+
+    def listar_competencias(self) -> list[str]:
+        """Lista competências disponíveis em ordem cronológica.
+
+        Returns:
+            Lista de strings YYYY-MM em ordem cronológica.
+        """
+        with self._conectar(read_only=True) as con:
+            df = con.execute(
+                "SELECT DISTINCT competencia FROM gold.pipeline_runs ORDER BY competencia"
+            ).df()
+        return df["competencia"].tolist()
 
     def profissional_existe(self, competencia: str) -> bool:
         """Retorna True se existirem profissionais processados para a competência.
