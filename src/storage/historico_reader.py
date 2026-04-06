@@ -102,7 +102,10 @@ class HistoricoReader:
         if idx == 0:
             return {regra: 0 for regra in atual}
         anterior = self.carregar_kpis(competencias[idx - 1])
-        return {regra: total - anterior.get(regra, 0) for regra, total in atual.items()}
+        return {
+            regra: (total - (anterior.get(regra) or 0)) if total is not None else 0
+            for regra, total in atual.items()
+        }
 
     def listar_competencias(self) -> list[str]:
         """Lista competências com execução registrada em gold.pipeline_runs, ordem crescente.
@@ -240,14 +243,17 @@ class HistoricoReader:
             df = self._ler_df(
                 """SELECT cns, cpf, nome_profissional, sexo, cbo, cnes, tipo_vinculo,
                           sus, ch_total, ch_ambulatorial, ch_outras, ch_hospitalar,
-                          fonte, alerta_status_ch, descricao_cbo
+                          fontes, alerta_status_ch, descricao_cbo
                    FROM gold.profissionais_processados WHERE competencia = ?""",
                 [competencia],
             )
         except duckdb.CatalogException:
             logger.warning("tabela_ausente table=gold.profissionais_processados comp=%s", competencia)
             return pd.DataFrame()
-        return df.rename(columns=str.upper)
+        df = df.rename(columns=str.upper)
+        if "FONTES" in df.columns:
+            df["FONTES"] = df["FONTES"].apply(lambda v: list(v) if v is not None else [])
+        return df
 
     def carregar_estabelecimentos(self, competencia: str) -> pd.DataFrame:
         """Carrega estabelecimentos de uma competência.
@@ -261,14 +267,17 @@ class HistoricoReader:
         try:
             df = self._ler_df(
                 """SELECT cnes, nome_fantasia, tipo_unidade, cnpj_mantenedora,
-                          natureza_juridica, cod_municipio, vinculo_sus, fonte
+                          natureza_juridica, cod_municipio, vinculo_sus, fontes
                    FROM gold.estabelecimentos WHERE competencia = ?""",
                 [competencia],
             )
         except duckdb.CatalogException:
             logger.warning("tabela_ausente table=gold.estabelecimentos competencia=%s", competencia)
             return pd.DataFrame()
-        return df.rename(columns=str.upper)
+        df = df.rename(columns=str.upper)
+        if "FONTES" in df.columns:
+            df["FONTES"] = df["FONTES"].apply(lambda v: list(v) if v is not None else [])
+        return df
 
     def carregar_pipeline_run(self, competencia: str) -> dict | None:
         """Retorna o registro de execução de pipeline para uma competência.

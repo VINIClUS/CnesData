@@ -22,18 +22,17 @@
       ]
     },
     "deepwiki": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "deepwiki-mcp"
-      ]
+      "serverUrl": "https://mcp.deepwiki.com/mcp"
     },
     "excalidraw": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "-y",
-        "excalidraw-mcp"
-      ]
+        "C:\\Users\\Vinicius\\Projetos\\mcp_excalidraw\\dist\\index.js"
+      ],
+      "env": {
+        "EXPRESS_SERVER_URL": "http://localhost:3000",
+        "ENABLE_CANVAS_SYNC": "true"
+      }
     },
     "DuckDB (in-memory, r/w)": {
       "command": "uvx",
@@ -43,6 +42,21 @@
         ":memory:",
         "--read-write",
         "--allow-switch-databases"
+      ]
+    },
+    "code-pathfinder": {
+      "command": "pathfinder",
+      "args": [
+        "serve",
+        "--project",
+        "C:\\Users\\Vinicius\\Projetos\\CnesData"
+      ]
+    },
+    "headroom": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-headroom"
       ]
     }
   }

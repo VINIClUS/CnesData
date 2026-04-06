@@ -232,6 +232,47 @@ def test_seta_nacional_disponivel_apos_busca(tmp_path):
 
 
 @patch("pipeline.stages.ingestao_nacional.CnesNacionalAdapter")
+def test_usa_df_nacional_para_fingerprint_quando_df_processado_vazio(mock_adapter_cls):
+    """Nacional-only run: fingerprint deve ser calculado de df_prof_nacional."""
+    mock_adapter = MagicMock()
+    mock_adapter.listar_profissionais.return_value = _df_prof()
+    mock_adapter.listar_estabelecimentos.return_value = _df_estab()
+    mock_adapter_cls.return_value = mock_adapter
+
+    state = _state()
+    state.df_processado = pd.DataFrame()
+    state.df_prof_nacional = _df_prof()
+
+    db = MagicMock(spec=DatabaseLoader)
+    db.ler_cache_nacional.return_value = None
+    stage = _make_stage(db)
+    stage.execute(state)
+
+    assert state.fingerprint_local != ""
+    assert len(state.fingerprint_local) == 64
+
+
+@patch("pipeline.stages.ingestao_nacional.CnesNacionalAdapter")
+def test_fingerprint_vazio_quando_ambos_vazios(mock_adapter_cls):
+    """Ambos vazios → fingerprint '' → força carga fresca."""
+    mock_adapter = MagicMock()
+    mock_adapter.listar_profissionais.return_value = pd.DataFrame()
+    mock_adapter.listar_estabelecimentos.return_value = pd.DataFrame()
+    mock_adapter_cls.return_value = mock_adapter
+
+    state = _state()
+    state.df_processado = pd.DataFrame()
+    state.df_prof_nacional = pd.DataFrame()
+
+    db = MagicMock(spec=DatabaseLoader)
+    db.ler_cache_nacional.return_value = None
+    stage = _make_stage(db)
+    stage.execute(state)
+
+    assert state.fingerprint_local == ""
+
+
+@patch("pipeline.stages.ingestao_nacional.CnesNacionalAdapter")
 @patch("pipeline.stages.ingestao_nacional.config")
 def test_fingerprint_armazenado_em_state(mock_config, mock_adapter_cls):
     mock_config.NACIONAL_CACHE_TTL_DIAS = 7

@@ -47,7 +47,7 @@ class ExportacaoStage:
         loader = DatabaseLoader(config.DUCKDB_PATH)
         loader.inicializar_schema()
 
-        if state.local_disponivel:
+        if not state.df_processado.empty:
             snapshot = criar_snapshot(
                 competencia,
                 state.df_processado,
@@ -71,6 +71,12 @@ class ExportacaoStage:
             loader.gravar_auditoria(competencia, "RQ009", len(state.df_prof_ausente) if nacional else None)
             loader.gravar_auditoria(competencia, "RQ010", len(state.df_cbo_diverg) if nacional else None)
             loader.gravar_auditoria(competencia, "RQ011", len(state.df_ch_diverg) if nacional else None)
+
+        # para runs nacional-only: SnapshotLocalStage nao grava no DuckDB
+        if not state.local_disponivel and not state.df_processado.empty:
+            loader.gravar_profissionais(competencia, state.df_processado)
+            loader.gravar_estabelecimentos(competencia, state.df_estab_nacional)
+            loader.gravar_cbo_lookup(competencia, state.cbo_lookup)
 
         _gravar_last_run(state, config.LAST_RUN_PATH)
         loader.gravar_pipeline_run(

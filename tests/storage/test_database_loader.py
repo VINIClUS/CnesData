@@ -443,17 +443,16 @@ class TestGravarCarregarProfissionais:
         assert list(resultado["CPF"]) == ["12345678901"]
         assert list(resultado["CNES"]) == ["2795001"]
 
-    def test_gravar_profissionais_substitui_existentes(self, tmp_path):
+    def test_gravar_profissionais_acumula_fontes_na_reinsercao(self, tmp_path):
         loader = DatabaseLoader(tmp_path / "test.duckdb")
         loader.inicializar_schema()
         loader.gravar_profissionais("2026-03", _df_prof_sample())
         df2 = _df_prof_sample().copy()
-        df2["CPF"] = ["99999999999"]
-        df2["CNES"] = ["9999999"]
+        df2["FONTE"] = ["NACIONAL"]
         loader.gravar_profissionais("2026-03", df2)
         resultado = loader.carregar_profissionais("2026-03")
         assert len(resultado) == 1
-        assert resultado["CPF"].iloc[0] == "99999999999"
+        assert sorted(resultado["FONTES"].iloc[0]) == ["local", "nacional"]
 
 
 class TestGravarCarregarEstabelecimentos:
@@ -480,6 +479,189 @@ class TestGravarCarregarCboLookup:
         loader = DatabaseLoader(tmp_path / "test.duckdb")
         loader.inicializar_schema()
         assert loader.carregar_cbo_lookup("2026-03") == {}
+
+
+class TestSchemaMigration:
+    def test_migra_fonte_para_fontes_quando_coluna_antiga_presente(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE gold.profissionais_processados (
+                competencia VARCHAR NOT NULL,
+                cns VARCHAR NOT NULL,
+                fonte VARCHAR,
+                PRIMARY KEY (competencia, cns)
+            )
+        """)
+        con.close()
+        DatabaseLoader(db_path).inicializar_schema()
+
+        con2 = duckdb.connect(str(db_path), read_only=True)
+        cols = con2.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='gold' AND table_name='profissionais_processados'"
+        ).df()["column_name"].tolist()
+        con2.close()
+        assert "fontes" in cols
+        assert "fonte" not in cols
+
+    def test_preserva_pipeline_runs_durante_migracao(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE gold.profissionais_processados (
+                competencia VARCHAR NOT NULL,
+                cns VARCHAR NOT NULL,
+                fonte VARCHAR,
+                PRIMARY KEY (competencia, cns)
+            )
+        """)
+        con.execute("""
+            CREATE TABLE gold.pipeline_runs (
+                competencia VARCHAR PRIMARY KEY,
+                status VARCHAR
+            )
+        """)
+        con.execute("INSERT INTO gold.pipeline_runs VALUES ('2026-01', 'completo')")
+        con.close()
+        DatabaseLoader(db_path).inicializar_schema()
+
+        con2 = duckdb.connect(str(db_path), read_only=True)
+        df = con2.execute("SELECT * FROM gold.pipeline_runs").df()
+        con2.close()
+        assert len(df) == 1
+        assert df["competencia"].iloc[0] == "2026-01"
+
+    def test_inicializar_schema_idempotente(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        loader = DatabaseLoader(db_path)
+        loader.inicializar_schema()
+        loader.inicializar_schema()
+
+    def test_fontes_coluna_e_array(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        DatabaseLoader(db_path).inicializar_schema()
+        con = duckdb.connect(str(db_path), read_only=True)
+        df = con.execute(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_schema='gold' AND table_name='profissionais_processados' "
+            "AND column_name='fontes'"
+        ).df()
+        con.close()
+        assert not df.empty
+        assert "[]" in df["data_type"].iloc[0].upper() or "LIST" in df["data_type"].iloc[0].upper()
+
+    def test_cbo_lookup_sem_coluna_competencia(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        DatabaseLoader(db_path).inicializar_schema()
+        con = duckdb.connect(str(db_path), read_only=True)
+        cols = con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='gold' AND table_name='cbo_lookup'"
+        ).df()["column_name"].tolist()
+        con.close()
+        assert "competencia" not in cols
+        assert "created_at" in cols
+
+
+def _df_prof(fonte: str) -> pd.DataFrame:
+    return pd.DataFrame({
+        "CNS": ["123456789012345"],
+        "CPF": ["12345678901"],
+        "NOME_PROFISSIONAL": ["Ana Silva"],
+        "SEXO": ["F"],
+        "CBO": ["515105"],
+        "CNES": ["2795001"],
+        "TIPO_VINCULO": ["30"],
+        "SUS": ["S"],
+        "CH_TOTAL": [40],
+        "CH_AMBULATORIAL": [20],
+        "CH_OUTRAS": [10],
+        "CH_HOSPITALAR": [10],
+        "FONTE": [fonte],
+        "ALERTA_STATUS_CH": ["OK"],
+        "DESCRICAO_CBO": ["Agente Comunitário"],
+    })
+
+
+def _df_prof_sem_cns(fonte: str) -> pd.DataFrame:
+    df = _df_prof(fonte).copy()
+    df["CNS"] = None
+    return df
+
+
+class TestGravarProfissionais:
+    def test_upsert_acumula_fontes_em_lista(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_profissionais("2026-03", _df_prof("LOCAL"))
+        loader.gravar_profissionais("2026-03", _df_prof("LOCAL"))
+        con = duckdb.connect(str(tmp_path / "test.duckdb"), read_only=True)
+        df = con.execute(
+            "SELECT fontes FROM gold.profissionais_processados WHERE competencia='2026-03'"
+        ).df()
+        con.close()
+        assert len(df) == 1
+        fontes = list(df["fontes"].iloc[0])
+        assert isinstance(fontes, list)
+        assert fontes.count("local") == 1  # list_distinct removes duplicates
+
+    def test_cns_sintetico_para_registro_sem_cns(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_profissionais("2026-03", _df_prof_sem_cns("LOCAL"))
+        con = duckdb.connect(str(tmp_path / "test.duckdb"), read_only=True)
+        df = con.execute(
+            "SELECT cns FROM gold.profissionais_processados WHERE competencia='2026-03'"
+        ).df()
+        con.close()
+        assert df["cns"].iloc[0].startswith("SEM:")
+
+    def test_fonte_convertida_para_lista_lowercase(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_profissionais("2026-03", _df_prof("LOCAL"))
+        con = duckdb.connect(str(tmp_path / "test.duckdb"), read_only=True)
+        row = con.execute(
+            "SELECT fontes FROM gold.profissionais_processados WHERE competencia='2026-03'"
+        ).df()
+        con.close()
+        assert row["fontes"].iloc[0] == ["local"]
+
+    def test_fontes_acumula_local_e_nacional(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        loader.gravar_profissionais("2026-03", _df_prof("LOCAL"))
+        loader.gravar_profissionais("2026-03", _df_prof("NACIONAL"))
+        con = duckdb.connect(str(tmp_path / "test.duckdb"), read_only=True)
+        row = con.execute(
+            "SELECT fontes FROM gold.profissionais_processados WHERE competencia='2026-03'"
+        ).df()
+        con.close()
+        fontes = sorted(row["fontes"].iloc[0])
+        assert fontes == ["local", "nacional"]
+
+
+class TestGravarCboLookup:
+    def test_cbo_lookup_sem_competencia_parametro_ignorado(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        cbo_lookup = {"515105": "Agente Comunitário", "223505": "Médico"}
+        loader.gravar_cbo_lookup("2026-03", cbo_lookup)
+        loader.gravar_cbo_lookup("2026-04", cbo_lookup)
+        con = duckdb.connect(str(tmp_path / "test.duckdb"), read_only=True)
+        df = con.execute("SELECT * FROM gold.cbo_lookup").df()
+        con.close()
+        assert len(df) == 2  # no duplicates
+
+
+class TestListarCompetencias:
+    def test_retorna_lista_vazia_quando_sem_dados(self, tmp_path):
+        loader = DatabaseLoader(tmp_path / "test.duckdb")
+        loader.inicializar_schema()
+        assert loader.listar_competencias() == []
 
 
 class TestGravarPipelineRun:

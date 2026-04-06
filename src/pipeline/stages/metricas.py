@@ -38,8 +38,8 @@ class MetricasStage:
         Args:
             state: Estado do pipeline com DataFrames de auditoria preenchidos.
         """
-        if not state.local_disponivel:
-            logger.info("metricas=skipped motivo=sem_dados_locais competencia=%s", state.competencia_str)
+        if state.df_processado.empty:
+            logger.info("metricas=skipped motivo=df_processado_vazio competencia=%s", state.competencia_str)
             return
         agora = datetime.now()
         competencia = state.competencia_str

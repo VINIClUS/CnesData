@@ -186,23 +186,32 @@ def test_status_sem_dados_locais_quando_local_indisponivel(mock_config, mock_loa
     assert call_args[4] == "sem_dados_locais"
 
 
+@patch("pipeline.stages.exportacao.criar_snapshot")
+@patch("pipeline.stages.exportacao.salvar_snapshot")
 @patch("pipeline.stages.exportacao.DatabaseLoader")
 @patch("pipeline.stages.exportacao.config")
-def test_nacional_only_nao_grava_metricas_mas_grava_pipeline_run(
-    mock_config, mock_loader_cls, tmp_path
+def test_nacional_only_persiste_metricas_e_grava_pipeline_run(
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, tmp_path
 ):
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
     mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
     mock_config.LAST_RUN_PATH = tmp_path / "cache" / "last_run.json"
+    snapshot = MagicMock(
+        data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
+    )
+    mock_criar.return_value = snapshot
     loader_instance = MagicMock()
     mock_loader_cls.return_value = loader_instance
 
     state = _state()
     state.local_disponivel = False
     state.nacional_disponivel = True
+    state.df_estab_nacional = pd.DataFrame({"CNES": ["001"]})
+    state.cbo_lookup = {}
+
     ExportacaoStage().execute(state)
 
-    loader_instance.gravar_metricas.assert_not_called()
-    loader_instance.gravar_auditoria.assert_not_called()
+    loader_instance.gravar_metricas.assert_called_once_with(snapshot)
     loader_instance.gravar_pipeline_run.assert_called_once_with(
         "2024-12", False, True, False, "sem_dados_locais"
     )
@@ -247,6 +256,63 @@ class TestGravarLastRun:
         _gravar_last_run(_state_nacional(), path)
 
         assert path.exists()
+
+
+@patch("pipeline.stages.exportacao.criar_snapshot")
+@patch("pipeline.stages.exportacao.salvar_snapshot")
+@patch("pipeline.stages.exportacao.DatabaseLoader")
+@patch("pipeline.stages.exportacao.config")
+def test_nacional_only_persiste_profissionais_no_duckdb(
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, tmp_path
+):
+    """Nacional-only run: ExportacaoStage persiste df_processado via DatabaseLoader."""
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.LAST_RUN_PATH = tmp_path / "cache" / "last_run.json"
+    mock_criar.return_value = MagicMock(
+        data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
+    )
+    loader_instance = MagicMock()
+    mock_loader_cls.return_value = loader_instance
+
+    state = _state()
+    state.local_disponivel = False
+    state.nacional_disponivel = True
+    state.df_estab_nacional = pd.DataFrame({"CNES": ["001"]})
+    state.cbo_lookup = {"515105": "ACS"}
+
+    ExportacaoStage().execute(state)
+
+    loader_instance.gravar_profissionais.assert_called_once_with("2024-12", state.df_processado)
+
+
+@patch("pipeline.stages.exportacao.criar_snapshot")
+@patch("pipeline.stages.exportacao.salvar_snapshot")
+@patch("pipeline.stages.exportacao.DatabaseLoader")
+@patch("pipeline.stages.exportacao.config")
+def test_persiste_metricas_quando_df_processado_nao_vazio(
+    mock_config, mock_loader_cls, mock_salvar, mock_criar, tmp_path
+):
+    """df_processado não vazio com local_disponivel=False → _persistir_historico salva métricas."""
+    mock_config.SNAPSHOTS_DIR = tmp_path / "snapshots"
+    mock_config.DUCKDB_PATH = tmp_path / "test.duckdb"
+    mock_config.LAST_RUN_PATH = tmp_path / "cache" / "last_run.json"
+    snapshot = MagicMock(
+        data_competencia="2024-12", total_ghost=0, total_missing=0, total_rq005=0
+    )
+    mock_criar.return_value = snapshot
+    loader_instance = MagicMock()
+    mock_loader_cls.return_value = loader_instance
+
+    state = _state()
+    state.local_disponivel = False
+    state.nacional_disponivel = True
+    state.df_estab_nacional = pd.DataFrame({"CNES": ["001"]})
+    state.cbo_lookup = {}
+
+    ExportacaoStage().execute(state)
+
+    loader_instance.gravar_metricas.assert_called_once_with(snapshot)
 
 
 def test_grava_null_para_regras_nacionais_sem_nacional(tmp_path):

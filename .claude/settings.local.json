@@ -130,10 +130,17 @@
       "Bash(\"C:/Users/Vinicius/Projetos/CnesData/venv/Scripts/python.exe\" -m pytest \"C:/Users/Vinicius/Projetos/CnesData/.worktrees/feature/streamlit-dashboard/tests/\" -m \"not integration\" -q --tb=short)",
       "Bash(C:/Users/Vinicius/Projetos/CnesData/venv/Scripts/pip.exe install:*)",
       "Bash(where gh:*)",
+      "Bash(rtk git:*)",
+      "Bash(claude config:*)",
       "Bash(cat .claude/skills/*/SKILL.md)"
     ],
     "Deny": [
-      "mcp__playwright__browser_file_upload"
+      "mcp__playwright__browser_file_upload",
+      "Read(**/*.dll)",
+      "Read(**/*.exe)",
+      "Read(**/*.pdb)",
+      "Read(**/*.zip)",
+      "Read(C:\\Users\\Vinicius\\Projetos\\CnesData\\fb_64\\*)"
     ]
   },
   "hooks": {

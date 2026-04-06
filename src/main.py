@@ -15,6 +15,7 @@ from pipeline.stages.ingestao_local import IngestaoLocalStage
 from pipeline.stages.ingestao_nacional import IngestaoNacionalStage
 from pipeline.stages.metricas import MetricasStage
 from pipeline.stages.processamento import ProcessamentoStage
+from pipeline.stages.processamento_nacional import ProcessamentoNacionalStage
 from pipeline.stages.snapshot_local import SnapshotLocalStage
 from storage.database_loader import DatabaseLoader
 from storage.historico_reader import HistoricoReader
@@ -75,6 +76,7 @@ def main() -> int:
         ProcessamentoStage(),
         SnapshotLocalStage(config.HISTORICO_DIR, db_loader),
         IngestaoNacionalStage(db_loader),
+        ProcessamentoNacionalStage(),
         AuditoriaLocalStage(),
         AuditoriaNacionalStage(),
         MetricasStage(db_loader, historico_reader),

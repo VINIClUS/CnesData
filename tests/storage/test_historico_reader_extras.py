@@ -57,7 +57,7 @@ def _criar_tabelas_extras(con) -> None:
             cns VARCHAR, nome_profissional VARCHAR, sexo VARCHAR,
             cbo VARCHAR, tipo_vinculo VARCHAR, sus VARCHAR,
             ch_total INTEGER, ch_ambulatorial INTEGER, ch_outras INTEGER,
-            ch_hospitalar INTEGER, fonte VARCHAR, alerta_status_ch VARCHAR,
+            ch_hospitalar INTEGER, fontes VARCHAR[], alerta_status_ch VARCHAR,
             descricao_cbo VARCHAR, gravado_em TIMESTAMP
         )
     """)
@@ -66,7 +66,7 @@ def _criar_tabelas_extras(con) -> None:
             competencia VARCHAR, cnes VARCHAR, nome_fantasia VARCHAR,
             tipo_unidade VARCHAR, cnpj_mantenedora VARCHAR,
             natureza_juridica VARCHAR, cod_municipio VARCHAR,
-            vinculo_sus VARCHAR, fonte VARCHAR, gravado_em TIMESTAMP
+            vinculo_sus VARCHAR, fontes VARCHAR[], gravado_em TIMESTAMP
         )
     """)
     con.execute("""
@@ -94,12 +94,12 @@ def _popular_tabelas_novas(path):
         con.execute(
             "INSERT INTO gold.profissionais_processados VALUES "
             "('2026-03','12345678901','2795001','123456789012345','Ana Silva','F',"
-            "'515105','30','S',40,20,10,10,'LOCAL','OK','Agente','2026-03-01')"
+            "'515105','30','S',40,20,10,10,['LOCAL'],'OK','Agente','2026-03-01')"
         )
         con.execute(
             "INSERT INTO gold.estabelecimentos VALUES "
             "('2026-03','2795001','UBS Centro','01','55293427000117',"
-            "'1023','354130','S','LOCAL','2026-03-01')"
+            "'1023','354130','S',['LOCAL'],'2026-03-01')"
         )
         con.execute(
             "INSERT INTO gold.pipeline_runs VALUES "

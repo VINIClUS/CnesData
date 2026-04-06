@@ -38,9 +38,16 @@ class IngestaoNacionalStage:
         if not state.executar_nacional:
             logger.warning("nacional_cross_check=skipped motivo=skip_nacional_flag")
             return
-        fingerprint = _computar_fingerprint(state.df_processado)
+        df_para_fingerprint = (
+            state.df_processado
+            if not state.df_processado.empty
+            else state.df_prof_nacional
+        )
+        fingerprint = (
+            "" if df_para_fingerprint.empty else _computar_fingerprint(df_para_fingerprint)
+        )
         state.fingerprint_local = fingerprint
-        if self._cache_valido(state.competencia_str, fingerprint):
+        if fingerprint and self._cache_valido(state.competencia_str, fingerprint):
             logger.info("cache_nacional=hit competencia=%s", state.competencia_str)
             return
         try:
@@ -48,7 +55,8 @@ class IngestaoNacionalStage:
         except Exception as exc:
             logger.warning("nacional_cross_check=skipped motivo=%s", exc)
             return
-        self._db.gravar_cache_nacional(state.competencia_str, fingerprint)
+        if fingerprint:
+            self._db.gravar_cache_nacional(state.competencia_str, fingerprint)
         state.nacional_validado = True
         state.nacional_disponivel = (
             not state.df_prof_nacional.empty or not state.df_estab_nacional.empty
