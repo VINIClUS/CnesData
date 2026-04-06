@@ -381,7 +381,7 @@ def _df_prof_sample() -> pd.DataFrame:
         "CH_AMBULATORIAL":  [20],
         "CH_OUTRAS":        [10],
         "CH_HOSPITALAR":    [10],
-        "FONTE":            ["LOCAL"],
+        "FONTES":           [["LOCAL"]],
         "ALERTA_STATUS_CH": ["OK"],
         "DESCRICAO_CBO":    ["Agente Comunitário"],
     })
@@ -396,7 +396,7 @@ def _df_estab_sample() -> pd.DataFrame:
         "NATUREZA_JURIDICA":["1023"],
         "COD_MUNICIPIO":    ["354130"],
         "VINCULO_SUS":      ["S"],
-        "FONTE":            ["LOCAL"],
+        "FONTES":           [["LOCAL"]],
     })
 
 
@@ -480,6 +480,91 @@ class TestGravarCarregarCboLookup:
         loader = DatabaseLoader(tmp_path / "test.duckdb")
         loader.inicializar_schema()
         assert loader.carregar_cbo_lookup("2026-03") == {}
+
+
+class TestSchemaMigration:
+    def test_migra_fonte_para_fontes_quando_coluna_antiga_presente(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE gold.profissionais_processados (
+                competencia VARCHAR NOT NULL,
+                cns VARCHAR NOT NULL,
+                fonte VARCHAR,
+                PRIMARY KEY (competencia, cns)
+            )
+        """)
+        con.close()
+        DatabaseLoader(db_path).inicializar_schema()
+
+        con2 = duckdb.connect(str(db_path), read_only=True)
+        cols = con2.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='gold' AND table_name='profissionais_processados'"
+        ).df()["column_name"].tolist()
+        con2.close()
+        assert "fontes" in cols
+        assert "fonte" not in cols
+
+    def test_preserva_pipeline_runs_durante_migracao(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        con.execute("""
+            CREATE TABLE gold.profissionais_processados (
+                competencia VARCHAR NOT NULL,
+                cns VARCHAR NOT NULL,
+                fonte VARCHAR,
+                PRIMARY KEY (competencia, cns)
+            )
+        """)
+        con.execute("""
+            CREATE TABLE gold.pipeline_runs (
+                competencia VARCHAR PRIMARY KEY,
+                status VARCHAR
+            )
+        """)
+        con.execute("INSERT INTO gold.pipeline_runs VALUES ('2026-01', 'completo')")
+        con.close()
+        DatabaseLoader(db_path).inicializar_schema()
+
+        con2 = duckdb.connect(str(db_path), read_only=True)
+        df = con2.execute("SELECT * FROM gold.pipeline_runs").df()
+        con2.close()
+        assert len(df) == 1
+        assert df["competencia"].iloc[0] == "2026-01"
+
+    def test_inicializar_schema_idempotente(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        loader = DatabaseLoader(db_path)
+        loader.inicializar_schema()
+        loader.inicializar_schema()
+
+    def test_fontes_coluna_e_array(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        DatabaseLoader(db_path).inicializar_schema()
+        con = duckdb.connect(str(db_path), read_only=True)
+        df = con.execute(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_schema='gold' AND table_name='profissionais_processados' "
+            "AND column_name='fontes'"
+        ).df()
+        con.close()
+        assert not df.empty
+        assert "[]" in df["data_type"].iloc[0].upper() or "LIST" in df["data_type"].iloc[0].upper()
+
+    def test_cbo_lookup_sem_coluna_competencia(self, tmp_path):
+        db_path = tmp_path / "test.duckdb"
+        DatabaseLoader(db_path).inicializar_schema()
+        con = duckdb.connect(str(db_path), read_only=True)
+        cols = con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='gold' AND table_name='cbo_lookup'"
+        ).df()["column_name"].tolist()
+        con.close()
+        assert "competencia" not in cols
+        assert "created_at" in cols
 
 
 class TestGravarPipelineRun:
