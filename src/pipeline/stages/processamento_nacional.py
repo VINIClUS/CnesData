@@ -12,6 +12,7 @@ _COLUNAS_TEXTO = ("CNS", "NOME_PROFISSIONAL", "CBO", "CNES", "TIPO_VINCULO", "SU
 
 class ProcessamentoNacionalStage:
     """Normaliza dados nacionais quando fonte local está indisponível."""
+    critico = False
 
     nome = "processamento_nacional"
 

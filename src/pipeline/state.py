@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from ingestion.quarantine import QuarantineBuffer
 
 
 @dataclass
@@ -42,6 +45,8 @@ class PipelineState:
     nacional_disponivel: bool = False
     nacional_validado: bool = False
     fingerprint_local: str = ""
+    quarantine_buffer: "QuarantineBuffer | None" = None
+    pipeline_status_override: str = ""
     metricas_avancadas: dict = field(default_factory=dict)
     force_reingestao: bool = False
     snapshot_carregado: bool = False

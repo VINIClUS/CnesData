@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 class MetricasStage:
     nome = "metricas"
+    critico = False
 
     def __init__(self, db_loader: DatabaseLoader, historico_reader: HistoricoReader) -> None:
         self._db = db_loader

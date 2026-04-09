@@ -8,6 +8,7 @@ import pandas as pd
 
 import config
 from ingestion.cnes_nacional_adapter import CnesNacionalAdapter
+from pipeline.circuit_breaker import CircuitBreaker, CircuitBreakerAberto
 from pipeline.state import PipelineState
 from storage.database_loader import DatabaseLoader
 
@@ -29,6 +30,7 @@ def _computar_fingerprint(df: pd.DataFrame) -> str:
 
 
 class IngestaoNacionalStage:
+    critico = False
     nome = "ingestao_nacional"
 
     def __init__(self, db_loader: DatabaseLoader) -> None:
@@ -50,10 +52,16 @@ class IngestaoNacionalStage:
         if fingerprint and self._cache_valido(state.competencia_str, fingerprint):
             logger.info("cache_nacional=hit competencia=%s", state.competencia_str)
             return
+        breaker = CircuitBreaker(failure_threshold=3, service_name="DATASUS")
         try:
-            self._buscar(state)
+            breaker.call(self._buscar, state)
+        except CircuitBreakerAberto:
+            logger.error("nacional_cross_check=skipped source=DATASUS status=UNAVAILABLE")
+            state.nacional_disponivel = False
+            return
         except Exception as exc:
             logger.warning("nacional_cross_check=skipped motivo=%s", exc)
+            state.nacional_disponivel = False
             return
         if fingerprint:
             self._db.gravar_cache_nacional(state.competencia_str, fingerprint)

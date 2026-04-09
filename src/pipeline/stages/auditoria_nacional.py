@@ -27,6 +27,7 @@ class PeriodoInvariantError(Exception):
 
 class AuditoriaNacionalStage:
     nome = "auditoria_nacional"
+    critico = False
 
     def execute(self, state: PipelineState) -> None:
         """Executa cruzamento com dados nacionais.

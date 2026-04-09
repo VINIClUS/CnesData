@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 class SnapshotLocalStage:
     """Persiste snapshot local e computa delta contra competência anterior no DuckDB."""
+    critico = False
 
     nome = "snapshot_local"
 

@@ -149,6 +149,31 @@ _DDL_PIPELINE_RUNS = """
     )
 """
 
+_DDL_SCHEMA_QUARANTINE = "CREATE SCHEMA IF NOT EXISTS quarantine"
+
+_DDL_QUARANTINE_RECORDS = """
+    CREATE TABLE IF NOT EXISTS quarantine.records (
+        id               INTEGER PRIMARY KEY,
+        competencia      VARCHAR NOT NULL,
+        source_system    VARCHAR NOT NULL,
+        record_identifier VARCHAR,
+        error_category   VARCHAR NOT NULL,
+        failure_reason   TEXT NOT NULL,
+        raw_payload      JSON,
+        criado_em        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+_DDL_QUARANTINE_IDX_SOURCE = """
+    CREATE INDEX IF NOT EXISTS idx_quarantine_source
+    ON quarantine.records (source_system, competencia)
+"""
+
+_DDL_QUARANTINE_IDX_IDENTIFIER = """
+    CREATE INDEX IF NOT EXISTS idx_quarantine_identifier
+    ON quarantine.records (record_identifier)
+"""
+
 
 class DatabaseLoader:
     """Gerencia a conexão e persistência no banco DuckDB local."""
@@ -194,6 +219,10 @@ class DatabaseLoader:
             con.execute(_DDL_ESTABELECIMENTOS)
             con.execute(_DDL_CBO_LOOKUP)
             con.execute(_DDL_PIPELINE_RUNS)
+            con.execute(_DDL_SCHEMA_QUARANTINE)
+            con.execute(_DDL_QUARANTINE_RECORDS)
+            con.execute(_DDL_QUARANTINE_IDX_SOURCE)
+            con.execute(_DDL_QUARANTINE_IDX_IDENTIFIER)
         logger.info("schema_gold inicializado db=%s", self._caminho_db)
 
     def gravar_metricas(self, snapshot: Snapshot) -> None:
@@ -260,12 +289,18 @@ class DatabaseLoader:
         if df.empty:
             return
         with self._conectar() as con:
-            con.execute(
-                "DELETE FROM gold.glosas_profissional WHERE competencia=? AND regra=?",
-                [competencia, regra],
-            )
-            con.register("_df_glosas", df)
-            con.execute("INSERT INTO gold.glosas_profissional SELECT * FROM _df_glosas")
+            con.execute("BEGIN TRANSACTION")
+            try:
+                con.execute(
+                    "DELETE FROM gold.glosas_profissional WHERE competencia=? AND regra=?",
+                    [competencia, regra],
+                )
+                con.register("_df_glosas", df)
+                con.execute("INSERT INTO gold.glosas_profissional SELECT * FROM _df_glosas")
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
         logger.info("glosas gravadas competencia=%s regra=%s total=%d", competencia, regra, len(df))
 
     def gravar_cache_nacional(self, competencia: str, fingerprint: str) -> None:
@@ -388,21 +423,27 @@ class DatabaseLoader:
         )
         df_insert = df_insert.drop(columns=["fonte"], errors="ignore")
         with self._conectar() as con:
-            con.register("_tmp_prof", df_insert)
-            con.execute("""
-                INSERT INTO gold.profissionais_processados
-                    (competencia, cpf, cnes, cns, nome_profissional, sexo, cbo,
-                     tipo_vinculo, sus, ch_total, ch_ambulatorial, ch_outras,
-                     ch_hospitalar, fontes, alerta_status_ch, descricao_cbo, gravado_em)
-                SELECT competencia, cpf, cnes, cns, nome_profissional, sexo, cbo,
-                       tipo_vinculo, sus, ch_total, ch_ambulatorial, ch_outras,
-                       ch_hospitalar, fontes, alerta_status_ch, descricao_cbo,
-                       CURRENT_TIMESTAMP
-                FROM _tmp_prof
-                ON CONFLICT (competencia, cpf, cnes) DO UPDATE SET
-                    fontes = list_distinct(list_concat(fontes, EXCLUDED.fontes)),
-                    gravado_em = now()
-            """)
+            con.execute("BEGIN TRANSACTION")
+            try:
+                con.register("_tmp_prof", df_insert)
+                con.execute("""
+                    INSERT INTO gold.profissionais_processados
+                        (competencia, cpf, cnes, cns, nome_profissional, sexo, cbo,
+                         tipo_vinculo, sus, ch_total, ch_ambulatorial, ch_outras,
+                         ch_hospitalar, fontes, alerta_status_ch, descricao_cbo, gravado_em)
+                    SELECT competencia, cpf, cnes, cns, nome_profissional, sexo, cbo,
+                           tipo_vinculo, sus, ch_total, ch_ambulatorial, ch_outras,
+                           ch_hospitalar, fontes, alerta_status_ch, descricao_cbo,
+                           CURRENT_TIMESTAMP
+                    FROM _tmp_prof
+                    ON CONFLICT (competencia, cpf, cnes) DO UPDATE SET
+                        fontes = list_distinct(list_concat(fontes, EXCLUDED.fontes)),
+                        gravado_em = now()
+                """)
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
         logger.info("profissionais gravados competencia=%s total=%d", competencia, len(df))
 
     def gravar_estabelecimentos(self, competencia: str, df: pd.DataFrame) -> None:

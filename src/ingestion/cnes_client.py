@@ -228,6 +228,25 @@ def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:
     return df
 
 
+def dump_vinculos_para_parquet(con: fdb.Connection, output_dir: Path, competencia: str) -> Path:
+    """Extrai vínculos do Firebird e persiste em Parquet. Fecha a conexão ao final.
+
+    Args:
+        con: Conexão ativa com o banco Firebird.
+        output_dir: Diretório de saída para o arquivo temporário.
+        competencia: Competência no formato 'YYYY-MM'.
+
+    Returns:
+        Path do arquivo Parquet gerado.
+    """
+    df = extrair_profissionais(con)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"firebird_dump_{competencia}.parquet"
+    df.to_parquet(path, engine="pyarrow", index=False)
+    logger.info("dump_parquet path=%s linhas=%d", path, len(df))
+    return path
+
+
 def _executar_query(con: fdb.Connection, sql: str) -> pd.DataFrame:
     cur = con.cursor()
     try:

@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class AuditoriaLocalStage:
     nome = "auditoria_local"
+    critico = False
 
     def execute(self, state: PipelineState) -> None:
         """Executa regras locais/nacionais e cruzamento HR.

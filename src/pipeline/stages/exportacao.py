@@ -27,6 +27,8 @@ def _gravar_last_run(state: PipelineState, last_run_path: Path) -> None:
 
 
 def _status_pipeline(state: PipelineState) -> str:
+    if state.pipeline_status_override:
+        return state.pipeline_status_override
     if state.local_disponivel and state.nacional_disponivel:
         return "completo"
     if state.local_disponivel:
@@ -36,8 +38,27 @@ def _status_pipeline(state: PipelineState) -> str:
     return "sem_dados"
 
 
+def _alertar_dlq_ratio(state: PipelineState, loader: DatabaseLoader) -> None:
+    buf = state.quarantine_buffer
+    if buf is None:
+        return
+    total_valid = len(state.df_prof_local) if not state.df_prof_local.empty else 0
+    ratio = buf.quarantine_ratio(total_valid)
+    if ratio > config.DLQ_THRESHOLD:
+        logger.error(
+            "dlq_ratio=%.3f threshold=%.3f competencia=%s",
+            ratio,
+            config.DLQ_THRESHOLD,
+            state.competencia_str,
+        )
+        state.pipeline_status_override = "parcial_alto_dlq"
+    with loader._conectar() as con:
+        buf.flush_to_duckdb(con)
+
+
 class ExportacaoStage:
     nome = "exportacao"
+    critico = False
 
     def execute(self, state: PipelineState) -> None:
         self._persistir_historico(state)
@@ -79,6 +100,7 @@ class ExportacaoStage:
             loader.gravar_cbo_lookup(competencia, state.cbo_lookup)
 
         _gravar_last_run(state, config.LAST_RUN_PATH)
+        _alertar_dlq_ratio(state, loader)
         loader.gravar_pipeline_run(
             competencia,
             state.local_disponivel,

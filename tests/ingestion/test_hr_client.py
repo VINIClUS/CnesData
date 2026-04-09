@@ -49,11 +49,19 @@ class TestLeituraDeArquivo:
             carregar_folha(_XLSX)
             mock_read.assert_called_once_with(_XLSX)
 
-    def test_csv_chama_read_csv(self):
-        with patch("ingestion.hr_client.pd.read_csv") as mock_read:
-            mock_read.return_value = _df_folha_valido()
-            carregar_folha(_CSV)
-            mock_read.assert_called_once_with(_CSV)
+    pass
+
+
+def test_csv_usa_linhas_limpas(tmp_path):
+    from ingestion.hr_client import COLUNAS_OBRIGATORIAS_FOLHA
+    csv_path = tmp_path / "folha.csv"
+    colunas = sorted(COLUNAS_OBRIGATORIAS_FOLHA) + ["DATA_ADMISSAO", "DATA_DEMISSAO"]
+    header = ",".join(colunas)
+    vals = {c: "12345678901" if "CPF" in c else ("NOME TESTE" if "NOME" in c else ("ATIVO" if "STATUS" in c else "2024-01-01")) for c in colunas}
+    row = ",".join(vals.values())
+    csv_path.write_text(f"{header}\n{row}", encoding="utf-8")
+    df = carregar_folha(csv_path)
+    assert not df.empty
 
     def test_extensao_desconhecida_levanta_hr_schema_error(self):
         with pytest.raises(HrSchemaError, match="extensão"):

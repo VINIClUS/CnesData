@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 class ProcessamentoStage:
     nome = "processamento"
+    critico = False
 
     def execute(self, state: PipelineState) -> None:
         if not state.local_disponivel:

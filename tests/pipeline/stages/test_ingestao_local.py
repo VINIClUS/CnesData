@@ -10,6 +10,16 @@ from storage.database_loader import DatabaseLoader
 from storage.snapshot_local import SnapshotLocal, salvar_snapshot
 
 
+def _dump_side_effect(df_prof_fn):
+    """Gera um side_effect para dump_vinculos_para_parquet que grava Parquet real."""
+    def _side(con, output_dir, competencia):
+        path = output_dir / f"firebird_dump_{competencia}.parquet"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        df_prof_fn().to_parquet(path, index=False)
+        return path
+    return _side
+
+
 def _state() -> PipelineState:
     return PipelineState(
         competencia_ano=2024,
@@ -67,7 +77,9 @@ def _df_estab() -> pd.DataFrame:
 @patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
 @patch("pipeline.stages.ingestao_local.ProfissionalContract")
 @patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+@patch("pipeline.stages.ingestao_local.dump_vinculos_para_parquet")
 def test_popula_state_com_dados_locais(
+    mock_dump,
     mock_estab_contract,
     mock_prof_contract,
     mock_adapter_cls,
@@ -76,20 +88,20 @@ def test_popula_state_com_dados_locais(
     mock_periodo,
     tmp_path,
 ):
+    mock_dump.side_effect = _dump_side_effect(_df_prof)
     loader = DatabaseLoader(tmp_path / "test.duckdb")
     loader.inicializar_schema()
     mock_con = MagicMock()
     mock_conectar.return_value = mock_con
     mock_cbo.return_value = {"515105": "Agente Comunitário"}
     mock_adapter = MagicMock()
-    mock_adapter.listar_profissionais.return_value = _df_prof()
     mock_adapter.listar_estabelecimentos.return_value = _df_estab()
     mock_adapter_cls.return_value = mock_adapter
 
     state = _state()
     IngestaoLocalStage(tmp_path, loader).execute(state)
 
-    assert state.con is mock_con
+    assert state.con is None
     assert state.cbo_lookup == {"515105": "Agente Comunitário"}
     assert len(state.df_prof_local) == 1
     assert len(state.df_estab_local) == 1
@@ -101,7 +113,9 @@ def test_popula_state_com_dados_locais(
 @patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
 @patch("pipeline.stages.ingestao_local.ProfissionalContract")
 @patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+@patch("pipeline.stages.ingestao_local.dump_vinculos_para_parquet")
 def test_valida_contratos_apos_ingestao(
+    mock_dump,
     mock_estab_contract,
     mock_prof_contract,
     mock_adapter_cls,
@@ -110,12 +124,12 @@ def test_valida_contratos_apos_ingestao(
     mock_periodo,
     tmp_path,
 ):
+    mock_dump.side_effect = _dump_side_effect(_df_prof)
     loader = DatabaseLoader(tmp_path / "test.duckdb")
     loader.inicializar_schema()
     mock_conectar.return_value = MagicMock()
     mock_cbo.return_value = {}
     mock_adapter = MagicMock()
-    mock_adapter.listar_profissionais.return_value = _df_prof()
     mock_adapter.listar_estabelecimentos.return_value = _df_estab()
     mock_adapter_cls.return_value = mock_adapter
 
@@ -179,19 +193,19 @@ def test_usa_snapshot_quando_existe_e_sem_force(
 @patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
 @patch("pipeline.stages.ingestao_local.ProfissionalContract")
 @patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+@patch("pipeline.stages.ingestao_local.dump_vinculos_para_parquet")
 def test_usa_firebird_quando_force_reingestao(
-    mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, mock_periodo, tmp_path
+    mock_dump, mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, mock_periodo, tmp_path
 ):
+    mock_dump.side_effect = _dump_side_effect(_df_prof)
     loader = DatabaseLoader(tmp_path / "test.duckdb")
     loader.inicializar_schema()
     snap = SnapshotLocal(df_prof=_df_prof(), df_estab=_df_estab(), cbo_lookup={})
     salvar_snapshot("2024-12", tmp_path, snap)
 
-    mock_con = MagicMock()
-    mock_conectar.return_value = mock_con
+    mock_conectar.return_value = MagicMock()
     mock_cbo.return_value = {}
     mock_adapter = MagicMock()
-    mock_adapter.listar_profissionais.return_value = _df_prof()
     mock_adapter.listar_estabelecimentos.return_value = _df_estab()
     mock_adapter_cls.return_value = mock_adapter
 
@@ -208,16 +222,16 @@ def test_usa_firebird_quando_force_reingestao(
 @patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
 @patch("pipeline.stages.ingestao_local.ProfissionalContract")
 @patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+@patch("pipeline.stages.ingestao_local.dump_vinculos_para_parquet")
 def test_usa_firebird_quando_sem_snapshot(
-    mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, mock_periodo, tmp_path
+    mock_dump, mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, mock_periodo, tmp_path
 ):
+    mock_dump.side_effect = _dump_side_effect(_df_prof)
     loader = DatabaseLoader(tmp_path / "test.duckdb")
     loader.inicializar_schema()
-    mock_con = MagicMock()
-    mock_conectar.return_value = mock_con
+    mock_conectar.return_value = MagicMock()
     mock_cbo.return_value = {}
     mock_adapter = MagicMock()
-    mock_adapter.listar_profissionais.return_value = _df_prof()
     mock_adapter.listar_estabelecimentos.return_value = _df_estab()
     mock_adapter_cls.return_value = mock_adapter
 
@@ -310,16 +324,16 @@ def test_backfill_do_parquet_quando_duckdb_vazio(tmp_path):
 @patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
 @patch("pipeline.stages.ingestao_local.ProfissionalContract")
 @patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+@patch("pipeline.stages.ingestao_local.dump_vinculos_para_parquet")
 def test_consulta_firebird_para_periodo_atual_sem_dados(
-    mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, mock_periodo, tmp_path
+    mock_dump, mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, mock_periodo, tmp_path
 ):
+    mock_dump.side_effect = _dump_side_effect(_df_prof_new)
     loader = DatabaseLoader(tmp_path / "test.duckdb")
     loader.inicializar_schema()
-    mock_con = MagicMock()
-    mock_conectar.return_value = mock_con
+    mock_conectar.return_value = MagicMock()
     mock_cbo.return_value = {}
     mock_adapter = MagicMock()
-    mock_adapter.listar_profissionais.return_value = _df_prof_new()
     mock_adapter.listar_estabelecimentos.return_value = _df_estab_new()
     mock_adapter_cls.return_value = mock_adapter
 
@@ -348,17 +362,17 @@ def test_marca_indisponivel_para_periodo_passado_sem_dados(mock_periodo, tmp_pat
 @patch("pipeline.stages.ingestao_local.CnesLocalAdapter")
 @patch("pipeline.stages.ingestao_local.ProfissionalContract")
 @patch("pipeline.stages.ingestao_local.EstabelecimentoContract")
+@patch("pipeline.stages.ingestao_local.dump_vinculos_para_parquet")
 def test_force_reingestao_usa_firebird_no_periodo_atual(
-    mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, mock_periodo, tmp_path
+    mock_dump, mock_ec, mock_pc, mock_adapter_cls, mock_cbo, mock_conectar, mock_periodo, tmp_path
 ):
+    mock_dump.side_effect = _dump_side_effect(_df_prof_new)
     loader = DatabaseLoader(tmp_path / "test.duckdb")
     loader.inicializar_schema()
     loader.gravar_profissionais("2024-12", _df_prof_new())
-    mock_con = MagicMock()
-    mock_conectar.return_value = mock_con
+    mock_conectar.return_value = MagicMock()
     mock_cbo.return_value = {}
     mock_adapter = MagicMock()
-    mock_adapter.listar_profissionais.return_value = _df_prof_new()
     mock_adapter.listar_estabelecimentos.return_value = _df_estab_new()
     mock_adapter_cls.return_value = mock_adapter
 

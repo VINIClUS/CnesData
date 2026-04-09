@@ -1,9 +1,13 @@
 """Cliente de ingestão de planilhas de RH (folha de pagamento e ponto eletrônico)."""
 
+import csv
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 import pandas as pd
+
+_ENCODING_CHAIN: tuple[str, ...] = ("utf-8-sig", "utf-8", "cp1252")
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,25 @@ def carregar_ponto(caminho: Path) -> pd.DataFrame:
     return resultado
 
 
+def _detectar_encoding(caminho: Path) -> str:
+    for enc in _ENCODING_CHAIN:
+        try:
+            with open(caminho, encoding=enc) as f:
+                f.read(512)
+            return enc
+        except UnicodeDecodeError:
+            continue
+    return "cp1252"
+
+
+def _linhas_limpas(caminho: Path) -> Iterator[str]:
+    """Gera linhas com null bytes removidos e encoding detectado automaticamente."""
+    enc = _detectar_encoding(caminho)
+    with open(caminho, encoding=enc, errors="replace", newline="") as f:
+        for linha in f:
+            yield linha.replace("\x00", "")
+
+
 def _ler_arquivo(caminho: Path) -> pd.DataFrame:
     extensao = caminho.suffix.lower()
     if extensao not in _EXTENSOES_SUPORTADAS:
@@ -65,7 +88,9 @@ def _ler_arquivo(caminho: Path) -> pd.DataFrame:
         )
     if extensao == ".xlsx":
         return pd.read_excel(caminho)
-    return pd.read_csv(caminho)
+    reader = csv.DictReader(_linhas_limpas(caminho))
+    rows = list(reader)
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 def _validar_schema(

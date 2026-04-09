@@ -119,3 +119,5 @@ LOG_FILE: Path = LOGS_DIR / "cnes_exporter.log"
 
 # ── Cache Nacional (BigQuery) ──────────────────────────────────────────────
 NACIONAL_CACHE_TTL_DIAS: int = _exigir_inteiro("NACIONAL_CACHE_TTL_DIAS", 7)
+
+DLQ_THRESHOLD: float = float(os.getenv("DLQ_THRESHOLD", "0.05"))
