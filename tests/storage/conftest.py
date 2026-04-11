@@ -45,12 +45,7 @@ def pg_engine(pg_service):
 
 @pytest.fixture()
 def adapter(pg_engine) -> PostgresAdapter:
-    return PostgresAdapter(pg_engine, tenant_id=_TENANT_ID)
-
-
-@pytest.fixture(autouse=True)
-def truncate_tables(pg_engine):
-    yield
+    yield PostgresAdapter(pg_engine, tenant_id=_TENANT_ID)
     with pg_engine.begin() as con:
         con.execute(text(
             "TRUNCATE gold.fato_vinculo, gold.dim_profissional, "
