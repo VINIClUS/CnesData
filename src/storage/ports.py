@@ -27,4 +27,6 @@ class NullStoragePort:
         )
 
     def registrar_pipeline_run(self, competencia: str, estado: dict) -> None:
-        pass
+        _logger.warning(
+            "DB_URL nao configurado; pipeline_run nao registrado competencia=%s", competencia
+        )

@@ -46,7 +46,7 @@ def configurar_logging(verbose: bool = False) -> None:
 
 
 def _criar_estado(args) -> PipelineState:
-    ano, mes = args.competencia if args.competencia else (config.COMPETENCIA_ANO, config.COMPETENCIA_MES)
+    ano, mes = args.competencia or (config.COMPETENCIA_ANO, config.COMPETENCIA_MES)
     output_path = (
         (Path(args.output_dir) / config.OUTPUT_PATH.name).resolve()
         if args.output_dir
