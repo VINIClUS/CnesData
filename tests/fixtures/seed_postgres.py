@@ -1,4 +1,5 @@
 """Seed script para banco de integração. Invocado pelo serviço pg-seed do docker-compose."""
+import logging
 import os
 import random
 
@@ -61,7 +62,9 @@ def seed(engine) -> None:
         con.execute(insert(dim_profissional), profs)
         con.execute(insert(fato_vinculo), vinculos)
 
-    print(f"seed: estabs={len(estabs)} profs={len(profs)} vinculos={len(vinculos)}")
+    logging.getLogger(__name__).info(
+        "seed estabs=%d profs=%d vinculos=%d", len(estabs), len(profs), len(vinculos)
+    )
 
 
 if __name__ == "__main__":

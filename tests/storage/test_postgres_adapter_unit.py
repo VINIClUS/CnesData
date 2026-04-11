@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 import pytest
 
-from src.storage.postgres_adapter import PostgresAdapter
+from storage.postgres_adapter import PostgresAdapter
 
 
 @pytest.fixture()
@@ -166,6 +166,6 @@ class TestRegistrarPipelineRun:
         adapter.registrar_pipeline_run("2025-01", {"status": "ok"})
 
     def test_loga_em_debug(self, adapter, caplog):
-        with caplog.at_level(logging.DEBUG, logger="src.storage.postgres_adapter"):
+        with caplog.at_level(logging.DEBUG, logger="storage.postgres_adapter"):
             adapter.registrar_pipeline_run("2025-01", {"status": "ok"})
         assert "2025-01" in caplog.text

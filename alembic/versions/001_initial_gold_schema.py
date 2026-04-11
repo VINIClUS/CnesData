@@ -30,7 +30,7 @@ def upgrade() -> None:
         sa.Column("cnpj_mantenedora", sa.String(14)),
         sa.Column("natureza_juridica", sa.String(4)),
         sa.Column("vinculo_sus", sa.Boolean(), server_default=sa.text("FALSE")),
-        sa.Column("fontes", postgresql.JSONB(), server_default=sa.text("'{}'")),
+        sa.Column("fontes", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb")),
         sa.Column(
             "criado_em",
             sa.TIMESTAMP(timezone=True),
@@ -56,7 +56,7 @@ def upgrade() -> None:
         sa.Column("cns", sa.String(15)),
         sa.Column("nome_profissional", sa.String(120)),
         sa.Column("sexo", sa.String(1)),
-        sa.Column("fontes", postgresql.JSONB(), server_default=sa.text("'{}'")),
+        sa.Column("fontes", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb")),
         sa.Column(
             "criado_em",
             sa.TIMESTAMP(timezone=True),
@@ -91,7 +91,7 @@ def upgrade() -> None:
         sa.Column("ch_ambulatorial", sa.Integer()),
         sa.Column("ch_outras", sa.Integer()),
         sa.Column("ch_hospitalar", sa.Integer()),
-        sa.Column("fontes", postgresql.JSONB(), server_default=sa.text("'{}'")),
+        sa.Column("fontes", postgresql.JSONB(), server_default=sa.text("'{}'::jsonb")),
         sa.Column(
             "criado_em",
             sa.TIMESTAMP(timezone=True),
