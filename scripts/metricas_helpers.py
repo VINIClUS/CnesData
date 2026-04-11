@@ -1,5 +1,12 @@
-"""Funções puras de parsing de métricas avançadas para a página Métricas."""
+"""@deprecated: Será reestruturado em pipeline separado. Funções puras de parsing de métricas avançadas para a página Métricas."""
 import json
+import warnings
+
+warnings.warn(
+    "metricas_helpers será reestruturado em pipeline separado.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def _parsear_metricas(raw: dict) -> dict:

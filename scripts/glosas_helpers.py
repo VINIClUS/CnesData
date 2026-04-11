@@ -1,5 +1,12 @@
-"""Funções puras de filtragem e mascaramento PII para a página Glosas."""
+"""@deprecated: Será reestruturado em pipeline separado. Funções puras de filtragem e mascaramento PII para a página Glosas."""
+import warnings
 import pandas as pd
+
+warnings.warn(
+    "glosas_helpers será reestruturado em pipeline separado.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def _filtrar_glosas(df: pd.DataFrame, regras: list[str], busca: str) -> pd.DataFrame:

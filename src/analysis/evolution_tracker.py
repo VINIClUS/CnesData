@@ -1,11 +1,18 @@
-"""Rastreamento histórico de anomalias por competência CNES — WP-006."""
+"""@deprecated: Será reestruturado em pipeline separado. Rastreamento histórico de anomalias por competência CNES — WP-006."""
 
 import json
 import logging
+import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import pandas as pd
+
+warnings.warn(
+    "evolution_tracker será reestruturado em pipeline separado.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

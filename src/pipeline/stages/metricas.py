@@ -1,6 +1,7 @@
-"""MetricasStage — glosas, histórico e métricas avançadas."""
+"""@deprecated: Será reestruturado em pipeline separado. MetricasStage — glosas, histórico e métricas avançadas."""
 import json
 import logging
+import warnings
 from datetime import datetime
 
 import pandas as pd
@@ -30,6 +31,11 @@ class MetricasStage:
     critico = False
 
     def __init__(self, db_loader: DatabaseLoader, historico_reader: HistoricoReader) -> None:
+        warnings.warn(
+            "MetricasStage será reestruturado em pipeline separado.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._db = db_loader
         self._reader = historico_reader
 

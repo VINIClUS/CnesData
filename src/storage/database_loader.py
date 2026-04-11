@@ -1,6 +1,7 @@
-"""DatabaseLoader — persistência DuckDB com schema Gold (Medallion POC)."""
+"""@deprecated: Substituído por PostgresAdapter. DatabaseLoader — persistência DuckDB com schema Gold (Medallion POC)."""
 
 import logging
+import warnings
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -179,6 +180,11 @@ class DatabaseLoader:
     """Gerencia a conexão e persistência no banco DuckDB local."""
 
     def __init__(self, caminho_db: Path) -> None:
+        warnings.warn(
+            "DatabaseLoader substituído por PostgresAdapter. Será removido após migração completa.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._caminho_db = caminho_db
 
     @contextmanager
