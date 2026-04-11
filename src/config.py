@@ -88,6 +88,7 @@ CNPJ_MANTENEDORA: str = _validar_formato(
 # ── Snapshots Históricos ──────────────────────────────────────────────────
 SNAPSHOTS_DIR: Path = RAIZ_PROJETO / os.getenv("SNAPSHOTS_DIR", "data/snapshots")
 DUCKDB_PATH: Path = RAIZ_PROJETO / os.getenv("DUCKDB_PATH", "data/cnesdata.duckdb")
+DB_URL: str = os.getenv("DB_URL", "")
 CACHE_DIR: Path = RAIZ_PROJETO / os.getenv("CACHE_DIR", "data/cache")
 LAST_RUN_PATH: Path = CACHE_DIR / "last_run.json"
 

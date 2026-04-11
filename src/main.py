@@ -17,8 +17,11 @@ from pipeline.stages.metricas import MetricasStage
 from pipeline.stages.processamento import ProcessamentoStage
 from pipeline.stages.processamento_nacional import ProcessamentoNacionalStage
 from pipeline.stages.snapshot_local import SnapshotLocalStage
+from sqlalchemy import create_engine
 from storage.database_loader import DatabaseLoader
 from storage.historico_reader import HistoricoReader
+from storage.postgres_adapter import PostgresAdapter
+from storage.ports import NullStoragePort
 
 
 def configurar_logging(verbose: bool = False) -> None:
@@ -70,6 +73,11 @@ def main() -> int:
     state = _criar_estado(args)
     db_loader = DatabaseLoader(config.DUCKDB_PATH)
     db_loader.inicializar_schema()
+    _storage = (
+        PostgresAdapter(create_engine(config.DB_URL), config.COD_MUN_IBGE)
+        if config.DB_URL
+        else NullStoragePort()
+    )
     historico_reader = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
     orchestrator = PipelineOrchestrator([
         IngestaoLocalStage(config.HISTORICO_DIR, db_loader),
@@ -80,7 +88,7 @@ def main() -> int:
         AuditoriaLocalStage(),
         AuditoriaNacionalStage(),
         MetricasStage(db_loader, historico_reader),
-        ExportacaoStage(),
+        ExportacaoStage(_storage),
     ])
     try:
         orchestrator.executar(state)

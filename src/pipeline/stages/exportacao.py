@@ -1,4 +1,4 @@
-"""ExportacaoStage — persistência DuckDB, JSON e pipeline_runs. Sem CSV/XLSX em disco."""
+"""ExportacaoStage — persistência PostgreSQL, snapshots JSON. Sem CSV/XLSX em disco."""
 import json
 import logging
 from datetime import datetime
@@ -7,7 +7,7 @@ from pathlib import Path
 import config
 from analysis.evolution_tracker import criar_snapshot, salvar_snapshot
 from pipeline.state import PipelineState
-from storage.database_loader import DatabaseLoader
+from storage.ports import StoragePort
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def _gravar_last_run(state: PipelineState, last_run_path: Path) -> None:
         "firebird": {"ts": agora, "ok": state.local_disponivel},
         "bigquery": {"ts": agora if nacional_ok else None, "ok": nacional_ok},
         "hr": {"ts": agora if hr_ok else None, "ok": hr_ok if state.executar_hr else None},
-        "duckdb": {"ts": agora, "ok": True},
+        "postgres": {"ts": agora, "ok": True},
     }
     last_run_path.parent.mkdir(parents=True, exist_ok=True)
     last_run_path.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -38,35 +38,18 @@ def _status_pipeline(state: PipelineState) -> str:
     return "sem_dados"
 
 
-def _alertar_dlq_ratio(state: PipelineState, loader: DatabaseLoader) -> None:
-    buf = state.quarantine_buffer
-    if buf is None:
-        return
-    total_valid = len(state.df_prof_local) if not state.df_prof_local.empty else 0
-    ratio = buf.quarantine_ratio(total_valid)
-    if ratio > config.DLQ_THRESHOLD:
-        logger.error(
-            "dlq_ratio=%.3f threshold=%.3f competencia=%s",
-            ratio,
-            config.DLQ_THRESHOLD,
-            state.competencia_str,
-        )
-        state.pipeline_status_override = "parcial_alto_dlq"
-    with loader._conectar() as con:
-        buf.flush_to_duckdb(con)
-
-
 class ExportacaoStage:
     nome = "exportacao"
     critico = False
+
+    def __init__(self, storage: StoragePort) -> None:
+        self._storage = storage
 
     def execute(self, state: PipelineState) -> None:
         self._persistir_historico(state)
 
     def _persistir_historico(self, state: PipelineState) -> None:
         competencia = state.competencia_str
-        loader = DatabaseLoader(config.DUCKDB_PATH)
-        loader.inicializar_schema()
 
         if not state.df_processado.empty:
             snapshot = criar_snapshot(
@@ -79,33 +62,11 @@ class ExportacaoStage:
                 state.df_ace_incorretos,
             )
             salvar_snapshot(snapshot, config.SNAPSHOTS_DIR)
-            loader.gravar_metricas(snapshot)
-            loader.gravar_auditoria(competencia, "GHOST", snapshot.total_ghost)
-            loader.gravar_auditoria(competencia, "MISSING", snapshot.total_missing)
-            loader.gravar_auditoria(competencia, "RQ003B", len(state.df_multi_unidades))
-            loader.gravar_auditoria(competencia, "RQ005_ACS", len(state.df_acs_incorretos))
-            loader.gravar_auditoria(competencia, "RQ005_ACE", len(state.df_ace_incorretos))
-            nacional = state.nacional_disponivel
-            loader.gravar_auditoria(competencia, "RQ006", len(state.df_estab_fantasma) if nacional else None)
-            loader.gravar_auditoria(competencia, "RQ007", len(state.df_estab_ausente) if nacional else None)
-            loader.gravar_auditoria(competencia, "RQ008", len(state.df_prof_fantasma) if nacional else None)
-            loader.gravar_auditoria(competencia, "RQ009", len(state.df_prof_ausente) if nacional else None)
-            loader.gravar_auditoria(competencia, "RQ010", len(state.df_cbo_diverg) if nacional else None)
-            loader.gravar_auditoria(competencia, "RQ011", len(state.df_ch_diverg) if nacional else None)
 
-        # para runs nacional-only: SnapshotLocalStage nao grava no DuckDB
         if not state.local_disponivel and not state.df_processado.empty:
-            loader.gravar_profissionais(competencia, state.df_processado)
-            loader.gravar_estabelecimentos(competencia, state.df_estab_nacional)
-            loader.gravar_cbo_lookup(competencia, state.cbo_lookup)
+            self._storage.gravar_profissionais(competencia, state.df_processado)
+            self._storage.gravar_estabelecimentos(competencia, state.df_estab_nacional)
 
         _gravar_last_run(state, config.LAST_RUN_PATH)
-        _alertar_dlq_ratio(state, loader)
-        loader.gravar_pipeline_run(
-            competencia,
-            state.local_disponivel,
-            state.nacional_disponivel,
-            state.executar_hr,
-            _status_pipeline(state),
-        )
+        self._storage.registrar_pipeline_run(competencia, {"status": _status_pipeline(state)})
         logger.info("exportacao concluida competencia=%s", competencia)
