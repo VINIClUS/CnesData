@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
-from src.storage.schema import dim_estabelecimento, dim_profissional, fato_vinculo
+from storage.schema import dim_estabelecimento, dim_profissional, fato_vinculo
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ _SUS_MAP: dict[Any, Any] = {"S": True, "N": False}
 
 
 def _sus(value: Any) -> bool | None:
-    if pd.isna(value) if not isinstance(value, str) else value is None:
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
         return None
     return _SUS_MAP.get(value)
 
