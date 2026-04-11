@@ -34,14 +34,17 @@
         "ENABLE_CANVAS_SYNC": "true"
       }
     },
-    "DuckDB (in-memory, r/w)": {
-      "command": "uvx",
+    "cnes_db": {
+      "command": "uv",
       "args": [
-        "mcp-server-motherduck",
-        "--db-path",
-        ":memory:",
-        "--read-write",
-        "--allow-switch-databases"
+        "run",
+        "--env-file",
+        "C:\\Users\\Vinicius\\Projetos\\CnesData\\.env",
+        "--with",
+        "mcp-alchemy==2025.8.15.91819",
+        "--with",
+        "psycopg2-binary",
+        "mcp-alchemy"
       ]
     },
     "code-pathfinder": {

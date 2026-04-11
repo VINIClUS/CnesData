@@ -18,8 +18,8 @@
         {
             "alias": "cnesdata",
             "type": "file",
-            "path": "c:\\Users\\Vinicius\\Projetos\\CnesData\\data\\cnesdata.duckdb",
-            "attached": false
+            "path": "data\\cnesdata.duckdb",
+            "attached": true
         }
     ],
     "duckdb.defaultDatabase": "a"

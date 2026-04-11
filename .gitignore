@@ -39,6 +39,8 @@ logs/
 # --- VSCode ---
 .vscode/
 .claudeignore.json
+.streamlit/
+escalidraw.log
 
 # --- Sistema Operacional ---
 .DS_Store
@@ -66,6 +68,7 @@ excalidraw.log
 .coverage.xml.gz.part.1
 
 # Claude
+.claudeignore
 
 
 # Visual brainstorming companion
@@ -75,5 +78,3 @@ excalidraw.log
 node_modules/
 package-lock.json
 package.json
-test_headroom.py
-
