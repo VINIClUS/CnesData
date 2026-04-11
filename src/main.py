@@ -13,13 +13,11 @@ from pipeline.stages.auditoria_nacional import AuditoriaNacionalStage
 from pipeline.stages.exportacao import ExportacaoStage
 from pipeline.stages.ingestao_local import IngestaoLocalStage
 from pipeline.stages.ingestao_nacional import IngestaoNacionalStage
-from pipeline.stages.metricas import MetricasStage
 from pipeline.stages.processamento import ProcessamentoStage
 from pipeline.stages.processamento_nacional import ProcessamentoNacionalStage
 from pipeline.stages.snapshot_local import SnapshotLocalStage
 from sqlalchemy import create_engine
 from storage.database_loader import DatabaseLoader
-from storage.historico_reader import HistoricoReader
 from storage.postgres_adapter import PostgresAdapter
 from storage.ports import NullStoragePort
 
@@ -78,7 +76,6 @@ def main() -> int:
         if config.DB_URL
         else NullStoragePort()
     )
-    historico_reader = HistoricoReader(config.DUCKDB_PATH, config.HISTORICO_DIR)
     orchestrator = PipelineOrchestrator([
         IngestaoLocalStage(config.HISTORICO_DIR, db_loader),
         ProcessamentoStage(),
@@ -87,7 +84,6 @@ def main() -> int:
         ProcessamentoNacionalStage(),
         AuditoriaLocalStage(),
         AuditoriaNacionalStage(),
-        MetricasStage(db_loader, historico_reader),
         ExportacaoStage(_storage),
     ])
     try:
