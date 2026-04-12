@@ -22,6 +22,7 @@ SCHEMA_PROFISSIONAL: Final[tuple[str, ...]] = (
     "CNS",                # str — Cartão Nacional de Saúde 15 dígitos (PK de cross-check)
     "CPF",                # str — 11 dígitos (None na fonte nacional — indisponível no BigQuery)
     "NOME_PROFISSIONAL",  # str
+    "NOME_SOCIAL",        # str (None na fonte nacional — indisponível no BigQuery)
     "SEXO",               # str — M/F (None na fonte nacional — indisponível no BigQuery)
     "CBO",                # str — 6 dígitos
     "CNES",               # str — estabelecimento vinculado
