@@ -1,6 +1,6 @@
 # CnesData — Project Context
 
-> Living document. Last updated: 2026-03-27.
+> Living document. Last updated: 2026-04-12.
 > Audience: the developer (Vinícius), colleagues who will run the pipeline,
 > and any future AI session that needs to understand this project deeply.
 
@@ -8,13 +8,23 @@
 
 ## 1. What This Project Is
 
-CnesData is a **data reconciliation and audit pipeline** for public health workforce data in the municipality of Presidente Epitácio, São Paulo, Brazil (IBGE code 354130, population ~42,000).
+CnesData is a **deterministic data reconciliation engine** for public health workforce data. It receives data from municipal CNES databases, cross-references it against the national CNES via BigQuery, and produces structured audit reports identifying inconsistencies, ghost registrations, and allocation errors.
 
-It extracts professional-establishment links from a local Firebird database (CNES — Cadastro Nacional de Estabelecimentos de Saúde), cross-references them against the national CNES database via BigQuery, and produces structured audit reports identifying inconsistencies, ghost registrations, and allocation errors.
+**Pilot municipality:** Presidente Epitácio/SP (IBGE 354130, CNPJ 55.293.427/0001-17, population ~42,000).  
+**Architecture direction:** multi-municipality API engine fed by lightweight **dump agents** that run locally at each municipality and send data via HTTP.
 
 The output is a single Excel workbook with a summary dashboard and one tab per violated audit rule, each containing actionable recommendations in Portuguese. The file is designed to be opened by a health department coordinator with no technical background.
 
 **In one sentence:** CnesData tells the municipality "here are the professionals who shouldn't be where they are, aren't where they should be, or don't exist in the system they're supposed to be in."
+
+### Current Operational Mode vs. Target Architecture
+
+| Aspect | Current (CLI) | Target (API Engine) |
+|---|---|---|
+| Local data source | Direct Firebird connection | Parquet sent via HTTP by dump agent |
+| Trigger | Manual / Windows Task Scheduler | API call from dump agent or scheduler |
+| Multi-municipality | Config change per run | Multiple dump agents, one engine |
+| `--source` flag | `LOCAL` (default), `NACIONAL`, `AMBOS` | Same — source is declared, never inferred |
 
 ---
 
@@ -55,45 +65,63 @@ Or, with the scheduled task, it runs unattended on the 15th of every month.
 ### Data Flow
 
 ```
-Firebird CNES.GDB (local)          BigQuery (national)
-        │                                  │
-        ▼                                  ▼
+[ Dump Agent ]                      BigQuery (national)
+  (runs at municipality)                    │
+  Firebird CNES.GDB                         │
+        │                                   │
+        │ parquet → HTTP POST               │
+        ▼                                   ▼
   CnesLocalAdapter                 CnesNacionalAdapter
-        │                                  │
-        ▼                                  ▼
-    Schema Padronizado (schemas.py — canonical column names)
-        │
-        ├──► transformer.py (cleaning: RQ-002 CPF validation, RQ-003 zero-hours flag)
-        │
-        ▼
-    rules_engine.py (11 audit rules)
-        │
-        ├──► csv_exporter.py (individual CSVs per rule)
-        ├──► report_generator.py (consolidated Excel with RESUMO tab)
-        └──► evolution_tracker.py (JSON snapshots for trend analysis)
+        │                                   │
+        └──────────────┬────────────────────┘
+                       ▼
+           Schema Padronizado (schemas.py)
+                       │
+                       ├──► transformer.py (CPF validation, zero-hours flag)
+                       │
+                       ▼
+               rules_engine.py (11 audit rules)
+                       │
+                       ├──► csv_exporter.py
+                       ├──► report_generator.py (Excel + RESUMO)
+                       └──► evolution_tracker.py (JSON snapshots)
 ```
+
+**Current state:** `IngestaoLocalStage` loads parquet from `HISTORICO_DIR` or connects to Firebird directly (development mode). In production, parquet arrives from dump agents.
+
+**Dump agent contract:** agent extracts Firebird data, serializes to `firebird_dump_YYYY-MM.parquet` in `HISTORICO_DIR`, and triggers the pipeline via HTTP or Task Scheduler. The stage is stateless with respect to how the parquet got there.
 
 ### Key Design Decisions
 
-**Repository/Protocol Pattern (PEP 544)** — The analysis layer never sees Firebird column names or BigQuery column names. Both adapters translate to a canonical schema (`schemas.py`). This means adding a third data source (e.g., e-SUS, SCNES web) requires only a new adapter — zero changes to business rules.
+**Deterministic source selection (`target_source`)** — The data source is declared at invocation time (`--source LOCAL|NACIONAL|AMBOS`), never inferred from availability. If `LOCAL` is requested but no parquet exists, `StageSkipError` is raised — no silent fallback to national data. This preserves audit provenance: `FONTE=LOCAL` and `FONTE=NACIONAL` data must never be silently mixed.
 
-**CNS as cross-check key, not CPF** — The national BigQuery database does not expose CPF (privacy). The Cartão Nacional de Saúde (CNS, 15 digits) is the only reliable identifier available in both sources for professional-level reconciliation. This was discovered empirically during development, not assumed upfront.
+**Repository/Protocol Pattern (PEP 544)** — The analysis layer never sees Firebird column names or BigQuery column names. Both adapters translate to a canonical schema (`schemas.py`). Adding a third data source (e.g., dump agent JSON, e-SUS) requires only a new adapter — zero changes to business rules.
 
-**Three Firebird queries instead of one** — The original single query with LEFT JOINs to team tables (LFCES048 → LFCES060) produced all NULLs due to a Firebird 2.5 embedded engine bug with mismatched join keys between tables. The solution splits extraction into three queries (professionals, team members, teams) and merges in Python via a 4-character prefix match on `SEQ_EQUIPE`. This is documented in `cnes_client.py` and `data_dictionary.md`.
+**CNS as cross-check key, not CPF** — The national BigQuery database does not expose CPF (privacy). The Cartão Nacional de Saúde (CNS, 15 digits) is the only reliable identifier available in both sources for professional-level reconciliation. This was discovered empirically, not assumed upfront.
 
-**Competência lag** — DATASUS publishes national data with approximately 2 months delay. The pipeline accounts for this: the CLI auto-detects the correct competência as `current month - 2`, and the PowerShell automation script makes this configurable.
+**WIN1252 charset + NFKD normalization** — Firebird CNES.GDB is encoded in WIN1252. The `fdb.connect()` call explicitly passes `charset="WIN1252"`. String columns with accented names (e.g., "Atenção Básica") are NFKD-normalized in `cnes_local_adapter.py` before any merge operations to prevent false non-matches against national data.
+
+**Three Firebird queries instead of one** — The original single query with LEFT JOINs to team tables (LFCES048 → LFCES060) produced all NULLs due to a Firebird 2.5 embedded engine bug with mismatched join keys. The solution splits extraction into three queries (professionals, team members, teams) and merges in Python via a 4-character prefix match on `SEQ_EQUIPE`. Documented in `cnes_client.py` and `data_dictionary.md`.
+
+**Competência lag** — DATASUS publishes national data ~2 months delayed. The pipeline accounts for this: CLI auto-detects competência as `current month - 2`, configurable via PowerShell automation.
 
 ### Module Inventory
 
 | Module | Purpose | Tests |
 |---|---|---|
-| `cli.py` | argparse CLI interface | ~15 |
+| `cli.py` | argparse CLI (`--source`, `-c`, `-o`, `-v`) | ~15 |
 | `config.py` | .env reader, centralized configuration | 10 |
-| `main.py` | Pipeline orchestrator | 16+ |
+| `main.py` | Pipeline entry point | 16+ |
+| `pipeline/orchestrator.py` | PipelineOrchestrator, StageSkipError, StageFatalError | — |
+| `pipeline/state.py` | PipelineState (target_source, DataFrames) | 8 |
+| `pipeline/stages/ingestao_local.py` | Parquet/Firebird → state | — |
+| `pipeline/stages/ingestao_nacional.py` | BigQuery → state (circuit breaker) | — |
+| `pipeline/stages/processamento.py` | Cleaning, dedup | — |
+| `pipeline/stages/exportacao.py` | PostgreSQL persistence, status derivation | 15 |
 | `ingestion/base.py` | PEP 544 Protocol definitions | 5 |
 | `ingestion/schemas.py` | Canonical column names (source of truth) | — |
-| `ingestion/cnes_client.py` | Firebird extraction (3-query strategy) | 11 |
-| `ingestion/cnes_local_adapter.py` | Firebird → canonical schema | 25 |
+| `ingestion/cnes_client.py` | Firebird extraction (WIN1252, 3-query) | 15 |
+| `ingestion/cnes_local_adapter.py` | Firebird → canonical schema (NFKD) | 29 |
 | `ingestion/cnes_nacional_adapter.py` | BigQuery → canonical schema | 14 |
 | `ingestion/web_client.py` | BigQuery client via basedosdados | 17 |
 | `ingestion/hr_client.py` | HR spreadsheet parser (.xlsx/.csv) | 21 |
@@ -102,8 +130,9 @@ Firebird CNES.GDB (local)          BigQuery (national)
 | `analysis/evolution_tracker.py` | JSON snapshots + trend deltas | 33 |
 | `export/csv_exporter.py` | CSV output (Brazilian format) | — |
 | `export/report_generator.py` | Excel workbook with RESUMO + tabs | 25+ |
+| `storage/postgres_adapter.py` | PostgreSQL upsert by competência | — |
 
-**Total: 345 unit tests**, all passing. Integration tests require live Firebird.
+**Total: 319+ unit tests passing.** Integration tests require live Firebird.
 
 ---
 
@@ -184,9 +213,23 @@ These are concrete next steps, ordered by value:
 
 ---
 
-## 7. Where It Might Evolve (Long-Term Vision)
+## 7. Where It Is Going (Architecture Direction)
 
-These are possibilities, not commitments. Each would be a significant expansion.
+The engine is transitioning from a local CLI pipeline to a multi-municipality API reconciliation service. The architectural decisions made in 2026-04 (deterministic `target_source`, `StageSkipError` instead of silent fallback, proveniência imutável) are pre-requisites for this transition.
+
+### Active Direction: Dump Agent + API Model
+
+Each municipality runs a lightweight **dump agent** that:
+1. Connects to the local Firebird (`CNES.GDB`) with `charset=WIN1252`
+2. Extracts and serializes to parquet (`firebird_dump_YYYY-MM.parquet`)
+3. POSTs to the CnesData API endpoint
+4. Is stateless — no local state beyond the parquet file
+
+The API receives the parquet, stores it in `HISTORICO_DIR` partitioned by `municipio/competencia`, and runs the reconciliation engine. Results persist in PostgreSQL with `(municipio, competencia)` as composite key.
+
+This means **no Firebird access from the server** — the engine never reaches into a remote database. Data arrives as structured artifacts.
+
+### Remaining Possibilities
 
 ### 7.1 — Team-Level Audit
 
@@ -282,7 +325,7 @@ If starting a new Claude Code or Claude session for this project:
 6. **CLI:** `python src/main.py --help` shows all options.
 7. **The Firebird LEFT JOIN bug is real** — do not try to simplify `cnes_client.py` back to a single query. It will silently return NULLs for all team data. The 3-query + Python merge approach is intentional and documented.
 8. **BigQuery column names are confirmed empirically** — the data_dictionary.md notes which columns were wrong in earlier iterations (e.g., `id_cbo` doesn't exist, `indicador_sus` doesn't exist). Trust the confirmed schema, not guesses.
-9. **CLI:** `python src/main.py --help` — pipeline accepts `-c YYYY-MM`, `--skip-nacional`, `--skip-hr`, `-o OUTPUT_DIR`, `-v`/`--verbose`.
+9. **CLI:** `python src/main.py --help` — pipeline accepts `-c YYYY-MM`, `--source {LOCAL,NACIONAL,AMBOS}` (default `LOCAL`), `-o OUTPUT_DIR`, `-v`/`--verbose`. `--skip-nacional` was removed in 2026-04 — use `--source LOCAL`.
 10. **CBO lookup:** `extrair_lookup_cbo(con)` returns `dict[str, str]` CBO→description from NFCES026. Passed as optional parameter to `transformar()` and `detectar_divergencia_cbo()`.
 11. **Zero-padding is intentional:** CPF gets `zfill(11)` and CNES gets `zfill(7)`. Firebird omits leading zeros. Do not remove these zfills.
 12. **RQ-009 cascade filter:** professionals from establishments already flagged by RQ-007 are excluded. Without this, 87% of RQ-009 results are false positives. See `cnes_excluir` parameter in `detectar_profissionais_ausentes_local()`.

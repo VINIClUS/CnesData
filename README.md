@@ -1,137 +1,166 @@
 # CnesData
 
-Pipeline de auditoria do CNES (Cadastro Nacional de Estabelecimentos de Saúde)
-para a Prefeitura Municipal de Presidente Epitácio/SP (IBGE 354130).
+Motor de reconciliação de dados CNES para secretarias municipais de saúde.
 
-Cruza dados do banco Firebird local com a base nacional CNES via BigQuery,
-detectando inconsistências cadastrais, profissionais fantasma e divergências
-de atributos entre as duas fontes.
+Recebe dados de profissionais e estabelecimentos via **agentes de dump locais** (HTTP POST) ou diretamente da base nacional via BigQuery, aplica 11 regras de auditoria e persiste os resultados em PostgreSQL.
+
+**Piloto:** Presidente Epitácio/SP (IBGE 354130, CNPJ 55.293.427/0001-17).  
+**Direção:** arquitetura multi-município — o mesmo engine serve qualquer prefeitura cujo agente de dump esteja configurado.
+
+---
+
+## Arquitetura
+
+```
+Município A               Município B
+┌───────────────────┐     ┌───────────────────┐
+│  CNES.GDB         │     │  CNES.GDB         │
+│  Firebird local   │     │  Firebird local   │
+│                   │     │                   │
+│  [ Dump Agent ]   │     │  [ Dump Agent ]   │
+│  extrai → parquet │     │  extrai → parquet │
+└────────┬──────────┘     └────────┬──────────┘
+         │ HTTP POST                │ HTTP POST
+         └──────────┬───────────────┘
+                    ▼
+         ┌──────────────────────────┐
+         │  CnesData API            │
+         │  Reconciliation Engine   │
+         │                          │
+         │  1. IngestaoLocalStage   │◄─ parquet do dump agent
+         │  2. ProcessamentoStage   │
+         │  3. IngestaoNacionalStage│◄─ BigQuery (DATASUS)
+         │  4. ExportacaoStage      │
+         └──────────┬───────────────┘
+                    ▼
+              PostgreSQL
+              (auditoria por município × competência)
+```
+
+### Dump Agents
+
+Agentes leves que rodam no ambiente do município:
+
+1. Conectam ao `CNES.GDB` Firebird local
+2. Extraem vínculos profissional-estabelecimento via queries parametrizadas
+3. Serializam para parquet e fazem POST para o endpoint de ingestão da API
+4. São stateless — agendados via cron ou Windows Task Scheduler
+
+O engine aceita dados locais via parquet no `HISTORICO_DIR` (implementado) ou via API endpoint (roadmap).
+
+### Seleção de Fonte (`--source`)
+
+| Valor | Comportamento |
+|---|---|
+| `LOCAL` (padrão) | Usa parquet do dump agent ou Firebird direto. `StageSkipError` se ausente — sem fallback silencioso. |
+| `NACIONAL` | Apenas BigQuery. Firebird nunca é consultado. |
+| `AMBOS` | Ingere as duas fontes; exporta com proveniência explícita (`FONTE=LOCAL` / `FONTE=NACIONAL`). |
+
+Proveniência é imutável: dados locais e nacionais nunca se mesclam implicitamente.
+
+---
 
 ## Início Rápido
 
 ### Pré-requisitos
 
 - Python 3.11+
-- Banco `CNES.GDB` em execução local (DATASUS)
-- DLL do Firebird 64-bits (`fbembed.dll`)
+- uv (`pip install uv`)
+- (Opcional) `CNES.GDB` Firebird para execução local sem dump agent
 - (Opcional) Conta Google Cloud para cross-check nacional via BigQuery
 
 ### Instalação
 
 ```powershell
-# 1. Criar e ativar o ambiente virtual
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# 2. Instalar dependências
-pip install -r requirements.txt
-
-# 3. Configurar o ambiente
+uv sync
 copy .env.example .env
-# Edite .env com seus valores locais (ver seção Configuração abaixo)
+# Edite .env com seus valores (ver seção Configuração)
 ```
 
 ### Primeira Execução
 
 ```powershell
-# Modo offline — sem BigQuery, ideal para primeira vez
-python src\main.py --skip-nacional -v
+# Apenas dados nacionais (sem Firebird local)
+python src\main.py --source NACIONAL -c 2024-12 -v
 
-# Pipeline completo — requer internet e credenciais Google
-python src\main.py -c 2024-12
+# Dados locais via Firebird direto (desenvolvimento)
+python src\main.py --source LOCAL -c 2024-12 -v
+
+# Ambas as fontes (reconciliação completa)
+python src\main.py --source AMBOS -c 2024-12
 ```
 
-## Uso via Linha de Comando
+---
+
+## Uso via CLI
 
 ```
 python src\main.py [opções]
 
 Opções:
-  -c, --competencia YYYY MM    Competência da base nacional (padrão: definido no .env)
+  -c, --competencia YYYY-MM    Competência (padrão: definido no .env)
   -o, --output-dir CAMINHO     Diretório de saída (padrão: data/processed/)
-      --skip-nacional          Pular cross-check BigQuery (modo offline)
-      --skip-hr                Pular cross-check com folha de RH
-  -v, --verbose                Log detalhado no console (nível DEBUG)
-      --version                Exibe a versão do pipeline
-  -h, --help                   Exibe esta ajuda
+      --source {LOCAL,NACIONAL,AMBOS}
+                               Fonte de dados (padrão: LOCAL)
+      --force-reingestao       Reingere do Firebird mesmo com snapshot existente
+  -v, --verbose                Log DEBUG no console
+  -h, --help                   Ajuda
 ```
 
-### Exemplos de Uso
+---
 
-```powershell
-# Competência dezembro/2024, modo offline, saída em pasta específica
-python src\main.py -c 2024-12 --skip-nacional -o data\relatorios\dez2024
+## Regras de Auditoria
 
-# Pipeline completo com log detalhado
-python src\main.py -c 2024-12 -v
-
-# Apenas auditoria local (sem BigQuery e sem RH)
-python src\main.py --skip-nacional --skip-hr
-```
-
-## O Que o Pipeline Faz
-
-### Fontes de Dados
-
-| Fonte | Origem | Chave de JOIN |
-|---|---|---|
-| Local | Banco Firebird `CNES.GDB` | CPF (profissionais), CNES (estabelecimentos) |
-| Nacional | BigQuery via `basedosdados` | CNS (profissionais), CNES (estabelecimentos) |
-| RH | Planilha Excel/CSV da folha de pagamento | CPF |
-
-### Regras de Auditoria
+### Locais (dados do município)
 
 | Regra | O Que Detecta | Severidade |
 |---|---|---|
-| RQ-002 | CPF nulo ou inválido (excluído da análise) | — |
-| RQ-003 | Vínculo com carga horária zero ("zumbi") | Flag |
+| RQ-002 | CPF nulo ou inválido | — (excluído) |
+| RQ-003 | Vínculo com carga horária zero | Flag |
 | RQ-003-B | Profissional com vínculos em 2+ unidades | MÉDIA |
-| RQ-005 | ACS/TACS ou ACE/TACE lotados em unidade incorreta | ALTA |
-| RQ-006 | Estabelecimento local sem correspondência nacional | ALTA |
-| RQ-007 | Estabelecimento nacional ausente no local | ALTA |
-| RQ-008 | Profissional (CNS) local sem correspondência nacional | CRÍTICA |
-| RQ-009 | Profissional (CNS) nacional ausente no local | ALTA |
-| RQ-010 | CBO divergente entre local e nacional | MÉDIA |
-| RQ-011 | Carga horária divergente (tolerância: 2h) | BAIXA |
-| Ghost Payroll | Ativo no CNES, ausente ou inativo no RH | CRÍTICA |
-| Missing Reg. | Ativo no RH, ausente no CNES local | ALTA |
+| RQ-005 ACS/TACS | Agente comunitário em tipo de unidade incorreto | ALTA |
+| RQ-005 ACE/TACE | Agente de endemias em tipo de unidade incorreto | ALTA |
 
-## Saídas Geradas
+### Cruzamento Local × Nacional
 
-Todos os arquivos em `data/processed/` (ou diretório customizado via `-o`):
+| Regra | O Que Detecta | Chave | Severidade |
+|---|---|---|---|
+| RQ-006 | Estabelecimento local ausente no nacional | CNES | ALTA |
+| RQ-007 | Estabelecimento nacional ausente no local | CNES | ALTA |
+| RQ-008 | Profissional local (CNS) ausente no nacional | CNS | CRÍTICA |
+| RQ-009 | Profissional nacional (CNS) ausente no local | CNS | ALTA |
+| RQ-010 | CBO divergente entre local e nacional | CNS+CNES | MÉDIA |
+| RQ-011 | Carga horária divergente (tolerância: 2h) | CNS+CNES | BAIXA |
 
-| Arquivo | Regra | Descrição |
+### Cruzamento Local × Folha de RH (requer `hr_padronizado.csv`)
+
+| Regra | O Que Detecta | Severidade |
 |---|---|---|
-| `Relatorio_Profissionais_CNES.csv` | — | Relatório principal com todos os vínculos ativos |
-| `Relatorio_Profissionais_CNES.xlsx` | — | Relatório Excel multi-aba com recomendações |
-| `auditoria_rq003b_multiplas_unidades.csv` | RQ-003-B | Profissionais com vínculos em 2+ unidades |
-| `auditoria_rq005_acs_tacs_incorretos.csv` | RQ-005 | ACS/TACS lotados em unidade incorreta |
-| `auditoria_rq005_ace_tace_incorretos.csv` | RQ-005 | ACE/TACE lotados em unidade incorreta |
-| `auditoria_ghost_payroll.csv` | Ghost Payroll | Ativos no CNES, ausentes/inativos no RH |
-| `auditoria_missing_registration.csv` | Missing Reg. | Ativos no RH, ausentes no CNES local |
-| `auditoria_rq006_estab_fantasma.csv` | RQ-006 | Estabelecimentos locais sem correspondência nacional |
-| `auditoria_rq007_estab_ausente_local.csv` | RQ-007 | Estabelecimentos nacionais ausentes no local |
-| `auditoria_rq008_prof_fantasma_cns.csv` | RQ-008 | Profissionais locais (por CNS) sem correspondência nacional |
-| `auditoria_rq009_prof_ausente_local_cns.csv` | RQ-009 | Profissionais nacionais (por CNS) ausentes no local |
-| `auditoria_rq010_divergencia_cbo.csv` | RQ-010 | Divergência de CBO entre local e nacional |
-| `auditoria_rq011_divergencia_ch.csv` | RQ-011 | Divergência de carga horária (tolerância: 2h) |
+| Ghost Payroll | Ativo no CNES, ausente/inativo no RH | CRÍTICA |
+| Missing Registration | Ativo no RH, ausente no CNES local | ALTA |
 
-Arquivos de auditoria são criados apenas quando há anomalias detectadas. O log da execução é salvo em `logs/cnes_exporter.log`.
+---
 
-### Relatório Excel (.xlsx)
+## Saídas
 
-O arquivo `.xlsx` consolida todas as auditorias em um único workbook:
+Todos os arquivos em `data/processed/` (ou `-o`):
 
-- **Aba RESUMO**: métricas-chave e tabela de anomalias com severidade colorida.
-- **Aba Principal**: todos os vínculos processados.
-- **1 aba por regra violada**: dados e coluna RECOMENDAÇÃO com ação corretiva.
+| Arquivo | Descrição |
+|---|---|
+| `Relatorio_Profissionais_CNES.xlsx` | Workbook Excel com aba RESUMO + 1 aba por regra violada |
+| `Relatorio_Profissionais_CNES.csv` | Vínculos processados (formato BR, separador `;`) |
+| `auditoria_rq*.csv` | Um arquivo por regra com anomalias detectadas |
+| `auditoria_ghost_payroll.csv` | Folha fantasma (quando RH disponível) |
+| `auditoria_missing_registration.csv` | Registro ausente (quando RH disponível) |
 
-Abas de auditoria são criadas apenas quando há anomalias detectadas.
+Arquivos de auditoria são criados apenas quando há anomalias. Logs em `logs/cnes_exporter.log`.
+
+---
 
 ## Configuração (`.env`)
 
 ```ini
-# Banco Firebird
+# Banco Firebird (apenas para execução direta ou desenvolvimento)
 DB_HOST=localhost
 DB_PATH=C:\Datasus\CNES\CNES.GDB
 DB_USER=SYSDBA
@@ -140,102 +169,96 @@ FIREBIRD_DLL=C:\caminho\para\fb_64\fbembed.dll
 
 # Filtros do município
 COD_MUN_IBGE=354130
+ID_MUNICIPIO_IBGE7=3541307
 CNPJ_MANTENEDORA=55293427000117
 
 # Saída
 OUTPUT_DIR=data/processed
-OUTPUT_FILENAME=Relatorio_Profissionais_CNES.csv
 
 # Google Cloud / BigQuery (cross-check nacional)
 GCP_PROJECT_ID=seu-projeto-gcp
 
-# Competência da base nacional (padrão: dez/2024)
+# Competência padrão
 COMPETENCIA_ANO=2024
 COMPETENCIA_MES=12
 
-# Folha de pagamento RH (opcional — omita para pular cross-check CNES × RH)
-FOLHA_HR_PATH=C:\caminho\para\folha.xlsx
+# PostgreSQL (persistência)
+DB_URL=postgresql+psycopg2://user:pass@localhost:5432/cnesdata
+
+# Folha de pagamento RH (opcional)
+FOLHA_HR_PATH=C:\caminho\para\hr_padronizado.csv
 ```
+
+Em modo API, `DB_PATH` e `FIREBIRD_DLL` são configurados no lado do dump agent, não do servidor.
+
+---
 
 ## Testes
 
 ```powershell
-# Testes unitários (rápidos, sem banco — padrão CI)
-pytest tests/ -m "not integration" -v
+# Unitários (sem banco — padrão CI)
+.venv\Scripts\python.exe -m pytest tests/ -m "not integration" -q
 
-# Testes de integração (requer banco Firebird ativo)
-pytest tests/ -m "integration and not bigquery" -v
+# Integração Firebird (requer banco ativo)
+.venv\Scripts\python.exe -m pytest tests/ -m "integration and not bigquery" -v
 
-# Testes de integração com BigQuery (requer internet e credenciais Google)
-pytest tests/ -m "integration and bigquery" -v
-
-# Todos os testes
-pytest tests/ -v
+# Todos
+.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-313+ testes unitários passando.
+319+ testes unitários passando.
 
-## Dashboard Analítico
-
-Visualização interativa de tendências e drill-down de anomalias (requer ao menos uma execução do pipeline):
-
-```bash
-./venv/Scripts/streamlit.exe run scripts/dashboard.py
-```
-
-Abre automaticamente em http://localhost:8501. Três páginas:
-- **Visão Geral** — KPIs do mês selecionado + tabela por severidade
-- **Tendências** — gráfico de linhas multi-regra (Plotly, responsivo)
-- **Por Regra** — drill-down de registros individuais com download CSV
+---
 
 ## Estrutura do Projeto
 
 ```
 CnesData/
 ├── src/
-│   ├── cli.py                  # Interface de linha de comando (argparse)
-│   ├── config.py               # Configuração centralizada (.env)
-│   ├── main.py                 # Ponto de entrada do pipeline
+│   ├── cli.py                    # Argparse CLI
+│   ├── config.py                 # Configuração centralizada (.env)
+│   ├── main.py                   # Ponto de entrada
 │   ├── ingestion/
-│   │   ├── base.py             # Protocols PEP 544 (contratos de interface)
-│   │   ├── schemas.py          # Schema canônico de colunas
-│   │   ├── cnes_client.py      # Extração Firebird (cursor-based)
-│   │   ├── cnes_local_adapter.py
-│   │   ├── cnes_nacional_adapter.py
-│   │   ├── hr_client.py        # Parser de planilhas RH (.xlsx/.csv)
-│   │   └── web_client.py       # Cliente BigQuery via basedosdados
+│   │   ├── schemas.py            # Schema canônico (fonte de verdade de colunas)
+│   │   ├── cnes_client.py        # Extração Firebird (charset WIN1252, 3 queries)
+│   │   ├── cnes_local_adapter.py # Firebird → schema canônico
+│   │   ├── cnes_nacional_adapter.py # BigQuery → schema canônico
+│   │   ├── hr_client.py          # Parser planilhas RH (.xlsx/.csv)
+│   │   └── web_client.py         # Cliente BigQuery via basedosdados
+│   ├── pipeline/
+│   │   ├── orchestrator.py       # PipelineOrchestrator + StageSkipError/StageFatalError
+│   │   ├── state.py              # PipelineState (target_source, DataFrames)
+│   │   └── stages/
+│   │       ├── ingestao_local.py    # Carrega parquet do dump agent ou Firebird direto
+│   │       ├── ingestao_nacional.py # Busca BigQuery com circuit breaker
+│   │       ├── processamento.py     # Limpeza CPF, datas ISO, dedup
+│   │       └── exportacao.py        # Persiste no PostgreSQL, deriva status
 │   ├── processing/
-│   │   └── transformer.py      # Limpeza e validação (RQ-002, RQ-003)
+│   │   └── transformer.py        # RQ-002, RQ-003, enriquecimento CBO
 │   ├── analysis/
-│   │   ├── rules_engine.py     # Motor de regras de auditoria (11 regras)
-│   │   └── evolution_tracker.py # Snapshots históricos JSON
-│   └── export/
-│       ├── csv_exporter.py     # Exportação CSV (padrão BR)
-│       └── report_generator.py # Relatório Excel multi-aba com recomendações
+│   │   ├── rules_engine.py       # 11 regras de auditoria
+│   │   └── evolution_tracker.py  # Snapshots históricos JSON
+│   └── storage/
+│       ├── ports.py              # StoragePort Protocol
+│       └── postgres_adapter.py   # PostgreSQL (upsert por competência)
 ├── tests/
-│   ├── ingestion/
-│   │   ├── test_base.py
-│   │   ├── test_cnes_client.py
-│   │   ├── test_cnes_local_adapter.py
-│   │   ├── test_cnes_nacional_adapter.py
-│   │   ├── test_hr_client.py
-│   │   └── test_web_client.py
-│   ├── analysis/
-│   │   ├── test_cross_check.py
-│   │   ├── test_evolution_tracker.py
-│   │   └── test_rules_engine.py
-│   ├── export/
-│   │   └── test_report_generator.py
-│   ├── test_cli.py
-│   ├── test_config.py
-│   ├── test_main.py
-│   └── test_pipeline_integration.py  # Integração real (requer banco)
 ├── data/
-│   ├── processed/              # Relatórios gerados (não vai ao Git)
-│   └── snapshots/              # Histórico JSON (não vai ao Git)
-├── logs/                       # Logs de execução (não vai ao Git)
-├── scripts/                    # Scripts de exploração e referência
+│   ├── historico/              # Parquets dos dump agents (não vai ao Git)
+│   └── processed/              # Relatórios gerados (não vai ao Git)
+├── docs/
+├── scripts/                    # Run-CnesAudit.ps1, hr_pre_processor.py
 ├── CLAUDE.md
+├── PROJECT_CONTEXT.md
 ├── ROADMAP.md
 └── data_dictionary.md
 ```
+
+---
+
+## Dashboard Analítico
+
+```bash
+.venv\Scripts\streamlit.exe run scripts/dashboard.py
+```
+
+Abre em http://localhost:8501 com três páginas: Visão Geral, Tendências e drill-down por Regra.
