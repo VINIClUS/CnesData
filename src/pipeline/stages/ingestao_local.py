@@ -10,6 +10,7 @@ import config
 from ingestion.cnes_client import conectar, dump_vinculos_para_parquet, extrair_lookup_cbo
 from ingestion.cnes_local_adapter import CnesLocalAdapter
 from ingestion.quarantine import QuarantineBuffer, quarentinar_linhas
+from pipeline.orchestrator import StageSkipError
 from pipeline.state import PipelineState
 from storage.competencia_utils import periodo_atual
 from storage.snapshot_local import carregar_snapshot, snapshot_existe
@@ -25,6 +26,8 @@ class IngestaoLocalStage:
         self._historico_dir = historico_dir
 
     def execute(self, state: PipelineState) -> None:
+        if state.target_source == "NACIONAL":
+            return
         competencia = state.competencia_str
         eh_periodo_atual = competencia == periodo_atual()
 
@@ -43,8 +46,10 @@ class IngestaoLocalStage:
             self._ingerir_do_firebird(state)
             return
 
-        state.local_disponivel = False
-        logger.info("dados_locais_indisponiveis competencia=%s", competencia)
+        raise StageSkipError(
+            f"dados_locais_indisponiveis competencia={competencia} "
+            f"target_source={state.target_source}"
+        )
 
     def _carregar_do_parquet(self, state: PipelineState) -> None:
         competencia = state.competencia_str
@@ -52,7 +57,6 @@ class IngestaoLocalStage:
         state.df_prof_local = snap.df_prof
         state.df_estab_local = snap.df_estab
         state.cbo_lookup = snap.cbo_lookup
-        state.local_disponivel = True
         logger.info(
             "local_parquet competencia=%s prof=%d estab=%d",
             competencia,
@@ -79,7 +83,6 @@ class IngestaoLocalStage:
         state.df_prof_local = df_prof
         state.df_estab_local = df_estab
         state.quarantine_buffer = buffer
-        state.local_disponivel = True
         logger.info(
             "ingestao_local_firebird competencia=%s prof=%d estab=%d quarentenados=%d",
             state.competencia_str,

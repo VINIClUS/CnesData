@@ -10,8 +10,6 @@ def _make_state() -> PipelineState:
         competencia_ano=2026,
         competencia_mes=1,
         output_path=None,
-        executar_nacional=False,
-        
     )
 
 

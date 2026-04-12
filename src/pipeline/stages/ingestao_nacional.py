@@ -18,21 +18,15 @@ class IngestaoNacionalStage:
         pass
 
     def execute(self, state: PipelineState) -> None:
-        if not state.executar_nacional:
-            logger.warning("nacional_skipped motivo=skip_nacional_flag")
+        if state.target_source == "LOCAL":
             return
         breaker = CircuitBreaker(failure_threshold=3, service_name="DATASUS")
         try:
             breaker.call(self._buscar, state)
-            state.nacional_disponivel = (
-                not state.df_prof_nacional.empty or not state.df_estab_nacional.empty
-            )
         except CircuitBreakerAberto:
             logger.error("nacional_skipped source=DATASUS status=UNAVAILABLE")
-            state.nacional_disponivel = False
         except Exception as exc:
             logger.warning("nacional_skipped motivo=%s", exc)
-            state.nacional_disponivel = False
 
     def _buscar(self, state: PipelineState) -> None:
         repo = CnesNacionalAdapter(

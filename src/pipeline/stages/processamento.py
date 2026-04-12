@@ -12,7 +12,7 @@ class ProcessamentoStage:
     critico = False
 
     def execute(self, state: PipelineState) -> None:
-        if not state.local_disponivel:
+        if state.df_prof_local.empty:
             return
         state.df_processado = transformar(
             state.df_prof_local, cbo_lookup=state.cbo_lookup

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from pipeline.orchestrator import StageSkipError
 from pipeline.state import PipelineState
 from pipeline.stages.ingestao_local import IngestaoLocalStage
 from storage.snapshot_local import SnapshotLocal, salvar_snapshot
@@ -24,7 +25,6 @@ def _state(force: bool = False) -> PipelineState:
         competencia_ano=2024,
         competencia_mes=12,
         output_path=Path("data/processed/report.csv"),
-        executar_nacional=True,
         force_reingestao=force,
     )
 
@@ -130,7 +130,6 @@ def test_usa_snapshot_quando_existe_e_sem_force(mock_conectar, mock_periodo, tmp
     IngestaoLocalStage(tmp_path).execute(state)
 
     mock_conectar.assert_not_called()
-    assert state.local_disponivel is True
     assert len(state.df_prof_local) == 1
     assert state.cbo_lookup == {"515105": "ACS"}
 
@@ -182,10 +181,10 @@ def test_usa_firebird_quando_sem_snapshot(
 
 
 @patch("pipeline.stages.ingestao_local.periodo_atual", return_value="2026-04")
-def test_marca_indisponivel_para_periodo_passado_sem_dados(mock_periodo, tmp_path):
+def test_levanta_stage_skip_para_periodo_passado_sem_dados(mock_periodo, tmp_path):
     state = _state()
-    IngestaoLocalStage(tmp_path).execute(state)
-    assert state.local_disponivel is False
+    with pytest.raises(StageSkipError, match="dados_locais_indisponiveis"):
+        IngestaoLocalStage(tmp_path).execute(state)
 
 
 @patch("pipeline.stages.ingestao_local.periodo_atual", return_value="2024-12")
@@ -219,4 +218,14 @@ def test_force_reingestao_ignora_firebird_para_periodo_passado(mock_periodo, tmp
     with patch("pipeline.stages.ingestao_local.conectar") as mock_con:
         IngestaoLocalStage(tmp_path).execute(state)
         mock_con.assert_not_called()
-        assert state.local_disponivel is True
+    assert len(state.df_prof_local) == 1
+
+
+@patch("pipeline.stages.ingestao_local.periodo_atual", return_value="2024-12")
+def test_early_return_quando_target_source_nacional(mock_periodo, tmp_path):
+    state = _state()
+    state.target_source = "NACIONAL"
+    with patch("pipeline.stages.ingestao_local.conectar") as mock_con:
+        IngestaoLocalStage(tmp_path).execute(state)
+        mock_con.assert_not_called()
+    assert state.df_prof_local.empty

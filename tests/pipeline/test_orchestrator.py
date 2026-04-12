@@ -11,8 +11,6 @@ def _make_state() -> PipelineState:
         competencia_ano=2024,
         competencia_mes=12,
         output_path=Path("data/processed/report.csv"),
-        executar_nacional=True,
-        
     )
 
 
