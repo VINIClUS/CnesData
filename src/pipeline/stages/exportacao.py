@@ -36,16 +36,16 @@ class ExportacaoStage:
             raise StageFatalError("exportacao_alcancada_com_dataframes_vazios")
 
         if not local_vazio:
-            self._storage.gravar_profissionais(competencia, state.df_processado)
             self._storage.gravar_estabelecimentos(competencia, state.df_estab_local)
+            self._storage.gravar_profissionais(competencia, state.df_processado)
             logger.info(
                 "exportacao fonte=LOCAL competencia=%s profissionais=%d estabelecimentos=%d",
                 competencia, len(state.df_processado), len(state.df_estab_local),
             )
 
         if not nacional_vazio:
-            self._storage.gravar_profissionais(competencia, state.df_prof_nacional)
             self._storage.gravar_estabelecimentos(competencia, state.df_estab_nacional)
+            self._storage.gravar_profissionais(competencia, state.df_prof_nacional)
             logger.info(
                 "exportacao fonte=NACIONAL competencia=%s profissionais=%d estabelecimentos=%d",
                 competencia, len(state.df_prof_nacional), len(state.df_estab_nacional),

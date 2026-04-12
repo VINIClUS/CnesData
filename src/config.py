@@ -15,6 +15,7 @@ Como funciona:
 import os
 import re
 from pathlib import Path
+from urllib.parse import quote, urlparse, urlunparse
 from dotenv import load_dotenv
 
 # ── Localização do Projeto ─────────────────────────────────────────────────
@@ -26,7 +27,8 @@ RAIZ_PROJETO = Path(__file__).parent.parent
 # Carrega o .env da raiz do projeto explicitamente.
 # override=False garante que variáveis já definidas no sistema operacional
 # têm prioridade sobre o .env (boa prática para deploys em produção).
-load_dotenv(RAIZ_PROJETO / ".env", override=False)
+# encoding='utf-8' garante leitura correta em Windows (onde o padrão é cp1252).
+load_dotenv(RAIZ_PROJETO / ".env", override=False, encoding="utf-8")
 
 
 _RE_COD_MUN_6: re.Pattern[str] = re.compile(r"^\d{6}$")
@@ -85,7 +87,28 @@ CNPJ_MANTENEDORA: str = _validar_formato(
     "CNPJ_MANTENEDORA", _exigir("CNPJ_MANTENEDORA"), _RE_CNPJ_14
 )
 
-DB_URL: str = _exigir("DB_URL")
+def _sanitizar_db_url(raw: str) -> str:
+    """
+    Prepara a DB_URL para uso seguro com SQLAlchemy + psycopg (v3):
+
+    1. Substitui o driver de `psycopg2` (padrão de `postgresql://`) por `psycopg` (v3),
+       evitando o UnicodeDecodeError causado pelo locale Windows-1252 do PostgreSQL
+       instalado localmente (Portuguese_Brazil.1252) que afeta a libpq.dll do psycopg2.
+    2. Percent-encoda usuário e senha para suportar caracteres especiais (!, @, ã, etc.).
+    """
+    parsed = urlparse(raw)
+    # Força o driver psycopg v3 (encoding-safe) em vez do psycopg2 padrão.
+    # Qualquer variante de "postgresql[+...]" → "postgresql+psycopg"
+    scheme = "postgresql+psycopg"
+    usuario = quote(parsed.username or "", safe="")
+    senha = quote(parsed.password or "", safe="")
+    netloc = f"{usuario}:{senha}@{parsed.hostname}"
+    if parsed.port:
+        netloc += f":{parsed.port}"
+    return urlunparse(parsed._replace(scheme=scheme, netloc=netloc))
+
+
+DB_URL: str = _sanitizar_db_url(_exigir("DB_URL"))
 CACHE_DIR: Path = RAIZ_PROJETO / os.getenv("CACHE_DIR", "data/cache")
 
 # ── Saída de Dados ─────────────────────────────────────────────────────────

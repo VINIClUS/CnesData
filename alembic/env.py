@@ -4,18 +4,16 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-config = context.config
+import config as app_config
 
-_pg_url = os.environ.get("PG_DATABASE_URL") or os.environ.get("DB_URL")
-if _pg_url:
-    config.set_main_option("sqlalchemy.url", _pg_url)
+alembic_config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+if alembic_config.config_file_name is not None:
+    fileConfig(alembic_config.config_file_name)
 
 from storage.schema import gold_metadata
 target_metadata = gold_metadata
@@ -23,9 +21,8 @@ target_metadata = gold_metadata
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=app_config.DB_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -35,12 +32,8 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    """Run migrations in 'online' mode using engine created directly from app config."""
+    connectable = create_engine(app_config.DB_URL, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
