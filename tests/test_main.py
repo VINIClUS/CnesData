@@ -18,7 +18,7 @@ def test_main_usa_orchestrator(mock_config, mock_log, mock_args, mock_orch_cls):
     mock_config.DB_URL = ""
     mock_config.HISTORICO_DIR = Path("data/historico")
     mock_args.return_value = MagicMock(
-        competencia=None, output_dir=None, skip_nacional=False, verbose=False,
+        competencia=None, output_dir=None, source="LOCAL", verbose=False,
         force_reingestao=False,
     )
     mock_orch = MagicMock()
@@ -43,7 +43,7 @@ def test_main_retorna_1_em_excecao(mock_config, mock_log, mock_args, mock_orch_c
     mock_config.DB_URL = ""
     mock_config.HISTORICO_DIR = Path("data/historico")
     mock_args.return_value = MagicMock(
-        competencia=None, output_dir=None, skip_nacional=False, verbose=False,
+        competencia=None, output_dir=None, source="LOCAL", verbose=False,
         force_reingestao=False,
     )
     mock_orch = MagicMock()
@@ -66,7 +66,7 @@ def test_main_inicializa_schema_antes_do_pipeline(mock_config, mock_log, mock_ar
     mock_config.DB_URL = ""
     mock_config.HISTORICO_DIR = Path("data/historico")
     mock_args.return_value = MagicMock(
-        competencia=None, output_dir=None, skip_nacional=False, verbose=False,
+        competencia=None, output_dir=None, source="LOCAL", verbose=False,
         force_reingestao=False,
     )
     call_order: list[str] = []

@@ -15,7 +15,7 @@ class CliArgs:
 
     competencia: tuple[int, int] | None
     output_dir: str | None
-    skip_nacional: bool
+    source: str
     verbose: bool
     force_reingestao: bool = False
 
@@ -51,10 +51,10 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         help="Diretório de saída dos relatórios. Padrão: valor do .env.",
     )
     parser.add_argument(
-        "--skip-nacional",
-        action="store_true",
-        default=False,
-        help="Pular cross-check com base nacional (BigQuery).",
+        "--source",
+        choices=["LOCAL", "NACIONAL", "AMBOS"],
+        default="LOCAL",
+        help="Fonte de dados: LOCAL (padrão), NACIONAL ou AMBOS.",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -86,7 +86,7 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
     return CliArgs(
         competencia=competencia,
         output_dir=args.output_dir,
-        skip_nacional=args.skip_nacional,
+        source=args.source,
         verbose=args.verbose,
         force_reingestao=args.force_reingestao,
     )

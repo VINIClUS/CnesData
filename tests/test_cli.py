@@ -10,7 +10,7 @@ class TestParsingArgumentos:
     def test_sem_argumentos_retorna_defaults(self):
         args = parse_args([])
         assert args.competencia is None
-        assert args.skip_nacional is False
+        assert args.source == "LOCAL"
         assert args.verbose is False
         assert args.output_dir is None
 
@@ -46,9 +46,17 @@ class TestParsingArgumentos:
         args = parse_args(["-o", "/tmp/saida"])
         assert args.output_dir == "/tmp/saida"
 
-    def test_skip_nacional_flag(self):
-        args = parse_args(["--skip-nacional"])
-        assert args.skip_nacional is True
+    def test_source_flag_nacional(self):
+        args = parse_args(["--source", "NACIONAL"])
+        assert args.source == "NACIONAL"
+
+    def test_source_flag_ambos(self):
+        args = parse_args(["--source", "AMBOS"])
+        assert args.source == "AMBOS"
+
+    def test_source_invalido_levanta_system_exit(self):
+        with pytest.raises(SystemExit):
+            parse_args(["--source", "INVALIDO"])
 
     def test_verbose_flag_curto(self):
         args = parse_args(["-v"])
@@ -63,9 +71,9 @@ class TestParsingArgumentos:
             parse_args(["--version"])
 
     def test_combinacao_de_flags(self):
-        args = parse_args(["-c", "2024-12", "--skip-nacional", "-v"])
+        args = parse_args(["-c", "2024-12", "--source", "NACIONAL", "-v"])
         assert args.competencia == (2024, 12)
-        assert args.skip_nacional is True
+        assert args.source == "NACIONAL"
         assert args.verbose is True
 
 
@@ -75,7 +83,7 @@ class TestDataclassCliArgs:
         args = CliArgs(
             competencia=None,
             output_dir=None,
-            skip_nacional=False,
+            source="LOCAL",
             verbose=False,
         )
         with pytest.raises(Exception):
@@ -85,12 +93,12 @@ class TestDataclassCliArgs:
         args = CliArgs(
             competencia=(2024, 12),
             output_dir="/tmp/out",
-            skip_nacional=True,
+            source="NACIONAL",
             verbose=True,
         )
         assert args.competencia == (2024, 12)
         assert args.output_dir == "/tmp/out"
-        assert args.skip_nacional is True
+        assert args.source == "NACIONAL"
         assert args.verbose is True
 
 

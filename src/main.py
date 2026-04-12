@@ -49,7 +49,7 @@ def _criar_estado(args) -> PipelineState:
         competencia_ano=ano,
         competencia_mes=mes,
         output_path=output_path,
-        executar_nacional=not args.skip_nacional,
+        target_source=args.source,
         force_reingestao=args.force_reingestao,
     )
 

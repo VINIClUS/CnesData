@@ -10,7 +10,6 @@ def _state(**kwargs) -> PipelineState:
         competencia_ano=2024,
         competencia_mes=12,
         output_path=Path("data/processed/report.csv"),
-        executar_nacional=True,
         **kwargs,
     )
 
@@ -33,17 +32,20 @@ def test_competencia_str_formata_corretamente():
         competencia_ano=2024,
         competencia_mes=3,
         output_path=Path("data/processed/report.csv"),
-        executar_nacional=False,
     )
     assert state.competencia_str == "2024-03"
 
 
-def test_state_local_disponivel_default_true():
-    assert _state().local_disponivel is True
+def test_state_target_source_default_local():
+    assert _state().target_source == "LOCAL"
 
 
-def test_state_nacional_disponivel_default_false():
-    assert _state().nacional_disponivel is False
+def test_state_target_source_aceita_nacional():
+    assert _state(target_source="NACIONAL").target_source == "NACIONAL"
+
+
+def test_state_target_source_aceita_ambos():
+    assert _state(target_source="AMBOS").target_source == "AMBOS"
 
 
 def test_state_force_reingestao_default_false():

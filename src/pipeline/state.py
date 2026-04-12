@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 
@@ -18,7 +18,7 @@ class PipelineState:
     competencia_ano: int
     competencia_mes: int
     output_path: Path
-    executar_nacional: bool
+    target_source: Literal["LOCAL", "NACIONAL", "AMBOS"] = "LOCAL"
 
     con: Any = None
     cbo_lookup: dict[str, str] = field(default_factory=dict)
@@ -29,8 +29,6 @@ class PipelineState:
     df_estab_nacional: pd.DataFrame = field(default_factory=pd.DataFrame)
     df_processado: pd.DataFrame = field(default_factory=pd.DataFrame)
 
-    local_disponivel: bool = True
-    nacional_disponivel: bool = False
     quarantine_buffer: "QuarantineBuffer | None" = None
     force_reingestao: bool = False
 
