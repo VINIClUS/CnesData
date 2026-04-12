@@ -1,6 +1,6 @@
 """Testes unitários para PostgresAdapter (sem banco de dados real)."""
 import logging
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -83,23 +83,17 @@ class TestGravarProfissionais:
         adapter.gravar_profissionais("2025-01", df_profissionais)
         assert con.execute.call_count == 2
 
-    def test_sus_s_converte_para_true(self, adapter, engine, df_profissionais):
-        con = engine.begin.return_value.__enter__.return_value
-        adapter.gravar_profissionais("2025-01", df_profissionais)
-        _, kwargs = con.execute.call_args_list[1]
-        rows = kwargs.get("parameters") or con.execute.call_args_list[1][0][1]
+    def test_sus_s_converte_para_true(self, adapter, df_profissionais):
+        rows = adapter._build_vinculo_rows("2025-01", df_profissionais)
         sus_values = [r["sus"] for r in rows]
         assert True in sus_values
 
-    def test_sus_n_converte_para_false(self, adapter, engine, df_profissionais):
-        con = engine.begin.return_value.__enter__.return_value
-        adapter.gravar_profissionais("2025-01", df_profissionais)
-        _, kwargs = con.execute.call_args_list[1]
-        rows = kwargs.get("parameters") or con.execute.call_args_list[1][0][1]
+    def test_sus_n_converte_para_false(self, adapter, df_profissionais):
+        rows = adapter._build_vinculo_rows("2025-01", df_profissionais)
         sus_values = [r["sus"] for r in rows]
         assert False in sus_values
 
-    def test_sus_none_permanece_none(self, adapter, engine):
+    def test_sus_none_permanece_none(self, adapter):
         df = pd.DataFrame(
             [
                 {
@@ -119,10 +113,7 @@ class TestGravarProfissionais:
                 }
             ]
         )
-        con = engine.begin.return_value.__enter__.return_value
-        adapter.gravar_profissionais("2025-01", df)
-        _, kwargs = con.execute.call_args_list[1]
-        rows = kwargs.get("parameters") or con.execute.call_args_list[1][0][1]
+        rows = adapter._build_vinculo_rows("2025-01", df)
         assert rows[0]["sus"] is None
 
 
@@ -132,14 +123,11 @@ class TestGravarEstabelecimentos:
         adapter.gravar_estabelecimentos("2025-01", df_estabelecimentos)
         assert con.execute.call_count == 1
 
-    def test_vinculo_sus_s_converte_para_true(self, adapter, engine, df_estabelecimentos):
-        con = engine.begin.return_value.__enter__.return_value
-        adapter.gravar_estabelecimentos("2025-01", df_estabelecimentos)
-        args = con.execute.call_args_list[0]
-        rows = args[0][1] if len(args[0]) > 1 else args[1].get("parameters", [])
+    def test_vinculo_sus_s_converte_para_true(self, adapter, df_estabelecimentos):
+        rows = adapter._build_estabelecimento_rows(df_estabelecimentos)
         assert rows[0]["vinculo_sus"] is True
 
-    def test_vinculo_sus_none_permanece_none(self, adapter, engine):
+    def test_vinculo_sus_none_permanece_none(self, adapter):
         df = pd.DataFrame(
             [
                 {
@@ -154,10 +142,7 @@ class TestGravarEstabelecimentos:
                 }
             ]
         )
-        con = engine.begin.return_value.__enter__.return_value
-        adapter.gravar_estabelecimentos("2025-01", df)
-        args = con.execute.call_args_list[0]
-        rows = args[0][1] if len(args[0]) > 1 else args[1].get("parameters", [])
+        rows = adapter._build_estabelecimento_rows(df)
         assert rows[0]["vinculo_sus"] is None
 
 
