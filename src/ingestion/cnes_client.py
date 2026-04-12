@@ -152,6 +152,7 @@ def conectar() -> fdb.Connection:
         dsn=config.DB_DSN,
         user=config.DB_USER,
         password=config.DB_PASSWORD,
+        charset="WIN1252",
     )
     logger.info("Conexão estabelecida com o banco CNES.")
     return con

@@ -1,5 +1,6 @@
 """test_cnes_local_adapter.py — Testes do adapter Firebird → schema padronizado."""
 
+import unicodedata
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -180,6 +181,31 @@ class TestZeroPaddingCNES:
         resultado = adapter.listar_equipes()
         assert not resultado.empty
         assert (resultado["CNES"].str.len() == 7).all()
+
+
+class TestNFKDNormalizacao:
+
+    def test_listar_profissionais_normaliza_nome_profissional_para_nfkd(self):
+        df = _DF_FIREBIRD.copy()
+        df["NOME_PROFISSIONAL"] = ["Atenção Básica"]
+        adapter, _ = _adapter_com_mock(df=df)
+        resultado = adapter.listar_profissionais()
+        val = resultado["NOME_PROFISSIONAL"].iloc[0]
+        assert unicodedata.is_normalized("NFKD", val)
+
+    def test_listar_profissionais_nao_altera_nome_sem_acento(self):
+        adapter, _ = _adapter_com_mock()
+        resultado = adapter.listar_profissionais()
+        val = resultado["NOME_PROFISSIONAL"].iloc[0]
+        assert unicodedata.is_normalized("NFKD", val)
+
+    def test_listar_estabelecimentos_normaliza_nome_fantasia_para_nfkd(self):
+        df = _DF_FIREBIRD.copy()
+        df["ESTABELECIMENTO"] = ["Unidade Básica de Saúde"]
+        adapter, _ = _adapter_com_mock(df=df)
+        resultado = adapter.listar_estabelecimentos()
+        val = resultado["NOME_FANTASIA"].iloc[0]
+        assert unicodedata.is_normalized("NFKD", val)
 
 
 class TestCacheInterno:

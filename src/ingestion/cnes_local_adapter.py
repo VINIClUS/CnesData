@@ -53,6 +53,9 @@ class CnesLocalAdapter:
         for col in ("CNS", "CPF"):
             df[col] = df[col].str.strip()
         df["CNES"] = df["CNES"].str.strip().str.zfill(7)
+        for col in ("NOME_PROFISSIONAL", "NOME_SOCIAL"):
+            if col in df.columns:
+                df[col] = df[col].str.normalize("NFKD")
         df["FONTE"] = _FONTE_LOCAL
         logger.debug("listar_profissionais fonte=LOCAL rows=%d", len(df))
         return df[list(SCHEMA_PROFISSIONAL)]
@@ -69,6 +72,7 @@ class CnesLocalAdapter:
         df = self._extrair()
         estab = df[list(_MAP_ESTABELECIMENTO.keys())].rename(columns=_MAP_ESTABELECIMENTO)
         estab["CNES"] = estab["CNES"].str.strip().str.zfill(7)
+        estab["NOME_FANTASIA"] = estab["NOME_FANTASIA"].str.normalize("NFKD")
         estab = estab.drop_duplicates("CNES")
         estab["CNPJ_MANTENEDORA"] = None
         estab["NATUREZA_JURIDICA"] = None

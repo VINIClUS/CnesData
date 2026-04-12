@@ -21,6 +21,7 @@ import pytest
 
 from ingestion.cnes_client import (
     carregar_driver,
+    conectar,
     extrair_lookup_cbo,
     extrair_profissionais,
     COLUNAS_ESPERADAS,
@@ -88,6 +89,17 @@ def _linha_valida() -> tuple:
 # ─────────────────────────────────────────────────────────────────────────────
 # Grupo 1: carregar_driver()
 # ─────────────────────────────────────────────────────────────────────────────
+
+class TestConectar:
+
+    def test_conectar_usa_charset_win1252(self):
+        with patch("ingestion.cnes_client.fdb.connect") as mock_connect, \
+             patch("ingestion.cnes_client.carregar_driver"):
+            mock_connect.return_value = MagicMock()
+            conectar()
+            call_kwargs = mock_connect.call_args.kwargs
+            assert call_kwargs.get("charset") == "WIN1252"
+
 
 class TestCarregarDriver:
 
