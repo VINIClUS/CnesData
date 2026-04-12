@@ -86,10 +86,6 @@ def _linha_valida() -> tuple:
     return _linha_vinculos()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Grupo 1: carregar_driver()
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TestConectar:
 
     def test_conectar_usa_charset_win1252(self):

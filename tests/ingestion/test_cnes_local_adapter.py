@@ -207,6 +207,11 @@ class TestNFKDNormalizacao:
         val = resultado["NOME_SOCIAL"].iloc[0]
         assert unicodedata.is_normalized("NFKD", val)
 
+    def test_listar_profissionais_nome_social_none_permanece_nan(self):
+        adapter, _ = _adapter_com_mock()
+        resultado = adapter.listar_profissionais()
+        assert pd.isna(resultado["NOME_SOCIAL"].iloc[0])
+
     def test_listar_estabelecimentos_normaliza_nome_fantasia_para_nfkd(self):
         df = _DF_FIREBIRD.copy()
         df["ESTABELECIMENTO"] = ["Unidade Básica de Saúde"]
