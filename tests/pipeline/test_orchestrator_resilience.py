@@ -11,7 +11,7 @@ def _make_state() -> PipelineState:
         competencia_mes=1,
         output_path=None,
         executar_nacional=False,
-        executar_hr=False,
+        
     )
 
 
@@ -20,7 +20,7 @@ class _StageOk:
     critico = False
 
     def execute(self, state):
-        state.metricas_avancadas["ok"] = True
+        state.cbo_lookup["ok"] = True
 
 
 class _StageSkip:
@@ -59,21 +59,21 @@ def test_stage_ok_executa_normalmente():
     state = _make_state()
     orch = PipelineOrchestrator([_StageOk()])
     orch.executar(state)
-    assert state.metricas_avancadas.get("ok") is True
+    assert state.cbo_lookup.get("ok") is True
 
 
 def test_stage_skip_nao_interrompe_pipeline():
     state = _make_state()
     orch = PipelineOrchestrator([_StageSkip(), _StageOk()])
     orch.executar(state)
-    assert state.metricas_avancadas.get("ok") is True
+    assert state.cbo_lookup.get("ok") is True
 
 
 def test_stage_nao_critico_erro_continua_pipeline():
     state = _make_state()
     orch = PipelineOrchestrator([_StageErroNaoCritico(), _StageOk()])
     orch.executar(state)
-    assert state.metricas_avancadas.get("ok") is True
+    assert state.cbo_lookup.get("ok") is True
 
 
 def test_stage_critico_erro_para_pipeline():
@@ -81,7 +81,7 @@ def test_stage_critico_erro_para_pipeline():
     orch = PipelineOrchestrator([_StageErroCritico(), _StageOk()])
     with pytest.raises(RuntimeError, match="falha_fatal"):
         orch.executar(state)
-    assert state.metricas_avancadas.get("ok") is None
+    assert state.cbo_lookup.get("ok") is None
 
 
 def test_stage_fatal_error_para_pipeline():
@@ -99,4 +99,4 @@ def test_multiplos_stages_nao_criticos_com_erros_continuam():
         _StageOk(),
     ])
     orch.executar(state)
-    assert state.metricas_avancadas.get("ok") is True
+    assert state.cbo_lookup.get("ok") is True

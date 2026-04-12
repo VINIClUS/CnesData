@@ -16,7 +16,6 @@ class CliArgs:
     competencia: tuple[int, int] | None
     output_dir: str | None
     skip_nacional: bool
-    skip_hr: bool
     verbose: bool
     force_reingestao: bool = False
 
@@ -58,12 +57,6 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         help="Pular cross-check com base nacional (BigQuery).",
     )
     parser.add_argument(
-        "--skip-hr",
-        action="store_true",
-        default=False,
-        help="Pular cross-check com folha de RH.",
-    )
-    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         default=False,
@@ -94,7 +87,6 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         competencia=competencia,
         output_dir=args.output_dir,
         skip_nacional=args.skip_nacional,
-        skip_hr=args.skip_hr,
         verbose=args.verbose,
         force_reingestao=args.force_reingestao,
     )

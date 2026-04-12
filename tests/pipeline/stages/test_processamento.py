@@ -13,7 +13,7 @@ def _state_com_prof() -> PipelineState:
         competencia_mes=12,
         output_path=Path("data/processed/report.csv"),
         executar_nacional=True,
-        executar_hr=False,
+        
     )
     state.cbo_lookup = {"515105": "Agente Comunitário"}
     state.df_prof_local = pd.DataFrame({"CPF": ["12345678901"], "CNES": ["1234567"]})
@@ -50,7 +50,7 @@ def test_skip_quando_local_indisponivel():
     state = PipelineState(
         competencia_ano=2024, competencia_mes=12,
         output_path=Path("data/processed/report.csv"),
-        executar_nacional=False, executar_hr=False,
+        executar_nacional=False, 
         local_disponivel=False,
     )
     ProcessamentoStage().execute(state)

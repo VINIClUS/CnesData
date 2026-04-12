@@ -5,18 +5,20 @@ import pandas as pd
 from pipeline.state import PipelineState
 
 
-def test_construcao_minima_preenche_defaults():
-    state = PipelineState(
+def _state(**kwargs) -> PipelineState:
+    return PipelineState(
         competencia_ano=2024,
         competencia_mes=12,
         output_path=Path("data/processed/report.csv"),
         executar_nacional=True,
-        executar_hr=False,
+        **kwargs,
     )
 
+
+def test_construcao_minima_preenche_defaults():
+    state = _state()
     assert state.competencia_ano == 2024
     assert state.competencia_mes == 12
-    assert state.con is None
     assert state.cbo_lookup == {}
     assert isinstance(state.df_prof_local, pd.DataFrame)
     assert state.df_prof_local.empty
@@ -24,17 +26,6 @@ def test_construcao_minima_preenche_defaults():
     assert state.df_prof_nacional.empty
     assert state.df_estab_nacional.empty
     assert state.df_processado.empty
-    assert state.df_multi_unidades.empty
-    assert state.df_acs_incorretos.empty
-    assert state.df_ace_incorretos.empty
-    assert state.df_ghost.empty
-    assert state.df_missing.empty
-    assert state.df_estab_fantasma.empty
-    assert state.df_estab_ausente.empty
-    assert state.df_prof_fantasma.empty
-    assert state.df_prof_ausente.empty
-    assert state.df_cbo_diverg.empty
-    assert state.df_ch_diverg.empty
 
 
 def test_competencia_str_formata_corretamente():
@@ -43,36 +34,17 @@ def test_competencia_str_formata_corretamente():
         competencia_mes=3,
         output_path=Path("data/processed/report.csv"),
         executar_nacional=False,
-        executar_hr=False,
     )
-
     assert state.competencia_str == "2024-03"
 
 
-def test_state_tem_campos_novos():
-    state = PipelineState(
-        competencia_ano=2026,
-        competencia_mes=3,
-        output_path=Path("x.csv"),
-        executar_nacional=True,
-        executar_hr=False,
-    )
-    assert state.nacional_validado is False
-    assert state.fingerprint_local == ""
-    assert state.metricas_avancadas == {}
-
-
 def test_state_local_disponivel_default_true():
-    state = PipelineState(
-        competencia_ano=2024, competencia_mes=12,
-        output_path=Path("x.csv"), executar_nacional=False, executar_hr=False,
-    )
-    assert state.local_disponivel is True
+    assert _state().local_disponivel is True
 
 
 def test_state_nacional_disponivel_default_false():
-    state = PipelineState(
-        competencia_ano=2024, competencia_mes=12,
-        output_path=Path("x.csv"), executar_nacional=False, executar_hr=False,
-    )
-    assert state.nacional_disponivel is False
+    assert _state().nacional_disponivel is False
+
+
+def test_state_force_reingestao_default_false():
+    assert _state().force_reingestao is False

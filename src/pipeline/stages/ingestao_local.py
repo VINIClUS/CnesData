@@ -1,4 +1,4 @@
-"""IngestaoLocalStage — DuckDB-first, parquet backfill, Firebird apenas no período atual."""
+"""IngestaoLocalStage — parquet backfill, Firebird para período atual."""
 import logging
 from pathlib import Path
 
@@ -12,7 +12,6 @@ from ingestion.cnes_local_adapter import CnesLocalAdapter
 from ingestion.quarantine import QuarantineBuffer, quarentinar_linhas
 from pipeline.state import PipelineState
 from storage.competencia_utils import periodo_atual
-from storage.database_loader import DatabaseLoader
 from storage.snapshot_local import carregar_snapshot, snapshot_existe
 
 logger = logging.getLogger(__name__)
@@ -22,9 +21,8 @@ class IngestaoLocalStage:
     nome = "ingestao_local"
     critico = True
 
-    def __init__(self, historico_dir: Path, db_loader: DatabaseLoader) -> None:
+    def __init__(self, historico_dir: Path) -> None:
         self._historico_dir = historico_dir
-        self._db = db_loader
 
     def execute(self, state: PipelineState) -> None:
         competencia = state.competencia_str
@@ -35,14 +33,10 @@ class IngestaoLocalStage:
             return
 
         if state.force_reingestao and not eh_periodo_atual:
-            logger.warning("force_reingestao_ignorado_periodo_passado competencia=%s", competencia)
-
-        if self._db.profissional_existe(competencia):
-            self._carregar_do_duckdb(state)
-            return
+            logger.warning("force_reingestao_ignorado periodo_passado competencia=%s", competencia)
 
         if snapshot_existe(competencia, self._historico_dir):
-            self._backfill_do_parquet(state)
+            self._carregar_do_parquet(state)
             return
 
         if eh_periodo_atual:
@@ -52,27 +46,19 @@ class IngestaoLocalStage:
         state.local_disponivel = False
         logger.info("dados_locais_indisponiveis competencia=%s", competencia)
 
-    def _carregar_do_duckdb(self, state: PipelineState) -> None:
-        competencia = state.competencia_str
-        state.df_prof_local = self._db.carregar_profissionais(competencia)
-        state.df_estab_local = self._db.carregar_estabelecimentos(competencia)
-        state.cbo_lookup = self._db.carregar_cbo_lookup(competencia)
-        state.snapshot_carregado = True
-        state.local_disponivel = True
-        logger.info("local_duckdb carregado competencia=%s", competencia)
-
-    def _backfill_do_parquet(self, state: PipelineState) -> None:
+    def _carregar_do_parquet(self, state: PipelineState) -> None:
         competencia = state.competencia_str
         snap = carregar_snapshot(competencia, self._historico_dir)
         state.df_prof_local = snap.df_prof
         state.df_estab_local = snap.df_estab
         state.cbo_lookup = snap.cbo_lookup
-        self._db.gravar_profissionais(competencia, snap.df_prof)
-        self._db.gravar_estabelecimentos(competencia, snap.df_estab)
-        self._db.gravar_cbo_lookup(competencia, snap.cbo_lookup)
-        state.snapshot_carregado = True
         state.local_disponivel = True
-        logger.info("local_parquet_backfill competencia=%s", competencia)
+        logger.info(
+            "local_parquet competencia=%s prof=%d estab=%d",
+            competencia,
+            len(snap.df_prof),
+            len(snap.df_estab),
+        )
 
     def _ingerir_do_firebird(self, state: PipelineState) -> None:
         con = conectar()
@@ -84,7 +70,6 @@ class IngestaoLocalStage:
             df_estab = repo.listar_estabelecimentos()
         finally:
             con.close()
-            state.con = None
         df_prof = pd.read_parquet(parquet_path, engine="pyarrow")
         buffer = QuarantineBuffer()
         df_prof = _validar_com_dlq(df_prof, ProfissionalContract, buffer, state.competencia_str, "FIREBIRD", "CPF")
@@ -96,7 +81,8 @@ class IngestaoLocalStage:
         state.quarantine_buffer = buffer
         state.local_disponivel = True
         logger.info(
-            "ingestao_local profissionais=%d estabelecimentos=%d quarentenados=%d",
+            "ingestao_local_firebird competencia=%s prof=%d estab=%d quarentenados=%d",
+            state.competencia_str,
             len(state.df_prof_local),
             len(state.df_estab_local),
             len(buffer),
@@ -111,7 +97,6 @@ def _validar_com_dlq(
     source: str,
     id_col: str,
 ) -> pd.DataFrame:
-    """Valida DataFrame com Pandera em modo lazy; linhas inválidas vão para o DLQ."""
     try:
         contract.validate(df, lazy=True)
         return df

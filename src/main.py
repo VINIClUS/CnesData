@@ -8,16 +8,11 @@ import config
 from cli import parse_args
 from pipeline.orchestrator import PipelineOrchestrator
 from pipeline.state import PipelineState
-from pipeline.stages.auditoria_local import AuditoriaLocalStage
-from pipeline.stages.auditoria_nacional import AuditoriaNacionalStage
 from pipeline.stages.exportacao import ExportacaoStage
 from pipeline.stages.ingestao_local import IngestaoLocalStage
 from pipeline.stages.ingestao_nacional import IngestaoNacionalStage
 from pipeline.stages.processamento import ProcessamentoStage
-from pipeline.stages.processamento_nacional import ProcessamentoNacionalStage
-from pipeline.stages.snapshot_local import SnapshotLocalStage
 from sqlalchemy import create_engine
-from storage.database_loader import DatabaseLoader
 from storage.postgres_adapter import PostgresAdapter
 from storage.ports import NullStoragePort
 
@@ -55,7 +50,6 @@ def _criar_estado(args) -> PipelineState:
         competencia_mes=mes,
         output_path=output_path,
         executar_nacional=not args.skip_nacional,
-        executar_hr=not args.skip_hr and config.FOLHA_HR_PATH is not None,
         force_reingestao=args.force_reingestao,
     )
 
@@ -69,26 +63,20 @@ def main() -> int:
     args = parse_args()
     configurar_logging(verbose=args.verbose)
     state = _criar_estado(args)
-    db_loader = DatabaseLoader(config.DUCKDB_PATH)
-    db_loader.inicializar_schema()
     _storage = (
         PostgresAdapter(create_engine(config.DB_URL), config.COD_MUN_IBGE)
         if config.DB_URL
         else NullStoragePort()
     )
     orchestrator = PipelineOrchestrator([
-        IngestaoLocalStage(config.HISTORICO_DIR, db_loader),
+        IngestaoLocalStage(config.HISTORICO_DIR),
         ProcessamentoStage(),
-        SnapshotLocalStage(config.HISTORICO_DIR, db_loader),
-        IngestaoNacionalStage(db_loader),
-        ProcessamentoNacionalStage(),
-        AuditoriaLocalStage(),
-        AuditoriaNacionalStage(),
+        IngestaoNacionalStage(),
         ExportacaoStage(_storage),
     ])
     try:
         orchestrator.executar(state)
-        logging.getLogger(__name__).info("pipeline concluido output=%s", state.output_path)
+        logging.getLogger(__name__).info("pipeline concluido competencia=%s", state.competencia_str)
         return 0
     except (EnvironmentError, FileNotFoundError) as e:
         logging.getLogger(__name__).error("erro_config=%s", e)
@@ -96,10 +84,6 @@ def main() -> int:
     except Exception as e:
         logging.getLogger(__name__).exception("erro_inesperado=%s", e)
         return 1
-    finally:
-        if state.con is not None:
-            state.con.close()
-            logging.getLogger(__name__).info("conexao_encerrada")
 
 
 if __name__ == "__main__":

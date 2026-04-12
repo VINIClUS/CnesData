@@ -85,12 +85,8 @@ CNPJ_MANTENEDORA: str = _validar_formato(
     "CNPJ_MANTENEDORA", _exigir("CNPJ_MANTENEDORA"), _RE_CNPJ_14
 )
 
-# ── Snapshots Históricos ──────────────────────────────────────────────────
-SNAPSHOTS_DIR: Path = RAIZ_PROJETO / os.getenv("SNAPSHOTS_DIR", "data/snapshots")
-DUCKDB_PATH: Path = RAIZ_PROJETO / os.getenv("DUCKDB_PATH", "data/cnesdata.duckdb")
-#DB_URL: str = _exigir("DB_URL")
+DB_URL: str = _exigir("DB_URL")
 CACHE_DIR: Path = RAIZ_PROJETO / os.getenv("CACHE_DIR", "data/cache")
-LAST_RUN_PATH: Path = CACHE_DIR / "last_run.json"
 
 # ── Saída de Dados ─────────────────────────────────────────────────────────
 _output_dir = os.getenv("OUTPUT_DIR", "data/processed")
@@ -109,16 +105,8 @@ GCP_PROJECT_ID: str = _exigir("GCP_PROJECT_ID")
 COMPETENCIA_ANO: int = _exigir_inteiro("COMPETENCIA_ANO", 2026)
 COMPETENCIA_MES: int = _exigir_inteiro("COMPETENCIA_MES", 1)
 
-# ── RH / Folha de Pagamento (opcional) ────────────────────────────────────
-# Se não configurado, o cross-check CNES × RH é ignorado silenciosamente.
-_folha_hr_path = os.getenv("FOLHA_HR_PATH")
-FOLHA_HR_PATH: Path | None = Path(_folha_hr_path) if _folha_hr_path else None
-
 # ── Logs ───────────────────────────────────────────────────────────────────
 LOGS_DIR: Path = RAIZ_PROJETO / "logs"
 LOG_FILE: Path = LOGS_DIR / "cnes_exporter.log"
-
-# ── Cache Nacional (BigQuery) ──────────────────────────────────────────────
-NACIONAL_CACHE_TTL_DIAS: int = _exigir_inteiro("NACIONAL_CACHE_TTL_DIAS", 7)
 
 DLQ_THRESHOLD: float = float(os.getenv("DLQ_THRESHOLD", "0.05"))

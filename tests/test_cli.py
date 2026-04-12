@@ -11,7 +11,6 @@ class TestParsingArgumentos:
         args = parse_args([])
         assert args.competencia is None
         assert args.skip_nacional is False
-        assert args.skip_hr is False
         assert args.verbose is False
         assert args.output_dir is None
 
@@ -51,10 +50,6 @@ class TestParsingArgumentos:
         args = parse_args(["--skip-nacional"])
         assert args.skip_nacional is True
 
-    def test_skip_hr_flag(self):
-        args = parse_args(["--skip-hr"])
-        assert args.skip_hr is True
-
     def test_verbose_flag_curto(self):
         args = parse_args(["-v"])
         assert args.verbose is True
@@ -81,7 +76,6 @@ class TestDataclassCliArgs:
             competencia=None,
             output_dir=None,
             skip_nacional=False,
-            skip_hr=False,
             verbose=False,
         )
         with pytest.raises(Exception):
@@ -92,13 +86,11 @@ class TestDataclassCliArgs:
             competencia=(2024, 12),
             output_dir="/tmp/out",
             skip_nacional=True,
-            skip_hr=True,
             verbose=True,
         )
         assert args.competencia == (2024, 12)
         assert args.output_dir == "/tmp/out"
         assert args.skip_nacional is True
-        assert args.skip_hr is True
         assert args.verbose is True
 
 

@@ -19,7 +19,6 @@ class PipelineState:
     competencia_mes: int
     output_path: Path
     executar_nacional: bool
-    executar_hr: bool
 
     con: Any = None
     cbo_lookup: dict[str, str] = field(default_factory=dict)
@@ -29,28 +28,11 @@ class PipelineState:
     df_prof_nacional: pd.DataFrame = field(default_factory=pd.DataFrame)
     df_estab_nacional: pd.DataFrame = field(default_factory=pd.DataFrame)
     df_processado: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_multi_unidades: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_acs_incorretos: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_ace_incorretos: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_ghost: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_missing: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_estab_fantasma: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_estab_ausente: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_prof_fantasma: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_prof_ausente: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_cbo_diverg: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_ch_diverg: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     local_disponivel: bool = True
     nacional_disponivel: bool = False
-    nacional_validado: bool = False
-    fingerprint_local: str = ""
     quarantine_buffer: "QuarantineBuffer | None" = None
-    pipeline_status_override: str = ""
-    metricas_avancadas: dict = field(default_factory=dict)
     force_reingestao: bool = False
-    snapshot_carregado: bool = False
-    delta_local: dict = field(default_factory=dict)
 
     @property
     def competencia_str(self) -> str:
