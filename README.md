@@ -102,58 +102,9 @@ Opções:
   -o, --output-dir CAMINHO     Diretório de saída (padrão: data/processed/)
       --source {LOCAL,NACIONAL,AMBOS}
                                Fonte de dados (padrão: LOCAL)
-      --force-reingestao       Reingere do Firebird mesmo com snapshot existente
   -v, --verbose                Log DEBUG no console
   -h, --help                   Ajuda
 ```
-
----
-
-## Regras de Auditoria
-
-### Locais (dados do município)
-
-| Regra | O Que Detecta | Severidade |
-|---|---|---|
-| RQ-002 | CPF nulo ou inválido | — (excluído) |
-| RQ-003 | Vínculo com carga horária zero | Flag |
-| RQ-003-B | Profissional com vínculos em 2+ unidades | MÉDIA |
-| RQ-005 ACS/TACS | Agente comunitário em tipo de unidade incorreto | ALTA |
-| RQ-005 ACE/TACE | Agente de endemias em tipo de unidade incorreto | ALTA |
-
-### Cruzamento Local × Nacional
-
-| Regra | O Que Detecta | Chave | Severidade |
-|---|---|---|---|
-| RQ-006 | Estabelecimento local ausente no nacional | CNES | ALTA |
-| RQ-007 | Estabelecimento nacional ausente no local | CNES | ALTA |
-| RQ-008 | Profissional local (CNS) ausente no nacional | CNS | CRÍTICA |
-| RQ-009 | Profissional nacional (CNS) ausente no local | CNS | ALTA |
-| RQ-010 | CBO divergente entre local e nacional | CNS+CNES | MÉDIA |
-| RQ-011 | Carga horária divergente (tolerância: 2h) | CNS+CNES | BAIXA |
-
-### Cruzamento Local × Folha de RH (requer `hr_padronizado.csv`)
-
-| Regra | O Que Detecta | Severidade |
-|---|---|---|
-| Ghost Payroll | Ativo no CNES, ausente/inativo no RH | CRÍTICA |
-| Missing Registration | Ativo no RH, ausente no CNES local | ALTA |
-
----
-
-## Saídas
-
-Todos os arquivos em `data/processed/` (ou `-o`):
-
-| Arquivo | Descrição |
-|---|---|
-| `Relatorio_Profissionais_CNES.xlsx` | Workbook Excel com aba RESUMO + 1 aba por regra violada |
-| `Relatorio_Profissionais_CNES.csv` | Vínculos processados (formato BR, separador `;`) |
-| `auditoria_rq*.csv` | Um arquivo por regra com anomalias detectadas |
-| `auditoria_ghost_payroll.csv` | Folha fantasma (quando RH disponível) |
-| `auditoria_missing_registration.csv` | Registro ausente (quando RH disponível) |
-
-Arquivos de auditoria são criados apenas quando há anomalias. Logs em `logs/cnes_exporter.log`.
 
 ---
 
@@ -235,9 +186,6 @@ CnesData/
 │   │       └── exportacao.py        # Persiste no PostgreSQL, deriva status
 │   ├── processing/
 │   │   └── transformer.py        # RQ-002, RQ-003, enriquecimento CBO
-│   ├── analysis/
-│   │   ├── rules_engine.py       # 11 regras de auditoria
-│   │   └── evolution_tracker.py  # Snapshots históricos JSON
 │   └── storage/
 │       ├── ports.py              # StoragePort Protocol
 │       └── postgres_adapter.py   # PostgreSQL (upsert por competência)
@@ -255,10 +203,3 @@ CnesData/
 
 ---
 
-## Dashboard Analítico
-
-```bash
-.venv\Scripts\streamlit.exe run scripts/dashboard.py
-```
-
-Abre em http://localhost:8501 com três páginas: Visão Geral, Tendências e drill-down por Regra.

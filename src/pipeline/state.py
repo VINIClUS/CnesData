@@ -30,7 +30,6 @@ class PipelineState:
     df_processado: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     quarantine_buffer: "QuarantineBuffer | None" = None
-    force_reingestao: bool = False
 
     @property
     def competencia_str(self) -> str:

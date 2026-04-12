@@ -95,7 +95,6 @@ _output_filename = os.getenv("OUTPUT_FILENAME", "Relatorio_Profissionais_CNES.cs
 # Usa a raiz do projeto para garantir que o caminho é absoluto,
 # independente de onde o script for chamado.
 OUTPUT_PATH: Path = RAIZ_PROJETO / _output_dir / _output_filename
-HISTORICO_DIR: Path = OUTPUT_PATH.parent / "historico"
 
 # ── Google Cloud / BigQuery ────────────────────────────────────────────────
 GCP_PROJECT_ID: str = _exigir("GCP_PROJECT_ID")

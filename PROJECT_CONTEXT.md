@@ -80,16 +80,12 @@ Or, with the scheduled task, it runs unattended on the 15th of every month.
                        ├──► transformer.py (CPF validation, zero-hours flag)
                        │
                        ▼
-               rules_engine.py (11 audit rules)
-                       │
-                       ├──► csv_exporter.py
-                       ├──► report_generator.py (Excel + RESUMO)
-                       └──► evolution_tracker.py (JSON snapshots)
+               PostgreSQL (upsert por competência)
 ```
 
-**Current state:** `IngestaoLocalStage` loads parquet from `HISTORICO_DIR` or connects to Firebird directly (development mode). In production, parquet arrives from dump agents.
+**Current state:** `IngestaoLocalStage` connects to Firebird directly. In production, dump agents will POST parquet to the API endpoint.
 
-**Dump agent contract:** agent extracts Firebird data, serializes to `firebird_dump_YYYY-MM.parquet` in `HISTORICO_DIR`, and triggers the pipeline via HTTP or Task Scheduler. The stage is stateless with respect to how the parquet got there.
+**Audit rules:** removed from the pipeline — applied by a separate service via SQL JOINs on the PostgreSQL tables.
 
 ### Key Design Decisions
 
@@ -126,10 +122,6 @@ Or, with the scheduled task, it runs unattended on the 15th of every month.
 | `ingestion/web_client.py` | BigQuery client via basedosdados | 17 |
 | `ingestion/hr_client.py` | HR spreadsheet parser (.xlsx/.csv) | 21 |
 | `processing/transformer.py` | Cleaning, RQ-002, RQ-003 | ~20 |
-| `analysis/rules_engine.py` | 11 audit rules | 24 (cross-check) + 30+ (local) |
-| `analysis/evolution_tracker.py` | JSON snapshots + trend deltas | 33 |
-| `export/csv_exporter.py` | CSV output (Brazilian format) | — |
-| `export/report_generator.py` | Excel workbook with RESUMO + tabs | 25+ |
 | `storage/postgres_adapter.py` | PostgreSQL upsert by competência | — |
 
 **Total: 319+ unit tests passing.** Integration tests require live Firebird.
@@ -206,7 +198,7 @@ These are concrete next steps, ordered by value:
 |---|---|---|---|
 | 1 | Data validation + 5 defect fixes | ✅ Done | CPF/CNES zero-padding, RQ-007/009 cascade false positives, COVEPE type 50 |
 | 2 | CBO enrichment (human-readable job titles) | ✅ Done | DESCRICAO_CBO column in all reports via NFCES026 |
-| 3 | "Double-Check" Nacional (cascade_resolver) | ✅ Done | API DATASUS cascade validation — eliminates RQ-006 false positives from publication lag |
+| 3 | "Double-Check" Nacional (cascade_resolver) | Removed | Audit layer removed 2026-04 — rules applied by separate service via PostgreSQL JOINs |
 | 4 | DuckDB Medallion POC (Gold layer) | ✅ Done (POC) | Analytic persistence: evolucao_metricas_mensais + auditoria_resultados |
 | 5 | HR Pre-processor (PIS→CPF crosswalk) | ✅ Done | scripts/hr_pre_processor.py via LFCES018 — 61% coverage (240/395) |
 | 6 | Evolution dashboard in Excel | Not started | Trend tab comparing snapshots month-over-month (needs 2+ runs) |
@@ -225,7 +217,7 @@ Each municipality runs a lightweight **dump agent** that:
 3. POSTs to the CnesData API endpoint
 4. Is stateless — no local state beyond the parquet file
 
-The API receives the parquet, stores it in `HISTORICO_DIR` partitioned by `municipio/competencia`, and runs the reconciliation engine. Results persist in PostgreSQL with `(municipio, competencia)` as composite key.
+The API receives the parquet, validates via contracts, and persists in PostgreSQL with `(municipio, competencia)` as composite key. Audit rules are applied by a separate service via SQL JOINs.
 
 This means **no Firebird access from the server** — the engine never reaches into a remote database. Data arrives as structured artifacts.
 
@@ -257,7 +249,7 @@ Replace the Excel output with a web interface (Streamlit, Metabase, or custom). 
 
 - Interactive filtering by establishment, CBO, team
 - Drill-down from summary to individual records
-- Historical trend visualization (leverage existing JSON snapshots)
+- Historical trend visualization (via PostgreSQL queries)
 - Multi-user access without distributing Excel files
 
 **Complexity:** High. The Excel report works well for the current audience (1-3 people). A dashboard makes sense when the audience grows or when managers want self-service analysis.

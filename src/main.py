@@ -50,7 +50,6 @@ def _criar_estado(args) -> PipelineState:
         competencia_mes=mes,
         output_path=output_path,
         target_source=args.source,
-        force_reingestao=args.force_reingestao,
     )
 
 
@@ -69,7 +68,7 @@ def main() -> int:
         else NullStoragePort()
     )
     orchestrator = PipelineOrchestrator([
-        IngestaoLocalStage(config.HISTORICO_DIR),
+        IngestaoLocalStage(),
         ProcessamentoStage(),
         IngestaoNacionalStage(),
         ExportacaoStage(_storage),

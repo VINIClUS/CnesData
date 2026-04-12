@@ -17,7 +17,6 @@ class CliArgs:
     output_dir: str | None
     source: str
     verbose: bool
-    force_reingestao: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> CliArgs:
@@ -63,12 +62,6 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         help="Ativa log DEBUG no console.",
     )
     parser.add_argument(
-        "--force-reingestao",
-        action="store_true",
-        default=False,
-        help="Força re-ingestão do Firebird mesmo quando snapshot local existir.",
-    )
-    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -88,7 +81,6 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         output_dir=args.output_dir,
         source=args.source,
         verbose=args.verbose,
-        force_reingestao=args.force_reingestao,
     )
 
 

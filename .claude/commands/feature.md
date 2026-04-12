@@ -62,7 +62,7 @@ Run: `pytest tests/test_<module>.py -x --tb=short -q`
 All tests MUST fail. Commit: `git add tests/ && git commit -m "test(<scope>): red — failing tests for <feature>"`
 
 ### Phase 2 — GREEN
-Write MINIMUM implementation to make every test pass.
+Write implementation to make every test pass.
 Do NOT modify or delete any test from Phase 1.
 Run after each change: `pytest tests/test_<module>.py -x --tb=short -q`
 Then full suite: `pytest --tb=short -q`

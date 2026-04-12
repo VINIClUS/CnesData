@@ -10,7 +10,7 @@ $ARGUMENTS
 Follow the TDD protocol from .claude\skills\tdd-workflow\SKILL.md exactly:
 1. Phase 0: Analyze the requirement and plan test cases — present the plan for confirmation.
 2. Phase 1 (RED): Write ALL failing tests FIRST. Run them. Confirm all fail. Commit.
-3. Phase 2 (GREEN): Write minimal implementation. Do NOT modify tests. Run until all pass. Commit.
+3. Phase 2 (GREEN): Do NOT modify tests. Run until all pass. Commit.
 4. Phase 3 (REFACTOR): Clean up. Run tests after each change. Commit.
 5. Phase 4 (VERIFY): Run lint, type check, full suite with coverage. Report results.
 

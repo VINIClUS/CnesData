@@ -115,3 +115,7 @@ dependencies = [
 ]
 [tool.uv]
    override-dependencies = ["protobuf==6.33.6"]
+
+[tool.pyright]
+# fdb is a legacy Firebird driver with no type stubs — suppress the false-positive "Cannot find module" error
+reportMissingModuleSource = "none"

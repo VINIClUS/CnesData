@@ -46,7 +46,3 @@ def test_state_target_source_aceita_nacional():
 
 def test_state_target_source_aceita_ambos():
     assert _state(target_source="AMBOS").target_source == "AMBOS"
-
-
-def test_state_force_reingestao_default_false():
-    assert _state().force_reingestao is False
