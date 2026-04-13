@@ -19,9 +19,9 @@
 4. **[2026-04-13] venv is `.venv` not `venv` in this project**
    Do instead: `.venv/Scripts/python.exe` and `.venv/Scripts/ruff.exe`.
 
- (Highest Priority)
-1. **[2026-03-27] Always use Windows venv paths for commands**
-   Do instead: `./venv/Scripts/python.exe` and `./venv/Scripts/ruff.exe`, never `python` or `ruff` directly.
+## Execution & Validation (Highest Priority)
+1. **[2026-04-13] Always use `.venv` (not `venv`) for Windows venv paths**
+   Do instead: `./.venv/Scripts/python.exe` and `./.venv/Scripts/ruff.exe`, never `python` or `ruff` directly.
 
 2. **[2026-03-27] Run lint before tests, always**
    Do instead: `./venv/Scripts/ruff.exe check src/ tests/` then `./venv/Scripts/python.exe -m pytest ...`.
