@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 import fdb
-import pandas as pd
+import polars as pl
 
 from ingestion import config_sihd
 
@@ -81,7 +81,9 @@ def conectar() -> fdb.Connection:
     return con
 
 
-def extrair_aihs(con: fdb.Connection, competencia: str) -> pd.DataFrame:
+def extrair_aihs(
+    con: fdb.Connection, competencia: str,
+) -> pl.DataFrame:
     """Extrai AIHs processadas (TB_HAIH) para uma competência.
 
     Args:
@@ -93,13 +95,15 @@ def extrair_aihs(con: fdb.Connection, competencia: str) -> pd.DataFrame:
     """
     sql = _SQL_AIHS.format(competencia=competencia)
     df = _executar_query(con, sql)
-    logger.info("extrair_aihs competencia=%s rows=%d", competencia, len(df))
+    logger.info(
+        "extrair_aihs competencia=%s rows=%d", competencia, len(df),
+    )
     return df
 
 
 def extrair_procedimentos(
     con: fdb.Connection, competencia: str,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Extrai procedimentos de AIH (TB_HPA) para uma competência.
 
     Args:
@@ -112,12 +116,13 @@ def extrair_procedimentos(
     sql = _SQL_PROCEDIMENTOS.format(competencia=competencia)
     df = _executar_query(con, sql)
     logger.info(
-        "extrair_procedimentos competencia=%s rows=%d", competencia, len(df),
+        "extrair_procedimentos competencia=%s rows=%d",
+        competencia, len(df),
     )
     return df
 
 
-def _executar_query(con: fdb.Connection, sql: str) -> pd.DataFrame:
+def _executar_query(con: fdb.Connection, sql: str) -> pl.DataFrame:
     cur = con.cursor()
     try:
         cur.execute(sql)
@@ -125,4 +130,6 @@ def _executar_query(con: fdb.Connection, sql: str) -> pd.DataFrame:
         colunas: list[str] = [d[0] for d in cur.description]
     finally:
         cur.close()
-    return pd.DataFrame(linhas, columns=colunas)
+    if not linhas:
+        return pl.DataFrame(schema={c: pl.Utf8 for c in colunas})
+    return pl.DataFrame(linhas, schema=colunas, orient="row")

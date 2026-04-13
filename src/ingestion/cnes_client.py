@@ -1,43 +1,10 @@
-"""
-cnes_client.py — Camada de Ingestão: Cliente do Banco CNES Firebird
-
-Responsabilidade: carregar o driver Firebird, abrir a conexão e extrair
-os dados brutos de profissionais vinculados ao CNPJ da mantenedora.
-
-Por que cursor manual em vez de pd.read_sql()?
-  O driver `fdb` emite erro -501 ("Invalid cursor state") quando
-  pd.read_sql() é usado com LEFT JOINs encadeados. O cursor manual
-  contorna isso ao iterar cursor.fetchall() e construir o DataFrame
-  com os nomes vindos de cursor.description.
-
-Por que 3 queries separadas em vez de um único SELECT com JOINs?
-  O Firebird 2.5 embedado possui dois bugs que inviabilizam o JOIN direto
-  LFCES048 → LFCES060:
-  1. LFCES060.COD_MUN difere de LFCES048.COD_MUN para as mesmas equipes
-     (LFCES060 armazena o município de origem do cadastro nacional, não o
-     município gestor local).
-  2. LFCES060.SEQ_EQUIPE é um código nacional de 6-7 dígitos cujos primeiros
-     4 caracteres correspondem ao LFCES048.SEQ_EQUIPE (código local de 4 dígitos).
-     Não há função de substring disponível neste Firebird, impossibilitando o
-     JOIN por prefixo em SQL.
-  Solução H2: queries separadas + merge Python via str[:4].
-
-Por que TP_SUS_NAO_SUS e não TP_SUS_NAO?
-  A Query Master foi validada com 367 registros contra o banco real
-  usando TP_SUS_NAO_SUS. A tabela de colunas do dicionário registra
-  TP_SUS_NAO (inferido antes da validação) e está desatualizada nesse campo.
-
-Por que TP_EQUIPE e não DS_SEGMENT / DS_SEGMENTO?
-  DS_SEGMENT retorna erro -206 (Column unknown) quando acessado via alias
-  em LEFT JOIN aninhado no Firebird 2.5. A Query Master usa TP_EQUIPE
-  (código numérico do tipo de equipe) conforme nota do data_dictionary.md.
-"""
+"""Cliente do Banco CNES Firebird — extraccao via cursor manual."""
 
 import logging
 from pathlib import Path
 
 import fdb
-import pandas as pd
+import polars as pl
 
 import config
 
@@ -72,7 +39,6 @@ _SQL_VINCULOS: str = """
     ORDER BY prof.NOME_PROF, vinc.COD_CBO
 """
 
-# Membros de equipe: chave de ligação CPF+CBO → SEQ_EQUIPE (código local 4 dígitos)
 _SQL_MEMBROS: str = """
     SELECT
         me.CPF_PROF   AS CPF,
@@ -83,7 +49,6 @@ _SQL_MEMBROS: str = """
       AND me.SEQ_EQUIPE IS NOT NULL
 """
 
-# Registro de equipes: código nacional 6-7 dígitos — primeiros 4 = SEQ de LFCES048
 _SQL_EQUIPES: str = """
     SELECT
         eq.SEQ_EQUIPE AS SEQ_EQUIPE,
@@ -108,22 +73,18 @@ COLUNAS_ESPERADAS: tuple[str, ...] = (
 
 
 def carregar_driver(dll_path: Path) -> None:
-    """
-    Carrega a DLL do Firebird 64-bits no processo Python.
-
-    Deve ser chamado antes de qualquer fdb.connect(). Chamadas repetidas
-    são seguras — o fdb verifica internamente se a API já foi carregada.
+    """Carrega a DLL do Firebird 64-bits no processo Python.
 
     Args:
-        dll_path: Caminho absoluto para a fbembed.dll ou fbclient.dll.
+        dll_path: Caminho absoluto para fbembed.dll ou fbclient.dll.
 
     Raises:
-        FileNotFoundError: Se a DLL não existir no caminho informado.
+        FileNotFoundError: Se a DLL nao existir no caminho informado.
     """
     if not dll_path.exists():
         raise FileNotFoundError(
-            f"DLL do Firebird não encontrada em: {dll_path}\n"
-            "Verifique a variável FIREBIRD_DLL no arquivo .env"
+            f"DLL do Firebird nao encontrada em: {dll_path}\n"
+            "Verifique a variavel FIREBIRD_DLL no arquivo .env"
         )
     logger.debug("Carregando driver Firebird de: %s", dll_path)
     fdb.load_api(str(dll_path))
@@ -131,19 +92,14 @@ def carregar_driver(dll_path: Path) -> None:
 
 
 def conectar() -> fdb.Connection:
-    """
-    Abre e retorna uma conexão ativa com o banco CNES Firebird.
-
-    A conexão deve ser fechada pelo chamador, preferencialmente em um
-    bloco `finally` para garantir o fechamento mesmo em caso de exceção.
+    """Abre e retorna uma conexao ativa com o banco CNES Firebird.
 
     Returns:
-        fdb.Connection: Conexão ativa com o banco.
+        fdb.Connection ativa com o banco.
 
     Raises:
-        FileNotFoundError: Se a DLL do Firebird não for encontrada.
-        fdb.fbcore.DatabaseError: Se a conexão com o banco falhar
-            (banco offline, credenciais incorretas, DSN inválido).
+        FileNotFoundError: Se a DLL do Firebird nao for encontrada.
+        fdb.fbcore.DatabaseError: Se a conexao com o banco falhar.
     """
     carregar_driver(Path(config.FIREBIRD_DLL))
 
@@ -154,51 +110,46 @@ def conectar() -> fdb.Connection:
         password=config.DB_PASSWORD,
         charset="WIN1252",
     )
-    logger.info("Conexão estabelecida com o banco CNES.")
+    logger.info("Conexao estabelecida com o banco CNES.")
     return con
 
 
 def extrair_lookup_cbo(con: fdb.Connection) -> dict[str, str]:
-    """Extrai mapeamento CBO → descrição da tabela NFCES026.
+    """Extrai mapeamento CBO -> descricao da tabela NFCES026.
 
     Args:
-        con: Conexão ativa com o banco Firebird.
+        con: Conexao ativa com o banco Firebird.
 
     Returns:
-        Dict com chave=código CBO (6 dígitos), valor=descrição do cargo.
+        Dict com chave=codigo CBO (6 digitos), valor=descricao do cargo.
     """
     df = _executar_query(con, _SQL_CBO_LOOKUP)
-    if df.empty:
+    if df.is_empty():
         logger.warning("cbo_lookup=vazio tabela=NFCES026 descricoes_cbo_indisponiveis=True")
         return {}
-    df["CBO"] = df["CBO"].astype(str).str.strip()
-    df["DESCRICAO_CBO"] = df["DESCRICAO_CBO"].astype(str).str.strip()
-    lookup = dict(zip(df["CBO"], df["DESCRICAO_CBO"]))
+    df = df.with_columns(
+        pl.col("CBO").cast(pl.Utf8).str.strip_chars(),
+        pl.col("DESCRICAO_CBO").cast(pl.Utf8).str.strip_chars(),
+    )
+    lookup = dict(zip(df["CBO"].to_list(), df["DESCRICAO_CBO"].to_list()))
     logger.info("cbo_lookup count=%d", len(lookup))
     return lookup
 
 
-def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:
-    """
-    Extrai os vínculos profissional↔estabelecimento com dados de equipe.
-
-    Executa 3 queries separadas e faz o enriquecimento via merge Python:
-      1. Vínculos base (LFCES021 + LFCES004 + LFCES018)
-      2. Membros de equipe (LFCES048)
-      3. Registro de equipes (LFCES060)
+def extrair_profissionais(con: fdb.Connection) -> pl.DataFrame:
+    """Extrai vinculos profissional x estabelecimento com dados de equipe.
 
     Args:
-        con: Conexão ativa com o banco Firebird (aberta, não fechada).
+        con: Conexao ativa com o banco Firebird (aberta, nao fechada).
 
     Returns:
-        pd.DataFrame: DataFrame com 20 colunas (ver COLUNAS_ESPERADAS).
+        pl.DataFrame com 20 colunas (ver COLUNAS_ESPERADAS).
 
     Raises:
-        ValueError: Se a query de vínculos não retornar nenhum registro.
-        fdb.fbcore.DatabaseError: Se ocorrer erro de SQL no banco.
+        ValueError: Se a query de vinculos nao retornar nenhum registro.
     """
     logger.info(
-        "Executando extração para município IBGE=%s, CNPJ=%s ...",
+        "Executando extracao para municipio IBGE=%s, CNPJ=%s ...",
         config.COD_MUN_IBGE,
         config.CNPJ_MANTENEDORA,
     )
@@ -208,9 +159,9 @@ def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:
         _SQL_VINCULOS.format(cod_mun=config.COD_MUN_IBGE, cnpj=config.CNPJ_MANTENEDORA),
     )
 
-    if df_vinculos.empty:
+    if df_vinculos.is_empty():
         raise ValueError(
-            "A query não retornou dados. "
+            "A query nao retornou dados. "
             f"Verifique os filtros: COD_MUN_IBGE={config.COD_MUN_IBGE}, "
             f"CNPJ={config.CNPJ_MANTENEDORA}."
         )
@@ -225,17 +176,19 @@ def extrair_profissionais(con: fdb.Connection) -> pd.DataFrame:
     )
 
     df = _enriquecer_com_equipe(df_vinculos, df_membros, df_equipes)
-    logger.info("Extração concluída. Total de vínculos: %d", len(df))
+    logger.info("Extracao concluida. Total de vinculos: %d", len(df))
     return df
 
 
-def dump_vinculos_para_parquet(con: fdb.Connection, output_dir: Path, competencia: str) -> Path:
-    """Extrai vínculos do Firebird e persiste em Parquet. Fecha a conexão ao final.
+def dump_vinculos_para_parquet(
+    con: fdb.Connection, output_dir: Path, competencia: str,
+) -> Path:
+    """Extrai vinculos do Firebird e persiste em Parquet.
 
     Args:
-        con: Conexão ativa com o banco Firebird.
-        output_dir: Diretório de saída para o arquivo temporário.
-        competencia: Competência no formato 'YYYY-MM'.
+        con: Conexao ativa com o banco Firebird.
+        output_dir: Diretorio de saida para o arquivo temporario.
+        competencia: Competencia no formato 'YYYY-MM'.
 
     Returns:
         Path do arquivo Parquet gerado.
@@ -243,12 +196,12 @@ def dump_vinculos_para_parquet(con: fdb.Connection, output_dir: Path, competenci
     df = extrair_profissionais(con)
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"firebird_dump_{competencia}.parquet"
-    df.to_parquet(path, engine="pyarrow", index=False)
+    df.write_parquet(path)
     logger.info("dump_parquet path=%s linhas=%d", path, len(df))
     return path
 
 
-def _executar_query(con: fdb.Connection, sql: str) -> pd.DataFrame:
+def _executar_query(con: fdb.Connection, sql: str) -> pl.DataFrame:
     cur = con.cursor()
     try:
         cur.execute(sql)
@@ -256,38 +209,41 @@ def _executar_query(con: fdb.Connection, sql: str) -> pd.DataFrame:
         colunas: list[str] = [d[0] for d in cur.description]
     finally:
         cur.close()
-    return pd.DataFrame(linhas, columns=colunas)
+    if not linhas:
+        return pl.DataFrame(schema={c: pl.Utf8 for c in colunas})
+    return pl.DataFrame(linhas, schema=colunas, orient="row")
 
 
 def _enriquecer_com_equipe(
-    df_vinculos: pd.DataFrame,
-    df_membros: pd.DataFrame,
-    df_equipes: pd.DataFrame,
-) -> pd.DataFrame:
-    # LFCES060.SEQ_EQUIPE é um código nacional de 6-7 dígitos;
-    # os primeiros 4 caracteres equivalem ao LFCES048.SEQ_EQUIPE (código local).
-    df_eq = df_equipes.copy()
-    df_eq["SEQ_BASE"] = df_eq["SEQ_EQUIPE"].astype(str).str[:4].astype(int)
+    df_vinculos: pl.DataFrame,
+    df_membros: pl.DataFrame,
+    df_equipes: pl.DataFrame,
+) -> pl.DataFrame:
+    # LFCES060.SEQ_EQUIPE nacional 6-7 digitos; primeiros 4 = LFCES048.SEQ_EQUIPE local
+    df_eq = df_equipes.with_columns(
+        pl.col("SEQ_EQUIPE").cast(pl.Utf8).str.slice(0, 4).cast(pl.Int64).alias("SEQ_BASE")
+    )
 
-    df_mem = df_membros.copy()
-    df_mem["CPF"] = df_mem["CPF"].str.strip()
-    df_mem["CBO"] = df_mem["CBO"].str.strip()
+    df_mem = df_membros.with_columns(
+        pl.col("CPF").str.strip_chars(),
+        pl.col("CBO").str.strip_chars(),
+        pl.col("SEQ_EQUIPE").cast(pl.Int64),
+    )
 
-    df_mem_eq = df_mem.merge(
-        df_eq[["SEQ_BASE", "COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE"]],
+    df_mem_eq = df_mem.join(
+        df_eq.select("SEQ_BASE", "COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE"),
         left_on="SEQ_EQUIPE",
         right_on="SEQ_BASE",
         how="left",
-    ).drop(columns=["SEQ_EQUIPE", "SEQ_BASE"], errors="ignore")
+    ).drop("SEQ_EQUIPE", strict=False).unique(subset=["CPF", "CBO"])
 
-    df_mem_eq = df_mem_eq.drop_duplicates(subset=["CPF", "CBO"])
+    df_base = df_vinculos.with_columns(
+        pl.col("CPF").str.strip_chars(),
+        pl.col("CBO").str.strip_chars(),
+    )
 
-    df_base = df_vinculos.copy()
-    df_base["CPF"] = df_base["CPF"].str.strip()
-    df_base["CBO"] = df_base["CBO"].str.strip()
-
-    return df_base.merge(
-        df_mem_eq[["CPF", "CBO", "COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE"]],
+    return df_base.join(
+        df_mem_eq.select("CPF", "CBO", "COD_INE_EQUIPE", "NOME_EQUIPE", "COD_TIPO_EQUIPE"),
         on=["CPF", "CBO"],
         how="left",
     )

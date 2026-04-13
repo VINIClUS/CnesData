@@ -6,7 +6,20 @@
 - Max 10 items per category.
 - Each item includes date + "Do instead".
 
-## Execution & Validation (Highest Priority)
+## Execution & Validation
+1. **[2026-04-13] Polars replace_strict with default=None fails on non-null columns**
+   Do instead: Use `pl.when().then().otherwise()` pattern for SUS mapping.
+
+2. **[2026-04-13] Polars str operations fail on Null-typed columns**
+   Do instead: Cast to `pl.Utf8` before calling `.str.strip_chars()` or `.str.pad_start()`.
+
+3. **[2026-04-13] web_client mocks must return pandas (not polars) because bd.read_sql returns pandas**
+   Do instead: Mock `bd.read_sql` with `pd.DataFrame`, the adapter converts via `pl.from_pandas()`.
+
+4. **[2026-04-13] venv is `.venv` not `venv` in this project**
+   Do instead: `.venv/Scripts/python.exe` and `.venv/Scripts/ruff.exe`.
+
+ (Highest Priority)
 1. **[2026-03-27] Always use Windows venv paths for commands**
    Do instead: `./venv/Scripts/python.exe` and `./venv/Scripts/ruff.exe`, never `python` or `ruff` directly.
 

@@ -1,7 +1,8 @@
 """IngestaoLocalStage — ingere profissionais e estabelecimentos do Firebird."""
+
 import logging
 
-import pandas as pd
+import polars as pl
 from pandera.errors import SchemaErrors
 
 from contracts.schemas import EstabelecimentoContract, ProfissionalContract
@@ -32,34 +33,41 @@ class IngestaoLocalStage:
         finally:
             con.close()
         buffer = QuarantineBuffer()
-        df_prof = _validar_com_dlq(df_prof, ProfissionalContract, buffer, state.competencia_str, "FIREBIRD", "CPF")
-        df_estab = _validar_com_dlq(df_estab, EstabelecimentoContract, buffer, state.competencia_str, "FIREBIRD", "CNES")
-        if df_prof.empty:
+        df_prof = _validar_com_dlq(
+            df_prof, ProfissionalContract, buffer,
+            state.competencia_str, "FIREBIRD", "CPF",
+        )
+        df_estab = _validar_com_dlq(
+            df_estab, EstabelecimentoContract, buffer,
+            state.competencia_str, "FIREBIRD", "CNES",
+        )
+        if df_prof.is_empty():
             raise RuntimeError(
-                f"ingestao_local_abortada competencia={state.competencia_str} motivo=todos_profissionais_rejeitados_dlq"
+                f"ingestao_local_abortada competencia={state.competencia_str}"
+                " motivo=todos_profissionais_rejeitados_dlq"
             )
         state.df_prof_local = df_prof
         state.df_estab_local = df_estab
         state.quarantine_buffer = buffer
         logger.info(
-            "ingestao_local_firebird competencia=%s prof=%d estab=%d quarentenados=%d",
-            state.competencia_str,
-            len(state.df_prof_local),
-            len(state.df_estab_local),
-            len(buffer),
+            "ingestao_local_firebird competencia=%s prof=%d estab=%d"
+            " quarentenados=%d",
+            state.competencia_str, len(df_prof), len(df_estab), len(buffer),
         )
 
 
 def _validar_com_dlq(
-    df: pd.DataFrame,
-    contract,
+    df: pl.DataFrame,
+    contract: type,
     buffer: QuarantineBuffer,
     competencia: str,
     source: str,
     id_col: str,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
+    # Pandera valida via pandas; converte na fronteira
+    df_pd = df.to_pandas()
     try:
-        contract.validate(df, lazy=True)
+        contract.validate(df_pd, lazy=True)
         return df
     except SchemaErrors as exc:
         failing_indices = exc.failure_cases["index"].dropna().unique()
@@ -82,11 +90,13 @@ def _validar_com_dlq(
                 failure_reason="; ".join(reasons),
                 id_col=id_col,
             )
-        valid_df = df.drop(index=failing_indices, errors="ignore")
+        fail_set = set(int(i) for i in failing_indices)
+        mask = pl.Series(
+            [i not in fail_set for i in range(df.height)]
+        )
+        valid_df = df.filter(mask)
         logger.warning(
             "validacao_dlq source=%s rejeitados=%d aceitos=%d",
-            source,
-            len(failing_indices),
-            len(valid_df),
+            source, len(fail_set), valid_df.height,
         )
         return valid_df

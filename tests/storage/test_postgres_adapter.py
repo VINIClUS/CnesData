@@ -1,11 +1,12 @@
 """Testes de integração para PostgresAdapter contra banco PostgreSQL real."""
-import pandas as pd
+
+import polars as pl
 import pytest
 from sqlalchemy import text
 
 
 def _df_prof(cpf="11111111111", cnes="1234567", fonte="LOCAL", sus="S"):
-    return pd.DataFrame([{
+    return pl.DataFrame([{
         "CPF": cpf, "CNS": "123456789012345", "NOME_PROFISSIONAL": "Test Prof",
         "SEXO": "M", "CBO": "515105", "CNES": cnes, "TIPO_VINCULO": "010101",
         "SUS": sus, "CH_TOTAL": 40, "CH_AMBULATORIAL": 40,
@@ -14,7 +15,7 @@ def _df_prof(cpf="11111111111", cnes="1234567", fonte="LOCAL", sus="S"):
 
 
 def _df_estab(cnes="1234567", fonte="LOCAL", vinculo_sus="S"):
-    return pd.DataFrame([{
+    return pl.DataFrame([{
         "CNES": cnes, "NOME_FANTASIA": "UBS Test", "TIPO_UNIDADE": "01",
         "CNPJ_MANTENEDORA": "55293427000117", "NATUREZA_JURIDICA": "1244",
         "COD_MUNICIPIO": "355030", "VINCULO_SUS": vinculo_sus, "FONTE": fonte,
@@ -32,7 +33,7 @@ def test_gravar_profissionais_insere_dim_profissional(adapter, pg_engine):
 
 @pytest.mark.integration
 def test_gravar_profissionais_insere_fato_vinculo(adapter, pg_engine):
-    df = pd.concat([_df_prof("11111111111"), _df_prof("22222222222")], ignore_index=True)
+    df = pl.concat([_df_prof("11111111111"), _df_prof("22222222222")])
     adapter.gravar_estabelecimentos("2026-01", _df_estab())
     adapter.gravar_profissionais("2026-01", df)
     with pg_engine.connect() as con:

@@ -4,7 +4,7 @@ import time as _time
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from ingestion.schemas import SCHEMA_PROFISSIONAL, SCHEMA_ESTABELECIMENTO
@@ -13,7 +13,7 @@ from ingestion.cnes_nacional_adapter import CnesNacionalAdapter
 
 _COMPETENCIA = (2024, 12)
 
-_DF_ESTAB_BQ = pd.DataFrame({
+_DF_ESTAB_BQ = pl.DataFrame({
     "ano":                    [2024],
     "mes":                    [12],
     "id_municipio":           ["3541307"],
@@ -26,7 +26,7 @@ _DF_ESTAB_BQ = pd.DataFrame({
     "indicador_vinculo_sus":  [1],
 })
 
-_DF_PROF_BQ = pd.DataFrame({
+_DF_PROF_BQ = pl.DataFrame({
     "ano":                    [2024],
     "mes":                    [12],
     "id_municipio":           ["3541307"],
@@ -47,10 +47,10 @@ def _adapter_com_mock(df_estab=None, df_prof=None) -> CnesNacionalAdapter:
     adapter._client = MagicMock()
     adapter._client.fetch_estabelecimentos.return_value = (
         df_estab if df_estab is not None else _DF_ESTAB_BQ
-    ).copy()
+    ).clone()
     adapter._client.fetch_profissionais.return_value = (
         df_prof if df_prof is not None else _DF_PROF_BQ
-    ).copy()
+    ).clone()
     return adapter
 
 
@@ -64,39 +64,39 @@ class TestListarEstabelecimentos:
     def test_adiciona_fonte_nacional(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_estabelecimentos(_COMPETENCIA)
-        assert (resultado["FONTE"] == "NACIONAL").all()
+        assert (resultado["FONTE"] == "NACIONAL").to_list() == [True]
 
     def test_cod_municipio_seis_digitos(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_estabelecimentos(_COMPETENCIA)
-        assert resultado["COD_MUNICIPIO"].iloc[0] == "354130"
+        assert resultado["COD_MUNICIPIO"][0] == "354130"
 
     def test_renomeia_id_estabelecimento_para_cnes(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_estabelecimentos(_COMPETENCIA)
-        assert resultado["CNES"].iloc[0] == "0985333"
+        assert resultado["CNES"][0] == "0985333"
 
     def test_renomeia_cnpj_mantenedora_para_cnpj_mantenedora(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_estabelecimentos(_COMPETENCIA)
-        assert resultado["CNPJ_MANTENEDORA"].iloc[0] == "55293427000117"
+        assert resultado["CNPJ_MANTENEDORA"][0] == "55293427000117"
 
     def test_nome_fantasia_e_none(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_estabelecimentos(_COMPETENCIA)
-        assert resultado["NOME_FANTASIA"].iloc[0] is None
+        assert resultado["NOME_FANTASIA"][0] is None
 
     def test_normaliza_indicador_vinculo_sus_1_para_s(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_estabelecimentos(_COMPETENCIA)
-        assert resultado["VINCULO_SUS"].iloc[0] == "S"
+        assert resultado["VINCULO_SUS"][0] == "S"
 
     def test_normaliza_indicador_vinculo_sus_zero_para_n(self):
-        df_estab = _DF_ESTAB_BQ.copy()
-        df_estab["indicador_vinculo_sus"] = [0]
+        df_estab = _DF_ESTAB_BQ.clone()
+        df_estab = df_estab.with_columns(pl.lit(0).alias("indicador_vinculo_sus"))
         adapter = _adapter_com_mock(df_estab=df_estab)
         resultado = adapter.listar_estabelecimentos(_COMPETENCIA)
-        assert resultado["VINCULO_SUS"].iloc[0] == "N"
+        assert resultado["VINCULO_SUS"][0] == "N"
 
     def test_passa_competencia_correta_ao_cliente(self):
         adapter = _adapter_com_mock()
@@ -119,48 +119,50 @@ class TestListarProfissionais:
     def test_adiciona_fonte_nacional(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_profissionais(_COMPETENCIA)
-        assert (resultado["FONTE"] == "NACIONAL").all()
+        assert (resultado["FONTE"] == "NACIONAL").to_list() == [True]
 
     def test_renomeia_cartao_nacional_saude_para_cns(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_profissionais(_COMPETENCIA)
-        assert resultado["CNS"].iloc[0] == "702002887429583"
+        assert resultado["CNS"][0] == "702002887429583"
 
     def test_renomeia_cbo_2002_para_cbo(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_profissionais(_COMPETENCIA)
-        assert resultado["CBO"].iloc[0] == "514225"
+        assert resultado["CBO"][0] == "514225"
 
     def test_calcula_ch_total(self):
-        df_prof = _DF_PROF_BQ.copy()
-        df_prof["carga_horaria_ambulatorial"] = [20]
-        df_prof["carga_horaria_outros"] = [10]
-        df_prof["carga_horaria_hospitalar"] = [10]
+        df_prof = _DF_PROF_BQ.clone()
+        df_prof = df_prof.with_columns([
+            pl.lit(20).alias("carga_horaria_ambulatorial"),
+            pl.lit(10).alias("carga_horaria_outros"),
+            pl.lit(10).alias("carga_horaria_hospitalar"),
+        ])
         adapter = _adapter_com_mock(df_prof=df_prof)
         resultado = adapter.listar_profissionais(_COMPETENCIA)
-        assert resultado["CH_TOTAL"].iloc[0] == 40
+        assert resultado["CH_TOTAL"][0] == 40
 
     def test_normaliza_indicador_atende_sus_1_para_s(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_profissionais(_COMPETENCIA)
-        assert resultado["SUS"].iloc[0] == "S"
+        assert resultado["SUS"][0] == "S"
 
     def test_normaliza_indicador_atende_sus_zero_para_n(self):
-        df_prof = _DF_PROF_BQ.copy()
-        df_prof["indicador_atende_sus"] = [0]
+        df_prof = _DF_PROF_BQ.clone()
+        df_prof = df_prof.with_columns(pl.lit(0).alias("indicador_atende_sus"))
         adapter = _adapter_com_mock(df_prof=df_prof)
         resultado = adapter.listar_profissionais(_COMPETENCIA)
-        assert resultado["SUS"].iloc[0] == "N"
+        assert resultado["SUS"][0] == "N"
 
     def test_cpf_e_none(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_profissionais(_COMPETENCIA)
-        assert resultado["CPF"].iloc[0] is None
+        assert resultado["CPF"][0] is None
 
     def test_nome_profissional_vem_da_coluna_nome(self):
         adapter = _adapter_com_mock()
         resultado = adapter.listar_profissionais(_COMPETENCIA)
-        assert resultado["NOME_PROFISSIONAL"].iloc[0] == "PROFISSIONAL TESTE"
+        assert resultado["NOME_PROFISSIONAL"][0] == "PROFISSIONAL TESTE"
 
     def test_levanta_value_error_sem_competencia(self):
         adapter = _adapter_com_mock()
@@ -176,7 +178,7 @@ class TestListarProfissionais:
         adapter = _adapter_com_mock()
         df = adapter.listar_profissionais(_COMPETENCIA)
         assert "SEXO" in df.columns
-        assert df["SEXO"].isna().all()
+        assert df["SEXO"].null_count() == len(df)
 
 
 class TestCachePickle:
@@ -186,12 +188,12 @@ class TestCachePickle:
         mocker.patch.object(
             adapter._client,
             "fetch_estabelecimentos",
-            return_value=_DF_ESTAB_BQ.copy(),
+            return_value=_DF_ESTAB_BQ.clone(),
         )
         mocker.patch.object(
             adapter._client,
             "fetch_profissionais",
-            return_value=_DF_PROF_BQ.copy(),
+            return_value=_DF_PROF_BQ.clone(),
         )
         return adapter
 
@@ -216,7 +218,7 @@ class TestCachePickle:
         mocker.patch.object(
             adapter._client,
             "fetch_estabelecimentos",
-            return_value=_DF_ESTAB_BQ.copy(),
+            return_value=_DF_ESTAB_BQ.clone(),
         )
         adapter.listar_estabelecimentos((2024, 12))
 
@@ -230,7 +232,7 @@ class TestCachePickle:
         mocker.patch.object(
             adapter._client,
             "fetch_estabelecimentos",
-            return_value=_DF_ESTAB_BQ.copy(),
+            return_value=_DF_ESTAB_BQ.clone(),
         )
         adapter.listar_estabelecimentos((2024, 12))
         adapter.listar_estabelecimentos((2024, 12))

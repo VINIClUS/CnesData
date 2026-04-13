@@ -3,7 +3,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 
-import pandas as pd
+import polars as pl
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,9 @@ class QuarantineRecord:
 class QuarantineBuffer:
     """Acumula registros rejeitados e persiste em lote no DuckDB."""
 
-    _records: list[QuarantineRecord] = field(default_factory=list, init=False)
+    _records: list[QuarantineRecord] = field(
+        default_factory=list, init=False,
+    )
 
     def append(self, record: QuarantineRecord) -> None:
         self._records.append(record)
@@ -47,8 +49,11 @@ class QuarantineBuffer:
         if not self._records:
             return 0
         rows = [
-            (r.competencia, r.source_system, r.record_identifier,
-             r.error_category, r.failure_reason, json.dumps(r.raw_payload, default=str))
+            (
+                r.competencia, r.source_system, r.record_identifier,
+                r.error_category, r.failure_reason,
+                json.dumps(r.raw_payload, default=str),
+            )
             for r in self._records
         ]
         con.executemany(_INSERT_QUARANTINE, rows)
@@ -58,7 +63,7 @@ class QuarantineBuffer:
         return count
 
     def quarantine_ratio(self, total_valid: int) -> float:
-        """Proporção de registros quarentenados em relação ao total processado."""
+        """Proporção de registros quarentenados vs total processado."""
         total_quarantined = len(self._records)
         total = total_valid + total_quarantined
         return total_quarantined / total if total > 0 else 0.0
@@ -68,8 +73,8 @@ class QuarantineBuffer:
 
 
 def quarentinar_linhas(
-    df: pd.DataFrame,
-    indices,
+    df: pl.DataFrame,
+    indices: list[int],
     buffer: QuarantineBuffer,
     competencia: str,
     source_system: str,
@@ -77,11 +82,11 @@ def quarentinar_linhas(
     failure_reason: str,
     id_col: str = "CPF",
 ) -> None:
-    """Converte linhas de um DataFrame em QuarantineRecords e adiciona ao buffer.
+    """Converte linhas de um DataFrame em QuarantineRecords.
 
     Args:
         df: DataFrame fonte.
-        indices: Índices das linhas rejeitadas.
+        indices: Índices (posições) das linhas rejeitadas.
         buffer: Buffer de quarentena.
         competencia: Competência no formato 'YYYY-MM'.
         source_system: 'FIREBIRD' | 'HR' | 'DATASUS'.
@@ -89,9 +94,9 @@ def quarentinar_linhas(
         failure_reason: Descrição do motivo de rejeição.
         id_col: Coluna usada como record_identifier.
     """
-    subset = df.loc[df.index.isin(indices)]
-    for _, row in subset.iterrows():
-        identifier = str(row.get(id_col, "")) if id_col in row.index else ""
+    subset = df[indices] if indices else pl.DataFrame()
+    for row in subset.iter_rows(named=True):
+        identifier = str(row.get(id_col, ""))
         buffer.append(
             QuarantineRecord(
                 competencia=competencia,
@@ -99,6 +104,6 @@ def quarentinar_linhas(
                 record_identifier=identifier,
                 error_category=error_category,
                 failure_reason=failure_reason,
-                raw_payload=row.to_dict(),
+                raw_payload=row,
             )
         )

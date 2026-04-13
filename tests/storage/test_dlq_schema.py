@@ -1,6 +1,5 @@
 """Testes do schema quarantine.records e inserção via QuarantineBuffer."""
 import duckdb
-import pytest
 
 from ingestion.quarantine import QuarantineBuffer, QuarantineRecord
 

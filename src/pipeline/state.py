@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-import pandas as pd
+import polars as pl
 
 if TYPE_CHECKING:
     from ingestion.quarantine import QuarantineBuffer
@@ -23,11 +23,11 @@ class PipelineState:
     con: Any = None
     cbo_lookup: dict[str, str] = field(default_factory=dict)
 
-    df_prof_local: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_estab_local: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_prof_nacional: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_estab_nacional: pd.DataFrame = field(default_factory=pd.DataFrame)
-    df_processado: pd.DataFrame = field(default_factory=pd.DataFrame)
+    df_prof_local: pl.DataFrame = field(default_factory=pl.DataFrame)
+    df_estab_local: pl.DataFrame = field(default_factory=pl.DataFrame)
+    df_prof_nacional: pl.DataFrame = field(default_factory=pl.DataFrame)
+    df_estab_nacional: pl.DataFrame = field(default_factory=pl.DataFrame)
+    df_processado: pl.DataFrame = field(default_factory=pl.DataFrame)
 
     quarantine_buffer: "QuarantineBuffer | None" = None
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 
 from pipeline.state import PipelineState
 
@@ -19,12 +19,12 @@ def test_construcao_minima_preenche_defaults():
     assert state.competencia_ano == 2024
     assert state.competencia_mes == 12
     assert state.cbo_lookup == {}
-    assert isinstance(state.df_prof_local, pd.DataFrame)
-    assert state.df_prof_local.empty
-    assert state.df_estab_local.empty
-    assert state.df_prof_nacional.empty
-    assert state.df_estab_nacional.empty
-    assert state.df_processado.empty
+    assert isinstance(state.df_prof_local, pl.DataFrame)
+    assert state.df_prof_local.is_empty()
+    assert state.df_estab_local.is_empty()
+    assert state.df_prof_nacional.is_empty()
+    assert state.df_estab_nacional.is_empty()
+    assert state.df_processado.is_empty()
 
 
 def test_competencia_str_formata_corretamente():

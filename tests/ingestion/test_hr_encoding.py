@@ -1,7 +1,6 @@
 """Testes do HR encoding cleanup generator."""
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 from ingestion.hr_client import _detectar_encoding, _linhas_limpas, carregar_folha
@@ -51,7 +50,7 @@ def _gerar_csv_completo(tmp_path: Path, encoding: str = "utf-8") -> Path:
 def test_carregar_folha_utf8(tmp_path):
     f = _gerar_csv_completo(tmp_path, encoding="utf-8")
     df = carregar_folha(f)
-    assert not df.empty
+    assert not df.is_empty()
     assert "CPF" in df.columns
 
 
@@ -61,7 +60,7 @@ def test_carregar_folha_cp1252(tmp_path):
     linha = "12345678901,João da Silva,2024-01-01,,ATIVO"
     f.write_bytes(f"{cabecalho}\n{linha}".encode("cp1252"))
     df = carregar_folha(f)
-    assert not df.empty
+    assert not df.is_empty()
     assert "CPF" in df.columns
 
 
@@ -71,7 +70,7 @@ def test_carregar_folha_null_bytes_ignorados(tmp_path):
     linha = "123\x0045678901,NOME,2024-01-01,,ATIVO"
     f.write_bytes(f"{cabecalho}\n{linha}".encode("utf-8"))
     df = carregar_folha(f)
-    assert not df.empty
+    assert not df.is_empty()
 
 
 def test_carregar_folha_extensao_invalida(tmp_path):

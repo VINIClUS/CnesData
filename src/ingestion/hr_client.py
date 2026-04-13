@@ -5,7 +5,7 @@ import logging
 from collections.abc import Iterator
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 
 _ENCODING_CHAIN: tuple[str, ...] = ("utf-8-sig", "utf-8", "cp1252")
 
@@ -13,15 +13,19 @@ logger = logging.getLogger(__name__)
 
 _EXTENSOES_SUPORTADAS: frozenset[str] = frozenset({".xlsx", ".csv"})
 
-COLUNAS_OBRIGATORIAS_FOLHA: frozenset[str] = frozenset({"CPF", "NOME", "STATUS"})
-COLUNAS_OBRIGATORIAS_PONTO: frozenset[str] = frozenset({"CPF", "NOME", "STATUS"})
+COLUNAS_OBRIGATORIAS_FOLHA: frozenset[str] = frozenset(
+    {"CPF", "NOME", "STATUS"},
+)
+COLUNAS_OBRIGATORIAS_PONTO: frozenset[str] = frozenset(
+    {"CPF", "NOME", "STATUS"},
+)
 
 
 class HrSchemaError(Exception):
     """Schema do arquivo de RH inválido ou extensão não suportada."""
 
 
-def carregar_folha(caminho: Path) -> pd.DataFrame:
+def carregar_folha(caminho: Path) -> pl.DataFrame:
     """Carrega e valida planilha de folha de pagamento.
 
     Args:
@@ -35,13 +39,15 @@ def carregar_folha(caminho: Path) -> pd.DataFrame:
     """
     df = _ler_arquivo(caminho)
     _validar_schema(df, COLUNAS_OBRIGATORIAS_FOLHA, caminho.name)
-    resultado = _normalizar_cpf(df.copy())
+    resultado = _normalizar_cpf(df.clone())
     _logar_cpf_invalido(resultado, caminho.name)
-    logger.info("carregar_folha arquivo=%s rows=%d", caminho.name, len(resultado))
+    logger.info(
+        "carregar_folha arquivo=%s rows=%d", caminho.name, len(resultado),
+    )
     return resultado
 
 
-def carregar_ponto(caminho: Path) -> pd.DataFrame:
+def carregar_ponto(caminho: Path) -> pl.DataFrame:
     """Carrega e valida planilha de ponto eletrônico.
 
     Args:
@@ -55,9 +61,11 @@ def carregar_ponto(caminho: Path) -> pd.DataFrame:
     """
     df = _ler_arquivo(caminho)
     _validar_schema(df, COLUNAS_OBRIGATORIAS_PONTO, caminho.name)
-    resultado = _normalizar_cpf(df.copy())
+    resultado = _normalizar_cpf(df.clone())
     _logar_cpf_invalido(resultado, caminho.name)
-    logger.info("carregar_ponto arquivo=%s rows=%d", caminho.name, len(resultado))
+    logger.info(
+        "carregar_ponto arquivo=%s rows=%d", caminho.name, len(resultado),
+    )
     return resultado
 
 
@@ -73,28 +81,28 @@ def _detectar_encoding(caminho: Path) -> str:
 
 
 def _linhas_limpas(caminho: Path) -> Iterator[str]:
-    """Gera linhas com null bytes removidos e encoding detectado automaticamente."""
     enc = _detectar_encoding(caminho)
     with open(caminho, encoding=enc, errors="replace", newline="") as f:
         for linha in f:
             yield linha.replace("\x00", "")
 
 
-def _ler_arquivo(caminho: Path) -> pd.DataFrame:
+def _ler_arquivo(caminho: Path) -> pl.DataFrame:
     extensao = caminho.suffix.lower()
     if extensao not in _EXTENSOES_SUPORTADAS:
         raise HrSchemaError(
-            f"extensão não suportada arquivo={caminho.name} extensao={extensao}"
+            f"extensão não suportada arquivo={caminho.name} "
+            f"extensao={extensao}"
         )
     if extensao == ".xlsx":
-        return pd.read_excel(caminho)
+        return pl.read_excel(caminho)
     reader = csv.DictReader(_linhas_limpas(caminho))
     rows = list(reader)
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
+    return pl.DataFrame(rows) if rows else pl.DataFrame()
 
 
 def _validar_schema(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     colunas_obrigatorias: frozenset[str],
     fonte: str,
 ) -> None:
@@ -105,21 +113,20 @@ def _validar_schema(
         )
 
 
-def _normalizar_cpf(df: pd.DataFrame) -> pd.DataFrame:
-    df["CPF"] = (
-        df["CPF"]
-        .astype(str)
-        .str.replace(".", "", regex=False)
-        .str.replace("-", "", regex=False)
-        .str.strip()
-        .where(df["CPF"].notna(), other=None)
+def _normalizar_cpf(df: pl.DataFrame) -> pl.DataFrame:
+    return df.with_columns(
+        pl.col("CPF")
+        .cast(pl.Utf8)
+        .str.replace_all(r"\.", "")
+        .str.replace_all("-", "")
+        .str.strip_chars()
     )
-    return df
 
 
-def _logar_cpf_invalido(df: pd.DataFrame, fonte: str) -> None:
-    invalidos = df[
-        df["CPF"].isna() | (df["CPF"].astype(str).str.len() != 11)
-    ]
-    for idx in invalidos.index:
-        logger.warning("cpf_invalido fonte=%s idx=%d", fonte, idx)
+def _logar_cpf_invalido(df: pl.DataFrame, fonte: str) -> None:
+    invalidos = df.filter(
+        pl.col("CPF").is_null()
+        | (pl.col("CPF").cast(pl.Utf8).str.len_chars() != 11)
+    )
+    for i in range(len(invalidos)):
+        logger.warning("cpf_invalido fonte=%s idx=%d", fonte, i)

@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 
 from ingestion.schemas import SCHEMA_ESTABELECIMENTO, SCHEMA_PROFISSIONAL
 from ingestion.web_client import CnesWebClient
@@ -39,7 +39,7 @@ _MAP_PROFISSIONAL: dict[str, str] = {
 
 
 class CnesNacionalAdapter:
-    """Adapter entre o BigQuery (basedosdados) e o schema padronizado da ingestão."""
+    """Adapter entre o BigQuery (basedosdados) e o schema padronizado."""
 
     def __init__(
         self,
@@ -54,8 +54,8 @@ class CnesNacionalAdapter:
         self._ttl = ttl_cache_segundos
 
     def _ler_ou_cachear(
-        self, chave: str, buscar: Callable[[], pd.DataFrame]
-    ) -> pd.DataFrame:
+        self, chave: str, buscar: Callable[[], pl.DataFrame],
+    ) -> pl.DataFrame:
         if self._cache_dir is None:
             return buscar()
         caminho = self._cache_dir / f"{chave}.pkl"
@@ -70,18 +70,20 @@ class CnesNacionalAdapter:
         logger.info("cache_gravado chave=%s rows=%d", chave, len(df))
         return df
 
-    def _ler_cache(self, caminho: Path) -> pd.DataFrame | None:
+    def _ler_cache(self, caminho: Path) -> pl.DataFrame | None:
         try:
             return pickle.loads(caminho.read_bytes())
         except Exception:
-            logger.warning("cache_corrompido chave=%s removendo", caminho.stem)
+            logger.warning(
+                "cache_corrompido chave=%s removendo", caminho.stem,
+            )
             caminho.unlink(missing_ok=True)
             return None
 
     def listar_estabelecimentos(
-        self, competencia: tuple[int, int] | None = None
-    ) -> pd.DataFrame:
-        """Retorna estabelecimentos nacionais com colunas padronizadas (FONTE=NACIONAL).
+        self, competencia: tuple[int, int] | None = None,
+    ) -> pl.DataFrame:
+        """Retorna estabelecimentos nacionais (FONTE=NACIONAL).
 
         Args:
             competencia: (ano, mes) obrigatório para o adapter nacional.
@@ -97,22 +99,35 @@ class CnesNacionalAdapter:
         ano, mes = competencia
         chave = f"estab_{self._id_municipio}_{ano}_{mes:02d}"
         return self._ler_ou_cachear(
-            chave, lambda: self._buscar_estabelecimentos(ano, mes)
+            chave, lambda: self._buscar_estabelecimentos(ano, mes),
         )
 
-    def _buscar_estabelecimentos(self, ano: int, mes: int) -> pd.DataFrame:
-        df = self._client.fetch_estabelecimentos(self._id_municipio, ano, mes)
-        df = df.rename(columns=_MAP_ESTABELECIMENTO)
-        df["NOME_FANTASIA"] = None
-        df["VINCULO_SUS"] = df["VINCULO_SUS"].map({1: "S", 0: "N"}).fillna("N")
-        df["FONTE"] = _FONTE_NACIONAL
-        logger.debug("listar_estabelecimentos fonte=NACIONAL rows=%d", len(df))
-        return df[list(SCHEMA_ESTABELECIMENTO)]
+    def _buscar_estabelecimentos(
+        self, ano: int, mes: int,
+    ) -> pl.DataFrame:
+        df = self._client.fetch_estabelecimentos(
+            self._id_municipio, ano, mes,
+        )
+        df = df.rename(_MAP_ESTABELECIMENTO)
+        df = df.with_columns(
+            pl.lit(None).cast(pl.Utf8).alias("NOME_FANTASIA"),
+            pl.when(pl.col("VINCULO_SUS") == 1)
+            .then(pl.lit("S"))
+            .when(pl.col("VINCULO_SUS") == 0)
+            .then(pl.lit("N"))
+            .otherwise(pl.lit("N"))
+            .alias("VINCULO_SUS"),
+            pl.lit(_FONTE_NACIONAL).alias("FONTE"),
+        )
+        logger.debug(
+            "listar_estabelecimentos fonte=NACIONAL rows=%d", len(df),
+        )
+        return df.select(list(SCHEMA_ESTABELECIMENTO))
 
     def listar_profissionais(
-        self, competencia: tuple[int, int] | None = None
-    ) -> pd.DataFrame:
-        """Retorna vínculos nacionais com colunas padronizadas (FONTE=NACIONAL).
+        self, competencia: tuple[int, int] | None = None,
+    ) -> pl.DataFrame:
+        """Retorna vínculos nacionais (FONTE=NACIONAL).
 
         Args:
             competencia: (ano, mes) obrigatório para o adapter nacional.
@@ -127,19 +142,35 @@ class CnesNacionalAdapter:
             raise ValueError("nacional_adapter competencia=obrigatoria")
         ano, mes = competencia
         chave = f"prof_{self._id_municipio}_{ano}_{mes:02d}"
-        return self._ler_ou_cachear(chave, lambda: self._buscar_profissionais(ano, mes))
+        return self._ler_ou_cachear(
+            chave, lambda: self._buscar_profissionais(ano, mes),
+        )
 
-    def _buscar_profissionais(self, ano: int, mes: int) -> pd.DataFrame:
-        df = self._client.fetch_profissionais(self._id_municipio, ano, mes)
-        df = df.rename(columns=_MAP_PROFISSIONAL)
-        df["CPF"] = None
-        df["SEXO"] = None
-        df["SUS"] = df["SUS"].map({1: "S", 0: "N"}).fillna("N")
-        df["CH_TOTAL"] = (
-            df["CH_AMBULATORIAL"].fillna(0)
-            + df["CH_OUTRAS"].fillna(0)
-            + df["CH_HOSPITALAR"].fillna(0)
-        ).astype(int)
-        df["FONTE"] = _FONTE_NACIONAL
-        logger.debug("listar_profissionais fonte=NACIONAL rows=%d", len(df))
-        return df[list(SCHEMA_PROFISSIONAL)]
+    def _buscar_profissionais(
+        self, ano: int, mes: int,
+    ) -> pl.DataFrame:
+        df = self._client.fetch_profissionais(
+            self._id_municipio, ano, mes,
+        )
+        df = df.rename(_MAP_PROFISSIONAL)
+        df = df.with_columns(
+            pl.lit(None).cast(pl.Utf8).alias("CPF"),
+            pl.lit(None).cast(pl.Utf8).alias("NOME_SOCIAL"),
+            pl.lit(None).cast(pl.Utf8).alias("SEXO"),
+            pl.when(pl.col("SUS") == 1)
+            .then(pl.lit("S"))
+            .when(pl.col("SUS") == 0)
+            .then(pl.lit("N"))
+            .otherwise(pl.lit("N"))
+            .alias("SUS"),
+            (
+                pl.col("CH_AMBULATORIAL").fill_null(0)
+                + pl.col("CH_OUTRAS").fill_null(0)
+                + pl.col("CH_HOSPITALAR").fill_null(0)
+            ).cast(pl.Int64).alias("CH_TOTAL"),
+            pl.lit(_FONTE_NACIONAL).alias("FONTE"),
+        )
+        logger.debug(
+            "listar_profissionais fonte=NACIONAL rows=%d", len(df),
+        )
+        return df.select(list(SCHEMA_PROFISSIONAL))

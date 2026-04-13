@@ -1,14 +1,14 @@
-"""test_sihd_local_adapter.py — Testes do adapter SIHD2 → schema AIH."""
+"""test_sihd_local_adapter.py -- Testes do adapter SIHD2 -> schema AIH."""
 
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 
 from ingestion.sihd_schemas import SCHEMA_AIH, SCHEMA_PROCEDIMENTO_AIH
 from ingestion.sihd_local_adapter import SihdLocalAdapter
 
 
-_DF_HAIH = pd.DataFrame({
+_DF_HAIH = pl.DataFrame({
     "AH_NUM_AIH":                 [" 3541301234567"],
     "AH_CNES":                    [" 985333 "],
     "AH_CMPT":                    ["202601"],
@@ -33,7 +33,7 @@ _DF_HAIH = pd.DataFrame({
     "AH_SEQ":                     [1],
 })
 
-_DF_HPA = pd.DataFrame({
+_DF_HPA = pl.DataFrame({
     "PA_NUM_AIH":           [" 3541301234567"],
     "PA_CMPT":              ["202601"],
     "PA_PROCEDIMENTO":      ["0303060204"],
@@ -61,7 +61,7 @@ class TestListarAihs:
     def test_retorna_colunas_do_schema(self):
         adapter, _ = _adapter_com_mock()
         resultado = adapter.listar_aihs(_COMP)
-        assert list(resultado.columns) == list(SCHEMA_AIH)
+        assert resultado.columns == list(SCHEMA_AIH)
 
     def test_renomeia_ah_num_aih_para_num_aih(self):
         adapter, _ = _adapter_com_mock()
@@ -83,24 +83,24 @@ class TestListarAihs:
     def test_strip_num_aih(self):
         adapter, _ = _adapter_com_mock()
         resultado = adapter.listar_aihs(_COMP)
-        assert resultado["NUM_AIH"].iloc[0] == "3541301234567"
+        assert resultado["NUM_AIH"][0] == "3541301234567"
 
     def test_strip_cnes(self):
         adapter, _ = _adapter_com_mock()
         resultado = adapter.listar_aihs(_COMP)
-        assert resultado["CNES"].iloc[0] == "0985333"
+        assert resultado["CNES"][0] == "0985333"
 
     def test_strip_paciente_cns(self):
         adapter, _ = _adapter_com_mock()
         resultado = adapter.listar_aihs(_COMP)
-        assert resultado["PACIENTE_CNS"].iloc[0] == "702002887429583"
+        assert resultado["PACIENTE_CNS"][0] == "702002887429583"
 
     def test_cnes_zfill_7(self):
-        df = _DF_HAIH.copy()
-        df["AH_CNES"] = ["985333"]
+        df = _DF_HAIH.clone()
+        df = df.with_columns(pl.lit("985333").alias("AH_CNES"))
         adapter, _ = _adapter_com_mock(df_aihs=df)
         resultado = adapter.listar_aihs(_COMP)
-        assert resultado["CNES"].iloc[0] == "0985333"
+        assert resultado["CNES"][0] == "0985333"
 
     def test_nao_muta_dataframe_original(self):
         adapter, _ = _adapter_com_mock()
@@ -114,7 +114,7 @@ class TestListarProcedimentos:
     def test_retorna_colunas_do_schema(self):
         adapter, _ = _adapter_com_mock()
         resultado = adapter.listar_procedimentos(_COMP)
-        assert list(resultado.columns) == list(SCHEMA_PROCEDIMENTO_AIH)
+        assert resultado.columns == list(SCHEMA_PROCEDIMENTO_AIH)
 
     def test_renomeia_pa_procedimento(self):
         adapter, _ = _adapter_com_mock()
@@ -135,12 +135,12 @@ class TestListarProcedimentos:
     def test_strip_num_aih(self):
         adapter, _ = _adapter_com_mock()
         resultado = adapter.listar_procedimentos(_COMP)
-        assert resultado["NUM_AIH"].iloc[0] == "3541301234567"
+        assert resultado["NUM_AIH"][0] == "3541301234567"
 
     def test_valor_preservado(self):
         adapter, _ = _adapter_com_mock()
         resultado = adapter.listar_procedimentos(_COMP)
-        assert resultado["VALOR"].iloc[0] == 1250.50
+        assert resultado["VALOR"][0] == 1250.50
 
 
 class TestCacheInterno:

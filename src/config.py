@@ -1,35 +1,16 @@
-"""
-config.py — Módulo de Configuração Centralizada do Projeto CnesData
-
-Princípio: Single Source of Truth (Uma fonte única de verdade).
-Todos os outros módulos importam as constantes daqui, nunca definem
-caminhos ou credenciais diretamente (evitando o anti-pattern "hardcode").
-
-Como funciona:
-  - O arquivo `.env` na raiz do projeto armazena os valores sensíveis/locais.
-  - A biblioteca `python-dotenv` lê esse arquivo e popula as variáveis de ambiente.
-  - As funções `os.getenv()` leem essas variáveis, com valores padrão seguros.
-  - Se uma variável obrigatória estiver ausente, uma exceção clara é levantada.
-"""
+"""config.py — Configuração centralizada (Single Source of Truth)."""
 
 import os
 import re
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
+
 from dotenv import load_dotenv
 
-# ── Localização do Projeto ─────────────────────────────────────────────────
-# Path(__file__) é o caminho para este próprio arquivo (src/config.py).
-# .parent sobe um nível → src/
-# .parent.parent sobe mais um → raiz do projeto (CnesData/)
 RAIZ_PROJETO = Path(__file__).parent.parent
 
-# Carrega o .env da raiz do projeto explicitamente.
-# override=False garante que variáveis já definidas no sistema operacional
-# têm prioridade sobre o .env (boa prática para deploys em produção).
-# encoding='utf-8' garante leitura correta em Windows (onde o padrão é cp1252).
 load_dotenv(RAIZ_PROJETO / ".env", override=False, encoding="utf-8")
-
 
 _RE_COD_MUN_6: re.Pattern[str] = re.compile(r"^\d{6}$")
 _RE_IBGE7: re.Pattern[str] = re.compile(r"^\d{7}$")
@@ -37,10 +18,6 @@ _RE_CNPJ_14: re.Pattern[str] = re.compile(r"^\d{14}$")
 
 
 def _exigir(nome: str) -> str:
-    """
-    Lê uma variável de ambiente. Levanta um erro explicativo se ela não existir.
-    Isso falha rápido (fail-fast) antes de a aplicação começar a rodar.
-    """
     valor = os.getenv(nome)
     if not valor:
         raise EnvironmentError(
@@ -64,19 +41,20 @@ def _exigir_inteiro(nome: str, padrao: int) -> int:
         raise EnvironmentError(f"variavel={nome} valor='{valor}' tipo_esperado=int")
 
 
-# ── Banco de Dados Firebird ────────────────────────────────────────────────
+def _sanitizar_db_url(raw: str) -> str:
+    parsed = urlparse(raw)
+    scheme = "postgresql+psycopg"
+    usuario = quote(parsed.username or "", safe="")
+    senha = quote(parsed.password or "", safe="")
+    netloc = f"{usuario}:{senha}@{parsed.hostname}"
+    if parsed.port:
+        netloc += f":{parsed.port}"
+    return urlunparse(parsed._replace(scheme=scheme, netloc=netloc))
+
+
 DB_HOST: str = os.getenv("DB_HOST", "localhost")
-DB_PATH: str = _exigir("DB_PATH")
 DB_USER: str = os.getenv("DB_USER", "SYSDBA")
-DB_PASSWORD: str = _exigir("DB_PASSWORD")
 
-# String de conexão no formato DSN: host:caminho_do_arquivo
-DB_DSN: str = f"{DB_HOST}:{DB_PATH}"
-
-# ── Driver Firebird 64-bits ────────────────────────────────────────────────
-FIREBIRD_DLL: str = _exigir("FIREBIRD_DLL")
-
-# ── Filtros do Município ───────────────────────────────────────────────────
 COD_MUN_IBGE: str = _validar_formato(
     "COD_MUN_IBGE", _exigir("COD_MUN_IBGE"), _RE_COD_MUN_6
 )
@@ -87,48 +65,55 @@ CNPJ_MANTENEDORA: str = _validar_formato(
     "CNPJ_MANTENEDORA", _exigir("CNPJ_MANTENEDORA"), _RE_CNPJ_14
 )
 
-def _sanitizar_db_url(raw: str) -> str:
-    """
-    Prepara a DB_URL para uso seguro com SQLAlchemy + psycopg (v3):
-
-    1. Substitui o driver de `psycopg2` (padrão de `postgresql://`) por `psycopg` (v3),
-       evitando o UnicodeDecodeError causado pelo locale Windows-1252 do PostgreSQL
-       instalado localmente (Portuguese_Brazil.1252) que afeta a libpq.dll do psycopg2.
-    2. Percent-encoda usuário e senha para suportar caracteres especiais (!, @, ã, etc.).
-    """
-    parsed = urlparse(raw)
-    # Força o driver psycopg v3 (encoding-safe) em vez do psycopg2 padrão.
-    # Qualquer variante de "postgresql[+...]" → "postgresql+psycopg"
-    scheme = "postgresql+psycopg"
-    usuario = quote(parsed.username or "", safe="")
-    senha = quote(parsed.password or "", safe="")
-    netloc = f"{usuario}:{senha}@{parsed.hostname}"
-    if parsed.port:
-        netloc += f":{parsed.port}"
-    return urlunparse(parsed._replace(scheme=scheme, netloc=netloc))
-
-
 DB_URL: str = _sanitizar_db_url(_exigir("DB_URL"))
 CACHE_DIR: Path = RAIZ_PROJETO / os.getenv("CACHE_DIR", "data/cache")
 
-# ── Saída de Dados ─────────────────────────────────────────────────────────
 _output_dir = os.getenv("OUTPUT_DIR", "data/processed")
 _output_filename = os.getenv("OUTPUT_FILENAME", "Relatorio_Profissionais_CNES.csv")
-
-# Usa a raiz do projeto para garantir que o caminho é absoluto,
-# independente de onde o script for chamado.
 OUTPUT_PATH: Path = RAIZ_PROJETO / _output_dir / _output_filename
 
-# ── Google Cloud / BigQuery ────────────────────────────────────────────────
-GCP_PROJECT_ID: str = _exigir("GCP_PROJECT_ID")
-
-# ── Competência da Base Nacional (BigQuery) ───────────────────────────────
-# Usada como parâmetro de partição nas queries ao basedosdados.
 COMPETENCIA_ANO: int = _exigir_inteiro("COMPETENCIA_ANO", 2026)
 COMPETENCIA_MES: int = _exigir_inteiro("COMPETENCIA_MES", 1)
 
-# ── Logs ───────────────────────────────────────────────────────────────────
 LOGS_DIR: Path = RAIZ_PROJETO / "logs"
 LOG_FILE: Path = LOGS_DIR / "cnes_exporter.log"
 
 DLQ_THRESHOLD: float = float(os.getenv("DLQ_THRESHOLD", "0.05"))
+
+API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
+API_PORT: int = _exigir_inteiro("API_PORT", 8000)
+
+
+@lru_cache(maxsize=1)
+def _firebird_db_path() -> str:
+    return _exigir("DB_PATH")
+
+
+@lru_cache(maxsize=1)
+def _firebird_db_password() -> str:
+    return _exigir("DB_PASSWORD")
+
+
+@lru_cache(maxsize=1)
+def _firebird_dll() -> str:
+    return _exigir("FIREBIRD_DLL")
+
+
+@lru_cache(maxsize=1)
+def _gcp_project_id() -> str:
+    return _exigir("GCP_PROJECT_ID")
+
+
+_LAZY_ATTRS: dict[str, object] = {
+    "DB_PATH": _firebird_db_path,
+    "DB_PASSWORD": _firebird_db_password,
+    "DB_DSN": lambda: f"{DB_HOST}:{_firebird_db_path()}",
+    "FIREBIRD_DLL": _firebird_dll,
+    "GCP_PROJECT_ID": _gcp_project_id,
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY_ATTRS:
+        return _LAZY_ATTRS[name]()
+    raise AttributeError(f"module 'config' has no attribute '{name}'")

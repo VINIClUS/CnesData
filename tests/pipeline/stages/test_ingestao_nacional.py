@@ -2,7 +2,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 
 from pipeline.state import PipelineState
 from pipeline.stages.ingestao_nacional import IngestaoNacionalStage
@@ -17,8 +17,8 @@ def _state(target_source: str = "AMBOS") -> PipelineState:
     )
 
 
-def _df_prof() -> pd.DataFrame:
-    return pd.DataFrame({
+def _df_prof() -> pl.DataFrame:
+    return pl.DataFrame({
         "CNS": ["123456789012345"],
         "CPF": [None],
         "NOME_PROFISSIONAL": ["Ana Silva"],
@@ -34,8 +34,8 @@ def _df_prof() -> pd.DataFrame:
     })
 
 
-def _df_estab() -> pd.DataFrame:
-    return pd.DataFrame({
+def _df_estab() -> pl.DataFrame:
+    return pl.DataFrame({
         "CNES": ["1234567"],
         "NOME_FANTASIA": [None],
         "TIPO_UNIDADE": ["01"],
@@ -70,8 +70,8 @@ def test_mantém_dfs_vazios_quando_skip(mock_adapter_cls):
     state = _state("LOCAL")
     IngestaoNacionalStage().execute(state)
 
-    assert state.df_prof_nacional.empty
-    assert state.df_estab_nacional.empty
+    assert state.df_prof_nacional.is_empty()
+    assert state.df_estab_nacional.is_empty()
     mock_adapter_cls.assert_not_called()
 
 
@@ -86,8 +86,8 @@ def test_soft_fail_deixa_dfs_vazios_em_excecao(mock_config, mock_adapter_cls):
     state = _state("AMBOS")
     IngestaoNacionalStage().execute(state)
 
-    assert state.df_prof_nacional.empty
-    assert state.df_estab_nacional.empty
+    assert state.df_prof_nacional.is_empty()
+    assert state.df_estab_nacional.is_empty()
 
 
 @patch("pipeline.stages.ingestao_nacional.CnesNacionalAdapter")
@@ -121,4 +121,4 @@ def test_popula_dfs_nacionais_apos_busca(mock_config, mock_adapter_cls):
     state = _state("AMBOS")
     IngestaoNacionalStage().execute(state)
 
-    assert not state.df_prof_nacional.empty
+    assert not state.df_prof_nacional.is_empty()

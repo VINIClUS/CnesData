@@ -112,6 +112,12 @@ dependencies = [
     "urllib3==2.6.3",
     "win32-setctime==1.2.0",
     "yarl==1.23.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "pydantic>=2.10",
+    "httpx>=0.28",
+    "polars>=1.20",
+    "asyncpg>=0.30",
 ]
 [tool.uv]
    override-dependencies = ["protobuf==6.33.6"]

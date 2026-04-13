@@ -2,7 +2,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from pipeline.state import PipelineState
@@ -17,8 +17,8 @@ def _state() -> PipelineState:
     )
 
 
-def _df_prof() -> pd.DataFrame:
-    return pd.DataFrame({
+def _df_prof() -> pl.DataFrame:
+    return pl.DataFrame({
         "CNS": ["123456789012345"],
         "CPF": ["12345678901"],
         "NOME_PROFISSIONAL": ["Ana Silva"],
@@ -34,8 +34,8 @@ def _df_prof() -> pd.DataFrame:
     })
 
 
-def _df_estab() -> pd.DataFrame:
-    return pd.DataFrame({
+def _df_estab() -> pl.DataFrame:
+    return pl.DataFrame({
         "CNES": ["1234567"],
         "NOME_FANTASIA": ["UBS Centro"],
         "TIPO_UNIDADE": ["01"],
@@ -127,4 +127,4 @@ def test_early_return_quando_target_source_nacional():
     with patch("pipeline.stages.ingestao_local.conectar") as mock_con:
         IngestaoLocalStage().execute(state)
         mock_con.assert_not_called()
-    assert state.df_prof_local.empty
+    assert state.df_prof_local.is_empty()

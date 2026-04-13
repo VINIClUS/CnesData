@@ -1,174 +1,134 @@
-"""
-transformer.py — Camada de Processamento: Transformação e Validação
-
-Responsabilidade: receber o DataFrame bruto da camada de ingestão,
-aplicar limpeza, padronização de tipos e sinalização de alertas de qualidade.
-
-Regras de qualidade implementadas (fonte: data_dictionary.md):
-  - RQ-002: CPF nulo ou com comprimento incorreto → exclusão + log WARNING.
-  - RQ-003: Vínculo com carga horária total zero ("Vínculo Zumbi") →
-            flag ALERTA_STATUS_CH = 'ATIVO_SEM_CH'. Não exclui — sinaliza.
-  - Padronização de strings: strip() em todas as colunas de texto.
-  - Preenchimento de nulos: colunas opcionais de equipe (resultado do LEFT JOIN).
-"""
+"""Camada de Processamento: Transformação e Validação."""
 
 import logging
 from typing import Final
 
-import numpy as np
-import pandas as pd
+import polars as pl
 
 logger = logging.getLogger(__name__)
 
-# ── Constantes de Domínio ─────────────────────────────────────────────────────
-
-# Valor padrão para profissionais sem equipe vinculada (LEFT JOIN sem match).
 VALOR_SEM_EQUIPE: Final[str] = "SEM EQUIPE VINCULADA"
 VALOR_SEM_INE: Final[str] = "-"
 
-# Flags usadas em RQ-003 para indicar o status da carga horária.
 ALERTA_ATIVO_SEM_CH: Final[str] = "ATIVO_SEM_CH"
 ALERTA_CH_OK: Final[str] = "OK"
 
-# Colunas de texto que recebem strip() para remover espaços do Firebird.
 _COLUNAS_TEXTO: Final[tuple[str, ...]] = (
     "CPF", "CNS", "NOME_PROFISSIONAL", "CBO", "CNES", "ESTABELECIMENTO",
     "NOME_SOCIAL", "SEXO", "TIPO_VINCULO", "SUS",
 )
 
-# Colunas opcionais de equipe que chegam NULL no LEFT JOIN sem correspondência.
 _MAPEAMENTO_NULOS_EQUIPE: Final[dict[str, str]] = {
     "NOME_EQUIPE": VALOR_SEM_EQUIPE,
-    "INE":         VALOR_SEM_INE,
+    "INE": VALOR_SEM_INE,
     "TIPO_EQUIPE": VALOR_SEM_INE,
 }
 
+_SENTINELAS_NULO: set[str] = {"", "None", "nan", "NaN", "NaT"}
 
-# ── Funções Auxiliares (Regras de Qualidade) ──────────────────────────────────
 
-def _aplicar_rq002_validar_cpf(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    RQ-002: Remove registros com CPF nulo ou com comprimento diferente de 11.
-
-    CPFs inválidos quebram o JOIN com LFCES048 e invalidam a trilha de auditoria.
-    O strip já foi aplicado antes desta função; valores None/NaN foram convertidos
-    para as strings "None"/"nan" pelo astype(str) da etapa anterior.
+def _aplicar_rq002_validar_cpf(df: pl.DataFrame) -> pl.DataFrame:
+    """RQ-002: Remove registros com CPF nulo ou comprimento != 11.
 
     Args:
-        df: DataFrame com coluna CPF já convertida para string e stripada.
+        df: DataFrame com coluna CPF (Utf8, já stripada).
 
     Returns:
-        pd.DataFrame: Cópia do DataFrame sem registros com CPF inválido.
+        DataFrame sem registros com CPF inválido.
     """
-    cpf_str = df["CPF"]  # já str e stripado pelo chamador (transformar etapas 1 e 1B)
-
-    # Captura nulos que viraram strings e comprimentos fora do padrão.
     mascara_invalido = (
-        cpf_str.isin({"", "None", "nan", "NaN", "NaT"})
-        | (cpf_str.str.len() != 11)
+        pl.col("CPF").is_in(_SENTINELAS_NULO)
+        | (pl.col("CPF").str.len_chars() != 11)
     )
-
-    total_invalidos: int = int(mascara_invalido.sum())
-    if total_invalidos > 0:
+    invalidos = df.filter(mascara_invalido)
+    if len(invalidos) > 0:
         logger.warning(
-            "RQ-002: cpf_invalido_count=%d indices=%s",
-            total_invalidos,
-            df.index[mascara_invalido].tolist(),
+            "RQ-002: cpf_invalido_count=%d", len(invalidos),
         )
+    return df.filter(~mascara_invalido)
 
-    return df[~mascara_invalido].copy()
 
-
-def _aplicar_rq003_flag_carga_horaria(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    RQ-003: Sinaliza vínculos com carga horária total igual a zero.
-
-    Profissionais com CH_TOTAL == 0 estão cadastrados sem
-    nenhuma hora declarada. Eles NÃO são excluídos — são marcados com
-    ALERTA_STATUS_CH = 'ATIVO_SEM_CH' para revisão pelo RH.
+def _aplicar_rq003_flag_carga_horaria(df: pl.DataFrame) -> pl.DataFrame:
+    """RQ-003: Sinaliza vínculos com carga horária total zero.
 
     Args:
         df: DataFrame com coluna numérica CH_TOTAL.
 
     Returns:
-        pd.DataFrame: Cópia do DataFrame com nova coluna ALERTA_STATUS_CH.
+        DataFrame com nova coluna ALERTA_STATUS_CH.
     """
-    df["ALERTA_STATUS_CH"] = np.where(
-        df["CH_TOTAL"] == 0, ALERTA_ATIVO_SEM_CH, ALERTA_CH_OK
+    df = df.with_columns(
+        pl.when(pl.col("CH_TOTAL") == 0)
+        .then(pl.lit(ALERTA_ATIVO_SEM_CH))
+        .otherwise(pl.lit(ALERTA_CH_OK))
+        .alias("ALERTA_STATUS_CH")
     )
-
-    total_zumbis: int = int((df["ALERTA_STATUS_CH"] == ALERTA_ATIVO_SEM_CH).sum())
+    total_zumbis = df.filter(
+        pl.col("ALERTA_STATUS_CH") == ALERTA_ATIVO_SEM_CH
+    ).height
     if total_zumbis > 0:
         logger.warning(
             "RQ-003: %d vínculo(s) com carga horária zero (ATIVO_SEM_CH).",
             total_zumbis,
         )
-    else:
-        logger.debug("RQ-003: nenhum vínculo zumbi encontrado.")
-
     return df
 
 
-# ── Função Pública ────────────────────────────────────────────────────────────
-
 def transformar(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     cbo_lookup: dict[str, str] | None = None,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Aplica strip, RQ-002 (CPF), RQ-003 (CH flag) e fillna de equipe.
 
     Args:
         df: DataFrame bruto de cnes_client.extrair_profissionais().
-        cbo_lookup: Dict CBO → descrição; adiciona coluna DESCRICAO_CBO quando fornecido.
+        cbo_lookup: Dict CBO → descrição; adiciona DESCRICAO_CBO.
 
     Returns:
-        DataFrame transformado com ALERTA_STATUS_CH; pode ter menos linhas (RQ-002).
+        DataFrame transformado com ALERTA_STATUS_CH.
     """
     logger.debug("Iniciando transformação. Registros de entrada: %d", len(df))
-    resultado = df.copy()
+    resultado = df.clone()
 
-    # ── Etapa 1: Limpeza de strings ───────────────────────────────────────────
-    for coluna in _COLUNAS_TEXTO:
-        if coluna in resultado.columns:
-            resultado[coluna] = resultado[coluna].astype(str).str.strip()
+    strip_exprs = [
+        pl.col(c).cast(pl.Utf8).str.strip_chars().alias(c)
+        for c in _COLUNAS_TEXTO if c in resultado.columns
+    ]
+    if strip_exprs:
+        resultado = resultado.with_columns(strip_exprs)
 
-    # ── Etapa 1B: Zero-padding de CPF ─────────────────────────────────────────
-    # Firebird omite zeros à esquerda em CPFs que começam com 0.
-    # Aplicamos zfill(11) apenas em valores que não são sentinelas de nulo
-    # para preservar a exclusão correta pelo RQ-002.
     if "CPF" in resultado.columns:
-        _sentinelas = {"None", "nan", "NaN", "NaT", ""}
-        _mask_pad = ~resultado["CPF"].isin(_sentinelas)
-        resultado.loc[_mask_pad, "CPF"] = resultado.loc[_mask_pad, "CPF"].str.zfill(11)
-
-    registros_antes_rq002 = len(resultado)
-
-    # ── Etapa 2: RQ-002 — validação de CPF ───────────────────────────────────
-    resultado = _aplicar_rq002_validar_cpf(resultado)
-    removidos_rq002 = registros_antes_rq002 - len(resultado)
-    if removidos_rq002 > 0:
-        logger.info(
-            "Transformação: %d registro(s) removido(s) por CPF inválido (RQ-002).",
-            removidos_rq002,
+        resultado = resultado.with_columns(
+            pl.when(pl.col("CPF").is_in(_SENTINELAS_NULO))
+            .then(pl.col("CPF"))
+            .otherwise(pl.col("CPF").str.pad_start(11, "0"))
+            .alias("CPF")
         )
 
-    # ── Etapa 3: RQ-003 — flag de carga horária zero ─────────────────────────
+    registros_antes = resultado.height
+    resultado = _aplicar_rq002_validar_cpf(resultado)
+    removidos = registros_antes - resultado.height
+    if removidos > 0:
+        logger.info(
+            "Transformação: %d registro(s) removido(s) por CPF inválido (RQ-002).",
+            removidos,
+        )
+
     resultado = _aplicar_rq003_flag_carga_horaria(resultado)
 
-    # ── Etapa 4: Preenchimento de nulos (colunas opcionais de equipe) ─────────
-    for coluna, valor_padrao in _MAPEAMENTO_NULOS_EQUIPE.items():
-        if coluna in resultado.columns:
-            nulos = resultado[coluna].isna().sum()
-            resultado[coluna] = resultado[coluna].fillna(valor_padrao)
-            if nulos > 0:
-                logger.debug(
-                    "Coluna '%s': %d nulo(s) preenchido(s) com '%s'.",
-                    coluna, nulos, valor_padrao,
-                )
+    fill_exprs = [
+        pl.col(col).fill_null(pl.lit(val))
+        for col, val in _MAPEAMENTO_NULOS_EQUIPE.items()
+        if col in resultado.columns
+    ]
+    if fill_exprs:
+        resultado = resultado.with_columns(fill_exprs)
 
     if cbo_lookup is not None:
-        resultado["DESCRICAO_CBO"] = (
-            resultado["CBO"].map(cbo_lookup).fillna("CBO NAO CATALOGADO")
+        resultado = resultado.with_columns(
+            pl.col("CBO")
+            .replace_strict(cbo_lookup, default="CBO NAO CATALOGADO")
+            .alias("DESCRICAO_CBO")
         )
 
     logger.info(

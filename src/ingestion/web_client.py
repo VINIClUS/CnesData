@@ -4,7 +4,7 @@ import logging
 
 import basedosdados as bd
 import google.auth.exceptions
-import pandas as pd
+import polars as pl
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +92,11 @@ class CnesWebClient:
         id_municipio: str,
         ano: int,
         mes: int,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """Busca estabelecimentos de um município em uma competência.
 
         Args:
-            id_municipio: Código IBGE completo 7 dígitos (ex: '3541307').
+            id_municipio: Código IBGE completo 7 dígitos.
             ano: Ano da competência.
             mes: Mês da competência (1-12).
 
@@ -107,27 +107,27 @@ class CnesWebClient:
             CnesWebError: Falha no BigQuery.
         """
         sql = _SQL_ESTABELECIMENTOS.format(
-            id_municipio=id_municipio, ano=ano, mes=mes
+            id_municipio=id_municipio, ano=ano, mes=mes,
         )
         df = self._executar_query(sql)
         logger.info(
             "fetch_estabelecimentos id_municipio=%s ano=%d mes=%d rows=%d",
             id_municipio, ano, mes, len(df),
         )
-        if df.empty:
+        if df.is_empty():
             logger.warning(
-                "fetch_estabelecimentos id_municipio=%s ano=%d mes=%d rows=0 "
-                "(dados ainda não publicados?)",
+                "fetch_estabelecimentos id_municipio=%s ano=%d mes=%d "
+                "rows=0 (dados ainda não publicados?)",
                 id_municipio, ano, mes,
             )
-        return df.copy()
+        return df.clone()
 
     def fetch_profissionais(
         self,
         id_municipio: str,
         ano: int,
         mes: int,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """Busca todos os profissionais do município em uma competência.
 
         Args:
@@ -136,30 +136,30 @@ class CnesWebClient:
             mes: Mês da competência.
 
         Returns:
-            DataFrame com profissionais (inclui cartao_nacional_saude).
+            DataFrame com profissionais.
         """
         sql = _SQL_PROFISSIONAIS.format(
-            id_municipio=id_municipio, ano=ano, mes=mes
+            id_municipio=id_municipio, ano=ano, mes=mes,
         )
         df = self._executar_query(sql)
         logger.info(
             "fetch_profissionais id_municipio=%s ano=%d mes=%d rows=%d",
             id_municipio, ano, mes, len(df),
         )
-        if df.empty:
+        if df.is_empty():
             logger.warning(
-                "fetch_profissionais id_municipio=%s ano=%d mes=%d rows=0 "
-                "(dados ainda não publicados?)",
+                "fetch_profissionais id_municipio=%s ano=%d mes=%d "
+                "rows=0 (dados ainda não publicados?)",
                 id_municipio, ano, mes,
             )
-        return df.copy()
+        return df.clone()
 
     def fetch_profissionais_por_estabelecimento(
         self,
         id_estabelecimento_cnes: str,
         ano: int,
         mes: int,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """Busca profissionais de um estabelecimento específico.
 
         Args:
@@ -171,21 +171,23 @@ class CnesWebClient:
             DataFrame com profissionais do estabelecimento.
         """
         sql = _SQL_PROFISSIONAIS_POR_CNES.format(
-            id_estabelecimento_cnes=id_estabelecimento_cnes, ano=ano, mes=mes
+            id_estabelecimento_cnes=id_estabelecimento_cnes,
+            ano=ano, mes=mes,
         )
         df = self._executar_query(sql)
         logger.info(
-            "fetch_profissionais_por_estabelecimento cnes=%s ano=%d mes=%d rows=%d",
+            "fetch_profissionais_por_estabelecimento cnes=%s "
+            "ano=%d mes=%d rows=%d",
             id_estabelecimento_cnes, ano, mes, len(df),
         )
-        return df.copy()
+        return df.clone()
 
     def fetch_equipes(
         self,
         id_municipio: str,
         ano: int,
         mes: int,
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:
         """Busca equipes de saúde de um município.
 
         Args:
@@ -197,18 +199,21 @@ class CnesWebClient:
             DataFrame com equipes.
         """
         sql = _SQL_EQUIPES.format(
-            id_municipio=id_municipio, ano=ano, mes=mes
+            id_municipio=id_municipio, ano=ano, mes=mes,
         )
         df = self._executar_query(sql)
         logger.info(
             "fetch_equipes id_municipio=%s ano=%d mes=%d rows=%d",
             id_municipio, ano, mes, len(df),
         )
-        return df.copy()
+        return df.clone()
 
-    def _executar_query(self, sql: str) -> pd.DataFrame:
+    def _executar_query(self, sql: str) -> pl.DataFrame:
         try:
-            return bd.read_sql(sql, billing_project_id=self._billing_project_id)
+            pd_df = bd.read_sql(
+                sql, billing_project_id=self._billing_project_id,
+            )
+            return pl.from_pandas(pd_df)
         except google.auth.exceptions.DefaultCredentialsError as exc:
             raise CnesWebAuthError(f"auth_error={exc}") from exc
         except Exception as exc:

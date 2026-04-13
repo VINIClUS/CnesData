@@ -3,7 +3,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pandas as pd
+import polars as pl
 
 from pipeline.orchestrator import StageFatalError
 from pipeline.state import PipelineState
@@ -23,10 +23,10 @@ def _state(target_source: str = "LOCAL", local: bool = True, nacional: bool = Fa
         output_path=Path("data/processed/report.csv"),
         target_source=target_source,
     )
-    s.df_processado = pd.DataFrame({"CPF": ["12345678901"]}) if local else pd.DataFrame()
-    s.df_estab_local = pd.DataFrame({"CNES": ["1234567"]}) if local else pd.DataFrame()
-    s.df_prof_nacional = pd.DataFrame({"CNS": ["001"]}) if nacional else pd.DataFrame()
-    s.df_estab_nacional = pd.DataFrame({"CNES": ["001"]}) if nacional else pd.DataFrame()
+    s.df_processado = pl.DataFrame({"CPF": ["12345678901"]}) if local else pl.DataFrame()
+    s.df_estab_local = pl.DataFrame({"CNES": ["1234567"]}) if local else pl.DataFrame()
+    s.df_prof_nacional = pl.DataFrame({"CNS": ["001"]}) if nacional else pl.DataFrame()
+    s.df_estab_nacional = pl.DataFrame({"CNES": ["001"]}) if nacional else pl.DataFrame()
     return s
 
 
@@ -77,7 +77,7 @@ def test_nao_grava_locais_quando_df_processado_vazio():
     state = _state(target_source="NACIONAL", local=False, nacional=True)
     ExportacaoStage(mock_storage).execute(state)
     calls = mock_storage.gravar_profissionais.call_args_list
-    local_calls = [c for c in calls if not c[0][1].empty and "CPF" in c[0][1].columns]
+    local_calls = [c for c in calls if not c[0][1].is_empty() and "CPF" in c[0][1].columns]
     assert len(local_calls) == 0
 
 

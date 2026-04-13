@@ -1,116 +1,105 @@
-"""
-test_config.py — Testes Unitários do Módulo de Configuração
+"""test_config.py — Testes unitários do módulo de configuração."""
 
-Objetivo: Verificar que o config.py lê e expõe corretamente
-todas as variáveis de ambiente e que falha de forma clara
-quando variáveis obrigatórias estão ausentes.
-
-Estes testes são 100% unitários: não precisam de banco de dados,
-não fazem I/O de rede e rodam em milissegundos.
-"""
-
+import os
 from pathlib import Path
+
 import pytest
 
-# conftest.py já adicionou src/ ao sys.path
 import config
 
 
-class TestCarregamentoDotenv:
-    """Testa que as variáveis do .env são lidas corretamente."""
-
-    def test_db_path_nao_vazio(self):
-        """DB_PATH deve ser uma string com valor."""
-        assert config.DB_PATH, "DB_PATH não pode ser vazio"
-        assert isinstance(config.DB_PATH, str)
-
-    def test_db_password_nao_vazio(self):
-        """DB_PASSWORD deve estar presente (credencial obrigatória)."""
-        assert config.DB_PASSWORD, "DB_PASSWORD não pode ser vazio"
-
-    def test_db_dsn_formato_correto(self):
-        """DB_DSN deve ter o formato 'host:caminho'."""
-        assert ":" in config.DB_DSN, "DB_DSN deve conter ':' separando host do caminho"
-        host, caminho = config.DB_DSN.split(":", 1)
-        assert len(host) > 0, "Host do DSN não pode ser vazio"
-        assert len(caminho) > 0, "Caminho do banco no DSN não pode ser vazio"
-
-    def test_firebird_dll_configurado(self):
-        """FIREBIRD_DLL deve ser um caminho de string não vazio."""
-        assert config.FIREBIRD_DLL, "FIREBIRD_DLL não pode ser vazio"
-        assert isinstance(config.FIREBIRD_DLL, str)
+class TestVariaveisEager:
 
     def test_cod_mun_ibge_valor_correto(self):
-        """COD_MUN_IBGE deve ser o IBGE de Presidente Epitácio."""
-        assert config.COD_MUN_IBGE == "354130", (
-            f"Código IBGE esperado: '354130', encontrado: '{config.COD_MUN_IBGE}'"
-        )
+        assert config.COD_MUN_IBGE == "354130"
 
     def test_cnpj_mantenedora_valor_correto(self):
-        """CNPJ_MANTENEDORA deve ser o CNPJ da Prefeitura Municipal."""
-        assert config.CNPJ_MANTENEDORA == "55293427000117", (
-            f"CNPJ esperado '55293427000117', encontrado: '{config.CNPJ_MANTENEDORA}'"
-        )
+        assert config.CNPJ_MANTENEDORA == "55293427000117"
 
     def test_cnpj_mantenedora_somente_digitos(self):
-        """CNPJ no banco está sem pontuação — apenas números."""
-        assert config.CNPJ_MANTENEDORA.isdigit(), (
-            "CNPJ_MANTENEDORA deve conter apenas dígitos (sem pontuação)"
-        )
+        assert config.CNPJ_MANTENEDORA.isdigit()
 
     def test_cnpj_mantenedora_comprimento(self):
-        """CNPJ deve ter exatamente 14 dígitos."""
-        assert len(config.CNPJ_MANTENEDORA) == 14, (
-            f"CNPJ deve ter 14 dígitos, mas tem {len(config.CNPJ_MANTENEDORA)}"
-        )
+        assert len(config.CNPJ_MANTENEDORA) == 14
 
 
 class TestCaminhosDoProjeto:
-    """Testa que os caminhos gerados pelo config são válidos."""
 
     def test_raiz_projeto_e_diretorio(self):
-        """RAIZ_PROJETO deve apontar para um diretório existente."""
-        assert config.RAIZ_PROJETO.is_dir(), (
-            f"Raiz do projeto não encontrada: {config.RAIZ_PROJETO}"
-        )
+        assert config.RAIZ_PROJETO.is_dir()
 
     def test_output_path_tem_extensao_csv(self):
-        """OUTPUT_PATH deve apontar para um arquivo .csv."""
-        assert config.OUTPUT_PATH.suffix == ".csv", (
-            f"OUTPUT_PATH deve ter extensão .csv, encontrado: {config.OUTPUT_PATH.suffix}"
-        )
-
-    def test_output_path_diretorio_pai_configurado(self):
-        """O diretório pai do OUTPUT_PATH deve ser configurável."""
-        assert config.OUTPUT_PATH.parent is not None
+        assert config.OUTPUT_PATH.suffix == ".csv"
 
     def test_logs_dir_e_path(self):
-        """LOGS_DIR deve ser um objeto Path."""
         assert isinstance(config.LOGS_DIR, Path)
 
     def test_log_file_nome_correto(self):
-        """LOG_FILE deve ter o nome cnes_exporter.log."""
         assert config.LOG_FILE.name == "cnes_exporter.log"
 
 
-class TestFalhaSemVariaveisObrigatorias:
-    """
-    Testa o comportamento quando variáveis obrigatórias estão ausentes.
+class TestVariaveisLazy:
 
-    Usa monkeypatch para simular a ausência de variáveis de ambiente
-    sem alterar o .env real. Após o teste, o ambiente é restaurado automaticamente.
-    """
+    @pytest.mark.skipif(
+        not os.getenv("DB_PATH"), reason="DB_PATH não configurado"
+    )
+    def test_db_path_nao_vazio(self):
+        assert config.DB_PATH
+        assert isinstance(config.DB_PATH, str)
 
-    def test_exigir_levanta_environment_error(self, monkeypatch):
-        """
-        A função interna _exigir() deve levantar EnvironmentError com mensagem clara
-        quando a variável requisitada não existe.
-        """
+    @pytest.mark.skipif(
+        not os.getenv("DB_PASSWORD"), reason="DB_PASSWORD não configurado"
+    )
+    def test_db_password_nao_vazio(self):
+        assert config.DB_PASSWORD
+
+    @pytest.mark.skipif(
+        not os.getenv("DB_PATH"), reason="DB_PATH não configurado"
+    )
+    def test_db_dsn_formato_correto(self):
+        assert ":" in config.DB_DSN
+        host, caminho = config.DB_DSN.split(":", 1)
+        assert len(host) > 0
+        assert len(caminho) > 0
+
+    @pytest.mark.skipif(
+        not os.getenv("FIREBIRD_DLL"), reason="FIREBIRD_DLL não configurado"
+    )
+    def test_firebird_dll_configurado(self):
+        assert config.FIREBIRD_DLL
+        assert isinstance(config.FIREBIRD_DLL, str)
+
+
+class TestLazyFalhaSemVar:
+
+    def test_db_path_levanta_erro_quando_ausente(self, monkeypatch):
         monkeypatch.delenv("DB_PATH", raising=False)
-        monkeypatch.delenv("DB_PASSWORD", raising=False)
+        config._firebird_db_path.cache_clear()
+        with pytest.raises(EnvironmentError, match="não encontrada"):
+            _ = config.DB_PATH
 
+    def test_firebird_dll_levanta_erro_quando_ausente(self, monkeypatch):
+        monkeypatch.delenv("FIREBIRD_DLL", raising=False)
+        config._firebird_dll.cache_clear()
+        with pytest.raises(EnvironmentError, match="não encontrada"):
+            _ = config.FIREBIRD_DLL
+
+
+class TestExigir:
+
+    def test_exigir_levanta_environment_error(self):
         with pytest.raises(EnvironmentError, match="não encontrada"):
             config._exigir("VARIAVEL_INEXISTENTE_PARA_TESTE")
+
+
+class TestApiConfig:
+
+    def test_api_host_padrao(self):
+        assert config.API_HOST == os.getenv("API_HOST", "0.0.0.0")
+
+    def test_api_port_padrao(self):
+        assert isinstance(config.API_PORT, int)
+        assert config.API_PORT > 0
 
 
 def test_dlq_threshold_padrao():

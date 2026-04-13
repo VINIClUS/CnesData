@@ -1,17 +1,10 @@
-"""
-test_hr_client.py — Testes Unitários do Parser de RH (WP-001)
-
-Estratégia de mock:
-  - pd.read_excel e pd.read_csv são patched em ingestion.hr_client.
-  - Nenhum arquivo real é lido.
-  - caplog verifica logs de CPF inválido.
-"""
+"""test_hr_client.py -- Testes Unitarios do Parser de RH (WP-001)."""
 
 import logging
 from pathlib import Path
 from unittest.mock import patch
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from ingestion.hr_client import (
@@ -25,16 +18,16 @@ _CSV = Path("folha.csv")
 _DESCONHECIDO = Path("folha.txt")
 
 
-def _df_folha_valido() -> pd.DataFrame:
-    return pd.DataFrame({
+def _df_folha_valido() -> pl.DataFrame:
+    return pl.DataFrame({
         "CPF":    ["117.167.238-17", "227.307.688-66"],
         "NOME":   ["ZELIA RIBEIRO", "VANESSA PAIXAO"],
         "STATUS": ["ATIVO", "ATIVO"],
     })
 
 
-def _df_ponto_valido() -> pd.DataFrame:
-    return pd.DataFrame({
+def _df_ponto_valido() -> pl.DataFrame:
+    return pl.DataFrame({
         "CPF":    ["117.167.238-17"],
         "NOME":   ["ZELIA RIBEIRO"],
         "STATUS": ["PRESENTE"],
@@ -44,7 +37,7 @@ def _df_ponto_valido() -> pd.DataFrame:
 class TestLeituraDeArquivo:
 
     def test_xlsx_chama_read_excel(self):
-        with patch("ingestion.hr_client.pd.read_excel") as mock_read:
+        with patch("ingestion.hr_client.pl.read_excel") as mock_read:
             mock_read.return_value = _df_folha_valido()
             carregar_folha(_XLSX)
             mock_read.assert_called_once_with(_XLSX)
@@ -61,14 +54,14 @@ def test_csv_usa_linhas_limpas(tmp_path):
     row = ",".join(vals.values())
     csv_path.write_text(f"{header}\n{row}", encoding="utf-8")
     df = carregar_folha(csv_path)
-    assert not df.empty
+    assert not df.is_empty()
 
     def test_extensao_desconhecida_levanta_hr_schema_error(self):
         with pytest.raises(HrSchemaError, match="extensão"):
             carregar_folha(_DESCONHECIDO)
 
     def test_carregar_ponto_xlsx_chama_read_excel(self):
-        with patch("ingestion.hr_client.pd.read_excel") as mock_read:
+        with patch("ingestion.hr_client.pl.read_excel") as mock_read:
             mock_read.return_value = _df_ponto_valido()
             carregar_ponto(_XLSX)
             mock_read.assert_called_once_with(_XLSX)
@@ -77,26 +70,26 @@ def test_csv_usa_linhas_limpas(tmp_path):
 class TestValidacaoDeSchema:
 
     def test_rejeita_folha_sem_cpf(self):
-        df = _df_folha_valido().drop(columns=["CPF"])
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        df = _df_folha_valido().drop("CPF")
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             with pytest.raises(HrSchemaError, match="CPF"):
                 carregar_folha(_XLSX)
 
     def test_rejeita_folha_sem_nome(self):
-        df = _df_folha_valido().drop(columns=["NOME"])
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        df = _df_folha_valido().drop("NOME")
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             with pytest.raises(HrSchemaError, match="NOME"):
                 carregar_folha(_XLSX)
 
     def test_rejeita_folha_sem_status(self):
-        df = _df_folha_valido().drop(columns=["STATUS"])
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        df = _df_folha_valido().drop("STATUS")
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             with pytest.raises(HrSchemaError, match="STATUS"):
                 carregar_folha(_XLSX)
 
     def test_mensagem_erro_lista_todas_colunas_ausentes(self):
-        df = pd.DataFrame({"OUTRO": ["x"]})
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        df = pl.DataFrame({"OUTRO": ["x"]})
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             with pytest.raises(HrSchemaError) as exc_info:
                 carregar_folha(_XLSX)
             msg = str(exc_info.value)
@@ -105,9 +98,9 @@ class TestValidacaoDeSchema:
             assert "STATUS" in msg
 
     def test_aceita_folha_com_colunas_extras(self):
-        df = _df_folha_valido().copy()
-        df["CARGO"] = ["ACS", "ACS"]
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        df = _df_folha_valido().clone()
+        df = df.with_columns(pl.Series("CARGO", ["ACS", "ACS"]))
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             resultado = carregar_folha(_XLSX)
         assert "CARGO" in resultado.columns
 
@@ -115,77 +108,77 @@ class TestValidacaoDeSchema:
 class TestNormalizacaoCpf:
 
     def test_remove_pontos_e_traco(self):
-        df = pd.DataFrame({
+        df = pl.DataFrame({
             "CPF": ["117.167.238-17"],
             "NOME": ["ZELIA"],
             "STATUS": ["ATIVO"],
         })
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             resultado = carregar_folha(_XLSX)
-        assert resultado["CPF"].iloc[0] == "11716723817"
+        assert resultado["CPF"][0] == "11716723817"
 
     def test_remove_espacos(self):
-        df = pd.DataFrame({
+        df = pl.DataFrame({
             "CPF": [" 11716723817 "],
             "NOME": ["ZELIA"],
             "STATUS": ["ATIVO"],
         })
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             resultado = carregar_folha(_XLSX)
-        assert resultado["CPF"].iloc[0] == "11716723817"
+        assert resultado["CPF"][0] == "11716723817"
 
     def test_cpf_ja_limpo_permanece_igual(self):
-        df = pd.DataFrame({
+        df = pl.DataFrame({
             "CPF": ["11716723817"],
             "NOME": ["ZELIA"],
             "STATUS": ["ATIVO"],
         })
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             resultado = carregar_folha(_XLSX)
-        assert resultado["CPF"].iloc[0] == "11716723817"
+        assert resultado["CPF"][0] == "11716723817"
 
     def test_normaliza_todos_os_registros(self):
-        with patch("ingestion.hr_client.pd.read_excel", return_value=_df_folha_valido()):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=_df_folha_valido()):
             resultado = carregar_folha(_XLSX)
-        assert resultado["CPF"].tolist() == ["11716723817", "22730768866"]
+        assert resultado["CPF"].to_list() == ["11716723817", "22730768866"]
 
 
 class TestDeteccaoCpfInvalido:
 
     def test_loga_cpf_nulo(self, caplog):
-        df = pd.DataFrame({
+        df = pl.DataFrame({
             "CPF": [None, "11716723817"],
             "NOME": ["NULO", "ZELIA"],
             "STATUS": ["ATIVO", "ATIVO"],
         })
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             with caplog.at_level(logging.WARNING, logger="ingestion.hr_client"):
                 carregar_folha(_XLSX)
         assert "cpf_invalido" in caplog.text
 
     def test_loga_cpf_comprimento_incorreto(self, caplog):
-        df = pd.DataFrame({
+        df = pl.DataFrame({
             "CPF": ["123456789", "11716723817"],
             "NOME": ["CURTO", "ZELIA"],
             "STATUS": ["ATIVO", "ATIVO"],
         })
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             with caplog.at_level(logging.WARNING, logger="ingestion.hr_client"):
                 carregar_folha(_XLSX)
         assert "cpf_invalido" in caplog.text
 
     def test_nao_remove_registros_com_cpf_invalido(self):
-        df = pd.DataFrame({
+        df = pl.DataFrame({
             "CPF": [None, "123456789", "11716723817"],
             "NOME": ["A", "B", "C"],
             "STATUS": ["ATIVO", "ATIVO", "ATIVO"],
         })
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df):
             resultado = carregar_folha(_XLSX)
         assert len(resultado) == 3
 
     def test_cpf_valido_nao_gera_warning(self, caplog):
-        with patch("ingestion.hr_client.pd.read_excel", return_value=_df_folha_valido()):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=_df_folha_valido()):
             with caplog.at_level(logging.WARNING, logger="ingestion.hr_client"):
                 carregar_folha(_XLSX)
         assert "cpf_invalido" not in caplog.text
@@ -195,24 +188,24 @@ class TestQualidade:
 
     def test_retorna_copia_independente(self):
         df_original = _df_folha_valido()
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df_original):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df_original):
             resultado = carregar_folha(_XLSX)
         assert resultado is not df_original
 
     def test_nao_muta_dataframe_original(self):
         df_original = _df_folha_valido()
-        cpf_antes = df_original["CPF"].tolist()
-        with patch("ingestion.hr_client.pd.read_excel", return_value=df_original):
+        cpf_antes = df_original["CPF"].to_list()
+        with patch("ingestion.hr_client.pl.read_excel", return_value=df_original):
             carregar_folha(_XLSX)
-        assert df_original["CPF"].tolist() == cpf_antes
+        assert df_original["CPF"].to_list() == cpf_antes
 
     def test_retorna_dataframe(self):
-        with patch("ingestion.hr_client.pd.read_excel", return_value=_df_folha_valido()):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=_df_folha_valido()):
             resultado = carregar_folha(_XLSX)
-        assert isinstance(resultado, pd.DataFrame)
+        assert isinstance(resultado, pl.DataFrame)
 
     def test_logging_registra_total_carregado(self, caplog):
-        with patch("ingestion.hr_client.pd.read_excel", return_value=_df_folha_valido()):
+        with patch("ingestion.hr_client.pl.read_excel", return_value=_df_folha_valido()):
             with caplog.at_level(logging.INFO, logger="ingestion.hr_client"):
                 carregar_folha(_XLSX)
         assert "rows=2" in caplog.text

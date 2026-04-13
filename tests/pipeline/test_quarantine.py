@@ -1,5 +1,5 @@
 """Testes do QuarantineBuffer e lógica de divert-to-DLQ."""
-import pandas as pd
+import polars as pl
 import pytest
 
 from ingestion.quarantine import QuarantineBuffer, QuarantineRecord, quarentinar_linhas
@@ -48,7 +48,7 @@ def test_quarantine_ratio_total_zero():
 
 
 def test_quarentinar_linhas_popula_buffer():
-    df = pd.DataFrame({"CPF": ["11111111111", "22222222222"], "CNES": ["1234567", "7654321"]})
+    df = pl.DataFrame({"CPF": ["11111111111", "22222222222"], "CNES": ["1234567", "7654321"]})
     buf = QuarantineBuffer()
     quarentinar_linhas(
         df=df,

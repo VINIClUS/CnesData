@@ -1,17 +1,10 @@
-"""
-test_web_client.py — Testes Unitários do Cliente BigQuery (WP-002)
-
-Estratégia de mock:
-  - basedosdados.read_sql é patched em ingestion.web_client.bd.read_sql.
-  - google.auth.exceptions.DefaultCredentialsError é injetado via side_effect
-    para simular falhas de autenticação.
-  - Nenhuma chamada real ao BigQuery é feita.
-"""
+"""test_web_client.py -- Testes Unitarios do Cliente BigQuery (WP-002)."""
 
 import logging
 from unittest.mock import patch
 
 import pandas as pd
+import polars as pl
 import pytest
 
 from ingestion.web_client import (
@@ -72,7 +65,6 @@ def _df_equipes() -> pd.DataFrame:
 class TestFetchEstabelecimentosQuery:
 
     def test_query_usa_id_municipio_exato(self):
-        """WHERE deve usar igualdade exata, não LIKE."""
         with patch("ingestion.web_client.bd.read_sql") as mock_read_sql:
             mock_read_sql.return_value = _df_estabelecimentos()
             client = CnesWebClient(_BILLING_PROJECT)
@@ -82,7 +74,6 @@ class TestFetchEstabelecimentosQuery:
             assert f"id_municipio = '{_ID_MUNICIPIO}'" in sql_executado
 
     def test_query_inclui_ano_e_mes_como_particao(self):
-        """WHERE deve incluir ano e mes para aproveitar particionamento."""
         with patch("ingestion.web_client.bd.read_sql") as mock_read_sql:
             mock_read_sql.return_value = _df_estabelecimentos()
             client = CnesWebClient(_BILLING_PROJECT)
@@ -105,7 +96,6 @@ class TestFetchEstabelecimentosQuery:
 class TestFetchProfissionaisQuery:
 
     def test_query_inclui_cartao_nacional_saude(self):
-        """SELECT deve incluir cartao_nacional_saude — chave de JOIN com Firebird."""
         with patch("ingestion.web_client.bd.read_sql") as mock_read_sql:
             mock_read_sql.return_value = _df_profissionais()
             client = CnesWebClient(_BILLING_PROJECT)
@@ -168,7 +158,7 @@ class TestRetorno:
             client = CnesWebClient(_BILLING_PROJECT)
             resultado = client.fetch_estabelecimentos(_ID_MUNICIPIO, _ANO, _MES)
 
-            assert isinstance(resultado, pd.DataFrame)
+            assert isinstance(resultado, pl.DataFrame)
             assert len(resultado) == 1
 
     def test_fetch_estabelecimentos_vazio_retorna_dataframe_vazio(self, caplog):
@@ -180,7 +170,7 @@ class TestRetorno:
             with caplog.at_level(logging.WARNING, logger="ingestion.web_client"):
                 resultado = client.fetch_estabelecimentos(_ID_MUNICIPIO, _ANO, _MES)
 
-            assert resultado.empty
+            assert resultado.is_empty()
             assert "ainda não publicados" in caplog.text
 
     def test_fetch_profissionais_retorna_dataframe_com_cns(self):
@@ -189,7 +179,7 @@ class TestRetorno:
             client = CnesWebClient(_BILLING_PROJECT)
             resultado = client.fetch_profissionais(_ID_MUNICIPIO, _ANO, _MES)
 
-            assert isinstance(resultado, pd.DataFrame)
+            assert isinstance(resultado, pl.DataFrame)
             assert "cartao_nacional_saude" in resultado.columns
 
     def test_fetch_equipes_retorna_dataframe(self):
@@ -198,7 +188,7 @@ class TestRetorno:
             client = CnesWebClient(_BILLING_PROJECT)
             resultado = client.fetch_equipes(_ID_MUNICIPIO, _ANO, _MES)
 
-            assert isinstance(resultado, pd.DataFrame)
+            assert isinstance(resultado, pl.DataFrame)
 
 
 class TestErros:
@@ -227,7 +217,6 @@ class TestErros:
 class TestQualidade:
 
     def test_resultado_e_copia_independente(self):
-        """O DataFrame retornado não deve ser o mesmo objeto retornado pelo BigQuery."""
         df_original = _df_profissionais()
         with patch("ingestion.web_client.bd.read_sql") as mock_read_sql:
             mock_read_sql.return_value = df_original
@@ -249,7 +238,6 @@ class TestQualidade:
             assert str(_MES) in log_texto
 
     def test_billing_project_passado_ao_basedosdados(self):
-        """billing_project_id deve ser passado em cada chamada ao basedosdados."""
         with patch("ingestion.web_client.bd.read_sql") as mock_read_sql:
             mock_read_sql.return_value = _df_estabelecimentos()
             client = CnesWebClient(_BILLING_PROJECT)

@@ -2,7 +2,7 @@
 
 import logging
 
-import pandas as pd
+import polars as pl
 
 from ingestion import sihd_client
 from ingestion.sihd_schemas import SCHEMA_AIH, SCHEMA_PROCEDIMENTO_AIH
@@ -50,10 +50,10 @@ class SihdLocalAdapter:
 
     def __init__(self, con: object) -> None:
         self._con = con
-        self._cache_aihs: pd.DataFrame | None = None
-        self._cache_procs: pd.DataFrame | None = None
+        self._cache_aihs: pl.DataFrame | None = None
+        self._cache_procs: pl.DataFrame | None = None
 
-    def listar_aihs(self, competencia: str) -> pd.DataFrame:
+    def listar_aihs(self, competencia: str) -> pl.DataFrame:
         """Retorna AIHs com colunas padronizadas (FONTE=LOCAL).
 
         Args:
@@ -63,15 +63,17 @@ class SihdLocalAdapter:
             DataFrame conforme SCHEMA_AIH.
         """
         df = self._extrair_aihs(competencia)
-        df = df.rename(columns=_MAP_AIH)
-        df["CNES"] = df["CNES"].str.strip().str.zfill(7)
-        df["NUM_AIH"] = df["NUM_AIH"].str.strip()
-        df["PACIENTE_CNS"] = df["PACIENTE_CNS"].str.strip()
-        df["FONTE"] = _FONTE_LOCAL
+        df = df.rename(_MAP_AIH)
+        df = df.with_columns(
+            pl.col("CNES").str.strip_chars().str.pad_start(7, "0"),
+            pl.col("NUM_AIH").str.strip_chars(),
+            pl.col("PACIENTE_CNS").str.strip_chars(),
+            pl.lit(_FONTE_LOCAL).alias("FONTE"),
+        )
         logger.debug("listar_aihs fonte=LOCAL rows=%d", len(df))
-        return df[list(SCHEMA_AIH)]
+        return df.select(list(SCHEMA_AIH))
 
-    def listar_procedimentos(self, competencia: str) -> pd.DataFrame:
+    def listar_procedimentos(self, competencia: str) -> pl.DataFrame:
         """Retorna procedimentos de AIH com colunas padronizadas.
 
         Args:
@@ -81,24 +83,26 @@ class SihdLocalAdapter:
             DataFrame conforme SCHEMA_PROCEDIMENTO_AIH.
         """
         df = self._extrair_procedimentos(competencia)
-        df = df.rename(columns=_MAP_PROCEDIMENTO)
-        df["NUM_AIH"] = df["NUM_AIH"].str.strip()
-        df["FONTE"] = _FONTE_LOCAL
+        df = df.rename(_MAP_PROCEDIMENTO)
+        df = df.with_columns(
+            pl.col("NUM_AIH").str.strip_chars(),
+            pl.lit(_FONTE_LOCAL).alias("FONTE"),
+        )
         logger.debug(
             "listar_procedimentos fonte=LOCAL rows=%d", len(df),
         )
-        return df[list(SCHEMA_PROCEDIMENTO_AIH)]
+        return df.select(list(SCHEMA_PROCEDIMENTO_AIH))
 
-    def _extrair_aihs(self, competencia: str) -> pd.DataFrame:
+    def _extrair_aihs(self, competencia: str) -> pl.DataFrame:
         if self._cache_aihs is None:
             self._cache_aihs = sihd_client.extrair_aihs(
                 self._con, competencia,
             )
-        return self._cache_aihs.copy()
+        return self._cache_aihs.clone()
 
-    def _extrair_procedimentos(self, competencia: str) -> pd.DataFrame:
+    def _extrair_procedimentos(self, competencia: str) -> pl.DataFrame:
         if self._cache_procs is None:
             self._cache_procs = sihd_client.extrair_procedimentos(
                 self._con, competencia,
             )
-        return self._cache_procs.copy()
+        return self._cache_procs.clone()

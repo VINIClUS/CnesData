@@ -29,8 +29,8 @@ class ExportacaoStage:
 
     def execute(self, state: PipelineState) -> None:
         competencia = state.competencia_str
-        local_vazio = state.df_processado.empty
-        nacional_vazio = state.df_prof_nacional.empty
+        local_vazio = state.df_processado.is_empty()
+        nacional_vazio = state.df_prof_nacional.is_empty()
 
         if local_vazio and nacional_vazio:
             raise StageFatalError("exportacao_alcancada_com_dataframes_vazios")

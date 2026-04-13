@@ -2,7 +2,7 @@
 import logging
 from unittest.mock import MagicMock
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from storage.postgres_adapter import PostgresAdapter
@@ -23,7 +23,7 @@ def adapter(engine):
 
 @pytest.fixture()
 def df_profissionais():
-    return pd.DataFrame(
+    return pl.DataFrame(
         [
             {
                 "CPF": "12345678901",
@@ -61,7 +61,7 @@ def df_profissionais():
 
 @pytest.fixture()
 def df_estabelecimentos():
-    return pd.DataFrame(
+    return pl.DataFrame(
         [
             {
                 "CNES": "1234567",
@@ -94,7 +94,7 @@ class TestGravarProfissionais:
         assert False in sus_values
 
     def test_sus_none_permanece_none(self, adapter):
-        df = pd.DataFrame(
+        df = pl.DataFrame(
             [
                 {
                     "CPF": "11111111111",
@@ -128,7 +128,7 @@ class TestGravarEstabelecimentos:
         assert rows[0]["vinculo_sus"] is True
 
     def test_vinculo_sus_none_permanece_none(self, adapter):
-        df = pd.DataFrame(
+        df = pl.DataFrame(
             [
                 {
                     "CNES": "1234567",

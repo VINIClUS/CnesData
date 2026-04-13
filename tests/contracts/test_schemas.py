@@ -1,12 +1,12 @@
-import pandas as pd
+import polars as pl
 import pandera as pa
 import pytest
 
 from contracts.schemas import EstabelecimentoContract, ProfissionalContract
 
 
-def _df_prof_valido() -> pd.DataFrame:
-    return pd.DataFrame({
+def _df_prof_valido() -> pl.DataFrame:
+    return pl.DataFrame({
         "CNS": ["123456789012345"],
         "CPF": ["12345678901"],
         "NOME_PROFISSIONAL": ["Ana Silva"],
@@ -23,8 +23,8 @@ def _df_prof_valido() -> pd.DataFrame:
     })
 
 
-def _df_estab_valido() -> pd.DataFrame:
-    return pd.DataFrame({
+def _df_estab_valido() -> pl.DataFrame:
+    return pl.DataFrame({
         "CNES": ["1234567"],
         "NOME_FANTASIA": ["UBS Centro"],
         "TIPO_UNIDADE": ["01"],
@@ -37,61 +37,61 @@ def _df_estab_valido() -> pd.DataFrame:
 
 
 def test_profissional_valido_passa():
-    ProfissionalContract.validate(_df_prof_valido())
+    ProfissionalContract.validate(_df_prof_valido().to_pandas())
 
 
 def test_profissional_cpf_nulo_nacional_passa():
-    df = _df_prof_valido().copy()
-    df["CPF"] = None
-    df["FONTE"] = "NACIONAL"
-    ProfissionalContract.validate(df)
+    df = _df_prof_valido().clone()
+    df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias("CPF"))
+    df = df.with_columns(pl.lit("NACIONAL").alias("FONTE"))
+    ProfissionalContract.validate(df.to_pandas())
 
 
 def test_profissional_coluna_ausente_levanta_schema_error():
-    df = _df_prof_valido().drop(columns=["CNS"])
+    df = _df_prof_valido().drop("CNS")
     with pytest.raises(pa.errors.SchemaError):
-        ProfissionalContract.validate(df)
+        ProfissionalContract.validate(df.to_pandas())
 
 
 def test_profissional_fonte_invalida_levanta_schema_error():
-    df = _df_prof_valido().copy()
-    df["FONTE"] = "DESCONHECIDA"
+    df = _df_prof_valido().clone()
+    df = df.with_columns(pl.lit("DESCONHECIDA").alias("FONTE"))
     with pytest.raises(pa.errors.SchemaError):
-        ProfissionalContract.validate(df)
+        ProfissionalContract.validate(df.to_pandas())
 
 
 def test_profissional_sus_invalido_levanta_schema_error():
-    df = _df_prof_valido().copy()
-    df["SUS"] = "X"
+    df = _df_prof_valido().clone()
+    df = df.with_columns(pl.lit("X").alias("SUS"))
     with pytest.raises(pa.errors.SchemaError):
-        ProfissionalContract.validate(df)
+        ProfissionalContract.validate(df.to_pandas())
 
 
 def test_estabelecimento_valido_passa():
-    EstabelecimentoContract.validate(_df_estab_valido())
+    EstabelecimentoContract.validate(_df_estab_valido().to_pandas())
 
 
 def test_estabelecimento_coluna_ausente_levanta_schema_error():
-    df = _df_estab_valido().drop(columns=["CNES"])
+    df = _df_estab_valido().drop("CNES")
     with pytest.raises(pa.errors.SchemaError):
-        EstabelecimentoContract.validate(df)
+        EstabelecimentoContract.validate(df.to_pandas())
 
 
 def test_estabelecimento_fonte_invalida_levanta_schema_error():
-    df = _df_estab_valido().copy()
-    df["FONTE"] = "ERRADO"
+    df = _df_estab_valido().clone()
+    df = df.with_columns(pl.lit("ERRADO").alias("FONTE"))
     with pytest.raises(pa.errors.SchemaError):
-        EstabelecimentoContract.validate(df)
+        EstabelecimentoContract.validate(df.to_pandas())
 
 
 def test_estabelecimento_vinculo_sus_invalido_levanta_schema_error():
-    df = _df_estab_valido().copy()
-    df["VINCULO_SUS"] = "Z"
+    df = _df_estab_valido().clone()
+    df = df.with_columns(pl.lit("Z").alias("VINCULO_SUS"))
     with pytest.raises(pa.errors.SchemaError):
-        EstabelecimentoContract.validate(df)
+        EstabelecimentoContract.validate(df.to_pandas())
 
 
 def test_profissional_contract_aceita_sexo_nullable():
-    df = _df_prof_valido().copy()
-    df["SEXO"] = None
-    ProfissionalContract.validate(df, lazy=False)
+    df = _df_prof_valido().clone()
+    df = df.with_columns(pl.lit(None).cast(pl.Utf8).alias("SEXO"))
+    ProfissionalContract.validate(df.to_pandas(), lazy=False)
