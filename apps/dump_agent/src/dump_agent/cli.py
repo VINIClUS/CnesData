@@ -1,9 +1,9 @@
-"""cli.py — Interface de linha de comando do pipeline CnesData."""
+"""cli.py — Interface de linha de comando do dump_agent."""
 
 import argparse
 from dataclasses import dataclass
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 _ANO_MIN = 2000
 _ANO_MAX = 2099
@@ -14,40 +14,24 @@ class CliArgs:
     """Argumentos CLI parseados e validados."""
 
     competencia: tuple[int, int] | None
-    output_dir: str | None
     source: str
     verbose: bool
+    api_url: str
+    machine_id: str
 
 
 def parse_args(argv: list[str] | None = None) -> CliArgs:
-    """Parseia argumentos CLI e retorna CliArgs validado.
-
-    Args:
-        argv: Lista de argumentos (None = sys.argv[1:]). Parametrizável para testes.
-
-    Returns:
-        CliArgs com valores parseados.
-
-    Raises:
-        SystemExit: Se --help, --version, ou argumento inválido.
-    """
+    """Parseia argumentos CLI e retorna CliArgs validado."""
     parser = argparse.ArgumentParser(
-        prog="cnesdata",
-        description="Pipeline de auditoria CNES — Presidente Epitácio/SP",
+        prog="dump-agent",
+        description="Agente de extração CNES — streaming via pre-signed URL",
     )
     parser.add_argument(
         "-c", "--competencia",
         type=str,
         default=None,
         metavar="YYYY-MM",
-        help="Competência da base nacional (ex: 2024-12). Padrão: valor do .env.",
-    )
-    parser.add_argument(
-        "-o", "--output-dir",
-        type=str,
-        default=None,
-        metavar="CAMINHO",
-        help="Diretório de saída dos relatórios. Padrão: valor do .env.",
+        help="Competência (ex: 2024-12). Padrão: .env.",
     )
     parser.add_argument(
         "--source",
@@ -60,6 +44,18 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         action="store_true",
         default=False,
         help="Ativa log DEBUG no console.",
+    )
+    parser.add_argument(
+        "--api-url",
+        type=str,
+        default="http://localhost:8000",
+        help="URL base da central_api.",
+    )
+    parser.add_argument(
+        "--machine-id",
+        type=str,
+        default=None,
+        help="Identificador da máquina agente.",
     )
     parser.add_argument(
         "--version",
@@ -78,9 +74,10 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
 
     return CliArgs(
         competencia=competencia,
-        output_dir=args.output_dir,
         source=args.source,
         verbose=args.verbose,
+        api_url=args.api_url,
+        machine_id=args.machine_id or "",
     )
 
 

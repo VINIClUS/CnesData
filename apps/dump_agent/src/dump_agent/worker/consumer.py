@@ -1,17 +1,14 @@
-"""Consumer — loop assíncrono legacy + streaming com heartbeat."""
+"""Consumer — loop streaming com heartbeat e upload via pre-signed URL."""
 
 import asyncio
 import logging
+import random
 import signal
 from functools import partial
 
 import httpx
 from cnes_domain.tenant import set_tenant_id
-from cnes_infra.storage.job_queue import claim_next, complete, fail
 from cnes_infra.telemetry import get_tracer
-from sqlalchemy.engine import Engine
-
-from dump_agent.worker.executor import execute_job
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +17,12 @@ _HEARTBEAT_INTERVAL: float = 300.0
 _tracer = get_tracer("dump_agent")
 
 
-async def run_worker(engine: Engine) -> None:
-    """Loop legacy — consome jobs via polling direto no banco."""
+async def run_worker(
+    api_base_url: str,
+    machine_id: str,
+    jitter_max: float = 1800.0,
+) -> None:
+    """Loop streaming — acquire via API, upload direto ao MinIO."""
     loop = asyncio.get_running_loop()
     running = True
 
@@ -36,66 +37,8 @@ async def run_worker(engine: Engine) -> None:
         except NotImplementedError:
             pass
 
-    logger.info("worker_started poll_interval=%.1fs", _POLL_INTERVAL)
-    while running:
-        job = await loop.run_in_executor(None, claim_next, engine)
-        if job is None:
-            await asyncio.sleep(_POLL_INTERVAL)
-            continue
-        logger.info(
-            "job_claimed job_id=%s source=%s",
-            job.id, job.source_system,
-        )
-        set_tenant_id(job.tenant_id)
-        with _tracer.start_as_current_span("process_job") as span:
-            span.set_attribute("job.id", str(job.id))
-            span.set_attribute("job.source_system", job.source_system)
-            try:
-                await loop.run_in_executor(
-                    None,
-                    execute_job,
-                    engine, job.id, job.payload_id,
-                    job.source_system, job.tenant_id,
-                )
-                await loop.run_in_executor(
-                    None, complete, engine, job.id,
-                )
-            except Exception as exc:
-                logger.exception("job_error job_id=%s", job.id)
-                moved = await loop.run_in_executor(
-                    None, fail, engine, job.id, str(exc),
-                )
-                if moved:
-                    logger.warning(
-                        "job_moved_to_dlq job_id=%s", job.id,
-                    )
-    logger.info("worker_stopped")
-
-
-async def run_streaming_worker(
-    api_base_url: str,
-    machine_id: str,
-    jitter_max: float = 1800.0,
-) -> None:
-    """Loop streaming — acquire via API, upload direto ao MinIO."""
-    import random
-
-    loop = asyncio.get_running_loop()
-    running = True
-
-    def _shutdown(sig: signal.Signals) -> None:
-        nonlocal running
-        logger.info("streaming_worker_shutdown signal=%s", sig.name)
-        running = False
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, partial(_shutdown, sig))
-        except NotImplementedError:
-            pass
-
     logger.info(
-        "streaming_worker_started api=%s machine=%s",
+        "worker_started api=%s machine=%s",
         api_base_url, machine_id,
     )
 
@@ -126,7 +69,7 @@ async def run_streaming_worker(
                 pass
 
         await asyncio.sleep(random.uniform(0, 5))
-    logger.info("streaming_worker_stopped")
+    logger.info("worker_stopped")
 
 
 async def _acquire_job(
@@ -156,9 +99,7 @@ async def _heartbeat_loop(
                 )
             logger.debug("heartbeat_sent job_id=%s", job_id)
         except Exception:
-            logger.warning(
-                "heartbeat_failed job_id=%s", job_id,
-            )
+            logger.warning("heartbeat_failed job_id=%s", job_id)
 
 
 async def _execute_streaming_job(
@@ -201,13 +142,10 @@ async def _execute_streaming_job(
                     },
                 )
             logger.info(
-                "streaming_job_done job_id=%s rows=%d",
-                job_id, rows,
+                "job_done job_id=%s rows=%d", job_id, rows,
             )
         except Exception:
-            logger.exception(
-                "streaming_job_error job_id=%s", job_id,
-            )
+            logger.exception("job_error job_id=%s", job_id)
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(
                     f"{api_url}/api/v1/jobs/{job_id}/heartbeat",

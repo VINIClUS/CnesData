@@ -11,7 +11,8 @@ class TestParsingArgumentos:
         assert args.competencia is None
         assert args.source == "LOCAL"
         assert args.verbose is False
-        assert args.output_dir is None
+        assert args.api_url == "http://localhost:8000"
+        assert args.machine_id == ""
 
     def test_competencia_valida_2024_12(self):
         args = parse_args(["-c", "2024-12"])
@@ -41,10 +42,6 @@ class TestParsingArgumentos:
         with pytest.raises(SystemExit):
             parse_args(["-c", "abc-de"])
 
-    def test_output_dir_string(self):
-        args = parse_args(["-o", "/tmp/saida"])
-        assert args.output_dir == "/tmp/saida"
-
     def test_source_flag_nacional(self):
         args = parse_args(["--source", "NACIONAL"])
         assert args.source == "NACIONAL"
@@ -69,11 +66,25 @@ class TestParsingArgumentos:
         with pytest.raises(SystemExit):
             parse_args(["--version"])
 
+    def test_api_url_custom(self):
+        args = parse_args(["--api-url", "http://api:9000"])
+        assert args.api_url == "http://api:9000"
+
+    def test_machine_id_custom(self):
+        args = parse_args(["--machine-id", "agent-01"])
+        assert args.machine_id == "agent-01"
+
     def test_combinacao_de_flags(self):
-        args = parse_args(["-c", "2024-12", "--source", "NACIONAL", "-v"])
+        args = parse_args([
+            "-c", "2024-12",
+            "--source", "NACIONAL",
+            "-v",
+            "--api-url", "http://api:8080",
+        ])
         assert args.competencia == (2024, 12)
         assert args.source == "NACIONAL"
         assert args.verbose is True
+        assert args.api_url == "http://api:8080"
 
 
 class TestDataclassCliArgs:
@@ -81,9 +92,10 @@ class TestDataclassCliArgs:
     def test_cli_args_e_frozen(self):
         args = CliArgs(
             competencia=None,
-            output_dir=None,
             source="LOCAL",
             verbose=False,
+            api_url="http://localhost:8000",
+            machine_id="test",
         )
         with pytest.raises(Exception):
             args.verbose = True  # type: ignore[misc]
@@ -91,14 +103,16 @@ class TestDataclassCliArgs:
     def test_cli_args_campos_corretos(self):
         args = CliArgs(
             competencia=(2024, 12),
-            output_dir="/tmp/out",
             source="NACIONAL",
             verbose=True,
+            api_url="http://api:9000",
+            machine_id="agent-01",
         )
         assert args.competencia == (2024, 12)
-        assert args.output_dir == "/tmp/out"
         assert args.source == "NACIONAL"
         assert args.verbose is True
+        assert args.api_url == "http://api:9000"
+        assert args.machine_id == "agent-01"
 
 
 class TestValidarCompetencia:

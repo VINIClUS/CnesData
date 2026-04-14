@@ -1,37 +1,9 @@
-"""Modelos Pydantic para a API de ingestão."""
+"""Modelos Pydantic para a API de jobs e streaming."""
 
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
-
-
-class IngestPayload(BaseModel):
-    """Payload de ingestão recebido via POST."""
-
-    tenant_id: str = Field(min_length=6, max_length=6)
-    competencia: str = Field(min_length=7, max_length=7)
-    registros: list[dict]
-
-    @field_validator("tenant_id")
-    @classmethod
-    def tenant_id_numerico(cls, v: str) -> str:
-        if not v.isdigit():
-            raise ValueError("tenant_id deve conter apenas dígitos")
-        return v
-
-    @field_validator("competencia")
-    @classmethod
-    def competencia_formato(cls, v: str) -> str:
-        parts = v.split("-")
-        if len(parts) != 2 or len(parts[0]) != 4 or len(parts[1]) != 2:
-            raise ValueError("competencia deve estar no formato YYYY-MM")
-        return v
-
-
-class IngestResponse(BaseModel):
-    job_id: uuid.UUID
-    mensagem: str
+from pydantic import BaseModel, Field
 
 
 class JobStatusResponse(BaseModel):

@@ -69,7 +69,7 @@ jobs = Table(
     CheckConstraint(
         "status IN ("
         "'PENDING','ACQUIRED','STREAMING','PROCESSING',"
-        "'COMPLETED','FAILED','DEAD_LETTER'"
+        "'COMPLETED','DONE','FAILED','DEAD_LETTER'"
         ")",
         name="chk_job_status",
     ),
@@ -85,6 +85,10 @@ jobs = Table(
         postgresql_where=text(
             "status IN ('ACQUIRED','STREAMING')",
         ),
+    ),
+    Index(
+        "idx_jobs_completed", "status", "completed_at",
+        postgresql_where=text("status = 'COMPLETED'"),
     ),
 )
 
@@ -360,23 +364,35 @@ def _reset_to_pending(
     )
 
 
-def claim_next(engine: Engine) -> Job | None:
-    """Reivindica o próximo job PENDING (legacy worker)."""
+def acquire_completed_job(
+    engine: Engine, processor_id: str,
+) -> Job | None:
+    """Concede lease de job COMPLETED ao data_processor."""
     with engine.begin() as con:
         row = con.execute(
             select(jobs)
-            .where(jobs.c.status == "PENDING")
-            .order_by(jobs.c.created_at)
+            .where(jobs.c.status == "COMPLETED")
+            .order_by(jobs.c.completed_at)
             .limit(1)
             .with_for_update(skip_locked=True)
         ).first()
         if row is None:
             return None
-        con.execute(
-            update(jobs)
-            .where(jobs.c.id == row.id)
-            .values(status="PROCESSING", started_at=text("NOW()"))
+        lease_sql = (
+            f"NOW() + INTERVAL '{_LEASE_MINUTES} minutes'"
         )
+        con.execute(
+            update(jobs).where(jobs.c.id == row.id).values(
+                status="PROCESSING",
+                machine_id=processor_id,
+                lease_expires_at=text(lease_sql),
+                heartbeat_at=text("NOW()"),
+            )
+        )
+    logger.info(
+        "job_acquired_for_processing job_id=%s processor=%s",
+        row.id, processor_id,
+    )
     return Job(
         id=row.id,
         status="PROCESSING",
@@ -386,31 +402,57 @@ def claim_next(engine: Engine) -> Job | None:
         created_at=row.created_at,
         attempt_count=row.attempt_count,
         max_retries=row.max_retries,
+        machine_id=processor_id,
     )
 
 
-def complete(engine: Engine, job_id: uuid.UUID) -> None:
-    """Marca job como COMPLETED."""
+def complete_processing(
+    engine: Engine, job_id: uuid.UUID, processor_id: str,
+) -> bool:
+    """PROCESSING → DONE após persistir no Gold schema."""
     with engine.begin() as con:
-        con.execute(
+        result = con.execute(
             update(jobs)
             .where(jobs.c.id == job_id)
-            .values(status="COMPLETED", completed_at=text("NOW()"))
+            .where(jobs.c.machine_id == processor_id)
+            .where(jobs.c.status == "PROCESSING")
+            .values(
+                status="DONE",
+                completed_at=text("NOW()"),
+                machine_id=None,
+                lease_expires_at=None,
+            )
         )
-    logger.info("job_completed job_id=%s", job_id)
+    done = result.rowcount > 0
+    if done:
+        logger.info(
+            "processing_completed job_id=%s", job_id,
+        )
+    return done
 
 
-def fail(engine: Engine, job_id: uuid.UUID, error: str) -> bool:
-    """Incrementa attempt_count; move para DLQ se excedeu max_retries."""
+def fail_processing(
+    engine: Engine,
+    job_id: uuid.UUID,
+    processor_id: str,
+    error: str,
+) -> bool:
+    """Falha no processamento — retry ou DLQ."""
     with engine.begin() as con:
         row = con.execute(
-            select(jobs).where(jobs.c.id == job_id).with_for_update()
-        ).one()
+            select(jobs)
+            .where(jobs.c.id == job_id)
+            .where(jobs.c.machine_id == processor_id)
+            .with_for_update()
+        ).first()
+        if row is None:
+            return False
 
         new_count = row.attempt_count + 1
         now_iso = datetime.now(timezone.utc).isoformat()
         entry = {
-            "attempt": new_count, "error": error[:500],
+            "attempt": new_count,
+            "error": error[:500],
             "at": now_iso,
         }
         history = (row.error_history or []) + [entry]
@@ -427,22 +469,23 @@ def fail(engine: Engine, job_id: uuid.UUID, error: str) -> bool:
                 )
             )
             logger.warning(
-                "job_dlq job_id=%s attempts=%d",
+                "processing_dlq job_id=%s attempts=%d",
                 job_id, new_count,
             )
             return True
 
         con.execute(
             update(jobs).where(jobs.c.id == job_id).values(
-                status="PENDING",
+                status="COMPLETED",
                 attempt_count=new_count,
                 error_history=history,
                 error_detail=error[:2000],
-                started_at=None,
+                machine_id=None,
+                lease_expires_at=None,
             )
         )
         logger.warning(
-            "job_retry job_id=%s attempt=%d/%d",
+            "processing_retry job_id=%s attempt=%d/%d",
             job_id, new_count, row.max_retries,
         )
         return False

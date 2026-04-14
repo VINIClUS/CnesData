@@ -1,16 +1,18 @@
-"""Ponto de entrada do dump_agent — daemon de streaming."""
+"""Ponto de entrada do data_processor."""
 import asyncio
 import logging
-import os
-import random
 import sys
-import uuid
 from logging.handlers import RotatingFileHandler
 
+from cnes_domain.ports.object_storage import (
+    NullObjectStoragePort,
+    ObjectStoragePort,
+)
 from cnes_infra import config
 from cnes_infra.telemetry import init_telemetry
+from sqlalchemy import create_engine
 
-from dump_agent.worker.consumer import run_worker
+from data_processor.consumer import run_processor
 
 fmt = logging.Formatter(
     "%(asctime)s %(levelname)-5s %(name)s %(message)s",
@@ -37,22 +39,33 @@ def _setup_logging(verbose: bool = False) -> None:
     root.addHandler(arquivo)
 
 
+def _create_storage() -> ObjectStoragePort:
+    try:
+        from cnes_infra.storage.object_storage import (
+            MinioObjectStorage,
+        )
+        return MinioObjectStorage(
+            endpoint=config.MINIO_ENDPOINT,
+            access_key=config.MINIO_ACCESS_KEY,
+            secret_key=config.MINIO_SECRET_KEY,
+            secure=config.MINIO_SECURE,
+        )
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "minio_unavailable using_null_storage"
+        )
+        return NullObjectStoragePort()
+
+
 async def main() -> int:
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
     _setup_logging(verbose)
-    init_telemetry("dump-agent")
+    init_telemetry("data-processor")
 
-    api_url = os.getenv("API_BASE_URL", "http://localhost:8000")
-    machine_id = os.getenv("MACHINE_ID", str(uuid.uuid4())[:8])
-    jitter_max = config.MAX_JITTER_SECONDS
+    engine = create_engine(config.DB_URL)
+    storage = _create_storage()
 
-    startup_jitter = random.uniform(0, jitter_max)
-    logging.getLogger(__name__).info(
-        "startup_jitter=%.1fs machine_id=%s", startup_jitter, machine_id,
-    )
-    await asyncio.sleep(startup_jitter)
-
-    await run_worker(api_url, machine_id, jitter_max)
+    await run_processor(engine, storage)
     return 0
 
 
