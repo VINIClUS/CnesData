@@ -117,4 +117,9 @@ async def main_streaming() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import asyncio
+
+    if "--streaming" in sys.argv:
+        sys.exit(asyncio.run(main_streaming()))
+    else:
+        sys.exit(main())

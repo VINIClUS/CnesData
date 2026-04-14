@@ -60,15 +60,6 @@ def _sanitizar_db_url(raw: str) -> str:
 DB_HOST: str = os.getenv("DB_HOST", "localhost")
 DB_USER: str = os.getenv("DB_USER", "SYSDBA")
 
-COD_MUN_IBGE: str = validar_formato(
-    "COD_MUN_IBGE", _exigir("COD_MUN_IBGE"), _RE_COD_MUN_6
-)
-ID_MUNICIPIO_IBGE7: str = validar_formato(
-    "ID_MUNICIPIO_IBGE7", _exigir("ID_MUNICIPIO_IBGE7"), _RE_IBGE7
-)
-CNPJ_MANTENEDORA: str = validar_formato(
-    "CNPJ_MANTENEDORA", _exigir("CNPJ_MANTENEDORA"), _RE_CNPJ_14
-)
 
 DB_URL: str = _sanitizar_db_url(_exigir("DB_URL"))
 CACHE_DIR: Path = RAIZ_PROJETO / os.getenv("CACHE_DIR", "data/cache")
@@ -132,6 +123,15 @@ _LAZY_ATTRS: dict[str, object] = {
     "GCP_PROJECT_ID": _gcp_project_id,
     "MINIO_ACCESS_KEY": _minio_access_key,
     "MINIO_SECRET_KEY": _minio_secret_key,
+    "COD_MUN_IBGE": lambda: validar_formato(
+        "COD_MUN_IBGE", _exigir("COD_MUN_IBGE"), _RE_COD_MUN_6,
+    ),
+    "ID_MUNICIPIO_IBGE7": lambda: validar_formato(
+        "ID_MUNICIPIO_IBGE7", _exigir("ID_MUNICIPIO_IBGE7"), _RE_IBGE7,
+    ),
+    "CNPJ_MANTENEDORA": lambda: validar_formato(
+        "CNPJ_MANTENEDORA", _exigir("CNPJ_MANTENEDORA"), _RE_CNPJ_14,
+    ),
 }
 
 

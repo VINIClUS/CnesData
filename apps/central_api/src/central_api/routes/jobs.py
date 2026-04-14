@@ -42,7 +42,7 @@ def get_job_status(
     return JobStatusResponse(**result)
 
 
-@router.post("/jobs/acquire")
+@router.post("/jobs/acquire", response_model=None)
 def acquire_job(
     body: AcquireJobRequest,
     engine: Engine = Depends(get_engine),
