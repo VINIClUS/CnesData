@@ -22,16 +22,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     environment:
       PG_TEST_URL: postgresql+psycopg://cnesdata:cnesdata_test@postgres:5432/cnesdata_test
     volumes:
-      - ./tests/fixtures:/app/fixtures
-      - ./src:/app/src
+      - ./packages/cnes_infra/tests/fixtures:/app/fixtures
+      - ./packages:/app/packages
+      - ./pyproject.toml:/app/pyproject.toml
     working_dir: /app
     command: >
       sh -c "
         pip install psycopg[binary] sqlalchemy faker --quiet &&
-        PYTHONPATH=/app/src python fixtures/seed_postgres.py
+        pip install --no-deps ./packages/cnes_domain ./packages/cnes_infra --quiet &&
+        python fixtures/seed_postgres.py
       "
 
   minio:
@@ -115,15 +119,32 @@ services:
       central-api:
         condition: service_healthy
     environment:
+      API_BASE_URL: http://central-api:8000
+      MACHINE_ID: docker-agent-01
+      MAX_JITTER_SECONDS: "5"
+    profiles:
+      - full
+    restart: on-failure
+
+  data-processor:
+    build:
+      context: .
+      dockerfile: apps/data_processor/Dockerfile
+    container_name: cnesdata_data_processor
+    depends_on:
+      central-api:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
       DB_URL: postgresql+psycopg://cnesdata:cnesdata_test@postgres:5432/cnesdata_test
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_SECURE: "false"
       MINIO_BUCKET: cnesdata-landing
-      API_BASE_URL: http://central-api:8000
-      MACHINE_ID: docker-agent-01
-      MAX_JITTER_SECONDS: "5"
+      PROCESSOR_ID: docker-processor-01
+      PROCESSOR_POLL_INTERVAL: "5.0"
     profiles:
       - full
     restart: on-failure

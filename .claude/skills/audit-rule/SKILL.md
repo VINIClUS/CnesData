@@ -3,7 +3,7 @@ name: audit-rule
 description: >
   Scaffolds a new CNES audit rule (RQ-NNN) end-to-end using strict TDD.
   Use when the user says "add RQ-NNN", "implement rule RQ-NNN", "nova regra RQ-NNN",
-  or "criar regra de auditoria". Covers: reading data_dictionary.md, writing failing
+  or "criar regra de auditoria". Covers: reading docs/data-dictionary-firebird-bigquery.md, writing failing
   tests, implementing the function, wiring in main.py.
   Does NOT trigger for debugging existing rules or modifying transformations.
 ---
@@ -15,13 +15,13 @@ description: >
 
 ## Step 1 — Read the spec
 
-Read the relevant section in `data_dictionary.md` for `RQ_ID`. Extract:
+Read the relevant section in `docs/data-dictionary-firebird-bigquery.md` for `RQ_ID`. Extract:
 - **Anomaly definition**: what condition triggers a finding
 - **Source tables / DataFrames**: which inputs (local CNES, nacional, RH)
 - **Domain constants**: CBO sets, TP_UNID_ID sets, status values
 - **Exclusion clauses**: cascade filters, tipo_excluir params
 
-Do NOT proceed until the spec is clear. If `data_dictionary.md` has no entry for `RQ_ID`, ask the user to add it first.
+Do NOT proceed until the spec is clear. If `docs/data-dictionary-firebird-bigquery.md` has no entry for `RQ_ID`, ask the user to add it first.
 
 ## Step 2 — Plan the function signature
 
@@ -87,7 +87,7 @@ Run tests to confirm they **fail**:
 
 Add the function to `src/analysis/rules_engine.py`:
 
-1. **Add any new domain constants** near line 31 with the existing constants block, with a `# fonte: data_dictionary.md — RQ-NNN` comment.
+1. **Add any new domain constants** near line 31 with the existing constants block, with a `# fonte: docs/data-dictionary-firebird-bigquery.md — RQ-NNN` comment.
 2. **Write the function** following this template:
 
 ```python

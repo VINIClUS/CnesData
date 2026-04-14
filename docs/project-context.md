@@ -97,7 +97,7 @@ Or, with the scheduled task, it runs unattended on the 15th of every month.
 
 **WIN1252 charset + NFKD normalization** — Firebird CNES.GDB is encoded in WIN1252. The `fdb.connect()` call explicitly passes `charset="WIN1252"`. String columns with accented names (e.g., "Atenção Básica") are NFKD-normalized in `cnes_local_adapter.py` before any merge operations to prevent false non-matches against national data.
 
-**Three Firebird queries instead of one** — The original single query with LEFT JOINs to team tables (LFCES048 → LFCES060) produced all NULLs due to a Firebird 2.5 embedded engine bug with mismatched join keys. The solution splits extraction into three queries (professionals, team members, teams) and merges in Python via a 4-character prefix match on `SEQ_EQUIPE`. Documented in `cnes_client.py` and `data_dictionary.md`.
+**Three Firebird queries instead of one** — The original single query with LEFT JOINs to team tables (LFCES048 → LFCES060) produced all NULLs due to a Firebird 2.5 embedded engine bug with mismatched join keys. The solution splits extraction into three queries (professionals, team members, teams) and merges in Python via a 4-character prefix match on `SEQ_EQUIPE`. Documented in `cnes_client.py` and `docs/data-dictionary-firebird-bigquery.md`.
 
 **Competência lag** — DATASUS publishes national data ~2 months delayed. The pipeline accounts for this: CLI auto-detects competência as `current month - 2`, configurable via PowerShell automation.
 
@@ -231,7 +231,7 @@ The pipeline currently audits professionals and establishments. The next logical
 - Team composition doesn't match minimum requirements (e.g., ESF must have at least 1 doctor, 1 nurse, 1 ACS per area)
 - INE (team identifier) format mismatch between Firebird (10 chars) and BigQuery (18 chars) — requires prefix matching analysis
 
-**Blocked by:** INE format incompatibility. The `data_dictionary.md` documents this gap. Needs investigation of how `id_equipe` in BigQuery maps to `INE` in Firebird.
+**Blocked by:** INE format incompatibility. The `docs/data-dictionary-firebird-bigquery.md` documents this gap. Needs investigation of how `id_equipe` in BigQuery maps to `INE` in Firebird.
 
 ### 7.2 — Multi-Municipality
 
@@ -311,12 +311,12 @@ If starting a new Claude Code or Claude session for this project:
 
 1. **Entry point:** `src/main.py` — everything flows from here.
 2. **Source of truth for columns:** `src/ingestion/schemas.py` — never reference raw Firebird or BigQuery column names in analysis code.
-3. **Source of truth for rules:** `data_dictionary.md` — every CBO, TIPO_UNIDADE, and rule definition is documented here.
+3. **Source of truth for rules:** `docs/data-dictionary-firebird-bigquery.md` — every CBO, TIPO_UNIDADE, and rule definition is documented here.
 4. **Do not recreate:** `cnes_exporter.py` is deleted. The architecture is layered (ingestion → processing → analysis → export). No monolithic pipeline.
 5. **Test command:** `pytest tests/ -m "not integration" -v` — all 271+ tests should pass without Firebird or BigQuery.
 6. **CLI:** `python src/main.py --help` shows all options.
 7. **The Firebird LEFT JOIN bug is real** — do not try to simplify `cnes_client.py` back to a single query. It will silently return NULLs for all team data. The 3-query + Python merge approach is intentional and documented.
-8. **BigQuery column names are confirmed empirically** — the data_dictionary.md notes which columns were wrong in earlier iterations (e.g., `id_cbo` doesn't exist, `indicador_sus` doesn't exist). Trust the confirmed schema, not guesses.
+8. **BigQuery column names are confirmed empirically** — the docs/data-dictionary-firebird-bigquery.md notes which columns were wrong in earlier iterations (e.g., `id_cbo` doesn't exist, `indicador_sus` doesn't exist). Trust the confirmed schema, not guesses.
 9. **CLI:** `python src/main.py --help` — pipeline accepts `-c YYYY-MM`, `--source {LOCAL,NACIONAL,AMBOS}` (default `LOCAL`), `-o OUTPUT_DIR`, `-v`/`--verbose`. `--skip-nacional` was removed in 2026-04 — use `--source LOCAL`.
 10. **CBO lookup:** `extrair_lookup_cbo(con)` returns `dict[str, str]` CBO→description from NFCES026. Passed as optional parameter to `transformar()` and `detectar_divergencia_cbo()`.
 11. **Zero-padding is intentional:** CPF gets `zfill(11)` and CNES gets `zfill(7)`. Firebird omits leading zeros. Do not remove these zfills.

@@ -2,7 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from cnes_infra.storage.job_queue import (
@@ -30,7 +30,7 @@ class _FakeRow:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc)
+            self.created_at = datetime.now(UTC)
         if self.error_history is None:
             self.error_history = []
 
@@ -125,7 +125,7 @@ class TestReapExpiredLeases:
             status="ACQUIRED",
             attempt_count=0,
             max_retries=3,
-            lease_expires_at=datetime.now(timezone.utc)
+            lease_expires_at=datetime.now(UTC)
             - timedelta(minutes=1),
         )
         engine = _mock_engine(rows=[expired])
@@ -137,7 +137,7 @@ class TestReapExpiredLeases:
             status="STREAMING",
             attempt_count=2,
             max_retries=3,
-            lease_expires_at=datetime.now(timezone.utc)
+            lease_expires_at=datetime.now(UTC)
             - timedelta(minutes=1),
         )
         engine = _mock_engine(rows=[expired])

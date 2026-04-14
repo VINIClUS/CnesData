@@ -7,8 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 import polars as pl
-from cnes_domain.contracts.columns import SCHEMA_ESTABELECIMENTO, SCHEMA_PROFISSIONAL
 
+from cnes_domain.contracts.columns import SCHEMA_ESTABELECIMENTO, SCHEMA_PROFISSIONAL
 from cnes_infra.ingestion.web_client import CnesWebClient
 
 logger = logging.getLogger(__name__)

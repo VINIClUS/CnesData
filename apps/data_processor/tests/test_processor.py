@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
-from cnes_infra.storage.job_queue import Job
 
+from cnes_infra.storage.job_queue import Job
 from data_processor.processor import (
     _download_parquet,
     process_job,

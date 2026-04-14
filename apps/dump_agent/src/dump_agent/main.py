@@ -9,7 +9,6 @@ from logging.handlers import RotatingFileHandler
 
 from cnes_infra import config
 from cnes_infra.telemetry import init_telemetry
-
 from dump_agent.worker.consumer import run_worker
 
 fmt = logging.Formatter(

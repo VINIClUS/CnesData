@@ -4,13 +4,14 @@ from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
+
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra.storage.postgres_adapter import PostgresAdapter
 
 _TENANT_ID = "123456"
 
 
-@pytest.fixture()
+@pytest.fixture
 def engine():
     mock = MagicMock()
     mock.begin.return_value.__enter__ = MagicMock(return_value=MagicMock())
@@ -18,13 +19,13 @@ def engine():
     return mock
 
 
-@pytest.fixture()
+@pytest.fixture
 def adapter(engine):
     set_tenant_id(_TENANT_ID)
     return PostgresAdapter(engine=engine)
 
 
-@pytest.fixture()
+@pytest.fixture
 def df_profissionais():
     return pl.DataFrame(
         [
@@ -62,7 +63,7 @@ def df_profissionais():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def df_estabelecimentos():
     return pl.DataFrame(
         [

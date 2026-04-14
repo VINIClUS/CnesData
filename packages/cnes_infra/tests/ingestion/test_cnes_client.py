@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
+
 from cnes_infra.ingestion.cnes_client import (
     COLUNAS_ESPERADAS,
     carregar_driver,

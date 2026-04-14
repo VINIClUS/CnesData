@@ -87,10 +87,10 @@ def _validar_competencia(valor: str) -> tuple[int, int]:
         if len(partes) != 2:
             raise ValueError
         ano, mes = int(partes[0]), int(partes[1])
-    except ValueError:
+    except ValueError as err:
         raise argparse.ArgumentTypeError(
             f"competencia={valor} formato_esperado=YYYY-MM"
-        )
+        ) from err
     if ano < _ANO_MIN or ano > _ANO_MAX:
         raise argparse.ArgumentTypeError(
             f"competencia={valor} ano_fora_de_range={_ANO_MIN}-{_ANO_MAX}"

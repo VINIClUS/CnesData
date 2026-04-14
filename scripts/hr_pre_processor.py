@@ -11,8 +11,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-import config  # noqa: E402
-from ingestion.cnes_client import conectar  # noqa: E402
+import config
+from ingestion.cnes_client import conectar
 
 logger = logging.getLogger(__name__)
 

@@ -10,8 +10,8 @@
 1. **[2026-04-13] Always use `.venv` (not `venv`) for Windows venv paths**
    Do instead: `./.venv/Scripts/python.exe` and `./.venv/Scripts/ruff.exe`, never `python` or `ruff` directly.
 
-2. **[2026-03-27] Run lint before tests, always**
-   Do instead: `./.venv/Scripts/ruff.exe check src/ tests/` then `./.venv/Scripts/python.exe -m pytest ...`.
+2. **[2026-04-14] Run lint before tests, always**
+   Do instead: `./.venv/Scripts/ruff.exe check apps/ packages/ scripts/ tests/` then `./.venv/Scripts/python.exe -m pytest ...`.
 
 3. **[2026-04-13] Polars replace_strict with default=None fails on non-null columns**
    Do instead: Use `pl.when().then().otherwise()` pattern for SUS mapping.
@@ -40,8 +40,11 @@
 1. **[2026-03-27] CD_SEGMENT/DS_SEGMENT return error -206 via alias in nested LEFT JOIN**
    Do instead: recover those columns in a separate subquery, not inline.
 
-2. **[2026-03-27] Consult data_dictionary.md before writing any SQL, extraction logic, or mock DataFrames**
-   Do instead: read the relevant table section in data_dictionary.md first, then write the query/mock.
+2. **[2026-04-14] Consult docs/data-dictionary-firebird-bigquery.md before writing any SQL, extraction logic, or mock DataFrames**
+   Do instead: read the relevant table section in docs/data-dictionary-firebird-bigquery.md first, then write the query/mock.
+
+3. **[2026-04-14] Jobs table is in `queue` schema, not `landing`**
+   Do instead: `queue.jobs`, `queue.jobs_dlq`. Raw payloads remain in `landing.raw_payload`.
 
 ## User Directives
 1. **[2026-03-27] TDD is mandatory for all new features and audit rules**

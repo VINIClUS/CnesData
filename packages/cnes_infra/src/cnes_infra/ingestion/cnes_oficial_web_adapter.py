@@ -3,6 +3,7 @@
 import logging
 
 import requests
+
 from cnes_domain.pipeline.circuit_breaker import CircuitBreaker, CircuitBreakerAberto
 
 logger = logging.getLogger(__name__)

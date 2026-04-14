@@ -1,6 +1,8 @@
 """test_transformer.py — Testes unitários de processing.transformer."""
 
 import polars as pl
+from polars.testing import assert_frame_equal
+
 from cnes_domain.processing.transformer import (
     ALERTA_ATIVO_SEM_CH,
     ALERTA_CH_OK,
@@ -8,7 +10,6 @@ from cnes_domain.processing.transformer import (
     VALOR_SEM_INE,
     transformar,
 )
-from polars.testing import assert_frame_equal
 
 
 def _df_minimo(cpf="11716723817", ch_total=40) -> pl.DataFrame:

@@ -3,8 +3,8 @@
 import logging
 
 import polars as pl
-from cnes_domain.contracts.sihd_columns import SCHEMA_AIH, SCHEMA_PROCEDIMENTO_AIH
 
+from cnes_domain.contracts.sihd_columns import SCHEMA_AIH, SCHEMA_PROCEDIMENTO_AIH
 from cnes_infra.ingestion import sihd_client
 
 logger = logging.getLogger(__name__)

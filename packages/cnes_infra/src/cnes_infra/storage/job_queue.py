@@ -3,7 +3,7 @@
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     CheckConstraint,
@@ -307,7 +307,7 @@ def reap_expired_leases(engine: Engine) -> int:
 
         for row in rows:
             new_count = row.attempt_count + 1
-            now_iso = datetime.now(timezone.utc).isoformat()
+            now_iso = datetime.now(UTC).isoformat()
             entry = {
                 "attempt": new_count,
                 "error": "lease_expired",
@@ -449,7 +449,7 @@ def fail_processing(
             return False
 
         new_count = row.attempt_count + 1
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         entry = {
             "attempt": new_count,
             "error": error[:500],

@@ -5,13 +5,14 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
 
+from dotenv import load_dotenv
+
 from cnes_domain.config import (
     _RE_CNPJ_14,
     _RE_COD_MUN_6,
     _RE_IBGE7,
     validar_formato,
 )
-from dotenv import load_dotenv
 
 
 def _find_project_root() -> Path:
@@ -31,7 +32,7 @@ load_dotenv(RAIZ_PROJETO / ".env", override=False, encoding="utf-8")
 def _exigir(nome: str) -> str:
     valor = os.getenv(nome)
     if not valor:
-        raise EnvironmentError(
+        raise OSError(
             f"Variável de ambiente obrigatória '{nome}' não encontrada. "
             f"Verifique o arquivo .env na raiz do projeto."
         )
@@ -42,8 +43,10 @@ def _exigir_inteiro(nome: str, padrao: int) -> int:
     valor = os.getenv(nome, str(padrao))
     try:
         return int(valor)
-    except ValueError:
-        raise EnvironmentError(f"variavel={nome} valor='{valor}' tipo_esperado=int")
+    except ValueError as err:
+        raise OSError(
+            f"variavel={nome} valor='{valor}' tipo_esperado=int",
+        ) from err
 
 
 def _sanitizar_db_url(raw: str) -> str:

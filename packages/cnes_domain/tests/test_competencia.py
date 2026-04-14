@@ -72,25 +72,25 @@ class TestPeriodoAtual:
         assert len(partes[1]) == 2
 
     def test_retorna_mes_atual(self):
-        with patch("cnes_domain.competencia.date") as mock_date:
-            mock_date.today.return_value = date(2026, 4, 4)
-            mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
+        with patch("cnes_domain.competencia.datetime") as mock_dt:
+            mock_dt.now.return_value.date.return_value = date(2026, 4, 4)
+
             assert periodo_atual() == "2026-03"
 
     def test_retorna_dezembro_correto(self):
-        with patch("cnes_domain.competencia.date") as mock_date:
-            mock_date.today.return_value = date(2025, 12, 1)
-            mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
+        with patch("cnes_domain.competencia.datetime") as mock_dt:
+            mock_dt.now.return_value.date.return_value = date(2025, 12, 1)
+
             assert periodo_atual() == "2025-11"
 
     def test_antes_do_sexto_dia_util_retorna_mes_anterior(self):
-        with patch("cnes_domain.competencia.date") as mock_date:
-            mock_date.today.return_value = date(2026, 4, 5)
-            mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
+        with patch("cnes_domain.competencia.datetime") as mock_dt:
+            mock_dt.now.return_value.date.return_value = date(2026, 4, 5)
+
             assert periodo_atual() == "2026-03"
 
     def test_apos_do_sexto_dia_util_retorna_mes_atual(self):
-        with patch("cnes_domain.competencia.date") as mock_date:
-            mock_date.today.return_value = date(2026, 4, 9)
-            mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
+        with patch("cnes_domain.competencia.datetime") as mock_dt:
+            mock_dt.now.return_value.date.return_value = date(2026, 4, 9)
+
             assert periodo_atual() == "2026-04"

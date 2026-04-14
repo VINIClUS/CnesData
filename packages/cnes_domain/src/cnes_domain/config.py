@@ -24,12 +24,14 @@ class Settings(Protocol):
 
 def validar_formato(nome: str, valor: str, padrao: re.Pattern[str]) -> str:
     if not padrao.match(valor):
-        raise EnvironmentError(f"variavel={nome} valor='{valor}' formato_invalido")
+        raise OSError(f"variavel={nome} valor='{valor}' formato_invalido")
     return valor
 
 
 def exigir_inteiro(nome: str, valor_str: str) -> int:
     try:
         return int(valor_str)
-    except ValueError:
-        raise EnvironmentError(f"variavel={nome} valor='{valor_str}' tipo_esperado=int")
+    except ValueError as err:
+        raise OSError(
+            f"variavel={nome} valor='{valor_str}' tipo_esperado=int",
+        ) from err

@@ -131,5 +131,5 @@ def _executar_query(con: fdb.Connection, sql: str) -> pl.DataFrame:
     finally:
         cur.close()
     if not linhas:
-        return pl.DataFrame(schema={c: pl.Utf8 for c in colunas})
+        return pl.DataFrame(schema=dict.fromkeys(colunas, pl.Utf8))
     return pl.DataFrame(linhas, schema=colunas, orient="row")

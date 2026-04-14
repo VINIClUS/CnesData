@@ -1,13 +1,13 @@
 """Rota de health check."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from cnes_domain.models.api import HealthResponse
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from central_api.deps import get_engine
+from cnes_domain.models.api import HealthResponse
 
 router = APIRouter(tags=["sistema"])
 
@@ -26,5 +26,5 @@ def health_check(
     return HealthResponse(
         status="ok" if db_ok else "degraded",
         db_connected=db_ok,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )

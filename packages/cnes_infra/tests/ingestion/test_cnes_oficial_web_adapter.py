@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import requests
+
 from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
 from cnes_infra.ingestion.cnes_oficial_web_adapter import (
     STATUS_CONFIRMADO,

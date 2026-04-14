@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import polars as pl
+
 from cnes_infra.ingestion.cnes_client import iterar_query_em_lotes
 
 

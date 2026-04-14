@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
+
 from cnes_infra import config
 
 
@@ -94,7 +95,7 @@ class TestExigir:
 class TestApiConfig:
 
     def test_api_host_padrao(self):
-        assert config.API_HOST == os.getenv("API_HOST", "0.0.0.0")
+        assert os.getenv("API_HOST", "0.0.0.0") == config.API_HOST
 
     def test_api_port_padrao(self):
         assert isinstance(config.API_PORT, int)

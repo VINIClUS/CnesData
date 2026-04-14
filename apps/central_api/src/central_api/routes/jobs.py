@@ -2,7 +2,13 @@
 
 import logging
 import uuid
+from datetime import UTC
 
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
+from sqlalchemy.engine import Engine
+
+from central_api.deps import get_engine, get_object_storage
 from cnes_domain.models.api import (
     AcquireJobRequest,
     AcquireJobResponse,
@@ -18,11 +24,6 @@ from cnes_infra.storage.job_queue import (
     renew_heartbeat,
     transition_to_streaming,
 )
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
-from sqlalchemy.engine import Engine
-
-from central_api.deps import get_engine, get_object_storage
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,8 @@ def acquire_job(
         config.MINIO_BUCKET, obj_key,
     )
 
-    from datetime import datetime, timedelta, timezone
-    lease_exp = datetime.now(timezone.utc) + timedelta(
+    from datetime import datetime, timedelta
+    lease_exp = datetime.now(UTC) + timedelta(
         minutes=_LEASE_MINUTES,
     )
 
@@ -89,8 +90,8 @@ def heartbeat(
         raise HTTPException(
             status_code=409, detail="lease_not_found_or_mismatch",
         )
-    from datetime import datetime, timedelta, timezone
-    lease_exp = datetime.now(timezone.utc) + timedelta(
+    from datetime import datetime, timedelta
+    lease_exp = datetime.now(UTC) + timedelta(
         minutes=_LEASE_MINUTES,
     )
     return HeartbeatResponse(renewed=True, lease_expires_at=lease_exp)

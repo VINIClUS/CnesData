@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pytest
+
 from cnes_infra.ingestion.hr_client import _detectar_encoding, _linhas_limpas, carregar_folha
 
 _COLUNAS_MINIMAS = ["CPF", "NOME", "DATA_ADMISSAO", "DATA_DEMISSAO", "STATUS"]
@@ -67,7 +68,7 @@ def test_carregar_folha_null_bytes_ignorados(tmp_path):
     f = tmp_path / "folha.csv"
     cabecalho = ",".join(_COLUNAS_MINIMAS)
     linha = "123\x0045678901,NOME,2024-01-01,,ATIVO"
-    f.write_bytes(f"{cabecalho}\n{linha}".encode("utf-8"))
+    f.write_bytes(f"{cabecalho}\n{linha}".encode())
     df = carregar_folha(f)
     assert not df.is_empty()
 

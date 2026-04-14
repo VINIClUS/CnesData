@@ -49,7 +49,7 @@ def _compress_parquet(df: pl.DataFrame) -> bytes:
 
 
 def _upload_payload(url: str, data: bytes) -> None:
-    if url.startswith("null://") or url.startswith("placeholder://"):
+    if url.startswith(("null://", "placeholder://")):
         logger.warning("upload_skipped null_storage url=%s", url[:60])
         return
     response = httpx.put(

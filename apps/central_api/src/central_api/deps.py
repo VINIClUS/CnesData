@@ -5,6 +5,9 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+
 from cnes_domain.ports.object_storage import (
     NullObjectStoragePort,
     ObjectStoragePort,
@@ -13,8 +16,6 @@ from cnes_infra import config
 from cnes_infra.storage.job_queue import reap_expired_leases
 from cnes_infra.storage.rls import install_rls_listener
 from cnes_infra.telemetry import instrument_engine
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ async def _lease_reaper_loop(engine: Engine) -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: object) -> AsyncGenerator[None, None]:
+async def lifespan(app: object) -> AsyncGenerator[None]:
     global _engine
     _engine = create_engine(config.DB_URL)
     install_rls_listener(_engine)

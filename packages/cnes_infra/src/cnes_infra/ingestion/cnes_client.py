@@ -132,7 +132,9 @@ def extrair_lookup_cbo(con: fdb.Connection) -> dict[str, str]:
         pl.col("CBO").cast(pl.Utf8).str.strip_chars(),
         pl.col("DESCRICAO_CBO").cast(pl.Utf8).str.strip_chars(),
     )
-    lookup = dict(zip(df["CBO"].to_list(), df["DESCRICAO_CBO"].to_list()))
+    lookup = dict(
+        zip(df["CBO"].to_list(), df["DESCRICAO_CBO"].to_list(), strict=True),
+    )
     logger.info("cbo_lookup count=%d", len(lookup))
     return lookup
 
@@ -211,7 +213,7 @@ def _executar_query(con: fdb.Connection, sql: str) -> pl.DataFrame:
     finally:
         cur.close()
     if not linhas:
-        return pl.DataFrame(schema={c: pl.Utf8 for c in colunas})
+        return pl.DataFrame(schema=dict.fromkeys(colunas, pl.Utf8))
     return pl.DataFrame(linhas, schema=colunas, orient="row")
 
 

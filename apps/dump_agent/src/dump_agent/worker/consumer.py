@@ -7,6 +7,7 @@ import signal
 from functools import partial
 
 import httpx
+
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra.telemetry import get_tracer
 
@@ -109,7 +110,6 @@ async def _execute_streaming_job(
     job_data: dict,
 ) -> None:
     from cnes_infra.ingestion.cnes_client import conectar
-
     from dump_agent.worker.streaming_executor import stream_to_storage
 
     job_id = str(job_data["job_id"])

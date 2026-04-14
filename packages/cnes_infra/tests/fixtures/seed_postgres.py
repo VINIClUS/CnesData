@@ -3,13 +3,14 @@ import logging
 import os
 import random
 
+from sqlalchemy import create_engine, insert
+
 from cnes_infra.storage.schema import (
     dim_estabelecimento,
     dim_profissional,
     fato_vinculo,
     gold_metadata,
 )
-from sqlalchemy import create_engine, insert
 
 _URL = os.environ.get(
     "PG_TEST_URL",

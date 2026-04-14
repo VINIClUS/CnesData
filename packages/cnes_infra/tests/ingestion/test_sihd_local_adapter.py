@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import polars as pl
+
 from cnes_domain.contracts.sihd_columns import SCHEMA_AIH, SCHEMA_PROCEDIMENTO_AIH
 from cnes_infra.ingestion.sihd_local_adapter import SihdLocalAdapter
 

@@ -69,7 +69,7 @@ Use exhaustive search. Do NOT rely on memory or assumptions.
 ```bash
 # For a column/variable rename
 grep -rn "OLD_NAME" src/ tests/ --include="*.py" | grep -v __pycache__
-grep -rn "OLD_NAME" data_dictionary.md schemas.py
+grep -rn "OLD_NAME" docs/data-dictionary-firebird-bigquery.md schemas.py
 
 # For a function move/rename
 grep -rn "FUNCTION_NAME" src/ tests/ --include="*.py" | grep -v __pycache__
@@ -79,7 +79,7 @@ grep -rn "from.*import.*FUNCTION_NAME" src/ tests/ --include="*.py"
 grep -rn "import MODULE_NAME\|from MODULE_NAME" src/ tests/ --include="*.py"
 
 # For a schema field change
-grep -rn "FIELD_NAME" src/ tests/ data_dictionary.md --include="*.py" --include="*.md"
+grep -rn "FIELD_NAME" src/ tests/ docs/data-dictionary-firebird-bigquery.md --include="*.py" --include="*.md"
 ```
 
 ### Step 3 — Classify each reference
@@ -92,7 +92,7 @@ For every hit, classify it:
 | **USAGE** | Where the thing is used in production code | Must update |
 | **TEST** | Where the thing is referenced in tests | Must update |
 | **MOCK** | Where the thing is mocked in tests | Must update (often missed!) |
-| **DOCUMENTATION** | data_dictionary.md, docstrings, comments | Must update |
+| **DOCUMENTATION** | docs/data-dictionary-firebird-bigquery.md, docstrings, comments | Must update |
 | **CONFIGURATION** | config.py, .env, schemas.py | Must update |
 | **INDIRECT** | String reference, dynamic access, dict key | Grep won't find — flag for manual check |
 
@@ -101,7 +101,7 @@ For every hit, classify it:
 Changes must be applied in dependency order to avoid intermediate broken states.
 
 **General ordering rules:**
-1. Schema / type definitions first (schemas.py, data_dictionary.md)
+1. Schema / type definitions first (schemas.py, docs/data-dictionary-firebird-bigquery.md)
 2. Core implementation (source files, innermost dependency first)
 3. Callers (outermost dependency last)
 4. Tests (update mocks and assertions)
@@ -161,7 +161,7 @@ grep -n "^from\|^import" src/analysis/rules_engine.py
 Use this to trace changes across layers:
 
 ```
-data_dictionary.md          ← source of truth for column names
+docs/data-dictionary-firebird-bigquery.md          ← source of truth for column names
         ↓
 schemas.py                  ← SCHEMA_PROFISSIONAL, SCHEMA_ESTABELECIMENTO, SCHEMA_EQUIPE
         ↓
@@ -224,7 +224,7 @@ tests/                      ← mock DataFrames use column names in fixtures
 
 ### Execution order
 
-1. `data_dictionary.md` — update column documentation
+1. `docs/data-dictionary-firebird-bigquery.md` — update column documentation
 2. `schemas.py` — rename field in SCHEMA_X
 3. `cnes_local_adapter.py` — update mapping
 4. ... (dependency order)

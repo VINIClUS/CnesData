@@ -1,14 +1,15 @@
 """PostgresAdapter — implementação de StoragePort para PostgreSQL via SQLAlchemy Core."""
 
 import logging
+import math
 import time
 
 import polars as pl
-from cnes_domain.tenant import get_tenant_id
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
+from cnes_domain.tenant import get_tenant_id
 from cnes_infra.storage.schema import dim_estabelecimento, dim_profissional, fato_vinculo
 
 logger = logging.getLogger(__name__)
@@ -197,6 +198,6 @@ def _df_to_records(df: pl.DataFrame) -> list[dict]:
     rows = df.to_dicts()
     for row in rows:
         for k, v in row.items():
-            if v is not None and isinstance(v, float) and v != v:
+            if v is not None and isinstance(v, float) and math.isnan(v):
                 row[k] = None
     return rows

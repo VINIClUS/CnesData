@@ -2,8 +2,9 @@
 
 import logging
 
-from cnes_domain.tenant import tenant_id_ctx
 from sqlalchemy import Engine, event, text
+
+from cnes_domain.tenant import tenant_id_ctx
 
 logger = logging.getLogger(__name__)
 

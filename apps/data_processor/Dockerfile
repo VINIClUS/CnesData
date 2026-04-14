@@ -3,10 +3,10 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 COPY pyproject.toml pyproject.toml
 COPY packages/ packages/
-COPY apps/dump_agent/ apps/dump_agent/
+COPY apps/data_processor/ apps/data_processor/
 RUN uv build --wheel --out-dir /wheels packages/cnes_domain && \
     uv build --wheel --out-dir /wheels packages/cnes_infra && \
-    uv build --wheel --out-dir /wheels apps/dump_agent && \
+    uv build --wheel --out-dir /wheels apps/data_processor && \
     uv pip install --system /wheels/*.whl
 
 FROM python:3.13-slim
@@ -14,4 +14,4 @@ RUN groupadd -r app && useradd -r -g app app
 COPY --from=builder /usr/local/lib/python3.13/site-packages \
      /usr/local/lib/python3.13/site-packages
 USER app
-ENTRYPOINT ["python", "-m", "dump_agent.main"]
+ENTRYPOINT ["python", "-m", "data_processor.main"]

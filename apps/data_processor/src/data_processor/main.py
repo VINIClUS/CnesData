@@ -4,14 +4,14 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
+from sqlalchemy import create_engine
+
 from cnes_domain.ports.object_storage import (
     NullObjectStoragePort,
     ObjectStoragePort,
 )
 from cnes_infra import config
 from cnes_infra.telemetry import init_telemetry
-from sqlalchemy import create_engine
-
 from data_processor.consumer import run_processor
 
 fmt = logging.Formatter(

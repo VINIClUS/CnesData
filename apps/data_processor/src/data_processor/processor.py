@@ -5,14 +5,14 @@ import logging
 
 import httpx
 import polars as pl
+from sqlalchemy import select
+from sqlalchemy.engine import Engine
+
 from cnes_domain.ports.object_storage import ObjectStoragePort
 from cnes_domain.processing.transformer import transformar
 from cnes_infra.storage.job_queue import Job
 from cnes_infra.storage.landing import raw_payload
 from cnes_infra.storage.postgres_adapter import PostgresAdapter
-from sqlalchemy import select
-from sqlalchemy.engine import Engine
-
 from data_processor.config import MINIO_BUCKET
 
 logger = logging.getLogger(__name__)

@@ -1,6 +1,7 @@
 """test_cli.py — Testes unitários do parser CLI."""
 
 import pytest
+
 from dump_agent.cli import CliArgs, _validar_competencia, parse_args
 
 

@@ -4,6 +4,8 @@ import logging
 import signal
 from functools import partial
 
+from sqlalchemy.engine import Engine
+
 from cnes_domain.ports.object_storage import ObjectStoragePort
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra.storage.job_queue import (
@@ -12,8 +14,6 @@ from cnes_infra.storage.job_queue import (
     fail_processing,
 )
 from cnes_infra.telemetry import get_tracer
-from sqlalchemy.engine import Engine
-
 from data_processor.config import POLL_INTERVAL, PROCESSOR_ID
 from data_processor.processor import process_job
 

@@ -16,7 +16,7 @@ Mission-critical data extraction and reconciliation pipeline. Reconciliation Rul
 </project_architecture>
 
 <resources>
-- **Data Dictionary:** `data_dictionary.md` — Firebird schema, BigQuery schema, audit rules. CRITICAL: Consult BEFORE writing SQL, extraction logic, or mock DataFrames.
+- **Data Dictionary:** `docs/data-dictionary-firebird-bigquery.md` — Firebird schema, BigQuery schema, audit rules. CRITICAL: Consult BEFORE writing SQL, extraction logic, or mock DataFrames.
 - **Skills/Agents Guide:** `.claude/skills/skill-authoring/SKILL.md` — Read only when creating or modifying skills/agents/commands.
 </resources>
 
@@ -143,7 +143,7 @@ Before writing any code, wrap analysis and TDD planning inside a `<thinking>` bl
 
 ## Key Database Tables
 
-> Full column schemas in `data_dictionary.md`. Consult before writing queries or mocks.
+> Full column schemas in `docs/data-dictionary-firebird-bigquery.md`. Consult before writing queries or mocks.
 
 | Table | Purpose |
 |---|---|

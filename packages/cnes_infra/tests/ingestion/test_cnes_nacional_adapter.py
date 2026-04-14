@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
+
 from cnes_domain.contracts.columns import SCHEMA_ESTABELECIMENTO, SCHEMA_PROFISSIONAL
 from cnes_infra.ingestion.cnes_nacional_adapter import CnesNacionalAdapter
 

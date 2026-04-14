@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 import polars as pl
 import pytest
+
 from cnes_infra.ingestion.web_client import (
     CnesWebAuthError,
     CnesWebClient,

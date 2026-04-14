@@ -1,6 +1,7 @@
 import pandera as pa
 import polars as pl
 import pytest
+
 from cnes_domain.contracts.schemas import EstabelecimentoContract, ProfissionalContract
 
 

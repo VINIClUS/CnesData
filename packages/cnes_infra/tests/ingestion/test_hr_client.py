@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import polars as pl
 import pytest
+
 from cnes_infra.ingestion.hr_client import (
     HrSchemaError,
     carregar_folha,
@@ -41,7 +42,6 @@ class TestLeituraDeArquivo:
             carregar_folha(_XLSX)
             mock_read.assert_called_once_with(_XLSX)
 
-    pass
 
 
 def test_csv_usa_linhas_limpas(tmp_path):

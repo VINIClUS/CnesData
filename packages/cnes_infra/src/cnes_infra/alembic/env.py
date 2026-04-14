@@ -1,12 +1,12 @@
 from logging.config import fileConfig
 
+from alembic import context
+from sqlalchemy import MetaData, create_engine, pool
+
 from cnes_infra import config as app_config
 from cnes_infra.storage.job_queue import queue_metadata
 from cnes_infra.storage.landing import landing_metadata
 from cnes_infra.storage.schema import gold_metadata
-from sqlalchemy import MetaData, create_engine, pool
-
-from alembic import context
 
 alembic_config = context.config
 

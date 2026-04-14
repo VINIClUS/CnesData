@@ -131,7 +131,7 @@ grep -n "^                    " src/path/to/changed_file.py  # 5+ indents = 5+ l
 - [ ] **C2** Set membership checks use `frozenset`, not raw column
 - [ ] **C3** Return type is `pd.DataFrame` (never None, never raises on empty input)
 - [ ] **C4** Functions have no side effects on input DataFrames
-- [ ] **C5** Column names match `data_dictionary.md` and `schemas.py`
+- [ ] **C5** Column names match `docs/data-dictionary-firebird-bigquery.md` and `schemas.py`
 - [ ] **C6** Firebird queries use manual cursor (not `pd.read_sql()` with JOIN)
 - [ ] **C7** Logger calls use structured `key=value` format
 

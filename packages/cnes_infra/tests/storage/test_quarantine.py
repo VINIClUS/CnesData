@@ -1,18 +1,19 @@
 """Testes do QuarantineBuffer e lógica de divert-to-DLQ."""
 import polars as pl
 import pytest
+
 from cnes_domain.quarantine import QuarantineBuffer, QuarantineRecord, quarentinar_linhas
 
 
 def _make_record(**kwargs) -> QuarantineRecord:
-    defaults = dict(
-        competencia="2026-01",
-        source_system="FIREBIRD",
-        record_identifier="12345678901",
-        error_category="SCHEMA_MISMATCH",
-        failure_reason="coluna=CPF check=str_length",
-        raw_payload={"CPF": "123"},
-    )
+    defaults = {
+        "competencia": "2026-01",
+        "source_system": "FIREBIRD",
+        "record_identifier": "12345678901",
+        "error_category": "SCHEMA_MISMATCH",
+        "failure_reason": "coluna=CPF check=str_length",
+        "raw_payload": {"CPF": "123"},
+    }
     defaults.update(kwargs)
     return QuarantineRecord(**defaults)
 

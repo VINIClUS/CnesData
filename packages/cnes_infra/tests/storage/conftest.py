@@ -1,11 +1,11 @@
 """Fixtures para testes de integração do PostgresAdapter."""
 import pytest
+from alembic import command
 from alembic.config import Config
-from cnes_domain.tenant import set_tenant_id
-from cnes_infra.storage.postgres_adapter import PostgresAdapter
 from sqlalchemy import create_engine, text
 
-from alembic import command
+from cnes_domain.tenant import set_tenant_id
+from cnes_infra.storage.postgres_adapter import PostgresAdapter
 
 _PG_URL = "postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test"
 _TENANT_ID = "355030"
@@ -44,7 +44,7 @@ def pg_engine(pg_service):
     engine.dispose()
 
 
-@pytest.fixture()
+@pytest.fixture
 def adapter(pg_engine) -> PostgresAdapter:
     set_tenant_id(_TENANT_ID)
     yield PostgresAdapter(pg_engine)

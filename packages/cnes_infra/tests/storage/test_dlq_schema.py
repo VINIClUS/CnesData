@@ -1,5 +1,6 @@
 """Testes do schema quarantine.records e inserção via QuarantineBuffer."""
 import duckdb
+
 from cnes_domain.quarantine import QuarantineBuffer, QuarantineRecord
 
 

@@ -4,6 +4,7 @@ import unicodedata
 from unittest.mock import MagicMock, patch
 
 import polars as pl
+
 from cnes_domain.contracts.columns import SCHEMA_EQUIPE, SCHEMA_ESTABELECIMENTO, SCHEMA_PROFISSIONAL
 from cnes_infra.ingestion.cnes_local_adapter import CnesLocalAdapter
 

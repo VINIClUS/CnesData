@@ -23,7 +23,7 @@ Spawn a read-only subagent to investigate the codebase:
 1. Find existing patterns related to this feature in `src/` and `tests/`.
 2. Identify files that will need creation or modification.
 3. Map dependencies and integration points with existing modules.
-4. Check `data_dictionary.md` for any schema/column requirements.
+4. Check `docs/data-dictionary-firebird-bigquery.md` for any schema/column requirements.
 5. Check if Firebird quirks apply (consult `.claude/agents/cnes-domain-expert.md` mentally).
 
 **Output:** A summary with file paths, key components, and how they connect. Under 500 words.

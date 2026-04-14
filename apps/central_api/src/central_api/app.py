@@ -1,11 +1,11 @@
 """Factory da aplicação FastAPI."""
 
-from cnes_infra.telemetry import init_telemetry
 from fastapi import FastAPI
 
 from central_api.deps import lifespan
 from central_api.middleware import TenantMiddleware
 from central_api.routes import admin, health, jobs
+from cnes_infra.telemetry import init_telemetry
 
 init_telemetry("central-api")
 

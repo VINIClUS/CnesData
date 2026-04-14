@@ -60,6 +60,20 @@ Proveniência é imutável: dados locais e nacionais nunca se mesclam implicitam
 
 ---
 
+## API (Central API)
+
+Com o servidor rodando (`docker compose up central-api`):
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+- **OpenAPI JSON**: http://localhost:8000/openapi.json
+
+Schema exportado offline: [`docs/openapi.json`](docs/openapi.json).
+
+Para regenerar: `python scripts/export_openapi.py`
+
+---
+
 ## Início Rápido
 
 ### Pré-requisitos
@@ -196,9 +210,9 @@ CnesData/
 ├── docs/
 ├── scripts/                    # Run-CnesAudit.ps1, hr_pre_processor.py
 ├── CLAUDE.md
-├── PROJECT_CONTEXT.md
+├── docs/project-context.md
 ├── ROADMAP.md
-└── data_dictionary.md
+└── docs/data-dictionary-firebird-bigquery.md
 ```
 
 ---

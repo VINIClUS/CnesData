@@ -4,8 +4,8 @@ import logging
 import unicodedata
 
 import polars as pl
-from cnes_domain.contracts.columns import SCHEMA_EQUIPE, SCHEMA_ESTABELECIMENTO, SCHEMA_PROFISSIONAL
 
+from cnes_domain.contracts.columns import SCHEMA_EQUIPE, SCHEMA_ESTABELECIMENTO, SCHEMA_PROFISSIONAL
 from cnes_infra.ingestion import cnes_client
 
 logger = logging.getLogger(__name__)

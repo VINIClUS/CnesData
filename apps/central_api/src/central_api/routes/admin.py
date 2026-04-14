@@ -2,11 +2,11 @@
 
 import logging
 
-from cnes_infra.storage.job_queue import reap_expired_leases
 from fastapi import APIRouter, Depends
 from sqlalchemy.engine import Engine
 
 from central_api.deps import get_engine
+from cnes_infra.storage.job_queue import reap_expired_leases
 
 logger = logging.getLogger(__name__)
 

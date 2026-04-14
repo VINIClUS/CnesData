@@ -1,9 +1,10 @@
 """TenantMiddleware — extrai tenant_id do header X-Tenant-Id."""
 
-from cnes_domain.tenant import set_tenant_id
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+from cnes_domain.tenant import set_tenant_id
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
