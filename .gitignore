@@ -70,6 +70,7 @@ excalidraw.log
 docs/superpowers/**
 docs/superpowers
 docs/superpowers/*
+.superpowers\brainstorm
 
 # Claude
 .claudeignore
