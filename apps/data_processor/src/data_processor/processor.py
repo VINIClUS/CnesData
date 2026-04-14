@@ -13,6 +13,8 @@ from cnes_domain.processing.transformer import transformar
 from cnes_infra.storage.job_queue import Job
 from cnes_infra.storage.landing import raw_payload
 from cnes_infra.storage.postgres_adapter import PostgresAdapter
+from data_processor.adapters.cnes_local_adapter import CnesLocalAdapter
+from data_processor.adapters.sihd_local_adapter import SihdLocalAdapter
 from data_processor.config import MINIO_BUCKET
 
 logger = logging.getLogger(__name__)
@@ -38,15 +40,21 @@ def process_job(
         "downloaded rows=%d job_id=%s", len(df), job.id,
     )
 
-    if job.source_system in ("cnes_profissional", "sihd_producao"):
+    adapter = PostgresAdapter(engine)
+    competencia = _get_competencia(engine, job.payload_id)
+
+    if job.source_system in ("cnes_profissional", "profissionais"):
+        df = CnesLocalAdapter(df).listar_profissionais()
         df = transformar(df)
-        adapter = PostgresAdapter(engine)
-        competencia = _get_competencia(engine, job.payload_id)
         adapter.gravar_profissionais(competencia, df)
-    elif job.source_system == "cnes_estabelecimento":
-        adapter = PostgresAdapter(engine)
-        competencia = _get_competencia(engine, job.payload_id)
+    elif job.source_system in (
+        "cnes_estabelecimento", "estabelecimentos",
+    ):
+        df = CnesLocalAdapter(df).listar_estabelecimentos()
         adapter.gravar_estabelecimentos(competencia, df)
+    elif job.source_system == "sihd_producao":
+        df = SihdLocalAdapter(df).listar_aihs()
+        adapter.gravar_profissionais(competencia, df)
 
     logger.info(
         "processed job_id=%s source=%s rows=%d",
