@@ -67,6 +67,9 @@ excalidraw.log
 .coverage.xml.gz
 .coverage.xml.gz.part
 .coverage.xml.gz.part.1
+docs/superpowers/**
+docs/superpowers
+docs/superpowers/*
 
 # Claude
 .claudeignore
