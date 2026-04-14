@@ -17,9 +17,11 @@ from cnes_domain.models.api import (
     HeartbeatResponse,
     JobStatusResponse,
 )
+from cnes_domain.models.extraction import ExtractionParams
 from cnes_infra.storage.job_queue import (
     acquire_for_agent,
     complete_upload,
+    enqueue,
     get_status,
     renew_heartbeat,
     transition_to_streaming,
@@ -126,3 +128,21 @@ def complete_upload_route(
         )
     logger.info("upload_accepted job_id=%s key=%s", job_id, body.object_key)
     return Response(status_code=200)
+
+
+@router.post("/jobs/create", status_code=201)
+def create_extraction_job(
+    body: ExtractionParams,
+    engine: Engine = Depends(get_engine),
+) -> dict:
+    job_id = enqueue(
+        engine,
+        tenant_id=body.cod_municipio,
+        source_system=body.intent.value,
+        payload_id=uuid.uuid4(),
+    )
+    logger.info(
+        "extraction_job_created job_id=%s intent=%s",
+        job_id, body.intent.value,
+    )
+    return {"job_id": str(job_id), "status": "PENDING"}
