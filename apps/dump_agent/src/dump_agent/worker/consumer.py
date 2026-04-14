@@ -7,15 +7,15 @@ import signal
 from functools import partial
 
 import httpx
+from pydantic import ValidationError
 
+from cnes_domain.models.extraction import ExtractionParams
 from cnes_domain.tenant import set_tenant_id
-from cnes_infra.telemetry import get_tracer
 
 logger = logging.getLogger(__name__)
 
 _POLL_INTERVAL: float = 1.0
 _HEARTBEAT_INTERVAL: float = 300.0
-_tracer = get_tracer("dump_agent")
 
 
 async def run_worker(
@@ -23,7 +23,6 @@ async def run_worker(
     machine_id: str,
     jitter_max: float = 1800.0,
 ) -> None:
-    """Loop streaming — acquire via API, upload direto ao MinIO."""
     loop = asyncio.get_running_loop()
     running = True
 
@@ -46,9 +45,7 @@ async def run_worker(
     while running:
         job_data = await _acquire_job(api_base_url, machine_id)
         if job_data is None:
-            jitter = random.uniform(0, jitter_max)
-            logger.info("no_jobs jitter_sleep=%.1fs", jitter)
-            await asyncio.sleep(jitter)
+            await asyncio.sleep(_POLL_INTERVAL)
             continue
 
         hb_task = asyncio.create_task(
@@ -59,7 +56,7 @@ async def run_worker(
             )
         )
         try:
-            await _execute_streaming_job(
+            await _execute_job(
                 loop, api_base_url, machine_id, job_data,
             )
         finally:
@@ -103,51 +100,50 @@ async def _heartbeat_loop(
             logger.warning("heartbeat_failed job_id=%s", job_id)
 
 
-async def _execute_streaming_job(
+async def _execute_job(
     loop: asyncio.AbstractEventLoop,
     api_url: str,
     machine_id: str,
     job_data: dict,
 ) -> None:
-    from cnes_infra.ingestion.cnes_client import conectar
-    from dump_agent.worker.streaming_executor import stream_to_storage
-
     job_id = str(job_data["job_id"])
     upload_url = job_data["upload_url"]
     object_key = job_data["object_key"]
 
+    try:
+        params = ExtractionParams.model_validate(
+            job_data.get("extraction_params", {}),
+        )
+    except ValidationError:
+        logger.exception("invalid_params job_id=%s", job_id)
+        return
+
     set_tenant_id(job_data["tenant_id"])
 
-    with _tracer.start_as_current_span("stream_job") as span:
-        span.set_attribute("job.id", job_id)
-        try:
-            con = await loop.run_in_executor(None, conectar)
-            try:
-                from cnes_infra.ingestion.cnes_client import (
-                    SQL_VINCULOS,
-                )
-                rows = await loop.run_in_executor(
-                    None, stream_to_storage,
-                    con, SQL_VINCULOS, upload_url,
-                )
-            finally:
-                con.close()
+    try:
+        from dump_agent.worker.connection import conectar_firebird
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                await client.post(
-                    f"{api_url}/api/v1/jobs/{job_id}/complete-upload",
-                    json={
-                        "machine_id": machine_id,
-                        "object_key": object_key,
-                    },
-                )
-            logger.info(
-                "job_done job_id=%s rows=%d", job_id, rows,
+        con = await loop.run_in_executor(None, conectar_firebird)
+        try:
+            from dump_agent.worker.streaming_executor import (
+                stream_to_storage,
             )
-        except Exception:
-            logger.exception("job_error job_id=%s", job_id)
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(
-                    f"{api_url}/api/v1/jobs/{job_id}/heartbeat",
-                    json={"machine_id": machine_id},
-                )
+
+            await loop.run_in_executor(
+                None, stream_to_storage,
+                con, params, upload_url,
+            )
+        finally:
+            con.close()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await client.post(
+                f"{api_url}/api/v1/jobs/{job_id}/complete-upload",
+                json={
+                    "machine_id": machine_id,
+                    "object_key": object_key,
+                },
+            )
+        logger.info("job_done job_id=%s", job_id)
+    except Exception:
+        logger.exception("job_error job_id=%s", job_id)

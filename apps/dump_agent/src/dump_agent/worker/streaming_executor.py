@@ -1,61 +1,64 @@
-"""Streaming executor — cursor Firebird → gzip/parquet → PUT upload."""
+"""Streaming executor — registry + io_guard -> gzip -> PUT upload."""
 
 import gzip
-import io
 import logging
+import os
+import tempfile
+from pathlib import Path
 
 import httpx
-import polars as pl
+
+from cnes_domain.models.extraction import ExtractionParams
+from dump_agent.extractors.registry import REGISTRY
+from dump_agent.io_guard import SpoolGuard, pre_flight_check
 
 logger = logging.getLogger(__name__)
+
+_MIN_FREE_MB = int(os.getenv("DUMP_MIN_FREE_DISK_MB", "500"))
+_MAX_SPOOL_MB = int(os.getenv("DUMP_MAX_SPOOL_MB", "200"))
+_MAX_SPOOL_BYTES = _MAX_SPOOL_MB * 1024 * 1024
 
 
 def stream_to_storage(
     con: object,
-    sql: str,
+    params: ExtractionParams,
     upload_url: str,
-    batch_size: int = 5000,
 ) -> int:
-    """Lê cursor em lotes, comprime e envia via PUT."""
-    from cnes_infra.ingestion.cnes_client import iterar_query_em_lotes
+    extractor = REGISTRY[params.intent]
 
-    frames: list[pl.DataFrame] = []
-    total_rows = 0
+    with tempfile.TemporaryDirectory(prefix="dump_agent_") as tmp_str:
+        tmp_dir = Path(tmp_str)
+        pre_flight_check(tmp_dir, _MIN_FREE_MB)
 
-    for batch_df in iterar_query_em_lotes(con, sql, batch_size):
-        frames.append(batch_df)
-        total_rows += len(batch_df)
+        guard = SpoolGuard(max_bytes=_MAX_SPOOL_BYTES)
+        parquet_path = extractor.extract(
+            params, con, tmp_dir, guard,
+        )
 
-    if not frames:
-        logger.warning("stream_empty sql=%s", sql[:80])
-        return 0
+        compressed = _compress_file(parquet_path)
+        _upload_payload(upload_url, compressed)
 
-    combined = pl.concat(frames)
-    payload = _compress_parquet(combined)
-    _upload_payload(upload_url, payload)
-
-    logger.info(
-        "stream_completed rows=%d bytes=%d",
-        total_rows, len(payload),
-    )
-    return total_rows
+        size = parquet_path.stat().st_size
+        logger.info(
+            "stream_done intent=%s parquet_bytes=%d"
+            " compressed_bytes=%d",
+            params.intent.value, size, len(compressed),
+        )
+        return size
 
 
-def _compress_parquet(df: pl.DataFrame) -> bytes:
-    buf = io.BytesIO()
-    df.write_parquet(buf)
-    parquet_bytes = buf.getvalue()
-    return gzip.compress(parquet_bytes)
+def _compress_file(path: Path) -> bytes:
+    return gzip.compress(path.read_bytes())
 
 
 def _upload_payload(url: str, data: bytes) -> None:
     if url.startswith(("null://", "placeholder://")):
-        logger.warning("upload_skipped null_storage url=%s", url[:60])
+        logger.warning("upload_skipped url=%s", url[:60])
         return
-    response = httpx.put(
+    resp = httpx.put(
         url,
         content=data,
         headers={"Content-Type": "application/octet-stream"},
         timeout=300.0,
     )
-    response.raise_for_status()
+    resp.raise_for_status()
