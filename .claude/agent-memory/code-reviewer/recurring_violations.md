@@ -29,7 +29,7 @@ into a dedicated helper function whose name replaces the comment.
 `src/main.py` and test files use multi-line module docstrings (10+ lines) that describe architecture,
 usage, and coverage. The limit is one line per D4.
 
-**Why:** The detail belongs in external documentation (data_dictionary.md, CLAUDE.md), not in module
+**Why:** The detail belongs in external documentation (docs/data-dictionary-firebird-bigquery.md, CLAUDE.md), not in module
 docstrings that bloat every file open.
 **How to apply:** Flag D4 on every review where the module docstring exceeds one line.
 

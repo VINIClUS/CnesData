@@ -160,7 +160,7 @@ Firebird-related issues.
 
 ```bash
 # Check if a column actually exists in a table
-grep -n "COLUMN_NAME" data_dictionary.md
+grep -n "COLUMN_NAME" docs/data-dictionary-firebird-bigquery.md
 
 # Check the actual column name (Firebird pads with spaces)
 python -c "

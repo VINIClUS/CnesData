@@ -198,7 +198,7 @@ for chunk in pd.read_sql(sql, con, chunksize=10_000):
 The Firebird database has indexes on: LFCES004.CODMUNGEST, LFCES004.CNES, LFCES018.PROF_ID, LFCES021 composite PK.
 ```bash
 # Check which indexes exist
-grep -n "INDICE\|INDEX\|UNICO" data_dictionary.md
+grep -n "INDICE\|INDEX\|UNICO" docs/data-dictionary-firebird-bigquery.md
 ```
 **Rule:** Always filter on indexed columns first. `WHERE est.CODMUNGEST = '354130' AND est.CNPJ_MANT = '...'` uses the index; reversing the order may not.
 

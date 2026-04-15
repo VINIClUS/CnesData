@@ -2,20 +2,20 @@
 name: data-quality-auditor
 description: |
   Use this agent to validate audit rule implementations, check test coverage against
-  data_dictionary.md, detect schema drift, and review data quality across the pipeline.
+  docs/data-dictionary-firebird-bigquery.md, detect schema drift, and review data quality across the pipeline.
   Triggers when the user mentions: audit rule coverage, RQ- test coverage, data quality check,
   schema drift, "are all rules tested", "does this match the dictionary", reconciliation
   check, data consistency, cross-check coverage, "validate my rule implementation".
 
   This agent validates AFTER implementation — it checks whether existing rules are
-  correctly covered by tests, whether column names in code match data_dictionary.md,
+  correctly covered by tests, whether column names in code match docs/data-dictionary-firebird-bigquery.md,
   and whether new rules follow established patterns.
   For schema/join-key guidance BEFORE implementing a new rule, use cnes-domain-expert.
 
   Examples:
 
   Context: User wants to verify all rules are covered by tests.
-  user: "Check if every RQ rule in data_dictionary.md has matching tests"
+  user: "Check if every RQ rule in docs/data-dictionary-firebird-bigquery.md has matching tests"
   assistant: "I'll have the data quality auditor verify coverage."
   <uses Task tool to launch data-quality-auditor agent>
 
@@ -25,7 +25,7 @@ description: |
   <uses Task tool to launch data-quality-auditor agent>
 
   Context: User suspects schema drift between code and dictionary.
-  user: "Are the column names in cnes_local_adapter still matching data_dictionary.md?"
+  user: "Are the column names in cnes_local_adapter still matching docs/data-dictionary-firebird-bigquery.md?"
   assistant: "The data quality auditor can check for schema drift."
   <uses Task tool to launch data-quality-auditor agent>
 
@@ -51,10 +51,10 @@ specified, fully implemented, thoroughly tested, and consistent with the source 
 
 ## 1 · AUDIT PROTOCOL
 
-### Step 1 — Inventory rules from data_dictionary.md
+### Step 1 — Inventory rules from docs/data-dictionary-firebird-bigquery.md
 
 ```bash
-grep -n "^### RQ-\|^### WP-" data_dictionary.md
+grep -n "^### RQ-\|^### WP-" docs/data-dictionary-firebird-bigquery.md
 ```
 
 Build a checklist of every rule: ID, name, status, key columns, expected behavior.
@@ -88,7 +88,7 @@ For each rule, verify:
 
 ### Step 4 — Check schema consistency
 
-Verify that column names in code match `data_dictionary.md` and `schemas.py`:
+Verify that column names in code match `docs/data-dictionary-firebird-bigquery.md` and `schemas.py`:
 
 ```bash
 # Schema contracts
@@ -109,7 +109,7 @@ grep -n '"\(CNS\|CPF\|CNES\|CBO\)"' src/ingestion/cnes_local_adapter.py src/inge
 
 When reviewing a new or modified audit rule, verify:
 
-- [ ] Rule ID and description match `data_dictionary.md`
+- [ ] Rule ID and description match `docs/data-dictionary-firebird-bigquery.md`
 - [ ] Join key(s) documented: which columns, which tables, which dtype
 - [ ] Edge case for empty DataFrame input → returns empty, no crash
 - [ ] Edge case for null/NaN in join key → handled explicitly (filtered or documented)
@@ -126,7 +126,7 @@ When reviewing a new or modified audit rule, verify:
 ## Data Quality Audit Report
 
 **Date:** [auto-generated]
-**Dictionary version:** [from data_dictionary.md header]
+**Dictionary version:** [from docs/data-dictionary-firebird-bigquery.md header]
 
 ### Rule coverage matrix
 

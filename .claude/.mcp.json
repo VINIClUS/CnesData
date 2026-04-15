@@ -22,28 +22,45 @@
       ]
     },
     "deepwiki": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "deepwiki-mcp"
-      ]
+      "serverUrl": "https://mcp.deepwiki.com/mcp"
     },
     "excalidraw": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "-y",
-        "excalidraw-mcp"
-      ]
-    },
-    "github": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-github"
+        "C:\\Users\\Vinicius\\Projetos\\mcp_excalidraw\\dist\\index.js"
       ],
       "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+        "EXPRESS_SERVER_URL": "http://localhost:3000",
+        "ENABLE_CANVAS_SYNC": "true"
       }
+    },
+    "cnes_db": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--env-file",
+        "C:\\Users\\Vinicius\\Projetos\\CnesData\\.env",
+        "--with",
+        "mcp-alchemy==2025.8.15.91819",
+        "--with",
+        "psycopg2-binary",
+        "mcp-alchemy"
+      ]
+    },
+    "code-pathfinder": {
+      "command": "pathfinder",
+      "args": [
+        "serve",
+        "--project",
+        "C:\\Users\\Vinicius\\Projetos\\CnesData"
+      ]
+    },
+    "headroom": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-headroom"
+      ]
     }
   }
 }

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(fb_64/)",
+      "Read(fb_64.zip)"
+    ]
+  }
+}

@@ -1,0 +1,110 @@
+[project]
+name = "cnesdata-workspace"
+version = "0.1.0"
+description = "CnesData monorepo workspace"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv.workspace]
+members = ["packages/*", "apps/*"]
+
+[tool.uv]
+override-dependencies = ["protobuf==6.33.6"]
+dev-dependencies = [
+    "pytest>=9.0",
+    "pytest-docker>=3.1",
+    "faker>=30",
+    "ruff>=0.15",
+]
+
+[tool.pyright]
+reportMissingModuleSource = "none"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: testes que requerem banco Firebird ativo",
+    "bigquery: testes que requerem internet e credenciais Google Cloud",
+    "postgres: testes de integração que requerem PostgreSQL via Docker",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade (Python 3.13+)
+    "B",      # flake8-bugbear
+    "A",      # flake8-builtins
+    "C4",     # flake8-comprehensions
+    "DTZ",    # flake8-datetimez
+    "T10",    # flake8-debugger
+    "ISC",    # flake8-implicit-str-concat
+    "PIE",    # flake8-pie
+    "PT",     # flake8-pytest-style
+    "RSE",    # flake8-raise
+    "RET",    # flake8-return
+    "SLF",    # flake8-self
+    "SIM",    # flake8-simplify
+    "TID",    # flake8-tidy-imports
+    "TCH",    # flake8-type-checking
+    "ARG",    # flake8-unused-arguments
+    "ERA",    # eradicate (commented-out code)
+    "PL",     # pylint
+    "RUF",    # ruff-specific
+    "PERF",   # perflint
+    "S",      # flake8-bandit (security)
+]
+ignore = [
+    "S101",    # assert in tests
+    "PLR0913", # too many arguments (domain models)
+    "ARG001",  # unused function argument (FastAPI Depends)
+    "ARG002",  # unused method argument (Protocol impls)
+    "RET504",  # unnecessary assignment before return
+    "SIM108",  # ternary vs if-else (readability)
+    "ISC001",  # implicit string concat (conflicts with formatter)
+    "PLC0415", # import-outside-top-level (lazy/conditional imports)
+    "S311",    # non-cryptographic random (jitter, test data)
+    "PLW0603", # global statement (config lazy loading)
+    "B008",    # function-call-in-default (FastAPI Depends)
+    "SIM117",  # multiple-with-statements (readability)
+    "S310",    # suspicious-url-open (stdlib urllib in tests)
+    "RUF002",  # ambiguous unicode (Portuguese strings)
+    "RUF009",  # function-call-in-dataclass-default (uuid.uuid4)
+    "PLW0108", # unnecessary-lambda (config lazy loading)
+    "N818",    # error-suffix-on-exception-name
+    "S104",    # hardcoded-bind-all (Docker containers)
+    "SIM105",  # suppressible-exception (readability)
+    "RUF005",  # collection-literal-concatenation
+    "PLR2004", # magic-value-comparison (HTTP codes, month numbers)
+    "S110",    # try-except-pass (intentional in specific patterns)
+    "S301",    # existing serialization code
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "ARG", "PLR2004", "SLF001", "B017", "PT011"]
+"**/conftest.py" = ["ARG001"]
+"**/migrations/**" = ["E501", "ERA001"]
+"scripts/**" = ["S106", "S603", "S608", "PLW2901", "E501", "W291", "B905", "DTZ011"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "cnes_domain",
+    "cnes_infra",
+    "central_api",
+    "dump_agent",
+    "data_processor",
+]
+
+[tool.ruff.lint.pylint]
+max-args = 4
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

@@ -35,9 +35,13 @@ logs/
 # NUNCA versione o .env!
 .env
 *.env
+!.env.example
 
 # --- VSCode ---
-.vscode/*.log
+.vscode/
+.claudeignore.json
+.streamlit/
+escalidraw.log
 
 # --- Sistema Operacional ---
 .DS_Store
@@ -51,3 +55,35 @@ intersect*.txt
 *_out.txt
 export_log.txt
 output.txt
+.worktrees/
+.playwright/
+.ruff_cache/
+.github/
+.streamlit/
+docs/superpowers/
+excalidraw.log
+.github/
+.streamlit/
+.coverage.xml.gz
+.coverage.xml.gz.part
+.coverage.xml.gz.part.1
+docs/superpowers/**
+docs/superpowers
+docs/superpowers/*
+.superpowers\brainstorm
+.vscode
+.serena
+docs/specs/*
+docs/specs/**
+
+# Claude
+.claudeignore
+
+
+# Visual brainstorming companion
+.superpowers/
+
+# --- Node (headroom-ai MCP) ---
+node_modules/
+package-lock.json
+package.json
