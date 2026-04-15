@@ -1,11 +1,10 @@
-"""Fixtures para testes de integração do PostgresAdapter."""
+"""Fixtures para testes de integração dos repositórios."""
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 
 from cnes_domain.tenant import set_tenant_id
-from cnes_infra.storage.postgres_adapter import PostgresAdapter
 from cnes_infra.storage.repositories import PostgresUnitOfWork
 
 _PG_URL = "postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test"
@@ -43,17 +42,6 @@ def pg_engine(pg_service):
         con.execute(text("DROP SCHEMA IF EXISTS gold CASCADE"))
         con.commit()
     engine.dispose()
-
-
-@pytest.fixture
-def adapter(pg_engine) -> PostgresAdapter:
-    set_tenant_id(_TENANT_ID)
-    yield PostgresAdapter(pg_engine)
-    with pg_engine.begin() as con:
-        con.execute(text(
-            "TRUNCATE gold.fato_vinculo, gold.dim_profissional, "
-            "gold.dim_estabelecimento RESTART IDENTITY CASCADE"
-        ))
 
 
 @pytest.fixture
