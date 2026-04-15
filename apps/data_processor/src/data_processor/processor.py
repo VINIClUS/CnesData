@@ -9,10 +9,16 @@ from sqlalchemy import select
 from sqlalchemy.engine import Engine
 
 from cnes_domain.ports.object_storage import ObjectStoragePort
+from cnes_domain.processing.row_mapper import (
+    extrair_fonte,
+    mapear_estabelecimentos,
+    mapear_profissionais,
+    mapear_vinculos,
+)
 from cnes_domain.processing.transformer import transformar
 from cnes_infra.storage.job_queue import Job
 from cnes_infra.storage.landing import raw_payload
-from cnes_infra.storage.postgres_adapter import PostgresAdapter
+from cnes_infra.storage.repositories import PostgresUnitOfWork
 from data_processor.adapters.cnes_local_adapter import CnesLocalAdapter
 from data_processor.adapters.sihd_local_adapter import SihdLocalAdapter
 from data_processor.config import MINIO_BUCKET
@@ -40,21 +46,38 @@ def process_job(
         "downloaded rows=%d job_id=%s", len(df), job.id,
     )
 
-    adapter = PostgresAdapter(engine)
     competencia = _get_competencia(engine, job.payload_id)
+    uow = PostgresUnitOfWork(engine)
 
     if job.source_system in ("cnes_profissional", "profissionais"):
         df = CnesLocalAdapter(df).listar_profissionais()
         df = transformar(df)
-        adapter.gravar_profissionais(competencia, df)
+        fonte = extrair_fonte(df)
+        prof_rows = mapear_profissionais(df)
+        vinculo_rows = mapear_vinculos(competencia, df)
+        with uow:
+            uow.profissionais.gravar(prof_rows)
+            uow.vinculos.snapshot_replace(
+                competencia, fonte, vinculo_rows,
+            )
     elif job.source_system in (
         "cnes_estabelecimento", "estabelecimentos",
     ):
         df = CnesLocalAdapter(df).listar_estabelecimentos()
-        adapter.gravar_estabelecimentos(competencia, df)
+        estab_rows = mapear_estabelecimentos(df)
+        with uow:
+            uow.estabelecimentos.gravar(estab_rows)
     elif job.source_system == "sihd_producao":
         df = SihdLocalAdapter(df).listar_aihs()
-        adapter.gravar_profissionais(competencia, df)
+        df = transformar(df)
+        fonte = extrair_fonte(df)
+        prof_rows = mapear_profissionais(df)
+        vinculo_rows = mapear_vinculos(competencia, df)
+        with uow:
+            uow.profissionais.gravar(prof_rows)
+            uow.vinculos.snapshot_replace(
+                competencia, fonte, vinculo_rows,
+            )
 
     logger.info(
         "processed job_id=%s source=%s rows=%d",
