@@ -128,3 +128,175 @@ def test_constraint_cnes_formato_invalido_levanta_erro(adapter, pg_engine):
 def test_constraint_cpf_formato_invalido_levanta_erro(adapter, pg_engine):
     with pytest.raises(Exception):
         adapter.gravar_profissionais("2026-01", _df_prof(cpf="ABCDE"))
+
+
+@pytest.mark.integration
+def test_reclassificacao_cbo_nao_cria_fantasma(adapter, pg_engine):
+    adapter.gravar_estabelecimentos("2026-01", _df_estab())
+
+    df_acs = _df_prof(cpf="11111111111", cnes="1234567")
+    df_acs = df_acs.with_columns(pl.lit("515105").alias("CBO"))
+    adapter.gravar_profissionais("2026-01", df_acs)
+
+    df_ace = _df_prof(cpf="11111111111", cnes="1234567")
+    df_ace = df_ace.with_columns(pl.lit("515110").alias("CBO"))
+    adapter.gravar_profissionais("2026-01", df_ace)
+
+    with pg_engine.connect() as con:
+        count = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE cpf = '11111111111' AND competencia = '2026-01'"
+        )).scalar()
+    assert count == 1, f"expected 1 vinculo after CBO reclassification, got {count}"
+
+
+@pytest.mark.integration
+def test_profissional_multiplos_cbos_legitimos_preservados(adapter, pg_engine):
+    adapter.gravar_estabelecimentos("2026-01", _df_estab())
+
+    df_medico = _df_prof(cpf="11111111111", cnes="1234567")
+    df_medico = df_medico.with_columns(pl.lit("225125").alias("CBO"))
+    df_professor = _df_prof(cpf="11111111111", cnes="1234567")
+    df_professor = df_professor.with_columns(pl.lit("234110").alias("CBO"))
+    df_both = pl.concat([df_medico, df_professor])
+
+    adapter.gravar_profissionais("2026-01", df_both)
+
+    with pg_engine.connect() as con:
+        count = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE cpf = '11111111111' AND competencia = '2026-01'"
+        )).scalar()
+    assert count == 2, f"expected 2 legitimate CBO vinculos, got {count}"
+
+
+@pytest.mark.integration
+def test_snapshot_replace_idempotente(adapter, pg_engine):
+    adapter.gravar_estabelecimentos("2026-01", _df_estab())
+
+    df = pl.concat([
+        _df_prof(cpf="11111111111"),
+        _df_prof(cpf="22222222222"),
+    ])
+    adapter.gravar_profissionais("2026-01", df)
+    adapter.gravar_profissionais("2026-01", df)
+
+    with pg_engine.connect() as con:
+        count = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE competencia = '2026-01'"
+        )).scalar()
+    assert count == 2, f"expected 2 vinculos after idempotent re-process, got {count}"
+
+
+@pytest.mark.integration
+def test_fonte_local_nao_destroi_nacional(adapter, pg_engine):
+    adapter.gravar_estabelecimentos("2026-01", _df_estab())
+
+    df_nac = _df_prof(cpf="11111111111", fonte="NACIONAL")
+    adapter.gravar_profissionais("2026-01", df_nac)
+
+    df_local = _df_prof(cpf="22222222222", fonte="LOCAL")
+    adapter.gravar_profissionais("2026-01", df_local)
+
+    with pg_engine.connect() as con:
+        count = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE competencia = '2026-01'"
+        )).scalar()
+        nac = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE competencia = '2026-01' AND fontes ? 'NACIONAL'"
+        )).scalar()
+        loc = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE competencia = '2026-01' AND fontes ? 'LOCAL'"
+        )).scalar()
+    assert count == 2, f"expected 2 total vinculos, got {count}"
+    assert nac == 1, f"expected 1 NACIONAL vinculo, got {nac}"
+    assert loc == 1, f"expected 1 LOCAL vinculo, got {loc}"
+
+
+@pytest.mark.integration
+def test_fonte_nacional_nao_destroi_local(adapter, pg_engine):
+    adapter.gravar_estabelecimentos("2026-01", _df_estab())
+
+    df_local = _df_prof(cpf="11111111111", fonte="LOCAL")
+    adapter.gravar_profissionais("2026-01", df_local)
+
+    df_nac = _df_prof(cpf="22222222222", fonte="NACIONAL")
+    adapter.gravar_profissionais("2026-01", df_nac)
+
+    with pg_engine.connect() as con:
+        count = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE competencia = '2026-01'"
+        )).scalar()
+    assert count == 2, f"expected 2 total vinculos, got {count}"
+
+
+@pytest.mark.integration
+def test_delete_insert_atomico_em_falha(adapter, pg_engine):
+    adapter.gravar_estabelecimentos("2026-01", _df_estab())
+    adapter.gravar_profissionais("2026-01", _df_prof())
+
+    with pg_engine.connect() as con:
+        before = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo"
+        )).scalar()
+    assert before == 1
+
+    df_bad = _df_prof(cpf="BADCPF00000")
+    with pytest.raises(Exception):
+        adapter.gravar_profissionais("2026-01", df_bad)
+
+    with pg_engine.connect() as con:
+        after = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo"
+        )).scalar()
+    assert after == before, (
+        f"DELETE should have been rolled back; before={before} after={after}"
+    )
+
+
+@pytest.mark.integration
+def test_competencia_isolada(adapter, pg_engine):
+    adapter.gravar_estabelecimentos("2026-02", _df_estab())
+
+    adapter.gravar_profissionais("2026-02", _df_prof(cpf="11111111111"))
+    adapter.gravar_profissionais("2026-03", _df_prof(cpf="22222222222"))
+
+    with pg_engine.connect() as con:
+        feb = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE competencia = '2026-02'"
+        )).scalar()
+        mar = con.execute(text(
+            "SELECT COUNT(*) FROM gold.fato_vinculo "
+            "WHERE competencia = '2026-03'"
+        )).scalar()
+    assert feb == 1, f"expected 1 vinculo in 2026-02, got {feb}"
+    assert mar == 1, f"expected 1 vinculo in 2026-03, got {mar}"
+
+
+@pytest.mark.integration
+def test_profissional_troca_estabelecimento(adapter, pg_engine):
+    adapter.gravar_estabelecimentos("2026-01", _df_estab(cnes="1234567"))
+    adapter.gravar_estabelecimentos("2026-01", _df_estab(cnes="7654321"))
+
+    df_cnes_a = _df_prof(cpf="11111111111", cnes="1234567")
+    adapter.gravar_profissionais("2026-01", df_cnes_a)
+
+    df_cnes_b = _df_prof(cpf="11111111111", cnes="7654321")
+    adapter.gravar_profissionais("2026-01", df_cnes_b)
+
+    with pg_engine.connect() as con:
+        rows = con.execute(text(
+            "SELECT cnes FROM gold.fato_vinculo "
+            "WHERE cpf = '11111111111' AND competencia = '2026-01'"
+        )).fetchall()
+    cnes_list = [r[0] for r in rows]
+    assert "7654321" in cnes_list, "new CNES should be present"
+    assert "1234567" not in cnes_list, (
+        "old CNES should have been replaced"
+    )

@@ -35,12 +35,22 @@ class PostgresAdapter:
             competencia: Competência no formato 'YYYY-MM'.
             df: DataFrame Polars com colunas SCHEMA_PROFISSIONAL.
         """
+        if df.is_empty():
+            return
         t0 = time.perf_counter()
+        fontes_unicos = df["FONTE"].unique()
+        if len(fontes_unicos) != 1:
+            raise ValueError(
+                f"fonte_mista count={len(fontes_unicos)}"
+            )
+        fonte = fontes_unicos[0]
         prof_rows = self._build_profissional_rows(df)
         vinculo_rows = self._build_vinculo_rows(competencia, df)
         with self._engine.begin() as con:
             self._upsert_chunks(con, dim_profissional, prof_rows, "profissional")
-            self._upsert_chunks(con, fato_vinculo, vinculo_rows, "vinculo")
+            self._snapshot_replace_vinculos(
+                con, competencia, fonte, vinculo_rows,
+            )
         elapsed = time.perf_counter() - t0
         logger.info(
             "gravar_profissionais dim=%d fato=%d elapsed=%.2fs",
@@ -88,23 +98,6 @@ class PostgresAdapter:
                     "atualizado_em": text("NOW()"),
                 },
             },
-            "vinculo": {
-                "index_elements": [
-                    "tenant_id", "competencia", "cpf", "cnes", "cbo",
-                ],
-                "set_": {
-                    "tipo_vinculo": text(
-                        "COALESCE(EXCLUDED.tipo_vinculo, fato_vinculo.tipo_vinculo)"
-                    ),
-                    "sus": text("COALESCE(EXCLUDED.sus, fato_vinculo.sus)"),
-                    "ch_total": text("EXCLUDED.ch_total"),
-                    "ch_ambulatorial": text("EXCLUDED.ch_ambulatorial"),
-                    "ch_outras": text("EXCLUDED.ch_outras"),
-                    "ch_hospitalar": text("EXCLUDED.ch_hospitalar"),
-                    "fontes": text("fato_vinculo.fontes || EXCLUDED.fontes"),
-                    "atualizado_em": text("NOW()"),
-                },
-            },
         }
         cfg = conflict_keys[kind]
         for chunk in _chunked(rows, _CHUNK_SIZE):
@@ -113,6 +106,25 @@ class PostgresAdapter:
                 .values(chunk)
                 .on_conflict_do_update(**cfg),
             )
+
+    def _snapshot_replace_vinculos(
+        self,
+        con,
+        competencia: str,
+        fonte: str,
+        rows: list[dict],
+    ) -> None:
+        con.execute(
+            text(
+                "DELETE FROM gold.fato_vinculo "
+                "WHERE tenant_id = :tid "
+                "AND competencia = :comp "
+                "AND fontes ? :fonte"
+            ),
+            {"tid": get_tenant_id(), "comp": competencia, "fonte": fonte},
+        )
+        for chunk in _chunked(rows, _CHUNK_SIZE):
+            con.execute(insert(fato_vinculo).values(chunk))
 
     def _build_profissional_rows(self, df: pl.DataFrame) -> list[dict]:
         dedup = df.unique(subset=["CPF"])
