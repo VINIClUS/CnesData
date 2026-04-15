@@ -1,4 +1,4 @@
-"""Testes unitários do processor — download, transform, persist."""
+"""Testes unitarios do processor — download, transform, persist."""
 import gzip
 import io
 import uuid
@@ -75,12 +75,16 @@ class TestProcessJob:
     @patch("data_processor.processor._get_competencia")
     @patch("data_processor.processor._get_object_key")
     @patch("data_processor.processor._download_parquet")
-    @patch("data_processor.processor.PostgresAdapter")
+    @patch("data_processor.processor.PostgresUnitOfWork")
+    @patch("data_processor.processor.mapear_vinculos")
+    @patch("data_processor.processor.mapear_profissionais")
+    @patch("data_processor.processor.extrair_fonte")
     @patch("data_processor.processor.transformar")
     @patch("data_processor.processor.CnesLocalAdapter")
-    def test_profissional_chama_adapter_transformar_e_gravar(
-        self, mock_cnes_adapter_cls, mock_transform,
-        mock_pg_cls, mock_download, mock_key, mock_comp,
+    def test_profissional_chama_uow_e_row_mapper(
+        self, mock_cnes_cls, mock_transform, mock_fonte,
+        mock_map_prof, mock_map_vinc, mock_uow_cls,
+        mock_download, mock_key, mock_comp,
     ):
         mock_key.return_value = "355030/cnes_profissional/abc.parquet.gz"
         mock_comp.return_value = "2024-12"
@@ -89,10 +93,16 @@ class TestProcessJob:
         mock_download.return_value = df_raw
         mock_cnes_inst = MagicMock()
         mock_cnes_inst.listar_profissionais.return_value = df_adapted
-        mock_cnes_adapter_cls.return_value = mock_cnes_inst
+        mock_cnes_cls.return_value = mock_cnes_inst
         mock_transform.return_value = df_adapted
-        mock_pg = MagicMock()
-        mock_pg_cls.return_value = mock_pg
+        mock_fonte.return_value = "LOCAL"
+        mock_map_prof.return_value = [{"cpf": "12345678901"}]
+        mock_map_vinc.return_value = [{"cpf": "12345678901"}]
+
+        mock_uow = MagicMock()
+        mock_uow.__enter__ = MagicMock(return_value=mock_uow)
+        mock_uow.__exit__ = MagicMock(return_value=False)
+        mock_uow_cls.return_value = mock_uow
 
         engine = MagicMock()
         storage = MagicMock()
@@ -101,32 +111,45 @@ class TestProcessJob:
         job = _make_job("cnes_profissional")
         process_job(engine, storage, job)
 
-        mock_cnes_adapter_cls.assert_called_once_with(df_raw)
+        mock_cnes_cls.assert_called_once_with(df_raw)
         mock_cnes_inst.listar_profissionais.assert_called_once()
         mock_transform.assert_called_once()
-        mock_pg.gravar_profissionais.assert_called_once_with(
+        mock_fonte.assert_called_once()
+        mock_map_prof.assert_called_once()
+        mock_map_vinc.assert_called_once_with(
             "2024-12", mock_transform.return_value,
+        )
+        mock_uow.profissionais.gravar.assert_called_once()
+        mock_uow.vinculos.snapshot_replace.assert_called_once_with(
+            "2024-12", "LOCAL", mock_map_vinc.return_value,
         )
 
     @patch("data_processor.processor._get_competencia")
     @patch("data_processor.processor._get_object_key")
     @patch("data_processor.processor._download_parquet")
-    @patch("data_processor.processor.PostgresAdapter")
+    @patch("data_processor.processor.PostgresUnitOfWork")
+    @patch("data_processor.processor.mapear_estabelecimentos")
     @patch("data_processor.processor.CnesLocalAdapter")
     def test_estabelecimento_aplica_adapter_sem_transformar(
-        self, mock_cnes_adapter_cls, mock_pg_cls,
+        self, mock_cnes_cls, mock_map_estab, mock_uow_cls,
         mock_download, mock_key, mock_comp,
     ):
-        mock_key.return_value = "355030/cnes_estabelecimento/abc.parquet.gz"
+        mock_key.return_value = (
+            "355030/cnes_estabelecimento/abc.parquet.gz"
+        )
         mock_comp.return_value = "2024-12"
         df_raw = pl.DataFrame({"NOME_FANTA": ["UBS TESTE"]})
         df_adapted = pl.DataFrame({"NOME_FANTASIA": ["UBS TESTE"]})
         mock_download.return_value = df_raw
         mock_cnes_inst = MagicMock()
         mock_cnes_inst.listar_estabelecimentos.return_value = df_adapted
-        mock_cnes_adapter_cls.return_value = mock_cnes_inst
-        mock_pg = MagicMock()
-        mock_pg_cls.return_value = mock_pg
+        mock_cnes_cls.return_value = mock_cnes_inst
+        mock_map_estab.return_value = [{"cnes": "1234567"}]
+
+        mock_uow = MagicMock()
+        mock_uow.__enter__ = MagicMock(return_value=mock_uow)
+        mock_uow.__exit__ = MagicMock(return_value=False)
+        mock_uow_cls.return_value = mock_uow
 
         engine = MagicMock()
         storage = MagicMock()
@@ -135,10 +158,10 @@ class TestProcessJob:
         job = _make_job("cnes_estabelecimento")
         process_job(engine, storage, job)
 
-        mock_cnes_adapter_cls.assert_called_once_with(df_raw)
+        mock_cnes_cls.assert_called_once_with(df_raw)
         mock_cnes_inst.listar_estabelecimentos.assert_called_once()
-        mock_pg.gravar_estabelecimentos.assert_called_once()
-        mock_pg.gravar_profissionais.assert_not_called()
+        mock_uow.estabelecimentos.gravar.assert_called_once()
+        mock_uow.profissionais.gravar.assert_not_called()
 
     @patch("data_processor.processor._get_object_key")
     def test_levanta_se_object_key_missing(self, mock_key):

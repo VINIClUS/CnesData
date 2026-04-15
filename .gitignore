@@ -71,6 +71,10 @@ docs/superpowers/**
 docs/superpowers
 docs/superpowers/*
 .superpowers\brainstorm
+.vscode
+.serena
+docs/specs/*
+docs/specs/**
 
 # Claude
 .claudeignore
