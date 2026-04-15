@@ -137,6 +137,8 @@ class Job:
     source_system: str
     tenant_id: str
     payload_id: uuid.UUID
+    object_key: str | None = None
+    competencia: str | None = None
     created_at: datetime | None = None
     attempt_count: int = 0
     max_retries: int = 3
@@ -368,9 +370,19 @@ def acquire_completed_job(
     engine: Engine, processor_id: str,
 ) -> Job | None:
     """Concede lease de job COMPLETED ao data_processor."""
+    from cnes_infra.storage.landing import raw_payload
+
     with engine.begin() as con:
         row = con.execute(
-            select(jobs)
+            select(
+                jobs,
+                raw_payload.c.object_key,
+                raw_payload.c.competencia,
+            )
+            .join(
+                raw_payload,
+                jobs.c.payload_id == raw_payload.c.id,
+            )
             .where(jobs.c.status == "COMPLETED")
             .order_by(jobs.c.completed_at)
             .limit(1)
@@ -399,6 +411,8 @@ def acquire_completed_job(
         source_system=row.source_system,
         tenant_id=row.tenant_id,
         payload_id=row.payload_id,
+        object_key=row.object_key,
+        competencia=row.competencia,
         created_at=row.created_at,
         attempt_count=row.attempt_count,
         max_retries=row.max_retries,

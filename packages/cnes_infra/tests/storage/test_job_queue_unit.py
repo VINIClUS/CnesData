@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from unittest.mock import MagicMock
 
-from cnes_infra.storage.job_queue import fail_processing
+from cnes_infra.storage.job_queue import Job, fail_processing
 
 
 @dataclass
@@ -23,6 +23,37 @@ class _FakeRow:
     def __post_init__(self):
         if self.error_history is None:
             self.error_history = []
+
+
+_JOB_ID = uuid.UUID("12345678-1234-5678-1234-567812345678")
+_PAYLOAD_ID = uuid.UUID("abcdefab-cdef-abcd-efab-cdefabcdefab")
+
+
+class TestJobDataclass:
+
+    def test_aceita_object_key_e_competencia(self):
+        job = Job(
+            id=_JOB_ID,
+            status="PROCESSING",
+            source_system="cnes_profissional",
+            tenant_id="354130",
+            payload_id=_PAYLOAD_ID,
+            object_key="cnes/prof/2025-01.parquet",
+            competencia="2025-01",
+        )
+        assert job.object_key == "cnes/prof/2025-01.parquet"
+        assert job.competencia == "2025-01"
+
+    def test_defaults_none(self):
+        job = Job(
+            id=_JOB_ID,
+            status="PENDING",
+            source_system="cnes_profissional",
+            tenant_id="354130",
+            payload_id=_PAYLOAD_ID,
+        )
+        assert job.object_key is None
+        assert job.competencia is None
 
 
 class TestRetryLogic:
