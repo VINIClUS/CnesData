@@ -91,23 +91,6 @@ class PostgresAdapter:
                     "atualizado_em": text("NOW()"),
                 },
             },
-            "vinculo": {
-                "index_elements": [
-                    "tenant_id", "competencia", "cpf", "cnes", "cbo",
-                ],
-                "set_": {
-                    "tipo_vinculo": text(
-                        "COALESCE(EXCLUDED.tipo_vinculo, fato_vinculo.tipo_vinculo)"
-                    ),
-                    "sus": text("COALESCE(EXCLUDED.sus, fato_vinculo.sus)"),
-                    "ch_total": text("EXCLUDED.ch_total"),
-                    "ch_ambulatorial": text("EXCLUDED.ch_ambulatorial"),
-                    "ch_outras": text("EXCLUDED.ch_outras"),
-                    "ch_hospitalar": text("EXCLUDED.ch_hospitalar"),
-                    "fontes": text("fato_vinculo.fontes || EXCLUDED.fontes"),
-                    "atualizado_em": text("NOW()"),
-                },
-            },
         }
         cfg = conflict_keys[kind]
         for chunk in _chunked(rows, _CHUNK_SIZE):
