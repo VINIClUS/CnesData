@@ -35,10 +35,17 @@ class PostgresAdapter:
             competencia: Competência no formato 'YYYY-MM'.
             df: DataFrame Polars com colunas SCHEMA_PROFISSIONAL.
         """
+        if df.is_empty():
+            return
         t0 = time.perf_counter()
+        fontes_unicos = df["FONTE"].unique()
+        if len(fontes_unicos) != 1:
+            raise ValueError(
+                f"fonte_mista count={len(fontes_unicos)}"
+            )
+        fonte = fontes_unicos[0]
         prof_rows = self._build_profissional_rows(df)
         vinculo_rows = self._build_vinculo_rows(competencia, df)
-        fonte = df["FONTE"][0]
         with self._engine.begin() as con:
             self._upsert_chunks(con, dim_profissional, prof_rows, "profissional")
             self._snapshot_replace_vinculos(

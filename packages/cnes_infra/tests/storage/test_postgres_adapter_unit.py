@@ -100,6 +100,46 @@ class TestGravarProfissionais:
             "should not use ON CONFLICT for fato_vinculo"
         )
 
+    def test_dataframe_vazio_retorna_sem_executar(self, adapter, engine):
+        con = engine.begin.return_value.__enter__.return_value
+        df_vazio = pl.DataFrame(
+            schema={
+                "CPF": pl.Utf8, "CNS": pl.Utf8,
+                "NOME_PROFISSIONAL": pl.Utf8, "SEXO": pl.Utf8,
+                "CBO": pl.Utf8, "CNES": pl.Utf8,
+                "TIPO_VINCULO": pl.Utf8, "SUS": pl.Utf8,
+                "CH_TOTAL": pl.Int64, "CH_AMBULATORIAL": pl.Int64,
+                "CH_OUTRAS": pl.Int64, "CH_HOSPITALAR": pl.Int64,
+                "FONTE": pl.Utf8,
+            }
+        )
+        adapter.gravar_profissionais("2025-01", df_vazio)
+        assert con.execute.call_count == 0
+
+    def test_fonte_mista_levanta_erro(self, adapter):
+        df = pl.DataFrame([
+            {
+                "CPF": "11111111111", "CNS": None,
+                "NOME_PROFISSIONAL": "X", "SEXO": "M",
+                "CBO": "225125", "CNES": "1234567",
+                "TIPO_VINCULO": "EP", "SUS": "S",
+                "CH_TOTAL": 40, "CH_AMBULATORIAL": 20,
+                "CH_OUTRAS": 0, "CH_HOSPITALAR": 20,
+                "FONTE": "LOCAL",
+            },
+            {
+                "CPF": "22222222222", "CNS": None,
+                "NOME_PROFISSIONAL": "Y", "SEXO": "F",
+                "CBO": "225125", "CNES": "1234567",
+                "TIPO_VINCULO": "EP", "SUS": "N",
+                "CH_TOTAL": 20, "CH_AMBULATORIAL": 10,
+                "CH_OUTRAS": 0, "CH_HOSPITALAR": 10,
+                "FONTE": "NACIONAL",
+            },
+        ])
+        with pytest.raises(ValueError, match="fonte_mista"):
+            adapter.gravar_profissionais("2025-01", df)
+
     def test_sus_s_converte_para_true(self, adapter, df_profissionais):
         rows = adapter._build_vinculo_rows("2025-01", df_profissionais)
         sus_values = [r["sus"] for r in rows]
