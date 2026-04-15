@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, text
 
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra.storage.postgres_adapter import PostgresAdapter
+from cnes_infra.storage.repositories import PostgresUnitOfWork
 
 _PG_URL = "postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test"
 _TENANT_ID = "355030"
@@ -48,6 +49,17 @@ def pg_engine(pg_service):
 def adapter(pg_engine) -> PostgresAdapter:
     set_tenant_id(_TENANT_ID)
     yield PostgresAdapter(pg_engine)
+    with pg_engine.begin() as con:
+        con.execute(text(
+            "TRUNCATE gold.fato_vinculo, gold.dim_profissional, "
+            "gold.dim_estabelecimento RESTART IDENTITY CASCADE"
+        ))
+
+
+@pytest.fixture
+def uow(pg_engine) -> PostgresUnitOfWork:
+    set_tenant_id(_TENANT_ID)
+    yield PostgresUnitOfWork(pg_engine)
     with pg_engine.begin() as con:
         con.execute(text(
             "TRUNCATE gold.fato_vinculo, gold.dim_profissional, "
