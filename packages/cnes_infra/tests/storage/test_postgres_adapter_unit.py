@@ -121,6 +121,26 @@ class TestGravarProfissionais:
         assert rows[0]["sus"] is None
 
 
+class TestSnapshotReplaceVinculos:
+    def test_executa_delete_e_insert(self, adapter, engine):
+        con = engine.begin.return_value.__enter__.return_value
+        rows = [
+            {
+                "tenant_id": "123456", "competencia": "2025-01",
+                "cpf": "12345678901", "cnes": "1234567", "cbo": "225125",
+                "tipo_vinculo": "EP", "sus": True, "ch_total": 40,
+                "ch_ambulatorial": 20, "ch_outras": 0, "ch_hospitalar": 20,
+                "fontes": {"LOCAL": True},
+            },
+        ]
+        adapter._snapshot_replace_vinculos(con, "2025-01", "LOCAL", rows)
+        calls = con.execute.call_args_list
+        assert len(calls) == 2
+        delete_sql = str(calls[0][0][0])
+        assert "DELETE" in delete_sql
+        assert "fontes" in delete_sql
+
+
 class TestGravarEstabelecimentos:
     def test_executa_um_insert(self, adapter, engine, df_estabelecimentos):
         con = engine.begin.return_value.__enter__.return_value

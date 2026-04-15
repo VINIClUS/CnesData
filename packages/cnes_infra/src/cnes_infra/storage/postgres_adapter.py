@@ -114,6 +114,25 @@ class PostgresAdapter:
                 .on_conflict_do_update(**cfg),
             )
 
+    def _snapshot_replace_vinculos(
+        self,
+        con,
+        competencia: str,
+        fonte: str,
+        rows: list[dict],
+    ) -> None:
+        con.execute(
+            text(
+                "DELETE FROM gold.fato_vinculo "
+                "WHERE tenant_id = :tid "
+                "AND competencia = :comp "
+                "AND fontes ? :fonte"
+            ),
+            {"tid": get_tenant_id(), "comp": competencia, "fonte": fonte},
+        )
+        for chunk in _chunked(rows, _CHUNK_SIZE):
+            con.execute(insert(fato_vinculo).values(chunk))
+
     def _build_profissional_rows(self, df: pl.DataFrame) -> list[dict]:
         dedup = df.unique(subset=["CPF"])
         out = dedup.select("CPF", "CNS", "NOME_PROFISSIONAL", "SEXO", "FONTE")
