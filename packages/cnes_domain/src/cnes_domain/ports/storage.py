@@ -1,32 +1,69 @@
-"""StoragePort — interface de persistência (domínio puro, sem dependências de infra)."""
-import logging
-from typing import Protocol
+"""Ports de persistência — contratos sem dependência de infra ou Polars."""
 
-import polars as pl
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Protocol, Self
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _logger = logging.getLogger(__name__)
 
 
-class StoragePort(Protocol):
-    def gravar_profissionais(self, competencia: str, df: pl.DataFrame) -> None: ...
-    def gravar_estabelecimentos(self, competencia: str, df: pl.DataFrame) -> None: ...
-    def registrar_pipeline_run(self, competencia: str, estado: dict) -> None: ...
+class ProfissionalStoragePort(Protocol):
+    def gravar(self, rows: Iterable[dict]) -> int: ...
 
 
-class NullStoragePort:
-    """Fallback de persistência: loga avisos em vez de gravar."""
+class EstabelecimentoStoragePort(Protocol):
+    def gravar(self, rows: Iterable[dict]) -> int: ...
 
-    def gravar_profissionais(self, competencia: str, df: pl.DataFrame) -> None:
+
+class VinculoStoragePort(Protocol):
+    def snapshot_replace(
+        self, competencia: str, fonte: str, rows: Iterable[dict],
+    ) -> int: ...
+
+
+class UnitOfWorkPort(Protocol):
+    profissionais: ProfissionalStoragePort
+    estabelecimentos: EstabelecimentoStoragePort
+    vinculos: VinculoStoragePort
+    def __enter__(self) -> Self: ...
+    def __exit__(self, *exc) -> None: ...
+
+
+class NullProfissionalStorage:
+    def gravar(self, rows: Iterable[dict]) -> int:
+        _logger.warning("DB_URL nao configurado; profissionais nao gravados")
+        return 0
+
+
+class NullEstabelecimentoStorage:
+    def gravar(self, rows: Iterable[dict]) -> int:
+        _logger.warning("DB_URL nao configurado; estabelecimentos nao gravados")
+        return 0
+
+
+class NullVinculoStorage:
+    def snapshot_replace(
+        self, competencia: str, fonte: str, rows: Iterable[dict],
+    ) -> int:
         _logger.warning(
-            "DB_URL nao configurado; profissionais nao gravados competencia=%s", competencia
+            "DB_URL nao configurado; vinculos nao gravados competencia=%s",
+            competencia,
         )
+        return 0
 
-    def gravar_estabelecimentos(self, competencia: str, df: pl.DataFrame) -> None:
-        _logger.warning(
-            "DB_URL nao configurado; estabelecimentos nao gravados competencia=%s", competencia
-        )
 
-    def registrar_pipeline_run(self, competencia: str, estado: dict) -> None:
-        _logger.warning(
-            "DB_URL nao configurado; pipeline_run nao registrado competencia=%s", competencia
-        )
+class NullUnitOfWork:
+    def __init__(self) -> None:
+        self.profissionais = NullProfissionalStorage()
+        self.estabelecimentos = NullEstabelecimentoStorage()
+        self.vinculos = NullVinculoStorage()
+
+    def __enter__(self) -> NullUnitOfWork:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        pass
