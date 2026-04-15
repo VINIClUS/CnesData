@@ -82,10 +82,23 @@ def df_estabelecimentos():
 
 
 class TestGravarProfissionais:
-    def test_executa_dois_inserts(self, adapter, engine, df_profissionais):
+    def test_executa_tres_statements(self, adapter, engine, df_profissionais):
         con = engine.begin.return_value.__enter__.return_value
         adapter.gravar_profissionais("2025-01", df_profissionais)
-        assert con.execute.call_count == 2
+        assert con.execute.call_count == 3
+
+    def test_vinculo_usa_snapshot_replace(self, adapter, engine, df_profissionais):
+        con = engine.begin.return_value.__enter__.return_value
+        adapter.gravar_profissionais("2025-01", df_profissionais)
+        calls = [str(c[0][0]) for c in con.execute.call_args_list]
+        has_delete = any("DELETE" in c for c in calls)
+        has_on_conflict_vinculo = any(
+            "ON CONFLICT" in c and "competencia" in c for c in calls
+        )
+        assert has_delete, "should use DELETE for fato_vinculo"
+        assert not has_on_conflict_vinculo, (
+            "should not use ON CONFLICT for fato_vinculo"
+        )
 
     def test_sus_s_converte_para_true(self, adapter, df_profissionais):
         rows = adapter._build_vinculo_rows("2025-01", df_profissionais)

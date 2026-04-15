@@ -38,9 +38,12 @@ class PostgresAdapter:
         t0 = time.perf_counter()
         prof_rows = self._build_profissional_rows(df)
         vinculo_rows = self._build_vinculo_rows(competencia, df)
+        fonte = df["FONTE"][0]
         with self._engine.begin() as con:
             self._upsert_chunks(con, dim_profissional, prof_rows, "profissional")
-            self._upsert_chunks(con, fato_vinculo, vinculo_rows, "vinculo")
+            self._snapshot_replace_vinculos(
+                con, competencia, fonte, vinculo_rows,
+            )
         elapsed = time.perf_counter() - t0
         logger.info(
             "gravar_profissionais dim=%d fato=%d elapsed=%.2fs",
