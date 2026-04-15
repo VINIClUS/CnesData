@@ -8,6 +8,7 @@ dependencies = [
     "pandera>=0.30",
     "pydantic>=2.10",
     "holidays>=0.46",
+    "opentelemetry-api>=1.25",
 ]
 
 [build-system]
