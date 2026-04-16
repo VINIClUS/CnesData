@@ -138,3 +138,9 @@ if sys.platform != "win32":
             _on_stop_callback = on_stop
         _signal.signal(_signal.SIGTERM, _posix_handler)
         _signal.signal(_signal.SIGINT, _posix_handler)
+
+
+def install_shutdown_handler(on_stop: Callable[[], None]) -> None:
+    if sys.platform == "win32":
+        raise NotImplementedError("windows_branch_pending_task_20")
+    _install_posix_handler(on_stop)

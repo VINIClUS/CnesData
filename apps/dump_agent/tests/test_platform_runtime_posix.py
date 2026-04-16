@@ -39,3 +39,12 @@ class TestInstallPosixHandler:
         os.kill(os.getpid(), signal.SIGTERM)
         time.sleep(0.2)
         assert not subdir.exists()
+
+
+class TestInstallShutdownHandler:
+    def test_dispatcher_chama_posix_handler_no_linux(self):
+        called = threading.Event()
+        platform_runtime._temp_dirs.clear()
+        platform_runtime.install_shutdown_handler(on_stop=called.set)
+        os.kill(os.getpid(), signal.SIGTERM)
+        assert called.wait(timeout=1.0)
