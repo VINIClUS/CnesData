@@ -25,6 +25,8 @@ markers = [
     "integration: testes que requerem banco Firebird ativo",
     "bigquery: testes que requerem internet e credenciais Google Cloud",
     "postgres: testes de integração que requerem PostgreSQL via Docker",
+    "windows_only: requer Win32 API (pula em Linux/Docker)",
+    "linux_only: requer POSIX signals/fcntl (pula em Windows)",
 ]
 
 [tool.ruff]
