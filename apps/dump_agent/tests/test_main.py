@@ -1,18 +1,28 @@
 """Testes unitarios do ponto de entrada do dump_agent."""
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 
 @patch("dump_agent.main._MAX_JITTER", 0.0)
 @patch("dump_agent.main._setup_logging")
+@patch("dump_agent.main.resolve_machine_id", return_value="m-test")
+@patch("dump_agent.main.acquire_single_instance_lock")
+@patch("dump_agent.main.install_shutdown_handler")
 @patch("dump_agent.main.run_worker", new_callable=AsyncMock)
-def test_main_invoca_worker(mock_run, mock_logging):
-    from dump_agent.main import main
-    result = asyncio.run(main())
+def test_main_invoca_worker_com_stop_event(
+    mock_run, mock_install, mock_lock, mock_mid, mock_logging,
+):
+    mock_lock.return_value.__enter__ = lambda self: None
+    mock_lock.return_value.__exit__ = lambda self, *exc: None
 
-    mock_run.assert_awaited_once()
+    from dump_agent.main import main_sync
+    result = main_sync()
+
     assert result == 0
+    mock_install.assert_called_once()
+    mock_run.assert_awaited_once()
+    call_kwargs = mock_run.await_args.kwargs
+    assert "stop_event" in call_kwargs
 
 
 def test_main_nao_importa_postgres():
