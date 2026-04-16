@@ -37,3 +37,21 @@ class TestAppDataDir:
         else:
             monkeypatch.setenv("XDG_STATE_HOME", str(target))
         assert platform_runtime.app_data_dir() == platform_runtime.app_data_dir()
+
+
+class TestLogsDir:
+    def test_respeita_env_dump_logs_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DUMP_LOGS_DIR", str(tmp_path / "custom-logs"))
+        assert platform_runtime.logs_dir() == tmp_path / "custom-logs"
+        assert (tmp_path / "custom-logs").exists()
+
+    def test_usa_app_data_dir_como_default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DUMP_LOGS_DIR", raising=False)
+        if sys.platform == "win32":
+            monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "la"))
+        else:
+            monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xs"))
+        result = platform_runtime.logs_dir()
+        assert result.name == "logs"
+        assert result.parent == platform_runtime.app_data_dir()
+        assert result.exists()

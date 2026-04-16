@@ -39,3 +39,10 @@ def app_data_dir() -> Path:
         path = Path(base) / "cnes-agent"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def logs_dir() -> Path:
+    override = os.environ.get("DUMP_LOGS_DIR")
+    path = Path(override) if override else app_data_dir() / "logs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
