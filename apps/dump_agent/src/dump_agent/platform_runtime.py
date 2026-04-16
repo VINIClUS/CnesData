@@ -46,3 +46,13 @@ def logs_dir() -> Path:
     path = Path(override) if override else app_data_dir() / "logs"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def register_temp_dir(path: Path) -> None:
+    with _lock:
+        _temp_dirs.add(path)
+
+
+def unregister_temp_dir(path: Path) -> None:
+    with _lock:
+        _temp_dirs.discard(path)

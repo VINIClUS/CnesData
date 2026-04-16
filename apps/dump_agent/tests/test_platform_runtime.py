@@ -55,3 +55,27 @@ class TestLogsDir:
         assert result.name == "logs"
         assert result.parent == platform_runtime.app_data_dir()
         assert result.exists()
+
+
+class TestTempDirRegistry:
+    def test_register_adiciona_ao_set(self, tmp_path):
+        platform_runtime._temp_dirs.clear()
+        platform_runtime.register_temp_dir(tmp_path)
+        assert tmp_path in platform_runtime._temp_dirs
+
+    def test_register_idempotente_com_path_duplicado(self, tmp_path):
+        platform_runtime._temp_dirs.clear()
+        platform_runtime.register_temp_dir(tmp_path)
+        platform_runtime.register_temp_dir(tmp_path)
+        assert len(platform_runtime._temp_dirs) == 1
+
+    def test_unregister_remove_do_set(self, tmp_path):
+        platform_runtime._temp_dirs.clear()
+        platform_runtime.register_temp_dir(tmp_path)
+        platform_runtime.unregister_temp_dir(tmp_path)
+        assert tmp_path not in platform_runtime._temp_dirs
+
+    def test_unregister_idempotente_quando_ja_removido(self, tmp_path):
+        platform_runtime._temp_dirs.clear()
+        platform_runtime.unregister_temp_dir(tmp_path)
+        platform_runtime.unregister_temp_dir(tmp_path)
