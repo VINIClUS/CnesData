@@ -139,6 +139,29 @@ if sys.platform != "win32":
         _signal.signal(_signal.SIGTERM, _posix_handler)
         _signal.signal(_signal.SIGINT, _posix_handler)
 
+    import fcntl as _fcntl
+
+    class _PosixFileLock:
+        def __init__(self, name: str) -> None:
+            self._path = app_data_dir() / f"{name}.lock"
+            self._fd = self._path.open("w", encoding="utf-8")
+            try:
+                _fcntl.flock(self._fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+            except BlockingIOError as err:
+                self._fd.close()
+                raise RuntimeError(
+                    f"already_running lock={name}",
+                ) from err
+
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *exc: object) -> None:
+            try:
+                _fcntl.flock(self._fd, _fcntl.LOCK_UN)
+            finally:
+                self._fd.close()
+
 
 def install_shutdown_handler(on_stop: Callable[[], None]) -> None:
     if sys.platform == "win32":

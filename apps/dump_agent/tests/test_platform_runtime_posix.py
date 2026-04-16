@@ -48,3 +48,19 @@ class TestInstallShutdownHandler:
         platform_runtime.install_shutdown_handler(on_stop=called.set)
         os.kill(os.getpid(), signal.SIGTERM)
         assert called.wait(timeout=1.0)
+
+
+class TestPosixFileLock:
+    def test_bloqueia_segunda_aquisicao(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        with platform_runtime._PosixFileLock("test_lock"):
+            with pytest.raises(RuntimeError, match="already_running"):
+                with platform_runtime._PosixFileLock("test_lock"):
+                    pass
+
+    def test_libera_apos_exit(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        with platform_runtime._PosixFileLock("test_release"):
+            pass
+        with platform_runtime._PosixFileLock("test_release"):
+            pass
