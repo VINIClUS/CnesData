@@ -10,7 +10,7 @@ import os
 import shutil  # noqa: F401
 import sys
 import threading
-import uuid  # noqa: F401
+import uuid
 from collections.abc import Callable  # noqa: TC003
 from contextlib import AbstractContextManager  # noqa: F401
 from pathlib import Path
@@ -56,3 +56,17 @@ def register_temp_dir(path: Path) -> None:
 def unregister_temp_dir(path: Path) -> None:
     with _lock:
         _temp_dirs.discard(path)
+
+
+def resolve_machine_id() -> str:
+    env_value = os.environ.get("MACHINE_ID")
+    if env_value:
+        return env_value
+    store = app_data_dir() / "machine_id"
+    if store.exists():
+        existing = store.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    new_id = uuid.uuid4().hex[:8]
+    store.write_text(new_id, encoding="utf-8")
+    return new_id

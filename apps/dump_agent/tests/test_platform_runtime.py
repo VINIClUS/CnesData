@@ -79,3 +79,33 @@ class TestTempDirRegistry:
         platform_runtime._temp_dirs.clear()
         platform_runtime.unregister_temp_dir(tmp_path)
         platform_runtime.unregister_temp_dir(tmp_path)
+        assert tmp_path not in platform_runtime._temp_dirs
+
+
+class TestResolveMachineId:
+    def test_env_var_tem_precedencia(self, monkeypatch):
+        monkeypatch.setenv("MACHINE_ID", "docker-01")
+        assert platform_runtime.resolve_machine_id() == "docker-01"
+
+    def test_gera_uuid_e_persiste_no_primeiro_run(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.delenv("MACHINE_ID", raising=False)
+        if sys.platform == "win32":
+            monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        else:
+            monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        mid = platform_runtime.resolve_machine_id()
+        assert len(mid) == 8
+        store = platform_runtime.app_data_dir() / "machine_id"
+        assert store.read_text().strip() == mid
+
+    def test_le_machine_id_persistido(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("MACHINE_ID", raising=False)
+        if sys.platform == "win32":
+            monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        else:
+            monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        store = platform_runtime.app_data_dir() / "machine_id"
+        store.write_text("preserved")
+        assert platform_runtime.resolve_machine_id() == "preserved"
