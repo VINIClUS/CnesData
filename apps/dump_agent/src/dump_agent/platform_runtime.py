@@ -12,7 +12,7 @@ import sys
 import threading
 import uuid
 from collections.abc import Callable  # noqa: TC003
-from contextlib import AbstractContextManager  # noqa: F401
+from contextlib import AbstractContextManager  # noqa: TC003
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -167,3 +167,11 @@ def install_shutdown_handler(on_stop: Callable[[], None]) -> None:
     if sys.platform == "win32":
         raise NotImplementedError("windows_branch_pending_task_20")
     _install_posix_handler(on_stop)
+
+
+def acquire_single_instance_lock(
+    name: str,
+) -> AbstractContextManager[None]:
+    if sys.platform == "win32":
+        raise NotImplementedError("windows_branch_pending_task_20")
+    return _PosixFileLock(name)

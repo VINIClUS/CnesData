@@ -64,3 +64,15 @@ class TestPosixFileLock:
             pass
         with platform_runtime._PosixFileLock("test_release"):
             pass
+
+
+class TestAcquireSingleInstanceLock:
+    def test_dispatcher_retorna_context_manager(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        lock = platform_runtime.acquire_single_instance_lock("test_disp")
+        with lock:
+            with pytest.raises(RuntimeError, match="already_running"):
+                with platform_runtime.acquire_single_instance_lock(
+                    "test_disp",
+                ):
+                    pass
