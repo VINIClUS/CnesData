@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import shutil  # noqa: F401
-import sys  # noqa: F401
+import sys
 import threading
 import uuid  # noqa: F401
 from collections.abc import Callable  # noqa: TC003
@@ -19,3 +19,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _temp_dirs: set[Path] = set()
 _on_stop_callback: Callable[[], None] | None = None
+
+
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
