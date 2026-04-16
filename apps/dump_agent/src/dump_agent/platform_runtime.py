@@ -70,3 +70,46 @@ def resolve_machine_id() -> str:
     new_id = uuid.uuid4().hex[:8]
     store.write_text(new_id, encoding="utf-8")
     return new_id
+
+
+def fbclient_dll_path() -> Path:
+    env_value = os.environ.get("FIREBIRD_DLL")
+    if env_value:
+        env_path = Path(env_value)
+        if not env_path.exists():
+            raise FileNotFoundError(f"fbclient_not_found path={env_path}")
+        return env_path
+
+    if is_frozen():
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidate = Path(meipass) / "fbclient.dll"
+            if candidate.exists():
+                return candidate
+        exe_sibling = Path(sys.executable).parent / "fbclient.dll"
+        if exe_sibling.exists():
+            return exe_sibling
+        raise FileNotFoundError("fbclient_not_found_in_frozen_bundle")
+
+    if sys.platform == "win32":
+        raise FileNotFoundError(
+            "fbclient_windows_requires_FIREBIRD_DLL_env",
+        )
+
+    from ctypes import util
+
+    found = util.find_library("fbclient")
+    if found:
+        candidate = Path(found)
+        if candidate.exists():
+            return candidate
+
+    for fallback in (
+        Path("/usr/lib/x86_64-linux-gnu/libfbclient.so.2"),
+        Path("/usr/lib/libfbclient.so.2"),
+        Path("/usr/local/lib/libfbclient.so.2"),
+    ):
+        if fallback.exists():
+            return fallback
+
+    raise FileNotFoundError("fbclient_not_found_on_linux")

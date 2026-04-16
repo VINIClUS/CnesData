@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path  # noqa: F401
+from pathlib import Path
 
-import pytest  # noqa: F401
+import pytest
 
 from dump_agent import platform_runtime
 
@@ -109,3 +109,37 @@ class TestResolveMachineId:
         store = platform_runtime.app_data_dir() / "machine_id"
         store.write_text("preserved")
         assert platform_runtime.resolve_machine_id() == "preserved"
+
+
+class TestFbclientDllPath:
+    def test_env_var_tem_precedencia(self, tmp_path, monkeypatch):
+        fake = tmp_path / "fbclient.dll"
+        fake.write_bytes(b"dummy")
+        monkeypatch.setenv("FIREBIRD_DLL", str(fake))
+        assert platform_runtime.fbclient_dll_path() == fake
+
+    def test_levanta_quando_env_aponta_para_inexistente(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setenv("FIREBIRD_DLL", str(tmp_path / "missing.dll"))
+        with pytest.raises(FileNotFoundError, match="fbclient"):
+            platform_runtime.fbclient_dll_path()
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Linux-only fallback behavior",
+    )
+    def test_linux_usa_find_library_quando_env_ausente(
+        self, monkeypatch,
+    ):
+        monkeypatch.delenv("FIREBIRD_DLL", raising=False)
+        monkeypatch.setattr(sys, "frozen", False, raising=False)
+        from ctypes import util
+        monkeypatch.setattr(
+            util, "find_library",
+            lambda name: "/usr/lib/x86_64-linux-gnu/libfbclient.so.2"
+            if name == "fbclient" else None,
+        )
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+        result = platform_runtime.fbclient_dll_path()
+        assert "libfbclient" in str(result)
