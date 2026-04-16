@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil  # noqa: F401
+import shutil
 import sys
 import threading
 import uuid
@@ -113,3 +113,28 @@ def fbclient_dll_path() -> Path:
             return fallback
 
     raise FileNotFoundError("fbclient_not_found_on_linux")
+
+
+if sys.platform != "win32":
+    import signal as _signal
+
+    def _posix_handler(signum: int, _frame: object) -> None:
+        kind = _signal.Signals(signum).name
+        logger.warning("shutdown_signal kind=%s", kind)
+        with _lock:
+            cb = _on_stop_callback
+            dirs = list(_temp_dirs)
+        if cb is not None:
+            try:
+                cb()
+            except Exception:
+                logger.exception("on_stop_error")
+        for path in dirs:
+            shutil.rmtree(path, ignore_errors=True)
+
+    def _install_posix_handler(on_stop: Callable[[], None]) -> None:
+        global _on_stop_callback
+        with _lock:
+            _on_stop_callback = on_stop
+        _signal.signal(_signal.SIGTERM, _posix_handler)
+        _signal.signal(_signal.SIGINT, _posix_handler)
