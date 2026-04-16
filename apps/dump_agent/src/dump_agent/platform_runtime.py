@@ -163,6 +163,44 @@ if sys.platform != "win32":
                 self._fd.close()
 
 
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    _HANDLER_ROUTINE = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+    _kernel32.SetConsoleCtrlHandler.argtypes = [
+        _HANDLER_ROUTINE, wintypes.BOOL,
+    ]
+    _kernel32.SetConsoleCtrlHandler.restype = wintypes.BOOL
+
+    _CTRL_CODES = {
+        0: "CTRL_C",
+        1: "CTRL_BREAK",
+        2: "CTRL_CLOSE",
+        5: "CTRL_LOGOFF",
+        6: "CTRL_SHUTDOWN",
+    }
+
+    _handler_ref: _HANDLER_ROUTINE | None = None
+
+    def _windows_handler(ctrl_type: int) -> bool:
+        name = _CTRL_CODES.get(ctrl_type, f"UNKNOWN_{ctrl_type}")
+        logger.warning("shutdown_signal kind=%s", name)
+        with _lock:
+            cb = _on_stop_callback
+            dirs = list(_temp_dirs)
+        if cb is not None:
+            try:
+                cb()
+            except Exception:
+                logger.exception("on_stop_error")
+        for path in dirs:
+            shutil.rmtree(path, ignore_errors=True)
+        return True
+
+
 def install_shutdown_handler(on_stop: Callable[[], None]) -> None:
     if sys.platform == "win32":
         raise NotImplementedError("windows_branch_pending_task_20")
