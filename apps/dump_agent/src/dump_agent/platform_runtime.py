@@ -211,6 +211,43 @@ if sys.platform == "win32":
                 "SetConsoleCtrlHandler_failed",
             )
 
+    _ERROR_ALREADY_EXISTS = 183
+
+    _kernel32.CreateMutexW.argtypes = [
+        ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR,
+    ]
+    _kernel32.CreateMutexW.restype = wintypes.HANDLE
+    _kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+    _kernel32.ReleaseMutex.restype = wintypes.BOOL
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _kernel32.CloseHandle.restype = wintypes.BOOL
+
+    class _WindowsMutex:
+        def __init__(self, name: str) -> None:
+            self._handle = _kernel32.CreateMutexW(
+                None, False, f"Global\\CnesAgent_{name}",
+            )
+            if not self._handle:
+                raise OSError(
+                    ctypes.get_last_error(),
+                    "CreateMutexW_failed",
+                )
+            if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
+                _kernel32.CloseHandle(self._handle)
+                self._handle = None
+                raise RuntimeError(
+                    f"already_running mutex={name}",
+                )
+
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *exc: object) -> None:
+            if self._handle:
+                _kernel32.ReleaseMutex(self._handle)
+                _kernel32.CloseHandle(self._handle)
+                self._handle = None
+
 
 def install_shutdown_handler(on_stop: Callable[[], None]) -> None:
     if sys.platform == "win32":
@@ -223,5 +260,5 @@ def acquire_single_instance_lock(
     name: str,
 ) -> AbstractContextManager[None]:
     if sys.platform == "win32":
-        raise NotImplementedError("windows_branch_pending_task_20")
+        return _WindowsMutex(name)
     return _PosixFileLock(name)

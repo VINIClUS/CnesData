@@ -58,3 +58,19 @@ class TestInstallWindowsHandler:
         )
         with pytest.raises(OSError, match="SetConsoleCtrlHandler"):
             platform_runtime.install_shutdown_handler(on_stop=lambda: None)
+
+
+class TestWindowsMutex:
+    def test_bloqueia_segunda_aquisicao(self):
+        name = f"test_mutex_{id(object())}"
+        with platform_runtime.acquire_single_instance_lock(name):
+            with pytest.raises(RuntimeError, match="already_running"):
+                with platform_runtime.acquire_single_instance_lock(name):
+                    pass
+
+    def test_libera_handle_no_exit(self):
+        name = f"test_release_{id(object())}"
+        with platform_runtime.acquire_single_instance_lock(name):
+            pass
+        with platform_runtime.acquire_single_instance_lock(name):
+            pass
