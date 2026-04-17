@@ -36,6 +36,8 @@ def _aplicar_rq002_validar_cpf(df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         DataFrame sem registros com CPF inválido.
     """
+    if "CPF" not in df.columns:
+        return df
     mascara_invalido = (
         pl.col("CPF").is_in(_SENTINELAS_NULO)
         | (pl.col("CPF").str.len_chars() != 11)

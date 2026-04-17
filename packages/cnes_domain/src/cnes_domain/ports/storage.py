@@ -12,25 +12,25 @@ _logger = logging.getLogger(__name__)
 
 
 class ProfissionalStoragePort(Protocol):
-    def gravar(self, rows: Iterable[dict]) -> int: ...
+    def gravar(self, rows: Iterable[dict]) -> int: ...  # pragma: no cover - Protocol stub
 
 
 class EstabelecimentoStoragePort(Protocol):
-    def gravar(self, rows: Iterable[dict]) -> int: ...
+    def gravar(self, rows: Iterable[dict]) -> int: ...  # pragma: no cover - Protocol stub
 
 
 class VinculoStoragePort(Protocol):
     def snapshot_replace(
         self, competencia: str, fonte: str, rows: Iterable[dict],
-    ) -> int: ...
+    ) -> int: ...  # pragma: no cover - Protocol stub
 
 
 class UnitOfWorkPort(Protocol):
     profissionais: ProfissionalStoragePort
     estabelecimentos: EstabelecimentoStoragePort
     vinculos: VinculoStoragePort
-    def __enter__(self) -> Self: ...
-    def __exit__(self, *exc) -> None: ...
+    def __enter__(self) -> Self: ...  # pragma: no cover - Protocol stub
+    def __exit__(self, *exc) -> None: ...  # pragma: no cover - Protocol stub
 
 
 class NullProfissionalStorage:
