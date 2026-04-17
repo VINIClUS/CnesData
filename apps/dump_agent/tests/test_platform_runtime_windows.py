@@ -1,7 +1,7 @@
 """Windows-only tests for platform_runtime Win32 branch."""
 from __future__ import annotations
 
-import sys  # noqa: F401
+import sys
 import threading
 from pathlib import Path  # noqa: F401
 from unittest.mock import MagicMock
@@ -74,3 +74,30 @@ class TestWindowsMutex:
             pass
         with platform_runtime.acquire_single_instance_lock(name):
             pass
+
+
+class TestFbclientDllPathWindows:
+    def test_usa_meipass_quando_frozen(self, tmp_path, monkeypatch):
+        dll = tmp_path / "fbclient.dll"
+        dll.write_bytes(b"x")
+        monkeypatch.delenv("FIREBIRD_DLL", raising=False)
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+        assert platform_runtime.fbclient_dll_path() == dll
+
+    def test_usa_executable_parent_como_fallback_frozen(
+        self, tmp_path, monkeypatch,
+    ):
+        exe_dir = tmp_path / "app"
+        exe_dir.mkdir()
+        (exe_dir / "fbclient.dll").write_bytes(b"x")
+        (exe_dir / "dump_agent.exe").write_bytes(b"")
+        monkeypatch.delenv("FIREBIRD_DLL", raising=False)
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(
+            sys, "_MEIPASS", str(tmp_path / "nonexistent"), raising=False,
+        )
+        monkeypatch.setattr(
+            sys, "executable", str(exe_dir / "dump_agent.exe"),
+        )
+        assert platform_runtime.fbclient_dll_path() == exe_dir / "fbclient.dll"
