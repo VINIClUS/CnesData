@@ -55,8 +55,3 @@ class TestCallRejeitaAsync:
         cb = CircuitBreaker()
         with pytest.raises(TypeError, match="call espera função síncrona"):
             cb.call(_async_erro)
-
-
-class TestPytestAsyncioConfig:
-    def test_asyncio_mode_auto_ativado(self) -> None:
-        pass
