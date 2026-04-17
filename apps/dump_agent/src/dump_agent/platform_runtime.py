@@ -124,13 +124,15 @@ if sys.platform != "win32":
         with _lock:
             cb = _on_stop_callback
             dirs = list(_temp_dirs)
-        if cb is not None:
-            try:
-                cb()
-            except Exception:
-                logger.exception("on_stop_error")
-        for path in dirs:
-            shutil.rmtree(path, ignore_errors=True)
+        try:
+            if cb is not None:
+                try:
+                    cb()
+                except Exception:
+                    logger.exception("on_stop_error")
+        finally:
+            for path in dirs:
+                shutil.rmtree(path, ignore_errors=True)
 
     def _install_posix_handler(on_stop: Callable[[], None]) -> None:
         global _on_stop_callback
@@ -191,13 +193,15 @@ if sys.platform == "win32":
         with _lock:
             cb = _on_stop_callback
             dirs = list(_temp_dirs)
-        if cb is not None:
-            try:
-                cb()
-            except Exception:
-                logger.exception("on_stop_error")
-        for path in dirs:
-            shutil.rmtree(path, ignore_errors=True)
+        try:
+            if cb is not None:
+                try:
+                    cb()
+                except Exception:
+                    logger.exception("on_stop_error")
+        finally:
+            for path in dirs:
+                shutil.rmtree(path, ignore_errors=True)
         return True
 
     def _install_windows_handler(on_stop: Callable[[], None]) -> None:

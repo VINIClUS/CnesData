@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 import threading
-from pathlib import Path  # noqa: F401
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -101,3 +101,53 @@ class TestFbclientDllPathWindows:
             sys, "executable", str(exe_dir / "dump_agent.exe"),
         )
         assert platform_runtime.fbclient_dll_path() == exe_dir / "fbclient.dll"
+
+
+class TestCtrlBreakEndToEnd:
+    def test_ctrl_break_dispara_cleanup_tempdir_em_subprocess(
+        self, tmp_path,
+    ):
+        import subprocess
+        import textwrap
+        import time
+
+        ready = tmp_path / "ready"
+        tempdir = tmp_path / "to_cleanup"
+        tempdir.mkdir()
+        (tempdir / "file.tmp").write_bytes(b"x")
+        script = tmp_path / "run.py"
+        src_path = Path.cwd() / "apps/dump_agent/src"
+        script.write_text(textwrap.dedent(f"""
+            import sys, time
+            sys.path.insert(0, r"{src_path}")
+            from pathlib import Path
+            from dump_agent import platform_runtime
+            platform_runtime.register_temp_dir(Path(r"{tempdir}"))
+            platform_runtime.install_shutdown_handler(
+                on_stop=lambda: sys.exit(0),
+            )
+            Path(r"{ready}").write_text("ok")
+            time.sleep(10)
+        """))
+
+        proc = subprocess.Popen(  # noqa: S603
+            [sys.executable, str(script)],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        try:
+            deadline = time.monotonic() + 5.0
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.1)
+            assert ready.exists(), "subprocess never signaled ready"
+
+            import ctypes
+            ctrl_break_event = 1
+            ctypes.windll.kernel32.GenerateConsoleCtrlEvent(
+                ctrl_break_event, proc.pid,
+            )
+            proc.wait(timeout=5.0)
+            time.sleep(0.5)
+            assert not tempdir.exists(), "tempdir was not cleaned up"
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
