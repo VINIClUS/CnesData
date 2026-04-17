@@ -1,4 +1,6 @@
 """Fixtures para testes de integração dos repositórios."""
+import os
+
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -7,40 +9,26 @@ from sqlalchemy import create_engine, text
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra.storage.repositories import PostgresUnitOfWork
 
-_PG_URL = "postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test"
+_PG_URL = os.getenv(
+    "PG_TEST_URL",
+    "postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test",
+)
 _TENANT_ID = "355030"
 
 
-def _is_pg_ready() -> bool:
+@pytest.fixture(scope="session")
+def pg_engine():
+    engine = create_engine(_PG_URL)
     try:
-        engine = create_engine(_PG_URL)
         with engine.connect() as con:
             con.execute(text("SELECT 1"))
-        engine.dispose()
-        return True
     except Exception:
-        return False
-
-
-@pytest.fixture(scope="session")
-def pg_service(docker_services):
-    docker_services.wait_until_responsive(
-        timeout=30.0,
-        pause=0.5,
-        check=_is_pg_ready,
-    )
-
-
-@pytest.fixture(scope="session")
-def pg_engine(pg_service):
-    engine = create_engine(_PG_URL)
-    cfg = Config("alembic.ini")
+        pytest.skip(f"postgres indisponível em {_PG_URL}; rode 'docker compose up -d' primeiro")
+    cfg = Config()
+    cfg.set_main_option("script_location", "cnes_infra:alembic")
     cfg.set_main_option("sqlalchemy.url", _PG_URL)
     command.upgrade(cfg, "head")
     yield engine
-    with engine.connect() as con:
-        con.execute(text("DROP SCHEMA IF EXISTS gold CASCADE"))
-        con.commit()
     engine.dispose()
 
 
