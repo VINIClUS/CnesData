@@ -43,6 +43,15 @@ class TestMinioObjectStorage:
         )
         assert adapter.object_exists("bucket", "key") is False
 
+    def test_get_presigned_download_url(self):
+        adapter = self._adapter()
+        adapter._client.presigned_get_object.return_value = (
+            "http://minio:9000/bucket/key?sig=download"
+        )
+        url = adapter.get_presigned_download_url("bucket", "key.parquet.gz")
+        assert "download" in url
+        adapter._client.presigned_get_object.assert_called_once()
+
     def test_ensure_bucket_creates_if_missing(self):
         adapter = self._adapter()
         adapter._client.bucket_exists.return_value = False
