@@ -20,6 +20,7 @@ dev-dependencies = [
     "hypothesis>=6.100",
     "pytest-benchmark>=4.0",
     "psutil>=5.9",
+    "duckdb>=1.5.2",
 ]
 
 [tool.pyright]
@@ -126,6 +127,10 @@ omit = [
     "**/__pycache__/**",
     "**/tests/**",
     "**/alembic/**",
+    "*/alembic/*",
+    "*/alembic/versions/*",
+    "*/cnes_infra/alembic/*",
+    "*/cnes_infra/alembic/versions/*",
 ]
 
 [tool.coverage.report]
