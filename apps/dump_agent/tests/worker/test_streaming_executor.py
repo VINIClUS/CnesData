@@ -64,3 +64,37 @@ def test_stream_to_storage_desregistra_mesmo_em_excecao(
         pass
 
     assert mock_unreg.call_count == 1
+
+
+def test_compress_file_comprime_corretamente(tmp_path):
+    import gzip as std_gzip
+    source = tmp_path / "data.parquet"
+    payload = b"abc" * 10_000
+    source.write_bytes(payload)
+
+    from dump_agent.worker.streaming_executor import _compress_file
+    compressed = _compress_file(source)
+    assert std_gzip.decompress(compressed) == payload
+
+
+def test_compress_file_usa_streaming_sem_carregar_tudo_em_memoria(
+    tmp_path, monkeypatch,
+):
+    source = tmp_path / "big.parquet"
+    source.write_bytes(b"y" * 1000)
+
+    original_read_bytes = Path.read_bytes
+    call_count = {"n": 0}
+
+    def counted(self):
+        call_count["n"] += 1
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", counted)
+
+    from dump_agent.worker.streaming_executor import _compress_file
+    _compress_file(source)
+    assert call_count["n"] == 0, (
+        f"read_bytes foi chamado {call_count['n']}x — implementacao"
+        " ainda e all-at-once. Deveria usar open() + copyfileobj."
+    )

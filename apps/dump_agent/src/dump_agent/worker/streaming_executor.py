@@ -1,8 +1,10 @@
 """Streaming executor — registry + io_guard -> gzip -> PUT upload."""
 
 import gzip
+import io
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -56,7 +58,12 @@ def stream_to_storage(
 
 
 def _compress_file(path: Path) -> bytes:
-    return gzip.compress(path.read_bytes())
+    buffer = io.BytesIO()
+    with path.open("rb") as src, gzip.GzipFile(
+        fileobj=buffer, mode="wb",
+    ) as dst:
+        shutil.copyfileobj(src, dst, length=64 * 1024)
+    return buffer.getvalue()
 
 
 def _upload_payload(url: str, data: bytes) -> None:
