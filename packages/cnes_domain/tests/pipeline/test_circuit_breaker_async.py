@@ -1,6 +1,4 @@
 """Regressão: CircuitBreaker.call_async (async-safe) e rejeição de tipos errados."""
-import asyncio
-
 import pytest
 
 from cnes_domain.pipeline.circuit_breaker import (
@@ -62,9 +60,3 @@ class TestCallRejeitaAsync:
 class TestPytestAsyncioConfig:
     def test_asyncio_mode_auto_ativado(self) -> None:
         pass
-
-
-def pytest_collection_modifyitems(config, items) -> None:
-    for item in items:
-        if asyncio.iscoroutinefunction(getattr(item, "function", None)):
-            item.add_marker(pytest.mark.asyncio)
