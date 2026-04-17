@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys  # noqa: F401
 import threading
 from pathlib import Path  # noqa: F401
-from unittest.mock import MagicMock  # noqa: F401
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -35,3 +35,26 @@ class TestWindowsHandler:
         platform_runtime._on_stop_callback = None
         platform_runtime._windows_handler(0)
         assert not subdir.exists()
+
+
+class TestInstallWindowsHandler:
+    def test_chama_set_console_ctrl_handler(self, monkeypatch):
+        fake_kernel32 = MagicMock()
+        fake_kernel32.SetConsoleCtrlHandler.return_value = 1
+        monkeypatch.setattr(
+            platform_runtime, "_kernel32", fake_kernel32,
+        )
+        called = threading.Event()
+        platform_runtime.install_shutdown_handler(on_stop=called.set)
+        fake_kernel32.SetConsoleCtrlHandler.assert_called_once()
+        args = fake_kernel32.SetConsoleCtrlHandler.call_args[0]
+        assert args[1] is True
+
+    def test_levanta_oserror_quando_api_retorna_zero(self, monkeypatch):
+        fake_kernel32 = MagicMock()
+        fake_kernel32.SetConsoleCtrlHandler.return_value = 0
+        monkeypatch.setattr(
+            platform_runtime, "_kernel32", fake_kernel32,
+        )
+        with pytest.raises(OSError, match="SetConsoleCtrlHandler"):
+            platform_runtime.install_shutdown_handler(on_stop=lambda: None)

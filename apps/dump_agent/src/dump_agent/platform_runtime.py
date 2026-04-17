@@ -200,11 +200,23 @@ if sys.platform == "win32":
             shutil.rmtree(path, ignore_errors=True)
         return True
 
+    def _install_windows_handler(on_stop: Callable[[], None]) -> None:
+        global _on_stop_callback, _handler_ref
+        with _lock:
+            _on_stop_callback = on_stop
+        _handler_ref = _HANDLER_ROUTINE(_windows_handler)
+        if not _kernel32.SetConsoleCtrlHandler(_handler_ref, True):
+            raise OSError(
+                ctypes.get_last_error(),
+                "SetConsoleCtrlHandler_failed",
+            )
+
 
 def install_shutdown_handler(on_stop: Callable[[], None]) -> None:
     if sys.platform == "win32":
-        raise NotImplementedError("windows_branch_pending_task_20")
-    _install_posix_handler(on_stop)
+        _install_windows_handler(on_stop)
+    else:
+        _install_posix_handler(on_stop)
 
 
 def acquire_single_instance_lock(
