@@ -1,5 +1,6 @@
 """Ponto de entrada do dump_agent — daemon de streaming."""
 import asyncio
+import faulthandler
 import logging
 import os
 import random
@@ -71,6 +72,12 @@ async def _async_main(
 
 
 def main_sync() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+    faulthandler.enable()
+
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
     _setup_logging(verbose)
 

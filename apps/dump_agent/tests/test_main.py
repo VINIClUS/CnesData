@@ -43,3 +43,21 @@ def test_main_nao_importa_postgres():
         "PipelineState", "execute_job",
     }
     assert imports & forbidden == set()
+
+
+@patch("dump_agent.main._MAX_JITTER", 0.0)
+@patch("dump_agent.main._setup_logging")
+@patch("dump_agent.main.resolve_machine_id", return_value="m-test")
+@patch("dump_agent.main.acquire_single_instance_lock")
+@patch("dump_agent.main.install_shutdown_handler")
+@patch("dump_agent.main.run_worker", new_callable=AsyncMock)
+@patch("dump_agent.main.faulthandler")
+def test_main_habilita_faulthandler(
+    mock_fh, mock_run, mock_install, mock_lock, mock_mid, mock_logging,
+):
+    mock_lock.return_value.__enter__ = lambda self: None
+    mock_lock.return_value.__exit__ = lambda self, *exc: None
+
+    from dump_agent.main import main_sync
+    main_sync()
+    mock_fh.enable.assert_called_once()
