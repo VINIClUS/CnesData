@@ -55,3 +55,10 @@ class TestCallRejeitaAsync:
         cb = CircuitBreaker()
         with pytest.raises(TypeError, match="call espera função síncrona"):
             cb.call(_async_erro)
+
+
+class TestShouldHalfOpenGuard:
+    def test_aberto_em_none_retorna_false(self) -> None:
+        cb = CircuitBreaker()
+        assert cb._aberto_em is None
+        assert cb._should_half_open() is False
