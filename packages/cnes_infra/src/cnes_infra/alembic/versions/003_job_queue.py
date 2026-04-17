@@ -18,7 +18,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def upgrade() -> None:
+def upgrade() -> None:  # pragma: no cover - alembic migration
     op.execute("CREATE SCHEMA IF NOT EXISTS queue")
     op.create_table(
         "jobs",
@@ -60,7 +60,7 @@ def upgrade() -> None:
     )
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover - alembic migration
     op.drop_index("idx_jobs_pending", table_name="jobs", schema="queue")
     op.drop_table("jobs", schema="queue")
     op.execute("DROP SCHEMA IF EXISTS queue")

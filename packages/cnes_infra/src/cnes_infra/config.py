@@ -21,7 +21,7 @@ def _find_project_root() -> Path:
         if (path / "pyproject.toml").exists() and (path / "packages").exists():
             return path
         path = path.parent
-    return Path.cwd()
+    return Path.cwd()  # pragma: no cover - nunca ocorre com pacote instalado
 
 
 RAIZ_PROJETO = _find_project_root()

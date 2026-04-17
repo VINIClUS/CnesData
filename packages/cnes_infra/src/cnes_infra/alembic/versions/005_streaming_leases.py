@@ -15,7 +15,7 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
+def upgrade() -> None:  # pragma: no cover - alembic migration
     op.add_column(
         "jobs",
         sa.Column("machine_id", sa.String(128)),
@@ -64,7 +64,7 @@ def upgrade() -> None:
     )
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover - alembic migration
     op.alter_column(
         "raw_payload", "payload",
         existing_type=postgresql.JSONB,
