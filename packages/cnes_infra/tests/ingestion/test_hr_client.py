@@ -61,15 +61,17 @@ def test_csv_usa_linhas_limpas(tmp_path):
     df = carregar_folha(csv_path)
     assert not df.is_empty()
 
-    def test_extensao_desconhecida_levanta_hr_schema_error(self):
-        with pytest.raises(HrSchemaError, match="extensão"):
-            carregar_folha(_DESCONHECIDO)
 
-    def test_carregar_ponto_xlsx_chama_read_excel(self):
-        with patch("cnes_infra.ingestion.hr_client.pl.read_excel") as mock_read:
-            mock_read.return_value = _df_ponto_valido()
-            carregar_ponto(_XLSX)
-            mock_read.assert_called_once_with(_XLSX)
+def test_extensao_desconhecida_levanta_hr_schema_error():
+    with pytest.raises(HrSchemaError, match="extensão"):
+        carregar_folha(_DESCONHECIDO)
+
+
+def test_carregar_ponto_xlsx_chama_read_excel():
+    with patch("cnes_infra.ingestion.hr_client.pl.read_excel") as mock_read:
+        mock_read.return_value = _df_ponto_valido()
+        carregar_ponto(_XLSX)
+        mock_read.assert_called_once_with(_XLSX)
 
 
 class TestValidacaoDeSchema:

@@ -84,3 +84,14 @@ def test_circuito_aberto_retorna_indisponivel_sem_chamada_http():
     sessao.get.side_effect = Exception("nao_deve_ser_chamado")
     result = adapter.verificar_estabelecimento(_CNES)
     assert result == STATUS_INDISPONIVEL
+
+
+def test_auth_token_adicionado_ao_header():
+    sessao = MagicMock(spec=requests.Session)
+    sessao.headers = {}
+    resp = MagicMock()
+    resp.status_code = 200
+    sessao.get.return_value = resp
+    adapter = CnesOficialWebAdapter(session=sessao, auth_token="token-secreto")  # noqa: S106
+    assert sessao.headers["Authorization"] == "Bearer token-secreto"
+    assert adapter.verificar_estabelecimento(_CNES) == STATUS_LAG
