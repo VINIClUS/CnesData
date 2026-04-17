@@ -58,11 +58,9 @@ output.txt
 .worktrees/
 .playwright/
 .ruff_cache/
-.github/
 .streamlit/
 docs/superpowers/
 excalidraw.log
-.github/
 .streamlit/
 .coverage.xml.gz
 .coverage.xml.gz.part

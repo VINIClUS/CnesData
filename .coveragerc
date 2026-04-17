@@ -1,0 +1,20 @@
+[run]
+branch = true
+source =
+    apps/dump_agent/src
+    apps/data_processor/src
+    apps/central_api/src
+    apps/cnes_db_migrator/src
+omit =
+    **/__pycache__/**
+    **/tests/**
+
+[report]
+fail_under = 90
+show_missing = true
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @overload
+    raise NotImplementedError
