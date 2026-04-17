@@ -27,6 +27,14 @@ _MAPEAMENTO_NULOS_EQUIPE: Final[dict[str, str]] = {
 _SENTINELAS_NULO: set[str] = {"", "None", "nan", "NaN", "NaT"}
 
 
+def _normalize_cpf(cpf: str) -> str:
+    """Remove não-dígitos e pad com zeros, ou retorna string vazia se vazio."""
+    if cpf in _SENTINELAS_NULO:
+        return cpf
+    stripped = "".join(c for c in cpf if c.isdigit())
+    return stripped.rjust(11, "0") if stripped else ""
+
+
 def _aplicar_rq002_validar_cpf(df: pl.DataFrame) -> pl.DataFrame:
     """RQ-002: Remove registros com CPF nulo ou comprimento != 11.
 
@@ -99,10 +107,10 @@ def transformar(
 
     if "CPF" in resultado.columns:
         resultado = resultado.with_columns(
-            pl.when(pl.col("CPF").is_in(_SENTINELAS_NULO))
-            .then(pl.col("CPF"))
-            .otherwise(pl.col("CPF").str.pad_start(11, "0"))
-            .alias("CPF")
+            pl.col("CPF").map_elements(
+                _normalize_cpf,
+                return_dtype=pl.Utf8,
+            ).alias("CPF")
         )
 
     registros_antes = resultado.height
