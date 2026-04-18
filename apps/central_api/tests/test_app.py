@@ -19,18 +19,18 @@ def _make_app():
         return create_app()
 
 
-@pytest.fixture()
+@pytest.fixture
 def app():
     return _make_app()
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(app):
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_engine():
     engine = MagicMock(spec=Engine)
     con = MagicMock()
@@ -40,7 +40,7 @@ def mock_engine():
     return engine
 
 
-@pytest.fixture()
+@pytest.fixture
 def client_with_engine(app, mock_engine):
     from central_api.deps import get_engine
     app.dependency_overrides[get_engine] = lambda: mock_engine
@@ -49,7 +49,7 @@ def client_with_engine(app, mock_engine):
     app.dependency_overrides.clear()
 
 
-@pytest.fixture()
+@pytest.fixture
 def failing_engine():
     engine = MagicMock(spec=Engine)
     engine.connect.side_effect = Exception("db_down")
@@ -363,7 +363,8 @@ class TestLeaseReaperLoop:
     @pytest.mark.asyncio
     async def test_reaper_loop_registra_leases_reaped(self):
         import asyncio
-        from central_api.deps import _lease_reaper_loop, _REAPER_INTERVAL
+
+        from central_api.deps import _lease_reaper_loop
         engine = MagicMock()
         call_count = 0
 
@@ -384,11 +385,10 @@ class TestLeaseReaperLoop:
     @pytest.mark.asyncio
     async def test_reaper_loop_captura_excecao(self):
         import asyncio
-        from unittest.mock import AsyncMock
+
         import central_api.deps as deps_mod
 
         engine = MagicMock()
-        original_interval = deps_mod._REAPER_INTERVAL
 
         with patch.object(deps_mod, "_REAPER_INTERVAL", 0.01):
             with patch(

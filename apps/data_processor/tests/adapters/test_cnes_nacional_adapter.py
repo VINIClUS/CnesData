@@ -1,5 +1,4 @@
 """Testes do CnesNacionalAdapter."""
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import polars as pl
@@ -241,8 +240,8 @@ class TestSihdLocalAdapter:
         })
 
     def test_renomeia_colunas_raw_para_canonico(self):
-        from data_processor.adapters.sihd_local_adapter import SihdLocalAdapter
         from cnes_domain.contracts.sihd_columns import SCHEMA_AIH
+        from data_processor.adapters.sihd_local_adapter import SihdLocalAdapter
         df = SihdLocalAdapter(self._make_raw_aihs()).listar_aihs()
         assert "NUM_AIH" in df.columns
         assert "AH_NUM_AIH" not in df.columns

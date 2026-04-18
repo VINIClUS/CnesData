@@ -70,25 +70,29 @@ class TestLazyAttrs:
             _ = cfg.nao_existe
 
     def test_db_path_levanta_os_error_sem_env(self, monkeypatch):
-        monkeypatch.delenv("DB_PATH", raising=False)
         import cnes_infra.config as cfg
+        cfg._firebird_db_path.cache_clear()
+        monkeypatch.delenv("DB_PATH", raising=False)
         with pytest.raises(OSError):
             _ = cfg.DB_PATH
 
     def test_db_password_levanta_os_error_sem_env(self, monkeypatch):
-        monkeypatch.delenv("DB_PASSWORD", raising=False)
         import cnes_infra.config as cfg
+        cfg._firebird_db_password.cache_clear()
+        monkeypatch.delenv("DB_PASSWORD", raising=False)
         with pytest.raises(OSError):
             _ = cfg.DB_PASSWORD
 
     def test_firebird_dll_levanta_os_error_sem_env(self, monkeypatch):
-        monkeypatch.delenv("FIREBIRD_DLL", raising=False)
         import cnes_infra.config as cfg
+        cfg._firebird_dll.cache_clear()
+        monkeypatch.delenv("FIREBIRD_DLL", raising=False)
         with pytest.raises(OSError):
             _ = cfg.FIREBIRD_DLL
 
     def test_gcp_project_id_levanta_os_error_sem_env(self, monkeypatch):
-        monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
         import cnes_infra.config as cfg
+        cfg._gcp_project_id.cache_clear()
+        monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
         with pytest.raises(OSError):
             _ = cfg.GCP_PROJECT_ID

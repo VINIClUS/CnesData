@@ -38,6 +38,13 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+extend-exclude = [
+    ".claude",
+    ".venv",
+    "fb_64",
+    "node_modules",
+    "packages/cnes_infra/src/cnes_infra/alembic/versions",
+]
 
 [tool.ruff.lint]
 select = [
