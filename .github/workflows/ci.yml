@@ -48,6 +48,7 @@ jobs:
           cd packages/cnes_infra
           alembic -c alembic.ini upgrade head
         env:
+          DB_URL: postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
           PG_TEST_URL: postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
 
       - name: Test + coverage (core pkgs, branch 100)

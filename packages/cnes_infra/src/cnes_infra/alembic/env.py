@@ -19,9 +19,16 @@ for md in (gold_metadata, landing_metadata, queue_metadata):
         table.tometadata(target_metadata)
 
 
+def _resolver_db_url() -> str:  # pragma: no cover - alembic CLI only
+    override = alembic_config.get_main_option("sqlalchemy.url")
+    if override:
+        return override
+    return app_config.DB_URL
+
+
 def run_migrations_offline() -> None:  # pragma: no cover - alembic CLI only
     context.configure(
-        url=app_config.DB_URL,
+        url=_resolver_db_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -31,7 +38,7 @@ def run_migrations_offline() -> None:  # pragma: no cover - alembic CLI only
 
 
 def run_migrations_online() -> None:  # pragma: no cover - alembic CLI only
-    connectable = create_engine(app_config.DB_URL, poolclass=pool.NullPool)
+    connectable = create_engine(_resolver_db_url(), poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
