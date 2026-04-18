@@ -9,6 +9,12 @@ on:
 jobs:
   lint-test-coverage:
     runs-on: ubuntu-latest
+    env:
+      DB_URL: postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
+      PG_TEST_URL: postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
+      COMPETENCIA_ANO: "2026"
+      COMPETENCIA_MES: "1"
+      DISABLE_PANDERA_IMPORT_WARNING: "True"
     services:
       postgres:
         image: postgres:16-alpine
@@ -38,7 +44,7 @@ jobs:
           pip install -e apps/data_processor
           pip install -e apps/central_api
           pip install -e apps/cnes_db_migrator
-          pip install pytest pytest-cov pytest-asyncio pytest-benchmark hypothesis ruff
+          pip install pytest pytest-cov pytest-asyncio pytest-benchmark hypothesis ruff duckdb psutil
 
       - name: Lint
         run: ruff check .
@@ -47,9 +53,6 @@ jobs:
         run: |
           cd packages/cnes_infra
           alembic -c alembic.ini upgrade head
-        env:
-          DB_URL: postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
-          PG_TEST_URL: postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
 
       - name: Test + coverage (core pkgs, branch 100)
         run: |
@@ -58,8 +61,6 @@ jobs:
             -m "not bigquery and not e2e and not stress and not soak and not spike" \
             --cov --cov-config=pyproject.toml \
             --cov-report=term-missing
-        env:
-          PG_TEST_URL: postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
 
       - name: Test + coverage (apps, line 90)
         run: |
