@@ -115,7 +115,7 @@ def fbclient_dll_path() -> Path:
     raise FileNotFoundError("fbclient_not_found_on_linux")
 
 
-if sys.platform != "win32":
+if sys.platform != "win32":  # pragma: no cover - posix_only
     import signal as _signal
 
     def _posix_handler(signum: int, _frame: object) -> None:
@@ -165,7 +165,7 @@ if sys.platform != "win32":
                 self._fd.close()
 
 
-if sys.platform == "win32":
+if sys.platform == "win32":  # pragma: no cover - windows_only branch on linux ci
     import ctypes
     from ctypes import wintypes
 

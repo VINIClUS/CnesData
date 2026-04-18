@@ -205,3 +205,62 @@ class TestProcessJob:
         mock_cnes_inst.listar_estabelecimentos.assert_called_once()
         mock_uow.estabelecimentos.gravar.assert_called_once()
         mock_uow.profissionais.gravar.assert_not_called()
+
+
+class TestProcessJobSihd:
+    @patch("data_processor.processor._download_parquet")
+    @patch("data_processor.processor.PostgresUnitOfWork")
+    @patch("data_processor.processor.mapear_vinculos")
+    @patch("data_processor.processor.mapear_profissionais")
+    @patch("data_processor.processor.extrair_fonte")
+    @patch("data_processor.processor.transformar")
+    @patch("data_processor.processor.SihdLocalAdapter")
+    def test_sihd_producao_chama_sihd_adapter(
+        self,
+        mock_sihd_cls,
+        mock_transform,
+        mock_fonte,
+        mock_map_prof,
+        mock_map_vinc,
+        mock_uow_cls,
+        mock_download,
+    ):
+        import uuid
+        import polars as pl
+        from cnes_infra.storage.job_queue import Job
+        from data_processor.processor import process_job
+
+        df_raw = pl.DataFrame({"AH_NUM_AIH": ["12345"]})
+        df_adapted = pl.DataFrame({"CPF": ["12345678901"]})
+        mock_download.return_value = df_raw
+
+        mock_sihd_inst = MagicMock()
+        mock_sihd_inst.listar_aihs.return_value = df_adapted
+        mock_sihd_cls.return_value = mock_sihd_inst
+
+        mock_transform.return_value = df_adapted
+        mock_fonte.return_value = "LOCAL"
+        mock_map_prof.return_value = []
+        mock_map_vinc.return_value = []
+
+        mock_uow = MagicMock()
+        mock_uow.__enter__ = MagicMock(return_value=mock_uow)
+        mock_uow.__exit__ = MagicMock(return_value=False)
+        mock_uow_cls.return_value = mock_uow
+
+        engine = MagicMock()
+        storage = MagicMock()
+        storage.get_presigned_download_url.return_value = "http://test"
+
+        job = Job(
+            id=uuid.uuid4(),
+            status="PROCESSING",
+            source_system="sihd_producao",
+            tenant_id="355030",
+            payload_id=uuid.uuid4(),
+            object_key="key/sihd.parquet.gz",
+            competencia="2024-12",
+        )
+        process_job(engine, storage, job)
+        mock_sihd_cls.assert_called_once_with(df_raw)
+        mock_sihd_inst.listar_aihs.assert_called_once()
