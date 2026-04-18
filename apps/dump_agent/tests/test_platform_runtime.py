@@ -143,3 +143,161 @@ class TestFbclientDllPath:
         monkeypatch.setattr(Path, "exists", lambda self: True)
         result = platform_runtime.fbclient_dll_path()
         assert "libfbclient" in str(result)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only code")
+class TestWindowsHandler:
+    def test_handler_retorna_true(self):
+        from dump_agent import platform_runtime as pr
+        pr._temp_dirs.clear()
+        pr._on_stop_callback = None
+        assert pr._windows_handler(0) is True
+
+    def test_handler_chama_callback(self):
+        import threading
+        from dump_agent import platform_runtime as pr
+        called = threading.Event()
+        pr._temp_dirs.clear()
+        pr._on_stop_callback = called.set
+        pr._windows_handler(1)
+        assert called.is_set()
+
+    def test_handler_swallows_callback_exception(self):
+        from dump_agent import platform_runtime as pr
+        pr._temp_dirs.clear()
+        pr._on_stop_callback = lambda: 1 / 0
+        result = pr._windows_handler(0)
+        assert result is True
+
+    def test_handler_limpa_tempdirs(self, tmp_path):
+        from dump_agent import platform_runtime as pr
+        subdir = tmp_path / "to_clean"
+        subdir.mkdir()
+        pr._temp_dirs.clear()
+        pr._temp_dirs.add(subdir)
+        pr._on_stop_callback = None
+        pr._windows_handler(0)
+        assert not subdir.exists()
+
+    def test_handler_unknown_ctrl_code(self):
+        from dump_agent import platform_runtime as pr
+        pr._temp_dirs.clear()
+        pr._on_stop_callback = None
+        result = pr._windows_handler(99)
+        assert result is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only code")
+class TestInstallWindowsHandlerPortable:
+    def test_registra_handler_via_mock(self, monkeypatch):
+        from unittest.mock import MagicMock
+        from dump_agent import platform_runtime as pr
+        fake_kernel32 = MagicMock()
+        fake_kernel32.SetConsoleCtrlHandler.return_value = 1
+        monkeypatch.setattr(pr, "_kernel32", fake_kernel32)
+        sentinel = MagicMock()
+        pr._install_windows_handler(sentinel)
+        fake_kernel32.SetConsoleCtrlHandler.assert_called_once()
+        assert pr._on_stop_callback is sentinel
+
+    def test_levanta_quando_set_console_ctrl_handler_falha(self, monkeypatch):
+        from unittest.mock import MagicMock
+        from dump_agent import platform_runtime as pr
+        fake_kernel32 = MagicMock()
+        fake_kernel32.SetConsoleCtrlHandler.return_value = 0
+        monkeypatch.setattr(pr, "_kernel32", fake_kernel32)
+        with pytest.raises(OSError):
+            pr._install_windows_handler(lambda: None)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only code")
+class TestWindowsMutexPortable:
+    def test_cria_e_libera_mutex(self):
+        from dump_agent import platform_runtime as pr
+        with pr._WindowsMutex("test_portable_cria"):
+            pass
+
+    def test_levanta_quando_mutex_ja_existe(self):
+        from dump_agent import platform_runtime as pr
+        with pr._WindowsMutex("test_portable_already"):
+            with pytest.raises(RuntimeError, match="already_running"):
+                pr._WindowsMutex("test_portable_already")
+
+    def test_levanta_quando_handle_invalido(self, monkeypatch):
+        from unittest.mock import MagicMock
+        from dump_agent import platform_runtime as pr
+        fake_kernel32 = MagicMock()
+        fake_kernel32.CreateMutexW.return_value = 0
+        fake_kernel32.get_last_error = MagicMock(return_value=5)
+        import ctypes
+        monkeypatch.setattr(ctypes, "get_last_error", lambda: 5)
+        fake_kernel32.CreateMutexW.return_value = None
+        original_kernel32 = pr._kernel32
+        pr._kernel32 = fake_kernel32
+        try:
+            with pytest.raises((OSError, RuntimeError, TypeError)):
+                pr._WindowsMutex("test_invalid")
+        finally:
+            pr._kernel32 = original_kernel32
+
+
+class TestResolveMachineIdEdgeCases:
+    def test_arq_existente_vazio_gera_novo_id(self, tmp_path, monkeypatch):
+        import sys
+        monkeypatch.delenv("MACHINE_ID", raising=False)
+        if sys.platform == "win32":
+            monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        else:
+            monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        store = platform_runtime.app_data_dir() / "machine_id"
+        store.write_text("", encoding="utf-8")
+        mid = platform_runtime.resolve_machine_id()
+        assert len(mid) == 8
+        assert store.read_text().strip() == mid
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only raise")
+class TestFbclientDllPathWindows:
+    def test_levanta_quando_env_ausente_no_windows(self, monkeypatch):
+        monkeypatch.delenv("FIREBIRD_DLL", raising=False)
+        monkeypatch.setattr(sys, "frozen", False, raising=False)
+        with pytest.raises(FileNotFoundError, match="fbclient_windows_requires"):
+            platform_runtime.fbclient_dll_path()
+
+
+class TestInstallShutdownHandlerPortable:
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+    def test_chama_windows_handler(self, monkeypatch):
+        from unittest.mock import MagicMock
+        mock_install = MagicMock()
+        monkeypatch.setattr(platform_runtime, "_install_windows_handler", mock_install)
+        sentinel = MagicMock()
+        platform_runtime.install_shutdown_handler(sentinel)
+        mock_install.assert_called_once_with(sentinel)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only code")
+class TestAcquireSingleInstanceLockPortable:
+    def test_chama_windows_mutex(self, monkeypatch):
+        from unittest.mock import MagicMock
+        mock_mutex_cls = MagicMock()
+        mock_instance = MagicMock()
+        mock_mutex_cls.return_value = mock_instance
+        monkeypatch.setattr(platform_runtime, "_WindowsMutex", mock_mutex_cls)
+        result = platform_runtime.acquire_single_instance_lock("test_lock")
+        mock_mutex_cls.assert_called_once_with("test_lock")
+        assert result is mock_instance
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only code")
+class TestWindowsMutexExitNoHandle:
+    def test_exit_com_handle_none_nao_levanta(self):
+        from dump_agent import platform_runtime as pr
+        from unittest.mock import MagicMock, patch
+        fake_kernel32 = MagicMock()
+        fake_kernel32.CreateMutexW.return_value = 1
+        import ctypes
+        with patch.object(ctypes, "get_last_error", return_value=0):
+            mutex = pr._WindowsMutex.__new__(pr._WindowsMutex)
+            mutex._handle = None
+            mutex.__exit__(None, None, None)

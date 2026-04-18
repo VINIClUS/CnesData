@@ -17,7 +17,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def upgrade() -> None:
+def upgrade() -> None:  # pragma: no cover - alembic migration
     """Cria schema gold e tabelas dimensão/fato."""
     op.execute("CREATE SCHEMA IF NOT EXISTS gold")
 
@@ -128,6 +128,6 @@ def upgrade() -> None:
     )
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover - alembic migration
     """Remove schema gold e todo seu conteúdo."""
     op.execute("DROP SCHEMA IF EXISTS gold CASCADE")

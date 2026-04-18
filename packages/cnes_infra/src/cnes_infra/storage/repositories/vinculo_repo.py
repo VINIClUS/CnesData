@@ -39,5 +39,15 @@ class VinculoRepository:
         )
         materialized = list(rows)
         for chunk in _chunked(materialized, _CHUNK_SIZE):
-            self._con.execute(insert(fato_vinculo).values(chunk))
+            self._con.execute(
+                insert(fato_vinculo)
+                .values(chunk)
+                .on_conflict_do_update(
+                    index_elements=["tenant_id", "competencia", "cpf", "cnes", "cbo"],
+                    set_={
+                        "fontes": text("fato_vinculo.fontes || EXCLUDED.fontes"),
+                        "atualizado_em": text("NOW()"),
+                    },
+                )
+            )
         return len(materialized)

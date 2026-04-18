@@ -48,6 +48,7 @@ def _gravar_estabelecimentos(uow, df):
 
 @pytest.mark.integration
 def test_gravar_profissionais_insere_dim_profissional(uow, pg_engine):
+    _gravar_estabelecimentos(uow, _df_estab())
     _gravar_profissionais(uow, "2026-01", _df_prof())
     with pg_engine.connect() as con:
         rows = con.execute(text(
@@ -73,6 +74,7 @@ def test_gravar_profissionais_insere_fato_vinculo(uow, pg_engine):
 
 @pytest.mark.integration
 def test_gravar_profissionais_upsert_nao_duplica_rows(uow, pg_engine):
+    _gravar_estabelecimentos(uow, _df_estab())
     _gravar_profissionais(uow, "2026-01", _df_prof())
     _gravar_profissionais(uow, "2026-01", _df_prof())
     with pg_engine.connect() as con:
@@ -106,6 +108,7 @@ def test_sus_n_convertido_para_false(uow, pg_engine):
 
 @pytest.mark.integration
 def test_fontes_jsonb_merge_em_conflito(uow, pg_engine):
+    _gravar_estabelecimentos(uow, _df_estab())
     _gravar_profissionais(uow, "2026-01", _df_prof(fonte="LOCAL"))
     _gravar_profissionais(uow, "2026-01", _df_prof(fonte="NACIONAL"))
     with pg_engine.connect() as con:

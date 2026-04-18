@@ -15,7 +15,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def upgrade() -> None:
+def upgrade() -> None:  # pragma: no cover - alembic migration
     op.create_index(
         "idx_fato_vinculo_fontes",
         "fato_vinculo",
@@ -25,7 +25,7 @@ def upgrade() -> None:
     )
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover - alembic migration
     op.drop_index(
         "idx_fato_vinculo_fontes",
         "fato_vinculo",

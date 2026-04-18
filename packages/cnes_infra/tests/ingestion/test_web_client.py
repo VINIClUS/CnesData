@@ -182,6 +182,20 @@ class TestRetorno:
             assert isinstance(resultado, pl.DataFrame)
             assert "cartao_nacional_saude" in resultado.columns
 
+    def test_fetch_profissionais_vazio_loga_warning(self, caplog):
+        with patch("cnes_infra.ingestion.web_client.bd.read_sql") as mock_read_sql:
+            mock_read_sql.return_value = pd.DataFrame(
+                columns=["ano", "mes", "id_municipio", "id_estabelecimento_cnes",
+                         "cartao_nacional_saude", "nome", "cbo_2002", "tipo_vinculo",
+                         "indicador_atende_sus", "carga_horaria_ambulatorial",
+                         "carga_horaria_outros", "carga_horaria_hospitalar"]
+            )
+            client = CnesWebClient(_BILLING_PROJECT)
+            with caplog.at_level("WARNING", logger="cnes_infra.ingestion.web_client"):
+                resultado = client.fetch_profissionais(_ID_MUNICIPIO, _ANO, _MES)
+        assert resultado.is_empty()
+        assert "rows=0" in caplog.text
+
     def test_fetch_equipes_retorna_dataframe(self):
         with patch("cnes_infra.ingestion.web_client.bd.read_sql") as mock_read_sql:
             mock_read_sql.return_value = _df_equipes()

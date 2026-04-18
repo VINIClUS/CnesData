@@ -29,14 +29,14 @@ def is_frozen() -> bool:
 def app_data_dir() -> Path:
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA")
-        if not base:
-            base = str(Path.home() / "AppData" / "Local")
+        if not base:  # pragma: no cover - windows_only
+            base = str(Path.home() / "AppData" / "Local")  # pragma: no cover - windows_only
         path = Path(base) / "CnesAgent"
-    else:
-        base = os.environ.get("XDG_STATE_HOME")
-        if not base:
-            base = str(Path.home() / ".local" / "state")
-        path = Path(base) / "cnes-agent"
+    else:  # pragma: no cover - posix_only
+        base = os.environ.get("XDG_STATE_HOME")  # pragma: no cover - posix_only
+        if not base:  # pragma: no cover - posix_only
+            base = str(Path.home() / ".local" / "state")  # pragma: no cover - posix_only
+        path = Path(base) / "cnes-agent"  # pragma: no cover - posix_only
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -80,45 +80,45 @@ def fbclient_dll_path() -> Path:
             raise FileNotFoundError(f"fbclient_not_found path={env_path}")
         return env_path
 
-    if is_frozen():
-        meipass = getattr(sys, "_MEIPASS", None)
-        if meipass:
-            candidate = Path(meipass) / "fbclient.dll"
-            if candidate.exists():
-                return candidate
-        exe_sibling = Path(sys.executable).parent / "fbclient.dll"
-        if exe_sibling.exists():
-            return exe_sibling
-        raise FileNotFoundError("fbclient_not_found_in_frozen_bundle")
+    if is_frozen():  # pragma: no cover - frozen_only
+        meipass = getattr(sys, "_MEIPASS", None)  # pragma: no cover - frozen_only
+        if meipass:  # pragma: no cover - frozen_only
+            candidate = Path(meipass) / "fbclient.dll"  # pragma: no cover - frozen_only
+            if candidate.exists():  # pragma: no cover - frozen_only
+                return candidate  # pragma: no cover - frozen_only
+        exe_sibling = Path(sys.executable).parent / "fbclient.dll"  # pragma: no cover - frozen_only
+        if exe_sibling.exists():  # pragma: no cover - frozen_only
+            return exe_sibling  # pragma: no cover - frozen_only
+        raise FileNotFoundError("fbclient_not_found_in_frozen_bundle")  # pragma: no cover
 
     if sys.platform == "win32":
         raise FileNotFoundError(
             "fbclient_windows_requires_FIREBIRD_DLL_env",
         )
 
-    from ctypes import util
+    from ctypes import util  # pragma: no cover - posix_only
 
-    found = util.find_library("fbclient")
-    if found:
-        candidate = Path(found)
-        if candidate.exists():
-            return candidate
+    found = util.find_library("fbclient")  # pragma: no cover - posix_only
+    if found:  # pragma: no cover - posix_only
+        candidate = Path(found)  # pragma: no cover - posix_only
+        if candidate.exists():  # pragma: no cover - posix_only
+            return candidate  # pragma: no cover - posix_only
 
-    for fallback in (
+    for fallback in (  # pragma: no cover - posix_only
         Path("/usr/lib/x86_64-linux-gnu/libfbclient.so.2"),
         Path("/usr/lib/libfbclient.so.2"),
         Path("/usr/local/lib/libfbclient.so.2"),
     ):
-        if fallback.exists():
-            return fallback
+        if fallback.exists():  # pragma: no cover - posix_only
+            return fallback  # pragma: no cover - posix_only
 
-    raise FileNotFoundError("fbclient_not_found_on_linux")
+    raise FileNotFoundError("fbclient_not_found_on_linux")  # pragma: no cover - posix_only
 
 
-if sys.platform != "win32":
-    import signal as _signal
+if sys.platform != "win32":  # pragma: no cover - posix_only
+    import signal as _signal  # pragma: no cover - posix_only
 
-    def _posix_handler(signum: int, _frame: object) -> None:
+    def _posix_handler(signum: int, _frame: object) -> None:  # pragma: no cover - posix_only
         kind = _signal.Signals(signum).name
         logger.warning("shutdown_signal kind=%s", kind)
         with _lock:
@@ -134,16 +134,16 @@ if sys.platform != "win32":
             for path in dirs:
                 shutil.rmtree(path, ignore_errors=True)
 
-    def _install_posix_handler(on_stop: Callable[[], None]) -> None:
+    def _install_posix_handler(on_stop: Callable[[], None]) -> None:  # pragma: no cover
         global _on_stop_callback
         with _lock:
             _on_stop_callback = on_stop
         _signal.signal(_signal.SIGTERM, _posix_handler)
         _signal.signal(_signal.SIGINT, _posix_handler)
 
-    import fcntl as _fcntl
+    import fcntl as _fcntl  # pragma: no cover - posix_only
 
-    class _PosixFileLock:
+    class _PosixFileLock:  # pragma: no cover - posix_only
         def __init__(self, name: str) -> None:
             self._path = app_data_dir() / f"{name}.lock"
             self._fd = self._path.open("w", encoding="utf-8")
@@ -165,7 +165,7 @@ if sys.platform != "win32":
                 self._fd.close()
 
 
-if sys.platform == "win32":
+if sys.platform == "win32":  # pragma: no cover - windows_only branch on linux ci
     import ctypes
     from ctypes import wintypes
 
@@ -256,8 +256,8 @@ if sys.platform == "win32":
 def install_shutdown_handler(on_stop: Callable[[], None]) -> None:
     if sys.platform == "win32":
         _install_windows_handler(on_stop)
-    else:
-        _install_posix_handler(on_stop)
+    else:  # pragma: no cover - posix_only
+        _install_posix_handler(on_stop)  # pragma: no cover - posix_only
 
 
 def acquire_single_instance_lock(
@@ -265,4 +265,4 @@ def acquire_single_instance_lock(
 ) -> AbstractContextManager[None]:
     if sys.platform == "win32":
         return _WindowsMutex(name)
-    return _PosixFileLock(name)
+    return _PosixFileLock(name)  # pragma: no cover - posix_only

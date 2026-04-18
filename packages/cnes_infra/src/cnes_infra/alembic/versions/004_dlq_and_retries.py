@@ -15,7 +15,7 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
+def upgrade() -> None:  # pragma: no cover - alembic migration
     op.add_column(
         "jobs",
         sa.Column(
@@ -104,7 +104,7 @@ def upgrade() -> None:
     )
 
 
-def downgrade() -> None:
+def downgrade() -> None:  # pragma: no cover - alembic migration
     op.drop_index("idx_dlq_source", "jobs_dlq", schema="queue")
     op.drop_index("idx_dlq_tenant", "jobs_dlq", schema="queue")
     op.drop_table("jobs_dlq", schema="queue")
