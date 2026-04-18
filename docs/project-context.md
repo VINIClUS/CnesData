@@ -199,7 +199,7 @@ These are concrete next steps, ordered by value:
 | 1 | Data validation + 5 defect fixes | ✅ Done | CPF/CNES zero-padding, RQ-007/009 cascade false positives, COVEPE type 50 |
 | 2 | CBO enrichment (human-readable job titles) | ✅ Done | DESCRICAO_CBO column in all reports via NFCES026 |
 | 3 | "Double-Check" Nacional (cascade_resolver) | Removed | Audit layer removed 2026-04 — rules applied by separate service via PostgreSQL JOINs |
-| 4 | DuckDB Medallion POC (Gold layer) | ✅ Done (POC) | Analytic persistence: evolucao_metricas_mensais + auditoria_resultados |
+| 4 | Gold layer Medallion (Postgres JSONB) | ✅ Done | Analytic persistence via Postgres: evolucao_metricas_mensais + auditoria_resultados |
 | 5 | HR Pre-processor (PIS→CPF crosswalk) | ✅ Done | scripts/hr_pre_processor.py via LFCES018 — 61% coverage (240/395) |
 | 6 | Evolution dashboard in Excel | Not started | Trend tab comparing snapshots month-over-month (needs 2+ runs) |
 
