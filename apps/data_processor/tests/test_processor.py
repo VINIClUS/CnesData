@@ -226,7 +226,9 @@ class TestProcessJobSihd:
         mock_download,
     ):
         import uuid
+
         import polars as pl
+
         from cnes_infra.storage.job_queue import Job
         from data_processor.processor import process_job
 

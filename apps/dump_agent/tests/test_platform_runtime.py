@@ -155,6 +155,7 @@ class TestWindowsHandler:
 
     def test_handler_chama_callback(self):
         import threading
+
         from dump_agent import platform_runtime as pr
         called = threading.Event()
         pr._temp_dirs.clear()
@@ -191,6 +192,7 @@ class TestWindowsHandler:
 class TestInstallWindowsHandlerPortable:
     def test_registra_handler_via_mock(self, monkeypatch):
         from unittest.mock import MagicMock
+
         from dump_agent import platform_runtime as pr
         fake_kernel32 = MagicMock()
         fake_kernel32.SetConsoleCtrlHandler.return_value = 1
@@ -202,6 +204,7 @@ class TestInstallWindowsHandlerPortable:
 
     def test_levanta_quando_set_console_ctrl_handler_falha(self, monkeypatch):
         from unittest.mock import MagicMock
+
         from dump_agent import platform_runtime as pr
         fake_kernel32 = MagicMock()
         fake_kernel32.SetConsoleCtrlHandler.return_value = 0
@@ -225,6 +228,7 @@ class TestWindowsMutexPortable:
 
     def test_levanta_quando_handle_invalido(self, monkeypatch):
         from unittest.mock import MagicMock
+
         from dump_agent import platform_runtime as pr
         fake_kernel32 = MagicMock()
         fake_kernel32.CreateMutexW.return_value = 0
@@ -292,8 +296,9 @@ class TestAcquireSingleInstanceLockPortable:
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only code")
 class TestWindowsMutexExitNoHandle:
     def test_exit_com_handle_none_nao_levanta(self):
-        from dump_agent import platform_runtime as pr
         from unittest.mock import MagicMock, patch
+
+        from dump_agent import platform_runtime as pr
         fake_kernel32 = MagicMock()
         fake_kernel32.CreateMutexW.return_value = 1
         import ctypes

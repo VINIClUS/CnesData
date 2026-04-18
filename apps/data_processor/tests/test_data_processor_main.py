@@ -72,6 +72,7 @@ class TestMain:
     @pytest.mark.asyncio
     async def test_main_executa_run_processor(self, tmp_path, monkeypatch):
         import sys
+
         from cnes_infra import config as infra_config
         monkeypatch.setattr(infra_config, "LOGS_DIR", tmp_path)
         monkeypatch.setattr(
@@ -82,12 +83,11 @@ class TestMain:
         with (
             patch("data_processor.main._setup_logging"),
             patch("data_processor.main.init_telemetry"),
-            patch("data_processor.main.create_engine") as mock_engine,
-            patch("data_processor.main._create_storage") as mock_storage,
+            patch("data_processor.main.create_engine"),
+            patch("data_processor.main._create_storage"),
             patch("data_processor.main.run_processor") as mock_run,
         ):
             mock_run.return_value = None
-            import asyncio
             mock_run.side_effect = None
 
             async def _fake_run(*a, **kw):

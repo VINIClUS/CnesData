@@ -228,7 +228,6 @@ class TestRunWorkerTimingPaths:
         async def mock_acquire(url, mid):
             nonlocal call_count
             call_count += 1
-            return None
 
         stop_event = asyncio.Event()
         with (

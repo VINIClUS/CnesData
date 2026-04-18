@@ -1,5 +1,4 @@
 """Testes unitários do cnes_db_migrator."""
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
