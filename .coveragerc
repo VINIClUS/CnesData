@@ -10,9 +10,7 @@ omit =
     **/tests/**
 
 [report]
-# TODO(apps-coverage): elevar para 90 ao cobrir platform_runtime.py
-# (posix/win32 duals) e worker/consumer.py (loop async). Base 78% em 2026-04-17.
-fail_under = 75
+fail_under = 90
 show_missing = true
 exclude_lines =
     pragma: no cover
