@@ -15,6 +15,9 @@ jobs:
       COMPETENCIA_ANO: "2026"
       COMPETENCIA_MES: "1"
       DISABLE_PANDERA_IMPORT_WARNING: "True"
+      COD_MUN_IBGE: "354130"
+      ID_MUNICIPIO_IBGE7: "3541308"
+      CNPJ_MANTENEDORA: "55293427000117"
     services:
       postgres:
         image: postgres:16-alpine
