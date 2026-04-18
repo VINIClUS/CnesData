@@ -43,11 +43,20 @@ def _wait_pg(timeout: float = 60.0) -> bool:
         engine.dispose()
 
 
+def _docker_daemon_ok(docker: str) -> bool:
+    result = subprocess.run(  # noqa: S603
+        [docker, "info"], capture_output=True, check=False, timeout=10,
+    )
+    return result.returncode == 0
+
+
 @pytest.fixture(scope="session")
 def perf_stack():
     docker = _docker_bin()
     if not docker:
         pytest.skip("docker não disponível — perf fixtures indisponíveis")
+    if not _docker_daemon_ok(docker):
+        pytest.skip("docker daemon parado — perf fixtures indisponíveis")
     subprocess.run(  # noqa: S603
         [docker, "compose", "-f", "docker-compose.perf.yml", "up", "-d"],
         check=True,
