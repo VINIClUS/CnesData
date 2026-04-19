@@ -5,6 +5,7 @@ source =
     data_processor
     central_api
     cnes_db_migrator
+    batch_watcher
 omit =
     **/__pycache__/**
     **/tests/**
