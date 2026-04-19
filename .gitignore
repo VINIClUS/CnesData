@@ -48,6 +48,11 @@ escalidraw.log
 Thumbs.db
 Desktop.ini
 
+# --- Arquivos de Benchmark ---
+macro.json
+out.json
+.benchmarks/
+
 # --- Arquivos Temporários de Debug ---
 *.txt.bak
 win_test*.txt
@@ -72,6 +77,7 @@ docs/superpowers/*
 .vscode
 .serena
 docs/specs/*
+docs/specs/
 docs/specs/**
 
 # Claude
