@@ -99,12 +99,33 @@ class TestHeartbeatResponse:
 class TestCompleteUploadRequest:
 
     def test_campos_validos(self):
-        m = CompleteUploadRequest(machine_id="m", object_key="k")
+        m = CompleteUploadRequest(
+            machine_id="m", object_key="k", size_bytes=1024,
+        )
         assert m.object_key == "k"
+        assert m.size_bytes == 1024
 
     def test_object_key_vazio_levanta_erro(self):
         with pytest.raises(ValidationError):
-            CompleteUploadRequest(machine_id="m", object_key="")
+            CompleteUploadRequest(
+                machine_id="m", object_key="", size_bytes=1,
+            )
+
+    def test_rejeita_size_bytes_negativo(self):
+        with pytest.raises(ValidationError):
+            CompleteUploadRequest(
+                machine_id="m", object_key="k", size_bytes=-1,
+            )
+
+    def test_aceita_size_bytes_zero(self):
+        m = CompleteUploadRequest(
+            machine_id="m", object_key="k", size_bytes=0,
+        )
+        assert m.size_bytes == 0
+
+    def test_size_bytes_obrigatorio(self):
+        with pytest.raises(ValidationError):
+            CompleteUploadRequest(machine_id="m", object_key="k")
 
 
 class TestHealthResponse:

@@ -43,6 +43,7 @@ class HeartbeatResponse(BaseModel):
 class CompleteUploadRequest(BaseModel):
     machine_id: str = Field(min_length=1, max_length=128)
     object_key: str = Field(min_length=1)
+    size_bytes: int = Field(ge=0)
 
 
 class HealthResponse(BaseModel):
