@@ -2,6 +2,7 @@
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 
 @pytest.mark.postgres
@@ -59,14 +60,8 @@ def test_008_insere_seed_row_global_closed(pg_engine):
 
 @pytest.mark.postgres
 def test_008_impede_duplicar_seed_global(pg_engine):
-    from sqlalchemy.exc import IntegrityError
-    with pg_engine.connect() as con:
-        con.execute(text("BEGIN"))
-        try:
-            with pytest.raises(IntegrityError):
-                con.execute(text(
-                    "INSERT INTO queue.batch_trigger (tenant_id, status) "
-                    "VALUES (NULL, 'CLOSED')"
-                ))
-        finally:
-            con.execute(text("ROLLBACK"))
+    with pg_engine.connect() as con, pytest.raises(IntegrityError):
+        con.execute(text(
+            "INSERT INTO queue.batch_trigger (tenant_id, status) "
+            "VALUES (NULL, 'CLOSED')"
+        ))
