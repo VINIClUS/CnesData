@@ -46,13 +46,14 @@ def stream_to_storage(
             compressed = _compress_file(parquet_path)
             _upload_payload(upload_url, compressed)
 
-            size = parquet_path.stat().st_size
+            raw_size = parquet_path.stat().st_size
+            compressed_size = len(compressed)
             logger.info(
                 "stream_done intent=%s parquet_bytes=%d"
                 " compressed_bytes=%d",
-                params.intent.value, size, len(compressed),
+                params.intent.value, raw_size, compressed_size,
             )
-            return size
+            return compressed_size
         finally:
             unregister_temp_dir(tmp_dir)
 

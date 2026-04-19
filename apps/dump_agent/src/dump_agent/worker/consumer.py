@@ -126,7 +126,7 @@ async def _execute_job(
                 stream_to_storage,
             )
 
-            await loop.run_in_executor(
+            size_bytes = await loop.run_in_executor(
                 None, stream_to_storage,
                 con, params, upload_url,
             )
@@ -139,8 +139,9 @@ async def _execute_job(
                 json={
                     "machine_id": machine_id,
                     "object_key": object_key,
+                    "size_bytes": size_bytes,
                 },
             )
-        logger.info("job_done job_id=%s", job_id)
+        logger.info("job_done job_id=%s bytes=%d", job_id, size_bytes)
     except Exception:
         logger.exception("job_error job_id=%s", job_id)
