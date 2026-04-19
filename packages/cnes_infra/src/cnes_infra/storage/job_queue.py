@@ -262,8 +262,9 @@ def complete_upload(
     job_id: uuid.UUID,
     machine_id: str,
     object_key: str,
+    size_bytes: int,
 ) -> bool:
-    """STREAMING → COMPLETED; grava object_key no landing."""
+    """STREAMING → COMPLETED; grava object_key + size_bytes no landing."""
     from cnes_infra.storage.landing import raw_payload
 
     with engine.begin() as con:
@@ -280,7 +281,7 @@ def complete_upload(
         con.execute(
             update(raw_payload)
             .where(raw_payload.c.id == row.payload_id)
-            .values(object_key=object_key)
+            .values(object_key=object_key, size_bytes=size_bytes)
         )
         con.execute(
             update(jobs).where(jobs.c.id == job_id).values(
@@ -289,7 +290,8 @@ def complete_upload(
             )
         )
     logger.info(
-        "upload_completed job_id=%s key=%s", job_id, object_key,
+        "upload_completed job_id=%s key=%s bytes=%d",
+        job_id, object_key, size_bytes,
     )
     return True
 
