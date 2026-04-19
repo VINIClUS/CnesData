@@ -1,6 +1,6 @@
 # CnesData — Project Context
 
-> Living document. Last updated: 2026-04-12.
+> Living document. Last updated: 2026-04-18.
 > Audience: the developer (Vinícius), colleagues who will run the pipeline,
 > and any future AI session that needs to understand this project deeply.
 
@@ -19,12 +19,15 @@ The output is a single Excel workbook with a summary dashboard and one tab per v
 
 ### Current Operational Mode vs. Target Architecture
 
-| Aspect | Current (CLI) | Target (API Engine) |
-|---|---|---|
-| Local data source | Direct Firebird connection | Parquet sent via HTTP by dump agent |
-| Trigger | Manual / Windows Task Scheduler | API call from dump agent or scheduler |
-| Multi-municipality | Config change per run | Multiple dump agents, one engine |
-| `--source` flag | `LOCAL` (default), `NACIONAL`, `AMBOS` | Same — source is declared, never inferred |
+**Current architecture (2026-04):** monorepo distribuído com 2 packages
+(`cnes_domain`, `cnes_infra`) e 4 apps (`dump_agent` edge, `central_api`
+FastAPI, `data_processor` worker, `cnes_db_migrator` init-container). Ver
+`docs/architecture.md` para diagrama completo e contratos.
+
+Migração concluída: a CLI monolítica `src/main.py` + `pipeline/orchestrator.py`
++ `rules_engine.py` + exporters Excel/CSV foram removidos. Extração, orquestração
+e persistência agora vivem em apps separados; regras de auditoria ficaram em
+serviço externo (fora deste repo) que consome o schema Gold via SQL JOINs.
 
 ---
 
@@ -103,32 +106,20 @@ Or, with the scheduled task, it runs unattended on the 15th of every month.
 
 ### Module Inventory
 
-| Module | Purpose | Tests |
-|---|---|---|
-| `cli.py` | argparse CLI (`--source`, `-c`, `-o`, `-v`) | ~15 |
-| `config.py` | .env reader, centralized configuration | 10 |
-| `main.py` | Pipeline entry point | 16+ |
-| `pipeline/orchestrator.py` | PipelineOrchestrator, StageSkipError, StageFatalError | — |
-| `pipeline/state.py` | PipelineState (target_source, DataFrames) | 8 |
-| `pipeline/stages/ingestao_local.py` | Parquet/Firebird → state | — |
-| `pipeline/stages/ingestao_nacional.py` | BigQuery → state (circuit breaker) | — |
-| `pipeline/stages/processamento.py` | Cleaning, dedup | — |
-| `pipeline/stages/exportacao.py` | PostgreSQL persistence, status derivation | 15 |
-| `ingestion/base.py` | PEP 544 Protocol definitions | 5 |
-| `ingestion/schemas.py` | Canonical column names (source of truth) | — |
-| `ingestion/cnes_client.py` | Firebird extraction (WIN1252, 3-query) | 15 |
-| `ingestion/cnes_local_adapter.py` | Firebird → canonical schema (NFKD) | 29 |
-| `ingestion/cnes_nacional_adapter.py` | BigQuery → canonical schema | 14 |
-| `ingestion/web_client.py` | BigQuery client via basedosdados | 17 |
-| `ingestion/hr_client.py` | HR spreadsheet parser (.xlsx/.csv) | 21 |
-| `processing/transformer.py` | Cleaning, RQ-002, RQ-003 | ~20 |
-| `storage/postgres_adapter.py` | PostgreSQL upsert by competência | — |
-
-**Total: 319+ unit tests passing.** Integration tests require live Firebird.
+Ver `apps/<app>/CLAUDE.md` e `packages/<pkg>/CLAUDE.md` para inventário
+de módulos atualizado. Arquivos do layout antigo (`src/cli.py`,
+`src/main.py`, `src/pipeline/orchestrator.py`, `src/ingestion/cnes_client.py`,
+etc.) foram removidos em 2026-04 com a migração para monorepo.
 
 ---
 
 ## 4. The 11 Audit Rules
+
+> **Histórico (2026-04):** a camada de regras de auditoria foi removida
+> deste repo. Regras RQ-* listadas abaixo são aplicadas por serviço externo
+> que consome o schema Gold (`gold.dim_estabelecimento`, `gold.dim_profissional`,
+> `gold.fato_vinculo`) via SQL JOINs. Documentação mantida aqui como
+> referência histórica.
 
 ### Local Rules (Firebird only)
 
@@ -192,16 +183,9 @@ Or, with the scheduled task, it runs unattended on the 15th of every month.
 
 ## 6. Where It's Headed (Near-Term Roadmap)
 
-These are concrete next steps, ordered by value:
-
-| Priority | Task | Status | Why |
-|---|---|---|---|
-| 1 | Data validation + 5 defect fixes | ✅ Done | CPF/CNES zero-padding, RQ-007/009 cascade false positives, COVEPE type 50 |
-| 2 | CBO enrichment (human-readable job titles) | ✅ Done | DESCRICAO_CBO column in all reports via NFCES026 |
-| 3 | "Double-Check" Nacional (cascade_resolver) | Removed | Audit layer removed 2026-04 — rules applied by separate service via PostgreSQL JOINs |
-| 4 | Gold layer Medallion (Postgres JSONB) | ✅ Done | Analytic persistence via Postgres: evolucao_metricas_mensais + auditoria_resultados |
-| 5 | HR Pre-processor (PIS→CPF crosswalk) | ✅ Done | scripts/hr_pre_processor.py via LFCES018 — 61% coverage (240/395) |
-| 6 | Evolution dashboard in Excel | Not started | Trend tab comparing snapshots month-over-month (needs 2+ runs) |
+Ver `docs/roadmap.md` — fonte única de prioridades. Resumo: CNES+SIHD
+ativos, multi-tenant pronto, perf tests prontos. Próximo: BPA, Esus PEC,
+HR PIS→CPF, rules service.
 
 ---
 
@@ -309,15 +293,24 @@ COMPETENCIA_MES=12
 
 If starting a new Claude Code or Claude session for this project:
 
-1. **Entry point:** `src/main.py` — everything flows from here.
-2. **Source of truth for columns:** `src/ingestion/schemas.py` — never reference raw Firebird or BigQuery column names in analysis code.
-3. **Source of truth for rules:** `docs/data-dictionary-firebird-bigquery.md` — every CBO, TIPO_UNIDADE, and rule definition is documented here.
-4. **Do not recreate:** `cnes_exporter.py` is deleted. The architecture is layered (ingestion → processing → analysis → export). No monolithic pipeline.
-5. **Test command:** `pytest tests/ -m "not integration" -v` — all 271+ tests should pass without Firebird or BigQuery.
-6. **CLI:** `python src/main.py --help` shows all options.
-7. **The Firebird LEFT JOIN bug is real** — do not try to simplify `cnes_client.py` back to a single query. It will silently return NULLs for all team data. The 3-query + Python merge approach is intentional and documented.
-8. **BigQuery column names are confirmed empirically** — the docs/data-dictionary-firebird-bigquery.md notes which columns were wrong in earlier iterations (e.g., `id_cbo` doesn't exist, `indicador_sus` doesn't exist). Trust the confirmed schema, not guesses.
-9. **CLI:** `python src/main.py --help` — pipeline accepts `-c YYYY-MM`, `--source {LOCAL,NACIONAL,AMBOS}` (default `LOCAL`), `-o OUTPUT_DIR`, `-v`/`--verbose`. `--skip-nacional` was removed in 2026-04 — use `--source LOCAL`.
-10. **CBO lookup:** `extrair_lookup_cbo(con)` returns `dict[str, str]` CBO→description from NFCES026. Passed as optional parameter to `transformar()` and `detectar_divergencia_cbo()`.
-11. **Zero-padding is intentional:** CPF gets `zfill(11)` and CNES gets `zfill(7)`. Firebird omits leading zeros. Do not remove these zfills.
-12. **RQ-009 cascade filter:** professionals from establishments already flagged by RQ-007 are excluded. Without this, 87% of RQ-009 results are false positives. See `cnes_excluir` parameter in `detectar_profissionais_ausentes_local()`.
+1. **Entry point por app:** `apps/<app>/src/<app>/main.py` (central_api:
+   `app.py`). Começar lendo `apps/<app>/CLAUDE.md` para executive summary
+   + funcionalidades + env vars.
+2. **Arquitetura macro:** `docs/architecture.md` — data flow edge→central,
+   contratos HTTP, modelo Gold, fluxo de jobs.
+3. **Source of truth para colunas:** `packages/cnes_domain/contracts/` —
+   nunca referencie raw Firebird ou BigQuery column names em código de domínio.
+4. **Source of truth para regras:** `docs/data-dictionary-firebird-bigquery.md`
+   (histórico — regras aplicadas por serviço externo agora).
+5. **Test command (rápido):**
+   `pytest -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike" -q`
+   — todos devem passar sem docker.
+6. **Firebird LEFT JOIN bug é real** — não simplificar `CnesExtractor`
+   para 1 query. Ver `apps/dump_agent/CLAUDE.md` gotchas.
+7. **Multi-tenant obrigatório:** toda query Postgres passa por
+   `set_tenant_id()` via middleware (`central_api`) ou direto no worker
+   (`data_processor`).
+8. **Gold schema é canônico:** `dim_estabelecimento`, `dim_profissional`,
+   `fato_vinculo` com `fontes` JSONB-object. Multi-fonte via merge `||`.
+9. **Deploy target k8s** — não em produção ainda. Ver `docs/architecture.md`
+   seção "Deploy target".
