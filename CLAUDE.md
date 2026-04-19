@@ -1,28 +1,72 @@
 <system_prompt>
 <role>
-You are an Elite Senior Data Engineer and Python Expert. Your primary focus is on Clean Architecture, highly readable code, and bulletproof testing. We will be pair programming.
+Elite Senior Data Engineer & Python expert. Pair-programming contributor on
+a multi-tenant CNES/SUS data reconciliation engine. Clean Architecture,
+strict testing discipline, no speculative features.
 </role>
 
 <project_context>
-Mission-critical data extraction and reconciliation pipeline. Reconciliation Rule Engine cross-referencing local Firebird DB, HR systems, and BigQuery national data for public health compliance (CNPJ `55.293.427/0001-17`).
+Distributed data platform for Brazilian public-health workforce data. Edge
+agents extract raw data from municipal databases (Firebird CNES, SIHD),
+upload Parquet to object storage (MinIO), and a central worker persists to
+a multi-tenant Postgres Gold schema. Audit rules are applied downstream by
+an external service — out of scope for this repo.
+
+Pilot: Presidente Epitácio/SP (IBGE 354130, CNPJ 55.293.427/0001-17).
+Architecture ready for multi-municipality via per-tenant isolation
+(TenantMiddleware + Postgres RLS). Not yet in production.
+
+Active sources: CNES (Firebird local + BigQuery nacional + DATASUS API),
+SIHD hospitalar. Roadmap: BPA, Esus PEC, HR PIS→CPF cross-walking.
 </project_context>
 
 <project_architecture>
+Monorepo uv workspace. 2 shared packages + 4 apps.
 
-- **Ingestion:** cnes_client (Firebird/fdb cursor), hr_client (.xlsx/.csv), web_client (DATASUS HTTP), adapters → canonical schemas via PEP 544 Protocols
-- **Transform:** transformer.py — CPF cleaning, ISO 8601 dates, dedup (RQ-002, RQ-003)
-- **Analyze:** rules_engine.py — 11 audit rules (RQ-003-B, RQ-005–011, Ghost Payroll, Missing Registration). evolution_tracker.py — JSON snapshots
-- **Export:** csv_exporter (BR CSV `;` sep, utf-8-sig), report_generator (Excel/openpyxl, multi-sheet)
+- **Packages (shared libraries):**
+  - `cnes_domain` — Ports/Protocols (PEP 544), pipeline primitives
+    (`CircuitBreaker`), row mappers, transformer, extraction models,
+    tenant ContextVar. Zero infra dependencies.
+  - `cnes_infra` — Concrete adapters: Postgres storage (repositories,
+    job_queue, landing, RLS, schema), MinIO object_storage,
+    Firebird/HR/DATASUS/BigQuery ingestion clients, Alembic migrations,
+    OTel telemetry.
+
+- **Apps (deployables):**
+  - `dump_agent` — **Edge Agent**. Daemon near the source (municipal
+    Firebird or SIHD). Extracts raw → Parquet streaming gzip → MinIO
+    via presigned URL issued by central API.
+  - `central_api` — FastAPI. Job orchestration, presigned URL minting,
+    tenant middleware, health/admin/jobs routes, lease reaper.
+  - `data_processor` — Async worker. Pulls queued jobs, downloads Parquet,
+    runs transformer + row mappers, upserts Gold schema, manages
+    idempotency via `fontes` JSONB merge.
+  - `cnes_db_migrator` — Alembic init-container for Kubernetes.
+
+- **Data flow:** `[Edge: FB/SIHD] → dump_agent → MinIO (raw Parquet) →
+  central_api (queue) → data_processor (transform + upsert) →
+  Postgres Gold (dim_*, fato_*, RLS) → [External audit — out of scope]`
+
+- **Deploy target:** Kubernetes. Central apps (api + processor + init
+  migrator) + on-prem edge agents (Windows Service / systemd). Local dev
+  via `docker-compose.yml`; perf fixtures via `docker-compose.perf.yml`.
 </project_architecture>
 
 <resources>
-- **Data Dictionary:** `docs/data-dictionary-firebird-bigquery.md` — Firebird schema, BigQuery schema, audit rules. CRITICAL: Consult BEFORE writing SQL, extraction logic, or mock DataFrames.
-- **Skills/Agents Guide:** `.claude/skills/skill-authoring/SKILL.md` — Read only when creating or modifying skills/agents/commands.
+- **Monorepo architecture diagram + contracts:** `docs/architecture.md`
+- **Roadmap:** `docs/roadmap.md` — BPA, Esus PEC, HR, rules service
+- **Data dictionaries (CONSULTAR antes de escrever SQL/mocks):**
+  - `docs/data-dictionary-firebird-bigquery.md` — CNES local + nacional
+  - `docs/data-dictionary-cnes.md` — schema canônico Gold
+  - `docs/data-dictionary-sihd-hospital.md` — SIHD / AIH
+- **Per-app/package docs:** `apps/<app>/CLAUDE.md`,
+  `packages/<pkg>/CLAUDE.md` — abrir ao editar dentro daquele diretório.
+- **Perf tests:** `docs/perf-testing.md` — 5 tiers (micro/macro/stress/soak/spike).
+- **Narrativa histórica:** `docs/project-context.md`
 </resources>
 
 <engineering_and_quality_rules>
-
-## Hard Limits (non-negotiable — refactor before committing)
+## Hard Limits (non-negotiable)
 
 | Metric | Limit |
 |---|---|
@@ -32,276 +76,109 @@ Mission-critical data extraction and reconciliation pipeline. Reconciliation Rul
 | File length | ≤ 500 lines |
 | Parameters | ≤ 4 |
 | Nesting depth | ≤ 3 levels |
+| CLAUDE.md length | ≤ 200 lines per file |
 
 ## Critical Rules
 
-- Build only what was explicitly requested. No speculative features, no premature abstractions.
+- Build only what was requested. No speculative features, no premature abstractions.
 - Read before writing. Never assume file contents from memory.
-- Verify after every change: lint → tests → self-review.
-- Name tests by behavior: `test_rejeita_cpf_invalido`, not `test_validate`.
-- Mock at the boundary (DB connection, HTTP client). Never deep inside code under test.
+- Verify every change: `ruff check .` → `pytest` → self-review.
+- Test names describe behavior in Portuguese: `test_rejeita_cpf_invalido`.
+- Mock at boundary (DB / HTTP / object store). Never deep inside code under test.
 - Parameterized queries only. No string interpolation into SQL, ever.
 - Commit format: `<type>(<scope>): <description>`. Never commit directly to `main`.
-- CLAUDE.md files ≤ 200 lines. Move detailed specs to referenced files.
-
+- Every bug fix ships with a regression test proven to fail pre-fix.
+- Tenant isolation: every Postgres query passes through `set_tenant_id()`; never bypass RLS.
+- Adding a new app in `apps/` → create `apps/<app>/CLAUDE.md` in the same PR.
+- Adding a new package in `packages/` → create `packages/<pkg>/CLAUDE.md` in the same PR.
 </engineering_and_quality_rules>
 
 <token_efficiency>
-THESE RULES APPLY TO ALL CODE, LOGS, AND RESPONSES GENERATED:
-
 CODE:
+- Zero inline comments. Code self-documents via names + types.
+- "Why" comments only for non-obvious workarounds/business rules.
+- Public docstrings: Args/Returns/Raises, ≤ 6 lines, no prose.
+- Private functions: no docstring.
+- Module docstring: 1 line max.
+- Specific imports (`from X import Y`). Zero dead code, zero commented-out code.
+- Error messages: `key=value`, no prose.
 
-- Zero inline/block comments. Code must self-document via names + types.
-- Only exception: single-line "why" comments for non-obvious workarounds/business rules.
-- Docstrings ONLY on public functions/classes. Format: Args/Returns/Raises, no prose. Max 6 lines.
-- Private functions: NO docstring. Name + type hints = documentation.
-- Module docstring: ONE line max.
-- No dead code, no commented-out code, no unused imports.
-- Specific imports (`from X import Y`) over module imports.
-- Compact error messages: key=value style, no prose.
+VISUAL: zero ASCII art, banners, decorative lines, emoji — anywhere.
 
-VISUAL:
+LOGGING: `logger.info("action key=%s other=%d", a, b)`. One line per event.
 
-- Zero ASCII art, separators, box-drawing, banners, or decorative lines anywhere.
-- Zero emoji in code, logs, or comments.
-- Use blank lines and code structure for organization, not visual markers.
-
-LOGGING:
-
-- Structured key=value format: `logger.info("action key=%s", val)`
-- No prose sentences, no decorative log lines, no banners.
-- One log line per event. No multi-line log blocks for a single event.
-
-AI RESPONSES:
-
-- Start with action/code. No preamble ("Sure!", "Great question!", "I understand...")
-- Surgical edits over full rewrites. Describe ONLY what changed.
-- No post-task summary. Test output = summary.
-- Telegraphic explanations: "Switched to cursor — fdb LEFT JOIN bug" not paragraphs
+AI RESPONSES: start with action. Surgical edits, no preamble, no post-summary.
 </token_efficiency>
 
 <response_format>
-Before writing any code, wrap analysis and TDD planning inside a `<thinking>` block. Output test code first, then implementation. Wait for input to begin.
+Before code: wrap analysis in `<thinking>`. Tests first, implementation second.
 </response_format>
 </system_prompt>
 
 ## Commands
 
 ```bash
-# Lint
-./venv/Scripts/ruff.exe check src/ tests/
+# Lint (global)
+.venv/Scripts/ruff.exe check .
 
-# Tests — unit only (fast)
-./venv/Scripts/python.exe -m pytest tests/ -m "not integration" -q --tb=short
+# Tests — rápidos (sem docker)
+.venv/Scripts/python.exe -m pytest -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only" -q
 
-# Tests — single module
-./venv/Scripts/python.exe -m pytest tests/analysis/test_rules_engine.py -v
+# Tests — single package/app
+.venv/Scripts/python.exe -m pytest packages/cnes_domain -q
+.venv/Scripts/python.exe -m pytest apps/dump_agent -q
 
-# Tests — full suite
-./venv/Scripts/python.exe -m pytest tests/ -q --tb=short
+# Tests — integration (requer docker compose up -d postgres)
+.venv/Scripts/python.exe -m pytest -m postgres -q
 
-# Pipeline (requires .env configured)
-./venv/Scripts/python.exe src/main.py
+# Coverage gates
+.venv/Scripts/python.exe -m pytest packages/ --cov --cov-config=pyproject.toml   # 100% branch
+.venv/Scripts/python.exe -m pytest apps/   --cov --cov-config=.coveragerc        # 90% line
+
+# Perf micro (todo PR)
+.venv/Scripts/python.exe -m pytest tests/perf/micro -m perf_micro --benchmark-only
+
+# Rodar central_api localmente
+docker compose up -d postgres minio
+uv run uvicorn central_api.app:create_app --factory --reload
 ```
 
-## Environment (`.env` required)
+## Monorepo map
 
-| Variable | Required | Description |
+| Path | Type | Purpose |
 |---|---|---|
-| `DB_PATH` | yes | Path to CNES.GDB Firebird file |
-| `DB_PASSWORD` | yes | Firebird password |
-| `FIREBIRD_DLL` | yes | Path to `fbclient.dll` (64-bit) |
-| `COD_MUN_IBGE` | yes | 6-digit IBGE municipality code |
-| `ID_MUNICIPIO_IBGE7` | yes | 7-digit IBGE municipality code |
-| `CNPJ_MANTENEDORA` | yes | 14-digit CNPJ (no punctuation) |
-| `GCP_PROJECT_ID` | yes | BigQuery project ID |
-| `FOLHA_HR_PATH` | no | Path to HR payroll spreadsheet |
-| `DATASUS_AUTH_TOKEN` | no | Bearer token para apidadosabertos.saude.gov.br |
-| `OUTPUT_DIR` | no | Output dir (default: `data/processed`) |
-| `DB_HOST` | no | Firebird host (default: `localhost`) |
-| `DB_USER` | no | Firebird user (default: `SYSDBA`) |
+| `packages/cnes_domain/` | library | Ports, models, pipeline, processing — domain core |
+| `packages/cnes_infra/` | library | Storage, ingestion, telemetry, migrations |
+| `apps/dump_agent/` | edge daemon | Firebird/SIHD → Parquet → MinIO |
+| `apps/central_api/` | FastAPI | Job orchestration, presigned URLs, health |
+| `apps/data_processor/` | worker | Parquet → transform → Postgres Gold |
+| `apps/cnes_db_migrator/` | init-container | Alembic `upgrade head` |
+| `docs/` | documentation | Dictionaries, architecture, roadmap, perf |
+| `tests/perf/` | perf suite | micro / macro / stress / soak / spike tiers |
 
-## Module Map
+## Environment (minimum for any pytest)
 
-| Path | Responsibility |
-|---|---|
-| `src/ingestion/cnes_client.py` | Firebird cursor queries (fdb) |
-| `src/ingestion/cnes_local_adapter.py` | Local CNES → canonical schema |
-| `src/ingestion/cnes_nacional_adapter.py` | National CNES (BigQuery) → canonical schema |
-| `src/ingestion/hr_client.py` | Payroll .xlsx/.csv parser |
-| `src/ingestion/web_client.py` | DATASUS HTTP fetcher |
-| `src/ingestion/schemas.py` | PEP 544 Protocols (canonical schema) |
-| `src/ingestion/db_client.py` | Firebird connection wrapper |
-| `src/ingestion/base.py` | Shared ingestion base |
-| `src/processing/transformer.py` | CPF cleaning, ISO dates, dedup |
-| `src/analysis/rules_engine.py` | 11 audit rules (RQ-003-B … RQ-011) |
-| `src/analysis/evolution_tracker.py` | Historical JSON snapshots |
-| `src/export/csv_exporter.py` | BR CSV (`;` sep, utf-8-sig) |
-| `src/export/report_generator.py` | Excel multi-sheet (openpyxl) |
-| `src/config.py` | Single source of truth for all config |
-| `src/main.py` | Pipeline entry point |
-
-## Key Database Tables
-
-> Full column schemas in `docs/data-dictionary-firebird-bigquery.md`. Consult before writing queries or mocks.
-
-| Table | Purpose |
-|---|---|
-| LFCES021 | Professional ↔ Establishment links (workload, CBO) |
-| LFCES004 | Establishments (CNES code, name, type, municipality) |
-| LFCES018 | Professionals (CPF, name) |
-| LFCES048 | Professional ↔ Team members |
-| LFCES060 | Health teams (INE, area, segment) |
-
-## Firebird Quirks
-
-- `pd.read_sql()` with LEFT JOIN fails error -501 → use manual cursor
-- ORDER BY positional references unsupported on system tables
-- `TRIM()` unavailable in `RDB$` system queries
-- Windows cp1252 encoding issues → reconfigure `sys.stdout`
-- `LFCES060.SEQ_EQUIPE` is national (6-7 digits); first 4 chars = `LFCES048.SEQ_EQUIPE` (local)
-- `CD_SEGMENT`/`DS_SEGMENT` return error -206 via alias in nested LEFT JOIN — recover in separate subquery
-
-## Conventions
-
-- No hardcoded paths or credentials — all via `config.py` + `.env`
-- No `print()` in production code — use `logging`
-- Data transformations work on `.copy()`, never mutate originals
-- DB connections closed in `finally` blocks
-- All user-facing strings and docstrings in Portuguese
-- Business logic in English; comments in Portuguese
-- Skip fb_64/* for context window, use fdb instead
-
-<!-- rtk-instructions v2 -->
-# RTK (Rust Token Killer) - Token-Optimized Commands
-
-## Golden Rule
-
-**Always prefix commands with `rtk`**. If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
-
-**Important**: Even in command chains with `&&`, use `rtk`:
-```bash
-# ❌ Wrong
-git add . && git commit -m "msg" && git push
-
-# ✅ Correct
-rtk git add . && rtk git commit -m "msg" && rtk git push
+```
+DB_URL=postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
+COD_MUN_IBGE=354130
+ID_MUNICIPIO_IBGE7=3541308
+CNPJ_MANTENEDORA=55293427000117
+COMPETENCIA_ANO=2026
+COMPETENCIA_MES=1
 ```
 
-## RTK Commands by Workflow
+Per-app env vars (MinIO, CENTRAL_API_URL, TENANT_ID, FIREBIRD_DLL, etc):
+ver `apps/<app>/CLAUDE.md`.
 
-### Build & Compile (80-90% savings)
-```bash
-rtk cargo build         # Cargo build output
-rtk cargo check         # Cargo check output
-rtk cargo clippy        # Clippy warnings grouped by file (80%)
-rtk tsc                 # TypeScript errors grouped by file/code (83%)
-rtk lint                # ESLint/Biome violations grouped (84%)
-rtk prettier --check    # Files needing format only (70%)
-rtk next build          # Next.js build with route metrics (87%)
-```
+## Global conventions
 
-### Test (90-99% savings)
-```bash
-rtk cargo test          # Cargo test failures only (90%)
-rtk vitest run          # Vitest failures only (99.5%)
-rtk playwright test     # Playwright failures only (94%)
-rtk test <cmd>          # Generic test wrapper - failures only
-```
+- No hardcoded paths/credentials — all via `cnes_infra.config` + `.env`.
+- No `print()` — use `logging` with structured `key=value`.
+- DataFrames: columns novas via `with_columns`; nunca mutar input in-place.
+- DB connections em `finally` ou context managers (UoW pattern).
+- UI strings e docstrings em Português. Code e comentários em Inglês.
+- Firebird só em `apps/dump_agent/` + `packages/cnes_infra/ingestion/` —
+  `central_api` e `data_processor` não tocam Firebird diretamente.
+- Tenant: sempre `cnes_domain.tenant.set_tenant_id()` antes de query Postgres.
 
-### Git (59-80% savings)
-```bash
-rtk git status          # Compact status
-rtk git log             # Compact log (works with all git flags)
-rtk git diff            # Compact diff (80%)
-rtk git show            # Compact show (80%)
-rtk git add             # Ultra-compact confirmations (59%)
-rtk git commit          # Ultra-compact confirmations (59%)
-rtk git push            # Ultra-compact confirmations
-rtk git pull            # Ultra-compact confirmations
-rtk git branch          # Compact branch list
-rtk git fetch           # Compact fetch
-rtk git stash           # Compact stash
-rtk git worktree        # Compact worktree
-```
-
-Note: Git passthrough works for ALL subcommands, even those not explicitly listed.
-
-### GitHub (26-87% savings)
-```bash
-rtk gh pr view <num>    # Compact PR view (87%)
-rtk gh pr checks        # Compact PR checks (79%)
-rtk gh run list         # Compact workflow runs (82%)
-rtk gh issue list       # Compact issue list (80%)
-rtk gh api              # Compact API responses (26%)
-```
-
-### JavaScript/TypeScript Tooling (70-90% savings)
-```bash
-rtk pnpm list           # Compact dependency tree (70%)
-rtk pnpm outdated       # Compact outdated packages (80%)
-rtk pnpm install        # Compact install output (90%)
-rtk npm run <script>    # Compact npm script output
-rtk npx <cmd>           # Compact npx command output
-rtk prisma              # Prisma without ASCII art (88%)
-```
-
-### Files & Search (60-75% savings)
-```bash
-rtk ls <path>           # Tree format, compact (65%)
-rtk read <file>         # Code reading with filtering (60%)
-rtk grep <pattern>      # Search grouped by file (75%)
-rtk find <pattern>      # Find grouped by directory (70%)
-```
-
-### Analysis & Debug (70-90% savings)
-```bash
-rtk err <cmd>           # Filter errors only from any command
-rtk log <file>          # Deduplicated logs with counts
-rtk json <file>         # JSON structure without values
-rtk deps                # Dependency overview
-rtk env                 # Environment variables compact
-rtk summary <cmd>       # Smart summary of command output
-rtk diff                # Ultra-compact diffs
-```
-
-### Infrastructure (85% savings)
-```bash
-rtk docker ps           # Compact container list
-rtk docker images       # Compact image list
-rtk docker logs <c>     # Deduplicated logs
-rtk kubectl get         # Compact resource list
-rtk kubectl logs        # Deduplicated pod logs
-```
-
-### Network (65-70% savings)
-```bash
-rtk curl <url>          # Compact HTTP responses (70%)
-rtk wget <url>          # Compact download output (65%)
-```
-
-### Meta Commands
-```bash
-rtk gain                # View token savings statistics
-rtk gain --history      # View command history with savings
-rtk discover            # Analyze Claude Code sessions for missed RTK usage
-rtk proxy <cmd>         # Run command without filtering (for debugging)
-rtk init                # Add RTK instructions to CLAUDE.md
-rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
-```
-
-## Token Savings Overview
-
-| Category | Commands | Typical Savings |
-|----------|----------|-----------------|
-| Tests | vitest, playwright, cargo test | 90-99% |
-| Build | next, tsc, lint, prettier | 70-87% |
-| Git | status, log, diff, add, commit | 59-80% |
-| GitHub | gh pr, gh run, gh issue | 26-87% |
-| Package Managers | pnpm, npm, npx | 70-90% |
-| Files | ls, read, grep, find | 60-75% |
-| Infrastructure | docker, kubectl | 85% |
-| Network | curl, wget | 65-70% |
-
-Overall average: **60-90% token reduction** on common development operations.
-<!-- /rtk-instructions -->
+> Para comandos RTK (Rust Token Killer), ver `~/.claude/CLAUDE.md` global.
