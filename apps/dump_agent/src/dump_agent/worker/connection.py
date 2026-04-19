@@ -2,17 +2,16 @@
 
 import logging
 import os
-from pathlib import Path
 
 import fdb
+
+from dump_agent.platform_runtime import fbclient_dll_path
 
 logger = logging.getLogger(__name__)
 
 
 def conectar_firebird() -> fdb.Connection:
-    dll_path = Path(os.environ["FIREBIRD_DLL"])
-    if not dll_path.exists():
-        raise FileNotFoundError(f"dll_path={dll_path}")
+    dll_path = fbclient_dll_path()
     fdb.load_api(str(dll_path))
 
     db_host = os.getenv("DB_HOST", "localhost")

@@ -77,7 +77,7 @@ def _detectar_encoding(caminho: Path) -> str:
             return enc
         except UnicodeDecodeError:
             continue
-    return "cp1252"
+    return "cp1252"  # pragma: no cover - cp1252 aceita todos os bytes
 
 
 def _linhas_limpas(caminho: Path) -> Iterator[str]:

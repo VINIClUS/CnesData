@@ -1,0 +1,64 @@
+name: Nightly Perf
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  perf-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: |
+          pip install -e packages/cnes_domain
+          pip install -e packages/cnes_infra
+          pip install -e apps/dump_agent
+          pip install -e apps/data_processor
+          pip install pytest pytest-benchmark psutil hypothesis fdb
+      - name: Start perf stack
+        run: docker compose -f docker-compose.perf.yml up -d
+      - name: Wait postgres
+        run: |
+          for i in {1..60}; do
+            docker exec cnesdata_pg_perf pg_isready -U cnesdata -d cnesdata_perf && break
+            sleep 1
+          done
+      - name: Migrate
+        run: |
+          cd packages/cnes_infra
+          alembic -c alembic.ini upgrade head
+        env:
+          SQLALCHEMY_URL: postgresql+psycopg://cnesdata:cnesdata_perf@localhost:5434/cnesdata_perf
+      - name: Macro
+        run: pytest tests/perf/macro -m perf_macro --benchmark-only --benchmark-json=macro.json
+        continue-on-error: true
+      - name: Stress
+        run: pytest tests/perf/stress -m stress -v
+        continue-on-error: true
+      - name: Soak (30 min)
+        run: pytest tests/perf/soak -m soak -v
+        timeout-minutes: 60
+        continue-on-error: true
+      - name: Spike
+        run: pytest tests/perf/spike -m spike -v
+        continue-on-error: true
+      - name: Compare
+        run: python scripts/perf_compare.py --current macro.json --baseline .benchmarks/baselines.json
+        continue-on-error: true
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-perf-reports
+          path: |
+            macro.json
+            *.log
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.perf.yml down -v

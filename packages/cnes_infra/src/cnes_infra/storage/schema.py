@@ -26,6 +26,9 @@ dim_estabelecimento = Table(
     Column("cnpj_mantenedora", String(14)),
     Column("natureza_juridica", String(4)),
     Column("vinculo_sus", Boolean, server_default=text("FALSE")),
+    # Contrato: fontes = dict[str, bool], ex: {"WEB": True, "LOCAL": True}.
+    # Upsert usa `||` (merge raso por chave) — idempotente SOMENTE enquanto
+    # o tipo for JSONB-object. Mudança para array quebra test_fontes_idempotency.
     Column("fontes", JSONB, server_default=text("'{}'::jsonb")),
     Column("criado_em", DateTime(timezone=True), server_default=text("NOW()")),
     Column("atualizado_em", DateTime(timezone=True), server_default=text("NOW()")),
@@ -41,6 +44,9 @@ dim_profissional = Table(
     Column("cns", String(15)),
     Column("nome_profissional", String(120)),
     Column("sexo", String(1)),
+    # Contrato: fontes = dict[str, bool], ex: {"WEB": True, "LOCAL": True}.
+    # Upsert usa `||` (merge raso por chave) — idempotente SOMENTE enquanto
+    # o tipo for JSONB-object. Mudança para array quebra test_fontes_idempotency.
     Column("fontes", JSONB, server_default=text("'{}'::jsonb")),
     Column("criado_em", DateTime(timezone=True), server_default=text("NOW()")),
     Column("atualizado_em", DateTime(timezone=True), server_default=text("NOW()")),
@@ -63,6 +69,9 @@ fato_vinculo = Table(
     Column("ch_ambulatorial", Integer),
     Column("ch_outras", Integer),
     Column("ch_hospitalar", Integer),
+    # Contrato: fontes = dict[str, bool], ex: {"WEB": True, "LOCAL": True}.
+    # Upsert usa `||` (merge raso por chave) — idempotente SOMENTE enquanto
+    # o tipo for JSONB-object. Mudança para array quebra test_fontes_idempotency.
     Column("fontes", JSONB, server_default=text("'{}'::jsonb")),
     Column("criado_em", DateTime(timezone=True), server_default=text("NOW()")),
     Column("atualizado_em", DateTime(timezone=True), server_default=text("NOW()")),

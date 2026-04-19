@@ -3,8 +3,6 @@
 import asyncio
 import logging
 import random
-import signal
-from functools import partial
 
 import httpx
 from pydantic import ValidationError
@@ -21,32 +19,24 @@ _HEARTBEAT_INTERVAL: float = 300.0
 async def run_worker(
     api_base_url: str,
     machine_id: str,
+    stop_event: asyncio.Event,
     jitter_max: float = 1800.0,
 ) -> None:
-    loop = asyncio.get_running_loop()
-    running = True
-
-    def _shutdown(sig: signal.Signals) -> None:
-        nonlocal running
-        logger.info("worker_shutdown signal=%s", sig.name)
-        running = False
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, partial(_shutdown, sig))
-        except NotImplementedError:
-            pass
-
     logger.info(
         "worker_started api=%s machine=%s",
         api_base_url, machine_id,
     )
 
-    while running:
+    while not stop_event.is_set():
         job_data = await _acquire_job(api_base_url, machine_id)
         if job_data is None:
-            await asyncio.sleep(_POLL_INTERVAL)
-            continue
+            try:
+                await asyncio.wait_for(
+                    stop_event.wait(), _POLL_INTERVAL,
+                )
+                break
+            except TimeoutError:
+                continue
 
         hb_task = asyncio.create_task(
             _heartbeat_loop(
@@ -57,7 +47,7 @@ async def run_worker(
         )
         try:
             await _execute_job(
-                loop, api_base_url, machine_id, job_data,
+                api_base_url, machine_id, job_data,
             )
         finally:
             hb_task.cancel()
@@ -66,7 +56,14 @@ async def run_worker(
             except asyncio.CancelledError:
                 pass
 
-        await asyncio.sleep(random.uniform(0, 5))
+        inter_job_jitter = random.uniform(0, min(5.0, jitter_max))
+        try:
+            await asyncio.wait_for(
+                stop_event.wait(), inter_job_jitter,
+            )
+            break
+        except TimeoutError:
+            continue
     logger.info("worker_stopped")
 
 
@@ -101,7 +98,6 @@ async def _heartbeat_loop(
 
 
 async def _execute_job(
-    loop: asyncio.AbstractEventLoop,
     api_url: str,
     machine_id: str,
     job_data: dict,
@@ -123,6 +119,7 @@ async def _execute_job(
     try:
         from dump_agent.worker.connection import conectar_firebird
 
+        loop = asyncio.get_running_loop()
         con = await loop.run_in_executor(None, conectar_firebird)
         try:
             from dump_agent.worker.streaming_executor import (

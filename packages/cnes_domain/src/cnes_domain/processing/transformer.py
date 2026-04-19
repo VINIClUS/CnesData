@@ -36,6 +36,8 @@ def _aplicar_rq002_validar_cpf(df: pl.DataFrame) -> pl.DataFrame:
     Returns:
         DataFrame sem registros com CPF inválido.
     """
+    if "CPF" not in df.columns:
+        return df
     mascara_invalido = (
         pl.col("CPF").is_in(_SENTINELAS_NULO)
         | (pl.col("CPF").str.len_chars() != 11)
@@ -101,7 +103,15 @@ def transformar(
         resultado = resultado.with_columns(
             pl.when(pl.col("CPF").is_in(_SENTINELAS_NULO))
             .then(pl.col("CPF"))
-            .otherwise(pl.col("CPF").str.pad_start(11, "0"))
+            .otherwise(
+                pl.when(pl.col("CPF").str.replace_all(r"\D", "") == "")
+                .then(pl.lit(""))
+                .otherwise(
+                    pl.col("CPF")
+                    .str.replace_all(r"\D", "")
+                    .str.pad_start(11, "0")
+                )
+            )
             .alias("CPF")
         )
 

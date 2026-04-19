@@ -125,3 +125,15 @@ def test_nan_convertido_para_none():
     assert result[0]["a"] == 1
     assert result[0]["b"] is None
     assert result[0]["c"] == "ok"
+
+
+def test_extrair_fonte_unica_retorna_string():
+    df = pl.DataFrame({"FONTE": ["LOCAL", "LOCAL"]})
+    assert extrair_fonte(df) == "LOCAL"
+
+
+def test_fonte_jsonb_retorna_dict_com_chave_fonte():
+    from cnes_domain.processing.row_mapper import _fonte_jsonb
+
+    assert _fonte_jsonb("LOCAL") == {"LOCAL": True}
+    assert _fonte_jsonb("NACIONAL") == {"NACIONAL": True}

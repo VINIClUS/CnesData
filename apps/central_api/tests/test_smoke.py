@@ -5,7 +5,7 @@ import urllib.request
 
 import pytest
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.e2e, pytest.mark.postgres]
 
 
 def test_health_retorna_ok(api_url):

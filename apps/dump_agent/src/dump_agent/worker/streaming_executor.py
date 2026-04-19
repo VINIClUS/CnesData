@@ -1,8 +1,10 @@
 """Streaming executor — registry + io_guard -> gzip -> PUT upload."""
 
 import gzip
+import io
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -11,6 +13,10 @@ import httpx
 from cnes_domain.models.extraction import ExtractionParams
 from dump_agent.extractors.registry import REGISTRY
 from dump_agent.io_guard import SpoolGuard, pre_flight_check
+from dump_agent.platform_runtime import (
+    register_temp_dir,
+    unregister_temp_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,27 +34,36 @@ def stream_to_storage(
 
     with tempfile.TemporaryDirectory(prefix="dump_agent_") as tmp_str:
         tmp_dir = Path(tmp_str)
-        pre_flight_check(tmp_dir, _MIN_FREE_MB)
+        register_temp_dir(tmp_dir)
+        try:
+            pre_flight_check(tmp_dir, _MIN_FREE_MB)
 
-        guard = SpoolGuard(max_bytes=_MAX_SPOOL_BYTES)
-        parquet_path = extractor.extract(
-            params, con, tmp_dir, guard,
-        )
+            guard = SpoolGuard(max_bytes=_MAX_SPOOL_BYTES)
+            parquet_path = extractor.extract(
+                params, con, tmp_dir, guard,
+            )
 
-        compressed = _compress_file(parquet_path)
-        _upload_payload(upload_url, compressed)
+            compressed = _compress_file(parquet_path)
+            _upload_payload(upload_url, compressed)
 
-        size = parquet_path.stat().st_size
-        logger.info(
-            "stream_done intent=%s parquet_bytes=%d"
-            " compressed_bytes=%d",
-            params.intent.value, size, len(compressed),
-        )
-        return size
+            size = parquet_path.stat().st_size
+            logger.info(
+                "stream_done intent=%s parquet_bytes=%d"
+                " compressed_bytes=%d",
+                params.intent.value, size, len(compressed),
+            )
+            return size
+        finally:
+            unregister_temp_dir(tmp_dir)
 
 
 def _compress_file(path: Path) -> bytes:
-    return gzip.compress(path.read_bytes())
+    buffer = io.BytesIO()
+    with path.open("rb") as src, gzip.GzipFile(
+        fileobj=buffer, mode="wb",
+    ) as dst:
+        shutil.copyfileobj(src, dst, length=64 * 1024)
+    return buffer.getvalue()
 
 
 def _upload_payload(url: str, data: bytes) -> None:

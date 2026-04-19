@@ -10,8 +10,8 @@ from cnes_infra.storage.schema import gold_metadata
 
 alembic_config = context.config
 
-if alembic_config.config_file_name is not None:
-    fileConfig(alembic_config.config_file_name)
+if alembic_config.config_file_name is not None:  # pragma: no cover - alembic CLI only
+    fileConfig(alembic_config.config_file_name)  # pragma: no cover
 
 target_metadata = MetaData()
 for md in (gold_metadata, landing_metadata, queue_metadata):
@@ -19,9 +19,16 @@ for md in (gold_metadata, landing_metadata, queue_metadata):
         table.tometadata(target_metadata)
 
 
-def run_migrations_offline() -> None:
+def _resolver_db_url() -> str:  # pragma: no cover - alembic CLI only
+    override = alembic_config.get_main_option("sqlalchemy.url")
+    if override:
+        return override
+    return app_config.DB_URL
+
+
+def run_migrations_offline() -> None:  # pragma: no cover - alembic CLI only
     context.configure(
-        url=app_config.DB_URL,
+        url=_resolver_db_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -30,8 +37,8 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    connectable = create_engine(app_config.DB_URL, poolclass=pool.NullPool)
+def run_migrations_online() -> None:  # pragma: no cover - alembic CLI only
+    connectable = create_engine(_resolver_db_url(), poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
@@ -41,7 +48,7 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
 
-if context.is_offline_mode():
+if context.is_offline_mode():  # pragma: no cover - alembic CLI only
     run_migrations_offline()
 else:
     run_migrations_online()

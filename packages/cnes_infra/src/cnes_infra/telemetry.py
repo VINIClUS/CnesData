@@ -20,24 +20,24 @@ def init_telemetry(service_name: str) -> None:
         return
 
     try:
-        from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter,
-        )
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry import trace  # pragma: no cover - otel[sdk] required
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # pragma: no cover
+            OTLPSpanExporter,  # pragma: no cover
+        )  # pragma: no cover
+        from opentelemetry.sdk.resources import Resource  # pragma: no cover
+        from opentelemetry.sdk.trace import TracerProvider  # pragma: no cover
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor  # pragma: no cover
     except ImportError:
         logger.warning("otel_not_installed install cnes-infra[otel]")
         _initialized = True
         return
 
-    resource = Resource.create({"service.name": service_name})
-    provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    trace.set_tracer_provider(provider)
-    _initialized = True
-    logger.info("otel_initialized service=%s", service_name)
+    resource = Resource.create({"service.name": service_name})  # pragma: no cover
+    provider = TracerProvider(resource=resource)  # pragma: no cover
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))  # pragma: no cover
+    trace.set_tracer_provider(provider)  # pragma: no cover
+    _initialized = True  # pragma: no cover
+    logger.info("otel_initialized service=%s", service_name)  # pragma: no cover
 
 
 def instrument_engine(engine: object) -> None:
@@ -45,7 +45,7 @@ def instrument_engine(engine: object) -> None:
         from opentelemetry.instrumentation.sqlalchemy import (
             SQLAlchemyInstrumentor,
         )
-        SQLAlchemyInstrumentor().instrument(engine=engine)
+        SQLAlchemyInstrumentor().instrument(engine=engine)  # pragma: no cover
     except ImportError:
         pass
 
@@ -53,7 +53,7 @@ def instrument_engine(engine: object) -> None:
 def get_tracer(name: str) -> object:
     try:
         from opentelemetry import trace
-        return trace.get_tracer(name)
+        return trace.get_tracer(name)  # pragma: no cover - otel required
     except ImportError:
         return _NoopTracer()
 

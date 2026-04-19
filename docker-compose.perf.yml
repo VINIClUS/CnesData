@@ -1,0 +1,37 @@
+services:
+  postgres_perf:
+    image: postgres:16-alpine
+    container_name: cnesdata_pg_perf
+    environment:
+      POSTGRES_USER: cnesdata
+      POSTGRES_PASSWORD: cnesdata_perf
+      POSTGRES_DB: cnesdata_perf
+    ports: ["5434:5432"]
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "max_connections=200"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cnesdata -d cnesdata_perf"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pgdata_perf:/var/lib/postgresql/data
+
+  firebird_perf:
+    image: jacobalberty/firebird:v4.0.5
+    container_name: cnesdata_fb_perf
+    environment:
+      ISC_PASSWORD: masterkey
+      FIREBIRD_DATABASE: CNES.FDB
+      FIREBIRD_USER: SYSDBA
+    ports: ["3051:3050"]
+    volumes:
+      - fbdata_perf:/firebird/data
+
+volumes:
+  pgdata_perf:
+  fbdata_perf:
