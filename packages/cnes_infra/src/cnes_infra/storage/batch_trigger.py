@@ -66,12 +66,23 @@ _SQL_EVALUATE = (
     "WHERE tenant_id IS NULL"
 )
 
-_SQL_CLOSE_IF_DRAINED = (
+_SQL_CLOSE_IF_DRAINED_GLOBAL = (
     "UPDATE queue.batch_trigger SET "
     "  status = 'CLOSED', closed_at = NOW(), reason = 'queue_empty', "
     "  pending_bytes = 0, updated_at = NOW() "
     "WHERE tenant_id IS NULL AND status = 'OPEN' "
     "  AND NOT EXISTS (SELECT 1 FROM queue.jobs WHERE status = 'COMPLETED')"
+)
+
+_SQL_CLOSE_IF_DRAINED_TENANT = (
+    "UPDATE queue.batch_trigger SET "
+    "  status = 'CLOSED', closed_at = NOW(), reason = 'queue_empty', "
+    "  pending_bytes = 0, updated_at = NOW() "
+    "WHERE tenant_id = :tenant_id AND status = 'OPEN' "
+    "  AND NOT EXISTS ("
+    "    SELECT 1 FROM queue.jobs "
+    "    WHERE status = 'COMPLETED' AND tenant_id = :tenant_id"
+    "  )"
 )
 
 
@@ -137,8 +148,14 @@ def evaluate_and_open(engine: Engine, thresholds: Thresholds) -> TriggerState:
 def close_if_drained(engine: Engine, tenant_id: str | None = None) -> bool:
     """Fecha flag se não há jobs COMPLETED. Retorna True se fechou."""
     with engine.begin() as con:
-        result = con.execute(text(_SQL_CLOSE_IF_DRAINED))
+        if tenant_id is None:
+            result = con.execute(text(_SQL_CLOSE_IF_DRAINED_GLOBAL))
+        else:
+            result = con.execute(
+                text(_SQL_CLOSE_IF_DRAINED_TENANT),
+                {"tenant_id": tenant_id},
+            )
     fechou = result.rowcount > 0
     if fechou:
-        logger.info("trigger_closed reason=queue_empty")
+        logger.info("trigger_closed reason=queue_empty tenant_id=%s", tenant_id)
     return fechou

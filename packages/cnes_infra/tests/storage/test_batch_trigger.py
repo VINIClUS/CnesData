@@ -165,3 +165,35 @@ def test_close_nao_fecha_se_jobs_pendentes(pg_engine, reset_trigger):
 def test_read_state_retorna_none_para_tenant_inexistente(pg_engine, reset_trigger):
     state = read_state(pg_engine, tenant_id="999999")
     assert state is None
+
+
+@pytest.mark.postgres
+def test_close_if_drained_escopado_por_tenant(pg_engine, reset_trigger):
+    tenant = "888888"
+    with pg_engine.begin() as con:
+        con.execute(text(
+            "INSERT INTO queue.batch_trigger "
+            "(tenant_id, status, opened_at) "
+            "VALUES (:t, 'OPEN', NOW())"
+        ), {"t": tenant})
+    fechou = close_if_drained(pg_engine, tenant_id=tenant)
+    assert fechou is True
+    state = read_state(pg_engine, tenant_id=tenant)
+    assert state is not None
+    assert state.status == "CLOSED"
+
+
+@pytest.mark.postgres
+def test_close_if_drained_tenant_nao_fecha_se_jobs_pendentes_do_tenant(
+    pg_engine, reset_trigger,
+):
+    tenant = _TENANT
+    with pg_engine.begin() as con:
+        con.execute(text(
+            "INSERT INTO queue.batch_trigger "
+            "(tenant_id, status, opened_at) "
+            "VALUES (:t, 'OPEN', NOW())"
+        ), {"t": tenant})
+    _criar_job_completed(pg_engine, size_bytes=1)
+    fechou = close_if_drained(pg_engine, tenant_id=tenant)
+    assert fechou is False
