@@ -47,6 +47,7 @@ jobs:
           pip install -e apps/data_processor
           pip install -e apps/central_api
           pip install -e apps/cnes_db_migrator
+          pip install -e apps/batch_watcher
           pip install pytest pytest-cov pytest-asyncio pytest-benchmark hypothesis ruff duckdb psutil
 
       - name: Lint
