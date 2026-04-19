@@ -20,6 +20,9 @@ _TENANT = "355030"
 def _limpar_batch_trigger(engine):
     with engine.begin() as con:
         con.execute(text(
+            "DELETE FROM queue.batch_trigger WHERE tenant_id IS NOT NULL"
+        ))
+        con.execute(text(
             "UPDATE queue.batch_trigger SET "
             "status='CLOSED', opened_at=NULL, closed_at=NULL, "
             "reason=NULL, pending_bytes=NULL, oldest_completed_at=NULL "
