@@ -1,4 +1,4 @@
-"""Consumer — poll loop para jobs COMPLETED."""
+"""Consumer — poll loop para jobs COMPLETED respeitando batch_trigger."""
 import asyncio
 import logging
 import signal
@@ -8,13 +8,21 @@ from sqlalchemy.engine import Engine
 
 from cnes_domain.ports.object_storage import ObjectStoragePort
 from cnes_domain.tenant import set_tenant_id
+from cnes_infra.storage.batch_trigger import (
+    close_if_drained,
+    read_state,
+)
 from cnes_infra.storage.job_queue import (
     acquire_completed_job,
     complete_processing,
     fail_processing,
 )
 from cnes_infra.telemetry import get_tracer
-from data_processor.config import POLL_INTERVAL, PROCESSOR_ID
+from data_processor.config import (
+    IDLE_POLL_INTERVAL,
+    POLL_INTERVAL,
+    PROCESSOR_ID,
+)
 from data_processor.processor import process_job
 
 logger = logging.getLogger(__name__)
@@ -24,7 +32,7 @@ _tracer = get_tracer("data_processor")
 async def run_processor(
     engine: Engine, storage: ObjectStoragePort,
 ) -> None:
-    """Loop principal do data_processor."""
+    """Loop principal — respeita flag OPEN/CLOSED."""
     loop = asyncio.get_running_loop()
     running = True
 
@@ -40,15 +48,21 @@ async def run_processor(
             pass
 
     logger.info(
-        "processor_started id=%s poll=%.1fs",
-        PROCESSOR_ID, POLL_INTERVAL,
+        "processor_started id=%s poll=%.1fs idle=%.1fs",
+        PROCESSOR_ID, POLL_INTERVAL, IDLE_POLL_INTERVAL,
     )
 
     while running:
+        state = await loop.run_in_executor(None, read_state, engine)
+        if state is None or state.status != "OPEN":
+            await asyncio.sleep(IDLE_POLL_INTERVAL)
+            continue
+
         job = await loop.run_in_executor(
             None, acquire_completed_job, engine, PROCESSOR_ID,
         )
         if job is None:
+            await loop.run_in_executor(None, close_if_drained, engine)
             await asyncio.sleep(POLL_INTERVAL)
             continue
 
