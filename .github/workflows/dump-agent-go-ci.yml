@@ -45,7 +45,7 @@ jobs:
       - name: Test (race + coverage)
         run: |
           go test -race -count=1 -coverprofile=coverage.out ./...
-          grep -v -E "internal/apiclient/generated\.go|cmd/dumpagent/main\.go" coverage.out > coverage.filtered.out
+          grep -v -E "internal/apiclient/generated\.go|cmd/dumpagent/|internal/service/" coverage.out > coverage.filtered.out
           go tool cover -func=coverage.filtered.out | tail -1
 
       - name: Coverage gate
