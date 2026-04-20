@@ -75,3 +75,75 @@ func sanitizeCnesProfissionalRow(r *CnesProfissionalRow) {
 	r.NoSocial, _ = SanitizeString(r.NoSocial)
 	r.NomeFanta, _ = SanitizeString(r.NomeFanta)
 }
+
+const sqlEstabelecimentos = `
+	SELECT
+		est.CNES, est.NOME_FANTA, est.TP_UNID_ID,
+		est.CODMUNGEST, est.CNPJ_MANT
+	FROM LFCES004 est
+	WHERE est.CODMUNGEST = ?
+`
+
+const sqlEquipes = `
+	SELECT
+		eq.SEQ_EQUIPE, eq.INE, eq.DS_AREA,
+		eq.TP_EQUIPE, eq.COD_MUN
+	FROM LFCES060 eq
+	WHERE eq.COD_MUN = ?
+`
+
+// ExtractCnesEstabelecimentos stream rows para channel out.
+func ExtractCnesEstabelecimentos(
+	ctx context.Context,
+	conn *sql.Conn,
+	params ExtractionParams,
+	out chan<- CnesEstabelecimentoRow,
+) error {
+	rows, err := conn.QueryContext(ctx, sqlEstabelecimentos, params.CodMunGest)
+	if err != nil {
+		return fmt.Errorf("query_estabelecimentos: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var r CnesEstabelecimentoRow
+		if err := rows.Scan(&r.CNES, &r.NomeFanta, &r.TPUnidID, &r.CodMunGest, &r.CNPJMant); err != nil {
+			return fmt.Errorf("scan_estabelecimentos: %w", err)
+		}
+		r.NomeFanta, _ = SanitizeString(r.NomeFanta)
+		select {
+		case out <- r:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return rows.Err()
+}
+
+// ExtractCnesEquipes stream rows para channel out.
+func ExtractCnesEquipes(
+	ctx context.Context,
+	conn *sql.Conn,
+	params ExtractionParams,
+	out chan<- CnesEquipeRow,
+) error {
+	rows, err := conn.QueryContext(ctx, sqlEquipes, params.CodMunGest)
+	if err != nil {
+		return fmt.Errorf("query_equipes: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var r CnesEquipeRow
+		if err := rows.Scan(&r.SeqEquipe, &r.INE, &r.DSArea, &r.TPEquipe, &r.CodMun); err != nil {
+			return fmt.Errorf("scan_equipes: %w", err)
+		}
+		r.DSArea, _ = SanitizeString(r.DSArea)
+		select {
+		case out <- r:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return rows.Err()
+}

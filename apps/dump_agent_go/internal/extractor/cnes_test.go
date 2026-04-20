@@ -98,5 +98,65 @@ func TestExtractCnesProfissionais_SanitizesEncoding(t *testing.T) {
 	require.Equal(t, "Aten??o", row.NomeProf, "invalid bytes replaced by ?")
 }
 
+func TestExtractCnesEstabelecimentos_ReturnsRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	cols := []string{"cnes", "nome_fanta", "tp_unid_id", "codmungest", "cnpj_mant"}
+	mock.ExpectQuery("SELECT est.CNES").
+		WithArgs("354130").
+		WillReturnRows(sqlmock.NewRows(cols).
+			AddRow("0001", "UBS Central", "05", "354130", "12345678000100"))
+
+	conn, _ := db.Conn(context.Background())
+	defer conn.Close()
+
+	ch := make(chan extractor.CnesEstabelecimentoRow, 10)
+	go func() {
+		defer close(ch)
+		err := extractor.ExtractCnesEstabelecimentos(context.Background(), conn,
+			extractor.ExtractionParams{CodMunGest: "354130"}, ch)
+		require.NoError(t, err)
+	}()
+
+	var rows []extractor.CnesEstabelecimentoRow
+	for r := range ch {
+		rows = append(rows, r)
+	}
+	require.Len(t, rows, 1)
+	require.Equal(t, "UBS Central", rows[0].NomeFanta)
+}
+
+func TestExtractCnesEquipes_ReturnsRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	cols := []string{"seq_equipe", "ine", "ds_area", "tp_equipe", "cod_mun"}
+	mock.ExpectQuery("SELECT eq.SEQ_EQUIPE").
+		WithArgs("354130").
+		WillReturnRows(sqlmock.NewRows(cols).
+			AddRow("12345ABCDE", "0000001234567890", "Area 1", "ESF", "354130"))
+
+	conn, _ := db.Conn(context.Background())
+	defer conn.Close()
+
+	ch := make(chan extractor.CnesEquipeRow, 10)
+	go func() {
+		defer close(ch)
+		err := extractor.ExtractCnesEquipes(context.Background(), conn,
+			extractor.ExtractionParams{CodMunGest: "354130"}, ch)
+		require.NoError(t, err)
+	}()
+
+	var rows []extractor.CnesEquipeRow
+	for r := range ch {
+		rows = append(rows, r)
+	}
+	require.Len(t, rows, 1)
+	require.Equal(t, "12345ABCDE", rows[0].SeqEquipe)
+}
+
 // keep sql import used
 var _ = sql.Drivers
