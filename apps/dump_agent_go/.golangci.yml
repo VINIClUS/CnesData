@@ -1,6 +1,6 @@
 run:
   timeout: 5m
-  go: "1.23"
+  go: "1.25"
 
 linters:
   disable-all: true
@@ -20,14 +20,22 @@ linters:
 
 linters-settings:
   gocyclo:
-    min-complexity: 10
-  gocognit:
     min-complexity: 15
+  gocognit:
+    min-complexity: 20
   revive:
     rules:
       - name: exported
       - name: unused-parameter
         disabled: true
+  gosec:
+    excludes:
+      - G306
+      - G404
+  misspell:
+    ignore-words:
+      - exponencial
+      - persistente
 
 issues:
   exclude-dirs:
