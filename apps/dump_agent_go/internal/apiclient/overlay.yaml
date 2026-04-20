@@ -1,0 +1,50 @@
+overlay: 1.0.0
+info:
+  title: OpenAPI 3.1 to 3.0 downgrade for oapi-codegen
+  version: 1.0.0
+actions:
+  - target: $.openapi
+    update: "3.0.3"
+  - target: $.components.schemas.AcquireJobRequest.properties.source_system
+    remove: true
+  - target: $.components.schemas.AcquireJobRequest.properties
+    update:
+      source_system:
+        type: string
+        nullable: true
+        title: Source System
+  - target: $.components.schemas.HeartbeatResponse.properties.lease_expires_at
+    remove: true
+  - target: $.components.schemas.HeartbeatResponse.properties
+    update:
+      lease_expires_at:
+        type: string
+        format: date-time
+        nullable: true
+        title: Lease Expires At
+  - target: $.components.schemas.JobStatusResponse.properties.completed_at
+    remove: true
+  - target: $.components.schemas.JobStatusResponse.properties.created_at
+    remove: true
+  - target: $.components.schemas.JobStatusResponse.properties.error_detail
+    remove: true
+  - target: $.components.schemas.JobStatusResponse.properties.started_at
+    remove: true
+  - target: $.components.schemas.JobStatusResponse.properties
+    update:
+      completed_at:
+        type: string
+        nullable: true
+        title: Completed At
+      created_at:
+        type: string
+        nullable: true
+        title: Created At
+      error_detail:
+        type: string
+        nullable: true
+        title: Error Detail
+      started_at:
+        type: string
+        nullable: true
+        title: Started At

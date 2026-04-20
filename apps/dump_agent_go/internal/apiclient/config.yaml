@@ -1,0 +1,8 @@
+package: apiclient
+generate:
+  client: true
+  models: true
+output: generated.go
+output-options:
+  overlay:
+    path: overlay.yaml
