@@ -50,6 +50,17 @@ jobs:
           pip install -e apps/batch_watcher
           pip install pytest pytest-cov pytest-asyncio pytest-benchmark hypothesis ruff duckdb psutil
 
+      - name: Verify openapi.json up-to-date
+        run: |
+          python scripts/gen_openapi.py --output /tmp/openapi_fresh.json
+          if ! diff -q docs/contracts/openapi.json /tmp/openapi_fresh.json > /dev/null; then
+            echo "::error::openapi.json drift detected"
+            echo "Run: python scripts/gen_openapi.py"
+            diff docs/contracts/openapi.json /tmp/openapi_fresh.json | head -50
+            exit 1
+          fi
+          echo "openapi.json is up-to-date"
+
       - name: Lint
         run: ruff check .
 
