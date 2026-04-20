@@ -1,0 +1,110 @@
+name: dump-agent-go-release
+
+on:
+  push:
+    tags: ['dumpagent-go-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v0.1.0-rc1)'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dump_agent_go
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - id: resolve
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            tag="${{ github.ref_name }}"
+            echo "version=${tag#dumpagent-go-}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tests (sanity)
+        run: go test -race ./...
+
+      - name: Cross-compile Windows amd64
+        run: |
+          mkdir -p dist
+          GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags="-s -w -X main.Version=${{ steps.resolve.outputs.version }}" \
+            -o dist/dumpagent.exe ./cmd/dumpagent
+
+      - name: Verify artifact size
+        run: |
+          size=$(stat -c%s dist/dumpagent.exe)
+          echo "Size: $size bytes"
+          if [ "$size" -gt 26214400 ]; then
+            echo "ERROR: exe > 25MB"; exit 1
+          fi
+
+      - name: Create .zip
+        run: |
+          cd dist
+          zip "dumpagent-${{ steps.resolve.outputs.version }}-windows-amd64.zip" dumpagent.exe
+          sha256sum "dumpagent-${{ steps.resolve.outputs.version }}-windows-amd64.zip" > \
+            "dumpagent-${{ steps.resolve.outputs.version }}-windows-amd64.zip.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dumpagent-${{ steps.resolve.outputs.version }}
+          path: apps/dump_agent_go/dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dumpagent-${{ needs.build.outputs.version }}
+          path: dist/
+
+      - name: Install AWS CLI
+        run: |
+          curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscli.zip
+          unzip -q awscli.zip && sudo ./aws/install --update
+
+      - name: Upload to bucket
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.RELEASES_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASES_S3_SECRET_KEY }}
+          AWS_REGION: ${{ secrets.RELEASES_S3_REGION }}
+        run: |
+          ver="${{ needs.build.outputs.version }}"
+          prefix="s3://${{ secrets.RELEASES_S3_BUCKET }}/dumpagent/${ver}/windows-amd64"
+          aws s3 cp dist/dumpagent-${ver}-windows-amd64.zip "${prefix}/dumpagent-${ver}-windows-amd64.zip" \
+            --endpoint-url "${{ secrets.RELEASES_S3_ENDPOINT }}"
+          aws s3 cp dist/dumpagent-${ver}-windows-amd64.zip.sha256 "${prefix}/dumpagent-${ver}-windows-amd64.zip.sha256" \
+            --endpoint-url "${{ secrets.RELEASES_S3_ENDPOINT }}"
+
+      - name: Update latest.json (if not rc)
+        if: ${{ !contains(needs.build.outputs.version, 'rc') }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.RELEASES_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASES_S3_SECRET_KEY }}
+          AWS_REGION: ${{ secrets.RELEASES_S3_REGION }}
+        run: |
+          ver="${{ needs.build.outputs.version }}"
+          cat > latest.json <<EOF
+          {
+            "version": "${ver}",
+            "windows_amd64_url": "dumpagent/${ver}/windows-amd64/dumpagent-${ver}-windows-amd64.zip",
+            "windows_amd64_sha256_url": "dumpagent/${ver}/windows-amd64/dumpagent-${ver}-windows-amd64.zip.sha256"
+          }
+          EOF
+          aws s3 cp latest.json "s3://${{ secrets.RELEASES_S3_BUCKET }}/dumpagent/latest.json" \
+            --endpoint-url "${{ secrets.RELEASES_S3_ENDPOINT }}"
