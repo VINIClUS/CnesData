@@ -1,0 +1,47 @@
+run:
+  timeout: 5m
+  go: "1.26"
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - gocritic
+    - gosec
+    - revive
+    - gocyclo
+    - gocognit
+    - unused
+    - unparam
+    - misspell
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  gocognit:
+    min-complexity: 20
+  revive:
+    rules:
+      - name: exported
+      - name: unused-parameter
+        disabled: true
+  gosec:
+    excludes:
+      - G306
+      - G404
+  misspell:
+    ignore-words:
+      - exponencial
+      - persistente
+
+issues:
+  exclude-dirs:
+    - internal/apiclient/generated
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck

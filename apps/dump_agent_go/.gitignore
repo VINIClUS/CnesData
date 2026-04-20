@@ -1,0 +1,6 @@
+dist/
+coverage.out
+coverage.html
+*.exe
+.env
+.env.local
