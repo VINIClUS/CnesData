@@ -1,0 +1,53 @@
+name: dump-agent-go-integration
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'apps/dump_agent_go/**'
+  workflow_dispatch:
+
+jobs:
+  integration-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/dump_agent_go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/dump_agent_go/go.sum
+
+      - name: Download Firebird 2.5
+        run: .\scripts\ci\download_firebird.ps1
+        shell: powershell
+
+      - name: Start Firebird server
+        run: |
+          $env:PATH += ";C:\firebird\bin"
+          Start-Process -FilePath "C:\firebird\bin\fbguard.exe" -ArgumentList "-a" -PassThru
+          Start-Sleep -Seconds 5
+        shell: powershell
+
+      - name: Setup synthetic DB
+        run: .\scripts\ci\setup_test_db.ps1
+        shell: powershell
+
+      - name: Integration tests
+        env:
+          FB_HOST: localhost
+          FB_PATH: C:/tmp/CNES_test.gdb
+        run: go test -tags=integration -race -v ./test/integration/... ./internal/extractor/...
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs
+          path: apps/dump_agent_go/*.log
