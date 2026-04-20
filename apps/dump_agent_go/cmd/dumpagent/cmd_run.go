@@ -80,7 +80,14 @@ func runForeground(ctx context.Context, verbose bool) int {
 		return 1
 	}
 
-	exe := &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
+	var exe worker.JobExecutorIface
+	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
+		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
+		slog.Info("shadow_mode_enabled", "output_dir", shadowDir)
+		exe = &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
+	} else {
+		exe = &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
+	}
 	cons := worker.NewConsumer(apiClient, exe, worker.ConsumerConfig{
 		PollInterval:      5 * time.Second,
 		InterJobJitterMax: 5 * time.Second,
