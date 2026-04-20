@@ -13,6 +13,7 @@ import (
 
 	_ "github.com/nakagami/firebirdsql"
 
+	"github.com/cnesdata/dumpagent/internal/apiclient"
 	"github.com/cnesdata/dumpagent/internal/fbdriver"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/platform"
@@ -196,11 +197,14 @@ func envOr(k, def string) string {
 	return def
 }
 
-func buildAPIClient(_ string) (worker.JobAPIClient, error) {
-	return nil, errStubAPIClient
+func buildAPIClient(machineID string) (worker.JobAPIClient, error) {
+	baseURL := envOr("CENTRAL_API_URL", "http://localhost:8000")
+	tenantID := os.Getenv("TENANT_ID")
+	if tenantID == "" {
+		return nil, &stubErr{msg: "env_required var=TENANT_ID"}
+	}
+	return apiclient.NewAdapter(baseURL, tenantID, machineID, nil)
 }
-
-var errStubAPIClient = &stubErr{msg: "api_client_stub_not_wired — Task 28 pending"}
 
 type stubErr struct{ msg string }
 
