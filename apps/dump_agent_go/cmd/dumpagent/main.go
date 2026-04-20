@@ -8,9 +8,14 @@ import (
 	_ "github.com/nakagami/firebirdsql"
 
 	"github.com/cnesdata/dumpagent/internal/platform"
+	"github.com/cnesdata/dumpagent/internal/service"
 )
 
 var Version = "dev"
+
+func init() {
+	service.SetRunner(runForeground)
+}
 
 func main() {
 	os.Exit(dispatch(os.Args[1:]))

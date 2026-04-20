@@ -3,6 +3,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,9 +11,8 @@ import (
 
 // Funções são no-op em POSIX. Na prática dump_agent em Linux sempre roda
 // foreground; systemd unit será adicionada em iteração futura.
-// Versões Windows ficam em handler.go + install_windows.go (Plan B Tasks 3-4).
 
-// RunAsService stub POSIX — retorna erro, não deveria ser chamado.
+// RunAsService stub POSIX — retorna erro.
 func RunAsService(_ string) int {
 	fmt.Fprintln(os.Stderr, "service mode not supported on POSIX")
 	return 2
@@ -30,8 +30,8 @@ func Uninstall() int {
 	return 2
 }
 
-// SetRunner placeholder — Windows variante em Plan B Task 3 injeta runForeground.
-func SetRunner(_ func()) {}
+// SetRunner no-op em POSIX — assinatura compatível com Windows variant.
+func SetRunner(_ func(ctx context.Context, verbose bool) int) {}
 
 // ErrUnsupported marca chamada inválida em POSIX.
 var ErrUnsupported = errors.New("service_operations_unsupported_on_posix")
