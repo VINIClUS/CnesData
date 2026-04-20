@@ -3,6 +3,7 @@ module github.com/cnesdata/dumpagent
 go 1.26.2
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/beevik/ntp v1.5.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/oapi-codegen/runtime v1.4.0
