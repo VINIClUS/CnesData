@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sys v0.43.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
