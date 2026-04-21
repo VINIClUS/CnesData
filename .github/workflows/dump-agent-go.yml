@@ -66,6 +66,7 @@ jobs:
         run: GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/dumpagent.exe ./cmd/dumpagent
 
   integration-windows:
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     defaults:
       run:
