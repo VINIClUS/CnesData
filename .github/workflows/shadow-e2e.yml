@@ -99,28 +99,46 @@ jobs:
           name: shadow-diff-report-${{ github.run_number }}
           path: /tmp/reports/
 
-      - name: Update counter (main/develop branches only)
+      - name: Evaluate streak + trigger cleanup (main/develop branches only)
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          branch_upper=$(echo "${GITHUB_REF_NAME}" | tr '[:lower:]' '[:upper:]')
-          var="SHADOW_GREEN_COUNT_${branch_upper}"
-          current=$(gh variable get "$var" 2>/dev/null || echo "0")
+          # Stateless counter: consulta últimos N runs do mesmo workflow/branch.
+          # Evita dependência de GitHub Variables API (requer PAT com variables:write).
           if [ "${{ steps.diff.outputs.DIFF_FOUND }}" = "1" ]; then
-              gh variable set "$var" --body "0" || gh variable create "$var" --body "0"
               gh issue create \
                 --title "shadow drift detected on ${GITHUB_REF_NAME}" \
                 --body "Shadow E2E reported diff (run ${{ github.run_id }}). Artifact: shadow-diff-report-${{ github.run_number }}" \
-                --label "shadow-drift" || true
-          else
-              new=$((current + 1))
-              gh variable set "$var" --body "$new" || gh variable create "$var" --body "$new"
-              echo "counter=$new" >> $GITHUB_STEP_SUMMARY
-              if [ "$new" -ge 3 ]; then
-                  gh workflow run cleanup-auto.yml \
-                    -f target_branch="${GITHUB_REF_NAME}" || true
-              fi
+                --label "shadow-drift" 2>/dev/null || true
+              echo "status=DIFF_FOUND" >> $GITHUB_STEP_SUMMARY
+              exit 0
+          fi
+
+          # Este run passou. Conta quantos runs anteriores consecutivos foram success.
+          # Exclui o próprio run (que ainda está in_progress quando este step roda).
+          prev=$(gh run list \
+              --workflow=shadow-e2e.yml \
+              --branch="${GITHUB_REF_NAME}" \
+              --limit=5 \
+              --json conclusion \
+              --jq '.[].conclusion' 2>/dev/null || echo "")
+
+          streak=1
+          for status in $prev; do
+              case "$status" in
+                  success) streak=$((streak + 1));;
+                  *) break;;
+              esac
+          done
+
+          echo "consecutive_green_streak=$streak" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$streak" -ge 3 ]; then
+              echo "threshold_reached=dispatching cleanup-auto" >> $GITHUB_STEP_SUMMARY
+              gh workflow run cleanup-auto.yml \
+                  -f target_branch="${GITHUB_REF_NAME}" 2>/dev/null || \
+                  echo "cleanup_dispatch_failed" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Cleanup containers
