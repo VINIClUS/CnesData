@@ -134,13 +134,6 @@ jobs:
 
           echo "consecutive_green_streak=$streak" >> $GITHUB_STEP_SUMMARY
 
-          if [ "$streak" -ge 3 ]; then
-              echo "threshold_reached=dispatching cleanup-auto" >> $GITHUB_STEP_SUMMARY
-              gh workflow run cleanup-auto.yml \
-                  -f target_branch="${GITHUB_REF_NAME}" 2>/dev/null || \
-                  echo "cleanup_dispatch_failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
       - name: Cleanup containers
         if: always()
         run: docker compose -f docker-compose.shadow.yml down -v
