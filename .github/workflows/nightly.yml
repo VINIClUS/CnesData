@@ -18,11 +18,10 @@ jobs:
         run: |
           pip install -e packages/cnes_domain
           pip install -e packages/cnes_infra
-          pip install -e apps/dump_agent
           pip install -e apps/data_processor
           pip install pytest pytest-benchmark psutil hypothesis fdb
       - name: Start perf stack
-        run: docker compose -f docker-compose.perf.yml up -d
+        run: docker compose -f docker-compose.yml --profile perf up -d
       - name: Wait postgres
         run: |
           for i in {1..60}; do
@@ -61,4 +60,4 @@ jobs:
             *.log
       - name: Teardown
         if: always()
-        run: docker compose -f docker-compose.perf.yml down -v
+        run: docker compose -f docker-compose.yml --profile perf down -v

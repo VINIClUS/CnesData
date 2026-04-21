@@ -43,7 +43,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e packages/cnes_domain
           pip install -e packages/cnes_infra
-          pip install -e apps/dump_agent
           pip install -e apps/data_processor
           pip install -e apps/central_api
           pip install -e apps/cnes_db_migrator

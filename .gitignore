@@ -91,3 +91,9 @@ docs/specs/**
 node_modules/
 package-lock.json
 package.json
+
+# Post-cutover
+apps/dump_agent_go/coverage.out
+apps/dump_agent_go/coverage.filtered.out
+apps/dump_agent_go/dumpagent.exe
+*.fbk
