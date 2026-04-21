@@ -28,16 +28,26 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Re-verify counter >= 3
+      - name: Re-verify 3 consecutive green shadow runs
         env:
           INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          branch_upper=$(echo "$INPUT_TARGET_BRANCH" | tr '[:lower:]' '[:upper:]')
-          var="SHADOW_GREEN_COUNT_${branch_upper}"
-          count=$(gh variable get "$var" 2>/dev/null || echo "0")
-          if [ "$count" -lt 3 ]; then
-              echo "counter=$count < 3, abort" >&2
+          prev=$(gh run list \
+              --workflow=shadow-e2e.yml \
+              --branch="$INPUT_TARGET_BRANCH" \
+              --limit=3 \
+              --json conclusion \
+              --jq '.[].conclusion' 2>/dev/null || echo "")
+          green=0
+          for status in $prev; do
+              case "$status" in
+                  success) green=$((green + 1));;
+                  *) break;;
+              esac
+          done
+          if [ "$green" -lt 3 ]; then
+              echo "consecutive_green=$green < 3, abort" >&2
               exit 1
           fi
 
