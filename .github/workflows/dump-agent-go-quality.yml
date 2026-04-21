@@ -1,0 +1,113 @@
+name: dump-agent-go-quality
+
+on:
+  pull_request:
+    paths:
+      - 'apps/dump_agent_go/**'
+      - '.github/workflows/dump-agent-go-quality.yml'
+  schedule:
+    - cron: '0 3 * * *'
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: dump-agent-go-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench-gate:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dump_agent_go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/dump_agent_go/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+      - name: Run bench on PR head
+        run: |
+          go test -bench=. -benchmem -count=5 -run=^$ \
+            ./internal/extractor ./internal/writer ./internal/apiclient \
+            > /tmp/pr.bench
+      - name: Compare with baseline
+        run: |
+          $(go env GOPATH)/bin/benchstat benchdata/main.bench /tmp/pr.bench | \
+            python ../../scripts/bench_gate.py --max-pct 20
+
+  fuzz-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dump_agent_go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/dump_agent_go/go.sum
+      - name: Fuzz SanitizeString
+        run: go test -fuzz=FuzzSanitizeString -fuzztime=30s ./internal/extractor
+      - name: Fuzz BuildDSN
+        run: go test -fuzz=FuzzBuildDSN -fuzztime=30s ./internal/fbdriver
+      - name: Fuzz WithTenantID
+        run: go test -fuzz=FuzzWithTenantID -fuzztime=30s ./internal/apiclient
+      - name: Fuzz WithMachineID
+        run: go test -fuzz=FuzzWithMachineID -fuzztime=30s ./internal/apiclient
+      - name: Upload corpus additions
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-additions-${{ github.run_number }}
+          path: apps/dump_agent_go/**/testdata/fuzz/
+
+  mutation-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dump_agent_go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/dump_agent_go/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+      - name: Run gremlins
+        continue-on-error: true
+        run: |
+          $(go env GOPATH)/bin/gremlins unleash \
+            --output gremlins-report.json \
+            --workers 4 \
+            ./internal/extractor \
+            ./internal/writer \
+            ./internal/apiclient || true
+      - name: Summarize
+        run: |
+          if [ -f gremlins-report.json ]; then
+            python ../../scripts/parse_gremlins.py gremlins-report.json >> $GITHUB_STEP_SUMMARY
+          else
+            echo "gremlins-report.json not generated" >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gremlins-report-${{ github.run_number }}
+          path: apps/dump_agent_go/gremlins-report.json
