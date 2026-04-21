@@ -27,6 +27,65 @@
         "title": "AcquireJobRequest",
         "type": "object"
       },
+      "AgentStatusResponse": {
+        "properties": {
+          "agent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Version"
+          },
+          "jobs_completed_7d": {
+            "title": "Jobs Completed 7D",
+            "type": "integer"
+          },
+          "jobs_failed_7d": {
+            "title": "Jobs Failed 7D",
+            "type": "integer"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "machine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine Id"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "last_seen",
+          "agent_version",
+          "machine_id",
+          "jobs_completed_7d",
+          "jobs_failed_7d"
+        ],
+        "title": "AgentStatusResponse",
+        "type": "object"
+      },
       "CompleteUploadRequest": {
         "properties": {
           "machine_id": {
@@ -307,6 +366,59 @@
         "summary": "Reap Leases",
         "tags": [
           "admin"
+        ]
+      }
+    },
+    "/api/v1/agents/status": {
+      "get": {
+        "description": "Retorna status agregado do agent do tenant.",
+        "operationId": "get_agent_status_api_v1_agents_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{6}$",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": true,
+            "schema": {
+              "title": "X-Tenant-Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Status",
+        "tags": [
+          "agents"
         ]
       }
     },
