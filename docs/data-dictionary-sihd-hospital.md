@@ -309,3 +309,19 @@ FROM TB_HAIH
 WHERE AH_CMPT = :competencia
   AND AH_SITUACAO = '1'
 ```
+
+---
+
+## §Gold v2 Mapping
+
+| Origem SIHD | → | Gold v2 | Observação |
+|---|---|---|---|
+| `TB_HAIH` (AIH processadas) | → | `fato_internacao` | AH_OE_GESTOR+AH_SEQ → num_aih CHAR(13); valores em centavos |
+| `TB_HPA` (procedimentos AIH histórico) | → | `fato_procedimento_aih` | referência sk_aih via num_aih lookup |
+| `TU_PROCEDIMENTO` | → | `dim_procedimento_sus` | sync periódico SIGTAP |
+| `TU_CID` | → | `dim_cid10` | sync |
+| `TB_MUN` | → | reconciliação com `dim_municipio` | COD_MUN → ibge6 |
+| `TB_AIH` + `TB_PA` (em processamento) | → | **NÃO mapear para gold** | só histórico (post-close); evita fatos mutáveis |
+
+Ingestão: `dump_agent_go` já tem `sihd_producao` intent. Mapper `data_processor` 
+a criar (fora de escopo Spec B).
