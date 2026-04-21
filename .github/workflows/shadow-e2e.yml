@@ -60,34 +60,22 @@ jobs:
           COMPOSE_PROJECT: cnesdata
 
       - name: Generate Python baseline
-        env:
-          DB_HOST: localhost
-          DB_PORT: "3051"
-          DB_PATH: /firebird/data/shadow.fdb
-          DB_PASSWORD: masterkey
-          COD_MUN_IBGE: "354130"
         run: |
           mkdir -p /tmp/py_baseline
-          python scripts/gen_golden_fixtures.py \
-            --cod-municipio "$COD_MUN_IBGE" \
-            --output /tmp/py_baseline/ \
-            --intents cnes_profissionais cnes_estabelecimentos || echo "py_baseline_failed"
+          python scripts/shadow_baseline_py.py \
+            --port 3051 --db /firebird/data/shadow.fdb \
+            --cod-mun 354130 \
+            --output /tmp/py_baseline/
 
       - name: Run Go shadow
         working-directory: apps/dump_agent_go
-        env:
-          DB_HOST: localhost
-          DB_PORT: "3051"
-          DB_PATH: /firebird/data/shadow.fdb
-          DB_PASSWORD: masterkey
-          DUMP_SHADOW_MODE: "true"
-          DUMP_SHADOW_DIR: /tmp/go_shadow
-          TENANT_ID: "354130"
-          COMPETENCIA: "202601"
-          COD_MUN_IBGE: "354130"
+        timeout-minutes: 5
         run: |
           mkdir -p /tmp/go_shadow
-          go run ./cmd/dumpagent run --intent cnes_profissionais --once || echo "go_shadow_failed"
+          go run ./cmd/shadow_extract \
+            -port 3051 -db /firebird/data/shadow.fdb \
+            -cod-mun 354130 \
+            -output /tmp/go_shadow/
 
       - name: Compare Python <-> Go
         id: diff
