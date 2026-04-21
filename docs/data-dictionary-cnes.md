@@ -3602,3 +3602,36 @@ RELAÇÃO DAS TABELAS DE DOMÍNIOS
 | CD\_HABILITACAO | VARCHAR(4) |  |  |  |  | Yes | NOT NULL |  |  |
 | DS\_HABILITACAO | VARCHAR(256) |  |  |  |  |  | NOT NULL |  |  |
 | TP\_HABILITACAO | CHAR(1) |  |  |  |  |  | NULL |  |  |
+
+---
+
+## §Gold v2 Mapping
+
+Mapeamento das tabelas técnicas CNES (LFCES*/NFCES*) para Gold v2
+(ver `docs/data-dictionary-gold-v2.md`):
+
+| Origem Firebird | → | Gold v2 | Observação |
+|---|---|---|---|
+| `LFCES018` (profissionais) | → | `dim_profissional` | CPF_PROF → cpf_hash (SHA256[:11]); NOME_PROF → nome; COD_CNS → cns |
+| `LFCES004` (estabelecimentos) | → | `dim_estabelecimento` | CNES → cnes; NOME_FANTA → nome; CNPJ_MANT → cnpj_mantenedora; TP_UNID_ID → tp_unid; CODMUNGEST → sk_municipio (via dim_municipio lookup) |
+| `LFCES021` (vínculos) | → | `fato_vinculo_cnes` | PROF_ID/UNIDADE_ID resolvidos para sk_*; CARGA_HORARIA_TOTAL → carga_horaria_sem; IND_VINC preservado; COD_CBO → sk_cbo |
+| `LFCES060` (equipes) | → | `fato_vinculo_cnes.sk_equipe` | SEQ_EQUIPE → sk_equipe; dim_equipe futuro |
+| `NFCES026` (CBO) | → | `dim_cbo` | COD_CBO → cod_cbo; sync periódico por competência |
+| `NFCES005` (municípios) | → | `dim_municipio` | COD_MUN → ibge6; reconciliação com CADMUN SIA |
+| `NFCES010` (tp unidade) | → | atributo `tp_unid` em `dim_estabelecimento` | SMALLINT, domínio estático |
+| `NFCES046` (tp equipe) | → | atributo em `dim_equipe` (futuro) | reservado |
+| `NFCES058` (IND_VINC subvínculos) | → | lookup estática; não reificada como dim | 6 dígitos, ref documental |
+
+### BigQuery nacional → Gold v2
+
+Mesmo mapeamento do CNES local; `fonte_sistema='CNES_NACIONAL'`. Reconciliação em
+`dim_profissional.fontes JSONB`: `{"CNES_LOCAL": true, "CNES_NACIONAL": true}`.
+
+### Ingestão (dump_agent_go existente)
+
+Intents atuais cobrem mapping acima:
+- `cnes_profissionais` — extract LFCES018 + LFCES021 join
+- `cnes_estabelecimentos` — extract LFCES004
+- `cnes_equipes` — extract LFCES060
+
+Mappers `data_processor` a criar (fora de escopo Spec B).

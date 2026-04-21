@@ -249,6 +249,7 @@ class TestJobsEndpoints:
                 json={
                     "machine_id": "agent-01",
                     "object_key": "tenant/prof/abc.parquet.gz",
+                    "size_bytes": 1024,
                 },
             )
         assert resp.status_code == 409
@@ -265,6 +266,7 @@ class TestJobsEndpoints:
                 json={
                     "machine_id": "agent-01",
                     "object_key": "tenant/prof/abc.parquet.gz",
+                    "size_bytes": 1024,
                 },
             )
         assert resp.status_code == 200

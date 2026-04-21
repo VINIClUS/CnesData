@@ -90,3 +90,28 @@ Custom marks must be declared in `pytest.ini` under `[pytest] markers =` or pyte
 execution but is not registered, so `-m "not bigquery"` may not filter correctly.
 **How to apply:** Flag as WARNING whenever a `@pytest.mark.<name>` is used without a corresponding
 entry in pytest.ini markers section.
+
+## job_queue.py at/above 500-line file limit
+
+`packages/cnes_infra/src/cnes_infra/storage/job_queue.py` has been at 533 lines since commit
+d23fcc7 (Task 4). Rule A4: ≤ 500 lines. Each commit that adds to this file makes the violation
+worse.
+
+**Why:** The file hosts table definitions, 8+ queue functions, DLQ logic, and lease reaping all
+in one module. Growth pressure will continue as more queue features are added.
+**How to apply:** Flag A4 as BLOCKING on any future commit that touches job_queue.py and does not
+split the file. Suggested split: `job_queue_schema.py` (table/metadata defs) + `job_queue.py`
+(functions only).
+
+## run_processor body length (consumer.py) — pre-existing, worsened by Tasks 7+8
+
+`apps/data_processor/src/data_processor/consumer.py:run_processor` body is 58 lines (limit 50),
+pre-existing but worsened by the Tasks 7+8 additions (6 new body lines). The function now
+combines signal handling, state-flag polling, job acquisition, drain closing, and the processing
+span all in one body.
+
+**Why:** Each new feature adds 4-6 lines to what is already a monolithic async loop. The next
+feature addition will push it further over the limit.
+**How to apply:** Flag A1 as BLOCKING on any future commit touching run_processor. Suggested
+decomposition: extract `_setup_signal_handlers(loop)` and `_process_one_job(loop, engine, storage, job)`.
+The flag-check and drain-check branches are small enough to stay inline.

@@ -70,25 +70,25 @@ class TestCompleteUpload:
 
     def test_retorna_false_se_job_nao_encontrado(self):
         engine, _ = _mock_engine_begin(row=None)
-        result = complete_upload(engine, _JOB_ID, "agent-01", "key.parquet")
+        result = complete_upload(engine, _JOB_ID, "agent-01", "key.parquet", 1024)
         assert result is False
 
     def test_retorna_false_se_machine_mismatch(self):
         row = _FakeRow(machine_id="outro-agent")
         engine, _ = _mock_engine_begin(row=row)
-        result = complete_upload(engine, _JOB_ID, "agent-01", "key.parquet")
+        result = complete_upload(engine, _JOB_ID, "agent-01", "key.parquet", 1024)
         assert result is False
 
     def test_retorna_false_se_status_invalido(self):
         row = _FakeRow(status="DONE", machine_id="agent-01")
         engine, _ = _mock_engine_begin(row=row)
-        result = complete_upload(engine, _JOB_ID, "agent-01", "key.parquet")
+        result = complete_upload(engine, _JOB_ID, "agent-01", "key.parquet", 1024)
         assert result is False
 
     def test_retorna_true_em_sucesso(self):
         row = _FakeRow(status="ACQUIRED", machine_id="agent-01")
         engine, _ = _mock_engine_begin(row=row)
-        result = complete_upload(engine, _JOB_ID, "agent-01", "key.parquet")
+        result = complete_upload(engine, _JOB_ID, "agent-01", "key.parquet", 1024)
         assert result is True
 
 

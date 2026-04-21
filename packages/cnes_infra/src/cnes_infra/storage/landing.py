@@ -1,6 +1,6 @@
 """SQLAlchemy Core — tabelas do schema landing (camada bronze)."""
 
-from sqlalchemy import Column, DateTime, MetaData, String, Table, text
+from sqlalchemy import BigInteger, Column, DateTime, MetaData, String, Table, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 landing_metadata = MetaData(schema="landing")
@@ -17,6 +17,7 @@ raw_payload = Table(
     Column("competencia", String(7), nullable=False),
     Column("payload", JSONB),
     Column("object_key", String(512)),
+    Column("size_bytes", BigInteger, nullable=False, server_default=text("0")),
     Column(
         "received_at", DateTime(timezone=True),
         server_default=text("NOW()"),

@@ -120,7 +120,7 @@ def complete_upload_route(
     engine: Engine = Depends(get_engine),
 ) -> Response:
     ok = complete_upload(
-        engine, job_id, body.machine_id, body.object_key,
+        engine, job_id, body.machine_id, body.object_key, body.size_bytes,
     )
     if not ok:
         raise HTTPException(

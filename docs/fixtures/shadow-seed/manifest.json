@@ -1,0 +1,11 @@
+{
+  "salt_hash": "b1cc019a28e4c532",
+  "faker_seed": 42,
+  "rows_per_table": 100,
+  "files": {
+    "cnes_seed.sql": {
+      "sha256": "cd0bd23f668c94aef81afd4e39458acabe00d7db34f373430337fa002c5beb63",
+      "bytes": 68154
+    }
+  }
+}

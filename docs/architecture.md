@@ -6,7 +6,7 @@
 ## Visão macro
 
 Plataforma distribuída edge/central para reconciliação de dados de saúde
-pública. Edge Agents (`dump_agent`) rodam próximo às fontes municipais
+pública. Edge Agents (`dumpagent_go`) rodam próximo às fontes municipais
 (Firebird CNES, SIHD hospitalar), extraem Parquet raw e fazem upload via
 URL pré-assinada para MinIO. O `central_api` (FastAPI) orquestra jobs e
 emite presigned URLs. O `data_processor` (worker) consome jobs, baixa

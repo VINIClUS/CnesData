@@ -1,0 +1,146 @@
+name: shadow-e2e
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  pull_request:
+    types: [labeled]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  shadow-e2e:
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'run-shadow')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/dump_agent_go/go.sum
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install pytest polars faker dbfread
+
+      - name: Start shadow containers
+        run: |
+          docker compose -f docker-compose.shadow.yml up -d
+          for i in $(seq 1 30); do
+              if docker inspect --format='{{.State.Health.Status}}' cnesdata-minio-shadow-1 2>/dev/null | grep -q healthy; then
+                  echo "minio_ready"
+                  break
+              fi
+              sleep 2
+          done
+          sleep 10
+
+      - name: Restore seed
+        run: bash scripts/seed_restore.sh docs/fixtures/shadow-seed/
+        env:
+          COMPOSE_PROJECT: cnesdata
+
+      - name: Generate Python baseline
+        run: |
+          mkdir -p /tmp/py_baseline
+          python scripts/shadow_baseline_py.py \
+            --port 3051 --db /firebird/data/shadow.fdb \
+            --cod-mun 354130 \
+            --output /tmp/py_baseline/
+
+      - name: Run Go shadow
+        working-directory: apps/dump_agent_go
+        timeout-minutes: 5
+        run: |
+          mkdir -p /tmp/go_shadow
+          go run ./cmd/shadow_extract \
+            -port 3051 -db /firebird/data/shadow.fdb \
+            -cod-mun 354130 \
+            -output /tmp/go_shadow/
+
+      - name: Compare Python <-> Go
+        id: diff
+        run: |
+          mkdir -p /tmp/reports
+          if [ -f /tmp/py_baseline/cnes_profissionais.parquet ] && \
+             [ -f /tmp/go_shadow/cnes_profissionais.parquet.gz ]; then
+              python scripts/shadow_diff.py \
+                --python /tmp/py_baseline/cnes_profissionais.parquet \
+                --go /tmp/go_shadow/cnes_profissionais.parquet.gz \
+                > /tmp/reports/shadow-diff.json 2>&1 || echo "DIFF_FOUND=1" >> $GITHUB_OUTPUT
+          else
+              echo "DIFF_FOUND=1" >> $GITHUB_OUTPUT
+              echo "baseline or shadow output missing" > /tmp/reports/shadow-diff.json
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shadow-diff-report-${{ github.run_number }}
+          path: /tmp/reports/
+
+      - name: Evaluate streak + trigger cleanup (main/develop branches only)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Stateless counter: consulta últimos N runs do mesmo workflow/branch.
+          # Evita dependência de GitHub Variables API (requer PAT com variables:write).
+          if [ "${{ steps.diff.outputs.DIFF_FOUND }}" = "1" ]; then
+              gh issue create \
+                --title "shadow drift detected on ${GITHUB_REF_NAME}" \
+                --body "Shadow E2E reported diff (run ${{ github.run_id }}). Artifact: shadow-diff-report-${{ github.run_number }}" \
+                --label "shadow-drift" 2>/dev/null || true
+              echo "status=DIFF_FOUND" >> $GITHUB_STEP_SUMMARY
+              exit 1
+          fi
+
+          # Este run passou. Conta quantos runs anteriores consecutivos foram success.
+          # Exclui o próprio run (que ainda está in_progress quando este step roda).
+          prev=$(gh run list \
+              --workflow=shadow-e2e.yml \
+              --branch="${GITHUB_REF_NAME}" \
+              --limit=5 \
+              --json conclusion \
+              --jq '.[].conclusion' 2>/dev/null || echo "")
+
+          streak=1
+          for status in $prev; do
+              case "$status" in
+                  success) streak=$((streak + 1));;
+                  *) break;;
+              esac
+          done
+
+          echo "consecutive_green_streak=$streak" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$streak" -ge 3 ]; then
+              echo "threshold_reached=dispatching cleanup-auto" >> $GITHUB_STEP_SUMMARY
+              gh workflow run cleanup-auto.yml \
+                  -f target_branch="${GITHUB_REF_NAME}" 2>/dev/null || \
+                  echo "cleanup_dispatch_failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup containers
+        if: always()
+        run: docker compose -f docker-compose.shadow.yml down -v
