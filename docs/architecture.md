@@ -219,3 +219,18 @@ Edge (on-prem):
 ```
 
 Ainda não está em produção. Dockerfiles existem em cada `apps/*/Dockerfile`.
+
+## Docker Compose (local)
+
+Single `docker-compose.yml` com 3 profiles:
+
+- **`dev`** — postgres, minio, migrator, central-api, data-processor, pg-seed, minio-init. Portas 5433/9000/8000.
+- **`perf`** — postgres_perf (tuned), firebird_perf. Portas 5434/3051.
+- **`shadow`** — firebird-shadow (FB 2.5-ss), minio-shadow. Portas 3052/9100. Usado por `.github/workflows/shadow-e2e.yml`.
+
+Uso:
+```bash
+docker compose --profile dev up -d
+docker compose --profile perf up -d
+docker compose --profile shadow up -d
+```

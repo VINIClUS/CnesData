@@ -49,7 +49,7 @@ Monorepo uv workspace. 2 shared packages + 4 apps.
 
 - **Deploy target:** Kubernetes. Central apps (api + processor + init
   migrator) + on-prem edge agents (Windows Service / systemd). Local dev
-  via `docker-compose.yml`; perf fixtures via `docker-compose.perf.yml`.
+  via `docker-compose.yml` (profiles: dev, perf, shadow).
 </project_architecture>
 
 <resources>
@@ -149,6 +149,7 @@ uv run uvicorn central_api.app:create_app --factory --reload
 |---|---|---|
 | `packages/cnes_domain/` | library | Ports, models, pipeline, processing — domain core |
 | `packages/cnes_infra/` | library | Storage, ingestion, telemetry, migrations |
+| `apps/batch_watcher/` | worker | Batch orchestration daemon — triggers extractions based on schedule |
 | `apps/central_api/` | FastAPI | Job orchestration, presigned URLs, health |
 | `apps/data_processor/` | worker | Parquet → transform → Postgres Gold |
 | `apps/cnes_db_migrator/` | init-container | Alembic `upgrade head` |
