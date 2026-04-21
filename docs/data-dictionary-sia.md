@@ -3018,3 +3018,62 @@ Observações da introspecção real:
 | PA_PROCCEO | C(1) | 1 | 0 |
 | PA_6MESES | C(1) | 1 | 0 |
 | PA_EXIGAUT | C(1) | 1 | 0 |
+
+## Referências PDF Datasus
+
+### MANUAL_OPERACIONAL_SIA.pdf
+
+Source: `E:/siasus/MANUAL_OPERACIONAL_SIA.pdf` (43 páginas, ed. CGSI/DRAC/SAS/MS).
+
+Principais achados relevantes para Gold v2:
+
+- **Arquitetura do SIA (§2.1-2.2):** SIA é o sistema de processamento central
+  operado pelo gestor local (SES/SMS). Recebe dados de três aplicativos de
+  captação: **BPA-Mag** (atenção básica + média complexidade),
+  **APAC-Mag** (procedimentos de alta complexidade que exigem autorização
+  prévia) e **RAAS** (atenção psicossocial / atenção domiciliar). Entradas
+  adicionais: CNES (DE-PARA), SIGTAP (tabela de procedimentos), FPO-Mag
+  (programação físico-orçamentária).
+- **SIGTAP como tabela mestre (§9):** instituída pela Portaria GM/MS nº 321/2007,
+  unifica procedimentos ambulatoriais e hospitalares em uma única base. Atributos
+  de cada procedimento: tipo de financiamento (PAB/VISA, **MAC**, **FAEC**),
+  instrumento de registro (BPA-C, BPA-I, APAC, RAAS), valor, CBO exigido, CID,
+  serviço/classificação, habilitações, incrementos financeiros, complexidade.
+- **Financiamento (§2.2 - FPO-Mag):** três tipos configurados na programação:
+  - **PAB/VISA** — Piso de Atenção Básica (não mais permitido na FPO a partir
+    de Julho/2014);
+  - **MAC** — Média e Alta Complexidade;
+  - **FAEC** — Fundo de Ações Estratégicas e Compensação.
+- **Subtipos ambulatoriais (§2.4 / §6):** três fluxos distintos de registro,
+  todos convergindo para o SIA:
+  - **BPA-C** (Consolidado) — registro agregado por CNES/Competência/CBO/Idade;
+    chave: `(CNES, Mês/Ano, Folha, Seq)`; sem dados do paciente.
+  - **BPA-I** (Individualizado) — registro por atendimento com CNS do paciente,
+    CID, sexo, raça/cor, etnia, nacionalidade, endereço; chave:
+    `(CNES, CNS_prof, Mês/Ano, Folha, Seq)`.
+  - **APAC** — registro autorizado por laudo; número de autorização de 13
+    dígitos (UF + AA + tipo + sequencial + DV). Tipos: `2` ambulatorial comum,
+    `4` CNRAC, `5` cirurgia eletiva MC.
+- **Fluxo de remessa (§7-8):** até Jun/2016, arquivos eram consistidos via
+  aplicativo externo **VERSIA** que gerava `.DTS` para transmissão. A partir de
+  Jul/2016, o SIA gera `.DTS` nativamente em `<SIA>/DTS/<AAAAMM>/`. Essa mudança
+  temporal explica variações de schema nos arquivos `.dbc` históricos
+  disponibilizados pelo DATASUS.
+- **Chave operacional mínima:** toda produção ambulatorial carrega `CNES +
+  Competência (AAAAMM) + Tipo de Registro`. Para deduplicação cross-sistema
+  recomendamos `(sk_estabelecimento, sk_competencia, fonte_sistema,
+  folha, seq)` em BPA e `(sk_estabelecimento, sk_competencia, num_apac)` em APAC.
+
+### Integração com Gold v2
+
+- SIGTAP procedimentos → `dim_procedimento_sus` (fonte de valor bruto, tipo
+  de financiamento, complexidade, CBO exigido, CID compatível, instrumento
+  de registro).
+- CBO profissionais → `dim_cbo` (tabela SUS importada via KIT SIA).
+- Subtipos ambulatoriais (APAC/BPA-I/BPA-C/RAAS) →
+  `fato_producao_ambulatorial.fonte_sistema` com domínio
+  `{SIA_APAC, SIA_BPA_I, SIA_BPA_C, SIA_RAAS}`.
+- Financiamento MAC/FAEC/PAB → `fato_producao_ambulatorial.tipo_financiamento`
+  (coluna categórica ou FK para `dim_financiamento`).
+- Número de autorização APAC (13 dígitos com DV) → coluna natural
+  `num_apac` em `fato_producao_ambulatorial` para rastreio de auditoria.
