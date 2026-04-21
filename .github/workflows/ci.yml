@@ -3,8 +3,31 @@ name: CI
 on:
   pull_request:
     branches: [main, develop]
+    paths:
+      - 'packages/**'
+      - 'apps/central_api/**'
+      - 'apps/data_processor/**'
+      - 'apps/cnes_db_migrator/**'
+      - 'apps/batch_watcher/**'
+      - 'pyproject.toml'
+      - '.coveragerc'
+      - 'docs/contracts/openapi.json'
+      - '.github/workflows/ci.yml'
   push:
     branches: [main, develop]
+    paths:
+      - 'packages/**'
+      - 'apps/central_api/**'
+      - 'apps/data_processor/**'
+      - 'apps/cnes_db_migrator/**'
+      - 'apps/batch_watcher/**'
+      - 'pyproject.toml'
+      - '.coveragerc'
+      - 'docs/contracts/openapi.json'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint-test-coverage:
