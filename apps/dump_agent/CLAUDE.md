@@ -1,5 +1,14 @@
 # dump_agent — Edge Agent
 
+> **⚠️ DEPRECATED — Em processo de migração para Go**
+>
+> Este app (`dump_agent` Python) entrará em modo **manutenção** após conclusão
+> da Fase B do cutover (ver `docs/runbooks/dumpagent-cutover.md`). Desenvolvimento
+> ativo acontece em `apps/dump_agent_go/`. Após cutover, apenas bug-fixes
+> críticos são aceitos aqui. Previsão de remoção: 3 meses após início da Fase D.
+>
+> Ver `docs/runbooks/dumpagent-deprecation-python.md`.
+
 ## Executive Summary
 
 Daemon assíncrono que roda **próximo à fonte de dados** (máquina do município
