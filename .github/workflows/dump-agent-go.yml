@@ -1,0 +1,108 @@
+name: dump-agent-go
+
+on:
+  pull_request:
+    paths:
+      - 'apps/dump_agent_go/**'
+      - 'docs/contracts/openapi.json'
+      - '.github/workflows/dump-agent-go.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'apps/dump_agent_go/**'
+      - 'docs/contracts/openapi.json'
+  workflow_dispatch:
+
+concurrency:
+  group: dump-agent-go-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dump_agent_go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/dump_agent_go/go.sum
+
+      - name: Install tools
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+
+      - name: Tidy check
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Lint
+        run: golangci-lint run --timeout=5m
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race + coverage)
+        run: |
+          go test -race -count=1 -coverprofile=coverage.out ./...
+          grep -v -E "internal/apiclient/generated\.go|cmd/dumpagent/|internal/service/" coverage.out > coverage.filtered.out
+          go tool cover -func=coverage.filtered.out | tail -1
+
+      - name: Coverage gate
+        run: |
+          total=$(go tool cover -func=coverage.filtered.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "Total coverage (excluding generated+main): $total%"
+          awk "BEGIN { exit !($total >= 55) }"
+
+      - name: Linux build sanity
+        run: go build -v ./cmd/dumpagent
+
+      - name: Cross-compile Windows
+        run: GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/dumpagent.exe ./cmd/dumpagent
+
+  integration-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/dump_agent_go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/dump_agent_go/go.sum
+
+      - name: Download Firebird 2.5
+        run: .\scripts\ci\download_firebird.ps1
+        shell: powershell
+
+      - name: Start Firebird server
+        run: |
+          $env:PATH += ";C:\firebird\bin"
+          Start-Process -FilePath "C:\firebird\bin\fbguard.exe" -ArgumentList "-a" -PassThru
+          Start-Sleep -Seconds 5
+        shell: powershell
+
+      - name: Setup synthetic DB
+        run: .\scripts\ci\setup_test_db.ps1
+        shell: powershell
+
+      - name: Integration tests
+        env:
+          FB_HOST: localhost
+          FB_PATH: C:/tmp/CNES_test.gdb
+        run: go test -tags=integration -race -v ./test/integration/... ./internal/extractor/...
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs
+          path: apps/dump_agent_go/*.log
