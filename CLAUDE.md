@@ -149,7 +149,6 @@ uv run uvicorn central_api.app:create_app --factory --reload
 |---|---|---|
 | `packages/cnes_domain/` | library | Ports, models, pipeline, processing — domain core |
 | `packages/cnes_infra/` | library | Storage, ingestion, telemetry, migrations |
-| `apps/dump_agent/` | edge daemon | Firebird/SIHD → Parquet → MinIO |
 | `apps/central_api/` | FastAPI | Job orchestration, presigned URLs, health |
 | `apps/data_processor/` | worker | Parquet → transform → Postgres Gold |
 | `apps/cnes_db_migrator/` | init-container | Alembic `upgrade head` |
