@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _SQL_PROFISSIONAIS = """
 SELECT
     prof.CPF_PROF, prof.COD_CNS, prof.NOME_PROF,
-    prof.NO_SOCIAL, prof.SEXO, prof.DATA_NASC,
+    COALESCE(prof.NO_SOCIAL, '') AS NO_SOCIAL, prof.SEXO, prof.DATA_NASC,
     vinc.COD_CBO, vinc.IND_VINC, vinc.TP_SUS_NAO_SUS,
     COALESCE(vinc.CG_HORAAMB, 0) AS CG_HORAAMB,
     COALESCE(vinc.CGHORAOUTR, 0) AS CGHORAOUTR,
