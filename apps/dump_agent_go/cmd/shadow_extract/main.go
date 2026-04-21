@@ -19,7 +19,7 @@ import (
 
 func main() {
 	host := flag.String("host", "localhost", "FB host")
-	port := flag.Int("port", 3051, "FB port")
+	port := flag.Int("port", 3052, "FB port")
 	path := flag.String("db", "/firebird/data/shadow.fdb", "FB db path")
 	user := flag.String("user", "SYSDBA", "FB user")
 	pass := flag.String("pass", "masterkey", "FB pass")
