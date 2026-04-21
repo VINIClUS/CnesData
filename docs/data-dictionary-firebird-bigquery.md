@@ -542,3 +542,15 @@ ORDER BY prof.NOME_PROF, vinc.COD_CBO
 > `CD_SEGMENT` e `DS_SEGMENT` existem em `LFCES060` (confirmado via `RDB$`) mas retornam
 > erro `-206 Column unknown` quando acessados via alias curto em `LEFT JOIN` aninhado no Firebird.
 > Se necessário, recuperar em subquery separada após a carga principal.
+
+---
+
+## §Gold v2 Mapping
+
+Este dicionário descreve o **schema CNES parcial inferido** (Firebird local
+vs BigQuery nacional). A versão canônica desde Spec B (2026-04-21) é
+`docs/data-dictionary-cnes.md` — a seção Gold v2 Mapping oficial está lá.
+
+Mesmo mapeamento aplica aqui, com nota: tabelas nacionais BigQuery (versão
+derivada) são carregadas via `fonte_sistema='CNES_NACIONAL'`. Reconciliação
+em `dim_profissional.fontes JSONB` via merge idempotente.
