@@ -1,20 +1,28 @@
 # Download Firebird 2.5 portable + fbclient.dll para C:\firebird
-# Retries on transient SourceForge failures (partial/corrupt download).
+# Uses direct SF mirror URL (bypasses /download interstitial HTML page).
+# Retries on transient failures.
 $ErrorActionPreference = "Stop"
-$url = "https://sourceforge.net/projects/firebird/files/firebird-win32/2.5.9-Release/Firebird-2.5.9.27139-0_x64.zip/download"
+# Direct mirror URL — bypasses the SF /download redirect page that
+# Invoke-WebRequest returns as ~200KB HTML instead of the actual zip.
+$url = "https://downloads.sourceforge.net/project/firebird/firebird-win32/2.5.9-Release/Firebird-2.5.9.27139-0_x64.zip"
 $dest = "C:\firebird.zip"
 $extractPath = "C:\firebird"
 $maxAttempts = 4
+$minSize = 5000000  # FB 2.5 zip is ~12MB; anything under 5MB is junk
 
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     try {
         if (Test-Path $dest) { Remove-Item $dest -Force }
         Write-Host "Downloading Firebird 2.5 (attempt $attempt/$maxAttempts)..."
-        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 120
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing `
+            -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CnesData-CI" `
+            -MaximumRedirection 10 `
+            -TimeoutSec 180
 
         $size = (Get-Item $dest).Length
-        if ($size -lt 1000000) {
-            throw "downloaded file too small ($size bytes), likely truncated"
+        if ($size -lt $minSize) {
+            throw "downloaded file too small ($size bytes; expected > $minSize), likely truncated or HTML interstitial"
         }
 
         Write-Host "Extracting (size=$size bytes)..."
