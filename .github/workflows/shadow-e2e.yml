@@ -112,7 +112,7 @@ jobs:
                 --body "Shadow E2E reported diff (run ${{ github.run_id }}). Artifact: shadow-diff-report-${{ github.run_number }}" \
                 --label "shadow-drift" 2>/dev/null || true
               echo "status=DIFF_FOUND" >> $GITHUB_STEP_SUMMARY
-              exit 0
+              exit 1
           fi
 
           # Este run passou. Conta quantos runs anteriores consecutivos foram success.

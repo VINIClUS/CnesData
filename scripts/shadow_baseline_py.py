@@ -63,7 +63,8 @@ def extract_to_parquet(
 ) -> int:
     cur = conn.cursor()
     cur.execute(sql, (param,))
-    cols = [d[0] for d in cur.description]
+    # Lowercase para paridade com Go (parquet tags são lowercase)
+    cols = [d[0].lower() for d in cur.description]
     rows = cur.fetchall()
     df = pl.DataFrame(
         rows,
