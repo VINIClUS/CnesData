@@ -1,0 +1,131 @@
+name: shadow-e2e
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  pull_request:
+    types: [labeled]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  shadow-e2e:
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'run-shadow')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: apps/dump_agent_go/go.sum
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e packages/cnes_domain packages/cnes_infra apps/dump_agent
+          pip install pytest polars faker dbfread
+
+      - name: Start shadow containers
+        run: docker compose -f docker-compose.shadow.yml up -d --wait
+
+      - name: Restore seed
+        run: bash scripts/seed_restore.sh docs/fixtures/shadow-seed/
+        env:
+          COMPOSE_PROJECT: cnesdata
+
+      - name: Generate Python baseline
+        env:
+          DB_HOST: localhost
+          DB_PORT: "3051"
+          DB_PATH: /firebird/data/shadow.fdb
+          DB_PASSWORD: masterkey
+          COD_MUN_IBGE: "354130"
+        run: |
+          mkdir -p /tmp/py_baseline
+          python scripts/gen_golden_fixtures.py \
+            --cod-municipio "$COD_MUN_IBGE" \
+            --output /tmp/py_baseline/ \
+            --intents cnes_profissionais cnes_estabelecimentos || echo "py_baseline_failed"
+
+      - name: Run Go shadow
+        working-directory: apps/dump_agent_go
+        env:
+          DB_HOST: localhost
+          DB_PORT: "3051"
+          DB_PATH: /firebird/data/shadow.fdb
+          DB_PASSWORD: masterkey
+          DUMP_SHADOW_MODE: "true"
+          DUMP_SHADOW_DIR: /tmp/go_shadow
+          TENANT_ID: "354130"
+          COMPETENCIA: "202601"
+          COD_MUN_IBGE: "354130"
+        run: |
+          mkdir -p /tmp/go_shadow
+          go run ./cmd/dumpagent run --intent cnes_profissionais --once || echo "go_shadow_failed"
+
+      - name: Compare Python <-> Go
+        id: diff
+        run: |
+          mkdir -p /tmp/reports
+          if [ -f /tmp/py_baseline/cnes_profissionais.parquet ] && \
+             [ -f /tmp/go_shadow/cnes_profissionais.parquet.gz ]; then
+              python scripts/shadow_diff.py \
+                --python /tmp/py_baseline/cnes_profissionais.parquet \
+                --go /tmp/go_shadow/cnes_profissionais.parquet.gz \
+                > /tmp/reports/shadow-diff.json 2>&1 || echo "DIFF_FOUND=1" >> $GITHUB_OUTPUT
+          else
+              echo "DIFF_FOUND=1" >> $GITHUB_OUTPUT
+              echo "baseline or shadow output missing" > /tmp/reports/shadow-diff.json
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shadow-diff-report-${{ github.run_number }}
+          path: /tmp/reports/
+
+      - name: Update counter (main/develop branches only)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch_upper=$(echo "${GITHUB_REF_NAME}" | tr '[:lower:]' '[:upper:]')
+          var="SHADOW_GREEN_COUNT_${branch_upper}"
+          current=$(gh variable get "$var" 2>/dev/null || echo "0")
+          if [ "${{ steps.diff.outputs.DIFF_FOUND }}" = "1" ]; then
+              gh variable set "$var" --body "0" || gh variable create "$var" --body "0"
+              gh issue create \
+                --title "shadow drift detected on ${GITHUB_REF_NAME}" \
+                --body "Shadow E2E reported diff (run ${{ github.run_id }}). Artifact: shadow-diff-report-${{ github.run_number }}" \
+                --label "shadow-drift" || true
+          else
+              new=$((current + 1))
+              gh variable set "$var" --body "$new" || gh variable create "$var" --body "$new"
+              echo "counter=$new" >> $GITHUB_STEP_SUMMARY
+              if [ "$new" -ge 3 ]; then
+                  gh workflow run cleanup-auto.yml \
+                    -f target_branch="${GITHUB_REF_NAME}" || true
+              fi
+          fi
+
+      - name: Cleanup containers
+        if: always()
+        run: docker compose -f docker-compose.shadow.yml down -v
