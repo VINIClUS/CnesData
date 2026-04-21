@@ -70,7 +70,7 @@ def main() -> int:
     args = parser.parse_args()
 
     dbfs = sorted(
-        list(args.dir.glob("*.DBF")) + list(args.dir.glob("*.dbf")),
+        {p.resolve() for p in list(args.dir.glob("*.DBF")) + list(args.dir.glob("*.dbf"))},
         key=lambda p: p.name,
     )
     logger.info("sia_dbfs_found count=%d", len(dbfs))
