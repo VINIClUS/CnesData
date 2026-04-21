@@ -58,18 +58,18 @@ def perf_stack():
     if not _docker_daemon_ok(docker):
         pytest.skip("docker daemon parado — perf fixtures indisponíveis")
     subprocess.run(  # noqa: S603
-        [docker, "compose", "-f", "docker-compose.perf.yml", "up", "-d"],
+        [docker, "compose", "--profile", "perf", "up", "-d"],
         check=True,
     )
     if not _wait_pg():
         subprocess.run(  # noqa: S603
-            [docker, "compose", "-f", "docker-compose.perf.yml", "down"],
+            [docker, "compose", "--profile", "perf", "down"],
             check=False,
         )
         pytest.fail("postgres_perf não subiu em 60s")
     yield
     subprocess.run(  # noqa: S603
-        [docker, "compose", "-f", "docker-compose.perf.yml", "down"],
+        [docker, "compose", "--profile", "perf", "down"],
         check=False,
     )
 

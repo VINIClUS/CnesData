@@ -97,7 +97,7 @@ jobs:
           name: shadow-diff-report-${{ github.run_number }}
           path: /tmp/reports/
 
-      - name: Evaluate streak + trigger cleanup (main/develop branches only)
+      - name: Evaluate streak + drift report (main/develop branches only)
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
