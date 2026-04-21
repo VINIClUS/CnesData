@@ -45,6 +45,7 @@ jobs = Table(
     ),
     Column("trace_context", JSONB),
     Column("machine_id", String(128)),
+    Column("agent_version", String(50)),
     Column("lease_expires_at", DateTime(timezone=True)),
     Column("heartbeat_at", DateTime(timezone=True)),
     Column(
