@@ -4,8 +4,8 @@
   "rows_per_table": 100,
   "files": {
     "cnes_seed.sql": {
-      "sha256": "6b44b99d98be1c9fbf66a9715bae1306170b561c5ee5972309916fa9753fd295",
-      "bytes": 67937
+      "sha256": "cd0bd23f668c94aef81afd4e39458acabe00d7db34f373430337fa002c5beb63",
+      "bytes": 68154
     }
   }
 }
