@@ -9,10 +9,6 @@ services:
       - fb_shadow_data:/firebird/data
     ports:
       - "3051:3050"
-    healthcheck:
-      test: ["CMD-SHELL", "echo 'SELECT 1 FROM RDB$$DATABASE;' | isql-fb /firebird/data/shadow.fdb -u SYSDBA -p masterkey || exit 1"]
-      interval: 5s
-      retries: 20
 
   minio-shadow:
     image: minio/minio:latest

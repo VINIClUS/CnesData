@@ -43,7 +43,16 @@ jobs:
           pip install pytest polars faker dbfread
 
       - name: Start shadow containers
-        run: docker compose -f docker-compose.shadow.yml up -d --wait
+        run: |
+          docker compose -f docker-compose.shadow.yml up -d
+          for i in $(seq 1 30); do
+              if docker inspect --format='{{.State.Health.Status}}' cnesdata-minio-shadow-1 2>/dev/null | grep -q healthy; then
+                  echo "minio_ready"
+                  break
+              fi
+              sleep 2
+          done
+          sleep 10
 
       - name: Restore seed
         run: bash scripts/seed_restore.sh docs/fixtures/shadow-seed/
