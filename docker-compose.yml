@@ -112,21 +112,6 @@ services:
       start_period: 10s
     profiles:
     - dev
-  dump-agent:
-    build:
-      context: .
-      dockerfile: apps/dump_agent/Dockerfile
-    container_name: cnesdata_dump_agent
-    depends_on:
-      central-api:
-        condition: service_healthy
-    environment:
-      API_BASE_URL: http://central-api:8000
-      MACHINE_ID: docker-agent-01
-      MAX_JITTER_SECONDS: '5'
-    profiles:
-    - dev
-    restart: on-failure
   data-processor:
     build:
       context: .
