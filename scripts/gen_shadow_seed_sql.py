@@ -22,7 +22,7 @@ CREATE TABLE LFCES004 (
     CNES         CHAR(7) NOT NULL,
     NOME_FANTA   VARCHAR(100),
     CNPJ_MANT    CHAR(14),
-    TP_UNID_ID   INTEGER,
+    TP_UNID_ID   VARCHAR(3),
     CODMUNGEST   CHAR(6),
     PRIMARY KEY (UNIDADE_ID)
 );
@@ -34,7 +34,7 @@ CREATE TABLE LFCES018 (
     NOME_PROF    VARCHAR(100),
     NO_SOCIAL    VARCHAR(100),
     SEXO         CHAR(1),
-    DATA_NASC    DATE,
+    DATA_NASC    VARCHAR(10),
     PRIMARY KEY (PROF_ID)
 );
 
@@ -79,7 +79,7 @@ def _build_estabelecimentos(fake: Faker, n: int) -> list[dict]:
             "CNES": f"{(2000000 + i):07d}",
             "NOME_FANTA": fake.company()[:100].replace("'", ""),
             "CNPJ_MANT": "55293427000117",
-            "TP_UNID_ID": fake.random_int(1, 99),
+            "TP_UNID_ID": f"{fake.random_int(1, 99):02d}",
             "CODMUNGEST": "354130",
         }
         for i in range(n)
