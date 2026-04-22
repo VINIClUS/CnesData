@@ -250,3 +250,27 @@ docker compose --profile dev up -d
 docker compose --profile perf up -d
 docker compose --profile shadow up -d
 ```
+
+## Governance — Quality Gates
+
+Python PRs run 6 quality jobs via `.github/workflows/python-quality.yml`:
+
+- `n-plus-1` — middleware + SQLAlchemy listener + `assert_query_limit` fixture. Threshold: 15 queries / request.
+- `race` — hypothesis property-based tests on job queue, tenant context, MinIO presign, lease reaper.
+- `memleak` — pytest-memray per-test memory limits (Linux only; skipped on Windows).
+- `chaos` — fault-injection fixtures (DB, MinIO, HTTP).
+- `chaos-infra` — testcontainers-python container restart chaos (PR label `run-chaos` or nightly).
+- `negative` — hypothesis-driven invalid input tests (CPF/CNS/competencia/tenant/SQL-injection).
+
+Violations auto-apply PR labels via `scripts/flag_quality_violation.py`:
+
+- `needs-quality-review` — N+1, race, memleak
+- `needs-chaos-review` — chaos test failure (design bug)
+- `needs-security-review` — negative-test failure (input handling bug)
+
+Branch protection rule (`main`):
+- CI status green
+- No labels: `needs-quality-review`, `needs-chaos-review`, `needs-security-review`
+- CODEOWNERS approval required for paths listed in `.github/CODEOWNERS`
+
+Configure via GitHub ruleset UI.

@@ -58,13 +58,14 @@ def failing_engine():
 
 class TestHealthEndpoint:
     def test_health_retorna_ok_quando_db_conecta(
-        self, client_with_engine,
+        self, client_with_engine, assert_query_limit,
     ):
         resp = client_with_engine.get("/api/v1/system/health")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ok"
         assert body["db_connected"] is True
+        assert_query_limit(resp, 15)
 
     def test_health_retorna_degraded_quando_db_falha(
         self, app, failing_engine,
@@ -85,7 +86,9 @@ class TestHealthEndpoint:
 
 
 class TestAdminEndpoint:
-    def test_reap_leases_retorna_contagem(self, client_with_engine):
+    def test_reap_leases_retorna_contagem(
+        self, client_with_engine, assert_query_limit,
+    ):
         with patch(
             "central_api.routes.admin.reap_expired_leases",
             return_value=3,
@@ -93,6 +96,7 @@ class TestAdminEndpoint:
             resp = client_with_engine.post("/api/v1/admin/reap-leases")
         assert resp.status_code == 200
         assert resp.json() == {"reaped": 3}
+        assert_query_limit(resp, 15)
 
     def test_reap_leases_retorna_zero_quando_sem_leases(
         self, client_with_engine,
@@ -115,7 +119,7 @@ class TestJobsEndpoints:
         assert resp.status_code == 404
 
     def test_get_job_status_retorna_job_encontrado(
-        self, client_with_engine,
+        self, client_with_engine, assert_query_limit,
     ):
         job_id = str(uuid.uuid4())
         job_data = {
@@ -130,6 +134,7 @@ class TestJobsEndpoints:
             resp = client_with_engine.get(f"/api/v1/jobs/{job_id}")
         assert resp.status_code == 200
         assert resp.json()["status"] == "PENDING"
+        assert_query_limit(resp, 15)
 
     def test_acquire_retorna_204_quando_sem_job(
         self, app, mock_engine,
@@ -152,7 +157,7 @@ class TestJobsEndpoints:
         assert resp.status_code == 204
 
     def test_acquire_retorna_job_com_upload_url(
-        self, app, mock_engine,
+        self, app, mock_engine, assert_query_limit,
     ):
         job = MagicMock()
         job.id = str(uuid.uuid4())
@@ -181,6 +186,7 @@ class TestJobsEndpoints:
         body = resp.json()
         assert "upload_url" in body
         assert "job_id" in body
+        assert_query_limit(resp, 15)
 
     def test_heartbeat_retorna_409_quando_lease_invalido(
         self, client_with_engine,

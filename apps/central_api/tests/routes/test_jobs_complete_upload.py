@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from central_api.app import create_app
 
 
-def test_route_propaga_size_bytes_ao_storage():
+def test_route_propaga_size_bytes_ao_storage(assert_query_limit):
     app = create_app()
     client = TestClient(app)
     job_id = uuid.uuid4()
@@ -33,6 +33,7 @@ def test_route_propaga_size_bytes_ao_storage():
     assert call_args[2] == "m"
     assert call_args[3] == "k"
     assert call_args[4] == 4096
+    assert_query_limit(resp, 15)
 
 
 def test_route_retorna_422_sem_size_bytes():

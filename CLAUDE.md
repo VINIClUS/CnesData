@@ -182,5 +182,8 @@ ver `apps/<app>/CLAUDE.md`.
 - Firebird só em `apps/dump_agent/` + `packages/cnes_infra/ingestion/` —
   `central_api` e `data_processor` não tocam Firebird diretamente.
 - Tenant: sempre `cnes_domain.tenant.set_tenant_id()` antes de query Postgres.
+- Quality gates: 4 suites em `tests/{property,memory,chaos,negative}/` + N+1 middleware.
+  Markers: `race`, `memleak`, `chaos`, `chaos_infra`, `negative`, `n_plus_1_debt`.
+  Violações aplicam label `needs-*-review` (bloqueia merge via ruleset).
 
 > Para comandos RTK (Rust Token Killer), ver `~/.claude/CLAUDE.md` global.

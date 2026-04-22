@@ -1,0 +1,189 @@
+name: python-quality
+
+on:
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'apps/central_api/**'
+      - 'apps/data_processor/**'
+      - 'apps/batch_watcher/**'
+      - 'tests/**'
+      - 'scripts/flag_quality_violation.py'
+      - '.github/workflows/python-quality.yml'
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: python-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DB_URL: postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
+  COD_MUN_IBGE: "354130"
+  ID_MUNICIPIO_IBGE7: "3541308"
+  CNPJ_MANTENEDORA: "55293427000117"
+  COMPETENCIA_ANO: "2026"
+  COMPETENCIA_MES: "1"
+
+jobs:
+  n-plus-1:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cnesdata
+          POSTGRES_PASSWORD: cnesdata_test
+          POSTGRES_DB: cnesdata_test
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cnesdata -d cnesdata_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: |
+          pip install --upgrade pip
+          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install -e apps/central_api apps/data_processor apps/batch_watcher
+          pip install pytest pytest-asyncio hypothesis
+      - name: Migrate
+        run: cd packages/cnes_infra && alembic -c alembic.ini upgrade head
+      - name: N+1 tests
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: pytest apps/central_api/tests/ -v -k "assert_query_limit or query_counter"
+      - name: Flag violation
+        if: failure()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/flag_quality_violation.py --kind n+1 --details "route test failure"
+
+  race:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cnesdata
+          POSTGRES_PASSWORD: cnesdata_test
+          POSTGRES_DB: cnesdata_test
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cnesdata -d cnesdata_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: |
+          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install pytest hypothesis
+      - name: Migrate
+        run: cd packages/cnes_infra && alembic -c alembic.ini upgrade head
+      - name: Race tests
+        run: pytest tests/property/ -m race --hypothesis-show-statistics -v
+      - name: Flag violation
+        if: failure()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/flag_quality_violation.py --kind race --details "race detected"
+
+  memleak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: |
+          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install -e apps/central_api apps/data_processor apps/batch_watcher
+          pip install pytest pytest-memray
+      - name: Memleak tests
+        run: pytest tests/memory/ -m memleak --memray --memray-bin-path=/tmp/memray/
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memray-snapshots-${{ github.run_number }}
+          path: /tmp/memray/
+      - name: Flag violation
+        if: failure()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/flag_quality_violation.py --kind memleak --details "memory threshold exceeded"
+
+  chaos:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cnesdata
+          POSTGRES_PASSWORD: cnesdata_test
+          POSTGRES_DB: cnesdata_test
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cnesdata -d cnesdata_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: |
+          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install -e apps/central_api apps/data_processor apps/batch_watcher
+          pip install pytest pytest-asyncio httpx minio
+      - name: Chaos tests
+        run: pytest tests/chaos/ -m "chaos and not chaos_infra" -v
+      - name: Flag violation
+        if: failure()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/flag_quality_violation.py --kind chaos --details "resilience test failure"
+
+  chaos-infra:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-chaos')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: |
+          pip install pytest testcontainers[postgres,minio] sqlalchemy
+      - name: Chaos infra tests
+        run: pytest tests/chaos/ -m chaos_infra -v
+      - name: Flag violation
+        if: failure()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/flag_quality_violation.py --kind chaos --details "infra chaos failure"
+
+  negative:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: |
+          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install pytest hypothesis sqlalchemy
+      - name: Negative tests
+        run: pytest tests/negative/ -m negative -v
+      - name: Flag violation
+        if: failure()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/flag_quality_violation.py --kind negative --details "input validation failure"

@@ -47,6 +47,36 @@ class TestSetGetTenantId:
         ctx.run(_run)
 
 
+class TestValidateTenantId:
+
+    def test_valid_6_digitos_nao_raise(self):
+        from cnes_domain.tenant import validate_tenant_id
+        validate_tenant_id("354130")
+
+    def test_rejeita_nao_string(self):
+        import pytest
+
+        from cnes_domain.tenant import InvalidTenantError, validate_tenant_id
+        with pytest.raises(InvalidTenantError):
+            validate_tenant_id(354130)  # type: ignore[arg-type]
+
+    def test_rejeita_tamanho_errado(self):
+        import pytest
+
+        from cnes_domain.tenant import InvalidTenantError, validate_tenant_id
+        with pytest.raises(InvalidTenantError):
+            validate_tenant_id("123")
+        with pytest.raises(InvalidTenantError):
+            validate_tenant_id("1234567")
+
+    def test_rejeita_nao_digito(self):
+        import pytest
+
+        from cnes_domain.tenant import InvalidTenantError, validate_tenant_id
+        with pytest.raises(InvalidTenantError):
+            validate_tenant_id("abcdef")
+
+
 class TestGetTenantIdLookupError:
 
     def test_get_sem_set_em_novo_contexto_levanta_runtime_error(self):

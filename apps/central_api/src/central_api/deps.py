@@ -14,6 +14,7 @@ from cnes_domain.ports.object_storage import (
 )
 from cnes_infra import config
 from cnes_infra.storage.job_queue import reap_expired_leases
+from cnes_infra.storage.query_counter import install_query_counter
 from cnes_infra.storage.rls import install_rls_listener
 from cnes_infra.telemetry import instrument_engine
 
@@ -69,6 +70,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     global _engine
     _engine = create_engine(config.DB_URL)
     install_rls_listener(_engine)
+    install_query_counter(_engine)
     instrument_engine(_engine)
     reaper = asyncio.create_task(_lease_reaper_loop(_engine))
     yield

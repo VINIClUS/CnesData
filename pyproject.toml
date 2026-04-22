@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["packages/*", "apps/*"]
+members = ["packages/*", "apps/central_api", "apps/data_processor", "apps/cnes_db_migrator", "apps/dump_agent", "apps/batch_watcher"]
 
 [tool.uv]
 override-dependencies = ["protobuf==6.33.6"]
@@ -20,6 +20,8 @@ dev-dependencies = [
     "hypothesis>=6.100",
     "pytest-benchmark>=4.0",
     "psutil>=5.9",
+    "pytest-memray>=1.7.0; sys_platform != 'win32'",
+    "testcontainers[postgres,minio]>=4.0",
 ]
 
 [tool.pyright]
@@ -32,6 +34,12 @@ markers = [
     "postgres: testes de integração que requerem PostgreSQL via Docker",
     "windows_only: requer Win32 API (pula em Linux/Docker)",
     "linux_only: requer POSIX signals/fcntl (pula em Windows)",
+    "n_plus_1_debt: route has known N+1 excess (follow-up issue linked)",
+    "race: hypothesis property-based race condition tests",
+    "memleak: pytest-memray memory leak tests",
+    "chaos: fault injection resilience tests",
+    "chaos_infra: testcontainers infra chaos tests",
+    "negative: hypothesis-driven negative input tests",
 ]
 
 [tool.ruff]
