@@ -46,6 +46,26 @@ con = fdb.connect(
 )
 ```
 
+## Architecture constraint — x86 only
+
+Firebird 1.5.6 was released pre-x64; only 32-bit Windows builds exist.
+The embedded `fbclient.dll` is **x86** — loadable only by a 32-bit
+process. Loading from 64-bit Python/Go will fail with:
+
+```
+OSError: [WinError 193] %1 is not a valid Win32 application
+```
+
+Consumption strategies:
+
+- **Go BPA intent** → build with `GOARCH=386` (or a 32-bit subprocess bridge).
+- **Python BPA reader** → use 32-bit Python (`py -3.13-32`), OR spawn a 32-bit sidecar that streams rows back.
+- **One-shot extraction** (recommended for analysis-only): run `.cache/firebird-1.5.6/isql.exe` once to dump `BPAMAG.GDB` → Parquet/CSV, then process with 64-bit tooling.
+
+BPA-Mag itself is a 32-bit application, so its native `BPAMAG.GDB` is
+naturally paired with a 32-bit FB client. This fixture matches the
+original application's architecture.
+
 ## Troubleshooting
 
 ### `git lfs pull` required after clone
