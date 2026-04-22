@@ -5,8 +5,6 @@ module-discovery conflicts with `apps/*/tests/` dirs that lack `__init__.py`.
 """
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
-
 import pytest
 
 
@@ -18,4 +16,4 @@ def assert_query_limit():
     return _check
 
 
-__all__ = ["assert_query_limit", "AbstractContextManager"]
+__all__ = ["assert_query_limit"]
