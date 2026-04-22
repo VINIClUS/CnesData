@@ -1,0 +1,49 @@
+{
+  "properties": {
+    "ano": {
+      "maximum": 2040,
+      "minimum": 2020,
+      "title": "Ano",
+      "type": "integer"
+    },
+    "competencia": {
+      "maximum": 209912,
+      "minimum": 200001,
+      "title": "Competencia",
+      "type": "integer"
+    },
+    "mes": {
+      "maximum": 12,
+      "minimum": 1,
+      "title": "Mes",
+      "type": "integer"
+    },
+    "qtd_dias_uteis": {
+      "anyOf": [
+        {
+          "maximum": 31,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Qtd Dias Uteis"
+    },
+    "sk_competencia": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Competencia",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sk_competencia",
+    "competencia",
+    "ano",
+    "mes"
+  ],
+  "title": "Competencia",
+  "type": "object"
+}

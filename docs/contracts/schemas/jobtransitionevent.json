@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "JobStatus": {
+      "enum": [
+        "PENDING",
+        "UPLOADED",
+        "PROCESSING",
+        "INGESTED",
+        "FAILED",
+        "DLQ"
+      ],
+      "title": "JobStatus",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "actor": {
+      "title": "Actor",
+      "type": "string"
+    },
+    "at": {
+      "format": "date-time",
+      "title": "At",
+      "type": "string"
+    },
+    "extraction_id": {
+      "format": "uuid",
+      "title": "Extraction Id",
+      "type": "string"
+    },
+    "from_status": {
+      "$ref": "#/$defs/JobStatus"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "to_status": {
+      "$ref": "#/$defs/JobStatus"
+    }
+  },
+  "required": [
+    "extraction_id",
+    "from_status",
+    "to_status",
+    "actor",
+    "at"
+  ],
+  "title": "JobTransitionEvent",
+  "type": "object"
+}

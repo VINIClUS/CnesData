@@ -1,0 +1,72 @@
+{
+  "properties": {
+    "atualizado_em": {
+      "format": "date-time",
+      "title": "Atualizado Em",
+      "type": "string"
+    },
+    "cnes": {
+      "pattern": "^\\d{7}$",
+      "title": "Cnes",
+      "type": "string"
+    },
+    "cnpj_mantenedora": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{14}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cnpj Mantenedora"
+    },
+    "criado_em": {
+      "format": "date-time",
+      "title": "Criado Em",
+      "type": "string"
+    },
+    "fontes": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "title": "Fontes",
+      "type": "object"
+    },
+    "nome": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Nome",
+      "type": "string"
+    },
+    "sk_estabelecimento": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Estabelecimento",
+      "type": "integer"
+    },
+    "sk_municipio": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Municipio",
+      "type": "integer"
+    },
+    "tp_unid": {
+      "maximum": 999,
+      "minimum": 0,
+      "title": "Tp Unid",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sk_estabelecimento",
+    "cnes",
+    "nome",
+    "tp_unid",
+    "sk_municipio",
+    "criado_em",
+    "atualizado_em"
+  ],
+  "title": "Estabelecimento",
+  "type": "object"
+}

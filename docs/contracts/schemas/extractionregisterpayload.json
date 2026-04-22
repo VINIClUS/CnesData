@@ -1,0 +1,56 @@
+{
+  "properties": {
+    "agent_version": {
+      "title": "Agent Version",
+      "type": "string"
+    },
+    "competencia": {
+      "maximum": 209912,
+      "minimum": 200001,
+      "title": "Competencia",
+      "type": "integer"
+    },
+    "fonte_sistema": {
+      "enum": [
+        "CNES_LOCAL",
+        "CNES_NACIONAL",
+        "SIHD",
+        "SIA_APA",
+        "SIA_BPI",
+        "BPA_C",
+        "BPA_I"
+      ],
+      "title": "Fonte Sistema",
+      "type": "string"
+    },
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "machine_id": {
+      "title": "Machine Id",
+      "type": "string"
+    },
+    "tenant_id": {
+      "pattern": "^\\d{6}$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "tipo_extracao": {
+      "title": "Tipo Extracao",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tenant_id",
+    "fonte_sistema",
+    "tipo_extracao",
+    "competencia",
+    "job_id",
+    "agent_version",
+    "machine_id"
+  ],
+  "title": "ExtractionRegisterPayload",
+  "type": "object"
+}

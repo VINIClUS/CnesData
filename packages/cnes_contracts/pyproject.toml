@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cnes-contracts"
+version = "0.1.0"
+description = "CNES Data canonical contracts (pydantic + Protocols)"
+requires-python = ">=3.13"
+dependencies = [
+  "pydantic>=2.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cnes_contracts"]

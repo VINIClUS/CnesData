@@ -1,0 +1,93 @@
+{
+  "properties": {
+    "carga_horaria_sem": {
+      "anyOf": [
+        {
+          "maximum": 168,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Carga Horaria Sem"
+    },
+    "extracao_ts": {
+      "format": "date-time",
+      "title": "Extracao Ts",
+      "type": "string"
+    },
+    "fonte_sistema": {
+      "enum": [
+        "CNES_LOCAL",
+        "CNES_NACIONAL"
+      ],
+      "title": "Fonte Sistema",
+      "type": "string"
+    },
+    "ind_vinc": {
+      "anyOf": [
+        {
+          "pattern": "^\\w{1,6}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ind Vinc"
+    },
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "sk_cbo": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Cbo",
+      "type": "integer"
+    },
+    "sk_competencia": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Competencia",
+      "type": "integer"
+    },
+    "sk_equipe": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sk Equipe"
+    },
+    "sk_estabelecimento": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Estabelecimento",
+      "type": "integer"
+    },
+    "sk_profissional": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Profissional",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sk_profissional",
+    "sk_estabelecimento",
+    "sk_cbo",
+    "sk_competencia",
+    "job_id",
+    "fonte_sistema",
+    "extracao_ts"
+  ],
+  "title": "VinculoCNES",
+  "type": "object"
+}
