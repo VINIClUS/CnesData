@@ -1,0 +1,70 @@
+{
+  "properties": {
+    "extracao_ts": {
+      "format": "date-time",
+      "title": "Extracao Ts",
+      "type": "string"
+    },
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "qtd": {
+      "default": 1,
+      "exclusiveMinimum": 0,
+      "title": "Qtd",
+      "type": "integer"
+    },
+    "sk_aih": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Aih",
+      "type": "integer"
+    },
+    "sk_competencia": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Competencia",
+      "type": "integer"
+    },
+    "sk_procedimento": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Procedimento",
+      "type": "integer"
+    },
+    "sk_profissional_exec": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sk Profissional Exec"
+    },
+    "valor_cents": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valor Cents"
+    }
+  },
+  "required": [
+    "sk_aih",
+    "sk_procedimento",
+    "sk_competencia",
+    "job_id",
+    "extracao_ts"
+  ],
+  "title": "ProcedimentoAIH",
+  "type": "object"
+}

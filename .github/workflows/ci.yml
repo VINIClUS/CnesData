@@ -12,6 +12,7 @@ on:
       - 'pyproject.toml'
       - '.coveragerc'
       - 'docs/contracts/openapi.json'
+      - 'docs/contracts/schemas/**'
       - '.github/workflows/ci.yml'
   push:
     branches: [main, develop]
@@ -24,6 +25,7 @@ on:
       - 'pyproject.toml'
       - '.coveragerc'
       - 'docs/contracts/openapi.json'
+      - 'docs/contracts/schemas/**'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -65,6 +67,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e packages/cnes_domain
+          pip install -e packages/cnes_contracts
           pip install -e packages/cnes_infra
           pip install -e apps/data_processor
           pip install -e apps/central_api
@@ -82,6 +85,16 @@ jobs:
             exit 1
           fi
           echo "openapi.json is up-to-date"
+
+      - name: Verify contracts schemas up-to-date
+        run: |
+          python scripts/gen_contracts.py --output /tmp/contracts_fresh/
+          if ! diff -r docs/contracts/schemas/ /tmp/contracts_fresh/ > /tmp/contracts_diff.out 2>&1; then
+            echo "::error::contract schemas drift detected"
+            cat /tmp/contracts_diff.out | head -50
+            exit 1
+          fi
+          echo "contract schemas up-to-date"
 
       - name: Lint
         run: ruff check .

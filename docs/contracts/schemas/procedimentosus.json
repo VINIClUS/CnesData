@@ -1,0 +1,106 @@
+{
+  "properties": {
+    "cod_sigtap": {
+      "pattern": "^\\d{10}$",
+      "title": "Cod Sigtap",
+      "type": "string"
+    },
+    "competencia_vigencia_fim": {
+      "anyOf": [
+        {
+          "maximum": 209912,
+          "minimum": 200001,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Competencia Vigencia Fim"
+    },
+    "competencia_vigencia_ini": {
+      "anyOf": [
+        {
+          "maximum": 209912,
+          "minimum": 200001,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Competencia Vigencia Ini"
+    },
+    "complexidade": {
+      "anyOf": [
+        {
+          "enum": [
+            1,
+            2,
+            3
+          ],
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Complexidade"
+    },
+    "descricao": {
+      "minLength": 1,
+      "title": "Descricao",
+      "type": "string"
+    },
+    "financiamento": {
+      "anyOf": [
+        {
+          "enum": [
+            "MAC",
+            "FAE",
+            "PAB",
+            "VISA"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Financiamento"
+    },
+    "modalidade": {
+      "anyOf": [
+        {
+          "enum": [
+            "AMB",
+            "HOSP",
+            "APAC"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modalidade"
+    },
+    "sk_procedimento": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Procedimento",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sk_procedimento",
+    "cod_sigtap",
+    "descricao"
+  ],
+  "title": "ProcedimentoSUS",
+  "type": "object"
+}

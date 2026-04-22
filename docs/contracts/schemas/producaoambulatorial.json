@@ -1,0 +1,109 @@
+{
+  "properties": {
+    "dt_atendimento": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dt Atendimento"
+    },
+    "extracao_ts": {
+      "format": "date-time",
+      "title": "Extracao Ts",
+      "type": "string"
+    },
+    "fonte_sistema": {
+      "enum": [
+        "SIA_APA",
+        "SIA_BPI",
+        "BPA_C",
+        "BPA_I"
+      ],
+      "title": "Fonte Sistema",
+      "type": "string"
+    },
+    "fontes_reportadas": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fontes Reportadas"
+    },
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "qtd": {
+      "exclusiveMinimum": 0,
+      "title": "Qtd",
+      "type": "integer"
+    },
+    "sk_cid_principal": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sk Cid Principal"
+    },
+    "sk_competencia": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Competencia",
+      "type": "integer"
+    },
+    "sk_estabelecimento": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Estabelecimento",
+      "type": "integer"
+    },
+    "sk_procedimento": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Procedimento",
+      "type": "integer"
+    },
+    "sk_profissional": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Profissional",
+      "type": "integer"
+    },
+    "valor_aprov_cents": {
+      "minimum": 0,
+      "title": "Valor Aprov Cents",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sk_profissional",
+    "sk_estabelecimento",
+    "sk_procedimento",
+    "sk_competencia",
+    "qtd",
+    "valor_aprov_cents",
+    "job_id",
+    "fonte_sistema",
+    "extracao_ts"
+  ],
+  "title": "ProducaoAmbulatorial",
+  "type": "object"
+}

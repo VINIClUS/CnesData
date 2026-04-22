@@ -1,0 +1,26 @@
+{
+  "properties": {
+    "cod_cbo": {
+      "pattern": "^\\d{6}$",
+      "title": "Cod Cbo",
+      "type": "string"
+    },
+    "descricao": {
+      "minLength": 1,
+      "title": "Descricao",
+      "type": "string"
+    },
+    "sk_cbo": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Cbo",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sk_cbo",
+    "cod_cbo",
+    "descricao"
+  ],
+  "title": "CBO",
+  "type": "object"
+}
