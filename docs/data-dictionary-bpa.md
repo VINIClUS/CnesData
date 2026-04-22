@@ -215,3 +215,19 @@ Temporários já removidos após consolidação. Reexecutar se necessário:
   --pdf "E:/BPA/Manual_Operacional_BPA.pdf" \
   --output docs/_tmp_bpa_manual.md
 ```
+
+## Local test fixture
+
+BPAMAG.GDB is Firebird 1.5 format. To open it locally or in CI tests
+without installing Firebird server, use the bundled embedded client:
+
+```bash
+git lfs pull
+python scripts/fb156_setup.py
+```
+
+Output: `.cache/firebird-1.5.6/fbclient.dll` (plus supporting runtimes).
+
+**Architecture constraint**: FB 1.5.6 client is x86-only. Consumers must
+run as 32-bit process (Go `GOARCH=386`, Python `py -3.13-32`, or sidecar
+bridge). See `docs/fixtures/firebird/README.md` for details.

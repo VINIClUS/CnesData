@@ -220,6 +220,22 @@ Edge (on-prem):
 
 Ainda não está em produção. Dockerfiles existem em cada `apps/*/Dockerfile`.
 
+## Fixtures (git-lfs)
+
+LFS-tracked test data:
+
+| Path | Purpose | Size |
+|---|---|---|
+| `docs/fixtures/shadow-seed/` | FB 2.5 seed SQL + CNES reference Parquet for shadow-e2e | ~100KB |
+| `docs/fixtures/firebird/` | Firebird 1.5.6 embedded client for BPA-Mag local tests (x86-only) | 1.6MB |
+
+Fresh-clone setup:
+
+```bash
+git lfs pull
+python scripts/fb156_setup.py   # extract FB 1.5.6 client to .cache/
+```
+
 ## Docker Compose (local)
 
 Single `docker-compose.yml` com 3 profiles:

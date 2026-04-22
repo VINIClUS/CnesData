@@ -571,6 +571,11 @@ Novas intents em `apps/dump_agent_go/internal/intent/`:
 Cada intent produz 1 Parquet por competência, registrado em
 `landing.raw_extractions`.
 
+> **Local test fixture available:** `docs/fixtures/firebird/` — embedded
+> FB 1.5.6 DLL for local/CI tests against BPA-Mag GDBs. Setup via
+> `python scripts/fb156_setup.py`. x86-only; consumers must run 32-bit.
+> See fixture README for consumer patterns.
+
 ### 10.2 `data_processor` (worker)
 
 Novos row mappers em `apps/data_processor/app/mappers/`:

@@ -177,6 +177,8 @@ ver `apps/<app>/CLAUDE.md`.
 - DataFrames: columns novas via `with_columns`; nunca mutar input in-place.
 - DB connections em `finally` ou context managers (UoW pattern).
 - UI strings e docstrings em Português. Code e comentários em Inglês.
+- Firebird 1.5 embedded client para BPA-Mag: `python scripts/fb156_setup.py`
+  após `git lfs pull`. Extrai em `.cache/firebird-1.5.6/` (x86-only DLL).
 - Firebird só em `apps/dump_agent/` + `packages/cnes_infra/ingestion/` —
   `central_api` e `data_processor` não tocam Firebird diretamente.
 - Tenant: sempre `cnes_domain.tenant.set_tenant_id()` antes de query Postgres.
