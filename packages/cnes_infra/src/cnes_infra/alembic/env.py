@@ -4,9 +4,7 @@ from alembic import context
 from sqlalchemy import MetaData, create_engine, pool
 
 from cnes_infra import config as app_config
-from cnes_infra.storage.job_queue import queue_metadata
-from cnes_infra.storage.landing import landing_metadata
-from cnes_infra.storage.schema import gold_metadata
+from cnes_infra.storage.schema_v2 import metadata as v2_metadata
 
 alembic_config = context.config
 
@@ -14,9 +12,8 @@ if alembic_config.config_file_name is not None:  # pragma: no cover - alembic CL
     fileConfig(alembic_config.config_file_name)  # pragma: no cover
 
 target_metadata = MetaData()
-for md in (gold_metadata, landing_metadata, queue_metadata):
-    for table in md.tables.values():
-        table.tometadata(target_metadata)
+for table in v2_metadata.tables.values():
+    table.tometadata(target_metadata)
 
 
 def _resolver_db_url() -> str:  # pragma: no cover - alembic CLI only
