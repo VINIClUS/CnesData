@@ -97,3 +97,6 @@ apps/dump_agent_go/coverage.out
 apps/dump_agent_go/coverage.filtered.out
 apps/dump_agent_go/dumpagent.exe
 *.fbk
+
+# --- Firebird 1.5.6 Embedded Cache ---
+.cache/firebird-1.5.6/
