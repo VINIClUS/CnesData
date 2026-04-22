@@ -10,8 +10,9 @@ import (
 )
 
 // JobAPIClient contrato que Consumer precisa.
+// v2: agent registra extraction em vez de long-poll por jobs prontos.
 type JobAPIClient interface {
-	AcquireJob(ctx context.Context) (*Job, error)
+	RegisterJob(ctx context.Context, spec JobSpec) (*Job, error)
 	CompleteJob(ctx context.Context, job Job, sizeBytes int64) error
 	FailJob(ctx context.Context, job Job, cause error) error
 	HeartbeatClient
@@ -20,6 +21,12 @@ type JobAPIClient interface {
 // JobExecutorIface permite injetar stub em testes.
 type JobExecutorIface interface {
 	Run(ctx context.Context, job Job) (int64, error)
+}
+
+// JobSpecSource produz o próximo JobSpec a ser registrado, ou nil/err.
+// Retornar (nil,nil) significa "sem trabalho agora" — consumer aguarda PollInterval.
+type JobSpecSource interface {
+	Next(ctx context.Context) (*JobSpec, error)
 }
 
 // ConsumerConfig tunáveis do loop.
@@ -32,16 +39,17 @@ type ConsumerConfig struct {
 // Consumer loop principal.
 type Consumer struct {
 	api      JobAPIClient
+	source   JobSpecSource
 	executor JobExecutorIface
 	config   ConsumerConfig
 }
 
 // NewConsumer construtor.
-func NewConsumer(api JobAPIClient, executor JobExecutorIface, cfg ConsumerConfig) *Consumer {
-	return &Consumer{api: api, executor: executor, config: cfg}
+func NewConsumer(api JobAPIClient, source JobSpecSource, executor JobExecutorIface, cfg ConsumerConfig) *Consumer {
+	return &Consumer{api: api, source: source, executor: executor, config: cfg}
 }
 
-// Loop executa acquire → exec → complete/fail repetidamente.
+// Loop executa next_spec → register → exec → complete/fail repetidamente.
 // Exit em ctx.Done(). Panic recovered.
 func (c *Consumer) Loop(ctx context.Context) (err error) {
 	defer func() {
@@ -58,9 +66,20 @@ func (c *Consumer) Loop(ctx context.Context) (err error) {
 		default:
 		}
 
-		job, acqErr := c.api.AcquireJob(ctx)
-		if acqErr != nil {
-			slog.Warn("acquire_failed", "err", acqErr.Error())
+		spec, specErr := c.source.Next(ctx)
+		if specErr != nil {
+			slog.Warn("source_next_failed", "err", specErr.Error())
+			c.sleep(ctx, c.config.PollInterval)
+			continue
+		}
+		if spec == nil {
+			c.sleep(ctx, c.config.PollInterval)
+			continue
+		}
+
+		job, regErr := c.api.RegisterJob(ctx, *spec)
+		if regErr != nil {
+			slog.Warn("register_failed", "err", regErr.Error())
 			c.sleep(ctx, c.config.PollInterval)
 			continue
 		}

@@ -15,8 +15,8 @@ def _make_app():
         patch("central_api.app.init_telemetry"),
         patch("central_api.deps.install_rls_listener"),
         patch("central_api.deps.instrument_engine"),
+        patch("central_api.deps.install_query_counter"),
         patch("central_api.deps.create_engine"),
-        patch("central_api.deps.reap_expired_leases", return_value=0),
     ):
         from central_api.app import create_app
         return create_app()

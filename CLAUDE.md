@@ -147,6 +147,7 @@ uv run uvicorn central_api.app:create_app --factory --reload
 
 | Path | Type | Purpose |
 |---|---|---|
+| `packages/cnes_contracts/` | library | Canonical pydantic contracts + Protocols + JSON Schema export |
 | `packages/cnes_domain/` | library | Ports, models, pipeline, processing — domain core |
 | `packages/cnes_infra/` | library | Storage, ingestion, telemetry, migrations |
 | `apps/batch_watcher/` | worker | Batch orchestration daemon — triggers extractions based on schedule |

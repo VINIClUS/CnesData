@@ -1,27 +1,29 @@
-"""Dependências compartilhadas da API (engine, settings, reaper)."""
+"""Dependências compartilhadas da API (engine, minio wrapper, reaper)."""
+from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
 
-from cnes_domain.ports.object_storage import (
-    NullObjectStoragePort,
-    ObjectStoragePort,
-)
 from cnes_infra import config
-from cnes_infra.storage.job_queue import reap_expired_leases
+from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.query_counter import install_query_counter
 from cnes_infra.storage.rls import install_rls_listener
 from cnes_infra.telemetry import instrument_engine
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Iterator
+
+    from sqlalchemy.engine import Connection, Engine
+
 logger = logging.getLogger(__name__)
 
 _engine: Engine | None = None
-_object_storage: ObjectStoragePort | None = None
 _REAPER_INTERVAL = 60
 
 
@@ -32,23 +34,43 @@ def get_engine() -> Engine:
     return _engine
 
 
-def get_object_storage() -> ObjectStoragePort:
-    global _object_storage
-    if _object_storage is None:
-        try:
-            from cnes_infra.storage.object_storage import (
-                MinioObjectStorage,
-            )
-            _object_storage = MinioObjectStorage(
-                endpoint=config.MINIO_ENDPOINT,
-                access_key=config.MINIO_ACCESS_KEY,
-                secret_key=config.MINIO_SECRET_KEY,
-                secure=config.MINIO_SECURE,
-            )
-        except Exception:
-            logger.warning("minio_unavailable using_null_storage")
-            _object_storage = NullObjectStoragePort()
-    return _object_storage
+def get_conn() -> Iterator[Connection]:
+    engine = get_engine()
+    with engine.begin() as conn:
+        yield conn
+
+
+@dataclass
+class MinioWrapper:
+    bucket: str
+    endpoint: str
+    access_key: str
+    secret_key: str
+    secure: bool
+
+    def presigned_put(self, key: str, expires: int = 3600) -> str:
+        from minio import Minio
+        client = Minio(
+            self.endpoint,
+            access_key=self.access_key,
+            secret_key=self.secret_key,
+            secure=self.secure,
+        )
+        return client.presigned_put_object(
+            bucket_name=self.bucket,
+            object_name=key,
+            expires=timedelta(seconds=expires),
+        )
+
+
+def get_minio() -> MinioWrapper:
+    return MinioWrapper(
+        bucket=config.MINIO_BUCKET,
+        endpoint=config.MINIO_ENDPOINT,
+        access_key=config.MINIO_ACCESS_KEY,
+        secret_key=config.MINIO_SECRET_KEY,
+        secure=config.MINIO_SECURE,
+    )
 
 
 async def _lease_reaper_loop(engine: Engine) -> None:
@@ -57,12 +79,17 @@ async def _lease_reaper_loop(engine: Engine) -> None:
         await asyncio.sleep(_REAPER_INTERVAL)
         try:
             count = await loop.run_in_executor(
-                None, reap_expired_leases, engine,
+                None, _reap_expired_sync, engine,
             )
             if count > 0:
                 logger.info("leases_reaped count=%d", count)
         except Exception:
             logger.exception("reaper_error")
+
+
+def _reap_expired_sync(engine: Engine) -> int:
+    with engine.begin() as conn:
+        return extractions_repo.reap_expired(conn)
 
 
 @asynccontextmanager

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"math/rand"
 	"os"
@@ -80,6 +81,12 @@ func runForeground(ctx context.Context, verbose bool) int {
 		return 1
 	}
 
+	source, err := buildJobSource()
+	if err != nil {
+		slog.Error("source_init", "err", err.Error())
+		return 1
+	}
+
 	var exe worker.JobExecutorIface
 	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
 		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
@@ -88,7 +95,7 @@ func runForeground(ctx context.Context, verbose bool) int {
 	} else {
 		exe = &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
 	}
-	cons := worker.NewConsumer(apiClient, exe, worker.ConsumerConfig{
+	cons := worker.NewConsumer(apiClient, source, exe, worker.ConsumerConfig{
 		PollInterval:      5 * time.Second,
 		InterJobJitterMax: 5 * time.Second,
 		HeartbeatInterval: 5 * time.Minute,
@@ -187,6 +194,26 @@ func buildAPIClient(machineID string) (worker.JobAPIClient, error) {
 		return nil, &stubErr{msg: "env_required var=TENANT_ID"}
 	}
 	return apiclient.NewAdapter(baseURL, tenantID, machineID, nil)
+}
+
+func buildJobSource() (worker.JobSpecSource, error) {
+	fonte := envOr("FONTE_SISTEMA", "CNES_LOCAL")
+	tipo := envOr("TIPO_EXTRACAO", "estabelecimentos")
+	intent := envOr("INTENT", "estabelecimentos")
+	compRaw := os.Getenv("COMPETENCIA_YYYYMM")
+	if compRaw == "" {
+		return nil, &stubErr{msg: "env_required var=COMPETENCIA_YYYYMM"}
+	}
+	comp, err := strconv.Atoi(compRaw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid_competencia value=%q: %w", compRaw, err)
+	}
+	return worker.NewStaticSource(worker.StaticSpec{
+		FonteSistema: fonte,
+		TipoExtracao: tipo,
+		Competencia:  comp,
+		Intent:       intent,
+	}), nil
 }
 
 type stubErr struct{ msg string }

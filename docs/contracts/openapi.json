@@ -1,32 +1,6 @@
 {
   "components": {
     "schemas": {
-      "AcquireJobRequest": {
-        "properties": {
-          "machine_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Machine Id",
-            "type": "string"
-          },
-          "source_system": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source System"
-          }
-        },
-        "required": [
-          "machine_id"
-        ],
-        "title": "AcquireJobRequest",
-        "type": "object"
-      },
       "AgentStatusResponse": {
         "properties": {
           "agent_version": {
@@ -86,67 +60,35 @@
         "title": "AgentStatusResponse",
         "type": "object"
       },
-      "CompleteUploadRequest": {
+      "CompletePayload": {
         "properties": {
-          "machine_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Machine Id",
-            "type": "string"
-          },
-          "object_key": {
-            "minLength": 1,
-            "title": "Object Key",
-            "type": "string"
-          },
-          "size_bytes": {
-            "minimum": 0.0,
-            "title": "Size Bytes",
+          "row_count": {
+            "title": "Row Count",
             "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
           }
         },
         "required": [
-          "machine_id",
-          "object_key",
-          "size_bytes"
+          "sha256",
+          "row_count"
         ],
-        "title": "CompleteUploadRequest",
+        "title": "CompletePayload",
         "type": "object"
       },
-      "ExtractionIntent": {
-        "enum": [
-          "profissionais",
-          "estabelecimentos",
-          "equipes",
-          "sihd_producao"
-        ],
-        "title": "ExtractionIntent",
-        "type": "string"
-      },
-      "ExtractionParams": {
-        "additionalProperties": false,
-        "description": "Payload validado para jobs de extração.",
+      "FailPayload": {
         "properties": {
-          "cod_municipio": {
-            "pattern": "^\\d{6}$",
-            "title": "Cod Municipio",
+          "error": {
+            "title": "Error",
             "type": "string"
-          },
-          "competencia": {
-            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
-            "title": "Competencia",
-            "type": "string"
-          },
-          "intent": {
-            "$ref": "#/components/schemas/ExtractionIntent"
           }
         },
         "required": [
-          "intent",
-          "competencia",
-          "cod_municipio"
+          "error"
         ],
-        "title": "ExtractionParams",
+        "title": "FailPayload",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -186,116 +128,79 @@
         "title": "HealthResponse",
         "type": "object"
       },
-      "HeartbeatRequest": {
+      "RegisterRequest": {
         "properties": {
-          "machine_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Machine Id",
+          "agent_version": {
+            "title": "Agent Version",
             "type": "string"
-          }
-        },
-        "required": [
-          "machine_id"
-        ],
-        "title": "HeartbeatRequest",
-        "type": "object"
-      },
-      "HeartbeatResponse": {
-        "properties": {
-          "lease_expires_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lease Expires At"
           },
-          "renewed": {
-            "title": "Renewed",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "renewed"
-        ],
-        "title": "HeartbeatResponse",
-        "type": "object"
-      },
-      "JobStatusResponse": {
-        "properties": {
-          "completed_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Completed At"
+          "competencia": {
+            "maximum": 209912.0,
+            "minimum": 200001.0,
+            "title": "Competencia",
+            "type": "integer"
           },
-          "created_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "fonte_sistema": {
+            "enum": [
+              "CNES_LOCAL",
+              "CNES_NACIONAL",
+              "SIHD",
+              "SIA_APA",
+              "SIA_BPI",
+              "BPA_C",
+              "BPA_I"
             ],
-            "title": "Created At"
-          },
-          "error_detail": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Detail"
+            "title": "Fonte Sistema",
+            "type": "string"
           },
           "job_id": {
+            "format": "uuid",
             "title": "Job Id",
             "type": "string"
           },
-          "source_system": {
-            "title": "Source System",
-            "type": "string"
-          },
-          "started_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Started At"
-          },
-          "status": {
-            "title": "Status",
+          "machine_id": {
+            "title": "Machine Id",
             "type": "string"
           },
           "tenant_id": {
+            "pattern": "^\\d{6}$",
             "title": "Tenant Id",
+            "type": "string"
+          },
+          "tipo_extracao": {
+            "title": "Tipo Extracao",
             "type": "string"
           }
         },
         "required": [
+          "tenant_id",
+          "fonte_sistema",
+          "tipo_extracao",
+          "competencia",
           "job_id",
-          "status",
-          "source_system",
-          "tenant_id"
+          "agent_version",
+          "machine_id"
         ],
-        "title": "JobStatusResponse",
+        "title": "RegisterRequest",
+        "type": "object"
+      },
+      "RegisterResponse": {
+        "properties": {
+          "extraction_id": {
+            "format": "uuid",
+            "title": "Extraction Id",
+            "type": "string"
+          },
+          "upload_url": {
+            "title": "Upload Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "extraction_id",
+          "upload_url"
+        ],
+        "title": "RegisterResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -422,65 +327,37 @@
         ]
       }
     },
-    "/api/v1/jobs/acquire": {
-      "post": {
-        "operationId": "acquire_job_api_v1_jobs_acquire_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AcquireJobRequest"
-              }
+    "/api/v1/jobs/next": {
+      "get": {
+        "operationId": "next_extraction_api_v1_jobs_next_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "processor_id",
+            "required": true,
+            "schema": {
+              "title": "Processor Id",
+              "type": "string"
             }
           },
-          "required": true
-        },
+          {
+            "in": "query",
+            "name": "lease_secs",
+            "required": false,
+            "schema": {
+              "default": 300,
+              "title": "Lease Secs",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Acquire Job",
-        "tags": [
-          "jobs"
-        ]
-      }
-    },
-    "/api/v1/jobs/create": {
-      "post": {
-        "operationId": "create_extraction_job_api_v1_jobs_create_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ExtractionParams"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Create Extraction Job Api V1 Jobs Create Post",
+                  "title": "Response Next Extraction Api V1 Jobs Next Get",
                   "type": "object"
                 }
               }
@@ -498,84 +375,32 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Extraction Job",
+        "summary": "Next Extraction",
         "tags": [
           "jobs"
         ]
       }
     },
-    "/api/v1/jobs/{job_id}": {
-      "get": {
-        "operationId": "get_job_status_api_v1_jobs__job_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JobStatusResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Job Status",
-        "tags": [
-          "jobs"
-        ]
-      }
-    },
-    "/api/v1/jobs/{job_id}/complete-upload": {
+    "/api/v1/jobs/register": {
       "post": {
-        "operationId": "complete_upload_route_api_v1_jobs__job_id__complete_upload_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
+        "operationId": "register_extraction_api_v1_jobs_register_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CompleteUploadRequest"
+                "$ref": "#/components/schemas/RegisterRequest"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -591,23 +416,23 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Complete Upload Route",
+        "summary": "Register Extraction",
         "tags": [
           "jobs"
         ]
       }
     },
-    "/api/v1/jobs/{job_id}/heartbeat": {
+    "/api/v1/jobs/{extraction_id}/complete": {
       "post": {
-        "operationId": "heartbeat_api_v1_jobs__job_id__heartbeat_post",
+        "operationId": "complete_extraction_api_v1_jobs__extraction_id__complete_post",
         "parameters": [
           {
             "in": "path",
-            "name": "job_id",
+            "name": "extraction_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Job Id",
+              "title": "Extraction Id",
               "type": "string"
             }
           }
@@ -616,7 +441,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/HeartbeatRequest"
+                "$ref": "#/components/schemas/CompletePayload"
               }
             }
           },
@@ -627,7 +452,9 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HeartbeatResponse"
+                  "additionalProperties": true,
+                  "title": "Response Complete Extraction Api V1 Jobs  Extraction Id  Complete Post",
+                  "type": "object"
                 }
               }
             },
@@ -644,23 +471,23 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Heartbeat",
+        "summary": "Complete Extraction",
         "tags": [
           "jobs"
         ]
       }
     },
-    "/api/v1/jobs/{job_id}/streaming": {
+    "/api/v1/jobs/{extraction_id}/fail": {
       "post": {
-        "operationId": "start_streaming_api_v1_jobs__job_id__streaming_post",
+        "operationId": "fail_extraction_api_v1_jobs__extraction_id__fail_post",
         "parameters": [
           {
             "in": "path",
-            "name": "job_id",
+            "name": "extraction_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Job Id",
+              "title": "Extraction Id",
               "type": "string"
             }
           }
@@ -669,7 +496,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/HeartbeatRequest"
+                "$ref": "#/components/schemas/FailPayload"
               }
             }
           },
@@ -679,7 +506,11 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Fail Extraction Api V1 Jobs  Extraction Id  Fail Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -695,7 +526,61 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Start Streaming",
+        "summary": "Fail Extraction",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/jobs/{extraction_id}/heartbeat": {
+      "post": {
+        "operationId": "heartbeat_extraction_api_v1_jobs__extraction_id__heartbeat_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "extraction_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Extraction Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "processor_id",
+            "required": true,
+            "schema": {
+              "title": "Processor Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Heartbeat Extraction Api V1 Jobs  Extraction Id  Heartbeat Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Heartbeat Extraction",
         "tags": [
           "jobs"
         ]

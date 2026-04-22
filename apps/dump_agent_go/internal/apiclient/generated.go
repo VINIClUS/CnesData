@@ -18,35 +18,36 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
-// Defines values for ExtractionIntent.
+// Defines values for RegisterRequestFonteSistema.
 const (
-	Equipes          ExtractionIntent = "equipes"
-	Estabelecimentos ExtractionIntent = "estabelecimentos"
-	Profissionais    ExtractionIntent = "profissionais"
-	SihdProducao     ExtractionIntent = "sihd_producao"
+	BPAC         RegisterRequestFonteSistema = "BPA_C"
+	BPAI         RegisterRequestFonteSistema = "BPA_I"
+	CNESLOCAL    RegisterRequestFonteSistema = "CNES_LOCAL"
+	CNESNACIONAL RegisterRequestFonteSistema = "CNES_NACIONAL"
+	SIAAPA       RegisterRequestFonteSistema = "SIA_APA"
+	SIABPI       RegisterRequestFonteSistema = "SIA_BPI"
+	SIHD         RegisterRequestFonteSistema = "SIHD"
 )
 
-// AcquireJobRequest defines model for AcquireJobRequest.
-type AcquireJobRequest struct {
-	MachineId    string  `json:"machine_id"`
-	SourceSystem *string `json:"source_system"`
+// AgentStatusResponse defines model for AgentStatusResponse.
+type AgentStatusResponse struct {
+	AgentVersion    *string `json:"agent_version"`
+	JobsCompleted7d int     `json:"jobs_completed_7d"`
+	JobsFailed7d    int     `json:"jobs_failed_7d"`
+	LastSeen        *string `json:"last_seen"`
+	MachineId       *string `json:"machine_id"`
+	TenantId        string  `json:"tenant_id"`
 }
 
-// CompleteUploadRequest defines model for CompleteUploadRequest.
-type CompleteUploadRequest struct {
-	MachineId string `json:"machine_id"`
-	ObjectKey string `json:"object_key"`
-	SizeBytes int    `json:"size_bytes"`
+// CompletePayload defines model for CompletePayload.
+type CompletePayload struct {
+	RowCount int    `json:"row_count"`
+	Sha256   string `json:"sha256"`
 }
 
-// ExtractionIntent defines model for ExtractionIntent.
-type ExtractionIntent string
-
-// ExtractionParams Payload validado para jobs de extração.
-type ExtractionParams struct {
-	CodMunicipio string           `json:"cod_municipio"`
-	Competencia  string           `json:"competencia"`
-	Intent       ExtractionIntent `json:"intent"`
+// FailPayload defines model for FailPayload.
+type FailPayload struct {
+	Error string `json:"error"`
 }
 
 // HTTPValidationError defines model for HTTPValidationError.
@@ -61,27 +62,24 @@ type HealthResponse struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-// HeartbeatRequest defines model for HeartbeatRequest.
-type HeartbeatRequest struct {
-	MachineId string `json:"machine_id"`
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest struct {
+	AgentVersion string                      `json:"agent_version"`
+	Competencia  int                         `json:"competencia"`
+	FonteSistema RegisterRequestFonteSistema `json:"fonte_sistema"`
+	JobId        openapi_types.UUID          `json:"job_id"`
+	MachineId    string                      `json:"machine_id"`
+	TenantId     string                      `json:"tenant_id"`
+	TipoExtracao string                      `json:"tipo_extracao"`
 }
 
-// HeartbeatResponse defines model for HeartbeatResponse.
-type HeartbeatResponse struct {
-	LeaseExpiresAt *time.Time `json:"lease_expires_at"`
-	Renewed        bool       `json:"renewed"`
-}
+// RegisterRequestFonteSistema defines model for RegisterRequest.FonteSistema.
+type RegisterRequestFonteSistema string
 
-// JobStatusResponse defines model for JobStatusResponse.
-type JobStatusResponse struct {
-	CompletedAt  *string `json:"completed_at"`
-	CreatedAt    *string `json:"created_at"`
-	ErrorDetail  *string `json:"error_detail"`
-	JobId        string  `json:"job_id"`
-	SourceSystem string  `json:"source_system"`
-	StartedAt    *string `json:"started_at"`
-	Status       string  `json:"status"`
-	TenantId     string  `json:"tenant_id"`
+// RegisterResponse defines model for RegisterResponse.
+type RegisterResponse struct {
+	ExtractionId openapi_types.UUID `json:"extraction_id"`
+	UploadUrl    string             `json:"upload_url"`
 }
 
 // ValidationError defines model for ValidationError.
@@ -104,20 +102,31 @@ type ValidationError_Loc_Item struct {
 	union json.RawMessage
 }
 
-// AcquireJobApiV1JobsAcquirePostJSONRequestBody defines body for AcquireJobApiV1JobsAcquirePost for application/json ContentType.
-type AcquireJobApiV1JobsAcquirePostJSONRequestBody = AcquireJobRequest
+// GetAgentStatusApiV1AgentsStatusGetParams defines parameters for GetAgentStatusApiV1AgentsStatusGet.
+type GetAgentStatusApiV1AgentsStatusGetParams struct {
+	TenantId  string `form:"tenant_id" json:"tenant_id"`
+	XTenantId string `json:"X-Tenant-Id"`
+}
 
-// CreateExtractionJobApiV1JobsCreatePostJSONRequestBody defines body for CreateExtractionJobApiV1JobsCreatePost for application/json ContentType.
-type CreateExtractionJobApiV1JobsCreatePostJSONRequestBody = ExtractionParams
+// NextExtractionApiV1JobsNextGetParams defines parameters for NextExtractionApiV1JobsNextGet.
+type NextExtractionApiV1JobsNextGetParams struct {
+	ProcessorId string `form:"processor_id" json:"processor_id"`
+	LeaseSecs   *int   `form:"lease_secs,omitempty" json:"lease_secs,omitempty"`
+}
 
-// CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostJSONRequestBody defines body for CompleteUploadRouteApiV1JobsJobIdCompleteUploadPost for application/json ContentType.
-type CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostJSONRequestBody = CompleteUploadRequest
+// HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostParams defines parameters for HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPost.
+type HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostParams struct {
+	ProcessorId string `form:"processor_id" json:"processor_id"`
+}
 
-// HeartbeatApiV1JobsJobIdHeartbeatPostJSONRequestBody defines body for HeartbeatApiV1JobsJobIdHeartbeatPost for application/json ContentType.
-type HeartbeatApiV1JobsJobIdHeartbeatPostJSONRequestBody = HeartbeatRequest
+// RegisterExtractionApiV1JobsRegisterPostJSONRequestBody defines body for RegisterExtractionApiV1JobsRegisterPost for application/json ContentType.
+type RegisterExtractionApiV1JobsRegisterPostJSONRequestBody = RegisterRequest
 
-// StartStreamingApiV1JobsJobIdStreamingPostJSONRequestBody defines body for StartStreamingApiV1JobsJobIdStreamingPost for application/json ContentType.
-type StartStreamingApiV1JobsJobIdStreamingPostJSONRequestBody = HeartbeatRequest
+// CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody defines body for CompleteExtractionApiV1JobsExtractionIdCompletePost for application/json ContentType.
+type CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody = CompletePayload
+
+// FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody defines body for FailExtractionApiV1JobsExtractionIdFailPost for application/json ContentType.
+type FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody = FailPayload
 
 // AsValidationErrorLoc0 returns the union data inside the ValidationError_Loc_Item as a ValidationErrorLoc0
 func (t ValidationError_Loc_Item) AsValidationErrorLoc0() (ValidationErrorLoc0, error) {
@@ -257,33 +266,29 @@ type ClientInterface interface {
 	// ReapLeasesApiV1AdminReapLeasesPost request
 	ReapLeasesApiV1AdminReapLeasesPost(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// AcquireJobApiV1JobsAcquirePostWithBody request with any body
-	AcquireJobApiV1JobsAcquirePostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetAgentStatusApiV1AgentsStatusGet request
+	GetAgentStatusApiV1AgentsStatusGet(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	AcquireJobApiV1JobsAcquirePost(ctx context.Context, body AcquireJobApiV1JobsAcquirePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// NextExtractionApiV1JobsNextGet request
+	NextExtractionApiV1JobsNextGet(ctx context.Context, params *NextExtractionApiV1JobsNextGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateExtractionJobApiV1JobsCreatePostWithBody request with any body
-	CreateExtractionJobApiV1JobsCreatePostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// RegisterExtractionApiV1JobsRegisterPostWithBody request with any body
+	RegisterExtractionApiV1JobsRegisterPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	CreateExtractionJobApiV1JobsCreatePost(ctx context.Context, body CreateExtractionJobApiV1JobsCreatePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	RegisterExtractionApiV1JobsRegisterPost(ctx context.Context, body RegisterExtractionApiV1JobsRegisterPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetJobStatusApiV1JobsJobIdGet request
-	GetJobStatusApiV1JobsJobIdGet(ctx context.Context, jobId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// CompleteExtractionApiV1JobsExtractionIdCompletePostWithBody request with any body
+	CompleteExtractionApiV1JobsExtractionIdCompletePostWithBody(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBody request with any body
-	CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBody(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	CompleteExtractionApiV1JobsExtractionIdCompletePost(ctx context.Context, extractionId openapi_types.UUID, body CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	CompleteUploadRouteApiV1JobsJobIdCompleteUploadPost(ctx context.Context, jobId openapi_types.UUID, body CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// FailExtractionApiV1JobsExtractionIdFailPostWithBody request with any body
+	FailExtractionApiV1JobsExtractionIdFailPostWithBody(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// HeartbeatApiV1JobsJobIdHeartbeatPostWithBody request with any body
-	HeartbeatApiV1JobsJobIdHeartbeatPostWithBody(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	FailExtractionApiV1JobsExtractionIdFailPost(ctx context.Context, extractionId openapi_types.UUID, body FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	HeartbeatApiV1JobsJobIdHeartbeatPost(ctx context.Context, jobId openapi_types.UUID, body HeartbeatApiV1JobsJobIdHeartbeatPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// StartStreamingApiV1JobsJobIdStreamingPostWithBody request with any body
-	StartStreamingApiV1JobsJobIdStreamingPostWithBody(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	StartStreamingApiV1JobsJobIdStreamingPost(ctx context.Context, jobId openapi_types.UUID, body StartStreamingApiV1JobsJobIdStreamingPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPost request
+	HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPost(ctx context.Context, extractionId openapi_types.UUID, params *HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// HealthCheckApiV1SystemHealthGet request
 	HealthCheckApiV1SystemHealthGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -301,8 +306,8 @@ func (c *Client) ReapLeasesApiV1AdminReapLeasesPost(ctx context.Context, reqEdit
 	return c.Client.Do(req)
 }
 
-func (c *Client) AcquireJobApiV1JobsAcquirePostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAcquireJobApiV1JobsAcquirePostRequestWithBody(c.Server, contentType, body)
+func (c *Client) GetAgentStatusApiV1AgentsStatusGet(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentStatusApiV1AgentsStatusGetRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -313,8 +318,8 @@ func (c *Client) AcquireJobApiV1JobsAcquirePostWithBody(ctx context.Context, con
 	return c.Client.Do(req)
 }
 
-func (c *Client) AcquireJobApiV1JobsAcquirePost(ctx context.Context, body AcquireJobApiV1JobsAcquirePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAcquireJobApiV1JobsAcquirePostRequest(c.Server, body)
+func (c *Client) NextExtractionApiV1JobsNextGet(ctx context.Context, params *NextExtractionApiV1JobsNextGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewNextExtractionApiV1JobsNextGetRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -325,8 +330,8 @@ func (c *Client) AcquireJobApiV1JobsAcquirePost(ctx context.Context, body Acquir
 	return c.Client.Do(req)
 }
 
-func (c *Client) CreateExtractionJobApiV1JobsCreatePostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateExtractionJobApiV1JobsCreatePostRequestWithBody(c.Server, contentType, body)
+func (c *Client) RegisterExtractionApiV1JobsRegisterPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRegisterExtractionApiV1JobsRegisterPostRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -337,8 +342,8 @@ func (c *Client) CreateExtractionJobApiV1JobsCreatePostWithBody(ctx context.Cont
 	return c.Client.Do(req)
 }
 
-func (c *Client) CreateExtractionJobApiV1JobsCreatePost(ctx context.Context, body CreateExtractionJobApiV1JobsCreatePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateExtractionJobApiV1JobsCreatePostRequest(c.Server, body)
+func (c *Client) RegisterExtractionApiV1JobsRegisterPost(ctx context.Context, body RegisterExtractionApiV1JobsRegisterPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRegisterExtractionApiV1JobsRegisterPostRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -349,8 +354,8 @@ func (c *Client) CreateExtractionJobApiV1JobsCreatePost(ctx context.Context, bod
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetJobStatusApiV1JobsJobIdGet(ctx context.Context, jobId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetJobStatusApiV1JobsJobIdGetRequest(c.Server, jobId)
+func (c *Client) CompleteExtractionApiV1JobsExtractionIdCompletePostWithBody(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequestWithBody(c.Server, extractionId, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -361,8 +366,8 @@ func (c *Client) GetJobStatusApiV1JobsJobIdGet(ctx context.Context, jobId string
 	return c.Client.Do(req)
 }
 
-func (c *Client) CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBody(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostRequestWithBody(c.Server, jobId, contentType, body)
+func (c *Client) CompleteExtractionApiV1JobsExtractionIdCompletePost(ctx context.Context, extractionId openapi_types.UUID, body CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequest(c.Server, extractionId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -373,8 +378,8 @@ func (c *Client) CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBody(ctx
 	return c.Client.Do(req)
 }
 
-func (c *Client) CompleteUploadRouteApiV1JobsJobIdCompleteUploadPost(ctx context.Context, jobId openapi_types.UUID, body CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostRequest(c.Server, jobId, body)
+func (c *Client) FailExtractionApiV1JobsExtractionIdFailPostWithBody(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFailExtractionApiV1JobsExtractionIdFailPostRequestWithBody(c.Server, extractionId, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -385,8 +390,8 @@ func (c *Client) CompleteUploadRouteApiV1JobsJobIdCompleteUploadPost(ctx context
 	return c.Client.Do(req)
 }
 
-func (c *Client) HeartbeatApiV1JobsJobIdHeartbeatPostWithBody(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewHeartbeatApiV1JobsJobIdHeartbeatPostRequestWithBody(c.Server, jobId, contentType, body)
+func (c *Client) FailExtractionApiV1JobsExtractionIdFailPost(ctx context.Context, extractionId openapi_types.UUID, body FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFailExtractionApiV1JobsExtractionIdFailPostRequest(c.Server, extractionId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -397,32 +402,8 @@ func (c *Client) HeartbeatApiV1JobsJobIdHeartbeatPostWithBody(ctx context.Contex
 	return c.Client.Do(req)
 }
 
-func (c *Client) HeartbeatApiV1JobsJobIdHeartbeatPost(ctx context.Context, jobId openapi_types.UUID, body HeartbeatApiV1JobsJobIdHeartbeatPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewHeartbeatApiV1JobsJobIdHeartbeatPostRequest(c.Server, jobId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) StartStreamingApiV1JobsJobIdStreamingPostWithBody(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewStartStreamingApiV1JobsJobIdStreamingPostRequestWithBody(c.Server, jobId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) StartStreamingApiV1JobsJobIdStreamingPost(ctx context.Context, jobId openapi_types.UUID, body StartStreamingApiV1JobsJobIdStreamingPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewStartStreamingApiV1JobsJobIdStreamingPostRequest(c.Server, jobId, body)
+func (c *Client) HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPost(ctx context.Context, extractionId openapi_types.UUID, params *HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewHeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostRequest(c.Server, extractionId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -472,19 +453,8 @@ func NewReapLeasesApiV1AdminReapLeasesPostRequest(server string) (*http.Request,
 	return req, nil
 }
 
-// NewAcquireJobApiV1JobsAcquirePostRequest calls the generic AcquireJobApiV1JobsAcquirePost builder with application/json body
-func NewAcquireJobApiV1JobsAcquirePostRequest(server string, body AcquireJobApiV1JobsAcquirePostJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewAcquireJobApiV1JobsAcquirePostRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewAcquireJobApiV1JobsAcquirePostRequestWithBody generates requests for AcquireJobApiV1JobsAcquirePost with any type of body
-func NewAcquireJobApiV1JobsAcquirePostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewGetAgentStatusApiV1AgentsStatusGetRequest generates requests for GetAgentStatusApiV1AgentsStatusGet
+func NewGetAgentStatusApiV1AgentsStatusGetRequest(server string, params *GetAgentStatusApiV1AgentsStatusGetParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -492,7 +462,7 @@ func NewAcquireJobApiV1JobsAcquirePostRequestWithBody(server string, contentType
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/jobs/acquire")
+	operationPath := fmt.Sprintf("/api/v1/agents/status")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -502,29 +472,47 @@ func NewAcquireJobApiV1JobsAcquirePostRequestWithBody(server string, contentType
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "tenant_id", runtime.ParamLocationQuery, params.TenantId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Add("Content-Type", contentType)
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "X-Tenant-Id", runtime.ParamLocationHeader, params.XTenantId)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Tenant-Id", headerParam0)
+
+	}
 
 	return req, nil
 }
 
-// NewCreateExtractionJobApiV1JobsCreatePostRequest calls the generic CreateExtractionJobApiV1JobsCreatePost builder with application/json body
-func NewCreateExtractionJobApiV1JobsCreatePostRequest(server string, body CreateExtractionJobApiV1JobsCreatePostJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateExtractionJobApiV1JobsCreatePostRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateExtractionJobApiV1JobsCreatePostRequestWithBody generates requests for CreateExtractionJobApiV1JobsCreatePost with any type of body
-func NewCreateExtractionJobApiV1JobsCreatePostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewNextExtractionApiV1JobsNextGetRequest generates requests for NextExtractionApiV1JobsNextGet
+func NewNextExtractionApiV1JobsNextGetRequest(server string, params *NextExtractionApiV1JobsNextGetParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -532,7 +520,7 @@ func NewCreateExtractionJobApiV1JobsCreatePostRequestWithBody(server string, con
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/jobs/create")
+	operationPath := fmt.Sprintf("/api/v1/jobs/next")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -542,40 +530,38 @@ func NewCreateExtractionJobApiV1JobsCreatePostRequestWithBody(server string, con
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
+	if params != nil {
+		queryValues := queryURL.Query()
 
-	req.Header.Add("Content-Type", contentType)
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "processor_id", runtime.ParamLocationQuery, params.ProcessorId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
 
-	return req, nil
-}
+		if params.LeaseSecs != nil {
 
-// NewGetJobStatusApiV1JobsJobIdGetRequest generates requests for GetJobStatusApiV1JobsJobIdGet
-func NewGetJobStatusApiV1JobsJobIdGetRequest(server string, jobId string) (*http.Request, error) {
-	var err error
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "lease_secs", runtime.ParamLocationQuery, *params.LeaseSecs); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
 
-	var pathParam0 string
+		}
 
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "job_id", runtime.ParamLocationPath, jobId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/jobs/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -586,34 +572,27 @@ func NewGetJobStatusApiV1JobsJobIdGetRequest(server string, jobId string) (*http
 	return req, nil
 }
 
-// NewCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostRequest calls the generic CompleteUploadRouteApiV1JobsJobIdCompleteUploadPost builder with application/json body
-func NewCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostRequest(server string, jobId openapi_types.UUID, body CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostJSONRequestBody) (*http.Request, error) {
+// NewRegisterExtractionApiV1JobsRegisterPostRequest calls the generic RegisterExtractionApiV1JobsRegisterPost builder with application/json body
+func NewRegisterExtractionApiV1JobsRegisterPostRequest(server string, body RegisterExtractionApiV1JobsRegisterPostJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostRequestWithBody(server, jobId, "application/json", bodyReader)
+	return NewRegisterExtractionApiV1JobsRegisterPostRequestWithBody(server, "application/json", bodyReader)
 }
 
-// NewCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostRequestWithBody generates requests for CompleteUploadRouteApiV1JobsJobIdCompleteUploadPost with any type of body
-func NewCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostRequestWithBody(server string, jobId openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+// NewRegisterExtractionApiV1JobsRegisterPostRequestWithBody generates requests for RegisterExtractionApiV1JobsRegisterPost with any type of body
+func NewRegisterExtractionApiV1JobsRegisterPostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "job_id", runtime.ParamLocationPath, jobId)
-	if err != nil {
-		return nil, err
-	}
 
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/jobs/%s/complete-upload", pathParam0)
+	operationPath := fmt.Sprintf("/api/v1/jobs/register")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -633,24 +612,107 @@ func NewCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostRequestWithBody(serve
 	return req, nil
 }
 
-// NewHeartbeatApiV1JobsJobIdHeartbeatPostRequest calls the generic HeartbeatApiV1JobsJobIdHeartbeatPost builder with application/json body
-func NewHeartbeatApiV1JobsJobIdHeartbeatPostRequest(server string, jobId openapi_types.UUID, body HeartbeatApiV1JobsJobIdHeartbeatPostJSONRequestBody) (*http.Request, error) {
+// NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequest calls the generic CompleteExtractionApiV1JobsExtractionIdCompletePost builder with application/json body
+func NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequest(server string, extractionId openapi_types.UUID, body CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewHeartbeatApiV1JobsJobIdHeartbeatPostRequestWithBody(server, jobId, "application/json", bodyReader)
+	return NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequestWithBody(server, extractionId, "application/json", bodyReader)
 }
 
-// NewHeartbeatApiV1JobsJobIdHeartbeatPostRequestWithBody generates requests for HeartbeatApiV1JobsJobIdHeartbeatPost with any type of body
-func NewHeartbeatApiV1JobsJobIdHeartbeatPostRequestWithBody(server string, jobId openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+// NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequestWithBody generates requests for CompleteExtractionApiV1JobsExtractionIdCompletePost with any type of body
+func NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequestWithBody(server string, extractionId openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "job_id", runtime.ParamLocationPath, jobId)
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "extraction_id", runtime.ParamLocationPath, extractionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/jobs/%s/complete", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewFailExtractionApiV1JobsExtractionIdFailPostRequest calls the generic FailExtractionApiV1JobsExtractionIdFailPost builder with application/json body
+func NewFailExtractionApiV1JobsExtractionIdFailPostRequest(server string, extractionId openapi_types.UUID, body FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewFailExtractionApiV1JobsExtractionIdFailPostRequestWithBody(server, extractionId, "application/json", bodyReader)
+}
+
+// NewFailExtractionApiV1JobsExtractionIdFailPostRequestWithBody generates requests for FailExtractionApiV1JobsExtractionIdFailPost with any type of body
+func NewFailExtractionApiV1JobsExtractionIdFailPostRequestWithBody(server string, extractionId openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "extraction_id", runtime.ParamLocationPath, extractionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/jobs/%s/fail", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewHeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostRequest generates requests for HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPost
+func NewHeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostRequest(server string, extractionId openapi_types.UUID, params *HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "extraction_id", runtime.ParamLocationPath, extractionId)
 	if err != nil {
 		return nil, err
 	}
@@ -670,59 +732,28 @@ func NewHeartbeatApiV1JobsJobIdHeartbeatPostRequestWithBody(server string, jobId
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "processor_id", runtime.ParamLocationQuery, params.ProcessorId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewStartStreamingApiV1JobsJobIdStreamingPostRequest calls the generic StartStreamingApiV1JobsJobIdStreamingPost builder with application/json body
-func NewStartStreamingApiV1JobsJobIdStreamingPostRequest(server string, jobId openapi_types.UUID, body StartStreamingApiV1JobsJobIdStreamingPostJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewStartStreamingApiV1JobsJobIdStreamingPostRequestWithBody(server, jobId, "application/json", bodyReader)
-}
-
-// NewStartStreamingApiV1JobsJobIdStreamingPostRequestWithBody generates requests for StartStreamingApiV1JobsJobIdStreamingPost with any type of body
-func NewStartStreamingApiV1JobsJobIdStreamingPostRequestWithBody(server string, jobId openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "job_id", runtime.ParamLocationPath, jobId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/v1/jobs/%s/streaming", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -800,33 +831,29 @@ type ClientWithResponsesInterface interface {
 	// ReapLeasesApiV1AdminReapLeasesPostWithResponse request
 	ReapLeasesApiV1AdminReapLeasesPostWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReapLeasesApiV1AdminReapLeasesPostResponse, error)
 
-	// AcquireJobApiV1JobsAcquirePostWithBodyWithResponse request with any body
-	AcquireJobApiV1JobsAcquirePostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AcquireJobApiV1JobsAcquirePostResponse, error)
+	// GetAgentStatusApiV1AgentsStatusGetWithResponse request
+	GetAgentStatusApiV1AgentsStatusGetWithResponse(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*GetAgentStatusApiV1AgentsStatusGetResponse, error)
 
-	AcquireJobApiV1JobsAcquirePostWithResponse(ctx context.Context, body AcquireJobApiV1JobsAcquirePostJSONRequestBody, reqEditors ...RequestEditorFn) (*AcquireJobApiV1JobsAcquirePostResponse, error)
+	// NextExtractionApiV1JobsNextGetWithResponse request
+	NextExtractionApiV1JobsNextGetWithResponse(ctx context.Context, params *NextExtractionApiV1JobsNextGetParams, reqEditors ...RequestEditorFn) (*NextExtractionApiV1JobsNextGetResponse, error)
 
-	// CreateExtractionJobApiV1JobsCreatePostWithBodyWithResponse request with any body
-	CreateExtractionJobApiV1JobsCreatePostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateExtractionJobApiV1JobsCreatePostResponse, error)
+	// RegisterExtractionApiV1JobsRegisterPostWithBodyWithResponse request with any body
+	RegisterExtractionApiV1JobsRegisterPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterExtractionApiV1JobsRegisterPostResponse, error)
 
-	CreateExtractionJobApiV1JobsCreatePostWithResponse(ctx context.Context, body CreateExtractionJobApiV1JobsCreatePostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateExtractionJobApiV1JobsCreatePostResponse, error)
+	RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx context.Context, body RegisterExtractionApiV1JobsRegisterPostJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterExtractionApiV1JobsRegisterPostResponse, error)
 
-	// GetJobStatusApiV1JobsJobIdGetWithResponse request
-	GetJobStatusApiV1JobsJobIdGetWithResponse(ctx context.Context, jobId string, reqEditors ...RequestEditorFn) (*GetJobStatusApiV1JobsJobIdGetResponse, error)
+	// CompleteExtractionApiV1JobsExtractionIdCompletePostWithBodyWithResponse request with any body
+	CompleteExtractionApiV1JobsExtractionIdCompletePostWithBodyWithResponse(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteExtractionApiV1JobsExtractionIdCompletePostResponse, error)
 
-	// CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBodyWithResponse request with any body
-	CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBodyWithResponse(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse, error)
+	CompleteExtractionApiV1JobsExtractionIdCompletePostWithResponse(ctx context.Context, extractionId openapi_types.UUID, body CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteExtractionApiV1JobsExtractionIdCompletePostResponse, error)
 
-	CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithResponse(ctx context.Context, jobId openapi_types.UUID, body CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse, error)
+	// FailExtractionApiV1JobsExtractionIdFailPostWithBodyWithResponse request with any body
+	FailExtractionApiV1JobsExtractionIdFailPostWithBodyWithResponse(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FailExtractionApiV1JobsExtractionIdFailPostResponse, error)
 
-	// HeartbeatApiV1JobsJobIdHeartbeatPostWithBodyWithResponse request with any body
-	HeartbeatApiV1JobsJobIdHeartbeatPostWithBodyWithResponse(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*HeartbeatApiV1JobsJobIdHeartbeatPostResponse, error)
+	FailExtractionApiV1JobsExtractionIdFailPostWithResponse(ctx context.Context, extractionId openapi_types.UUID, body FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody, reqEditors ...RequestEditorFn) (*FailExtractionApiV1JobsExtractionIdFailPostResponse, error)
 
-	HeartbeatApiV1JobsJobIdHeartbeatPostWithResponse(ctx context.Context, jobId openapi_types.UUID, body HeartbeatApiV1JobsJobIdHeartbeatPostJSONRequestBody, reqEditors ...RequestEditorFn) (*HeartbeatApiV1JobsJobIdHeartbeatPostResponse, error)
-
-	// StartStreamingApiV1JobsJobIdStreamingPostWithBodyWithResponse request with any body
-	StartStreamingApiV1JobsJobIdStreamingPostWithBodyWithResponse(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartStreamingApiV1JobsJobIdStreamingPostResponse, error)
-
-	StartStreamingApiV1JobsJobIdStreamingPostWithResponse(ctx context.Context, jobId openapi_types.UUID, body StartStreamingApiV1JobsJobIdStreamingPostJSONRequestBody, reqEditors ...RequestEditorFn) (*StartStreamingApiV1JobsJobIdStreamingPostResponse, error)
+	// HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostWithResponse request
+	HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostWithResponse(ctx context.Context, extractionId openapi_types.UUID, params *HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostParams, reqEditors ...RequestEditorFn) (*HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse, error)
 
 	// HealthCheckApiV1SystemHealthGetWithResponse request
 	HealthCheckApiV1SystemHealthGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*HealthCheckApiV1SystemHealthGetResponse, error)
@@ -854,15 +881,15 @@ func (r ReapLeasesApiV1AdminReapLeasesPostResponse) StatusCode() int {
 	return 0
 }
 
-type AcquireJobApiV1JobsAcquirePostResponse struct {
+type GetAgentStatusApiV1AgentsStatusGetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *interface{}
+	JSON200      *AgentStatusResponse
 	JSON422      *HTTPValidationError
 }
 
 // Status returns HTTPResponse.Status
-func (r AcquireJobApiV1JobsAcquirePostResponse) Status() string {
+func (r GetAgentStatusApiV1AgentsStatusGetResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -870,22 +897,22 @@ func (r AcquireJobApiV1JobsAcquirePostResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r AcquireJobApiV1JobsAcquirePostResponse) StatusCode() int {
+func (r GetAgentStatusApiV1AgentsStatusGetResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type CreateExtractionJobApiV1JobsCreatePostResponse struct {
+type NextExtractionApiV1JobsNextGetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON201      *map[string]interface{}
+	JSON200      *map[string]interface{}
 	JSON422      *HTTPValidationError
 }
 
 // Status returns HTTPResponse.Status
-func (r CreateExtractionJobApiV1JobsCreatePostResponse) Status() string {
+func (r NextExtractionApiV1JobsNextGetResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -893,22 +920,22 @@ func (r CreateExtractionJobApiV1JobsCreatePostResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r CreateExtractionJobApiV1JobsCreatePostResponse) StatusCode() int {
+func (r NextExtractionApiV1JobsNextGetResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type GetJobStatusApiV1JobsJobIdGetResponse struct {
+type RegisterExtractionApiV1JobsRegisterPostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *JobStatusResponse
+	JSON201      *RegisterResponse
 	JSON422      *HTTPValidationError
 }
 
 // Status returns HTTPResponse.Status
-func (r GetJobStatusApiV1JobsJobIdGetResponse) Status() string {
+func (r RegisterExtractionApiV1JobsRegisterPostResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -916,22 +943,22 @@ func (r GetJobStatusApiV1JobsJobIdGetResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetJobStatusApiV1JobsJobIdGetResponse) StatusCode() int {
+func (r RegisterExtractionApiV1JobsRegisterPostResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse struct {
+type CompleteExtractionApiV1JobsExtractionIdCompletePostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *interface{}
+	JSON200      *map[string]interface{}
 	JSON422      *HTTPValidationError
 }
 
 // Status returns HTTPResponse.Status
-func (r CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse) Status() string {
+func (r CompleteExtractionApiV1JobsExtractionIdCompletePostResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -939,22 +966,22 @@ func (r CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse) Status() st
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse) StatusCode() int {
+func (r CompleteExtractionApiV1JobsExtractionIdCompletePostResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type HeartbeatApiV1JobsJobIdHeartbeatPostResponse struct {
+type FailExtractionApiV1JobsExtractionIdFailPostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *HeartbeatResponse
+	JSON200      *map[string]interface{}
 	JSON422      *HTTPValidationError
 }
 
 // Status returns HTTPResponse.Status
-func (r HeartbeatApiV1JobsJobIdHeartbeatPostResponse) Status() string {
+func (r FailExtractionApiV1JobsExtractionIdFailPostResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -962,22 +989,22 @@ func (r HeartbeatApiV1JobsJobIdHeartbeatPostResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r HeartbeatApiV1JobsJobIdHeartbeatPostResponse) StatusCode() int {
+func (r FailExtractionApiV1JobsExtractionIdFailPostResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type StartStreamingApiV1JobsJobIdStreamingPostResponse struct {
+type HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *interface{}
+	JSON200      *map[string]interface{}
 	JSON422      *HTTPValidationError
 }
 
 // Status returns HTTPResponse.Status
-func (r StartStreamingApiV1JobsJobIdStreamingPostResponse) Status() string {
+func (r HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -985,7 +1012,7 @@ func (r StartStreamingApiV1JobsJobIdStreamingPostResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r StartStreamingApiV1JobsJobIdStreamingPostResponse) StatusCode() int {
+func (r HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -1023,98 +1050,82 @@ func (c *ClientWithResponses) ReapLeasesApiV1AdminReapLeasesPostWithResponse(ctx
 	return ParseReapLeasesApiV1AdminReapLeasesPostResponse(rsp)
 }
 
-// AcquireJobApiV1JobsAcquirePostWithBodyWithResponse request with arbitrary body returning *AcquireJobApiV1JobsAcquirePostResponse
-func (c *ClientWithResponses) AcquireJobApiV1JobsAcquirePostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AcquireJobApiV1JobsAcquirePostResponse, error) {
-	rsp, err := c.AcquireJobApiV1JobsAcquirePostWithBody(ctx, contentType, body, reqEditors...)
+// GetAgentStatusApiV1AgentsStatusGetWithResponse request returning *GetAgentStatusApiV1AgentsStatusGetResponse
+func (c *ClientWithResponses) GetAgentStatusApiV1AgentsStatusGetWithResponse(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*GetAgentStatusApiV1AgentsStatusGetResponse, error) {
+	rsp, err := c.GetAgentStatusApiV1AgentsStatusGet(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseAcquireJobApiV1JobsAcquirePostResponse(rsp)
+	return ParseGetAgentStatusApiV1AgentsStatusGetResponse(rsp)
 }
 
-func (c *ClientWithResponses) AcquireJobApiV1JobsAcquirePostWithResponse(ctx context.Context, body AcquireJobApiV1JobsAcquirePostJSONRequestBody, reqEditors ...RequestEditorFn) (*AcquireJobApiV1JobsAcquirePostResponse, error) {
-	rsp, err := c.AcquireJobApiV1JobsAcquirePost(ctx, body, reqEditors...)
+// NextExtractionApiV1JobsNextGetWithResponse request returning *NextExtractionApiV1JobsNextGetResponse
+func (c *ClientWithResponses) NextExtractionApiV1JobsNextGetWithResponse(ctx context.Context, params *NextExtractionApiV1JobsNextGetParams, reqEditors ...RequestEditorFn) (*NextExtractionApiV1JobsNextGetResponse, error) {
+	rsp, err := c.NextExtractionApiV1JobsNextGet(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseAcquireJobApiV1JobsAcquirePostResponse(rsp)
+	return ParseNextExtractionApiV1JobsNextGetResponse(rsp)
 }
 
-// CreateExtractionJobApiV1JobsCreatePostWithBodyWithResponse request with arbitrary body returning *CreateExtractionJobApiV1JobsCreatePostResponse
-func (c *ClientWithResponses) CreateExtractionJobApiV1JobsCreatePostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateExtractionJobApiV1JobsCreatePostResponse, error) {
-	rsp, err := c.CreateExtractionJobApiV1JobsCreatePostWithBody(ctx, contentType, body, reqEditors...)
+// RegisterExtractionApiV1JobsRegisterPostWithBodyWithResponse request with arbitrary body returning *RegisterExtractionApiV1JobsRegisterPostResponse
+func (c *ClientWithResponses) RegisterExtractionApiV1JobsRegisterPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterExtractionApiV1JobsRegisterPostResponse, error) {
+	rsp, err := c.RegisterExtractionApiV1JobsRegisterPostWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCreateExtractionJobApiV1JobsCreatePostResponse(rsp)
+	return ParseRegisterExtractionApiV1JobsRegisterPostResponse(rsp)
 }
 
-func (c *ClientWithResponses) CreateExtractionJobApiV1JobsCreatePostWithResponse(ctx context.Context, body CreateExtractionJobApiV1JobsCreatePostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateExtractionJobApiV1JobsCreatePostResponse, error) {
-	rsp, err := c.CreateExtractionJobApiV1JobsCreatePost(ctx, body, reqEditors...)
+func (c *ClientWithResponses) RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx context.Context, body RegisterExtractionApiV1JobsRegisterPostJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterExtractionApiV1JobsRegisterPostResponse, error) {
+	rsp, err := c.RegisterExtractionApiV1JobsRegisterPost(ctx, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCreateExtractionJobApiV1JobsCreatePostResponse(rsp)
+	return ParseRegisterExtractionApiV1JobsRegisterPostResponse(rsp)
 }
 
-// GetJobStatusApiV1JobsJobIdGetWithResponse request returning *GetJobStatusApiV1JobsJobIdGetResponse
-func (c *ClientWithResponses) GetJobStatusApiV1JobsJobIdGetWithResponse(ctx context.Context, jobId string, reqEditors ...RequestEditorFn) (*GetJobStatusApiV1JobsJobIdGetResponse, error) {
-	rsp, err := c.GetJobStatusApiV1JobsJobIdGet(ctx, jobId, reqEditors...)
+// CompleteExtractionApiV1JobsExtractionIdCompletePostWithBodyWithResponse request with arbitrary body returning *CompleteExtractionApiV1JobsExtractionIdCompletePostResponse
+func (c *ClientWithResponses) CompleteExtractionApiV1JobsExtractionIdCompletePostWithBodyWithResponse(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteExtractionApiV1JobsExtractionIdCompletePostResponse, error) {
+	rsp, err := c.CompleteExtractionApiV1JobsExtractionIdCompletePostWithBody(ctx, extractionId, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetJobStatusApiV1JobsJobIdGetResponse(rsp)
+	return ParseCompleteExtractionApiV1JobsExtractionIdCompletePostResponse(rsp)
 }
 
-// CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBodyWithResponse request with arbitrary body returning *CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse
-func (c *ClientWithResponses) CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBodyWithResponse(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse, error) {
-	rsp, err := c.CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithBody(ctx, jobId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) CompleteExtractionApiV1JobsExtractionIdCompletePostWithResponse(ctx context.Context, extractionId openapi_types.UUID, body CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteExtractionApiV1JobsExtractionIdCompletePostResponse, error) {
+	rsp, err := c.CompleteExtractionApiV1JobsExtractionIdCompletePost(ctx, extractionId, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse(rsp)
+	return ParseCompleteExtractionApiV1JobsExtractionIdCompletePostResponse(rsp)
 }
 
-func (c *ClientWithResponses) CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithResponse(ctx context.Context, jobId openapi_types.UUID, body CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse, error) {
-	rsp, err := c.CompleteUploadRouteApiV1JobsJobIdCompleteUploadPost(ctx, jobId, body, reqEditors...)
+// FailExtractionApiV1JobsExtractionIdFailPostWithBodyWithResponse request with arbitrary body returning *FailExtractionApiV1JobsExtractionIdFailPostResponse
+func (c *ClientWithResponses) FailExtractionApiV1JobsExtractionIdFailPostWithBodyWithResponse(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FailExtractionApiV1JobsExtractionIdFailPostResponse, error) {
+	rsp, err := c.FailExtractionApiV1JobsExtractionIdFailPostWithBody(ctx, extractionId, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse(rsp)
+	return ParseFailExtractionApiV1JobsExtractionIdFailPostResponse(rsp)
 }
 
-// HeartbeatApiV1JobsJobIdHeartbeatPostWithBodyWithResponse request with arbitrary body returning *HeartbeatApiV1JobsJobIdHeartbeatPostResponse
-func (c *ClientWithResponses) HeartbeatApiV1JobsJobIdHeartbeatPostWithBodyWithResponse(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*HeartbeatApiV1JobsJobIdHeartbeatPostResponse, error) {
-	rsp, err := c.HeartbeatApiV1JobsJobIdHeartbeatPostWithBody(ctx, jobId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) FailExtractionApiV1JobsExtractionIdFailPostWithResponse(ctx context.Context, extractionId openapi_types.UUID, body FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody, reqEditors ...RequestEditorFn) (*FailExtractionApiV1JobsExtractionIdFailPostResponse, error) {
+	rsp, err := c.FailExtractionApiV1JobsExtractionIdFailPost(ctx, extractionId, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseHeartbeatApiV1JobsJobIdHeartbeatPostResponse(rsp)
+	return ParseFailExtractionApiV1JobsExtractionIdFailPostResponse(rsp)
 }
 
-func (c *ClientWithResponses) HeartbeatApiV1JobsJobIdHeartbeatPostWithResponse(ctx context.Context, jobId openapi_types.UUID, body HeartbeatApiV1JobsJobIdHeartbeatPostJSONRequestBody, reqEditors ...RequestEditorFn) (*HeartbeatApiV1JobsJobIdHeartbeatPostResponse, error) {
-	rsp, err := c.HeartbeatApiV1JobsJobIdHeartbeatPost(ctx, jobId, body, reqEditors...)
+// HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostWithResponse request returning *HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse
+func (c *ClientWithResponses) HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostWithResponse(ctx context.Context, extractionId openapi_types.UUID, params *HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostParams, reqEditors ...RequestEditorFn) (*HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse, error) {
+	rsp, err := c.HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPost(ctx, extractionId, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseHeartbeatApiV1JobsJobIdHeartbeatPostResponse(rsp)
-}
-
-// StartStreamingApiV1JobsJobIdStreamingPostWithBodyWithResponse request with arbitrary body returning *StartStreamingApiV1JobsJobIdStreamingPostResponse
-func (c *ClientWithResponses) StartStreamingApiV1JobsJobIdStreamingPostWithBodyWithResponse(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartStreamingApiV1JobsJobIdStreamingPostResponse, error) {
-	rsp, err := c.StartStreamingApiV1JobsJobIdStreamingPostWithBody(ctx, jobId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseStartStreamingApiV1JobsJobIdStreamingPostResponse(rsp)
-}
-
-func (c *ClientWithResponses) StartStreamingApiV1JobsJobIdStreamingPostWithResponse(ctx context.Context, jobId openapi_types.UUID, body StartStreamingApiV1JobsJobIdStreamingPostJSONRequestBody, reqEditors ...RequestEditorFn) (*StartStreamingApiV1JobsJobIdStreamingPostResponse, error) {
-	rsp, err := c.StartStreamingApiV1JobsJobIdStreamingPost(ctx, jobId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseStartStreamingApiV1JobsJobIdStreamingPostResponse(rsp)
+	return ParseHeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse(rsp)
 }
 
 // HealthCheckApiV1SystemHealthGetWithResponse request returning *HealthCheckApiV1SystemHealthGetResponse
@@ -1152,22 +1163,22 @@ func ParseReapLeasesApiV1AdminReapLeasesPostResponse(rsp *http.Response) (*ReapL
 	return response, nil
 }
 
-// ParseAcquireJobApiV1JobsAcquirePostResponse parses an HTTP response from a AcquireJobApiV1JobsAcquirePostWithResponse call
-func ParseAcquireJobApiV1JobsAcquirePostResponse(rsp *http.Response) (*AcquireJobApiV1JobsAcquirePostResponse, error) {
+// ParseGetAgentStatusApiV1AgentsStatusGetResponse parses an HTTP response from a GetAgentStatusApiV1AgentsStatusGetWithResponse call
+func ParseGetAgentStatusApiV1AgentsStatusGetResponse(rsp *http.Response) (*GetAgentStatusApiV1AgentsStatusGetResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &AcquireJobApiV1JobsAcquirePostResponse{
+	response := &GetAgentStatusApiV1AgentsStatusGetResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest interface{}
+		var dest AgentStatusResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1185,22 +1196,55 @@ func ParseAcquireJobApiV1JobsAcquirePostResponse(rsp *http.Response) (*AcquireJo
 	return response, nil
 }
 
-// ParseCreateExtractionJobApiV1JobsCreatePostResponse parses an HTTP response from a CreateExtractionJobApiV1JobsCreatePostWithResponse call
-func ParseCreateExtractionJobApiV1JobsCreatePostResponse(rsp *http.Response) (*CreateExtractionJobApiV1JobsCreatePostResponse, error) {
+// ParseNextExtractionApiV1JobsNextGetResponse parses an HTTP response from a NextExtractionApiV1JobsNextGetWithResponse call
+func ParseNextExtractionApiV1JobsNextGetResponse(rsp *http.Response) (*NextExtractionApiV1JobsNextGetResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &CreateExtractionJobApiV1JobsCreatePostResponse{
+	response := &NextExtractionApiV1JobsNextGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRegisterExtractionApiV1JobsRegisterPostResponse parses an HTTP response from a RegisterExtractionApiV1JobsRegisterPostWithResponse call
+func ParseRegisterExtractionApiV1JobsRegisterPostResponse(rsp *http.Response) (*RegisterExtractionApiV1JobsRegisterPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RegisterExtractionApiV1JobsRegisterPostResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest map[string]interface{}
+		var dest RegisterResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1218,22 +1262,22 @@ func ParseCreateExtractionJobApiV1JobsCreatePostResponse(rsp *http.Response) (*C
 	return response, nil
 }
 
-// ParseGetJobStatusApiV1JobsJobIdGetResponse parses an HTTP response from a GetJobStatusApiV1JobsJobIdGetWithResponse call
-func ParseGetJobStatusApiV1JobsJobIdGetResponse(rsp *http.Response) (*GetJobStatusApiV1JobsJobIdGetResponse, error) {
+// ParseCompleteExtractionApiV1JobsExtractionIdCompletePostResponse parses an HTTP response from a CompleteExtractionApiV1JobsExtractionIdCompletePostWithResponse call
+func ParseCompleteExtractionApiV1JobsExtractionIdCompletePostResponse(rsp *http.Response) (*CompleteExtractionApiV1JobsExtractionIdCompletePostResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetJobStatusApiV1JobsJobIdGetResponse{
+	response := &CompleteExtractionApiV1JobsExtractionIdCompletePostResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest JobStatusResponse
+		var dest map[string]interface{}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1251,22 +1295,22 @@ func ParseGetJobStatusApiV1JobsJobIdGetResponse(rsp *http.Response) (*GetJobStat
 	return response, nil
 }
 
-// ParseCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse parses an HTTP response from a CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithResponse call
-func ParseCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse(rsp *http.Response) (*CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse, error) {
+// ParseFailExtractionApiV1JobsExtractionIdFailPostResponse parses an HTTP response from a FailExtractionApiV1JobsExtractionIdFailPostWithResponse call
+func ParseFailExtractionApiV1JobsExtractionIdFailPostResponse(rsp *http.Response) (*FailExtractionApiV1JobsExtractionIdFailPostResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse{
+	response := &FailExtractionApiV1JobsExtractionIdFailPostResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest interface{}
+		var dest map[string]interface{}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1284,55 +1328,22 @@ func ParseCompleteUploadRouteApiV1JobsJobIdCompleteUploadPostResponse(rsp *http.
 	return response, nil
 }
 
-// ParseHeartbeatApiV1JobsJobIdHeartbeatPostResponse parses an HTTP response from a HeartbeatApiV1JobsJobIdHeartbeatPostWithResponse call
-func ParseHeartbeatApiV1JobsJobIdHeartbeatPostResponse(rsp *http.Response) (*HeartbeatApiV1JobsJobIdHeartbeatPostResponse, error) {
+// ParseHeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse parses an HTTP response from a HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostWithResponse call
+func ParseHeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse(rsp *http.Response) (*HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &HeartbeatApiV1JobsJobIdHeartbeatPostResponse{
+	response := &HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest HeartbeatResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
-		var dest HTTPValidationError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON422 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseStartStreamingApiV1JobsJobIdStreamingPostResponse parses an HTTP response from a StartStreamingApiV1JobsJobIdStreamingPostWithResponse call
-func ParseStartStreamingApiV1JobsJobIdStreamingPostResponse(rsp *http.Response) (*StartStreamingApiV1JobsJobIdStreamingPostResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &StartStreamingApiV1JobsJobIdStreamingPostResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest interface{}
+		var dest map[string]interface{}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

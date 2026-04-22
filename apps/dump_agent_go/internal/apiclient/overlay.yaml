@@ -5,46 +5,23 @@ info:
 actions:
   - target: $.openapi
     update: "3.0.3"
-  - target: $.components.schemas.AcquireJobRequest.properties.source_system
+  - target: $.components.schemas.AgentStatusResponse.properties.agent_version
     remove: true
-  - target: $.components.schemas.AcquireJobRequest.properties
+  - target: $.components.schemas.AgentStatusResponse.properties.last_seen
+    remove: true
+  - target: $.components.schemas.AgentStatusResponse.properties.machine_id
+    remove: true
+  - target: $.components.schemas.AgentStatusResponse.properties
     update:
-      source_system:
+      agent_version:
         type: string
         nullable: true
-        title: Source System
-  - target: $.components.schemas.HeartbeatResponse.properties.lease_expires_at
-    remove: true
-  - target: $.components.schemas.HeartbeatResponse.properties
-    update:
-      lease_expires_at:
-        type: string
-        format: date-time
-        nullable: true
-        title: Lease Expires At
-  - target: $.components.schemas.JobStatusResponse.properties.completed_at
-    remove: true
-  - target: $.components.schemas.JobStatusResponse.properties.created_at
-    remove: true
-  - target: $.components.schemas.JobStatusResponse.properties.error_detail
-    remove: true
-  - target: $.components.schemas.JobStatusResponse.properties.started_at
-    remove: true
-  - target: $.components.schemas.JobStatusResponse.properties
-    update:
-      completed_at:
+        title: Agent Version
+      last_seen:
         type: string
         nullable: true
-        title: Completed At
-      created_at:
+        title: Last Seen
+      machine_id:
         type: string
         nullable: true
-        title: Created At
-      error_detail:
-        type: string
-        nullable: true
-        title: Error Detail
-      started_at:
-        type: string
-        nullable: true
-        title: Started At
+        title: Machine Id
