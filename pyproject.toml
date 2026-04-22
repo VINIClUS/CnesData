@@ -116,6 +116,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = [
+    "cnes_contracts",
     "cnes_domain",
     "cnes_infra",
     "central_api",
