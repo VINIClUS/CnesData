@@ -2,7 +2,6 @@ package apiclient
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,18 +15,10 @@ import (
 
 // Adapter implementa worker.JobAPIClient sobre ClientWithResponses gerado.
 type Adapter struct {
-	Inner     *ClientWithResponses
-	TenantID  string
-	MachineID string
-}
-
-// acquireJobPayload mirror do AcquireJobResponse (Python) — JSON200 do spec é {}.
-type acquireJobPayload struct {
-	JobID        string `json:"job_id"`
-	SourceSystem string `json:"source_system"`
-	TenantID     string `json:"tenant_id"`
-	UploadURL    string `json:"upload_url"`
-	ObjectKey    string `json:"object_key"`
+	Inner        *ClientWithResponses
+	TenantID     string
+	MachineID    string
+	AgentVersion string
 }
 
 // NewAdapter cria Adapter com editors X-Tenant-Id / X-Machine-Id.
@@ -47,7 +38,10 @@ func NewAdapter(baseURL, tenantID, machineID string, httpClient *http.Client) (*
 	if err != nil {
 		return nil, err
 	}
-	return &Adapter{Inner: inner, TenantID: tenantID, MachineID: machineID}, nil
+	return &Adapter{
+		Inner: inner, TenantID: tenantID, MachineID: machineID,
+		AgentVersion: envOr("AGENT_VERSION", "dev"),
+	}, nil
 }
 
 func combineEditors(eds []RequestEditorFn) RequestEditorFn {
@@ -61,48 +55,52 @@ func combineEditors(eds []RequestEditorFn) RequestEditorFn {
 	}
 }
 
-// AcquireJob polling. Retorna nil,nil quando fila vazia (204).
-func (a *Adapter) AcquireJob(ctx context.Context) (*worker.Job, error) {
-	resp, err := a.Inner.AcquireJobApiV1JobsAcquirePostWithResponse(
-		ctx, AcquireJobApiV1JobsAcquirePostJSONRequestBody{MachineId: a.MachineID},
-	)
+// RegisterJob cria extraction via /jobs/register e devolve Job com extraction_id + upload_url.
+func (a *Adapter) RegisterJob(ctx context.Context, spec worker.JobSpec) (*worker.Job, error) {
+	jobUUID, err := parseJobUUID(spec.JobID)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode() == http.StatusNoContent {
-		return nil, nil
+	body := RegisterExtractionApiV1JobsRegisterPostJSONRequestBody{
+		AgentVersion: a.AgentVersion,
+		Competencia:  spec.Competencia,
+		FonteSistema: RegisterRequestFonteSistema(spec.FonteSistema),
+		JobId:        jobUUID,
+		MachineId:    a.MachineID,
+		TenantId:     a.TenantID,
+		TipoExtracao: spec.TipoExtracao,
 	}
-	if resp.StatusCode() != http.StatusOK {
+	resp, err := a.Inner.RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusCreated || resp.JSON201 == nil {
 		return nil, &obs.HTTPError{StatusCode: resp.StatusCode(), Body: string(resp.Body)}
 	}
-	var payload acquireJobPayload
-	if err := json.Unmarshal(resp.Body, &payload); err != nil {
-		return nil, fmt.Errorf("acquire_decode: %w", err)
-	}
+	extID := resp.JSON201.ExtractionId.String()
 	return &worker.Job{
-		ID:        payload.JobID,
-		TenantID:  payload.TenantID,
-		UploadURL: payload.UploadURL,
+		ID:        extID,
+		TenantID:  a.TenantID,
+		UploadURL: resp.JSON201.UploadUrl,
 		Params: extractor.ExtractionParams{
-			Intent:      payload.SourceSystem,
-			Competencia: os.Getenv("COMPETENCIA"),
-			CodMunGest:  envOr("COD_MUN_IBGE", payload.TenantID),
+			Intent:      spec.Intent,
+			Competencia: competenciaString(spec.Competencia),
+			CodMunGest:  envOr("COD_MUN_IBGE", a.TenantID),
 		},
 	}, nil
 }
 
-// CompleteJob sinaliza sucesso ao central.
+// CompleteJob sinaliza sucesso ao central com sha256 + row_count.
 func (a *Adapter) CompleteJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
-	jobID, err := parseJobUUID(job.ID)
+	id, err := parseJobUUID(job.ID)
 	if err != nil {
 		return err
 	}
-	objectKey := fmt.Sprintf("%s/%s/%s.parquet.gz", job.TenantID, job.Params.Intent, job.ID)
-	resp, err := a.Inner.CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostWithResponse(
-		ctx, jobID, CompleteUploadRouteApiV1JobsJobIdCompleteUploadPostJSONRequestBody{
-			MachineId: a.MachineID,
-			ObjectKey: objectKey,
-			SizeBytes: int(sizeBytes),
+	_ = sizeBytes
+	resp, err := a.Inner.CompleteExtractionApiV1JobsExtractionIdCompletePostWithResponse(
+		ctx, id, CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody{
+			Sha256:   job.Sha256,
+			RowCount: job.RowCount,
 		},
 	)
 	if err != nil {
@@ -111,23 +109,37 @@ func (a *Adapter) CompleteJob(ctx context.Context, job worker.Job, sizeBytes int
 	return statusError(resp.StatusCode(), resp.Body)
 }
 
-// FailJob no-op HTTP: central_api não expõe /fail; lease reaper cuida.
-// Apenas registra severidade baseada na Classify.
-func (a *Adapter) FailJob(_ context.Context, job worker.Job, cause error) error {
-	kind := obs.Classify(cause)
-	_ = job
-	_ = kind
-	return nil
+// FailJob marca extraction como FAILED via /jobs/{id}/fail.
+func (a *Adapter) FailJob(ctx context.Context, job worker.Job, cause error) error {
+	id, err := parseJobUUID(job.ID)
+	if err != nil {
+		return err
+	}
+	msg := "unknown_error"
+	if cause != nil {
+		msg = cause.Error()
+	}
+	resp, err := a.Inner.FailExtractionApiV1JobsExtractionIdFailPostWithResponse(
+		ctx, id, FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody{Error: msg},
+	)
+	if err != nil {
+		return err
+	}
+	return statusError(resp.StatusCode(), resp.Body)
 }
 
-// SendHeartbeat estende lease.
+// SendHeartbeat estende lease via /jobs/{id}/heartbeat.
+// processor_id é query param — agent reutiliza MachineID.
 func (a *Adapter) SendHeartbeat(ctx context.Context, jobID string) error {
 	id, err := parseJobUUID(jobID)
 	if err != nil {
 		return err
 	}
-	resp, err := a.Inner.HeartbeatApiV1JobsJobIdHeartbeatPostWithResponse(
-		ctx, id, HeartbeatApiV1JobsJobIdHeartbeatPostJSONRequestBody{MachineId: a.MachineID},
+	params := &HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostParams{
+		ProcessorId: a.MachineID,
+	}
+	resp, err := a.Inner.HeartbeatExtractionApiV1JobsExtractionIdHeartbeatPostWithResponse(
+		ctx, id, params,
 	)
 	if err != nil {
 		return err
@@ -155,4 +167,11 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func competenciaString(c int) string {
+	if c <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%06d", c)
 }

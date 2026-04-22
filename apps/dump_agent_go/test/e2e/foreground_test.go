@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testJobUUID = "11111111-1111-1111-1111-111111111111"
+const testExtractionUUID = "11111111-1111-1111-1111-111111111111"
 
 func TestForeground_SmokeEndToEnd(t *testing.T) {
 	t.Setenv("COMPETENCIA", "2026-01")
@@ -35,28 +35,26 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 	}))
 	defer minioSrv.Close()
 
-	var acquired, completed, heartbeats int32
+	var registered, completed, heartbeats int32
 	central := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/api/v1/jobs/acquire":
-			if atomic.AddInt32(&acquired, 1) > 1 {
-				w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/v1/jobs/register":
+			if atomic.AddInt32(&registered, 1) > 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"job_id":        testJobUUID,
-				"source_system": extractor.IntentCnesEstabelecimentos,
-				"tenant_id":     "354130",
+				"extraction_id": testExtractionUUID,
 				"upload_url":    minioSrv.URL,
-				"object_key":    "354130/estabelecimentos/" + testJobUUID + ".parquet.gz",
 			})
-		case strings.HasSuffix(r.URL.Path, "/complete-upload"):
+		case strings.HasSuffix(r.URL.Path, "/complete"):
 			atomic.AddInt32(&completed, 1)
-			w.WriteHeader(http.StatusNoContent)
+			w.WriteHeader(http.StatusOK)
 		case strings.HasSuffix(r.URL.Path, "/heartbeat"):
 			atomic.AddInt32(&heartbeats, 1)
-			w.WriteHeader(http.StatusNoContent)
+			w.WriteHeader(http.StatusOK)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -74,8 +72,15 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 	adapter, err := apiclient.NewAdapter(central.URL, "354130", "abc12345", nil)
 	require.NoError(t, err)
 
+	src := worker.NewStaticSource(worker.StaticSpec{
+		FonteSistema: "CNES_LOCAL",
+		TipoExtracao: "estabelecimentos",
+		Competencia:  202601,
+		Intent:       extractor.IntentCnesEstabelecimentos,
+	})
+
 	exe := &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
-	cons := worker.NewConsumer(adapter, exe, worker.ConsumerConfig{
+	cons := worker.NewConsumer(adapter, src, exe, worker.ConsumerConfig{
 		PollInterval:      10 * time.Millisecond,
 		InterJobJitterMax: time.Millisecond,
 		HeartbeatInterval: time.Second,
@@ -85,7 +90,7 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 	defer cancel()
 	require.NoError(t, cons.Loop(ctx))
 
-	require.GreaterOrEqual(t, atomic.LoadInt32(&acquired), int32(1))
+	require.GreaterOrEqual(t, atomic.LoadInt32(&registered), int32(1))
 	require.Equal(t, int32(1), atomic.LoadInt32(&completed))
 	require.Greater(t, atomic.LoadInt64(&uploadedBytes), int64(0))
 }

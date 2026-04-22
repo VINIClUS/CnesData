@@ -16,12 +16,24 @@ import (
 // ErrUnknownIntent indica intent sem pipeline registrada.
 var ErrUnknownIntent = errors.New("unknown_intent")
 
+// JobSpec descreve o que o agent quer registrar em /jobs/register.
+// IDs são locais ao agent; extraction_id é retornado pelo central.
+type JobSpec struct {
+	JobID         string
+	FonteSistema  string
+	TipoExtracao  string
+	Competencia   int
+	Intent        string
+}
+
 // Job payload executado pelo executor.
 type Job struct {
 	ID        string
 	TenantID  string
 	UploadURL string
 	Params    extractor.ExtractionParams
+	Sha256    string
+	RowCount  int
 }
 
 // JobExecutor executa 1 job end-to-end: DB conn → pipeline → upload.

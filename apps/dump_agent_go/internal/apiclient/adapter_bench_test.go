@@ -7,16 +7,16 @@ import (
 	"testing"
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
+	"github.com/cnesdata/dumpagent/internal/extractor"
+	"github.com/cnesdata/dumpagent/internal/worker"
 )
 
-func BenchmarkAcquireJob(b *testing.B) {
-	body := []byte(`{"job_id":"00000000-0000-0000-0000-000000000001",` +
-		`"source_system":"cnes_estabelecimentos","tenant_id":"354130",` +
-		`"upload_url":"https://example.invalid/upload",` +
-		`"object_key":"354130/cnes_estabelecimentos/00000000-0000-0000-0000-000000000001.parquet.gz"}`)
+func BenchmarkRegisterJob(b *testing.B) {
+	body := []byte(`{"extraction_id":"00000000-0000-0000-0000-000000000001",` +
+		`"upload_url":"https://example.invalid/upload"}`)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write(body)
 	}))
 	defer srv.Close()
@@ -26,10 +26,17 @@ func BenchmarkAcquireJob(b *testing.B) {
 		b.Fatal(err)
 	}
 	ctx := context.Background()
+	spec := worker.JobSpec{
+		JobID:        "11111111-1111-1111-1111-111111111111",
+		FonteSistema: "CNES_LOCAL",
+		TipoExtracao: "estabelecimentos",
+		Competencia:  202601,
+		Intent:       extractor.IntentCnesEstabelecimentos,
+	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if _, err := adapter.AcquireJob(ctx); err != nil {
+		if _, err := adapter.RegisterJob(ctx, spec); err != nil {
 			b.Fatal(err)
 		}
 	}

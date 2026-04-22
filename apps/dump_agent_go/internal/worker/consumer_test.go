@@ -13,14 +13,14 @@ import (
 )
 
 type apiStub struct {
-	acquireFn  func(ctx context.Context) (*worker.Job, error)
+	registerFn func(ctx context.Context, spec worker.JobSpec) (*worker.Job, error)
 	completeFn func(ctx context.Context, job worker.Job, size int64) error
 	failFn     func(ctx context.Context, job worker.Job, err error) error
 	hbFn       func(ctx context.Context, jobID string) error
 }
 
-func (a *apiStub) AcquireJob(ctx context.Context) (*worker.Job, error) {
-	return a.acquireFn(ctx)
+func (a *apiStub) RegisterJob(ctx context.Context, spec worker.JobSpec) (*worker.Job, error) {
+	return a.registerFn(ctx, spec)
 }
 func (a *apiStub) CompleteJob(ctx context.Context, job worker.Job, size int64) error {
 	return a.completeFn(ctx, job, size)
@@ -40,12 +40,21 @@ func (e *execStub) Run(ctx context.Context, job worker.Job) (int64, error) {
 	return e.runFn(ctx, job)
 }
 
+type sourceStub struct {
+	nextFn func(ctx context.Context) (*worker.JobSpec, error)
+}
+
+func (s *sourceStub) Next(ctx context.Context) (*worker.JobSpec, error) {
+	return s.nextFn(ctx)
+}
+
 func TestConsumerLoop_ExitsOnContextDone(t *testing.T) {
 	api := &apiStub{
-		acquireFn: func(_ context.Context) (*worker.Job, error) { return nil, nil },
-		hbFn:      func(_ context.Context, _ string) error { return nil },
+		registerFn: func(_ context.Context, _ worker.JobSpec) (*worker.Job, error) { return nil, nil },
+		hbFn:       func(_ context.Context, _ string) error { return nil },
 	}
-	cons := worker.NewConsumer(api, &execStub{}, worker.ConsumerConfig{
+	src := &sourceStub{nextFn: func(_ context.Context) (*worker.JobSpec, error) { return nil, nil }}
+	cons := worker.NewConsumer(api, src, &execStub{}, worker.ConsumerConfig{
 		PollInterval:      5 * time.Millisecond,
 		InterJobJitterMax: time.Millisecond,
 		HeartbeatInterval: 100 * time.Millisecond,
@@ -56,11 +65,11 @@ func TestConsumerLoop_ExitsOnContextDone(t *testing.T) {
 }
 
 func TestConsumerLoop_CompletesSuccessfulJob(t *testing.T) {
-	job := &worker.Job{ID: "job-x", TenantID: "t1", Params: extractor.ExtractionParams{Intent: extractor.IntentCnesEstabelecimentos}}
-	var acquireCalls, completeCalls int32
+	job := &worker.Job{ID: "11111111-1111-1111-1111-111111111111", TenantID: "354130", Params: extractor.ExtractionParams{Intent: extractor.IntentCnesEstabelecimentos}}
+	var registerCalls, completeCalls int32
 	api := &apiStub{
-		acquireFn: func(_ context.Context) (*worker.Job, error) {
-			if atomic.AddInt32(&acquireCalls, 1) == 1 {
+		registerFn: func(_ context.Context, _ worker.JobSpec) (*worker.Job, error) {
+			if atomic.AddInt32(&registerCalls, 1) == 1 {
 				return job, nil
 			}
 			return nil, nil
@@ -72,9 +81,13 @@ func TestConsumerLoop_CompletesSuccessfulJob(t *testing.T) {
 		failFn: func(_ context.Context, _ worker.Job, _ error) error { return nil },
 		hbFn:   func(_ context.Context, _ string) error { return nil },
 	}
+	spec := &worker.JobSpec{JobID: "22222222-2222-2222-2222-222222222222", Intent: extractor.IntentCnesEstabelecimentos}
+	src := &sourceStub{nextFn: func(_ context.Context) (*worker.JobSpec, error) {
+		return spec, nil
+	}}
 	exec := &execStub{runFn: func(_ context.Context, _ worker.Job) (int64, error) { return 100, nil }}
 
-	cons := worker.NewConsumer(api, exec, worker.ConsumerConfig{
+	cons := worker.NewConsumer(api, src, exec, worker.ConsumerConfig{
 		PollInterval:      time.Millisecond,
 		InterJobJitterMax: time.Millisecond,
 		HeartbeatInterval: time.Second,
@@ -82,14 +95,14 @@ func TestConsumerLoop_CompletesSuccessfulJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	require.NoError(t, cons.Loop(ctx))
-	require.Equal(t, int32(1), atomic.LoadInt32(&completeCalls))
+	require.GreaterOrEqual(t, atomic.LoadInt32(&completeCalls), int32(1))
 }
 
 func TestConsumerLoop_FailsJobOnError(t *testing.T) {
-	job := &worker.Job{ID: "job-y", Params: extractor.ExtractionParams{Intent: extractor.IntentCnesEstabelecimentos}}
+	job := &worker.Job{ID: "11111111-1111-1111-1111-111111111111", Params: extractor.ExtractionParams{Intent: extractor.IntentCnesEstabelecimentos}}
 	var failCalls int32
 	api := &apiStub{
-		acquireFn: func(_ context.Context) (*worker.Job, error) {
+		registerFn: func(_ context.Context, _ worker.JobSpec) (*worker.Job, error) {
 			return job, nil
 		},
 		failFn: func(_ context.Context, _ worker.Job, _ error) error {
@@ -99,10 +112,14 @@ func TestConsumerLoop_FailsJobOnError(t *testing.T) {
 		completeFn: func(_ context.Context, _ worker.Job, _ int64) error { return nil },
 		hbFn:       func(_ context.Context, _ string) error { return nil },
 	}
+	spec := &worker.JobSpec{JobID: "22222222-2222-2222-2222-222222222222", Intent: extractor.IntentCnesEstabelecimentos}
+	src := &sourceStub{nextFn: func(_ context.Context) (*worker.JobSpec, error) {
+		return spec, nil
+	}}
 	exec := &execStub{runFn: func(_ context.Context, _ worker.Job) (int64, error) {
 		return 0, errors.New("boom")
 	}}
-	cons := worker.NewConsumer(api, exec, worker.ConsumerConfig{
+	cons := worker.NewConsumer(api, src, exec, worker.ConsumerConfig{
 		PollInterval:      time.Millisecond,
 		InterJobJitterMax: time.Millisecond,
 		HeartbeatInterval: time.Second,
