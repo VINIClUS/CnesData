@@ -32,3 +32,18 @@ def test_listener_nao_crasha_sem_contexto_middleware():
 
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
+
+
+def test_listener_suprime_lookup_error(monkeypatch):
+    """increment raising LookupError must be swallowed silently."""
+    def raises():
+        raise LookupError("no_middleware_context")
+
+    from central_api import middleware
+    monkeypatch.setattr(middleware, "increment_query_count", raises)
+
+    engine = create_engine("sqlite:///:memory:")
+    install_query_counter(engine)
+
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
