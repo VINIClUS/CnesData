@@ -55,12 +55,14 @@ class TestValidateTenantId:
 
     def test_rejeita_nao_string(self):
         import pytest
+
         from cnes_domain.tenant import InvalidTenantError, validate_tenant_id
         with pytest.raises(InvalidTenantError):
             validate_tenant_id(354130)  # type: ignore[arg-type]
 
     def test_rejeita_tamanho_errado(self):
         import pytest
+
         from cnes_domain.tenant import InvalidTenantError, validate_tenant_id
         with pytest.raises(InvalidTenantError):
             validate_tenant_id("123")
@@ -69,6 +71,7 @@ class TestValidateTenantId:
 
     def test_rejeita_nao_digito(self):
         import pytest
+
         from cnes_domain.tenant import InvalidTenantError, validate_tenant_id
         with pytest.raises(InvalidTenantError):
             validate_tenant_id("abcdef")

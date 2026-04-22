@@ -115,3 +115,22 @@ feature addition will push it further over the limit.
 **How to apply:** Flag A1 as BLOCKING on any future commit touching run_processor. Suggested
 decomposition: extract `_setup_signal_handlers(loop)` and `_process_one_job(loop, engine, storage, job)`.
 The flag-check and drain-check branches are small enough to stay inline.
+
+## compose file refs survive consolidations — pytest fixtures are the blind spot
+
+When a `docker-compose.*.yml` is consolidated into profiles in the main compose, references to
+the deleted file tend to survive in places the "collect-only" audit does not touch. Known blind
+spots:
+- `tests/perf/conftest.py` (session-scoped fixtures that invoke `docker compose -f <file>.yml`)
+  — pytest collection does NOT resolve these; the test only blows up when invoked.
+- `scripts/*.py` helper/migration scripts — often have the deleted filename in docstring examples.
+- Docs with copy-paste invocations (`docs/perf-testing.md`, `docs/architecture.md`).
+
+**Why:** Plan D Task 8 audit reported "11 tests collect clean" but the perf_stack fixture in
+`tests/perf/conftest.py` still invokes `docker-compose.perf.yml` (deleted in PR #35) in 3 places
+with subprocess.run(check=True), so every nightly run would blow up the moment pg_perf_engine
+resolves. Exit-criteria boxes can be green while fixture code is broken.
+**How to apply:** For any PR deleting a `docker-compose.*.yml`, run:
+`grep -rn "<deleted-file>" --exclude-dir=.venv --exclude-dir=.git --exclude-dir=docs/superpowers`
+AND invoke at least one affected test (not just collect) to prove the fixture path works.
+Docstring/comment-only references are NOTE; fixture/code references are BLOCKING.
