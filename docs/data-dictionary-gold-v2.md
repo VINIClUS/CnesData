@@ -1,10 +1,12 @@
-# Dicionário de Dados — Gold Schema v2 (Proposta)
+# Dicionário de Dados — Gold Schema v2
 
 - **Versão:** 2.0
 - **Data:** 2026-04-21
-- **Status:** Design docs-only — não implementado
+- **Status:** Implementado em `010_gold_v2_fresh` (2026-04-22)
 - **Autor:** Claude (co-design com Vinícius Andre, session 2026-04-21)
-- **Spec de referência:** `docs/superpowers/specs/2026-04-21-gold-schema-refactor-sia-bpa-design.md`
+- **Spec de referência:** `docs/superpowers/specs/2026-04-21-gold-v2-implementation-design.md`
+- **Migration:** `packages/cnes_infra/src/cnes_infra/alembic/versions/010_gold_v2_fresh.py`
+- **Contracts:** `packages/cnes_contracts/` (pydantic models + JSON Schema em `docs/contracts/schemas/`)
 
 Dicionários correlatos (fontes que alimentam Gold v2):
 
