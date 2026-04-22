@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 
 from central_api.deps import lifespan
-from central_api.middleware import TenantMiddleware
+from central_api.middleware import QueryCounterMiddleware, TenantMiddleware
 from central_api.routes import admin, agents, health, jobs
 from cnes_infra.telemetry import init_telemetry
 
@@ -18,6 +18,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(TenantMiddleware)
+    app.add_middleware(QueryCounterMiddleware)
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1")
