@@ -34,6 +34,12 @@ markers = [
     "postgres: testes de integração que requerem PostgreSQL via Docker",
     "windows_only: requer Win32 API (pula em Linux/Docker)",
     "linux_only: requer POSIX signals/fcntl (pula em Windows)",
+    "n_plus_1_debt: route has known N+1 excess (follow-up issue linked)",
+    "race: hypothesis property-based race condition tests",
+    "memleak: pytest-memray memory leak tests",
+    "chaos: fault injection resilience tests",
+    "chaos_infra: testcontainers infra chaos tests",
+    "negative: hypothesis-driven negative input tests",
 ]
 
 [tool.ruff]

@@ -55,7 +55,9 @@ def _status(tenant_id: str = "354130", **overrides) -> AgentStatus:
 
 
 class TestAgentsStatusEndpoint:
-    def test_retorna_json_com_campos_esperados(self, client):
+    def test_retorna_json_com_campos_esperados(
+        self, client, assert_query_limit,
+    ):
         with patch(
             "central_api.routes.agents.query_agent_status",
             return_value=_status(
@@ -80,6 +82,7 @@ class TestAgentsStatusEndpoint:
         assert body["jobs_completed_7d"] == 7
         assert body["jobs_failed_7d"] == 2
         assert body["last_seen"].startswith("2026-04-20")
+        assert_query_limit(resp, 15)
 
     def test_retorna_zeros_quando_sem_historico(self, client):
         with patch(
