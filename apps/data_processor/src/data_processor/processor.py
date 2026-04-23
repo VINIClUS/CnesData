@@ -1,8 +1,8 @@
-"""Processor — stub during Gold v2 migration.
+"""Processor — download-only stub; full ingestion pending SIA/BPA intents.
 
-TODO(Gold v2): reimplement with extractions_repo download, transformer,
-dim_lookup upserts, and vinculo_repo_v2. Previously wired to
-PostgresUnitOfWork + job_queue (v1, deleted).
+Current surface: `_download_parquet` utility used by smoke tests. Full
+v2 pipeline (extractions_repo → transformer → dim_lookup → vinculo_repo_v2)
+is tracked separately as future work.
 """
 from __future__ import annotations
 
