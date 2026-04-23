@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e packages/cnes_domain packages/cnes_infra
-          pip install pytest polars faker dbfread
+          pip install pytest polars faker dbfread fdb
 
       - name: Start shadow containers
         run: |
