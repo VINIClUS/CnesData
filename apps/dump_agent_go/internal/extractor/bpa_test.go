@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,5 +86,80 @@ func TestBPA_QueryError(t *testing.T) {
 	_, err := ExtractBPA(context.Background(), db, "202601")
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestBPA_ScanErrorBPAC(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	rowsC := sqlmock.NewRows([]string{
+		"NU_COMPETENCIA", "CO_CNES", "CO_PROCEDIMENTO",
+		"QT_APROVADA", "CO_CBO", "TP_IDADE", "NU_IDADE",
+	}).AddRow("202601", "2269481", "0301010056", 10, "225125",
+		"not-a-number", 45)
+
+	mock.ExpectQuery("FROM BPA_C_LINHAS").WillReturnRows(rowsC)
+
+	_, err := ExtractBPA(context.Background(), db, "202601")
+	if err == nil {
+		t.Fatal("expected scan error, got nil")
+	}
+	if !strings.Contains(err.Error(), "bpa_c_scan") {
+		t.Errorf("err=%v, want prefix bpa_c_scan", err)
+	}
+}
+
+func TestBPA_QueryErrorBPAI(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	mock.ExpectQuery("FROM BPA_C_LINHAS").WillReturnRows(sqlmock.NewRows([]string{
+		"NU_COMPETENCIA", "CO_CNES", "CO_PROCEDIMENTO",
+		"QT_APROVADA", "CO_CBO", "TP_IDADE", "NU_IDADE",
+	}))
+	mock.ExpectQuery("FROM BPA_I_LINHAS").WillReturnError(sql.ErrConnDone)
+
+	_, err := ExtractBPA(context.Background(), db, "202601")
+	if err == nil {
+		t.Fatal("expected BPA_I query error, got nil")
+	}
+	if !strings.Contains(err.Error(), "bpa_i_query") {
+		t.Errorf("err=%v, want prefix bpa_i_query", err)
+	}
+}
+
+func TestBPA_SanitizesDirtyCp1252(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	dirtyCbo := "225\xc3125"
+
+	rowsC := sqlmock.NewRows([]string{
+		"NU_COMPETENCIA", "CO_CNES", "CO_PROCEDIMENTO",
+		"QT_APROVADA", "CO_CBO", "TP_IDADE", "NU_IDADE",
+	}).AddRow("202601", "2269481", "0301010056", 10, dirtyCbo, 3, 45)
+	rowsI := sqlmock.NewRows([]string{
+		"NU_COMPETENCIA", "CO_CNES", "NU_CNS_PAC", "NU_CPF_PAC",
+		"CO_PROCEDIMENTO", "CO_CBO", "CO_CID10", "DT_ATENDIMENTO",
+		"QT_APROVADA", "NU_CNS_PROF",
+	})
+
+	mock.ExpectQuery("FROM BPA_C_LINHAS").WillReturnRows(rowsC)
+	mock.ExpectQuery("FROM BPA_I_LINHAS").WillReturnRows(rowsI)
+
+	result, err := ExtractBPA(context.Background(), db, "202601")
+	if err != nil {
+		t.Fatalf("extract err=%v", err)
+	}
+	if len(result.BPA_C) != 1 {
+		t.Fatalf("count=%d", len(result.BPA_C))
+	}
+	got := result.BPA_C[0].Cbo
+	if got == dirtyCbo {
+		t.Errorf("Cbo not sanitized: %q", got)
+	}
+	if strings.ContainsRune(got, '\ufffd') {
+		t.Errorf("Cbo still contains U+FFFD: %q", got)
 	}
 }
