@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from central_api.deps import get_conn, get_minio
-from cnes_contracts.landing import ExtractionRegisterPayload, FonteSistema
+from cnes_contracts.landing import SOURCE_TYPE, ExtractionRegisterPayload
 from cnes_infra.storage import extractions_repo
 
 if TYPE_CHECKING:
@@ -24,7 +24,7 @@ router = APIRouter(tags=["jobs"])
 
 class RegisterRequest(BaseModel):
     tenant_id: str = Field(pattern=r"^\d{6}$")
-    fonte_sistema: FonteSistema
+    fonte_sistema: SOURCE_TYPE
     tipo_extracao: str
     competencia: int = Field(ge=200001, le=209912)
     job_id: UUID
