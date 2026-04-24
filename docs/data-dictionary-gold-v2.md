@@ -556,7 +556,9 @@ merge JSON; senão INSERT.
 
 ---
 
-## 10. Integrações novas — SIA + BPA (pós-approval)
+## 10. Integrações novas — SIA + BPA
+
+**Status:** Implementado (spec `docs/superpowers/specs/2026-04-23-bpa-sia-pipeline-design.md`, branch `feat/bpa-sia-pipeline`, 2026-04-23).
 
 ### 10.1 `dump_agent_go` (edge)
 

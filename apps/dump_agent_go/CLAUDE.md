@@ -43,3 +43,10 @@ driver pure-Go).
   Skew > 60min → exit(1).
 - Panic recovery: TODO spawn de goroutine passa por `SafeGo`/`SafeRun`. Nunca
   `go func()...()` direto em código de produção.
+
+## BPA + SIA extractors (T9/T10, 2026-04-23)
+
+- `internal/extractor/bpa.go` — FB 1.5 via nakagami/firebirdsql. Reads BPA_C_LINHAS + BPA_I_LINHAS. GDB path via `--bpa-gdb` or `BPA_GDB_PATH`. Windows x86 FB 1.5 server required at runtime.
+- `internal/extractor/sia.go` — DBF via LindsayBradford/go-dbf with cp1252 sanitize. Reads S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN from directory supplied via `--sia-dir` or `SIA_DIR`.
+- N-file manifest: one job per `(source_type, competencia)`, emits N Parquets. See `internal/worker/bpa_sia_pipeline.go`.
+- FB 1.5 + nakagami driver compatibility is validated by T1 spike (see `docs/superpowers/specs/2026-04-23-spike-report.md` — runtime validation deferred to user Windows x86 env; CI covers via `bpa-integration-windows` workflow).
