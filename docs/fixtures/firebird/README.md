@@ -121,3 +121,34 @@ AttributeError: function 'fb_interpret' not found. Did you mean: 'isc_interprete
 `scripts/gen_bpa_gdb_fixture.py` in CI. Pivot tracked in **issue #51** —
 three options: `isql` subprocess generator, pre-generate + LFS, older
 Python FB driver.
+
+## FB 2.5.9 portable (CI integration)
+
+`Firebird-2.5.9.27139-0_x64.zip` (~11.3 MB, SHA256
+`707e05bae8994b06cec60815a292078db82d8e75616f4dd514b7e417a3ee2137`).
+Used by CI `integration-windows` for synthetic CNES/SIHD GDB creation
+via `isql.exe` against the SQL fixtures under
+`apps/dump_agent_go/test/integration/fixtures/`.
+
+### Setup
+
+```powershell
+git lfs pull
+.\apps\dump_agent_go\scripts\ci\setup_fb25.ps1
+```
+
+Extracts to `C:\firebird` by default (matches CI). Pass `-ExtractPath`
+to override.
+
+Replaces the legacy `download_firebird.ps1` (retired in 2026-04 — see
+issue #52). Self-hosting eliminates network flakiness from SourceForge
+mirrors.
+
+### Source
+
+Sourced from the FirebirdSQL Foundation's GitHub release mirror:
+`https://github.com/FirebirdSQL/firebird/releases/download/R2_5_9/Firebird-2.5.9.27139-0_x64.zip`.
+
+(The legacy `firebirdsql.org/file/builds/2.5.9/...` URL returned 404
+when we last fetched. The GitHub release is maintained by the same
+upstream vendor.)
