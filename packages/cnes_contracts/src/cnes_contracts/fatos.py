@@ -35,7 +35,9 @@ class ProducaoAmbulatorial(BaseModel):
     valor_aprov_cents: int = Field(ge=0)
     dt_atendimento: date | None = None
     job_id: UUID
-    fonte_sistema: Literal["SIA_APA", "SIA_BPI", "BPA_C", "BPA_I"]
+    fonte_sistema: Literal[
+        "SIA_APA", "SIA_BPI", "SIA_BPIHST", "BPA_C", "BPA_I",
+    ]
     extracao_ts: datetime
     fontes_reportadas: dict[str, dict] | None = None
 
