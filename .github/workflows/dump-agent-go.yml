@@ -2,6 +2,7 @@ name: dump-agent-go
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - 'apps/dump_agent_go/**'
       - 'docs/contracts/openapi.json'
@@ -11,6 +12,8 @@ on:
     paths:
       - 'apps/dump_agent_go/**'
       - 'docs/contracts/openapi.json'
+  schedule:
+    - cron: "30 2 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -68,7 +71,11 @@ jobs:
         run: GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/dumpagent.exe ./cmd/dumpagent
 
   integration-windows:
-    if: github.event_name != 'pull_request'
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'run-windows-integration')
+      || github.event_name == 'push'
+      || github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     defaults:
       run:
@@ -127,7 +134,11 @@ jobs:
 
   bpa-integration-windows:
     runs-on: windows-latest
-    if: contains(github.event.pull_request.labels.*.name, 'run-windows-integration') || github.event_name == 'schedule'
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'run-windows-integration')
+      || github.event_name == 'push'
+      || github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
         with:
