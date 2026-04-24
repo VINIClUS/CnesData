@@ -11,6 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	_ "github.com/nakagami/firebirdsql"
+
+	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/worker"
 )
@@ -203,4 +206,46 @@ func TestDispatch_BPARoutesWithoutFBReturnsExtractError(t *testing.T) {
 
 func siaFixturesDir() string {
 	return filepath.Join("..", "..", "test", "integration", "fixtures", "sia_synthetic")
+}
+
+func TestSerializeBPA_UnknownSubtype(t *testing.T) {
+	_, err := worker.SerializeBPA("BOGUS_BPA", &extractor.BPAResult{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown_bpa_subtype=BOGUS_BPA")
+}
+
+func TestSerializeSIA_UnknownSubtype(t *testing.T) {
+	_, err := worker.SerializeSIA("BOGUS_SIA", &extractor.SIAResult{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown_sia_subtype=BOGUS_SIA")
+}
+
+func TestRunBPAPipeline_FBUnreachablePropagates(t *testing.T) {
+	// FB host is unroutable + port is high-unused → sql.Open is lazy,
+	// QueryContext in extractBPAC fails with dial error; error must
+	// propagate up through RunBPAPipeline wrapped as bpa_extract.
+	cfg := worker.BPAPipelineConfig{
+		GDBPath:    "C:/nonexistent/bpamag.gdb",
+		FBHost:     "127.0.0.1",
+		FBPort:     59999,
+		FBUser:     "SYSDBA",
+		FBPassword: "x",
+		Register: func(_ context.Context, _ string,
+			_ []worker.ManifestEntry) error {
+			t.Fatal("register should NOT be called on extract failure")
+			return nil
+		},
+	}
+	job := worker.ClaimedJob{
+		JobID:       "11111111-1111-1111-1111-111111111111",
+		SourceType:  "BPA_MAG",
+		Competencia: "202601",
+		Files: []worker.FileManifestRef{
+			{FatoSubtype: "BPA_C", MinioKey: "x.parquet.gz",
+				PresignedURL: "http://127.0.0.1:1/x"},
+		},
+	}
+	err := worker.RunBPAPipeline(context.Background(), cfg, job)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bpa_extract")
 }
