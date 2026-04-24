@@ -138,7 +138,7 @@ func readAPA(path string) ([]SIAAPARow, error) {
 			Cid10:           sanitizeDBF(t, i, "APA_CID"),
 			DtInicio:        parseDBFDate(t, i, "APA_DTINI"),
 			DtFim:           parseDBFDate(t, i, "APA_DTFIN"),
-			Quantidade:      int32(qt),
+			Quantidade:      safeInt32(qt),
 			ValorCents:      vl,
 		})
 	}
@@ -170,9 +170,9 @@ func buildBPIRow(t *godbf.DbfTable, i int) SIABPIRow {
 		Procedimento:    sanitizeDBF(t, i, "BPI_PROC"),
 		Cid10:           sanitizeDBF(t, i, "BPI_CID"),
 		DtAtendimento:   parseDBFDate(t, i, "BPI_DTATEN"),
-		Quantidade:      int32(qt),
-		Folha:           int16(folha),
-		Seq:             int16(seq),
+		Quantidade:      safeInt32(qt),
+		Folha:           safeInt16(folha),
+		Seq:             safeInt16(seq),
 	}
 }
 
@@ -230,4 +230,24 @@ func parseDBFDate(t *godbf.DbfTable, row int, col string) time.Time {
 		return time.Time{}
 	}
 	return d
+}
+
+func safeInt32(v int64) int32 {
+	if v > 2147483647 {
+		return 2147483647
+	}
+	if v < -2147483648 {
+		return -2147483648
+	}
+	return int32(v)
+}
+
+func safeInt16(v int64) int16 {
+	if v > 32767 {
+		return 32767
+	}
+	if v < -32768 {
+		return -32768
+	}
+	return int16(v)
 }

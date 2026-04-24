@@ -13,7 +13,11 @@ import (
 )
 
 func main() {
-	host := flag.String("host", "localhost", "FB host (requires embedded server or running instance)")
+	os.Exit(run())
+}
+
+func run() int {
+	host := flag.String("host", "localhost", "FB host")
 	port := flag.Int("port", 3050, "FB port")
 	path := flag.String("path", "", "GDB absolute path")
 	user := flag.String("user", "SYSDBA", "user")
@@ -22,26 +26,27 @@ func main() {
 
 	if *path == "" {
 		slog.Error("spike_missing_path")
-		os.Exit(2)
+		return 2
 	}
 
-	dsn := fmt.Sprintf("%s:%s@%s:%d/%s?charset=WIN1252", *user, *pass, *host, *port, *path)
+	dsn := fmt.Sprintf("%s:%s@%s:%d/%s?charset=WIN1252",
+		*user, *pass, *host, *port, *path)
 	db, err := sql.Open("firebirdsql", dsn)
 	if err != nil {
-		slog.Error("spike_open_fail", "err", err)
-		os.Exit(1)
+		slog.Error("spike_open_fail", "err", err.Error())
+		return 1
 	}
 	defer db.Close()
 
 	if err := db.Ping(); err != nil {
 		slog.Error("spike_ping_fail", "err", err.Error())
-		os.Exit(1)
+		return 1
 	}
 
 	rows, err := db.Query(`SELECT NU_COMPETENCIA, CO_CNES FROM BPA_CAB`)
 	if err != nil {
 		slog.Error("spike_query_fail", "err", err.Error())
-		os.Exit(1)
+		return 1
 	}
 	defer rows.Close()
 
@@ -50,11 +55,12 @@ func main() {
 		var comp, cnes string
 		if err := rows.Scan(&comp, &cnes); err != nil {
 			slog.Error("spike_scan_fail", "err", err.Error())
-			os.Exit(1)
+			return 1
 		}
 		slog.Info("spike_row", "comp", comp, "cnes", cnes)
 		n++
 	}
 
 	slog.Info("spike_ok", "rows", n)
+	return 0
 }
