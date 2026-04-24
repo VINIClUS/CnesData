@@ -96,10 +96,7 @@ jobs:
         shell: powershell
 
       - name: Start Firebird server
-        run: |
-          $env:PATH += ";C:\firebird\bin"
-          Start-Process -FilePath "C:\firebird\bin\fbguard.exe" -ArgumentList "-a" -PassThru
-          Start-Sleep -Seconds 5
+        run: .\scripts\ci\start_fb25.ps1
         shell: powershell
 
       - name: Setup synthetic DB
