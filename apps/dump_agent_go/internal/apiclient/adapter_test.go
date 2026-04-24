@@ -41,16 +41,16 @@ func TestNewAdapter_UsesCustomHTTPClient(t *testing.T) {
 	require.NotNil(t, a.Inner)
 }
 
-func newTestAdapter(t *testing.T, handler http.HandlerFunc) (*apiclient.Adapter, *httptest.Server) {
+func newTestAdapter(t *testing.T, handler http.HandlerFunc) *apiclient.Adapter {
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	a, err := apiclient.NewAdapter(srv.URL, "tenant-1", "machine-1", nil)
 	require.NoError(t, err)
-	return a, srv
+	return a
 }
 
 func TestRegisterJob_Created(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -73,7 +73,7 @@ func TestRegisterJob_Created(t *testing.T) {
 }
 
 func TestRegisterJob_InvalidJobID(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	})
 	_, err := a.RegisterJob(context.Background(), worker.JobSpec{
@@ -87,7 +87,7 @@ func TestRegisterJob_InvalidJobID(t *testing.T) {
 }
 
 func TestRegisterJob_5xxReturnsHTTPError(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("kaboom"))
 	})
@@ -104,7 +104,7 @@ func TestRegisterJob_5xxReturnsHTTPError(t *testing.T) {
 }
 
 func TestCompleteJob_InvalidID(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	err := a.CompleteJob(context.Background(), worker.Job{ID: "garbage"}, 100)
@@ -113,7 +113,7 @@ func TestCompleteJob_InvalidID(t *testing.T) {
 }
 
 func TestCompleteJob_Success(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	err := a.CompleteJob(context.Background(), worker.Job{
@@ -124,7 +124,7 @@ func TestCompleteJob_Success(t *testing.T) {
 
 func TestFailJob_NilCauseUsesDefault(t *testing.T) {
 	var gotBody []byte
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -137,7 +137,7 @@ func TestFailJob_NilCauseUsesDefault(t *testing.T) {
 
 func TestFailJob_ErrorMessagePropagated(t *testing.T) {
 	var gotBody []byte
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -149,7 +149,7 @@ func TestFailJob_ErrorMessagePropagated(t *testing.T) {
 }
 
 func TestRegisterBPASIAJob_InvalidUUID(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	err := a.RegisterBPASIAJob(context.Background(), "not-a-uuid", nil)
@@ -158,7 +158,7 @@ func TestRegisterBPASIAJob_InvalidUUID(t *testing.T) {
 }
 
 func TestRegisterBPASIAJob_Success(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	err := a.RegisterBPASIAJob(context.Background(),
@@ -172,7 +172,7 @@ func TestRegisterBPASIAJob_Success(t *testing.T) {
 }
 
 func TestSendHeartbeat_InvalidUUID(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	err := a.SendHeartbeat(context.Background(), "bad")
@@ -180,7 +180,7 @@ func TestSendHeartbeat_InvalidUUID(t *testing.T) {
 }
 
 func TestSendHeartbeat_Success(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	err := a.SendHeartbeat(context.Background(), "88888888-8888-8888-8888-888888888888")
@@ -188,7 +188,7 @@ func TestSendHeartbeat_Success(t *testing.T) {
 }
 
 func TestSendHeartbeat_5xx(t *testing.T) {
-	a, _ := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
 	err := a.SendHeartbeat(context.Background(), "99999999-9999-9999-9999-999999999999")
