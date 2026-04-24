@@ -15,43 +15,55 @@ from sqlalchemy import (
     SmallInteger,
     Table,
     Text,
-    UniqueConstraint,
     func,
+    text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 metadata = MetaData()
 
-extractions = Table(
+extractions_table = Table(
     "extractions",
     metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()),
-    Column("job_id", UUID(as_uuid=True), nullable=False),
-    Column("tenant_id", CHAR(6), nullable=False),
-    Column("fonte_sistema", Text, nullable=False),
-    Column("tipo_extracao", Text, nullable=False),
-    Column("competencia", Integer, nullable=False),
-    Column("object_key", Text),
-    Column("row_count", Integer),
-    Column("sha256", CHAR(64)),
-    Column("schema_version", SmallInteger, nullable=False, server_default="1"),
+    Column("job_id", UUID(as_uuid=True), primary_key=True),
+    Column("tenant_id", Text, nullable=False),
+    Column("source_type", Text, nullable=False),
+    Column("competencia", Date, nullable=False),
+    Column("files", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column(
+        "depends_on",
+        ARRAY(UUID(as_uuid=True)),
+        nullable=False,
+        server_default=text("'{}'::uuid[]"),
+    ),
     Column("status", Text, nullable=False, server_default="PENDING"),
-    Column("agent_version", Text),
-    Column("machine_id", Text),
-    Column("lease_owner", Text),
-    Column("lease_until", DateTime(timezone=True)),
-    Column("retry_count", Integer, nullable=False, server_default="0"),
-    Column("error_detail", Text),
-    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    Column("uploaded_at", DateTime(timezone=True)),
-    Column("started_at", DateTime(timezone=True)),
-    Column("completed_at", DateTime(timezone=True)),
-    UniqueConstraint(
-        "fonte_sistema",
-        "tenant_id",
-        "competencia",
-        "tipo_extracao",
-        name="uniq_source_comp",
+    Column("lease_until", DateTime(timezone=True), nullable=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    ),
+    Column("registered_at", DateTime(timezone=True), nullable=True),
+    schema="landing",
+)
+
+extractions = extractions_table
+
+dim_misses_table = Table(
+    "dim_misses",
+    metadata,
+    Column("id", BigInteger, Identity(always=True), primary_key=True),
+    Column("tenant_id", Text, nullable=False),
+    Column("job_id", UUID(as_uuid=True), nullable=False),
+    Column("dim_name", Text, nullable=False),
+    Column("missing_code", Text, nullable=False),
+    Column("row_payload", JSONB, nullable=False),
+    Column(
+        "detected_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     ),
     schema="landing",
 )
