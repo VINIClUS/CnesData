@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 _S_APA_FIELDS = [
     ("APA_CMP", "C", 6),
     ("APA_CNES", "C", 7),
-    ("APA_CNSPAC", "C", 15),
-    ("APA_CNSPROF", "C", 15),
+    ("APA_CNSPCT", "C", 15),
+    ("APA_CNSEXE", "C", 15),
     ("APA_PROC", "C", 10),
     ("APA_CBO", "C", 6),
     ("APA_CID", "C", 4),
@@ -29,7 +29,7 @@ _S_BPI_FIELDS = [
     ("BPI_CMP", "C", 6),
     ("BPI_CNES", "C", 7),
     ("BPI_CNSPAC", "C", 15),
-    ("BPI_CNSPROF", "C", 15),
+    ("BPI_CNSMED", "C", 15),
     ("BPI_CBO", "C", 6),
     ("BPI_PROC", "C", 10),
     ("BPI_CID", "C", 4),
@@ -68,7 +68,9 @@ def _write_dbf(path: Path, fields: list, records: list) -> None:
             len(records), header_len, record_len,
         ))
         for name, ftype, size in fields:
-            name_b = name.encode("cp1252")[:11].ljust(11, b"\x00")
+            if len(name) > 10:
+                raise ValueError(f"dbf_field_name_too_long name={name} max=10")
+            name_b = name.encode("cp1252").ljust(11, b"\x00")
             f.write(name_b + ftype.encode() + b"\x00" * 4
                     + bytes([size, 0]) + b"\x00" * 14)
         f.write(b"\x0D")
