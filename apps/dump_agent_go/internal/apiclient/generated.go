@@ -82,6 +82,43 @@ type RegisterResponse struct {
 	UploadUrl    string             `json:"upload_url"`
 }
 
+// Defines values for FileManifestFatoSubtype.
+const (
+	FatoCNESVinculo     FileManifestFatoSubtype = "CNES_VINCULO"
+	FatoSIHDInternacao  FileManifestFatoSubtype = "SIHD_INTERNACAO"
+	FatoSIHDProcAIH     FileManifestFatoSubtype = "SIHD_PROC_AIH"
+	FatoBPAC            FileManifestFatoSubtype = "BPA_C"
+	FatoBPAI            FileManifestFatoSubtype = "BPA_I"
+	FatoSIAAPA          FileManifestFatoSubtype = "SIA_APA"
+	FatoSIABPI          FileManifestFatoSubtype = "SIA_BPI"
+	FatoSIABPIHST       FileManifestFatoSubtype = "SIA_BPIHST"
+	FatoDIMSigtap       FileManifestFatoSubtype = "DIM_SIGTAP"
+	FatoDIMMunicipio    FileManifestFatoSubtype = "DIM_MUNICIPIO"
+)
+
+// FileManifestFatoSubtype defines model for FileManifest.FatoSubtype.
+type FileManifestFatoSubtype string
+
+// FileManifest defines model for FileManifest.
+type FileManifest struct {
+	MinioKey    string                  `json:"minio_key"`
+	FatoSubtype FileManifestFatoSubtype `json:"fato_subtype"`
+	SizeBytes   int64                   `json:"size_bytes"`
+	Sha256      string                  `json:"sha256"`
+}
+
+// JobRegisterRequest defines model for JobRegisterRequest.
+type JobRegisterRequest struct {
+	JobId openapi_types.UUID `json:"job_id"`
+	Files []FileManifest     `json:"files"`
+}
+
+// JobRegisterResponse defines model for JobRegisterResponse.
+type JobRegisterResponse struct {
+	JobId  string `json:"job_id"`
+	Status string `json:"status"`
+}
+
 // ValidationError defines model for ValidationError.
 type ValidationError struct {
 	Ctx   *map[string]interface{}    `json:"ctx,omitempty"`
@@ -1041,6 +1078,30 @@ func (r HealthCheckApiV1SystemHealthGetResponse) StatusCode() int {
 	return 0
 }
 
+// PostJobsRegisterResponse resposta do POST /api/v1/jobs/register (N-file manifest).
+type PostJobsRegisterResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *JobRegisterResponse
+	JSON422      *HTTPValidationError
+}
+
+// Status returns HTTPResponse.Status.
+func (r PostJobsRegisterResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode.
+func (r PostJobsRegisterResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // ReapLeasesApiV1AdminReapLeasesPostWithResponse request returning *ReapLeasesApiV1AdminReapLeasesPostResponse
 func (c *ClientWithResponses) ReapLeasesApiV1AdminReapLeasesPostWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReapLeasesApiV1AdminReapLeasesPostResponse, error) {
 	rsp, err := c.ReapLeasesApiV1AdminReapLeasesPost(ctx, reqEditors...)
@@ -1135,6 +1196,41 @@ func (c *ClientWithResponses) HealthCheckApiV1SystemHealthGetWithResponse(ctx co
 		return nil, err
 	}
 	return ParseHealthCheckApiV1SystemHealthGetResponse(rsp)
+}
+
+// PostJobsRegisterWithResponse POST /api/v1/jobs/register com body N-file manifest.
+func (c *ClientWithResponses) PostJobsRegisterWithResponse(ctx context.Context, body JobRegisterRequest, reqEditors ...RequestEditorFn) (*PostJobsRegisterResponse, error) {
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	rsp, err := c.RegisterExtractionApiV1JobsRegisterPostWithBody(ctx, "application/json", bytes.NewReader(buf), reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rsp.Body.Close() }()
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	if err != nil {
+		return nil, err
+	}
+	out := &PostJobsRegisterResponse{Body: bodyBytes, HTTPResponse: rsp}
+	if strings.Contains(rsp.Header.Get("Content-Type"), "json") {
+		switch rsp.StatusCode {
+		case 200:
+			var dest JobRegisterResponse
+			if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+				return nil, err
+			}
+			out.JSON200 = &dest
+		case 422:
+			var dest HTTPValidationError
+			if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+				return nil, err
+			}
+			out.JSON422 = &dest
+		}
+	}
+	return out, nil
 }
 
 // ParseReapLeasesApiV1AdminReapLeasesPostResponse parses an HTTP response from a ReapLeasesApiV1AdminReapLeasesPostWithResponse call
