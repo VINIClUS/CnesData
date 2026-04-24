@@ -129,10 +129,25 @@ def mark_failed(engine: Engine, *, job_id: UUID, reason: str) -> None:
         )
 
 
-def register(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError(
-        "extractions_repo.register: pending Task 7 /jobs/register route",
-    )
+def register(
+    engine: Engine,
+    *,
+    job_id: UUID,
+    files: list[dict],
+) -> UUID | None:
+    sql = text("""
+        UPDATE landing.extractions
+        SET files = CAST(:files AS jsonb),
+            status = 'REGISTERED',
+            registered_at = NOW()
+        WHERE job_id = :j AND status IN ('PENDING', 'CLAIMED')
+        RETURNING job_id
+    """)
+    with engine.begin() as conn:
+        result = conn.execute(
+            sql, {"j": str(job_id), "files": json.dumps(files)},
+        ).one_or_none()
+    return result.job_id if result else None
 
 
 def mark_uploaded(*args: object, **kwargs: object) -> None:
