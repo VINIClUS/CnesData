@@ -67,6 +67,27 @@ aplicadas por serviço externo via SQL JOINs contra o Gold.
 └───────────────────────────────────────────────────────────────┘
 ```
 
+## BPA + SIA edge flow (2026-04)
+
+`dump_agent_go` also handles two additional sources alongside CNES + SIHD:
+
+- **BPA-Mag:** reads FB 1.5 `BPAMAG.GDB` via `nakagami/firebirdsql` Go driver.
+  Requires FB 1.5 server running on edge Windows x86 host.
+  Fixtures + server zip at `docs/fixtures/firebird/`; CI setup via
+  `scripts/fb156_setup.py --server` + `apps/dump_agent_go/scripts/ci/start_fb15.ps1`.
+- **SIA:** reads `.DBF` files (S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN) via
+  `LindsayBradford/go-dbf` with cp1252 sanitize.
+
+Both emit **N-file manifests**: one `ClaimedJob` per
+`(source_type, competencia)` → N Parquets uploaded to MinIO via N presigned
+PUTs → single `POST /api/v1/jobs/register` with the manifest list.
+`data_processor` has BPA + SIA adapters downstream (see
+`apps/data_processor/CLAUDE.md`).
+
+**Spike status:** T1 FB 1.5 wire-protocol validation via `nakagami/firebirdsql`
+is **DEFERRED**. Runtime validation blocked at fixture generation
+(fdb/FB1.5 symbol mismatch); pivot tracked in issue #51.
+
 ## Contratos entre apps
 
 ### Edge → Central (HTTPS)

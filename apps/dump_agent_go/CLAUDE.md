@@ -31,7 +31,16 @@ driver pure-Go).
 
 ## Test
 
-`make test` — unit (mocks). `make test-e2e` — smoke com stub API + FB fake.
+- `make test` — unit (mocks). `make test-e2e` — smoke com stub API + FB fake.
+- Coverage gate: 65% on filtered set (excludes `generated.go`, `cmd/`,
+  `internal/service/`, `*_windows.go`). Reproduce via `go test -race -count=1
+  -coverprofile=coverage.out ./...` + `grep -v` + `go tool cover -func`.
+- CI label vocab:
+  - `run-windows-integration` → runs `integration-windows` (FB 2.5 CNES/SIHD)
+    + `bpa-integration-windows` (FB 1.5 BPA). Windows-latest runners.
+  - `run-integration` → runs `sia-integration` (Linux, DBF fixtures).
+  - Nightly schedule at `30 2 * * *` UTC runs all three regardless of label.
+- Full layout + filter regex: `apps/dump_agent_go/test/README.md`.
 
 ## Gotchas
 
@@ -49,4 +58,8 @@ driver pure-Go).
 - `internal/extractor/bpa.go` — FB 1.5 via nakagami/firebirdsql. Reads BPA_C_LINHAS + BPA_I_LINHAS. GDB path via `--bpa-gdb` or `BPA_GDB_PATH`. Windows x86 FB 1.5 server required at runtime.
 - `internal/extractor/sia.go` — DBF via LindsayBradford/go-dbf with cp1252 sanitize. Reads S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN from directory supplied via `--sia-dir` or `SIA_DIR`.
 - N-file manifest: one job per `(source_type, competencia)`, emits N Parquets. See `internal/worker/bpa_sia_pipeline.go`.
-- FB 1.5 + nakagami driver compatibility is validated by T1 spike (see `docs/superpowers/specs/2026-04-23-spike-report.md` — runtime validation deferred to user Windows x86 env; CI covers via `bpa-integration-windows` workflow).
+- FB 1.5 + nakagami driver compatibility: T1 spike **FAIL at fixture_generation_fail**
+  (fdb Python library can't load FB 1.5 `fbclient.dll` — missing `fb_interpret`
+  symbol, added in FB 2.0). Wire-protocol validation remains unvalidated. See
+  issue #51 for pivot options; parent spec `2026-04-23-spike-report.md` (local)
+  §Resolution has the full traceback.
