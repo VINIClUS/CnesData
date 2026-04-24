@@ -25,6 +25,8 @@ jobs:
         working-directory: apps/dump_agent_go
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - uses: actions/setup-go@v5
         with:
