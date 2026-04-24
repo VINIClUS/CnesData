@@ -49,7 +49,8 @@ _SEED_ROWS = [
 
 
 def create_gdb(gdb_path: Path, dll_path: Path) -> None:
-    import fdb
+    import fdb  # pyright: ignore[reportMissingImports]  # runtime-only, x86 Python
+
     fdb.load_api(str(dll_path))
 
     if gdb_path.exists():
