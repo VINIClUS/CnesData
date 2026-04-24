@@ -20,7 +20,11 @@ from cnes_contracts.fatos import (
     VinculoCNES,
 )
 from cnes_contracts.jobs import JobTransitionEvent
-from cnes_contracts.landing import Extraction, ExtractionRegisterPayload
+from cnes_contracts.landing import (
+    Extraction,
+    ExtractionRegisterPayload,
+    FileManifest,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -40,6 +44,7 @@ MODELS: list[type] = [
     ProcedimentoAIH,
     Extraction,
     ExtractionRegisterPayload,
+    FileManifest,
     JobTransitionEvent,
 ]
 

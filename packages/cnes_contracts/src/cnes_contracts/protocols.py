@@ -1,13 +1,18 @@
 """PEP 544 Protocols for domain ports."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from datetime import date
     from uuid import UUID
 
     from cnes_contracts.fatos import VinculoCNES
-    from cnes_contracts.landing import Extraction, ExtractionRegisterPayload
+    from cnes_contracts.landing import (
+        Extraction,
+        ExtractionRegisterPayload,
+        FileManifest,
+    )
 
 
 class DimLookupPort(Protocol):
@@ -40,3 +45,11 @@ class ExtractionRepoPort(Protocol):
     def mark_uploaded(
         self, extraction_id: UUID, sha256: str, row_count: int,
     ) -> None: ...
+
+
+@runtime_checkable
+class ExtractorPort(Protocol):
+
+    def extract(
+        self, source: str, competencia: date, tenant: str,
+    ) -> list[FileManifest]: ...

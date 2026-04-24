@@ -1,5 +1,48 @@
 {
   "$defs": {
+    "FileManifest": {
+      "properties": {
+        "fato_subtype": {
+          "enum": [
+            "CNES_VINCULO",
+            "SIHD_INTERNACAO",
+            "SIHD_PROC_AIH",
+            "BPA_C",
+            "BPA_I",
+            "SIA_APA",
+            "SIA_BPI",
+            "SIA_BPIHST",
+            "DIM_SIGTAP",
+            "DIM_MUNICIPIO"
+          ],
+          "title": "Fato Subtype",
+          "type": "string"
+        },
+        "minio_key": {
+          "pattern": "^[\\w\\-./]+\\.parquet\\.gz$",
+          "title": "Minio Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "minio_key",
+        "fato_subtype",
+        "size_bytes",
+        "sha256"
+      ],
+      "title": "FileManifest",
+      "type": "object"
+    },
     "JobStatus": {
       "enum": [
         "PENDING",
@@ -14,88 +57,36 @@
     }
   },
   "properties": {
-    "agent_version": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Agent Version"
-    },
     "competencia": {
-      "maximum": 209912,
-      "minimum": 200001,
+      "format": "date",
       "title": "Competencia",
-      "type": "integer"
-    },
-    "completed_at": {
-      "anyOf": [
-        {
-          "format": "date-time",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Completed At"
+      "type": "string"
     },
     "created_at": {
       "format": "date-time",
       "title": "Created At",
       "type": "string"
     },
-    "error_detail": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Error Detail"
+    "depends_on": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Depends On",
+      "type": "array"
     },
-    "fonte_sistema": {
-      "enum": [
-        "CNES_LOCAL",
-        "CNES_NACIONAL",
-        "SIHD",
-        "SIA_APA",
-        "SIA_BPI",
-        "BPA_C",
-        "BPA_I"
-      ],
-      "title": "Fonte Sistema",
-      "type": "string"
-    },
-    "id": {
-      "format": "uuid",
-      "title": "Id",
-      "type": "string"
+    "files": {
+      "items": {
+        "$ref": "#/$defs/FileManifest"
+      },
+      "minItems": 1,
+      "title": "Files",
+      "type": "array"
     },
     "job_id": {
       "format": "uuid",
       "title": "Job Id",
       "type": "string"
-    },
-    "lease_owner": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Lease Owner"
     },
     "lease_until": {
       "anyOf": [
@@ -110,69 +101,7 @@
       "default": null,
       "title": "Lease Until"
     },
-    "machine_id": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Machine Id"
-    },
-    "object_key": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Object Key"
-    },
-    "retry_count": {
-      "default": 0,
-      "minimum": 0,
-      "title": "Retry Count",
-      "type": "integer"
-    },
-    "row_count": {
-      "anyOf": [
-        {
-          "minimum": 0,
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Row Count"
-    },
-    "schema_version": {
-      "default": 1,
-      "minimum": 1,
-      "title": "Schema Version",
-      "type": "integer"
-    },
-    "sha256": {
-      "anyOf": [
-        {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Sha256"
-    },
-    "started_at": {
+    "registered_at": {
       "anyOf": [
         {
           "format": "date-time",
@@ -183,41 +112,35 @@
         }
       ],
       "default": null,
-      "title": "Started At"
+      "title": "Registered At"
+    },
+    "source_type": {
+      "enum": [
+        "CNES_LOCAL",
+        "CNES_NACIONAL",
+        "SIHD",
+        "BPA_MAG",
+        "SIA_LOCAL"
+      ],
+      "title": "Source Type",
+      "type": "string"
     },
     "status": {
       "$ref": "#/$defs/JobStatus"
     },
     "tenant_id": {
-      "pattern": "^\\d{6}$",
+      "maxLength": 64,
+      "minLength": 1,
       "title": "Tenant Id",
       "type": "string"
-    },
-    "tipo_extracao": {
-      "title": "Tipo Extracao",
-      "type": "string"
-    },
-    "uploaded_at": {
-      "anyOf": [
-        {
-          "format": "date-time",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Uploaded At"
     }
   },
   "required": [
-    "id",
     "job_id",
     "tenant_id",
-    "fonte_sistema",
-    "tipo_extracao",
+    "source_type",
     "competencia",
+    "files",
     "status",
     "created_at"
   ],
