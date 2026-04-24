@@ -82,6 +82,8 @@ jobs:
         working-directory: apps/dump_agent_go
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - uses: actions/setup-go@v5
         with:
@@ -89,15 +91,12 @@ jobs:
           cache: true
           cache-dependency-path: apps/dump_agent_go/go.sum
 
-      - name: Download Firebird 2.5
-        run: .\scripts\ci\download_firebird.ps1
+      - name: Setup Firebird 2.5 (from LFS)
+        run: .\scripts\ci\setup_fb25.ps1
         shell: powershell
 
       - name: Start Firebird server
-        run: |
-          $env:PATH += ";C:\firebird\bin"
-          Start-Process -FilePath "C:\firebird\bin\fbguard.exe" -ArgumentList "-a" -PassThru
-          Start-Sleep -Seconds 5
+        run: .\scripts\ci\start_fb25.ps1
         shell: powershell
 
       - name: Setup synthetic DB
