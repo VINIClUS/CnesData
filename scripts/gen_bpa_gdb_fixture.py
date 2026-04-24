@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import random
 import sys
 from pathlib import Path
 
@@ -39,7 +40,7 @@ CREATE TABLE BPA_I_LINHAS (
 );
 """
 
-_SEED_ROWS = [
+_BASE_ROWS = [
     ("BPA_CAB", "('202601', '2269481')"),
     ("BPA_C_LINHAS", "('202601', '2269481', '0301010056', 10, '225125', 3, 45)"),
     ("BPA_I_LINHAS", """('202601', '2269481', '700123456789012', '12345678901',
@@ -48,7 +49,38 @@ _SEED_ROWS = [
 ]
 
 
-def create_gdb(gdb_path: Path, dll_path: Path) -> None:
+def _gen_bpa_c_sql_rows(rng: random.Random, n: int) -> list[str]:
+    procs = ["0301010056", "0301010064", "0401010074"]
+    return [
+        f"('202601', '2269481', '{rng.choice(procs)}', {rng.randint(1, 50)}, "
+        f"'225125', 3, {rng.randint(18, 80)})"
+        for _ in range(n)
+    ]
+
+
+def _gen_bpa_i_sql_rows(rng: random.Random, n: int) -> list[str]:
+    procs = ["0301010056", "0301010064"]
+    return [
+        f"('202601', '2269481', "
+        f"'7{rng.randint(10**13, 10**14 - 1):014d}', "
+        f"'{rng.randint(10**10, 10**11 - 1):011d}', "
+        f"'{rng.choice(procs)}', '225125', 'J00', "
+        f"DATE '2026-01-{rng.randint(1, 28):02d}', "
+        f"{rng.randint(1, 5)}, "
+        f"'7{rng.randint(10**13, 10**14 - 1):014d}')"
+        for _ in range(n)
+    ]
+
+
+def _build_seed_rows(seed: int) -> list[tuple[str, str]]:
+    rng = random.Random(seed)
+    rows: list[tuple[str, str]] = list(_BASE_ROWS)
+    rows.extend(("BPA_C_LINHAS", v) for v in _gen_bpa_c_sql_rows(rng, 8))
+    rows.extend(("BPA_I_LINHAS", v) for v in _gen_bpa_i_sql_rows(rng, 12))
+    return rows
+
+
+def create_gdb(gdb_path: Path, dll_path: Path, seed: int = 42) -> None:
     import fdb  # pyright: ignore[reportMissingImports]  # runtime-only, x86 Python
 
     fdb.load_api(str(dll_path))
@@ -68,7 +100,7 @@ def create_gdb(gdb_path: Path, dll_path: Path) -> None:
                 cur.execute(stmt)
         con.commit()
 
-        for table, values in _SEED_ROWS:
+        for table, values in _build_seed_rows(seed):
             cur.execute(f"INSERT INTO {table} VALUES {values}")
         con.commit()
     finally:
@@ -80,10 +112,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gdb", type=Path, required=True)
     parser.add_argument("--dll", type=Path, required=True)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    create_gdb(args.gdb, args.dll)
-    logger.info("gdb_created path=%s size=%d", args.gdb, args.gdb.stat().st_size)
+    create_gdb(args.gdb, args.dll, seed=args.seed)
+    logger.info("gdb_created path=%s size=%d seed=%d",
+                args.gdb, args.gdb.stat().st_size, args.seed)
     return 0
 
 
