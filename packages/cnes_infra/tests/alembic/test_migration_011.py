@@ -5,6 +5,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 
 pytestmark = pytest.mark.postgres
 
@@ -24,10 +25,6 @@ def _url(pg_engine) -> str:
 
 
 class TestMigration011:
-    @pytest.fixture(autouse=True)
-    def _ensure_head(self, pg_engine) -> None:
-        command.upgrade(_alembic_cfg(_url(pg_engine)), "head")
-
     def test_upgrade_cria_files_jsonb(self, pg_engine) -> None:
         cfg = _alembic_cfg(_url(pg_engine))
         command.upgrade(cfg, "011_bpa_sia_sources")
@@ -56,7 +53,7 @@ class TestMigration011:
                 "INSERT INTO landing.extractions "
                 "(job_id, tenant_id, source_type, competencia, "
                 " files, status, created_at) "
-                "VALUES (gen_random_uuid(), 't1', 'BPA_MAG', '2026-01-01', "
+                "VALUES (gen_random_uuid(), '354130', 'BPA_MAG', '2026-01-01', "
                 "        '[]'::jsonb, 'PENDING', NOW())"
             ))
 
@@ -64,16 +61,16 @@ class TestMigration011:
         command.upgrade(
             _alembic_cfg(_url(pg_engine)), "011_bpa_sia_sources",
         )
-        with pg_engine.begin() as conn, pytest.raises(Exception):
+        with pg_engine.begin() as conn, pytest.raises(IntegrityError):
             conn.execute(text(
                 "INSERT INTO landing.extractions "
                 "(job_id, tenant_id, source_type, competencia, "
                 " files, status, created_at) "
-                "VALUES (gen_random_uuid(), 't1', 'UNKNOWN', '2026-01-01', "
+                "VALUES (gen_random_uuid(), '354130', 'UNKNOWN', '2026-01-01', "
                 "        '[]'::jsonb, 'PENDING', NOW())"
             ))
 
-    def test_downgrade_remove_files_restaura_minio_key(
+    def test_downgrade_restaura_object_key_v1_shape(
         self, pg_engine,
     ) -> None:
         cfg = _alembic_cfg(_url(pg_engine))
@@ -85,6 +82,6 @@ class TestMigration011:
                 "extractions", schema="landing",
             )}
             assert "files" not in cols
-            assert "minio_key" in cols
+            assert "object_key" in cols
         finally:
             command.upgrade(cfg, "head")

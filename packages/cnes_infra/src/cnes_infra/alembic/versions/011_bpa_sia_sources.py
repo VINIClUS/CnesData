@@ -26,10 +26,10 @@ def _drop_v1_extractions() -> None:
 
 
 def _create_v2_extractions() -> None:
-    op.execute("""
+    op.execute(r"""
         CREATE TABLE landing.extractions (
             job_id         UUID          PRIMARY KEY,
-            tenant_id      TEXT          NOT NULL,
+            tenant_id      CHAR(6)       NOT NULL,
             source_type    TEXT          NOT NULL,
             competencia    DATE          NOT NULL,
             files          JSONB         NOT NULL DEFAULT '[]'::jsonb,
@@ -41,7 +41,12 @@ def _create_v2_extractions() -> None:
             CONSTRAINT extractions_source_type_check CHECK (source_type IN (
                 'CNES_LOCAL', 'CNES_NACIONAL', 'SIHD',
                 'BPA_MAG', 'SIA_LOCAL'
-            ))
+            )),
+            CONSTRAINT chk_status CHECK (status IN (
+                'PENDING', 'UPLOADED', 'PROCESSING', 'INGESTED', 'FAILED', 'DLQ',
+                'REGISTERED', 'CLAIMED', 'COMPLETED'
+            )),
+            CONSTRAINT chk_tenant_format CHECK (tenant_id ~ '^\d{6}$')
         );
         CREATE INDEX ix_extractions_tenant_comp
             ON landing.extractions (tenant_id, competencia);
@@ -60,18 +65,28 @@ def _create_v2_extractions() -> None:
 
 
 def _create_dim_misses() -> None:
-    op.execute("""
+    op.execute(r"""
         CREATE TABLE landing.dim_misses (
             id            BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            tenant_id     TEXT         NOT NULL,
+            tenant_id     CHAR(6)      NOT NULL,
             job_id        UUID         NOT NULL,
             dim_name      TEXT         NOT NULL,
             missing_code  TEXT         NOT NULL,
             row_payload   JSONB        NOT NULL,
-            detected_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+            detected_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+            CONSTRAINT chk_dim_misses_tenant_format
+                CHECK (tenant_id ~ '^\d{6}$')
         );
         CREATE INDEX ix_dim_misses_job ON landing.dim_misses (job_id);
+        ALTER TABLE landing.dim_misses ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY tenant_isolation ON landing.dim_misses
+            USING (tenant_id = current_setting('app.tenant_id', true));
     """)
+
+
+def _drop_dim_misses() -> None:
+    op.execute("DROP POLICY IF EXISTS tenant_isolation ON landing.dim_misses")
+    op.execute("DROP TABLE IF EXISTS landing.dim_misses CASCADE")
 
 
 def _recreate_v1_extractions_for_downgrade() -> None:
@@ -83,7 +98,7 @@ def _recreate_v1_extractions_for_downgrade() -> None:
             fonte_sistema     TEXT          NOT NULL,
             tipo_extracao     TEXT          NOT NULL,
             competencia       INT4          NOT NULL,
-            minio_key         TEXT,
+            object_key        TEXT,
             row_count         INT4,
             sha256            CHAR(64),
             schema_version    SMALLINT      NOT NULL DEFAULT 1,
@@ -101,8 +116,8 @@ def _recreate_v1_extractions_for_downgrade() -> None:
             CONSTRAINT uniq_source_comp UNIQUE (
                 fonte_sistema, tenant_id, competencia, tipo_extracao
             ),
-            CONSTRAINT extractions_source_type_check CHECK (fonte_sistema IN (
-                'CNES_LOCAL', 'CNES_NACIONAL', 'SIHD'
+            CONSTRAINT chk_fonte_sistema CHECK (fonte_sistema IN (
+                'CNES_LOCAL','CNES_NACIONAL','SIHD','SIA_APA','SIA_BPI','BPA_C','BPA_I'
             )),
             CONSTRAINT chk_status CHECK (status IN (
                 'PENDING','UPLOADED','PROCESSING','INGESTED','FAILED','DLQ'
@@ -124,6 +139,7 @@ def _recreate_v1_extractions_for_downgrade() -> None:
         CREATE INDEX ix_extractions_pending
             ON landing.extractions (status, created_at)
             WHERE status = 'PENDING';
+        ALTER TABLE landing.extractions SET (autovacuum_vacuum_scale_factor = 0.05);
         ALTER TABLE landing.extractions ENABLE ROW LEVEL SECURITY;
         CREATE POLICY tenant_isolation ON landing.extractions
             USING (tenant_id = current_setting('app.tenant_id', true));
@@ -137,6 +153,6 @@ def upgrade() -> None:  # pragma: no cover - alembic migration
 
 
 def downgrade() -> None:  # pragma: no cover - alembic migration
-    op.execute("DROP TABLE IF EXISTS landing.dim_misses CASCADE")
+    _drop_dim_misses()
     op.execute("DROP TABLE IF EXISTS landing.extractions CASCADE")
     _recreate_v1_extractions_for_downgrade()
