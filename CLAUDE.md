@@ -138,6 +138,12 @@ Before code: wrap analysis in `<thinking>`. Tests first, implementation second.
 # Perf micro (todo PR)
 .venv/Scripts/python.exe -m pytest tests/perf/micro -m perf_micro --benchmark-only
 
+# Go agent tests + coverage (apps/dump_agent_go/)
+cd apps/dump_agent_go && go test -race -count=1 -coverprofile=coverage.out ./...
+grep -v -E "internal/apiclient/generated\.go|cmd/|internal/service/|_windows\.go:" \
+  coverage.out > coverage.filtered.out
+go tool cover -func=coverage.filtered.out | tail -1    # gate >= 65%
+
 # Rodar central_api localmente
 docker compose up -d postgres minio
 uv run uvicorn central_api.app:create_app --factory --reload
@@ -187,5 +193,7 @@ ver `apps/<app>/CLAUDE.md`.
 - Quality gates: 4 suites em `tests/{property,memory,chaos,negative}/` + N+1 middleware.
   Markers: `race`, `memleak`, `chaos`, `chaos_infra`, `negative`, `n_plus_1_debt`.
   Violações aplicam label `needs-*-review` (bloqueia merge via ruleset).
+- Go agent coverage gate: 65% on filtered set (see
+  `apps/dump_agent_go/test/README.md` for filter regex + CI label vocab).
 
 > Para comandos RTK (Rust Token Killer), ver `~/.claude/CLAUDE.md` global.

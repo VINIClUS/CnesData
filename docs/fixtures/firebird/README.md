@@ -91,3 +91,33 @@ Full text in `LICENSE-IPL.txt`. Redistribution of the unmodified zip
 requires attribution — satisfied by this README + `LICENSE-IPL.txt`.
 
 Upstream: https://firebirdsql.org/en/firebird-1-5/
+
+## Server variant (CI integration)
+
+Alongside the embedded zip, LFS also ships `Firebird-1.5.6.5026-0_win32.zip`
+(full server edition, SHA `4b718a918a...`). Extract via:
+
+```bash
+python scripts/fb156_setup.py --server
+```
+
+Produces `.cache/firebird-1.5.6-server/bin/fbserver.exe` plus the server's
+own `fbclient.dll`.
+
+Used by the CI `bpa-integration-windows` job via
+`apps/dump_agent_go/scripts/ci/start_fb15.ps1` to start a TCP-reachable
+FB 1.5 server on port 3050 for the BPA spike.
+
+### Known issue — fdb/fb_interpret incompat
+
+`fdb.load_api(".cache/firebird-1.5.6/fbclient.dll")` fails with:
+
+```
+AttributeError: function 'fb_interpret' not found. Did you mean: 'isc_interprete'?
+```
+
+`fb_interpret` was introduced in FB 2.0; FB 1.5's fbclient only exports
+`isc_interprete`. This blocks synthetic GDB generation via
+`scripts/gen_bpa_gdb_fixture.py` in CI. Pivot tracked in **issue #51** —
+three options: `isql` subprocess generator, pre-generate + LFS, older
+Python FB driver.
