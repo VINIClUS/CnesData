@@ -25,3 +25,43 @@ actions:
         type: string
         nullable: true
         title: Machine Id
+  - target: $.components.schemas
+    update:
+      FileManifest:
+        type: object
+        required: [minio_key, fato_subtype, size_bytes, sha256]
+        properties:
+          minio_key:
+            type: string
+            pattern: "^[\\w\\-./]+\\.parquet\\.gz$"
+          fato_subtype:
+            type: string
+            enum:
+              - CNES_VINCULO
+              - SIHD_INTERNACAO
+              - SIHD_PROC_AIH
+              - BPA_C
+              - BPA_I
+              - SIA_APA
+              - SIA_BPI
+              - SIA_BPIHST
+              - DIM_SIGTAP
+              - DIM_MUNICIPIO
+          size_bytes:
+            type: integer
+            minimum: 1
+          sha256:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      JobRegisterRequest:
+        type: object
+        required: [job_id, files]
+        properties:
+          job_id:
+            type: string
+            format: uuid
+          files:
+            type: array
+            minItems: 1
+            items:
+              $ref: '#/components/schemas/FileManifest'

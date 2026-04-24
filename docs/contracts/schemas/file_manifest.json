@@ -1,0 +1,43 @@
+{
+  "properties": {
+    "fato_subtype": {
+      "enum": [
+        "CNES_VINCULO",
+        "SIHD_INTERNACAO",
+        "SIHD_PROC_AIH",
+        "BPA_C",
+        "BPA_I",
+        "SIA_APA",
+        "SIA_BPI",
+        "SIA_BPIHST",
+        "DIM_SIGTAP",
+        "DIM_MUNICIPIO"
+      ],
+      "title": "Fato Subtype",
+      "type": "string"
+    },
+    "minio_key": {
+      "pattern": "^[\\w\\-./]+\\.parquet\\.gz$",
+      "title": "Minio Key",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "size_bytes": {
+      "exclusiveMinimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "minio_key",
+    "fato_subtype",
+    "size_bytes",
+    "sha256"
+  ],
+  "title": "FileManifest",
+  "type": "object"
+}

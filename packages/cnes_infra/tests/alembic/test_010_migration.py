@@ -76,25 +76,12 @@ def test_010_remove_queue_schema(pg_engine):
 
 
 @pytest.mark.postgres
+@pytest.mark.skip(reason="010 constraint chk_competencia_yyyymm substituída por 011")
 def test_010_check_constraint_competencia_yyyymm(pg_engine):
-    with pg_engine.connect() as con:
-        definicao = con.execute(text(
-            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
-            "WHERE conname = 'chk_competencia_yyyymm'"
-        )).scalar()
-    assert "200001" in definicao
-    assert "209912" in definicao
-    assert "% 100" in definicao
+    pass
 
 
 @pytest.mark.postgres
+@pytest.mark.skip(reason="010 uniq_source_comp substituído por 011 N-file shape")
 def test_010_landing_extractions_tem_unique_source_comp(pg_engine):
-    with pg_engine.connect() as con:
-        definicao = con.execute(text(
-            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
-            "WHERE conname = 'uniq_source_comp'"
-        )).scalar()
-    assert "fonte_sistema" in definicao
-    assert "tenant_id" in definicao
-    assert "competencia" in definicao
-    assert "tipo_extracao" in definicao
+    pass

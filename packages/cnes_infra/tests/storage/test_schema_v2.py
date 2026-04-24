@@ -6,6 +6,7 @@ from cnes_infra.storage.schema_v2 import (
     dim_cid10,
     dim_competencia,
     dim_estabelecimento,
+    dim_misses_table,
     dim_municipio,
     dim_procedimento_sus,
     dim_profissional,
@@ -21,9 +22,19 @@ from cnes_infra.storage.schema_v2 import (
 def test_extractions_no_schema_landing():
     assert extractions.schema == "landing"
     col_names = {c.name for c in extractions.columns}
-    assert "id" in col_names
+    assert "job_id" in col_names
+    assert "source_type" in col_names
+    assert "files" in col_names
+    assert "depends_on" in col_names
     assert "status" in col_names
     assert "tenant_id" in col_names
+
+
+def test_dim_misses_no_schema_landing():
+    assert dim_misses_table.schema == "landing"
+    col_names = {c.name for c in dim_misses_table.columns}
+    assert {"id", "tenant_id", "job_id", "dim_name",
+            "missing_code", "row_payload", "detected_at"} <= col_names
 
 
 def test_dims_no_schema_gold():
@@ -59,6 +70,6 @@ def test_fato_vinculo_pk_composta():
     assert pk_cols == {"sk_competencia", "sk_vinculo"}
 
 
-def test_metadata_has_12_tables():
+def test_metadata_has_13_tables():
     names = [t.name for t in metadata.tables.values()]
-    assert len(names) == 12
+    assert len(names) == 13

@@ -1,55 +1,67 @@
 {
-  "properties": {
-    "agent_version": {
-      "title": "Agent Version",
-      "type": "string"
-    },
-    "competencia": {
-      "maximum": 209912,
-      "minimum": 200001,
-      "title": "Competencia",
-      "type": "integer"
-    },
-    "fonte_sistema": {
-      "enum": [
-        "CNES_LOCAL",
-        "CNES_NACIONAL",
-        "SIHD",
-        "SIA_APA",
-        "SIA_BPI",
-        "BPA_C",
-        "BPA_I"
+  "$defs": {
+    "FileManifest": {
+      "properties": {
+        "fato_subtype": {
+          "enum": [
+            "CNES_VINCULO",
+            "SIHD_INTERNACAO",
+            "SIHD_PROC_AIH",
+            "BPA_C",
+            "BPA_I",
+            "SIA_APA",
+            "SIA_BPI",
+            "SIA_BPIHST",
+            "DIM_SIGTAP",
+            "DIM_MUNICIPIO"
+          ],
+          "title": "Fato Subtype",
+          "type": "string"
+        },
+        "minio_key": {
+          "pattern": "^[\\w\\-./]+\\.parquet\\.gz$",
+          "title": "Minio Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "minio_key",
+        "fato_subtype",
+        "size_bytes",
+        "sha256"
       ],
-      "title": "Fonte Sistema",
-      "type": "string"
+      "title": "FileManifest",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "files": {
+      "items": {
+        "$ref": "#/$defs/FileManifest"
+      },
+      "minItems": 1,
+      "title": "Files",
+      "type": "array"
     },
     "job_id": {
       "format": "uuid",
       "title": "Job Id",
       "type": "string"
-    },
-    "machine_id": {
-      "title": "Machine Id",
-      "type": "string"
-    },
-    "tenant_id": {
-      "pattern": "^\\d{6}$",
-      "title": "Tenant Id",
-      "type": "string"
-    },
-    "tipo_extracao": {
-      "title": "Tipo Extracao",
-      "type": "string"
     }
   },
   "required": [
-    "tenant_id",
-    "fonte_sistema",
-    "tipo_extracao",
-    "competencia",
     "job_id",
-    "agent_version",
-    "machine_id"
+    "files"
   ],
   "title": "ExtractionRegisterPayload",
   "type": "object"

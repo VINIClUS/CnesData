@@ -11,6 +11,8 @@
 | CNES nacional via BigQuery | Ativo | `cnes_infra.ingestion.web_client` + data_processor adapter |
 | CNES via DATASUS API | Ativo | `cnes_infra.ingestion.cnes_oficial_web_adapter` |
 | SIHD hospitalar | Ativo | `dump_agent.extractors.sihd_extractor` + data_processor adapter |
+| BPA (Boletim Produção Ambulatorial) | Ativo | `dump_agent_go.internal.extractor.ExtractBPA` + `data_processor.adapters.bpa_adapter` |
+| SIA (Sistema Info Ambulatorial) | Ativo | `dump_agent_go.internal.extractor.ExtractSIA` + `data_processor.adapters.sia_adapter` + `sia_dim_sync` |
 | Multi-tenant (RLS + Middleware) | Pronto, piloto PE/SP | `cnes_infra.storage.rls` + `central_api.middleware` |
 | Perf test pipeline (5 tiers) | Pronto | `tests/perf/{micro,macro,stress,soak,spike}/` + nightly workflow |
 | CI com gates duplos (100%/90%) | Pronto | `.github/workflows/ci.yml` |
@@ -19,7 +21,6 @@
 
 | Item | Prioridade | Bloqueio / Pré-req |
 |---|---|---|
-| BPA (Boletim Produção Ambulatorial) | Alta | Formatos de arquivo + schema canônico |
 | Esus PEC (Prontuário Eletrônico Cidadão) | Alta | Acesso ao DB municipal varia; negociação política |
 | HR PIS→CPF cross-walking | Média | `scripts/hr_pre_processor.py` existia em iteração anterior (61% cobertura) — reativar/reescrever no monorepo |
 | Rules service (serviço externo) | Média | Repo separado; consome Gold via SQL JOINs |
@@ -31,7 +32,7 @@
 |---|---|
 | Web dashboard (Streamlit/Metabase/custom) | Substituir relatórios Excel (removidos do escopo) para audiência > 3 pessoas |
 | Team-level audit | Audit de equipes ESF/EAP/ESB. Bloqueado por INE format gap (FB 10 chars vs BQ 18) |
-| Apps de fontes adicionais | SIGTAP, SIA-SUS, outros módulos DATASUS |
+| Apps de fontes adicionais | SIGTAP e outros módulos DATASUS |
 | Integração Pro-Saúde / CNES-WEB | Validação em tempo real de envios ao DATASUS |
 
 ## Removido definitivamente (2026-04)

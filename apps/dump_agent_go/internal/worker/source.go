@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 )
@@ -34,4 +35,24 @@ func (s *staticSource) Next(_ context.Context) (*JobSpec, error) {
 		Competencia:  s.spec.Competencia,
 		Intent:       s.spec.Intent,
 	}, nil
+}
+
+// DispatchConfig agrega configs específicas de cada source_type.
+// Apenas BPA_MAG e SIA_LOCAL têm dispatch aqui — CNES_LOCAL/SIHD seguem
+// pelo JobExecutor clássico (intentPipelines).
+type DispatchConfig struct {
+	BPA BPAPipelineConfig
+	SIA SIAPipelineConfig
+}
+
+// Dispatch roteia ClaimedJob para o pipeline apropriado por source_type.
+// Retorna erro para source_type desconhecido (CNES/SIHD não passam aqui).
+func Dispatch(ctx context.Context, job ClaimedJob, cfg DispatchConfig) error {
+	switch job.SourceType {
+	case "BPA_MAG":
+		return RunBPAPipeline(ctx, cfg.BPA, job)
+	case "SIA_LOCAL":
+		return RunSIAPipeline(ctx, cfg.SIA, job)
+	}
+	return fmt.Errorf("unsupported_source_type=%s", job.SourceType)
 }

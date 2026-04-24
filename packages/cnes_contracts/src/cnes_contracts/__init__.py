@@ -15,7 +15,7 @@ from cnes_contracts.fatos import (
     VinculoCNES,
 )
 from cnes_contracts.jobs import JobStatus, JobTransitionEvent
-from cnes_contracts.landing import Extraction, ExtractionRegisterPayload
+from cnes_contracts.landing import Extraction, ExtractionRegisterPayload, FileManifest
 
 __all__ = [
     "CBO",
@@ -24,6 +24,7 @@ __all__ = [
     "Estabelecimento",
     "Extraction",
     "ExtractionRegisterPayload",
+    "FileManifest",
     "Internacao",
     "JobStatus",
     "JobTransitionEvent",

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"flag"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -19,7 +20,35 @@ import (
 	"github.com/cnesdata/dumpagent/internal/worker"
 )
 
-func runForeground(ctx context.Context, verbose bool) int {
+// RunFlags parâmetros CLI extras passados via `dumpagent run`.
+// BPA/SIA only; CNES/SIHD seguem via env vars tradicionais.
+type RunFlags struct {
+	BPAGDBPath   string
+	SIADir       string
+	FBClientPath string
+}
+
+func defaultRunFlags() RunFlags {
+	return RunFlags{
+		BPAGDBPath:   os.Getenv("BPA_GDB_PATH"),
+		SIADir:       os.Getenv("SIA_DIR"),
+		FBClientPath: os.Getenv("FBCLIENT_PATH"),
+	}
+}
+
+func parseRunFlags(args []string) RunFlags {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	bpaGdb := fs.String("bpa-gdb", os.Getenv("BPA_GDB_PATH"), "BPAMAG.GDB absolute path")
+	siaDir := fs.String("sia-dir", os.Getenv("SIA_DIR"), "SIA DBF directory")
+	fbClient := fs.String("fbclient-path", os.Getenv("FBCLIENT_PATH"), "fbclient.dll path (Windows x86)")
+	fs.Bool("verbose", false, "enable DEBUG logging")
+	fs.Bool("v", false, "enable DEBUG logging (short)")
+	_ = fs.Parse(args)
+	return RunFlags{BPAGDBPath: *bpaGdb, SIADir: *siaDir, FBClientPath: *fbClient}
+}
+
+func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	level := slog.LevelInfo
 	if verbose {
 		level = slog.LevelDebug
@@ -47,6 +76,12 @@ func runForeground(ctx context.Context, verbose bool) int {
 		return 1
 	}
 	slog.Info("machine_id_resolved", "machine_id", machineID)
+
+	slog.Info("run_flags",
+		"bpa_gdb", flags.BPAGDBPath,
+		"sia_dir", flags.SIADir,
+		"fbclient_path", flags.FBClientPath,
+	)
 
 	if err := preFlightClockCheck(ctx); err != nil {
 		slog.Error("clock_fatal", "err", err.Error())
@@ -80,6 +115,8 @@ func runForeground(ctx context.Context, verbose bool) int {
 		slog.Error("api_client_init", "err", err.Error())
 		return 1
 	}
+
+	_ = buildDispatchConfig(flags, apiClient)
 
 	source, err := buildJobSource()
 	if err != nil {
@@ -187,7 +224,7 @@ func envOr(k, def string) string {
 	return def
 }
 
-func buildAPIClient(machineID string) (worker.JobAPIClient, error) {
+func buildAPIClient(machineID string) (*apiclient.Adapter, error) {
 	baseURL := envOr("CENTRAL_API_URL", "http://localhost:8000")
 	tenantID := os.Getenv("TENANT_ID")
 	if tenantID == "" {
@@ -219,3 +256,31 @@ func buildJobSource() (worker.JobSpecSource, error) {
 type stubErr struct{ msg string }
 
 func (s *stubErr) Error() string { return s.msg }
+
+// buildDispatchConfig constrói worker.DispatchConfig para BPA_MAG/SIA_LOCAL
+// a partir dos flags da CLI + adapter (para RegisterFunc).
+// O dispatcher BPA/SIA é acionado em fluxo distinto do JobExecutor clássico
+// (CNES/SIHD seguem por intentPipelines).
+func buildDispatchConfig(flags RunFlags, adapter *apiclient.Adapter) worker.DispatchConfig {
+	var register worker.RegisterFunc
+	if adapter != nil {
+		register = adapter.RegisterBPASIAJob
+	}
+	return worker.DispatchConfig{
+		BPA: worker.BPAPipelineConfig{
+			GDBPath:      flags.BPAGDBPath,
+			FBHost:       envOr("DB_HOST", "localhost"),
+			FBPort:       fbPort(),
+			FBUser:       envOr("DB_USER", "SYSDBA"),
+			FBPassword:   os.Getenv("DB_PASSWORD"),
+			FBClientPath: flags.FBClientPath,
+			Uploader:     upload.NewHTTP(nil),
+			Register:     register,
+		},
+		SIA: worker.SIAPipelineConfig{
+			SIADir:   flags.SIADir,
+			Uploader: upload.NewHTTP(nil),
+			Register: register,
+		},
+	}
+}

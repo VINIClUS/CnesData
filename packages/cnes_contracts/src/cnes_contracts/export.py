@@ -20,31 +20,36 @@ from cnes_contracts.fatos import (
     VinculoCNES,
 )
 from cnes_contracts.jobs import JobTransitionEvent
-from cnes_contracts.landing import Extraction, ExtractionRegisterPayload
+from cnes_contracts.landing import (
+    Extraction,
+    ExtractionRegisterPayload,
+    FileManifest,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-MODELS: list[type] = [
-    Profissional,
-    Estabelecimento,
-    ProcedimentoSUS,
-    CBO,
-    CID10,
-    Municipio,
-    Competencia,
-    VinculoCNES,
-    ProducaoAmbulatorial,
-    Internacao,
-    ProcedimentoAIH,
-    Extraction,
-    ExtractionRegisterPayload,
-    JobTransitionEvent,
+MODELS: list[tuple[type, str]] = [
+    (Profissional, "profissional.json"),
+    (Estabelecimento, "estabelecimento.json"),
+    (ProcedimentoSUS, "procedimentosus.json"),
+    (CBO, "cbo.json"),
+    (CID10, "cid10.json"),
+    (Municipio, "municipio.json"),
+    (Competencia, "competencia.json"),
+    (VinculoCNES, "vinculocnes.json"),
+    (ProducaoAmbulatorial, "producaoambulatorial.json"),
+    (Internacao, "internacao.json"),
+    (ProcedimentoAIH, "procedimentoaih.json"),
+    (Extraction, "extraction.json"),
+    (ExtractionRegisterPayload, "extractionregisterpayload.json"),
+    (FileManifest, "file_manifest.json"),
+    (JobTransitionEvent, "jobtransitionevent.json"),
 ]
 
 
-def export_all(target_dir: Path) -> list[Path]:
+def export_all(target_dir: Path | str) -> list[Path]:
     """Export JSON Schema for all models.
 
     Args:
@@ -53,11 +58,14 @@ def export_all(target_dir: Path) -> list[Path]:
     Returns:
         list of Path objects written
     """
-    target_dir.mkdir(parents=True, exist_ok=True)
+    from pathlib import Path as _Path
+
+    target = _Path(target_dir) if not isinstance(target_dir, _Path) else target_dir
+    target.mkdir(parents=True, exist_ok=True)
     written = []
-    for model_cls in MODELS:
+    for model_cls, filename in MODELS:
         schema = model_cls.model_json_schema()
-        path = target_dir / f"{model_cls.__name__.lower()}.json"
+        path = target / filename
         path.write_text(
             json.dumps(schema, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

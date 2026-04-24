@@ -128,6 +128,37 @@ func (a *Adapter) FailJob(ctx context.Context, job worker.Job, cause error) erro
 	return statusError(resp.StatusCode(), resp.Body)
 }
 
+// RegisterBPASIAJob chama POST /api/v1/jobs/register com N-file manifest.
+// jobID é UUID string do job_id landing.extractions pre-enqueued.
+// files vêm serializados do pipeline worker (upload já completou).
+func (a *Adapter) RegisterBPASIAJob(
+	ctx context.Context, jobID string, files []worker.ManifestEntry,
+) error {
+	var id openapi_types.UUID
+	if err := id.UnmarshalText([]byte(jobID)); err != nil {
+		return fmt.Errorf("invalid_job_uuid id=%s: %w", jobID, err)
+	}
+	body := JobRegisterRequest{JobId: id, Files: toFileManifests(files)}
+	resp, err := a.Inner.PostJobsRegisterWithResponse(ctx, body)
+	if err != nil {
+		return err
+	}
+	return statusError(resp.StatusCode(), resp.Body)
+}
+
+func toFileManifests(in []worker.ManifestEntry) []FileManifest {
+	out := make([]FileManifest, 0, len(in))
+	for _, e := range in {
+		out = append(out, FileManifest{
+			MinioKey:    e.MinioKey,
+			FatoSubtype: FileManifestFatoSubtype(e.FatoSubtype),
+			SizeBytes:   e.SizeBytes,
+			Sha256:      e.Sha256,
+		})
+	}
+	return out
+}
+
 // SendHeartbeat estende lease via /jobs/{id}/heartbeat.
 // processor_id é query param — agent reutiliza MachineID.
 func (a *Adapter) SendHeartbeat(ctx context.Context, jobID string) error {
