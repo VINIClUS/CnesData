@@ -36,10 +36,10 @@ driver pure-Go).
   `internal/service/`, `*_windows.go`). Reproduce via `go test -race -count=1
   -coverprofile=coverage.out ./...` + `grep -v` + `go tool cover -func`.
 - CI label vocab:
-  - `run-windows-integration` → runs `integration-windows` (FB 2.5 CNES/SIHD)
-    + `bpa-integration-windows` (FB 1.5 BPA). Windows-latest runners.
+  - `run-windows-integration` → runs `integration-windows` (FB 2.5 service
+    runs both CNES/SIHD and BPA fixtures via isql). Windows-latest runner.
   - `run-integration` → runs `sia-integration` (Linux, DBF fixtures).
-  - Nightly schedule at `30 2 * * *` UTC runs all three regardless of label.
+  - Nightly schedule at `30 2 * * *` UTC runs both regardless of label.
 - Full layout + filter regex: `apps/dump_agent_go/test/README.md`.
 
 ## Gotchas
@@ -58,8 +58,13 @@ driver pure-Go).
 - `internal/extractor/bpa.go` — FB 1.5 via nakagami/firebirdsql. Reads BPA_C_LINHAS + BPA_I_LINHAS. GDB path via `--bpa-gdb` or `BPA_GDB_PATH`. Windows x86 FB 1.5 server required at runtime.
 - `internal/extractor/sia.go` — DBF via LindsayBradford/go-dbf with cp1252 sanitize. Reads S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN from directory supplied via `--sia-dir` or `SIA_DIR`.
 - N-file manifest: one job per `(source_type, competencia)`, emits N Parquets. See `internal/worker/bpa_sia_pipeline.go`.
-- FB 1.5 + nakagami driver compatibility: T1 spike **FAIL at fixture_generation_fail**
-  (fdb Python library can't load FB 1.5 `fbclient.dll` — missing `fb_interpret`
-  symbol, added in FB 2.0). Wire-protocol validation remains unvalidated. See
-  issue #51 for pivot options; parent spec `2026-04-23-spike-report.md` (local)
-  §Resolution has the full traceback.
+- FB 1.5 + nakagami driver compatibility: T1 spike **PASS via schema-parity in CI**.
+  CI runs the nakagami driver against a synthetic FB 2.5 ODS-11 GDB built
+  from `BPA_synthetic.sql` (matches production column types + order;
+  nullability relaxed on 6 columns vs the deleted `gen_bpa_gdb_fixture.py`
+  so seed data can exercise the NULL-tolerant `COALESCE` scan path in
+  `bpa.go`). Production schema nullability NOT YET introspected — pending
+  manual `RDB$RELATION_FIELDS` query against a real `BPAMAG.GDB`; capture
+  in `docs/data-dictionary-bpa.md` when done. Production wire-protocol
+  fidelity is asserted by upstream vendor claim + manual smoke via
+  `spike_fb15.exe` against real FB 1.5 edge servers. Issue #51 closed by PR-B.

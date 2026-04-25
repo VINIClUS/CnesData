@@ -108,6 +108,16 @@ Used by the CI `bpa-integration-windows` job via
 `apps/dump_agent_go/scripts/ci/start_fb15.ps1` to start a TCP-reachable
 FB 1.5 server on port 3050 for the BPA spike.
 
+**No longer used in CI as of PR-B (2026-04-25).** Kept on disk for:
+(a) local-developer smoke via `apps/dump_agent_go/scripts/ci/start_fb15.ps1`
+    against an externally-provisioned FB 1.5 server,
+(b) `spike_fb15.exe` runs against real FB 1.5 edge servers at
+    municipalities (production wire-protocol validation).
+
+CI BPA fixture generation now uses FB 2.5 (see `## FB 2.5.9 portable
+(CI integration)` section) via `BPA_synthetic.sql`, matching the
+CNES/SIHD pattern.
+
 ### Known issue — fdb/fb_interpret incompat
 
 `fdb.load_api(".cache/firebird-1.5.6/fbclient.dll")` fails with:

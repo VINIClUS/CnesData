@@ -103,10 +103,16 @@ jobs:
         run: .\scripts\ci\setup_test_db.ps1
         shell: powershell
 
+      - name: Setup BPA synthetic DB
+        run: .\scripts\ci\setup_bpa_db.ps1
+        shell: powershell
+
       - name: Integration tests
         env:
           FB_HOST: localhost
+          FB_PORT: '3050'
           FB_PATH: C:/tmp/CNES_test.gdb
+          BPA_GDB_PATH: C:/tmp/BPAMAG_test.gdb
         run: go test -tags=integration -race -v ./test/integration/... ./internal/extractor/...
 
       - name: Upload logs on failure
@@ -130,48 +136,3 @@ jobs:
       - name: Run SIA integration
         working-directory: apps/dump_agent_go
         run: go test -tags=integration ./test/integration/ -run TestSIA_ -v
-
-  bpa-integration-windows:
-    runs-on: windows-latest
-    if: >-
-      contains(github.event.pull_request.labels.*.name, 'run-windows-integration')
-      || github.event_name == 'push'
-      || github.event_name == 'schedule'
-      || github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache-dependency-path: apps/dump_agent_go/go.sum
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          architecture: 'x86'
-      - name: Install fdb (x86, required for fbclient.dll 1.5.6)
-        shell: pwsh
-        run: python -m pip install --upgrade pip fdb
-      - name: Setup FB 1.5.6 embedded (for GDB generation)
-        shell: pwsh
-        run: python scripts/fb156_setup.py
-      - name: Setup FB 1.5.6 server (for spike TCP)
-        shell: pwsh
-        run: python scripts/fb156_setup.py --server
-      - name: Generate synthetic BPAMAG.GDB
-        shell: pwsh
-        run: |
-          python scripts/gen_bpa_gdb_fixture.py `
-            --gdb apps/dump_agent_go/test/integration/fixtures/bpamag_ci.gdb `
-            --dll .cache/firebird-1.5.6/fbclient.dll
-      - name: Start FB 1.5 server
-        shell: pwsh
-        run: ./apps/dump_agent_go/scripts/ci/start_fb15.ps1 -Port 3050
-      - name: Run BPA integration
-        working-directory: apps/dump_agent_go
-        env:
-          FB15_HOST: localhost
-          FB15_PORT: '3050'
-          FB15_GDB_PATH: ${{ github.workspace }}/apps/dump_agent_go/test/integration/fixtures/bpamag_ci.gdb
-        run: go test -tags="integration windows" ./test/integration/ -run TestBPA_ -v
