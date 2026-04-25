@@ -23,6 +23,7 @@ dev-dependencies = [
     "pytest-memray>=1.7.0; sys_platform != 'win32'",
     "testcontainers[postgres,minio]>=4.0",
     "dbfread>=2.0.7",
+    "pytest-httpx>=0.30",
 ]
 
 [tool.pyright]
