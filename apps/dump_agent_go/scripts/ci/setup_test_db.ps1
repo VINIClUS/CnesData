@@ -6,7 +6,7 @@ $sqlFixture = ".\test\integration\fixtures\CNES_synthetic.sql"
 New-Item -ItemType Directory -Path "C:\tmp" -Force | Out-Null
 
 Write-Host "Creating $dbPath..."
-& "$fbBin\isql.exe" -u SYSDBA -p masterkey -q -i $sqlFixture -o create_db.log
+& "$fbBin\isql.exe" -u SYSDBA -p masterkey -ch UTF8 -q -i $sqlFixture -o create_db.log
 
 Write-Host "Verifying..."
 if (Test-Path $dbPath) {
