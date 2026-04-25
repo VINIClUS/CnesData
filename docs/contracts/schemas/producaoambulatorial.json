@@ -22,6 +22,7 @@
       "enum": [
         "SIA_APA",
         "SIA_BPI",
+        "SIA_BPIHST",
         "BPA_C",
         "BPA_I"
       ],
