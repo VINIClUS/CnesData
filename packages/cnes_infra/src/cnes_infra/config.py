@@ -90,6 +90,10 @@ MAX_JITTER_SECONDS: float = float(
 )
 
 AUTH_REQUIRED: str = os.environ.get("AUTH_REQUIRED", "required")
+DASHBOARD_OIDC_ISSUER: str = os.environ.get("DASHBOARD_OIDC_ISSUER", "")
+DASHBOARD_OIDC_AUDIENCE: str = os.environ.get(
+    "DASHBOARD_OIDC_AUDIENCE", "cnesdata-dashboard",
+)
 
 
 @lru_cache(maxsize=1)

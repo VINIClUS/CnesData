@@ -121,6 +121,20 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     install_rls_listener(_engine)
     install_query_counter(_engine)
     instrument_engine(_engine)
+
+    from central_api.repositories.dashboard_repo import DashboardRepo
+    from cnes_infra.auth import JWKSValidator
+
+    if config.DASHBOARD_OIDC_ISSUER:
+        app.state.jwt_validator = JWKSValidator(  # type: ignore[attr-defined]
+            issuer=config.DASHBOARD_OIDC_ISSUER,
+            audience=config.DASHBOARD_OIDC_AUDIENCE,
+        )
+    else:
+        app.state.jwt_validator = None  # type: ignore[attr-defined]
+    app.state.dashboard_repo = DashboardRepo(_engine)  # type: ignore[attr-defined]
+    app.state.auth_required = config.AUTH_REQUIRED  # type: ignore[attr-defined]
+
     reaper = asyncio.create_task(_lease_reaper_loop(_engine))
     yield
     reaper.cancel()
