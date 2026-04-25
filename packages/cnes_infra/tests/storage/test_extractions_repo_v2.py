@@ -192,3 +192,48 @@ class TestExtractionsRepoV2:
         assert claimed is not None
         assert claimed.job_id == dep
         assert claimed.job_id != blocked
+
+    def test_register_atualiza_status_e_files(
+        self, pg_engine,
+    ) -> None:
+        files = [
+            {
+                "minio_key": "bpa/2026-01/bpa_c.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 1024,
+                "sha256": "a" * 64,
+            },
+        ]
+        job_id = extractions_repo.enqueue(
+            pg_engine,
+            tenant_id=_TENANT,
+            source_type="BPA_MAG",
+            competencia=date(2026, 1, 1),
+            files=files,
+        )
+
+        manifest = [
+            {"minio_key": "bpa/2026-01/bpa_c.parquet.gz", "size_bytes": 1024,
+             "sha256": "a" * 64, "fato_subtype": "BPA_C"},
+        ]
+        registered = extractions_repo.register(
+            pg_engine, job_id=job_id, files=manifest,
+        )
+        assert registered == job_id
+
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT status, files FROM landing.extractions WHERE job_id = :j"),
+                {"j": str(job_id)},
+            ).one()
+            assert row.status == "REGISTERED"
+            assert len(row.files) == 1
+
+    def test_register_retorna_none_para_job_inexistente(
+        self, pg_engine,
+    ) -> None:
+        fake_id = UUID("00000000-0000-0000-0000-000000000999")
+        result = extractions_repo.register(
+            pg_engine, job_id=fake_id, files=[],
+        )
+        assert result is None

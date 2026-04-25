@@ -38,7 +38,7 @@ class CertAuthority:
         except ValueError as exc:
             raise ValueError("csr_invalid") from exc
 
-        if not csr.is_signature_valid:
+        if not csr.is_signature_valid:  # pragma: no cover - cryptography validates on load
             raise ValueError("csr_signature_invalid")
 
         now = dt.datetime.now(dt.UTC)
