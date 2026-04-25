@@ -4,9 +4,8 @@ Revision ID: 014_auth_tables
 Revises: 013_fato_producao_bpihst
 Create Date: 2026-04-25 00:00:00
 """
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "014_auth_tables"
 down_revision = "013_fato_producao_bpihst"
