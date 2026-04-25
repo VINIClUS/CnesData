@@ -3,10 +3,10 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    CHAR,
     BigInteger,
     CheckConstraint,
     ForeignKey,
-    String,
     Text,
     UniqueConstraint,
     func,
@@ -56,7 +56,7 @@ class DashboardUserTenant(DashboardBase):
         ForeignKey("dashboard.users.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    tenant_id: Mapped[str] = mapped_column(String(6), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(CHAR(6), primary_key=True)
 
     user: Mapped[DashboardUser] = relationship(back_populates="tenants")
 
@@ -76,7 +76,7 @@ class DashboardAuditLog(DashboardBase):
     user_id: Mapped[UUID | None] = mapped_column(
         pg.UUID(as_uuid=True), ForeignKey("dashboard.users.id"),
     )
-    tenant_id: Mapped[str | None] = mapped_column(String(6))
+    tenant_id: Mapped[str | None] = mapped_column(CHAR(6))
     action: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
     request_id: Mapped[UUID | None] = mapped_column(pg.UUID(as_uuid=True))
