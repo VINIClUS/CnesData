@@ -35,6 +35,7 @@ export default defineConfig({
         "src/App.tsx",
         "src/components/ui/**",
         "src/api/generated.ts",
+        "src/auth/oidc.ts",
         "**/*.config.*",
         "tests/**",
       ],
