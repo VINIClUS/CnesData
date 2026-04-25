@@ -12,8 +12,7 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:  # pragma: no cover - alembic migration
-    op.execute("CREATE SCHEMA IF NOT EXISTS dashboard")
+def _create_users() -> None:  # pragma: no cover - alembic migration
     op.execute("""
         CREATE TABLE dashboard.users (
             id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -30,6 +29,9 @@ def upgrade() -> None:  # pragma: no cover - alembic migration
         )
     """)
     op.execute("CREATE INDEX ix_users_email ON dashboard.users (email)")
+
+
+def _create_user_tenants() -> None:  # pragma: no cover - alembic migration
     op.execute("""
         CREATE TABLE dashboard.user_tenants (
             user_id     UUID    NOT NULL REFERENCES dashboard.users(id) ON DELETE CASCADE,
@@ -40,6 +42,9 @@ def upgrade() -> None:  # pragma: no cover - alembic migration
     op.execute(
         "CREATE INDEX ix_user_tenants_tenant ON dashboard.user_tenants (tenant_id)"
     )
+
+
+def _create_audit_log() -> None:  # pragma: no cover - alembic migration
     op.execute("""
         CREATE TABLE dashboard.audit_log (
             id           BIGSERIAL    PRIMARY KEY,
@@ -63,6 +68,9 @@ def upgrade() -> None:  # pragma: no cover - alembic migration
         "CREATE INDEX ix_audit_tenant_action "
         "ON dashboard.audit_log (tenant_id, action, timestamp DESC)"
     )
+
+
+def _apply_rls_policies() -> None:  # pragma: no cover - alembic migration
     op.execute("ALTER TABLE dashboard.user_tenants ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE dashboard.user_tenants FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE dashboard.audit_log ENABLE ROW LEVEL SECURITY")
@@ -76,6 +84,14 @@ def upgrade() -> None:  # pragma: no cover - alembic migration
             USING (tenant_id IS NULL
                    OR tenant_id = current_setting('app.tenant_id', true))
     """)
+
+
+def upgrade() -> None:  # pragma: no cover - alembic migration
+    op.execute("CREATE SCHEMA IF NOT EXISTS dashboard")
+    _create_users()
+    _create_user_tenants()
+    _create_audit_log()
+    _apply_rls_policies()
 
 
 def downgrade() -> None:  # pragma: no cover - alembic migration
