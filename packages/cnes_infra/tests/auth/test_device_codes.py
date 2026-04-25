@@ -68,3 +68,28 @@ async def test_device_code_apos_redeem_pode_ser_consumido_uma_vez():
 
     status2 = await store.poll_device_code(auth.device_code)
     assert status2.kind == "expired_token"
+
+
+@pytest.mark.asyncio
+async def test_user_code_colisao_oito_vezes_levanta_runtime_error(monkeypatch):
+    """If 8 consecutive user_codes collide, store raises RuntimeError."""
+    store = DeviceCodeStore()
+    auth = await store.issue(client_id="agent", scope="x", ttl_seconds=600)
+
+    monkeypatch.setattr(
+        "cnes_infra.auth.device_codes._generate_user_code",
+        lambda: auth.user_code,
+    )
+    with pytest.raises(RuntimeError, match="user_code_collision"):
+        await store.issue(client_id="agent", scope="x", ttl_seconds=600)
+
+
+@pytest.mark.asyncio
+async def test_redeem_apos_ttl_expirado_retorna_false():
+    clock = [0.0]
+    store = DeviceCodeStore(now=lambda: clock[0])
+    auth = await store.issue(client_id="agent", scope="x", ttl_seconds=10)
+
+    clock[0] = 11.0
+    ok = await store.redeem_user_code(auth.user_code, tenant_id="t")
+    assert ok is False
