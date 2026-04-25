@@ -89,6 +89,8 @@ MAX_JITTER_SECONDS: float = float(
     os.getenv("MAX_JITTER_SECONDS", "1800"),
 )
 
+AUTH_REQUIRED: str = os.environ.get("AUTH_REQUIRED", "required")
+
 
 @lru_cache(maxsize=1)
 def _firebird_db_path() -> str:
