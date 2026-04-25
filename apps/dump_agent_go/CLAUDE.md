@@ -60,7 +60,11 @@ driver pure-Go).
 - N-file manifest: one job per `(source_type, competencia)`, emits N Parquets. See `internal/worker/bpa_sia_pipeline.go`.
 - FB 1.5 + nakagami driver compatibility: T1 spike **PASS via schema-parity in CI**.
   CI runs the nakagami driver against a synthetic FB 2.5 ODS-11 GDB built
-  from `BPA_synthetic.sql` (matches production schema; ODS version differs
-  from the FB 1.5 ODS-10 used at municipalities). Production wire-protocol
+  from `BPA_synthetic.sql` (matches production column types + order;
+  nullability relaxed on 6 columns vs the deleted `gen_bpa_gdb_fixture.py`
+  so seed data can exercise the NULL-tolerant `COALESCE` scan path in
+  `bpa.go`). Production schema nullability NOT YET introspected — pending
+  manual `RDB$RELATION_FIELDS` query against a real `BPAMAG.GDB`; capture
+  in `docs/data-dictionary-bpa.md` when done. Production wire-protocol
   fidelity is asserted by upstream vendor claim + manual smoke via
   `spike_fb15.exe` against real FB 1.5 edge servers. Issue #51 closed by PR-B.

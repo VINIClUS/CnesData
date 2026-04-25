@@ -46,6 +46,10 @@ const sqlBPAC = `
 	WHERE NU_COMPETENCIA = ?
 `
 
+// TODO: DT_ATENDIMENTO bare scan would crash on NULL date in prod
+// ("converting NULL to time.Time is unsupported"). Add COALESCE with a
+// sentinel date once production schema introspection confirms whether
+// NU_NULL is permitted on this column.
 const sqlBPAI = `
 	SELECT NU_COMPETENCIA, CO_CNES, NU_CNS_PAC,
 	       COALESCE(NU_CPF_PAC, '') AS NU_CPF_PAC,
