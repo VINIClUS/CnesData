@@ -15,12 +15,12 @@ import (
 )
 
 func TestBPA_SyntheticGDB(t *testing.T) {
-	host := os.Getenv("FB15_HOST")
-	port := os.Getenv("FB15_PORT")
-	path := os.Getenv("FB15_GDB_PATH")
+	host := os.Getenv("FB_HOST")
+	port := os.Getenv("FB_PORT")
+	path := os.Getenv("BPA_GDB_PATH")
 
 	if host == "" || port == "" || path == "" {
-		t.Skip("FB15_HOST / FB15_PORT / FB15_GDB_PATH not set")
+		t.Skip("FB_HOST / FB_PORT / BPA_GDB_PATH not set")
 	}
 
 	dsn := fmt.Sprintf("SYSDBA:masterkey@%s:%s/%s?charset=WIN1252",
