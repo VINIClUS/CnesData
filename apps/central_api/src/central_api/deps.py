@@ -8,8 +8,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from fastapi import Depends, HTTPException
 from sqlalchemy import create_engine
+from starlette.requests import Request  # noqa: TC002 - needed at runtime by FastAPI
 
+from central_api.middleware import AuthenticatedUser
 from cnes_infra import config
 from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.query_counter import install_query_counter
@@ -90,6 +93,25 @@ async def _lease_reaper_loop(engine: Engine) -> None:
 def _reap_expired_sync(engine: Engine) -> int:
     with engine.begin() as conn:
         return extractions_repo.reap_expired(conn)
+
+
+def require_auth(request: Request) -> AuthenticatedUser:
+    user = getattr(request.state, "user", None)
+    if not isinstance(user, AuthenticatedUser):
+        raise HTTPException(status_code=401, detail="auth_required")
+    return user
+
+
+def require_tenant_header(
+    request: Request,
+    user: AuthenticatedUser = Depends(require_auth),
+) -> str:
+    tid = request.headers.get("X-Tenant-Id")
+    if not tid:
+        raise HTTPException(status_code=400, detail="tenant_header_required")
+    if tid not in user.tenant_ids:
+        raise HTTPException(status_code=403, detail="tenant_not_allowed")
+    return tid
 
 
 @asynccontextmanager
