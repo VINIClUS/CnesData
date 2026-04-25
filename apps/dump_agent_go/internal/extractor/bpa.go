@@ -46,17 +46,15 @@ const sqlBPAC = `
 	WHERE NU_COMPETENCIA = ?
 `
 
-// TODO: DT_ATENDIMENTO bare scan would crash on NULL date in prod
-// ("converting NULL to time.Time is unsupported"). Add COALESCE with a
-// sentinel date once production schema introspection confirms whether
-// NU_NULL is permitted on this column.
+// DT_ATENDIMENTO sentinel '0001-01-01' is the Go time.Time zero-value;
+// downstream code can detect NULL-original rows via t.IsZero().
 const sqlBPAI = `
 	SELECT NU_COMPETENCIA, CO_CNES, NU_CNS_PAC,
 	       COALESCE(NU_CPF_PAC, '') AS NU_CPF_PAC,
 	       COALESCE(CO_PROCEDIMENTO, '') AS CO_PROCEDIMENTO,
 	       COALESCE(CO_CBO, '') AS CO_CBO,
 	       COALESCE(CO_CID10, '') AS CO_CID10,
-	       DT_ATENDIMENTO,
+	       COALESCE(DT_ATENDIMENTO, CAST('0001-01-01' AS DATE)) AS DT_ATENDIMENTO,
 	       COALESCE(QT_APROVADA, 0) AS QT_APROVADA,
 	       COALESCE(NU_CNS_PROF, '') AS NU_CNS_PROF
 	FROM BPA_I_LINHAS
