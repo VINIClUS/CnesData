@@ -6,15 +6,26 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "bundle:check": "bun run scripts/bundle-check.ts",
     "preview": "vite preview",
-    "lint": "biome check src tests",
-    "format": "biome format --write src tests",
+    "codegen": "bun run scripts/codegen.ts",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fast": "oxlint",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write src tests scripts",
+    "format:check": "prettier --check src tests scripts",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "codegen": "bun run scripts/codegen.ts",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "bundle:check": "bun run scripts/bundle-check.ts",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "bunx lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": ["oxlint --fix", "prettier --write"],
+    "*.{json,css,md,html}": "prettier --write"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",
