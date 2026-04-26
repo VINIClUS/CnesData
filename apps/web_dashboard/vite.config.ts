@@ -5,10 +5,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [
-    tanstackRouter({ routesDirectory: "src/routes", target: "react" }),
-    react(),
-  ],
+  plugins: [tanstackRouter({ routesDirectory: "src/routes", target: "react" }), react()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },
   },
@@ -22,6 +19,19 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/")) {
+            return "react";
+          }
+          if (id.includes("node_modules/@tanstack/")) return "tanstack";
+          if (id.includes("node_modules/oidc-client-ts/")) return "oidc";
+          if (id.includes("node_modules/@tremor/")) return "tremor";
+          return undefined;
+        },
+      },
+    },
   },
   test: {
     environment: "jsdom",
