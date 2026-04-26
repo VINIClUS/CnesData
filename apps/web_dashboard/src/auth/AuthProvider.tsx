@@ -6,6 +6,7 @@ export type Me = {
   display_name: string | null;
   role: "gestor" | "admin";
   tenant_ids: string[];
+  has_pending_request: boolean;
 };
 
 export type AuthStatus = "loading" | "authenticated" | "anonymous";
