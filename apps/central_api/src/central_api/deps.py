@@ -123,7 +123,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     instrument_engine(_engine)
 
     from central_api.repositories.dashboard_repo import DashboardRepo
-    from cnes_infra.auth import JWKSValidator
+    from cnes_infra.auth import DeviceCodeStore, JWKSValidator
 
     if config.DASHBOARD_OIDC_ISSUER:
         app.state.jwt_validator = JWKSValidator(  # type: ignore[attr-defined]
@@ -133,6 +133,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     else:
         app.state.jwt_validator = None  # type: ignore[attr-defined]
     app.state.dashboard_repo = DashboardRepo(_engine)  # type: ignore[attr-defined]
+    app.state.device_code_store = DeviceCodeStore()  # type: ignore[attr-defined]
     app.state.auth_required = config.AUTH_REQUIRED  # type: ignore[attr-defined]
 
     reaper = asyncio.create_task(_lease_reaper_loop(_engine))

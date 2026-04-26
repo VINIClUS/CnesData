@@ -251,10 +251,92 @@
           }
         }
       }
+    },
+    "/activate/confirm": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Activate Confirm",
+        "operationId": "activate_confirm_activate_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivateConfirmResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActivateConfirmRequest": {
+        "properties": {
+          "user_code": {
+            "type": "string",
+            "maxLength": 10,
+            "minLength": 8,
+            "pattern": "^[A-Z0-9-]{8,10}$",
+            "title": "User Code"
+          },
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Tenant Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_code",
+          "tenant_id"
+        ],
+        "title": "ActivateConfirmRequest"
+      },
+      "ActivateConfirmResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "title": "Expires In Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "expires_in_seconds"
+        ],
+        "title": "ActivateConfirmResponse"
+      },
       "AgentStatusResponse": {
         "properties": {
           "tenant_id": {
