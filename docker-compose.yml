@@ -202,6 +202,36 @@ services:
       retries: 20
     profiles:
     - shadow
+  web_dashboard:
+    image: oven/bun:1.3-alpine
+    container_name: cnesdata_web_dashboard
+    working_dir: /app
+    volumes:
+    - ./apps/web_dashboard:/app
+    - ./docs/contracts:/contracts:ro
+    ports:
+    - 5173:5173
+    command: sh -c "bun install && bun run dev --host 0.0.0.0"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+      VITE_OIDC_AUTHORITY: http://localhost:8080/realms/cnesdata
+      VITE_OIDC_CLIENT_ID: cnesdata-dashboard
+      VITE_OIDC_REDIRECT_URI: http://localhost:5173/auth/callback
+    profiles:
+    - dev
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: cnesdata_keycloak
+    command: ["start-dev", "--import-realm"]
+    ports:
+    - 8080:8080
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+    - ./docker-compose.keycloak:/opt/keycloak/data/import:ro
+    profiles:
+    - dev
 volumes:
   pgdata_test: null
   minio_data: null

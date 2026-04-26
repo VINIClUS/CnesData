@@ -1,0 +1,105 @@
+{
+  "id": "cnesdata",
+  "realm": "cnesdata",
+  "displayName": "CnesData (Dev)",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "defaultSignatureAlgorithm": "RS256",
+  "revokeRefreshToken": false,
+  "refreshTokenMaxReuse": 0,
+  "passwordPolicy": "",
+  "requiredCredentials": [
+    "password"
+  ],
+  "defaultRoles": [
+    "default-roles-cnesdata"
+  ],
+  "users": [
+    {
+      "username": "gestor@local",
+      "email": "gestor@local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Gestor",
+      "lastName": "Local",
+      "credentials": [
+        {
+          "type": "password",
+          "temporary": false,
+          "value": "dev"
+        }
+      ],
+      "realmRoles": [
+        "default-roles-cnesdata"
+      ],
+      "attributes": {
+        "tenant_id": [
+          "354130"
+        ]
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "cnesdata-dashboard",
+      "name": "CnesData Dashboard SPA",
+      "description": "Public SPA client (Auth Code + PKCE) — dev only",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "rootUrl": "http://localhost:5173",
+      "baseUrl": "http://localhost:5173",
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "web-origins"
+      ],
+      "optionalClientScopes": [
+        "address",
+        "phone",
+        "offline_access"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      }
+    }
+  ],
+  "browserFlow": "browser",
+  "registrationFlow": "registration",
+  "directGrantFlow": "direct grant",
+  "resetCredentialsFlow": "reset credentials",
+  "clientAuthenticationFlow": "clients",
+  "dockerAuthenticationFlow": "docker auth",
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "pt-BR",
+    "en"
+  ],
+  "defaultLocale": "pt-BR"
+}
