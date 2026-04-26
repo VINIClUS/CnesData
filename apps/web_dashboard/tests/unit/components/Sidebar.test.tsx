@@ -21,10 +21,11 @@ function renderSidebar(path: string) {
 describe("Sidebar", () => {
   test("renderiza_itens_v1_e_marca_v1_1_em_breve", async () => {
     renderSidebar("/agentes");
-    expect(await screen.findByText("Status agentes")).toBeInTheDocument();
+    expect(await screen.findByText("Visão geral")).toBeInTheDocument();
+    expect(screen.getByText("Status agentes")).toBeInTheDocument();
     expect(screen.getByText("Ativar agente")).toBeInTheDocument();
     const future = screen.getAllByText("em breve");
-    expect(future.length).toBeGreaterThanOrEqual(3);
+    expect(future.length).toBeGreaterThanOrEqual(2);
   });
 
   test("destaca_item_ativo_via_aria_current", async () => {

@@ -11,9 +11,9 @@ type Item = {
 };
 
 const _ITEMS: Item[] = [
+  { label: t.nav.overview, to: "/overview", icon: Home },
   { label: t.nav.agentes, to: "/agentes", icon: Activity },
   { label: t.nav.activate, to: "/activate", icon: KeyRound },
-  { label: t.nav.overview, icon: Home, future: true },
   { label: t.nav.faturamento, icon: FileBarChart, future: true },
   { label: t.nav.estabelecimentos, icon: Building2, future: true },
 ];
