@@ -272,24 +272,41 @@ docker compose --profile perf up -d
 docker compose --profile shadow up -d
 ```
 
-## web_dashboard (2026-04 — v1.0)
+## web_dashboard (2026-04 — v1.0 + v1.1)
 
 `apps/web_dashboard/` — SPA Bun+React+TypeScript que oferece:
+
+**v1.0 (entregue):**
 
 - Login OIDC para gestor saúde municipal
 - Página `/activate` (RFC 8628 device flow) para aprovação de edge agents
 - Status dos edge agents do tenant (lag por fonte, últimas execuções) via
   agregação de `landing.extractions` por `source_type`
 
+**v1.1 (entregue 2026-04):**
+
+- `/overview` — KPIs do tenant (total estabelecimentos, com produção mês,
+  procedimentos competência atual, % cobertura) + faturamento area chart
+  12m por estabelecimento via `@tremor/react` lazy-loaded
+- `/access-pending` — fluxo JIT de signup self-service: usuário sem tenant
+  preenche solicitação (`POST /api/v1/access-requests`), grava em
+  `dashboard.access_requests` (status `pending`); aprovação manual via
+  SQL admin v1.1 (UI em v1.2 — ver `docs/runbooks/access-request-approval.md`)
+- Dark mode 3-state (light/dark/system) via `ThemeProvider` + matchMedia +
+  localStorage; FOUC mitigado por script inline no `<head>`
+- Per-chunk bundle budget gated em CI: main ≤ 200KB, tremor ≤ 100KB,
+  recharts ≤ 100KB, qualquer rota ≤ 100KB
+
 Servida por Nginx em pod separado, reverse-proxy para `central-api`.
 Single-origin TLS terminado em ingress-nginx + cert-manager. JWT validado
 em `central_api.middleware.AuthMiddleware` via
 `cnes_infra.auth.jwt.JWKSValidator`. Mapping user→tenant via
 `dashboard.user_tenants`. Audit em `dashboard.audit_log` (RLS por
-`app.tenant_id`, FORCE).
+`app.tenant_id`, FORCE) — actions estendidas em v1.1: `request_access`,
+`approve_access`, `reject_access`, `view_overview`, `view_faturamento`.
 
-Telas reservadas para v1.1: Visão geral, Faturamento+regressão,
-Drill estabelecimento.
+Roadmap: Faturamento+regressão e Drill estabelecimento (v1.2);
+admin UI para approve/reject (v1.2).
 
 ## Governance — Quality Gates
 

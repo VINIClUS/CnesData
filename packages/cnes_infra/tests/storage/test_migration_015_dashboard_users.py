@@ -12,7 +12,9 @@ from sqlalchemy.exc import IntegrityError
 def test_cria_schema_dashboard_e_tabelas(pg_conn) -> None:
     rows = pg_conn.execute(text(
         "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = 'dashboard' ORDER BY table_name"
+        "WHERE table_schema = 'dashboard' "
+        "AND table_name IN ('audit_log', 'user_tenants', 'users') "
+        "ORDER BY table_name"
     )).scalars().all()
     assert rows == ["audit_log", "user_tenants", "users"]
 

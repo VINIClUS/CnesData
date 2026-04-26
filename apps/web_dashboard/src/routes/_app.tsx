@@ -9,6 +9,11 @@ export const Route = createFileRoute("/_app")({
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router pattern
       throw redirect({ to: "/login" });
     }
+    const me = (await r.json()) as { tenant_ids: string[] };
+    if (me.tenant_ids.length === 0) {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router pattern
+      throw redirect({ to: "/access-pending" });
+    }
   },
   component: () => (
     <Shell>

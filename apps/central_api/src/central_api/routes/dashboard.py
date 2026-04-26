@@ -18,6 +18,7 @@ class MeResponse(BaseModel):
     display_name: str | None
     role: str
     tenant_ids: list[str]
+    has_pending_request: bool
 
 
 class TenantResponse(BaseModel):
@@ -66,9 +67,12 @@ def auth_me(
         user_id=user.user_id, tenant_id=None, action="login", metadata=None,
     )
     return MeResponse(
-        user_id=user.user_id, email=user.email,
-        display_name=user.display_name, role=user.role,
+        user_id=user.user_id,
+        email=user.email,
+        display_name=user.display_name,
+        role=user.role,
         tenant_ids=user.tenant_ids,
+        has_pending_request=repo.has_pending_request(user_id=user.user_id),
     )
 
 

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { Sidebar } from "./Sidebar";
 import { TenantPill } from "./TenantPill";
+import { ThemeToggle } from "./ThemeToggle";
 
 import { useTenants } from "@/api/hooks/useTenants";
 import { logout } from "@/auth/oidc";
@@ -26,6 +27,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <span />
           )}
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <ThemeToggle />
             <span>{user?.email}</span>
             <button type="button" onClick={() => void logout()} className="underline">
               {t.nav.sair}

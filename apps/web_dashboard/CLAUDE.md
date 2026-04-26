@@ -20,6 +20,9 @@ Persona secundária: técnico hospitalar redimindo `user_code` na rota
 - `/auth/callback` — redirect handler
 - `/agentes` — status edge agents do tenant + últimas 20 execuções (Task 24)
 - `/activate` — RFC 8628 device code redemption (Task 20)
+- `/overview` — KPIs do tenant + faturamento area chart 12m por estabelecimento (v1.1)
+- `/access-pending` — solicitação de acesso a um município, fluxo JIT (v1.1)
+- Dark mode 3-state (light/dark/system) — toggle no header, persiste em localStorage (v1.1)
 - Auto-refresh 30s em /agentes via TanStack Query
 
 ## Objectives
@@ -33,9 +36,9 @@ Persona secundária: técnico hospitalar redimindo `user_code` na rota
 
 - pt-BR único locale v1.0
 - Desktop primary; mobile best-effort
-- Sem dark mode v1.0
 - Sem WebSocket — apenas polling
-- Sem charts em v1.0 (Tremor lazy em rotas v1.1)
+- Aprovação de signup via SQL admin manual em v1.1 (UI em v1.2)
+- Tremor v3 lazy-loaded só em /overview; outras rotas seguem shadcn nativo
 
 ## Requirements
 
@@ -55,28 +58,34 @@ manager) — SPA carrega mas login falha controladamente.
 
 ## Module Map
 
-| Path                        | Responsabilidade                                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `src/main.tsx`              | render React root                                                                                                   |
-| `src/App.tsx`               | providers (Query + Auth + Router)                                                                                   |
-| `src/routes/`               | TanStack Router file-based                                                                                          |
-| `src/api/client.ts`         | fetch wrapper, anexa Bearer + X-Tenant-Id                                                                           |
-| `src/api/generated.ts`      | types gerados via openapi-typescript (gitignored)                                                                   |
-| `src/api/hooks/`            | TanStack Query hooks                                                                                                |
-| `src/auth/oidc.ts`          | UserManager config (lazy)                                                                                           |
-| `src/auth/AuthProvider.tsx` | context user                                                                                                        |
-| `src/components/ui/`        | shadcn primitives                                                                                                   |
-| `src/components/layout/`    | Shell + Sidebar + TenantPill                                                                                        |
-| `src/lib/env.ts`            | Zod-validated env                                                                                                   |
-| `src/lib/format.ts`         | BRL, datas pt-BR, lag                                                                                               |
-| `src/i18n/pt-BR.ts`         | strings                                                                                                             |
-| `tests/unit/`               | Vitest                                                                                                              |
-| `tests/e2e/`                | Playwright                                                                                                          |
-| `tests/mocks/`              | msw setup                                                                                                           |
-| `eslint.config.js`          | ESLint flat config (typescript-eslint, react-hooks, react-refresh, jsx-a11y, import-x; eslint-config-prettier last) |
-| `.prettierrc`               | Prettier 3 config + tailwindcss plugin (`endOfLine: auto` for cross-OS)                                             |
-| `.prettierignore`           | mirror of common ignores                                                                                            |
-| `.oxlintrc.json`            | OxLint pre-commit config (correctness=error, suspicious=warn)                                                       |
+| Path                            | Responsabilidade                                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `src/main.tsx`                  | render React root                                                                                                              |
+| `src/App.tsx`                   | providers (Theme + Query + Auth + Router)                                                                                      |
+| `src/routes/`                   | TanStack Router file-based                                                                                                     |
+| `src/routes/access-pending.tsx` | top-level (fora `_app` guard) — formulário de signup                                                                           |
+| `src/routes/_app.overview.tsx`  | /overview KPIs + lazy faturamento chart (v1.1)                                                                                 |
+| `src/api/client.ts`             | fetch wrapper, anexa Bearer + X-Tenant-Id                                                                                      |
+| `src/api/generated.ts`          | types gerados via openapi-typescript (gitignored)                                                                              |
+| `src/api/hooks/`                | TanStack Query hooks (inclui useOverview, useFaturamentoChart, useAccessRequests, useSubmitAccessRequest, useAvailableTenants) |
+| `src/auth/oidc.ts`              | UserManager config (lazy)                                                                                                      |
+| `src/auth/AuthProvider.tsx`     | context user                                                                                                                   |
+| `src/theme/ThemeProvider.tsx`   | 3-state (light/dark/system) + localStorage + matchMedia (v1.1)                                                                 |
+| `src/theme/useTheme.ts`         | hook export                                                                                                                    |
+| `src/components/ui/`            | shadcn primitives                                                                                                              |
+| `src/components/layout/`        | Shell + Sidebar + TenantPill + ThemeToggle                                                                                     |
+| `src/components/signup/`        | AccessRequestForm + PendingRequestsList (v1.1)                                                                                 |
+| `src/components/overview/`      | KpiCard + KpiGrid + FaturamentoAreaChart (Tremor lazy) (v1.1)                                                                  |
+| `src/lib/env.ts`                | Zod-validated env                                                                                                              |
+| `src/lib/format.ts`             | BRL, datas pt-BR, lag                                                                                                          |
+| `src/i18n/pt-BR.ts`             | strings                                                                                                                        |
+| `tests/unit/`                   | Vitest                                                                                                                         |
+| `tests/e2e/`                    | Playwright                                                                                                                     |
+| `tests/mocks/`                  | msw setup                                                                                                                      |
+| `eslint.config.js`              | ESLint flat config (typescript-eslint, react-hooks, react-refresh, jsx-a11y, import-x; eslint-config-prettier last)            |
+| `.prettierrc`                   | Prettier 3 config + tailwindcss plugin (`endOfLine: auto` for cross-OS)                                                        |
+| `.prettierignore`               | mirror of common ignores                                                                                                       |
+| `.oxlintrc.json`                | OxLint pre-commit config (correctness=error, suspicious=warn)                                                                  |
 
 ## Commands
 
@@ -121,3 +130,17 @@ bun run typecheck
 - **Keycloak dev seed** em `docker-compose.keycloak/realm.json` é apenas
   para desenvolvimento local (usuário `gestor@local`, senha `dev`). Não usar
   em produção; em prod o IdP é externo (Keycloak gerenciado pelo município).
+- **Signup aprovação manual v1.1**: `dashboard.access_requests` row criada
+  via POST /api/v1/access-requests; admin executa SQL em
+  `docs/runbooks/access-request-approval.md` para approve/reject (UI em v1.2).
+- **`@tremor/react` lazy-loaded**: importar via `lazy(() => import(...))`
+  apenas em rotas que usam charts (hoje só /overview). Tremor entra em chunk
+  próprio no `manualChunks` do `vite.config.ts`; bundle main fica fora.
+- **Dark mode FOUC script** inline em `index.html` `<head>` aplica classe
+  `.dark` antes do React montar — evita flash branco em system/dark.
+  Mantém em sync com a chave `localStorage["cnesdata-theme"]`.
+- **`/access-pending` fica FORA do `_app` guard**: usuário sem tenant pode
+  acessar mesmo após login (caso JIT user sem aprovação). `_app.tsx`
+  redireciona para lá quando `tenant_ids` é vazio.
+- **Per-chunk bundle budget**: main ≤ 200KB gzipped, tremor ≤ 100KB,
+  recharts ≤ 100KB, qualquer rota ≤ 100KB (gate em `scripts/bundle-check.ts`).

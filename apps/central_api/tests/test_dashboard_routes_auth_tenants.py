@@ -33,6 +33,7 @@ def _user(tenants: list[str]) -> AuthenticatedUser:
 def test_auth_me_retorna_perfil_e_tenants() -> None:
     user = _user(["354130"])
     repo = MagicMock()
+    repo.has_pending_request.return_value = False
     c = _build(user, repo)
     r = c.get("/api/v1/dashboard/auth/me")
     assert r.status_code == 200
@@ -47,6 +48,7 @@ def test_auth_me_retorna_perfil_e_tenants() -> None:
 def test_auth_me_grava_audit_login() -> None:
     user = _user(["354130"])
     repo = MagicMock()
+    repo.has_pending_request.return_value = False
     c = _build(user, repo)
     c.get("/api/v1/dashboard/auth/me")
     repo.log_action.assert_called_once()
@@ -60,6 +62,26 @@ def test_auth_me_responde_401_sem_user() -> None:
     c = _build(None, MagicMock())
     r = c.get("/api/v1/dashboard/auth/me")
     assert r.status_code == 401
+
+
+def test_auth_me_retorna_has_pending_request_true_quando_pendente() -> None:
+    user = _user(["354130"])
+    repo = MagicMock()
+    repo.has_pending_request.return_value = True
+    c = _build(user, repo)
+    r = c.get("/api/v1/dashboard/auth/me")
+    assert r.status_code == 200
+    assert r.json()["has_pending_request"] is True
+
+
+def test_auth_me_retorna_has_pending_request_false_normalmente() -> None:
+    user = _user(["354130"])
+    repo = MagicMock()
+    repo.has_pending_request.return_value = False
+    c = _build(user, repo)
+    r = c.get("/api/v1/dashboard/auth/me")
+    assert r.status_code == 200
+    assert r.json()["has_pending_request"] is False
 
 
 def test_tenants_lista_municipios_alocados() -> None:

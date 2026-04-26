@@ -316,6 +316,163 @@
         }
       }
     },
+    "/api/v1/dashboard/overview": {
+      "get": {
+        "tags": [
+          "overview"
+        ],
+        "summary": "Get Overview",
+        "operationId": "get_overview_api_v1_dashboard_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/faturamento/by-establishment": {
+      "get": {
+        "tags": [
+          "overview"
+        ],
+        "summary": "Get Faturamento Chart",
+        "operationId": "get_faturamento_chart_api_v1_dashboard_faturamento_by_establishment_get",
+        "parameters": [
+          {
+            "name": "months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 24,
+              "minimum": 1,
+              "default": 12,
+              "title": "Months"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaturamentoResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/access-requests/mine": {
+      "get": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "List Mine",
+        "operationId": "list_mine_api_v1_dashboard_access_requests_mine_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccessRequestOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Mine Api V1 Dashboard Access Requests Mine Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/access-requests": {
+      "post": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "Create Request",
+        "operationId": "create_request_api_v1_dashboard_access_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessRequestCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessRequestCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/access-requests/available-tenants": {
+      "get": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "List Available Tenants",
+        "operationId": "list_available_tenants_api_v1_dashboard_access_requests_available_tenants_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TenantOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Available Tenants Api V1 Dashboard Access Requests Available Tenants Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/activate/confirm": {
       "post": {
         "tags": [
@@ -360,6 +517,114 @@
   },
   "components": {
     "schemas": {
+      "AccessRequestCreate": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Tenant Id"
+          },
+          "motivation": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Motivation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "motivation"
+        ],
+        "title": "AccessRequestCreate"
+      },
+      "AccessRequestCreated": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "AccessRequestCreated"
+      },
+      "AccessRequestOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "tenant_nome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Nome"
+          },
+          "motivation": {
+            "type": "string",
+            "title": "Motivation"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested At"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "review_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "tenant_nome",
+          "motivation",
+          "status",
+          "requested_at",
+          "reviewed_at",
+          "review_notes"
+        ],
+        "title": "AccessRequestOut"
+      },
       "ActivateConfirmRequest": {
         "properties": {
           "user_code": {
@@ -465,6 +730,40 @@
         ],
         "title": "EnqueueResponse"
       },
+      "FaturamentoResponse": {
+        "properties": {
+          "series": {
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Series"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "series",
+          "categories"
+        ],
+        "title": "FaturamentoResponse"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -534,6 +833,10 @@
             },
             "type": "array",
             "title": "Tenant Ids"
+          },
+          "has_pending_request": {
+            "type": "boolean",
+            "title": "Has Pending Request"
           }
         },
         "type": "object",
@@ -542,9 +845,68 @@
           "email",
           "display_name",
           "role",
-          "tenant_ids"
+          "tenant_ids",
+          "has_pending_request"
         ],
         "title": "MeResponse"
+      },
+      "OverviewResponse": {
+        "properties": {
+          "competencia_atual": {
+            "type": "integer",
+            "title": "Competencia Atual"
+          },
+          "faturamento_atual_cents": {
+            "type": "integer",
+            "title": "Faturamento Atual Cents"
+          },
+          "faturamento_anterior_cents": {
+            "type": "integer",
+            "title": "Faturamento Anterior Cents"
+          },
+          "aih_atual": {
+            "type": "integer",
+            "title": "Aih Atual"
+          },
+          "aih_anterior": {
+            "type": "integer",
+            "title": "Aih Anterior"
+          },
+          "profissionais_ativos": {
+            "type": "integer",
+            "title": "Profissionais Ativos"
+          },
+          "profissionais_anterior": {
+            "type": "integer",
+            "title": "Profissionais Anterior"
+          },
+          "estabs_sem_producao": {
+            "type": "integer",
+            "title": "Estabs Sem Producao"
+          },
+          "estabs_total": {
+            "type": "integer",
+            "title": "Estabs Total"
+          },
+          "estabs_sem_producao_anterior": {
+            "type": "integer",
+            "title": "Estabs Sem Producao Anterior"
+          }
+        },
+        "type": "object",
+        "required": [
+          "competencia_atual",
+          "faturamento_atual_cents",
+          "faturamento_anterior_cents",
+          "aih_atual",
+          "aih_anterior",
+          "profissionais_ativos",
+          "profissionais_anterior",
+          "estabs_sem_producao",
+          "estabs_total",
+          "estabs_sem_producao_anterior"
+        ],
+        "title": "OverviewResponse"
       },
       "RunOut": {
         "properties": {
@@ -675,6 +1037,40 @@
           "last_machine_id"
         ],
         "title": "SourceStatusOut"
+      },
+      "TenantOut": {
+        "properties": {
+          "ibge6": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Ibge6"
+          },
+          "ibge7": {
+            "type": "string",
+            "maxLength": 7,
+            "minLength": 7,
+            "title": "Ibge7"
+          },
+          "nome": {
+            "type": "string",
+            "title": "Nome"
+          },
+          "uf": {
+            "type": "string",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Uf"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ibge6",
+          "ibge7",
+          "nome",
+          "uf"
+        ],
+        "title": "TenantOut"
       },
       "TenantResponse": {
         "properties": {

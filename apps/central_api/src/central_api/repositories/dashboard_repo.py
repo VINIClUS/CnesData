@@ -8,6 +8,30 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from central_api.repositories.dashboard_repo_overview import (
+    FaturamentoChart,
+    OverviewKpis,
+    _format_competencia,
+    _previous_competencia,
+    faturamento_by_establishment_query,
+    overview_kpis_query,
+)
+
+__all__ = [
+    "AccessRequestRow",
+    "DashboardRepo",
+    "DashboardUserRow",
+    "FaturamentoChart",
+    "OverviewKpis",
+    "RunRow",
+    "SourceStatus",
+    "TenantRow",
+    "_classify_status",
+    "_competencia_lag",
+    "_format_competencia",
+    "_previous_competencia",
+]
+
 
 @dataclass
 class DashboardUserRow:
@@ -47,6 +71,18 @@ class RunRow:
     row_count: int
     sha256: str
     machine_id: str | None
+
+
+@dataclass
+class AccessRequestRow:
+    id: UUID
+    tenant_id: str
+    tenant_nome: str | None
+    motivation: str
+    status: str
+    requested_at: datetime
+    reviewed_at: datetime | None
+    review_notes: str | None
 
 
 _ALL_SOURCES = (
@@ -117,6 +153,42 @@ _RECENT_RUNS_SQL = text("""
     WHERE tenant_id = :t
     ORDER BY COALESCE(registered_at, created_at) DESC
     LIMIT :n
+""")
+
+
+_INSERT_ACCESS_REQUEST = text("""
+    INSERT INTO dashboard.access_requests (user_id, tenant_id, motivation)
+    VALUES (:u, :t, :m)
+    RETURNING id
+""")
+
+_LIST_USER_REQUESTS = text("""
+    SELECT ar.id, ar.tenant_id, m.nome AS tenant_nome, ar.motivation,
+           ar.status, ar.requested_at, ar.reviewed_at, ar.review_notes
+    FROM dashboard.access_requests ar
+    LEFT JOIN gold.dim_municipio m ON m.ibge6 = ar.tenant_id
+    WHERE ar.user_id = :u
+    ORDER BY ar.requested_at DESC
+""")
+
+_HAS_PENDING_SQL = text("""
+    SELECT EXISTS(
+        SELECT 1 FROM dashboard.access_requests
+        WHERE user_id = :u AND status = 'pending'
+    )
+""")
+
+_AVAILABLE_TENANTS_SQL = text("""
+    SELECT m.ibge6, m.ibge7, m.nome, m.uf
+    FROM gold.dim_municipio m
+    WHERE m.ibge6 NOT IN (
+        SELECT tenant_id FROM dashboard.user_tenants WHERE user_id = :u
+    )
+    AND m.ibge6 NOT IN (
+        SELECT tenant_id FROM dashboard.access_requests
+        WHERE user_id = :u AND status = 'pending'
+    )
+    ORDER BY m.nome
 """)
 
 
@@ -262,3 +334,75 @@ class DashboardRepo:
             )
             for r in rows
         ]
+
+    def submit_access_request(
+        self, *, user_id: UUID, tenant_id: str, motivation: str,
+    ) -> UUID:
+        with self._engine.begin() as conn:
+            row = conn.execute(_INSERT_ACCESS_REQUEST, {
+                "u": user_id, "t": tenant_id, "m": motivation,
+            }).mappings().one()
+        return row["id"]
+
+    def list_access_requests(
+        self, *, user_id: UUID,
+    ) -> list[AccessRequestRow]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                _LIST_USER_REQUESTS, {"u": user_id},
+            ).mappings().all()
+        return [
+            AccessRequestRow(
+                id=r["id"],
+                tenant_id=r["tenant_id"].rstrip(),
+                tenant_nome=r["tenant_nome"],
+                motivation=r["motivation"],
+                status=r["status"],
+                requested_at=r["requested_at"],
+                reviewed_at=r["reviewed_at"],
+                review_notes=r["review_notes"],
+            )
+            for r in rows
+        ]
+
+    def has_pending_request(self, *, user_id: UUID) -> bool:
+        with self._engine.connect() as conn:
+            return bool(
+                conn.execute(_HAS_PENDING_SQL, {"u": user_id}).scalar_one()
+            )
+
+    def list_available_tenants_for_user(
+        self, *, user_id: UUID,
+    ) -> list[TenantRow]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                _AVAILABLE_TENANTS_SQL, {"u": user_id},
+            ).mappings().all()
+        return [
+            TenantRow(
+                ibge6=r["ibge6"].rstrip(),
+                ibge7=r["ibge7"].rstrip(),
+                nome=r["nome"],
+                uf=r["uf"].rstrip(),
+            )
+            for r in rows
+        ]
+
+    def overview_kpis(
+        self, *, tenant_id: str, current_competencia: int,
+    ) -> OverviewKpis:
+        return overview_kpis_query(
+            self._engine,
+            tenant_id=tenant_id,
+            current_competencia=current_competencia,
+        )
+
+    def faturamento_by_establishment(
+        self, *, tenant_id: str, months: int, current_competencia: int,
+    ) -> FaturamentoChart:
+        return faturamento_by_establishment_query(
+            self._engine,
+            tenant_id=tenant_id,
+            months=months,
+            current_competencia=current_competencia,
+        )
