@@ -21,10 +21,13 @@
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
-    "pre-commit": "bunx lint-staged"
+    "pre-commit": "cd apps/web_dashboard && bunx lint-staged"
   },
   "lint-staged": {
-    "*.{ts,tsx}": ["oxlint --fix", "prettier --write"],
+    "*.{ts,tsx}": [
+      "oxlint --fix",
+      "prettier --write"
+    ],
     "*.{json,css,md,html}": "prettier --write"
   },
   "dependencies": {
