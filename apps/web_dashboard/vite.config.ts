@@ -27,6 +27,9 @@ export default defineConfig({
           }
           if (id.includes("node_modules/@tanstack/")) return "tanstack";
           if (id.includes("node_modules/oidc-client-ts/")) return "oidc";
+          if (id.includes("node_modules/recharts/")) return "recharts";
+          if (id.includes("node_modules/d3-")) return "d3";
+          if (id.includes("node_modules/react-day-picker/")) return "datepicker";
           if (id.includes("node_modules/@tremor/")) return "tremor";
           return undefined;
         },
