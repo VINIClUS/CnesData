@@ -1,18 +1,22 @@
 /// <reference types="vitest" />
-import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    tanstackRouter({ routesDirectory: "src/routes", target: "react" }),
+    react(),
+  ],
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },
   },
   server: {
     port: 5173,
     proxy: {
-      "/api":      { target: "http://localhost:8000", changeOrigin: true },
-      "/oauth":    { target: "http://localhost:8000", changeOrigin: true },
+      "/api": { target: "http://localhost:8000", changeOrigin: true },
+      "/oauth": { target: "http://localhost:8000", changeOrigin: true },
       "/activate": { target: "http://localhost:8000", changeOrigin: true },
     },
   },
@@ -23,6 +27,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./tests/setup.ts"],
+    exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**"],
     env: {
       VITE_API_BASE_URL: "/api/v1",
     },
@@ -36,6 +41,7 @@ export default defineConfig({
         "src/components/ui/**",
         "src/api/generated.ts",
         "src/auth/oidc.ts",
+        "src/routeTree.gen.ts",
         "**/*.config.*",
         "tests/**",
       ],

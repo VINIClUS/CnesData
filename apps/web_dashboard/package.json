@@ -12,13 +12,15 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "codegen": "bun run scripts/codegen.ts"
+    "codegen": "bun run scripts/codegen.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "@tanstack/react-query": "^5.100.5",
+    "@tanstack/react-router": "^1.168.24",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -31,6 +33,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.8.0",
+    "@playwright/test": "^1.59.1",
+    "@tanstack/router-plugin": "^1.167.27",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
