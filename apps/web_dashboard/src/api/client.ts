@@ -24,7 +24,7 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
   const url = `${env.VITE_API_BASE_URL}${path}`;
   const res = await fetch(url, { ...opts, headers });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  const body: unknown = text ? JSON.parse(text) : null;
   if (!res.ok) {
     throw new ApiError(res.status, `http ${res.status}`, body);
   }
