@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "bundle:check": "bun run scripts/bundle-check.ts",
     "preview": "vite preview",
     "lint": "biome check src tests",
     "format": "biome format --write src tests",
