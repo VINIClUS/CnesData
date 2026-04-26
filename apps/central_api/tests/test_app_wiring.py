@@ -40,3 +40,11 @@ def test_app_ordem_middleware_auth_runs_first() -> None:
     assert classes[0] is AuthMiddleware
     assert classes[1] is TenantMiddleware
     assert classes[2] is QueryCounterMiddleware
+
+
+def test_app_inclui_access_requests_router() -> None:
+    app = _make_app()
+    paths = {r.path for r in app.routes}
+    assert "/api/v1/dashboard/access-requests/mine" in paths
+    assert "/api/v1/dashboard/access-requests" in paths
+    assert "/api/v1/dashboard/access-requests/available-tenants" in paths

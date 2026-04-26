@@ -316,6 +316,97 @@
         }
       }
     },
+    "/api/v1/dashboard/access-requests/mine": {
+      "get": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "List Mine",
+        "operationId": "list_mine_api_v1_dashboard_access_requests_mine_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccessRequestOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Mine Api V1 Dashboard Access Requests Mine Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/access-requests": {
+      "post": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "Create Request",
+        "operationId": "create_request_api_v1_dashboard_access_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessRequestCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessRequestCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/access-requests/available-tenants": {
+      "get": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "List Available Tenants",
+        "operationId": "list_available_tenants_api_v1_dashboard_access_requests_available_tenants_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TenantOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Available Tenants Api V1 Dashboard Access Requests Available Tenants Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/activate/confirm": {
       "post": {
         "tags": [
@@ -360,6 +451,114 @@
   },
   "components": {
     "schemas": {
+      "AccessRequestCreate": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Tenant Id"
+          },
+          "motivation": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Motivation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "motivation"
+        ],
+        "title": "AccessRequestCreate"
+      },
+      "AccessRequestCreated": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "AccessRequestCreated"
+      },
+      "AccessRequestOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "tenant_nome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Nome"
+          },
+          "motivation": {
+            "type": "string",
+            "title": "Motivation"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested At"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "review_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "tenant_nome",
+          "motivation",
+          "status",
+          "requested_at",
+          "reviewed_at",
+          "review_notes"
+        ],
+        "title": "AccessRequestOut"
+      },
       "ActivateConfirmRequest": {
         "properties": {
           "user_code": {
@@ -534,6 +733,10 @@
             },
             "type": "array",
             "title": "Tenant Ids"
+          },
+          "has_pending_request": {
+            "type": "boolean",
+            "title": "Has Pending Request"
           }
         },
         "type": "object",
@@ -542,7 +745,8 @@
           "email",
           "display_name",
           "role",
-          "tenant_ids"
+          "tenant_ids",
+          "has_pending_request"
         ],
         "title": "MeResponse"
       },
@@ -675,6 +879,40 @@
           "last_machine_id"
         ],
         "title": "SourceStatusOut"
+      },
+      "TenantOut": {
+        "properties": {
+          "ibge6": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Ibge6"
+          },
+          "ibge7": {
+            "type": "string",
+            "maxLength": 7,
+            "minLength": 7,
+            "title": "Ibge7"
+          },
+          "nome": {
+            "type": "string",
+            "title": "Nome"
+          },
+          "uf": {
+            "type": "string",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Uf"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ibge6",
+          "ibge7",
+          "nome",
+          "uf"
+        ],
+        "title": "TenantOut"
       },
       "TenantResponse": {
         "properties": {
