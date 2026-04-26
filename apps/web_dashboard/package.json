@@ -11,12 +11,14 @@
     "format": "biome format --write src tests",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "codegen": "bun run scripts/codegen.ts"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
+    "@tanstack/react-query": "^5.100.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -40,6 +42,7 @@
     "autoprefixer": "^10.5.0",
     "jsdom": "^29.0.2",
     "msw": "^2.13.6",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4",
     "tailwindcss-animate": "^1.0.7",
