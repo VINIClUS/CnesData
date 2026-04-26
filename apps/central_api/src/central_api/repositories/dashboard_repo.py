@@ -8,6 +8,30 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from central_api.repositories.dashboard_repo_overview import (
+    FaturamentoChart,
+    OverviewKpis,
+    _format_competencia,
+    _previous_competencia,
+    faturamento_by_establishment_query,
+    overview_kpis_query,
+)
+
+__all__ = [
+    "AccessRequestRow",
+    "DashboardRepo",
+    "DashboardUserRow",
+    "FaturamentoChart",
+    "OverviewKpis",
+    "RunRow",
+    "SourceStatus",
+    "TenantRow",
+    "_classify_status",
+    "_competencia_lag",
+    "_format_competencia",
+    "_previous_competencia",
+]
+
 
 @dataclass
 class DashboardUserRow:
@@ -363,3 +387,22 @@ class DashboardRepo:
             )
             for r in rows
         ]
+
+    def overview_kpis(
+        self, *, tenant_id: str, current_competencia: int,
+    ) -> OverviewKpis:
+        return overview_kpis_query(
+            self._engine,
+            tenant_id=tenant_id,
+            current_competencia=current_competencia,
+        )
+
+    def faturamento_by_establishment(
+        self, *, tenant_id: str, months: int, current_competencia: int,
+    ) -> FaturamentoChart:
+        return faturamento_by_establishment_query(
+            self._engine,
+            tenant_id=tenant_id,
+            months=months,
+            current_competencia=current_competencia,
+        )
