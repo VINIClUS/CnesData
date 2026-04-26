@@ -1,3 +1,5 @@
+import { type FormEvent, useState } from "react";
+
 import { useActivate } from "@/api/hooks/useActivate";
 import type { Tenant } from "@/api/hooks/useTenants";
 import { Button } from "@/components/ui/button";
@@ -10,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { type FormEvent, useState } from "react";
 
 type Props = { tenants: Tenant[] };
 

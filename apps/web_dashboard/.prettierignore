@@ -1,0 +1,8 @@
+dist
+node_modules
+coverage
+playwright-report
+test-results
+src/api/generated.ts
+src/routeTree.gen.ts
+bun.lock

@@ -1,9 +1,11 @@
-import { useAgentStatus } from "@/api/hooks/useAgentStatus";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, test, vi } from "vitest";
+
 import { server } from "../../../mocks/server";
+
+import { useAgentStatus } from "@/api/hooks/useAgentStatus";
 
 vi.mock("@/auth/oidc", () => ({
   getAccessToken: vi.fn().mockResolvedValue("tok"),

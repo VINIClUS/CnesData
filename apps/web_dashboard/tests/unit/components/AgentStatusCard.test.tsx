@@ -1,7 +1,8 @@
-import type { SourceStatus } from "@/api/hooks/useAgentStatus";
-import { AgentStatusCard } from "@/components/agentes/AgentStatusCard";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
+
+import type { SourceStatus } from "@/api/hooks/useAgentStatus";
+import { AgentStatusCard } from "@/components/agentes/AgentStatusCard";
 
 const _OK: SourceStatus = {
   fonte_sistema: "CNES_LOCAL",

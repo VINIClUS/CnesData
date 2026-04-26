@@ -1,7 +1,8 @@
-import type { RunRow } from "@/api/hooks/useAgentRuns";
-import { AgentRunsTable } from "@/components/agentes/AgentRunsTable";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
+
+import type { RunRow } from "@/api/hooks/useAgentRuns";
+import { AgentRunsTable } from "@/components/agentes/AgentRunsTable";
 
 const _RUN: RunRow = {
   id: "abc",

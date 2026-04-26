@@ -1,11 +1,13 @@
+import { useLocation } from "@tanstack/react-router";
+import type { ReactNode } from "react";
+
+import { Sidebar } from "./Sidebar";
+import { TenantPill } from "./TenantPill";
+
 import { useTenants } from "@/api/hooks/useTenants";
 import { logout } from "@/auth/oidc";
 import { useAuth } from "@/auth/useAuth";
 import { t } from "@/i18n/pt-BR";
-import { useLocation } from "@tanstack/react-router";
-import type { ReactNode } from "react";
-import { Sidebar } from "./Sidebar";
-import { TenantPill } from "./TenantPill";
 
 export function Shell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -14,7 +16,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const tenant = tenants.data?.[0];
 
   return (
-    <div className="grid grid-cols-[14rem_1fr] min-h-screen">
+    <div className="grid min-h-screen grid-cols-[14rem_1fr]">
       <Sidebar activePath={location.pathname} />
       <div className="flex flex-col">
         <header className="flex items-center justify-between border-b px-6 py-3">

@@ -4,8 +4,8 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const _override = process.env.OPENAPI_PATH;
-const openapi = _override
-  ?? resolve(import.meta.dir, "..", "..", "..", "docs", "contracts", "openapi.json");
+const openapi =
+  _override ?? resolve(import.meta.dir, "..", "..", "..", "docs", "contracts", "openapi.json");
 const out = resolve(import.meta.dir, "..", "src", "api", "generated.ts");
 
 if (!existsSync(openapi)) {

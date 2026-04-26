@@ -1,5 +1,6 @@
-import { env } from "@/lib/env";
 import { UserManager, WebStorageStateStore } from "oidc-client-ts";
+
+import { env } from "@/lib/env";
 
 function _config() {
   if (!env.VITE_OIDC_AUTHORITY || !env.VITE_OIDC_CLIENT_ID || !env.VITE_OIDC_REDIRECT_URI) {

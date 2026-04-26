@@ -1,5 +1,6 @@
-import { lagInMonths } from "@/lib/time";
 import { describe, expect, test } from "vitest";
+
+import { lagInMonths } from "@/lib/time";
 
 describe("lagInMonths", () => {
   test("retorna_zero_quando_recente", () => {

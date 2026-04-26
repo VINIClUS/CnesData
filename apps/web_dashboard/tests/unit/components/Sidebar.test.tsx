@@ -1,4 +1,3 @@
-import { Sidebar } from "@/components/layout/Sidebar";
 import {
   RouterProvider,
   createMemoryHistory,
@@ -7,6 +6,8 @@ import {
 } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
+
+import { Sidebar } from "@/components/layout/Sidebar";
 
 function renderSidebar(path: string) {
   const root = createRootRoute({ component: () => <Sidebar activePath={path} /> });
