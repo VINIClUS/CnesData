@@ -19,6 +19,7 @@ from central_api.routes import (
     health,
     jobs,
     oauth,
+    overview,
 )
 from cnes_infra.telemetry import init_telemetry
 
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(agents.router, prefix="/api/v1")
     app.include_router(extractions.router, prefix="/api/v1")
     app.include_router(dashboard.router, prefix="/api/v1/dashboard")
+    app.include_router(overview.router, prefix="/api/v1/dashboard")
     app.include_router(
         access_requests.router,
         prefix="/api/v1/dashboard/access-requests",
