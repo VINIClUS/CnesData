@@ -129,7 +129,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentStatusResponse"
+                  "$ref": "#/components/schemas/central_api__routes__agents__AgentStatusResponse"
                 }
               }
             }
@@ -252,6 +252,70 @@
         }
       }
     },
+    "/api/v1/dashboard/agents/status": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Agents Status",
+        "operationId": "agents_status_api_v1_dashboard_agents_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/central_api__routes__dashboard__AgentStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/agents/runs": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Agents Runs",
+        "operationId": "agents_runs_api_v1_dashboard_agents_runs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/activate/confirm": {
       "post": {
         "tags": [
@@ -337,64 +401,21 @@
         ],
         "title": "ActivateConfirmResponse"
       },
-      "AgentStatusResponse": {
+      "AgentRunsResponse": {
         "properties": {
-          "tenant_id": {
-            "type": "string",
-            "title": "Tenant Id"
-          },
-          "last_seen": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Seen"
-          },
-          "agent_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Version"
-          },
-          "machine_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Machine Id"
-          },
-          "jobs_completed_7d": {
-            "type": "integer",
-            "title": "Jobs Completed 7D"
-          },
-          "jobs_failed_7d": {
-            "type": "integer",
-            "title": "Jobs Failed 7D"
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunOut"
+            },
+            "type": "array",
+            "title": "Runs"
           }
         },
         "type": "object",
         "required": [
-          "tenant_id",
-          "last_seen",
-          "agent_version",
-          "machine_id",
-          "jobs_completed_7d",
-          "jobs_failed_7d"
+          "runs"
         ],
-        "title": "AgentStatusResponse"
+        "title": "AgentRunsResponse"
       },
       "EnqueueRequest": {
         "properties": {
@@ -525,6 +546,136 @@
         ],
         "title": "MeResponse"
       },
+      "RunOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "extracao_ts": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Extracao Ts"
+          },
+          "fonte_sistema": {
+            "type": "string",
+            "title": "Fonte Sistema"
+          },
+          "competencia": {
+            "type": "integer",
+            "title": "Competencia"
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "machine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "extracao_ts",
+          "fonte_sistema",
+          "competencia",
+          "row_count",
+          "sha256",
+          "machine_id"
+        ],
+        "title": "RunOut"
+      },
+      "SourceStatusOut": {
+        "properties": {
+          "fonte_sistema": {
+            "type": "string",
+            "title": "Fonte Sistema"
+          },
+          "last_extracao_ts": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Extracao Ts"
+          },
+          "last_competencia": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Competencia"
+          },
+          "lag_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lag Months"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "last_machine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Machine Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fonte_sistema",
+          "last_extracao_ts",
+          "last_competencia",
+          "lag_months",
+          "row_count",
+          "status",
+          "last_machine_id"
+        ],
+        "title": "SourceStatusOut"
+      },
       "TenantResponse": {
         "properties": {
           "ibge6": {
@@ -598,6 +749,87 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "central_api__routes__agents__AgentStatusResponse": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "agent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Version"
+          },
+          "machine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine Id"
+          },
+          "jobs_completed_7d": {
+            "type": "integer",
+            "title": "Jobs Completed 7D"
+          },
+          "jobs_failed_7d": {
+            "type": "integer",
+            "title": "Jobs Failed 7D"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "last_seen",
+          "agent_version",
+          "machine_id",
+          "jobs_completed_7d",
+          "jobs_failed_7d"
+        ],
+        "title": "AgentStatusResponse"
+      },
+      "central_api__routes__dashboard__AgentStatusResponse": {
+        "properties": {
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatusOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fetched_at",
+          "sources"
+        ],
+        "title": "AgentStatusResponse"
       }
     }
   }

@@ -27,6 +27,33 @@ class TenantRow:
     uf: str
 
 
+@dataclass
+class SourceStatus:
+    fonte_sistema: str
+    last_extracao_ts: datetime | None
+    last_competencia: int | None
+    lag_months: int | None
+    row_count: int | None
+    status: str
+    last_machine_id: str | None
+
+
+@dataclass
+class RunRow:
+    id: UUID
+    extracao_ts: datetime
+    fonte_sistema: str
+    competencia: int
+    row_count: int
+    sha256: str
+    machine_id: str | None
+
+
+_ALL_SOURCES = (
+    "CNES_LOCAL", "CNES_NACIONAL", "SIHD", "BPA_MAG", "SIA_LOCAL",
+)
+
+
 _UPSERT_USER = text(
     """
     INSERT INTO dashboard.users (
@@ -62,6 +89,53 @@ _INSERT_AUDIT = text(
     VALUES (:u, :t, :a, CAST(:m AS JSONB))
     """
 )
+
+_AGENT_STATUS_SQL = text("""
+    SELECT source_type AS fonte_sistema,
+           MAX(COALESCE(registered_at, created_at)) AS last_ts,
+           MAX(EXTRACT(YEAR FROM competencia)::INT4 * 100
+               + EXTRACT(MONTH FROM competencia)::INT4) AS last_comp,
+           SUM(
+               (SELECT COALESCE(SUM((f->>'row_count')::BIGINT), 0)
+                FROM jsonb_array_elements(files) AS f)
+           )::BIGINT AS rows
+    FROM landing.extractions
+    WHERE tenant_id = :t
+    GROUP BY source_type
+""")
+
+_RECENT_RUNS_SQL = text("""
+    SELECT job_id AS id,
+           COALESCE(registered_at, created_at) AS extracao_ts,
+           source_type AS fonte_sistema,
+           EXTRACT(YEAR FROM competencia)::INT4 * 100
+               + EXTRACT(MONTH FROM competencia)::INT4 AS competencia,
+           (SELECT COALESCE(SUM((f->>'row_count')::BIGINT), 0)
+            FROM jsonb_array_elements(files) AS f)::BIGINT AS row_count,
+           COALESCE(files->0->>'sha256', '') AS sha256
+    FROM landing.extractions
+    WHERE tenant_id = :t
+    ORDER BY COALESCE(registered_at, created_at) DESC
+    LIMIT :n
+""")
+
+
+def _competencia_lag(target: int, latest: int | None) -> int | None:
+    if latest is None:
+        return None
+    ty, tm = divmod(target, 100)
+    ly, lm = divmod(latest, 100)
+    return (ty - ly) * 12 + (tm - lm)
+
+
+def _classify_status(lag: int | None) -> str:
+    if lag is None:
+        return "no_data"
+    if lag <= 0:
+        return "ok"
+    if lag <= 1:
+        return "warning"
+    return "error"
 
 
 class DashboardRepo:
@@ -131,3 +205,60 @@ class DashboardRepo:
                     "m": json.dumps(metadata) if metadata is not None else None,
                 },
             )
+
+    def agent_status(
+        self, *, tenant_id: str, current_competencia: int,
+    ) -> list[SourceStatus]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                _AGENT_STATUS_SQL, {"t": tenant_id},
+            ).mappings().all()
+        seen = {r["fonte_sistema"]: r for r in rows}
+        return [
+            self._build_source_status(src, seen.get(src), current_competencia)
+            for src in _ALL_SOURCES
+        ]
+
+    def _build_source_status(
+        self, src: str, row: dict | None, current_competencia: int,
+    ) -> SourceStatus:
+        if row is None:
+            return SourceStatus(
+                fonte_sistema=src,
+                last_extracao_ts=None,
+                last_competencia=None,
+                lag_months=None,
+                row_count=None,
+                status="no_data",
+                last_machine_id=None,
+            )
+        lag = _competencia_lag(current_competencia, row["last_comp"])
+        return SourceStatus(
+            fonte_sistema=src,
+            last_extracao_ts=row["last_ts"],
+            last_competencia=row["last_comp"],
+            lag_months=lag,
+            row_count=int(row["rows"]) if row["rows"] is not None else None,
+            status=_classify_status(lag),
+            last_machine_id=None,
+        )
+
+    def recent_runs(
+        self, *, tenant_id: str, limit: int,
+    ) -> list[RunRow]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                _RECENT_RUNS_SQL, {"t": tenant_id, "n": limit},
+            ).mappings().all()
+        return [
+            RunRow(
+                id=r["id"],
+                extracao_ts=r["extracao_ts"],
+                fonte_sistema=r["fonte_sistema"],
+                competencia=r["competencia"],
+                row_count=int(r["row_count"]),
+                sha256=r["sha256"],
+                machine_id=None,
+            )
+            for r in rows
+        ]
