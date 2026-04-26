@@ -2,7 +2,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from central_api.deps import require_auth, require_tenant_header
@@ -90,10 +90,12 @@ def list_tenants(
 
 @router.get("/agents/status", response_model=AgentStatusResponse)
 def agents_status(
+    response: Response,
     request: Request,
     user: AuthenticatedUser = Depends(require_auth),
     tenant_id: str = Depends(require_tenant_header),
 ) -> AgentStatusResponse:
+    response.headers["Cache-Control"] = "private, max-age=10"
     repo = request.app.state.dashboard_repo
     target = config.COMPETENCIA_ANO * 100 + config.COMPETENCIA_MES
     sources = repo.agent_status(tenant_id=tenant_id, current_competencia=target)
@@ -109,11 +111,13 @@ def agents_status(
 
 @router.get("/agents/runs", response_model=AgentRunsResponse)
 def agents_runs(
+    response: Response,
     request: Request,
     user: AuthenticatedUser = Depends(require_auth),
     tenant_id: str = Depends(require_tenant_header),
     limit: int = 20,
 ) -> AgentRunsResponse:
+    response.headers["Cache-Control"] = "private, max-age=10"
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit_out_of_range")
     repo = request.app.state.dashboard_repo

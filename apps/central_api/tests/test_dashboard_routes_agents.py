@@ -113,3 +113,27 @@ def test_agents_status_responde_401_sem_user() -> None:
         headers={"X-Tenant-Id": "354130"},
     )
     assert r.status_code == 401
+
+
+def test_agents_status_emite_cache_control_max_age_10() -> None:
+    user = _user(["354130"])
+    repo = MagicMock()
+    repo.agent_status.return_value = []
+    c = _build(user, repo)
+    r = c.get(
+        "/api/v1/dashboard/agents/status",
+        headers={"X-Tenant-Id": "354130"},
+    )
+    assert r.headers.get("Cache-Control") == "private, max-age=10"
+
+
+def test_agents_runs_emite_cache_control_max_age_10() -> None:
+    user = _user(["354130"])
+    repo = MagicMock()
+    repo.recent_runs.return_value = []
+    c = _build(user, repo)
+    r = c.get(
+        "/api/v1/dashboard/agents/runs",
+        headers={"X-Tenant-Id": "354130"},
+    )
+    assert r.headers.get("Cache-Control") == "private, max-age=10"
