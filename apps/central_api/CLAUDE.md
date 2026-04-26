@@ -26,6 +26,9 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (admin)
 - `TenantMiddleware` — extrai `X-Tenant-Id` header e chama `set_tenant_id()`
 - Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
+- AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
+- /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
+- /activate/confirm — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit 10/min)
 
 ## Objectives
 
@@ -71,6 +74,9 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `src/central_api/routes/health.py` | `/api/v1/system/health` — ping DB |
 | `src/central_api/routes/jobs.py` | `/api/v1/jobs/*` — fila, artifact, heartbeat, complete, fail |
 | `src/central_api/routes/admin.py` | `/api/v1/admin/*` — reap-leases, ops |
+| `routes/dashboard.py` | /api/v1/dashboard/* |
+| `routes/oauth.py`     | /activate/confirm (rate-limited via slowapi) |
+| `repositories/dashboard_repo.py` | DashboardRepo (user/tenant/audit + agents/status + recent_runs) |
 
 ## Gotchas
 

@@ -272,6 +272,25 @@ docker compose --profile perf up -d
 docker compose --profile shadow up -d
 ```
 
+## web_dashboard (2026-04 — v1.0)
+
+`apps/web_dashboard/` — SPA Bun+React+TypeScript que oferece:
+
+- Login OIDC para gestor saúde municipal
+- Página `/activate` (RFC 8628 device flow) para aprovação de edge agents
+- Status dos edge agents do tenant (lag por fonte, últimas execuções) via
+  agregação de `landing.extractions` por `source_type`
+
+Servida por Nginx em pod separado, reverse-proxy para `central-api`.
+Single-origin TLS terminado em ingress-nginx + cert-manager. JWT validado
+em `central_api.middleware.AuthMiddleware` via
+`cnes_infra.auth.jwt.JWKSValidator`. Mapping user→tenant via
+`dashboard.user_tenants`. Audit em `dashboard.audit_log` (RLS por
+`app.tenant_id`, FORCE).
+
+Telas reservadas para v1.1: Visão geral, Faturamento+regressão,
+Drill estabelecimento.
+
 ## Governance — Quality Gates
 
 Python PRs run 6 quality jobs via `.github/workflows/python-quality.yml`:
