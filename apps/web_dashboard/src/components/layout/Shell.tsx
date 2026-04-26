@@ -14,7 +14,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const tenant = tenants.data?.[0];
 
   return (
-    <div className="grid grid-cols-[14rem_1fr] min-h-screen">
+    <div className="grid min-h-screen grid-cols-[14rem_1fr]">
       <Sidebar activePath={location.pathname} />
       <div className="flex flex-col">
         <header className="flex items-center justify-between border-b px-6 py-3">

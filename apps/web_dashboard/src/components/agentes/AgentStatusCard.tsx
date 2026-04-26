@@ -16,7 +16,7 @@ export function AgentStatusCard({ data }: { data: SourceStatus }) {
         <span className={`inline-block h-2 w-2 rounded-full ${_COLOR[data.status]}`} aria-hidden />
         {data.fonte_sistema}
       </header>
-      <dl className="mt-2 text-xs text-muted-foreground space-y-1">
+      <dl className="mt-2 space-y-1 text-xs text-muted-foreground">
         {ts && data.last_competencia !== null ? (
           <>
             <div>

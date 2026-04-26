@@ -20,15 +20,15 @@ const _ITEMS: Item[] = [
 export function Sidebar({ activePath }: { activePath: string }) {
   return (
     <nav
-      className="w-56 border-r bg-muted/30 p-4 flex flex-col gap-1"
+      className="flex w-56 flex-col gap-1 border-r bg-muted/30 p-4"
       aria-label="navegação principal"
     >
-      <div className="font-semibold text-sm mb-3">{t.app.name}</div>
+      <div className="mb-3 text-sm font-semibold">{t.app.name}</div>
       {_ITEMS.map((item) =>
         item.future ? (
           <span
             key={item.label}
-            className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground italic"
+            className="flex items-center gap-2 px-2 py-1.5 text-xs italic text-muted-foreground"
           >
             <item.icon size={14} /> {item.label}
             <span className="ml-auto text-[10px]">{t.futureBadge}</span>
@@ -37,7 +37,7 @@ export function Sidebar({ activePath }: { activePath: string }) {
           <Link
             key={item.label}
             to={item.to}
-            className="flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-muted"
+            className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
             aria-current={activePath === item.to ? "page" : undefined}
             data-active={activePath === item.to}
           >

@@ -17,10 +17,10 @@ function LoginPage() {
   }, [status, navigate]);
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-background">
+    <main className="flex min-h-screen items-center justify-center bg-background">
       <div className="w-[360px] rounded-xl border bg-card p-8 shadow">
         <h1 className="text-2xl font-semibold">CnesData</h1>
-        <p className="text-sm text-muted-foreground mb-6">Painel municipal</p>
+        <p className="mb-6 text-sm text-muted-foreground">Painel municipal</p>
         <Button onClick={() => void startLogin()} className="w-full">
           Entrar
         </Button>
