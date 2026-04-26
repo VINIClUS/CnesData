@@ -5,6 +5,7 @@ from cnes_infra.auth.device_codes import (
     DeviceCodeStatus,
     DeviceCodeStore,
 )
+from cnes_infra.auth.jwt import JWKSValidator, TokenInvalid
 from cnes_infra.auth.models import (
     CertProvisionRequest,
     CertProvisionResponse,
@@ -24,8 +25,10 @@ __all__ = [
     "DeviceAuthorizationResponse",
     "DeviceCodeStatus",
     "DeviceCodeStore",
+    "JWKSValidator",
     "RefreshTokenRow",
     "RefreshTokenStore",
     "TokenError",
+    "TokenInvalid",
     "TokenResponse",
 ]

@@ -1,0 +1,50 @@
+/// <reference types="vitest" />
+import path from "node:path";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  plugins: [
+    tanstackRouter({ routesDirectory: "src/routes", target: "react" }),
+    react(),
+  ],
+  resolve: {
+    alias: { "@": path.resolve(__dirname, "src") },
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      "/api": { target: "http://localhost:8000", changeOrigin: true },
+      "/oauth": { target: "http://localhost:8000", changeOrigin: true },
+      "/activate": { target: "http://localhost:8000", changeOrigin: true },
+    },
+  },
+  build: {
+    target: "esnext",
+  },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./tests/setup.ts"],
+    exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**"],
+    env: {
+      VITE_API_BASE_URL: "/api/v1",
+    },
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "json-summary"],
+      thresholds: { lines: 80, branches: 70 },
+      exclude: [
+        "src/main.tsx",
+        "src/App.tsx",
+        "src/components/ui/**",
+        "src/api/generated.ts",
+        "src/auth/oidc.ts",
+        "src/routeTree.gen.ts",
+        "**/*.config.*",
+        "tests/**",
+      ],
+    },
+  },
+});

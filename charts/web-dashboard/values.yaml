@@ -1,0 +1,37 @@
+image:
+  repository: registry.example/cnesdata/web-dashboard
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+upstreamApi: central-api:8000
+oidcAuthority: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: app.cnesdata.example.gov.br
+  tls:
+    enabled: true
+    secretName: web-dashboard-tls
+  certManager:
+    enabled: true
+    issuer: letsencrypt-prod
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  seccompProfile:
+    type: RuntimeDefault

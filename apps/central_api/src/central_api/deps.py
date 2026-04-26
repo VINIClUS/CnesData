@@ -8,8 +8,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from fastapi import Depends, HTTPException
 from sqlalchemy import create_engine
+from starlette.requests import Request  # noqa: TC002 - needed at runtime by FastAPI
 
+from central_api.middleware import AuthenticatedUser
 from cnes_infra import config
 from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.query_counter import install_query_counter
@@ -92,6 +95,25 @@ def _reap_expired_sync(engine: Engine) -> int:
         return extractions_repo.reap_expired(conn)
 
 
+def require_auth(request: Request) -> AuthenticatedUser:
+    user = getattr(request.state, "user", None)
+    if not isinstance(user, AuthenticatedUser):
+        raise HTTPException(status_code=401, detail="auth_required")
+    return user
+
+
+def require_tenant_header(
+    request: Request,
+    user: AuthenticatedUser = Depends(require_auth),
+) -> str:
+    tid = request.headers.get("X-Tenant-Id")
+    if not tid:
+        raise HTTPException(status_code=400, detail="tenant_header_required")
+    if tid not in user.tenant_ids:
+        raise HTTPException(status_code=403, detail="tenant_not_allowed")
+    return tid
+
+
 @asynccontextmanager
 async def lifespan(app: object) -> AsyncGenerator[None]:
     global _engine
@@ -99,6 +121,21 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     install_rls_listener(_engine)
     install_query_counter(_engine)
     instrument_engine(_engine)
+
+    from central_api.repositories.dashboard_repo import DashboardRepo
+    from cnes_infra.auth import DeviceCodeStore, JWKSValidator
+
+    if config.DASHBOARD_OIDC_ISSUER:
+        app.state.jwt_validator = JWKSValidator(  # type: ignore[attr-defined]
+            issuer=config.DASHBOARD_OIDC_ISSUER,
+            audience=config.DASHBOARD_OIDC_AUDIENCE,
+        )
+    else:
+        app.state.jwt_validator = None  # type: ignore[attr-defined]
+    app.state.dashboard_repo = DashboardRepo(_engine)  # type: ignore[attr-defined]
+    app.state.device_code_store = DeviceCodeStore()  # type: ignore[attr-defined]
+    app.state.auth_required = config.AUTH_REQUIRED  # type: ignore[attr-defined]
+
     reaper = asyncio.create_task(_lease_reaper_loop(_engine))
     yield
     reaper.cancel()

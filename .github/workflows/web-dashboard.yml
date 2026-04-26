@@ -1,0 +1,45 @@
+name: web-dashboard CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/web_dashboard/**'
+      - 'docs/contracts/openapi.json'
+      - '.github/workflows/web-dashboard.yml'
+  push:
+    branches: [develop, main]
+    paths:
+      - 'apps/web_dashboard/**'
+      - 'docs/contracts/openapi.json'
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web_dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3
+      - run: bun install --frozen-lockfile
+      - run: bun run codegen
+      - name: Contract drift gate
+        run: |
+          if ! git diff --exit-code src/api/generated.ts; then
+            echo "::error::generated.ts is out of date with docs/contracts/openapi.json. Run 'bun run codegen' and commit."
+            exit 1
+          fi
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test --coverage
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run e2e
+      - run: bun run build
+      - run: bun run bundle:check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-dashboard-coverage
+          path: apps/web_dashboard/coverage/

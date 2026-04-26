@@ -5,3 +5,4 @@ docs/fixtures/firebird/*.zip filter=lfs diff=lfs merge=lfs -text
 docs/fixtures/firebird/*.dll filter=lfs diff=lfs merge=lfs -text
 apps/dump_agent_go/benchdata/*.bench text
 apps/dump_agent_go/test/integration/fixtures/sia_synthetic/*.DBF filter=lfs diff=lfs merge=lfs -text
+apps/web_dashboard/nginx/*.sh text eol=lf
