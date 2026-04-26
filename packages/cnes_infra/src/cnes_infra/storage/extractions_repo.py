@@ -134,18 +134,28 @@ def register(
     *,
     job_id: UUID,
     files: list[dict],
+    agent_version: str | None = None,
+    machine_id: str | None = None,
 ) -> UUID | None:
     sql = text("""
         UPDATE landing.extractions
-        SET files = CAST(:files AS jsonb),
-            status = 'REGISTERED',
-            registered_at = NOW()
+        SET files          = CAST(:files AS jsonb),
+            status         = 'REGISTERED',
+            registered_at  = NOW(),
+            agent_version  = COALESCE(:av, agent_version),
+            machine_id     = COALESCE(:mid, machine_id)
         WHERE job_id = :j AND status IN ('PENDING', 'CLAIMED')
         RETURNING job_id
     """)
     with engine.begin() as conn:
         result = conn.execute(
-            sql, {"j": str(job_id), "files": json.dumps(files)},
+            sql,
+            {
+                "j": str(job_id),
+                "files": json.dumps(files),
+                "av": agent_version,
+                "mid": machine_id,
+            },
         ).one_or_none()
     return result.job_id if result else None
 

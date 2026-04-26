@@ -237,3 +237,82 @@ class TestExtractionsRepoV2:
             pg_engine, job_id=fake_id, files=[],
         )
         assert result is None
+
+    def test_register_persiste_agent_version_e_machine_id(
+        self, pg_engine,
+    ) -> None:
+        files = [{
+            "minio_key": "bpa/2026-01/bpa_c.parquet.gz",
+            "fato_subtype": "BPA_C",
+            "size_bytes": 1024,
+            "sha256": "a" * 64,
+        }]
+        job_id = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=date(2026, 1, 1), files=files,
+        )
+        extractions_repo.register(
+            pg_engine, job_id=job_id, files=files,
+            agent_version="1.2.3", machine_id="edge-01",
+        )
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT agent_version, machine_id "
+                     "FROM landing.extractions WHERE job_id = :j"),
+                {"j": str(job_id)},
+            ).one()
+        assert row.agent_version == "1.2.3"
+        assert row.machine_id == "edge-01"
+
+    def test_register_sem_metadata_mantem_columns_null(
+        self, pg_engine,
+    ) -> None:
+        files = [{
+            "minio_key": "bpa/2026-01/bpa_c.parquet.gz",
+            "fato_subtype": "BPA_C",
+            "size_bytes": 1024,
+            "sha256": "a" * 64,
+        }]
+        job_id = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=date(2026, 1, 1), files=files,
+        )
+        extractions_repo.register(pg_engine, job_id=job_id, files=files)
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT agent_version, machine_id "
+                     "FROM landing.extractions WHERE job_id = :j"),
+                {"j": str(job_id)},
+            ).one()
+        assert row.agent_version is None
+        assert row.machine_id is None
+
+    def test_register_com_coalesce_preserva_quando_explicit_null(
+        self, pg_engine,
+    ) -> None:
+        files = [{
+            "minio_key": "bpa/2026-01/bpa_c.parquet.gz",
+            "fato_subtype": "BPA_C",
+            "size_bytes": 1024,
+            "sha256": "a" * 64,
+        }]
+        job_id = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=date(2026, 1, 1), files=files,
+        )
+        with pg_engine.begin() as conn:
+            conn.execute(
+                text("UPDATE landing.extractions "
+                     "SET agent_version = '0.9.0', machine_id = 'old-edge' "
+                     "WHERE job_id = :j"),
+                {"j": str(job_id)},
+            )
+        extractions_repo.register(pg_engine, job_id=job_id, files=files)
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT agent_version, machine_id "
+                     "FROM landing.extractions WHERE job_id = :j"),
+                {"j": str(job_id)},
+            ).one()
+        assert row.agent_version == "0.9.0"
+        assert row.machine_id == "old-edge"
