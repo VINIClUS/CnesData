@@ -7,3 +7,7 @@ set -e
 envsubst '${UPSTREAM_API} ${OIDC_AUTHORITY}' \
   < /etc/nginx/templates/default.conf.template \
   > /etc/nginx/conf.d/default.conf
+
+envsubst '${OIDC_AUTHORITY}' \
+  < /etc/nginx/templates/security-headers.conf \
+  > /etc/nginx/conf.d/security-headers.conf

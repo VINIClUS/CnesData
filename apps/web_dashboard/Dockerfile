@@ -22,6 +22,7 @@ FROM nginx:1.27-alpine
 RUN apk add --no-cache gettext
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY apps/web_dashboard/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY apps/web_dashboard/nginx/security-headers.conf /etc/nginx/templates/security-headers.conf
 COPY apps/web_dashboard/nginx/entrypoint.sh /docker-entrypoint.d/40-render-config.sh
 RUN chmod +x /docker-entrypoint.d/40-render-config.sh
 EXPOSE 80
