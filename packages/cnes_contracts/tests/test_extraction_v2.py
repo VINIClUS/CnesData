@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from uuid import uuid4
+from typing import ClassVar
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -64,3 +65,43 @@ class TestExtraction:
             created_at=datetime.now(UTC),
         )
         assert e.depends_on == [dep]
+
+
+class TestExtractionRegisterPayloadAgentMetadata:
+    _BASE: ClassVar[dict] = {
+        "job_id": UUID("00000000-0000-0000-0000-000000000001"),
+        "files": [{
+            "minio_key": "x/y.parquet.gz",
+            "fato_subtype": "CNES_VINCULO",
+            "size_bytes": 100,
+            "sha256": "a" * 64,
+        }],
+    }
+
+    def test_aceita_agent_version_e_machine_id(self) -> None:
+        from cnes_contracts.landing import ExtractionRegisterPayload
+        payload = ExtractionRegisterPayload.model_validate(
+            {**self._BASE, "agent_version": "1.2.3", "machine_id": "edge-01"},
+        )
+        assert payload.agent_version == "1.2.3"
+        assert payload.machine_id == "edge-01"
+
+    def test_campos_opcionais_default_none(self) -> None:
+        from cnes_contracts.landing import ExtractionRegisterPayload
+        payload = ExtractionRegisterPayload.model_validate(self._BASE)
+        assert payload.agent_version is None
+        assert payload.machine_id is None
+
+    def test_rejeita_agent_version_acima_de_64_chars(self) -> None:
+        from cnes_contracts.landing import ExtractionRegisterPayload
+        with pytest.raises(ValidationError):
+            ExtractionRegisterPayload.model_validate(
+                {**self._BASE, "agent_version": "x" * 65},
+            )
+
+    def test_rejeita_machine_id_acima_de_128_chars(self) -> None:
+        from cnes_contracts.landing import ExtractionRegisterPayload
+        with pytest.raises(ValidationError):
+            ExtractionRegisterPayload.model_validate(
+                {**self._BASE, "machine_id": "y" * 129},
+            )
