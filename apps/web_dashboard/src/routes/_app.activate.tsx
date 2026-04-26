@@ -1,6 +1,7 @@
+import { createFileRoute } from "@tanstack/react-router";
+
 import { useTenants } from "@/api/hooks/useTenants";
 import { ActivateForm } from "@/components/activate/ActivateForm";
-import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app/activate")({
   component: ActivatePage,

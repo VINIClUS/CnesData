@@ -1,6 +1,7 @@
-import { TenantPill } from "@/components/layout/TenantPill";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
+
+import { TenantPill } from "@/components/layout/TenantPill";
 
 describe("TenantPill", () => {
   test("renderiza_nome_uf_ibge", () => {

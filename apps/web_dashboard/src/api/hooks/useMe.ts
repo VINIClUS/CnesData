@@ -1,6 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
+
 import { apiFetch } from "@/api/client";
 import type { Me } from "@/auth/AuthProvider";
-import { useQuery } from "@tanstack/react-query";
 
 export function useMe() {
   return useQuery({

@@ -1,5 +1,6 @@
-import { Shell } from "@/components/layout/Shell";
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+
+import { Shell } from "@/components/layout/Shell";
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async () => {

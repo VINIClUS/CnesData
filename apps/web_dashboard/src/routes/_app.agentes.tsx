@@ -1,9 +1,10 @@
+import { createFileRoute } from "@tanstack/react-router";
+
 import { useAgentRuns } from "@/api/hooks/useAgentRuns";
 import { useAgentStatus } from "@/api/hooks/useAgentStatus";
 import { useTenants } from "@/api/hooks/useTenants";
 import { AgentRunsTable } from "@/components/agentes/AgentRunsTable";
 import { AgentStatusCard } from "@/components/agentes/AgentStatusCard";
-import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app/agentes")({
   component: AgentesPage,

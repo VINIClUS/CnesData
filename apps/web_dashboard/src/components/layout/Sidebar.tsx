@@ -1,6 +1,7 @@
-import { t } from "@/i18n/pt-BR";
 import { Link } from "@tanstack/react-router";
 import { Activity, Building2, FileBarChart, Home, KeyRound, type LucideIcon } from "lucide-react";
+
+import { t } from "@/i18n/pt-BR";
 
 type Item = {
   label: string;

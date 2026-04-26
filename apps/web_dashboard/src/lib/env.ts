@@ -18,4 +18,4 @@ export function parseEnv(raw: Record<string, string | undefined>): Env {
   return result.data;
 }
 
-export const env = parseEnv(import.meta.env as Record<string, string | undefined>);
+export const env = parseEnv(import.meta.env);

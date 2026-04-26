@@ -1,9 +1,11 @@
-import { useActivate } from "@/api/hooks/useActivate";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, test, vi } from "vitest";
+
 import { server } from "../../mocks/server";
+
+import { useActivate } from "@/api/hooks/useActivate";
 
 vi.mock("@/auth/oidc", () => ({
   getAccessToken: vi.fn().mockResolvedValue("tok"),

@@ -1,11 +1,13 @@
+import { useLocation } from "@tanstack/react-router";
+import type { ReactNode } from "react";
+
+import { Sidebar } from "./Sidebar";
+import { TenantPill } from "./TenantPill";
+
 import { useTenants } from "@/api/hooks/useTenants";
 import { logout } from "@/auth/oidc";
 import { useAuth } from "@/auth/useAuth";
 import { t } from "@/i18n/pt-BR";
-import { useLocation } from "@tanstack/react-router";
-import type { ReactNode } from "react";
-import { Sidebar } from "./Sidebar";
-import { TenantPill } from "./TenantPill";
 
 export function Shell({ children }: { children: ReactNode }) {
   const { user } = useAuth();

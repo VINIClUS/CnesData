@@ -1,5 +1,6 @@
-import { apiFetch } from "@/api/client";
 import { useQuery } from "@tanstack/react-query";
+
+import { apiFetch } from "@/api/client";
 
 export type SourceStatus = {
   fonte_sistema: "CNES_LOCAL" | "CNES_NACIONAL" | "SIHD" | "BPA_MAG" | "SIA_LOCAL";

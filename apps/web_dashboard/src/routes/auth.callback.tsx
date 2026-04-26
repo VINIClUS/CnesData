@@ -1,7 +1,8 @@
-import { completeLogin } from "@/auth/oidc";
-import { useAuth } from "@/auth/useAuth";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+
+import { completeLogin } from "@/auth/oidc";
+import { useAuth } from "@/auth/useAuth";
 
 export const Route = createFileRoute("/auth/callback")({
   component: AuthCallback,

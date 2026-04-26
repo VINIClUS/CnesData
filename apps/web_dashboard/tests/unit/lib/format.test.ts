@@ -1,3 +1,5 @@
+import { describe, expect, test } from "vitest";
+
 import {
   formatBRL,
   formatCompetenciaBR,
@@ -5,7 +7,6 @@ import {
   formatLagMeses,
   formatRelativeTime,
 } from "@/lib/format";
-import { describe, expect, test } from "vitest";
 
 describe("formatBRL", () => {
   test("formata_centavos_em_reais", () => {

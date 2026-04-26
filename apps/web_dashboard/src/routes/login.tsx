@@ -1,8 +1,9 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
+
 import { startLogin } from "@/auth/oidc";
 import { useAuth } from "@/auth/useAuth";
 import { Button } from "@/components/ui/button";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,

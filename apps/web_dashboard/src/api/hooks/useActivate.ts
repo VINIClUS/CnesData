@@ -1,5 +1,6 @@
-import { getAccessToken } from "@/auth/oidc";
 import { useMutation } from "@tanstack/react-query";
+
+import { getAccessToken } from "@/auth/oidc";
 
 type ActivateRequest = { user_code: string; tenant_id: string };
 type ActivateResponse = { status: "approved"; expires_in_seconds: number };

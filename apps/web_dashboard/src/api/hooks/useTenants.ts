@@ -1,5 +1,6 @@
-import { apiFetch } from "@/api/client";
 import { useQuery } from "@tanstack/react-query";
+
+import { apiFetch } from "@/api/client";
 
 export type Tenant = {
   ibge6: string;

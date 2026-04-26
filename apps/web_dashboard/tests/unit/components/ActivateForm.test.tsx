@@ -1,10 +1,12 @@
-import { ActivateForm } from "@/components/activate/ActivateForm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, test, vi } from "vitest";
+
 import { server } from "../../mocks/server";
+
+import { ActivateForm } from "@/components/activate/ActivateForm";
 
 vi.mock("@/auth/oidc", () => ({
   getAccessToken: vi.fn().mockResolvedValue("tok"),

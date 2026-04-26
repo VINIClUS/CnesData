@@ -1,5 +1,6 @@
-import { parseEnv } from "@/lib/env";
 import { describe, expect, test } from "vitest";
+
+import { parseEnv } from "@/lib/env";
 
 describe("parseEnv", () => {
   test("aceita_env_completo_e_valido", () => {

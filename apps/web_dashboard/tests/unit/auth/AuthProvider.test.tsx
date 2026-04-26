@@ -1,9 +1,11 @@
-import { AuthProvider } from "@/auth/AuthProvider";
-import { useAuth } from "@/auth/useAuth";
 import { render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, test } from "vitest";
+
 import { server } from "../../mocks/server";
+
+import { AuthProvider } from "@/auth/AuthProvider";
+import { useAuth } from "@/auth/useAuth";
 
 function Probe() {
   const { user, status } = useAuth();

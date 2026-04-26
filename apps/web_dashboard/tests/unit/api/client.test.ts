@@ -1,8 +1,10 @@
-import { ApiError, apiFetch } from "@/api/client";
-import { getAccessToken } from "@/auth/oidc";
 import { http, HttpResponse } from "msw";
 import { describe, expect, test, vi } from "vitest";
+
 import { server } from "../../mocks/server";
+
+import { ApiError, apiFetch } from "@/api/client";
+import { getAccessToken } from "@/auth/oidc";
 
 vi.mock("@/auth/oidc", () => ({
   getAccessToken: vi.fn().mockResolvedValue("tok-1"),
