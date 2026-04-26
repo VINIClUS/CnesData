@@ -1,3 +1,4 @@
+import { Shell } from "@/components/layout/Shell";
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app")({
@@ -5,5 +6,9 @@ export const Route = createFileRoute("/_app")({
     const r = await fetch("/api/v1/dashboard/auth/me", { credentials: "include" });
     if (r.status === 401) throw redirect({ to: "/login" });
   },
-  component: () => <Outlet />,
+  component: () => (
+    <Shell>
+      <Outlet />
+    </Shell>
+  ),
 });
