@@ -70,7 +70,7 @@ jobs:
           pip install -e apps/data_processor
           pip install -e apps/central_api
           pip install -e apps/cnes_db_migrator
-          pip install pytest pytest-cov pytest-asyncio pytest-benchmark hypothesis ruff duckdb psutil
+          pip install pytest pytest-cov pytest-asyncio pytest-benchmark pytest-httpx hypothesis ruff duckdb psutil
 
       - name: Verify openapi.json up-to-date
         run: |

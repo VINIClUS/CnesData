@@ -41,6 +41,9 @@ export async function logout(): Promise<void> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
+  if (!env.VITE_OIDC_AUTHORITY || !env.VITE_OIDC_CLIENT_ID || !env.VITE_OIDC_REDIRECT_URI) {
+    return null;
+  }
   const u = await _manager().getUser();
   if (!u || u.expired) return null;
   return u.access_token;

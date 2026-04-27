@@ -32,4 +32,9 @@ describe("parseEnv", () => {
   test("rejeita_api_base_url_vazio", () => {
     expect(() => parseEnv({ VITE_API_BASE_URL: "" })).toThrow();
   });
+
+  test("aplica_default_quando_api_base_url_ausente", () => {
+    const env = parseEnv({});
+    expect(env.VITE_API_BASE_URL).toBe("/api/v1");
+  });
 });
