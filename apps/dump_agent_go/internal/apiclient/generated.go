@@ -109,8 +109,10 @@ type FileManifest struct {
 
 // JobRegisterRequest defines model for JobRegisterRequest.
 type JobRegisterRequest struct {
-	JobId openapi_types.UUID `json:"job_id"`
-	Files []FileManifest     `json:"files"`
+	JobId        openapi_types.UUID `json:"job_id"`
+	Files        []FileManifest     `json:"files"`
+	AgentVersion *string            `json:"agent_version,omitempty"`
+	MachineId    *string            `json:"machine_id,omitempty"`
 }
 
 // JobRegisterResponse defines model for JobRegisterResponse.
