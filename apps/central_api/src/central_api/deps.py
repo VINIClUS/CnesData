@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
@@ -117,13 +118,21 @@ def require_tenant_header(
 @asynccontextmanager
 async def lifespan(app: object) -> AsyncGenerator[None]:
     global _engine
-    _engine = create_engine(config.DB_URL)
+    _db_url = os.environ.get("DB_URL") or config.DB_URL
+    _engine = create_engine(_db_url)
     install_rls_listener(_engine)
     install_query_counter(_engine)
     instrument_engine(_engine)
 
     from central_api.repositories.dashboard_repo import DashboardRepo
-    from cnes_infra.auth import DeviceCodeStore, JWKSValidator
+    from cnes_infra.auth import (
+        AccessTokenStore,
+        CertAuthority,
+        DeviceCodeStore,
+        JWKSValidator,
+        ProvisionedCertsRepo,
+        RefreshTokenStore,
+    )
 
     if config.DASHBOARD_OIDC_ISSUER:
         app.state.jwt_validator = JWKSValidator(  # type: ignore[attr-defined]
@@ -134,6 +143,23 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
         app.state.jwt_validator = None  # type: ignore[attr-defined]
     app.state.dashboard_repo = DashboardRepo(_engine)  # type: ignore[attr-defined]
     app.state.device_code_store = DeviceCodeStore()  # type: ignore[attr-defined]
+    app.state.access_token_store = AccessTokenStore()  # type: ignore[attr-defined]
+    app.state.refresh_token_store = RefreshTokenStore(_engine)  # type: ignore[attr-defined]
+    app.state.provisioned_certs = ProvisionedCertsRepo(_engine)  # type: ignore[attr-defined]
+    _ca_cert_path = os.environ.get("AUTH_CA_CERT_PATH", "")
+    _ca_key_path = os.environ.get("AUTH_CA_KEY_PATH", "")
+    if _ca_cert_path and _ca_key_path:
+        from pathlib import Path
+        app.state.cert_authority = CertAuthority(  # type: ignore[attr-defined]
+            root_cert_pem=Path(_ca_cert_path).read_bytes(),
+            root_key_pem=Path(_ca_key_path).read_bytes(),
+        )
+    else:
+        app.state.cert_authority = None  # type: ignore[attr-defined]
+    app.state.verification_uri = os.environ.get("AUTH_DEVICE_VERIFICATION_URI", "")  # type: ignore[attr-defined]
+    app.state.access_token_ttl = config.AUTH_ACCESS_TOKEN_TTL  # type: ignore[attr-defined]
+    app.state.device_code_ttl = config.AUTH_DEVICE_CODE_TTL  # type: ignore[attr-defined]
+    app.state.cert_ttl_days = config.AUTH_CERT_TTL_DAYS  # type: ignore[attr-defined]
     app.state.auth_required = config.AUTH_REQUIRED  # type: ignore[attr-defined]
 
     reaper = asyncio.create_task(_lease_reaper_loop(_engine))

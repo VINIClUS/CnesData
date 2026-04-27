@@ -28,8 +28,12 @@ class DeviceAuthorization:
 
 @dataclass(frozen=True)
 class DeviceCodeStatus:
-    kind: Literal["authorization_pending", "authorized", "expired_token", "denied"]
+    kind: Literal[
+        "authorization_pending", "authorized",
+        "expired_token", "denied", "slow_down",
+    ]
     tenant_id: str | None = None
+    interval: int | None = None
 
 
 @dataclass
@@ -41,6 +45,8 @@ class _Entry:
     expires_at: float
     tenant_id: str | None = None
     consumed: bool = False
+    last_polled_at: float | None = None
+    current_interval: int = 5
 
 
 def _generate_user_code() -> str:
@@ -101,6 +107,14 @@ class DeviceCodeStore:
             if entry.expires_at <= self._now():
                 self._evict(entry)
                 return DeviceCodeStatus(kind="expired_token")
+            now = self._now()
+            if entry.last_polled_at is not None and \
+                    now - entry.last_polled_at < entry.current_interval:
+                entry.current_interval = min(60, entry.current_interval * 2)
+                return DeviceCodeStatus(
+                    kind="slow_down", interval=entry.current_interval,
+                )
+            entry.last_polled_at = now
             if entry.tenant_id is None:
                 return DeviceCodeStatus(kind="authorization_pending")
             entry.consumed = True

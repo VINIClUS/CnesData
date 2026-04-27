@@ -166,6 +166,121 @@
         "title": "AgentRunsResponse",
         "type": "object"
       },
+      "Body_token_oauth_token_post": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "device_code": {
+            "title": "Device Code",
+            "type": "string"
+          },
+          "grant_type": {
+            "title": "Grant Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_type",
+          "device_code",
+          "client_id"
+        ],
+        "title": "Body_token_oauth_token_post",
+        "type": "object"
+      },
+      "CertProvisionResponse": {
+        "properties": {
+          "ca_chain_pem": {
+            "title": "Ca Chain Pem",
+            "type": "string"
+          },
+          "cert_pem": {
+            "title": "Cert Pem",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cert_pem",
+          "ca_chain_pem",
+          "refresh_token",
+          "expires_at"
+        ],
+        "title": "CertProvisionResponse",
+        "type": "object"
+      },
+      "DeviceAuthorizationRequest": {
+        "description": "Request body for POST /oauth/device_authorization (RFC 8628 §3.1).",
+        "properties": {
+          "client_id": {
+            "const": "agent",
+            "title": "Client Id",
+            "type": "string"
+          },
+          "scope": {
+            "const": "agent.provision",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "scope"
+        ],
+        "title": "DeviceAuthorizationRequest",
+        "type": "object"
+      },
+      "DeviceAuthorizationResponse": {
+        "properties": {
+          "device_code": {
+            "title": "Device Code",
+            "type": "string"
+          },
+          "expires_in": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 3600.0,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "interval": {
+            "default": 5,
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Interval",
+            "type": "integer"
+          },
+          "user_code": {
+            "title": "User Code",
+            "type": "string"
+          },
+          "verification_uri": {
+            "title": "Verification Uri",
+            "type": "string"
+          },
+          "verification_uri_complete": {
+            "title": "Verification Uri Complete",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_code",
+          "user_code",
+          "verification_uri",
+          "verification_uri_complete",
+          "expires_in"
+        ],
+        "title": "DeviceAuthorizationResponse",
+        "type": "object"
+      },
       "EnqueueRequest": {
         "properties": {
           "competencia": {
@@ -392,6 +507,27 @@
         "title": "OverviewResponse",
         "type": "object"
       },
+      "ProvisionCertRequest": {
+        "properties": {
+          "csr_pem": {
+            "minLength": 10,
+            "title": "Csr Pem",
+            "type": "string"
+          },
+          "machine_fingerprint": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Machine Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "csr_pem",
+          "machine_fingerprint"
+        ],
+        "title": "ProvisionCertRequest",
+        "type": "object"
+      },
       "RunOut": {
         "properties": {
           "competencia": {
@@ -588,6 +724,41 @@
           "uf"
         ],
         "title": "TenantResponse",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          },
+          "token_type": {
+            "const": "Bearer",
+            "default": "Bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "expires_in"
+        ],
+        "title": "TokenResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -1225,6 +1396,129 @@
         "summary": "Health Check",
         "tags": [
           "sistema"
+        ]
+      }
+    },
+    "/oauth/device_authorization": {
+      "post": {
+        "operationId": "device_authorization_oauth_device_authorization_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceAuthorizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceAuthorizationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Device Authorization",
+        "tags": [
+          "oauth"
+        ]
+      }
+    },
+    "/oauth/token": {
+      "post": {
+        "operationId": "token_oauth_token_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_token_oauth_token_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Token",
+        "tags": [
+          "oauth"
+        ]
+      }
+    },
+    "/provision/cert": {
+      "post": {
+        "operationId": "provision_cert_provision_cert_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionCertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertProvisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provision Cert",
+        "tags": [
+          "provision"
         ]
       }
     }

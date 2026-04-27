@@ -43,6 +43,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: object,
     ) -> Response:
+        path = request.url.path
+        if path.startswith(("/oauth/", "/provision/")):
+            return await call_next(request)
         header = request.headers.get("Authorization", "")
         if not header.lower().startswith("bearer "):
             return await call_next(request)

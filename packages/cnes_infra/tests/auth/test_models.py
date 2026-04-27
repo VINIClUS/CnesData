@@ -1,8 +1,12 @@
 """Pydantic OAuth response models."""
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from pydantic import ValidationError
+
 from cnes_infra.auth import (
     CertProvisionResponse,
+    DeviceAuthorizationRequest,
     DeviceAuthorizationResponse,
     TokenResponse,
 )
@@ -42,3 +46,29 @@ def test_cert_provision_response_serializa_pem():
         expires_at=datetime.now(UTC) + timedelta(days=90),
     )
     assert "BEGIN CERTIFICATE" in resp.cert_pem
+
+
+def test_device_authorization_request_aceita_payload_valido():
+    req = DeviceAuthorizationRequest(client_id="agent", scope="agent.provision")
+    assert req.client_id == "agent"
+    assert req.scope == "agent.provision"
+
+
+def test_device_authorization_request_rejeita_client_id_invalido():
+    with pytest.raises(ValidationError):
+        DeviceAuthorizationRequest(client_id="x", scope="agent.provision")
+
+
+def test_device_authorization_request_rejeita_scope_invalido():
+    with pytest.raises(ValidationError):
+        DeviceAuthorizationRequest(client_id="agent", scope="other")
+
+
+def test_token_response_aceita_refresh_token_none():
+    resp = TokenResponse(access_token="x", expires_in=300, refresh_token=None)  # noqa: S106
+    assert resp.refresh_token is None
+
+
+def test_token_response_default_refresh_token_none():
+    resp = TokenResponse(access_token="x", expires_in=300)  # noqa: S106
+    assert resp.refresh_token is None
