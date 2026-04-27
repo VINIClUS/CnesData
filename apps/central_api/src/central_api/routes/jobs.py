@@ -34,6 +34,8 @@ def register_job(
         engine,
         job_id=payload.job_id,
         files=[f.model_dump() for f in payload.files],
+        agent_version=payload.agent_version,
+        machine_id=payload.machine_id,
     )
     if result is None:
         raise HTTPException(

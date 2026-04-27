@@ -65,3 +65,11 @@ actions:
             minItems: 1
             items:
               $ref: '#/components/schemas/FileManifest'
+          agent_version:
+            type: string
+            nullable: true
+            maxLength: 64
+          machine_id:
+            type: string
+            nullable: true
+            maxLength: 128

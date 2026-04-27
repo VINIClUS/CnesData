@@ -138,7 +138,12 @@ func (a *Adapter) RegisterBPASIAJob(
 	if err := id.UnmarshalText([]byte(jobID)); err != nil {
 		return fmt.Errorf("invalid_job_uuid id=%s: %w", jobID, err)
 	}
-	body := JobRegisterRequest{JobId: id, Files: toFileManifests(files)}
+	body := JobRegisterRequest{
+		JobId:        id,
+		Files:        toFileManifests(files),
+		AgentVersion: &a.AgentVersion,
+		MachineId:    &a.MachineID,
+	}
 	resp, err := a.Inner.PostJobsRegisterWithResponse(ctx, body)
 	if err != nil {
 		return err

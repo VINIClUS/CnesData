@@ -156,7 +156,6 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `packages/cnes_contracts/` | library | Canonical pydantic contracts + Protocols + JSON Schema export |
 | `packages/cnes_domain/` | library | Ports, models, pipeline, processing — domain core |
 | `packages/cnes_infra/` | library | Storage, ingestion, telemetry, migrations |
-| `apps/batch_watcher/` | worker | Batch orchestration daemon — triggers extractions based on schedule |
 | `apps/central_api/` | FastAPI | Job orchestration, presigned URLs, health |
 | `apps/data_processor/` | worker | Parquet → transform → Postgres Gold (CNES + SIHD + BPA + SIA adapters) |
 | `apps/dump_agent_go/` | edge agent | Go edge extractor (CNES FB + SIHD + BPA GDB + SIA DBF) |

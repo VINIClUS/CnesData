@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["packages/*", "apps/central_api", "apps/data_processor", "apps/cnes_db_migrator", "apps/dump_agent", "apps/batch_watcher"]
+members = ["packages/*", "apps/central_api", "apps/data_processor", "apps/cnes_db_migrator", "apps/dump_agent"]
 
 [tool.uv]
 override-dependencies = ["protobuf==6.33.6"]

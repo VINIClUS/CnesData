@@ -6,7 +6,6 @@ on:
       - 'packages/**'
       - 'apps/central_api/**'
       - 'apps/data_processor/**'
-      - 'apps/batch_watcher/**'
       - 'tests/**'
       - 'scripts/flag_quality_violation.py'
       - '.github/workflows/python-quality.yml'
@@ -52,7 +51,7 @@ jobs:
       - run: |
           pip install --upgrade pip
           pip install -e packages/cnes_domain packages/cnes_infra
-          pip install -e apps/central_api apps/data_processor apps/batch_watcher
+          pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-asyncio hypothesis
       - name: Migrate
         run: cd packages/cnes_infra && alembic -c alembic.ini upgrade head
@@ -106,7 +105,7 @@ jobs:
         with: { python-version: "3.13" }
       - run: |
           pip install -e packages/cnes_domain packages/cnes_infra
-          pip install -e apps/central_api apps/data_processor apps/batch_watcher
+          pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-memray
       - name: Memleak tests
         run: pytest tests/memory/ -m memleak --memray --memray-bin-path=/tmp/memray/
@@ -141,7 +140,7 @@ jobs:
         with: { python-version: "3.13" }
       - run: |
           pip install -e packages/cnes_domain packages/cnes_infra
-          pip install -e apps/central_api apps/data_processor apps/batch_watcher
+          pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-asyncio httpx minio
       - name: Chaos tests
         run: pytest tests/chaos/ -m "chaos and not chaos_infra" -v

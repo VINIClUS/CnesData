@@ -4,8 +4,14 @@ import { Shell } from "@/components/layout/Shell";
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async () => {
-    const r = await fetch("/api/v1/dashboard/auth/me", { credentials: "include" });
-    if (r.status === 401) {
+    let r: Response;
+    try {
+      r = await fetch("/api/v1/dashboard/auth/me", { credentials: "include" });
+    } catch {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router pattern
+      throw redirect({ to: "/login" });
+    }
+    if (!r.ok) {
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router pattern
       throw redirect({ to: "/login" });
     }

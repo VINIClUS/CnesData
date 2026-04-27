@@ -93,3 +93,89 @@ class TestJobsRegisterV2:
             headers={"X-Tenant-Id": _TENANT},
         )
         assert resp.status_code == 404
+
+    def test_register_persiste_agent_version_e_machine_id(
+        self, api_client: TestClient, pg_engine,
+    ) -> None:
+        job_id = extractions_repo.enqueue(
+            pg_engine,
+            tenant_id=_TENANT,
+            source_type="BPA_MAG",
+            competencia=date(2026, 2, 1),
+            files=[{
+                "minio_key": "bpa/placeholder.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 1,
+                "sha256": "0" * 64,
+            }],
+        )
+
+        resp = api_client.post(
+            "/api/v1/jobs/register",
+            json={
+                "job_id": str(job_id),
+                "files": [{
+                    "minio_key": "bpa/2026-02/bpa_c.parquet.gz",
+                    "fato_subtype": "BPA_C",
+                    "size_bytes": 1024,
+                    "sha256": "a" * 64,
+                }],
+                "agent_version": "1.2.3",
+                "machine_id": "edge-01",
+            },
+            headers={"X-Tenant-Id": _TENANT},
+        )
+        assert resp.status_code == 200
+
+        with pg_engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT agent_version, machine_id "
+                    "FROM landing.extractions WHERE job_id = :j",
+                ),
+                {"j": str(job_id)},
+            ).one()
+        assert row.agent_version == "1.2.3"
+        assert row.machine_id == "edge-01"
+
+    def test_register_sem_metadata_persiste_null(
+        self, api_client: TestClient, pg_engine,
+    ) -> None:
+        job_id = extractions_repo.enqueue(
+            pg_engine,
+            tenant_id=_TENANT,
+            source_type="BPA_MAG",
+            competencia=date(2026, 3, 1),
+            files=[{
+                "minio_key": "bpa/placeholder.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 1,
+                "sha256": "0" * 64,
+            }],
+        )
+
+        resp = api_client.post(
+            "/api/v1/jobs/register",
+            json={
+                "job_id": str(job_id),
+                "files": [{
+                    "minio_key": "bpa/2026-03/bpa_c.parquet.gz",
+                    "fato_subtype": "BPA_C",
+                    "size_bytes": 1024,
+                    "sha256": "a" * 64,
+                }],
+            },
+            headers={"X-Tenant-Id": _TENANT},
+        )
+        assert resp.status_code == 200
+
+        with pg_engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT agent_version, machine_id "
+                    "FROM landing.extractions WHERE job_id = :j",
+                ),
+                {"j": str(job_id)},
+            ).one()
+        assert row.agent_version is None
+        assert row.machine_id is None

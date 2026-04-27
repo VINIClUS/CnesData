@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const schema = z.object({
-  VITE_API_BASE_URL: z.string().min(1),
+  VITE_API_BASE_URL: z.string().min(1).default("/api/v1"),
   VITE_OIDC_AUTHORITY: z.string().url().optional(),
   VITE_OIDC_CLIENT_ID: z.string().min(1).optional(),
   VITE_OIDC_REDIRECT_URI: z.string().url().optional(),

@@ -171,6 +171,25 @@ func TestRegisterBPASIAJob_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestRegisterBPASIAJob_SendsAgentMetadataInBody(t *testing.T) {
+	var captured apiclient.JobRegisterRequest
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&captured))
+		w.WriteHeader(http.StatusOK)
+	})
+	err := a.RegisterBPASIAJob(context.Background(),
+		"66666666-6666-6666-6666-666666666666",
+		[]worker.ManifestEntry{
+			{MinioKey: "k", FatoSubtype: "BPA_C", SizeBytes: 100, Sha256: "s"},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, captured.AgentVersion)
+	require.NotNil(t, captured.MachineId)
+	require.Equal(t, a.AgentVersion, *captured.AgentVersion)
+	require.Equal(t, "machine-1", *captured.MachineId)
+}
+
 func TestSendHeartbeat_InvalidUUID(t *testing.T) {
 	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
