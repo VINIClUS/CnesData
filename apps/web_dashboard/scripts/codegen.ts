@@ -13,11 +13,20 @@ if (!existsSync(openapi)) {
   process.exit(1);
 }
 
-const result = spawnSync("bunx", ["openapi-typescript", openapi, "-o", out], {
+const openapiResult = spawnSync("bunx", ["openapi-typescript", openapi, "-o", out], {
   stdio: "inherit",
   shell: process.platform === "win32",
 });
 
-if (result.status !== 0) {
-  process.exit(result.status ?? 1);
+if (openapiResult.status !== 0) {
+  process.exit(openapiResult.status ?? 1);
+}
+
+const routesResult = spawnSync("bunx", ["tsr", "generate"], {
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
+
+if (routesResult.status !== 0) {
+  process.exit(routesResult.status ?? 1);
 }
