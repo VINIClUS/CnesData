@@ -22,14 +22,16 @@ class AgentStatus:
 _SQL = text(
     """
     SELECT
-        MAX(j.heartbeat_at) AS last_seen,
-        MAX(j.agent_version) AS agent_version,
-        MAX(j.machine_id) AS machine_id,
-        SUM(CASE WHEN j.status IN ('COMPLETED','DONE') THEN 1 ELSE 0 END) AS completed,
-        SUM(CASE WHEN j.status IN ('FAILED','DEAD_LETTER') THEN 1 ELSE 0 END) AS failed
-    FROM queue.jobs j
-    WHERE j.tenant_id = :tenant
-      AND j.created_at >= NOW() - INTERVAL '7 days'
+        MAX(e.registered_at)                                         AS last_seen,
+        MAX(e.agent_version)                                         AS agent_version,
+        MAX(e.machine_id)                                            AS machine_id,
+        SUM(CASE WHEN e.registered_at IS NOT NULL THEN 1 ELSE 0 END) AS completed,
+        SUM(CASE WHEN e.status IN ('FAILED','DLQ')
+                  AND e.registered_at IS NULL
+                 THEN 1 ELSE 0 END)                                  AS failed
+    FROM landing.extractions e
+    WHERE e.tenant_id = :tenant
+      AND e.created_at >= NOW() - INTERVAL '7 days'
     """
 )
 
