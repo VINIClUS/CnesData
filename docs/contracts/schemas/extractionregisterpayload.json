@@ -45,6 +45,19 @@
     }
   },
   "properties": {
+    "agent_version": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Version"
+    },
     "files": {
       "items": {
         "$ref": "#/$defs/FileManifest"
@@ -57,6 +70,19 @@
       "format": "uuid",
       "title": "Job Id",
       "type": "string"
+    },
+    "machine_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Machine Id"
     }
   },
   "required": [
