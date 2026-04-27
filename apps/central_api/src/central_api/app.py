@@ -1,6 +1,7 @@
 """Factory da aplicação FastAPI."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -20,10 +21,22 @@ from central_api.routes import (
     jobs,
     oauth,
     overview,
+    provision,
 )
+from cnes_infra.auth.errors import OAuthError
 from cnes_infra.telemetry import init_telemetry
 
 init_telemetry("central-api")
+
+
+async def _oauth_error_handler(
+    _request: Request, exc: OAuthError,
+) -> JSONResponse:
+    body: dict[str, object] = {"error": exc.code}
+    if exc.description:
+        body["error_description"] = exc.description
+    body.update(exc.extra)
+    return JSONResponse(status_code=exc.status_code, content=body)
 
 
 def create_app() -> FastAPI:
@@ -38,6 +51,7 @@ def create_app() -> FastAPI:
     app.add_middleware(AuthMiddleware)
     app.state.limiter = oauth.limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(OAuthError, _oauth_error_handler)
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1")
@@ -50,4 +64,5 @@ def create_app() -> FastAPI:
         prefix="/api/v1/dashboard/access-requests",
     )
     app.include_router(oauth.router)
+    app.include_router(provision.router)
     return app

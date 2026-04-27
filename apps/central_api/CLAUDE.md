@@ -63,6 +63,12 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `API_PORT` | opcional | Default `8000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | opcional | Tracing (se OTel SDK instalado) |
 | `ENABLE_REAPER` | opcional | `true` em 1 réplica para reaper rodar (futuro) |
+| `AUTH_CA_CERT_PATH` | sim (no boot) | Path to PEM root CA cert |
+| `AUTH_CA_KEY_PATH` | sim (no boot) | Path to PEM root CA private key |
+| `AUTH_DEVICE_VERIFICATION_URI` | sim (no boot) | Public URL of dashboard /activate page |
+| `AUTH_DEVICE_CODE_TTL` | não | seconds; device_code TTL (default 600) |
+| `AUTH_ACCESS_TOKEN_TTL` | não | seconds; access_token TTL (default 300) |
+| `AUTH_CERT_TTL_DAYS` | não | leaf cert validity (default 90) |
 
 ## Module Map
 

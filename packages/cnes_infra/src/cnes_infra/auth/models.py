@@ -22,7 +22,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"  # noqa: S105
     expires_in: int
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class TokenError(BaseModel):
@@ -51,3 +51,10 @@ class CertProvisionResponse(BaseModel):
 
 class CertRotateRequest(BaseModel):
     csr_pem: str
+
+
+class DeviceAuthorizationRequest(BaseModel):
+    """Request body for POST /oauth/device_authorization (RFC 8628 §3.1)."""
+
+    client_id: Literal["agent"]
+    scope: Literal["agent.provision"]

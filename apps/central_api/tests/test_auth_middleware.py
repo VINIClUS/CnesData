@@ -113,3 +113,35 @@ def test_email_e_name_ausentes_no_token_usam_defaults() -> None:
         oidc_subject="sub-2", oidc_issuer="https://kc.local",
         email="", display_name=None,
     )
+
+
+def test_pula_validacao_jwks_para_paths_oauth_e_provision() -> None:
+    """AuthMiddleware ignora Authorization em /oauth/* e /provision/*.
+
+    Agente usa Bearer opaco (não JWT); rota parseia header própria.
+    """
+    from cnes_infra.auth import TokenInvalid
+    validator = MagicMock()
+    validator.verify.side_effect = TokenInvalid("not_jwt")
+    app = _build_app(validator, MagicMock(), auth_required="required")
+
+    @app.get("/oauth/test")
+    def oauth_test(request: Request) -> dict:
+        u = getattr(request.state, "user", None)
+        return {"user_set": u is not None,
+                "auth_header": request.headers.get("Authorization", "")}
+
+    @app.get("/provision/test")
+    def provision_test(request: Request) -> dict:
+        return {"auth_header": request.headers.get("Authorization", "")}
+
+    client = TestClient(app)
+    r1 = client.get("/oauth/test", headers={"Authorization": "Bearer opaque"})
+    assert r1.status_code == 200
+    assert r1.json() == {"user_set": False, "auth_header": "Bearer opaque"}
+
+    r2 = client.get("/provision/test", headers={"Authorization": "Bearer opaque"})
+    assert r2.status_code == 200
+    assert r2.json() == {"auth_header": "Bearer opaque"}
+
+    validator.verify.assert_not_called()
