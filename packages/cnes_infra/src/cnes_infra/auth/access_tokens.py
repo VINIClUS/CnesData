@@ -58,6 +58,7 @@ class AccessTokenStore:
                 self._by_token.pop(token, None)
                 return None
             entry.consumed = True
+            self._by_token.pop(token, None)
             return AccessToken(
                 token=entry.token, agent_id=entry.agent_id,
                 tenant_id=entry.tenant_id,

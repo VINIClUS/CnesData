@@ -17,7 +17,7 @@ def install_rls_listener(engine: Engine) -> None:
         except LookupError:
             return
         conn.execute(
-            text("SELECT set_config('rls.tenant_id', :tid, true)"),
+            text("SELECT set_config('app.tenant_id', :tid, true)"),
             {"tid": tid},
         )
         logger.debug("rls_set tenant_id=%s", tid)
