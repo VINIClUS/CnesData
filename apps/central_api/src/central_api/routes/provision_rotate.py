@@ -4,6 +4,7 @@ from __future__ import annotations
 from cryptography import x509
 from fastapi import APIRouter, Request
 
+from cnes_domain.tenant import set_tenant_id
 from cnes_infra.auth import (
     CertRotateRequest,
     CertRotateResponse,
@@ -24,6 +25,7 @@ async def provision_cert_rotate(
     cert = extract_peer_cert(request)
     agent_id = read_agent_id(cert)
     tenant_id = read_tenant_id(cert)
+    set_tenant_id(tenant_id)
 
     audit = request.app.state.provisioned_certs
     active = audit.find_active_by_agent_id(agent_id)

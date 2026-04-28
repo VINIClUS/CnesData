@@ -129,3 +129,29 @@ def test_read_oid_levanta_401_quando_oid_ausente():
         read_agent_id(cert)
     assert exc.value.code == "invalid_token"
     assert exc.value.status_code == 401
+
+
+def test_read_oid_levanta_401_quando_oid_tem_bytes_invalidos_utf8():
+    """Critical regression: malformed UTF-8 in OID must NOT crash 500."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "agent-test")])
+    now = dt.datetime.now(dt.UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject).issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(minutes=1))
+        .not_valid_after(now + dt.timedelta(days=90))
+        .add_extension(
+            x509.UnrecognizedExtension(_AGENT_OID, b"\xff\xfe\xfd"),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    pem = cert.public_bytes(serialization.Encoding.PEM)
+    parsed = x509.load_pem_x509_certificate(pem)
+    with pytest.raises(OAuthError) as exc:
+        read_agent_id(parsed)
+    assert exc.value.code == "invalid_token"
+    assert exc.value.status_code == 401

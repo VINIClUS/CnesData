@@ -42,7 +42,12 @@ def _read_oid_value(
 ) -> str:
     for ext in cert.extensions:
         if ext.oid == oid and isinstance(ext.value, x509.UnrecognizedExtension):
-            return ext.value.value.decode()
+            try:
+                return ext.value.value.decode()
+            except UnicodeDecodeError as exc:
+                raise OAuthError(
+                    "invalid_token", status_code=401,
+                ) from exc
     raise OAuthError("invalid_token", status_code=401)
 
 

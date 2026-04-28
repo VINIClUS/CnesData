@@ -9,6 +9,7 @@ from cnes_infra.auth.provisioned_certs import ProvisionedCertsRepo
 _AGENT_IDS = (
     "agent-101", "agent-102", "agent-103",
     "agent-201-sem-linhas", "agent-202", "agent-203", "agent-204",
+    "agent-205-expirado",
 )
 
 
@@ -147,3 +148,15 @@ def test_find_active_retorna_none_quando_todas_revogadas(pg_engine):
             ),
         )
     assert repo.find_active_by_agent_id("agent-204") is None
+
+
+@pytest.mark.postgres
+def test_find_active_ignora_linhas_expiradas(pg_engine):
+    """Critical regression: cert past expires_at MUST NOT be returned."""
+    repo = ProvisionedCertsRepo(pg_engine)
+    expired = dt.datetime.now(dt.UTC) - dt.timedelta(days=1)
+    repo.record(
+        agent_id="agent-205-expirado", tenant_id="t1",
+        subject_cn="cn-old", ca_serial="serial-expired", expires_at=expired,
+    )
+    assert repo.find_active_by_agent_id("agent-205-expirado") is None

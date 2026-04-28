@@ -72,6 +72,7 @@ class ProvisionedCertsRepo:
                     "issued_at, expires_at, revoked_at "
                     "FROM auth_provisioned_certs "
                     "WHERE agent_id = :a AND revoked_at IS NULL "
+                    "AND expires_at > now() "
                     "ORDER BY issued_at DESC LIMIT 1",
                 ),
                 {"a": agent_id},
