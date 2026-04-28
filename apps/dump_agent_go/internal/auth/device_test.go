@@ -123,7 +123,7 @@ func pollHandler(t *testing.T, script []func(http.ResponseWriter, *http.Request)
 	}
 }
 
-func devAuthHandler(expiresIn, interval int) http.HandlerFunc {
+func devAuthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -131,8 +131,8 @@ func devAuthHandler(expiresIn, interval int) http.HandlerFunc {
 			"user_code":                 "WDJB-MJHT",
 			"verification_uri":          "https://x/activate",
 			"verification_uri_complete": "https://x/activate?code=WDJB-MJHT",
-			"expires_in":                expiresIn,
-			"interval":                  interval,
+			"expires_in":                600,
+			"interval":                  5,
 		})
 	}
 }
@@ -150,7 +150,7 @@ func nullSleep(time.Duration) {}
 
 func TestPoll_AuthorizationPending_ThenAuthorized(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -186,7 +186,7 @@ func TestPoll_AuthorizationPending_ThenAuthorized(t *testing.T) {
 
 func TestPoll_SlowDown_DoublesInterval(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -222,7 +222,7 @@ func TestPoll_SlowDown_DoublesInterval(t *testing.T) {
 
 func TestPoll_SlowDown_HonorsServerInterval(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -264,7 +264,7 @@ func TestPoll_SlowDown_CapsAt60Seconds(t *testing.T) {
 		})
 	})
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token":                pollHandler(t, script),
 	})
 	c := NewClient(srv.URL, client)
@@ -285,7 +285,7 @@ func TestPoll_SlowDown_CapsAt60Seconds(t *testing.T) {
 
 func TestPoll_ExpiredToken_ReturnsErrExpiredToken(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -304,7 +304,7 @@ func TestPoll_ExpiredToken_ReturnsErrExpiredToken(t *testing.T) {
 
 func TestPoll_AccessDenied_ReturnsErrAccessDenied(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -323,7 +323,7 @@ func TestPoll_AccessDenied_ReturnsErrAccessDenied(t *testing.T) {
 
 func TestPoll_InvalidGrant_ReturnsErrInvalidGrant(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -342,7 +342,7 @@ func TestPoll_InvalidGrant_ReturnsErrInvalidGrant(t *testing.T) {
 
 func TestPoll_UnsupportedGrant_ReturnsErrUnsupportedGrant(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -361,7 +361,7 @@ func TestPoll_UnsupportedGrant_ReturnsErrUnsupportedGrant(t *testing.T) {
 
 func TestPoll_InvalidClient_ReturnsErrInvalidClient(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -380,7 +380,7 @@ func TestPoll_InvalidClient_ReturnsErrInvalidClient(t *testing.T) {
 
 func TestPoll_ContextCancellation_ReturnsCtxErr(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": func(w http.ResponseWriter, r *http.Request) {
 			t.Fatal("token endpoint should NOT be called after context cancel")
 		},
@@ -407,7 +407,7 @@ func TestPoll_ContextCancellation_ReturnsCtxErr(t *testing.T) {
 
 func TestPoll_ExpiresAtElapsed_ReturnsErrExpiredToken(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": func(w http.ResponseWriter, r *http.Request) {
 			t.Fatal("token endpoint should NOT be called when ExpiresAt elapsed")
 		},
@@ -426,7 +426,7 @@ func TestPoll_ExpiresAtElapsed_ReturnsErrExpiredToken(t *testing.T) {
 
 func TestPoll_UnknownErrorCode_ReturnsGenericError(t *testing.T) {
 	srv, client := newMockServer(t, map[string]http.HandlerFunc{
-		"/oauth/device_authorization": devAuthHandler(600, 5),
+		"/oauth/device_authorization": devAuthHandler(),
 		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
 			func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -448,5 +448,44 @@ func TestPoll_UnknownErrorCode_ReturnsGenericError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "totally_made_up") {
 		t.Errorf("error should mention unknown code, got: %v", err)
+	}
+}
+
+
+func TestNewClient_NilHTTPClient_UsesDefault(t *testing.T) {
+	c := NewClient("https://x", nil)
+	if c == nil {
+		t.Fatal("NewClient returned nil")
+	}
+	if c.httpClient == nil {
+		t.Error("expected default httpClient to be set")
+	}
+	if c.httpClient != http.DefaultClient {
+		t.Error("expected http.DefaultClient")
+	}
+}
+
+func TestPoll_TokenResponseMissingAccessToken_ReturnsError(t *testing.T) {
+	srv, client := newMockServer(t, map[string]http.HandlerFunc{
+		"/oauth/device_authorization": devAuthHandler(),
+		"/oauth/token": pollHandler(t, []func(http.ResponseWriter, *http.Request){
+			func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"token_type": "Bearer",
+					"expires_in": 300,
+				})
+			},
+		}),
+	})
+	c := NewClient(srv.URL, client)
+	c.SetClockSleep(time.Now, nullSleep)
+	flow, _ := c.Authorize(context.Background(), "agent.provision")
+	_, err := flow.Poll(context.Background())
+	if err == nil {
+		t.Fatal("expected error got nil")
+	}
+	if !strings.Contains(err.Error(), "missing access_token") {
+		t.Errorf("error should mention missing access_token, got: %v", err)
 	}
 }

@@ -157,6 +157,11 @@ func (d *DeviceFlow) Poll(ctx context.Context) (*Token, error) {
 		default:
 		}
 		d.client.sleep(d.interval)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 
 		tok, retryAfter, err := d.pollOnce(ctx)
 		if err != nil {
@@ -224,6 +229,9 @@ func parseTokenResponse(rawBody []byte) (*Token, time.Duration, error) {
 	}
 	if err := json.Unmarshal(rawBody, &t); err != nil {
 		return nil, 0, fmt.Errorf("oauth: malformed token response body=%s: %w", rawBody, err)
+	}
+	if t.AccessToken == "" {
+		return nil, 0, fmt.Errorf("oauth: token response missing access_token body=%s", rawBody)
 	}
 	return &Token{
 		AccessToken:  t.AccessToken,
