@@ -110,3 +110,15 @@ class RefreshTokenStore:
                 {"h": token_hash},
             )
         logger.info("refresh_token_revoked")
+
+    def has_active_for_agent(self, agent_id: str) -> bool:
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT 1 FROM auth_refresh_tokens "
+                    "WHERE agent_id = :a AND revoked_at IS NULL "
+                    "LIMIT 1",
+                ),
+                {"a": agent_id},
+            ).one_or_none()
+        return row is not None

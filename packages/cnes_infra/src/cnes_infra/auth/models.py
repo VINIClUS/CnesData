@@ -53,6 +53,14 @@ class CertRotateRequest(BaseModel):
     csr_pem: str
 
 
+class CertRotateResponse(BaseModel):
+    """Response for /provision/cert/rotate. No refresh_token (persists)."""
+
+    cert_pem: str
+    ca_chain_pem: str
+    expires_at: datetime
+
+
 class DeviceAuthorizationRequest(BaseModel):
     """Request body for POST /oauth/device_authorization (RFC 8628 §3.1)."""
 

@@ -72,3 +72,16 @@ def test_token_response_aceita_refresh_token_none():
 def test_token_response_default_refresh_token_none():
     resp = TokenResponse(access_token="x", expires_in=300)  # noqa: S106
     assert resp.refresh_token is None
+
+
+def test_cert_rotate_response_serializa_pem_e_expires_at():
+    from cnes_infra.auth import CertRotateResponse
+    expires = datetime.now(UTC) + timedelta(days=90)
+    resp = CertRotateResponse(
+        cert_pem="-----BEGIN CERTIFICATE-----\nABC",
+        ca_chain_pem="-----BEGIN CERTIFICATE-----\nXYZ",
+        expires_at=expires,
+    )
+    assert "BEGIN CERTIFICATE" in resp.cert_pem
+    assert "BEGIN CERTIFICATE" in resp.ca_chain_pem
+    assert resp.expires_at == expires
