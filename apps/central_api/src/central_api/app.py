@@ -22,6 +22,7 @@ from central_api.routes import (
     oauth,
     overview,
     provision,
+    provision_rotate,
 )
 from cnes_infra.auth.errors import OAuthError
 from cnes_infra.telemetry import init_telemetry
@@ -65,4 +66,5 @@ def create_app() -> FastAPI:
     )
     app.include_router(oauth.router)
     app.include_router(provision.router)
+    app.include_router(provision_rotate.router)
     return app

@@ -78,3 +78,30 @@ def test_validate_com_tenant_id_diferente_retorna_none(pg_engine):
         machine_fingerprint="fp:eeff00",
     )
     assert store.validate(token, tenant_id="tenant-b") is None
+
+
+@pytest.mark.postgres
+def test_has_active_retorna_true_quando_ha_linha_nao_revogada(pg_engine):
+    store = RefreshTokenStore(pg_engine)
+    store.create(
+        agent_id="agent-301", tenant_id="t1",
+        machine_fingerprint="fp:301",
+    )
+    assert store.has_active_for_agent("agent-301") is True
+
+
+@pytest.mark.postgres
+def test_has_active_retorna_false_quando_todas_revogadas(pg_engine):
+    store = RefreshTokenStore(pg_engine)
+    token = store.create(
+        agent_id="agent-302", tenant_id="t1",
+        machine_fingerprint="fp:302",
+    )
+    store.revoke(token)
+    assert store.has_active_for_agent("agent-302") is False
+
+
+@pytest.mark.postgres
+def test_has_active_retorna_false_quando_agent_sem_linhas(pg_engine):
+    store = RefreshTokenStore(pg_engine)
+    assert store.has_active_for_agent("agent-303-inexistente") is False
