@@ -14,9 +14,14 @@ import (
 	"fmt"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/cnesdata/dumpagent/internal/auth"
 )
+
+// DefaultClientTimeout caps full request lifetime (handshake + body) to
+// prevent goroutines from hanging on flaky municipal WAN links.
+const DefaultClientTimeout = 60 * time.Second
 
 var (
 	ErrCAPinInvalid   = errors.New("transport: ca pin pem invalid")
@@ -55,7 +60,10 @@ func NewMTLSClient(authDir string, caPinPEM []byte) (*Client, error) {
 		},
 	}
 	transport := &http.Transport{TLSClientConfig: tlsCfg}
-	c.httpClient = &http.Client{Transport: transport}
+	c.httpClient = &http.Client{
+		Transport: transport,
+		Timeout:   DefaultClientTimeout,
+	}
 	return c, nil
 }
 

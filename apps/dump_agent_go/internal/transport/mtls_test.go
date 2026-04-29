@@ -416,3 +416,21 @@ func TestReload_ConcurrentWithRequests_NoRace(t *testing.T) {
 
 	wg.Wait()
 }
+
+
+func TestNewMTLSClient_WrongPEMBlockType_ReturnsErrCertLoad(t *testing.T) {
+	caCert, caKey, caPEM := makeTestCA(t)
+	_, keyDER := makeLeafCert(t, caCert, caKey, "agent-001")
+	authDir := t.TempDir()
+	wrongPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	if err := auth.SaveCert(authDir, wrongPEM); err != nil {
+		t.Fatalf("SaveCert: %v", err)
+	}
+	if err := auth.SaveKey(authDir, keyDER); err != nil {
+		t.Fatalf("SaveKey: %v", err)
+	}
+	_, err := NewMTLSClient(authDir, caPEM)
+	if !errors.Is(err, ErrCertLoad) {
+		t.Errorf("want ErrCertLoad got %v", err)
+	}
+}
