@@ -387,9 +387,11 @@ func TestPoll_ContextCancellation_ReturnsCtxErr(t *testing.T) {
 	})
 	c := NewClient(srv.URL, client)
 	cancelOnce := make(chan struct{}, 1)
+	cancelDone := make(chan struct{})
 	c.SetClockSleep(time.Now, func(time.Duration) {
 		select {
 		case cancelOnce <- struct{}{}:
+			<-cancelDone
 		default:
 		}
 	})
@@ -398,6 +400,7 @@ func TestPoll_ContextCancellation_ReturnsCtxErr(t *testing.T) {
 	go func() {
 		<-cancelOnce
 		cancel()
+		close(cancelDone)
 	}()
 	_, err := flow.Poll(ctx)
 	if !errors.Is(err, context.Canceled) {
