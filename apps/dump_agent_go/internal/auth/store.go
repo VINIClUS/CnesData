@@ -41,6 +41,7 @@ func AuthDir() (string, error) { //nolint:revive // stutter is intentional: pack
 		if err := os.MkdirAll(override, 0o700); err != nil {
 			return "", fmt.Errorf("auth: mkdir override: %w", err)
 		}
+		_ = os.Chmod(override, 0o700)
 		return override, nil
 	}
 	base, err := platform.AppDataDir()
@@ -51,6 +52,7 @@ func AuthDir() (string, error) { //nolint:revive // stutter is intentional: pack
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("auth: mkdir auth: %w", err)
 	}
+	_ = os.Chmod(dir, 0o700)
 	return dir, nil
 }
 

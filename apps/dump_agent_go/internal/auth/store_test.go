@@ -159,3 +159,23 @@ func TestLoadKey_CorruptedDPAPI_ReturnsErrUnwrapFailed(t *testing.T) {
 		t.Errorf("want ErrUnwrapFailed got %v", err)
 	}
 }
+
+
+func TestWriteAtomic_RenameFailure_RemovesTmp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Rename behavior over directory differs on Windows")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.bin")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatalf("setup mkdir: %v", err)
+	}
+	err := writeAtomic(target, []byte("data"), 0o600)
+	if err == nil {
+		t.Fatal("expected rename to fail when target is a directory")
+	}
+	tmp := target + ".tmp"
+	if _, err := os.Stat(tmp); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("tmp leftover after rename failure, stat err=%v", err)
+	}
+}
