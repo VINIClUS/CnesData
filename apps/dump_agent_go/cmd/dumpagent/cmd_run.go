@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -192,6 +193,16 @@ func initMTLSClient(authDir string) (*transport.Client, error) {
 		return nil, nil
 	}
 	return nil, err
+}
+
+// httpClientFor returns mtls.HTTPClient() or nil. nil-handling lets
+// apiclient.NewAdapter fall back to http.DefaultClient (plain HTTP)
+// when AGENT_ALLOW_INSECURE=true permitted insecure boot.
+func httpClientFor(mtls *transport.Client) *http.Client {
+	if mtls == nil {
+		return nil
+	}
+	return mtls.HTTPClient()
 }
 
 func preFlightClockCheck(ctx context.Context) error {

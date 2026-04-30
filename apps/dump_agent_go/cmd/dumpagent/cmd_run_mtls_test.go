@@ -184,3 +184,28 @@ func TestInitMTLS_KeyParseFails_FallbackHonored(t *testing.T) {
 		t.Fatal("expected nil mtls in fallback mode")
 	}
 }
+
+func TestHTTPClientFor_NilMTLS_ReturnsNil(t *testing.T) {
+	got := httpClientFor(nil)
+	if got != nil {
+		t.Fatalf("expected nil, got %v", got)
+	}
+}
+
+func TestHTTPClientFor_NonNil_ReturnsHTTPClient(t *testing.T) {
+	ca := seedMTLSCA(t)
+	dir := seedMTLSAuthDir(t, ca)
+	withCAPinOverride(t, ca.pinPEM)
+	mtls, err := initMTLSClient(dir)
+	if err != nil || mtls == nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	got := httpClientFor(mtls)
+	if got == nil {
+		t.Fatal("expected non-nil http.Client")
+	}
+	if got != mtls.HTTPClient() {
+		t.Fatal("expected got == mtls.HTTPClient() (same pointer)")
+	}
+}
