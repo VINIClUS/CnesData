@@ -79,6 +79,35 @@ type rotateResp struct {
 	ExpiresAt  string `json:"expires_at"`
 }
 
+func parseCurrentCert(authDir string) (*x509.Certificate, error) {
+	pemBytes, err := LoadCert(authDir)
+	if err != nil {
+		return nil, fmt.Errorf("load cert: %w", err)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("decode cert: not PEM CERTIFICATE")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse cert: %w", err)
+	}
+	return cert, nil
+}
+
+// isWithinWindow returns true when the cert's remaining lifetime is below
+// the configured fraction of its total lifetime.
+//
+// remaining := NotAfter - now
+// total     := NotAfter - NotBefore
+// rotate when remaining < total*fraction
+func isWithinWindow(cert *x509.Certificate, fraction float64, now time.Time) bool {
+	remaining := cert.NotAfter.Sub(now)
+	total := cert.NotAfter.Sub(cert.NotBefore)
+	threshold := time.Duration(float64(total) * fraction)
+	return remaining < threshold
+}
+
 // Run is the loop entry. Implemented in Task 4.
 func (r *Rotator) Run(ctx context.Context) error {
 	_ = ctx
@@ -94,12 +123,9 @@ func (r *Rotator) RotateOnce(ctx context.Context) error {
 // Compile-time guards for symbols wired in Tasks 2-4 (parseCurrentCert,
 // isWithinWindow, postRotate, persistRotated). Removed as those wire up.
 var (
-	_ = pem.Decode
 	_ = io.Copy
-	_ = x509.ParseCertificate
 	_ = json.Marshal
 	_ = http.MethodPost
 	_ = strings.TrimRight
-	_ = fmt.Errorf
 	_ = rotateResp{}
 )
