@@ -18,11 +18,16 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
+
+	"github.com/cnesdata/dumpagent/internal/auth"
 )
 
 type registerFlags struct {
@@ -88,5 +93,37 @@ func parseRegisterFlags(args []string) (registerFlags, error) {
 		Scope:     *scope,
 		Force:     *force,
 		NoSmoke:   *noSmoke,
+	}, nil
+}
+
+// loadCAPin returns PEM bytes from --ca-pin path if non-empty, else the
+// embedded auth.CAPinPEM. Wraps file-read errors with errPersistFailed
+// (exit 5).
+func loadCAPin(path string) ([]byte, error) {
+	if path == "" {
+		return auth.CAPinPEM, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read --ca-pin: %v", errPersistFailed, err)
+	}
+	return b, nil
+}
+
+// newBootstrapClient builds an HTTPS-only http.Client that pins server certs
+// to caPEM. No client cert (mTLS) — used for /oauth/* and /provision/cert
+// during enrollment, before the agent has its own leaf cert.
+func newBootstrapClient(caPEM []byte) (*http.Client, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("register: ca pin pem invalid")
+	}
+	tlsCfg := &tls.Config{
+		RootCAs:    pool,
+		MinVersion: tls.VersionTLS13,
+	}
+	return &http.Client{
+		Transport: &http.Transport{TLSClientConfig: tlsCfg},
+		Timeout:   60 * time.Second,
 	}, nil
 }
