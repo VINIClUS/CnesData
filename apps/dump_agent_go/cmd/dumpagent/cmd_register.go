@@ -18,9 +18,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,9 +30,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/auth"
+	"github.com/cnesdata/dumpagent/internal/platform"
 )
 
 type registerFlags struct {
@@ -49,9 +54,7 @@ var (
 )
 
 // backoffSequence drives /provision/cert retry. Tests in the same package
-// shrink this to milliseconds.
-//
-//nolint:unused // wired in Phase 6 step 6 (provision_cert retry loop)
+// shrink this to milliseconds via fastBackoff.
 var backoffSequence = []time.Duration{
 	1 * time.Second,
 	2 * time.Second,
@@ -64,6 +67,12 @@ func cmdRegister(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	return runRegisterFlow(flags)
+}
+
+// runRegisterFlow is the side-effecting body of cmdRegister; cmdRegister
+// stays small enough to satisfy the 50-LOC project hard limit.
+func runRegisterFlow(flags registerFlags) int {
 	caPEM, err := loadCAPin(flags.CAPinPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -83,24 +92,76 @@ func cmdRegister(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 5
 	}
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+	tok, code, err := runDeviceFlow(ctx, bootstrapHTTP, flags)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register:", err)
+		return code
+	}
+	return finishProvisioning(ctx, bootstrapHTTP, authDir, caPEM, tok, flags)
+}
 
-	oauth := auth.NewClient(flags.BaseURL, bootstrapHTTP)
+// runDeviceFlow performs Authorize + Poll, printing the verification block.
+// Returns the token on success, or (nil, exitCode, err) on terminal error.
+func runDeviceFlow(
+	ctx context.Context, httpClient *http.Client, flags registerFlags,
+) (*auth.Token, int, error) {
+	oauth := auth.NewClient(flags.BaseURL, httpClient)
 	flow, err := oauth.Authorize(ctx, flags.Scope)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "register: device authorize:", err)
-		return errExitCode(err)
+		return nil, errExitCode(err), fmt.Errorf("device authorize: %w", err)
 	}
 	printVerification(os.Stdout, flow)
-
 	tok, err := flow.Poll(ctx)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "register: device poll:", err)
+		return nil, errExitCode(err), fmt.Errorf("device poll: %w", err)
+	}
+	return tok, 0, nil
+}
+
+// finishProvisioning derives machineID, generates CSR, posts /provision/cert
+// (with retry), persists artifacts, and runs the optional smoke probe.
+func finishProvisioning(
+	ctx context.Context, httpClient *http.Client, authDir string, caPEM []byte,
+	tok *auth.Token, flags registerFlags,
+) int {
+	appData, err := platform.AppDataDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register: app_data_dir:", err)
+		return 1
+	}
+	machineID, err := platform.ResolveMachineID(appData)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register: machine_id:", err)
+		return 1
+	}
+	key, csrPEM, err := auth.GenerateKeyAndCSR(machineID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register: csr:", err)
+		return 1
+	}
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register: pkcs8:", err)
+		return 1
+	}
+	fingerprint := "fp:" + machineID
+	resp, err := postProvisionCert(ctx, httpClient, flags.BaseURL,
+		tok.AccessToken, string(csrPEM), fingerprint)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register:", err)
 		return errExitCode(err)
 	}
-	_ = tok // wired in next task (CSR + /provision/cert)
+	if err := persistAll(authDir, resp, pkcs8); err != nil {
+		fmt.Fprintln(os.Stderr, "register:", err)
+		return errExitCode(err)
+	}
+	if !flags.NoSmoke {
+		smokeMTLS(authDir, flags.BaseURL, flags.TenantID, caPEM)
+	}
+	fmt.Printf("registered cert_path=%s expires_at=%s\n",
+		filepath.Join(authDir, "cert.pem"), resp.ExpiresAt)
 	return 0
 }
 
@@ -202,4 +263,100 @@ func errExitCode(err error) int {
 	default:
 		return 3
 	}
+}
+
+type provisionResp struct {
+	CertPEM      string `json:"cert_pem"`
+	CAChainPEM   string `json:"ca_chain_pem"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresAt    string `json:"expires_at"`
+}
+
+// postProvisionCert POSTs to /provision/cert with bearer auth + JSON body.
+// Retries on net err and 5xx per backoffSequence; aborts on 4xx.
+// Wraps final error with errProvisionFailed (exit 4).
+func postProvisionCert(
+	ctx context.Context, httpClient *http.Client, baseURL, accessToken,
+	csrPEM, fingerprint string,
+) (*provisionResp, error) {
+	body, err := json.Marshal(map[string]string{
+		"csr_pem":             csrPEM,
+		"machine_fingerprint": fingerprint,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal: %v", errProvisionFailed, err)
+	}
+	url := strings.TrimRight(baseURL, "/") + "/provision/cert"
+	var lastErr error
+	for attempt := 0; attempt < len(backoffSequence); attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("%w: %v", errProvisionFailed, ctx.Err())
+			case <-time.After(backoffSequence[attempt-1]):
+			}
+		}
+		raw, parsed, status, err := doProvisionRequest(ctx, httpClient, url, accessToken, body)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if status == http.StatusOK {
+			return parsed, nil
+		}
+		if status >= 400 && status < 500 {
+			return nil, fmt.Errorf("%w: status=%d body=%s", errProvisionFailed, status, raw)
+		}
+		lastErr = fmt.Errorf("status=%d body=%s", status, raw)
+	}
+	return nil, fmt.Errorf("%w: after %d attempts: %v",
+		errProvisionFailed, len(backoffSequence), lastErr)
+}
+
+func doProvisionRequest(
+	ctx context.Context, httpClient *http.Client, url, accessToken string, body []byte,
+) (rawBody []byte, parsed *provisionResp, status int, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("network: %w", err)
+	}
+	defer resp.Body.Close()
+	rawBody, _ = io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return rawBody, nil, resp.StatusCode, nil
+	}
+	var p provisionResp
+	if err := json.Unmarshal(rawBody, &p); err != nil {
+		return rawBody, nil, resp.StatusCode, fmt.Errorf("parse: %w", err)
+	}
+	return rawBody, &p, resp.StatusCode, nil
+}
+
+// persistAll writes key → cert → refresh in that order. Returns
+// errPersistFailed-wrapped error on any step.
+func persistAll(authDir string, resp *provisionResp, pkcs8DER []byte) error {
+	if err := auth.SaveKey(authDir, pkcs8DER); err != nil {
+		return fmt.Errorf("%w: SaveKey: %v", errPersistFailed, err)
+	}
+	if err := auth.SaveCert(authDir, []byte(resp.CertPEM)); err != nil {
+		return fmt.Errorf("%w: SaveCert: %v", errPersistFailed, err)
+	}
+	if err := auth.SaveRefreshToken(authDir, resp.RefreshToken); err != nil {
+		return fmt.Errorf("%w: SaveRefreshToken: %v", errPersistFailed, err)
+	}
+	return nil
+}
+
+// smokeMTLS placeholder; Task 8 wires real mTLS health probe.
+func smokeMTLS(authDir, baseURL, tenantID string, caPEM []byte) {
+	_ = authDir
+	_ = baseURL
+	_ = tenantID
+	_ = caPEM
 }

@@ -398,8 +398,6 @@ func installTestPin(t *testing.T, ca *testCA) {
 }
 
 // fastBackoff overrides backoffSequence for retry tests; restores in cleanup.
-//
-//nolint:unused // wired in Phase 6 steps 6-8 (register flow tests)
 func fastBackoff(t *testing.T) {
 	t.Helper()
 	prev := backoffSequence
@@ -408,17 +406,16 @@ func fastBackoff(t *testing.T) {
 }
 
 // setRegisterEnv points AGENT_AUTH_DIR + AGENT_APPDATA_DIR to fresh temp
-// directories isolated to the test. Returns both paths.
-//
-//nolint:unparam // authDir return wired in Phase 6 step 7 (persistence tests)
-func setRegisterEnv(t *testing.T) (authDir, appDataDir string) {
+// directories isolated to the test. Returns the auth dir; AGENT_APPDATA_DIR
+// is observable via os.Getenv if a test needs it.
+func setRegisterEnv(t *testing.T) string {
 	t.Helper()
-	authDir = t.TempDir()
-	appDataDir = t.TempDir()
+	authDir := t.TempDir()
+	appDataDir := t.TempDir()
 	t.Setenv("AGENT_AUTH_DIR", authDir)
 	t.Setenv("AGENT_APPDATA_DIR", appDataDir)
 	_ = url.Parse // keep import live for tasks that parse URLs
-	return authDir, appDataDir
+	return authDir
 }
 
 func TestPrintVerification_OutputsCodeAndURI(t *testing.T) {
@@ -447,7 +444,7 @@ func TestRunDeviceFlow_AccessDenied_ReturnsExit7(t *testing.T) {
 	ca := seedTestCA(t)
 	installTestPin(t, ca)
 	srv := mockCentralAPI(t, ca, mockOpts{DeviceTokenError: "access_denied"})
-	_, _ = setRegisterEnv(t)
+	_ = setRegisterEnv(t)
 	code := cmdRegister([]string{
 		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
 	})
@@ -460,7 +457,7 @@ func TestRunDeviceFlow_ExpiredToken_ReturnsExit6(t *testing.T) {
 	ca := seedTestCA(t)
 	installTestPin(t, ca)
 	srv := mockCentralAPI(t, ca, mockOpts{DeviceTokenError: "expired_token"})
-	_, _ = setRegisterEnv(t)
+	_ = setRegisterEnv(t)
 	code := cmdRegister([]string{
 		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
 	})
@@ -473,11 +470,106 @@ func TestRunDeviceFlow_InvalidGrant_ReturnsExit3(t *testing.T) {
 	ca := seedTestCA(t)
 	installTestPin(t, ca)
 	srv := mockCentralAPI(t, ca, mockOpts{DeviceTokenError: "invalid_grant"})
-	_, _ = setRegisterEnv(t)
+	_ = setRegisterEnv(t)
 	code := cmdRegister([]string{
 		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
 	})
 	if code != 3 {
 		t.Errorf("exit = %d, want 3", code)
+	}
+}
+
+func TestPostProvisionCert_4xx_NoRetry_ReturnsExit4(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	var attempts atomic.Int32
+	srv := mockCentralAPI(t, ca, mockOpts{
+		ProvisionStatuses: []int{400},
+		ProvisionAttempts: &attempts,
+	})
+	_ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	if code != 4 {
+		t.Errorf("exit = %d, want 4", code)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("provision attempts = %d, want 1 (no retry on 4xx)", got)
+	}
+}
+
+func TestPostProvisionCert_5xxThrice_ReturnsExit4_ThreeAttempts(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	var attempts atomic.Int32
+	srv := mockCentralAPI(t, ca, mockOpts{
+		ProvisionStatuses: []int{503, 503, 503},
+		ProvisionAttempts: &attempts,
+	})
+	_ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	if code != 4 {
+		t.Errorf("exit = %d, want 4", code)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("provision attempts = %d, want 3", got)
+	}
+}
+
+func TestPostProvisionCert_5xxThenSuccess_RetriesAndPersists(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	var attempts atomic.Int32
+	srv := mockCentralAPI(t, ca, mockOpts{
+		ProvisionStatuses: []int{503, 503, 200},
+		ProvisionAttempts: &attempts,
+	})
+	authDir := setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0", code)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("provision attempts = %d, want 3", got)
+	}
+	if _, err := os.Stat(authDir + "/cert.pem"); err != nil {
+		t.Errorf("cert.pem missing: %v", err)
+	}
+}
+
+func TestPostProvisionCert_FingerprintFormat(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	var seenFingerprint string
+	srv := mockCentralAPI(t, ca, mockOpts{
+		OnProvisionRequest: func(body []byte) {
+			var req struct {
+				MachineFingerprint string `json:"machine_fingerprint"`
+			}
+			_ = json.Unmarshal(body, &req)
+			seenFingerprint = req.MachineFingerprint
+		},
+	})
+	_ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0", code)
+	}
+	if !strings.HasPrefix(seenFingerprint, "fp:") {
+		t.Errorf("fingerprint = %q, want prefix fp:", seenFingerprint)
+	}
+	if len(seenFingerprint) < 8 {
+		t.Errorf("fingerprint len = %d, want >= 8", len(seenFingerprint))
 	}
 }
