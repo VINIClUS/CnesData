@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -406,5 +407,128 @@ func TestPersistRotated_KeyThenCert_RefreshUntouched(t *testing.T) {
 	gotRefresh, _ := os.ReadFile(filepath.Join(dir, "refresh.bin"))
 	if string(gotRefresh) != string(originalRefresh) {
 		t.Error("refresh.bin clobbered (should be untouched)")
+	}
+}
+
+// recordingFakeClient counts Reload() calls.
+type recordingFakeClient struct {
+	httpClient  *http.Client
+	reloadCount atomic.Int32
+}
+
+func (f *recordingFakeClient) HTTPClient() *http.Client { return f.httpClient }
+func (f *recordingFakeClient) Reload() error {
+	f.reloadCount.Add(1)
+	return nil
+}
+
+func TestRotateOnce_NotDue_ReturnsErrRotateNotDue(t *testing.T) {
+	ca := seedRotateCA(t)
+	dir := seedAuthDirWithCert(t, ca, 80*24*time.Hour) // ~99% remaining
+	var attempts atomic.Int32
+	srv := mockRotateServer(t, ca, mockRotateOpts{Attempts: &attempts})
+	r := auth.NewRotator(
+		&fakeRotateClient{httpClient: trustingClient(t, ca)},
+		dir, srv.URL, "abc12345",
+	)
+	r.SetBackoffForTest([]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond})
+	err := r.RotateOnce(t.Context())
+	if !errors.Is(err, auth.ErrRotateNotDue) {
+		t.Errorf("err = %v, want ErrRotateNotDue", err)
+	}
+	if got := attempts.Load(); got != 0 {
+		t.Errorf("server saw %d POSTs, want 0", got)
+	}
+}
+
+func TestRotateOnce_WithinWindow_RotatesPersistsReloads(t *testing.T) {
+	ca := seedRotateCA(t)
+	// notBefore=-24h, notAfter=+5d → total=6d. Advance clock to +4d so
+	// remaining=1d (~17%) is below 1/3 threshold (~2d).
+	dir := seedAuthDirWithCert(t, ca, 5*24*time.Hour)
+	var attempts atomic.Int32
+	srv := mockRotateServer(t, ca, mockRotateOpts{Attempts: &attempts})
+	rcv := &recordingFakeClient{httpClient: trustingClient(t, ca)}
+	r := auth.NewRotator(rcv, dir, srv.URL, "abc12345")
+	r.SetBackoffForTest([]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond})
+	r.SetClockForTest(func() time.Time { return time.Now().Add(4 * 24 * time.Hour) })
+	err := r.RotateOnce(t.Context())
+	if err != nil {
+		t.Fatalf("RotateOnce: %v", err)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("server POSTs = %d, want 1", got)
+	}
+	if rcv.reloadCount.Load() != 1 {
+		t.Errorf("reload count = %d, want 1", rcv.reloadCount.Load())
+	}
+	gotCert, _ := os.ReadFile(filepath.Join(dir, "cert.pem"))
+	if !strings.Contains(string(gotCert), "BEGIN CERTIFICATE") {
+		t.Error("cert.pem not overwritten with new PEM")
+	}
+}
+
+func TestRun_LoopExitsOnContextCancel(t *testing.T) {
+	ca := seedRotateCA(t)
+	dir := seedAuthDirWithCert(t, ca, 80*24*time.Hour)
+	srv := mockRotateServer(t, ca, mockRotateOpts{})
+	r := auth.NewRotator(
+		&fakeRotateClient{httpClient: trustingClient(t, ca)},
+		dir, srv.URL, "abc12345",
+	)
+	r.SetIntervalForTest(10 * time.Millisecond)
+	r.SetBackoffForTest([]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond})
+	r.SetRandForTest(func() float64 { return 0.5 })
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx) }()
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Run returned %v, want nil on ctx cancel", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Run did not exit within 500ms after ctx cancel")
+	}
+}
+
+func TestRun_LoopExitsOnTerminalError(t *testing.T) {
+	ca := seedRotateCA(t)
+	dir := seedAuthDirWithCert(t, ca, 5*24*time.Hour)
+	srv := mockRotateServer(t, ca, mockRotateOpts{Statuses: []int{401}})
+	r := auth.NewRotator(
+		&fakeRotateClient{httpClient: trustingClient(t, ca)},
+		dir, srv.URL, "abc12345",
+	)
+	r.SetIntervalForTest(10 * time.Millisecond)
+	r.SetBackoffForTest([]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond})
+	r.SetRandForTest(func() float64 { return 0.5 })
+	// Advance clock past most of cert lifetime so RotateOnce enters the
+	// rotation flow and hits the mock server's 401.
+	r.SetClockForTest(func() time.Time { return time.Now().Add(4 * 24 * time.Hour) })
+	err := r.Run(t.Context())
+	if !errors.Is(err, auth.ErrRotateTerminal) {
+		t.Errorf("err = %v, want ErrRotateTerminal", err)
+	}
+}
+
+func TestNextSleep_JitterStaysInTenPercent(t *testing.T) {
+	r := auth.NewRotator(
+		&fakeRotateClient{httpClient: http.DefaultClient},
+		t.TempDir(), "https://x.example", "abc12345",
+	)
+	interval := 10 * time.Second
+	r.SetIntervalForTest(interval)
+	minD := time.Duration(float64(interval) * 0.9)
+	maxD := time.Duration(float64(interval) * 1.1)
+	for i := 0; i < 200; i++ {
+		i := i // capture loop variable for closure
+		r.SetRandForTest(func() float64 { return float64(i) / 200.0 })
+		got := auth.NextSleepForTest(r)
+		if got < minD || got > maxD {
+			t.Errorf("nextSleep = %v, want in [%v, %v]", got, minD, maxD)
+		}
 	}
 }

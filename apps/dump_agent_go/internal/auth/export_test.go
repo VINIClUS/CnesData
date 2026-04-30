@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -57,4 +58,15 @@ func ExtractRotateRespForTest(resp any) (certPEM, expiresAt string) {
 		return "", ""
 	}
 	return r.CertPEM, r.ExpiresAt
+}
+
+// Phase 7 step 4 setters + extract.
+func (r *Rotator) SetIntervalForTest(d time.Duration)  { r.interval = d }
+func (r *Rotator) SetBackoffForTest(b []time.Duration) { r.backoff = b }
+func (r *Rotator) SetClockForTest(fn func() time.Time) { r.clock = fn }
+func (r *Rotator) SetRandForTest(fn func() float64)    { r.rand = fn }
+func (r *Rotator) SetLoggerForTest(l *slog.Logger)     { r.logger = l }
+
+func NextSleepForTest(r *Rotator) time.Duration {
+	return r.nextSleep()
 }

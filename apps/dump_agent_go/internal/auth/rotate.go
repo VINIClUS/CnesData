@@ -108,16 +108,63 @@ func isWithinWindow(cert *x509.Certificate, fraction float64, now time.Time) boo
 	return remaining < threshold
 }
 
-// Run is the loop entry. Implemented in Task 4.
 func (r *Rotator) Run(ctx context.Context) error {
-	_ = ctx
+	for {
+		err := r.RotateOnce(ctx)
+		switch {
+		case err == nil:
+			r.logger.Info("rotate_ok", "machine_id", r.machineID)
+		case errors.Is(err, ErrRotateNotDue):
+			r.logger.Debug("rotate_not_due")
+		case errors.Is(err, ErrRotateTerminal):
+			r.logger.Error("rotate_terminal_stop",
+				"err", err.Error(),
+				"recovery_hint", "run dumpagent register --force")
+			return err
+		default:
+			r.logger.Warn("rotate_attempt_failed", "err", err.Error())
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(r.nextSleep()):
+		}
+	}
+}
+
+func (r *Rotator) RotateOnce(ctx context.Context) error {
+	cert, err := parseCurrentCert(r.authDir)
+	if err != nil {
+		return fmt.Errorf("rotate: parse current cert: %w", err)
+	}
+	if !isWithinWindow(cert, r.fraction, r.clock()) {
+		return ErrRotateNotDue
+	}
+	key, csrPEM, err := GenerateKeyAndCSR(r.machineID)
+	if err != nil {
+		return fmt.Errorf("rotate: csr: %w", err)
+	}
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return fmt.Errorf("rotate: pkcs8: %w", err)
+	}
+	resp, err := postRotate(ctx, r.client.HTTPClient(), r.baseURL, string(csrPEM), r.backoff)
+	if err != nil {
+		return err
+	}
+	if err := persistRotated(r.authDir, resp, pkcs8); err != nil {
+		return fmt.Errorf("rotate: persist: %w", err)
+	}
+	if err := r.client.Reload(); err != nil {
+		return fmt.Errorf("rotate: reload: %w", err)
+	}
 	return nil
 }
 
-// RotateOnce is one cycle. Implemented in Tasks 2-3.
-func (r *Rotator) RotateOnce(ctx context.Context) error {
-	_ = ctx
-	return ErrRotateNotDue
+// nextSleep returns interval ± 10% based on r.rand.
+func (r *Rotator) nextSleep() time.Duration {
+	jitter := (r.rand() - 0.5) * 0.2 // [-0.1, +0.1)
+	return r.interval + time.Duration(float64(r.interval)*jitter)
 }
 
 func postRotate(
