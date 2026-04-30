@@ -9,6 +9,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -110,5 +112,75 @@ func TestInitMTLS_CertValid_ReturnsClient(t *testing.T) {
 	}
 	if mtls.HTTPClient() == nil {
 		t.Fatal("expected non-nil HTTPClient")
+	}
+}
+
+func TestInitMTLS_CertMissing_FailClosed(t *testing.T) {
+	ca := seedMTLSCA(t)
+	dir := t.TempDir()
+	t.Setenv("AGENT_AUTH_DIR", dir)
+	t.Setenv("AGENT_ALLOW_INSECURE", "")
+	withCAPinOverride(t, ca.pinPEM)
+
+	mtls, err := initMTLSClient(dir)
+	if err == nil {
+		t.Fatal("expected err for missing cert, got nil")
+	}
+	if mtls != nil {
+		t.Fatal("expected nil mtls when cert missing")
+	}
+}
+
+func TestInitMTLS_CertMissing_FallbackHonored(t *testing.T) {
+	ca := seedMTLSCA(t)
+	dir := t.TempDir()
+	t.Setenv("AGENT_AUTH_DIR", dir)
+	t.Setenv("AGENT_ALLOW_INSECURE", "true")
+	withCAPinOverride(t, ca.pinPEM)
+
+	mtls, err := initMTLSClient(dir)
+	if err != nil {
+		t.Fatalf("expected nil err with fallback flag, got %v", err)
+	}
+	if mtls != nil {
+		t.Fatal("expected nil mtls in fallback mode")
+	}
+}
+
+func TestInitMTLS_KeyParseFails_FailClosed(t *testing.T) {
+	ca := seedMTLSCA(t)
+	dir := seedMTLSAuthDir(t, ca)
+	t.Setenv("AGENT_ALLOW_INSECURE", "")
+	withCAPinOverride(t, ca.pinPEM)
+
+	if err := os.WriteFile(filepath.Join(dir, "key.bin"), []byte("not-pkcs8"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mtls, err := initMTLSClient(dir)
+	if err == nil {
+		t.Fatal("expected err for malformed key, got nil")
+	}
+	if mtls != nil {
+		t.Fatal("expected nil mtls when key parse fails")
+	}
+}
+
+func TestInitMTLS_KeyParseFails_FallbackHonored(t *testing.T) {
+	ca := seedMTLSCA(t)
+	dir := seedMTLSAuthDir(t, ca)
+	t.Setenv("AGENT_ALLOW_INSECURE", "true")
+	withCAPinOverride(t, ca.pinPEM)
+
+	if err := os.WriteFile(filepath.Join(dir, "key.bin"), []byte("not-pkcs8"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mtls, err := initMTLSClient(dir)
+	if err != nil {
+		t.Fatalf("expected nil err with fallback flag, got %v", err)
+	}
+	if mtls != nil {
+		t.Fatal("expected nil mtls in fallback mode")
 	}
 }
