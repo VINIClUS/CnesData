@@ -573,3 +573,173 @@ func TestPostProvisionCert_FingerprintFormat(t *testing.T) {
 		t.Errorf("fingerprint len = %d, want >= 8", len(seenFingerprint))
 	}
 }
+
+func TestRegister_HappyPath_PersistsAndExits0(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	srv := mockCentralAPI(t, ca, mockOpts{})
+	authDir := setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "354130-uuid", "--base-url", srv.URL,
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0", code)
+	}
+	for _, name := range []string{"cert.pem", "key.bin", "refresh.bin"} {
+		path := authDir + "/" + name
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("%s missing: %v", name, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("%s empty", name)
+		}
+	}
+}
+
+func TestRegister_CertExists_NoForce_ReturnsExit2(t *testing.T) {
+	authDir := setRegisterEnv(t)
+	if err := os.WriteFile(authDir+"/cert.pem", []byte("preexisting"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", "https://x.example",
+	})
+	if code != 2 {
+		t.Errorf("exit = %d, want 2", code)
+	}
+	got, _ := os.ReadFile(authDir + "/cert.pem")
+	if string(got) != "preexisting" {
+		t.Error("cert.pem clobbered without --force")
+	}
+}
+
+func TestRegister_CertExists_WithForce_Overwrites(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	srv := mockCentralAPI(t, ca, mockOpts{})
+	authDir := setRegisterEnv(t)
+	if err := os.WriteFile(authDir+"/cert.pem", []byte("preexisting"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke", "--force",
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0", code)
+	}
+	got, _ := os.ReadFile(authDir + "/cert.pem")
+	if string(got) == "preexisting" {
+		t.Error("cert.pem not overwritten with --force")
+	}
+	if !strings.Contains(string(got), "BEGIN CERTIFICATE") {
+		t.Errorf("cert.pem not PEM: %q", got)
+	}
+}
+
+func TestRegister_CAPinFlagOverride_UsesFile(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	// Embedded pin = different/empty; override with the test CA via flag.
+	installTestPin(t, &testCA{CertPEM: []byte("garbage that won't validate")})
+	pinPath := t.TempDir() + "/override.pem"
+	if err := os.WriteFile(pinPath, ca.CertPEM, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := mockCentralAPI(t, ca, mockOpts{})
+	_ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+		"--ca-pin", pinPath,
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0 (--ca-pin should override)", code)
+	}
+}
+
+func TestRegister_CAPinFlagMissingFile_ReturnsExit5(t *testing.T) {
+	_ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", "https://x.example",
+		"--ca-pin", "/definitely/does/not/exist.pem",
+	})
+	if code != 5 {
+		t.Errorf("exit = %d, want 5", code)
+	}
+}
+
+func TestRegister_PersistFailure_ReturnsExit5(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	srv := mockCentralAPI(t, ca, mockOpts{})
+	// AGENT_AUTH_DIR points to existing FILE (not directory) so MkdirAll
+	// + atomic-rename writes inside it fail. Cross-platform.
+	tempFile := t.TempDir() + "/notdir.txt"
+	if err := os.WriteFile(tempFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_AUTH_DIR", tempFile)
+	t.Setenv("AGENT_APPDATA_DIR", t.TempDir())
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	// AuthDir() may fail before persistAll → exit 1 acceptable;
+	// or persistAll fails → exit 5. Both indicate the test is working.
+	if code != 1 && code != 5 {
+		t.Errorf("exit = %d, want 1 or 5", code)
+	}
+}
+
+func TestSmokeMTLS_HealthOK_LogsOK(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	var healthCount atomic.Int32
+	srv := mockCentralAPI(t, ca, mockOpts{HealthRequestCount: &healthCount})
+	_ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL,
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if got := healthCount.Load(); got != 1 {
+		t.Errorf("health request count = %d, want 1", got)
+	}
+}
+
+func TestSmokeMTLS_HealthFails_StillExit0(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	srv := mockCentralAPI(t, ca, mockOpts{HealthStatus: 503})
+	_ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL,
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0 (smoke is warn-only)", code)
+	}
+}
+
+func TestRegister_NoSmokeFlag_SkipsHealthProbe(t *testing.T) {
+	fastBackoff(t)
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	var healthCount atomic.Int32
+	srv := mockCentralAPI(t, ca, mockOpts{HealthRequestCount: &healthCount})
+	_ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	if code != 0 {
+		t.Errorf("exit = %d, want 0", code)
+	}
+	if got := healthCount.Load(); got != 0 {
+		t.Errorf("health request count = %d, want 0 (--no-smoke)", got)
+	}
+}

@@ -68,3 +68,24 @@ driver pure-Go).
   in `docs/data-dictionary-bpa.md` when done. Production wire-protocol
   fidelity is asserted by upstream vendor claim + manual smoke via
   `spike_fb15.exe` against real FB 1.5 edge servers. Issue #51 closed by PR-B.
+
+## Phase 6: register subcommand (2026-04-30)
+
+- `cmd/dumpagent/cmd_register.go` — `dumpagent register --tenant-id <T> --base-url <URL>`
+  runs Device Flow + CSR + `/provision/cert` + DPAPI persist + mTLS smoke probe.
+- Exit codes: 0=ok, 1=local I/O, 2=usage, 3=net, 4=provision, 5=persist, 6=expired, 7=denied.
+- `internal/auth/ca_pin.go` embeds `internal/auth/root_ca.pem` as `auth.CAPinPEM`.
+  Repo holds a self-signed test placeholder. **Production binaries must
+  overlay the real CA before `go build`:**
+
+      cp /secure/ops/cnesdata-prod-ca.pem apps/dump_agent_go/internal/auth/root_ca.pem
+      make build-windows
+      git checkout -- apps/dump_agent_go/internal/auth/root_ca.pem
+
+  Override at runtime with `--ca-pin /path/to/ca.pem` for staging/dev.
+- Re-register: refused with exit 2 unless `--force` (overwrites all
+  three files: cert.pem + key.bin + refresh.bin).
+- Smoke probe is warn-only: a failed `/api/v1/system/health` does not
+  roll back the persisted cert. Pass `--no-smoke` for air-gapped installs.
+- Phase 7 = background rotation loop (`internal/auth/rotate.go`); Phase 8
+  flips the apiclient default to mTLS.

@@ -36,6 +36,7 @@ import (
 
 	"github.com/cnesdata/dumpagent/internal/auth"
 	"github.com/cnesdata/dumpagent/internal/platform"
+	"github.com/cnesdata/dumpagent/internal/transport"
 )
 
 type registerFlags struct {
@@ -353,10 +354,33 @@ func persistAll(authDir string, resp *provisionResp, pkcs8DER []byte) error {
 	return nil
 }
 
-// smokeMTLS placeholder; Task 8 wires real mTLS health probe.
+// smokeMTLS issues one mTLS GET /api/v1/system/health to verify the freshly
+// persisted cert handshakes correctly. Warn-only: any error is logged but
+// register still exits 0. caPEM is the same trust anchor used for bootstrap.
 func smokeMTLS(authDir, baseURL, tenantID string, caPEM []byte) {
-	_ = authDir
-	_ = baseURL
-	_ = tenantID
-	_ = caPEM
+	client, err := transport.NewMTLSClient(authDir, caPEM)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mtls_check_failed err=", err)
+		return
+	}
+	url := strings.TrimRight(baseURL, "/") + "/api/v1/system/health"
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mtls_check_failed err=", err)
+		return
+	}
+	req.Header.Set("X-Tenant-Id", tenantID)
+	resp, err := client.HTTPClient().Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mtls_check_failed err=", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		fmt.Fprintln(os.Stderr, "mtls_ok status=200")
+		return
+	}
+	fmt.Fprintln(os.Stderr, "mtls_check_failed status=", resp.StatusCode)
 }
