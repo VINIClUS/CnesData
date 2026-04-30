@@ -32,6 +32,8 @@ func dispatch(args []string) int {
 	switch cmd {
 	case "run":
 		return cmdRun(rest)
+	case "register":
+		return cmdRegister(rest)
 	case "service":
 		return cmdService(rest)
 	case "install":
@@ -77,6 +79,7 @@ Usage:
 
 Commands:
   run          Executar em foreground (dev/debug)
+  register     Enroll agent (RFC 8628 device flow + cert provisioning)
   service      (interno) Chamado pelo SCM do Windows
   install      Registrar como Windows Service
   uninstall    Remover do Windows Service
