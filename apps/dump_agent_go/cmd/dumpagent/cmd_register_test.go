@@ -410,7 +410,7 @@ func fastBackoff(t *testing.T) {
 // setRegisterEnv points AGENT_AUTH_DIR + AGENT_APPDATA_DIR to fresh temp
 // directories isolated to the test. Returns both paths.
 //
-//nolint:unused // wired in Phase 6 steps 6-8 (register flow tests)
+//nolint:unparam // authDir return wired in Phase 6 step 7 (persistence tests)
 func setRegisterEnv(t *testing.T) (authDir, appDataDir string) {
 	t.Helper()
 	authDir = t.TempDir()
@@ -419,4 +419,65 @@ func setRegisterEnv(t *testing.T) (authDir, appDataDir string) {
 	t.Setenv("AGENT_APPDATA_DIR", appDataDir)
 	_ = url.Parse // keep import live for tasks that parse URLs
 	return authDir, appDataDir
+}
+
+func TestPrintVerification_OutputsCodeAndURI(t *testing.T) {
+	flow := &auth.DeviceFlow{
+		UserCode:                "WDJB-MJHT",
+		VerificationURI:         "https://example.test/activate",
+		VerificationURIComplete: "https://example.test/activate?user_code=WDJB-MJHT",
+		ExpiresAt:               time.Date(2026, 4, 30, 18, 30, 0, 0, time.UTC),
+	}
+	var buf strings.Builder
+	printVerification(&buf, flow)
+	out := buf.String()
+	for _, want := range []string{
+		"user_code:        WDJB-MJHT",
+		"verification_uri: https://example.test/activate",
+		"complete_uri:",
+		"expires_at:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nfull:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunDeviceFlow_AccessDenied_ReturnsExit7(t *testing.T) {
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	srv := mockCentralAPI(t, ca, mockOpts{DeviceTokenError: "access_denied"})
+	_, _ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	if code != 7 {
+		t.Errorf("exit = %d, want 7", code)
+	}
+}
+
+func TestRunDeviceFlow_ExpiredToken_ReturnsExit6(t *testing.T) {
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	srv := mockCentralAPI(t, ca, mockOpts{DeviceTokenError: "expired_token"})
+	_, _ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	if code != 6 {
+		t.Errorf("exit = %d, want 6", code)
+	}
+}
+
+func TestRunDeviceFlow_InvalidGrant_ReturnsExit3(t *testing.T) {
+	ca := seedTestCA(t)
+	installTestPin(t, ca)
+	srv := mockCentralAPI(t, ca, mockOpts{DeviceTokenError: "invalid_grant"})
+	_, _ = setRegisterEnv(t)
+	code := cmdRegister([]string{
+		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
+	})
+	if code != 3 {
+		t.Errorf("exit = %d, want 3", code)
+	}
 }

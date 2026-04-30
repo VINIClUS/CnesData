@@ -18,13 +18,16 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/auth"
@@ -40,11 +43,9 @@ type registerFlags struct {
 }
 
 var (
-	errUsage = errors.New("register: usage error")
-	//nolint:unused // wired in Phase 6 step 6 (provision_cert flow)
+	errUsage           = errors.New("register: usage error")
 	errProvisionFailed = errors.New("register: provision_cert failed")
-	//nolint:unused // wired in Phase 6 step 7 (persistence flow)
-	errPersistFailed = errors.New("register: persist failed")
+	errPersistFailed   = errors.New("register: persist failed")
 )
 
 // backoffSequence drives /provision/cert retry. Tests in the same package
@@ -63,8 +64,43 @@ func cmdRegister(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	_ = flags
-	// Subsequent tasks populate this body.
+	caPEM, err := loadCAPin(flags.CAPinPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return errExitCode(err)
+	}
+	authDir, err := auth.AuthDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register:", err)
+		return 1
+	}
+	if !flags.Force && certExists(authDir) {
+		fmt.Fprintln(os.Stderr, "already_registered (use --force)")
+		return 2
+	}
+	bootstrapHTTP, err := newBootstrapClient(caPEM)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 5
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	oauth := auth.NewClient(flags.BaseURL, bootstrapHTTP)
+	flow, err := oauth.Authorize(ctx, flags.Scope)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register: device authorize:", err)
+		return errExitCode(err)
+	}
+	printVerification(os.Stdout, flow)
+
+	tok, err := flow.Poll(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "register: device poll:", err)
+		return errExitCode(err)
+	}
+	_ = tok // wired in next task (CSR + /provision/cert)
 	return 0
 }
 
@@ -135,4 +171,35 @@ func certExists(dir string) bool {
 		return false
 	}
 	return info.Mode().IsRegular()
+}
+
+// printVerification dumps the operator-facing fields to w. Format is
+// fixed-column for grep-friendly logs.
+func printVerification(w io.Writer, flow *auth.DeviceFlow) {
+	fmt.Fprintf(w, "user_code:        %s\n", flow.UserCode)
+	fmt.Fprintf(w, "verification_uri: %s\n", flow.VerificationURI)
+	fmt.Fprintf(w, "complete_uri:     %s\n", flow.VerificationURIComplete)
+	fmt.Fprintf(w, "expires_at:       %s\n", flow.ExpiresAt.UTC().Format(time.RFC3339))
+}
+
+// errExitCode maps device-flow + register sentinels to exit codes.
+func errExitCode(err error) int {
+	switch {
+	case errors.Is(err, auth.ErrAccessDenied):
+		return 7
+	case errors.Is(err, auth.ErrExpiredToken):
+		return 6
+	case errors.Is(err, auth.ErrInvalidGrant),
+		errors.Is(err, auth.ErrUnsupportedGrant),
+		errors.Is(err, auth.ErrInvalidClient):
+		return 3
+	case errors.Is(err, errProvisionFailed):
+		return 4
+	case errors.Is(err, errPersistFailed):
+		return 5
+	case errors.Is(err, errUsage):
+		return 2
+	default:
+		return 3
+	}
 }
