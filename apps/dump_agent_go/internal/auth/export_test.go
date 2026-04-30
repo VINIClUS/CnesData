@@ -8,3 +8,6 @@ func (c *Client) SetClockSleep(now func() time.Time, sleep func(time.Duration)) 
 	c.clock = now
 	c.sleep = sleep
 }
+
+// Phase 6: tests swap the embedded pin per-case.
+func SetCAPinPEM(b []byte) { CAPinPEM = b }
