@@ -165,11 +165,12 @@ func startRotatorIfPossible(ctx context.Context, machineID string) {
 	}
 	baseURL := envOr("CENTRAL_API_URL", "http://localhost:8000")
 	rotator := auth.NewRotator(mtlsClient, authDir, baseURL, machineID)
-	go func() {
+	_ = obs.SafeGo(func() error {
 		if rerr := rotator.Run(ctx); rerr != nil {
 			slog.Error("rotator_terminal", "err", rerr.Error())
 		}
-	}()
+		return nil
+	}, "rotator")
 	slog.Info("rotator_started", "machine_id", machineID)
 }
 
