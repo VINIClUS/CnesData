@@ -174,6 +174,26 @@ func startRotatorIfPossible(ctx context.Context, machineID string) {
 	slog.Info("rotator_started", "machine_id", machineID)
 }
 
+// initMTLSClient constructs the shared mTLS http.Client used by both
+// the rotator (Phase 7) and apiclient (Phase 8). Fail-closed by
+// default: cert load failures abort boot. Set AGENT_ALLOW_INSECURE=true
+// to fall back to plain HTTP during fleet rollout. Logs the outcome
+// once at boot; callers do NOT re-log.
+func initMTLSClient(authDir string) (*transport.Client, error) {
+	mtls, err := transport.NewMTLSClient(authDir, auth.CAPinPEM)
+	if err == nil {
+		slog.Info("mtls_init_ok")
+		return mtls, nil
+	}
+	if os.Getenv("AGENT_ALLOW_INSECURE") == "true" {
+		slog.Warn("mtls_fallback_active",
+			"reason", err.Error(),
+			"AGENT_ALLOW_INSECURE", "true")
+		return nil, nil
+	}
+	return nil, err
+}
+
 func preFlightClockCheck(ctx context.Context) error {
 	skew, err := platform.CheckClockSkew(ctx, nil, 5*time.Second)
 	if err != nil {
