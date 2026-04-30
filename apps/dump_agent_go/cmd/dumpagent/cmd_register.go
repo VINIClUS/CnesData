@@ -127,3 +127,12 @@ func newBootstrapClient(caPEM []byte) (*http.Client, error) {
 		Timeout:   60 * time.Second,
 	}, nil
 }
+
+// certExists reports whether <dir>/cert.pem exists (any size, regular file).
+func certExists(dir string) bool {
+	info, err := os.Stat(dir + "/cert.pem")
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
+}

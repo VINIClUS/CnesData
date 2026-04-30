@@ -134,3 +134,20 @@ func mustReadEmbeddedPin(t *testing.T) []byte {
 	}
 	return auth.CAPinPEM
 }
+
+func TestCertExists_NoFile_ReturnsFalse(t *testing.T) {
+	dir := t.TempDir()
+	if certExists(dir) {
+		t.Error("certExists empty dir = true, want false")
+	}
+}
+
+func TestCertExists_FilePresent_ReturnsTrue(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/cert.pem", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !certExists(dir) {
+		t.Error("certExists with file = false, want true")
+	}
+}
