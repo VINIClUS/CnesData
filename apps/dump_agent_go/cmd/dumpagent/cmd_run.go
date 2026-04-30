@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
+	"github.com/cnesdata/dumpagent/internal/auth"
 	"github.com/cnesdata/dumpagent/internal/fbdriver"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/platform"
+	"github.com/cnesdata/dumpagent/internal/transport"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/worker"
 )
@@ -76,6 +78,8 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 1
 	}
 	slog.Info("machine_id_resolved", "machine_id", machineID)
+
+	startRotatorIfPossible(ctx, machineID)
 
 	slog.Info("run_flags",
 		"bpa_gdb", flags.BPAGDBPath,
@@ -144,6 +148,30 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	}
 	slog.Info("shutdown_clean")
 	return 0
+}
+
+func startRotatorIfPossible(ctx context.Context, machineID string) {
+	authDir, err := auth.AuthDir()
+	if err != nil {
+		slog.Warn("auth_dir_init", "err", err.Error())
+		return
+	}
+	mtlsClient, err := transport.NewMTLSClient(authDir, auth.CAPinPEM)
+	if err != nil {
+		slog.Warn("mtls_client_init_skipping_rotation",
+			"err", err.Error(),
+			"hint", "agent not yet registered? run 'dumpagent register'")
+		return
+	}
+	baseURL := envOr("CENTRAL_API_URL", "http://localhost:8000")
+	rotator := auth.NewRotator(mtlsClient, authDir, baseURL, machineID)
+	_ = obs.SafeGo(func() error {
+		if rerr := rotator.Run(ctx); rerr != nil {
+			slog.Error("rotator_terminal", "err", rerr.Error())
+		}
+		return nil
+	}, "rotator")
+	slog.Info("rotator_started", "machine_id", machineID)
 }
 
 func preFlightClockCheck(ctx context.Context) error {

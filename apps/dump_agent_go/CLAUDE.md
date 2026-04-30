@@ -89,3 +89,24 @@ driver pure-Go).
   roll back the persisted cert. Pass `--no-smoke` for air-gapped installs.
 - Phase 7 = background rotation loop (`internal/auth/rotate.go`); Phase 8
   flips the apiclient default to mTLS.
+
+## Phase 7: cert rotation loop (2026-04-30)
+
+- `internal/auth/rotate.go` — `Rotator` background goroutine spawned in
+  `dumpagent run` when cert is present. Wakes every ~6h ± 10% jitter,
+  checks `cert.pem` TTL, calls `POST /provision/cert/rotate` over mTLS
+  when remaining < total/3 (~30 days for default 90-day cert).
+- On 4xx (cert_revoked / agent_revoked / invalid_request) → loop logs
+  `rotate_terminal_stop` and exits. Operator must run
+  `dumpagent register --force` to re-enroll.
+- On 5xx / network err → 3x exponential backoff (1s/2s/4s); on exhaustion
+  loop logs `rotate_attempt_failed` and retries on next tick.
+- Persist order: `auth.SaveKey` → `auth.SaveCert`. `refresh.bin` is NOT
+  touched (server preserves the existing refresh_token).
+- After persist, calls `transport.Client.Reload()` for in-process
+  hot-swap (atomic.Pointer in mtls.go). New TLS handshakes use the new
+  cert without restart.
+- `cmd/dumpagent/cmd_run.go` wires via `startRotatorIfPossible`: missing
+  cert / mTLS init failure logs warn and continues without rotation
+  (agent runs in non-mTLS mode until `dumpagent register`).
+- Phase 8 = wire `apiclient.Adapter` to use `mtlsClient.HTTPClient()`.
