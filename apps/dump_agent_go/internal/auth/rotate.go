@@ -120,12 +120,72 @@ func (r *Rotator) RotateOnce(ctx context.Context) error {
 	return ErrRotateNotDue
 }
 
-// Compile-time guards for symbols wired in Tasks 2-4 (parseCurrentCert,
-// isWithinWindow, postRotate, persistRotated). Removed as those wire up.
-var (
-	_ = io.Copy
-	_ = json.Marshal
-	_ = http.MethodPost
-	_ = strings.TrimRight
-	_ = rotateResp{}
-)
+func postRotate(
+	ctx context.Context, httpClient *http.Client, baseURL, csrPEM string,
+	backoff []time.Duration,
+) (*rotateResp, error) {
+	body, err := json.Marshal(map[string]string{"csr_pem": csrPEM})
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal: %v", ErrRotateRetriesExhausted, err)
+	}
+	url := strings.TrimRight(baseURL, "/") + "/provision/cert/rotate"
+	var lastErr error
+	for attempt := 0; attempt < len(backoff); attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("%w: %v", ErrRotateRetriesExhausted, ctx.Err())
+			case <-time.After(backoff[attempt-1]):
+			}
+		}
+		raw, parsed, status, err := doRotateRequest(ctx, httpClient, url, body)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if status == http.StatusOK {
+			return parsed, nil
+		}
+		if status >= 400 && status < 500 {
+			return nil, fmt.Errorf("%w: status=%d body=%s", ErrRotateTerminal, status, raw)
+		}
+		lastErr = fmt.Errorf("status=%d body=%s", status, raw)
+	}
+	return nil, fmt.Errorf("%w: %v", ErrRotateRetriesExhausted, lastErr)
+}
+
+func doRotateRequest(
+	ctx context.Context, httpClient *http.Client, url string, body []byte,
+) (rawBody []byte, parsed *rotateResp, status int, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("network: %w", err)
+	}
+	defer resp.Body.Close()
+	rawBody, _ = io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return rawBody, nil, resp.StatusCode, nil
+	}
+	var p rotateResp
+	if err := json.Unmarshal(rawBody, &p); err != nil {
+		return rawBody, nil, resp.StatusCode, fmt.Errorf("parse: %w", err)
+	}
+	return rawBody, &p, resp.StatusCode, nil
+}
+
+// persistRotated writes new key + new cert atomically. Refresh token is
+// preserved (server doesn't return one in rotate response).
+func persistRotated(authDir string, resp *rotateResp, pkcs8DER []byte) error {
+	if err := SaveKey(authDir, pkcs8DER); err != nil {
+		return fmt.Errorf("save key: %w", err)
+	}
+	if err := SaveCert(authDir, []byte(resp.CertPEM)); err != nil {
+		return fmt.Errorf("save cert: %w", err)
+	}
+	return nil
+}

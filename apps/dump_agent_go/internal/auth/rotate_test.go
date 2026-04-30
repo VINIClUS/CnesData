@@ -5,14 +5,21 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"io"
 	"math/big"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -187,5 +194,217 @@ func TestIsWithinWindow_AtBoundary_ReturnsTrue(t *testing.T) {
 	}
 	if !auth.IsWithinWindowForTest(cert, 1.0/3.0, now) {
 		t.Error("25% remaining (< 33%) should be within window")
+	}
+}
+
+// mockRotateOpts customizes mockRotateServer behavior.
+type mockRotateOpts struct {
+	Statuses     []int         // sequential per-attempt statuses; 200 = success
+	Attempts     *atomic.Int32 // optional caller-visible counter
+	OnRequest    func(body []byte)
+	NewCertPEM   []byte // optional cert payload to return on 200
+	NewExpiresAt string // optional RFC3339 string
+}
+
+// mockRotateServer starts an httptest TLS server with /provision/cert/rotate.
+func mockRotateServer(t *testing.T, ca *rotateCA, opts mockRotateOpts) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	var attempt atomic.Int32
+	mux.HandleFunc("/provision/cert/rotate", func(w http.ResponseWriter, r *http.Request) {
+		idx := attempt.Add(1) - 1
+		if opts.Attempts != nil {
+			opts.Attempts.Add(1)
+		}
+		body, _ := io.ReadAll(r.Body)
+		defer r.Body.Close()
+		if opts.OnRequest != nil {
+			opts.OnRequest(body)
+		}
+		statuses := opts.Statuses
+		if len(statuses) == 0 {
+			statuses = []int{200}
+		}
+		var status int
+		if int(idx) >= len(statuses) {
+			status = statuses[len(statuses)-1]
+		} else {
+			status = statuses[idx]
+		}
+		if status != 200 {
+			http.Error(w, "mock-fail", status)
+			return
+		}
+		certPEM := opts.NewCertPEM
+		if len(certPEM) == 0 {
+			certPEM = ca.signLeaf(t,
+				time.Now().Add(-time.Minute),
+				time.Now().Add(90*24*time.Hour),
+			)
+		}
+		expires := opts.NewExpiresAt
+		if expires == "" {
+			expires = time.Now().Add(90 * 24 * time.Hour).UTC().Format(time.RFC3339)
+		}
+		caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cert_pem":     string(certPEM),
+			"ca_chain_pem": string(caPEM),
+			"expires_at":   expires,
+		})
+	})
+
+	srv := httptest.NewUnstartedServer(mux)
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("server leaf key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(99),
+		Subject:      pkix.Name{CommonName: "127.0.0.1"},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &leafKey.PublicKey, ca.key)
+	if err != nil {
+		t.Fatalf("server leaf: %v", err)
+	}
+	srv.TLS = &tls.Config{
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{leafDER},
+			PrivateKey:  leafKey,
+		}},
+		MinVersion: tls.VersionTLS13,
+	}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// trustingClient returns an http.Client that trusts the given CA cert.
+func trustingClient(t *testing.T, ca *rotateCA) *http.Client {
+	t.Helper()
+	pool := x509.NewCertPool()
+	pool.AddCert(ca.cert)
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:    pool,
+				MinVersion: tls.VersionTLS13,
+			},
+		},
+		Timeout: 5 * time.Second,
+	}
+}
+
+func TestPostRotate_Success_ReturnsParsedResp(t *testing.T) {
+	ca := seedRotateCA(t)
+	srv := mockRotateServer(t, ca, mockRotateOpts{})
+	httpClient := trustingClient(t, ca)
+	resp, err := auth.PostRotateForTest(
+		t.Context(), httpClient, srv.URL, "fake-csr",
+		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+	)
+	if err != nil {
+		t.Fatalf("postRotate: %v", err)
+	}
+	certPEM, expires := auth.ExtractRotateRespForTest(resp)
+	if !strings.Contains(certPEM, "BEGIN CERTIFICATE") {
+		t.Errorf("CertPEM not PEM: %q", certPEM)
+	}
+	if expires == "" {
+		t.Error("ExpiresAt empty")
+	}
+}
+
+func TestPostRotate_4xx_ReturnsErrRotateTerminal(t *testing.T) {
+	ca := seedRotateCA(t)
+	var attempts atomic.Int32
+	srv := mockRotateServer(t, ca, mockRotateOpts{
+		Statuses: []int{401},
+		Attempts: &attempts,
+	})
+	httpClient := trustingClient(t, ca)
+	_, err := auth.PostRotateForTest(
+		t.Context(), httpClient, srv.URL, "csr",
+		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+	)
+	if !errors.Is(err, auth.ErrRotateTerminal) {
+		t.Errorf("err = %v, want ErrRotateTerminal", err)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("attempts = %d, want 1 (no retry on 4xx)", got)
+	}
+}
+
+func TestPostRotate_5xxThrice_ReturnsErrRetriesExhausted(t *testing.T) {
+	ca := seedRotateCA(t)
+	var attempts atomic.Int32
+	srv := mockRotateServer(t, ca, mockRotateOpts{
+		Statuses: []int{503, 503, 503},
+		Attempts: &attempts,
+	})
+	httpClient := trustingClient(t, ca)
+	_, err := auth.PostRotateForTest(
+		t.Context(), httpClient, srv.URL, "csr",
+		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+	)
+	if !errors.Is(err, auth.ErrRotateRetriesExhausted) {
+		t.Errorf("err = %v, want ErrRotateRetriesExhausted", err)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("attempts = %d, want 3", got)
+	}
+}
+
+func TestPostRotate_5xxThenSuccess_RetriesAndReturns(t *testing.T) {
+	ca := seedRotateCA(t)
+	var attempts atomic.Int32
+	srv := mockRotateServer(t, ca, mockRotateOpts{
+		Statuses: []int{503, 503, 200},
+		Attempts: &attempts,
+	})
+	httpClient := trustingClient(t, ca)
+	resp, err := auth.PostRotateForTest(
+		t.Context(), httpClient, srv.URL, "csr",
+		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+	)
+	if err != nil {
+		t.Fatalf("postRotate: %v", err)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("attempts = %d, want 3", got)
+	}
+	certPEM, _ := auth.ExtractRotateRespForTest(resp)
+	if certPEM == "" {
+		t.Error("resp empty after success")
+	}
+}
+
+func TestPersistRotated_KeyThenCert_RefreshUntouched(t *testing.T) {
+	ca := seedRotateCA(t)
+	dir := seedAuthDirWithCert(t, ca, 30*24*time.Hour)
+	originalRefresh, err := os.ReadFile(filepath.Join(dir, "refresh.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newCertPEM := ca.signLeaf(t, time.Now(), time.Now().Add(90*24*time.Hour))
+	resp := auth.MakeRotateRespForTest(string(newCertPEM), "ca-chain", "2026-07-30T00:00:00Z")
+	pkcs8 := []byte("fake-pkcs8-bytes-for-test")
+	if err := auth.PersistRotatedForTest(dir, resp, pkcs8); err != nil {
+		t.Fatalf("persistRotated: %v", err)
+	}
+	gotCert, _ := os.ReadFile(filepath.Join(dir, "cert.pem"))
+	if string(gotCert) != string(newCertPEM) {
+		t.Error("cert.pem not overwritten with new PEM")
+	}
+	gotRefresh, _ := os.ReadFile(filepath.Join(dir, "refresh.bin"))
+	if string(gotRefresh) != string(originalRefresh) {
+		t.Error("refresh.bin clobbered (should be untouched)")
 	}
 }
