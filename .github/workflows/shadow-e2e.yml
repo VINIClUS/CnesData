@@ -40,13 +40,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e packages/cnes_domain packages/cnes_infra
-          pip install pytest polars faker dbfread
+          pip install pytest polars faker dbfread fdb
 
       - name: Start shadow containers
         run: |
-          docker compose -f docker-compose.shadow.yml up -d
+          docker compose -f docker-compose.yml --profile shadow up -d
           for i in $(seq 1 30); do
-              if docker inspect --format='{{.State.Health.Status}}' cnesdata-minio-shadow-1 2>/dev/null | grep -q healthy; then
+              if docker inspect --format='{{.State.Health.Status}}' cnesdata_minio_shadow 2>/dev/null | grep -q healthy; then
                   echo "minio_ready"
                   break
               fi
@@ -56,14 +56,12 @@ jobs:
 
       - name: Restore seed
         run: bash scripts/seed_restore.sh docs/fixtures/shadow-seed/
-        env:
-          COMPOSE_PROJECT: cnesdata
 
       - name: Generate Python baseline
         run: |
           mkdir -p /tmp/py_baseline
           python scripts/shadow_baseline_py.py \
-            --port 3051 --db /firebird/data/shadow.fdb \
+            --port 3052 --db /firebird/data/shadow.fdb \
             --cod-mun 354130 \
             --output /tmp/py_baseline/
 
@@ -73,7 +71,7 @@ jobs:
         run: |
           mkdir -p /tmp/go_shadow
           go run ./cmd/shadow_extract \
-            -port 3051 -db /firebird/data/shadow.fdb \
+            -port 3052 -db /firebird/data/shadow.fdb \
             -cod-mun 354130 \
             -output /tmp/go_shadow/
 
@@ -99,7 +97,7 @@ jobs:
           name: shadow-diff-report-${{ github.run_number }}
           path: /tmp/reports/
 
-      - name: Evaluate streak + trigger cleanup (main/develop branches only)
+      - name: Evaluate streak + drift report (main/develop branches only)
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -134,13 +132,6 @@ jobs:
 
           echo "consecutive_green_streak=$streak" >> $GITHUB_STEP_SUMMARY
 
-          if [ "$streak" -ge 3 ]; then
-              echo "threshold_reached=dispatching cleanup-auto" >> $GITHUB_STEP_SUMMARY
-              gh workflow run cleanup-auto.yml \
-                  -f target_branch="${GITHUB_REF_NAME}" 2>/dev/null || \
-                  echo "cleanup_dispatch_failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
       - name: Cleanup containers
         if: always()
-        run: docker compose -f docker-compose.shadow.yml down -v
+        run: docker compose -f docker-compose.yml --profile shadow down -v

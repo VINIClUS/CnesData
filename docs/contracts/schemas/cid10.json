@@ -1,0 +1,33 @@
+{
+  "properties": {
+    "capitulo": {
+      "maximum": 22,
+      "minimum": 1,
+      "title": "Capitulo",
+      "type": "integer"
+    },
+    "cod_cid": {
+      "pattern": "^[A-Z]\\d{2,3}$",
+      "title": "Cod Cid",
+      "type": "string"
+    },
+    "descricao": {
+      "minLength": 1,
+      "title": "Descricao",
+      "type": "string"
+    },
+    "sk_cid": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Cid",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sk_cid",
+    "cod_cid",
+    "descricao",
+    "capitulo"
+  ],
+  "title": "CID10",
+  "type": "object"
+}

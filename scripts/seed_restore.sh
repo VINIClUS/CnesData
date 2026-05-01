@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# Executa SQL seed dentro do container firebird-shadow do docker-compose.shadow.yml.
+# Executa SQL seed dentro do container firebird-shadow do docker-compose.yml (profile shadow).
 # Uso: scripts/seed_restore.sh [seed_dir]
 #
-# Espera container nomeado <project>-firebird-shadow-1. COMPOSE_PROJECT env var
-# override o prefixo; default 'cnesdata'.
+# Espera container nomeado cnesdata_fb_shadow (container_name fixo na compose).
 
 set -euo pipefail
 
 SEED_DIR="${1:-docs/fixtures/shadow-seed}"
-PROJECT="${COMPOSE_PROJECT:-cnesdata}"
-CONTAINER="${PROJECT}-firebird-shadow-1"
+CONTAINER="cnesdata_fb_shadow"
 DB_PATH="/firebird/data/shadow.fdb"
 
 if [ ! -d "$SEED_DIR" ]; then
@@ -19,7 +17,7 @@ fi
 
 if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
     echo "container_not_running=$CONTAINER" >&2
-    echo "  run 'docker compose -f docker-compose.shadow.yml up -d' first" >&2
+    echo "  run 'docker compose -f docker-compose.yml --profile shadow up -d' first" >&2
     exit 1
 fi
 

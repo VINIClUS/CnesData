@@ -26,6 +26,9 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (admin)
 - `TenantMiddleware` — extrai `X-Tenant-Id` header e chama `set_tenant_id()`
 - Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
+- AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
+- /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
+- /activate/confirm — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit 10/min)
 
 ## Objectives
 
@@ -60,6 +63,12 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `API_PORT` | opcional | Default `8000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | opcional | Tracing (se OTel SDK instalado) |
 | `ENABLE_REAPER` | opcional | `true` em 1 réplica para reaper rodar (futuro) |
+| `AUTH_CA_CERT_PATH` | sim (no boot) | Path to PEM root CA cert |
+| `AUTH_CA_KEY_PATH` | sim (no boot) | Path to PEM root CA private key |
+| `AUTH_DEVICE_VERIFICATION_URI` | sim (no boot) | Public URL of dashboard /activate page |
+| `AUTH_DEVICE_CODE_TTL` | não | seconds; device_code TTL (default 600) |
+| `AUTH_ACCESS_TOKEN_TTL` | não | seconds; access_token TTL (default 300) |
+| `AUTH_CERT_TTL_DAYS` | não | leaf cert validity (default 90) |
 
 ## Module Map
 
@@ -71,6 +80,9 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `src/central_api/routes/health.py` | `/api/v1/system/health` — ping DB |
 | `src/central_api/routes/jobs.py` | `/api/v1/jobs/*` — fila, artifact, heartbeat, complete, fail |
 | `src/central_api/routes/admin.py` | `/api/v1/admin/*` — reap-leases, ops |
+| `routes/dashboard.py` | /api/v1/dashboard/* |
+| `routes/oauth.py`     | /activate/confirm (rate-limited via slowapi) |
+| `repositories/dashboard_repo.py` | DashboardRepo (user/tenant/audit + agents/status + recent_runs) |
 
 ## Gotchas
 

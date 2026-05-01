@@ -1,10 +1,12 @@
-# Dicionário de Dados — Gold Schema v2 (Proposta)
+# Dicionário de Dados — Gold Schema v2
 
 - **Versão:** 2.0
 - **Data:** 2026-04-21
-- **Status:** Design docs-only — não implementado
+- **Status:** Implementado em `010_gold_v2_fresh` (2026-04-22)
 - **Autor:** Claude (co-design com Vinícius Andre, session 2026-04-21)
-- **Spec de referência:** `docs/superpowers/specs/2026-04-21-gold-schema-refactor-sia-bpa-design.md`
+- **Spec de referência:** `docs/superpowers/specs/2026-04-21-gold-v2-implementation-design.md`
+- **Migration:** `packages/cnes_infra/src/cnes_infra/alembic/versions/010_gold_v2_fresh.py`
+- **Contracts:** `packages/cnes_contracts/` (pydantic models + JSON Schema em `docs/contracts/schemas/`)
 
 Dicionários correlatos (fontes que alimentam Gold v2):
 
@@ -554,7 +556,9 @@ merge JSON; senão INSERT.
 
 ---
 
-## 10. Integrações novas — SIA + BPA (pós-approval)
+## 10. Integrações novas — SIA + BPA
+
+**Status:** Implementado (spec `docs/superpowers/specs/2026-04-23-bpa-sia-pipeline-design.md`, branch `feat/bpa-sia-pipeline`, 2026-04-23).
 
 ### 10.1 `dump_agent_go` (edge)
 
@@ -570,6 +574,11 @@ Novas intents em `apps/dump_agent_go/internal/intent/`:
 
 Cada intent produz 1 Parquet por competência, registrado em
 `landing.raw_extractions`.
+
+> **Local test fixture available:** `docs/fixtures/firebird/` — embedded
+> FB 1.5.6 DLL for local/CI tests against BPA-Mag GDBs. Setup via
+> `python scripts/fb156_setup.py`. x86-only; consumers must run 32-bit.
+> See fixture README for consumer patterns.
 
 ### 10.2 `data_processor` (worker)
 

@@ -21,3 +21,10 @@ htmlcov/
 .coverage
 coverage.xml
 *.md
+node_modules/
+**/node_modules/
+**/coverage/
+**/playwright-report/
+**/test-results/
+**/.next/
+**/tsconfig.tsbuildinfo

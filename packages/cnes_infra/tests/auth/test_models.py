@@ -1,0 +1,87 @@
+"""Pydantic OAuth response models."""
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from pydantic import ValidationError
+
+from cnes_infra.auth import (
+    CertProvisionResponse,
+    DeviceAuthorizationRequest,
+    DeviceAuthorizationResponse,
+    TokenResponse,
+)
+
+
+def test_device_authorization_response_serializa_campos_rfc8628():
+    resp = DeviceAuthorizationResponse(
+        device_code="abc123",
+        user_code="WDJB-MJHT",
+        verification_uri="https://central/activate",
+        verification_uri_complete="https://central/activate?code=WDJB-MJHT",
+        expires_in=600,
+        interval=5,
+    )
+    payload = resp.model_dump()
+    assert payload["device_code"] == "abc123"
+    assert payload["user_code"] == "WDJB-MJHT"
+    assert payload["expires_in"] == 600
+
+
+def test_token_response_serializa_bearer():
+    resp = TokenResponse(
+        access_token="at_xyz",  # noqa: S106
+        token_type="Bearer",  # noqa: S106
+        expires_in=300,
+        refresh_token="rt_xyz",  # noqa: S106
+    )
+    assert resp.token_type == "Bearer"  # noqa: S105
+    assert resp.refresh_token == "rt_xyz"  # noqa: S105
+
+
+def test_cert_provision_response_serializa_pem():
+    resp = CertProvisionResponse(
+        cert_pem="-----BEGIN CERTIFICATE-----\nMIIB...",
+        ca_chain_pem="-----BEGIN CERTIFICATE-----\nMIIC...",
+        refresh_token="rt_xyz",  # noqa: S106
+        expires_at=datetime.now(UTC) + timedelta(days=90),
+    )
+    assert "BEGIN CERTIFICATE" in resp.cert_pem
+
+
+def test_device_authorization_request_aceita_payload_valido():
+    req = DeviceAuthorizationRequest(client_id="agent", scope="agent.provision")
+    assert req.client_id == "agent"
+    assert req.scope == "agent.provision"
+
+
+def test_device_authorization_request_rejeita_client_id_invalido():
+    with pytest.raises(ValidationError):
+        DeviceAuthorizationRequest(client_id="x", scope="agent.provision")
+
+
+def test_device_authorization_request_rejeita_scope_invalido():
+    with pytest.raises(ValidationError):
+        DeviceAuthorizationRequest(client_id="agent", scope="other")
+
+
+def test_token_response_aceita_refresh_token_none():
+    resp = TokenResponse(access_token="x", expires_in=300, refresh_token=None)  # noqa: S106
+    assert resp.refresh_token is None
+
+
+def test_token_response_default_refresh_token_none():
+    resp = TokenResponse(access_token="x", expires_in=300)  # noqa: S106
+    assert resp.refresh_token is None
+
+
+def test_cert_rotate_response_serializa_pem_e_expires_at():
+    from cnes_infra.auth import CertRotateResponse
+    expires = datetime.now(UTC) + timedelta(days=90)
+    resp = CertRotateResponse(
+        cert_pem="-----BEGIN CERTIFICATE-----\nABC",
+        ca_chain_pem="-----BEGIN CERTIFICATE-----\nXYZ",
+        expires_at=expires,
+    )
+    assert "BEGIN CERTIFICATE" in resp.cert_pem
+    assert "BEGIN CERTIFICATE" in resp.ca_chain_pem
+    assert resp.expires_at == expires

@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "FileManifest": {
+      "properties": {
+        "fato_subtype": {
+          "enum": [
+            "CNES_VINCULO",
+            "SIHD_INTERNACAO",
+            "SIHD_PROC_AIH",
+            "BPA_C",
+            "BPA_I",
+            "SIA_APA",
+            "SIA_BPI",
+            "SIA_BPIHST",
+            "DIM_SIGTAP",
+            "DIM_MUNICIPIO"
+          ],
+          "title": "Fato Subtype",
+          "type": "string"
+        },
+        "minio_key": {
+          "pattern": "^[\\w\\-./]+\\.parquet\\.gz$",
+          "title": "Minio Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "minio_key",
+        "fato_subtype",
+        "size_bytes",
+        "sha256"
+      ],
+      "title": "FileManifest",
+      "type": "object"
+    },
+    "JobStatus": {
+      "enum": [
+        "PENDING",
+        "UPLOADED",
+        "PROCESSING",
+        "INGESTED",
+        "FAILED",
+        "DLQ"
+      ],
+      "title": "JobStatus",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "competencia": {
+      "format": "date",
+      "title": "Competencia",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "depends_on": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Depends On",
+      "type": "array"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/FileManifest"
+      },
+      "minItems": 1,
+      "title": "Files",
+      "type": "array"
+    },
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "lease_until": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lease Until"
+    },
+    "registered_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Registered At"
+    },
+    "source_type": {
+      "enum": [
+        "CNES_LOCAL",
+        "CNES_NACIONAL",
+        "SIHD",
+        "BPA_MAG",
+        "SIA_LOCAL"
+      ],
+      "title": "Source Type",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/JobStatus"
+    },
+    "tenant_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Tenant Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "tenant_id",
+    "source_type",
+    "competencia",
+    "files",
+    "status",
+    "created_at"
+  ],
+  "title": "Extraction",
+  "type": "object"
+}

@@ -67,6 +67,27 @@ aplicadas por serviço externo via SQL JOINs contra o Gold.
 └───────────────────────────────────────────────────────────────┘
 ```
 
+## BPA + SIA edge flow (2026-04)
+
+`dump_agent_go` also handles two additional sources alongside CNES + SIHD:
+
+- **BPA-Mag:** reads FB 1.5 `BPAMAG.GDB` via `nakagami/firebirdsql` Go driver.
+  Requires FB 1.5 server running on edge Windows x86 host.
+  Fixtures + server zip at `docs/fixtures/firebird/`; CI setup via
+  `scripts/fb156_setup.py --server` + `apps/dump_agent_go/scripts/ci/start_fb15.ps1`.
+- **SIA:** reads `.DBF` files (S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN) via
+  `LindsayBradford/go-dbf` with cp1252 sanitize.
+
+Both emit **N-file manifests**: one `ClaimedJob` per
+`(source_type, competencia)` → N Parquets uploaded to MinIO via N presigned
+PUTs → single `POST /api/v1/jobs/register` with the manifest list.
+`data_processor` has BPA + SIA adapters downstream (see
+`apps/data_processor/CLAUDE.md`).
+
+**Spike status:** T1 FB 1.5 wire-protocol validation via `nakagami/firebirdsql`
+is **DEFERRED**. Runtime validation blocked at fixture generation
+(fdb/FB1.5 symbol mismatch); pivot tracked in issue #51.
+
 ## Contratos entre apps
 
 ### Edge → Central (HTTPS)
@@ -219,3 +240,94 @@ Edge (on-prem):
 ```
 
 Ainda não está em produção. Dockerfiles existem em cada `apps/*/Dockerfile`.
+
+## Fixtures (git-lfs)
+
+LFS-tracked test data:
+
+| Path | Purpose | Size |
+|---|---|---|
+| `docs/fixtures/shadow-seed/` | FB 2.5 seed SQL + CNES reference Parquet for shadow-e2e | ~100KB |
+| `docs/fixtures/firebird/` | Firebird 1.5.6 embedded client for BPA-Mag local tests (x86-only) | 1.6MB |
+
+Fresh-clone setup:
+
+```bash
+git lfs pull
+python scripts/fb156_setup.py   # extract FB 1.5.6 client to .cache/
+```
+
+## Docker Compose (local)
+
+Single `docker-compose.yml` com 3 profiles:
+
+- **`dev`** — postgres, minio, migrator, central-api, data-processor, pg-seed, minio-init. Portas 5433/9000/8000.
+- **`perf`** — postgres_perf (tuned), firebird_perf. Portas 5434/3051.
+- **`shadow`** — firebird-shadow (FB 2.5-ss), minio-shadow. Portas 3052/9100. Usado por `.github/workflows/shadow-e2e.yml`.
+
+Uso:
+```bash
+docker compose --profile dev up -d
+docker compose --profile perf up -d
+docker compose --profile shadow up -d
+```
+
+## web_dashboard (2026-04 — v1.0 + v1.1)
+
+`apps/web_dashboard/` — SPA Bun+React+TypeScript que oferece:
+
+**v1.0 (entregue):**
+
+- Login OIDC para gestor saúde municipal
+- Página `/activate` (RFC 8628 device flow) para aprovação de edge agents
+- Status dos edge agents do tenant (lag por fonte, últimas execuções) via
+  agregação de `landing.extractions` por `source_type`
+
+**v1.1 (entregue 2026-04):**
+
+- `/overview` — KPIs do tenant (total estabelecimentos, com produção mês,
+  procedimentos competência atual, % cobertura) + faturamento area chart
+  12m por estabelecimento via `@tremor/react` lazy-loaded
+- `/access-pending` — fluxo JIT de signup self-service: usuário sem tenant
+  preenche solicitação (`POST /api/v1/access-requests`), grava em
+  `dashboard.access_requests` (status `pending`); aprovação manual via
+  SQL admin v1.1 (UI em v1.2 — ver `docs/runbooks/access-request-approval.md`)
+- Dark mode 3-state (light/dark/system) via `ThemeProvider` + matchMedia +
+  localStorage; FOUC mitigado por script inline no `<head>`
+- Per-chunk bundle budget gated em CI: main ≤ 200KB, tremor ≤ 100KB,
+  recharts ≤ 100KB, qualquer rota ≤ 100KB
+
+Servida por Nginx em pod separado, reverse-proxy para `central-api`.
+Single-origin TLS terminado em ingress-nginx + cert-manager. JWT validado
+em `central_api.middleware.AuthMiddleware` via
+`cnes_infra.auth.jwt.JWKSValidator`. Mapping user→tenant via
+`dashboard.user_tenants`. Audit em `dashboard.audit_log` (RLS por
+`app.tenant_id`, FORCE) — actions estendidas em v1.1: `request_access`,
+`approve_access`, `reject_access`, `view_overview`, `view_faturamento`.
+
+Roadmap: Faturamento+regressão e Drill estabelecimento (v1.2);
+admin UI para approve/reject (v1.2).
+
+## Governance — Quality Gates
+
+Python PRs run 6 quality jobs via `.github/workflows/python-quality.yml`:
+
+- `n-plus-1` — middleware + SQLAlchemy listener + `assert_query_limit` fixture. Threshold: 15 queries / request.
+- `race` — hypothesis property-based tests on job queue, tenant context, MinIO presign, lease reaper.
+- `memleak` — pytest-memray per-test memory limits (Linux only; skipped on Windows).
+- `chaos` — fault-injection fixtures (DB, MinIO, HTTP).
+- `chaos-infra` — testcontainers-python container restart chaos (PR label `run-chaos` or nightly).
+- `negative` — hypothesis-driven invalid input tests (CPF/CNS/competencia/tenant/SQL-injection).
+
+Violations auto-apply PR labels via `scripts/flag_quality_violation.py`:
+
+- `needs-quality-review` — N+1, race, memleak
+- `needs-chaos-review` — chaos test failure (design bug)
+- `needs-security-review` — negative-test failure (input handling bug)
+
+Branch protection rule (`main`):
+- CI status green
+- No labels: `needs-quality-review`, `needs-chaos-review`, `needs-security-review`
+- CODEOWNERS approval required for paths listed in `.github/CODEOWNERS`
+
+Configure via GitHub ruleset UI.

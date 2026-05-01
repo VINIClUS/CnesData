@@ -1,148 +1,44 @@
-"""Rotas de jobs: status, acquire, heartbeat, complete-upload."""
+"""Rotas /api/v1/jobs/* — lifecycle de landing.extractions (Gold v2)."""
+from __future__ import annotations
 
 import logging
-import uuid
-from datetime import UTC
+from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
-from sqlalchemy.engine import Engine
+from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import ValidationError
 
-from central_api.deps import get_engine, get_object_storage
-from cnes_domain.models.api import (
-    AcquireJobRequest,
-    AcquireJobResponse,
-    CompleteUploadRequest,
-    HeartbeatRequest,
-    HeartbeatResponse,
-    JobStatusResponse,
-)
-from cnes_domain.models.extraction import ExtractionParams
-from cnes_infra.storage.job_queue import (
-    acquire_for_agent,
-    complete_upload,
-    enqueue,
-    get_status,
-    renew_heartbeat,
-    transition_to_streaming,
-)
+from central_api.deps import get_engine
+from cnes_contracts.landing import ExtractionRegisterPayload
+from cnes_infra.storage import extractions_repo
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["jobs"])
 
-_LEASE_MINUTES = 15
 
-
-@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-def get_job_status(
-    job_id: str,
-    engine: Engine = Depends(get_engine),
-) -> JobStatusResponse:
-    result = get_status(engine, job_id)
-    if result is None:
-        raise HTTPException(status_code=404, detail="job_not_found")
-    return JobStatusResponse(**result)
-
-
-@router.post("/jobs/acquire", response_model=None)
-def acquire_job(
-    body: AcquireJobRequest,
-    engine: Engine = Depends(get_engine),
-    storage: object = Depends(get_object_storage),
-) -> AcquireJobResponse | Response:
-    from cnes_infra import config
-
-    job = acquire_for_agent(
-        engine, body.machine_id, body.source_system,
-    )
-    if job is None:
-        return Response(status_code=204)
-
-    obj_key = (
-        f"{job.tenant_id}/{job.source_system}/{job.id}.parquet.gz"
-    )
-    upload_url = storage.generate_presigned_upload_url(
-        config.MINIO_BUCKET, obj_key,
-    )
-
-    from datetime import datetime, timedelta
-    lease_exp = datetime.now(UTC) + timedelta(
-        minutes=_LEASE_MINUTES,
-    )
-
-    return AcquireJobResponse(
-        job_id=job.id,
-        source_system=job.source_system,
-        tenant_id=job.tenant_id,
-        upload_url=upload_url,
-        object_key=obj_key,
-        lease_expires_at=lease_exp,
-    )
-
-
-@router.post("/jobs/{job_id}/heartbeat")
-def heartbeat(
-    job_id: uuid.UUID,
-    body: HeartbeatRequest,
-    engine: Engine = Depends(get_engine),
-) -> HeartbeatResponse:
-    renewed = renew_heartbeat(engine, job_id, body.machine_id)
-    if not renewed:
-        raise HTTPException(
-            status_code=409, detail="lease_not_found_or_mismatch",
-        )
-    from datetime import datetime, timedelta
-    lease_exp = datetime.now(UTC) + timedelta(
-        minutes=_LEASE_MINUTES,
-    )
-    return HeartbeatResponse(renewed=True, lease_expires_at=lease_exp)
-
-
-@router.post("/jobs/{job_id}/streaming")
-def start_streaming(
-    job_id: uuid.UUID,
-    body: HeartbeatRequest,
-    engine: Engine = Depends(get_engine),
-) -> Response:
-    ok = transition_to_streaming(engine, job_id, body.machine_id)
-    if not ok:
-        raise HTTPException(
-            status_code=409, detail="transition_failed",
-        )
-    return Response(status_code=200)
-
-
-@router.post("/jobs/{job_id}/complete-upload")
-def complete_upload_route(
-    job_id: uuid.UUID,
-    body: CompleteUploadRequest,
-    engine: Engine = Depends(get_engine),
-) -> Response:
-    ok = complete_upload(
-        engine, job_id, body.machine_id, body.object_key, body.size_bytes,
-    )
-    if not ok:
-        raise HTTPException(
-            status_code=409, detail="complete_failed",
-        )
-    logger.info("upload_accepted job_id=%s key=%s", job_id, body.object_key)
-    return Response(status_code=200)
-
-
-@router.post("/jobs/create", status_code=201)
-def create_extraction_job(
-    body: ExtractionParams,
+@router.post("/jobs/register")
+def register_job(
+    body: Annotated[dict[str, Any], Body()],
     engine: Engine = Depends(get_engine),
 ) -> dict:
-    job_id = enqueue(
+    try:
+        payload = ExtractionRegisterPayload.model_validate(
+            body, strict=False,
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    result = extractions_repo.register(
         engine,
-        tenant_id=body.cod_municipio,
-        source_system=body.intent.value,
-        payload_id=uuid.uuid4(),
+        job_id=payload.job_id,
+        files=[f.model_dump() for f in payload.files],
+        agent_version=payload.agent_version,
+        machine_id=payload.machine_id,
     )
-    logger.info(
-        "extraction_job_created job_id=%s intent=%s",
-        job_id, body.intent.value,
-    )
-    return {"job_id": str(job_id), "status": "PENDING"}
+    if result is None:
+        raise HTTPException(
+            status_code=404, detail="job_not_found_or_invalid_state",
+        )
+    return {"job_id": str(result), "status": "REGISTERED"}

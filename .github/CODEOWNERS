@@ -1,0 +1,7 @@
+packages/**             @VINIClUS
+apps/**                 @VINIClUS
+tests/property/**       @VINIClUS
+tests/memory/**         @VINIClUS
+tests/chaos/**          @VINIClUS
+tests/negative/**       @VINIClUS
+.github/workflows/**    @VINIClUS

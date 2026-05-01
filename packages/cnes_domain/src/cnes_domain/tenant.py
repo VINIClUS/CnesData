@@ -14,3 +14,12 @@ def get_tenant_id() -> str:
 
 def set_tenant_id(tid: str) -> None:
     tenant_id_ctx.set(tid)
+
+
+class InvalidTenantError(ValueError):
+    pass
+
+
+def validate_tenant_id(tid: str) -> None:
+    if not isinstance(tid, str) or len(tid) != 6 or not tid.isdigit():
+        raise InvalidTenantError(f"tenant_invalid value={tid!r}")

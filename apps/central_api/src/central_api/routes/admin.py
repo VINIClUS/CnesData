@@ -1,12 +1,16 @@
 """Rotas administrativas — reaper de leases, diagnóstico."""
+from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.engine import Engine
 
-from central_api.deps import get_engine
-from cnes_infra.storage.job_queue import reap_expired_leases
+from central_api.deps import get_conn
+from cnes_infra.storage import extractions_repo
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +19,7 @@ router = APIRouter(tags=["admin"])
 
 @router.post("/admin/reap-leases")
 def reap_leases(
-    engine: Engine = Depends(get_engine),
+    conn: Connection = Depends(get_conn),
 ) -> dict:
-    count = reap_expired_leases(engine)
+    count = extractions_repo.reap_expired(conn)
     return {"reaped": count}

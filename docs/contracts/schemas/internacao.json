@@ -1,0 +1,102 @@
+{
+  "properties": {
+    "dt_internacao": {
+      "format": "date",
+      "title": "Dt Internacao",
+      "type": "string"
+    },
+    "dt_saida": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dt Saida"
+    },
+    "extracao_ts": {
+      "format": "date-time",
+      "title": "Extracao Ts",
+      "type": "string"
+    },
+    "fonte_sistema": {
+      "const": "SIHD",
+      "default": "SIHD",
+      "title": "Fonte Sistema",
+      "type": "string"
+    },
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "num_aih": {
+      "pattern": "^\\d{13}$",
+      "title": "Num Aih",
+      "type": "string"
+    },
+    "sk_cid_principal": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sk Cid Principal"
+    },
+    "sk_competencia": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Competencia",
+      "type": "integer"
+    },
+    "sk_estabelecimento": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Estabelecimento",
+      "type": "integer"
+    },
+    "sk_profissional_solicit": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sk Profissional Solicit"
+    },
+    "valor_total_cents": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valor Total Cents"
+    }
+  },
+  "required": [
+    "num_aih",
+    "sk_estabelecimento",
+    "sk_competencia",
+    "dt_internacao",
+    "job_id",
+    "extracao_ts"
+  ],
+  "title": "Internacao",
+  "type": "object"
+}

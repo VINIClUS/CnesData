@@ -112,21 +112,6 @@ services:
       start_period: 10s
     profiles:
     - dev
-  dump-agent:
-    build:
-      context: .
-      dockerfile: apps/dump_agent/Dockerfile
-    container_name: cnesdata_dump_agent
-    depends_on:
-      central-api:
-        condition: service_healthy
-    environment:
-      API_BASE_URL: http://central-api:8000
-      MACHINE_ID: docker-agent-01
-      MAX_JITTER_SECONDS: '5'
-    profiles:
-    - dev
-    restart: on-failure
   data-processor:
     build:
       context: .
@@ -188,8 +173,68 @@ services:
     - fbdata_perf:/firebird/data
     profiles:
     - perf
+  firebird-shadow:
+    image: jacobalberty/firebird:2.5-ss
+    container_name: cnesdata_fb_shadow
+    environment:
+      FIREBIRD_DATABASE: shadow.fdb
+      ISC_PASSWORD: masterkey
+    volumes:
+    - ./docs/fixtures/shadow-seed:/seed:ro
+    - fb_shadow_data:/firebird/data
+    ports:
+    - "3052:3050"
+    profiles:
+    - shadow
+  minio-shadow:
+    image: minio/minio:latest
+    container_name: cnesdata_minio_shadow
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+    - "9100:9000"
+    - "9101:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      retries: 20
+    profiles:
+    - shadow
+  web_dashboard:
+    image: oven/bun:1.3-alpine
+    container_name: cnesdata_web_dashboard
+    working_dir: /app
+    volumes:
+    - ./apps/web_dashboard:/app
+    - ./docs/contracts:/contracts:ro
+    ports:
+    - 5173:5173
+    command: sh -c "bun install && bun run dev --host 0.0.0.0"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+      VITE_OIDC_AUTHORITY: http://localhost:8080/realms/cnesdata
+      VITE_OIDC_CLIENT_ID: cnesdata-dashboard
+      VITE_OIDC_REDIRECT_URI: http://localhost:5173/auth/callback
+    profiles:
+    - dev
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: cnesdata_keycloak
+    command: ["start-dev", "--import-realm"]
+    ports:
+    - 8080:8080
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+    - ./docker-compose.keycloak:/opt/keycloak/data/import:ro
+    profiles:
+    - dev
 volumes:
   pgdata_test: null
   minio_data: null
   pgdata_perf: null
   fbdata_perf: null
+  fb_shadow_data: null

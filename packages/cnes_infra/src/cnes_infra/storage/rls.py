@@ -16,5 +16,8 @@ def install_rls_listener(engine: Engine) -> None:
             tid = tenant_id_ctx.get()
         except LookupError:
             return
-        conn.execute(text("SET LOCAL rls.tenant_id = :tid"), {"tid": tid})
+        conn.execute(
+            text("SELECT set_config('app.tenant_id', :tid, true)"),
+            {"tid": tid},
+        )
         logger.debug("rls_set tenant_id=%s", tid)

@@ -13,9 +13,16 @@ import (
 )
 
 // AppDataDir retorna dir root para estado persistente do agente.
+// Honra AGENT_APPDATA_DIR se setado.
 // Windows: %LOCALAPPDATA%/CnesAgent
 // Linux:   $XDG_STATE_HOME/cnes-agent (ou ~/.local/state/cnes-agent)
 func AppDataDir() (string, error) {
+	if override := os.Getenv("AGENT_APPDATA_DIR"); override != "" {
+		if err := os.MkdirAll(override, 0o755); err != nil {
+			return "", fmt.Errorf("app_data_dir_override: %w", err)
+		}
+		return override, nil
+	}
 	var base string
 	if runtime.GOOS == "windows" {
 		base = os.Getenv("LOCALAPPDATA")

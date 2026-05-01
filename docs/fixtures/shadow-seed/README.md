@@ -25,11 +25,11 @@ Output byte-identico dado mesmo seed + faker version.
 ## Execucao em docker
 
 ```bash
-docker compose -f docker-compose.shadow.yml up -d
+docker compose -f docker-compose.yml --profile shadow up -d
 bash scripts/seed_restore.sh docs/fixtures/shadow-seed/
 ```
 
-`seed_restore.sh` executa `cnes_seed.sql` via `isql-fb` dentro do container.
+`seed_restore.sh` executa `cnes_seed.sql` via `isql-fb` dentro do container `cnesdata_fb_shadow`.
 
 ## Privacidade
 

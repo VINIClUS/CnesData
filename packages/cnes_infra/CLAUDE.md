@@ -53,6 +53,8 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `alembic/versions/*.py` | Migrations numeradas (omitidas em coverage) |
 | `telemetry.py` | `init_telemetry(service)` + `instrument_engine(engine)` |
 | `config.py` | `DB_URL`, `MINIO_*`, `API_*`, `COMPETENCIA_*`, `_LAZY_ATTRS` |
+| `auth/jwt.py` | JWKSValidator for OIDC JWT verification |
+| `storage/dashboard_models.py` | SQLAlchemy ORM for `dashboard.*` tables |
 
 ## Gotchas
 

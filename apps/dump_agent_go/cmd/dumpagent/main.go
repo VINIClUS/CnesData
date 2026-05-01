@@ -14,7 +14,9 @@ import (
 var Version = "dev"
 
 func init() {
-	service.SetRunner(runForeground)
+	service.SetRunner(func(ctx context.Context, verbose bool) int {
+		return runForeground(ctx, verbose, defaultRunFlags())
+	})
 }
 
 func main() {
@@ -30,6 +32,8 @@ func dispatch(args []string) int {
 	switch cmd {
 	case "run":
 		return cmdRun(rest)
+	case "register":
+		return cmdRegister(rest)
 	case "service":
 		return cmdService(rest)
 	case "install":
@@ -50,9 +54,10 @@ func dispatch(args []string) int {
 
 func cmdRun(args []string) int {
 	verbose := hasFlag(args, "-v", "--verbose")
+	flags := parseRunFlags(args)
 	ctx, cancel := platform.NotifyShutdown(context.Background())
 	defer cancel()
-	return runForeground(ctx, verbose)
+	return runForeground(ctx, verbose, flags)
 }
 
 func hasFlag(args []string, flags ...string) bool {
@@ -74,6 +79,7 @@ Usage:
 
 Commands:
   run          Executar em foreground (dev/debug)
+  register     Enroll agent (RFC 8628 device flow + cert provisioning)
   service      (interno) Chamado pelo SCM do Windows
   install      Registrar como Windows Service
   uninstall    Remover do Windows Service

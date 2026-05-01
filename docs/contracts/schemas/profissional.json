@@ -1,0 +1,72 @@
+{
+  "properties": {
+    "atualizado_em": {
+      "format": "date-time",
+      "title": "Atualizado Em",
+      "type": "string"
+    },
+    "cns": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{15}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cns"
+    },
+    "cpf_hash": {
+      "pattern": "^[a-f0-9]{11}$",
+      "title": "Cpf Hash",
+      "type": "string"
+    },
+    "criado_em": {
+      "format": "date-time",
+      "title": "Criado Em",
+      "type": "string"
+    },
+    "fontes": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "title": "Fontes",
+      "type": "object"
+    },
+    "nome": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Nome",
+      "type": "string"
+    },
+    "sk_cbo_principal": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sk Cbo Principal"
+    },
+    "sk_profissional": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Profissional",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sk_profissional",
+    "cpf_hash",
+    "nome",
+    "criado_em",
+    "atualizado_em"
+  ],
+  "title": "Profissional",
+  "type": "object"
+}

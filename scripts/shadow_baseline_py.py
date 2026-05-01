@@ -2,7 +2,7 @@
 
 Uso:
     python scripts/shadow_baseline_py.py \\
-        --host localhost --port 3051 --db /firebird/data/shadow.fdb \\
+        --host localhost --port 3052 --db /firebird/data/shadow.fdb \\
         --user SYSDBA --password masterkey \\
         --cod-mun 354130 --output /tmp/py_baseline/
 """
@@ -81,7 +81,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="localhost")
-    parser.add_argument("--port", type=int, default=3051)
+    parser.add_argument("--port", type=int, default=3052)
     parser.add_argument("--db", default="/firebird/data/shadow.fdb")
     parser.add_argument("--user", default="SYSDBA")
     parser.add_argument("--password", default="masterkey")

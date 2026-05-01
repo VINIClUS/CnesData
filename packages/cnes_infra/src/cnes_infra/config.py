@@ -89,6 +89,21 @@ MAX_JITTER_SECONDS: float = float(
     os.getenv("MAX_JITTER_SECONDS", "1800"),
 )
 
+AUTH_REQUIRED: str = os.environ.get("AUTH_REQUIRED", "required")
+DASHBOARD_OIDC_ISSUER: str = os.environ.get("DASHBOARD_OIDC_ISSUER", "")
+DASHBOARD_OIDC_AUDIENCE: str = os.environ.get(
+    "DASHBOARD_OIDC_AUDIENCE", "cnesdata-dashboard",
+)
+
+AUTH_CA_CERT_PATH: str = os.environ.get("AUTH_CA_CERT_PATH", "")
+AUTH_CA_KEY_PATH: str = os.environ.get("AUTH_CA_KEY_PATH", "")
+AUTH_DEVICE_VERIFICATION_URI: str = os.environ.get(
+    "AUTH_DEVICE_VERIFICATION_URI", "",
+)
+AUTH_DEVICE_CODE_TTL: int = _exigir_inteiro("AUTH_DEVICE_CODE_TTL", 600)
+AUTH_ACCESS_TOKEN_TTL: int = _exigir_inteiro("AUTH_ACCESS_TOKEN_TTL", 300)
+AUTH_CERT_TTL_DAYS: int = _exigir_inteiro("AUTH_CERT_TTL_DAYS", 90)
+
 
 @lru_cache(maxsize=1)
 def _firebird_db_path() -> str:

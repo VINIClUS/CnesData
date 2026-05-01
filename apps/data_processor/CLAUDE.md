@@ -92,3 +92,12 @@ colisão (lease-based).
 - **Streaming download gzip:** parquet baixado chunk a chunk via httpx
   stream para evitar OOM em arquivos grandes. Marcado `# pragma: no cover`
   nos fallbacks de tempfile.
+
+## BPA + SIA adapters (T12/T13, 2026-04-23)
+
+- `adapters/bpa_adapter.py` — `map_bpa_c_to_fato`, `map_bpa_i_to_fato`. BPA_C uses sentinel `_SK_PROFISSIONAL_AGREGADO=1` (seed dim_profissional row 1 required).
+- `adapters/sia_adapter.py` — `map_apa_to_fato`, `map_bpi_to_fato` (historico flag toggles SIA_BPI vs SIA_BPIHST).
+- `adapters/sia_dim_sync.py` — `sync_dim_procedimento` (S_CDN), `sync_dim_municipio` (CADMUN with ibge7 check-digit).
+- `producao_ambulatorial_repo.gravar` upserts idempotent; `fontes_reportadas` JSONB merged via `||`.
+- Migration 012 added natural-key unique index on `fato_producao_ambulatorial` to support ON CONFLICT upsert.
+- Migration 013 extended `chk_fonte_amb` CHECK to allow SIA_BPIHST.

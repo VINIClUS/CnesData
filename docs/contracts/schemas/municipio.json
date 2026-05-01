@@ -1,0 +1,64 @@
+{
+  "properties": {
+    "ibge6": {
+      "pattern": "^\\d{6}$",
+      "title": "Ibge6",
+      "type": "string"
+    },
+    "ibge7": {
+      "pattern": "^\\d{7}$",
+      "title": "Ibge7",
+      "type": "string"
+    },
+    "nome": {
+      "minLength": 1,
+      "title": "Nome",
+      "type": "string"
+    },
+    "populacao_estimada": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Populacao Estimada"
+    },
+    "sk_municipio": {
+      "exclusiveMinimum": 0,
+      "title": "Sk Municipio",
+      "type": "integer"
+    },
+    "teto_pab_cents": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Teto Pab Cents"
+    },
+    "uf": {
+      "pattern": "^[A-Z]{2}$",
+      "title": "Uf",
+      "type": "string"
+    }
+  },
+  "required": [
+    "sk_municipio",
+    "ibge6",
+    "ibge7",
+    "nome",
+    "uf"
+  ],
+  "title": "Municipio",
+  "type": "object"
+}

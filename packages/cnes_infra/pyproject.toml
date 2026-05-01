@@ -12,6 +12,8 @@ dependencies = [
     "alembic>=1.14",
     "python-dotenv>=1.2",
     "minio>=7.2",
+    "python-jose[cryptography]>=3.3",
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]

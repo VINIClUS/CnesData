@@ -96,7 +96,7 @@ def _popular(con, n_profs: int) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="localhost")
-    parser.add_argument("--port", type=int, default=3051)
+    parser.add_argument("--port", type=int, default=3052)
     parser.add_argument("--db", default="CNES.FDB")
     parser.add_argument("--password", default="masterkey")
     parser.add_argument("--n-profs", type=int, default=100_000)
