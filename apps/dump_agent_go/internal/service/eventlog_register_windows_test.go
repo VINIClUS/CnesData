@@ -5,6 +5,7 @@ package service
 import (
 	"errors"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -40,7 +41,7 @@ func TestRegisterEventSource_HappyPath(t *testing.T) {
 
 func TestRegisterEventSource_AlreadyExistsIsIdempotent(t *testing.T) {
 	fake := &fakeRegistryWriter{
-		installErr: errors.New("registry key already exists"),
+		installErr: errors.New("Application/DumpAgent registry key already exists"),
 	}
 	prev := registryWriterFactory
 	registryWriterFactory = func() registryWriter { return fake }
@@ -67,14 +68,26 @@ func TestRegisterEventSource_OtherErrorPropagates(t *testing.T) {
 
 func TestRemoveEventSource_NotFoundIsOK(t *testing.T) {
 	fake := &fakeRegistryWriter{
-		removeErr: errors.New("the system cannot find the file specified"),
+		removeErr: syscall.ERROR_FILE_NOT_FOUND,
 	}
 	prev := registryWriterFactory
 	registryWriterFactory = func() registryWriter { return fake }
 	t.Cleanup(func() { registryWriterFactory = prev })
 
 	if err := RemoveEventSource("DumpAgent"); err != nil {
-		t.Fatalf("not-found should be nil, got %v", err)
+		t.Fatalf("typed errno ERROR_FILE_NOT_FOUND should be nil, got %v", err)
+	}
+}
+
+func TestRemoveEventSource_WrappedNotFoundIsOK(t *testing.T) {
+	wrapped := errors.Join(errors.New("registry delete failed"), syscall.ERROR_FILE_NOT_FOUND)
+	fake := &fakeRegistryWriter{removeErr: wrapped}
+	prev := registryWriterFactory
+	registryWriterFactory = func() registryWriter { return fake }
+	t.Cleanup(func() { registryWriterFactory = prev })
+
+	if err := RemoveEventSource("DumpAgent"); err != nil {
+		t.Fatalf("wrapped ERROR_FILE_NOT_FOUND should be nil, got %v", err)
 	}
 }
 
