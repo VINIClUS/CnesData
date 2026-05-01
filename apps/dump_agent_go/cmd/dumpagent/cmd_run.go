@@ -80,7 +80,21 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	}
 	slog.Info("machine_id_resolved", "machine_id", machineID)
 
-	startRotatorIfPossible(ctx, machineID)
+	authDir, err := auth.AuthDir()
+	if err != nil {
+		slog.Error("auth_dir_init", "err", err.Error())
+		return 1
+	}
+
+	mtlsClient, err := initMTLSClient(authDir)
+	if err != nil {
+		slog.Error("mtls_init_fatal",
+			"err", err.Error(),
+			"hint", "run 'dumpagent register' or set AGENT_ALLOW_INSECURE=true")
+		return 1
+	}
+
+	startRotatorIfPossible(ctx, mtlsClient, authDir, machineID)
 
 	slog.Info("run_flags",
 		"bpa_gdb", flags.BPAGDBPath,
@@ -115,7 +129,7 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	}
 	defer db.Close()
 
-	apiClient, err := buildAPIClient(machineID)
+	apiClient, err := buildAPIClient(machineID, httpClientFor(mtlsClient))
 	if err != nil {
 		slog.Error("api_client_init", "err", err.Error())
 		return 1
@@ -151,21 +165,15 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	return 0
 }
 
-func startRotatorIfPossible(ctx context.Context, machineID string) {
-	authDir, err := auth.AuthDir()
-	if err != nil {
-		slog.Warn("auth_dir_init", "err", err.Error())
-		return
-	}
-	mtlsClient, err := transport.NewMTLSClient(authDir, auth.CAPinPEM)
-	if err != nil {
-		slog.Warn("mtls_client_init_skipping_rotation",
-			"err", err.Error(),
-			"hint", "agent not yet registered? run 'dumpagent register'")
+func startRotatorIfPossible(
+	ctx context.Context, mtls *transport.Client, authDir, machineID string,
+) {
+	if mtls == nil {
+		slog.Info("rotator_skipped", "reason", "no_mtls")
 		return
 	}
 	baseURL := envOr("CENTRAL_API_URL", "http://localhost:8000")
-	rotator := auth.NewRotator(mtlsClient, authDir, baseURL, machineID)
+	rotator := auth.NewRotator(mtls, authDir, baseURL, machineID)
 	_ = obs.SafeGo(func() error {
 		if rerr := rotator.Run(ctx); rerr != nil {
 			slog.Error("rotator_terminal", "err", rerr.Error())
@@ -283,13 +291,13 @@ func envOr(k, def string) string {
 	return def
 }
 
-func buildAPIClient(machineID string) (*apiclient.Adapter, error) {
+func buildAPIClient(machineID string, httpClient *http.Client) (*apiclient.Adapter, error) {
 	baseURL := envOr("CENTRAL_API_URL", "http://localhost:8000")
 	tenantID := os.Getenv("TENANT_ID")
 	if tenantID == "" {
 		return nil, &stubErr{msg: "env_required var=TENANT_ID"}
 	}
-	return apiclient.NewAdapter(baseURL, tenantID, machineID, nil)
+	return apiclient.NewAdapter(baseURL, tenantID, machineID, httpClient)
 }
 
 func buildJobSource() (worker.JobSpecSource, error) {
