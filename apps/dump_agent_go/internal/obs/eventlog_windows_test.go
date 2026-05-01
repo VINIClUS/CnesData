@@ -4,6 +4,7 @@ package obs
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -116,5 +117,32 @@ func TestWinEventLog_RespectsAGENT_EVENTLOG_DISABLED(t *testing.T) {
 	}
 	if h.Enabled(context.Background(), slog.LevelError) {
 		t.Fatal("env-disabled handler must be Enabled=false")
+	}
+}
+
+type erroringEventlogWriter struct {
+	fakeEventlogWriter
+	failOn error
+}
+
+func (e *erroringEventlogWriter) Warning(eid uint32, msg string) error {
+	_ = e.fakeEventlogWriter.Warning(eid, msg)
+	return e.failOn
+}
+
+func (e *erroringEventlogWriter) Error(eid uint32, msg string) error {
+	_ = e.fakeEventlogWriter.Error(eid, msg)
+	return e.failOn
+}
+
+func TestWinEventLog_SwallowsWriteErrors(t *testing.T) {
+	w := &erroringEventlogWriter{failOn: errors.New("ENOSPC")}
+	h := newTestHandler(w)
+
+	for _, level := range []slog.Level{slog.LevelWarn, slog.LevelError} {
+		rec := slog.NewRecord(time.Time{}, level, "x", 0)
+		if err := h.Handle(context.Background(), rec); err != nil {
+			t.Fatalf("level %v: write error must be swallowed, got %v", level, err)
+		}
 	}
 }
