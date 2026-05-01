@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const maxValueLen = 8000
@@ -62,7 +63,7 @@ func appendAttr(out []string, prefix string, a slog.Attr) []string {
 
 func formatValue(s string) string {
 	if len(s) > maxValueLen {
-		s = s[:maxValueLen] + "...truncated"
+		s = truncateAtRuneBoundary(s, maxValueLen) + "...truncated"
 	}
 	if needsQuote(s) {
 		return fmt.Sprintf("%q", s)
@@ -70,10 +71,20 @@ func formatValue(s string) string {
 	return s
 }
 
+func truncateAtRuneBoundary(s string, n int) string {
+	if n >= len(s) {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 func needsQuote(s string) bool {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if c == ' ' || c == '"' || c == '\n' || c == '\t' || c == '\\' {
+		if c < 0x20 || c == 0x7F || c == ' ' || c == '"' || c == '\\' {
 			return true
 		}
 	}

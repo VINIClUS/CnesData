@@ -1,11 +1,11 @@
 package obs
 
 import (
-	"context"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func makeRecord(level slog.Level, msg string, attrs ...slog.Attr) slog.Record {
@@ -61,4 +61,34 @@ func TestFormatCompact_TruncatesAt8KB(t *testing.T) {
 	}
 }
 
-var _ = context.Background // silence unused import in stripped scenarios
+func TestFormatCompact_DebugLevel(t *testing.T) {
+	r := makeRecord(slog.LevelDebug, "ping")
+	got := FormatCompact(r)
+	want := `level=debug msg=ping`
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestFormatCompact_EscapesCarriageReturn(t *testing.T) {
+	r := makeRecord(slog.LevelWarn, "rec",
+		slog.String("body", "line1\rline2"),
+	)
+	got := FormatCompact(r)
+	want := `level=warn msg=rec body="line1\rline2"`
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestFormatCompact_TruncatesAtRuneBoundary(t *testing.T) {
+	// Build a string with multi-byte runes (Brazilian Portuguese 'ã' = 2 bytes 0xc3 0xa3)
+	// such that the 8000-byte cut would land mid-rune.
+	prefix := strings.Repeat("a", 7999)
+	body := prefix + "ã" + strings.Repeat("b", 100)
+	r := makeRecord(slog.LevelWarn, "x", slog.String("v", body))
+	got := FormatCompact(r)
+	if !utf8.ValidString(got) {
+		t.Fatalf("output not valid UTF-8: %q", got[:80])
+	}
+}
