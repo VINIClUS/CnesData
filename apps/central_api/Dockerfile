@@ -4,7 +4,8 @@ WORKDIR /app
 COPY pyproject.toml pyproject.toml
 COPY packages/ packages/
 COPY apps/central_api/ apps/central_api/
-RUN uv build --wheel --out-dir /wheels packages/cnes_domain && \
+RUN uv build --wheel --out-dir /wheels packages/cnes_contracts && \
+    uv build --wheel --out-dir /wheels packages/cnes_domain && \
     uv build --wheel --out-dir /wheels packages/cnes_infra && \
     uv build --wheel --out-dir /wheels apps/central_api && \
     uv pip install --system /wheels/*.whl
