@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Infrastructure layer — storage adapters, ingestion clients, Alembic migrations"
 requires-python = ">=3.13"
 dependencies = [
+    "cnes-contracts",
     "cnes-domain",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
@@ -42,6 +43,7 @@ otel = [
 ]
 
 [tool.uv.sources]
+cnes-contracts = { workspace = true }
 cnes-domain = { workspace = true }
 
 [build-system]
