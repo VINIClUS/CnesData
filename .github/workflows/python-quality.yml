@@ -50,7 +50,7 @@ jobs:
         with: { python-version: "3.13" }
       - run: |
           pip install --upgrade pip
-          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
           pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-asyncio hypothesis
       - name: Migrate
@@ -84,7 +84,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
           pip install pytest hypothesis
       - name: Migrate
         run: cd packages/cnes_infra && alembic -c alembic.ini upgrade head
@@ -104,7 +104,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
           pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-memray
       - name: Memleak tests
@@ -139,7 +139,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
           pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-asyncio httpx minio
       - name: Chaos tests
@@ -176,7 +176,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_domain packages/cnes_infra
+          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
           pip install pytest hypothesis sqlalchemy
       - name: Negative tests
         run: pytest tests/negative/ -m negative -v

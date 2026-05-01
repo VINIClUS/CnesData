@@ -1,6 +1,7 @@
 """Landing table contracts."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime  # noqa: TC003
 from typing import Literal
 from uuid import UUID  # noqa: TC003
@@ -52,3 +53,13 @@ class ExtractionRegisterPayload(BaseModel):
     files: list[FileManifest] = Field(min_length=1)
     agent_version: str | None = Field(default=None, max_length=64)
     machine_id: str | None = Field(default=None, max_length=128)
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimedExtraction:
+    job_id: UUID
+    tenant_id: str
+    source_type: str
+    competencia: date
+    files: list[dict]
+    depends_on: list[UUID]

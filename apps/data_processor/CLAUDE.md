@@ -57,7 +57,6 @@ colisão (lease-based).
 | `MINIO_ACCESS_KEY` | sim | Credencial MinIO |
 | `MINIO_SECRET_KEY` | sim | Credencial MinIO |
 | `MINIO_BUCKET` | opcional | Default `cnesdata-landing` |
-| `TENANT_ID` | sim | Tenant do worker (1 worker = 1 tenant por enquanto) |
 | `WORKER_POLL_INTERVAL` | opcional | Default `5s` |
 
 ## Module Map
@@ -86,9 +85,12 @@ colisão (lease-based).
 - **Column names do BigQuery nacional** (confirmados empiricamente):
   `cbo_2002` (não `id_cbo`), `indicador_atende_sus` inteiro 1/0 (não
   `indicador_sus` string "S"/"N"). Ver `docs/data-dictionary-firebird-bigquery.md`.
-- **`set_tenant_id` obrigatório antes de qualquer query Postgres:** worker
-  chama `set_tenant_id(config.TENANT_ID)` no start de cada job. Sem isso,
-  RLS bloqueia e job falha com 0 rows.
+- **Worker é global (multi-tenant):** poll varre `landing.extractions`
+  de todos os tenants via `SET LOCAL row_security = off` scoped à
+  transação do `claim_next`. A cada job reclamado, `process_one` chama
+  `set_tenant_id(claimed.tenant_id)` antes de qualquer
+  `mark_completed`/`mark_failed`/escrita Gold subsequente. Sem env
+  `TENANT_ID`; o tenant vem do row reclamado.
 - **Streaming download gzip:** parquet baixado chunk a chunk via httpx
   stream para evitar OOM em arquivos grandes. Marcado `# pragma: no cover`
   nos fallbacks de tempfile.
