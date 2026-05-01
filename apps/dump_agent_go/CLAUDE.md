@@ -110,3 +110,24 @@ driver pure-Go).
   cert / mTLS init failure logs warn and continues without rotation
   (agent runs in non-mTLS mode until `dumpagent register`).
 - Phase 8 = wire `apiclient.Adapter` to use `mtlsClient.HTTPClient()`.
+
+## Phase 8: apiclient mTLS wiring (2026-04-30)
+
+- `cmd/dumpagent/cmd_run.go` — `runForeground` constructs single
+  `*transport.Client` after machine_id resolve, shares between
+  Phase 7 rotator and Phase 8 apiclient. Rotator's `Reload()`
+  hot-swaps cert for both via `atomic.Pointer[tls.Certificate]`
+  (Phase 5 contract).
+- `initMTLSClient(authDir)` returns `(mtls, nil)` on success,
+  `(nil, err)` fail-closed when `transport.NewMTLSClient` fails.
+  `AGENT_ALLOW_INSECURE=true` flips fail-closed → fallback `(nil, nil)`
+  (plain HTTP via `http.DefaultClient`). Boot logs `mtls_init_ok` or
+  `mtls_fallback_active` once; no per-job re-log.
+- `httpClientFor(mtls)` returns `mtls.HTTPClient()` or nil; threaded
+  to `buildAPIClient(machineID, httpClient)`. `apiclient.NewAdapter`
+  signature unchanged (already accepted `*http.Client`).
+- MinIO uploads (presigned PUT) untouched — `upload.NewHTTP(nil)`
+  remains plain HTTP, direct to MinIO not central_api.
+- 8-phase zero-trust migration COMPLETE. Agent runs mTLS by default;
+  unregistered agents must `dumpagent register` first OR set
+  `AGENT_ALLOW_INSECURE=true` for fleet rollout escape hatch.
