@@ -167,5 +167,14 @@ def heartbeat(*args: object, **kwargs: object) -> None:
     raise NotImplementedError("extractions_repo.heartbeat: pending Task 7")
 
 
-def reap_expired(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("extractions_repo.reap_expired: pending Task 7")
+def reap_expired(engine: Engine) -> int:
+    sql = text("""
+        UPDATE landing.extractions
+        SET status = 'PENDING', lease_until = NULL
+        WHERE status = 'CLAIMED' AND lease_until < NOW()
+    """)
+    with engine.begin() as conn:
+        # RLS bypass: reaper scans every tenant's expired leases
+        conn.execute(text("SET LOCAL row_security = off"))
+        result = conn.execute(sql)
+    return result.rowcount or 0
