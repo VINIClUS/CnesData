@@ -18,6 +18,7 @@ import (
 	"github.com/cnesdata/dumpagent/internal/fbdriver"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/platform"
+	"github.com/cnesdata/dumpagent/internal/service"
 	"github.com/cnesdata/dumpagent/internal/transport"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/worker"
@@ -61,7 +62,7 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		slog.Error("logs_dir_init", "err", err.Error())
 		return 1
 	}
-	handler, closer := obs.NewRotatingHandler(filepath.Join(logsDir, "dumpagent.log"), level)
+	handler, closer := buildLoggerHandler(filepath.Join(logsDir, "dumpagent.log"), level)
 	defer closer()
 	slog.SetDefault(slog.New(handler))
 
@@ -349,5 +350,18 @@ func buildDispatchConfig(flags RunFlags, adapter *apiclient.Adapter) worker.Disp
 			Uploader: upload.NewHTTP(nil),
 			Register: register,
 		},
+	}
+}
+
+// buildLoggerHandler composes the rotating-file handler with the Windows
+// Event Log handler under a MultiHandler. EventLogHandler is a no-op
+// on non-Windows. Both Close functions are tied to the returned closer.
+func buildLoggerHandler(logPath string, level slog.Level) (slog.Handler, func()) {
+	rotating, rotatingCloser := obs.NewRotatingHandler(logPath, level)
+	eventlog, _ := obs.NewEventLogHandler(service.EventSourceName)
+	multi := obs.NewMultiHandler(rotating, eventlog)
+	return multi, func() {
+		rotatingCloser()
+		_ = eventlog.Close()
 	}
 }

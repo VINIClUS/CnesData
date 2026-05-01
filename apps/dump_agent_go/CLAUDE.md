@@ -131,3 +131,26 @@ driver pure-Go).
 - 8-phase zero-trust migration COMPLETE. Agent runs mTLS by default;
   unregistered agents must `dumpagent register` first OR set
   `AGENT_ALLOW_INSECURE=true` for fleet rollout escape hatch.
+
+## Phase 5.1 — Windows Event Log sink (2026-05-01)
+
+WARN+ slog records routed to Application log under source `DumpAgent`.
+Linux/Mac: no-op stub via build tags. Existing rotating-file handler
+unchanged — eventlog is fan-out sibling under `obs.MultiHandler`.
+
+- Source name: `service.EventSourceName` constant ("DumpAgent"). No env override.
+- Registration: `agent.exe install` calls `service.RegisterEventSource`;
+  `agent.exe uninstall` calls `service.RemoveEventSource`. Both idempotent.
+  Best-effort: install succeeds even if registration fails.
+- Event IDs: `internal/obs/events.go` banded catalog (1xxx auth, 2xxx queue,
+  3xxx extract, 4xxx upload, 5xxx diagnose, 9xxx generic). P4 reserved
+  1003/1004. Add `event_id` attr to slog calls that should map to a
+  specific Event Viewer entry; missing attr defaults to `EventUnknown`.
+- Format: `obs.FormatCompact` renders `level=… msg=… k1=v1 k2=v2`
+  single-line, UTF-8-safe truncation at 8KB, ASCII control bytes escaped.
+- Rollback knob: `AGENT_EVENTLOG_DISABLED=true` makes handler no-op without
+  uninstall. Not in `.env.example` (emergency switch only).
+- Locale-independent: `RemoveEventSource` uses `errors.Is(err,
+  syscall.ERROR_FILE_NOT_FOUND)` — works on pt-BR Windows hosts.
+- Cross-tag check: CI runs `go vet` on both `GOOS=linux` and
+  `GOOS=windows` to catch tag leaks before merge.
