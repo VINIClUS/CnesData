@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
@@ -35,10 +37,34 @@ func TestNewAdapter_SetsFields(t *testing.T) {
 	require.NotNil(t, a.Inner)
 }
 
+// recordingTransport captures all RoundTrip calls for inspection.
+type recordingTransport struct {
+	visited []string
+}
+
+func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	rt.visited = append(rt.visited, req.URL.Path)
+	return &http.Response{
+		StatusCode: 500,
+		Body:       io.NopCloser(strings.NewReader(`{"detail":"test-shortcircuit"}`)),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
+
 func TestNewAdapter_UsesCustomHTTPClient(t *testing.T) {
-	a, err := apiclient.NewAdapter("http://localhost:1", "t", "m", http.DefaultClient)
+	rt := &recordingTransport{}
+	httpClient := &http.Client{Transport: rt}
+
+	a, err := apiclient.NewAdapter("http://test.invalid", "tenant-1", "machine-1", httpClient)
 	require.NoError(t, err)
-	require.NotNil(t, a.Inner)
+	require.NotNil(t, a)
+
+	jobUUID := uuid.NewString()
+	_ = a.SendHeartbeat(context.Background(), jobUUID)
+
+	require.NotEmpty(t, rt.visited, "expected RoundTrip to be invoked; injected client unused")
+	require.Contains(t, rt.visited[0], "/heartbeat")
 }
 
 func newTestAdapter(t *testing.T, handler http.HandlerFunc) *apiclient.Adapter {
