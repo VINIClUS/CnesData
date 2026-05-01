@@ -2,7 +2,6 @@ package auth
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,8 +21,7 @@ func TestEventIDAttrsOnP4CallSites(t *testing.T) {
 		{"rotate.go", "cert_rotation_halt", "obs.EventCertRotationHalted"},
 	}
 	for _, c := range cases {
-		path := filepath.Join(c.file)
-		body, err := os.ReadFile(path)
+		body, err := os.ReadFile(c.file)
 		if err != nil {
 			t.Fatalf("read %s: %v", c.file, err)
 		}
