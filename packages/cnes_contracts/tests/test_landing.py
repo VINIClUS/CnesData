@@ -1,8 +1,11 @@
 """Tests for landing contracts."""
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import date
 from uuid import uuid4
+
+import pytest
 
 from cnes_contracts.landing import ClaimedExtraction
 
@@ -21,10 +24,5 @@ def test_claimed_extraction_frozen_dataclass() -> None:
     assert claimed.job_id == job_id
     assert claimed.tenant_id == "354130"
     assert claimed.depends_on == [dep]
-    try:
+    with pytest.raises(FrozenInstanceError):
         claimed.tenant_id = "999999"  # type: ignore[misc]
-    except Exception as exc:
-        assert "frozen" in str(exc).lower() or "cannot assign" in str(exc).lower()
-    else:  # pragma: no cover
-        msg = "ClaimedExtraction must be frozen"
-        raise AssertionError(msg)
