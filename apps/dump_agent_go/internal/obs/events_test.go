@@ -4,6 +4,8 @@ import (
 	"testing"
 )
 
+const expectedEventIDCount = 19
+
 func TestEventID_NoDuplicates(t *testing.T) {
 	all := allEventIDs()
 	seen := map[EventID]string{}
@@ -55,6 +57,14 @@ func TestEventID_BandsRespected(t *testing.T) {
 				t.Errorf("band=%s id=%d out of [%d..%d]", b.name, id, b.min, b.max)
 			}
 		}
+	}
+}
+
+func TestEventID_AllConstantsAreInMap(t *testing.T) {
+	if got := len(allEventIDs()); got != expectedEventIDCount {
+		t.Fatalf("allEventIDs has %d entries; expected %d. "+
+			"Did you add a new EventID constant in events.go without "+
+			"updating allEventIDs()?", got, expectedEventIDCount)
 	}
 }
 

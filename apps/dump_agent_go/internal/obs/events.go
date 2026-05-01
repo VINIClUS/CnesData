@@ -13,11 +13,11 @@ type EventID uint32
 
 const (
 	// 1xxx auth.
-	EventDPAPIUnwrapFailed   EventID = 1003
-	EventCertRotationHalted  EventID = 1004
-	EventCertExpiringSoon    EventID = 1005
-	EventOAuthRefreshDenied  EventID = 1006
-	EventClockSkewExcessive  EventID = 1007
+	EventDPAPIUnwrapFailed  EventID = 1003
+	EventCertRotationHalted EventID = 1004
+	EventCertExpiringSoon   EventID = 1005
+	EventOAuthRefreshDenied EventID = 1006
+	EventClockSkewExcessive EventID = 1007
 
 	// 2xxx queue (placeholders for P5.2).
 	EventQueueOpenFailed EventID = 2001
