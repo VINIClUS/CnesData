@@ -2,26 +2,17 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from cnes_contracts.landing import ClaimedExtraction
+
 if TYPE_CHECKING:
     from datetime import date
 
     from sqlalchemy.engine import Engine
-
-
-@dataclass(frozen=True, slots=True)
-class ClaimedExtraction:
-    job_id: UUID
-    tenant_id: str
-    source_type: str
-    competencia: date
-    files: list[dict]
-    depends_on: list[UUID]
 
 
 def enqueue(
@@ -66,7 +57,6 @@ def _uuid_array(ids: list[str]) -> str:
 def claim_next(
     engine: Engine,
     *,
-    tenant_id: str,
     lease_seconds: int = 300,
 ) -> ClaimedExtraction | None:
     sql = text("""
@@ -75,8 +65,7 @@ def claim_next(
             lease_until = NOW() + make_interval(secs => :lease)
         WHERE job_id = (
             SELECT e.job_id FROM landing.extractions e
-            WHERE e.tenant_id = :t
-              AND e.status = 'PENDING'
+            WHERE e.status = 'PENDING'
               AND NOT EXISTS (
                   SELECT 1 FROM unnest(e.depends_on) AS d(dep)
                   JOIN landing.extractions pe ON pe.job_id = d.dep
@@ -90,9 +79,9 @@ def claim_next(
                   files, depends_on
     """)
     with engine.begin() as conn:
-        row = conn.execute(
-            sql, {"t": tenant_id, "lease": lease_seconds},
-        ).one_or_none()
+        # RLS bypass: global worker scans every tenant's PENDING rows
+        conn.execute(text("SET LOCAL row_security = off"))
+        row = conn.execute(sql, {"lease": lease_seconds}).one_or_none()
     if row is None:
         return None
     return ClaimedExtraction(

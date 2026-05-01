@@ -103,9 +103,7 @@ class TestExtractionsRepoV2:
     def test_claim_next_retorna_none_quando_sem_pending(
         self, pg_engine,
     ) -> None:
-        claimed = extractions_repo.claim_next(
-            pg_engine, tenant_id=_TENANT,
-        )
+        claimed = extractions_repo.claim_next(pg_engine)
         assert claimed is None
 
     def test_mark_completed_muda_status(self, pg_engine) -> None:
@@ -186,9 +184,7 @@ class TestExtractionsRepoV2:
             }],
             depends_on=[dep],
         )
-        claimed = extractions_repo.claim_next(
-            pg_engine, tenant_id=_TENANT,
-        )
+        claimed = extractions_repo.claim_next(pg_engine)
         assert claimed is not None
         assert claimed.job_id == dep
         assert claimed.job_id != blocked
@@ -316,3 +312,39 @@ class TestExtractionsRepoV2:
             ).one()
         assert row.agent_version == "0.9.0"
         assert row.machine_id == "old-edge"
+
+    def test_claim_next_atravessa_tenants(self, pg_engine) -> None:
+        from datetime import date as _date
+        # Two tenants, one PENDING row each, distinct created_at
+        t1 = "354130"
+        t2 = "550017"
+        j1 = extractions_repo.enqueue(
+            pg_engine, tenant_id=t1, source_type="BPA_MAG",
+            competencia=_date(2026, 4, 1),
+            files=[{
+                "minio_key": "t1/bpa_c.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "1" * 64,
+            }],
+        )
+        j2 = extractions_repo.enqueue(
+            pg_engine, tenant_id=t2, source_type="BPA_MAG",
+            competencia=_date(2026, 4, 1),
+            files=[{
+                "minio_key": "t2/bpa_c.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "2" * 64,
+            }],
+        )
+        # First claim: oldest by created_at (j1 enqueued first)
+        first = extractions_repo.claim_next(pg_engine)
+        assert first is not None
+        assert first.job_id == j1
+        assert first.tenant_id == t1
+        # Second claim: the other tenant's row
+        second = extractions_repo.claim_next(pg_engine)
+        assert second is not None
+        assert second.job_id == j2
+        assert second.tenant_id == t2
+        # Third claim: nothing PENDING anywhere
+        assert extractions_repo.claim_next(pg_engine) is None
