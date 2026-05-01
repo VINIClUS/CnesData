@@ -149,24 +149,6 @@ def register(
     return result.job_id if result else None
 
 
-def mark_uploaded(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError(
-        "extractions_repo.mark_uploaded: pending Task 7",
-    )
-
-
-def complete(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("extractions_repo.complete: pending Task 7")
-
-
-def fail(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("extractions_repo.fail: pending Task 7")
-
-
-def heartbeat(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("extractions_repo.heartbeat: pending Task 7")
-
-
 def reap_expired(engine: Engine) -> int:
     sql = text("""
         UPDATE landing.extractions
