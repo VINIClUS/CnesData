@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-const expectedEventIDCount = 19
+const expectedEventIDCount = 26
 
 func TestEventID_NoDuplicates(t *testing.T) {
 	all := allEventIDs()
@@ -39,6 +39,8 @@ func TestEventID_BandsRespected(t *testing.T) {
 		}},
 		{"queue", 2000, 2999, []EventID{
 			EventQueueOpenFailed, EventQueueCorrupted, EventQueueDrained,
+			EventQueueAppendFailed, EventQueueEvicted, EventQueueTerminalDrop,
+			EventQueueRateLimited,
 		}},
 		{"extract", 3000, 3999, []EventID{
 			EventExtractFailed, EventExtractEmpty, EventFirebirdConnFailed,
@@ -47,6 +49,9 @@ func TestEventID_BandsRespected(t *testing.T) {
 			EventUploadFailed, EventUploadRetryExceeded, EventPresignedURLExpired,
 		}},
 		{"diagnose", 5000, 5999, []EventID{EventDiagnoseFailed}},
+		{"breaker", 8000, 8999, []EventID{
+			EventBreakerOpened, EventBreakerHalfOpen, EventBreakerClosed,
+		}},
 		{"generic", 9000, 9999, []EventID{
 			EventStartup, EventShutdown, EventPanicRecovered, EventUnknown,
 		}},
@@ -80,6 +85,10 @@ func allEventIDs() map[string]EventID {
 		"EventQueueOpenFailed":     EventQueueOpenFailed,
 		"EventQueueCorrupted":      EventQueueCorrupted,
 		"EventQueueDrained":        EventQueueDrained,
+		"EventQueueAppendFailed":   EventQueueAppendFailed,
+		"EventQueueEvicted":        EventQueueEvicted,
+		"EventQueueTerminalDrop":   EventQueueTerminalDrop,
+		"EventQueueRateLimited":    EventQueueRateLimited,
 		"EventExtractFailed":       EventExtractFailed,
 		"EventExtractEmpty":        EventExtractEmpty,
 		"EventFirebirdConnFailed":  EventFirebirdConnFailed,
@@ -87,6 +96,9 @@ func allEventIDs() map[string]EventID {
 		"EventUploadRetryExceeded": EventUploadRetryExceeded,
 		"EventPresignedURLExpired": EventPresignedURLExpired,
 		"EventDiagnoseFailed":      EventDiagnoseFailed,
+		"EventBreakerOpened":       EventBreakerOpened,
+		"EventBreakerHalfOpen":     EventBreakerHalfOpen,
+		"EventBreakerClosed":       EventBreakerClosed,
 		"EventStartup":             EventStartup,
 		"EventShutdown":            EventShutdown,
 		"EventPanicRecovered":      EventPanicRecovered,
