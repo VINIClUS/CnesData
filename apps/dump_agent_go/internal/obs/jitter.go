@@ -1,4 +1,3 @@
-// Package obs — JitterAround helper for periodic-interval noise.
 package obs
 
 import (
@@ -15,7 +14,7 @@ const jitterFloor = 1 * time.Millisecond
 // Floor:   1ms (returned even when arithmetic produces ≤ 0)
 //
 // Panics if d <= 0 or fraction < 0 or fraction > 1.
-// rand=nil → uses math/rand/v2.Float64.
+// randSrc=nil → uses math/rand/v2.Float64.
 func JitterAround(d time.Duration, fraction float64, randSrc func() float64) time.Duration {
 	if d <= 0 {
 		panic("obs.JitterAround: d must be > 0")
