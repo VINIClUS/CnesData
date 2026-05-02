@@ -677,6 +677,9 @@ func TestPostRotate_CtxCancelDuringSleep(t *testing.T) {
 	rand := func() float64 { return 0.5 }
 	_, err := auth.PostRotateForTest(ctx, srv.Client(), srv.URL, "csr", rand)
 	if err == nil {
-		t.Errorf("expected error from ctx cancel, got nil")
+		t.Fatalf("expected error from ctx cancel, got nil")
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("expected ctx propagation in err, got %v", err)
 	}
 }
