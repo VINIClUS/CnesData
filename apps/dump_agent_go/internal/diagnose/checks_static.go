@@ -205,6 +205,9 @@ const (
 	logDirFreeMBFailFloor = 10  // < 10MB → FAIL
 )
 
+// diskFreeMBFunc is the disk-free probe (test-injectable; defaults to OS impl).
+var diskFreeMBFunc = diskFreeMB
+
 func checkLogDir(ctx context.Context, cfg Config) Check {
 	path, err := platform.LogsDir()
 	if err != nil {
@@ -222,7 +225,7 @@ func checkLogDir(ctx context.Context, cfg Config) Check {
 	_ = tmp.Close()
 	_ = os.Remove(tmp.Name())
 
-	freeMB := diskFreeMB(path) // -1 if unknown
+	freeMB := diskFreeMBFunc(path) // -1 if unknown
 	fields := map[string]any{"path": path, "free_mb": freeMB, "writable": true}
 	if freeMB >= 0 && freeMB < logDirFreeMBFailFloor {
 		return Check{Name: "log_dir", Severity: SeverityFail,

@@ -37,6 +37,30 @@ func TestProbeCentralAPI_FAIL_NetUnreachable(t *testing.T) {
 	}
 }
 
+func TestProbeCentralAPI_FAIL_BaseURLMissing(t *testing.T) {
+	c := probeCentralAPI(t.Context(), Config{BaseURL: ""})
+	if c.Severity != SeverityFail {
+		t.Errorf("got severity %q want FAIL", c.Severity)
+	}
+	if c.Message != "base_url_missing" {
+		t.Errorf("got msg %q want base_url_missing", c.Message)
+	}
+}
+
+func TestProbeCentralAPI_WARN_UnexpectedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"unknown"}`))
+	}))
+	defer srv.Close()
+	c := probeCentralAPI(t.Context(), Config{BaseURL: srv.URL})
+	if c.Severity != SeverityWarn {
+		t.Errorf("got severity %q want WARN (msg=%q)", c.Severity, c.Message)
+	}
+	if c.Message != "unexpected_body" {
+		t.Errorf("got msg %q want unexpected_body", c.Message)
+	}
+}
+
 func TestProbeMinIO_PASS_DialOK(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -62,10 +86,30 @@ func TestProbeMinIO_FAIL_DialRefused(t *testing.T) {
 	}
 }
 
+func TestProbeMinIO_FAIL_EndpointMissing(t *testing.T) {
+	c := probeMinIO(t.Context(), Config{MinIOEP: ""})
+	if c.Severity != SeverityFail {
+		t.Errorf("got severity %q want FAIL", c.Severity)
+	}
+	if c.Message != "endpoint_missing" {
+		t.Errorf("got msg %q want endpoint_missing", c.Message)
+	}
+}
+
 func TestProbeFirebird_FAIL_BadDSN(t *testing.T) {
 	c := probeFirebird(t.Context(), Config{FBDsn: ""})
 	if c.Severity != SeverityFail {
 		t.Errorf("got severity %q want FAIL", c.Severity)
+	}
+}
+
+func TestProbeFirebird_FAIL_DriverOrConnectError(t *testing.T) {
+	c := probeFirebird(t.Context(), Config{FBDsn: "user:pass@127.0.0.1:1/nonexistent.gdb"})
+	if c.Severity != SeverityFail {
+		t.Errorf("got severity %q want FAIL (msg=%q fields=%v)", c.Severity, c.Message, c.Fields)
+	}
+	if c.Message != "open_error" && c.Message != "query_error" {
+		t.Errorf("got msg %q want open_error|query_error", c.Message)
 	}
 }
 

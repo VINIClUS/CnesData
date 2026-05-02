@@ -68,3 +68,51 @@ func TestReporter_AnyFailFalseOnPassWarn(t *testing.T) {
 		t.Error("expected false when only PASS+WARN")
 	}
 }
+
+// failingWriter returns ErrShortWrite after writing limitN bytes total.
+type failingWriter struct {
+	n      int
+	limitN int
+}
+
+func (w *failingWriter) Write(p []byte) (int, error) {
+	w.n += len(p)
+	if w.n > w.limitN {
+		return 0, errFakeWrite
+	}
+	return len(p), nil
+}
+
+var errFakeWrite = stringError("fake write error")
+
+type stringError string
+
+func (e stringError) Error() string { return string(e) }
+
+func TestReporter_TextReturnsWriteError(t *testing.T) {
+	checks := []Check{{Name: "x", Severity: SeverityPass}}
+	w := &failingWriter{limitN: 0}
+	err := Text(w, checks)
+	if err == nil {
+		t.Error("expected write error propagation, got nil")
+	}
+}
+
+func TestReporter_TextReturnsErrorOnHeaderWrite(t *testing.T) {
+	checks := []Check{}
+	for _, limit := range []int{5, 22, 24, 30, 60} {
+		w := &failingWriter{limitN: limit}
+		if err := Text(w, checks); err == nil {
+			t.Errorf("limit=%d expected error", limit)
+		}
+	}
+}
+
+func TestReporter_FormatFieldsEmpty(t *testing.T) {
+	if got := formatFields(nil); got != "" {
+		t.Errorf("nil fields: got %q want empty", got)
+	}
+	if got := formatFields(map[string]any{}); got != "" {
+		t.Errorf("empty fields: got %q want empty", got)
+	}
+}

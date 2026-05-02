@@ -257,3 +257,109 @@ func isPOSIXFilesystem() bool {
 	}
 	return st.Mode().Perm() == 0o644
 }
+
+func TestIsLinuxModeTooWide_EdgeCases(t *testing.T) {
+	cases := []struct {
+		name string
+		mode string
+		want bool
+	}{
+		{"empty", "", false},
+		{"too short", "060", false},
+		{"too long", "00600", false},
+		{"missing leading zero", "1600", false},
+		{"0600 strict", "0600", false},
+		{"0644 group readable", "0644", true},
+		{"0660 group rw", "0660", true},
+		{"0601 other exec", "0601", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if !isPOSIXFilesystem() {
+				t.Skip("Linux/POSIX-only mode bits test")
+			}
+			if got := isLinuxModeTooWide(c.mode); got != c.want {
+				t.Errorf("isLinuxModeTooWide(%q) = %v want %v", c.mode, got, c.want)
+			}
+		})
+	}
+}
+
+func TestCheckOutbox_FAIL_Locked(t *testing.T) {
+	dir := t.TempDir()
+	queueDir := filepath.Join(dir, "queue")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(queueDir, "outbox.db")
+	db, err := bbolt.Open(dbPath, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c := checkOutbox(t.Context(), Config{AppData: dir})
+	if c.Severity != SeverityFail {
+		t.Errorf("got severity %q want FAIL", c.Severity)
+	}
+	if c.Message != "outbox_locked" && c.Message != "outbox_corrupt" {
+		t.Errorf("got msg %q want outbox_locked|outbox_corrupt", c.Message)
+	}
+}
+
+func TestCheckLogDir_FAIL_ResolveError(t *testing.T) {
+	parent := t.TempDir()
+	blockingFile := filepath.Join(parent, "not-a-dir")
+	if err := os.WriteFile(blockingFile, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUMP_LOGS_DIR", filepath.Join(blockingFile, "subdir"))
+	c := checkLogDir(t.Context(), Config{})
+	if c.Severity != SeverityFail {
+		t.Errorf("got severity %q want FAIL (msg=%q)", c.Severity, c.Message)
+	}
+	if c.Message != "log_dir_resolve_error" {
+		t.Errorf("got msg %q want log_dir_resolve_error", c.Message)
+	}
+}
+
+func TestCheckLogDir_WARN_DiskLow(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DUMP_LOGS_DIR", dir)
+	orig := diskFreeMBFunc
+	diskFreeMBFunc = func(string) int64 { return 50 }
+	defer func() { diskFreeMBFunc = orig }()
+	c := checkLogDir(t.Context(), Config{})
+	if c.Severity != SeverityWarn {
+		t.Errorf("got severity %q want WARN (msg=%q)", c.Severity, c.Message)
+	}
+	if c.Message != "disk_low" {
+		t.Errorf("got msg %q want disk_low", c.Message)
+	}
+}
+
+func TestCheckLogDir_FAIL_DiskAlmostFull(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DUMP_LOGS_DIR", dir)
+	orig := diskFreeMBFunc
+	diskFreeMBFunc = func(string) int64 { return 5 }
+	defer func() { diskFreeMBFunc = orig }()
+	c := checkLogDir(t.Context(), Config{})
+	if c.Severity != SeverityFail {
+		t.Errorf("got severity %q want FAIL (msg=%q)", c.Severity, c.Message)
+	}
+	if c.Message != "disk_almost_full" {
+		t.Errorf("got msg %q want disk_almost_full", c.Message)
+	}
+}
+
+func TestCheckLogDir_PASS_DiskUnknown(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DUMP_LOGS_DIR", dir)
+	orig := diskFreeMBFunc
+	diskFreeMBFunc = func(string) int64 { return -1 }
+	defer func() { diskFreeMBFunc = orig }()
+	c := checkLogDir(t.Context(), Config{})
+	if c.Severity != SeverityPass {
+		t.Errorf("got severity %q want PASS (msg=%q)", c.Severity, c.Message)
+	}
+}
