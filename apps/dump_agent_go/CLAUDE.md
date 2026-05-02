@@ -196,5 +196,5 @@ fleets do not collide on `central_api` after a shared outage.
 - Breaker reset: `JitterAround(60s, 0.33)` → `[40s, 80s]`. Window snapshotted
   per fresh OPEN trip in `gateAfter`; `CircuitBreaker.SetClock`+`SetRand`.
 - Cert rotate retries: `DecorrelatedJitter(prev, 1s, 30s)` replaces fixed
-  `[1s, 2s, 4s]`; `maxAttempts=3`. Outer 6h ±10% `Rotator.NextWakeup`
+  `[1s, 2s, 4s]`; `maxAttempts=3`. Outer 6h ±10% `Rotator.nextSleep`
   untouched. Targets: filtered ≥ 80.5% (P5.2); `obs/jitter.go` 100%.
