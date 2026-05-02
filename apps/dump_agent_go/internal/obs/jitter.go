@@ -61,10 +61,7 @@ func DecorrelatedJitter(prev, base, cap time.Duration, randSrc func() float64) t
 	if prev < base {
 		prev = base
 	}
-	upper := prev * 3
-	if upper > cap {
-		upper = cap
-	}
+	upper := min(prev*3, cap)
 	r := randSrc()
 	if r < 0 {
 		r = 0
@@ -73,11 +70,5 @@ func DecorrelatedJitter(prev, base, cap time.Duration, randSrc func() float64) t
 	}
 	span := upper - base
 	out := base + time.Duration(float64(span)*r)
-	if out < base {
-		return base
-	}
-	if out > cap {
-		return cap
-	}
 	return out
 }
