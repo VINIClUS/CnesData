@@ -6,12 +6,15 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/binary"
 	"encoding/pem"
 	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"go.etcd.io/bbolt"
 )
 
 func writeTestCert(t *testing.T, dir string, notBefore, notAfter time.Time) {
@@ -138,6 +141,102 @@ func TestCheckAuthDir_WARN_LinuxModeWide(t *testing.T) {
 	c := checkAuthDir(t.Context(), Config{AuthDir: dir})
 	if c.Severity != SeverityWarn {
 		t.Errorf("got severity %q want WARN", c.Severity)
+	}
+}
+
+func TestCheckOutbox_PASS_FileMissing(t *testing.T) {
+	dir := t.TempDir()
+	c := checkOutbox(t.Context(), Config{AppData: dir})
+	if c.Severity != SeverityPass {
+		t.Errorf("got severity %q want PASS (uninitialized)", c.Severity)
+	}
+}
+
+func TestCheckOutbox_PASS_Empty(t *testing.T) {
+	dir := t.TempDir()
+	queueDir := filepath.Join(dir, "queue")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(queueDir, "outbox.db")
+	db, err := bbolt.Open(dbPath, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Update(func(tx *bbolt.Tx) error {
+		_, e := tx.CreateBucketIfNotExists([]byte("outbox"))
+		return e
+	})
+	_ = db.Close()
+	c := checkOutbox(t.Context(), Config{AppData: dir})
+	if c.Severity != SeverityPass {
+		t.Errorf("got severity %q want PASS (count=0)", c.Severity)
+	}
+}
+
+func TestCheckOutbox_FAIL_Corrupt(t *testing.T) {
+	dir := t.TempDir()
+	queueDir := filepath.Join(dir, "queue")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(queueDir, "outbox.db")
+	if err := os.WriteFile(dbPath, []byte("not a bbolt file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := checkOutbox(t.Context(), Config{AppData: dir})
+	if c.Severity != SeverityFail {
+		t.Errorf("got severity %q want FAIL", c.Severity)
+	}
+}
+
+func TestCheckOutbox_WARN_OldEnvelope(t *testing.T) {
+	dir := t.TempDir()
+	queueDir := filepath.Join(dir, "queue")
+	if err := os.MkdirAll(queueDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(queueDir, "outbox.db")
+	db, err := bbolt.Open(dbPath, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Update(func(tx *bbolt.Tx) error {
+		b, _ := tx.CreateBucketIfNotExists([]byte("outbox"))
+		oldNs := time.Now().Add(-31 * 24 * time.Hour).UnixNano()
+		key := make([]byte, 12)
+		binary.BigEndian.PutUint64(key[0:8], uint64(oldNs))
+		return b.Put(key, []byte(`{}`))
+	})
+	_ = db.Close()
+	c := checkOutbox(t.Context(), Config{AppData: dir})
+	if c.Severity != SeverityWarn {
+		t.Errorf("got severity %q want WARN (old)", c.Severity)
+	}
+}
+
+func TestCheckLogDir_PASS_Writable(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DUMP_LOGS_DIR", dir)
+	c := checkLogDir(t.Context(), Config{})
+	if c.Severity != SeverityPass {
+		t.Errorf("got severity %q want PASS (msg=%q)", c.Severity, c.Message)
+	}
+}
+
+func TestCheckLogDir_FAIL_NonWritable(t *testing.T) {
+	if !isPOSIXFilesystem() {
+		t.Skip("POSIX-only readonly-dir test")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700) // restore so t.TempDir cleanup works
+	t.Setenv("DUMP_LOGS_DIR", dir)
+	c := checkLogDir(t.Context(), Config{})
+	if c.Severity != SeverityFail {
+		t.Errorf("got severity %q want FAIL", c.Severity)
 	}
 }
 

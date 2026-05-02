@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -12,12 +13,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/cnesdata/dumpagent/internal/platform"
+	"go.etcd.io/bbolt"
 )
 
 const certNearExpiryDays = 7
 
 func init() {
-	staticChecks = []CheckFunc{checkCert, checkAuthDir}
+	staticChecks = []CheckFunc{checkCert, checkAuthDir, checkOutbox, checkLogDir}
 }
 
 func checkCert(ctx context.Context, cfg Config) Check {
@@ -108,4 +112,117 @@ func isLinuxModeTooWide(mode string) bool {
 	// Mode bits: owner / group / other. "0600" is fine; anything with non-zero
 	// group or other bits is too wide for a private key.
 	return mode[2] != '0' || mode[3] != '0'
+}
+
+const (
+	outboxCapWarn         = 8000
+	outboxOldHoursWarn    = 30 * 24
+	outboxBucketName      = "outbox"
+	outboxOpenLockTimeout = 1 * time.Second
+)
+
+func checkOutbox(ctx context.Context, cfg Config) Check {
+	path := filepath.Join(cfg.AppData, "queue", "outbox.db")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return Check{Name: "outbox", Severity: SeverityPass,
+			Message: "uninitialized",
+			Fields:  map[string]any{"path": path}}
+	}
+	db, err := bbolt.Open(path, 0o600, &bbolt.Options{
+		ReadOnly: true,
+		Timeout:  outboxOpenLockTimeout,
+	})
+	if err != nil {
+		msg := "outbox_corrupt"
+		if errors.Is(err, bbolt.ErrTimeout) {
+			msg = "outbox_locked"
+		}
+		return Check{Name: "outbox", Severity: SeverityFail, Message: msg,
+			Fields: map[string]any{"path": path, "err": err.Error()}}
+	}
+	defer db.Close()
+
+	var count int
+	var oldestNs int64
+	if err := db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte(outboxBucketName))
+		if b == nil {
+			return errors.New("bucket missing")
+		}
+		c := b.Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			if count == 0 && len(k) >= 8 {
+				oldestNs = int64(binary.BigEndian.Uint64(k[0:8]))
+			}
+			count++
+		}
+		return nil
+	}); err != nil {
+		return Check{Name: "outbox", Severity: SeverityFail, Message: "outbox_corrupt",
+			Fields: map[string]any{"err": err.Error()}}
+	}
+
+	st, _ := os.Stat(path)
+	var sizeBytes int64
+	if st != nil {
+		sizeBytes = st.Size()
+	}
+	oldestHours := 0
+	if oldestNs > 0 {
+		oldestHours = int(time.Since(time.Unix(0, oldestNs)).Hours())
+	}
+	capPct := count * 100 / 10000
+	fields := map[string]any{
+		"path":             path,
+		"size_bytes":       sizeBytes,
+		"count":            count,
+		"oldest_age_hours": oldestHours,
+		"cap_pct":          capPct,
+	}
+	if count >= outboxCapWarn {
+		return Check{Name: "outbox", Severity: SeverityWarn,
+			Message: "approaching_cap", Fields: fields}
+	}
+	if oldestHours >= outboxOldHoursWarn {
+		return Check{Name: "outbox", Severity: SeverityWarn,
+			Message: "old_envelopes", Fields: fields}
+	}
+	return Check{Name: "outbox", Severity: SeverityPass,
+		Message: "healthy", Fields: fields}
+}
+
+const (
+	logDirFreeMBWarnFloor = 100 // < 100MB → WARN
+	logDirFreeMBFailFloor = 10  // < 10MB → FAIL
+)
+
+func checkLogDir(ctx context.Context, cfg Config) Check {
+	path, err := platform.LogsDir()
+	if err != nil {
+		return Check{Name: "log_dir", Severity: SeverityFail,
+			Message: "log_dir_resolve_error",
+			Fields:  map[string]any{"err": err.Error()}}
+	}
+	tmp, err := os.CreateTemp(path, "diag-probe-*")
+	if err != nil {
+		return Check{Name: "log_dir", Severity: SeverityFail,
+			Message: "log_dir_not_writable",
+			Fields:  map[string]any{"path": path, "err": err.Error()}}
+	}
+	_, _ = tmp.Write([]byte{0})
+	_ = tmp.Close()
+	_ = os.Remove(tmp.Name())
+
+	freeMB := diskFreeMB(path) // -1 if unknown
+	fields := map[string]any{"path": path, "free_mb": freeMB, "writable": true}
+	if freeMB >= 0 && freeMB < logDirFreeMBFailFloor {
+		return Check{Name: "log_dir", Severity: SeverityFail,
+			Message: "disk_almost_full", Fields: fields}
+	}
+	if freeMB >= 0 && freeMB < logDirFreeMBWarnFloor {
+		return Check{Name: "log_dir", Severity: SeverityWarn,
+			Message: "disk_low", Fields: fields}
+	}
+	return Check{Name: "log_dir", Severity: SeverityPass,
+		Message: "healthy", Fields: fields}
 }
