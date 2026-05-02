@@ -40,6 +40,7 @@ func TestBreaker_OpenToHalfOpenAfterReset(t *testing.T) {
 	now := time.Now()
 	b := newTestBreaker(2, 30*time.Second)
 	b.nowFunc = func() time.Time { return now }
+	b.rand = func() float64 { return 0.5 }
 	bang := errors.New("boom")
 	_ = b.Call(context.Background(), func(_ context.Context) error { return bang })
 	_ = b.Call(context.Background(), func(_ context.Context) error { return bang })
@@ -71,6 +72,7 @@ func TestBreaker_HalfOpenProbeFailReopens(t *testing.T) {
 	now := time.Now()
 	b := newTestBreaker(1, 30*time.Second)
 	b.nowFunc = func() time.Time { return now }
+	b.rand = func() float64 { return 0.5 }
 	bang := errors.New("boom")
 	_ = b.Call(context.Background(), func(_ context.Context) error { return bang })
 	// OPEN
@@ -110,5 +112,123 @@ func TestBreaker_CtxCancellation(t *testing.T) {
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v want context.Canceled", err)
+	}
+}
+
+func TestBreaker_ResetWindowJittered_Low(t *testing.T) {
+	now := time.Now()
+	b := New(2, 60*time.Second, "test")
+	b.SetClock(func() time.Time { return now })
+	b.SetRand(func() float64 { return 0.0 })
+
+	// Trip OPEN
+	for i := 0; i < 2; i++ {
+		_ = b.Call(context.Background(), func(context.Context) error {
+			return errors.New("fail")
+		})
+	}
+
+	// At 39s, not eligible
+	b.SetClock(func() time.Time { return now.Add(39 * time.Second) })
+	if err := b.Call(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrOpen) {
+		t.Errorf("at 39s expected ErrOpen, got %v", err)
+	}
+
+	// At 40.2s, eligible (60s × (1 - 0.33) = 40.2s)
+	b.SetClock(func() time.Time { return now.Add(40200 * time.Millisecond) })
+	if err := b.Call(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Errorf("at 40.2s expected pass, got %v", err)
+	}
+}
+
+func TestBreaker_ResetWindowJittered_High(t *testing.T) {
+	now := time.Now()
+	b := New(2, 60*time.Second, "test")
+	b.SetClock(func() time.Time { return now })
+	b.SetRand(func() float64 { return 1.0 })
+
+	for i := 0; i < 2; i++ {
+		_ = b.Call(context.Background(), func(context.Context) error {
+			return errors.New("fail")
+		})
+	}
+
+	// At 79s, not eligible
+	b.SetClock(func() time.Time { return now.Add(79 * time.Second) })
+	if err := b.Call(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrOpen) {
+		t.Errorf("at 79s expected ErrOpen, got %v", err)
+	}
+
+	// At 80s, eligible (60s × (1 + 0.33) = 79.8s)
+	b.SetClock(func() time.Time { return now.Add(80 * time.Second) })
+	if err := b.Call(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Errorf("at 80s expected pass, got %v", err)
+	}
+}
+
+func TestBreaker_ResetWindowSnapshotStable(t *testing.T) {
+	now := time.Now()
+	calls := 0
+	rand := func() float64 {
+		calls++
+		// Different value each call so a buggy impl reading rand twice is detected.
+		if calls == 1 {
+			return 0.0
+		}
+		return 1.0
+	}
+	b := New(2, 60*time.Second, "test")
+	b.SetClock(func() time.Time { return now })
+	b.SetRand(rand)
+
+	for i := 0; i < 2; i++ {
+		_ = b.Call(context.Background(), func(context.Context) error {
+			return errors.New("fail")
+		})
+	}
+
+	// Window snapshot was taken at trip time with rand=0.0 (window ≈ 40.2s).
+	// 5 consecutive calls past the window should all see the SAME window.
+	for i := 0; i < 5; i++ {
+		b.SetClock(func() time.Time { return now.Add(50 * time.Second) })
+		err := b.Call(context.Background(), func(context.Context) error { return nil })
+		// HALF_OPEN probe permitted at 1st pass, then transitions to CLOSED on success.
+		// Subsequent CLOSED-state calls also permitted.
+		if err != nil {
+			t.Errorf("call %d at 50s expected pass, got %v", i, err)
+		}
+	}
+}
+
+func TestBreaker_ResetWindowRecomputedOnReopen(t *testing.T) {
+	now := time.Now()
+	randVals := []float64{0.0, 1.0} // first OPEN window low; second OPEN window high
+	idx := 0
+	rand := func() float64 {
+		v := randVals[idx]
+		idx++
+		return v
+	}
+	b := New(2, 60*time.Second, "test")
+	b.SetClock(func() time.Time { return now })
+	b.SetRand(rand)
+
+	// Trip OPEN (1st window: rand=0.0 → ≈ 40.2s)
+	for i := 0; i < 2; i++ {
+		_ = b.Call(context.Background(), func(context.Context) error {
+			return errors.New("fail")
+		})
+	}
+	// At 41s: half-open probe permitted; probe fails → reopen with fresh window
+	b.SetClock(func() time.Time { return now.Add(41 * time.Second) })
+	_ = b.Call(context.Background(), func(context.Context) error {
+		return errors.New("probe fail")
+	})
+
+	// Second OPEN at clock=41s with rand=1.0 → window ≈ 79.8s
+	// At clock=70s (29s into 2nd OPEN), still not eligible
+	b.SetClock(func() time.Time { return now.Add(70 * time.Second) })
+	if err := b.Call(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrOpen) {
+		t.Errorf("at 70s (29s into 2nd OPEN) expected ErrOpen due to fresh high-rand window, got %v", err)
 	}
 }
