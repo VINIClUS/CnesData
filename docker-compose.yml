@@ -34,9 +34,10 @@ services:
     - ./packages:/app/packages
     - ./pyproject.toml:/app/pyproject.toml
     working_dir: /app
-    command: "sh -c \"\n  pip install psycopg[binary] sqlalchemy faker --quiet &&\n\
-      \  pip install --no-deps ./packages/cnes_domain ./packages/cnes_infra --quiet\
-      \ &&\n  python fixtures/seed_postgres.py\n\"\n"
+    command: "sh -c \"\n  pip install --quiet --root-user-action=ignore --disable-pip-version-check\
+      \ psycopg[binary] sqlalchemy faker &&\n  pip install --quiet --root-user-action=ignore\
+      \ --disable-pip-version-check --no-deps ./packages/cnes_contracts ./packages/cnes_domain\
+      \ ./packages/cnes_infra &&\n  python fixtures/seed_postgres.py\n\"\n"
     profiles:
     - dev
   minio:

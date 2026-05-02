@@ -92,8 +92,7 @@ async def _lease_reaper_loop(engine: Engine) -> None:
 
 
 def _reap_expired_sync(engine: Engine) -> int:
-    with engine.begin() as conn:
-        return extractions_repo.reap_expired(conn)
+    return extractions_repo.reap_expired(engine)
 
 
 def require_auth(request: Request) -> AuthenticatedUser:
