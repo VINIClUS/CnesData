@@ -12,7 +12,13 @@ func diskFreeMB(path string) int64 {
 	if err != nil {
 		return -1
 	}
-	if err := windows.GetDiskFreeSpaceEx(pPath, &freeBytesAvailable, &totalBytes, &totalFreeBytes); err != nil {
+	err = windows.GetDiskFreeSpaceEx(
+		pPath,
+		&freeBytesAvailable,
+		&totalBytes,
+		&totalFreeBytes,
+	)
+	if err != nil {
 		return -1
 	}
 	return int64(freeBytesAvailable / (1024 * 1024))

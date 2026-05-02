@@ -142,9 +142,17 @@ func checkOutbox(ctx context.Context, cfg Config) Check {
 	}
 	defer db.Close()
 
-	var count int
-	var oldestNs int64
-	if err := db.View(func(tx *bbolt.Tx) error {
+	count, oldestNs, err := scanOutbox(db)
+	if err != nil {
+		return Check{Name: "outbox", Severity: SeverityFail, Message: "outbox_corrupt",
+			Fields: map[string]any{"err": err.Error()}}
+	}
+	return outboxResult(path, count, oldestNs)
+}
+
+// scanOutbox iterates the outbox bucket counting items + capturing oldest ns timestamp.
+func scanOutbox(db *bbolt.DB) (count int, oldestNs int64, err error) {
+	err = db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(outboxBucketName))
 		if b == nil {
 			return errors.New("bucket missing")
@@ -157,11 +165,12 @@ func checkOutbox(ctx context.Context, cfg Config) Check {
 			count++
 		}
 		return nil
-	}); err != nil {
-		return Check{Name: "outbox", Severity: SeverityFail, Message: "outbox_corrupt",
-			Fields: map[string]any{"err": err.Error()}}
-	}
+	})
+	return count, oldestNs, err
+}
 
+// outboxResult builds the final Check from scan results + path size.
+func outboxResult(path string, count int, oldestNs int64) Check {
 	st, _ := os.Stat(path)
 	var sizeBytes int64
 	if st != nil {
