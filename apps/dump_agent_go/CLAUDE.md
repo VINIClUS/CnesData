@@ -154,3 +154,31 @@ unchanged — eventlog is fan-out sibling under `obs.MultiHandler`.
   syscall.ERROR_FILE_NOT_FOUND)` — works on pt-BR Windows hosts.
 - Cross-tag check: CI runs `go vet` on both `GOOS=linux` and
   `GOOS=windows` to catch tag leaks before merge.
+
+## Phase 5.2 — Outbox queue + Circuit Breaker (2026-05-02)
+
+Persistent outbox for `CompleteJob`/`FailJob` outbound API calls so
+transient central_api outages do not lose extraction outcomes.
+
+- `internal/queue/` — bbolt-backed outbox (`go.etcd.io/bbolt v1.3.10`).
+  Single bucket, time-ordered uint64 keys (8B ns + 4B atomic seq), JSON
+  envelopes. Path: `%PROGRAMDATA%\dumpagent\queue\outbox.db`. Hard cap
+  10k envelopes, 90-day TTL drop-oldest. Each Append fsyncs.
+  `RegisterJob` + `SendHeartbeat` stay direct (caller needs response /
+  heartbeat loss = lease expires).
+- `internal/breaker/` — CLOSED→OPEN→HALF_OPEN. Threshold 5 consecutive
+  failures, reset 60s. Single shared instance for `central_api`. Drain
+  + RegisterJob both gated. Logs state transitions via P5.1 EventLog
+  catalog (8001 opened, 8002 half-open, 8003 closed).
+- `internal/worker/outbox_adapter.go` — decorator over `JobAPIClient`.
+  `internal/worker/drain.go` — `Drainer.Run` ticks every 30s, peeks 20
+  envelopes, dispatches via breaker, classifies HTTP responses
+  (`internal/queue/classify.go`): 2xx delete; 4xx terminal-drop; 5xx
+  retry; 429 honor `Retry-After` (numeric + HTTP-date).
+- `cmd/dumpagent/cmd_run.go` — `startDrainWithWatcher` spawns drain
+  under `obs.SafeGo` and a watcher goroutine that relaunches the drain
+  with 5s backoff on panic-recovery exit.
+- Outbox open failure aborts boot (fail-closed, exit 1). SCM restarts
+  service per existing recovery policy.
+- Event ID catalog 2xxx queue (2004-2007) + 8xxx breaker (8001-8003);
+  `expectedEventIDCount` 19 → 26.
