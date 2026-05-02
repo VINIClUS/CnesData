@@ -28,12 +28,20 @@ func IsWithinWindowForTest(cert *x509.Certificate, fraction float64, now time.Ti
 	return isWithinWindow(cert, fraction, now)
 }
 
-// Phase 7 step 3 exports.
+// Phase 7 step 3 / P5.3 step 5 exports.
 func PostRotateForTest(
 	ctx context.Context, httpClient *http.Client, baseURL, csrPEM string,
-	backoff []time.Duration,
+	randSrc func() float64,
 ) (any, error) {
-	return postRotate(ctx, httpClient, baseURL, csrPEM, backoff)
+	return postRotateWithRand(ctx, httpClient, baseURL, csrPEM, randSrc)
+}
+
+// SetTimeAfterForTest replaces the package-level timeAfter seam for tests.
+// Returns a restore function that the test should defer-call.
+func SetTimeAfterForTest(fn func(time.Duration) <-chan time.Time) func() {
+	prev := timeAfter
+	timeAfter = fn
+	return func() { timeAfter = prev }
 }
 
 func PersistRotatedForTest(authDir string, resp any, pkcs8DER []byte) error {
@@ -62,7 +70,6 @@ func ExtractRotateRespForTest(resp any) (certPEM, expiresAt string) {
 
 // Phase 7 step 4 setters + extract.
 func (r *Rotator) SetIntervalForTest(d time.Duration)  { r.interval = d }
-func (r *Rotator) SetBackoffForTest(b []time.Duration) { r.backoff = b }
 func (r *Rotator) SetClockForTest(fn func() time.Time) { r.clock = fn }
 func (r *Rotator) SetRandForTest(fn func() float64)    { r.rand = fn }
 func (r *Rotator) SetLoggerForTest(l *slog.Logger)     { r.logger = l }
