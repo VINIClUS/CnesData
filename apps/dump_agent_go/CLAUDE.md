@@ -157,44 +157,29 @@ unchanged — eventlog is fan-out sibling under `obs.MultiHandler`.
 
 ## Phase 5.2 — Outbox queue + Circuit Breaker (2026-05-02)
 
-Persistent outbox for `CompleteJob`/`FailJob` outbound API calls so
-transient central_api outages do not lose extraction outcomes.
-
-- `internal/queue/` — bbolt-backed outbox (`go.etcd.io/bbolt v1.3.10`).
-  Single bucket, time-ordered uint64 keys (8B ns + 4B atomic seq), JSON
-  envelopes. Path: `%PROGRAMDATA%\dumpagent\queue\outbox.db`. Hard cap
-  10k envelopes, 90-day TTL drop-oldest. Each Append fsyncs.
-  `RegisterJob` + `SendHeartbeat` stay direct (caller needs response /
-  heartbeat loss = lease expires).
-- `internal/breaker/` — CLOSED→OPEN→HALF_OPEN. Threshold 5 consecutive
-  failures, reset 60s. Single shared instance for `central_api`. Drain
-  + RegisterJob both gated. Logs state transitions via P5.1 EventLog
-  catalog (8001 opened, 8002 half-open, 8003 closed).
-- `internal/worker/outbox_adapter.go` — decorator over `JobAPIClient`.
-  `internal/worker/drain.go` — `Drainer.Run` ticks every 30s, peeks 20
-  envelopes, dispatches via breaker, classifies HTTP responses
-  (`internal/queue/classify.go`): 2xx delete; 4xx terminal-drop; 5xx
-  retry; 429 honor `Retry-After` (numeric + HTTP-date).
-- `cmd/dumpagent/cmd_run.go` — `startDrainWithWatcher` spawns drain
-  under `obs.SafeGo` and a watcher goroutine that relaunches the drain
-  with 5s backoff on panic-recovery exit.
-- Outbox open failure aborts boot (fail-closed, exit 1). SCM restarts
-  service per existing recovery policy.
-- Event ID catalog 2xxx queue (2004-2007) + 8xxx breaker (8001-8003);
-  `expectedEventIDCount` 19 → 26.
+Persistent outbox for `CompleteJob`/`FailJob` so transient central_api outages do not lose extraction outcomes.
+- `internal/queue/` — bbolt outbox (`go.etcd.io/bbolt v1.3.10`); single bucket, time-ordered uint64 keys (8B ns + 4B seq), JSON envelopes. Path `%PROGRAMDATA%\dumpagent\queue\outbox.db`. 10k cap, 90-day TTL drop-oldest, fsync per Append. `RegisterJob` + `SendHeartbeat` stay direct.
+- `internal/breaker/` — CLOSED→OPEN→HALF_OPEN, threshold 5 consecutive failures, reset 60s, shared `central_api` instance gating drain + RegisterJob; logs 8001/8002/8003.
+- `internal/worker/{outbox_adapter,drain}.go` — `Drainer.Run` ticks 30s, peeks 20, dispatches via breaker, classifies (`queue/classify.go`): 2xx delete; 4xx drop; 5xx retry; 429 honors `Retry-After`.
+- `cmd/dumpagent/cmd_run.go` `startDrainWithWatcher` spawns drain under `obs.SafeGo` + relaunches with 5s backoff on panic-recovery exit. Outbox open failure aborts boot fail-closed (exit 1).
+- Event ID catalog 2xxx queue (2004-2007) + 8xxx breaker (8001-8003); `expectedEventIDCount` 19 → 26.
 
 ## Phase 5.3 — Backoff + Jitter (2026-05-02)
 
-Deterministic, test-injectable jitter on three timing sites so N-agent
-fleets do not collide on `central_api` after a shared outage.
+Test-injectable jitter so N-agent fleet does not collide post-outage.
+- `internal/obs/jitter.go` — `JitterAround(d, fraction, rand)` periodic noise; `DecorrelatedJitter(prev, base, cap, rand)` AWS retry sequence.
+- Drain tick `[24s, 36s]`; breaker reset `[40s, 80s]`; rotate retries `DecorrelatedJitter(_, 1s, 30s)` replaces `[1s, 2s, 4s]`.
+- All consumers default `math/rand/v2.Float64`; tests inject `func() float64` via `SetRand`/`SetClock`.
+- `Rotator.nextSleep` outer 6h ±10% untouched. Filtered cov ≥ 81.5%; `obs/jitter.go` 100%.
 
-- `internal/obs/jitter.go` — `JitterAround(d, f, rand)` → `[d*(1-f), d*(1+f)]`
-  (1ms floor); `DecorrelatedJitter(prev, base, cap, rand)` →
-  `clamp(uniform(base, prev*3), base, cap)`. `rand=nil` → `math/rand/v2`. No deps.
-- Drain tick: `JitterAround(30s, 0.20)` → `[24s, 36s]` via `time.NewTimer`+
-  `Reset` in `internal/worker/drain.go`; `Drainer.SetRand` for tests.
-- Breaker reset: `JitterAround(60s, 0.33)` → `[40s, 80s]`. Window snapshotted
-  per fresh OPEN trip in `gateAfter`; `CircuitBreaker.SetClock`+`SetRand`.
-- Cert rotate retries: `DecorrelatedJitter(prev, 1s, 30s)` replaces fixed
-  `[1s, 2s, 4s]`; `maxAttempts=3`. Outer 6h ±10% `Rotator.nextSleep`
-  untouched. Targets: filtered ≥ 80.5% (P5.2); `obs/jitter.go` 100%.
+## Phase 5.4 — Diagnose CLI (2026-05-02)
+
+`dumpagent diagnose [--probe] [--json]` runs read-only health checklist.
+
+- Static (always): `cert`, `auth_dir`, `outbox`, `log_dir`. Probe (--probe): `central_api` mTLS, `firebird` SELECT 1, `minio` TCP dial.
+- 3-level severity PASS/WARN/FAIL; binary exit 0 (no FAIL) or 1.
+- `internal/diagnose/` — `Check{Name,Severity,Message,Fields}`; `Run(ctx, cfg) []Check` per-check 5s timeout + panic recovery; `Text` / `JSON` reporters; `AnyFail` drives exit code.
+- Outbox check uses `bbolt.Open(_, _, &Options{ReadOnly: true, Timeout: 1s})` — never blocks running agent. `outbox.db` missing = PASS `state=uninitialized`.
+- Disk-free via `golang.org/x/sys/{unix,windows}` (build-tag split `disk_unix.go` / `disk_windows.go`).
+- FB live probe gated by `FB_TEST_DSN` env in tests; production reads `FB_DSN`.
+- Read-only — never mutates state. P5.5 web dashboard deferred indefinitely.
