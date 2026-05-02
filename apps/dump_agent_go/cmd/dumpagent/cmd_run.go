@@ -138,21 +138,11 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 1
 	}
 
-	outboxPath := filepath.Join(appData, "queue", "outbox.db")
-	outbox, err := queue.Open(outboxPath)
-	if err != nil {
-		slog.Error("outbox_open_failed",
-			"event_id", obs.EventQueueOpenFailed,
-			"path", outboxPath,
-			"err", err.Error())
+	outbox, apiClient, ok := openOutboxAndStartDrain(ctx, appData, innerAPIClient)
+	if !ok {
 		return 1
 	}
 	defer func() { _ = outbox.Close() }()
-
-	apiBreaker := breaker.New(5, 60*time.Second, "central_api")
-	apiClient := worker.NewOutboxAdapter(innerAPIClient, outbox)
-
-	startDrainWithWatcher(ctx, outbox, apiBreaker, innerAPIClient)
 
 	_ = buildDispatchConfig(flags, innerAPIClient)
 
@@ -162,14 +152,7 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 1
 	}
 
-	var exe worker.JobExecutorIface
-	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
-		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
-		slog.Info("shadow_mode_enabled", "output_dir", shadowDir)
-		exe = &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
-	} else {
-		exe = &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
-	}
+	exe := buildExecutor(appData, db)
 	cons := worker.NewConsumer(apiClient, source, exe, worker.ConsumerConfig{
 		PollInterval:      5 * time.Second,
 		InterJobJitterMax: 5 * time.Second,
@@ -382,6 +365,41 @@ func buildLoggerHandler(logPath string, level slog.Level) (slog.Handler, func())
 		rotatingCloser()
 		_ = eventlog.Close()
 	}
+}
+
+// buildExecutor returns a ShadowExecutor when DUMP_SHADOW_MODE=true,
+// otherwise a live JobExecutor.
+func buildExecutor(appData string, db *sql.DB) worker.JobExecutorIface {
+	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
+		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
+		slog.Info("shadow_mode_enabled", "output_dir", shadowDir)
+		return &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
+	}
+	return &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
+}
+
+// openOutboxAndStartDrain opens the bbolt outbox, constructs the breaker,
+// wraps the inner client with OutboxAdapter, and spawns the drain goroutine
+// + watcher. Returns (outbox, wrappedClient, true) on success;
+// (nil, nil, false) on outbox open failure (caller should exit boot).
+func openOutboxAndStartDrain(
+	ctx context.Context,
+	appData string,
+	innerAPIClient worker.JobAPIClient,
+) (*queue.Outbox, worker.JobAPIClient, bool) {
+	outboxPath := filepath.Join(appData, "queue", "outbox.db")
+	outbox, err := queue.Open(outboxPath)
+	if err != nil {
+		slog.Error("outbox_open_failed",
+			"event_id", obs.EventQueueOpenFailed,
+			"path", outboxPath,
+			"err", err.Error())
+		return nil, nil, false
+	}
+	apiBreaker := breaker.New(5, 60*time.Second, "central_api")
+	wrapped := worker.NewOutboxAdapter(innerAPIClient, outbox)
+	startDrainWithWatcher(ctx, outbox, apiBreaker, innerAPIClient)
+	return outbox, wrapped, true
 }
 
 // startDrainWithWatcher spawns the drain goroutine and a watcher that

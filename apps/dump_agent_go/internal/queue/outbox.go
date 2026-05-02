@@ -102,44 +102,63 @@ func (o *Outbox) Evict(maxAge time.Duration, maxCount int) (int, error) {
 	var deleted int
 	err := o.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
-		var ttlKeys [][]byte
-		if err := b.ForEach(func(k, v []byte) error {
-			var env Envelope
-			if err := json.Unmarshal(v, &env); err != nil {
-				ttlKeys = append(ttlKeys, append([]byte(nil), k...))
-				return nil
-			}
-			if env.EnqueuedAt.Before(cutoff) {
-				ttlKeys = append(ttlKeys, append([]byte(nil), k...))
-			}
-			return nil
-		}); err != nil {
+		ttlDeleted, err := evictByTTL(b, cutoff)
+		if err != nil {
 			return err
 		}
-		for _, k := range ttlKeys {
-			if err := b.Delete(k); err != nil {
-				return err
-			}
-			deleted++
+		deleted += ttlDeleted
+		capDeleted, err := evictByCap(b, maxCount)
+		if err != nil {
+			return err
 		}
-		remaining := b.Stats().KeyN
-		if remaining > maxCount {
-			toDrop := remaining - maxCount
-			c := b.Cursor()
-			var capKeys [][]byte
-			for k, _ := c.First(); k != nil && len(capKeys) < toDrop; k, _ = c.Next() {
-				capKeys = append(capKeys, append([]byte(nil), k...))
-			}
-			for _, k := range capKeys {
-				if err := b.Delete(k); err != nil {
-					return err
-				}
-				deleted++
-			}
-		}
+		deleted += capDeleted
 		return nil
 	})
 	return deleted, err
+}
+
+// evictByTTL deletes envelopes whose EnqueuedAt is before cutoff.
+// Envelopes that fail to unmarshal are also deleted (treated as corrupt).
+func evictByTTL(b *bbolt.Bucket, cutoff time.Time) (int, error) {
+	var keys [][]byte
+	if err := b.ForEach(func(k, v []byte) error {
+		var env Envelope
+		if err := json.Unmarshal(v, &env); err != nil {
+			keys = append(keys, append([]byte(nil), k...))
+			return nil
+		}
+		if env.EnqueuedAt.Before(cutoff) {
+			keys = append(keys, append([]byte(nil), k...))
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	return deleteAll(b, keys)
+}
+
+// evictByCap deletes the oldest entries beyond maxCount. No-op if under cap.
+func evictByCap(b *bbolt.Bucket, maxCount int) (int, error) {
+	remaining := b.Stats().KeyN
+	if remaining <= maxCount {
+		return 0, nil
+	}
+	toDrop := remaining - maxCount
+	c := b.Cursor()
+	keys := make([][]byte, 0, toDrop)
+	for k, _ := c.First(); k != nil && len(keys) < toDrop; k, _ = c.Next() {
+		keys = append(keys, append([]byte(nil), k...))
+	}
+	return deleteAll(b, keys)
+}
+
+func deleteAll(b *bbolt.Bucket, keys [][]byte) (int, error) {
+	for _, k := range keys {
+		if err := b.Delete(k); err != nil {
+			return 0, err
+		}
+	}
+	return len(keys), nil
 }
 
 // Close releases the bbolt file lock. Idempotent: second call returns nil.
@@ -154,7 +173,8 @@ func (o *Outbox) Close() error {
 
 func (o *Outbox) makeKey(t time.Time) []byte {
 	key := make([]byte, 12)
-	binary.BigEndian.PutUint64(key[0:8], uint64(t.UnixNano()))
+	// UnixNano is non-negative for any time >= 1970-01-01; safe to cast.
+	binary.BigEndian.PutUint64(key[0:8], uint64(t.UnixNano())) //nolint:gosec // G115
 	binary.BigEndian.PutUint32(key[8:12], o.seq.Add(1))
 	return key
 }
