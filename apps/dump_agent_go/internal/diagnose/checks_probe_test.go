@@ -85,3 +85,19 @@ func getEnvOrSkip(t *testing.T, key string) string {
 	}
 	return v
 }
+
+func TestRedactDSN_WithAt(t *testing.T) {
+	got := redactDSN("user:pass@host:3050/db.gdb")
+	want := "***@host:3050/db.gdb"
+	if got != want {
+		t.Errorf("got %q want %q", got, want)
+	}
+}
+
+func TestRedactDSN_NoAt(t *testing.T) {
+	in := "host:3050/db.gdb"
+	got := redactDSN(in)
+	if got != in {
+		t.Errorf("got %q want %q (unchanged)", got, in)
+	}
+}
