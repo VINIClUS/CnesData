@@ -14,9 +14,7 @@ import (
 type ctxLike = context.Context
 
 // diagnoseRunFn is the seam tests can override.
-var diagnoseRunFn = func(ctx ctxLike, cfg diagnose.Config) []diagnose.Check {
-	return diagnose.Run(ctx, cfg)
-}
+var diagnoseRunFn = diagnose.Run
 
 func cmdDiagnose(args []string) int {
 	return runDiagnose(args, os.Stdout)

@@ -11,5 +11,5 @@ func diskFreeMB(path string) int64 {
 	if err := unix.Statfs(path, &stat); err != nil {
 		return -1
 	}
-	return int64(stat.Bavail) * int64(stat.Bsize) / (1024 * 1024)
+	return int64(stat.Bavail) * int64(stat.Bsize) / (1024 * 1024) //nolint:gosec // G115
 }

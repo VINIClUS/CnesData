@@ -160,7 +160,7 @@ func scanOutbox(db *bbolt.DB) (count int, oldestNs int64, err error) {
 		c := b.Cursor()
 		for k, _ := c.First(); k != nil; k, _ = c.Next() {
 			if count == 0 && len(k) >= 8 {
-				oldestNs = int64(binary.BigEndian.Uint64(k[0:8]))
+				oldestNs = int64(binary.BigEndian.Uint64(k[0:8])) //nolint:gosec // G115
 			}
 			count++
 		}
