@@ -182,3 +182,19 @@ transient central_api outages do not lose extraction outcomes.
   service per existing recovery policy.
 - Event ID catalog 2xxx queue (2004-2007) + 8xxx breaker (8001-8003);
   `expectedEventIDCount` 19 → 26.
+
+## Phase 5.3 — Backoff + Jitter (2026-05-02)
+
+Deterministic, test-injectable jitter on three timing sites so N-agent
+fleets do not collide on `central_api` after a shared outage.
+
+- `internal/obs/jitter.go` — `JitterAround(d, f, rand)` → `[d*(1-f), d*(1+f)]`
+  (1ms floor); `DecorrelatedJitter(prev, base, cap, rand)` →
+  `clamp(uniform(base, prev*3), base, cap)`. `rand=nil` → `math/rand/v2`. No deps.
+- Drain tick: `JitterAround(30s, 0.20)` → `[24s, 36s]` via `time.NewTimer`+
+  `Reset` in `internal/worker/drain.go`; `Drainer.SetRand` for tests.
+- Breaker reset: `JitterAround(60s, 0.33)` → `[40s, 80s]`. Window snapshotted
+  per fresh OPEN trip in `gateAfter`; `CircuitBreaker.SetClock`+`SetRand`.
+- Cert rotate retries: `DecorrelatedJitter(prev, 1s, 30s)` replaces fixed
+  `[1s, 2s, 4s]`; `maxAttempts=3`. Outer 6h ±10% `Rotator.nextSleep`
+  untouched. Targets: filtered ≥ 80.5% (P5.2); `obs/jitter.go` 100%.

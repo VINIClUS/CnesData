@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -307,9 +308,15 @@ func TestPostRotate_Success_ReturnsParsedResp(t *testing.T) {
 	ca := seedRotateCA(t)
 	srv := mockRotateServer(t, ca, mockRotateOpts{})
 	httpClient := trustingClient(t, ca)
+	restore := auth.SetTimeAfterForTest(func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
 	resp, err := auth.PostRotateForTest(
 		t.Context(), httpClient, srv.URL, "fake-csr",
-		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+		func() float64 { return 0.5 },
 	)
 	if err != nil {
 		t.Fatalf("postRotate: %v", err)
@@ -331,9 +338,15 @@ func TestPostRotate_4xx_ReturnsErrRotateTerminal(t *testing.T) {
 		Attempts: &attempts,
 	})
 	httpClient := trustingClient(t, ca)
+	restore := auth.SetTimeAfterForTest(func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
 	_, err := auth.PostRotateForTest(
 		t.Context(), httpClient, srv.URL, "csr",
-		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+		func() float64 { return 0.5 },
 	)
 	if !errors.Is(err, auth.ErrRotateTerminal) {
 		t.Errorf("err = %v, want ErrRotateTerminal", err)
@@ -351,9 +364,15 @@ func TestPostRotate_5xxThrice_ReturnsErrRetriesExhausted(t *testing.T) {
 		Attempts: &attempts,
 	})
 	httpClient := trustingClient(t, ca)
+	restore := auth.SetTimeAfterForTest(func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
 	_, err := auth.PostRotateForTest(
 		t.Context(), httpClient, srv.URL, "csr",
-		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+		func() float64 { return 0.5 },
 	)
 	if !errors.Is(err, auth.ErrRotateRetriesExhausted) {
 		t.Errorf("err = %v, want ErrRotateRetriesExhausted", err)
@@ -371,9 +390,15 @@ func TestPostRotate_5xxThenSuccess_RetriesAndReturns(t *testing.T) {
 		Attempts: &attempts,
 	})
 	httpClient := trustingClient(t, ca)
+	restore := auth.SetTimeAfterForTest(func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
 	resp, err := auth.PostRotateForTest(
 		t.Context(), httpClient, srv.URL, "csr",
-		[]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond},
+		func() float64 { return 0.5 },
 	)
 	if err != nil {
 		t.Fatalf("postRotate: %v", err)
@@ -431,7 +456,12 @@ func TestRotateOnce_NotDue_ReturnsErrRotateNotDue(t *testing.T) {
 		&fakeRotateClient{httpClient: trustingClient(t, ca)},
 		dir, srv.URL, "abc12345",
 	)
-	r.SetBackoffForTest([]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond})
+	restore := auth.SetTimeAfterForTest(func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
 	err := r.RotateOnce(t.Context())
 	if !errors.Is(err, auth.ErrRotateNotDue) {
 		t.Errorf("err = %v, want ErrRotateNotDue", err)
@@ -450,7 +480,12 @@ func TestRotateOnce_WithinWindow_RotatesPersistsReloads(t *testing.T) {
 	srv := mockRotateServer(t, ca, mockRotateOpts{Attempts: &attempts})
 	rcv := &recordingFakeClient{httpClient: trustingClient(t, ca)}
 	r := auth.NewRotator(rcv, dir, srv.URL, "abc12345")
-	r.SetBackoffForTest([]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond})
+	restore := auth.SetTimeAfterForTest(func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
 	r.SetClockForTest(func() time.Time { return time.Now().Add(4 * 24 * time.Hour) })
 	err := r.RotateOnce(t.Context())
 	if err != nil {
@@ -477,7 +512,12 @@ func TestRun_LoopExitsOnContextCancel(t *testing.T) {
 		dir, srv.URL, "abc12345",
 	)
 	r.SetIntervalForTest(10 * time.Millisecond)
-	r.SetBackoffForTest([]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond})
+	restore := auth.SetTimeAfterForTest(func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
 	r.SetRandForTest(func() float64 { return 0.5 })
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
@@ -503,7 +543,12 @@ func TestRun_LoopExitsOnTerminalError(t *testing.T) {
 		dir, srv.URL, "abc12345",
 	)
 	r.SetIntervalForTest(10 * time.Millisecond)
-	r.SetBackoffForTest([]time.Duration{1 * time.Millisecond, 1 * time.Millisecond, 1 * time.Millisecond})
+	restore := auth.SetTimeAfterForTest(func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
 	r.SetRandForTest(func() float64 { return 0.5 })
 	// Advance clock past most of cert lifetime so RotateOnce enters the
 	// rotation flow and hits the mock server's 401.
@@ -530,5 +575,111 @@ func TestNextSleep_JitterStaysInTenPercent(t *testing.T) {
 		if got < minD || got > maxD {
 			t.Errorf("nextSleep = %v, want in [%v, %v]", got, minD, maxD)
 		}
+	}
+}
+
+func TestPostRotate_DecorrelatedSequence(t *testing.T) {
+	// Simulate 3 consecutive 503 responses, capture sleep durations.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	sleeps := []time.Duration{}
+	mu := sync.Mutex{}
+	restore := auth.SetTimeAfterForTest(func(d time.Duration) <-chan time.Time {
+		mu.Lock()
+		sleeps = append(sleeps, d)
+		mu.Unlock()
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
+
+	rand := func() float64 { return 0.5 }
+	_, err := auth.PostRotateForTest(t.Context(), srv.Client(), srv.URL, "csr", rand)
+	if err == nil {
+		t.Fatalf("expected error after 3 503 responses")
+	}
+
+	// rand=0.5 + base=1s. Sleep happens BETWEEN attempts (not before attempt 0).
+	// 3 attempts → 2 sleeps:
+	// attempt 0: no sleep
+	// attempt 1: prev=base=1s, sleep = (1+3)/2 = 2s
+	// attempt 2: prev=2s, sleep = (1+6)/2 = 3.5s
+	want := []time.Duration{2 * time.Second, 3500 * time.Millisecond}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sleeps) != len(want) {
+		t.Fatalf("got %d sleeps want %d: %v", len(sleeps), len(want), sleeps)
+	}
+	for i := range want {
+		if sleeps[i] != want[i] {
+			t.Errorf("sleep[%d] got %v want %v", i, sleeps[i], want[i])
+		}
+	}
+}
+
+func TestPostRotate_CappedAt30s(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	sleeps := []time.Duration{}
+	mu := sync.Mutex{}
+	restore := auth.SetTimeAfterForTest(func(d time.Duration) <-chan time.Time {
+		mu.Lock()
+		sleeps = append(sleeps, d)
+		mu.Unlock()
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	})
+	defer restore()
+
+	// rand=1.0 → upper bound of decorrelated formula every iteration
+	rand := func() float64 { return 1.0 }
+	_, _ = auth.PostRotateForTest(t.Context(), srv.Client(), srv.URL, "csr", rand)
+
+	// 3 attempts → 2 sleeps. rand=1.0 → upper bound:
+	// attempt 1: prev=base=1s, upper = min(3s, 30s) = 3s. sleep → 3s.
+	// attempt 2: prev=3s, upper = min(9s, 30s) = 9s. sleep → 9s.
+	mu.Lock()
+	defer mu.Unlock()
+	for _, s := range sleeps {
+		if s > 30*time.Second {
+			t.Errorf("sleep %v exceeds 30s cap", s)
+		}
+	}
+	// Last sleep should be ≤ 30s but > 1s (exponential growth observed).
+	if len(sleeps) > 1 && sleeps[len(sleeps)-1] <= sleeps[0] {
+		t.Errorf("expected monotonic growth, got %v", sleeps)
+	}
+}
+
+func TestPostRotate_CtxCancelDuringSleep(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	restore := auth.SetTimeAfterForTest(func(d time.Duration) <-chan time.Time {
+		// Never fire — let ctx cancel win
+		return make(chan time.Time)
+	})
+	defer restore()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	rand := func() float64 { return 0.5 }
+	_, err := auth.PostRotateForTest(ctx, srv.Client(), srv.URL, "csr", rand)
+	if err == nil {
+		t.Fatalf("expected error from ctx cancel, got nil")
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("expected ctx propagation in err, got %v", err)
 	}
 }

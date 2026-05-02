@@ -134,3 +134,33 @@ func TestDrain_RunRespectsCtxCancel(t *testing.T) {
 		t.Fatal("Run did not exit on ctx cancel")
 	}
 }
+
+func TestDrainer_TickIntervalJittered_Low(t *testing.T) {
+	d, _, _ := newDrainFixture(t, nil)
+	d.SetRand(func() float64 { return 0.0 }) // bottom of jitter window
+	got := d.NextInterval()
+	want := 24 * time.Second
+	if got != want {
+		t.Errorf("rand=0.0 got %v want %v", got, want)
+	}
+}
+
+func TestDrainer_TickIntervalJittered_High(t *testing.T) {
+	d, _, _ := newDrainFixture(t, nil)
+	d.SetRand(func() float64 { return 1.0 })
+	got := d.NextInterval()
+	want := 36 * time.Second
+	if got != want {
+		t.Errorf("rand=1.0 got %v want %v", got, want)
+	}
+}
+
+func TestDrainer_TickIntervalJittered_Mid(t *testing.T) {
+	d, _, _ := newDrainFixture(t, nil)
+	d.SetRand(func() float64 { return 0.5 })
+	got := d.NextInterval()
+	want := 30 * time.Second
+	if got != want {
+		t.Errorf("rand=0.5 got %v want %v", got, want)
+	}
+}
