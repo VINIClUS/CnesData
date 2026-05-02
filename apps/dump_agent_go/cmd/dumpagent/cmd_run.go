@@ -15,9 +15,11 @@ import (
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
 	"github.com/cnesdata/dumpagent/internal/auth"
+	"github.com/cnesdata/dumpagent/internal/breaker"
 	"github.com/cnesdata/dumpagent/internal/fbdriver"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/platform"
+	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/service"
 	"github.com/cnesdata/dumpagent/internal/transport"
 	"github.com/cnesdata/dumpagent/internal/upload"
@@ -130,13 +132,29 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	}
 	defer db.Close()
 
-	apiClient, err := buildAPIClient(machineID, httpClientFor(mtlsClient))
+	innerAPIClient, err := buildAPIClient(machineID, httpClientFor(mtlsClient))
 	if err != nil {
 		slog.Error("api_client_init", "err", err.Error())
 		return 1
 	}
 
-	_ = buildDispatchConfig(flags, apiClient)
+	outboxPath := filepath.Join(appData, "queue", "outbox.db")
+	outbox, err := queue.Open(outboxPath)
+	if err != nil {
+		slog.Error("outbox_open_failed",
+			"event_id", obs.EventQueueOpenFailed,
+			"path", outboxPath,
+			"err", err.Error())
+		return 1
+	}
+	defer func() { _ = outbox.Close() }()
+
+	apiBreaker := breaker.New(5, 60*time.Second, "central_api")
+	apiClient := worker.NewOutboxAdapter(innerAPIClient, outbox)
+
+	startDrainWithWatcher(ctx, outbox, apiBreaker, innerAPIClient)
+
+	_ = buildDispatchConfig(flags, innerAPIClient)
 
 	source, err := buildJobSource()
 	if err != nil {
@@ -364,4 +382,45 @@ func buildLoggerHandler(logPath string, level slog.Level) (slog.Handler, func())
 		rotatingCloser()
 		_ = eventlog.Close()
 	}
+}
+
+// startDrainWithWatcher spawns the drain goroutine and a watcher that
+// relaunches it after a brief backoff if the goroutine exits with an err
+// (panic recovered by obs.SafeGo). Both spawn under SafeGo so panics in
+// the watcher itself are also recovered.
+func startDrainWithWatcher(
+	ctx context.Context,
+	outbox *queue.Outbox,
+	br *breaker.CircuitBreaker,
+	inner worker.JobAPIClient,
+) {
+	startOne := func() <-chan error {
+		return obs.SafeGo(func() error {
+			d := worker.NewDrainer(outbox, br, inner)
+			return d.Run(ctx)
+		}, "outbox_drain")
+	}
+
+	_ = obs.SafeGo(func() error {
+		drainCh := startOne()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case err, ok := <-drainCh:
+				if !ok {
+					return nil
+				}
+				if err != nil {
+					slog.Error("drain_relaunch", "err", err.Error())
+					select {
+					case <-ctx.Done():
+						return nil
+					case <-time.After(5 * time.Second):
+					}
+					drainCh = startOne()
+				}
+			}
+		}
+	}, "drain_watcher")
 }
