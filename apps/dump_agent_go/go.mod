@@ -33,6 +33,7 @@ require (
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	gitlab.com/nyarla/go-crypt v0.0.0-20160106005555-d9a5dc2b789b // indirect
+	go.etcd.io/bbolt v1.3.10 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
