@@ -78,3 +78,19 @@ func TestJitterAround_NilRandUsesDefault(t *testing.T) {
 		t.Errorf("nil rand got %v want in [%v, %v]", got, min, max)
 	}
 }
+
+func TestJitterAround_RandBelowZeroClampedToZero(t *testing.T) {
+	got := JitterAround(30*time.Second, 0.20, fixedRand(-0.1))
+	want := 24 * time.Second
+	if got != want {
+		t.Errorf("rand=-0.1 (clamped to 0) got %v want %v", got, want)
+	}
+}
+
+func TestJitterAround_RandAboveOneClampedToOne(t *testing.T) {
+	got := JitterAround(30*time.Second, 0.20, fixedRand(1.1))
+	want := 36 * time.Second
+	if got != want {
+		t.Errorf("rand=1.1 (clamped to 1) got %v want %v", got, want)
+	}
+}
