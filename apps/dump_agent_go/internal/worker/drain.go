@@ -14,11 +14,12 @@ import (
 )
 
 const (
-	drainTickInterval  = 30 * time.Second
-	drainBatchSize     = 20
-	drainEvictAge      = 90 * 24 * time.Hour
-	drainEvictMaxCount = 10000
-	dispatchTimeout    = 30 * time.Second
+	drainTickInterval   = 30 * time.Second
+	drainJitterFraction = 0.20
+	drainBatchSize      = 20
+	drainEvictAge       = 90 * 24 * time.Hour
+	drainEvictMaxCount  = 10000
+	dispatchTimeout     = 30 * time.Second
 )
 
 // Drainer ships persisted envelopes to the central_api in FIFO order,
@@ -28,6 +29,7 @@ type Drainer struct {
 	breaker  *breaker.CircuitBreaker
 	inner    JobAPIClient
 	interval time.Duration
+	rand     func() float64
 }
 
 // NewDrainer constructs a Drainer with default cadence (30s).
@@ -37,19 +39,31 @@ func NewDrainer(out *queue.Outbox, br *breaker.CircuitBreaker, inner JobAPIClien
 		breaker:  br,
 		inner:    inner,
 		interval: drainTickInterval,
+		rand:     nil, // nil → JitterAround uses math/rand/v2.Float64
 	}
+}
+
+// SetRand replaces the rand source. Used by tests for deterministic jitter.
+func (d *Drainer) SetRand(r func() float64) {
+	d.rand = r
+}
+
+// NextInterval returns the next tick wait, jittered by ±drainJitterFraction.
+func (d *Drainer) NextInterval() time.Duration {
+	return obs.JitterAround(d.interval, drainJitterFraction, d.rand)
 }
 
 // Run loops until ctx is cancelled.
 func (d *Drainer) Run(ctx context.Context) error {
-	ticker := time.NewTicker(d.interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(d.NextInterval())
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-timer.C:
 			d.tick(ctx)
+			timer.Reset(d.NextInterval())
 		}
 	}
 }
