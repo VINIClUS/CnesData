@@ -40,6 +40,8 @@ func dispatch(args []string) int {
 		return cmdInstall(rest)
 	case "uninstall":
 		return cmdUninstall()
+	case "diagnose":
+		return cmdDiagnose(rest)
 	case "version", "--version", "-v":
 		return runVersion()
 	case "help", "--help", "-h":
@@ -83,6 +85,7 @@ Commands:
   service      (interno) Chamado pelo SCM do Windows
   install      Registrar como Windows Service
   uninstall    Remover do Windows Service
+  diagnose     Run health checklist (--probe for network checks; --json for machine output)
   version      Imprimir versão
   help         Mostrar esta ajuda
 
