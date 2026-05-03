@@ -451,11 +451,10 @@ func buildExecutor(
 	}
 }
 
-// wireDeltaStore opens the delta store (if AGENT_DELTA_MODE=true) and
-// returns the store + a closer that defers Close+log only when active.
-// Closer is always non-nil (no-op when delta mode disabled).
+// wireDeltaStore opens the delta state DB and returns the store + a closer.
+// Delta mode is the only execution path; failure to open is fatal at boot.
 func wireDeltaStore(appData string) (*delta.Store, func()) {
-	store := openDeltaStoreIfEnabled(appData)
+	store := openDeltaStore(appData)
 	if store == nil {
 		return nil, func() {}
 	}
@@ -463,13 +462,10 @@ func wireDeltaStore(appData string) (*delta.Store, func()) {
 	return store, func() { _ = store.Close() }
 }
 
-// openDeltaStoreIfEnabled opens the delta state DB by default. Returns nil
-// only if AGENT_DELTA_MODE=false (operator opt-out for legacy full-snapshot
-// rollback escape hatch). Phase C cutover: default = enabled.
-func openDeltaStoreIfEnabled(appData string) *delta.Store {
-	if os.Getenv("AGENT_DELTA_MODE") == "false" {
-		return nil
-	}
+// openDeltaStore opens the delta state DB at <appData>/state/delta.db and
+// runs a 24h GC of stale pending sub-buckets. Returns nil on open error
+// (caller boots without delta wiring; cycle-level errors surface separately).
+func openDeltaStore(appData string) *delta.Store {
 	path := filepath.Join(appData, "state", "delta.db")
 	store, err := delta.Open(path)
 	if err != nil {

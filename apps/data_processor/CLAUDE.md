@@ -106,7 +106,7 @@ colisão (lease-based).
 
 ## CDC delta mode (P3, 2026-05-03)
 
-- `cdc_merger.py` — `merge_delta(df, conn, source, intent)` branches Parquet rows on `_op ∈ {I,U,D}`. I/U returned as counts for caller's existing upsert path; D applied inline via `text("DELETE FROM gold.X WHERE pk = :pk")` per (source, intent) PK template aligned with edge agent's `delta/profiles.go`.
-- `processor.maybe_route_delta(df, conn, source, intent)` returns counts dict if `_op` column present + `DELTA_MODE=true`; returns `None` for legacy snapshot Parquet; raises `FatalError("delta_mode_required")` if `_op` present + `DELTA_MODE=false`.
-- `DELTA_MODE` env (default `true`) gates `_op` acceptance. Phase A: edge `AGENT_DELTA_MODE=false` + processor `DELTA_MODE=true` → both shapes flow. Phase B pilot: flip edge `true` per tenant.
+- Delta is the only inbound shape (no flag, no legacy snapshot path).
+- `cdc_merger.merge_delta(df, conn, source, intent, apply_iu_fn=None)` branches Parquet rows on `_op ∈ {I,U,D}`. D applied inline via `text("DELETE FROM gold.X WHERE pk = :pk")` per (source, intent) PK template aligned with edge agent's `delta/profiles.go`. I/U applied via `apply_iu_fn(df_iu) -> int` callback (existing upsert path).
+- `processor.route_delta(df, conn, source, intent, apply_iu_fn=None)` raises `ValueError("missing_op_column")` if `_op` absent.
 - DELETE idempotency: `delete_no_op` INFO log when rowcount=0 (already-deleted row).
