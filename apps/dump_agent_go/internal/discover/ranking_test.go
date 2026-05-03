@@ -108,3 +108,42 @@ func TestSortAndTop_BehaviorIdentical(t *testing.T) {
 	sort.Sort(ByScoreThenPath(sorted))
 	require.Equal(t, sorted[0], Top(cs))
 }
+
+func TestScore_UnknownStrategyReturnsZero(t *testing.T) {
+	got := Score(ScoreInput{Strategy: StrategyUnknown, FileExists: true})
+	require.Equal(t, 0, got)
+}
+
+func TestScore_BPABonusBoundary(t *testing.T) {
+	at := Score(ScoreInput{
+		Strategy: StrategyRegistry, FileExists: true,
+		FileSize: 50 * 1024 * 1024, Source: SourceBPA,
+	})
+	require.Equal(t, 80, at, "exactly 50MB does not earn bonus (strict >)")
+	over := Score(ScoreInput{
+		Strategy: StrategyRegistry, FileExists: true,
+		FileSize: 50*1024*1024 + 1, Source: SourceBPA,
+	})
+	require.Equal(t, 85, over, "50MB+1 byte earns +5 fat-file bonus")
+}
+
+func TestScore_SIABonusRequires3Expected(t *testing.T) {
+	below := Score(ScoreInput{
+		Strategy:         StrategyFSTemplate,
+		FileExists:       true,
+		FileSize:         100,
+		IsSIADir:         true,
+		SIAExpectedFound: 2,
+		Source:           SourceSIA,
+	})
+	require.Equal(t, 60, below, "2 expected DBFs does not unlock bonus")
+	at := Score(ScoreInput{
+		Strategy:         StrategyFSTemplate,
+		FileExists:       true,
+		FileSize:         100,
+		IsSIADir:         true,
+		SIAExpectedFound: 3,
+		Source:           SourceSIA,
+	})
+	require.Equal(t, 70, at, "3 expected DBFs unlocks +10 bonus")
+}

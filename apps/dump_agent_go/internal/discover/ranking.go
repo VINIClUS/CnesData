@@ -2,6 +2,18 @@ package discover
 
 import "sort"
 
+const (
+	scoreRegistryHit        = 80
+	scoreFSTemplateNonEmpty = 60
+	scoreFSWalkHit          = 40
+	scoreFSTemplateEmpty    = 35
+	scoreRegistryNoFile     = 30
+	bonusSIAComplete        = 10
+	bonusBPAFatFile         = 5
+	siaCompleteThreshold    = 3
+	bpaFatFileBytes         = 50 * 1024 * 1024
+)
+
 // ScoreInput groups the inputs that drive Score for a single Candidate.
 type ScoreInput struct {
 	Strategy         Strategy
@@ -35,20 +47,20 @@ func baseScore(in ScoreInput) int {
 	switch in.Strategy {
 	case StrategyRegistry:
 		if in.FileExists {
-			return 80
+			return scoreRegistryHit
 		}
-		return 30
+		return scoreRegistryNoFile
 	case StrategyFSTemplate:
 		if !in.FileExists {
 			return 0
 		}
 		if in.FileSize == 0 && !in.IsSIADir {
-			return 35
+			return scoreFSTemplateEmpty
 		}
-		return 60
+		return scoreFSTemplateNonEmpty
 	case StrategyFSWalk:
 		if in.FileExists {
-			return 40
+			return scoreFSWalkHit
 		}
 		return 0
 	default:
@@ -58,11 +70,11 @@ func baseScore(in ScoreInput) int {
 
 func bonusScore(in ScoreInput) int {
 	bonus := 0
-	if in.Source == SourceSIA && in.IsSIADir && in.SIAExpectedFound >= 3 {
-		bonus += 10
+	if in.Source == SourceSIA && in.IsSIADir && in.SIAExpectedFound >= siaCompleteThreshold {
+		bonus += bonusSIAComplete
 	}
-	if in.Source == SourceBPA && in.FileSize > 50*1024*1024 {
-		bonus += 5
+	if in.Source == SourceBPA && in.FileSize > bpaFatFileBytes {
+		bonus += bonusBPAFatFile
 	}
 	return bonus
 }
