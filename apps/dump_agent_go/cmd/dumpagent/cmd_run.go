@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -15,11 +16,11 @@ import (
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
 	"github.com/cnesdata/dumpagent/internal/auth"
-	"github.com/cnesdata/dumpagent/internal/breaker"
+	"github.com/cnesdata/dumpagent/internal/discover"
 	"github.com/cnesdata/dumpagent/internal/fbdriver"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/platform"
-	"github.com/cnesdata/dumpagent/internal/queue"
+	"github.com/cnesdata/dumpagent/internal/secrets"
 	"github.com/cnesdata/dumpagent/internal/service"
 	"github.com/cnesdata/dumpagent/internal/transport"
 	"github.com/cnesdata/dumpagent/internal/upload"
@@ -54,7 +55,10 @@ func parseRunFlags(args []string) RunFlags {
 	return RunFlags{BPAGDBPath: *bpaGdb, SIADir: *siaDir, FBClientPath: *fbClient}
 }
 
-func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
+// setupBootLogger resolves logs dir + builds the rotating/eventlog handler
+// and installs it as slog default. Returns (closer, true) on success;
+// (nil, false) on logs_dir_init failure (caller should exit 1).
+func setupBootLogger(verbose bool) (func(), bool) {
 	level := slog.LevelInfo
 	if verbose {
 		level = slog.LevelDebug
@@ -62,11 +66,92 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	logsDir, err := platform.LogsDir()
 	if err != nil {
 		slog.Error("logs_dir_init", "err", err.Error())
+		return nil, false
+	}
+	handler, closer := buildLoggerHandler(
+		filepath.Join(logsDir, "dumpagent.log"), level)
+	slog.SetDefault(slog.New(handler))
+	return closer, true
+}
+
+// loadDiscoverYAML loads %PROGRAMDATA%\dumpagent\config.yaml unless the
+// AGENT_DISABLE_DISCOVER bypass env is set. Missing file is not an error
+// (returns empty Config); only parse errors propagate.
+func loadDiscoverYAML(path string) (discover.Config, error) {
+	if os.Getenv("AGENT_DISABLE_DISCOVER") == "true" {
+		return discover.Config{}, nil
+	}
+	cfg, err := discover.LoadYAML(path)
+	if err != nil {
+		if errors.Is(err, discover.ErrNoYAML) {
+			return discover.Config{}, nil
+		}
+		return discover.Config{}, err
+	}
+	return cfg, nil
+}
+
+func logOverrides(logger *slog.Logger, overrides []OverrideRecord) {
+	for _, o := range overrides {
+		logger.Warn("config_override",
+			"layer", o.Layer.String(),
+			"source", o.Source,
+			"field", o.Field)
+	}
+}
+
+func logPasswordSource(logger *slog.Logger, source string, ps PasswordSource) {
+	if ps == PasswordSourceMasterkey {
+		logger.Warn("password_default_active",
+			"source", source,
+			"hint", "run dumpagent set-secret "+source)
+		return
+	}
+	logger.Info("password_source",
+		"source", source,
+		"value", ps.String())
+}
+
+// runFlagsToCLIFlags adapts RunFlags to the per-source FBDSNFlags.
+// Today RunFlags carries BPA + SIA only; CNES + SIHD ride env-only at
+// the legacy code path.
+func runFlagsToCLIFlags(rf RunFlags) RunCLIFlags {
+	return RunCLIFlags{
+		BPA: FBDSNFlags{DatabasePath: rf.BPAGDBPath},
+		SIA: rf.SIADir,
+	}
+}
+
+// resolveBootConfig loads YAML, applies CLI/env/YAML resolution chain,
+// resolves CNES password, and emits override/source WARN logs. Returns
+// (PathConfig, cnesPassword, true) on success; (zero, "", false) on any
+// fatal step (caller should exit 1).
+func resolveBootConfig(appData string, flags RunFlags) (PathConfig, string, bool) {
+	yamlPath := filepath.Join(appData, "config.yaml")
+	cfg, err := loadDiscoverYAML(yamlPath)
+	if err != nil {
+		slog.Error("yaml_invalid", "path", yamlPath, "err", err.Error())
+		return PathConfig{}, "", false
+	}
+	resolved := ResolvePathConfig(cfg, os.Getenv, runFlagsToCLIFlags(flags))
+	logOverrides(slog.Default(), resolved.Overrides)
+	store := secrets.NewStore(filepath.Join(appData, "secrets"))
+	pw, src, err := ResolvePassword("cnes", resolved.CNES.User,
+		os.Getenv, store.Load)
+	if err != nil {
+		slog.Error("password_resolve", "source", "cnes", "err", err.Error())
+		return PathConfig{}, "", false
+	}
+	logPasswordSource(slog.Default(), "cnes", src)
+	return resolved, pw, true
+}
+
+func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
+	closer, ok := setupBootLogger(verbose)
+	if !ok {
 		return 1
 	}
-	handler, closer := buildLoggerHandler(filepath.Join(logsDir, "dumpagent.log"), level)
 	defer closer()
-	slog.SetDefault(slog.New(handler))
 
 	slog.Info("boot", "version", Version, "mode", "run")
 
@@ -125,7 +210,12 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 0
 	}
 
-	db, err := openFirebird()
+	resolvedPaths, cnesPw, ok := resolveBootConfig(appData, flags)
+	if !ok {
+		return 1
+	}
+
+	db, err := openFirebird(resolvedPaths.CNES, cnesPw)
 	if err != nil {
 		slog.Error("firebird_open", "err", err.Error())
 		return 1
@@ -258,14 +348,14 @@ func maxJitter() time.Duration {
 	return time.Duration(secs) * time.Second
 }
 
-func openFirebird() (*sql.DB, error) {
+func openFirebird(p discover.FBDSN, password string) (*sql.DB, error) {
 	cfg := fbdriver.ConnConfig{
-		Host:     os.Getenv("DB_HOST"),
-		Port:     fbPort(),
-		Path:     os.Getenv("DB_PATH"),
-		User:     envOr("DB_USER", "SYSDBA"),
-		Password: os.Getenv("DB_PASSWORD"),
-		Charset:  envOr("DB_CHARSET", "WIN1252"),
+		Host:     p.Host,
+		Port:     p.Port,
+		Path:     p.DatabasePath,
+		User:     p.User,
+		Password: password,
+		Charset:  p.Charset,
 	}
 	if cfg.Host == "" {
 		cfg.Host = "localhost"
@@ -326,34 +416,6 @@ type stubErr struct{ msg string }
 
 func (s *stubErr) Error() string { return s.msg }
 
-// buildDispatchConfig constrói worker.DispatchConfig para BPA_MAG/SIA_LOCAL
-// a partir dos flags da CLI + adapter (para RegisterFunc).
-// O dispatcher BPA/SIA é acionado em fluxo distinto do JobExecutor clássico
-// (CNES/SIHD seguem por intentPipelines).
-func buildDispatchConfig(flags RunFlags, adapter *apiclient.Adapter) worker.DispatchConfig {
-	var register worker.RegisterFunc
-	if adapter != nil {
-		register = adapter.RegisterBPASIAJob
-	}
-	return worker.DispatchConfig{
-		BPA: worker.BPAPipelineConfig{
-			GDBPath:      flags.BPAGDBPath,
-			FBHost:       envOr("DB_HOST", "localhost"),
-			FBPort:       fbPort(),
-			FBUser:       envOr("DB_USER", "SYSDBA"),
-			FBPassword:   os.Getenv("DB_PASSWORD"),
-			FBClientPath: flags.FBClientPath,
-			Uploader:     upload.NewHTTP(nil),
-			Register:     register,
-		},
-		SIA: worker.SIAPipelineConfig{
-			SIADir:   flags.SIADir,
-			Uploader: upload.NewHTTP(nil),
-			Register: register,
-		},
-	}
-}
-
 // buildLoggerHandler composes the rotating-file handler with the Windows
 // Event Log handler under a MultiHandler. EventLogHandler is a no-op
 // on non-Windows. Both Close functions are tied to the returned closer.
@@ -378,67 +440,3 @@ func buildExecutor(appData string, db *sql.DB) worker.JobExecutorIface {
 	return &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
 }
 
-// openOutboxAndStartDrain opens the bbolt outbox, constructs the breaker,
-// wraps the inner client with OutboxAdapter, and spawns the drain goroutine
-// + watcher. Returns (outbox, wrappedClient, true) on success;
-// (nil, nil, false) on outbox open failure (caller should exit boot).
-func openOutboxAndStartDrain(
-	ctx context.Context,
-	appData string,
-	innerAPIClient worker.JobAPIClient,
-) (*queue.Outbox, worker.JobAPIClient, bool) {
-	outboxPath := filepath.Join(appData, "queue", "outbox.db")
-	outbox, err := queue.Open(outboxPath)
-	if err != nil {
-		slog.Error("outbox_open_failed",
-			"event_id", obs.EventQueueOpenFailed,
-			"path", outboxPath,
-			"err", err.Error())
-		return nil, nil, false
-	}
-	apiBreaker := breaker.New(5, 60*time.Second, "central_api")
-	wrapped := worker.NewOutboxAdapter(innerAPIClient, outbox)
-	startDrainWithWatcher(ctx, outbox, apiBreaker, innerAPIClient)
-	return outbox, wrapped, true
-}
-
-// startDrainWithWatcher spawns the drain goroutine and a watcher that
-// relaunches it after a brief backoff if the goroutine exits with an err
-// (panic recovered by obs.SafeGo). Both spawn under SafeGo so panics in
-// the watcher itself are also recovered.
-func startDrainWithWatcher(
-	ctx context.Context,
-	outbox *queue.Outbox,
-	br *breaker.CircuitBreaker,
-	inner worker.JobAPIClient,
-) {
-	startOne := func() <-chan error {
-		return obs.SafeGo(func() error {
-			d := worker.NewDrainer(outbox, br, inner)
-			return d.Run(ctx)
-		}, "outbox_drain")
-	}
-
-	_ = obs.SafeGo(func() error {
-		drainCh := startOne()
-		for {
-			select {
-			case <-ctx.Done():
-				return nil
-			case err, ok := <-drainCh:
-				if !ok {
-					return nil
-				}
-				if err != nil {
-					slog.Error("drain_relaunch", "err", err.Error())
-					select {
-					case <-ctx.Done():
-						return nil
-					case <-time.After(5 * time.Second):
-					}
-					drainCh = startOne()
-				}
-			}
-		}
-	}, "drain_watcher")
-}
