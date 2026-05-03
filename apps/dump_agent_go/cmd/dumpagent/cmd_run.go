@@ -243,7 +243,10 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 1
 	}
 
-	exe := buildExecutor(appData, db)
+	deltaStore, deltaCloser := wireDeltaStore(appData)
+	defer deltaCloser()
+
+	exe := buildExecutor(appData, db, deltaStore)
 	cons := worker.NewConsumer(apiClient, source, exe, worker.ConsumerConfig{
 		PollInterval:      5 * time.Second,
 		InterJobJitterMax: 5 * time.Second,
@@ -431,14 +434,33 @@ func buildLoggerHandler(logPath string, level slog.Level) (slog.Handler, func())
 }
 
 // buildExecutor returns a ShadowExecutor when DUMP_SHADOW_MODE=true,
-// otherwise a live JobExecutor.
-func buildExecutor(appData string, db *sql.DB) worker.JobExecutorIface {
+// otherwise a live JobExecutor. deltaStore != nil routes the executor
+// through the delta path (P3 R1); nil keeps legacy snapshot behavior.
+func buildExecutor(
+	appData string, db *sql.DB, deltaStore *delta.Store,
+) worker.JobExecutorIface {
 	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
 		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
 		slog.Info("shadow_mode_enabled", "output_dir", shadowDir)
 		return &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
 	}
-	return &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
+	return &worker.JobExecutor{
+		DB:         db,
+		Uploader:   upload.NewHTTP(nil),
+		DeltaStore: deltaStore,
+	}
+}
+
+// wireDeltaStore opens the delta store (if AGENT_DELTA_MODE=true) and
+// returns the store + a closer that defers Close+log only when active.
+// Closer is always non-nil (no-op when delta mode disabled).
+func wireDeltaStore(appData string) (*delta.Store, func()) {
+	store := openDeltaStoreIfEnabled(appData)
+	if store == nil {
+		return nil, func() {}
+	}
+	slog.Info("delta_mode_enabled")
+	return store, func() { _ = store.Close() }
 }
 
 // openDeltaStoreIfEnabled opens the delta state DB when AGENT_DELTA_MODE=true.
