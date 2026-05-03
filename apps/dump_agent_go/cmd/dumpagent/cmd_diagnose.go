@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/cnesdata/dumpagent/internal/auth"
 	"github.com/cnesdata/dumpagent/internal/diagnose"
@@ -60,6 +61,9 @@ func resolveDiagnoseConfig(cfg *diagnose.Config) {
 		if appData, err := platform.AppDataDir(); err == nil {
 			cfg.AppData = appData
 		}
+	}
+	if cfg.DiscoverYAMLPath == "" && cfg.AppData != "" {
+		cfg.DiscoverYAMLPath = filepath.Join(cfg.AppData, "config.yaml")
 	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = os.Getenv("CENTRAL_API_URL")

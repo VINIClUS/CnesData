@@ -18,11 +18,12 @@ type Check struct {
 
 // Config drives Run. Probe gates network checks. JSON selects output format.
 type Config struct {
-	Probe   bool
-	JSON    bool
-	AuthDir string
-	AppData string
-	BaseURL string
-	FBDsn   string
-	MinIOEP string
+	Probe            bool
+	JSON             bool
+	AuthDir          string
+	AppData          string
+	BaseURL          string
+	FBDsn            string
+	MinIOEP          string
+	DiscoverYAMLPath string
 }

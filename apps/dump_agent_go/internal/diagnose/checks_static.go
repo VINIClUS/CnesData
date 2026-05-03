@@ -12,8 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/cnesdata/dumpagent/internal/discover"
 	"github.com/cnesdata/dumpagent/internal/platform"
 	"go.etcd.io/bbolt"
 )
@@ -21,7 +23,7 @@ import (
 const certNearExpiryDays = 7
 
 func init() {
-	staticChecks = []CheckFunc{checkCert, checkAuthDir, checkOutbox, checkLogDir}
+	staticChecks = []CheckFunc{checkCert, checkAuthDir, checkOutbox, checkLogDir, checkDiscoverYAML}
 }
 
 func checkCert(ctx context.Context, cfg Config) Check {
@@ -237,4 +239,69 @@ func checkLogDir(ctx context.Context, cfg Config) Check {
 	}
 	return Check{Name: "log_dir", Severity: SeverityPass,
 		Message: "healthy", Fields: fields}
+}
+
+func checkDiscoverYAML(ctx context.Context, cfg Config) Check {
+	if cfg.DiscoverYAMLPath == "" {
+		return Check{
+			Name:     "discover_yaml",
+			Severity: SeverityWarn,
+			Message:  "DiscoverYAMLPath unset; cannot inspect",
+		}
+	}
+	dcfg, err := discover.LoadYAML(cfg.DiscoverYAMLPath)
+	if err != nil {
+		if errors.Is(err, discover.ErrNoYAML) {
+			return Check{
+				Name:     "discover_yaml",
+				Severity: SeverityWarn,
+				Message:  "config.yaml absent (run dumpagent discover)",
+				Fields:   map[string]any{"path": cfg.DiscoverYAMLPath},
+			}
+		}
+		return Check{
+			Name:     "discover_yaml",
+			Severity: SeverityFail,
+			Message:  "yaml parse failed: " + err.Error(),
+			Fields:   map[string]any{"path": cfg.DiscoverYAMLPath},
+		}
+	}
+	return discoverYAMLReadiness(cfg.DiscoverYAMLPath, dcfg)
+}
+
+func discoverYAMLReadiness(path string, c discover.Config) Check {
+	ready, unconfigured := tallySources(c)
+	return Check{
+		Name:     "discover_yaml",
+		Severity: SeverityPass,
+		Message:  "config.yaml loaded",
+		Fields: map[string]any{
+			"path":                 path,
+			"sources_ready":        ready,
+			"sources_unconfigured": unconfigured,
+		},
+	}
+}
+
+func tallySources(c discover.Config) (string, string) {
+	type pathOf struct {
+		name string
+		path string
+	}
+	all := []pathOf{
+		{"cnes", c.CNES.DatabasePath},
+		{"sihd", c.SIHD.DatabasePath},
+		{"bpa", c.BPA.DatabasePath},
+		{"sia", c.SIA.DBFDir},
+	}
+	readyCount := 0
+	var miss []string
+	for _, p := range all {
+		if p.path != "" {
+			readyCount++
+			continue
+		}
+		miss = append(miss, p.name)
+	}
+	return fmt.Sprintf("%d/4", readyCount), strings.Join(miss, ",")
 }
