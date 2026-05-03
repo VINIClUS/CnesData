@@ -67,3 +67,38 @@ func TestProbeSIA_DirWithExpectedDBFs(t *testing.T) {
 	require.Equal(t, `C:\Datasus\SIA`, res.Top.Path)
 	require.Equal(t, 70, res.Top.Score)
 }
+
+func TestProbeSIA_RegistryHitPath(t *testing.T) {
+	fs := &fakeFS{
+		dirs: map[string]bool{`C:\Datasus\SIA`: true},
+	}
+	drives := func() []string { return []string{`C:`} }
+	stubRegistry := func(p Profile) []RegistryHit {
+		if p.Source == SourceSIA {
+			return []RegistryHit{{Path: `C:\Datasus\SIA`}}
+		}
+		return nil
+	}
+	res := probeSIA(context.Background(),
+		probeDeps{FS: fs, Drives: drives, Reg: stubRegistry})
+	require.Equal(t, SourceSIA, res.Source)
+	require.Equal(t, `C:\Datasus\SIA`, res.Top.Path)
+	require.Equal(t, StrategyRegistry, res.Top.Strategy)
+}
+
+func TestProbeSIA_RegistryHitNotADir(t *testing.T) {
+	fs := &fakeFS{
+		files: map[string]int64{`C:\bogus.txt`: 1},
+	}
+	drives := func() []string { return []string{`C:`} }
+	stubRegistry := func(p Profile) []RegistryHit {
+		return []RegistryHit{{Path: `C:\bogus.txt`}}
+	}
+	res := probeSIA(context.Background(),
+		probeDeps{FS: fs, Drives: drives, Reg: stubRegistry})
+	require.Equal(t, `C:\bogus.txt`, res.Top.Path,
+		"non-dir registry hit still scores at registry-no-file=30")
+	require.Equal(t, scoreRegistryNoFile, res.Top.Score,
+		"non-dir registry hit denied SIA bonus")
+	require.Equal(t, StrategyRegistry, res.Top.Strategy)
+}

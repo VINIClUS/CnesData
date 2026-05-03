@@ -114,3 +114,39 @@ func TestLoadYAML_UnknownTopLevelKeyRejected(t *testing.T) {
 	_, err := LoadYAML(out)
 	require.Error(t, err)
 }
+
+func TestWriteYAML_FBEmptyTopShowsHint(t *testing.T) {
+	results := []SourceResult{
+		{Source: SourceCNES},
+		{Source: SourceSIHD},
+		{Source: SourceBPA},
+		{Source: SourceSIA},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, WriteYAML(&buf, results))
+	out := buf.String()
+	require.Contains(t, out, "no candidates found")
+	require.Contains(t, out, "CNES_DB_PATH")
+	require.Contains(t, out, "SIA_DIR")
+}
+
+func TestWriteYAML_AlternatesSorted(t *testing.T) {
+	results := []SourceResult{
+		{
+			Source: SourceCNES,
+			Top:    Candidate{Path: `C:\A.GDB`, Score: 80, Strategy: StrategyRegistry},
+			Alternates: []Candidate{
+				{Path: `D:\Z.GDB`, Score: 40, Strategy: StrategyFSWalk},
+				{Path: `D:\A.GDB`, Score: 60, Strategy: StrategyFSTemplate},
+			},
+		},
+		{Source: SourceSIHD},
+		{Source: SourceBPA},
+		{Source: SourceSIA},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, WriteYAML(&buf, results))
+	out := buf.String()
+	require.Contains(t, out, `D:\A.GDB`)
+	require.Contains(t, out, `D:\Z.GDB`)
+}

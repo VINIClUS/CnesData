@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -65,4 +66,50 @@ func TestStore_FilePerSource(t *testing.T) {
 
 	require.FileExists(t, filepath.Join(dir, "cnes.dpapi"))
 	require.FileExists(t, filepath.Join(dir, "bpa.dpapi"))
+}
+
+func TestStore_SaveRejectsEmptyPassword(t *testing.T) {
+	s := NewStore(t.TempDir())
+	err := s.Save("cnes", "")
+	require.Error(t, err)
+}
+
+func TestStore_SaveRejectsInvalidSource(t *testing.T) {
+	s := NewStore(t.TempDir())
+	err := s.Save("sia", "xyz")
+	require.Error(t, err)
+	err = s.Save("../etc", "xyz")
+	require.Error(t, err)
+}
+
+func TestStore_LoadRejectsInvalidSource(t *testing.T) {
+	s := NewStore(t.TempDir())
+	_, err := s.Load("sia")
+	require.Error(t, err)
+}
+
+func TestStore_SaveFailsWhenDirIsAFile(t *testing.T) {
+	parent := t.TempDir()
+	blocker := filepath.Join(parent, "blocked")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
+	s := NewStore(blocker)
+	err := s.Save("cnes", "p")
+	require.Error(t, err, "MkdirAll over a regular file must fail")
+}
+
+func TestStore_LoadFailsWhenPathIsADirectory(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "cnes.dpapi"), 0o755))
+	s := NewStore(dir)
+	_, err := s.Load("cnes")
+	require.Error(t, err)
+	require.False(t, errors.Is(err, ErrNotSet))
+}
+
+func TestStore_SaveFailsWhenTmpPathIsADirectory(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "cnes.dpapi.tmp"), 0o755))
+	s := NewStore(dir)
+	err := s.Save("cnes", "p")
+	require.Error(t, err, "WriteFile must fail when tmp is a directory")
 }
