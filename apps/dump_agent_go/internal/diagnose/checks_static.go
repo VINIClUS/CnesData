@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/discover"
 	"github.com/cnesdata/dumpagent/internal/platform"
 	"go.etcd.io/bbolt"
@@ -23,7 +24,10 @@ import (
 const certNearExpiryDays = 7
 
 func init() {
-	staticChecks = []CheckFunc{checkCert, checkAuthDir, checkOutbox, checkLogDir, checkDiscoverYAML}
+	staticChecks = []CheckFunc{
+		checkCert, checkAuthDir, checkOutbox, checkLogDir,
+		checkDiscoverYAML, checkDeltaStore,
+	}
 }
 
 func checkCert(ctx context.Context, cfg Config) Check {
@@ -304,4 +308,44 @@ func tallySources(c discover.Config) (string, string) {
 		miss = append(miss, p.name)
 	}
 	return fmt.Sprintf("%d/4", readyCount), strings.Join(miss, ",")
+}
+
+func checkDeltaStore(ctx context.Context, cfg Config) Check {
+	if cfg.DeltaDBPath == "" {
+		return Check{
+			Name: "delta_store", Severity: SeverityWarn,
+			Message: "DeltaDBPath unset",
+		}
+	}
+	if _, err := os.Stat(cfg.DeltaDBPath); err != nil {
+		return Check{
+			Name: "delta_store", Severity: SeverityWarn,
+			Message: "delta.db absent (delta mode disabled or first cycle)",
+			Fields:  map[string]any{"path": cfg.DeltaDBPath},
+		}
+	}
+	store, err := delta.Open(cfg.DeltaDBPath)
+	if err != nil {
+		return Check{
+			Name: "delta_store", Severity: SeverityFail,
+			Message: "delta open failed: " + err.Error(),
+		}
+	}
+	defer store.Close()
+	committed, pending := tallyDeltaBuckets(store)
+	return Check{
+		Name: "delta_store", Severity: SeverityPass,
+		Message: "delta store healthy",
+		Fields: map[string]any{
+			"path":              cfg.DeltaDBPath,
+			"committed_buckets": committed,
+			"pending_buckets":   pending,
+		},
+	}
+}
+
+// tallyDeltaBuckets counts top-level sub-buckets under committed/ and pending/.
+// v1 stub: returns 0/0 (bbolt walk added in future P3 enhancement).
+func tallyDeltaBuckets(_ *delta.Store) (int, int) {
+	return 0, 0
 }
