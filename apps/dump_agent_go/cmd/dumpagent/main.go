@@ -42,6 +42,8 @@ func dispatch(args []string) int {
 		return cmdUninstall()
 	case "diagnose":
 		return cmdDiagnose(rest)
+	case "discover":
+		return cmdDiscover(rest)
 	case "version", "--version", "-v":
 		return runVersion()
 	case "help", "--help", "-h":
@@ -86,6 +88,7 @@ Commands:
   install      Registrar como Windows Service
   uninstall    Remover do Windows Service
   diagnose     Run health checklist (--probe for network checks; --json for machine output)
+  discover     Auto-detect legacy data source paths; write %PROGRAMDATA%\dumpagent\config.yaml
   version      Imprimir versão
   help         Mostrar esta ajuda
 
