@@ -183,3 +183,7 @@ Test-injectable jitter so N-agent fleet does not collide post-outage.
 - Disk-free via `golang.org/x/sys/{unix,windows}` (build-tag split `disk_unix.go` / `disk_windows.go`).
 - FB live probe gated by `FB_TEST_DSN` env in tests; production reads `FB_DSN`.
 - Read-only — never mutates state. P5.5 web dashboard deferred indefinitely.
+
+## Phase 9 — Path discovery + per-source secrets (2026-05-03)
+
+`dumpagent discover` auto-detects 4 sources (cnes/sihd/bpa FB DSNs + sia DBF dir); writes `%PROGRAMDATA%\dumpagent\config.yaml` with top pick uncommented + alternates as comments. `dumpagent set-secret <cnes|sihd|bpa>` stores DPAPI-wrapped FB password (Linux: 0600 plaintext fallback). `dumpagent run` precedence: CLI > env > YAML > default; password chain env > DPAPI > `masterkey` (SYSDBA only) → WARN `password_default_active`. `AGENT_DISABLE_DISCOVER=true` bypasses YAML for legacy env-only deploys. Strategies: pure-Go Windows registry (FB Project + Datasus vendor + Uninstall keys WOW64) + drive-walk filesystem templates per-profile. New diagnose check `discover_yaml` reports `sources_ready=N/4`.

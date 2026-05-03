@@ -15,7 +15,9 @@ require (
 	go.etcd.io/bbolt v1.3.10
 	golang.org/x/sync v0.20.0
 	golang.org/x/sys v0.43.0
+	golang.org/x/term v0.38.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -37,6 +39,5 @@ require (
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/mathutil v1.4.2-0.20220822142738-b13e5b564332 // indirect
 )
