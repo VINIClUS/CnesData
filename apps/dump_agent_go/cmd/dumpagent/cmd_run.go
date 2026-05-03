@@ -463,10 +463,11 @@ func wireDeltaStore(appData string) (*delta.Store, func()) {
 	return store, func() { _ = store.Close() }
 }
 
-// openDeltaStoreIfEnabled opens the delta state DB when AGENT_DELTA_MODE=true.
-// Returns nil if the env is unset or false (legacy full-snapshot path).
+// openDeltaStoreIfEnabled opens the delta state DB by default. Returns nil
+// only if AGENT_DELTA_MODE=false (operator opt-out for legacy full-snapshot
+// rollback escape hatch). Phase C cutover: default = enabled.
 func openDeltaStoreIfEnabled(appData string) *delta.Store {
-	if os.Getenv("AGENT_DELTA_MODE") != "true" {
+	if os.Getenv("AGENT_DELTA_MODE") == "false" {
 		return nil
 	}
 	path := filepath.Join(appData, "state", "delta.db")
