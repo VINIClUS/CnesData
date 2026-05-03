@@ -35,6 +35,7 @@ require (
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	gitlab.com/nyarla/go-crypt v0.0.0-20160106005555-d9a5dc2b789b // indirect
 	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/term v0.42.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
