@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"io"
 
+	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/writer"
@@ -63,5 +64,54 @@ var intentPipelines = map[string]PipelineFn{
 // PipelineFor lookup por intent.
 func PipelineFor(intent string) (PipelineFn, bool) {
 	fn, ok := intentPipelines[intent]
+	return fn, ok
+}
+
+// DeltaPipelineFn extrai linhas e materializa em []delta.Row para o caminho
+// delta. Caller invoca ComputeAndStagePending sobre a saída.
+type DeltaPipelineFn func(
+	ctx context.Context, conn *sql.Conn,
+	params extractor.ExtractionParams,
+) ([]delta.Row, error)
+
+func runDeltaPipeline[T interface{ ToRow() delta.Row }](
+	ext extractFn[T],
+) DeltaPipelineFn {
+	return func(ctx context.Context, conn *sql.Conn,
+		params extractor.ExtractionParams) ([]delta.Row, error) {
+		rowCh := make(chan T, 5000)
+		var collected []delta.Row
+		eg, egCtx := errgroup.WithContext(ctx)
+		eg.Go(func() error {
+			defer close(rowCh)
+			return obs.SafeRun(func() error {
+				return ext(egCtx, conn, params, rowCh)
+			}, "extract_delta:"+params.Intent)
+		})
+		eg.Go(func() error {
+			return obs.SafeRun(func() error {
+				for row := range rowCh {
+					collected = append(collected, row.ToRow())
+				}
+				return nil
+			}, "collect_delta:"+params.Intent)
+		})
+		if err := eg.Wait(); err != nil {
+			return nil, err
+		}
+		return collected, nil
+	}
+}
+
+var deltaIntentPipelines = map[string]DeltaPipelineFn{
+	extractor.IntentCnesProfissionais:    runDeltaPipeline[extractor.CnesProfissionalRow](extractor.ExtractCnesProfissionais),
+	extractor.IntentCnesEstabelecimentos: runDeltaPipeline[extractor.CnesEstabelecimentoRow](extractor.ExtractCnesEstabelecimentos),
+	extractor.IntentCnesEquipes:          runDeltaPipeline[extractor.CnesEquipeRow](extractor.ExtractCnesEquipes),
+	extractor.IntentSihdProducao:         runDeltaPipeline[extractor.SihdProducaoRow](extractor.ExtractSihdProducao),
+}
+
+// DeltaPipelineFor lookup do pipeline delta por intent.
+func DeltaPipelineFor(intent string) (DeltaPipelineFn, bool) {
+	fn, ok := deltaIntentPipelines[intent]
 	return fn, ok
 }

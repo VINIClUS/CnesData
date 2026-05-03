@@ -1,16 +1,19 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"runtime/debug"
+	"strings"
 
 	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/upload"
+	"github.com/cnesdata/dumpagent/internal/writer"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -38,13 +41,25 @@ type Job struct {
 }
 
 // JobExecutor executa 1 job end-to-end: DB conn → pipeline → upload.
+// DeltaStore != nil ativa o caminho delta (P3 R1); nil mantém o caminho
+// snapshot legado.
 type JobExecutor struct {
-	DB       *sql.DB
-	Uploader upload.Uploader
+	DB         *sql.DB
+	Uploader   upload.Uploader
+	DeltaStore *delta.Store
 }
 
-// Run executa job. Retorna tamanho total uploadado em bytes.
+// Run executa job. Retorna tamanho total uploadado em bytes. Se DeltaStore
+// configurado, despacha para o caminho delta (RunDelta + Commit/Abort);
+// caso contrário usa o pipeline snapshot streaming.
 func (e *JobExecutor) Run(ctx context.Context, job Job) (sizeBytes int64, err error) {
+	if e.DeltaStore != nil {
+		return e.runDeltaWithCommit(ctx, job)
+	}
+	return e.runSnapshot(ctx, job)
+}
+
+func (e *JobExecutor) runSnapshot(ctx context.Context, job Job) (sizeBytes int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in Run: %v\n%s", r, debug.Stack())
@@ -78,6 +93,111 @@ func (e *JobExecutor) Run(ctx context.Context, job Job) (sizeBytes int64, err er
 	})
 
 	return sizeBytes, eg.Wait()
+}
+
+// runDeltaWithCommit invoca RunDelta e gerencia o ciclo Commit/Abort do
+// PendingTx. Falha em Commit aborta o pending sub-bucket implicitamente
+// (bbolt revert na tx) e devolve erro ao caller (Consumer disparará FailJob).
+func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job Job) (int64, error) {
+	size, pending, _, err := e.RunDelta(ctx, job)
+	if err != nil {
+		return 0, err
+	}
+	if cerr := pending.Commit(); cerr != nil {
+		return 0, fmt.Errorf("delta_commit: %w", cerr)
+	}
+	return size, nil
+}
+
+// RunDelta executa job em modo delta: extract → materialize → compute →
+// stage pending → write delta parquet → upload. Caller DEVE invocar
+// PendingTx.Commit() após CompleteJob ack OU PendingTx.Abort() em falha.
+// Em caso de erro interno, RunDelta aborta o pending e devolve pending=nil.
+func (e *JobExecutor) RunDelta(
+	ctx context.Context, job Job,
+) (sizeBytes int64, pending *delta.PendingTx, ds delta.Set, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in RunDelta: %v\n%s", r, debug.Stack())
+		}
+	}()
+	pipeline, ok := DeltaPipelineFor(job.Params.Intent)
+	if !ok {
+		return 0, nil, delta.Set{}, fmt.Errorf("%w: %s",
+			ErrUnknownIntent, job.Params.Intent)
+	}
+	conn, err := e.DB.Conn(ctx)
+	if err != nil {
+		return 0, nil, delta.Set{}, fmt.Errorf("db_conn: %w", err)
+	}
+	defer conn.Close()
+	rows, err := pipeline(ctx, conn, job.Params)
+	if err != nil {
+		return 0, nil, delta.Set{}, fmt.Errorf("extract_delta: %w", err)
+	}
+	key := deltaKeyFromParams(job.Params)
+	ds, pending, err = ComputeAndStagePending(ctx, DeltaStageRequest{
+		Store: e.DeltaStore, Key: key, JobID: job.ID, Current: rows,
+	})
+	if err != nil {
+		return 0, nil, delta.Set{}, err
+	}
+	sizeBytes, err = e.writeAndUploadDelta(ctx, job, ds, key, pending)
+	if err != nil {
+		return 0, nil, delta.Set{}, err
+	}
+	return sizeBytes, pending, ds, nil
+}
+
+func (e *JobExecutor) writeAndUploadDelta(
+	ctx context.Context, job Job, ds delta.Set,
+	key delta.SourceKey, pending *delta.PendingTx,
+) (int64, error) {
+	cols := delta.ProfileFor(key.Source, key.Intent).FingerprintColumns
+	var buf bytes.Buffer
+	if err := writer.WriteDeltaParquet(&buf, ds, cols); err != nil {
+		pending.Abort()
+		return 0, fmt.Errorf("write_delta_parquet: %w", err)
+	}
+	size, err := e.Uploader.Put(ctx, job.UploadURL, &buf,
+		"application/octet-stream")
+	if err != nil {
+		pending.Abort()
+		return 0, fmt.Errorf("upload: %w", err)
+	}
+	return size, nil
+}
+
+// deltaKeyFromParams mapeia ExtractionParams.Intent (ex: "profissionais",
+// "sihd_producao") para o par (Source, Intent) esperado pelos profiles
+// delta. Competencia passa direto.
+func deltaKeyFromParams(p extractor.ExtractionParams) delta.SourceKey {
+	src, intent := splitIntent(p.Intent)
+	return delta.SourceKey{
+		Source:      src,
+		Intent:      intent,
+		Competencia: p.Competencia,
+	}
+}
+
+// splitIntent reparte o intent do agent (terminado em snake_case) no par
+// (source, intent) usado pelos profiles delta. Mantém uma tabela explícita
+// para evitar surpresas — adicionar entrada ao introduzir novo intent.
+func splitIntent(intent string) (source, base string) {
+	switch intent {
+	case extractor.IntentCnesProfissionais:
+		return "cnes", "profissionais"
+	case extractor.IntentCnesEstabelecimentos:
+		return "cnes", "estabelecimentos"
+	case extractor.IntentCnesEquipes:
+		return "cnes", "equipes"
+	case extractor.IntentSihdProducao:
+		return "sihd", "aih"
+	}
+	if i := strings.Index(intent, "_"); i > 0 {
+		return intent[:i], intent[i+1:]
+	}
+	return "", intent
 }
 
 // DeltaStageRequest groups inputs for ComputeAndStagePending to keep

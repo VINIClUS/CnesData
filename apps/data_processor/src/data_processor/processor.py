@@ -18,6 +18,7 @@ import polars as pl
 
 from cnes_domain.observability import tracer
 from data_processor.cdc_merger import (
+    ApplyIU,
     FatalError,
     has_op_column,
     is_delta_mode_enabled,
@@ -63,14 +64,18 @@ def _download_parquet(url: str, breaker: CircuitBreaker) -> pl.DataFrame:
 
 
 def maybe_route_delta(
-    df: pl.DataFrame, conn: object, source: str, intent: str,
+    df: pl.DataFrame,
+    conn: object,
+    source: str,
+    intent: str,
+    apply_iu_fn: ApplyIU | None = None,
 ) -> dict[str, int] | None:
     """Returns delta counts dict if Parquet uses _op CDC column, else None.
 
     Caller checks return value:
       - None: fall back to existing legacy snapshot path
       - dict: delta merge already executed (deletes applied; I/U
-              counts returned for caller to feed into upsert path)
+              applied via apply_iu_fn when supplied, else counted only)
     Raises:
         FatalError: when _op present but DELTA_MODE=false.
     """
@@ -78,4 +83,4 @@ def maybe_route_delta(
         return None
     if not is_delta_mode_enabled():
         raise FatalError("delta_mode_required")
-    return merge_delta(df, conn, source, intent)
+    return merge_delta(df, conn, source, intent, apply_iu_fn)
