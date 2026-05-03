@@ -26,4 +26,5 @@ type Config struct {
 	FBDsn            string
 	MinIOEP          string
 	DiscoverYAMLPath string
+	DeltaDBPath      string
 }

@@ -103,3 +103,10 @@ colisão (lease-based).
 - `producao_ambulatorial_repo.gravar` upserts idempotent; `fontes_reportadas` JSONB merged via `||`.
 - Migration 012 added natural-key unique index on `fato_producao_ambulatorial` to support ON CONFLICT upsert.
 - Migration 013 extended `chk_fonte_amb` CHECK to allow SIA_BPIHST.
+
+## CDC delta mode (P3, 2026-05-03)
+
+- `cdc_merger.py` — `merge_delta(df, conn, source, intent)` branches Parquet rows on `_op ∈ {I,U,D}`. I/U returned as counts for caller's existing upsert path; D applied inline via `text("DELETE FROM gold.X WHERE pk = :pk")` per (source, intent) PK template aligned with edge agent's `delta/profiles.go`.
+- `processor.maybe_route_delta(df, conn, source, intent)` returns counts dict if `_op` column present + `DELTA_MODE=true`; returns `None` for legacy snapshot Parquet; raises `FatalError("delta_mode_required")` if `_op` present + `DELTA_MODE=false`.
+- `DELTA_MODE` env (default `true`) gates `_op` acceptance. Phase A: edge `AGENT_DELTA_MODE=false` + processor `DELTA_MODE=true` → both shapes flow. Phase B pilot: flip edge `true` per tenant.
+- DELETE idempotency: `delete_no_op` INFO log when rowcount=0 (already-deleted row).

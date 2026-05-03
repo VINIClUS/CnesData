@@ -16,6 +16,7 @@ import (
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
 	"github.com/cnesdata/dumpagent/internal/auth"
+	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/discover"
 	"github.com/cnesdata/dumpagent/internal/fbdriver"
 	"github.com/cnesdata/dumpagent/internal/obs"
@@ -438,5 +439,27 @@ func buildExecutor(appData string, db *sql.DB) worker.JobExecutorIface {
 		return &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
 	}
 	return &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
+}
+
+// openDeltaStoreIfEnabled opens the delta state DB when AGENT_DELTA_MODE=true.
+// Returns nil if the env is unset or false (legacy full-snapshot path).
+func openDeltaStoreIfEnabled(appData string) *delta.Store {
+	if os.Getenv("AGENT_DELTA_MODE") != "true" {
+		return nil
+	}
+	path := filepath.Join(appData, "state", "delta.db")
+	store, err := delta.Open(path)
+	if err != nil {
+		slog.Error("delta_store_open_failed",
+			"path", path, "err", err.Error())
+		return nil
+	}
+	count, gcErr := store.GarbageCollectStalePending(24 * time.Hour)
+	if gcErr != nil {
+		slog.Warn("delta_pending_gc_failed", "err", gcErr.Error())
+	} else if count > 0 {
+		slog.Info("delta_pending_gc", "count", count)
+	}
+	return store
 }
 

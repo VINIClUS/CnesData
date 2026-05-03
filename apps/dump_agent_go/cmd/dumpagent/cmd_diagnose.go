@@ -65,6 +65,9 @@ func resolveDiagnoseConfig(cfg *diagnose.Config) {
 	if cfg.DiscoverYAMLPath == "" && cfg.AppData != "" {
 		cfg.DiscoverYAMLPath = filepath.Join(cfg.AppData, "config.yaml")
 	}
+	if cfg.DeltaDBPath == "" && cfg.AppData != "" {
+		cfg.DeltaDBPath = filepath.Join(cfg.AppData, "state", "delta.db")
+	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = os.Getenv("CENTRAL_API_URL")
 	}
