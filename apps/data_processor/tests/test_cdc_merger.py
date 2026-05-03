@@ -48,8 +48,56 @@ def test_merge_delta_buckets_iud():
     conn = MagicMock()
     conn.execute.return_value = MagicMock(rowcount=1)
     counts = merge_delta(df, conn, "cnes", "estabelecimentos")
-    assert counts == {"inserts": 1, "updates": 1, "deletes": 1}
+    assert counts == {
+        "inserts": 1, "updates": 1, "deletes": 1, "applied": 0,
+    }
     conn.execute.assert_called_once()
+
+
+def test_merge_delta_with_apply_iu_fn_calls_callback():
+    df = pl.DataFrame({
+        "CNES": ["1", "2"],
+        "NOME_FANTA": ["A", "B"],
+        "_op": ["I", "U"],
+    })
+    conn = MagicMock()
+    captured: list[pl.DataFrame] = []
+
+    def apply_iu(df_iu: pl.DataFrame) -> int:
+        captured.append(df_iu)
+        return len(df_iu)
+
+    counts = merge_delta(df, conn, "cnes", "estabelecimentos", apply_iu)
+    assert counts == {
+        "inserts": 1, "updates": 1, "deletes": 0, "applied": 2,
+    }
+    assert len(captured) == 1
+    assert "_op" not in captured[0].columns
+    assert len(captured[0]) == 2
+
+
+def test_merge_delta_no_callback_skips_apply():
+    df = pl.DataFrame({"CNES": ["1"], "_op": ["I"]})
+    conn = MagicMock()
+    counts = merge_delta(df, conn, "cnes", "estabelecimentos")
+    assert counts["applied"] == 0
+    assert counts["inserts"] == 1
+
+
+def test_merge_delta_callback_only_deletes_applied_zero():
+    df = pl.DataFrame({"CNES": ["1"], "_op": ["D"]})
+    conn = MagicMock()
+    conn.execute.return_value = MagicMock(rowcount=1)
+    captured: list[pl.DataFrame] = []
+
+    def apply_iu(df_iu: pl.DataFrame) -> int:
+        captured.append(df_iu)
+        return len(df_iu)
+
+    counts = merge_delta(df, conn, "cnes", "estabelecimentos", apply_iu)
+    assert counts["applied"] == 0
+    assert counts["deletes"] == 1
+    assert captured == []
 
 
 def test_merge_delta_unknown_op_raises():

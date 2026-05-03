@@ -12,15 +12,18 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import polars as pl
 from sqlalchemy import text
 
 if TYPE_CHECKING:
-    import polars as pl
     from sqlalchemy.engine import Connection
 
 logger = logging.getLogger(__name__)
+
+ApplyIU = Callable[[pl.DataFrame], int]
 
 
 class FatalError(RuntimeError):
@@ -75,28 +78,55 @@ def has_op_column(df: pl.DataFrame) -> bool:
 
 
 def merge_delta(
-    df: pl.DataFrame, conn: Connection, source: str, intent: str,
+    df: pl.DataFrame,
+    conn: Connection,
+    source: str,
+    intent: str,
+    apply_iu_fn: ApplyIU | None = None,
 ) -> dict[str, int]:
-    """Branch rows on _op; execute D inline; return I/U/D counts.
+    """Branch rows on _op; apply D inline; route I/U via apply_iu_fn callback.
 
+    Args:
+        df: Parquet rows with `_op` column.
+        conn: SQLAlchemy connection used for inline DELETEs.
+        source: Source key (e.g. "cnes").
+        intent: Intent key (e.g. "estabelecimentos").
+        apply_iu_fn: Optional callback(df_iu) -> rowcount. When None,
+            I/U rows are bucketed and counted but NOT applied
+            (legacy unit-test mode).
     Returns:
-        Mapping {inserts, updates, deletes} with row counts.
+        Mapping {inserts, updates, deletes, applied} with row counts.
     Raises:
         FatalError: when _op value or (source, intent) pair is unknown.
     """
     inserts, updates, deletes = _bucket_by_op(df)
     delete_count = _apply_deletes(conn, deletes, source, intent)
+    applied = _apply_iu(inserts, updates, apply_iu_fn)
     counts = {
         "inserts": len(inserts),
         "updates": len(updates),
         "deletes": delete_count,
+        "applied": applied,
     }
     logger.info(
-        "delta_merge source=%s intent=%s i=%d u=%d d=%d",
+        "delta_merge source=%s intent=%s i=%d u=%d d=%d applied=%d",
         source, intent,
         counts["inserts"], counts["updates"], counts["deletes"],
+        counts["applied"],
     )
     return counts
+
+
+def _apply_iu(
+    inserts: list[dict], updates: list[dict], apply_iu_fn: ApplyIU | None,
+) -> int:
+    if apply_iu_fn is None:
+        return 0
+    iu_rows = inserts + updates
+    if not iu_rows:
+        return 0
+    df_iu = pl.DataFrame(iu_rows)
+    return apply_iu_fn(df_iu)
 
 
 def _bucket_by_op(

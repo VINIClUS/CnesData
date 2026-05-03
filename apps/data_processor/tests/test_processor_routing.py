@@ -29,3 +29,22 @@ def test_maybe_route_delta_op_present_delta_on_returns_counts(monkeypatch):
     result = maybe_route_delta(df, MagicMock(), "cnes", "estabelecimentos")
     assert result is not None
     assert result["inserts"] == 1
+    assert result["applied"] == 0
+
+
+def test_maybe_route_delta_passes_callback(monkeypatch):
+    monkeypatch.setenv("DELTA_MODE", "true")
+    df = pl.DataFrame({"CNES": ["1"], "_op": ["I"]})
+    captured: list[pl.DataFrame] = []
+
+    def cb(df_iu: pl.DataFrame) -> int:
+        captured.append(df_iu)
+        return len(df_iu)
+
+    result = maybe_route_delta(
+        df, MagicMock(), "cnes", "estabelecimentos", cb,
+    )
+    assert result is not None
+    assert result["applied"] == 1
+    assert len(captured) == 1
+    assert "_op" not in captured[0].columns
