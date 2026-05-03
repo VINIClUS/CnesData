@@ -19,9 +19,7 @@ import polars as pl
 from cnes_domain.observability import tracer
 from data_processor.cdc_merger import (
     ApplyIU,
-    FatalError,
     has_op_column,
-    is_delta_mode_enabled,
     merge_delta,
 )
 
@@ -63,24 +61,19 @@ def _download_parquet(url: str, breaker: CircuitBreaker) -> pl.DataFrame:
         tmp_path.unlink(missing_ok=True)
 
 
-def maybe_route_delta(
+def route_delta(
     df: pl.DataFrame,
     conn: object,
     source: str,
     intent: str,
     apply_iu_fn: ApplyIU | None = None,
-) -> dict[str, int] | None:
-    """Returns delta counts dict if Parquet uses _op CDC column, else None.
+) -> dict[str, int]:
+    """Apply CDC delta merge for Parquet rows.
 
-    Caller checks return value:
-      - None: fall back to existing legacy snapshot path
-      - dict: delta merge already executed (deletes applied; I/U
-              applied via apply_iu_fn when supplied, else counted only)
-    Raises:
-        FatalError: when _op present but DELTA_MODE=false.
+    Edge agent emits parquet with `_op` ∈ {I,U,D}. Deletes applied inline;
+    I/U applied via apply_iu_fn when supplied (else counted only).
+    Raises ValueError if `_op` column absent (legacy snapshot path removed).
     """
     if not has_op_column(df):
-        return None
-    if not is_delta_mode_enabled():
-        raise FatalError("delta_mode_required")
+        raise ValueError("missing_op_column: delta-mode parquet required")
     return merge_delta(df, conn, source, intent, apply_iu_fn)

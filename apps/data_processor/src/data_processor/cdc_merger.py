@@ -1,17 +1,12 @@
 """CDC merger — branches incoming parquet rows on _op column.
 
-Used when edge agent runs in delta mode (AGENT_DELTA_MODE=true) and emits
-parquet with _op in {'I', 'U', 'D'} column. Inserts/Updates route to existing
-adapter+upsert path; Deletes call inline SQL DELETE per (source, intent) PK.
-
-DELTA_MODE env (default 'true'):
-  - 'true': accept _op parquet; route through merge_delta
-  - 'false': reject _op parquet with FatalError
+Edge agent emits parquet with _op in {'I', 'U', 'D'}. Inserts/Updates
+route to caller-supplied apply_iu_fn (existing upsert path); Deletes call
+inline SQL DELETE per (source, intent) PK.
 """
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -65,11 +60,6 @@ _DELETE_SQL: dict[tuple[str, str], str] = {
         "AND cod_procedimento = :COD_PROC"
     ),
 }
-
-
-def is_delta_mode_enabled() -> bool:
-    """True if DELTA_MODE env is unset or any value other than 'false'."""
-    return os.getenv("DELTA_MODE", "true").lower() != "false"
 
 
 def has_op_column(df: pl.DataFrame) -> bool:

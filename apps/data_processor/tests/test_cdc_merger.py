@@ -9,7 +9,6 @@ import pytest
 from data_processor.cdc_merger import (
     FatalError,
     has_op_column,
-    is_delta_mode_enabled,
     merge_delta,
 )
 
@@ -22,21 +21,6 @@ def test_has_op_column_true():
 def test_has_op_column_false():
     df = pl.DataFrame({"CNES": ["1"]})
     assert has_op_column(df) is False
-
-
-def test_is_delta_mode_enabled_default(monkeypatch):
-    monkeypatch.delenv("DELTA_MODE", raising=False)
-    assert is_delta_mode_enabled() is True
-
-
-def test_is_delta_mode_enabled_true(monkeypatch):
-    monkeypatch.setenv("DELTA_MODE", "true")
-    assert is_delta_mode_enabled() is True
-
-
-def test_is_delta_mode_enabled_false(monkeypatch):
-    monkeypatch.setenv("DELTA_MODE", "false")
-    assert is_delta_mode_enabled() is False
 
 
 def test_merge_delta_buckets_iud():
