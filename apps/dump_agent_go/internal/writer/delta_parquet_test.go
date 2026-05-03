@@ -53,7 +53,7 @@ func decodeRow(cols [][]string, row pq.Row) map[string]any {
 }
 
 func TestWriteDeltaParquet_InsertsAndUpdatesAndDeletes(t *testing.T) {
-	ds := delta.DeltaSet{
+	ds := delta.Set{
 		Inserts: []delta.Row{{"CNES": "1", "NOME_FANTA": "A"}},
 		Updates: []delta.Row{{"CNES": "2", "NOME_FANTA": "B"}},
 		Deletes: []delta.Row{{"CNES": "3"}},
@@ -81,7 +81,7 @@ func TestWriteDeltaParquet_InsertsAndUpdatesAndDeletes(t *testing.T) {
 
 func TestWriteDeltaParquet_EmptyProducesValidOutput(t *testing.T) {
 	var buf bytes.Buffer
-	err := writer.WriteDeltaParquet(&buf, delta.DeltaSet{}, []string{"CNES"})
+	err := writer.WriteDeltaParquet(&buf, delta.Set{}, []string{"CNES"})
 	require.NoError(t, err)
 	require.NotEmpty(t, buf.Bytes())
 	rows := readDeltaRows(t, buf.Bytes())
@@ -89,7 +89,7 @@ func TestWriteDeltaParquet_EmptyProducesValidOutput(t *testing.T) {
 }
 
 func TestWriteDeltaParquet_StringifiesNonStringValues(t *testing.T) {
-	ds := delta.DeltaSet{
+	ds := delta.Set{
 		Inserts: []delta.Row{{"CNES": 42, "NOME_FANTA": nil}},
 	}
 	var buf bytes.Buffer

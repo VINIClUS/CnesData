@@ -20,9 +20,9 @@ type deltaSchema struct {
 // I/U/D rows from ds. All columns are typed string for v1.
 // I/U rows include schemaColumns + _op; D rows have only PK columns
 // populated, others null + _op="D".
-func WriteDeltaParquet(w io.Writer, ds delta.DeltaSet, schemaColumns []string) error {
+func WriteDeltaParquet(w io.Writer, ds delta.Set, schemaColumns []string) error {
 	ds2 := buildDeltaSchema(schemaColumns)
-	pw := pq.NewWriter(w, ds2.schema)
+	pw := pq.NewWriter(w, ds2.schema) //nolint:staticcheck // SA1019 pq.Writer required for dynamic schema; GenericWriter[T] needs concrete struct
 	if err := ds2.writeOp(pw, ds.Inserts, "I"); err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func buildDeltaSchema(cols []string) *deltaSchema {
 	return &deltaSchema{schema: schema, idx: idx, cols: cols}
 }
 
-func (d *deltaSchema) writeOp(pw *pq.Writer, rows []delta.Row, op string) error {
+func (d *deltaSchema) writeOp(pw *pq.Writer, rows []delta.Row, op string) error { //nolint:staticcheck // SA1019 see WriteDeltaParquet
 	for _, r := range rows {
 		if _, err := pw.WriteRows([]pq.Row{d.buildRow(r, op)}); err != nil {
 			return err

@@ -1,6 +1,6 @@
 package delta
 
-// Compute diffs current vs committed snapshots and produces a DeltaSet.
+// Compute diffs current vs committed snapshots and produces a Set.
 // committed: map[pk]→last-cycle-hash
 // currentHashes: map[pk]→this-cycle-hash
 // currentRows: in same order as extracted (used for I/U payloads)
@@ -8,8 +8,8 @@ package delta
 func Compute(
 	committed, currentHashes map[string][32]byte,
 	currentRows []Row, prof Profile,
-) DeltaSet {
-	ds := DeltaSet{}
+) Set {
+	ds := Set{}
 	for _, r := range currentRows {
 		pk := prof.PKExtractor(r)
 		curH, ok := currentHashes[pk]

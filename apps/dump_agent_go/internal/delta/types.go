@@ -42,15 +42,15 @@ func (k SourceKey) BucketPath() string {
 // PK is computed via Profile.PKExtractor.
 type Row map[string]any
 
-// DeltaSet bundles per-action row slices for one cycle.
-type DeltaSet struct {
+// Set bundles per-action row slices for one cycle.
+type Set struct {
 	Inserts []Row
 	Updates []Row
 	Deletes []Row
 }
 
 // TotalCount returns total rows across all three action buckets.
-func (d DeltaSet) TotalCount() int {
+func (d Set) TotalCount() int {
 	return len(d.Inserts) + len(d.Updates) + len(d.Deletes)
 }
 

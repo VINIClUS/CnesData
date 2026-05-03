@@ -90,7 +90,7 @@ type DeltaStageRequest struct {
 }
 
 // ComputeAndStagePending loads the committed snapshot, computes the delta,
-// stages new fingerprints in a pending bbolt tx, and returns the DeltaSet
+// stages new fingerprints in a pending bbolt tx, and returns the Set
 // + PendingTx. Caller must call PendingTx.Commit() after CompleteJob ack
 // or PendingTx.Abort() on failure.
 //
@@ -99,16 +99,16 @@ type DeltaStageRequest struct {
 // and to enable future ctx-aware variants.
 func ComputeAndStagePending(
 	ctx context.Context, req DeltaStageRequest,
-) (delta.DeltaSet, *delta.PendingTx, error) {
+) (delta.Set, *delta.PendingTx, error) {
 	prof := delta.ProfileFor(req.Key.Source, req.Key.Intent)
 	if prof.Source == "" {
-		return delta.DeltaSet{}, nil,
+		return delta.Set{}, nil,
 			fmt.Errorf("unknown_profile source=%s intent=%s",
 				req.Key.Source, req.Key.Intent)
 	}
 	committed, err := req.Store.GetCommitted(req.Key)
 	if err != nil {
-		return delta.DeltaSet{}, nil, fmt.Errorf("get_committed: %w", err)
+		return delta.Set{}, nil, fmt.Errorf("get_committed: %w", err)
 	}
 	currentHashes := make(map[string][32]byte, len(req.Current))
 	for _, r := range req.Current {
@@ -118,12 +118,12 @@ func ComputeAndStagePending(
 	ds := delta.Compute(committed, currentHashes, req.Current, prof)
 	pending, err := req.Store.BeginPending(req.Key, req.JobID)
 	if err != nil {
-		return delta.DeltaSet{}, nil, err
+		return delta.Set{}, nil, err
 	}
 	for pk, h := range currentHashes {
 		if err := pending.Put(pk, h); err != nil {
 			pending.Abort()
-			return delta.DeltaSet{}, nil, err
+			return delta.Set{}, nil, err
 		}
 	}
 	_ = ctx

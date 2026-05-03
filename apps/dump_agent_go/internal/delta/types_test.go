@@ -26,7 +26,7 @@ func TestSourceKey_ZeroValueEmpty(t *testing.T) {
 }
 
 func TestDeltaSet_TotalCount(t *testing.T) {
-	ds := DeltaSet{
+	ds := Set{
 		Inserts: []Row{{}, {}},
 		Updates: []Row{{}},
 		Deletes: []Row{{}, {}, {}},
