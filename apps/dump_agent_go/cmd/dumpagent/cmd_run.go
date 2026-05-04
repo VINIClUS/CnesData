@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
+	"github.com/cnesdata/dumpagent/internal/audit"
 	"github.com/cnesdata/dumpagent/internal/auth"
 	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/discover"
@@ -246,7 +247,9 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	deltaStore, deltaCloser := wireDeltaStore(appData)
 	defer deltaCloser()
 
-	exe := buildExecutor(appData, db, deltaStore)
+	auditLogger := wireAuditLogger(appData, machineID, os.Getenv("TENANT_ID"))
+
+	exe := buildExecutor(appData, db, deltaStore, auditLogger)
 	cons := worker.NewConsumer(apiClient, source, exe, worker.ConsumerConfig{
 		PollInterval:      5 * time.Second,
 		InterJobJitterMax: 5 * time.Second,
@@ -434,10 +437,10 @@ func buildLoggerHandler(logPath string, level slog.Level) (slog.Handler, func())
 }
 
 // buildExecutor returns a ShadowExecutor when DUMP_SHADOW_MODE=true,
-// otherwise a live JobExecutor. deltaStore != nil routes the executor
-// through the delta path (P3 R1); nil keeps legacy snapshot behavior.
+// otherwise a live JobExecutor wired with deltaStore + auditLogger.
 func buildExecutor(
 	appData string, db *sql.DB, deltaStore *delta.Store,
+	auditLogger *audit.Logger,
 ) worker.JobExecutorIface {
 	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
 		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
@@ -445,10 +448,28 @@ func buildExecutor(
 		return &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
 	}
 	return &worker.JobExecutor{
-		DB:         db,
-		Uploader:   upload.NewHTTP(nil),
-		DeltaStore: deltaStore,
+		DB:          db,
+		Uploader:    upload.NewHTTP(nil),
+		DeltaStore:  deltaStore,
+		AuditLogger: auditLogger,
 	}
+}
+
+// wireAuditLogger initializes the HMAC-signed audit log writer.
+// Returns nil + WARN if HMAC key load/generate fails (cycle continues
+// without audit emission; boot does not abort).
+func wireAuditLogger(appData, machineID, tenantID string) *audit.Logger {
+	store := secrets.NewStore(filepath.Join(appData, "secrets"))
+	key, err := audit.LoadOrCreate(store)
+	if err != nil {
+		slog.Warn("audit_hmac_init_failed", "err", err.Error())
+		return nil
+	}
+	logger := audit.New(filepath.Join(appData, "audit"),
+		machineID, tenantID, key)
+	slog.Info("audit_logger_ready",
+		"dir", filepath.Join(appData, "audit"))
+	return logger
 }
 
 // wireDeltaStore opens the delta state DB and returns the store + a closer.

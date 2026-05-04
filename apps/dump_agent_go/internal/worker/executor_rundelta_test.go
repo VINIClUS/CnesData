@@ -66,14 +66,15 @@ func TestRunDelta_ColdStartReturnsAllInsertsAndCommits(t *testing.T) {
 		DeltaStore: store,
 	}
 
-	size, pending, ds, err := exe.RunDelta(
-		context.Background(), deltaJob(srv.URL, "job-cold"))
+	job := deltaJob(srv.URL, "job-cold")
+	size, pending, ds, err := exe.RunDelta(context.Background(), &job)
 	require.NoError(t, err)
 	require.NotNil(t, pending)
 	require.Greater(t, size, int64(0))
 	require.Len(t, ds.Inserts, 1)
 	require.Empty(t, ds.Updates)
 	require.Empty(t, ds.Deletes)
+	require.NotEmpty(t, job.Sha256, "RunDelta must capture sha256 from upload")
 
 	require.NoError(t, pending.Commit())
 	got, err := store.GetCommitted(delta.SourceKey{
@@ -96,8 +97,8 @@ func TestRunDelta_UploadFailureAbortsPending(t *testing.T) {
 		DeltaStore: store,
 	}
 
-	size, pending, _, err := exe.RunDelta(
-		context.Background(), deltaJob("ignored", "job-fail"))
+	job := deltaJob("ignored", "job-fail")
+	size, pending, _, err := exe.RunDelta(context.Background(), &job)
 	require.Error(t, err)
 	require.Nil(t, pending)
 	require.Equal(t, int64(0), size)
@@ -124,7 +125,7 @@ func TestRunDelta_UnknownIntent(t *testing.T) {
 		ID:     "job-unknown",
 		Params: extractor.ExtractionParams{Intent: "unknown"},
 	}
-	_, _, _, err = exe.RunDelta(context.Background(), job)
+	_, _, _, err = exe.RunDelta(context.Background(), &job)
 	require.ErrorIs(t, err, worker.ErrUnknownIntent)
 }
 
@@ -148,7 +149,8 @@ func TestRun_DeltaPath_DispatchesAndCommits(t *testing.T) {
 		DeltaStore: store,
 	}
 
-	size, err := exe.Run(context.Background(), deltaJob(srv.URL, "job-run-delta"))
+	job := deltaJob(srv.URL, "job-run-delta")
+	size, err := exe.Run(context.Background(), &job)
 	require.NoError(t, err)
 	require.Greater(t, size, int64(0))
 
@@ -172,7 +174,8 @@ func TestRun_DeltaPath_UploadFailReturnsErrAndAborts(t *testing.T) {
 		DeltaStore: store,
 	}
 
-	_, err = exe.Run(context.Background(), deltaJob("ignored", "job-run-fail"))
+	job := deltaJob("ignored", "job-run-fail")
+	_, err = exe.Run(context.Background(), &job)
 	require.Error(t, err)
 
 	got, err := store.GetCommitted(delta.SourceKey{

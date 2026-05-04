@@ -7,11 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"runtime/debug"
 	"strings"
 
+	"github.com/google/uuid"
+
+	"github.com/cnesdata/dumpagent/internal/audit"
 	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/extractor"
+	"github.com/cnesdata/dumpagent/internal/integrity"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/writer"
 	"golang.org/x/sync/errgroup"
@@ -42,21 +47,24 @@ type Job struct {
 
 // JobExecutor executa 1 job end-to-end: DB conn → pipeline → upload.
 // DeltaStore != nil ativa o caminho delta (P3 R1); nil mantém o caminho
-// snapshot legado.
+// snapshot legado. AuditLogger != nil emite eventos lifecycle
+// (Extracted/Uploaded/Committed/Aborted); nil → no-op.
 type JobExecutor struct {
-	DB         *sql.DB
-	Uploader   upload.Uploader
-	DeltaStore *delta.Store
+	DB          *sql.DB
+	Uploader    upload.Uploader
+	DeltaStore  *delta.Store
+	AuditLogger *audit.Logger
 }
 
 // Run executa job. Retorna tamanho total uploadado em bytes. Se DeltaStore
 // configurado, despacha para o caminho delta (RunDelta + Commit/Abort);
-// caso contrário usa o pipeline snapshot streaming.
-func (e *JobExecutor) Run(ctx context.Context, job Job) (sizeBytes int64, err error) {
+// caso contrário usa o pipeline snapshot streaming. job.Sha256 é
+// preenchido no caminho delta (após o tee de integrity sobre o upload).
+func (e *JobExecutor) Run(ctx context.Context, job *Job) (sizeBytes int64, err error) {
 	if e.DeltaStore != nil {
 		return e.runDeltaWithCommit(ctx, job)
 	}
-	return e.runSnapshot(ctx, job)
+	return e.runSnapshot(ctx, *job)
 }
 
 func (e *JobExecutor) runSnapshot(ctx context.Context, job Job) (sizeBytes int64, err error) {
@@ -98,7 +106,8 @@ func (e *JobExecutor) runSnapshot(ctx context.Context, job Job) (sizeBytes int64
 // runDeltaWithCommit invoca RunDelta e gerencia o ciclo Commit/Abort do
 // PendingTx. Falha em Commit aborta o pending sub-bucket implicitamente
 // (bbolt revert na tx) e devolve erro ao caller (Consumer disparará FailJob).
-func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job Job) (int64, error) {
+// Emite audit.LifecycleCommitted após commit ack.
+func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job *Job) (int64, error) {
 	size, pending, _, err := e.RunDelta(ctx, job)
 	if err != nil {
 		return 0, err
@@ -106,15 +115,25 @@ func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job Job) (int64, e
 	if cerr := pending.Commit(); cerr != nil {
 		return 0, fmt.Errorf("delta_commit: %w", cerr)
 	}
+	key := deltaKeyFromParams(job.Params)
+	e.appendAudit(audit.Event{
+		Source: key.Source, Intent: key.Intent,
+		Competencia: key.Competencia,
+		ExtractionID: job.ID, JobID: job.ID,
+		SHA256: job.Sha256, SizeBytes: size,
+		Lifecycle: audit.LifecycleCommitted,
+	})
 	return size, nil
 }
 
 // RunDelta executa job em modo delta: extract → materialize → compute →
-// stage pending → write delta parquet → upload. Caller DEVE invocar
-// PendingTx.Commit() após CompleteJob ack OU PendingTx.Abort() em falha.
-// Em caso de erro interno, RunDelta aborta o pending e devolve pending=nil.
+// stage pending → write delta parquet → upload (com tee SHA-256). Caller
+// DEVE invocar PendingTx.Commit() após CompleteJob ack OU
+// PendingTx.Abort() em falha. Em caso de erro interno, RunDelta aborta
+// o pending e devolve pending=nil. Emite audit Extracted (start) e
+// Uploaded/Aborted (após Put). job.Sha256 preenchido em sucesso.
 func (e *JobExecutor) RunDelta(
-	ctx context.Context, job Job,
+	ctx context.Context, job *Job,
 ) (sizeBytes int64, pending *delta.PendingTx, ds delta.Set, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -131,41 +150,86 @@ func (e *JobExecutor) RunDelta(
 		return 0, nil, delta.Set{}, fmt.Errorf("db_conn: %w", err)
 	}
 	defer conn.Close()
+	key := deltaKeyFromParams(job.Params)
+	extractionID := uuid.NewString()
+	e.appendAudit(audit.Event{
+		Source: key.Source, Intent: key.Intent,
+		Competencia: key.Competencia,
+		ExtractionID: extractionID, JobID: job.ID,
+		Lifecycle: audit.LifecycleExtracted,
+	})
 	rows, err := pipeline(ctx, conn, job.Params)
 	if err != nil {
 		return 0, nil, delta.Set{}, fmt.Errorf("extract_delta: %w", err)
 	}
-	key := deltaKeyFromParams(job.Params)
 	ds, pending, err = ComputeAndStagePending(ctx, DeltaStageRequest{
 		Store: e.DeltaStore, Key: key, JobID: job.ID, Current: rows,
 	})
 	if err != nil {
 		return 0, nil, delta.Set{}, err
 	}
-	sizeBytes, err = e.writeAndUploadDelta(ctx, job, ds, key, pending)
+	sizeBytes, err = e.writeAndUploadDelta(ctx, job, ds, uploadCtx{
+		Key: key, ExtractionID: extractionID, Pending: pending,
+	})
 	if err != nil {
 		return 0, nil, delta.Set{}, err
 	}
 	return sizeBytes, pending, ds, nil
 }
 
+// uploadCtx agrega params do upload + audit para writeAndUploadDelta
+// dentro do limite de 4 parâmetros.
+type uploadCtx struct {
+	Key          delta.SourceKey
+	ExtractionID string
+	Pending      *delta.PendingTx
+}
+
 func (e *JobExecutor) writeAndUploadDelta(
-	ctx context.Context, job Job, ds delta.Set,
-	key delta.SourceKey, pending *delta.PendingTx,
+	ctx context.Context, job *Job, ds delta.Set, uc uploadCtx,
 ) (int64, error) {
-	cols := delta.ProfileFor(key.Source, key.Intent).FingerprintColumns
+	cols := delta.ProfileFor(uc.Key.Source, uc.Key.Intent).FingerprintColumns
 	var buf bytes.Buffer
 	if err := writer.WriteDeltaParquet(&buf, ds, cols); err != nil {
-		pending.Abort()
+		uc.Pending.Abort()
+		e.emitAborted(uc, job.ID)
 		return 0, fmt.Errorf("write_delta_parquet: %w", err)
 	}
-	size, err := e.Uploader.Put(ctx, job.UploadURL, &buf,
+	teed, hasher := integrity.SHA256TeeReader(&buf)
+	size, err := e.Uploader.Put(ctx, job.UploadURL, teed,
 		"application/octet-stream")
 	if err != nil {
-		pending.Abort()
+		uc.Pending.Abort()
+		e.emitAborted(uc, job.ID)
 		return 0, fmt.Errorf("upload: %w", err)
 	}
+	job.Sha256 = hasher.SumHex()
+	e.appendAudit(audit.Event{
+		Source: uc.Key.Source, Intent: uc.Key.Intent,
+		Competencia: uc.Key.Competencia,
+		ExtractionID: uc.ExtractionID, JobID: job.ID,
+		SHA256: job.Sha256, SizeBytes: size,
+		Lifecycle: audit.LifecycleUploaded,
+	})
 	return size, nil
+}
+
+func (e *JobExecutor) emitAborted(uc uploadCtx, jobID string) {
+	e.appendAudit(audit.Event{
+		Source: uc.Key.Source, Intent: uc.Key.Intent,
+		Competencia: uc.Key.Competencia,
+		ExtractionID: uc.ExtractionID, JobID: jobID,
+		Lifecycle: audit.LifecycleAborted,
+	})
+}
+
+func (e *JobExecutor) appendAudit(ev audit.Event) {
+	if e.AuditLogger == nil {
+		return
+	}
+	if err := e.AuditLogger.Append(ev); err != nil {
+		slog.Warn("audit_append_failed", "err", err.Error())
+	}
 }
 
 // deltaKeyFromParams mapeia ExtractionParams.Intent (ex: "profissionais",
