@@ -45,6 +45,7 @@ extractions_table = Table(
         server_default=func.now(),
     ),
     Column("registered_at", DateTime(timezone=True), nullable=True),
+    Column("sha256", CHAR(64), nullable=True),
     schema="landing",
 )
 
