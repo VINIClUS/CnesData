@@ -53,6 +53,7 @@ class ExtractionRegisterPayload(BaseModel):
     files: list[FileManifest] = Field(min_length=1)
     agent_version: str | None = Field(default=None, max_length=64)
     machine_id: str | None = Field(default=None, max_length=128)
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
