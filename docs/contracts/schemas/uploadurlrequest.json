@@ -1,0 +1,79 @@
+{
+  "properties": {
+    "agent_version": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Version"
+    },
+    "competencia": {
+      "format": "date",
+      "title": "Competencia",
+      "type": "string"
+    },
+    "intent": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Intent",
+      "type": "string"
+    },
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "machine_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Machine Id"
+    },
+    "source_type": {
+      "enum": [
+        "CNES_LOCAL",
+        "CNES_NACIONAL",
+        "SIHD",
+        "BPA_MAG",
+        "SIA_LOCAL"
+      ],
+      "title": "Source Type",
+      "type": "string"
+    },
+    "tenant_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "tipo_extracao": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Tipo Extracao",
+      "type": "string"
+    }
+  },
+  "required": [
+    "job_id",
+    "tenant_id",
+    "source_type",
+    "tipo_extracao",
+    "competencia",
+    "intent"
+  ],
+  "title": "UploadUrlRequest",
+  "type": "object"
+}

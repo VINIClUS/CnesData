@@ -24,6 +24,8 @@ from cnes_contracts.landing import (
     Extraction,
     ExtractionRegisterPayload,
     FileManifest,
+    UploadUrlRequest,
+    UploadUrlResponse,
 )
 
 if TYPE_CHECKING:
@@ -46,6 +48,8 @@ MODELS: list[tuple[type, str]] = [
     (ExtractionRegisterPayload, "extractionregisterpayload.json"),
     (FileManifest, "file_manifest.json"),
     (JobTransitionEvent, "jobtransitionevent.json"),
+    (UploadUrlRequest, "uploadurlrequest.json"),
+    (UploadUrlResponse, "uploadurlresponse.json"),
 ]
 
 
