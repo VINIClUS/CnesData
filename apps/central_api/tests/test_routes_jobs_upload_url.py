@@ -88,3 +88,20 @@ def test_rejeita_payload_invalido(client):
         json={"job_id": "not-a-uuid"},
     )
     assert resp.status_code == 422
+
+
+def test_rejeita_source_intent_desconhecido(client, monkeypatch):
+    resp = client.post(
+        "/api/v1/jobs/upload-url",
+        headers={"X-Tenant-Id": "354130"},
+        json={
+            "job_id": str(uuid4()),
+            "tenant_id": "354130",
+            "source_type": "CNES_LOCAL",
+            "tipo_extracao": "profissionais",
+            "competencia": "2026-01-01",
+            "intent": "cnes_unknown",
+        },
+    )
+    assert resp.status_code == 422
+    assert "unsupported_source_intent" in resp.text

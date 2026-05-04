@@ -31,6 +31,8 @@ _FATO_SUBTYPE_FOR: dict[tuple[str, str], str] = {
     ("SIHD", "sihd_producao"): "SIHD_INTERNACAO",
 }
 
+_UPLOAD_URL_TTL_SECONDS: int = 3600
+
 
 def _object_storage():
     return get_minio()
@@ -79,7 +81,7 @@ def mint_upload_url(
     if inserted is None:
         raise HTTPException(status_code=409, detail="duplicate_job_id")
 
-    upload_url = _object_storage().presigned_put(minio_key, expires=3600)
+    upload_url = _object_storage().presigned_put(minio_key, expires=_UPLOAD_URL_TTL_SECONDS)
     response = UploadUrlResponse(
         extraction_id=payload.job_id,
         upload_url=upload_url,
