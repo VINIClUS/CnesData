@@ -26,11 +26,12 @@ func NewStore(dir string) *Store {
 	return &Store{dir: dir}
 }
 
-// ValidateSource rejects bad source names. Only cnes/sihd/bpa accepted;
-// sia is DBF-only (no FB credentials).
+// ValidateSource rejects bad source names. cnes/sihd/bpa are FB credential
+// sources; sia is DBF-only (no FB credentials); audit_hmac persists the
+// audit-log HMAC key.
 func ValidateSource(name string) error {
 	switch name {
-	case "cnes", "sihd", "bpa":
+	case "cnes", "sihd", "bpa", "audit_hmac":
 		return nil
 	default:
 		return fmt.Errorf("invalid_source name=%q", name)
