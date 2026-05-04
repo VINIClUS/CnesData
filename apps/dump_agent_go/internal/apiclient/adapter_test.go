@@ -242,3 +242,45 @@ func TestSendHeartbeat_5xx(t *testing.T) {
 	require.True(t, errors.As(err, &httpErr))
 	require.Equal(t, http.StatusServiceUnavailable, httpErr.StatusCode)
 }
+
+func TestMintUploadURL_Created(t *testing.T) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs/upload-url" {
+			t.Fatalf("path = %s want /api/v1/jobs/upload-url", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{
+			"extraction_id": "11111111-2222-3333-4444-555555555555",
+			"upload_url": "https://minio/sig",
+			"minio_key": "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz"
+		}`))
+	})
+	job, err := a.MintUploadURL(context.Background(), worker.JobSpec{
+		JobID:        "11111111-2222-3333-4444-555555555555",
+		FonteSistema: "CNES_LOCAL",
+		TipoExtracao: "profissionais",
+		Competencia:  202601,
+		Intent:       "cnes_profissionais",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://minio/sig", job.UploadURL)
+	require.Equal(t, "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz", job.MinioKey)
+}
+
+func TestMintUploadURL_4xx(t *testing.T) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	})
+	_, err := a.MintUploadURL(context.Background(), worker.JobSpec{
+		JobID:        "11111111-2222-3333-4444-555555555555",
+		FonteSistema: "CNES_LOCAL",
+		TipoExtracao: "profissionais",
+		Competencia:  202601,
+		Intent:       "cnes_profissionais",
+	})
+	require.Error(t, err)
+	var httpErr *obs.HTTPError
+	require.True(t, errors.As(err, &httpErr))
+	require.Equal(t, http.StatusConflict, httpErr.StatusCode)
+}

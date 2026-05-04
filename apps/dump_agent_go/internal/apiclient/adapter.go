@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -82,6 +83,44 @@ func (a *Adapter) RegisterJob(ctx context.Context, spec worker.JobSpec) (*worker
 		ID:        extID,
 		TenantID:  a.TenantID,
 		UploadURL: resp.JSON201.UploadUrl,
+		Params: extractor.ExtractionParams{
+			Intent:      spec.Intent,
+			Competencia: competenciaString(spec.Competencia),
+			CodMunGest:  envOr("COD_MUN_IBGE", a.TenantID),
+		},
+	}, nil
+}
+
+// MintUploadURL chama POST /api/v1/jobs/upload-url para criar
+// landing.extractions PENDING + obter presigned PUT URL.
+func (a *Adapter) MintUploadURL(ctx context.Context, spec worker.JobSpec) (*worker.Job, error) {
+	jobUUID, err := parseJobUUID(spec.JobID)
+	if err != nil {
+		return nil, err
+	}
+	body := MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody{
+		AgentVersion: &a.AgentVersion,
+		Competencia:  competenciaToDate(spec.Competencia),
+		Intent:       spec.Intent,
+		JobId:        jobUUID,
+		MachineId:    &a.MachineID,
+		SourceType:   UploadUrlRequestSourceType(spec.FonteSistema),
+		TenantId:     a.TenantID,
+		TipoExtracao: spec.TipoExtracao,
+	}
+	resp, err := a.Inner.MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusCreated || resp.JSON201 == nil {
+		return nil, &obs.HTTPError{StatusCode: resp.StatusCode(), Body: string(resp.Body)}
+	}
+	extID := resp.JSON201.ExtractionId.String()
+	return &worker.Job{
+		ID:        extID,
+		TenantID:  a.TenantID,
+		UploadURL: resp.JSON201.UploadUrl,
+		MinioKey:  resp.JSON201.MinioKey,
 		Params: extractor.ExtractionParams{
 			Intent:      spec.Intent,
 			Competencia: competenciaString(spec.Competencia),
@@ -210,4 +249,10 @@ func competenciaString(c int) string {
 		return ""
 	}
 	return fmt.Sprintf("%06d", c)
+}
+
+func competenciaToDate(yyyymm int) openapi_types.Date {
+	year := yyyymm / 100
+	month := yyyymm % 100
+	return openapi_types.Date{Time: time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)}
 }
