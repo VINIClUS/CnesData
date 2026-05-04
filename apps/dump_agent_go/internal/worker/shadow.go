@@ -20,7 +20,7 @@ type ShadowExecutor struct {
 
 // Run executa pipeline mas redireciona para arquivo. Retorna tamanho
 // do arquivo gerado.
-func (s *ShadowExecutor) Run(ctx context.Context, job Job) (sizeBytes int64, err error) {
+func (s *ShadowExecutor) Run(ctx context.Context, job *Job) (sizeBytes int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in ShadowRun: %v\n%s", r, debug.Stack())

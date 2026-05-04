@@ -44,7 +44,7 @@ func TestJobExecutor_Run_Success(t *testing.T) {
 		UploadURL: srv.URL,
 		Params:    extractor.ExtractionParams{Intent: extractor.IntentCnesEstabelecimentos, CodMunGest: "354130"},
 	}
-	size, err := exe.Run(context.Background(), job)
+	size, err := exe.Run(context.Background(), &job)
 	require.NoError(t, err)
 	require.Greater(t, size, int64(0))
 	require.Greater(t, uploaded, int64(0))
@@ -55,7 +55,7 @@ func TestJobExecutor_Run_UnknownIntent(t *testing.T) {
 	defer db.Close()
 
 	exe := &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(http.DefaultClient)}
-	_, err := exe.Run(context.Background(), worker.Job{
+	_, err := exe.Run(context.Background(), &worker.Job{
 		Params: extractor.ExtractionParams{Intent: "unknown"},
 	})
 	require.ErrorIs(t, err, worker.ErrUnknownIntent)
@@ -70,7 +70,7 @@ func TestJobExecutor_Run_UploadFailure(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(cols).AddRow("0001", "UBS", "05", "354130", "12345"))
 
 	exe := &worker.JobExecutor{DB: db, Uploader: &stubUploader{err: errors.New("network down")}}
-	_, err := exe.Run(context.Background(), worker.Job{
+	_, err := exe.Run(context.Background(), &worker.Job{
 		Params:    extractor.ExtractionParams{Intent: extractor.IntentCnesEstabelecimentos, CodMunGest: "354130"},
 		UploadURL: "ignored",
 	})

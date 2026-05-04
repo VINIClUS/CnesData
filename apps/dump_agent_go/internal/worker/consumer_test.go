@@ -33,10 +33,10 @@ func (a *apiStub) SendHeartbeat(ctx context.Context, jobID string) error {
 }
 
 type execStub struct {
-	runFn func(ctx context.Context, job worker.Job) (int64, error)
+	runFn func(ctx context.Context, job *worker.Job) (int64, error)
 }
 
-func (e *execStub) Run(ctx context.Context, job worker.Job) (int64, error) {
+func (e *execStub) Run(ctx context.Context, job *worker.Job) (int64, error) {
 	return e.runFn(ctx, job)
 }
 
@@ -85,7 +85,7 @@ func TestConsumerLoop_CompletesSuccessfulJob(t *testing.T) {
 	src := &sourceStub{nextFn: func(_ context.Context) (*worker.JobSpec, error) {
 		return spec, nil
 	}}
-	exec := &execStub{runFn: func(_ context.Context, _ worker.Job) (int64, error) { return 100, nil }}
+	exec := &execStub{runFn: func(_ context.Context, _ *worker.Job) (int64, error) { return 100, nil }}
 
 	cons := worker.NewConsumer(api, src, exec, worker.ConsumerConfig{
 		PollInterval:      time.Millisecond,
@@ -116,7 +116,7 @@ func TestConsumerLoop_FailsJobOnError(t *testing.T) {
 	src := &sourceStub{nextFn: func(_ context.Context) (*worker.JobSpec, error) {
 		return spec, nil
 	}}
-	exec := &execStub{runFn: func(_ context.Context, _ worker.Job) (int64, error) {
+	exec := &execStub{runFn: func(_ context.Context, _ *worker.Job) (int64, error) {
 		return 0, errors.New("boom")
 	}}
 	cons := worker.NewConsumer(api, src, exec, worker.ConsumerConfig{

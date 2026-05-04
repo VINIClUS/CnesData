@@ -18,9 +18,11 @@ type JobAPIClient interface {
 	HeartbeatClient
 }
 
-// JobExecutorIface permite injetar stub em testes.
+// JobExecutorIface permite injetar stub em testes. Run pode mutar
+// job.Sha256 (preenchido pelo caminho delta após upload) para que o
+// caller envie o digest em CompleteJob.
 type JobExecutorIface interface {
-	Run(ctx context.Context, job Job) (int64, error)
+	Run(ctx context.Context, job *Job) (int64, error)
 }
 
 // JobSpecSource produz o próximo JobSpec a ser registrado, ou nil/err.
@@ -101,7 +103,7 @@ func (c *Consumer) processJob(ctx context.Context, job Job) {
 		return HeartbeatLoop(jobCtx, c.api, job.ID, c.config.HeartbeatInterval)
 	}, "heartbeat")
 
-	size, execErr := c.executor.Run(jobCtx, job)
+	size, execErr := c.executor.Run(jobCtx, &job)
 	jobCancel()
 	<-hbCh
 
