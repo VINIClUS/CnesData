@@ -125,6 +125,7 @@ def register(
     files: list[dict],
     agent_version: str | None = None,
     machine_id: str | None = None,
+    sha256: str | None = None,
 ) -> UUID | None:
     sql = text("""
         UPDATE landing.extractions
@@ -132,7 +133,8 @@ def register(
             status         = 'REGISTERED',
             registered_at  = NOW(),
             agent_version  = COALESCE(:av, agent_version),
-            machine_id     = COALESCE(:mid, machine_id)
+            machine_id     = COALESCE(:mid, machine_id),
+            sha256         = COALESCE(:sha, sha256)
         WHERE job_id = :j AND status IN ('PENDING', 'CLAIMED')
         RETURNING job_id
     """)
@@ -144,6 +146,7 @@ def register(
                 "files": json.dumps(files),
                 "av": agent_version,
                 "mid": machine_id,
+                "sha": sha256,
             },
         ).one_or_none()
     return result.job_id if result else None
