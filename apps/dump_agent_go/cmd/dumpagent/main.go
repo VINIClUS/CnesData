@@ -46,6 +46,8 @@ func dispatch(args []string) int {
 		return cmdDiscover(rest)
 	case "set-secret":
 		return cmdSetSecret(rest)
+	case "audit":
+		return cmdAudit(rest)
 	case "version", "--version", "-v":
 		return runVersion()
 	case "help", "--help", "-h":
@@ -92,6 +94,7 @@ Commands:
   diagnose     Run health checklist (--probe for network checks; --json for machine output)
   discover     Auto-detect legacy data source paths; write %PROGRAMDATA%\dumpagent\config.yaml
   set-secret   Store DPAPI-wrapped FB password per source (cnes|sihd|bpa)
+  audit        Audit log tools (audit verify <path>)
   version      Imprimir versão
   help         Mostrar esta ajuda
 
