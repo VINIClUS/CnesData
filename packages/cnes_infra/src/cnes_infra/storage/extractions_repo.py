@@ -152,6 +152,54 @@ def register(
     return result.job_id if result else None
 
 
+def mint_upload_url(
+    engine: Engine,
+    *,
+    job_id: UUID,
+    tenant_id: str,
+    source_type: str,
+    competencia: date,
+    fato_subtype: str,
+    minio_key: str,
+    agent_version: str | None = None,
+    machine_id: str | None = None,
+) -> UUID | None:
+    placeholder = [{
+        "minio_key": minio_key,
+        "fato_subtype": fato_subtype,
+        "size_bytes": 1,
+        "sha256": "0" * 64,
+    }]
+    sql = text("""
+        INSERT INTO landing.extractions (
+            job_id, tenant_id, source_type, competencia,
+            files, depends_on, status,
+            agent_version, machine_id, created_at
+        ) VALUES (
+            :j, :t, :s, :c, CAST(:f AS jsonb),
+            CAST(:d AS uuid[]), 'PENDING',
+            :av, :mid, NOW()
+        )
+        ON CONFLICT (job_id) DO NOTHING
+        RETURNING job_id
+    """)
+    with engine.begin() as conn:
+        result = conn.execute(
+            sql,
+            {
+                "j": str(job_id),
+                "t": tenant_id,
+                "s": source_type,
+                "c": competencia,
+                "f": json.dumps(placeholder),
+                "d": "{}",
+                "av": agent_version,
+                "mid": machine_id,
+            },
+        ).one_or_none()
+    return result.job_id if result else None
+
+
 def reap_expired(engine: Engine) -> int:
     sql = text("""
         UPDATE landing.extractions
