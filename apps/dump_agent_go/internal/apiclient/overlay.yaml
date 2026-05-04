@@ -77,3 +77,67 @@ actions:
             type: string
             nullable: true
             pattern: "^[0-9a-f]{64}$"
+      UploadUrlRequest:
+        type: object
+        required: [job_id, tenant_id, source_type, tipo_extracao, competencia, intent]
+        properties:
+          job_id:
+            type: string
+            format: uuid
+          tenant_id:
+            type: string
+            maxLength: 64
+          source_type:
+            type: string
+            enum: [CNES_LOCAL, CNES_NACIONAL, SIHD, BPA_MAG, SIA_LOCAL]
+          tipo_extracao:
+            type: string
+            maxLength: 32
+          competencia:
+            type: string
+            format: date
+          intent:
+            type: string
+            maxLength: 64
+          agent_version:
+            type: string
+            nullable: true
+            maxLength: 64
+          machine_id:
+            type: string
+            nullable: true
+            maxLength: 128
+      UploadUrlResponse:
+        type: object
+        required: [extraction_id, upload_url, minio_key]
+        properties:
+          extraction_id:
+            type: string
+            format: uuid
+          upload_url:
+            type: string
+          minio_key:
+            type: string
+            pattern: "^[\\w\\-./]+\\.parquet\\.gz$"
+  - target: $.paths
+    update:
+      /api/v1/jobs/upload-url:
+        post:
+          operationId: mint_upload_url_api_v1_jobs_upload_url_post
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/UploadUrlRequest'
+          responses:
+            '201':
+              description: Created
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/UploadUrlResponse'
+            '409':
+              description: Conflict
+            '422':
+              description: Validation Error
