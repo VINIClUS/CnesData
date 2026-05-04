@@ -110,3 +110,7 @@ colisão (lease-based).
 - `cdc_merger.merge_delta(df, conn, source, intent, apply_iu_fn=None)` branches Parquet rows on `_op ∈ {I,U,D}`. D applied inline via `text("DELETE FROM gold.X WHERE pk = :pk")` per (source, intent) PK template aligned with edge agent's `delta/profiles.go`. I/U applied via `apply_iu_fn(df_iu) -> int` callback (existing upsert path).
 - `processor.route_delta(df, conn, source, intent, apply_iu_fn=None)` raises `ValueError("missing_op_column")` if `_op` absent.
 - DELETE idempotency: `delete_no_op` INFO log when rowcount=0 (already-deleted row).
+
+## P2 integrity (2026-05-04)
+
+`integrity_check.verify_parquet(path, expected_sha256)` recomputes SHA-256 over downloaded Parquet (1MB chunks); raises `IntegrityError` on mismatch; skips when `expected_sha256 None`. `processor.verify_and_route_delta(parquet_path, expected_sha256, conn, source, intent, apply_iu_fn=None)` calls verify_parquet → pl.read_parquet → route_delta. Mismatch propagates `IntegrityError` to caller (caller fails the job). landing.extractions gains nullable `sha256 char(64)` column (Alembic 018).
