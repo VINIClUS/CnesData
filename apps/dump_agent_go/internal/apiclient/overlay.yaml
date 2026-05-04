@@ -73,3 +73,7 @@ actions:
             type: string
             nullable: true
             maxLength: 128
+          sha256:
+            type: string
+            nullable: true
+            pattern: "^[0-9a-f]{64}$"

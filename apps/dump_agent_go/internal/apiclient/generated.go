@@ -69,6 +69,7 @@ type RegisterRequest struct {
 	FonteSistema RegisterRequestFonteSistema `json:"fonte_sistema"`
 	JobId        openapi_types.UUID          `json:"job_id"`
 	MachineId    string                      `json:"machine_id"`
+	Sha256       *string                     `json:"sha256,omitempty"`
 	TenantId     string                      `json:"tenant_id"`
 	TipoExtracao string                      `json:"tipo_extracao"`
 }
