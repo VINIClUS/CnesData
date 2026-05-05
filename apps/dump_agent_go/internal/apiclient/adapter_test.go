@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
+	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/worker"
 )
@@ -75,77 +76,53 @@ func newTestAdapter(t *testing.T, handler http.HandlerFunc) *apiclient.Adapter {
 	return a
 }
 
-func TestRegisterJob_Created(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"extraction_id": "11111111-1111-1111-1111-111111111111",
-			"upload_url":    "https://minio.example/put",
-		})
+func TestRegisterJob_PostUploadWithSha(t *testing.T) {
+	var got apiclient.RegisterRequest
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &got)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(
+			`{"job_id":"11111111-2222-3333-4444-555555555555","status":"REGISTERED"}`,
+		))
 	})
-	job, err := a.RegisterJob(context.Background(), worker.JobSpec{
-		JobID:        "22222222-2222-2222-2222-222222222222",
-		Competencia:  202601,
-		FonteSistema: "CNES",
-		TipoExtracao: "FULL",
-		Intent:       "cnes_profissionais",
-	})
+	job := worker.Job{
+		ID:       "11111111-2222-3333-4444-555555555555",
+		Sha256:   "a" + strings.Repeat("0", 63),
+		MinioKey: "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+		Params: extractor.ExtractionParams{
+			Intent:      "cnes_profissionais",
+			Competencia: "202601",
+		},
+	}
+	err := a.RegisterJob(context.Background(), job, 4096)
 	require.NoError(t, err)
-	require.Equal(t, "11111111-1111-1111-1111-111111111111", job.ID)
-	require.Equal(t, "https://minio.example/put", job.UploadURL)
-	require.Equal(t, "tenant-1", job.TenantID)
-	require.Equal(t, "202601", job.Params.Competencia)
-}
-
-func TestRegisterJob_InvalidJobID(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-	})
-	_, err := a.RegisterJob(context.Background(), worker.JobSpec{
-		JobID:        "not-a-uuid",
-		Competencia:  202601,
-		FonteSistema: "CNES",
-		TipoExtracao: "FULL",
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid_job_uuid")
+	require.NotNil(t, got.Sha256)
+	require.Equal(t, "a"+strings.Repeat("0", 63), *got.Sha256)
 }
 
 func TestRegisterJob_5xxReturnsHTTPError(t *testing.T) {
 	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("kaboom"))
 	})
-	_, err := a.RegisterJob(context.Background(), worker.JobSpec{
-		JobID:        "33333333-3333-3333-3333-333333333333",
-		Competencia:  202601,
-		FonteSistema: "CNES",
-		TipoExtracao: "FULL",
-	})
+	err := a.RegisterJob(
+		context.Background(),
+		worker.Job{ID: "11111111-2222-3333-4444-555555555555"},
+		100,
+	)
 	require.Error(t, err)
 	var httpErr *obs.HTTPError
 	require.True(t, errors.As(err, &httpErr))
 	require.Equal(t, http.StatusInternalServerError, httpErr.StatusCode)
 }
 
-func TestCompleteJob_InvalidID(t *testing.T) {
+func TestRegisterJob_InvalidJobID(t *testing.T) {
 	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusOK)
 	})
-	err := a.CompleteJob(context.Background(), worker.Job{ID: "garbage"}, 100)
+	err := a.RegisterJob(context.Background(), worker.Job{ID: "not-a-uuid"}, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid_job_uuid")
-}
-
-func TestCompleteJob_Success(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	err := a.CompleteJob(context.Background(), worker.Job{
-		ID: "44444444-4444-4444-4444-444444444444", Sha256: "abc", RowCount: 10,
-	}, 100)
-	require.NoError(t, err)
 }
 
 func TestFailJob_NilCauseUsesDefault(t *testing.T) {

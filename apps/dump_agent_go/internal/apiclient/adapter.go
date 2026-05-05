@@ -56,39 +56,34 @@ func combineEditors(eds []RequestEditorFn) RequestEditorFn {
 	}
 }
 
-// RegisterJob cria extraction via /jobs/register e devolve Job com extraction_id + upload_url.
-func (a *Adapter) RegisterJob(ctx context.Context, spec worker.JobSpec) (*worker.Job, error) {
-	jobUUID, err := parseJobUUID(spec.JobID)
+// RegisterJob confirma upload completo via POST /api/v1/jobs/register.
+// Threadea sha256 (computado pós-upload via SHA256TeeReader) para que
+// landing.extractions.sha256 seja persistido.
+func (a *Adapter) RegisterJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
+	jobUUID, err := parseJobUUID(job.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	sha := job.Sha256
 	body := RegisterExtractionApiV1JobsRegisterPostJSONRequestBody{
 		AgentVersion: a.AgentVersion,
-		Competencia:  spec.Competencia,
-		FonteSistema: RegisterRequestFonteSistema(spec.FonteSistema),
+		Competencia:  job.Params.CompetenciaInt(),
+		FonteSistema: RegisterRequestFonteSistema(job.Params.SourceType()),
 		JobId:        jobUUID,
 		MachineId:    a.MachineID,
+		Sha256:       &sha,
 		TenantId:     a.TenantID,
-		TipoExtracao: spec.TipoExtracao,
+		TipoExtracao: job.Params.Intent,
 	}
+	_ = sizeBytes
 	resp, err := a.Inner.RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx, body)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if resp.StatusCode() != http.StatusCreated || resp.JSON201 == nil {
-		return nil, &obs.HTTPError{StatusCode: resp.StatusCode(), Body: string(resp.Body)}
+	if resp.StatusCode() != http.StatusOK {
+		return &obs.HTTPError{StatusCode: resp.StatusCode(), Body: string(resp.Body)}
 	}
-	extID := resp.JSON201.ExtractionId.String()
-	return &worker.Job{
-		ID:        extID,
-		TenantID:  a.TenantID,
-		UploadURL: resp.JSON201.UploadUrl,
-		Params: extractor.ExtractionParams{
-			Intent:      spec.Intent,
-			Competencia: competenciaString(spec.Competencia),
-			CodMunGest:  envOr("COD_MUN_IBGE", a.TenantID),
-		},
-	}, nil
+	return nil
 }
 
 // MintUploadURL chama POST /api/v1/jobs/upload-url para criar
@@ -127,25 +122,6 @@ func (a *Adapter) MintUploadURL(ctx context.Context, spec worker.JobSpec) (*work
 			CodMunGest:  envOr("COD_MUN_IBGE", a.TenantID),
 		},
 	}, nil
-}
-
-// CompleteJob sinaliza sucesso ao central com sha256 + row_count.
-func (a *Adapter) CompleteJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
-	id, err := parseJobUUID(job.ID)
-	if err != nil {
-		return err
-	}
-	_ = sizeBytes
-	resp, err := a.Inner.CompleteExtractionApiV1JobsExtractionIdCompletePostWithResponse(
-		ctx, id, CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody{
-			Sha256:   job.Sha256,
-			RowCount: job.RowCount,
-		},
-	)
-	if err != nil {
-		return err
-	}
-	return statusError(resp.StatusCode(), resp.Body)
 }
 
 // FailJob marca extraction como FAILED via /jobs/{id}/fail.
