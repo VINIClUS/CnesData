@@ -27,12 +27,15 @@ func (a *OutboxAdapter) MintUploadURL(ctx context.Context, spec JobSpec) (*Job, 
 }
 
 // RegisterJob persists envelope; drain dispatches asynchronously.
-// FU1: post-upload register threads sha256 from job.Sha256.
+// FU1: post-upload register threads sha256/minio_key so drain replay
+// after agent restart can reconstruct the full Job payload.
 func (a *OutboxAdapter) RegisterJob(_ context.Context, job Job, sizeBytes int64) error {
 	return a.out.Append(queue.Envelope{
 		Type:      queue.TypeComplete,
 		JobUUID:   job.ID,
 		SizeBytes: sizeBytes,
+		SHA256:    job.Sha256,
+		MinioKey:  job.MinioKey,
 	})
 }
 

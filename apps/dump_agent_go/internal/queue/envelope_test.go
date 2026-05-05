@@ -12,6 +12,8 @@ func TestEnvelope_RoundTripComplete(t *testing.T) {
 		Type:       TypeComplete,
 		JobUUID:    "abc-123",
 		SizeBytes:  4096,
+		SHA256:     "deadbeef",
+		MinioKey:   "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
 		EnqueuedAt: now,
 	}
 	b, err := json.Marshal(in)
@@ -23,7 +25,8 @@ func TestEnvelope_RoundTripComplete(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if out.Type != TypeComplete || out.JobUUID != in.JobUUID ||
-		out.SizeBytes != in.SizeBytes || !out.EnqueuedAt.Equal(now) {
+		out.SizeBytes != in.SizeBytes || out.SHA256 != in.SHA256 ||
+		out.MinioKey != in.MinioKey || !out.EnqueuedAt.Equal(now) {
 		t.Fatalf("round-trip lost fields: %+v", out)
 	}
 }
@@ -48,7 +51,7 @@ func TestEnvelope_OmitsZeroFields(t *testing.T) {
 	in := Envelope{Type: TypeComplete, JobUUID: "x"}
 	b, _ := json.Marshal(in)
 	s := string(b)
-	for _, banned := range []string{"size_bytes", "cause", "last_error"} {
+	for _, banned := range []string{"size_bytes", "cause", "last_error", "sha256", "minio_key"} {
 		if contains(s, banned) {
 			t.Errorf("expected omitempty for %q in %s", banned, s)
 		}

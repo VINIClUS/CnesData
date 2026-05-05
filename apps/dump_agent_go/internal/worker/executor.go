@@ -129,7 +129,7 @@ func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job *Job) (int64, 
 
 // RunDelta executa job em modo delta: extract → materialize → compute →
 // stage pending → write delta parquet → upload (com tee SHA-256). Caller
-// DEVE invocar PendingTx.Commit() após CompleteJob ack OU
+// DEVE invocar PendingTx.Commit() após RegisterJob ack OU
 // PendingTx.Abort() em falha. Em caso de erro interno, RunDelta aborta
 // o pending e devolve pending=nil. Emite audit Extracted (start) e
 // Uploaded/Aborted (após Put). job.Sha256 preenchido em sucesso.
@@ -276,7 +276,7 @@ type DeltaStageRequest struct {
 
 // ComputeAndStagePending loads the committed snapshot, computes the delta,
 // stages new fingerprints in a pending bbolt tx, and returns the Set
-// + PendingTx. Caller must call PendingTx.Commit() after CompleteJob ack
+// + PendingTx. Caller must call PendingTx.Commit() after RegisterJob ack
 // or PendingTx.Abort() on failure.
 //
 // ctx is unused today (delta package does not propagate cancellation

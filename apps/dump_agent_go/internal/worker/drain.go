@@ -165,16 +165,21 @@ func (d *Drainer) dispatchOne(ctx context.Context, item queue.Item) bool {
 // Returns a synthesized *http.Response when the inner call returns
 // *obs.HTTPError so Classify can read the status code.
 //
-// FU1: TypeComplete envelopes now dispatch via RegisterJob (post-upload
-// confirmation). Envelope schema does not yet carry sha256/minio_key
-// — T10 extends queue.Envelope to thread these fields end-to-end.
+// FU1: TypeComplete envelopes dispatch via RegisterJob (post-upload
+// confirmation) and rebuild Job{ID, Sha256, MinioKey} from the persisted
+// envelope so replays after agent restart preserve sha256/minio_key.
 func (d *Drainer) callInner(ctx context.Context, env queue.Envelope) (*http.Response, error) {
-	job := Job{ID: env.JobUUID}
 	var apiErr error
 	switch env.Type {
 	case queue.TypeComplete:
+		job := Job{
+			ID:       env.JobUUID,
+			Sha256:   env.SHA256,
+			MinioKey: env.MinioKey,
+		}
 		apiErr = d.inner.RegisterJob(ctx, job, env.SizeBytes)
 	case queue.TypeFail:
+		job := Job{ID: env.JobUUID}
 		apiErr = d.inner.FailJob(ctx, job, errors.New(env.Cause))
 	default:
 		return nil, fmt.Errorf("unknown envelope type: %s", env.Type)

@@ -13,18 +13,22 @@ import (
 )
 
 type stubJobAPI struct {
-	completeResp error
+	registerResp error
 	failResp     error
-	completeN    int
+	registerN    int
 	failN        int
+	lastJob      Job
+	lastSize     int64
 }
 
 func (s *stubJobAPI) MintUploadURL(_ context.Context, _ JobSpec) (*Job, error) {
 	return nil, nil
 }
-func (s *stubJobAPI) RegisterJob(_ context.Context, _ Job, _ int64) error {
-	s.completeN++
-	return s.completeResp
+func (s *stubJobAPI) RegisterJob(_ context.Context, job Job, sizeBytes int64) error {
+	s.registerN++
+	s.lastJob = job
+	s.lastSize = sizeBytes
+	return s.registerResp
 }
 func (s *stubJobAPI) FailJob(_ context.Context, _ Job, _ error) error {
 	s.failN++
@@ -32,14 +36,14 @@ func (s *stubJobAPI) FailJob(_ context.Context, _ Job, _ error) error {
 }
 func (s *stubJobAPI) SendHeartbeat(_ context.Context, _ string) error { return nil }
 
-func newDrainFixture(t *testing.T, completeResp error) (*Drainer, *queue.Outbox, *stubJobAPI) {
+func newDrainFixture(t *testing.T, registerResp error) (*Drainer, *queue.Outbox, *stubJobAPI) {
 	t.Helper()
 	ob, err := queue.Open(filepath.Join(t.TempDir(), "ob.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { _ = ob.Close() })
-	stub := &stubJobAPI{completeResp: completeResp}
+	stub := &stubJobAPI{registerResp: registerResp}
 	br := breaker.New(5, 60*time.Second, "test")
 	d := NewDrainer(ob, br, stub)
 	return d, ob, stub
@@ -49,12 +53,39 @@ func TestDrain_HappyPathDeletesEnvelope(t *testing.T) {
 	d, ob, stub := newDrainFixture(t, nil)
 	_ = ob.Append(queue.Envelope{Type: queue.TypeComplete, JobUUID: "uuid-1", SizeBytes: 100})
 	d.tick(context.Background())
-	if stub.completeN != 1 {
-		t.Errorf("inner RegisterJob calls=%d want 1", stub.completeN)
+	if stub.registerN != 1 {
+		t.Errorf("inner RegisterJob calls=%d want 1", stub.registerN)
 	}
 	items, _ := ob.Peek(10)
 	if len(items) != 0 {
 		t.Errorf("envelope still present after success: %+v", items)
+	}
+}
+
+func TestDrain_ReplaysSha256AndMinioKey(t *testing.T) {
+	d, ob, stub := newDrainFixture(t, nil)
+	_ = ob.Append(queue.Envelope{
+		Type:      queue.TypeComplete,
+		JobUUID:   "uuid-replay",
+		SizeBytes: 2048,
+		SHA256:    "deadbeef",
+		MinioKey:  "354130/CNES_VINCULO/2026-01-01/x.parquet.gz",
+	})
+	d.tick(context.Background())
+	if stub.registerN != 1 {
+		t.Fatalf("RegisterJob calls=%d want 1", stub.registerN)
+	}
+	if stub.lastJob.ID != "uuid-replay" {
+		t.Errorf("Job.ID=%q want uuid-replay", stub.lastJob.ID)
+	}
+	if stub.lastJob.Sha256 != "deadbeef" {
+		t.Errorf("Job.Sha256=%q want deadbeef", stub.lastJob.Sha256)
+	}
+	if stub.lastJob.MinioKey != "354130/CNES_VINCULO/2026-01-01/x.parquet.gz" {
+		t.Errorf("Job.MinioKey=%q lost on replay", stub.lastJob.MinioKey)
+	}
+	if stub.lastSize != 2048 {
+		t.Errorf("sizeBytes=%d want 2048", stub.lastSize)
 	}
 }
 

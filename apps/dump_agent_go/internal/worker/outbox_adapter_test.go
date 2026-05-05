@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cnesdata/dumpagent/internal/queue"
@@ -99,6 +100,34 @@ func TestOutboxAdapter_MintUploadURLDelegates(t *testing.T) {
 	items, _ := ob.Peek(10)
 	if len(items) != 0 {
 		t.Fatalf("unexpected envelope from MintUploadURL: %+v", items)
+	}
+}
+
+func TestOutboxAdapter_RegisterJob_PersistsSha256AndMinioKey(t *testing.T) {
+	mock := &mockJobAPI{}
+	ob := newOutbox(t)
+	a := NewOutboxAdapter(mock, ob)
+	job := Job{
+		ID:       "11111111-2222-3333-4444-555555555555",
+		Sha256:   "a" + strings.Repeat("0", 63),
+		MinioKey: "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+	}
+	if err := a.RegisterJob(context.Background(), job, 4096); err != nil {
+		t.Fatalf("RegisterJob: %v", err)
+	}
+	items, _ := ob.Peek(10)
+	if len(items) != 1 {
+		t.Fatalf("envelope count = %d want 1", len(items))
+	}
+	env := items[0].Envelope
+	if env.SHA256 != job.Sha256 {
+		t.Errorf("SHA256 = %q want %q", env.SHA256, job.Sha256)
+	}
+	if env.MinioKey != job.MinioKey {
+		t.Errorf("MinioKey = %q want %q", env.MinioKey, job.MinioKey)
+	}
+	if env.SizeBytes != 4096 {
+		t.Errorf("SizeBytes = %d want 4096", env.SizeBytes)
 	}
 }
 
