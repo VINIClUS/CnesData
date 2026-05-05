@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -55,22 +56,54 @@ func combineEditors(eds []RequestEditorFn) RequestEditorFn {
 	}
 }
 
-// RegisterJob cria extraction via /jobs/register e devolve Job com extraction_id + upload_url.
-func (a *Adapter) RegisterJob(ctx context.Context, spec worker.JobSpec) (*worker.Job, error) {
+// RegisterJob confirma upload completo via POST /api/v1/jobs/register.
+// Threadea sha256 (computado pós-upload via SHA256TeeReader) para que
+// landing.extractions.sha256 seja persistido.
+func (a *Adapter) RegisterJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
+	jobUUID, err := parseJobUUID(job.ID)
+	if err != nil {
+		return err
+	}
+	sha := job.Sha256
+	body := RegisterExtractionApiV1JobsRegisterPostJSONRequestBody{
+		AgentVersion: a.AgentVersion,
+		Competencia:  job.Params.CompetenciaInt(),
+		FonteSistema: RegisterRequestFonteSistema(job.Params.SourceType()),
+		JobId:        jobUUID,
+		MachineId:    a.MachineID,
+		Sha256:       &sha,
+		TenantId:     a.TenantID,
+		TipoExtracao: job.Params.Intent,
+	}
+	_ = sizeBytes
+	resp, err := a.Inner.RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx, body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return &obs.HTTPError{StatusCode: resp.StatusCode(), Body: string(resp.Body)}
+	}
+	return nil
+}
+
+// MintUploadURL chama POST /api/v1/jobs/upload-url para criar
+// landing.extractions PENDING + obter presigned PUT URL.
+func (a *Adapter) MintUploadURL(ctx context.Context, spec worker.JobSpec) (*worker.Job, error) {
 	jobUUID, err := parseJobUUID(spec.JobID)
 	if err != nil {
 		return nil, err
 	}
-	body := RegisterExtractionApiV1JobsRegisterPostJSONRequestBody{
-		AgentVersion: a.AgentVersion,
-		Competencia:  spec.Competencia,
-		FonteSistema: RegisterRequestFonteSistema(spec.FonteSistema),
+	body := MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody{
+		AgentVersion: &a.AgentVersion,
+		Competencia:  competenciaToDate(spec.Competencia),
+		Intent:       spec.Intent,
 		JobId:        jobUUID,
-		MachineId:    a.MachineID,
+		MachineId:    &a.MachineID,
+		SourceType:   UploadUrlRequestSourceType(spec.FonteSistema),
 		TenantId:     a.TenantID,
 		TipoExtracao: spec.TipoExtracao,
 	}
-	resp, err := a.Inner.RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx, body)
+	resp, err := a.Inner.MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -82,31 +115,13 @@ func (a *Adapter) RegisterJob(ctx context.Context, spec worker.JobSpec) (*worker
 		ID:        extID,
 		TenantID:  a.TenantID,
 		UploadURL: resp.JSON201.UploadUrl,
+		MinioKey:  resp.JSON201.MinioKey,
 		Params: extractor.ExtractionParams{
 			Intent:      spec.Intent,
 			Competencia: competenciaString(spec.Competencia),
 			CodMunGest:  envOr("COD_MUN_IBGE", a.TenantID),
 		},
 	}, nil
-}
-
-// CompleteJob sinaliza sucesso ao central com sha256 + row_count.
-func (a *Adapter) CompleteJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
-	id, err := parseJobUUID(job.ID)
-	if err != nil {
-		return err
-	}
-	_ = sizeBytes
-	resp, err := a.Inner.CompleteExtractionApiV1JobsExtractionIdCompletePostWithResponse(
-		ctx, id, CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody{
-			Sha256:   job.Sha256,
-			RowCount: job.RowCount,
-		},
-	)
-	if err != nil {
-		return err
-	}
-	return statusError(resp.StatusCode(), resp.Body)
 }
 
 // FailJob marca extraction como FAILED via /jobs/{id}/fail.
@@ -210,4 +225,10 @@ func competenciaString(c int) string {
 		return ""
 	}
 	return fmt.Sprintf("%06d", c)
+}
+
+func competenciaToDate(yyyymm int) openapi_types.Date {
+	year := yyyymm / 100
+	month := yyyymm % 100
+	return openapi_types.Date{Time: time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)}
 }

@@ -1,0 +1,26 @@
+{
+  "properties": {
+    "extraction_id": {
+      "format": "uuid",
+      "title": "Extraction Id",
+      "type": "string"
+    },
+    "minio_key": {
+      "pattern": "^[\\w\\-./]+\\.parquet\\.gz$",
+      "title": "Minio Key",
+      "type": "string"
+    },
+    "upload_url": {
+      "minLength": 1,
+      "title": "Upload Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "extraction_id",
+    "upload_url",
+    "minio_key"
+  ],
+  "title": "UploadUrlResponse",
+  "type": "object"
+}

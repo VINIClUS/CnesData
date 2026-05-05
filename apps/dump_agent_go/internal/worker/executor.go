@@ -40,6 +40,7 @@ type Job struct {
 	ID        string
 	TenantID  string
 	UploadURL string
+	MinioKey  string
 	Params    extractor.ExtractionParams
 	Sha256    string
 	RowCount  int
@@ -106,7 +107,8 @@ func (e *JobExecutor) runSnapshot(ctx context.Context, job Job) (sizeBytes int64
 // runDeltaWithCommit invoca RunDelta e gerencia o ciclo Commit/Abort do
 // PendingTx. Falha em Commit aborta o pending sub-bucket implicitamente
 // (bbolt revert na tx) e devolve erro ao caller (Consumer disparará FailJob).
-// Emite audit.LifecycleCommitted após commit ack.
+// O evento audit.LifecycleCommitted é emitido pelo Consumer após
+// RegisterJob ack (delivery confirmed) via EmitCommitted.
 func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job *Job) (int64, error) {
 	size, pending, _, err := e.RunDelta(ctx, job)
 	if err != nil {
@@ -115,20 +117,30 @@ func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job *Job) (int64, 
 	if cerr := pending.Commit(); cerr != nil {
 		return 0, fmt.Errorf("delta_commit: %w", cerr)
 	}
+	return size, nil
+}
+
+// EmitCommitted é chamado pelo Consumer após RegisterJob ack para gravar
+// o evento lifecycle final no audit log. No-op seguro quando AuditLogger
+// nil ou DeltaStore nil (snapshot legacy não emite Committed).
+func (e *JobExecutor) EmitCommitted(job Job, size int64) {
+	if e.AuditLogger == nil || e.DeltaStore == nil {
+		return
+	}
 	key := deltaKeyFromParams(job.Params)
 	e.appendAudit(audit.Event{
 		Source: key.Source, Intent: key.Intent,
-		Competencia: key.Competencia,
+		Competencia:  key.Competencia,
 		ExtractionID: job.ID, JobID: job.ID,
-		SHA256: job.Sha256, SizeBytes: size,
+		SHA256:    job.Sha256,
+		SizeBytes: size,
 		Lifecycle: audit.LifecycleCommitted,
 	})
-	return size, nil
 }
 
 // RunDelta executa job em modo delta: extract → materialize → compute →
 // stage pending → write delta parquet → upload (com tee SHA-256). Caller
-// DEVE invocar PendingTx.Commit() após CompleteJob ack OU
+// DEVE invocar PendingTx.Commit() após RegisterJob ack OU
 // PendingTx.Abort() em falha. Em caso de erro interno, RunDelta aborta
 // o pending e devolve pending=nil. Emite audit Extracted (start) e
 // Uploaded/Aborted (após Put). job.Sha256 preenchido em sucesso.
@@ -275,7 +287,7 @@ type DeltaStageRequest struct {
 
 // ComputeAndStagePending loads the committed snapshot, computes the delta,
 // stages new fingerprints in a pending bbolt tx, and returns the Set
-// + PendingTx. Caller must call PendingTx.Commit() after CompleteJob ack
+// + PendingTx. Caller must call PendingTx.Commit() after RegisterJob ack
 // or PendingTx.Abort() on failure.
 //
 // ctx is unused today (delta package does not propagate cancellation

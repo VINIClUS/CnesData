@@ -21,6 +21,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `GET /api/v1/jobs/next` — próximo job para `(tenant_id, machine_id)` com lease
 - `POST /api/v1/jobs/{id}/heartbeat` — estende lease
 - `POST /api/v1/jobs/{id}/artifact` — emite presigned PUT MinIO
+- `POST /api/v1/jobs/upload-url` — mint presigned PUT URL + create PENDING landing row (cnes/sihd post-upload register flow)
 - `POST /api/v1/jobs/{id}/complete` — marca job uploaded (processor pega depois)
 - `POST /api/v1/jobs/{id}/fail` — marca falha (retryable ou DLQ)
 - `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (admin)
@@ -78,7 +79,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `src/central_api/deps.py` | `get_engine()`, `lifespan`, `_lease_reaper_loop`, RLS listener install |
 | `src/central_api/middleware.py` | `TenantMiddleware` — extrai `X-Tenant-Id` header |
 | `src/central_api/routes/health.py` | `/api/v1/system/health` — ping DB |
-| `src/central_api/routes/jobs.py` | `/api/v1/jobs/*` — fila, artifact, heartbeat, complete, fail |
+| `src/central_api/routes/jobs.py` | `/api/v1/jobs/upload-url` (mint URL + create PENDING) + `/api/v1/jobs/register` (UPDATE → REGISTERED with sha256) |
 | `src/central_api/routes/admin.py` | `/api/v1/admin/*` — reap-leases, ops |
 | `routes/dashboard.py` | /api/v1/dashboard/* |
 | `routes/oauth.py`     | /activate/confirm (rate-limited via slowapi) |
@@ -100,3 +101,6 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   Sem isso, queries via SQLAlchemy não setam `app.tenant_id` e RLS bloqueia
   tudo. Teste de regressão: qualquer query em integration test deve passar
   (se bloquear, listener não foi instalado).
+- **`/jobs/{id}/complete` and `/jobs/{id}/fail` routes do not exist** —
+  edge no longer calls /complete (FU1 dropped). /fail is documented as
+  follow-up gap; today extract/upload failures leave PENDING orphan rows.

@@ -10,19 +10,22 @@ import (
 )
 
 // JobAPIClient contrato que Consumer precisa.
-// v2: agent registra extraction em vez de long-poll por jobs prontos.
+// FU1: agent mint→run→register. MintUploadURL cria landing.extractions
+// PENDING + presigned URL. RegisterJob confirma após upload com sha256.
 type JobAPIClient interface {
-	RegisterJob(ctx context.Context, spec JobSpec) (*Job, error)
-	CompleteJob(ctx context.Context, job Job, sizeBytes int64) error
+	MintUploadURL(ctx context.Context, spec JobSpec) (*Job, error)
+	RegisterJob(ctx context.Context, job Job, sizeBytes int64) error
 	FailJob(ctx context.Context, job Job, cause error) error
 	HeartbeatClient
 }
 
 // JobExecutorIface permite injetar stub em testes. Run pode mutar
 // job.Sha256 (preenchido pelo caminho delta após upload) para que o
-// caller envie o digest em CompleteJob.
+// caller envie o digest em RegisterJob. EmitCommitted grava o evento
+// audit.LifecycleCommitted após RegisterJob ack (delivery confirmed).
 type JobExecutorIface interface {
 	Run(ctx context.Context, job *Job) (int64, error)
+	EmitCommitted(job Job, size int64)
 }
 
 // JobSpecSource produz o próximo JobSpec a ser registrado, ou nil/err.
@@ -51,7 +54,7 @@ func NewConsumer(api JobAPIClient, source JobSpecSource, executor JobExecutorIfa
 	return &Consumer{api: api, source: source, executor: executor, config: cfg}
 }
 
-// Loop executa next_spec → register → exec → complete/fail repetidamente.
+// Loop executa next_spec → mint_upload_url → exec → register/fail repetidamente.
 // Exit em ctx.Done(). Panic recovered.
 func (c *Consumer) Loop(ctx context.Context) (err error) {
 	defer func() {
@@ -79,9 +82,9 @@ func (c *Consumer) Loop(ctx context.Context) (err error) {
 			continue
 		}
 
-		job, regErr := c.api.RegisterJob(ctx, *spec)
-		if regErr != nil {
-			slog.Warn("register_failed", "err", regErr.Error())
+		job, mintErr := c.api.MintUploadURL(ctx, *spec)
+		if mintErr != nil {
+			slog.Warn("mint_upload_url_failed", "err", mintErr.Error())
 			c.sleep(ctx, c.config.PollInterval)
 			continue
 		}
@@ -113,9 +116,11 @@ func (c *Consumer) processJob(ctx context.Context, job Job) {
 		}
 		return
 	}
-	if err := c.api.CompleteJob(ctx, job, size); err != nil {
-		slog.Error("complete_job_api_error", "job_id", job.ID, "err", err.Error())
+	if err := c.api.RegisterJob(ctx, job, size); err != nil {
+		slog.Error("register_job_api_error", "job_id", job.ID, "err", err.Error())
+		return
 	}
+	c.executor.EmitCommitted(job, size)
 }
 
 func (c *Consumer) sleep(ctx context.Context, d time.Duration) {

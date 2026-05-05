@@ -45,6 +45,39 @@ type CompletePayload struct {
 	Sha256   string `json:"sha256"`
 }
 
+// UploadUrlRequest defines model for UploadUrlRequest.
+type UploadUrlRequest struct {
+	AgentVersion *string                    `json:"agent_version,omitempty"`
+	Competencia  openapi_types.Date         `json:"competencia"`
+	Intent       string                     `json:"intent"`
+	JobId        openapi_types.UUID         `json:"job_id"`
+	MachineId    *string                    `json:"machine_id,omitempty"`
+	SourceType   UploadUrlRequestSourceType `json:"source_type"`
+	TenantId     string                     `json:"tenant_id"`
+	TipoExtracao string                     `json:"tipo_extracao"`
+}
+
+// UploadUrlRequestSourceType defines model for UploadUrlRequest.SourceType.
+type UploadUrlRequestSourceType string
+
+const (
+	UploadUrlBPAMAG       UploadUrlRequestSourceType = "BPA_MAG"
+	UploadUrlCNESLOCAL    UploadUrlRequestSourceType = "CNES_LOCAL"
+	UploadUrlCNESNACIONAL UploadUrlRequestSourceType = "CNES_NACIONAL"
+	UploadUrlSIALOCAL     UploadUrlRequestSourceType = "SIA_LOCAL"
+	UploadUrlSIHD         UploadUrlRequestSourceType = "SIHD"
+)
+
+// UploadUrlResponse defines model for UploadUrlResponse.
+type UploadUrlResponse struct {
+	ExtractionId openapi_types.UUID `json:"extraction_id"`
+	MinioKey     string             `json:"minio_key"`
+	UploadUrl    string             `json:"upload_url"`
+}
+
+// MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody defines body for the upload-url request.
+type MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody = UploadUrlRequest
+
 // FailPayload defines model for FailPayload.
 type FailPayload struct {
 	Error string `json:"error"`
@@ -317,6 +350,11 @@ type ClientInterface interface {
 
 	RegisterExtractionApiV1JobsRegisterPost(ctx context.Context, body RegisterExtractionApiV1JobsRegisterPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// MintUploadUrlApiV1JobsUploadUrlPostWithBody request with arbitrary body.
+	MintUploadUrlApiV1JobsUploadUrlPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	MintUploadUrlApiV1JobsUploadUrlPost(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CompleteExtractionApiV1JobsExtractionIdCompletePostWithBody request with any body
 	CompleteExtractionApiV1JobsExtractionIdCompletePostWithBody(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -392,6 +430,26 @@ func (c *Client) RegisterExtractionApiV1JobsRegisterPost(ctx context.Context, bo
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+func (c *Client) MintUploadUrlApiV1JobsUploadUrlPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMintUploadUrlApiV1JobsUploadUrlPostRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) MintUploadUrlApiV1JobsUploadUrlPost(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return c.MintUploadUrlApiV1JobsUploadUrlPostWithBody(ctx, "application/json", bytes.NewReader(buf), reqEditors...)
 }
 
 func (c *Client) CompleteExtractionApiV1JobsExtractionIdCompletePostWithBody(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -652,6 +710,28 @@ func NewRegisterExtractionApiV1JobsRegisterPostRequestWithBody(server string, co
 	return req, nil
 }
 
+// NewMintUploadUrlApiV1JobsUploadUrlPostRequestWithBody generates requests for MintUploadUrlApiV1JobsUploadUrlPost with any type of body
+func NewMintUploadUrlApiV1JobsUploadUrlPostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := "/api/v1/jobs/upload-url"
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", contentType)
+	return req, nil
+}
+
 // NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequest calls the generic CompleteExtractionApiV1JobsExtractionIdCompletePost builder with application/json body
 func NewCompleteExtractionApiV1JobsExtractionIdCompletePostRequest(server string, extractionId openapi_types.UUID, body CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -882,6 +962,9 @@ type ClientWithResponsesInterface interface {
 
 	RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx context.Context, body RegisterExtractionApiV1JobsRegisterPostJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterExtractionApiV1JobsRegisterPostResponse, error)
 
+	// MintUploadUrlApiV1JobsUploadUrlPostWithResponse request returning *MintUploadUrlApiV1JobsUploadUrlPostResponse
+	MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*MintUploadUrlApiV1JobsUploadUrlPostResponse, error)
+
 	// CompleteExtractionApiV1JobsExtractionIdCompletePostWithBodyWithResponse request with any body
 	CompleteExtractionApiV1JobsExtractionIdCompletePostWithBodyWithResponse(ctx context.Context, extractionId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteExtractionApiV1JobsExtractionIdCompletePostResponse, error)
 
@@ -984,6 +1067,28 @@ func (r RegisterExtractionApiV1JobsRegisterPostResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r RegisterExtractionApiV1JobsRegisterPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type MintUploadUrlApiV1JobsUploadUrlPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *UploadUrlResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r MintUploadUrlApiV1JobsUploadUrlPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MintUploadUrlApiV1JobsUploadUrlPostResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -1147,6 +1252,15 @@ func (c *ClientWithResponses) RegisterExtractionApiV1JobsRegisterPostWithRespons
 		return nil, err
 	}
 	return ParseRegisterExtractionApiV1JobsRegisterPostResponse(rsp)
+}
+
+// MintUploadUrlApiV1JobsUploadUrlPostWithResponse POST /api/v1/jobs/upload-url returning *MintUploadUrlApiV1JobsUploadUrlPostResponse
+func (c *ClientWithResponses) MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*MintUploadUrlApiV1JobsUploadUrlPostResponse, error) {
+	rsp, err := c.MintUploadUrlApiV1JobsUploadUrlPost(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMintUploadUrlApiV1JobsUploadUrlPostResponse(rsp)
 }
 
 // CompleteExtractionApiV1JobsExtractionIdCompletePostWithBodyWithResponse request with arbitrary body returning *CompleteExtractionApiV1JobsExtractionIdCompletePostResponse
@@ -1356,6 +1470,30 @@ func ParseRegisterExtractionApiV1JobsRegisterPostResponse(rsp *http.Response) (*
 		}
 		response.JSON422 = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseMintUploadUrlApiV1JobsUploadUrlPostResponse parses an HTTP response from a MintUploadUrlApiV1JobsUploadUrlPostWithResponse call
+func ParseMintUploadUrlApiV1JobsUploadUrlPostResponse(rsp *http.Response) (*MintUploadUrlApiV1JobsUploadUrlPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MintUploadUrlApiV1JobsUploadUrlPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	if rsp.StatusCode == 201 {
+		var dest UploadUrlResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 	}
 
 	return response, nil

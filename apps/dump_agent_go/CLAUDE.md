@@ -132,57 +132,12 @@ driver pure-Go).
   unregistered agents must `dumpagent register` first OR set
   `AGENT_ALLOW_INSECURE=true` for fleet rollout escape hatch.
 
-## Phase 5.1 — Windows Event Log sink (2026-05-01)
+## Phase 5: hardening (2026-05-01/02)
 
-WARN+ slog records routed to Application log under source `DumpAgent`.
-Linux/Mac: no-op stub via build tags. Existing rotating-file handler
-unchanged — eventlog is fan-out sibling under `obs.MultiHandler`.
-
-- Source name: `service.EventSourceName` constant ("DumpAgent"). No env override.
-- Registration: `agent.exe install` calls `service.RegisterEventSource`;
-  `agent.exe uninstall` calls `service.RemoveEventSource`. Both idempotent.
-  Best-effort: install succeeds even if registration fails.
-- Event IDs: `internal/obs/events.go` banded catalog (1xxx auth, 2xxx queue,
-  3xxx extract, 4xxx upload, 5xxx diagnose, 9xxx generic). P4 reserved
-  1003/1004. Add `event_id` attr to slog calls that should map to a
-  specific Event Viewer entry; missing attr defaults to `EventUnknown`.
-- Format: `obs.FormatCompact` renders `level=… msg=… k1=v1 k2=v2`
-  single-line, UTF-8-safe truncation at 8KB, ASCII control bytes escaped.
-- Rollback knob: `AGENT_EVENTLOG_DISABLED=true` makes handler no-op without
-  uninstall. Not in `.env.example` (emergency switch only).
-- Locale-independent: `RemoveEventSource` uses `errors.Is(err,
-  syscall.ERROR_FILE_NOT_FOUND)` — works on pt-BR Windows hosts.
-- Cross-tag check: CI runs `go vet` on both `GOOS=linux` and
-  `GOOS=windows` to catch tag leaks before merge.
-
-## Phase 5.2 — Outbox queue + Circuit Breaker (2026-05-02)
-
-Persistent outbox for `CompleteJob`/`FailJob` so transient central_api outages do not lose extraction outcomes.
-- `internal/queue/` — bbolt outbox (`go.etcd.io/bbolt v1.3.10`); single bucket, time-ordered uint64 keys (8B ns + 4B seq), JSON envelopes. Path `%PROGRAMDATA%\dumpagent\queue\outbox.db`. 10k cap, 90-day TTL drop-oldest, fsync per Append. `RegisterJob` + `SendHeartbeat` stay direct.
-- `internal/breaker/` — CLOSED→OPEN→HALF_OPEN, threshold 5 consecutive failures, reset 60s, shared `central_api` instance gating drain + RegisterJob; logs 8001/8002/8003.
-- `internal/worker/{outbox_adapter,drain}.go` — `Drainer.Run` ticks 30s, peeks 20, dispatches via breaker, classifies (`queue/classify.go`): 2xx delete; 4xx drop; 5xx retry; 429 honors `Retry-After`.
-- `cmd/dumpagent/cmd_run.go` `startDrainWithWatcher` spawns drain under `obs.SafeGo` + relaunches with 5s backoff on panic-recovery exit. Outbox open failure aborts boot fail-closed (exit 1).
-- Event ID catalog 2xxx queue (2004-2007) + 8xxx breaker (8001-8003); `expectedEventIDCount` 19 → 26.
-
-## Phase 5.3 — Backoff + Jitter (2026-05-02)
-
-Test-injectable jitter so N-agent fleet does not collide post-outage.
-- `internal/obs/jitter.go` — `JitterAround(d, fraction, rand)` periodic noise; `DecorrelatedJitter(prev, base, cap, rand)` AWS retry sequence.
-- Drain tick `[24s, 36s]`; breaker reset `[40s, 80s]`; rotate retries `DecorrelatedJitter(_, 1s, 30s)` replaces `[1s, 2s, 4s]`.
-- All consumers default `math/rand/v2.Float64`; tests inject `func() float64` via `SetRand`/`SetClock`.
-- `Rotator.nextSleep` outer 6h ±10% untouched. Filtered cov ≥ 81.5%; `obs/jitter.go` 100%.
-
-## Phase 5.4 — Diagnose CLI (2026-05-02)
-
-`dumpagent diagnose [--probe] [--json]` runs read-only health checklist.
-
-- Static (always): `cert`, `auth_dir`, `outbox`, `log_dir`. Probe (--probe): `central_api` mTLS, `firebird` SELECT 1, `minio` TCP dial.
-- 3-level severity PASS/WARN/FAIL; binary exit 0 (no FAIL) or 1.
-- `internal/diagnose/` — `Check{Name,Severity,Message,Fields}`; `Run(ctx, cfg) []Check` per-check 5s timeout + panic recovery; `Text` / `JSON` reporters; `AnyFail` drives exit code.
-- Outbox check uses `bbolt.Open(_, _, &Options{ReadOnly: true, Timeout: 1s})` — never blocks running agent. `outbox.db` missing = PASS `state=uninitialized`.
-- Disk-free via `golang.org/x/sys/{unix,windows}` (build-tag split `disk_unix.go` / `disk_windows.go`).
-- FB live probe gated by `FB_TEST_DSN` env in tests; production reads `FB_DSN`.
-- Read-only — never mutates state. P5.5 web dashboard deferred indefinitely.
+- **5.1 Windows Event Log sink** — WARN+ slog fan-out under source `DumpAgent` via `obs.MultiHandler`; build-tag no-op on Linux/Mac. `agent.exe install/uninstall` registers idempotently. Banded event IDs (`internal/obs/events.go`: 1xxx auth, 2xxx queue, 3xxx extract, 4xxx upload, 5xxx diagnose, 8xxx breaker, 9xxx generic). `obs.FormatCompact` single-line UTF-8-safe truncated at 8KB. Rollback: `AGENT_EVENTLOG_DISABLED=true`. Locale-independent unregister via `errors.Is(syscall.ERROR_FILE_NOT_FOUND)`.
+- **5.2 Outbox + Circuit Breaker** — `internal/queue/` bbolt persistent queue at `%PROGRAMDATA%\dumpagent\queue\outbox.db` for `CompleteJob`/`FailJob`; uint64 time-ordered keys, fsync per Append, 10k cap, 90-day TTL. `internal/breaker/` CLOSED/OPEN/HALF_OPEN (threshold 5, reset 60s) gates drain + RegisterJob. `Drainer.Run` 30s tick, peek 20, classify 2xx delete / 4xx drop / 5xx retry / 429 Retry-After. `startDrainWithWatcher` re-spawns under `SafeGo`; outbox open fail = exit 1.
+- **5.3 Backoff + Jitter** — `internal/obs/jitter.go` `JitterAround` + `DecorrelatedJitter`. Drain tick [24s,36s], breaker reset [40s,80s], rotate retries decorrelated 1s→30s. `math/rand/v2.Float64` default; `SetRand`/`SetClock` for tests. Filtered cov ≥ 81.5%.
+- **5.4 Diagnose CLI** — `dumpagent diagnose [--probe] [--json]` read-only health: static (cert/auth_dir/outbox/log_dir) + probe (central_api mTLS / FB SELECT 1 / MinIO TCP). PASS/WARN/FAIL severity, exit 0 or 1. Outbox check via `bbolt.Open(ReadOnly: true)`; missing = PASS. Disk-free via `golang.org/x/sys`.
 
 ## Phase 9 — Path discovery + per-source secrets (2026-05-03)
 
@@ -195,3 +150,18 @@ Delta is the only execution path (no flag, no legacy snapshot). SHA-256 row-fing
 ## Phase 11 — Integrity + Audit (P2, 2026-05-04)
 
 `RunDelta` tees Parquet upload through `integrity.SHA256TeeReader`; sha256 hex flows in CompletePayload + landing.extractions.sha256. data_processor `verify_and_route_delta` recomputes on download; mismatch raises IntegrityError. Edge writes 4-state HMAC-signed JSONL audit at `%PROGRAMDATA%\dumpagent\audit\events-YYYY-MM-DD.jsonl`. Lifecycle: extracted → uploaded → committed (or aborted). HMAC-SHA256 over CanonicalJSON-without-hmac (sorted keys via Go stdlib map sort). Key 32B random, DPAPI-wrapped at `secrets/audit_hmac.dpapi` (P1 secrets store reused). CLI `dumpagent audit verify <path>` exit 0/1/2. Boot HMAC fail → audit no-op + WARN; cycle continues.
+
+## Phase 12 — Post-upload register normalization (FU1, 2026-05-04)
+
+Cnes/sihd path normalized to BPA/SIA's post-upload register pattern.
+`Adapter.MintUploadURL` calls new `POST /api/v1/jobs/upload-url` to create
+landing.extractions PENDING + presigned PUT URL. Edge uploads Parquet,
+captures sha256 via `integrity.SHA256TeeReader`, then calls existing
+`POST /api/v1/jobs/register` with `RegisterRequest.Sha256` set. `CompleteJob`
+removed entirely from edge code (dead /complete route never existed).
+`audit.LifecycleCommitted` emitted by Consumer.processJob after RegisterJob
+ack via new `JobExecutorIface.EmitCommitted` method. `Job.MinioKey` field
+added (returned from upload-url mint). Outbox now queues `RegisterJob`
+envelopes (sha256 + minio_key + size_bytes); `MintUploadURL` is direct
+(caller needs returned values). No DB migration. landing.extractions.sha256
+column populated on every cycle (not NULL like P2).

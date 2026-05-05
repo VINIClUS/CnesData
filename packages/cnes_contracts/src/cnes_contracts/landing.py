@@ -56,6 +56,27 @@ class ExtractionRegisterPayload(BaseModel):
     sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
+class UploadUrlRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    job_id: UUID
+    tenant_id: str = Field(min_length=1, max_length=64)
+    source_type: SOURCE_TYPE
+    tipo_extracao: str = Field(min_length=1, max_length=32)
+    competencia: date
+    intent: str = Field(min_length=1, max_length=64)
+    agent_version: str | None = Field(default=None, max_length=64)
+    machine_id: str | None = Field(default=None, max_length=128)
+
+
+class UploadUrlResponse(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    extraction_id: UUID
+    upload_url: str = Field(min_length=1)
+    minio_key: str = Field(pattern=r"^[\w\-./]+\.parquet\.gz$")
+
+
 @dataclass(frozen=True, slots=True)
 class ClaimedExtraction:
     job_id: UUID
