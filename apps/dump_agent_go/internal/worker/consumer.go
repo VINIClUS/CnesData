@@ -21,9 +21,11 @@ type JobAPIClient interface {
 
 // JobExecutorIface permite injetar stub em testes. Run pode mutar
 // job.Sha256 (preenchido pelo caminho delta após upload) para que o
-// caller envie o digest em RegisterJob.
+// caller envie o digest em RegisterJob. EmitCommitted grava o evento
+// audit.LifecycleCommitted após RegisterJob ack (delivery confirmed).
 type JobExecutorIface interface {
 	Run(ctx context.Context, job *Job) (int64, error)
+	EmitCommitted(job Job, size int64)
 }
 
 // JobSpecSource produz o próximo JobSpec a ser registrado, ou nil/err.
@@ -116,7 +118,9 @@ func (c *Consumer) processJob(ctx context.Context, job Job) {
 	}
 	if err := c.api.RegisterJob(ctx, job, size); err != nil {
 		slog.Error("register_job_api_error", "job_id", job.ID, "err", err.Error())
+		return
 	}
+	c.executor.EmitCommitted(job, size)
 }
 
 func (c *Consumer) sleep(ctx context.Context, d time.Duration) {

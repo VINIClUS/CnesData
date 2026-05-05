@@ -107,7 +107,8 @@ func (e *JobExecutor) runSnapshot(ctx context.Context, job Job) (sizeBytes int64
 // runDeltaWithCommit invoca RunDelta e gerencia o ciclo Commit/Abort do
 // PendingTx. Falha em Commit aborta o pending sub-bucket implicitamente
 // (bbolt revert na tx) e devolve erro ao caller (Consumer disparará FailJob).
-// Emite audit.LifecycleCommitted após commit ack.
+// O evento audit.LifecycleCommitted é emitido pelo Consumer após
+// RegisterJob ack (delivery confirmed) via EmitCommitted.
 func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job *Job) (int64, error) {
 	size, pending, _, err := e.RunDelta(ctx, job)
 	if err != nil {
@@ -116,15 +117,25 @@ func (e *JobExecutor) runDeltaWithCommit(ctx context.Context, job *Job) (int64, 
 	if cerr := pending.Commit(); cerr != nil {
 		return 0, fmt.Errorf("delta_commit: %w", cerr)
 	}
+	return size, nil
+}
+
+// EmitCommitted é chamado pelo Consumer após RegisterJob ack para gravar
+// o evento lifecycle final no audit log. No-op seguro quando AuditLogger
+// nil ou DeltaStore nil (snapshot legacy não emite Committed).
+func (e *JobExecutor) EmitCommitted(job Job, size int64) {
+	if e.AuditLogger == nil || e.DeltaStore == nil {
+		return
+	}
 	key := deltaKeyFromParams(job.Params)
 	e.appendAudit(audit.Event{
 		Source: key.Source, Intent: key.Intent,
-		Competencia: key.Competencia,
+		Competencia:  key.Competencia,
 		ExtractionID: job.ID, JobID: job.ID,
-		SHA256: job.Sha256, SizeBytes: size,
+		SHA256:    job.Sha256,
+		SizeBytes: size,
 		Lifecycle: audit.LifecycleCommitted,
 	})
-	return size, nil
 }
 
 // RunDelta executa job em modo delta: extract → materialize → compute →

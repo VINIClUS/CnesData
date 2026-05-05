@@ -47,11 +47,16 @@ func (a *apiStub) SendHeartbeat(ctx context.Context, jobID string) error {
 }
 
 type execStub struct {
-	runFn func(ctx context.Context, job *worker.Job) (int64, error)
+	runFn         func(ctx context.Context, job *worker.Job) (int64, error)
+	committedCalls int32
 }
 
 func (e *execStub) Run(ctx context.Context, job *worker.Job) (int64, error) {
 	return e.runFn(ctx, job)
+}
+
+func (e *execStub) EmitCommitted(_ worker.Job, _ int64) {
+	atomic.AddInt32(&e.committedCalls, 1)
 }
 
 type sourceStub struct {
