@@ -6,9 +6,10 @@ import (
 	"github.com/cnesdata/dumpagent/internal/queue"
 )
 
-// OutboxAdapter persists CompleteJob/FailJob calls to a bbolt outbox
-// (fire-and-forget for the caller) and delegates RegisterJob/SendHeartbeat
-// directly to the inner JobAPIClient. Drain goroutine reads the outbox.
+// OutboxAdapter persists RegisterJob/FailJob (terminal outcomes) to a
+// bbolt outbox (fire-and-forget for the caller) and delegates
+// MintUploadURL/SendHeartbeat directly to the inner JobAPIClient. Drain
+// goroutine reads the outbox.
 type OutboxAdapter struct {
 	inner JobAPIClient
 	out   *queue.Outbox
@@ -19,13 +20,15 @@ func NewOutboxAdapter(inner JobAPIClient, out *queue.Outbox) *OutboxAdapter {
 	return &OutboxAdapter{inner: inner, out: out}
 }
 
-// RegisterJob delegates directly: caller needs the returned Job.
-func (a *OutboxAdapter) RegisterJob(ctx context.Context, spec JobSpec) (*Job, error) {
-	return a.inner.RegisterJob(ctx, spec)
+// MintUploadURL delegates directly: caller needs the returned Job
+// (presigned upload URL is single-use + time-limited).
+func (a *OutboxAdapter) MintUploadURL(ctx context.Context, spec JobSpec) (*Job, error) {
+	return a.inner.MintUploadURL(ctx, spec)
 }
 
-// CompleteJob persists envelope; drain dispatches asynchronously.
-func (a *OutboxAdapter) CompleteJob(_ context.Context, job Job, sizeBytes int64) error {
+// RegisterJob persists envelope; drain dispatches asynchronously.
+// FU1: post-upload register threads sha256 from job.Sha256.
+func (a *OutboxAdapter) RegisterJob(_ context.Context, job Job, sizeBytes int64) error {
 	return a.out.Append(queue.Envelope{
 		Type:      queue.TypeComplete,
 		JobUUID:   job.ID,

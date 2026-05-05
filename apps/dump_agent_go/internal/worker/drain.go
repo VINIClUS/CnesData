@@ -164,12 +164,16 @@ func (d *Drainer) dispatchOne(ctx context.Context, item queue.Item) bool {
 // callInner translates Envelope into the right JobAPIClient method.
 // Returns a synthesized *http.Response when the inner call returns
 // *obs.HTTPError so Classify can read the status code.
+//
+// FU1: TypeComplete envelopes now dispatch via RegisterJob (post-upload
+// confirmation). Envelope schema does not yet carry sha256/minio_key
+// — T10 extends queue.Envelope to thread these fields end-to-end.
 func (d *Drainer) callInner(ctx context.Context, env queue.Envelope) (*http.Response, error) {
 	job := Job{ID: env.JobUUID}
 	var apiErr error
 	switch env.Type {
 	case queue.TypeComplete:
-		apiErr = d.inner.CompleteJob(ctx, job, env.SizeBytes)
+		apiErr = d.inner.RegisterJob(ctx, job, env.SizeBytes)
 	case queue.TypeFail:
 		apiErr = d.inner.FailJob(ctx, job, errors.New(env.Cause))
 	default:

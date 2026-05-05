@@ -19,10 +19,10 @@ type stubJobAPI struct {
 	failN        int
 }
 
-func (s *stubJobAPI) RegisterJob(_ context.Context, _ JobSpec) (*Job, error) {
+func (s *stubJobAPI) MintUploadURL(_ context.Context, _ JobSpec) (*Job, error) {
 	return nil, nil
 }
-func (s *stubJobAPI) CompleteJob(_ context.Context, _ Job, _ int64) error {
+func (s *stubJobAPI) RegisterJob(_ context.Context, _ Job, _ int64) error {
 	s.completeN++
 	return s.completeResp
 }
@@ -50,7 +50,7 @@ func TestDrain_HappyPathDeletesEnvelope(t *testing.T) {
 	_ = ob.Append(queue.Envelope{Type: queue.TypeComplete, JobUUID: "uuid-1", SizeBytes: 100})
 	d.tick(context.Background())
 	if stub.completeN != 1 {
-		t.Errorf("inner CompleteJob calls=%d want 1", stub.completeN)
+		t.Errorf("inner RegisterJob calls=%d want 1", stub.completeN)
 	}
 	items, _ := ob.Peek(10)
 	if len(items) != 0 {
