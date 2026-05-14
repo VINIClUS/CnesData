@@ -6,13 +6,14 @@
 ## Visão macro
 
 Plataforma distribuída edge/central para reconciliação de dados de saúde
-pública. Edge Agents (`dumpagent_go`) rodam próximo às fontes municipais
-(Firebird CNES, SIHD hospitalar), extraem Parquet raw e fazem upload via
-URL pré-assinada para MinIO. O `central_api` (FastAPI) orquestra jobs e
-emite presigned URLs. O `data_processor` (worker) consome jobs, baixa
-Parquet do MinIO, aplica transformações canônicas e persiste no schema
-Gold Postgres com isolamento por tenant (RLS). Regras de auditoria são
-aplicadas por serviço externo via SQL JOINs contra o Gold.
+pública. Edge Agents (`dump_agent_go`) rodam próximo às fontes municipais
+(CNES Firebird, SIHD, BPA-Mag Firebird 1.5 e SIA DBF), extraem Parquet e
+registram manifests no `central_api`. O `central_api` (FastAPI) orquestra
+`landing.extractions`, dashboard, device flow e provisionamento mTLS. O
+`data_processor` (worker) consome a fila Gold v2, aplica rotas de delta e
+integridade quando recebe artefatos e persiste no Postgres com isolamento por
+tenant (RLS). Regras de auditoria são aplicadas por serviço externo via SQL
+JOINs contra o Gold.
 
 ## Data flow
 
@@ -20,25 +21,26 @@ aplicadas por serviço externo via SQL JOINs contra o Gold.
 ┌───────────────────────────────────────────────────────────────┐
 │ EDGE (município)                                              │
 │                                                               │
-│  [Firebird CNES.GDB]        [SIHD DB]                         │
-│         │                      │                              │
-│         └──────┬───────────────┘                              │
+│  [CNES.GDB] [SIHD DB] [BPAMAG.GDB] [SIA DBF]                 │
+│         │        │          │           │                    │
+│         └────────┴──────────┴───────────┘                    │
 │                ▼                                              │
-│          dump_agent (daemon)                                  │
-│          - 3-query extraction + merge (CNES)                  │
-│          - streaming Parquet gzip                             │
-│          - single-instance lock                               │
+│          dump_agent_go (daemon)                               │
+│          - discovery + per-source secrets                     │
+│          - row-fingerprint delta (CNES/SIHD/BPA)              │
+│          - full extract SIA DBF                               │
+│          - outbox + circuit breaker                           │
 │                │                                              │
-│                │ HTTPS (long poll)                            │
+│                │ HTTPS API                                    │
 └────────────────┼──────────────────────────────────────────────┘
                  │
 ┌────────────────┼──────────────────────────────────────────────┐
 │ CENTRAL        ▼                                              │
 │         central_api (FastAPI)                                 │
-│          - /jobs/next (lease)                                 │
-│          - /jobs/{id}/artifact (presigned PUT)                │
-│          - /jobs/{id}/heartbeat                               │
-│          - /jobs/{id}/complete                                │
+│          - /extractions/enqueue                               │
+│          - /jobs/register                                     │
+│          - /oauth/device_authorization + /oauth/token         │
+│          - /provision/cert + /provision/cert/rotate           │
 │          - TenantMiddleware (X-Tenant-Id)                     │
 │          - lease reaper (background task)                     │
 │                │                                              │
@@ -49,10 +51,10 @@ aplicadas por serviço externo via SQL JOINs contra o Gold.
 │       │                 │                                     │
 │       ▼                 │                                     │
 │   data_processor ───────┘                                     │
-│   - download Parquet                                          │
-│   - transform (CPF pipeline, dedup, CH flag)                  │
-│   - row_mapper (dim/fato)                                     │
-│   - upsert Postgres Gold (merge JSONB fontes)                 │
+│   - claim landing.extractions                                 │
+│   - verify SHA-256 when provided                              │
+│   - route _op delta rows                                      │
+│   - mark completed/failed                                     │
 │                │                                              │
 │                ▼                                              │
 │       [Postgres Gold]                                         │
@@ -78,15 +80,32 @@ aplicadas por serviço externo via SQL JOINs contra o Gold.
 - **SIA:** reads `.DBF` files (S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN) via
   `LindsayBradford/go-dbf` with cp1252 sanitize.
 
-Both emit **N-file manifests**: one `ClaimedJob` per
-`(source_type, competencia)` → N Parquets uploaded to MinIO via N presigned
-PUTs → single `POST /api/v1/jobs/register` with the manifest list.
+All sources emit **N-file manifests**: one extraction per
+`(source_type, competencia)` → N Parquets uploaded to MinIO → single
+`POST /api/v1/jobs/register` with the manifest list and optional SHA-256.
 `data_processor` has BPA + SIA adapters downstream (see
 `apps/data_processor/CLAUDE.md`).
 
-**Spike status:** T1 FB 1.5 wire-protocol validation via `nakagami/firebirdsql`
-is **DEFERRED**. Runtime validation blocked at fixture generation
-(fdb/FB1.5 symbol mismatch); pivot tracked in issue #51.
+**Spike status:** FB 1.5 compatibility is covered by schema-parity CI using a
+synthetic FB 2.5 ODS-11 GDB. Production nullability still needs manual
+`RDB$RELATION_FIELDS` introspection against a real `BPAMAG.GDB`; capture the
+result in `docs/data-dictionary-bpa.md`.
+
+## Edge agent reliability
+
+Current `dump_agent_go` production path includes:
+
+- mTLS registration via `dumpagent register` and cert rotation via
+  `/provision/cert/rotate`.
+- Persistent bbolt outbox for `CompleteJob`/`FailJob` envelopes.
+- Circuit breaker and jittered backoff around `central_api` drain.
+- `dumpagent diagnose` for cert, auth dir, outbox, log dir and optional live
+  probes.
+- Source discovery into `%PROGRAMDATA%\dumpagent\config.yaml` with DPAPI-wrapped
+  per-source Firebird secrets.
+- Delta store at `%PROGRAMDATA%\dumpagent\state\delta.db`; SIA remains
+  full-extract.
+- HMAC-signed audit JSONL and SHA-256 integrity metadata per upload.
 
 ## Contratos entre apps
 
@@ -94,23 +113,40 @@ is **DEFERRED**. Runtime validation blocked at fixture generation
 
 | Verb + Path | Payload | Response |
 |---|---|---|
-| `GET /api/v1/jobs/next?machine_id=<id>` | header `X-Tenant-Id` | `{job_id, intent, lease_until}` ou 204 |
-| `POST /api/v1/jobs/{id}/heartbeat` | `{}` | `{lease_until}` |
-| `POST /api/v1/jobs/{id}/artifact` | `{filename, size}` | `{presigned_url, object_key}` |
-| `POST /api/v1/jobs/{id}/complete` | `{object_key, rows}` | 204 |
-| `POST /api/v1/jobs/{id}/fail` | `{reason, retryable}` | 204 |
+| `POST /oauth/device_authorization` | device flow init | `{device_code, user_code, verification_uri}` |
+| `POST /oauth/token` | device code grant | access token ou pending/denied |
+| `POST /activate/confirm` | Bearer JWT + user code | activation confirmation |
+| `POST /provision/cert` | CSR + registration token | client certificate |
+| `POST /provision/cert/rotate` | mTLS + CSR | renewed client certificate |
+| `POST /api/v1/jobs/register` | manifest with files + optional `sha256` | `{job_id, status}` |
 
 ### Central → MinIO
 
-- Presigned PUT URLs (validade: 1h) para upload de Parquet
-- Presigned GET URLs (validade: 1h) para download pelo `data_processor`
 - Bucket único: `cnesdata-landing` (configurável via `MINIO_BUCKET`)
-- Key convention: `<tenant_id>/<intent>/<competencia>/<job_id>.parquet.gz`
+- Artefatos Parquet ficam referenciados em `landing.extractions.files`
+- Hash SHA-256 opcional fica em `landing.extractions.sha256`
 
-### Processor → Central
+### Dashboard → Central
 
-Mesmo pattern de polling dos edges — o processor consome da mesma fila,
-filtrando por `status=ready_to_process`.
+| Verb + Path | Purpose |
+|---|---|
+| `GET /api/v1/dashboard/auth/me` | usuário autenticado + tenants |
+| `GET /api/v1/dashboard/tenants` | tenants disponíveis |
+| `GET /api/v1/dashboard/agents/status` | status dos edge agents |
+| `GET /api/v1/dashboard/agents/runs` | execuções recentes |
+| `GET /api/v1/dashboard/overview` | KPIs do tenant |
+| `GET /api/v1/dashboard/faturamento/by-establishment` | série 12m por estabelecimento |
+| `POST /api/v1/dashboard/access-requests` | solicitação JIT de acesso |
+| `GET /api/v1/dashboard/access-requests/mine` | solicitações do usuário |
+| `GET /api/v1/dashboard/access-requests/available-tenants` | tenants solicitáveis |
+
+### Processor → Postgres
+
+O loop atual consome `landing.extractions` diretamente por
+`cnes_infra.storage.extractions_repo.claim_next`, define `tenant_id` com
+`set_tenant_id()` e marca `completed` ou `failed`. Rotas auxiliares de
+`data_processor.processor` validam SHA-256 e roteiam deltas `_op` para
+callbacks/upserts quando usadas por ingestões específicas.
 
 ## Modelo de dados Gold
 
@@ -236,7 +272,7 @@ Namespace: cnesdata
     └── cnes-db-migrator (initContainer em pre-sync)
 
 Edge (on-prem):
-└── dump_agent como Windows Service (municípios) ou systemd (servidores Linux)
+└── dump_agent_go como Windows Service (municípios) ou systemd (servidores Linux)
 ```
 
 Ainda não está em produção. Dockerfiles existem em cada `apps/*/Dockerfile`.
@@ -261,7 +297,9 @@ python scripts/fb156_setup.py   # extract FB 1.5.6 client to .cache/
 
 Single `docker-compose.yml` com 3 profiles:
 
-- **`dev`** — postgres, minio, migrator, central-api, data-processor, pg-seed, minio-init. Portas 5433/9000/8000.
+- **`dev`** — postgres, minio, migrator, central-api, data-processor,
+  web_dashboard, keycloak, pg-seed, minio-init. Portas
+  5433/9000/9001/8000/5173/8080.
 - **`perf`** — postgres_perf (tuned), firebird_perf. Portas 5434/3051.
 - **`shadow`** — firebird-shadow (FB 2.5-ss), minio-shadow. Portas 3052/9100. Usado por `.github/workflows/shadow-e2e.yml`.
 

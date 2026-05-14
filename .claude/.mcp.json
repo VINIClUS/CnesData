@@ -34,6 +34,14 @@
         "ENABLE_CANVAS_SYNC": "true"
       }
     },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "C:\\Users\\Vinicius\\Projetos\\CnesData"
+      ]
+    },
     "cnes_db": {
       "command": "uv",
       "args": [

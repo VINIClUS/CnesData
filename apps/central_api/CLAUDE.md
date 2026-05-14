@@ -2,12 +2,10 @@
 
 ## Executive Summary
 
-Servidor FastAPI que recebe requisições de `dump_agent` (poll de jobs,
-upload de artefatos, heartbeat) e de serviços administrativos (health,
-reap-leases). Emite URLs pré-assinadas MinIO, gerencia fila de jobs em
-Postgres com leases (reclama jobs expirados via background task), expõe
-OpenAPI em `/openapi.json`. Stateless em nível de request — toda persistência
-em Postgres; MinIO é conteúdo, não estado.
+Servidor FastAPI que recebe registros de manifests do `dump_agent_go`, expõe
+dashboard API, device flow, provisionamento mTLS e rotas administrativas.
+Gerencia `landing.extractions` em Postgres, expõe OpenAPI em `/openapi.json`
+e mantém MinIO como conteúdo referenciado, não estado transacional.
 
 ## Role
 
@@ -18,32 +16,33 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 ## Functionalities
 
 - `GET /api/v1/system/health` — healthcheck + ping Postgres
-- `GET /api/v1/jobs/next` — próximo job para `(tenant_id, machine_id)` com lease
-- `POST /api/v1/jobs/{id}/heartbeat` — estende lease
-- `POST /api/v1/jobs/{id}/artifact` — emite presigned PUT MinIO
-- `POST /api/v1/jobs/upload-url` — mint presigned PUT URL + create PENDING landing row (cnes/sihd post-upload register flow)
-- `POST /api/v1/jobs/{id}/complete` — marca job uploaded (processor pega depois)
-- `POST /api/v1/jobs/{id}/fail` — marca falha (retryable ou DLQ)
+- `POST /api/v1/jobs/upload-url` — cria row PENDING + URL presigned PUT
+- `POST /api/v1/jobs/register` — registra manifest N-file em `landing.extractions`
+- `POST /api/v1/extractions/enqueue` — cria extractions por fonte/competência
 - `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (admin)
 - `TenantMiddleware` — extrai `X-Tenant-Id` header e chama `set_tenant_id()`
 - Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
 - AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
 - /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
+- /api/v1/dashboard/overview, /faturamento/by-establishment
+- /api/v1/dashboard/access-requests/*
 - /activate/confirm — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit 10/min)
+- /oauth/device_authorization, /oauth/token — device flow
+- /provision/cert, /provision/cert/rotate — cert enrollment + rotation
 
 ## Objectives
 
-- p99 de `/jobs/next` < 200ms (Postgres-only, sem I/O externo)
+- p99 de rotas Postgres-only < 200ms
 - Zero cross-tenant leak (RLS + middleware + teste contratual)
 - Uptime 99.9% (single-replica inicialmente; rolling restart no k8s suporta)
 
 ## Limitations
 
 - **Não executa jobs** — só orquestra (execução fica no `data_processor`)
-- **Não lê Firebird/SIHD direto** — todo dado chega via `dump_agent`
-- **Não processa Parquet** — só emite presigned URLs; MinIO armazena
-- **Sem auth próprio** — assume rede confiável (VPN municipal) ou gateway
-  externo (ingress com auth) na frente
+- **Não lê Firebird/SIHD direto** — todo dado chega via `dump_agent_go`
+- **Não processa Parquet** — manifests apontam para artefatos; processamento fica no worker
+- **Auth dividido por superfície** — dashboard usa Bearer JWT; agentes usam
+  device flow + mTLS; rotas admin dev ainda usam token simples onde indicado
 
 ## Requirements
 
@@ -79,10 +78,15 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `src/central_api/deps.py` | `get_engine()`, `lifespan`, `_lease_reaper_loop`, RLS listener install |
 | `src/central_api/middleware.py` | `TenantMiddleware` — extrai `X-Tenant-Id` header |
 | `src/central_api/routes/health.py` | `/api/v1/system/health` — ping DB |
-| `src/central_api/routes/jobs.py` | `/api/v1/jobs/upload-url` (mint URL + create PENDING) + `/api/v1/jobs/register` (UPDATE → REGISTERED with sha256) |
+| `src/central_api/routes/jobs.py` | `/api/v1/jobs/upload-url` + `/api/v1/jobs/register` |
+| `src/central_api/routes/extractions.py` | `/api/v1/extractions/enqueue` — enqueue admin |
 | `src/central_api/routes/admin.py` | `/api/v1/admin/*` — reap-leases, ops |
-| `routes/dashboard.py` | /api/v1/dashboard/* |
-| `routes/oauth.py`     | /activate/confirm (rate-limited via slowapi) |
+| `src/central_api/routes/dashboard.py` | `/api/v1/dashboard/auth/me`, tenants, agents |
+| `src/central_api/routes/overview.py` | `/api/v1/dashboard/overview`, faturamento |
+| `src/central_api/routes/access_requests.py` | signup JIT access request |
+| `src/central_api/routes/oauth.py` | device flow + `/activate/confirm` |
+| `src/central_api/routes/provision.py` | cert enrollment |
+| `src/central_api/routes/provision_rotate.py` | cert rotation |
 | `repositories/dashboard_repo.py` | DashboardRepo (user/tenant/audit + agents/status + recent_runs) |
 
 ## Gotchas
@@ -101,6 +105,9 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   Sem isso, queries via SQLAlchemy não setam `app.tenant_id` e RLS bloqueia
   tudo. Teste de regressão: qualquer query em integration test deve passar
   (se bloquear, listener não foi instalado).
+- **`/jobs/{id}/complete` and `/jobs/{id}/fail` routes do not exist** —
+  edge no longer calls /complete (FU1 dropped). /fail is documented as
+  follow-up gap; today extract/upload failures leave PENDING orphan rows.
 - **`/jobs/{id}/complete` and `/jobs/{id}/fail` routes do not exist** —
   edge no longer calls /complete (FU1 dropped). /fail is documented as
   follow-up gap; today extract/upload failures leave PENDING orphan rows.

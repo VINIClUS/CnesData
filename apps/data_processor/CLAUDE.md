@@ -2,13 +2,10 @@
 
 ## Executive Summary
 
-Worker assíncrono que consome jobs da fila do `central_api`, baixa Parquet
-gzip do MinIO, aplica transformações canônicas (CPF zero-pad + strip
-pontuação, dedup, flags de carga horária) via
-`cnes_domain.processing.transformer`, e persiste no schema Gold Postgres
-(`dim_estabelecimento`, `dim_profissional`, `fato_vinculo`) com upsert
-idempotente e merge JSONB de `fontes` para suportar múltiplas origens
-sobre a mesma chave (LOCAL, NACIONAL, WEB).
+Worker assíncrono Gold v2 que consome `landing.extractions` diretamente no
+Postgres, define o tenant do job reclamado e marca conclusão/falha. Mantém
+rotas auxiliares para validar SHA-256, ler Parquet delta (`_op`) e delegar
+I/U para callbacks/upserts específicos quando uma ingestão usa esse caminho.
 
 ## Role
 
@@ -18,24 +15,22 @@ colisão (lease-based).
 
 ## Functionalities
 
-- Poll de jobs via HTTP ao `central_api` (mesmo endpoint do `dump_agent`,
-  filtro por status `ready_to_process`)
-- Download streaming de Parquet gzip do MinIO via presigned GET
-- Roteamento por source (CNES / SIHD) via `adapters/*_adapter.py`
-- Aplicação de `transformar()` (clean CPF, pad, RQ-002 filter, `ALERTA_CH` flag)
-- Mapeamento raw → canonical via `row_mapper.mapear_*`
-- Upsert idempotente (`ON CONFLICT DO UPDATE` com merge JSONB `fontes || EXCLUDED.fontes`)
-- `CircuitBreaker` em chamadas MinIO e `central_api` (backoff exp capado)
+- Claim global de `landing.extractions` via `extractions_repo.claim_next`
+- `set_tenant_id(claimed.tenant_id)` antes de mutar estado do job
+- `mark_completed` / `mark_failed` no mesmo storage repository
+- `integrity_check.verify_parquet` para SHA-256 quando esperado
+- `cdc_merger.merge_delta` para linhas `_op ∈ {I,U,D}`
+- Adapters CNES/SIHD/BPA/SIA preservados para rotas de ingestão específicas
 
 ## Objectives
 
-- Throughput ≥ 10k rows/s no upsert (gate do stress test)
-- Idempotência total: N execuções do mesmo job = mesmo resultado no Gold
-- Zero perda de dados via DLQ (`job_queue` tabelas `public.job_retries`)
+- Claim idempotente e seguro entre réplicas horizontais
+- Zero cross-tenant leak em marcação de jobs
+- Integridade verificável quando `sha256` vem do edge agent
 
 ## Limitations
 
-- **Não faz extract** — só consome Parquet pronto
+- **Não faz extract** — só consome metadata/artefatos já produzidos
 - **Não aplica regras de auditoria** — persiste dados canônicos; regras
   rodam em serviço externo que consome Gold via SQL JOINs
 - **Não tem UI** — é daemon puro, monitorado via logs + OTel
@@ -64,8 +59,9 @@ colisão (lease-based).
 | Arquivo | Responsabilidade |
 |---|---|
 | `src/data_processor/main.py` | Entrypoint async + `_setup_logging` + `_create_storage` + run_processor |
-| `src/data_processor/consumer.py` | Loop de pull de jobs do `central_api` |
-| `src/data_processor/processor.py` | Pipeline download → transform → upsert (`_persist_profissionais`, etc) |
+| `src/data_processor/consumer.py` | Compat wrapper para `poll.loop` |
+| `src/data_processor/poll.py` | Claim `landing.extractions` + mark completed/failed |
+| `src/data_processor/processor.py` | SHA-256 + delta route helpers |
 | `src/data_processor/config.py` | Config do worker (bucket, intervalos) |
 | `src/data_processor/adapters/cnes_local_adapter.py` | Parquet CNES raw → DataFrame canônico |
 | `src/data_processor/adapters/cnes_nacional_adapter.py` | Parquet BigQuery nacional → canônico |
