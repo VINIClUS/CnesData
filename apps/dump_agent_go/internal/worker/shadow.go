@@ -59,5 +59,9 @@ func (s *ShadowExecutor) Run(ctx context.Context, job *Job) (sizeBytes int64, er
 	return info.Size(), nil
 }
 
+// EmitCommitted é no-op no ShadowExecutor — modo shadow não emite
+// audit lifecycle (sem AuditLogger configurado nesse caminho).
+func (s *ShadowExecutor) EmitCommitted(_ Job, _ int64) {}
+
 // ErrShadowDirMissing sinaliza config inválida.
 var ErrShadowDirMissing = errors.New("shadow_output_dir_missing")

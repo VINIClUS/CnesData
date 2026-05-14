@@ -4,26 +4,27 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cnesdata/dumpagent/internal/queue"
 )
 
 type mockJobAPI struct {
+	mintCalls      int
 	registerCalls  int
-	completeCalls  int
 	failCalls      int
 	heartbeatCalls int
-	registerErr    error
-	registerJob    *Job
+	mintErr        error
+	mintJob        *Job
 }
 
-func (m *mockJobAPI) RegisterJob(_ context.Context, _ JobSpec) (*Job, error) {
-	m.registerCalls++
-	return m.registerJob, m.registerErr
+func (m *mockJobAPI) MintUploadURL(_ context.Context, _ JobSpec) (*Job, error) {
+	m.mintCalls++
+	return m.mintJob, m.mintErr
 }
-func (m *mockJobAPI) CompleteJob(_ context.Context, _ Job, _ int64) error {
-	m.completeCalls++
+func (m *mockJobAPI) RegisterJob(_ context.Context, _ Job, _ int64) error {
+	m.registerCalls++
 	return nil
 }
 func (m *mockJobAPI) FailJob(_ context.Context, _ Job, _ error) error {
@@ -45,16 +46,16 @@ func newOutbox(t *testing.T) *queue.Outbox {
 	return ob
 }
 
-func TestOutboxAdapter_CompleteWritesEnvelopeNotInner(t *testing.T) {
+func TestOutboxAdapter_RegisterWritesEnvelopeNotInner(t *testing.T) {
 	mock := &mockJobAPI{}
 	ob := newOutbox(t)
 	a := NewOutboxAdapter(mock, ob)
 	job := Job{ID: "uuid-1"}
-	if err := a.CompleteJob(context.Background(), job, 4096); err != nil {
-		t.Fatalf("CompleteJob: %v", err)
+	if err := a.RegisterJob(context.Background(), job, 4096); err != nil {
+		t.Fatalf("RegisterJob: %v", err)
 	}
-	if mock.completeCalls != 0 {
-		t.Errorf("inner.CompleteJob called %d times, want 0", mock.completeCalls)
+	if mock.registerCalls != 0 {
+		t.Errorf("inner.RegisterJob called %d times, want 0", mock.registerCalls)
 	}
 	items, _ := ob.Peek(10)
 	if len(items) != 1 || items[0].Envelope.Type != queue.TypeComplete ||
@@ -82,23 +83,51 @@ func TestOutboxAdapter_FailWritesEnvelopeNotInner(t *testing.T) {
 	}
 }
 
-func TestOutboxAdapter_RegisterJobDelegates(t *testing.T) {
-	mock := &mockJobAPI{registerJob: &Job{ID: "back"}}
+func TestOutboxAdapter_MintUploadURLDelegates(t *testing.T) {
+	mock := &mockJobAPI{mintJob: &Job{ID: "back"}}
 	ob := newOutbox(t)
 	a := NewOutboxAdapter(mock, ob)
-	job, err := a.RegisterJob(context.Background(), JobSpec{})
+	job, err := a.MintUploadURL(context.Background(), JobSpec{})
 	if err != nil {
-		t.Fatalf("RegisterJob: %v", err)
+		t.Fatalf("MintUploadURL: %v", err)
 	}
 	if job == nil || job.ID != "back" {
 		t.Fatalf("got %+v, want delegated Job", job)
 	}
-	if mock.registerCalls != 1 {
-		t.Fatalf("inner.RegisterJob called %d times, want 1", mock.registerCalls)
+	if mock.mintCalls != 1 {
+		t.Fatalf("inner.MintUploadURL called %d times, want 1", mock.mintCalls)
 	}
 	items, _ := ob.Peek(10)
 	if len(items) != 0 {
-		t.Fatalf("unexpected envelope from RegisterJob: %+v", items)
+		t.Fatalf("unexpected envelope from MintUploadURL: %+v", items)
+	}
+}
+
+func TestOutboxAdapter_RegisterJob_PersistsSha256AndMinioKey(t *testing.T) {
+	mock := &mockJobAPI{}
+	ob := newOutbox(t)
+	a := NewOutboxAdapter(mock, ob)
+	job := Job{
+		ID:       "11111111-2222-3333-4444-555555555555",
+		Sha256:   "a" + strings.Repeat("0", 63),
+		MinioKey: "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+	}
+	if err := a.RegisterJob(context.Background(), job, 4096); err != nil {
+		t.Fatalf("RegisterJob: %v", err)
+	}
+	items, _ := ob.Peek(10)
+	if len(items) != 1 {
+		t.Fatalf("envelope count = %d want 1", len(items))
+	}
+	env := items[0].Envelope
+	if env.SHA256 != job.Sha256 {
+		t.Errorf("SHA256 = %q want %q", env.SHA256, job.Sha256)
+	}
+	if env.MinioKey != job.MinioKey {
+		t.Errorf("MinioKey = %q want %q", env.MinioKey, job.MinioKey)
+	}
+	if env.SizeBytes != 4096 {
+		t.Errorf("SizeBytes = %d want 4096", env.SizeBytes)
 	}
 }
 
