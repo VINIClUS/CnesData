@@ -1,219 +1,192 @@
 # CnesData
 
-Motor de reconciliação de dados CNES para secretarias municipais de saúde.
+Distributed data platform for municipal SUS data reconciliation.
 
-Recebe dados de profissionais e estabelecimentos via **agentes de dump locais** (HTTP POST) ou diretamente da base nacional via BigQuery, aplica 11 regras de auditoria e persiste os resultados em PostgreSQL.
+CnesData moves raw municipal health data from edge environments into a
+tenant-isolated central store. Edge agents extract source data as Parquet,
+the central API coordinates landing jobs and provisioning, and shared domain
+packages define the contracts that downstream processors and audit services
+consume.
 
-**Piloto:** Presidente Epitácio/SP (IBGE 354130, CNPJ 55.293.427/0001-17).  
-**Direção:** arquitetura multi-município — o mesmo engine serve qualquer prefeitura cujo agente de dump esteja configurado.
+Pilot tenant: Presidente Epitacio/SP (`tenant_id=354130`).
 
----
+## Current Status
 
-## Arquitetura
-
-```
-Município A               Município B
-┌───────────────────┐     ┌───────────────────┐
-│  CNES.GDB         │     │  CNES.GDB         │
-│  Firebird local   │     │  Firebird local   │
-│                   │     │                   │
-│  [ Dump Agent ]   │     │  [ Dump Agent ]   │
-│  extrai → parquet │     │  extrai → parquet │
-└────────┬──────────┘     └────────┬──────────┘
-         │ HTTP POST                │ HTTP POST
-         └──────────┬───────────────┘
-                    ▼
-         ┌──────────────────────────┐
-         │  CnesData API            │
-         │  Reconciliation Engine   │
-         │                          │
-         │  1. IngestaoLocalStage   │◄─ parquet do dump agent
-         │  2. ProcessamentoStage   │
-         │  3. IngestaoNacionalStage│◄─ BigQuery (DATASUS)
-         │  4. ExportacaoStage      │
-         └──────────┬───────────────┘
-                    ▼
-              PostgreSQL
-              (auditoria por município × competência)
-```
-
-### Dump Agents
-
-Agentes leves que rodam no ambiente do município:
-
-1. Conectam ao `CNES.GDB` Firebird local
-2. Extraem vínculos profissional-estabelecimento via queries parametrizadas
-3. Serializam para parquet e fazem POST para o endpoint de ingestão da API
-4. São stateless — agendados via cron ou Windows Task Scheduler
-
-O engine aceita dados locais via parquet no `HISTORICO_DIR` (implementado) ou via API endpoint (roadmap).
-
-### Seleção de Fonte (`--source`)
-
-| Valor | Comportamento |
+| Area | Status |
 |---|---|
-| `LOCAL` (padrão) | Usa parquet do dump agent ou Firebird direto. `StageSkipError` se ausente — sem fallback silencioso. |
-| `NACIONAL` | Apenas BigQuery. Firebird nunca é consultado. |
-| `AMBOS` | Ingere as duas fontes; exporta com proveniência explícita (`FONTE=LOCAL` / `FONTE=NACIONAL`). |
+| Canonical contracts | Implemented in `packages/cnes_contracts` and exported to `docs/contracts/` |
+| Domain + infra packages | Implemented for contracts, tenant context, storage, auth, migrations, MinIO and ingestion clients |
+| Go edge agent | Active implementation in `apps/dump_agent_go` for CNES, SIHD, BPA-Mag and SIA sources |
+| Central API | Active FastAPI app for health, dashboard, OAuth/device activation, cert provisioning, extraction enqueue and job registration |
+| Web dashboard | Active Bun + React SPA with OIDC, activation, agent status, overview KPIs and access-request flow |
+| Data processor | Polling/downloading skeleton plus adapters/repositories exist; full Parquet-to-Gold ingestion wiring is still in progress |
+| Audit rules | Out of scope for this repo; external rules service consumes the Gold/landing schemas |
+| Production deploy | Target is Kubernetes plus on-prem edge agents; local development uses Docker Compose |
 
-Proveniência é imutável: dados locais e nacionais nunca se mesclam implicitamente.
+## Architecture
 
----
+```text
+Municipal edge
+  Firebird CNES.GDB / SIHD / BPAMAG.GDB / SIA DBF
+        |
+        v
+  dumpagent (Go)
+  - extracts raw rows
+  - writes parquet.gz manifests
+  - registers N-file manifests with object-storage keys
+        |
+        v
+Central platform
+  central_api (FastAPI)
+  - tenant middleware and auth
+  - extraction enqueue/register flow
+  - device activation and certificate provisioning
+        |
+        +--> MinIO / S3 landing bucket
+        |
+        +--> Postgres
+             - landing.extractions
+             - gold.* tables
+             - dashboard.* tables
+             - RLS per tenant
+        |
+        v
+  data_processor
+  - claims landing work
+  - ingestion path under active development
+```
 
-## API (Central API)
+Source types accepted by the landing contract:
 
-Com o servidor rodando (`docker compose up central-api`):
+| Source type | Meaning | File subtypes |
+|---|---|---|
+| `CNES_LOCAL` | Municipal CNES Firebird extract | `CNES_VINCULO` |
+| `CNES_NACIONAL` | National CNES source | `CNES_VINCULO` |
+| `SIHD` | Hospital AIH production | `SIHD_INTERNACAO`, `SIHD_PROC_AIH` |
+| `BPA_MAG` | BPA-Mag Firebird 1.5 extract | `BPA_C`, `BPA_I` |
+| `SIA_LOCAL` | SIA DBF extract | `DIM_SIGTAP`, `DIM_MUNICIPIO`, `SIA_APA`, `SIA_BPI`, `SIA_BPIHST` |
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
+See [docs/architecture.md](docs/architecture.md) for the full system model.
 
-Schema exportado offline: [`docs/openapi.json`](docs/openapi.json).
+## Repository Map
 
-Para regenerar: `python scripts/export_openapi.py`
+| Path | Purpose |
+|---|---|
+| `packages/cnes_contracts/` | Pydantic contracts, Protocols and JSON Schema export |
+| `packages/cnes_domain/` | Pure domain layer: ports, models, validation, tenant context, processing primitives |
+| `packages/cnes_infra/` | SQLAlchemy storage, Alembic migrations, MinIO, auth, ingestion clients and telemetry |
+| `apps/central_api/` | FastAPI API for orchestration, dashboard data, OAuth/device flow and cert provisioning |
+| `apps/data_processor/` | Async worker skeleton for landing extraction processing |
+| `apps/cnes_db_migrator/` | Alembic migration runner for init-container/local migration use |
+| `apps/dump_agent_go/` | Go edge agent for municipal source extraction and upload |
+| `apps/web_dashboard/` | Bun + React dashboard |
+| `charts/web-dashboard/` | Helm chart for dashboard deployment |
+| `docs/` | Architecture, dictionaries, runbooks, contracts and performance notes |
+| `tests/` | Cross-cutting integration, property, memory, chaos, negative and perf suites |
 
----
+## Quick Start
 
-## Início Rápido
+Prerequisites:
 
-### Pré-requisitos
+- Python 3.13
+- `uv`
+- Docker + Docker Compose
+- Go 1.26 for `apps/dump_agent_go`
+- Bun 1.3 for `apps/web_dashboard`
+- Git LFS for Firebird fixture archives
 
-- Python 3.11+
-- uv (`pip install uv`)
-- (Opcional) `CNES.GDB` Firebird para execução local sem dump agent
-- (Opcional) Conta Google Cloud para cross-check nacional via BigQuery
+Install Python workspace dependencies:
 
-### Instalação
-
-```powershell
+```bash
 uv sync
-copy .env.example .env
-# Edite .env com seus valores (ver seção Configuração)
+cp .env.example .env
 ```
 
-### Primeira Execução
+Start the local dev stack:
 
-```powershell
-# Apenas dados nacionais (sem Firebird local)
-python src\main.py --source NACIONAL -c 2024-12 -v
-
-# Dados locais via Firebird direto (desenvolvimento)
-python src\main.py --source LOCAL -c 2024-12 -v
-
-# Ambas as fontes (reconciliação completa)
-python src\main.py --source AMBOS -c 2024-12
+```bash
+docker compose --profile dev up -d
 ```
 
----
+Local endpoints:
 
-## Uso via CLI
+| Service | URL |
+|---|---|
+| Central API Swagger | http://localhost:8000/docs |
+| Central API health | http://localhost:8000/api/v1/system/health |
+| Web dashboard | http://localhost:5173 |
+| Keycloak dev realm | http://localhost:8080 |
+| MinIO API | http://localhost:9000 |
+| MinIO console | http://localhost:9001 |
+| Postgres | `localhost:5433` |
 
-```
-python src\main.py [opções]
+Run the API directly during development:
 
-Opções:
-  -c, --competencia YYYY-MM    Competência (padrão: definido no .env)
-  -o, --output-dir CAMINHO     Diretório de saída (padrão: data/processed/)
-      --source {LOCAL,NACIONAL,AMBOS}
-                               Fonte de dados (padrão: LOCAL)
-  -v, --verbose                Log DEBUG no console
-  -h, --help                   Ajuda
-```
-
----
-
-## Configuração (`.env`)
-
-```ini
-# Banco Firebird (apenas para execução direta ou desenvolvimento)
-DB_HOST=localhost
-DB_PATH=C:\Datasus\CNES\CNES.GDB
-DB_USER=SYSDBA
-DB_PASSWORD=masterkey
-FIREBIRD_DLL=C:\caminho\para\fb_64\fbembed.dll
-
-# Filtros do município
-COD_MUN_IBGE=354130
-ID_MUNICIPIO_IBGE7=3541307
-CNPJ_MANTENEDORA=55293427000117
-
-# Saída
-OUTPUT_DIR=data/processed
-
-# Google Cloud / BigQuery (cross-check nacional)
-GCP_PROJECT_ID=seu-projeto-gcp
-
-# Competência padrão
-COMPETENCIA_ANO=2024
-COMPETENCIA_MES=12
-
-# PostgreSQL (persistência)
-DB_URL=postgresql+psycopg2://user:pass@localhost:5432/cnesdata
-
-# Folha de pagamento RH (opcional)
-FOLHA_HR_PATH=C:\caminho\para\hr_padronizado.csv
+```bash
+uv run uvicorn central_api.app:create_app --factory --reload
 ```
 
-Em modo API, `DB_PATH` e `FIREBIRD_DLL` são configurados no lado do dump agent, não do servidor.
+Regenerate API and schema contracts after contract changes:
 
----
-
-## Testes
-
-```powershell
-# Unitários (sem banco — padrão CI)
-.venv\Scripts\python.exe -m pytest tests/ -m "not integration" -q
-
-# Integração Firebird (requer banco ativo)
-.venv\Scripts\python.exe -m pytest tests/ -m "integration and not bigquery" -v
-
-# Todos
-.venv\Scripts\python.exe -m pytest tests/ -v
+```bash
+uv run python scripts/gen_openapi.py
+uv run python scripts/gen_contracts.py
 ```
 
-319+ testes unitários passando.
+The exported OpenAPI file used by clients is
+[docs/contracts/openapi.json](docs/contracts/openapi.json).
 
----
+## Common Commands
 
-## Estrutura do Projeto
+Python lint and tests:
 
-```
-CnesData/
-├── src/
-│   ├── cli.py                    # Argparse CLI
-│   ├── config.py                 # Configuração centralizada (.env)
-│   ├── main.py                   # Ponto de entrada
-│   ├── ingestion/
-│   │   ├── schemas.py            # Schema canônico (fonte de verdade de colunas)
-│   │   ├── cnes_client.py        # Extração Firebird (charset WIN1252, 3 queries)
-│   │   ├── cnes_local_adapter.py # Firebird → schema canônico
-│   │   ├── cnes_nacional_adapter.py # BigQuery → schema canônico
-│   │   ├── hr_client.py          # Parser planilhas RH (.xlsx/.csv)
-│   │   └── web_client.py         # Cliente BigQuery via basedosdados
-│   ├── pipeline/
-│   │   ├── orchestrator.py       # PipelineOrchestrator + StageSkipError/StageFatalError
-│   │   ├── state.py              # PipelineState (target_source, DataFrames)
-│   │   └── stages/
-│   │       ├── ingestao_local.py    # Carrega parquet do dump agent ou Firebird direto
-│   │       ├── ingestao_nacional.py # Busca BigQuery com circuit breaker
-│   │       ├── processamento.py     # Limpeza CPF, datas ISO, dedup
-│   │       └── exportacao.py        # Persiste no PostgreSQL, deriva status
-│   ├── processing/
-│   │   └── transformer.py        # RQ-002, RQ-003, enriquecimento CBO
-│   └── storage/
-│       ├── ports.py              # StoragePort Protocol
-│       └── postgres_adapter.py   # PostgreSQL (upsert por competência)
-├── tests/
-├── data/
-│   ├── historico/              # Parquets dos dump agents (não vai ao Git)
-│   └── processed/              # Relatórios gerados (não vai ao Git)
-├── docs/
-├── scripts/                    # Run-CnesAudit.ps1, hr_pre_processor.py
-├── CLAUDE.md
-├── docs/project-context.md
-├── ROADMAP.md
-└── docs/data-dictionary-firebird-bigquery.md
+```bash
+uv run ruff check .
+uv run pytest packages/cnes_domain packages/cnes_infra -m "not bigquery and not e2e and not stress and not soak and not spike" --cov --cov-config=pyproject.toml
+uv run pytest apps/ -m "not integration and not bigquery and not e2e and not stress and not soak and not spike and not windows_only" --cov --cov-config=.coveragerc
 ```
 
----
+Go edge agent:
 
+```bash
+cd apps/dump_agent_go
+make install-tools
+make lint
+make test
+make build-windows
+```
+
+Web dashboard:
+
+```bash
+cd apps/web_dashboard
+bun install
+bun run codegen
+bun run lint
+bun run typecheck
+bun run test
+bun run build
+```
+
+More detail is in [docs/development.md](docs/development.md).
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) - system architecture, contracts and deploy shape
+- [docs/project-context.md](docs/project-context.md) - product/domain context and historical decisions
+- [docs/roadmap.md](docs/roadmap.md) - current priorities and removed scope
+- [docs/development.md](docs/development.md) - local setup, verification commands and CI mirrors
+- [docs/perf-testing.md](docs/perf-testing.md) - performance test tiers
+- [docs/data-dictionary-cnes.md](docs/data-dictionary-cnes.md) - canonical CNES/Gold dictionary
+- [docs/data-dictionary-firebird-bigquery.md](docs/data-dictionary-firebird-bigquery.md) - local/national CNES dictionary
+- [docs/data-dictionary-bpa.md](docs/data-dictionary-bpa.md) - BPA dictionary
+- [docs/data-dictionary-sia.md](docs/data-dictionary-sia.md) - SIA dictionary
+- [docs/data-dictionary-sihd-hospital.md](docs/data-dictionary-sihd-hospital.md) - SIHD dictionary
+- [docs/runbooks/](docs/runbooks/) - operational runbooks for agent setup, cutover and access requests
+
+## Notes for Contributors
+
+- Read the nearest `CLAUDE.md` before editing an app or package.
+- Keep tenant isolation explicit; Postgres access must run under the tenant context/RLS path.
+- Do not reintroduce the removed monolithic `src/main.py` CLI or Excel/CSV report flow.
+- Generated contract files in `docs/contracts/` must stay in sync with source models.
