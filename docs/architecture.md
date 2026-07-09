@@ -6,13 +6,17 @@
 ## Visão macro
 
 Plataforma distribuída edge/central para reconciliação de dados de saúde
-pública. Edge Agents (`dumpagent_go`) rodam próximo às fontes municipais
-(Firebird CNES, SIHD hospitalar), extraem Parquet raw e fazem upload via
-URL pré-assinada para MinIO. O `central_api` (FastAPI) orquestra jobs e
-emite presigned URLs. O `data_processor` (worker) consome jobs, baixa
-Parquet do MinIO, aplica transformações canônicas e persiste no schema
-Gold Postgres com isolamento por tenant (RLS). Regras de auditoria são
-aplicadas por serviço externo via SQL JOINs contra o Gold.
+pública. Edge Agents (`apps/dump_agent_go`) rodam próximo às fontes
+municipais (Firebird CNES, SIHD hospitalar, BPA-Mag, SIA DBF), extraem
+Parquet raw e registram manifests N-arquivos. O `central_api` (FastAPI)
+orquestra cadastro/enfileiramento de extrações, dashboard, ativação de
+agentes e provisionamento de certificados. O Postgres guarda schemas
+`landing`, `gold`, `dashboard` e `auth` com isolamento por tenant (RLS).
+
+Estado atual: contratos, migrations, edge agent, API e dashboard estão
+ativos. O `data_processor` ainda é um esqueleto de polling/download; a
+ligação completa Parquet -> Gold está pendente. Regras de auditoria são
+aplicadas por serviço externo via SQL JOINs contra Gold/landing.
 
 ## Data flow
 
@@ -24,35 +28,34 @@ aplicadas por serviço externo via SQL JOINs contra o Gold.
 │         │                      │                              │
 │         └──────┬───────────────┘                              │
 │                ▼                                              │
-│          dump_agent (daemon)                                  │
+│          dump_agent_go (daemon)                               │
 │          - 3-query extraction + merge (CNES)                  │
 │          - streaming Parquet gzip                             │
 │          - single-instance lock                               │
 │                │                                              │
-│                │ HTTPS (long poll)                            │
+│                │ HTTPS + manifest register                    │
 └────────────────┼──────────────────────────────────────────────┘
                  │
 ┌────────────────┼──────────────────────────────────────────────┐
 │ CENTRAL        ▼                                              │
 │         central_api (FastAPI)                                 │
-│          - /jobs/next (lease)                                 │
-│          - /jobs/{id}/artifact (presigned PUT)                │
-│          - /jobs/{id}/heartbeat                               │
-│          - /jobs/{id}/complete                                │
+│          - /api/v1/extractions/enqueue                        │
+│          - /api/v1/jobs/register                              │
+│          - /oauth/device_authorization                        │
+│          - /provision/cert                                    │
 │          - TenantMiddleware (X-Tenant-Id)                     │
 │          - lease reaper (background task)                     │
 │                │                                              │
 │       ┌────────┴────────┐                                     │
 │       ▼                 ▼                                     │
-│  [Postgres queue]   [MinIO]  ← presigned GET/PUT              │
+│  [Postgres landing] [MinIO]                                   │
 │       │                 ▲                                     │
 │       │                 │                                     │
 │       ▼                 │                                     │
 │   data_processor ───────┘                                     │
-│   - download Parquet                                          │
-│   - transform (CPF pipeline, dedup, CH flag)                  │
-│   - row_mapper (dim/fato)                                     │
-│   - upsert Postgres Gold (merge JSONB fontes)                 │
+│   - polling/download skeleton                                 │
+│   - adapters + repos existem                                  │
+│   - Parquet -> Gold wiring pendente                           │
 │                │                                              │
 │                ▼                                              │
 │       [Postgres Gold]                                         │
@@ -81,36 +84,56 @@ aplicadas por serviço externo via SQL JOINs contra o Gold.
 Both emit **N-file manifests**: one `ClaimedJob` per
 `(source_type, competencia)` → N Parquets uploaded to MinIO via N presigned
 PUTs → single `POST /api/v1/jobs/register` with the manifest list.
-`data_processor` has BPA + SIA adapters downstream (see
-`apps/data_processor/CLAUDE.md`).
+`data_processor` has BPA + SIA mapping helpers downstream, but the current
+worker loop does not yet execute the full ingestion path.
 
-**Spike status:** T1 FB 1.5 wire-protocol validation via `nakagami/firebirdsql`
-is **DEFERRED**. Runtime validation blocked at fixture generation
-(fdb/FB1.5 symbol mismatch); pivot tracked in issue #51.
+**Spike status:** FB 1.5 runtime parity is validated in CI through synthetic
+schema coverage. Production nullability introspection against a real
+`BPAMAG.GDB` remains an operational follow-up.
 
 ## Contratos entre apps
 
-### Edge → Central (HTTPS)
+### API surface atual
 
-| Verb + Path | Payload | Response |
+| Verb + Path | Consumidor | Descrição |
 |---|---|---|
-| `GET /api/v1/jobs/next?machine_id=<id>` | header `X-Tenant-Id` | `{job_id, intent, lease_until}` ou 204 |
-| `POST /api/v1/jobs/{id}/heartbeat` | `{}` | `{lease_until}` |
-| `POST /api/v1/jobs/{id}/artifact` | `{filename, size}` | `{presigned_url, object_key}` |
-| `POST /api/v1/jobs/{id}/complete` | `{object_key, rows}` | 204 |
-| `POST /api/v1/jobs/{id}/fail` | `{reason, retryable}` | 204 |
+| `GET /api/v1/system/health` | ops / smoke | Health da API + Postgres |
+| `POST /api/v1/extractions/enqueue` | admin/dev | Cria jobs `landing.extractions` por `source_type` |
+| `POST /api/v1/jobs/register` | edge agent | Registra manifest N-arquivos extraído pelo agente |
+| `GET /api/v1/dashboard/auth/me` | dashboard | Identidade/tenant do usuário |
+| `GET /api/v1/dashboard/tenants` | dashboard | Tenants disponíveis |
+| `GET /api/v1/dashboard/agents/status` | dashboard | Status agregado de agentes |
+| `GET /api/v1/dashboard/agents/runs` | dashboard | Execuções recentes |
+| `GET /api/v1/dashboard/overview` | dashboard | KPIs do tenant |
+| `GET /api/v1/dashboard/overview/faturamento` | dashboard | Série de faturamento |
+| `GET /api/v1/dashboard/access-requests/mine` | dashboard | Solicitações do usuário |
+| `POST /api/v1/dashboard/access-requests` | dashboard | Cria solicitação de acesso |
+| `GET /api/v1/dashboard/access-requests/available-tenants` | dashboard | Tenants solicitáveis |
+| `POST /oauth/device_authorization` | edge agent | Inicia OAuth device flow |
+| `POST /oauth/token` | edge agent | Troca device code/refresh por token |
+| `POST /activate/confirm` | dashboard | Aprova device flow |
+| `POST /provision/cert` | edge agent | Emite certificado cliente |
+| `POST /provision/cert/rotate` | edge agent | Rotaciona certificado cliente |
+
+O fluxo antigo `/jobs/next`, `/jobs/{id}/artifact`, heartbeat e complete
+por rota HTTP não é a superfície atual do código. A forma ativa é
+`landing.extractions` + manifest via `/api/v1/jobs/register`.
 
 ### Central → MinIO
 
-- Presigned PUT URLs (validade: 1h) para upload de Parquet
-- Presigned GET URLs (validade: 1h) para download pelo `data_processor`
+- Fluxo alvo: URLs pré-assinadas para PUT/GET de Parquet
+- Código atual: manifests registram `minio_key`, `fato_subtype`, `size_bytes`
+  e `sha256`; emissão de presigned URLs não está exposta na API atual
 - Bucket único: `cnesdata-landing` (configurável via `MINIO_BUCKET`)
-- Key convention: `<tenant_id>/<intent>/<competencia>/<job_id>.parquet.gz`
+- Convenção recomendada de key:
+  `<tenant_id>/<source_type>/<competencia>/<job_id>.parquet.gz`
 
-### Processor → Central
+### Processor
 
-Mesmo pattern de polling dos edges — o processor consome da mesma fila,
-filtrando por `status=ready_to_process`.
+O processor atual não chama o `central_api` para polling. Ele acessa
+`landing.extractions` via `cnes_infra.storage.extractions_repo` e ainda
+possui funções finais (`complete`, `fail`, `heartbeat`, `mark_uploaded`,
+`reap_expired`) pendentes.
 
 ## Modelo de dados Gold
 
@@ -148,44 +171,38 @@ filtrando por `status=ready_to_process`.
 Todas as tabelas têm Row-Level Security ativa. Queries sem `tenant_id` no
 contexto (via `set_tenant_id()` do `cnes_domain.tenant`) retornam vazio.
 
-## Fluxo de jobs (estados)
+## Fluxo de jobs (landing.extractions)
 
-```
-   ┌─────────┐       lease       ┌────────┐
-   │ pending ├──────────────────▶│ leased │
-   └────┬────┘                   └───┬────┘
-        │                            │
-        │ lease expired              │ heartbeat
-        │ (reaper)                   │
-        ◀────────────────────────────┤
-        │                            │
-        │                            │ complete
-        │                            ▼
-        │                      ┌──────────┐
-        │                      │ uploaded │
-        │                      └────┬─────┘
-        │                           │ processor picks
-        │                           ▼
-        │                   ┌─────────────┐
-        │                   │ processing  │
-        │                   └──────┬──────┘
-        │                          │
-        │                          │ success
-        │                          ▼
-        │                   ┌─────────────┐
-        │                   │ completed   │
-        │                   └─────────────┘
-        │
-        │ fail (retryable)
-        ▼
-   ┌─────────┐  exceeded retries  ┌─────────────┐
-   │ pending │ ──────────────────▶│ dead_letter │
-   └─────────┘                    └─────────────┘
+Tabela principal: `landing.extractions`.
+
+Campos centrais: `job_id`, `tenant_id`, `source_type`, `competencia`,
+`files` JSONB, `depends_on` UUID[], `status`, `lease_until`,
+`agent_version`, `machine_id`.
+
+Status aceitos pela migration atual:
+
+```text
+PENDING, UPLOADED, PROCESSING, INGESTED, FAILED, DLQ,
+REGISTERED, CLAIMED, COMPLETED
 ```
 
-Tabelas: `public.jobs` (fila), `public.job_retries`, `public.job_leases`.
-Reaper do `central_api` roda a cada `_REAPER_INTERVAL=60s` e volta leases
-expirados para `pending`.
+Fluxo implementado no código atual:
+
+```text
+POST /api/v1/extractions/enqueue
+  -> cria landing.extractions status=PENDING
+
+POST /api/v1/jobs/register
+  -> atualiza PENDING/CLAIMED para REGISTERED
+  -> grava files, agent_version, machine_id
+
+data_processor.poll
+  -> claim_next tenta mover PENDING para CLAIMED
+  -> complete/fail ainda pendentes em extractions_repo
+```
+
+Fluxo alvo: `REGISTERED`/`UPLOADED` -> `PROCESSING` -> `INGESTED` ou
+`FAILED`/`DLQ`, preservando `depends_on` para dimensões SIA antes dos fatos.
 
 ## Multi-tenancy
 
@@ -261,7 +278,7 @@ python scripts/fb156_setup.py   # extract FB 1.5.6 client to .cache/
 
 Single `docker-compose.yml` com 3 profiles:
 
-- **`dev`** — postgres, minio, migrator, central-api, data-processor, pg-seed, minio-init. Portas 5433/9000/8000.
+- **`dev`** — postgres, minio, migrator, central-api, data-processor, pg-seed, minio-init, web_dashboard, keycloak. Portas 5433/9000/9001/8000/5173/8080.
 - **`perf`** — postgres_perf (tuned), firebird_perf. Portas 5434/3051.
 - **`shadow`** — firebird-shadow (FB 2.5-ss), minio-shadow. Portas 3052/9100. Usado por `.github/workflows/shadow-e2e.yml`.
 
@@ -271,6 +288,9 @@ docker compose --profile dev up -d
 docker compose --profile perf up -d
 docker compose --profile shadow up -d
 ```
+
+Nota: na branch atual, `data-processor` pode logar erros das funções
+pendentes em `extractions_repo` se houver jobs a processar.
 
 ## web_dashboard (2026-04 — v1.0 + v1.1)
 
@@ -289,7 +309,7 @@ docker compose --profile shadow up -d
   procedimentos competência atual, % cobertura) + faturamento area chart
   12m por estabelecimento via `@tremor/react` lazy-loaded
 - `/access-pending` — fluxo JIT de signup self-service: usuário sem tenant
-  preenche solicitação (`POST /api/v1/access-requests`), grava em
+  preenche solicitação (`POST /api/v1/dashboard/access-requests`), grava em
   `dashboard.access_requests` (status `pending`); aprovação manual via
   SQL admin v1.1 (UI em v1.2 — ver `docs/runbooks/access-request-approval.md`)
 - Dark mode 3-state (light/dark/system) via `ThemeProvider` + matchMedia +
