@@ -1,6 +1,6 @@
 # CnesData — Redesign Execution and Parallel Worktree Design
 
-**Status:** approved for canonical documentation; awaiting pull-request review
+**Status:** approved execution design; detailed implementation plans prepared for PR review
 
 **Date:** 2026-08-23
 
@@ -49,6 +49,9 @@ The following decisions are inherited unchanged from the approved source designs
 - Parquet objects and published dataset versions are immutable;
 - dashboard navigation reads materialized serving JSON, not Athena or raw Parquet;
 - processing is at-least-once with idempotency, leases, and fencing;
+- every persisted Run DAG has three ordered stages: NORMALIZE, RECONCILE, and MATERIALIZE;
+- a logical `wave_id` is stable for a ready unit set, while a `dispatch_id` changes when the
+  attempt generation changes; at most one non-expired dispatch is active for a Run;
 - Edge Agents perform extraction and transport transformations only;
 - normalization, reconciliation, and serving materialization are central concerns;
 - Stripe is enabled only in the AWS SaaS profile;
@@ -128,6 +131,20 @@ flowchart TD
 Billing domain work may begin after the orchestration contracts are stable. Stripe
 integration does not begin until the AWS control plane and critical fencing paths are
 available.
+
+Cross-plan orchestration contracts are fixed as follows:
+
+- the planner persists a byte-identical, replay-safe DAG before any executor starts;
+- recovery reuses the persisted DAG; a CAS-persisted `RunDispatch` is reserved before executor
+  start, claims must match that active dispatch, and expiry/terminal state advances its generation
+  so a retry cannot replay a completed Standard execution even when no worker ever claimed a unit;
+- optional normalization failure becomes an explicit degraded input that satisfies fan-in;
+  required normalization or downstream final failure terminates the Run;
+- an execution policy returns an immutable permit that is passed unchanged to the post-start
+  binding callback, closing the authorization time-of-check/time-of-use gap;
+- publication performs its critical authorization read immediately before the atomic pointer
+  transaction and carries the expected policy version/fence into that transaction; caller-supplied
+  cached authorization is never sufficient.
 
 ## 7. Backlog phases
 
@@ -270,7 +287,8 @@ separate worktrees:
 | `SRC-011` | BPA raw, normalized, reconciliation, and serving parity |
 | `SRC-012` | SIA raw, normalized, reconciliation, and serving parity |
 
-The AWS runtime lane may begin after Phase 4:
+AWS feature work may begin after Phase 4. Its composition-root integration waits for `CND-064`
+and enters the serial controller queue defined below:
 
 | ID | Deliverable |
 |---|---|
@@ -359,6 +377,13 @@ Feature agents expose new modules through direct imports in their tests. A seria
 integration task updates shared exports, dependency manifests, lockfiles, generated
 contracts, and composition roots after feature review.
 
+The composition roots use one controller-owned integration queue. Its fixed order is
+`CND-064` → AWS plan Task 8 → Billing plan Task 6 → Source plan Task 4 → Billing plan Task 13
+→ Billing plan Task 17. Feature work for AWS, billing, and retained sources continues in parallel,
+but each queued task starts only after the previous integration commit is on green `develop` and
+must preserve every previously composed profile. This is a dependency gate, not merely a request
+to avoid simultaneous edits.
+
 ### 8.4 Agent task packet
 
 Each dispatched task contains:
@@ -407,8 +432,8 @@ evidence.
 
 ## 10. Issue topology
 
-Create four epic issues corresponding to the implementation plans. Atomic issues use
-the logical IDs in this document.
+After the implementation-plan documentation PR is approved and merged, create four epic issues
+corresponding to the plans. Atomic issues use the logical IDs in this document.
 
 Every issue body includes:
 
@@ -428,10 +453,10 @@ Every issue body includes:
 ## Worktree and branch
 ```
 
-Only Phase 0 and Phase 1 atomic issues are created immediately after plan approval.
-Later atomic issues are materialized when their upstream interfaces are stable, using
-the phase definitions here as the authoritative backlog. This prevents stale file
-paths and signatures from being copied into dozens of premature issues.
+Only Phase 0 and Phase 1 atomic issues are created immediately after that documentation merge.
+Later atomic issues are materialized when their upstream interfaces are stable, using the phase
+definitions here as the authoritative backlog. This prevents stale file paths and signatures from
+being copied into dozens of premature issues.
 
 ## 11. Definition of ready
 
@@ -461,12 +486,12 @@ individual worktrees pass in isolation.
 
 ## 13. Execution handoff
 
-After this design is reviewed, create four detailed implementation plans:
+The approved design is expanded by four detailed implementation plans:
 
-1. Data Plane Foundation and Local Profile;
-2. AWS Runtime Profile;
-3. Billing and Entitlements;
-4. Source Migration and Cutover.
+1. [Data Plane Foundation and Local Profile](../plans/2026-08-23-cnesdata-data-plane-local-profile-implementation-plan.md);
+2. [AWS Runtime Profile](../plans/2026-08-23-cnesdata-aws-runtime-profile-implementation-plan.md);
+3. [Billing and Entitlements](../plans/2026-08-23-cnesdata-billing-entitlements-implementation-plan.md);
+4. [Source Migration and Cutover](../plans/2026-08-23-cnesdata-source-migration-cutover-implementation-plan.md).
 
 The first executable backlog contains `CND-000` through `CND-014`. Phase 0 begins
 with branch reconciliation and baseline verification; implementation worktrees begin
