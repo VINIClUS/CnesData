@@ -505,7 +505,7 @@ class StripeEventPage:
 
 @dataclass(frozen=True, slots=True)
 class StripeRecoveryCursor:
-    cycle_started_at: datetime
+    cycle_id: str
     created_gte: datetime
     starting_after: str | None
     version: int
@@ -533,6 +533,14 @@ class InboxDisposition(StrEnum):
     DUPLICATE = "duplicate"
     IGNORED = "ignored"
 
+class InboxProcessingState(StrEnum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    PROCESSED = "processed"
+    FAILED_RETRYABLE = "failed_retryable"
+    FAILED_FINAL = "failed_final"
+    IGNORED = "ignored"
+
 @dataclass(frozen=True, slots=True)
 class InboxAcceptResult:
     event_id: str
@@ -544,7 +552,15 @@ class InboxClaim:
     event_type: str
     customer_id: str
     subscription_id: str | None
+    attempt: int | None
     acquired: bool
+
+@dataclass(frozen=True, slots=True)
+class InboxRecoveryRecord:
+    state: InboxProcessingState
+    attempt: int
+    due_at: datetime | None
+    due_index_key: str | None
 
 @dataclass(frozen=True, slots=True)
 class ProjectionResult:
@@ -596,9 +612,17 @@ class SecretProviderPort(Protocol):
 class WebhookInboxPort(Protocol):
     def accept(self, event: StripeEvent) -> InboxAcceptResult: ...
     def claim(self, event_id: str, now: datetime) -> InboxClaim: ...
-    def mark_processed(self, event_id: str, entitlement_version: int) -> None: ...
-    def mark_failed(self, event_id: str, error_code: str, retryable: bool) -> None: ...
-    def list_stale(self, now: datetime, limit: int) -> tuple[StripeEvent, ...]: ...
+    def mark_processed(self, claim: InboxClaim, entitlement_version: int) -> None: ...
+    def mark_failed(
+        self, claim: InboxClaim, error_code: str, retryable: bool,
+    ) -> None: ...
+    def get_state(
+        self, event_id: str, consistency: ReadConsistency,
+    ) -> InboxProcessingState | None: ...
+    def get_recovery_record(
+        self, event_id: str, consistency: ReadConsistency,
+    ) -> InboxRecoveryRecord | None: ...
+    def list_recoverable(self, now: datetime, limit: int) -> tuple[StripeEvent, ...]: ...
 ```
 
 `EntitlementSnapshot` and `RunAuthorization` retain the exact definitions in Task 1 and Canonical Billing Interfaces. `BillingAuditEvent.attributes` and `BillingMetric.dimensions` are copied to immutable mappings during construction.
@@ -654,7 +678,7 @@ class WebhookInboxPort(Protocol):
 
 **Interfaces:**
 - Consumes: Python `datetime`, `Decimal`, `UUID`, `Protocol`; no infra import.
-- Produces: `BillingMode`, `BillingAccount`, `BillingAccountTenantLink`, `CreateBillingAccountCommand`, `LinkBillingTenantCommand`, `CreateBilledTenantCommand`, `PlanVersion`, `QuotaLimits`, `EntitlementSnapshot`, `SubscriptionStatus`, `EntitlementAction`, `EntitlementDecision`, `RunAuthorization`, `RunExecutionPermit`, `RunBillingState`, `RunExecutionBindingCommand`, `PublicationGuard`, `StripeEventPage`, `StripeRecoveryCursor`, the remaining request/command dataclasses and the ports listed below. It imports the single canonical CND `ExecutionPermit` and never redefines it.
+- Produces: `BillingMode`, `BillingAccount`, `BillingAccountTenantLink`, `CreateBillingAccountCommand`, `LinkBillingTenantCommand`, `CreateBilledTenantCommand`, `PlanVersion`, `QuotaLimits`, `EntitlementSnapshot`, `SubscriptionStatus`, `EntitlementAction`, `EntitlementDecision`, `RunAuthorization`, `RunExecutionPermit`, `RunBillingState`, `RunExecutionBindingCommand`, `PublicationGuard`, `InboxProcessingState`, fenced `InboxClaim`, `InboxRecoveryRecord`, `StaleInboxClaim`, `RetryableBillingError`, `PermanentBillingError`, `StripeEventPage`, `StripeRecoveryCursor`, `RecoveryCursorPort`, the remaining request/command dataclasses and ports listed below. It imports the single canonical CND `ExecutionPermit` and never redefines it.
 
 - [ ] **Step 1: Write failing immutability and invariant tests**
 
@@ -740,6 +764,9 @@ class EntitlementProjectionPort(Protocol):
         self, billing_account_id: str, consistency: ReadConsistency,
     ) -> EntitlementSnapshot | None: ...
     def compare_and_set_snapshot(self, command: SnapshotWrite) -> bool: ...
+    def commit_claimed_snapshot(
+        self, claim: InboxClaim, command: SnapshotWrite,
+    ) -> bool: ...
 
 class BillingCatalogPort(Protocol):
     def create_account(self, command: CreateBillingAccountCommand) -> BillingAccount: ...
@@ -774,10 +801,11 @@ class StripeGatewayPort(Protocol):
 
 class RecoveryCursorPort(Protocol):
     def load(self, consistency: ReadConsistency) -> StripeRecoveryCursor | None: ...
-    def compare_and_set(
-        self, expected_version: int, cursor: StripeRecoveryCursor,
+    def start(self, cursor: StripeRecoveryCursor) -> bool: ...
+    def advance(
+        self, expected: StripeRecoveryCursor, replacement: StripeRecoveryCursor,
     ) -> bool: ...
-    def complete(self, expected_version: int, completed_at: datetime) -> bool: ...
+    def complete(self, expected: StripeRecoveryCursor, completed_at: datetime) -> bool: ...
 
 class BillingAuditPort(Protocol):
     def append(self, event: BillingAuditEvent) -> None: ...
@@ -789,7 +817,7 @@ class ClockPort(Protocol):
     def now(self) -> datetime: ...
 ```
 
-Define `TransferOwnerCommand(billing_account_id: str, expected_owner_user_id: str, new_owner_user_id: str, actor_id: str, reason_code: str, transferred_at: datetime)` in `models.py`. Tests instantiate every model from the Exact Domain Model Catalog and this transfer command with explicit values. `BillingAccountTenantLink` validates exact non-empty account/tenant/user/reason identifiers and an aware UTC `linked_at`; it is the many-side association and never becomes a singular `tenant_id` field on `BillingAccount`. `CreateBillingAccountCommand` requires its account ID to equal the initial link account ID. `LinkBillingTenantCommand` validates its expected timestamp and link identity. `CreateBilledTenantCommand` requires `tenant.tenant_id == link.tenant_id`, a non-empty reservation/idempotency pair, and carries no caller-selected billing identity: the route builds its link from the already-authorized account context. `StripeEventListRequest` accepts only an aware UTC lower bound, `starting_after=None` or a non-empty event ID, and `1 <= limit <= 100`; `StripeRecoveryCursor.version` is positive and its stable `created_gte` never changes during a recovery cycle.
+Define `TransferOwnerCommand(billing_account_id: str, expected_owner_user_id: str, new_owner_user_id: str, actor_id: str, reason_code: str, transferred_at: datetime)` in `models.py`. Tests instantiate every model from the Exact Domain Model Catalog and this transfer command with explicit values. `BillingAccountTenantLink` validates exact non-empty account/tenant/user/reason identifiers and an aware UTC `linked_at`; it is the many-side association and never becomes a singular `tenant_id` field on `BillingAccount`. `CreateBillingAccountCommand` requires its account ID to equal the initial link account ID. `LinkBillingTenantCommand` validates its expected timestamp and link identity. `CreateBilledTenantCommand` requires `tenant.tenant_id == link.tenant_id`, a non-empty reservation/idempotency pair, and carries no caller-selected billing identity: the route builds its link from the already-authorized account context. `InboxClaim` requires `attempt > 0` exactly when `acquired=True`, otherwise `attempt is None`; every completion accepts that immutable claim rather than a bare event ID. `InboxRecoveryRecord` has exactly four fields; active/retry states require non-negative attempt, aware UTC `due_at` and the exact derived due-index key, while terminal states require both due fields to be `None`. `commit_claimed_snapshot` returns `False` only for a snapshot-version conflict while the same claim is still current, raises `StaleInboxClaim` when its inbox fence is lost, and returns `True` only after snapshot, inbox completion and audit/outbox commit atomically. `StaleInboxClaim` uses stable code `inbox_claim_stale`; `RetryableBillingError` and `PermanentBillingError` expose a non-empty sanitized stable `code` and never carry raw Stripe payloads. `StripeEventListRequest` accepts only an aware UTC lower bound, `starting_after=None` or a non-empty event ID, and `1 <= limit <= 100`; `StripeRecoveryCursor` has exactly four fields, requires an immutable non-empty `cycle_id`, positive `version`, and a stable `created_gte` within that cycle. A replacement cursor must retain `cycle_id`/`created_gte` and increment `version` by exactly one.
 
 - [ ] **Step 5: Run focused tests and coverage**
 
@@ -862,7 +890,7 @@ def disabled_snapshot(
     )
 ```
 
-`DisabledEntitlementProjection.get_snapshot()` returns that snapshot for every non-empty account ID. `compare_and_set_snapshot()` raises `BillingDisabledError("billing_mode=disabled operation=write_snapshot")`. `reserve_and_create_run` returns a `RunAuthorization` with `max_concurrency` equal to the deployment limit carried by `ReserveRunCommand` and no reservation ID; Task 6 persists that unmetered run through the canonical control plane. Capacity reserve/consume/release return immutable local records without counters or I/O, and run consume/release remain idempotent no-ops.
+`DisabledEntitlementProjection.get_snapshot()` returns that snapshot for every non-empty account ID. Both `compare_and_set_snapshot()` and `commit_claimed_snapshot()` raise `BillingDisabledError("billing_mode=disabled operation=write_snapshot")`. `reserve_and_create_run` returns a `RunAuthorization` with `max_concurrency` equal to the deployment limit carried by `ReserveRunCommand` and no reservation ID; Task 6 persists that unmetered run through the canonical control plane. Capacity reserve/consume/release return immutable local records without counters or I/O, and run consume/release remain idempotent no-ops.
 
 - [ ] **Step 4: Prove local mode never imports or constructs Stripe/boto clients**
 
@@ -1009,8 +1037,8 @@ git commit -m "feat(billing): authorize operations through entitlement gate"
 - Test: `tests/property/test_entitlement_projection_cas.py`
 
 **Interfaces:**
-- Consumes: `EntitlementProjectionPort`, `BillingCatalogPort`, `SnapshotWrite`, `ReadConsistency`, `CreateBillingAccountCommand`, `LinkBillingTenantCommand`; canonical DynamoDB client/table factory from `CND-021`.
-- Produces: `DynamoEntitlementProjection(table: DynamoTablePort)`, `DynamoBillingCatalog(table: DynamoTablePort)`, strongly consistent `get_tenant_link`, transactional account/tenant links, `LocalEntitlementCache(max_ttl_seconds: int, clock: ClockPort)`, `handle_entitlement_changed(record: StreamRecord, cache: LocalEntitlementCache) -> None`.
+- Consumes: `EntitlementProjectionPort`, `BillingCatalogPort`, `SnapshotWrite`, fenced `InboxClaim`, `StaleInboxClaim`, `ReadConsistency`, `CreateBillingAccountCommand`, `LinkBillingTenantCommand`; canonical DynamoDB client/table factory from `CND-021`.
+- Produces: `DynamoEntitlementProjection(table: DynamoTablePort)`, atomic `commit_claimed_snapshot`, `DynamoBillingCatalog(table: DynamoTablePort)`, strongly consistent `get_tenant_link`, transactional account/tenant links, `LocalEntitlementCache(max_ttl_seconds: int, clock: ClockPort)`, `handle_entitlement_changed(record: StreamRecord, cache: LocalEntitlementCache) -> None`.
 
 - [ ] **Step 1: Write RED tests for physical keys and strong reads**
 
@@ -1025,6 +1053,14 @@ def test_critical_read_usa_chave_base_e_consistent_read(table_spy) -> None:
 
 def test_snapshot_cas_rejeita_versao_concorrente(projection) -> None:
     assert projection.compare_and_set_snapshot(make_write(expected_version=4)) is False
+
+def test_commit_claimed_snapshot_rejeita_fence_sem_efeitos(
+    projection, table, stale_claim,
+) -> None:
+    before = table.snapshot()
+    with pytest.raises(StaleInboxClaim, match="inbox_claim_stale"):
+        projection.commit_claimed_snapshot(stale_claim, make_write(expected_version=4))
+    assert table.snapshot() == before
 
 def test_plan_version_publicada_nao_pode_ser_sobrescrita(catalog) -> None:
     catalog.publish_plan(make_plan_version(plan_version_id="plan_v1"))
@@ -1071,6 +1107,8 @@ def compare_and_set_snapshot(self, command: SnapshotWrite) -> bool:
 ```
 
 The serialized item includes every `EntitlementSnapshot` field, `entity_type="EntitlementSnapshot"`, and no card/payment-method fields. `compare_and_set_snapshot` increments to exactly `expected_version + 1`; identical current state may retain content but still increments when access, quota, or fencing semantics changed.
+
+`commit_claimed_snapshot(claim, command)` uses one `TransactWriteItems`: update the snapshot conditioned on `command.expected_version`; update `PK=STRIPE_EVENT#<claim.event_id>, SK=EVENT` from `PROCESSING` to `PROCESSED` conditioned on the exact persisted `attempt=claim.attempt`, recording the new entitlement version and removing lease/due-index attributes; and conditionally put every `command.audit_events` row in the durable audit/outbox with deterministic keys. A failed condition commits none of those effects. After a cancellation, strong base-key reads classify an inbox-fence loss as `StaleInboxClaim`, a snapshot-only version loss as `False`, and any ambiguous/other failure as retryable; it never guesses success from an eventual index. A successful transaction is the only supported completion path for an event that changes entitlement state; standalone `mark_processed` must not follow or precede a snapshot write.
 
 `DynamoBillingCatalog` uses these base keys and conditional writes:
 
@@ -1694,8 +1732,8 @@ git commit -m "feat(api): expose owner-authorized billing sessions"
 - Test: `packages/cnes_infra/tests/billing/test_webhook_inbox.py`
 
 **Interfaces:**
-- Consumes: Stripe SDK signature construction, Task 7 `SecretProviderPort`/`SecretsManagerSecretProvider`, and the DynamoDB table interface from integrated `AWS-010`; Task 4 projection exists. Concrete client construction remains deferred to serial Task 13.
-- Produces: `StripeWebhookVerifier.verify(payload: bytes, signature: str) -> StripeEvent`, `WebhookInbox.accept(event: StripeEvent) -> InboxAcceptResult`, `POST /api/v1/billing/webhooks/stripe`.
+- Consumes: Stripe SDK signature construction, Task 1 `ClockPort`, Task 7 `SecretProviderPort`/`SecretsManagerSecretProvider`, and the DynamoDB table interface from integrated `AWS-010`; Task 4 projection exists. Concrete client construction remains deferred to serial Task 13.
+- Produces: `StripeWebhookVerifier.verify(payload: bytes, signature: str) -> StripeEvent`, `WebhookInbox(table: DynamoTablePort, clock: ClockPort)`, `accept(event: StripeEvent) -> InboxAcceptResult`, strong `get_state/get_recovery_record`, bounded `list_recoverable`, `POST /api/v1/billing/webhooks/stripe`.
 
 - [ ] **Step 1: Write RED signature and raw-byte tests**
 
@@ -1719,6 +1757,47 @@ def test_webhook_assinatura_invalida_nao_persiste(client, inbox) -> None:
     )
     assert response.status_code == 400
     inbox.accept.assert_not_called()
+
+def test_failed_retryable_vencido_volta_a_fila(inbox, clock) -> None:
+    inbox.accept(make_stripe_event("evt_retry"))
+    claim = inbox.claim("evt_retry", clock.now())
+    inbox.mark_failed(claim, "stripe_unavailable", retryable=True)
+    clock.advance(seconds=retry_delay(attempt=1))
+    assert inbox.list_recoverable(clock.now(), 100) == (
+        make_stripe_event("evt_retry"),
+    )
+
+def test_backoff_exponencial_usa_clock_injetado_e_teto(inbox, clock) -> None:
+    event = make_stripe_event("evt_backoff")
+    inbox.accept(event)
+    for attempt in range(1, 10):
+        claim = inbox.claim(event.event_id, clock.now())
+        assert claim.attempt == attempt
+        failed_at = clock.now()
+        inbox.mark_failed(claim, "stripe_unavailable", retryable=True)
+        delay = min(30 * 2 ** min(attempt - 1, 7), 3_600)
+        assert inbox.list_recoverable(
+            failed_at + timedelta(seconds=delay, microseconds=-1), 100,
+        ) == ()
+        clock.advance(seconds=delay)
+        assert inbox.list_recoverable(clock.now(), 100) == (event,)
+
+def test_claim_antigo_nao_conclui_apos_reclaim(inbox, clock) -> None:
+    inbox.accept(make_stripe_event("evt_race"))
+    old = inbox.claim("evt_race", clock.now())
+    assert old.acquired is True and old.attempt is not None
+    clock.advance(seconds=301)
+    current = inbox.claim("evt_race", clock.now())
+    assert current.acquired is True and current.attempt is not None
+    assert current.attempt == old.attempt + 1
+    with pytest.raises(StaleInboxClaim, match="inbox_claim_stale"):
+        inbox.mark_processed(old, entitlement_version=2)
+    with pytest.raises(StaleInboxClaim, match="inbox_claim_stale"):
+        inbox.mark_failed(old, "late_failure", retryable=True)
+    assert inbox.get_state(
+        "evt_race", ReadConsistency.STRONG,
+    ) is InboxProcessingState.PROCESSING
+    inbox.mark_processed(current, entitlement_version=2)
 ```
 
 - [ ] **Step 2: Run tests to verify RED**
@@ -1745,13 +1824,17 @@ Allow exactly: `checkout.session.completed`, `customer.subscription.created`, `c
 
 - [ ] **Step 4: Implement conditional inbox lease/dedupe**
 
-Use `PK=STRIPE_EVENT#<event_id>`, `SK=EVENT`. First accept writes `PENDING`, `event_type`, `created_at`, `payload_sha256`, opaque object IDs and `received_at`. A duplicate `PROCESSED` or unexpired `PROCESSING` returns `DUPLICATE`; stale `PROCESSING` can be claimed later. Store no payment method or card data. DynamoDB failure returns `503` so Stripe retries; duplicates return 200.
+Use `PK=STRIPE_EVENT#<event_id>`, `SK=EVENT`. First accept writes `PENDING`, `attempt=0`, `event_type`, `created_at`, `payload_sha256`, opaque object IDs and `received_at`. `claim` conditionally acquires `PENDING`, due `FAILED_RETRYABLE`, or lease-expired `PROCESSING`, atomically increments the persisted monotonic `attempt`, writes a bounded lease, and returns that new positive attempt in immutable `InboxClaim`. A non-acquired result carries `attempt=None`.
+
+`WebhookInbox` retains its injected `ClockPort`; no method reads wall time directly. `mark_processed(claim, entitlement_version)` and `mark_failed(claim, error_code, retryable)` use the claim event ID as base key and condition `state=PROCESSING AND attempt=claim.attempt`; neither accepts a caller-built event ID/attempt pair or an unacquired claim. A condition loss raises `StaleInboxClaim` and performs no state, retry, due-index, entitlement or audit mutation. Therefore a worker whose lease expired cannot complete or fail the event after a newer claimant increments the attempt. A valid retryable failure writes `FAILED_RETRYABLE` and `next_attempt_at=clock.now()+timedelta(seconds=min(30 * 2 ** min(claim.attempt - 1, 7), 3_600))`; exact constants are `STRIPE_INBOX_RETRY_BASE_SECONDS=30` and `STRIPE_INBOX_RETRY_MAX_SECONDS=3600`, with no jitter and a capped exponent so replay tests and corrupt large attempts remain bounded. A non-retryable failure uses the same claim condition in one transaction that writes terminal `FAILED_FINAL`, removes lease/due-index attributes, stores the deterministic final-audit ID on the base item and puts that `billing.webhook_failed_final` audit/outbox row containing only event ID/type, attempt and sanitized stable `error_code`. The strong decoder rejects `FAILED_FINAL` without that audit ID. A duplicate delivery never resets attempt, state, lease, or retry timing. Standalone `mark_processed` is limited to inbox-only cases; entitlement projection uses Task 4's atomic `commit_claimed_snapshot`.
+
+`list_recoverable(now, limit)` requires aware UTC `now` and queries the shared `GSI1` with `GSI1PK=STRIPE_RECOVERY#DUE AND GSI1SK <= <now>#\uffff`, returning at most `limit` candidate IDs in due order. `GSI1SK=<due_at>#<event_id>` uses fixed-width lexicographically sortable UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ`; non-UTC or variable-width timestamps are rejected. The same conditional base-item mutations for accept/claim/failure set or move those attributes to immediate, lease-expiry, or retry due time; terminal completion removes them. Because GSI1 is eventually consistent and may be stale, every candidate is strongly reread by `PK=STRIPE_EVENT#<event_id>, SK=EVENT` and decoded as `InboxRecoveryRecord` before return. Only due `PENDING`, `FAILED_RETRYABLE next_attempt_at <= now`, and `PROCESSING lease_until <= now` with matching derived due key survive; the index never supplies state, attempt, authorization, or permission to claim. `get_state(event_id, STRONG)` and `get_recovery_record(event_id, STRONG)` are base-key consistent reads; malformed state-specific timing/index metadata raises corruption rather than authorizing progress. Store no payment method or card data. DynamoDB failure returns `503` so Stripe retries; duplicates return 200.
 
 - [ ] **Step 5: Run signature, duplicate and concurrent retry tests**
 
 Run: `uv run pytest apps/central_api/tests/routes/test_stripe_webhook.py packages/cnes_infra/tests/billing/test_webhook_inbox.py -q`
 
-Expected: PASS; duplicate payload produces one inbox item and HTTP 200 on every delivery.
+Expected: PASS; duplicate payload produces one inbox item, due failed-retryable and expired leases are reclaimable with increasing attempts, exact retry delays are `30, 60, 120, ...` capped at 3,600 seconds from the injected clock, both stale completion paths fail without mutating the current claim, permanent failure is fenced and audited atomically, stale GSI candidates are rejected by strong base reads, and every webhook delivery receives the correct HTTP response.
 
 - [ ] **Step 6: Commit**
 
@@ -1771,7 +1854,7 @@ git commit -m "feat(billing): verify and deduplicate Stripe webhooks"
 - Test: `tests/property/test_stripe_event_reordering.py`
 
 **Interfaces:**
-- Consumes: `WebhookInbox.claim/mark_processed/mark_failed`, `StripeGatewayPort.get_current_state`, `DynamoEntitlementProjection.compare_and_set_snapshot`, `BillingAuditPort`.
+- Consumes: fenced `WebhookInbox.claim/mark_failed`, `StripeGatewayPort.get_current_state`, `DynamoEntitlementProjection.get_snapshot/commit_claimed_snapshot`, `SnapshotWrite.audit_events`, `ClockPort`.
 - Produces: `StripeEventProjector.process(event_id: str) -> ProjectionResult`.
 
 - [ ] **Step 1: Write RED duplicate/reorder/retry tests**
@@ -1789,6 +1872,58 @@ def test_eventos_fora_de_ordem_convergem_ao_estado_atual(projector, stripe) -> N
 def test_retry_concorrente_aplica_evento_uma_vez(projector) -> None:
     results = run_concurrently(lambda: projector.process("evt_01"), count=2)
     assert sum(result.applied for result in results) == 1
+
+def test_falha_retryable_persiste_estado_recuperavel(projector, inbox) -> None:
+    projector.stripe.get_current_state.side_effect = RetryableBillingError(
+        "stripe_unavailable",
+    )
+    with pytest.raises(RetryableBillingError):
+        projector.process("evt_01")
+    assert inbox.get_state(
+        "evt_01", ReadConsistency.STRONG,
+    ) is InboxProcessingState.FAILED_RETRYABLE
+
+def test_falha_permanente_e_fenced_e_auditada(projector, inbox, outbox) -> None:
+    projector.stripe.get_current_state.side_effect = PermanentBillingError(
+        "stripe_event_schema_invalid",
+    )
+    result = projector.process("evt_01")
+    assert result.applied is False
+    assert inbox.get_state(
+        "evt_01", ReadConsistency.STRONG,
+    ) is InboxProcessingState.FAILED_FINAL
+    assert outbox.events_for_source("evt_01") == (
+        make_final_failure_audit("evt_01", "stripe_event_schema_invalid"),
+    )
+
+@pytest.mark.race
+def test_claim_antigo_nao_regrede_snapshot_apos_reclaim(
+    stack, monkeypatch, executor,
+) -> None:
+    ready, release = Event(), Event()
+    real_commit = stack.projection.commit_claimed_snapshot
+
+    def pause_old_commit(claim, command):
+        if claim.attempt == 1:
+            ready.set()
+            assert release.wait(timeout=5)
+        return real_commit(claim, command)
+
+    monkeypatch.setattr(stack.projection, "commit_claimed_snapshot", pause_old_commit)
+    stack.stripe.get_current_state.side_effect = [
+        make_stripe_state(status=SubscriptionStatus.PAST_DUE, version="plan_v1"),
+        make_stripe_state(status=SubscriptionStatus.ACTIVE, version="plan_v2"),
+    ]
+    old = executor.submit(stack.projector.process, "evt_01")
+    assert ready.wait(timeout=5)
+    stack.clock.advance(seconds=301)
+    current = stack.projector.process("evt_01")
+    release.set()
+    assert old.result(timeout=5).applied is False
+    snapshot = stack.projection.get_snapshot("ba_01", ReadConsistency.STRONG)
+    assert snapshot.plan_version_id == "plan_v2"
+    assert snapshot.subscription_status is SubscriptionStatus.ACTIVE
+    assert stack.outbox.source_versions("evt_01") == {current.entitlement_version}
 ```
 
 - [ ] **Step 2: Run tests to verify RED**
@@ -1808,18 +1943,37 @@ def process(self, event_id: str) -> ProjectionResult:
         account = self._catalog.get_account_by_customer(claimed.customer_id)
         if account is None:
             raise RetryableBillingError("stripe_customer_mapping_missing")
-        state = self._stripe.get_current_state(
-            StripeStateRequest(claimed.customer_id, claimed.subscription_id),
-        )
-        result = self._project_current_state(claimed, state)
+        for _ in range(STRIPE_PROJECTION_CAS_RETRIES):
+            state = self._stripe.get_current_state(
+                StripeStateRequest(claimed.customer_id, claimed.subscription_id),
+            )
+            command = self._build_snapshot_write(claimed, account, state)
+            try:
+                committed = self._projection.commit_claimed_snapshot(claimed, command)
+            except StaleInboxClaim:
+                return ProjectionResult(event_id, False, None)
+            if committed:
+                return ProjectionResult(
+                    event_id, True, command.snapshot.entitlement_version,
+                )
+        raise RetryableBillingError("snapshot_cas_exhausted")
     except RetryableBillingError as error:
-        self._inbox.mark_failed(event_id, str(error), retryable=True)
+        try:
+            self._inbox.mark_failed(claimed, error.code, retryable=True)
+        except StaleInboxClaim:
+            return ProjectionResult(event_id, False, None)
         raise
-    self._inbox.mark_processed(event_id, result.entitlement_version)
-    return result
+    except PermanentBillingError as error:
+        try:
+            self._inbox.mark_failed(claimed, error.code, retryable=False)
+        except StaleInboxClaim:
+            return ProjectionResult(event_id, False, None)
+        return ProjectionResult(event_id, False, None)
 ```
 
-`_project_current_state` maps current Subscription, active entitlements and internal `PlanVersion`, derives grace and access status, then retries snapshot CAS on a concurrent version. It never trusts event delivery order or checkout redirect. Every applied change emits `subscription.*` and `entitlement.changed` audit/outbox events with `source_event_id`.
+Use exact `STRIPE_PROJECTION_CAS_RETRIES=3`. `_build_snapshot_write` strongly reads the latest snapshot, maps the just-fetched current Subscription, active entitlements and internal `PlanVersion`, derives grace/access status, and returns the replacement plus deterministic `subscription.*` and `entitlement.changed` audit/outbox events carrying `source_event_id`. A `False` commit means only that the snapshot version changed while this claim remained current: the next bounded iteration must call `get_current_state` again before rereading/recomputing the snapshot, never reuse captured Stripe state. Exhaustion becomes a retryable failure.
+
+The Task 4 transaction conditions both snapshot version and `PROCESSING`/exact attempt, and atomically commits snapshot, `PROCESSED`, due-index removal and audit/outbox. Consequently an attempt paused before commit cannot regress snapshot or emit stale audit after its lease expires and a newer attempt commits. A retryable exception conditionally leaves `FAILED_RETRYABLE` for the exact claim before it escapes. A `PermanentBillingError` conditionally commits fenced `FAILED_FINAL` and its sanitized failure audit before returning. Unknown exceptions do neither and leave `PROCESSING` until lease recovery. Any `StaleInboxClaim` stops the old worker; it never loads a fresh attempt or performs another mutation.
 
 - [ ] **Step 4: Test every lifecycle event mapping**
 
@@ -1829,7 +1983,7 @@ Add cases for all ten allowlisted event types, including `cancel_at_period_end`,
 
 Run: `uv run pytest packages/cnes_infra/tests/billing/test_projector.py tests/property/test_stripe_event_reordering.py --hypothesis-show-statistics -q`
 
-Expected: PASS for arbitrary event permutations and duplicate counts.
+Expected: PASS for arbitrary event permutations and duplicate counts; a delayed old claim cannot regress snapshot/audit after reclaim, every lost snapshot CAS refetches Stripe before retry, retryable failure remains scheduled, and permanent failure is fenced and audited exactly once.
 
 - [ ] **Step 6: Commit**
 
@@ -1847,16 +2001,30 @@ git commit -m "feat(billing): project current Stripe state safely"
 - Test: `packages/cnes_infra/tests/billing/test_recovery.py`
 
 **Interfaces:**
-- Consumes: Task 9 inbox, Task 10 projector, `StripeGatewayPort.list_events`, `StripeEventPage`, `RecoveryCursorPort`, `ClockPort`.
-- Produces: `DynamoRecoveryCursor(table: DynamoTablePort)`, `WebhookRecovery.run(request: RecoveryRequest) -> RecoveryResult`; each invocation handles at most one Stripe page and resumes older pages with its persisted `starting_after` cursor.
+- Consumes: Task 9 `list_recoverable`/strong `get_recovery_record`, Task 10 projector, `StripeGatewayPort.list_events`, `StripeEventPage`, `RecoveryCursorPort`, `ClockPort`.
+- Produces: `DynamoRecoveryCursor(table: DynamoTablePort)`, ABA-safe cycle-scoped cursor CAS, shared `WebhookRecovery.drain_inbox(limit: int) -> RecoveryResult`, `WebhookRecovery.run(request: RecoveryRequest) -> RecoveryResult`; each invocation retries at most one bounded inbox batch before at most one Stripe page and resumes older pages with persisted `starting_after`.
 
 - [ ] **Step 1: Write RED recovery tests**
 
 ```python
 def test_recovery_reclama_processing_vencido(recovery, inbox) -> None:
-    inbox.list_stale.return_value = (make_inbox_event("evt_01"),)
+    inbox.list_recoverable.return_value = (make_inbox_event("evt_01"),)
     result = recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
     assert result.reprocessed == 1
+
+def test_failed_retryable_duravel_nao_bloqueia_sweep(stack) -> None:
+    stack.inbox.accept(make_stripe_event("evt_failed"))
+    stack.stripe.get_current_state.side_effect = RetryableBillingError(
+        "stripe_unavailable",
+    )
+    stack.stripe.list_events.return_value = StripeEventPage(events=(), has_more=False)
+    result = stack.recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
+    assert result.failed == 1
+    assert stack.inbox.get_state(
+        "evt_failed", ReadConsistency.STRONG,
+    ) is InboxProcessingState.FAILED_RETRYABLE
+    stack.stripe.list_events.assert_called_once()
+    assert stack.cursor.load(ReadConsistency.STRONG) is None
 
 def test_recovery_importa_evento_nao_entregue(recovery, stripe, inbox) -> None:
     stripe.list_events.return_value = StripeEventPage(
@@ -1875,22 +2043,36 @@ Expected: FAIL with missing recovery module.
 
 - [ ] **Step 3: Implement bounded, cursor-safe recovery**
 
-Use exact defaults `STRIPE_RECOVERY_LOOKBACK_HOURS=72`, `STRIPE_RECOVERY_BATCH_SIZE=100`, `STRIPE_PROCESSING_LEASE_SECONDS=300`. `WebhookRecovery.run` first reclaims a bounded page of expired `PROCESSING`, then strongly loads `StripeRecoveryCursor` from `PK=BILLING#SYSTEM`, `SK=RECOVERY#STRIPE`. When no cycle is active it creates version 1 with `cycle_started_at=now`, the stable lower bound `created_gte=now-lookback`, and `starting_after=None`; a resumed cycle reuses both timestamps rather than moving the lookback window.
+Use exact defaults `STRIPE_RECOVERY_LOOKBACK_HOURS=72`, `STRIPE_RECOVERY_BATCH_SIZE=100`, `STRIPE_PROCESSING_LEASE_SECONDS=300`. `WebhookRecovery.drain_inbox(limit)` calls `list_recoverable(clock.now(), limit)`, invokes the projector for at most that bounded set and strongly rereads every attempted event through `get_recovery_record`; `run` calls that same method first with `batch_size`. A remaining `PENDING` or `PROCESSING`, malformed record, or a full batch that may leave more immediately due work returns without touching Stripe Events or a recovery cursor. `FAILED_RETRYABLE` with valid future `due_at` and exact `due_index_key` on the strongly read base item is instead a durable handoff: it increments `RecoveryResult.failed` but does not head-of-line block discovery. Thus due work is attempted before discovery, while one poison event cannot pin the Stripe cursor indefinitely.
 
-One invocation sends exactly one `StripeEventListRequest(created_gte=cursor.created_gte, starting_after=cursor.starting_after, limit=batch_size)`. It conditionally inserts every unseen supported event in the returned newest-first page and invokes the projector. Only after every page item is durably `PROCESSED`, `IGNORED`, or recorded retryable in the inbox does it CAS the cursor. If `has_more=True`, the new `starting_after` is exactly `page.events[-1].event_id` and version increments by one; `has_more=True` with an empty page is a retryable protocol error. If `has_more=False`, `complete(expected_version, now)` atomically clears the active cursor and records `last_success_at`. A CAS loss reloads instead of overwriting another worker. A crash before the CAS replays the same page through inbox dedupe; a crash after the CAS resumes with the saved last-item ID, so neither path drops an event. No request or persisted item contains an opposite-direction event cursor.
+`DynamoRecoveryCursor` uses persistent `PK=BILLING#SYSTEM`, `SK=RECOVERY#STRIPE`. When `load(STRONG)` returns no active cycle, recovery builds `StripeRecoveryCursor(cycle_id=uuid4().hex, created_gte=now-lookback, starting_after=None, version=1)` and calls `start`; start conditions `attribute_not_exists(active_cycle_id)` but retains prior completion metadata on the item. `advance(expected, replacement)` conditions exact `active_cycle_id`, `version`, `created_gte`, and `starting_after`; replacement must keep cycle ID/lower bound and increment version once. `complete(expected, now)` uses the same exact expected-cycle condition, removes only active fields, and records `last_completed_cycle_id`, `last_completed_version`, and `last_success_at`. A delayed advance/complete from an old cycle can therefore match neither an idle item nor a new version-1 cycle, eliminating ABA even though per-cycle versions restart at 1.
+
+After the inbox pre-pass, one invocation sends exactly one `StripeEventListRequest(created_gte=cursor.created_gte, starting_after=cursor.starting_after, limit=batch_size)`. It conditionally inserts every unseen supported event in the returned newest-first page and invokes the projector. Before cursor mutation it strongly reads every page event through `get_recovery_record`. Pagination-safe states are `PROCESSED`, `IGNORED`, audited `FAILED_FINAL`, and `FAILED_RETRYABLE` whose record has valid future `due_at` and exact `due_index_key`; the last state is a queue handoff, not projection success. `PENDING`, `PROCESSING`, malformed retry metadata, or failure to persist retry state leaves the cursor unchanged and fails closed. A retryable projection error must fence-write that durable handoff before `RecoveryResult.failed` is incremented. The page can then advance or complete, and a later bounded pre-pass reclaims the event through GSI1 even after it falls outside a new Stripe lookback window.
+
+If all page events are pagination-safe and `has_more=True`, replacement `starting_after` is exactly `page.events[-1].event_id`; an empty page or a last event equal to the current `starting_after` raises retryable `stripe_cursor_not_progressing` without cursor mutation. If `has_more=False`, recovery completes the exact active cycle. A conditional loss reloads instead of overwriting another worker. A crash before cursor mutation replays the page through inbox dedupe; a crash after `advance` resumes with the saved last-item ID. No request or persisted item contains an opposite-direction event cursor.
 
 - [ ] **Step 4: Add crash/resume and pagination coverage**
 
 ```python
-def test_crash_apos_import_reprocessa_sem_duplicar(recovery, projector) -> None:
-    projector.process.side_effect = [
+def test_crash_apos_claim_espera_lease_antes_de_reclaim(stack) -> None:
+    stack.inbox.accept(make_stripe_event("evt_01"))
+    stack.stripe.get_current_state.side_effect = [
         RuntimeError("worker_crash"),
-        ProjectionResult("evt_01", True, 2),
+        make_stripe_state(status=SubscriptionStatus.ACTIVE),
     ]
     with pytest.raises(RuntimeError, match="worker_crash"):
-        recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
-    result = recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
+        stack.projector.process("evt_01")
+    assert stack.inbox.get_state(
+        "evt_01", ReadConsistency.STRONG,
+    ) is InboxProcessingState.PROCESSING
+    assert stack.inbox.list_recoverable(stack.clock.now(), 100) == ()
+    stack.clock.advance(seconds=301)
+    stack.stripe.list_events.return_value = StripeEventPage(events=(), has_more=False)
+    result = stack.recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
     assert result.reprocessed == 1
+    assert stack.inbox.get_state(
+        "evt_01", ReadConsistency.STRONG,
+    ) is InboxProcessingState.PROCESSED
 
 def test_mais_de_um_limit_percorre_paginas_mais_antigas(
     recovery, stripe, cursor,
@@ -1920,6 +2102,57 @@ def test_crash_antes_do_cas_repete_pagina_sem_perder_eventos(stack) -> None:
     stack.failpoints.raise_after_page_effects = False
     drain_recovery_cycle(stack.recovery)
     assert stack.inbox.unique_accepted_ids() == set(all_205_event_ids())
+
+def test_cas_atrasado_de_ciclo_antigo_nao_avanca_novo(cursor) -> None:
+    old = make_recovery_cursor(cycle_id="cycle-old", version=1)
+    assert cursor.start(old) is True
+    assert cursor.complete(old, NOW) is True
+    current = make_recovery_cursor(cycle_id="cycle-new", version=1)
+    assert cursor.start(current) is True
+    stale = replace(old, starting_after="evt_old", version=2)
+    assert cursor.advance(old, stale) is False
+    assert cursor.complete(old, NOW + timedelta(seconds=1)) is False
+    assert cursor.load(ReadConsistency.STRONG) == current
+
+def test_failed_da_pagina_conclui_e_fila_reprocessa_fora_do_lookback(stack) -> None:
+    old_event = make_stripe_event("evt_failed", created_at=stack.clock.now())
+    stack.stripe.list_events.side_effect = [
+        StripeEventPage(events=(old_event,), has_more=False),
+        StripeEventPage(events=(), has_more=False),
+    ]
+    stack.stripe.get_current_state.side_effect = [
+        RetryableBillingError("stripe_unavailable"),
+        make_stripe_state(status=SubscriptionStatus.ACTIVE),
+    ]
+    first = stack.recovery.run(RecoveryRequest(72, 100))
+    assert first.failed == 1
+    assert stack.inbox.get_state(
+        "evt_failed", ReadConsistency.STRONG,
+    ) is InboxProcessingState.FAILED_RETRYABLE
+    assert stack.cursor.load(ReadConsistency.STRONG) is None
+    stack.clock.advance(hours=73)
+    second = stack.recovery.run(RecoveryRequest(72, 100))
+    assert second.reprocessed == 1
+    assert stack.inbox.get_state(
+        "evt_failed", ReadConsistency.STRONG,
+    ) is InboxProcessingState.PROCESSED
+    second_request = stack.stripe.list_events.call_args_list[1].args[0]
+    assert second_request.created_gte > old_event.created_at
+
+def test_has_more_sem_progresso_preserva_cursor(stack) -> None:
+    event = make_stripe_event("evt_106")
+    stack.inbox.accept(event)
+    claim = stack.inbox.claim(event.event_id, stack.clock.now())
+    stack.inbox.mark_processed(claim, entitlement_version=2)
+    current = make_recovery_cursor(starting_after="evt_106")
+    assert stack.cursor.start(current) is True
+    stack.stripe.list_events.return_value = StripeEventPage(
+        events=(event,),
+        has_more=True,
+    )
+    with pytest.raises(RetryableBillingError, match="stripe_cursor_not_progressing"):
+        stack.recovery.run(RecoveryRequest(72, 100))
+    assert stack.cursor.load(ReadConsistency.STRONG) == current
 ```
 
 Scheduling and the executable entrypoint are added in serial Task 13 after the app manifest and workspace membership exist.
@@ -1928,7 +2161,7 @@ Scheduling and the executable entrypoint are added in serial Task 13 after the a
 
 Run: `uv run pytest packages/cnes_infra/tests/billing/test_recovery.py -q`
 
-Expected: PASS; 205 events traverse three older pages with cursors `None -> evt_106 -> evt_006`, the completed sweep clears its cursor so the next sweep starts at `None`, crash replay deduplicates the repeated page, and every event reaches durable processing exactly once.
+Expected: PASS; due work runs in a bounded pre-pass, while a durably queued failed-retryable event cannot head-of-line block page/cycle completion and is later reclaimed even outside the Stripe lookback; 205 events traverse three older pages with cursors `None -> evt_106 -> evt_006`; a completed sweep clears only active fields; an old-cycle CAS cannot mutate a new version-1 cycle; a crashed claimant is reclaimed only after 300 seconds; non-progressing pages preserve the cursor; and every page event reaches a fenced pagination-safe state before cursor movement.
 
 - [ ] **Step 6: Commit**
 
@@ -1946,7 +2179,7 @@ git commit -m "feat(billing): recover Stripe webhook delivery"
 
 **Interfaces:**
 - Consumes: Tasks 4, 9–11 with the DynamoDB Local fixture from `CND-025` and a fake Stripe HTTP boundary.
-- Produces: integrated evidence for signature, dedupe, reordering, retry, stale lease and recovery.
+- Produces: integrated evidence for signature, dedupe, reordering, retryable-failure backoff, stale lease, cycle-fenced cursor and recovery.
 
 - [ ] **Step 1: Write the failing integrated scenario**
 
@@ -1967,13 +2200,13 @@ Expected: FAIL at the first unintegrated boundary, identifying the missing adapt
 
 - [ ] **Step 3: Complete fixtures and failure cases without changing production interfaces**
 
-Add cases for duplicate deliveries, reversed delivery, simultaneous retries, Stripe 503, DynamoDB 503, invalid signature, unknown Price, stale processing lease and recovery import. Assert critical gates fail closed while DynamoDB is unavailable and the last valid snapshot governs only until `valid_until`.
+Add cases for duplicate deliveries, reversed delivery, simultaneous retries, Stripe 503, DynamoDB 503, invalid signature, unknown Price, stale processing lease, due `FAILED_RETRYABLE`, durable retry handoff followed by recovery outside the Stripe lookback, old-claim projection commit after reclaim, old-cycle advance/complete attempts after a new cycle starts, and recovery import. Assert critical gates fail closed while DynamoDB is unavailable, an old claim mutates neither snapshot nor audit, no retryable event is stranded behind a moved cursor, and the last valid snapshot governs only until `valid_until`.
 
 - [ ] **Step 4: Run integration and chaos suites**
 
 Run: `uv run pytest tests/integration/billing/test_webhook_projection.py tests/chaos/test_stripe_projection_failures.py -q`
 
-Expected: PASS; all failures either retry safely or deny access without losing the inbox item.
+Expected: PASS; all failures either retry safely or deny access, no stale-cycle CAS mutates the active cursor, and no retryable inbox item is lost behind pagination.
 
 - [ ] **Step 5: Commit**
 
@@ -2025,6 +2258,10 @@ def test_app_inclui_billing_e_webhook_routes() -> None:
     assert "/api/v1/billing/portal" in paths
     assert "/api/v1/billing/status" in paths
     assert "/api/v1/billing/webhooks/stripe" in paths
+
+def test_worker_inbox_delega_ao_dreno_bounded(worker, recovery) -> None:
+    assert worker.run_inbox(limit=37) == recovery.drain_inbox.return_value
+    recovery.drain_inbox.assert_called_once_with(37)
 ```
 
 In `packages/cnes_infra/tests/billing/test_composition.py`, lock down the billing-owned factory independently of the AWS core factory:
@@ -2067,9 +2304,9 @@ def build_secret_provider(
     raise BillingConfigurationError(f"billing_mode_unknown mode={mode}")
 ```
 
-In `disabled`, call this factory before the local billing bundle only to obtain `None`; do not construct Stripe, Secrets Manager or worker network clients. Billing and webhook routes return the documented disabled response before accessing Stripe-specific app state. In `stripe`, call it once with the same boto3 `Session` already accepted by the integrated AWS `build_runtime`, require a non-`None` provider, resolve `STRIPE_SECRET_KEY_SECRET_ARN` and `STRIPE_WEBHOOK_SECRET_SECRET_ARN`, and pass the returned text only to `stripe.StripeClient(api_key)` and `StripeWebhookVerifier`; never store either value on settings, `RuntimeComponents`, `app.state`, dataclasses, or logs. Resolve the table binding and three allowlisted return URLs; attach `billing_catalog`, `entitlement_gate`, `stripe_gateway`, `stripe_webhook_verifier`, and `webhook_inbox` to app state. Mount both routers. The bounded worker uses the same billing-owned factory; no code adds Secrets Manager to `AwsClients` or `create_aws_clients`.
+In `disabled`, call this factory before the local billing bundle only to obtain `None`; do not construct Stripe, Secrets Manager or worker network clients. Billing and webhook routes return the documented disabled response before accessing Stripe-specific app state. In `stripe`, call it once with the same boto3 `Session` already accepted by the integrated AWS `build_runtime`, require a non-`None` provider, resolve `STRIPE_SECRET_KEY_SECRET_ARN` and `STRIPE_WEBHOOK_SECRET_SECRET_ARN`, and pass the returned text only to `stripe.StripeClient(api_key)` and `StripeWebhookVerifier`; never store either value on settings, `RuntimeComponents`, `app.state`, dataclasses, or logs. Resolve the table binding, construct `WebhookInbox(table, clock)` with the same injected `ClockPort` used by projector/recovery, and resolve three allowlisted return URLs; attach `billing_catalog`, `entitlement_gate`, `stripe_gateway`, `stripe_webhook_verifier`, and `webhook_inbox` to app state. Mount both routers. The bounded worker uses the same billing-owned factory; no code adds Secrets Manager to `AwsClients` or `create_aws_clients`.
 
-Create the worker with deterministic CLI commands `billing-worker inbox --limit 100` and `billing-worker recover`. `main(argv: Sequence[str] | None = None) -> int` returns `0` after a successful bounded cycle, `1` when durable retry state could not be recorded, and `2` for invalid command input. Scheduling belongs to deployment/IaC and is not created here.
+Create the worker with deterministic CLI commands `billing-worker inbox --limit 100` and `billing-worker recover`. The `inbox` command delegates exactly once to Task 11's shared `WebhookRecovery.drain_inbox(limit)`, which performs bounded `list_recoverable(clock.now(), limit)`, projector calls and strong rereads; it does not scan the table, bypass retry due times, or invent a second claim path. `main(argv: Sequence[str] | None = None) -> int` returns `0` after a successful bounded cycle (including durable `FAILED_RETRYABLE` handoff), `1` when durable retry/final state could not be recorded, and `2` for invalid command input. Scheduling belongs to deployment/IaC and is not created here.
 
 - [ ] **Step 5: Export API schema and add exact env documentation**
 
@@ -2638,7 +2875,7 @@ The merged implementation follows the approved order:
 - [ ] `BIL-012`: DynamoDB projection, base-key strong reads, 60-second cache and invalidation are covered by Task 4.
 - [ ] `BIL-013`: atomic reserve/consume/release/recovery and final-unit race are covered by Task 5.
 - [ ] `BIL-020`: hosted Checkout, Portal, owner/same-account-admin authorization, strong account/tenant link reads, allowlisted redirects and pending redirect are covered by Tasks 4, 7–8 and 13.
-- [ ] `BIL-021`: raw signature, allowlist, inbox dedupe, reordering, retries, older-page `starting_after` recovery, cursor reset and worker are covered by Tasks 9–13.
+- [ ] `BIL-021`: raw signature, allowlist, inbox dedupe, reordering, bounded `FAILED_RETRYABLE` recovery, older-page `starting_after`, cycle-ID ABA fencing, cursor reset and worker are covered by Tasks 9–13.
 - [ ] `BIL-022`: same-account-admin revocation authorization, immediate snapshot revocation, run fences, Step Functions cancellation and publisher denial are covered by Tasks 14 and 17.
 - [ ] `BIL-023`: reconciliation, explicit audit, metrics, alert contracts and runbook are covered by Tasks 15–17.
 - [ ] `BIL-024`: trial, renewal, payment failure, period-end cancellation and immediate revocation test clocks are covered by Tasks 18–19.
@@ -2649,3 +2886,6 @@ The merged implementation follows the approved order:
 ## Execution Handoff
 
 Plan complete and saved to `plans/2026-08-23-cnesdata-billing-entitlements-implementation-plan.md`. Two execution options:
+
+1. **Subagent-Driven (recommended)** — dispatch one fresh agent per task, review specification compliance and code quality between tasks, and reserve Tasks 6, 13, 17 and 19 for the serial integration lane.
+2. **Inline Execution** — use `superpowers:executing-plans`, execute the delivery-order batches, and stop at each serial integration gate for review.
