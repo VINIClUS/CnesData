@@ -18,6 +18,8 @@
 - Stripe Entitlements representa features booleanas; quotas numéricas pertencem a uma `PlanVersion` interna, publicada e imutável.
 - O redirect de Checkout nunca concede acesso; somente webhook assinado e projetado pode alterar o snapshot.
 - Gates críticos — criar run, registrar agent, reservar budget e publicar — usam base key com leitura consistente ou DynamoDB transaction e nunca cache, GSI ou TTL para correção.
+- `BillingAccount` permanece uma entidade multi-tenant sem `tenant_id` singular; autorização administrativa de billing exige uma associação `BillingAccountTenantLink` persistida server-side, lida por base key com consistência forte e negada em qualquer ausência, divergência ou falha de storage.
+- O modelo CND `Tenant` permanece billing-neutral; a referência lógica `Tenant -> BillingAccount` vive no companion reverso `TenantAccount`, criado na mesma transação do Tenant nos novos fluxos AWS.
 - Cache local só atende leitura de UI ou emissão de URL/cookie, tem TTL máximo de 60 segundos e chave `(billing_account_id, entitlement_version)`.
 - `admin_revoked` bloqueia imediatamente novo compute, serving e publicação; cancelamento normal em fim de período preserva acesso até `period_end`.
 - Revogação invalida fences antes de tentar cancelar Step Functions; falha do cancelamento não permite publicação por worker antigo.
@@ -49,7 +51,8 @@ O branch `develop` foi inspecionado via conector GitHub, sem mutação remota. O
 
 Os módulos alvo de control plane, run e publisher ainda não existem nesse SHA. O core `BIL-010`/`BIL-011` começa quando `CND-045` estiver integrado. `BIL-012`/`BIL-013` também exige o adapter DynamoDB de `CND-021`, mas não espera `AWS-010`–`AWS-014`. A Task 6 espera o gate local `CND-064` e a Task 8 AWS já integrados, pois é o item seguinte na fila controller-owned de composition roots. A lane Stripe respeita os gates do backlog: `BIL-020` espera `AWS-011` e `BIL-010`; `BIL-021` espera `AWS-010` e `BIL-012`; `BIL-022` espera `CND-044`, `BIL-011` e `BIL-021`. A Task 13 espera ainda o checkpoint de integração das fontes retidas para preservar o registry final, e também é controller-serial.
 
-No gate `CND-060` exigido pela Task 6, os contratos canônicos consumidos por billing são os contratos de orquestração sem tipos de billing:
+Entre os contratos canônicos consolidados até `CND-060` e herdados pelo gate `CND-064`, a Task 6
+consome estes contratos de orquestração sem tipos de billing:
 
 ```python
 class ProcessorExecutorPort(Protocol):
@@ -86,7 +89,7 @@ class ControlPlanePort(Protocol):
 
 The same CND gate requires `dispatch_id: str` on `CommitRunUnit` and `FailRunUnit`; Billing never adds a parallel dispatch field or command family.
 
-No gate `CND-060`, o contrato canônico já fornece `RunDispatch`, `ReserveRunDispatch`, `BindRunDispatch`, `FinishRunDispatch`, `reserve_run_dispatch`, `bind_run_dispatch`, `finish_run_dispatch`, `get_active_run_dispatch`, `ExecutionPermit` e `PublicationPermit`; `ClaimRunUnit` já carrega `dispatch_id`. Task 6 usa esses nomes sem criar equivalentes e estende `packages/cnes_domain/src/cnes_domain/ports/control_plane.py` somente com `reserve_and_create_run(command: ReserveRunCommand) -> RunAuthorization`, `create_unmetered_run(command: AuthorizedRunCommand) -> Run`, `consume_reservation(command: ConsumeReservationCommand) -> QuotaReservation`, `release_reservation(command: ReleaseReservationCommand) -> QuotaReservation`, `get_run_billing_state(tenant_id: str, run_id: str) -> RunBillingState | None` e `bind_run_execution(command: RunExecutionBindingCommand) -> RunBillingState`. Task 17 mantém o `PublishRequest` canônico sem campos de billing fornecidos pelo caller; `BillingPublicationPolicy` lê o companion/snapshot por base key e retorna o único CND `PublicationPermit` com `PublicationGuard` em `binding_context`. Essas são extensões seriais do único contrato; o capability Protocol usado pelas Tasks 1–5 tem essas mesmas assinaturas e é satisfeito pelo `ControlPlanePort`, não implementado como um segundo repositório canônico. Se os nomes CND acima divergirem no `develop` integrado, corrige-se primeiro o PR upstream ou este plano; nenhum branch cria uma segunda interface equivalente.
+Nesse baseline herdado, o contrato canônico já fornece `RunDispatch`, `ReserveRunDispatch`, `BindRunDispatch`, `FinishRunDispatch`, `reserve_run_dispatch`, `bind_run_dispatch`, `finish_run_dispatch`, `get_active_run_dispatch`, `ExecutionPermit` e `PublicationPermit`; `ClaimRunUnit` já carrega `dispatch_id`. Task 6 usa esses nomes sem criar equivalentes e estende `packages/cnes_domain/src/cnes_domain/ports/control_plane.py` somente com `reserve_and_create_run(command: ReserveRunCommand) -> RunAuthorization`, `create_unmetered_run(command: AuthorizedRunCommand) -> Run`, `consume_reservation(command: ConsumeReservationCommand) -> QuotaReservation`, `release_reservation(command: ReleaseReservationCommand) -> QuotaReservation`, `get_run_billing_state(tenant_id: str, run_id: str) -> RunBillingState | None` e `bind_run_execution(command: RunExecutionBindingCommand) -> RunBillingState`. Task 17 mantém o `PublishRequest` canônico sem campos de billing fornecidos pelo caller; `BillingPublicationPolicy` lê o companion/snapshot por base key e retorna o único CND `PublicationPermit` com `PublicationGuard` em `binding_context`. Essas são extensões seriais do único contrato; o capability Protocol usado pelas Tasks 1–5 tem essas mesmas assinaturas e é satisfeito pelo `ControlPlanePort`, não implementado como um segundo repositório canônico. Se os nomes CND acima divergirem no `develop` integrado, corrige-se primeiro o PR upstream ou este plano; nenhum branch cria uma segunda interface equivalente.
 
 ## Canonical Billing Interfaces
 
@@ -197,6 +200,26 @@ class BillingAccount:
     status: BillingAccountStatus
     created_at: datetime
     updated_at: datetime
+
+@dataclass(frozen=True, slots=True)
+class BillingAccountTenantLink:
+    billing_account_id: str
+    tenant_id: str
+    linked_by_user_id: str
+    reason_code: str
+    linked_at: datetime
+
+@dataclass(frozen=True, slots=True)
+class CreateBillingAccountCommand:
+    account: BillingAccount
+    initial_tenant_link: BillingAccountTenantLink
+    idempotency_key: str
+
+@dataclass(frozen=True, slots=True)
+class LinkBillingTenantCommand:
+    link: BillingAccountTenantLink
+    expected_account_updated_at: datetime
+    idempotency_key: str
 
 @dataclass(frozen=True, slots=True)
 class BillingAccountPage:
@@ -352,6 +375,13 @@ class CapacityReservationCommand:
     limit: int | None
 
 @dataclass(frozen=True, slots=True)
+class CreateBilledTenantCommand:
+    tenant: Tenant
+    link: BillingAccountTenantLink
+    reservation_id: str
+    idempotency_key: str
+
+@dataclass(frozen=True, slots=True)
 class CapacityReservation:
     reservation_id: str
     billing_account_id: str
@@ -465,8 +495,20 @@ class StripeEvent:
 @dataclass(frozen=True, slots=True)
 class StripeEventListRequest:
     created_gte: datetime
-    ending_before: str | None
+    starting_after: str | None
     limit: int
+
+@dataclass(frozen=True, slots=True)
+class StripeEventPage:
+    events: tuple[StripeEvent, ...]
+    has_more: bool
+
+@dataclass(frozen=True, slots=True)
+class StripeRecoveryCursor:
+    cycle_started_at: datetime
+    created_gte: datetime
+    starting_after: str | None
+    version: int
 
 @dataclass(frozen=True, slots=True)
 class BillingAuditEvent:
@@ -572,7 +614,7 @@ class WebhookInboxPort(Protocol):
 | `packages/cnes_domain/src/cnes_domain/billing/gate.py` | `EntitlementGate` and critical/cache routing | `BIL-011` |
 | `packages/cnes_infra/src/cnes_infra/billing/disabled.py` | Local unmetered no-network adapter | `BIL-010` |
 | `packages/cnes_infra/src/cnes_infra/billing/dynamodb_projection.py` | Base-key snapshot projection and CAS | `BIL-012` |
-| `packages/cnes_infra/src/cnes_infra/billing/dynamodb_catalog.py` | BillingAccount and immutable PlanVersion persistence | `BIL-012` |
+| `packages/cnes_infra/src/cnes_infra/billing/dynamodb_catalog.py` | BillingAccount, multi-tenant account links and immutable PlanVersion persistence | `BIL-012` |
 | `packages/cnes_infra/src/cnes_infra/billing/cache.py` | 60-second local read cache and invalidation | `BIL-012` |
 | `packages/cnes_infra/src/cnes_infra/billing/dynamodb_quota.py` | Atomic reservation/consume/release/recovery | `BIL-013` |
 | `packages/cnes_infra/src/cnes_infra/billing/secrets_manager.py` | Text-only, fail-closed Secrets Manager adapter | `BIL-020` |
@@ -592,9 +634,11 @@ class WebhookInboxPort(Protocol):
 ## Delivery Order
 
 1. Após `CND-045`: Tasks 1–3 (`BIL-010`, `BIL-011`) podem iniciar; Tasks 4–5 iniciam quando `CND-021` também estiver integrado.
-2. Após Tasks 1–5 e `CND-060`: serial core integration Task 6; nenhuma tarefa core espera `AWS-010`–`AWS-014`. O controller adquire o lock dos arquivos de composição e nunca executa Task 6 em paralelo com a Task 8 AWS: se AWS Task 8 já tiver integrado, Task 6 faz rebase sobre ela; caso contrário, AWS Task 8 faz rebase sobre Task 6.
+2. Somente após Tasks 1–5, `CND-064` e AWS plan Task 8 estarem mergeados no `develop` verde: serial core integration Task 6. Task 6 é sempre posterior à Task 8 AWS, faz rebase sobre seu commit de integração e nunca pode antecedê-la ou executar em paralelo com ela.
 3. Após `AWS-011` + Task 1: Tasks 7–8 (`BIL-020`). Após `AWS-010` + Task 4: Tasks 9–12 (`BIL-021`).
-4. Após Tasks 7–12, Task 6 e a Task 8 integration-owned do plano AWS: serial Stripe integration Task 13, com lock exclusivo sobre composition roots, manifests e testes compartilhados.
+4. Após Tasks 7–12, Task 6 e Source plan Task 4; a Task 8 AWS já é ancestral pela fila fixa:
+   serial Stripe integration Task 13, com lock exclusivo sobre composition roots, manifests e
+   testes compartilhados.
 5. Após `CND-044` + Tasks 3 e 9–13: Task 14 (`BIL-022`); Tasks 15–16 seguem para `BIL-023`.
 6. Após Tasks 14–16: serial enforcement integration Task 17.
 7. Após Tasks 7–17: Tasks 18–19 close `BIL-024`.
@@ -610,7 +654,7 @@ class WebhookInboxPort(Protocol):
 
 **Interfaces:**
 - Consumes: Python `datetime`, `Decimal`, `UUID`, `Protocol`; no infra import.
-- Produces: `BillingMode`, `BillingAccount`, `PlanVersion`, `QuotaLimits`, `EntitlementSnapshot`, `SubscriptionStatus`, `EntitlementAction`, `EntitlementDecision`, `RunAuthorization`, `RunExecutionPermit`, `RunBillingState`, `RunExecutionBindingCommand`, `PublicationGuard`, the remaining request/command dataclasses and the ports listed below. It imports the single canonical CND `ExecutionPermit` and never redefines it.
+- Produces: `BillingMode`, `BillingAccount`, `BillingAccountTenantLink`, `CreateBillingAccountCommand`, `LinkBillingTenantCommand`, `CreateBilledTenantCommand`, `PlanVersion`, `QuotaLimits`, `EntitlementSnapshot`, `SubscriptionStatus`, `EntitlementAction`, `EntitlementDecision`, `RunAuthorization`, `RunExecutionPermit`, `RunBillingState`, `RunExecutionBindingCommand`, `PublicationGuard`, `StripeEventPage`, `StripeRecoveryCursor`, the remaining request/command dataclasses and the ports listed below. It imports the single canonical CND `ExecutionPermit` and never redefines it.
 
 - [ ] **Step 1: Write failing immutability and invariant tests**
 
@@ -626,6 +670,13 @@ def test_plan_version_e_snapshot_sao_immutaveis() -> None:
 def test_snapshot_rejeita_periodo_invertido() -> None:
     with pytest.raises(ValueError, match="period_end_before_start"):
         make_snapshot(period_start=NOW, period_end=NOW - timedelta(seconds=1))
+
+def test_conta_multi_tenant_usa_links_sem_tenant_singular() -> None:
+    account = make_billing_account()
+    first = make_tenant_link(account.billing_account_id, "tenant-a")
+    second = make_tenant_link(account.billing_account_id, "tenant-b")
+    assert first.tenant_id != second.tenant_id
+    assert not hasattr(account, "tenant_id")
 ```
 
 - [ ] **Step 2: Run tests to verify RED**
@@ -691,10 +742,14 @@ class EntitlementProjectionPort(Protocol):
     def compare_and_set_snapshot(self, command: SnapshotWrite) -> bool: ...
 
 class BillingCatalogPort(Protocol):
-    def create_account(self, account: BillingAccount) -> BillingAccount: ...
+    def create_account(self, command: CreateBillingAccountCommand) -> BillingAccount: ...
     def get_account(self, billing_account_id: str) -> BillingAccount | None: ...
     def get_account_by_customer(self, stripe_customer_id: str) -> BillingAccount | None: ...
     def list_stripe_accounts(self, limit: int, cursor: str | None) -> BillingAccountPage: ...
+    def get_tenant_link(
+        self, billing_account_id: str, tenant_id: str, consistency: ReadConsistency,
+    ) -> BillingAccountTenantLink | None: ...
+    def link_tenant(self, command: LinkBillingTenantCommand) -> BillingAccountTenantLink: ...
     def attach_customer(self, command: AttachStripeCustomerCommand) -> BillingAccount: ...
     def transfer_owner(self, command: TransferOwnerCommand) -> BillingAccount: ...
     def publish_plan(self, plan: PlanVersion) -> PlanVersion: ...
@@ -715,7 +770,14 @@ class StripeGatewayPort(Protocol):
     def create_checkout(self, command: CheckoutCommand) -> HostedSession: ...
     def create_portal(self, command: PortalCommand) -> HostedSession: ...
     def get_current_state(self, request: StripeStateRequest) -> StripeBillingState: ...
-    def list_events(self, request: StripeEventListRequest) -> tuple[StripeEvent, ...]: ...
+    def list_events(self, request: StripeEventListRequest) -> StripeEventPage: ...
+
+class RecoveryCursorPort(Protocol):
+    def load(self, consistency: ReadConsistency) -> StripeRecoveryCursor | None: ...
+    def compare_and_set(
+        self, expected_version: int, cursor: StripeRecoveryCursor,
+    ) -> bool: ...
+    def complete(self, expected_version: int, completed_at: datetime) -> bool: ...
 
 class BillingAuditPort(Protocol):
     def append(self, event: BillingAuditEvent) -> None: ...
@@ -727,7 +789,7 @@ class ClockPort(Protocol):
     def now(self) -> datetime: ...
 ```
 
-Define `TransferOwnerCommand(billing_account_id: str, expected_owner_user_id: str, new_owner_user_id: str, actor_id: str, reason_code: str, transferred_at: datetime)` in `models.py`. Tests instantiate every model from the Exact Domain Model Catalog and this transfer command with explicit values.
+Define `TransferOwnerCommand(billing_account_id: str, expected_owner_user_id: str, new_owner_user_id: str, actor_id: str, reason_code: str, transferred_at: datetime)` in `models.py`. Tests instantiate every model from the Exact Domain Model Catalog and this transfer command with explicit values. `BillingAccountTenantLink` validates exact non-empty account/tenant/user/reason identifiers and an aware UTC `linked_at`; it is the many-side association and never becomes a singular `tenant_id` field on `BillingAccount`. `CreateBillingAccountCommand` requires its account ID to equal the initial link account ID. `LinkBillingTenantCommand` validates its expected timestamp and link identity. `CreateBilledTenantCommand` requires `tenant.tenant_id == link.tenant_id`, a non-empty reservation/idempotency pair, and carries no caller-selected billing identity: the route builds its link from the already-authorized account context. `StripeEventListRequest` accepts only an aware UTC lower bound, `starting_after=None` or a non-empty event ID, and `1 <= limit <= 100`; `StripeRecoveryCursor.version` is positive and its stable `created_gte` never changes during a recovery cycle.
 
 - [ ] **Step 5: Run focused tests and coverage**
 
@@ -947,8 +1009,8 @@ git commit -m "feat(billing): authorize operations through entitlement gate"
 - Test: `tests/property/test_entitlement_projection_cas.py`
 
 **Interfaces:**
-- Consumes: `EntitlementProjectionPort`, `BillingCatalogPort`, `SnapshotWrite`, `ReadConsistency`; canonical DynamoDB client/table factory from `CND-021`.
-- Produces: `DynamoEntitlementProjection(table: DynamoTablePort)`, `DynamoBillingCatalog(table: DynamoTablePort)`, `LocalEntitlementCache(max_ttl_seconds: int, clock: ClockPort)`, `handle_entitlement_changed(record: StreamRecord, cache: LocalEntitlementCache) -> None`.
+- Consumes: `EntitlementProjectionPort`, `BillingCatalogPort`, `SnapshotWrite`, `ReadConsistency`, `CreateBillingAccountCommand`, `LinkBillingTenantCommand`; canonical DynamoDB client/table factory from `CND-021`.
+- Produces: `DynamoEntitlementProjection(table: DynamoTablePort)`, `DynamoBillingCatalog(table: DynamoTablePort)`, strongly consistent `get_tenant_link`, transactional account/tenant links, `LocalEntitlementCache(max_ttl_seconds: int, clock: ClockPort)`, `handle_entitlement_changed(record: StreamRecord, cache: LocalEntitlementCache) -> None`.
 
 - [ ] **Step 1: Write RED tests for physical keys and strong reads**
 
@@ -968,6 +1030,19 @@ def test_plan_version_publicada_nao_pode_ser_sobrescrita(catalog) -> None:
     catalog.publish_plan(make_plan_version(plan_version_id="plan_v1"))
     with pytest.raises(ImmutablePlanConflict, match="plan_version_id=plan_v1"):
         catalog.publish_plan(make_plan_version(plan_version_id="plan_v1", max_agents=99))
+
+def test_link_critico_usa_chave_base_e_leitura_forte(table_spy) -> None:
+    catalog = DynamoBillingCatalog(table_spy)
+    catalog.get_tenant_link("ba_01", "tenant-a", ReadConsistency.STRONG)
+    table_spy.get_item.assert_called_once_with(
+        Key={"PK": "BILLING#ba_01", "SK": "TENANT#tenant-a"},
+        ConsistentRead=True,
+    )
+
+def test_link_nao_pode_reassociar_tenant_a_outra_conta(catalog) -> None:
+    catalog.link_tenant(make_link_command("ba_01", "tenant-a"))
+    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-a"):
+        catalog.link_tenant(make_link_command("ba_02", "tenant-a"))
 ```
 
 - [ ] **Step 2: Run tests to verify RED**
@@ -1002,12 +1077,18 @@ The serialized item includes every `EntitlementSnapshot` field, `entity_type="En
 ```text
 BillingAccount  PK=BILLING#<billing_account_id>       SK=ACCOUNT
 AccountList     PK=BILLING_ACCOUNTS                   SK=ACCOUNT#<billing_account_id>
+AccountTenant   PK=BILLING#<billing_account_id>       SK=TENANT#<tenant_id>
+TenantAccount   PK=TENANT#<tenant_id>                 SK=BILLING_ACCOUNT
 CustomerMap     PK=STRIPE_CUSTOMER#<stripe_customer_id> SK=BILLING_ACCOUNT
 PlanVersion     PK=PLAN_VERSION#<plan_version_id>     SK=META
 PriceMapping    PK=STRIPE_PRICE#<stripe_price_id>     SK=PLAN_VERSION
 ```
 
-`publish_plan` transactionally puts the immutable plan and each Price mapping with `attribute_not_exists(PK)`. `get_plan_by_price` reads the Price mapping and then strongly reads the PlanVersion base key. `attach_customer` requires `stripe_customer_id` to be absent and `updated_at` to match the command, and conditionally creates the unique CustomerMap plus AccountList entry, preventing one Customer from attaching to two accounts. `get_account_by_customer` reads that mapping then strongly reads the account base key. `list_stripe_accounts` pages AccountList candidates and revalidates every account base key. `transfer_owner` conditions on `expected_owner_user_id`, updates `updated_at`, and appends `billing_account.transferred`; `create_account` appends `billing_account.created` in the same transaction.
+`create_account(CreateBillingAccountCommand)` sends one transaction containing the account, AccountList row, initial AccountTenant row, unique reverse TenantAccount row, idempotency row and `billing_account.created` outbox event. It condition-checks the canonical `TENANT#<tenant_id>/META` base item, requires the authenticated server-built link to carry the same account ID, and uses `attribute_not_exists` on both association rows. An identical idempotent replay returns the same account; a changed account or tenant conflicts.
+
+`link_tenant(LinkBillingTenantCommand)` sends one transaction that strongly anchors its conditions on an active BillingAccount base item with the expected `updated_at` and an existing canonical Tenant base item, then conditionally puts both association directions plus idempotency and `billing_account.tenant_linked` outbox rows. The reverse key makes one Tenant belong to at most one BillingAccount while the forward partition allows one BillingAccount to own many tenants. A conditional failure leaves neither direction nor audit/idempotency residue. `get_tenant_link(account, tenant, STRONG)` performs exactly one `ConsistentRead=True` on AccountTenant, rejects decoded IDs that do not equal both requested IDs, and returns `None` only for a genuinely absent item; DynamoDB and decode failures propagate and therefore cannot authorize.
+
+`publish_plan` transactionally puts the immutable plan and each Price mapping with `attribute_not_exists(PK)`. `get_plan_by_price` reads the Price mapping and then strongly reads the PlanVersion base key. `attach_customer` requires `stripe_customer_id` to be absent and `updated_at` to match the command, and conditionally creates the unique CustomerMap plus AccountList entry, preventing one Customer from attaching to two accounts. `get_account_by_customer` reads that mapping then strongly reads the account base key. `list_stripe_accounts` pages AccountList candidates and revalidates every account base key. `transfer_owner` conditions on `expected_owner_user_id`, updates `updated_at`, and appends `billing_account.transferred`.
 
 - [ ] **Step 4: Write RED cache tests and implement the 60-second ceiling**
 
@@ -1028,7 +1109,7 @@ Cache key is `CacheKey(billing_account_id, entitlement_version)`. A separate lat
 
 Run: `uv run pytest packages/cnes_infra/tests/billing/test_dynamodb_projection.py packages/cnes_infra/tests/billing/test_dynamodb_catalog.py packages/cnes_infra/tests/billing/test_cache.py tests/property/test_entitlement_projection_cas.py -m "not postgres" -q`
 
-Expected: PASS; the race test reports exactly one successful CAS for a shared expected version.
+Expected: PASS; the race test reports exactly one successful CAS for a shared expected version, account creation writes its initial tenant link atomically, a multi-tenant account accepts distinct forward links, and cross-account tenant reassociation rolls back every transaction item.
 
 Run: `uv run ruff check packages/cnes_infra/src/cnes_infra/billing packages/cnes_infra/tests/billing tests/property/test_entitlement_projection_cas.py`
 
@@ -1239,7 +1320,7 @@ If canonical binding or `BillingExecutionStarted` fails, the CND coordinator can
 
 `ClaimRunUnit` carries required `dispatch_id`. In Stripe mode its DynamoDB claim transaction, and in disabled mode the equivalent SQLite transaction, require both canonical `get_active_run_dispatch` to match that ID and the `RunBillingState` companion to have the same bound dispatch/ref/fence with `cancel_requested=False`; therefore ECS/local workers cannot begin compute in the interval between `executor.start` and companion binding. A bounded worker retry waits for binding within the dispatch lease; if it never appears, the dispatch fails and recovery advances generation. Wire these callbacks and claim checks in both API and processor composition roots in this task; local disabled mode returns a real unmetered `ExecutionPermit`, not a no-op callback. No earlier or later task is responsible for making initial-wave quota enforcement/binding functional.
 
-Both composition roots inject the callbacks through the stable CND dependency object `ExecutionPolicyConfig(deployment_limit, dispatch_lease_seconds, ExecutionCallbacks(BillingConcurrencyPolicy, BillingExecutionStarted))`; no callback becomes a separate constructor parameter. If AWS Task 8 merged first, replace its default `ExecutionPolicyConfig` in this controller-serial task. If it merges later, its rebase preserves this configured hook. Each constructor remains within the four-parameter gate because the nested immutable dependency value objects carry the related policy settings and callbacks.
+Both composition roots inject the callbacks through the stable CND dependency object `ExecutionPolicyConfig(deployment_limit, dispatch_lease_seconds, ExecutionCallbacks(BillingConcurrencyPolicy, BillingExecutionStarted))`; no callback becomes a separate constructor parameter. AWS Task 8 is a mandatory merged ancestor, so this controller-serial task rebases onto it and replaces its default `ExecutionPolicyConfig` while preserving the already-integrated AWS runtime; there is no permitted reverse ordering. Each constructor remains within the four-parameter gate because the nested immutable dependency value objects carry the related policy settings and callbacks.
 
 - [ ] **Step 5: Gate canonical run creation before persistence**
 
@@ -1312,8 +1393,8 @@ git commit -m "feat(billing): wire core entitlement enforcement"
 - Test: `packages/cnes_infra/tests/billing/test_stripe_gateway.py`
 
 **Interfaces:**
-- Consumes: `SecretProviderPort`, `StripeGatewayPort`, `CreateStripeCustomerCommand`, `CheckoutCommand`, `PortalCommand`, `HostedSession`, `StripeBillingState`; Stripe client is injected as `StripeClientProtocol`. Entry gate: `AWS-011` is integrated.
-- Produces: `SecretsManagerSecretProvider(client: SecretsManagerClient)`, `SecretProviderError(code: str, retryable: bool)`, and `StripeGateway(client: StripeClientProtocol, config: StripeGatewayConfig)`.
+- Consumes: `SecretProviderPort`, `StripeGatewayPort`, `CreateStripeCustomerCommand`, `CheckoutCommand`, `PortalCommand`, `HostedSession`, `StripeBillingState`, `StripeEventListRequest`, `StripeEventPage`; Stripe client is injected as `StripeClientProtocol`. Entry gate: `AWS-011` is integrated.
+- Produces: `SecretsManagerSecretProvider(client: SecretsManagerClient)`, `SecretProviderError(code: str, retryable: bool)`, and `StripeGateway(client: StripeClientProtocol, config: StripeGatewayConfig)`, including older-page Events API traversal with `starting_after`.
 
 - [ ] **Step 1: Write RED request-shape tests**
 
@@ -1341,6 +1422,18 @@ def test_customer_usa_apenas_id_opaco(stripe_spy) -> None:
         idempotency_key="customer:req_01",
     )
     assert customer.stripe_customer_id == "cus_01"
+
+def test_eventos_paginam_para_mais_antigos_com_starting_after(stripe_spy) -> None:
+    gateway = make_gateway(stripe_spy)
+    page = gateway.list_events(
+        StripeEventListRequest(NOW - timedelta(hours=72), "evt_106", 100),
+    )
+    stripe_spy.events.list.assert_called_once_with(
+        created={"gte": int((NOW - timedelta(hours=72)).timestamp())},
+        starting_after="evt_106",
+        limit=100,
+    )
+    assert page.has_more is stripe_spy.events.list.return_value.has_more
 ```
 
 Add a test that rejects a price not mapped to the requested immutable `PlanVersion`, Portal uses server-selected return URL, and logged arguments never contain email, municipality name, card, CNPJ or CPF.
@@ -1408,15 +1501,17 @@ def create_portal(self, command: PortalCommand) -> HostedSession:
 
 `SecretsManagerClient` is a narrow Protocol exposing `get_secret_value(*, SecretId: str) -> Mapping[str, object]`; production accepts the boto3 client without importing a generated service type. Never catch `SecretProviderError` to substitute a key, log the response, accept `SecretBinary`, or cache the secret in a model/setting. Task 13 owns the mode-dependent factory and is the first task allowed to create a Secrets Manager client. URLs are exact configuration values validated as HTTPS and members of `BILLING_RETURN_ORIGINS`.
 
-- [ ] **Step 4: Implement current-state retrieval used by reorder-safe projection**
+- [ ] **Step 4: Implement current-state and older-event-page retrieval**
 
 `get_current_state(request)` retrieves the named Subscription when present; otherwise it lists the Customer's current CnesData subscription, then retrieves latest Invoice reference and active entitlement summary. It maps the Stripe Price to one internal immutable `PlanVersion` and returns `StripeBillingState`. Zero or multiple current subscriptions raises `StripeMappingError("customer_id=<id> subscription_count=<n>")`; unknown Price raises `StripeMappingError("price_id=<id>")`. Both make the event retryable rather than granting a default plan.
+
+`list_events(request)` sends `created={"gte": int(request.created_gte.timestamp())}`, `limit=request.limit`, and includes `starting_after=request.starting_after` only when non-null. Stripe returns newest-first; `starting_after` therefore requests the next older page after the previous page's last event. The gateway preserves response order, maps only safe `StripeEvent` fields, and returns `StripeEventPage(events, has_more)`. It never sends the opposite-direction cursor, which would move toward newer events and skip the older recovery backlog.
 
 - [ ] **Step 5: Run tests and lint**
 
 Run: `uv run pytest packages/cnes_infra/tests/billing/test_secrets_manager.py packages/cnes_infra/tests/billing/test_stripe_gateway.py --cov=cnes_infra.billing.secrets_manager --cov=cnes_infra.billing.stripe_gateway --cov-branch -q`
 
-Expected: PASS and 100% branch coverage for both modules, including retryable/permanent error classification and redaction assertions.
+Expected: PASS and 100% branch coverage for both modules, including retryable/permanent error classification, redaction assertions, omitted null cursor and exact `starting_after` propagation.
 
 Run: `uv run ruff check packages/cnes_infra/src/cnes_infra/billing/secrets_manager.py packages/cnes_infra/src/cnes_infra/billing/stripe_gateway.py packages/cnes_infra/tests/billing/test_secrets_manager.py packages/cnes_infra/tests/billing/test_stripe_gateway.py`
 
@@ -1439,7 +1534,7 @@ git commit -m "feat(billing): create Stripe checkout and portal sessions"
 - Test: `apps/central_api/tests/routes/test_billing.py`
 
 **Interfaces:**
-- Consumes: `StripeGatewayPort`, `BillingCatalogPort`, AWS-011 `OidcPrincipal`/`AuthorizedTenant`, `EntitlementProjectionPort`.
+- Consumes: `StripeGatewayPort`, `BillingCatalogPort`, `BillingAccountTenantLink`, `CreateBillingAccountCommand`, AWS-011 `OidcPrincipal`/`AuthorizedTenant`, `EntitlementProjectionPort`, `ReadConsistency.STRONG`.
 - Produces: `POST /api/v1/billing/accounts`, `POST /api/v1/billing/accounts/{billing_account_id}/transfer`, `POST /api/v1/billing/checkout`, `POST /api/v1/billing/portal`, `GET /api/v1/billing/status`.
 
 - [ ] **Step 1: Write RED authorization and redirect-proof tests**
@@ -1458,6 +1553,44 @@ def test_checkout_exige_billing_owner(client, billing_catalog, stripe_gateway) -
     assert response.status_code == 403
     stripe_gateway.create_checkout.assert_not_called()
 
+def test_admin_de_outro_tenant_nao_administra_conta(
+    client, billing_catalog, stripe_gateway,
+) -> None:
+    billing_catalog.get_account.return_value = make_account(owner_user_id="other")
+    billing_catalog.get_tenant_link.return_value = None
+    response = client.post(
+        "/api/v1/billing/portal",
+        headers=authorized_tenant_headers("tenant-b", role="admin"),
+        json={"billing_account_id": "ba_01", "idempotency_key": "portal-request-01"},
+    )
+    assert response.status_code == 403
+    billing_catalog.get_tenant_link.assert_called_once_with(
+        "ba_01", "tenant-b", ReadConsistency.STRONG,
+    )
+    stripe_gateway.create_portal.assert_not_called()
+
+def test_admin_do_tenant_vinculado_pode_administrar_conta(client, billing_catalog) -> None:
+    billing_catalog.get_account.return_value = make_account(owner_user_id="other")
+    billing_catalog.get_tenant_link.return_value = make_tenant_link("ba_01", "tenant-a")
+    response = client.get(
+        "/api/v1/billing/status?billing_account_id=ba_01",
+        headers=authorized_tenant_headers("tenant-a", role="admin"),
+    )
+    assert response.status_code == 200
+
+def test_falha_ao_ler_link_nega_sem_chamar_stripe(
+    client, billing_catalog, stripe_gateway,
+) -> None:
+    billing_catalog.get_account.return_value = make_account(owner_user_id="other")
+    billing_catalog.get_tenant_link.side_effect = BillingDependencyError("dynamodb_unavailable")
+    response = client.post(
+        "/api/v1/billing/checkout",
+        headers=authorized_tenant_headers("tenant-a", role="admin"),
+        json=valid_checkout_body(),
+    )
+    assert response.status_code == 503
+    stripe_gateway.create_checkout.assert_not_called()
+
 def test_redirect_de_sucesso_nao_altera_entitlement(client, projection) -> None:
     response = client.get("/api/v1/billing/status?checkout_session_id=cs_01")
     assert response.json()["state"] == "pending"
@@ -1466,11 +1599,14 @@ def test_redirect_de_sucesso_nao_altera_entitlement(client, projection) -> None:
 def test_criacao_de_conta_anexa_customer_idempotente(client, catalog, stripe_gateway) -> None:
     response = client.post(
         "/api/v1/billing/accounts",
+        headers=authorized_tenant_headers("tenant-a", role="admin"),
         json={"idempotency_key": "account-request-0001"},
     )
     assert response.status_code == 201
     assert catalog.attach_customer.call_count == 1
     assert stripe_gateway.create_customer.call_count == 1
+    command = catalog.create_account.call_args.args[0]
+    assert command.initial_tenant_link.tenant_id == "tenant-a"
 ```
 
 - [ ] **Step 2: Run tests to verify RED**
@@ -1502,13 +1638,32 @@ def require_billing_owner(
     account: BillingAccount,
     principal: OidcPrincipal,
     authorized_tenant: AuthorizedTenant | None,
+    catalog: BillingCatalogPort,
 ) -> None:
-    is_admin = authorized_tenant is not None and authorized_tenant.role == "admin"
-    if principal.subject != account.owner_user_id and not is_admin:
+    if principal.subject == account.owner_user_id:
+        return
+    if (
+        authorized_tenant is None
+        or authorized_tenant.user_id != principal.subject
+        or authorized_tenant.role != "admin"
+    ):
+        raise HTTPException(status_code=403, detail="billing_owner_required")
+    link = catalog.get_tenant_link(
+        account.billing_account_id,
+        authorized_tenant.tenant_id,
+        ReadConsistency.STRONG,
+    )
+    if (
+        link is None
+        or link.billing_account_id != account.billing_account_id
+        or link.tenant_id != authorized_tenant.tenant_id
+    ):
         raise HTTPException(status_code=403, detail="billing_owner_required")
 ```
 
-Account creation generates an opaque internal ID, conditionally persists it, calls `create_customer` with the same idempotency key and conditionally attaches the returned Customer; replay after a crash returns the same account/customer. Transfer requires current owner or admin, validates the target user server-side and writes actor/reason audit. Checkout resolves the requested account by base key, validates ownership and `PlanVersion`, and calls Task 7. Portal accepts `billing_account_id` plus idempotency key. Status accepts `billing_account_id`, returns projection fields safe for UI, never calls Stripe and never treats a supplied session ID as payment evidence.
+Every account-scoped endpoint resolves `AuthorizedTenant` through the AWS-011 base-key membership authorizer; it never trusts a tenant claim or request-body association. The billing owner is authorized directly. A non-owner admin is authorized only when `get_tenant_link(account_id, authorized_tenant.tenant_id, STRONG)` returns an exact link. Missing/mismatched links deny with 403; dependency/decode failures propagate to the existing 503 handler and never fall back to owner/admin success or a GSI candidate.
+
+Account creation requires an admin `AuthorizedTenant`, generates an opaque internal account ID and builds `BillingAccountTenantLink` server-side from that authorized tenant and principal. It calls `create_account(CreateBillingAccountCommand(...))`, so the account and initial link commit together, then calls `create_customer` with the same idempotency key and conditionally attaches the returned Customer; replay after a crash returns the same account/customer. No request model accepts `tenant_id` or an account/tenant link. Transfer requires current owner or an admin of a linked tenant, validates the target user server-side and writes actor/reason audit. Checkout resolves the requested account by base key, applies the same owner/link check, validates `PlanVersion`, and calls Task 7. Portal and status apply the same check; status returns projection fields safe for UI, never calls Stripe and never treats a supplied session ID as payment evidence.
 
 In `BILLING_MODE=disabled`, account, transfer, Checkout and Portal endpoints return `404 {"detail":"billing_disabled"}` without constructing a Stripe dependency; status returns `{"state":"disabled","plan_version_id":"local-unmetered-v1"}` from the local adapter.
 
@@ -1520,7 +1675,7 @@ Stripe unavailability returns `503` with `Retry-After: 5`; it does not create a 
 
 Run: `uv run pytest apps/central_api/tests/routes/test_billing.py -q`
 
-Expected: PASS, including owner/admin/non-owner and pending redirect cases.
+Expected: PASS, including owner, same-account tenant admin, unrelated-tenant admin, strong-read outage, atomic initial-link and pending redirect cases.
 
 - [ ] **Step 6: Commit**
 
@@ -1692,8 +1847,8 @@ git commit -m "feat(billing): project current Stripe state safely"
 - Test: `packages/cnes_infra/tests/billing/test_recovery.py`
 
 **Interfaces:**
-- Consumes: Task 9 inbox, Task 10 projector, `StripeGatewayPort.list_events`, `ClockPort`.
-- Produces: `WebhookRecovery.run(request: RecoveryRequest) -> RecoveryResult`.
+- Consumes: Task 9 inbox, Task 10 projector, `StripeGatewayPort.list_events`, `StripeEventPage`, `RecoveryCursorPort`, `ClockPort`.
+- Produces: `DynamoRecoveryCursor(table: DynamoTablePort)`, `WebhookRecovery.run(request: RecoveryRequest) -> RecoveryResult`; each invocation handles at most one Stripe page and resumes older pages with its persisted `starting_after` cursor.
 
 - [ ] **Step 1: Write RED recovery tests**
 
@@ -1704,7 +1859,10 @@ def test_recovery_reclama_processing_vencido(recovery, inbox) -> None:
     assert result.reprocessed == 1
 
 def test_recovery_importa_evento_nao_entregue(recovery, stripe, inbox) -> None:
-    stripe.list_events.return_value = (make_stripe_event("evt_missing"),)
+    stripe.list_events.return_value = StripeEventPage(
+        events=(make_stripe_event("evt_missing"),),
+        has_more=False,
+    )
     recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
     inbox.accept.assert_called_once()
 ```
@@ -1717,7 +1875,9 @@ Expected: FAIL with missing recovery module.
 
 - [ ] **Step 3: Implement bounded, cursor-safe recovery**
 
-Use exact defaults `STRIPE_RECOVERY_LOOKBACK_HOURS=72`, `STRIPE_RECOVERY_BATCH_SIZE=100`, `STRIPE_PROCESSING_LEASE_SECONDS=300`. `WebhookRecovery.run` first reclaims expired `PROCESSING`, then pages Stripe Events backward within the lookback, conditionally inserts unseen supported events, and invokes projector. Cursor and last-success timestamp persist at `PK=BILLING#SYSTEM`, `SK=RECOVERY#STRIPE`; a crash resumes without dropping or duplicating effects.
+Use exact defaults `STRIPE_RECOVERY_LOOKBACK_HOURS=72`, `STRIPE_RECOVERY_BATCH_SIZE=100`, `STRIPE_PROCESSING_LEASE_SECONDS=300`. `WebhookRecovery.run` first reclaims a bounded page of expired `PROCESSING`, then strongly loads `StripeRecoveryCursor` from `PK=BILLING#SYSTEM`, `SK=RECOVERY#STRIPE`. When no cycle is active it creates version 1 with `cycle_started_at=now`, the stable lower bound `created_gte=now-lookback`, and `starting_after=None`; a resumed cycle reuses both timestamps rather than moving the lookback window.
+
+One invocation sends exactly one `StripeEventListRequest(created_gte=cursor.created_gte, starting_after=cursor.starting_after, limit=batch_size)`. It conditionally inserts every unseen supported event in the returned newest-first page and invokes the projector. Only after every page item is durably `PROCESSED`, `IGNORED`, or recorded retryable in the inbox does it CAS the cursor. If `has_more=True`, the new `starting_after` is exactly `page.events[-1].event_id` and version increments by one; `has_more=True` with an empty page is a retryable protocol error. If `has_more=False`, `complete(expected_version, now)` atomically clears the active cursor and records `last_success_at`. A CAS loss reloads instead of overwriting another worker. A crash before the CAS replays the same page through inbox dedupe; a crash after the CAS resumes with the saved last-item ID, so neither path drops an event. No request or persisted item contains an opposite-direction event cursor.
 
 - [ ] **Step 4: Add crash/resume and pagination coverage**
 
@@ -1731,6 +1891,35 @@ def test_crash_apos_import_reprocessa_sem_duplicar(recovery, projector) -> None:
         recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
     result = recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
     assert result.reprocessed == 1
+
+def test_mais_de_um_limit_percorre_paginas_mais_antigas(
+    recovery, stripe, cursor,
+) -> None:
+    stripe.list_events.side_effect = [
+        make_event_page("evt_205", "evt_106", has_more=True),
+        make_event_page("evt_105", "evt_006", has_more=True),
+        make_event_page("evt_005", "evt_001", has_more=False),
+        StripeEventPage(events=(), has_more=False),
+    ]
+    results = [
+        recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
+        for _ in range(3)
+    ]
+    requests = [call.args[0] for call in stripe.list_events.call_args_list]
+    assert [item.starting_after for item in requests] == [None, "evt_106", "evt_006"]
+    assert sum(item.imported for item in results) == 205
+    assert cursor.load(ReadConsistency.STRONG) is None
+    recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
+    assert stripe.list_events.call_args.args[0].starting_after is None
+
+def test_crash_antes_do_cas_repete_pagina_sem_perder_eventos(stack) -> None:
+    stack.failpoints.raise_after_page_effects = True
+    with pytest.raises(RuntimeError, match="worker_crash"):
+        stack.recovery.run(RecoveryRequest(lookback_hours=72, batch_size=100))
+    assert stack.cursor.load(ReadConsistency.STRONG).starting_after is None
+    stack.failpoints.raise_after_page_effects = False
+    drain_recovery_cycle(stack.recovery)
+    assert stack.inbox.unique_accepted_ids() == set(all_205_event_ids())
 ```
 
 Scheduling and the executable entrypoint are added in serial Task 13 after the app manifest and workspace membership exist.
@@ -1739,7 +1928,7 @@ Scheduling and the executable entrypoint are added in serial Task 13 after the a
 
 Run: `uv run pytest packages/cnes_infra/tests/billing/test_recovery.py -q`
 
-Expected: PASS; crash/restart test processes every event once.
+Expected: PASS; 205 events traverse three older pages with cursors `None -> evt_106 -> evt_006`, the completed sweep clears its cursor so the next sweep starts at `None`, crash replay deduplicates the repeated page, and every event reaches durable processing exactly once.
 
 - [ ] **Step 6: Commit**
 
@@ -2164,7 +2353,7 @@ composition/control-plane lock; this task never runs beside another integration 
 
 **Interfaces:**
 - Consumes: merged Tasks 3–6 and 14–16, including the already-functional Task 6 permit/binding callbacks, plus upstream canonical publisher/executor/control plane and AWS Task 8 `ProcessorRuntimeComponents`.
-- Produces: enforcement at every expensive boundary; `BillingPublicationPolicy.__call__(run: Run) -> PublicationPermit`; `ControlPlanePort.list_revocable_runs(billing_account_id: str, limit: int, cursor: str | None) -> RevocableRunPage`, `request_run_revocation(command: RevokeRunCommand, event: OutboxEvent) -> RunBillingState`, `cancel_run_units(command: CancelRunUnitsCommand) -> CancelRunUnitsResult`; worker commands `reconcile` and `revoke-pending`.
+- Produces: enforcement at every expensive boundary; `BillingPublicationPolicy.__call__(run: Run) -> PublicationPermit`; `ControlPlanePort.create_billed_tenant(command: CreateBilledTenantCommand) -> Tenant`, `list_revocable_runs(billing_account_id: str, limit: int, cursor: str | None) -> RevocableRunPage`, `request_run_revocation(command: RevokeRunCommand, event: OutboxEvent) -> RunBillingState`, `cancel_run_units(command: CancelRunUnitsCommand) -> CancelRunUnitsResult`; worker commands `reconcile` and `revoke-pending`.
 
 - [ ] **Step 1: Write RED E2E revocation/fence test**
 
@@ -2188,6 +2377,26 @@ def test_revogacao_imediata_impede_publicacao_por_fence_antigo(runtime) -> None:
     assert isinstance(guard, PublicationGuard)
     assert guard.expected_run_fencing_token == stale_billing_fence
     assert runtime.dataset_pointer_unchanged()
+
+def test_admin_de_tenant_nao_vinculado_nao_revoga(runtime) -> None:
+    response = runtime.admin_revoke_as(
+        tenant_id="tenant-b",
+        billing_account_id="ba_01",
+        role="admin",
+    )
+    assert response.status_code == 403
+    assert runtime.snapshot("ba_01").subscription_status is SubscriptionStatus.ACTIVE
+    runtime.executor.cancel.assert_not_called()
+
+def test_criacao_de_tenant_e_link_rollbackam_juntos(runtime) -> None:
+    runtime.fail_transaction_after("tenant_put")
+    with pytest.raises(BillingDependencyError):
+        runtime.create_tenant("tenant-new", billing_account_id="ba_01")
+    assert runtime.control_plane.get_tenant("tenant-new") is None
+    assert runtime.billing_catalog.get_tenant_link(
+        "ba_01", "tenant-new", ReadConsistency.STRONG,
+    ) is None
+    assert runtime.capacity_reservation_status() is ReservationStatus.RESERVED
 ```
 
 Keep the existing stale-unit-fence test separate: `RunUnit.fencing_token` protects `commit_run_unit`, while `RunBillingState.fencing_token` protects dispatch binding and publication. Add a race pausing after `BillingPublicationPolicy(run)` and revoking before `publish_dataset`; the transaction must reject the stale guard and preserve the pointer.
@@ -2210,7 +2419,9 @@ scans `apps/**/src` and rejects calls to `put_run`, `create_unmetered_run`, or
 adapter calls remain allowed only in adapter tests and migrations; no HTTP body can set
 `Run.dependencies`.
 
-Agent and tenant creation first call `reserve_capacity`, persist the canonical resource with the reservation ID as idempotency key, then call `consume_capacity`; a failed canonical write calls `release_capacity`. Concurrent last-slot attempts therefore produce one reservation. The admin route adds `POST /api/v1/admin/billing/{billing_account_id}/revoke`, requires AWS-011 `AuthorizedTenant.role == "admin"`, a non-empty `reason_code` of at most 128 characters, and delegates to `ImmediateRevocationService`.
+Agent creation first calls `reserve_capacity`, persists the canonical resource with the reservation ID as idempotency key, then calls `consume_capacity`; a failed canonical write calls `release_capacity`. Tenant creation is stricter: after `authorize_tenant_creation` and `reserve_capacity`, the route builds `CreateBilledTenantCommand` entirely server-side from the canonical Tenant, target BillingAccount, authenticated actor and reservation. `create_billed_tenant` performs one DynamoDB `TransactWriteItems` containing the canonical `TENANT#<tenant>/META` Put, forward AccountTenant Put, unique reverse TenantAccount Put, capacity reservation `RESERVED -> CONSUMED` update, idempotency Put and tenant/account outbox rows. It condition-checks the active snapshot version, BillingAccount status/ID, reservation account/kind/resource/expiry and absence of all three new identity rows. The SQLite disabled adapter mirrors this as one transaction for its single tenant. A condition or injected failure leaves Tenant, both links, consumption, idempotency and outbox absent; retry uses the same command, and release occurs only after a strong read proves the transaction did not commit. Concurrent last-slot attempts therefore produce one tenant and one exact multi-tenant association without adding `tenant_id` to `BillingAccount`.
+
+The admin route adds `POST /api/v1/admin/billing/{billing_account_id}/revoke`, requires a non-empty `reason_code` of at most 128 characters, and reuses Task 8 `require_billing_owner`. Consequently a non-owner `AuthorizedTenant.role == "admin"` must also have an exact strongly read `BillingAccountTenantLink` for the requested account; an unrelated tenant admin, a missing/mismatched link, or any storage/decode error fails closed before `ImmediateRevocationService` or the executor is called.
 
 Preserve the Task 6 `ExecutionPermit`/`RunExecutionPermit` callbacks already installed in both composition roots; this task must not recreate or defer them. Its integration tests boot the final AWS API and processor runtimes and prove the same policy/binding implementation serves the initial wave and every downstream/retry dispatch. Revocation reads the current binding before incrementing the Run fence, persists `cancel_requested=True`, cancels only that latest active dispatch, then lets `revoke-pending` page unit cancellation and finish the canonical Run. Three completed sequential bindings remain auditable, while the fourth/current binding becomes the sole cancel target.
 
@@ -2230,9 +2441,9 @@ Extend the worker parser with `reconcile --limit 100`, `revoke-pending --limit 1
 
 - [ ] **Step 6: Run enforcement, race and chaos suites**
 
-Run: `uv run pytest packages/cnes_domain/tests/billing/test_publication.py apps/data_processor/tests/orchestration/test_publisher.py apps/data_processor/tests/orchestration/test_unit_worker.py apps/central_api/tests/test_aws_composition.py apps/data_processor/tests/test_aws_composition.py tests/integration/billing/test_enforcement.py tests/chaos/test_revocation_publish_fence.py tests/property/test_quota_last_unit_race.py tests/negative/test_no_direct_run_creation.py -q`
+Run: `uv run pytest packages/cnes_domain/tests/billing/test_publication.py packages/cnes_infra/tests/control_plane/test_dynamodb_adapter.py packages/cnes_infra/tests/control_plane/test_sqlite_adapter.py apps/data_processor/tests/orchestration/test_publisher.py apps/data_processor/tests/orchestration/test_unit_worker.py apps/central_api/tests/test_aws_composition.py apps/data_processor/tests/test_aws_composition.py tests/integration/billing/test_enforcement.py tests/chaos/test_revocation_publish_fence.py tests/property/test_quota_last_unit_race.py tests/negative/test_no_direct_run_creation.py -q`
 
-Expected: PASS; three waves bind sequentially, retry uses a new persisted dispatch generation, revocation cancels the latest active binding and terminates units/Run, stale claim/commit/fail all reject after the billing fence changes, a failed executor cancellation still cannot change `DatasetPointer`, and the publication race rejects the stale billing fence rather than a unit fence.
+Expected: PASS; three waves bind sequentially, retry uses a new persisted dispatch generation, revocation cancels the latest active binding and terminates units/Run, an unrelated-tenant admin cannot revoke, tenant plus both billing links commit or roll back together, stale claim/commit/fail all reject after the billing fence changes, a failed executor cancellation still cannot change `DatasetPointer`, and the publication race rejects the stale billing fence rather than a unit fence.
 
 - [ ] **Step 7: Commit**
 
@@ -2422,13 +2633,13 @@ The merged implementation follows the approved order:
 
 ## Self-Review Checklist
 
-- [ ] `BIL-010`: immutable `BillingAccount`, `PlanVersion`, `EntitlementSnapshot` and disabled local mode are covered by Tasks 1–2 and 6.
+- [ ] `BIL-010`: immutable multi-tenant `BillingAccount`/`BillingAccountTenantLink`, `PlanVersion`, `EntitlementSnapshot` and disabled local mode are covered by Tasks 1–2, 4, 6 and 17.
 - [ ] `BIL-011`: all named `EntitlementGate` methods and immutable `RunAuthorization` are covered by Tasks 3, 6 and 17.
 - [ ] `BIL-012`: DynamoDB projection, base-key strong reads, 60-second cache and invalidation are covered by Task 4.
 - [ ] `BIL-013`: atomic reserve/consume/release/recovery and final-unit race are covered by Task 5.
-- [ ] `BIL-020`: hosted Checkout, Portal, owner authorization, allowlisted redirects and pending redirect are covered by Tasks 7–8 and 13.
-- [ ] `BIL-021`: raw signature, allowlist, inbox dedupe, reordering, retries, recovery and worker are covered by Tasks 9–13.
-- [ ] `BIL-022`: immediate snapshot revocation, run fences, Step Functions cancellation and publisher denial are covered by Tasks 14 and 17.
+- [ ] `BIL-020`: hosted Checkout, Portal, owner/same-account-admin authorization, strong account/tenant link reads, allowlisted redirects and pending redirect are covered by Tasks 4, 7–8 and 13.
+- [ ] `BIL-021`: raw signature, allowlist, inbox dedupe, reordering, retries, older-page `starting_after` recovery, cursor reset and worker are covered by Tasks 9–13.
+- [ ] `BIL-022`: same-account-admin revocation authorization, immediate snapshot revocation, run fences, Step Functions cancellation and publisher denial are covered by Tasks 14 and 17.
 - [ ] `BIL-023`: reconciliation, explicit audit, metrics, alert contracts and runbook are covered by Tasks 15–17.
 - [ ] `BIL-024`: trial, renewal, payment failure, period-end cancellation and immediate revocation test clocks are covered by Tasks 18–19.
 - [ ] No critical correctness path depends on cache, GSI, TTL, redirect or successful workflow cancellation.
@@ -2438,6 +2649,3 @@ The merged implementation follows the approved order:
 ## Execution Handoff
 
 Plan complete and saved to `plans/2026-08-23-cnesdata-billing-entitlements-implementation-plan.md`. Two execution options:
-
-1. **Subagent-Driven (recommended)** — dispatch one fresh agent per task, review specification compliance and code quality between tasks, and reserve Tasks 6, 13, 17 and 19 for the serial integration lane.
-2. **Inline Execution** — use `superpowers:executing-plans`, execute the delivery-order batches, and stop at each serial integration gate for review.
