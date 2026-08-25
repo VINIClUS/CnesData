@@ -52,7 +52,7 @@ contracts and avoiding an undeclared service-stub dependency.
 | `cnes_domain.control_plane.commands` | `ClaimRunUnit(tenant_id, run_id, unit_id, dispatch_id, owner, now, lease_seconds)`; `ReserveRunDispatch(tenant_id, run_id, wave_id, unit_ids, now, lease_seconds)`; `BindRunDispatch(tenant_id, run_id, dispatch_id, execution_ref, now, lease_seconds)`; `FinishRunDispatch(tenant_id, run_id, dispatch_id, outcome, finished_at)`; plus `ClaimJob`, `CommitRunUnit`, `BeginIdempotency`, and `PublishDataset` with the CND registry fields |
 | `cnes_domain.control_plane.entities` | `RunDispatch(tenant_id, run_id, wave_id, dispatch_id, generation, unit_ids, state, lease_until, execution_ref=None, terminal_outcome=None)` using canonical `DispatchState`/`DispatchOutcome` |
 | `cnes_domain.ports.serving` | `ServingRequest(user_id: str, tenant_id: str, dataset_name: str)`, `ServingGrant(tenant_id: str, run_id: str, version_id: str, object_keys: tuple[str, ...])`, and `ServingAccessPort.authorize(request) -> ServingGrant` |
-| `cnes_domain.ports.object_store` | `ObjectStorePort.stat(key: str) -> ObjectStat | None` |
+| `cnes_domain.ports.object_store` | `ObjectStorePort.open(key: str) -> BinaryIO`; `ObjectStorePort.stat(key: str) -> ObjectStat | None` |
 | `cnes_domain.ports.processing` | `StartRunExecution(tenant_id: str, run_id: str, wave_id: str, dispatch_id: str, unit_ids: tuple[str, ...], max_concurrency: int)` and `CancelRunExecution(tenant_id: str, run_id: str, execution_ref: str | None)`; logical `wave_id` is stable for an ordered ready set, while durable `dispatch_id` is stable only for one start attempt |
 | `cnes_domain.ports.processing` | `ProcessorExecutorPort.start(request: StartRunExecution) -> str`; `ProcessorExecutorPort.cancel(request: CancelRunExecution) -> None`; `ProcessorExecutorPort.status(execution_ref: str) -> ExecutionStatus` |
 | `cnes_domain.ports.processing` | `ConcurrencyPolicy = Callable[[Run, RunDispatch, int], ExecutionPermit]`; `ExecutionStarted(run, request, execution_ref, permit)` plus canonical `ExecutionCallbacks` and `ExecutionPolicyConfig`; the identical permit object crosses the callback |
@@ -74,7 +74,7 @@ contracts and avoiding an undeclared service-stub dependency.
 | `data_processor.orchestration.unit_handler` | `RunUnitCommandHandler(unit_worker: UnitWorker).handle(message: RunUnitMessage) -> RunUnit`; it alone converts the transport message to dispatch-aware `ClaimRunUnit` and calls `UnitWorker.execute` |
 | `data_processor.orchestration.coordinator` | `allow_execution(run: Run, dispatch: RunDispatch, requested_limit: int) -> ExecutionPermit`; `CoordinatorDependencies`; `PipelineCoordinator(dependencies: CoordinatorDependencies, execution: ExecutionPolicyConfig)`; `recover(limit: int = 100) -> tuple[CoordinatorResult, ...]` owns canonical status/lease/CAS recovery with its injected clock; policy bundle types are imported from `cnes_domain.ports.processing` |
 | `central_api.services.run_planning` | `RunPlanningDependencies(control_plane, object_store, executor, source_catalog)` and `RunPlanningService(dependencies: RunPlanningDependencies, execution: ExecutionPolicyConfig, clock: Callable[[], datetime])`; it owns the same canonical start/bind/callback compensation for the initial wave |
-| `central_api.services.serving_access` | `LocalServingAccess(control_plane).authorize(request: ServingRequest) -> ServingGrant`; despite its name, this is the storage-neutral canonical pointer/membership policy reused before S3 signing |
+| `central_api.services.serving_access` | `LocalServingAccess(control_plane, object_store).authorize(request: ServingRequest) -> ServingGrant`; despite its name, this is the storage-neutral canonical pointer/membership policy that reads the active immutable run manifest before S3 signing |
 | `docker-compose.yml` | profile `aws-test`; services `dynamodb-local` at `DYNAMODB_ENDPOINT_URL=http://127.0.0.1:18000` and `aws-emulator` at `AWS_ENDPOINT_URL=http://127.0.0.1:4566` |
 | `.github/workflows/python-quality.yml` | CND-025 adapter-emulator job and teardown surface, extended only by serial Task 10 |
 
@@ -1100,7 +1100,10 @@ def test_rejeita_key_fora_do_pointer_e_prefixo(key: str, code: str) -> None:
         )
 ```
 
-Also test that an absent membership, missing pointer/version, or cross-tenant request is rejected by the stable policy before `ObjectStorePort.stat` or signing; that a requested file absent from `ServingGrant.object_keys`, failed object stat, and S3 signing failure fail closed; and that no request parameter becomes an S3 key unless it exactly matches an already-authorized immutable key.
+Also test that an absent membership, missing pointer/version, or cross-tenant request is rejected by
+the stable policy before any run-manifest read, object stat, or signing; that a requested file absent
+from `ServingGrant.object_keys`, failed object stat, and S3 signing failure fail closed; and that no
+request parameter becomes an S3 key unless it exactly matches an already-authorized immutable key.
 
 - [ ] **Step 2: Write the failing Object Lock runtime assertion**
 
@@ -1532,7 +1535,7 @@ def _build_aws_api_runtime(
         DeltaPolicy(),
         accepted_manifest=lambda record: _notify_accepted(run_planning, record),
     )
-    access_policy = LocalServingAccess(core.control_plane)
+    access_policy = LocalServingAccess(core.control_plane, core.object_store)
     serving = S3SignedServingAccess(
         access_policy,
         core.object_store,
