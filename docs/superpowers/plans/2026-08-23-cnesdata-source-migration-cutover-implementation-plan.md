@@ -1072,6 +1072,8 @@ class LegacyExportObject(BaseModel):
     object_key: str
     source_kind: Literal["POSTGRES_TABLE", "MINIO_OBJECT"]
     source_name: str
+    source_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    part_number: int | None = Field(default=None, ge=0)
     competencia: str | None
     row_count: int | None = Field(ge=0)
     size_bytes: int = Field(ge=0)
@@ -1086,20 +1088,55 @@ class LegacyHistoryExportManifest(BaseModel):
     stopped_writes_at: datetime
     postgres_marker: str
     minio_marker: str
+    postgres_rows_per_part: int = Field(gt=0)
+    export_request_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     objects: tuple[LegacyExportObject, ...]
     manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 ```
 
-Exported keys use
-`raw/<tenant>/LEGACY_EXPORT/<competencia>/<export_id>/<source_name>.parquet`; the immutable
-manifest is beside the objects. `LEGACY_EXPORT` is archival input, never an active source plugin
-or serving dataset.
+`source_name` is the canonical source locator: `<schema>.<table>` for PostgreSQL and the complete
+`minio://<bucket>/<object-key>` locator for MinIO. `source_id` is the SHA-256 of canonical JSON
+containing `source_kind` and `source_name`; it is the safe path component and prevents two MinIO
+objects with the same basename, or the same object key in different buckets, from colliding.
+PostgreSQL entries require a zero-based `part_number`; MinIO entries require `part_number=None`.
+
+Under `raw/<tenant>/LEGACY_EXPORT/<competencia>/<export_id>/`, final keys are deterministic:
+
+- PostgreSQL: `postgres/<source_id>/part-<part_number:06d>.parquet`;
+- MinIO: `minio/<source_id>/object.parquet`.
+
+Before writing an object, the exporter create-if-absent writes `request.json` at that root. Its
+canonical hash covers tenant, competence, export ID, both frozen source markers,
+`postgres_rows_per_part`, and the ordered canonical source locators. A resume must match this
+`export_request_sha256` exactly before reusing or creating any final key.
+
+The immutable manifest is `manifest.json` at that export root. It records the same request hash
+and orders entries by
+`(source_kind, source_id, part_number, object_key)` before computing canonical JSON and
+`manifest_sha256`; the digest input is the canonical manifest payload with the digest field
+omitted, and the resulting value is then stored in that field. For each PostgreSQL source, part
+numbers must be unique and contiguous from
+zero; even an empty table emits `part-000000.parquet` with zero rows. `postgres_rows_per_part` is
+frozen for the export and included in the manifest hash, so a resumed export cannot silently
+change chunk boundaries. `LEGACY_EXPORT` is archival input, never an active source plugin or
+serving dataset.
 
 - [ ] **Step 1: Add failing contract and exporter tests**
 
-  Cover stable canonical JSON hashing, empty tables, chunk-boundary stability, timezone/date and
-  decimal conversion, object-copy hashing, duplicate target refusal, partial-export resume with
-  the same export ID, different-payload conflict, and tamper detection.
+  Cover stable canonical request and manifest hashing including `source_id`, `part_number`,
+  `postgres_rows_per_part`, and `export_request_sha256`; empty tables; fixed chunk-boundary
+  stability; timezone/date and decimal conversion; and object-copy hashing. Export enough ordered
+  PostgreSQL rows to require at least three parts and assert unique `part-000000.parquet` through
+  `part-000002.parquet` keys, exact per-part row counts and hashes, contiguous part validation, and
+  deterministic manifest ordering.
+
+  Cover duplicate target refusal, a rejected missing or repeated PostgreSQL part number,
+  partial-export resume with the same export ID after only part zero was published, reuse of an
+  already verified identical part, completion of only the missing parts, request-hash rejection
+  when the source inventory or chunk policy changes, different-payload conflict, and tamper
+  detection. For MinIO, copy byte-identical basenames from different prefixes and buckets and
+  assert distinct `source_id`/final keys, `part_number=None`, unchanged object bytes, and exact
+  hashes. Reject a MinIO entry with a part number and a PostgreSQL entry without one.
 
 - [ ] **Step 2: Run RED**
 
@@ -1113,11 +1150,31 @@ or serving dataset.
 
 - [ ] **Step 3: Implement bounded, idempotent export**
 
+  Build and create-if-absent publish the canonical `request.json` before exporting data. On an
+  existing export root, reject any request whose `export_request_sha256` differs before inspecting
+  reusable parts; this prevents a changed source inventory or chunk policy from extending the same
+  export ID under a second layout.
+
   Stream each approved PostgreSQL table in stable primary-key order into bounded Parquet parts;
-  never load the whole table into memory. Copy each retained MinIO object through a streaming
-  reader. For every part, write to an attempt key, compute SHA-256, publish once to the final key,
-  verify stat/hash, and append the object entry. Write the final manifest only after every object
-  verifies. Retry with identical inputs returns the same entries; changed bytes conflict.
+  never load the whole table into memory. Freeze `postgres_rows_per_part` before the first write
+  and assign each emitted chunk its zero-based ordinal, independent of retry count or attempt-key
+  names. Derive each final PostgreSQL key from `(tenant, competencia, export_id, source_id,
+  part_number)` using the six-digit part format above. Do not derive a final key from only
+  `source_name`. Emit the canonical zero-row part for an empty table.
+
+  Copy each retained MinIO object through a streaming reader without repartitioning or changing
+  its bytes. Derive `source_id` from its full bucket/object locator and publish to the distinct
+  MinIO key above; never flatten to a basename or assign a PostgreSQL part number. For every
+  PostgreSQL part or MinIO object, write to an attempt key, compute SHA-256, publish once to the
+  deterministic final key, verify stat/hash, and append the final-key entry.
+
+  On resume, recompute the same source identity, part ordinal, and bytes from the frozen markers.
+  If a final key exists with the expected size/hash, reuse it without rewriting; if it differs,
+  fail the export as a conflict. Continue at the first missing part, but still enumerate the
+  entire source and validate contiguous ordinals before finalization. Sort all entries canonically
+  and write the final manifest only after every expected object verifies. Retry with identical
+  inputs returns the same entries and request/manifest hashes; changed chunk policy, source
+  locator, or bytes conflicts instead of creating an alternate layout under the same export ID.
 
   Keep legacy client imports confined to `cnes_infra.migration.legacy_export`; the verifier uses
   only `ObjectStorePort` and remains useful after `MIG-014` deletes the exporter.
