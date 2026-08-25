@@ -619,6 +619,14 @@ def test_comandos_de_unit_carregam_mesmo_dispatch_id(claim_values):
     claim = ClaimRunUnit.model_validate({**claim_values,
                                          "dispatch_id": "fedcba9876543210"})
     assert claim.dispatch_id == "fedcba9876543210"
+
+
+def test_dataset_version_vincula_versao_run_e_manifesto(version_values):
+    with pytest.raises(ValidationError, match="version_run_mismatch"):
+        DatasetVersion.model_validate({**version_values, "version_id": "other-run"})
+    with pytest.raises(ValidationError, match="invalid_run_manifest_key"):
+        DatasetVersion.model_validate({**version_values,
+                                       "run_manifest_key": "serving/overview.json"})
 ```
 
 Also test that `Run` rejects an empty dependency tuple, duplicate
@@ -655,6 +663,10 @@ succeeded Job has both and the key matches its tenant/source/competence snapshot
 `RawManifestRecord` is the dependency-free control-plane index projection of one already validated
 wire manifest: its IDs/source/agent/competence match the completing Job, hashes are lowercase
 64-hex, FULL is sequence 1 with null base/previous hash, and DELTA has both with sequence at least 2.
+`DatasetVersion` requires `version_id == run_id` and an immutable canonical
+`reconciliation/<tenant_id>/<competencia>/<run_id>/run-manifest.json` key belonging to that tenant
+and Run, with the path competência matching `YYYY-MM`; the key is stored server-side and is never
+supplied or reconstructed by a serving request.
 Legal terminal transitions are: Job `PENDING|FAILED_RETRYABLE -> LEASED`,
 `LEASED -> SUCCEEDED|FAILED_RETRYABLE|FAILED_FINAL|CANCEL_REQUESTED`,
 `CANCEL_REQUESTED -> CANCELED`; Run
@@ -812,6 +824,14 @@ def test_adapter_estrutural_satisfaz_object_store_port():
             destination_key, 0, expected_sha256)
         delete = lambda self, key: None
     assert isinstance(Store(), ObjectStorePort)
+
+
+def test_serving_grant_rejeita_key_fora_do_run(grant_values):
+    with pytest.raises(ValidationError, match="serving_key_forbidden"):
+        ServingGrant.model_validate({
+            **grant_values,
+            "object_keys": ("serving/other-tenant/other-run/overview.json",),
+        })
 ```
 
 - [ ] **Step 2: Prove the ports are absent**
@@ -858,8 +878,12 @@ permit. `PublicationPermit.binding_context` follows the same rule: local leaves 
 integrated billing adapter condition-checks the typed account/version/fence context in the same
 publication transaction. `RunUnitMessage` validates nonblank identity/owner, matching lowercase 16-hex wave/dispatch,
 UTC `now`, and positive lease seconds. Put
-object/serving request values in the same focused module as their port. Use only `TYPE_CHECKING`
-imports where a concrete import is unnecessary.
+object/serving request values in the same focused module as their port. `ServingGrant.object_keys`
+is non-empty, ordered, unique, and contains only canonical
+`serving/<tenant_id>/<run_id>/<document>.json` keys for its own tenant and Run. This structural
+validation is defense in depth; CND-062 remains responsible for deriving the tuple verbatim from
+the validated active `RunManifest`. Use only `TYPE_CHECKING` imports where a concrete import is
+unnecessary.
 
 - [ ] **Step 4: Verify types, imports, and coverage**
 
@@ -2050,8 +2074,11 @@ its canonical `OutputManifest` and matching `manifest_id`, and reject duplicate 
 across units. For each manifest call
 `store.promote(attempt_object_key(unit_attempt_prefix, manifest.object_key), manifest.object_key,
 manifest.object_sha256)` and stat/hash the final key. Write immutable
-`reconciliation/<tenant>/<competencia>/<run_id>/run-manifest.json`; build immutable
-`DatasetVersion(version_id=run_id)`; choose `PUBLISHED_DEGRADED` iff `run.missing_sources` is
+`reconciliation/<tenant>/<competencia>/<run_id>/run-manifest.json` through `ObjectStorePort.put`
+with its canonical JSON SHA-256 and include every promoted `OutputManifest` exactly once. Build the
+immutable `DatasetVersion(version_id=run.run_id, run_id=run.run_id,
+run_manifest_key=f"reconciliation/{run.tenant_id}/{run.competencia}/{run.run_id}/run-manifest.json")`;
+choose `PUBLISHED_DEGRADED` iff `run.missing_sources` is
 non-empty, otherwise `PUBLISHED`. Immediately before constructing/calling `publish_dataset`, invoke `publication_policy(run)` exactly
 once and validate that the returned permit has the same tenant/run. Pass that same instance into
 `PublishDataset.publication_permit`; no route/coordinator/caller supplies authorization captured
@@ -2419,6 +2446,12 @@ git commit -m "test(processor): gate CNES golden parity"
 - Produces in `central_api.composition`: `LocalRuntime(control_plane: ControlPlanePort, object_store: ObjectStorePort, executor: ProcessorExecutorPort, audit_sink: AuditSinkPort, raw_ingestion: RawIngestionService, source_catalog: SourceCatalog, run_planning: RunPlanningService)`; `build_local_runtime(settings: ProfileSettings, clock: Callable[[], datetime]) -> LocalRuntime`.
 - Produces in `data_processor.composition`: `normalize_cnes(request: NormalizeRequest, store: ObjectStorePort) -> NormalizeResult`; `build_source_registry(catalog: SourceCatalog | None = None) -> SourceRegistry`; `LocalProcessorRuntime(control_plane: ControlPlanePort, object_store: ObjectStorePort, executor: ProcessorExecutorPort, publisher: DatasetPublisher, source_registry: SourceRegistry, stage_processor: StageProcessor, coordinator: PipelineCoordinator, unit_worker: UnitWorker, unit_handler: RunUnitCommandHandler)`; `build_local_processor_runtime(settings: ProfileSettings, clock: Callable[[], datetime]) -> LocalProcessorRuntime`.
 
+`LocalRuntime` deliberately exposes the same `control_plane` and `object_store` instances as a pair.
+CND-062 can remain a disjoint feature worktree with fake ports; CND-064 is the serial owner that
+constructs `LocalServingAccess(runtime.control_plane, runtime.object_store)` and injects those same
+instances into the serving route. No serving authorization path may construct a second store or
+retain only the control plane.
+
 - [ ] **Step 1: Write failing cloud/legacy-free composition tests**
 
 ```python
@@ -2735,8 +2768,13 @@ git commit -m "feat(auth): add local password profile"
 - Modify: none
 
 **Interfaces:**
-- Consumes: `ControlPlanePort.get_membership`, `get_dataset_pointer`, `get_dataset_version`, `ObjectStorePort`, `ServingRequest`, `ServingGrant`, fixed tenant/principal dependencies.
-- Produces: `LocalServingAccess(control_plane).authorize(request: ServingRequest) -> ServingGrant`; `GET /api/v1/dashboard/serving/{dataset_name}/{document_name}` streaming authorized JSON with `ETag=<sha256>`, `X-Dataset-Version`, and `Cache-Control: private, max-age=30`.
+- Consumes: `ControlPlanePort.get_membership`, `get_dataset_pointer`, `get_dataset_version`,
+  `DatasetVersion.run_manifest_key`, `ObjectStorePort.open/stat`, `RunManifest`, `OutputManifest`,
+  `ServingRequest`, `ServingGrant`, and fixed tenant/principal dependencies.
+- Produces: `LocalServingAccess(control_plane: ControlPlanePort, object_store: ObjectStorePort)`;
+  `ServingUnavailable(code: str)`; `authorize(request: ServingRequest) -> ServingGrant`;
+  `GET /api/v1/dashboard/serving/{dataset_name}/{document_name}` streaming authorized JSON with
+  `ETag=<sha256>`, `X-Dataset-Version`, and `Cache-Control: private, max-age=30`.
 
 - [ ] **Step 1: Write failing denial/no-fallback tests**
 
@@ -2746,7 +2784,40 @@ def test_serving_ausente_nao_cai_para_versao_antiga(client, active_pointer):
     response = client.get("/api/v1/dashboard/serving/cnes/overview")
     assert response.status_code == 503
     assert response.json()["detail"] == "active_serving_unavailable"
+
+
+def test_authorize_carrega_manifesto_e_concede_so_serving(
+    control_plane, object_store, active_version, run_manifest,
+):
+    access = LocalServingAccess(control_plane, object_store)
+    grant = access.authorize(
+        ServingRequest(user_id="gestor", tenant_id="354130", dataset_name="cnes"))
+    expected = tuple(
+        output.object_key for output in run_manifest.outputs
+        if output.layer == "serving"
+    )
+    assert object_store.opened_keys == [active_version.run_manifest_key]
+    assert object_store.statted_keys == [active_version.run_manifest_key, *expected]
+    assert grant.object_keys == expected
+
+
+def test_manifesto_de_outro_run_falha_fechado(
+    control_plane, object_store, active_version,
+):
+    object_store.replace_manifest(active_version.run_manifest_key, run_id="other-run")
+    access = LocalServingAccess(control_plane, object_store)
+    with pytest.raises(ServingUnavailable, match="run_manifest_identity_mismatch"):
+        access.authorize(
+            ServingRequest(user_id="gestor", tenant_id="354130", dataset_name="cnes"))
 ```
+
+The test module implements recording fake ports that expose only the methods consumed above. Add
+cases for an invalid JSON/schema, manifest bytes whose SHA-256 differs from their `ObjectStat`,
+mismatched tenant/dataset/version/Run identity, duplicate output IDs or keys, a non-canonical
+serving key, an absent/hash-mismatched serving object, and a manifest containing
+raw/normalized/reconciliation outputs beside serving outputs. The last case must grant the serving
+keys verbatim and no others. Route tests request traversal, a document absent from the grant, and
+another tenant/Run key, then assert the object store never opens those candidate keys.
 
 - [ ] **Step 2: Prove serving modules are absent**
 
@@ -2756,13 +2827,32 @@ Expected: collection FAIL importing `central_api.services.serving_access`.
 
 - [ ] **Step 3: Add pointer-only authorization and streaming**
 
-Authorize by direct `(tenant_id,user_id)` membership lookup, resolve only `POINTER#CURRENT`, load its immutable version/run manifest, and allow only serving-layer keys listed there. Reject `raw`, `normalized`, `reconciliation`, arbitrary object keys, tenant input, and path traversal. Local BFF streams the JSON object; it does not create public/signed filesystem URLs.
+Authorize by direct `(tenant_id,user_id)` membership lookup and resolve only `POINTER#CURRENT` plus
+the exact `DatasetVersion` selected by that pointer. Use the injected `ObjectStorePort` to stat and
+open only `version.run_manifest_key`, hash the bytes, require equality with that `ObjectStat.sha256`,
+then parse them with `RunManifest.model_validate_json`. Fail closed unless all of these identities
+agree: request, pointer, and version tenant/dataset/version; `version_id == run_id`; manifest
+tenant/dataset/Run; and every output tenant/Run. Reject duplicate manifest IDs or object keys.
+Never accept a caller-supplied or reconstructed run-manifest key.
+
+Derive `ServingGrant.object_keys` verbatim, in manifest order, from the validated outputs whose
+`layer == "serving"`; require at least one, require each key to match exactly
+`serving/<tenant_id>/<run_id>/<document>.json`, and use `ObjectStorePort.stat` to require each object
+to exist with the exact `OutputManifest.object_sha256`. Raw, normalized, reconciliation, arbitrary,
+cross-tenant, cross-Run, and path-traversal keys never enter the grant.
+
+The route validates `document_name` as one safe segment, constructs the canonical active-Run key,
+and opens it only after exact tuple membership in `grant.object_keys`; suffix/prefix/normalized-path
+matches are forbidden. Re-stat that exact key before streaming and use its SHA-256 as the quoted
+`ETag`. Local BFF streams the JSON object; it does not create public/signed filesystem URLs and does
+not fall back to an older version or another key when the manifest/object is invalid or absent.
 
 - [ ] **Step 4: Verify security and coverage**
 
 Run: `uv run ruff check apps/central_api/src/central_api/services/serving_access.py apps/central_api/src/central_api/routes/serving.py apps/central_api/tests/services/test_serving_access.py apps/central_api/tests/routes/test_serving.py && uv run pytest apps/central_api/tests/services/test_serving_access.py apps/central_api/tests/routes/test_serving.py --cov=central_api.services.serving_access --cov=central_api.routes.serving --cov-branch --cov-fail-under=90 -q`
 
-Expected: PASS, including unauthorized/cross-tenant/raw-key/missing-serving cases.
+Expected: PASS, including unauthorized/cross-tenant/raw-key/missing-serving cases, active
+run-manifest identity/hash checks, and proof that only exact granted serving keys are opened.
 
 - [ ] **Step 5: Commit**
 
@@ -2859,8 +2949,12 @@ git commit -m "feat(dashboard): consume active serving JSON"
 - Modify: `.github/workflows/web-dashboard.yml`
 
 **Interfaces:**
-- Consumes: all accepted CND-000–064 foundation tasks; CND-021, the S3 portions of CND-022/023/025, and the Step Functions adapter from CND-042 remain adapter-only and are not composed into the local runtime. AWS-012 owns state-machine/ECS composition.
-- Produces: fully composed local app; `create_backup(state_db: Path, data_dir: Path, target: Path, now: datetime) -> BackupManifest`; `restore_backup(archive: Path, state_db: Path, data_dir: Path) -> None`; acceptance evidence for restart, full/delta, fencing, publication recovery, auth/serving, and non-derivable state restore.
+- Consumes: all accepted CND-000–064 foundation tasks, including CND-060's paired runtime ports
+  and CND-062 `LocalServingAccess(control_plane: ControlPlanePort, object_store: ObjectStorePort)`;
+  CND-021, the S3 portions of CND-022/023/025, and the Step Functions adapter from CND-042 remain
+  adapter-only and are not composed into the local runtime. AWS-012 owns state-machine/ECS
+  composition.
+- Produces: fully composed local app; `create_backup(state_db: Path, data_dir: Path, target: Path, now: datetime) -> BackupManifest`; `restore_backup(archive: Path, state_db: Path, data_dir: Path) -> None`; acceptance evidence for restart, full/delta, fencing, publication recovery, run-manifest-bound auth/serving, and non-derivable state restore.
 
 - [ ] **Step 1: Write failing acceptance and restore tests**
 
@@ -2873,6 +2967,18 @@ def test_backup_restaura_usuarios_memberships_agents_e_access_decisions(stack, t
     assert stack.membership("gestor") is not None
     assert stack.agent("agent-01").state == AgentState.ACTIVE
     assert stack.access_request("request-01").state == AccessRequestState.APPROVED
+
+
+@pytest.mark.local_profile
+def test_serving_composto_usa_store_do_runtime(
+    client, runtime_store, active_version,
+):
+    response = client.get("/api/v1/dashboard/serving/cnes/overview")
+    assert response.status_code == 200
+    assert runtime_store.opened_keys == [
+        active_version.run_manifest_key,
+        "serving/354130/run-01/overview.json",
+    ]
 ```
 
 - [ ] **Step 2: Prove local acceptance is not yet wired**
@@ -2884,6 +2990,14 @@ Expected: FAIL because routes/exports/generated contracts/Compose are not integr
 - [ ] **Step 3: Integrate shared surfaces and implement verified backups**
 
 Use SQLite's online backup API into a staging directory, copy immutable data/audit objects, write per-file SHA-256/size plus backup version/tenant/timestamp, then atomically finalize the archive. Restore into empty targets only, verify every hash before replacement, and refuse a tenant mismatch. Compose adds a `local` profile with only API, processor, and dashboard plus mounted `state/` and `data/`; it must not start PostgreSQL, MinIO, Keycloak, or AWS services. Include local auth/serving routers, regenerate all shared contracts/clients, and add the full acceptance matrix to CI.
+
+The API dependency graph constructs exactly
+`LocalServingAccess(runtime.control_plane, runtime.object_store)` and injects both that policy and
+the same `runtime.object_store` into the CND-062 route. Add an integration assertion that the active
+`DatasetVersion.run_manifest_key` is opened before its exact granted serving object, while a
+manifest identity mismatch or a requested key outside `ServingGrant.object_keys` returns a
+fail-closed response without opening the candidate object. Do not instantiate another filesystem
+store inside `deps.py`, the route, or the service.
 
 - [ ] **Step 4: Run every final local gate**
 
@@ -2909,8 +3023,13 @@ git commit -m "feat(local): complete CNES local profile acceptance"
 - Raw wave: CND-030, CND-032, and CND-033 can run independently after their listed contracts exist. CND-031 follows CND-030. CND-034 is serial and owns DI, dependency manifests, generated OpenAPI/schema, and generated Go client changes.
 - Orchestration wave: CND-041 starts as soon as CND-010/CND-011 are merged and is independent of adapters; CND-042 follows CND-012/CND-041. CND-040 waits for CND-020/CND-021/CND-030. CND-043 follows CND-040/CND-041; CND-044 follows CND-022/CND-024/CND-043; CND-045 is the serial race/crash gate.
 - Processing wave: CND-050 and CND-051 are independent because their shared request/result types are frozen in CND-011. CND-052 → CND-053 → CND-054 is serial.
-- Product wave: CND-060, CND-061, and CND-062 own disjoint feature files after serving schema freeze; CND-060 freezes `SourceCatalog`, `SourcePipeline`/`SourceRegistry`, run planning, stage dispatch, and the initial CNES bundle before any SIHD/BPA/SIA processing worktree is dispatched. Those later source lanes create source-owned stage functions plus disjoint package definition files; their serial controller integration extends the shared catalog and registry. CND-063 follows CND-062; CND-064 is the only final integration owner for app bootstrap, package manifests/locks, generated artifacts, CI, and Compose.
+- Product wave: CND-060, CND-061, and CND-062 own disjoint feature files after serving schema freeze; CND-060 freezes `SourceCatalog`, `SourcePipeline`/`SourceRegistry`, run planning, stage dispatch, and the initial CNES bundle before any SIHD/BPA/SIA processing worktree is dispatched. CND-060 also exposes its paired control-plane/object-store instances, while CND-062 tests the two-port serving policy with fakes; neither worktree edits the other's files. Those later source lanes create source-owned stage functions plus disjoint package definition files; their serial controller integration extends the shared catalog and registry. CND-063 follows CND-062; CND-064 is the only final integration owner for app bootstrap, serving-policy/store injection, package manifests/locks, generated artifacts, CI, and Compose.
 - DynamoDB/S3 adapters and S3 Object Lock audit delivery are completed here in CND-021–025; Step Functions/ECS, AWS application composition, AWS OIDC/signed serving, billing, SIHD/BPA/SIA source parity, legacy deletion, historical export, and cutover remain outside this plan.
+
+Cross-plan consumption must use the same corrected boundary: AWS signed serving composes
+`LocalServingAccess(core.control_plane, core.object_store)` before `S3SignedServingAccess` and treats
+the returned `ServingGrant.object_keys` as the complete allowlist. The AWS lane may not retain the
+former control-plane-only constructor or rederive serving keys from request input.
 
 ## External decision gate
 
@@ -2920,4 +3039,4 @@ The approved data-plane design mandates an official DATASUS adapter but does not
 
 - **Spec coverage:** CND-000–003, 010–014, 020–025, 030–034, 040–045, 050–054, and 060–064 each map to one independently reviewable task. AWS application composition, billing, source parity, cutover, and removal are explicitly excluded. Delta limits, leases/fencing, degraded fan-in, atomic pointer/outbox publication, local isolation, authorized serving, audit replay, and backup/restore all have concrete tests.
 - **Specificity scan:** No vague deferred-work phrase or wildcard task remains. The only blocked work is the explicit DATASUS source decision gate above; its adapter interfaces and tests are nevertheless fixed.
-- **Type consistency:** All later tasks use the canonical request/result types from `cnes_contracts.manifests.processing`; normalization and materialization results carry non-empty tuples so source plugins may emit multiple typed artifacts. They use the `SourceType` enum from `cnes_contracts.manifests.raw`, target PEP 544 ports from `cnes_domain.ports`, package-owned `PipelineDefinition`/`SourceCatalog`, the app-level `SourcePipeline` stage registry, and the composition signatures from CND-060. `Job`, `Run`, and staged `RunUnit` remain distinct; `version_id=run_id` is consistent from publisher through serving.
+- **Type consistency:** All later tasks use the canonical request/result types from `cnes_contracts.manifests.processing`; normalization and materialization results carry non-empty tuples so source plugins may emit multiple typed artifacts. They use the `SourceType` enum from `cnes_contracts.manifests.raw`, target PEP 544 ports from `cnes_domain.ports`, package-owned `PipelineDefinition`/`SourceCatalog`, the app-level `SourcePipeline` stage registry, and the composition signatures from CND-060. `Job`, `Run`, and staged `RunUnit` remain distinct; `version_id=run_id` is consistent from publisher through serving. CND-062 and its local/AWS composition consumers use `LocalServingAccess(control_plane, object_store)`; the active `DatasetVersion.run_manifest_key` is loaded and validated before the unchanged `ServingGrant.object_keys` tuple is derived exactly from serving outputs.
