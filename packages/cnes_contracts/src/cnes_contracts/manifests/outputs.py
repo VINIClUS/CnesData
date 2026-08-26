@@ -16,7 +16,7 @@ from cnes_contracts.manifests.validation import (
     validate_object_key,
 )
 
-type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
 
 _SCHEMA_PATTERN = r"^[a-z0-9-]+-v[1-9][0-9]*$"
 _DOCUMENT_PATTERN = r"^[a-z0-9][a-z0-9_-]*$"
