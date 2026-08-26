@@ -46,7 +46,7 @@ JOINs contra o Gold.
 │                │                                              │
 │       ┌────────┴────────┐                                     │
 │       ▼                 ▼                                     │
-│  [Postgres queue]   [MinIO]  ← presigned GET/PUT              │
+│  [Postgres landing] [MinIO]                                   │
 │       │                 ▲                                     │
 │       │                 │                                     │
 │       ▼                 │                                     │
@@ -109,9 +109,9 @@ Current `dump_agent_go` production path includes:
 
 ## Contratos entre apps
 
-### Edge → Central (HTTPS)
+### API surface atual
 
-| Verb + Path | Payload | Response |
+| Verb + Path | Consumidor | Descrição |
 |---|---|---|
 | `POST /oauth/device_authorization` | device flow init | `{device_code, user_code, verification_uri}` |
 | `POST /oauth/token` | device code grant | access token ou pending/denied |
@@ -184,44 +184,38 @@ callbacks/upserts quando usadas por ingestões específicas.
 Todas as tabelas têm Row-Level Security ativa. Queries sem `tenant_id` no
 contexto (via `set_tenant_id()` do `cnes_domain.tenant`) retornam vazio.
 
-## Fluxo de jobs (estados)
+## Fluxo de jobs (landing.extractions)
 
-```
-   ┌─────────┐       lease       ┌────────┐
-   │ pending ├──────────────────▶│ leased │
-   └────┬────┘                   └───┬────┘
-        │                            │
-        │ lease expired              │ heartbeat
-        │ (reaper)                   │
-        ◀────────────────────────────┤
-        │                            │
-        │                            │ complete
-        │                            ▼
-        │                      ┌──────────┐
-        │                      │ uploaded │
-        │                      └────┬─────┘
-        │                           │ processor picks
-        │                           ▼
-        │                   ┌─────────────┐
-        │                   │ processing  │
-        │                   └──────┬──────┘
-        │                          │
-        │                          │ success
-        │                          ▼
-        │                   ┌─────────────┐
-        │                   │ completed   │
-        │                   └─────────────┘
-        │
-        │ fail (retryable)
-        ▼
-   ┌─────────┐  exceeded retries  ┌─────────────┐
-   │ pending │ ──────────────────▶│ dead_letter │
-   └─────────┘                    └─────────────┘
+Tabela principal: `landing.extractions`.
+
+Campos centrais: `job_id`, `tenant_id`, `source_type`, `competencia`,
+`files` JSONB, `depends_on` UUID[], `status`, `lease_until`,
+`agent_version`, `machine_id`.
+
+Status aceitos pela migration atual:
+
+```text
+PENDING, UPLOADED, PROCESSING, INGESTED, FAILED, DLQ,
+REGISTERED, CLAIMED, COMPLETED
 ```
 
-Tabelas: `public.jobs` (fila), `public.job_retries`, `public.job_leases`.
-Reaper do `central_api` roda a cada `_REAPER_INTERVAL=60s` e volta leases
-expirados para `pending`.
+Fluxo implementado no código atual:
+
+```text
+POST /api/v1/extractions/enqueue
+  -> cria landing.extractions status=PENDING
+
+POST /api/v1/jobs/register
+  -> atualiza PENDING/CLAIMED para REGISTERED
+  -> grava files, agent_version, machine_id
+
+data_processor.poll
+  -> claim_next tenta mover PENDING para CLAIMED
+  -> complete/fail ainda pendentes em extractions_repo
+```
+
+Fluxo alvo: `REGISTERED`/`UPLOADED` -> `PROCESSING` -> `INGESTED` ou
+`FAILED`/`DLQ`, preservando `depends_on` para dimensões SIA antes dos fatos.
 
 ## Multi-tenancy
 
@@ -310,6 +304,9 @@ docker compose --profile perf up -d
 docker compose --profile shadow up -d
 ```
 
+Nota: na branch atual, `data-processor` pode logar erros das funções
+pendentes em `extractions_repo` se houver jobs a processar.
+
 ## web_dashboard (2026-04 — v1.0 + v1.1)
 
 `apps/web_dashboard/` — SPA Bun+React+TypeScript que oferece:
@@ -327,7 +324,7 @@ docker compose --profile shadow up -d
   procedimentos competência atual, % cobertura) + faturamento area chart
   12m por estabelecimento via `@tremor/react` lazy-loaded
 - `/access-pending` — fluxo JIT de signup self-service: usuário sem tenant
-  preenche solicitação (`POST /api/v1/access-requests`), grava em
+  preenche solicitação (`POST /api/v1/dashboard/access-requests`), grava em
   `dashboard.access_requests` (status `pending`); aprovação manual via
   SQL admin v1.1 (UI em v1.2 — ver `docs/runbooks/access-request-approval.md`)
 - Dark mode 3-state (light/dark/system) via `ThemeProvider` + matchMedia +
