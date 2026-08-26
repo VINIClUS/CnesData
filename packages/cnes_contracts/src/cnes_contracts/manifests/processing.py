@@ -156,6 +156,9 @@ class NormalizeResult(BaseModel):
     @model_validator(mode="after")
     def validate_manifests(self) -> Self:
         _validate_output_group(self.manifests, "normalized")
+        object_keys = tuple(item.object_key for item in self.manifests)
+        if object_keys != tuple(sorted(object_keys)):
+            raise ValueError("manifest_order")
         return self
 
 
