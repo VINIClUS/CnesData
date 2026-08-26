@@ -20,7 +20,7 @@ body:
   - type: textarea
     id: allowed_paths
     attributes:
-      label: Paths permitidos
+      label: Caminhos permitidos
       description: Liste os únicos arquivos ou diretórios que esta tarefa pode alterar.
       placeholder: Um path por linha
     validations:
@@ -28,8 +28,8 @@ body:
   - type: textarea
     id: forbidden_shared_paths
     attributes:
-      label: Paths compartilhados proibidos
-      description: Liste superfícies compartilhadas reservadas à controller lane.
+      label: Caminhos compartilhados proibidos
+      description: Liste superfícies compartilhadas reservadas à faixa de controle.
       placeholder: Um path ou superfície por linha
     validations:
       required: true

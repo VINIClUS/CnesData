@@ -18,6 +18,10 @@ EXPECTED_IDS = {
     "interfaces_produced",
     "verification_commands",
 }
+EXPECTED_LABELS = {
+    "allowed_paths": "Caminhos permitidos",
+    "forbidden_shared_paths": "Caminhos compartilhados proibidos",
+}
 BRANCH_EXAMPLES = (
     "feat/cnd-020-sqlite-control-plane",
     "fix/cnd-021-control-plane-retry",
@@ -90,6 +94,16 @@ def test_define_tipos_dos_campos_e_renderizacao_shell() -> None:
     assert fields["logical_id"]["type"] == "input"
     assert all(fields[field_id]["type"] == "textarea" for field_id in EXPECTED_IDS - {"logical_id"})
     assert fields["verification_commands"]["attributes"]["render"] == "shell"
+
+
+def test_exibe_campos_de_caminhos_em_portugues() -> None:
+    fields = {field["id"]: field for field in _load_issue_form()["body"]}
+    labels = {
+        field_id: fields[field_id]["attributes"]["label"] for field_id in EXPECTED_LABELS
+    }
+
+    assert labels == EXPECTED_LABELS
+    assert "faixa de controle" in fields["forbidden_shared_paths"]["attributes"]["description"]
 
 
 def test_documenta_regex_e_exemplo_valido_para_cada_prefixo() -> None:
