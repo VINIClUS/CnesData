@@ -51,7 +51,7 @@ def test_remove_marcadores_de_conflito(relative_path: str) -> None:
     "expected_setting",
     [
         "COD_MUN_IBGE=354130",
-        "ID_MUNICIPIO_IBGE7=3541308",
+        "ID_MUNICIPIO_IBGE7=3541307",
         "CNPJ_MANTENEDORA=55293427000117",
     ],
 )

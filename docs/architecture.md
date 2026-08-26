@@ -211,7 +211,8 @@ POST /api/v1/jobs/register
 
 data_processor.poll
   -> claim_next tenta mover PENDING para CLAIMED
-  -> complete/fail ainda pendentes em extractions_repo
+  -> mark_completed/mark_failed implementados
+  -> download, heartbeat e transição UPLOADED pendentes
 ```
 
 Fluxo alvo: `REGISTERED`/`UPLOADED` -> `PROCESSING` -> `INGESTED` ou
@@ -304,8 +305,8 @@ docker compose --profile perf up -d
 docker compose --profile shadow up -d
 ```
 
-Nota: na branch atual, `data-processor` pode logar erros das funções
-pendentes em `extractions_repo` se houver jobs a processar.
+Nota: o worker atual marca jobs reclamados como `COMPLETED` sem baixar artefatos;
+download, roteamento, heartbeat e transição `UPLOADED` permanecem pendentes.
 
 ## web_dashboard (2026-04 — v1.0 + v1.1)
 
