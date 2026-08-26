@@ -27,7 +27,7 @@
 
 | Item | Prioridade | Bloqueio / Pré-req |
 |---|---|---|
-| Completar `data_processor` landing -> Gold | Alta | Implementar `extractions_repo.complete/fail/heartbeat/mark_uploaded/reap_expired` e ligar download/adapters/repos |
+| Completar `data_processor` landing -> Gold | Alta | Implementar heartbeat/upload e ligar download/adapters/repos |
 | End-to-end extraction lifecycle | Alta | Reconciliar status `PENDING/CLAIMED/REGISTERED/UPLOADED/PROCESSING/INGESTED` e presigned URL ownership |
 | Rules service externo | Média | Repo separado; consome Gold/landing via SQL JOINs |
 | HR PIS->CPF cross-walking | Média | Reativar/reescrever fluxo em monorepo |

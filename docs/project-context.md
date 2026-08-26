@@ -75,8 +75,8 @@ Municipal edge sources
         |
         v
   data_processor
-  - claims landing.extractions and downloads artifacts
-  - marks work completed or failed
+  - claims landing.extractions
+  - marks work completed or failed without downloading artifacts
   - full Parquet-to-Gold routing is not wired into the worker loop
 ```
 
@@ -154,10 +154,10 @@ Implemented and useful now:
 
 Known boundaries:
 
-- `data_processor` claims and downloads landing work, but its worker loop does
-  not invoke the available SHA-256, delta, and source-specific Gold routes.
-- `extractions_repo.complete`, `fail`, `heartbeat`, `mark_uploaded`, and
-  `reap_expired` are still deferred.
+- `data_processor` claims landing work and marks it completed without downloading
+  artifacts or invoking the available SHA-256, delta, and source-specific routes.
+- `extractions_repo` implements claim, completion, failure, and expired-lease
+  reaping; heartbeat and uploaded transitions are still deferred.
 - Rules/audit output is intentionally external to this repository.
 - Production Kubernetes manifests are incomplete outside the dashboard chart.
 
