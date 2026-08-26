@@ -232,6 +232,7 @@ def test_normalize_result_exige_manifests_normalized_coerentes_e_unicos():
         ((first, first), "manifests_unique"),
         ((first, first.model_copy(update={"manifest_id": "outro"})), "manifests_unique"),
         ((first, changed_output(second, run_id="run-2")), "manifest_identity"),
+        ((second, first), "manifest_order"),
         ((output_manifest("reconciliation"),), "manifest_layer"),
     ):
         with pytest.raises(ValidationError, match=message):
