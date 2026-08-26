@@ -61,6 +61,21 @@ Regenerar o contrato versionado:
 
 ## Desenvolvimento Local
 
+Pre-requisitos:
+
+- Python 3.13 e `uv`
+- Docker e Docker Compose
+- Go 1.26 para `apps/dump_agent_go`
+- Bun 1.3 para `apps/web_dashboard`
+- Git LFS para os fixtures Firebird
+
+Instalar as dependencias e criar a configuracao local:
+
+```powershell
+uv sync
+Copy-Item .env.example .env
+```
+
 Subir stack central, dashboard e Keycloak dev:
 
 ```powershell
@@ -115,6 +130,7 @@ bun run build
 | Documento | Conteudo |
 |---|---|
 | `docs/architecture.md` | Arquitetura, fluxos, deploy e contratos |
+| `docs/development.md` | Setup local, verificacoes e comandos equivalentes ao CI |
 | `docs/roadmap.md` | Escopo ativo, proximo e removido |
 | `docs/data-dictionary-cnes.md` | Schema canonico Gold CNES |
 | `docs/data-dictionary-gold-v2.md` | Landing e Gold v2 |
