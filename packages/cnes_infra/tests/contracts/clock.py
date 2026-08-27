@@ -27,7 +27,7 @@ from cnes_domain.control_plane.entities import (
     RunUnit,
 )
 from cnes_domain.control_plane.enums import AgentState, JobState, RunStage, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.transitions import transition_run
 
 _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
@@ -100,6 +100,32 @@ def _expect_error(
     raise AssertionError(f"error_not_raised={expected}")
 
 
+def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
+    manifest = _raw_record("result", "agent-a", 1, clock.now())
+    complete = CompleteJob(
+        tenant_id=_TENANT, job_id="job-a", owner="worker-a", fencing_token=1,
+        manifest=manifest,
+    )
+    renewals = (
+        _renew_job(clock).model_copy(update={"owner": "other"}),
+        _renew_job(clock).model_copy(update={"fencing_token": 2}),
+    )
+    for command in renewals:
+        _expect_error(
+            (FenceRejected, LeaseLost),
+            lambda command=command: adapter.renew_job_lease(command),
+        )
+    completions = (
+        complete.model_copy(update={"owner": "other"}),
+        complete.model_copy(update={"fencing_token": 2}),
+    )
+    for command in completions:
+        _expect_error((FenceRejected, LeaseLost), lambda command=command: adapter.complete_job(
+            command, _event("invalid-complete")
+        ))
+    return complete
+
+
 def _event(event_id: str, now: datetime = _NOW, aggregate_id: str | None = None) -> OutboxEvent:
     return OutboxEvent(
         tenant_id=_TENANT, event_id=event_id, event_type="test.event",
@@ -164,7 +190,18 @@ def _store_record(adapter: Any, record: RawManifestRecord, clock: MutableClock) 
         manifest=record,
     )
     event = _event(f"completed-{job.job_id}")
-    adapter.complete_job(complete, event)
+    completed = adapter.complete_job(complete, event)
+    assert (completed.state, completed.lease_owner, completed.lease_until) == (
+        JobState.SUCCEEDED, None, None
+    )
+    assert (completed.result_manifest_id, completed.result_manifest_key) == (
+        record.manifest_id, record.manifest_key
+    )
+    assert adapter.get_job(record.tenant_id, job.job_id) == completed
+    assert adapter.latest_succeeded_job(
+        record.tenant_id, record.agent_id, record.source_type,
+        record.file_subtype, record.competencia,
+    ) == completed
     assert adapter.pending_outbox(100).count(event) == 1
 
 

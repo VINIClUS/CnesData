@@ -8,7 +8,6 @@ from typing import Any
 from cnes_domain.control_plane.commands import (
     BeginIdempotency,
     BindRunDispatch,
-    CompleteJob,
     FailRunUnit,
     FinalizeRunCancellation,
     FinishRunDispatch,
@@ -37,6 +36,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _TENANT,
     MutableClock,
     _agent,
+    _assert_active_job_fences,
     _claim_job,
     _claim_unit,
     _claim_unit_command,
@@ -74,32 +74,6 @@ class ControlPlaneCase:
             self._runner(adapter, clock)
         except Exception as error:
             raise AssertionError(f"case={self.name}") from error
-
-
-def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
-    manifest = _raw_record("result", "agent-a", 1, clock.now())
-    complete = CompleteJob(
-        tenant_id=_TENANT, job_id="job-a", owner="worker-a", fencing_token=1,
-        manifest=manifest,
-    )
-    renewals = (
-        _renew_job(clock).model_copy(update={"owner": "other"}),
-        _renew_job(clock).model_copy(update={"fencing_token": 2}),
-    )
-    for command in renewals:
-        _expect_error(
-            (FenceRejected, LeaseLost),
-            lambda command=command: adapter.renew_job_lease(command),
-        )
-    completions = (
-        complete.model_copy(update={"owner": "other"}),
-        complete.model_copy(update={"fencing_token": 2}),
-    )
-    for command in completions:
-        _expect_error((FenceRejected, LeaseLost), lambda command=command: adapter.complete_job(
-            command, _event("invalid-complete")
-        ))
-    return complete
 
 
 def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
@@ -236,6 +210,24 @@ def _case_unit_claim(adapter: Any, clock: MutableClock) -> None:
     assert adapter.claim_run_unit(pending) is None
 
 
+def _assert_retryable_unit_failure(adapter: Any, clock: MutableClock, base: FailRunUnit) -> None:
+    dispatch = _reserve(adapter, clock, _WAVE_B)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-b")
+    assert claimed is not None
+    command = base.model_copy(update={
+        "dispatch_id": dispatch.dispatch_id,
+        "owner": "worker-b",
+        "fencing_token": claimed.fencing_token,
+    })
+    event = _event("unit-retryable")
+    failed = adapter.fail_run_unit(command, event)
+    assert (failed.state, failed.lease_owner, failed.lease_until) == (
+        RunUnitState.FAILED_RETRYABLE, None, None
+    )
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == failed
+    assert adapter.pending_outbox(100).count(event) == 1
+
+
 def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
     dispatch = _prepare_unit(adapter, clock)
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
@@ -280,6 +272,7 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
     _expect_error(LeaseLost, lambda: adapter.commit_run_unit(expired, _event("expired-unit")))
     expired_fail = fail.model_copy(update={"dispatch_id": dispatch.dispatch_id})
     _expect_error(LeaseLost, lambda: adapter.fail_run_unit(expired_fail, _event("expired-fail")))
+    _assert_retryable_unit_failure(adapter, clock, fail)
 
 
 def _case_degraded_unit(adapter: Any, clock: MutableClock) -> None:
@@ -299,10 +292,12 @@ def _case_degraded_unit(adapter: Any, clock: MutableClock) -> None:
         error_code="optional_failed",
         retryable=False,
     )
-    failed = adapter.fail_run_unit(command, _event("unit-degraded"))
+    event = _event("unit-degraded")
+    failed = adapter.fail_run_unit(command, event)
     assert failed.state is RunUnitState.SUCCEEDED_DEGRADED
     assert failed.output_manifests == ()
     assert adapter.get_run(_TENANT, "run-a").missing_sources == ("CNES/ST",)
+    assert adapter.pending_outbox(100).count(event) == 1
 
 
 def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
@@ -311,10 +306,13 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     dispatch = _reserve(adapter, clock)
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
     assert claimed is not None
+    completed_event = _event("unit-completed")
     adapter.commit_run_unit(
         _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token),
-        _event("unit-completed"),
+        completed_event,
     )
+    assert adapter.pending_outbox(100).count(completed_event) == 1
+    requested_event = _event("run-cancel-requested")
     adapter.transition_run(
         TransitionRun(
             tenant_id=_TENANT,
@@ -322,8 +320,9 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
             expected_state=RunState.PROCESSING,
             new_state=RunState.CANCEL_REQUESTED,
         ),
-        _event("run-cancel-requested"),
+        requested_event,
     )
+    assert adapter.pending_outbox(100).count(requested_event) == 1
     command = FinalizeRunCancellation(
         tenant_id=_TENANT,
         run_id="run-a",
@@ -447,6 +446,7 @@ def _case_publication(adapter: Any, clock: MutableClock) -> None:
     first = _publish("run-a", "published-a", None, False)
     pointer = adapter.publish_dataset(first)
     assert pointer.version_id == "run-a"
+    assert adapter.get_dataset_pointer(_TENANT, "gold") == pointer
     assert adapter.get_run(_TENANT, "run-a").state is RunState.PUBLISHED
     assert adapter.publish_dataset(first) == pointer
     assert adapter.pending_outbox(10).count(first.event) == 1
@@ -464,7 +464,11 @@ def _case_publication(adapter: Any, clock: MutableClock) -> None:
     assert adapter.get_run(_TENANT, "run-b").state is RunState.PUBLISHING
     assert conflict.event not in adapter.pending_outbox(10)
     success = conflict.model_copy(update={"expected_version_id": "run-a"})
-    adapter.publish_dataset(success)
+    degraded_pointer = adapter.publish_dataset(success)
+    assert degraded_pointer.version_id == "run-b"
+    assert adapter.get_dataset_pointer(_TENANT, "gold") == degraded_pointer
+    assert adapter.get_dataset_version(_TENANT, "gold", "run-b") == success.version
+    assert adapter.pending_outbox(100).count(success.event) == 1
     run = adapter.get_run(_TENANT, "run-b")
     assert run.state is RunState.PUBLISHED_DEGRADED
     assert run.missing_sources == ("CNES/ST",)
