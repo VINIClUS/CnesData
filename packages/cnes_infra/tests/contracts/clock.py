@@ -12,7 +12,9 @@ from cnes_domain.control_plane.commands import (
     CommitRunUnit,
     CompleteJob,
     FailJob,
+    PutRunUnits,
     RenewJobLease,
+    ReserveRunDispatch,
 )
 from cnes_domain.control_plane.entities import (
     Agent,
@@ -31,6 +33,7 @@ from cnes_domain.control_plane.transitions import transition_run
 _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 _TENANT = "354130"
 _HASH_A = "a" * 64
+_WAVE_A = "a" * 16
 
 
 @dataclass(slots=True)
@@ -160,7 +163,9 @@ def _store_record(adapter: Any, record: RawManifestRecord, clock: MutableClock) 
         fencing_token=claimed.fencing_token,
         manifest=record,
     )
-    adapter.complete_job(complete, _event(f"completed-{job.job_id}"))
+    event = _event(f"completed-{job.job_id}")
+    adapter.complete_job(complete, event)
+    assert adapter.pending_outbox(100).count(event) == 1
 
 
 def _run(
@@ -188,6 +193,47 @@ def _unit(unit_id: str, state: RunUnitState = RunUnitState.PENDING) -> RunUnit:
         fencing_token=0, lease_owner=None, lease_until=None, dispatch_id=None,
         output_manifests=(), error_code=None,
     )
+
+
+def _put_units(adapter: Any, units: tuple[Any, ...]) -> tuple[Any, ...]:
+    return adapter.put_run_units(
+        PutRunUnits(
+            tenant_id=_TENANT,
+            run_id="run-a",
+            expected_run_state=RunState.PROCESSING,
+            units=units,
+        )
+    )
+
+
+def _reserve(
+    adapter: Any,
+    clock: MutableClock,
+    wave: str = _WAVE_A,
+    unit_ids: tuple[str, ...] = ("unit-a",),
+) -> Any:
+    return adapter.reserve_run_dispatch(
+        ReserveRunDispatch(
+            tenant_id=_TENANT,
+            run_id="run-a",
+            wave_id=wave,
+            unit_ids=unit_ids,
+            now=clock.now(),
+            lease_seconds=30,
+        )
+    )
+
+
+def _claim_unit(adapter: Any, clock: MutableClock, dispatch_id: str, owner: str) -> Any:
+    return adapter.claim_run_unit(_claim_unit_command(dispatch_id, owner, clock))
+
+
+def _prepare_unit(
+    adapter: Any, clock: MutableClock, unit_ids: tuple[str, ...] = ("unit-a",)
+) -> Any:
+    adapter.put_run(_run("run-a"))
+    _put_units(adapter, (_unit("unit-a"), _unit("unit-b")))
+    return _reserve(adapter, clock, unit_ids=unit_ids)
 
 
 class _HarnessState:
