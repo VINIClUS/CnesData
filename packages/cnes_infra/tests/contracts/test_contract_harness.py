@@ -198,7 +198,7 @@ class FakeControlPlane(_HarnessState):
         valid_dispatch = (
             dispatch is not None
             and dispatch.dispatch_id == command.dispatch_id
-            and dispatch.state is not DispatchState.TERMINAL
+            and dispatch.state is not DispatchState.TERMINAL and dispatch.lease_until > command.now
             and command.unit_id in dispatch.unit_ids
         )
         if self.mutation == "unit_claim":

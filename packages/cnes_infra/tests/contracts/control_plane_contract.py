@@ -23,7 +23,6 @@ from cnes_domain.control_plane.entities import (
 from cnes_domain.control_plane.enums import (
     AgentState,
     DispatchOutcome,
-    JobState,
     RunState,
     RunUnitState,
 )
@@ -37,6 +36,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     MutableClock,
     _agent,
     _assert_active_job_fences,
+    _assert_job_failures,
     _claim_job,
     _claim_unit,
     _claim_unit_command,
@@ -90,15 +90,22 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     assert adapter.list_claimable_jobs(_TENANT, "agent-a", 10) == ()
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is None
     adapter.put_agent(_agent("agent-a"))
+    second_event = _event("job-b-created")
+    adapter.create_job(_job("job-b"), second_event)
+    assert adapter.pending_outbox(100).count(second_event) == 1
+    claimable = adapter.list_claimable_jobs(_TENANT, "agent-a", 1)
+    assert tuple(job.job_id for job in claimable) == ("job-a",)
     claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
     assert claimed is not None
     assert (claimed.attempt, claimed.fencing_token) == (1, 1)
     assert claimed.lease_until == clock.now() + timedelta(seconds=30)
     renewed = adapter.renew_job_lease(_renew_job(clock))
     assert renewed.lease_until == clock.now() + timedelta(seconds=60)
+    assert adapter.get_job(_TENANT, "job-a") == renewed
     complete = _assert_active_job_fences(adapter, clock)
+    clock.advance(timedelta(seconds=31))
     assert adapter.claim_job(_claim_job("job-a", "worker-b", clock)) is None
-    clock.advance(timedelta(seconds=61))
+    clock.advance(timedelta(seconds=30))
     _expect_error(LeaseLost, lambda: adapter.renew_job_lease(_renew_job(clock)))
     _expect_error(LeaseLost, lambda: adapter.complete_job(complete, _event("expired-complete")))
     expired = _fail_job("worker-a", 1, "expired")
@@ -113,12 +120,7 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     _expect_error(
         FenceRejected, lambda: adapter.fail_job(stale_fence, _event("stale-fence"))
     )
-    failed_event = _event("failed-retryable")
-    failed = adapter.fail_job(_fail_job("worker-b", 2, "retry"), failed_event)
-    assert (failed.state, failed.lease_owner, failed.lease_until) == (
-        JobState.FAILED_RETRYABLE, None, None
-    )
-    assert adapter.pending_outbox(100).count(failed_event) == 1
+    _assert_job_failures(adapter, clock)
 
 
 def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
@@ -199,6 +201,10 @@ def _case_unit_claim(adapter: Any, clock: MutableClock) -> None:
     assert claimed.dispatch_id == dispatch.dispatch_id
     assert _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-b") is None
     clock.advance(timedelta(seconds=31))
+    expired_pending = _claim_unit_command(
+        dispatch.dispatch_id, "worker-b", clock, "unit-b"
+    )
+    assert adapter.claim_run_unit(expired_pending) is None
     replacement = _reserve(adapter, clock, unit_ids=unit_ids)
     retried = _claim_unit(adapter, clock, replacement.dispatch_id, "worker-b")
     assert retried is not None

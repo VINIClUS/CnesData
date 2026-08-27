@@ -126,6 +126,25 @@ def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
     return complete
 
 
+def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
+    failed_event = _event("failed-retryable")
+    failed = adapter.fail_job(_fail_job("worker-b", 2, "retry"), failed_event)
+    assert (failed.state, failed.lease_owner, failed.lease_until) == (
+        JobState.FAILED_RETRYABLE, None, None
+    )
+    assert adapter.pending_outbox(100).count(failed_event) == 1
+    final_claim = adapter.claim_job(_claim_job("job-a", "worker-c", clock))
+    assert final_claim is not None
+    final_event = _event("failed-final")
+    final_command = _fail_job("worker-c", 3, "permanent").model_copy(
+        update={"retryable": False}
+    )
+    final = adapter.fail_job(final_command, final_event)
+    assert final.state is JobState.FAILED_FINAL
+    assert adapter.get_job(_TENANT, "job-a") == final
+    assert adapter.pending_outbox(100).count(final_event) == 1
+
+
 def _event(event_id: str, now: datetime = _NOW, aggregate_id: str | None = None) -> OutboxEvent:
     return OutboxEvent(
         tenant_id=_TENANT, event_id=event_id, event_type="test.event",
