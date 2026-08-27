@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from typing import Any
 
 import pytest
@@ -315,16 +316,17 @@ class FakeControlPlane(_HarnessState):
         if replay and self.mutation != "dispatch":
             return active
         live = active and active.state is not DispatchState.TERMINAL
-        if live and (
-            active.lease_until > command.now or self._has_live_unit_lease(active, command.now)
-        ):
+        lease_live = active is not None and active.lease_until > command.now
+        if live and (lease_live or self._has_live_unit_lease(active, command.now)):
             raise Conflict("dispatch_live")
         generation = 1 if active is None else active.generation + 1
+        identity = "\x1f".join((command.tenant_id, command.run_id, command.wave_id,
+                                str(generation), *command.unit_ids))
         dispatch = RunDispatch(
             tenant_id=command.tenant_id,
             run_id=command.run_id,
             wave_id=command.wave_id,
-            dispatch_id=f"{generation:016x}",
+            dispatch_id=sha256(identity.encode()).hexdigest()[:16],
             generation=generation,
             unit_ids=command.unit_ids,
             state=DispatchState.RESERVED,
@@ -402,16 +404,10 @@ class FakeControlPlane(_HarnessState):
         return IdempotencyOutcome(record=record, created=True)
 
     def publish_dataset(self, command: Any) -> Any:
-        version_key = (
-            command.version.tenant_id,
-            command.version.dataset_name,
-            command.version.version_id,
-        )
-        pointer_key = (
-            command.version.tenant_id,
-            command.version.dataset_name,
-            command.pointer_name,
-        )
+        version_key = (command.version.tenant_id, command.version.dataset_name,
+                       command.version.version_id)
+        pointer_key = (command.version.tenant_id, command.version.dataset_name,
+                       command.pointer_name)
         current_version = self.versions.get(version_key)
         pointer = self.pointers.get(pointer_key)
         if current_version is not None:

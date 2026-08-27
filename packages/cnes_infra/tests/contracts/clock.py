@@ -55,9 +55,11 @@ class MutableClock:
         self.instant += delta
 
 
-def _claim_job(job_id: str, owner: str, clock: MutableClock) -> ClaimJob:
+def _claim_job(
+    job_id: str, owner: str, clock: MutableClock, tenant_id: str = _TENANT
+) -> ClaimJob:
     return ClaimJob(
-        tenant_id=_TENANT, job_id=job_id, owner=owner, now=clock.now(), lease_seconds=30
+        tenant_id=tenant_id, job_id=job_id, owner=owner, now=clock.now(), lease_seconds=30
     )
 
 
@@ -106,59 +108,52 @@ def _assert_unit_rejected(
     expected: type[Exception] | tuple[type[Exception], ...],
     action: Callable[[], Any],
 ) -> None:
-    before_units = adapter.list_run_units(_TENANT, "run-a")
-    before_run = adapter.get_run(_TENANT, "run-a")
-    before_outbox = adapter.pending_outbox(100)
+    before = (
+        adapter.list_run_units(_TENANT, "run-a"), adapter.get_run(_TENANT, "run-a"),
+        adapter.pending_outbox(100),
+    )
     _expect_error(expected, action)
-    assert adapter.list_run_units(_TENANT, "run-a") == before_units
-    assert adapter.get_run(_TENANT, "run-a") == before_run
-    assert adapter.pending_outbox(100) == before_outbox
+    after = (
+        adapter.list_run_units(_TENANT, "run-a"), adapter.get_run(_TENANT, "run-a"),
+        adapter.pending_outbox(100),
+    )
+    assert after == before
+
+
+def _assert_completion_rejected(adapter: Any, command: CompleteJob, event: OutboxEvent) -> None:
+    before = (
+        adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
+        adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10),
+    )
+    _expect_error((FenceRejected, LeaseLost), lambda: adapter.complete_job(command, event))
+    after = (
+        adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
+        adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10),
+    )
+    assert after == before
 
 
 def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
     manifest = _raw_record("result", "agent-a", 1, clock.now())
     complete = CompleteJob(
-        tenant_id=_TENANT, job_id="job-a", owner="worker-a", fencing_token=1,
-        manifest=manifest,
+        tenant_id=_TENANT, job_id="job-a", owner="worker-a",
+        fencing_token=1, manifest=manifest,
     )
-    renewals = (
-        _renew_job(clock).model_copy(update={"owner": "other"}),
-        _renew_job(clock).model_copy(update={"fencing_token": 2}),
-    )
+    renewals = (_renew_job(clock).model_copy(update={"owner": "other"}),
+                _renew_job(clock).model_copy(update={"fencing_token": 2}))
     for command in renewals:
-        _expect_error(
-            (FenceRejected, LeaseLost),
-            lambda command=command: adapter.renew_job_lease(command),
-        )
-    completions = (
-        complete.model_copy(update={"owner": "other"}),
-        complete.model_copy(update={"fencing_token": 2}),
-    )
+        _expect_error((FenceRejected, LeaseLost),
+                      lambda command=command: adapter.renew_job_lease(command))
+    completions = (complete.model_copy(update={"owner": "other"}),
+                   complete.model_copy(update={"fencing_token": 2}))
     for index, command in enumerate(completions):
-        before_job = adapter.get_job(_TENANT, "job-a")
-        before_outbox = adapter.pending_outbox(100)
-        _expect_error(
-            (FenceRejected, LeaseLost),
-            lambda command=command, index=index: adapter.complete_job(
-                command, _event(f"invalid-complete-{index}")
-            ),
-        )
-        assert adapter.get_job(_TENANT, "job-a") == before_job
-        assert adapter.pending_outbox(100) == before_outbox
-        assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10) == ()
+        _assert_completion_rejected(adapter, command, _event(f"invalid-complete-{index}"))
     return complete
 
 
 def _assert_revoked_completion(adapter: Any, complete: CompleteJob) -> None:
     adapter.put_agent(_agent("agent-a", AgentState.REVOKED))
-    before_job = adapter.get_job(_TENANT, "job-a")
-    before_outbox = adapter.pending_outbox(100)
-    _expect_error((FenceRejected, LeaseLost), lambda: adapter.complete_job(
-        complete, _event("revoked-complete")
-    ))
-    assert adapter.get_job(_TENANT, "job-a") == before_job
-    assert adapter.pending_outbox(100) == before_outbox
-    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10) == ()
+    _assert_completion_rejected(adapter, complete, _event("revoked-complete"))
     adapter.put_agent(_agent("agent-a"))
 
 
@@ -166,8 +161,7 @@ def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
     failed_event = _event("failed-retryable")
     failed = adapter.fail_job(_fail_job("worker-b", 2, "retry"), failed_event)
     assert (failed.state, failed.lease_owner, failed.lease_until) == (
-        JobState.FAILED_RETRYABLE, None, None
-    )
+        JobState.FAILED_RETRYABLE, None, None)
     assert adapter.pending_outbox(100).count(failed_event) == 1
     final_claim = adapter.claim_job(_claim_job("job-a", "worker-c", clock))
     assert final_claim is not None
@@ -179,24 +173,27 @@ def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
     assert adapter.pending_outbox(100).count(final_event) == 1
 
 
-def _event(event_id: str, now: datetime = _NOW, aggregate_id: str | None = None) -> OutboxEvent:
+def _event(event_id: str, now: datetime = _NOW, aggregate_id: str | None = None,
+           tenant_id: str = _TENANT) -> OutboxEvent:
     return OutboxEvent(
-        tenant_id=_TENANT, event_id=event_id, event_type="test.event",
+        tenant_id=tenant_id, event_id=event_id, event_type="test.event",
         aggregate_id=aggregate_id or event_id, payload={"event_id": event_id},
         created_at=now, delivered_at=None,
     )
 
 
-def _agent(agent_id: str, state: AgentState = AgentState.ACTIVE) -> Agent:
+def _agent(
+    agent_id: str, state: AgentState = AgentState.ACTIVE, tenant_id: str = _TENANT
+) -> Agent:
     return Agent(
-        tenant_id=_TENANT, agent_id=agent_id, state=state, version="1.0",
+        tenant_id=tenant_id, agent_id=agent_id, state=state, version="1.0",
         certificate_fingerprint=_HASH_A, last_seen_at=None, created_at=_NOW,
     )
 
 
-def _job(job_id: str, agent_id: str = "agent-a") -> Job:
+def _job(job_id: str, agent_id: str = "agent-a", tenant_id: str = _TENANT) -> Job:
     return Job(
-        tenant_id=_TENANT, job_id=job_id, agent_id=agent_id, source_type="CNES",
+        tenant_id=tenant_id, job_id=job_id, agent_id=agent_id, source_type="CNES",
         file_subtype="ST", competencia="2026-07", requested_snapshot_mode="FULL",
         state=JobState.PENDING, attempt=0, fencing_token=0, lease_owner=None,
         lease_until=None, result_manifest_id=None, result_manifest_key=None,
@@ -223,31 +220,31 @@ def _raw_record(
 
 
 def _store_record(adapter: Any, record: RawManifestRecord, clock: MutableClock) -> None:
-    job = _job(f"job-{record.agent_id}-{record.snapshot_id}", record.agent_id)
-    adapter.put_agent(_agent(record.agent_id))
-    adapter.create_job(job, _event(f"created-{job.job_id}"))
-    claimed = adapter.claim_job(_claim_job(job.job_id, "raw-worker", clock))
+    job_id = f"job-{record.agent_id}-{record.snapshot_id}"
+    job = _job(job_id, record.agent_id, record.tenant_id).model_copy(update={
+        "source_type": record.source_type, "file_subtype": record.file_subtype,
+        "competencia": record.competencia,
+    })
+    adapter.put_agent(_agent(record.agent_id, tenant_id=record.tenant_id))
+    created = _event(f"created-{job.job_id}", tenant_id=record.tenant_id)
+    adapter.create_job(job, created)
+    claimed = adapter.claim_job(_claim_job(job.job_id, "raw-worker", clock, record.tenant_id))
     assert claimed is not None
     complete = CompleteJob(
-        tenant_id=_TENANT,
-        job_id=job.job_id,
-        owner="raw-worker",
-        fencing_token=claimed.fencing_token,
-        manifest=record,
+        tenant_id=record.tenant_id, job_id=job.job_id, owner="raw-worker",
+        fencing_token=claimed.fencing_token, manifest=record,
     )
-    event = _event(f"completed-{job.job_id}")
+    event = _event(f"completed-{job.job_id}", tenant_id=record.tenant_id)
     completed = adapter.complete_job(complete, event)
     assert (completed.state, completed.lease_owner, completed.lease_until) == (
-        JobState.SUCCEEDED, None, None
-    )
+        JobState.SUCCEEDED, None, None)
     assert (completed.result_manifest_id, completed.result_manifest_key) == (
         record.manifest_id, record.manifest_key
     )
     assert adapter.get_job(record.tenant_id, job.job_id) == completed
-    assert adapter.latest_succeeded_job(
-        record.tenant_id, record.agent_id, record.source_type,
-        record.file_subtype, record.competencia,
-    ) == completed
+    identity = (record.tenant_id, record.agent_id, record.source_type,
+                record.file_subtype, record.competencia)
+    assert adapter.latest_succeeded_job(*identity) == completed
     assert adapter.pending_outbox(100).count(event) == 1
 
 
@@ -278,13 +275,13 @@ def _unit(unit_id: str, state: RunUnitState = RunUnitState.PENDING) -> RunUnit:
     )
 
 
-def _put_units(adapter: Any, units: tuple[Any, ...]) -> tuple[Any, ...]:
+def _put_units(
+    adapter: Any, units: tuple[Any, ...], run_id: str = "run-a"
+) -> tuple[Any, ...]:
     return adapter.put_run_units(
         PutRunUnits(
-            tenant_id=_TENANT,
-            run_id="run-a",
-            expected_run_state=RunState.PROCESSING,
-            units=units,
+            tenant_id=_TENANT, run_id=run_id,
+            expected_run_state=RunState.PROCESSING, units=units,
         )
     )
 
@@ -297,12 +294,8 @@ def _reserve(
 ) -> Any:
     return adapter.reserve_run_dispatch(
         ReserveRunDispatch(
-            tenant_id=_TENANT,
-            run_id="run-a",
-            wave_id=wave,
-            unit_ids=unit_ids,
-            now=clock.now(),
-            lease_seconds=30,
+            tenant_id=_TENANT, run_id="run-a", wave_id=wave, unit_ids=unit_ids,
+            now=clock.now(), lease_seconds=30,
         )
     )
 
@@ -335,18 +328,26 @@ def _assert_retryable_unit_failure(adapter: Any, clock: MutableClock, base: Any)
     dispatch = _reserve(adapter, clock, _WAVE_B)
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-b")
     assert claimed is not None
-    command = base.model_copy(update={
-        "dispatch_id": dispatch.dispatch_id,
-        "owner": "worker-b",
-        "fencing_token": claimed.fencing_token,
-    })
+    command = base.model_copy(update={"dispatch_id": dispatch.dispatch_id,
+                                     "owner": "worker-b",
+                                     "fencing_token": claimed.fencing_token})
     event = _event("unit-retryable")
     failed = adapter.fail_run_unit(command, event)
     assert (failed.state, failed.lease_owner, failed.lease_until) == (
-        RunUnitState.FAILED_RETRYABLE, None, None
-    )
+        RunUnitState.FAILED_RETRYABLE, None, None)
     assert adapter.list_run_units(_TENANT, "run-a")[0] == failed
     assert adapter.pending_outbox(100).count(event) == 1
+    reclaimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-c")
+    assert reclaimed is not None
+    final_command = command.model_copy(update={
+        "owner": "worker-c", "fencing_token": reclaimed.fencing_token,
+        "error_code": "permanent", "retryable": False})
+    final_event = _event("unit-final")
+    final = adapter.fail_run_unit(final_command, final_event)
+    assert (final.state, final.error_code, final.lease_owner, final.lease_until) == (
+        RunUnitState.FAILED_FINAL, "permanent", None, None)
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == final
+    assert adapter.pending_outbox(100).count(final_event) == 1
 
 
 class _HarnessState:
