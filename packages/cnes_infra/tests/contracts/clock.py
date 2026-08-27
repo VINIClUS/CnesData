@@ -292,6 +292,18 @@ def _prepare_unit(
     return _reserve(adapter, clock, unit_ids=unit_ids)
 
 
+def _assert_committed_unit(adapter: Any, dispatch: Any, claimed: Any) -> None:
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    completed = adapter.commit_run_unit(command, event)
+    assert (completed.state, completed.lease_owner, completed.lease_until) == (
+        RunUnitState.SUCCEEDED, None, None
+    )
+    assert completed.output_manifests == command.output_manifests
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+    assert adapter.pending_outbox(100).count(event) == 1
+
+
 class _HarnessState:
     def __init__(self, clock: MutableClock, mutation: str | None = None) -> None:
         self.clock = clock

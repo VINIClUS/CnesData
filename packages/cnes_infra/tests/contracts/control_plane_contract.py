@@ -36,6 +36,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     MutableClock,
     _agent,
     _assert_active_job_fences,
+    _assert_committed_unit,
     _assert_job_failures,
     _claim_job,
     _claim_unit,
@@ -312,12 +313,7 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     dispatch = _reserve(adapter, clock)
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
     assert claimed is not None
-    completed_event = _event("unit-completed")
-    adapter.commit_run_unit(
-        _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token),
-        completed_event,
-    )
-    assert adapter.pending_outbox(100).count(completed_event) == 1
+    _assert_committed_unit(adapter, dispatch, claimed)
     requested_event = _event("run-cancel-requested")
     adapter.transition_run(
         TransitionRun(
