@@ -15,17 +15,8 @@ from cnes_domain.control_plane.commands import (
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import (
-    DatasetVersion,
-    Membership,
-    RunDependency,
-)
-from cnes_domain.control_plane.enums import (
-    AgentState,
-    DispatchOutcome,
-    RunState,
-    RunUnitState,
-)
+from cnes_domain.control_plane.entities import DatasetVersion, Membership, RunDependency
+from cnes_domain.control_plane.enums import AgentState, DispatchOutcome, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.ids import run_dependency_key
 from cnes_domain.ports.control_plane import ControlPlanePort
@@ -116,6 +107,8 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     expired = _fail_job("worker-a", 1, "expired")
     _assert_job_rejected(
         adapter, LeaseLost, lambda: adapter.fail_job(expired, _event("expired")))
+    discoverable = adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
+    assert adapter.get_job(_TENANT, "job-a") in discoverable
     retried = adapter.claim_job(_claim_job("job-a", "worker-b", clock))
     assert retried is not None
     assert retried.job_id == "job-a"
@@ -142,8 +135,8 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
             update={"previous_manifest_sha256": _HASH_B}),)
     for record in records:
         _store_record(adapter, record, clock)
-    identities = ({"tenant_id": "other"}, {"source_type": "SIHD"},
-                  {"file_subtype": "PF"}, {"competencia": "2026-06"})
+    identities = ({"tenant_id": "other"}, {"source_type": "SIHD"}, {"file_subtype": "PF"},
+                  {"competencia": "2026-06"})
     for index, identity in enumerate(identities):
         snapshot_id = f"foreign-{index}"
         update = {
@@ -155,6 +148,13 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
         key = f"raw/{item.tenant_id}/{item.source_type}/{item.competencia}"
         item = item.model_copy(update={"manifest_key": f"{key}/{snapshot_id}/manifest.json"})
         _store_record(adapter, item, clock)
+    failed = _job("job-agent-b-failed", "agent-b").model_copy(
+        update={"created_at": _NOW + timedelta(minutes=10)})
+    adapter.create_job(failed, _event("failed-created"))
+    failed_claim = adapter.claim_job(_claim_job(failed.job_id, "failed-worker", clock))
+    failed_command = _fail_job("failed-worker", failed_claim.fencing_token, "failed").model_copy(
+        update={"job_id": failed.job_id, "retryable": False})
+    adapter.fail_job(failed_command, _event("failed-final"))
     identity = (_TENANT, "agent-b", "CNES", "ST", "2026-07")
     assert adapter.latest_succeeded_job(*identity) == adapter.get_job(
         _TENANT, "job-agent-b-delta-z")

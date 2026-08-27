@@ -70,7 +70,7 @@ def _case_immutability(adapter: Any, clock: MutableClock) -> None:
 
 
 def _case_safe_keys(adapter: Any, clock: MutableClock) -> None:
-    invalid_keys = ("", "/absolute", "a/../b", "a/./b", "a//b", "a\\b")
+    invalid_keys = ("", "/absolute", "valid/../key", "a/./b", "a//b", "a\\b")
     adapter.put("valid/key", BytesIO(b"x"), _digest(b"x"))
     for key in invalid_keys:
         _expect_rejection(lambda key=key: adapter.put(key, BytesIO(b"x"), _digest(b"x")))
