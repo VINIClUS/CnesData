@@ -138,7 +138,10 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
         _raw_record("delta-3", "agent-a", 3, _NOW + timedelta(seconds=2)),
         _raw_record("base-agent-b", "agent-b", 1, _NOW),
         _raw_record("delta-z", "agent-b", 2, _NOW + timedelta(seconds=2)),
-        _raw_record("orphan", "agent-z", 2, _NOW + timedelta(seconds=3)),)
+        _raw_record("orphan", "agent-z", 2, _NOW + timedelta(seconds=3)),
+        _raw_record("base-agent-y", "agent-y", 1, _NOW - timedelta(seconds=1)),
+        _raw_record("broken", "agent-y", 2, _NOW + timedelta(seconds=5)).model_copy(
+            update={"previous_manifest_sha256": _HASH_B}),)
     for record in records:
         _store_record(adapter, record, clock)
     identities = ({"tenant_id": "other"}, {"source_type": "SIHD"},
@@ -268,13 +271,11 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
     clock.advance(timedelta(seconds=31))
     expired = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
     _assert_unit_rejected(
-        adapter, LeaseLost, lambda: adapter.commit_run_unit(expired, _event("expired-unit"))
-    )
+        adapter, LeaseLost, lambda: adapter.commit_run_unit(expired, _event("expired-unit")))
     expired_fail = fail.model_copy(update={"dispatch_id": dispatch.dispatch_id})
     _assert_unit_rejected(
         adapter, LeaseLost,
-        lambda: adapter.fail_run_unit(expired_fail, _event("expired-fail")),
-    )
+        lambda: adapter.fail_run_unit(expired_fail, _event("expired-fail")))
     _assert_retryable_unit_failure(adapter, clock, fail)
 
 
@@ -398,8 +399,7 @@ def _case_dispatch_expiry(adapter: Any, clock: MutableClock) -> None:
     fail = FailRunUnit(
         tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
         dispatch_id=renewed.dispatch_id, owner="worker-b",
-        fencing_token=claimed.fencing_token, error_code="dispatch-expired", retryable=True,
-    )
+        fencing_token=claimed.fencing_token, error_code="dispatch-expired", retryable=True)
     _assert_unit_rejected(adapter, LeaseLost, lambda: adapter.commit_run_unit(
         commit, _event("expired-dispatch-commit")))
     _assert_unit_rejected(adapter, LeaseLost, lambda: adapter.fail_run_unit(

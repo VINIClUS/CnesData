@@ -162,6 +162,7 @@ def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
     assert (failed.state, failed.lease_owner, failed.lease_until) == (
         JobState.FAILED_RETRYABLE, None, None)
     assert adapter.pending_outbox(100).count(failed_event) == 1
+    assert failed in adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
     final_claim = adapter.claim_job(_claim_job("job-a", "worker-c", clock))
     assert final_claim is not None
     final_event = _event("failed-final")
