@@ -145,8 +145,8 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
         snapshot_id = f"foreign-{index}"
         update = {
             "agent_id": snapshot_id, "snapshot_id": snapshot_id,
-            "manifest_id": f"manifest-{snapshot_id}",
-            "created_at": _NOW + timedelta(minutes=index + 1), **identity,
+            "manifest_id": f"manifest-{snapshot_id}", **identity,
+            "created_at": _NOW + timedelta(minutes=index + 1),
         }
         item = records[0].model_copy(update=update)
         key = f"raw/{item.tenant_id}/{item.source_type}/{item.competencia}"
@@ -309,10 +309,12 @@ def _case_degraded_unit(adapter: Any, clock: MutableClock) -> None:
 
 def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     adapter.put_run(_run("run-a"))
-    _put_units(adapter, (_unit("unit-a"), _unit("unit-b")))
-    dispatch = _reserve(adapter, clock)
+    _put_units(adapter, (_unit("unit-a"), _unit("unit-b"), _unit("unit-c")))
+    dispatch = _reserve(adapter, clock, unit_ids=("unit-a", "unit-b"))
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
     assert claimed is not None
+    leased = _claim_unit_command(dispatch.dispatch_id, "worker-b", clock, "unit-b")
+    assert adapter.claim_run_unit(leased) is not None
     _assert_committed_unit(adapter, dispatch, claimed)
     requested_event = _event("run-cancel-requested")
     adapter.transition_run(
@@ -323,14 +325,17 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     assert adapter.pending_outbox(100).count(requested_event) == 1
     command = FinalizeRunCancellation(
         tenant_id=_TENANT, run_id="run-a", expected_state=RunState.CANCEL_REQUESTED,
-        canceled_at=clock.now(),
-    )
+        canceled_at=clock.now())
     event = _event("run-canceled")
     result = adapter.finalize_run_cancellation(command, event)
     assert result.state is RunState.CANCELED
     assert adapter.get_run(_TENANT, "run-a") == result
-    states = {unit.unit_id: unit.state for unit in adapter.list_run_units(_TENANT, "run-a")}
-    assert states == {"unit-a": RunUnitState.SUCCEEDED, "unit-b": RunUnitState.CANCELED}
+    states = {unit.unit_id: (unit.state, unit.lease_owner, unit.lease_until)
+              for unit in adapter.list_run_units(_TENANT, "run-a")}
+    assert states == {
+        "unit-a": (RunUnitState.SUCCEEDED, None, None),
+        "unit-b": (RunUnitState.CANCELED, None, None),
+        "unit-c": (RunUnitState.CANCELED, None, None)}
     assert adapter.finalize_run_cancellation(command, event) == result
     assert adapter.pending_outbox(10).count(event) == 1
 
@@ -341,8 +346,7 @@ def _case_dispatch(adapter: Any, clock: MutableClock) -> None:
     _expect_error(Conflict, lambda: _reserve(adapter, clock, _WAVE_B))
     bind = BindRunDispatch(
         tenant_id=_TENANT, run_id="run-a", dispatch_id=dispatch.dispatch_id,
-        execution_ref="exec-a", now=clock.now(), lease_seconds=30,
-    )
+        execution_ref="exec-a", now=clock.now(), lease_seconds=30)
     clock.advance(timedelta(seconds=10))
     bind = bind.model_copy(update={"now": clock.now()})
     started = adapter.bind_run_dispatch(bind)
@@ -353,14 +357,13 @@ def _case_dispatch(adapter: Any, clock: MutableClock) -> None:
         bind.model_copy(update={"execution_ref": "x"})))
     _expect_error(Conflict, lambda: adapter.finish_run_dispatch(FinishRunDispatch(
         tenant_id=_TENANT, run_id="run-a", dispatch_id=_WAVE_B,
-        outcome=DispatchOutcome.SUCCEEDED, finished_at=clock.now()
-    )))
+        outcome=DispatchOutcome.SUCCEEDED, finished_at=clock.now())))
     finish = FinishRunDispatch(
         tenant_id=_TENANT, run_id="run-a", dispatch_id=dispatch.dispatch_id,
-        outcome=DispatchOutcome.SUCCEEDED, finished_at=clock.now()
-    )
+        outcome=DispatchOutcome.SUCCEEDED, finished_at=clock.now())
     finished = adapter.finish_run_dispatch(finish)
     assert finished.terminal_outcome is DispatchOutcome.SUCCEEDED
+    assert adapter.get_active_run_dispatch(_TENANT, "run-a") is None
     assert adapter.finish_run_dispatch(finish) == finished
     _expect_error(Conflict, lambda: adapter.finish_run_dispatch(
         finish.model_copy(update={"outcome": DispatchOutcome.FAILED})
@@ -370,8 +373,7 @@ def _case_dispatch(adapter: Any, clock: MutableClock) -> None:
     _put_units(adapter, (other_unit,), "run-b")
     other_command = ReserveRunDispatch(
         tenant_id=_TENANT, run_id="run-b", wave_id=_WAVE_B, unit_ids=("unit-a",),
-        now=clock.now(), lease_seconds=30,
-    )
+        now=clock.now(), lease_seconds=30)
     other = adapter.reserve_run_dispatch(other_command)
     assert other.generation == 1
     assert other.dispatch_id != dispatch.dispatch_id
@@ -417,15 +419,11 @@ def _case_idempotency(adapter: Any, clock: MutableClock) -> None:
     assert not replay.created
     assert replay.record.resource_id == "resource-a"
     _expect_error(Conflict, lambda: adapter.begin_idempotency(
-        first.model_copy(update={"request_hash": _HASH_B})
-    ))
+        first.model_copy(update={"request_hash": _HASH_B})))
     clock.advance(timedelta(minutes=6))
     replaced = adapter.begin_idempotency(first.model_copy(update={
-        "request_hash": _HASH_B,
-        "resource_id": "resource-b",
-        "now": clock.now(),
-        "expires_at": clock.now() + timedelta(minutes=5),
-    }))
+        "request_hash": _HASH_B, "resource_id": "resource-b", "now": clock.now(),
+        "expires_at": clock.now() + timedelta(minutes=5)}))
     assert replaced.created
     assert replaced.record.resource_id == "resource-b"
 
@@ -435,18 +433,14 @@ def _publish(run_id: str, event_id: str, expected: str | None, degraded: bool) -
     version = DatasetVersion(
         tenant_id=_TENANT, dataset_name="gold", version_id=run_id, run_id=run_id,
         run_manifest_key=f"reconciliation/{_TENANT}/2026-07/{run_id}/run-manifest.json",
-        created_at=_NOW,
-    )
+        created_at=_NOW)
     return PublishDataset(
-        version=version, pointer_name="current",
-        expected_version_id=expected,
+        version=version, pointer_name="current", expected_version_id=expected,
         final_state=state,
         missing_sources=("CNES/ST",) if degraded else (),
         publication_permit=PublicationPermit(
-            tenant_id=_TENANT, run_id=run_id, policy_version=1, fencing_token=1
-        ),
-        event=_event(event_id, aggregate_id=run_id),
-    )
+            tenant_id=_TENANT, run_id=run_id, policy_version=1, fencing_token=1),
+        event=_event(event_id, aggregate_id=run_id))
 
 
 def _case_publication(adapter: Any, clock: MutableClock) -> None:
@@ -458,11 +452,17 @@ def _case_publication(adapter: Any, clock: MutableClock) -> None:
     assert adapter.get_run(_TENANT, "run-a").state is RunState.PUBLISHED
     assert adapter.publish_dataset(first) == pointer
     assert adapter.pending_outbox(10).count(first.event) == 1
-    changed = first.model_copy(update={
-        "version": first.version.model_copy(update={
-            "run_manifest_key": f"reconciliation/{_TENANT}/2026-06/run-a/run-manifest.json"
-        })
-    })
+    adapter.put_run(_run("run-c"))
+    invalid_parent = _publish("run-c", "published-c", "run-a", False)
+    before = (adapter.get_dataset_pointer(_TENANT, "gold"),
+              adapter.get_run(_TENANT, "run-c"), adapter.pending_outbox(100))
+    _expect_error(Conflict, lambda: adapter.publish_dataset(invalid_parent))
+    after = (adapter.get_dataset_pointer(_TENANT, "gold"),
+             adapter.get_run(_TENANT, "run-c"), adapter.pending_outbox(100))
+    assert after == before
+    assert adapter.get_dataset_version(_TENANT, "gold", "run-c") is None
+    changed = first.model_copy(update={"version": first.version.model_copy(update={
+        "run_manifest_key": f"reconciliation/{_TENANT}/2026-06/run-a/run-manifest.json"})})
     _expect_error(Conflict, lambda: adapter.publish_dataset(changed))
     assert adapter.get_dataset_version(_TENANT, "gold", "run-a") == first.version
     adapter.put_run(_run("run-b", RunState.PUBLISHING))
