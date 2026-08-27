@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from cnes_domain.control_plane.commands import (
@@ -21,7 +21,6 @@ from cnes_domain.control_plane.commands import (
 from cnes_domain.control_plane.entities import (
     DatasetVersion,
     Membership,
-    RawManifestRecord,
     RunDependency,
 )
 from cnes_domain.control_plane.enums import (
@@ -46,8 +45,10 @@ from packages.cnes_infra.tests.contracts.clock import (
     _expect_error,
     _fail_job,
     _job,
+    _raw_record,
     _renew_job,
     _run,
+    _store_record,
     _unit,
 )
 
@@ -73,6 +74,32 @@ class ControlPlaneCase:
             raise AssertionError(f"case={self.name}") from error
 
 
+def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
+    manifest = _raw_record("result", "agent-a", 1, clock.now())
+    complete = CompleteJob(
+        tenant_id=_TENANT, job_id="job-a", owner="worker-a", fencing_token=1,
+        manifest=manifest,
+    )
+    renewals = (
+        _renew_job(clock).model_copy(update={"owner": "other"}),
+        _renew_job(clock).model_copy(update={"fencing_token": 2}),
+    )
+    for command in renewals:
+        _expect_error(
+            (FenceRejected, LeaseLost),
+            lambda command=command: adapter.renew_job_lease(command),
+        )
+    completions = (
+        complete.model_copy(update={"owner": "other"}),
+        complete.model_copy(update={"fencing_token": 2}),
+    )
+    for command in completions:
+        _expect_error((FenceRejected, LeaseLost), lambda command=command: adapter.complete_job(
+            command, _event("invalid-complete")
+        ))
+    return complete
+
+
 def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     membership = Membership(
         tenant_id=_TENANT, user_id="user-a", role="admin", created_at=clock.now()
@@ -91,8 +118,11 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     assert claimed.lease_until == clock.now() + timedelta(seconds=30)
     renewed = adapter.renew_job_lease(_renew_job(clock))
     assert renewed.lease_until == clock.now() + timedelta(seconds=60)
+    complete = _assert_active_job_fences(adapter, clock)
     assert adapter.claim_job(_claim_job("job-a", "worker-b", clock)) is None
     clock.advance(timedelta(seconds=61))
+    _expect_error(LeaseLost, lambda: adapter.renew_job_lease(_renew_job(clock)))
+    _expect_error(LeaseLost, lambda: adapter.complete_job(complete, _event("expired-complete")))
     expired = _fail_job("worker-a", 1, "expired")
     _expect_error(LeaseLost, lambda: adapter.fail_job(expired, _event("expired")))
     retried = adapter.claim_job(_claim_job("job-a", "worker-b", clock))
@@ -105,47 +135,6 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     _expect_error(
         FenceRejected, lambda: adapter.fail_job(stale_fence, _event("stale-fence"))
     )
-
-
-def _raw_record(
-    snapshot_id: str,
-    agent_id: str,
-    sequence: int,
-    created_at: datetime,
-) -> RawManifestRecord:
-    base = None if sequence == 1 else f"base-{agent_id}"
-    return RawManifestRecord(
-        tenant_id=_TENANT,
-        manifest_id=f"manifest-{agent_id}-{snapshot_id}",
-        manifest_key=f"raw/{_TENANT}/CNES/2026-07/{snapshot_id}/manifest.json",
-        agent_id=agent_id,
-        source_type="CNES",
-        file_subtype="ST",
-        competencia="2026-07",
-        snapshot_mode="FULL" if sequence == 1 else "DELTA",
-        snapshot_id=snapshot_id,
-        base_snapshot_id=base,
-        sequence=sequence,
-        previous_manifest_sha256=None if sequence == 1 else _HASH_A,
-        manifest_sha256=_HASH_A,
-        created_at=created_at,
-    )
-
-
-def _store_record(adapter: Any, record: RawManifestRecord, clock: MutableClock) -> None:
-    job = _job(f"job-{record.agent_id}-{record.snapshot_id}", record.agent_id)
-    adapter.put_agent(_agent(record.agent_id))
-    adapter.create_job(job, _event(f"created-{job.job_id}"))
-    claimed = adapter.claim_job(_claim_job(job.job_id, "raw-worker", clock))
-    assert claimed is not None
-    complete = CompleteJob(
-        tenant_id=_TENANT,
-        job_id=job.job_id,
-        owner="raw-worker",
-        fencing_token=claimed.fencing_token,
-        manifest=record,
-    )
-    adapter.complete_job(complete, _event(f"completed-{job.job_id}"))
 
 
 def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
@@ -277,18 +266,27 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
         _expect_error((FenceRejected, LeaseLost), lambda command=command: adapter.commit_run_unit(
             command, _event(f"invalid-{command.owner}-{command.fencing_token}")
         ))
-    stale_fail = FailRunUnit(
+    fail = FailRunUnit(
         tenant_id=_TENANT, run_id="run-a", unit_id="unit-a", dispatch_id=_WAVE_B,
         owner="worker-a", fencing_token=claimed.fencing_token, error_code="stale",
         retryable=True,
     )
-    _expect_error(
-        (FenceRejected, LeaseLost),
-        lambda: adapter.fail_run_unit(stale_fail, _event("invalid-fail")),
+    invalid_failures = (
+        fail.model_copy(update={"dispatch_id": dispatch.dispatch_id, "owner": "other"}),
+        fail.model_copy(update={
+            "dispatch_id": dispatch.dispatch_id, "fencing_token": claimed.fencing_token + 1
+        }),
+        fail,
     )
+    for command in invalid_failures:
+        _expect_error((FenceRejected, LeaseLost), lambda command=command: adapter.fail_run_unit(
+            command, _event("invalid-fail")
+        ))
     clock.advance(timedelta(seconds=31))
     expired = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
     _expect_error(LeaseLost, lambda: adapter.commit_run_unit(expired, _event("expired-unit")))
+    expired_fail = fail.model_copy(update={"dispatch_id": dispatch.dispatch_id})
+    _expect_error(LeaseLost, lambda: adapter.fail_run_unit(expired_fail, _event("expired-fail")))
     adapter.put_run(_run("run-a", RunState.PUBLISHING))
     _expect_error(
         (FenceRejected, LeaseLost),

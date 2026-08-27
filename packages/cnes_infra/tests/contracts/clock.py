@@ -10,6 +10,7 @@ from cnes_domain.control_plane.commands import (
     ClaimJob,
     ClaimRunUnit,
     CommitRunUnit,
+    CompleteJob,
     FailJob,
     RenewJobLease,
 )
@@ -18,6 +19,7 @@ from cnes_domain.control_plane.entities import (
     Job,
     ManifestRef,
     OutboxEvent,
+    RawManifestRecord,
     Run,
     RunDependency,
     RunUnit,
@@ -118,6 +120,47 @@ def _job(job_id: str, agent_id: str = "agent-a") -> Job:
         lease_until=None, result_manifest_id=None, result_manifest_key=None,
         error_code=None, created_at=_NOW,
     )
+
+
+def _raw_record(
+    snapshot_id: str,
+    agent_id: str,
+    sequence: int,
+    created_at: datetime,
+) -> RawManifestRecord:
+    base = None if sequence == 1 else f"base-{agent_id}"
+    return RawManifestRecord(
+        tenant_id=_TENANT,
+        manifest_id=f"manifest-{agent_id}-{snapshot_id}",
+        manifest_key=f"raw/{_TENANT}/CNES/2026-07/{snapshot_id}/manifest.json",
+        agent_id=agent_id,
+        source_type="CNES",
+        file_subtype="ST",
+        competencia="2026-07",
+        snapshot_mode="FULL" if sequence == 1 else "DELTA",
+        snapshot_id=snapshot_id,
+        base_snapshot_id=base,
+        sequence=sequence,
+        previous_manifest_sha256=None if sequence == 1 else _HASH_A,
+        manifest_sha256=_HASH_A,
+        created_at=created_at,
+    )
+
+
+def _store_record(adapter: Any, record: RawManifestRecord, clock: MutableClock) -> None:
+    job = _job(f"job-{record.agent_id}-{record.snapshot_id}", record.agent_id)
+    adapter.put_agent(_agent(record.agent_id))
+    adapter.create_job(job, _event(f"created-{job.job_id}"))
+    claimed = adapter.claim_job(_claim_job(job.job_id, "raw-worker", clock))
+    assert claimed is not None
+    complete = CompleteJob(
+        tenant_id=_TENANT,
+        job_id=job.job_id,
+        owner="raw-worker",
+        fencing_token=claimed.fencing_token,
+        manifest=record,
+    )
+    adapter.complete_job(complete, _event(f"completed-{job.job_id}"))
 
 
 def _run(

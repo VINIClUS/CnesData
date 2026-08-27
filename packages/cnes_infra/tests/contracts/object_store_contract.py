@@ -87,7 +87,10 @@ def _case_promote(adapter: Any, clock: MutableClock) -> None:
     expected_hash = _digest(body)
     adapter.put(source, BytesIO(body), expected_hash)
     promoted = adapter.promote(source, destination, expected_hash)
-    assert promoted.key == destination
+    assert (promoted.key, promoted.size_bytes, promoted.sha256) == (
+        destination, len(body), expected_hash
+    )
+    assert adapter.stat(destination) == promoted
     assert adapter.stat(source) is not None
     assert adapter.promote(source, destination, expected_hash) == promoted
     conflict = b"conflicting"
