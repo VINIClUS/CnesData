@@ -378,8 +378,6 @@ class _HarnessState:
         self.memberships[(membership.tenant_id, membership.user_id)] = membership
 
     def get_membership(self, tenant_id: str, user_id: str) -> Any | None:
-        if self.mutation == "authorization_jobs":
-            return next(iter(self.memberships.values()), None)
         return self.memberships.get((tenant_id, user_id))
 
     def put_agent(self, agent: Any) -> None:
