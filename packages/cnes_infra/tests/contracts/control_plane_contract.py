@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
+from functools import partial
 from typing import Any
 
 from cnes_domain.control_plane.commands import (
@@ -33,12 +34,15 @@ from packages.cnes_infra.tests.contracts.clock import (
     _HASH_A,
     _NOW,
     _TENANT,
+    _WAVE_B,
     MutableClock,
     _agent,
     _assert_active_job_fences,
     _assert_committed_unit,
     _assert_job_failures,
+    _assert_retryable_unit_failure,
     _assert_revoked_completion,
+    _assert_unit_rejected,
     _claim_job,
     _claim_unit,
     _claim_unit_command,
@@ -59,7 +63,6 @@ from packages.cnes_infra.tests.contracts.clock import (
 
 _Runner = Callable[[Any, MutableClock], None]
 _HASH_B = "b" * 64
-_WAVE_B = "b" * 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,9 +141,8 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
     for record in records:
         _store_record(adapter, record, clock)
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 2)
-    assert tuple(ref.manifest_id for ref in chain) == (
-        "manifest-agent-b-base-agent-b",
-        "manifest-agent-b-delta-z",
+    assert tuple((ref.manifest_id, ref.manifest_key) for ref in chain) == tuple(
+        (record.manifest_id, record.manifest_key) for record in records[3:5]
     )
     try:
         short = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1)
@@ -196,17 +198,19 @@ def _case_run_units_atomic(adapter: Any, clock: MutableClock) -> None:
 def _case_unit_claim(adapter: Any, clock: MutableClock) -> None:
     unit_ids = ("unit-a", "unit-b")
     dispatch = _prepare_unit(adapter, clock, unit_ids)
+    assert dispatch.unit_ids == unit_ids
+    assert adapter.get_active_run_dispatch(_TENANT, "run-a") == dispatch
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
     assert claimed is not None
+    second_command = _claim_unit_command(dispatch.dispatch_id, "worker-a", clock, "unit-b")
+    assert adapter.claim_run_unit(second_command) is not None
     not_dispatched = _claim_unit_command(dispatch.dispatch_id, "worker-a", clock, "unit-z")
     assert adapter.claim_run_unit(not_dispatched) is None
     assert (claimed.attempt, claimed.fencing_token) == (1, 1)
     assert claimed.dispatch_id == dispatch.dispatch_id
     assert _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-b") is None
     clock.advance(timedelta(seconds=31))
-    expired_pending = _claim_unit_command(
-        dispatch.dispatch_id, "worker-b", clock, "unit-b"
-    )
+    expired_pending = _claim_unit_command(dispatch.dispatch_id, "worker-b", clock, "unit-b")
     assert adapter.claim_run_unit(expired_pending) is None
     replacement = _reserve(adapter, clock, unit_ids=unit_ids)
     retried = _claim_unit(adapter, clock, replacement.dispatch_id, "worker-b")
@@ -219,24 +223,6 @@ def _case_unit_claim(adapter: Any, clock: MutableClock) -> None:
     assert adapter.claim_run_unit(pending) is None
 
 
-def _assert_retryable_unit_failure(adapter: Any, clock: MutableClock, base: FailRunUnit) -> None:
-    dispatch = _reserve(adapter, clock, _WAVE_B)
-    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-b")
-    assert claimed is not None
-    command = base.model_copy(update={
-        "dispatch_id": dispatch.dispatch_id,
-        "owner": "worker-b",
-        "fencing_token": claimed.fencing_token,
-    })
-    event = _event("unit-retryable")
-    failed = adapter.fail_run_unit(command, event)
-    assert (failed.state, failed.lease_owner, failed.lease_until) == (
-        RunUnitState.FAILED_RETRYABLE, None, None
-    )
-    assert adapter.list_run_units(_TENANT, "run-a")[0] == failed
-    assert adapter.pending_outbox(100).count(event) == 1
-
-
 def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
     dispatch = _prepare_unit(adapter, clock)
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
@@ -247,9 +233,9 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
         _commit_command(_WAVE_B, "worker-a", claimed.fencing_token),
     )
     for command in invalid:
-        _expect_error((FenceRejected, LeaseLost), lambda command=command: adapter.commit_run_unit(
-            command, _event(f"invalid-{command.owner}-{command.fencing_token}")
-        ))
+        event = _event(f"invalid-{command.owner}-{command.fencing_token}")
+        action = partial(adapter.commit_run_unit, command, event)
+        _assert_unit_rejected(adapter, (FenceRejected, LeaseLost), action)
     fail = FailRunUnit(
         tenant_id=_TENANT, run_id="run-a", unit_id="unit-a", dispatch_id=_WAVE_B,
         owner="worker-a", fencing_token=claimed.fencing_token, error_code="stale",
@@ -263,24 +249,28 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
         fail,
     )
     for command in invalid_failures:
-        _expect_error((FenceRejected, LeaseLost), lambda command=command: adapter.fail_run_unit(
-            command, _event("invalid-fail")
-        ))
+        action = partial(adapter.fail_run_unit, command, _event("invalid-fail"))
+        _assert_unit_rejected(adapter, (FenceRejected, LeaseLost), action)
     adapter.put_run(_run("run-a", RunState.PUBLISHING))
     parent_commit = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
     parent_fail = fail.model_copy(update={"dispatch_id": dispatch.dispatch_id})
-    _expect_error((FenceRejected, LeaseLost), lambda: adapter.commit_run_unit(
+    _assert_unit_rejected(adapter, (FenceRejected, LeaseLost), lambda: adapter.commit_run_unit(
         parent_commit, _event("invalid-parent-commit")
     ))
-    _expect_error((FenceRejected, LeaseLost), lambda: adapter.fail_run_unit(
+    _assert_unit_rejected(adapter, (FenceRejected, LeaseLost), lambda: adapter.fail_run_unit(
         parent_fail, _event("invalid-parent-fail")
     ))
     adapter.put_run(_run("run-a"))
     clock.advance(timedelta(seconds=31))
     expired = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
-    _expect_error(LeaseLost, lambda: adapter.commit_run_unit(expired, _event("expired-unit")))
+    _assert_unit_rejected(
+        adapter, LeaseLost, lambda: adapter.commit_run_unit(expired, _event("expired-unit"))
+    )
     expired_fail = fail.model_copy(update={"dispatch_id": dispatch.dispatch_id})
-    _expect_error(LeaseLost, lambda: adapter.fail_run_unit(expired_fail, _event("expired-fail")))
+    _assert_unit_rejected(
+        adapter, LeaseLost,
+        lambda: adapter.fail_run_unit(expired_fail, _event("expired-fail")),
+    )
     _assert_retryable_unit_failure(adapter, clock, fail)
 
 
@@ -292,14 +282,9 @@ def _case_degraded_unit(adapter: Any, clock: MutableClock) -> None:
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
     assert claimed is not None
     command = FailRunUnit(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        unit_id="unit-a",
-        dispatch_id=dispatch.dispatch_id,
-        owner="worker-a",
-        fencing_token=claimed.fencing_token,
-        error_code="optional_failed",
-        retryable=False,
+        tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
+        dispatch_id=dispatch.dispatch_id, owner="worker-a",
+        fencing_token=claimed.fencing_token, error_code="optional_failed", retryable=False,
     )
     event = _event("unit-degraded")
     failed = adapter.fail_run_unit(command, event)
@@ -401,6 +386,18 @@ def _case_dispatch_expiry(adapter: Any, clock: MutableClock) -> None:
         )
     )
     clock.advance(timedelta(seconds=2))
+    commit = _commit_command(renewed.dispatch_id, "worker-b", claimed.fencing_token)
+    fail = FailRunUnit(
+        tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
+        dispatch_id=renewed.dispatch_id, owner="worker-b",
+        fencing_token=claimed.fencing_token, error_code="dispatch-expired", retryable=True,
+    )
+    _assert_unit_rejected(adapter, LeaseLost, lambda: adapter.commit_run_unit(
+        commit, _event("expired-dispatch-commit")
+    ))
+    _assert_unit_rejected(adapter, LeaseLost, lambda: adapter.fail_run_unit(
+        fail, _event("expired-dispatch-fail")
+    ))
     _expect_error(Conflict, lambda: _reserve(adapter, clock, "c" * 16))
 
 

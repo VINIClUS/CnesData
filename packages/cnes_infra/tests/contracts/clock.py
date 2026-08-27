@@ -34,6 +34,7 @@ _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 _TENANT = "354130"
 _HASH_A = "a" * 64
 _WAVE_A = "a" * 16
+_WAVE_B = "b" * 16
 
 
 @dataclass(slots=True)
@@ -100,6 +101,20 @@ def _expect_error(
     raise AssertionError(f"error_not_raised={expected}")
 
 
+def _assert_unit_rejected(
+    adapter: Any,
+    expected: type[Exception] | tuple[type[Exception], ...],
+    action: Callable[[], Any],
+) -> None:
+    before_units = adapter.list_run_units(_TENANT, "run-a")
+    before_run = adapter.get_run(_TENANT, "run-a")
+    before_outbox = adapter.pending_outbox(100)
+    _expect_error(expected, action)
+    assert adapter.list_run_units(_TENANT, "run-a") == before_units
+    assert adapter.get_run(_TENANT, "run-a") == before_run
+    assert adapter.pending_outbox(100) == before_outbox
+
+
 def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
     manifest = _raw_record("result", "agent-a", 1, clock.now())
     complete = CompleteJob(
@@ -157,9 +172,7 @@ def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
     final_claim = adapter.claim_job(_claim_job("job-a", "worker-c", clock))
     assert final_claim is not None
     final_event = _event("failed-final")
-    final_command = _fail_job("worker-c", 3, "permanent").model_copy(
-        update={"retryable": False}
-    )
+    final_command = _fail_job("worker-c", 3, "permanent").model_copy(update={"retryable": False})
     final = adapter.fail_job(final_command, final_event)
     assert final.state is JobState.FAILED_FINAL
     assert adapter.get_job(_TENANT, "job-a") == final
@@ -199,20 +212,13 @@ def _raw_record(
 ) -> RawManifestRecord:
     base = None if sequence == 1 else f"base-{agent_id}"
     return RawManifestRecord(
-        tenant_id=_TENANT,
-        manifest_id=f"manifest-{agent_id}-{snapshot_id}",
+        tenant_id=_TENANT, manifest_id=f"manifest-{agent_id}-{snapshot_id}",
         manifest_key=f"raw/{_TENANT}/CNES/2026-07/{snapshot_id}/manifest.json",
-        agent_id=agent_id,
-        source_type="CNES",
-        file_subtype="ST",
-        competencia="2026-07",
+        agent_id=agent_id, source_type="CNES", file_subtype="ST", competencia="2026-07",
         snapshot_mode="FULL" if sequence == 1 else "DELTA",
-        snapshot_id=snapshot_id,
-        base_snapshot_id=base,
-        sequence=sequence,
+        snapshot_id=snapshot_id, base_snapshot_id=base, sequence=sequence,
         previous_manifest_sha256=None if sequence == 1 else _HASH_A,
-        manifest_sha256=_HASH_A,
-        created_at=created_at,
+        manifest_sha256=_HASH_A, created_at=created_at,
     )
 
 
@@ -322,6 +328,24 @@ def _assert_committed_unit(adapter: Any, dispatch: Any, claimed: Any) -> None:
     )
     assert completed.output_manifests == command.output_manifests
     assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+    assert adapter.pending_outbox(100).count(event) == 1
+
+
+def _assert_retryable_unit_failure(adapter: Any, clock: MutableClock, base: Any) -> None:
+    dispatch = _reserve(adapter, clock, _WAVE_B)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-b")
+    assert claimed is not None
+    command = base.model_copy(update={
+        "dispatch_id": dispatch.dispatch_id,
+        "owner": "worker-b",
+        "fencing_token": claimed.fencing_token,
+    })
+    event = _event("unit-retryable")
+    failed = adapter.fail_run_unit(command, event)
+    assert (failed.state, failed.lease_owner, failed.lease_until) == (
+        RunUnitState.FAILED_RETRYABLE, None, None
+    )
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == failed
     assert adapter.pending_outbox(100).count(event) == 1
 
 

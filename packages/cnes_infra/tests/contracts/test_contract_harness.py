@@ -231,6 +231,8 @@ class FakeControlPlane(_HarnessState):
                 raise LeaseLost("parent_not_processing")
             if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
                 raise LeaseLost("dispatch_mismatch")
+            if dispatch.lease_until <= self.clock.now():
+                raise LeaseLost("dispatch_expired")
             if unit is None or unit.lease_owner != command.owner:
                 raise LeaseLost("owner_mismatch")
             if unit.fencing_token != command.fencing_token:
@@ -481,9 +483,7 @@ def test_mutacao_do_object_store_e_detectada(case: ObjectStoreCase, clock: Mutab
     ("catalog", "case_type"),
     [(control_plane_cases(), ControlPlaneCase), (object_store_cases(), ObjectStoreCase)],
 )
-def test_catalogo_e_estavel_e_congelado(
-    catalog: tuple[Any, ...], case_type: type[Any]
-) -> None:
+def test_catalogo_e_estavel_e_congelado(catalog, case_type) -> None:
     assert catalog == tuple(catalog)
     assert len({case.name for case in catalog}) == len(catalog)
     assert all(isinstance(case, case_type) for case in catalog)
