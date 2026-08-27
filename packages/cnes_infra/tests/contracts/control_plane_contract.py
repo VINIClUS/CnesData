@@ -32,6 +32,7 @@ from cnes_domain.control_plane.enums import (
 )
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.ids import run_dependency_key
+from cnes_domain.ports.control_plane import ControlPlanePort
 from packages.cnes_infra.tests.contracts.clock import (
     _HASH_A,
     _NOW,
@@ -66,6 +67,7 @@ class ControlPlaneCase:
     def run(self, adapter: Any, clock: MutableClock) -> None:
         """Executa o caso e identifica qualquer falha pelo nome."""
         try:
+            assert isinstance(adapter, ControlPlanePort)
             self._runner(adapter, clock)
         except Exception as error:
             raise AssertionError(f"case={self.name}") from error

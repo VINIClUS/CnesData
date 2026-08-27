@@ -456,31 +456,23 @@ def fake_object_store() -> _MemoryObjectStore:
     return _MemoryObjectStore()
 
 @pytest.mark.parametrize("case", control_plane_cases(), ids=lambda case: case.name)
-def test_fake_control_plane_expoe_todas_as_invariantes(
-    case: ControlPlaneCase, fake_control_plane: FakeControlPlane, clock: MutableClock
-) -> None:
+def test_fake_control_plane_conforme(case, fake_control_plane, clock):
     case.run(fake_control_plane, clock)
 
 
 @pytest.mark.parametrize("case", object_store_cases(), ids=lambda case: case.name)
-def test_fake_object_store_expoe_todas_as_invariantes(
-    case: ObjectStoreCase, fake_object_store: _MemoryObjectStore, clock: MutableClock
-) -> None:
+def test_fake_object_store_conforme(case, fake_object_store, clock):
     case.run(fake_object_store, clock)
 
 
 @pytest.mark.parametrize("case", control_plane_cases(), ids=lambda case: case.name)
-def test_mutacao_do_control_plane_e_detectada_pelo_caso(
-    case: ControlPlaneCase, clock: MutableClock
-) -> None:
+def test_mutacao_do_control_plane_e_detectada(case: ControlPlaneCase, clock: MutableClock) -> None:
     with pytest.raises(AssertionError, match=f"case={case.name}"):
         case.run(FakeControlPlane(clock, case.name), clock)
 
 
 @pytest.mark.parametrize("case", object_store_cases(), ids=lambda case: case.name)
-def test_mutacao_do_object_store_e_detectada_pelo_caso(
-    case: ObjectStoreCase, clock: MutableClock
-) -> None:
+def test_mutacao_do_object_store_e_detectada(case: ObjectStoreCase, clock: MutableClock) -> None:
     with pytest.raises(AssertionError, match=f"case={case.name}"):
         case.run(_MemoryObjectStore(case.name), clock)
 
@@ -489,7 +481,7 @@ def test_mutacao_do_object_store_e_detectada_pelo_caso(
     ("catalog", "case_type"),
     [(control_plane_cases(), ControlPlaneCase), (object_store_cases(), ObjectStoreCase)],
 )
-def test_catalogo_tem_ordem_estavel_nomes_unicos_e_casos_congelados(
+def test_catalogo_e_estavel_e_congelado(
     catalog: tuple[Any, ...], case_type: type[Any]
 ) -> None:
     assert catalog == tuple(catalog)
@@ -497,3 +489,12 @@ def test_catalogo_tem_ordem_estavel_nomes_unicos_e_casos_congelados(
     assert all(isinstance(case, case_type) for case in catalog)
     with pytest.raises(FrozenInstanceError):
         catalog[0].name = "alterado"
+
+
+def test_rejeita_adapter_parcial(clock: MutableClock, fake_control_plane: FakeControlPlane) -> None:
+    class Parcial:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(fake_control_plane, name)
+
+    with pytest.raises(AssertionError, match="case=authorization_jobs"):
+        control_plane_cases()[0].run(Parcial(), clock)

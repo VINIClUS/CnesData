@@ -8,7 +8,7 @@ from io import BytesIO
 from typing import Any
 
 from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
 from packages.cnes_infra.tests.contracts.clock import MutableClock
 
 _Runner = Callable[[Any, MutableClock], None]
@@ -25,6 +25,7 @@ class ObjectStoreCase:
     def run(self, adapter: Any, clock: MutableClock) -> None:
         """Executa o caso e identifica qualquer falha pelo nome."""
         try:
+            assert isinstance(adapter, ObjectStorePort)
             self._runner(adapter, clock)
         except Exception as error:
             raise AssertionError(f"case={self.name}") from error
@@ -98,6 +99,13 @@ def _case_promote(adapter: Any, clock: MutableClock) -> None:
         assert stream.read() == body
 
 
+def _case_delete(adapter: Any, clock: MutableClock) -> None:
+    body = b"temporary"
+    adapter.put(_KEY, BytesIO(body), _digest(body))
+    adapter.delete(_KEY)
+    assert adapter.stat(_KEY) is None
+
+
 def object_store_cases() -> tuple[ObjectStoreCase, ...]:
     """Retorna o catálogo estável de invariáveis do armazenamento."""
     return (
@@ -105,6 +113,7 @@ def object_store_cases() -> tuple[ObjectStoreCase, ...]:
         ObjectStoreCase("immutability", _case_immutability),
         ObjectStoreCase("safe_keys", _case_safe_keys),
         ObjectStoreCase("promote", _case_promote),
+        ObjectStoreCase("delete", _case_delete),
     )
 
 
@@ -157,6 +166,8 @@ class _MemoryObjectStore:
 
     def delete(self, key: str) -> None:
         self._validate_key(key)
+        if self.mutation == "delete":
+            return
         self.objects.pop(key, None)
 
     def promote(self, source_key: str, destination_key: str, expected_sha256: str) -> ObjectStat:

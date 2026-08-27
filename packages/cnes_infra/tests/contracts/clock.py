@@ -152,6 +152,7 @@ class _HarnessState:
         self.clock = clock
         self.mutation = mutation
         self.memberships: dict[tuple[str, str], Any] = {}
+        self.tenants: dict[str, Any] = {}
         self.agents: dict[tuple[str, str], Any] = {}
         self.jobs: dict[tuple[str, str], Any] = {}
         self.raw_records: list[Any] = []
@@ -161,7 +162,14 @@ class _HarnessState:
         self.idempotency: dict[tuple[str, str, str], Any] = {}
         self.versions: dict[tuple[str, str, str], Any] = {}
         self.pointers: dict[tuple[str, str, str], Any] = {}
+        self.access_requests: dict[tuple[str, str], Any] = {}
         self.outbox: dict[str, Any] = {}
+
+    def put_tenant(self, tenant: Any) -> None:
+        self.tenants[tenant.tenant_id] = tenant
+
+    def get_tenant(self, tenant_id: str) -> Any | None:
+        return self.tenants.get(tenant_id)
 
     def put_membership(self, membership: Any) -> None:
         self.memberships[(membership.tenant_id, membership.user_id)] = membership
@@ -191,6 +199,26 @@ class _HarnessState:
     def get_job(self, tenant_id: str, job_id: str) -> Any | None:
         return self.jobs.get((tenant_id, job_id))
 
+    def latest_succeeded_job(self, *args: str) -> Any | None:
+        tenant_id, agent_id, source_type, file_subtype, competencia = args
+        matches = [
+            job
+            for job in self.jobs.values()
+            if (job.tenant_id, job.agent_id, job.source_type, job.file_subtype, job.competencia)
+            == (tenant_id, agent_id, source_type, file_subtype, competencia)
+            and job.state.value == "SUCCEEDED"
+        ]
+        return max(matches, key=lambda job: (job.created_at, job.job_id), default=None)
+
+    def cancel_job(self, command: Any, event: Any) -> Any:
+        job = self.get_job(command.tenant_id, command.job_id)
+        if job is None:
+            raise Conflict("job_missing")
+        canceled = job.model_copy(update={"state": "CANCEL_REQUESTED"})
+        self.jobs[(job.tenant_id, job.job_id)] = canceled
+        self.outbox[event.event_id] = event
+        return canceled
+
     def put_run(self, run: Any) -> None:
         self.runs[(run.tenant_id, run.run_id)] = run
 
@@ -215,9 +243,27 @@ class _HarnessState:
     def get_dataset_version(self, *args: str) -> Any | None:
         return self.versions.get(tuple(args))
 
+    def get_dataset_pointer(self, tenant_id: str, dataset_name: str) -> Any | None:
+        return self.pointers.get((tenant_id, dataset_name, "current"))
+
+    def put_access_request(self, request: Any, event: Any) -> None:
+        self.access_requests[(request.tenant_id, request.request_id)] = request
+        self.outbox[event.event_id] = event
+
+    def get_access_request(self, tenant_id: str, request_id: str) -> Any | None:
+        return self.access_requests.get((tenant_id, request_id))
+
+    def decide_access_request(self, request: Any, event: Any) -> Any:
+        self.put_access_request(request, event)
+        return request
+
     def pending_outbox(self, limit: int) -> tuple[Any, ...]:
         values = sorted(self.outbox.values(), key=lambda item: (item.created_at, item.event_id))
         return tuple(event for event in values if event.delivered_at is None)[:limit]
+
+    def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
+        event = self.outbox[event_id]
+        self.outbox[event_id] = event.model_copy(update={"delivered_at": delivered_at})
 
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> Any | None:
         dispatch = self.dispatches.get((tenant_id, run_id))
