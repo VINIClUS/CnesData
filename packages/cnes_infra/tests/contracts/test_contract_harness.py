@@ -308,11 +308,12 @@ class FakeControlPlane(_HarnessState):
                         "lease_until": None,
                     }
                 )
+        if wrong_state:
+            raise Conflict("run_not_canceling")
         canceled = transition_run(run, RunState.CANCELED)
         self.put_run(canceled)
         self.outbox.setdefault(event.event_id, event)
         return canceled
-
     def reserve_run_dispatch(self, command: Any) -> Any:
         key = (command.tenant_id, command.run_id)
         active = self.dispatches.get(key)
@@ -369,7 +370,6 @@ class FakeControlPlane(_HarnessState):
         )
         self.dispatches[key] = started
         return started
-
     def finish_run_dispatch(self, command: Any) -> Any:
         key = (command.tenant_id, command.run_id)
         dispatch = self.dispatches.get(key)
