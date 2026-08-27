@@ -106,6 +106,10 @@ class FakeControlPlane(_HarnessState):
         return failed
 
     def complete_job(self, command: Any, event: Any) -> Any:
+        current = self.get_job(command.tenant_id, command.job_id)
+        if self.mutation == "authorization_jobs" and current.lease_until <= self.clock.now():
+            self.raw_records.append(command.manifest)
+            self.outbox[event.event_id] = event
         job = self._validate_job_fence(command)
         manifest = command.manifest
         completed = job.model_copy(
@@ -133,7 +137,9 @@ class FakeControlPlane(_HarnessState):
         if not records:
             return ()
         if self.mutation == "raw_chains":
-            selected = sorted(records, key=lambda item: item.created_at)
+            records = [item.model_copy(update={"base_snapshot_id": f"base-{item.agent_id}"})
+                       if item.sequence > 1 else item for item in records]
+            selected = self._select_raw_chain(records)
         else:
             selected = self._select_raw_chain(records)
         bounded = selected if len(selected) <= limit else []
@@ -171,7 +177,6 @@ class FakeControlPlane(_HarnessState):
         }
         values = [run for run in self.runs.values() if run.state in states]
         return tuple(sorted(values, key=lambda item: (item.created_at, item.run_id))[:limit])
-
     def put_run_units(self, command: Any) -> tuple[Any, ...]:
         run = self.get_run(command.tenant_id, command.run_id)
         if run is None or run.state is not command.expected_run_state:
@@ -185,25 +190,26 @@ class FakeControlPlane(_HarnessState):
             return existing
         self._write_units(command.units)
         return command.units
-
     def _write_units(self, units: tuple[Any, ...]) -> None:
         for unit in units:
             self.units[(unit.tenant_id, unit.run_id, unit.unit_id)] = unit
-
     def claim_run_unit(self, command: Any) -> Any | None:
         key = (command.tenant_id, command.run_id, command.unit_id)
         unit = self.units.get(key)
         run = self.get_run(command.tenant_id, command.run_id)
         dispatch = self.dispatches.get((command.tenant_id, command.run_id))
         valid_parent = run is not None and run.state is RunState.PROCESSING
+        stale = dispatch is not None and dispatch.dispatch_id != command.dispatch_id
+        if self.mutation == "unit_claim" and unit is not None and stale:
+            self.units[key] = unit.model_copy(update={"attempt": 1, "fencing_token": 1,
+                                                     "dispatch_id": command.dispatch_id})
+            return None
         valid_dispatch = (
             dispatch is not None
             and dispatch.dispatch_id == command.dispatch_id
             and dispatch.state is not DispatchState.TERMINAL and dispatch.lease_until > command.now
             and command.unit_id in dispatch.unit_ids
         )
-        if self.mutation == "unit_claim":
-            valid_parent = True
         if unit is None or not valid_parent or not valid_dispatch:
             return None
         claimable = unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE}
@@ -222,7 +228,6 @@ class FakeControlPlane(_HarnessState):
         )
         self.units[key] = claimed
         return claimed
-
     def _validate_unit_fence(self, command: Any) -> tuple[Any, Any]:
         unit = self.units.get((command.tenant_id, command.run_id, command.unit_id))
         run = self.get_run(command.tenant_id, command.run_id)
@@ -256,7 +261,6 @@ class FakeControlPlane(_HarnessState):
         self.units[(unit.tenant_id, unit.run_id, unit.unit_id)] = completed
         self.outbox[event.event_id] = event
         return completed
-
     def fail_run_unit(self, command: Any, event: Any) -> Any:
         unit, run = self._validate_unit_fence(command)
         optional = any(
@@ -280,12 +284,12 @@ class FakeControlPlane(_HarnessState):
             self.put_run(run.model_copy(update={"missing_sources": (*run.missing_sources, source)}))
         self.outbox[event.event_id] = event
         return failed
-
     def finalize_run_cancellation(self, command: Any, event: Any) -> Any:
         run = self.get_run(command.tenant_id, command.run_id)
         if run is not None and run.state is RunState.CANCELED:
             return run
-        if run is None or run.state is not RunState.CANCEL_REQUESTED:
+        wrong_state = run is not None and run.state is not RunState.CANCEL_REQUESTED
+        if run is None or (wrong_state and self.mutation != "cancellation"):
             raise Conflict("run_not_canceling")
         terminal_states = {
             RunUnitState.SUCCEEDED,
@@ -296,7 +300,7 @@ class FakeControlPlane(_HarnessState):
         for key, unit in tuple(self.units.items()):
             if key[:2] != (command.tenant_id, command.run_id):
                 continue
-            if unit.state not in terminal_states or self.mutation == "cancellation":
+            if unit.state not in terminal_states:
                 self.units[key] = unit.model_copy(
                     update={
                         "state": RunUnitState.CANCELED,
@@ -313,7 +317,7 @@ class FakeControlPlane(_HarnessState):
         key = (command.tenant_id, command.run_id)
         active = self.dispatches.get(key)
         replay = active and active.wave_id == command.wave_id and active.lease_until > command.now
-        if replay and self.mutation != "dispatch":
+        if replay:
             return active
         live = active and active.state is not DispatchState.TERMINAL
         lease_live = active is not None and active.lease_until > command.now
@@ -334,7 +338,6 @@ class FakeControlPlane(_HarnessState):
         )
         self.dispatches[key] = dispatch
         return dispatch
-
     def _has_live_unit_lease(self, dispatch: Any, now: datetime) -> bool:
         if self.mutation == "dispatch_expiry":
             return False
@@ -344,7 +347,6 @@ class FakeControlPlane(_HarnessState):
             and unit.lease_until > now
             for unit in self.units.values()
         )
-
     def bind_run_dispatch(self, command: Any) -> Any:
         key = (command.tenant_id, command.run_id)
         dispatch = self.dispatches.get(key)
@@ -377,6 +379,9 @@ class FakeControlPlane(_HarnessState):
             raise Conflict("dispatch_expired")
         if dispatch.state is DispatchState.TERMINAL:
             if dispatch.terminal_outcome != command.outcome:
+                if self.mutation == "dispatch":
+                    self.dispatches[key] = dispatch.model_copy(
+                        update={"terminal_outcome": command.outcome})
                 raise Conflict("outcome_conflict")
             return dispatch
         finished = dispatch.model_copy(
@@ -442,7 +447,6 @@ class FakeControlPlane(_HarnessState):
         self.put_run(updated)
         self.outbox.setdefault(command.event.event_id, command.event)
         return result
-
 @pytest.fixture
 def clock() -> MutableClock:
     return MutableClock(_NOW)
@@ -452,20 +456,16 @@ def clock() -> MutableClock:
 def fake_control_plane(clock: MutableClock) -> FakeControlPlane:
     return FakeControlPlane(clock)
 
-
 @pytest.fixture
 def fake_object_store() -> _MemoryObjectStore:
     return _MemoryObjectStore()
-
 @pytest.mark.parametrize("case", control_plane_cases(), ids=lambda case: case.name)
 def test_fake_control_plane_conforme(case, fake_control_plane, clock):
     case.run(fake_control_plane, clock)
 
-
 @pytest.mark.parametrize("case", object_store_cases(), ids=lambda case: case.name)
 def test_fake_object_store_conforme(case, fake_object_store, clock):
     case.run(fake_object_store, clock)
-
 
 @pytest.mark.parametrize("case", control_plane_cases(), ids=lambda case: case.name)
 def test_mutacao_do_control_plane_e_detectada(case: ControlPlaneCase, clock: MutableClock) -> None:
