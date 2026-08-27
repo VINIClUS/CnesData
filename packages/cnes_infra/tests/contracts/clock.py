@@ -119,11 +119,32 @@ def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
         complete.model_copy(update={"owner": "other"}),
         complete.model_copy(update={"fencing_token": 2}),
     )
-    for command in completions:
-        _expect_error((FenceRejected, LeaseLost), lambda command=command: adapter.complete_job(
-            command, _event("invalid-complete")
-        ))
+    for index, command in enumerate(completions):
+        before_job = adapter.get_job(_TENANT, "job-a")
+        before_outbox = adapter.pending_outbox(100)
+        _expect_error(
+            (FenceRejected, LeaseLost),
+            lambda command=command, index=index: adapter.complete_job(
+                command, _event(f"invalid-complete-{index}")
+            ),
+        )
+        assert adapter.get_job(_TENANT, "job-a") == before_job
+        assert adapter.pending_outbox(100) == before_outbox
+        assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10) == ()
     return complete
+
+
+def _assert_revoked_completion(adapter: Any, complete: CompleteJob) -> None:
+    adapter.put_agent(_agent("agent-a", AgentState.REVOKED))
+    before_job = adapter.get_job(_TENANT, "job-a")
+    before_outbox = adapter.pending_outbox(100)
+    _expect_error((FenceRejected, LeaseLost), lambda: adapter.complete_job(
+        complete, _event("revoked-complete")
+    ))
+    assert adapter.get_job(_TENANT, "job-a") == before_job
+    assert adapter.pending_outbox(100) == before_outbox
+    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10) == ()
+    adapter.put_agent(_agent("agent-a"))
 
 
 def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:

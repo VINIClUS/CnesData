@@ -1,5 +1,3 @@
-"""Autocertificação das suites compartilhadas de contrato."""
-
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -71,7 +69,9 @@ class FakeControlPlane(_HarnessState):
 
     def _validate_job_fence(self, command: Any) -> Any:
         job = self.get_job(command.tenant_id, command.job_id)
-        if job is None or job.state is not JobState.LEASED:
+        agent = None if job is None else self.get_agent(command.tenant_id, job.agent_id)
+        invalid = job is None or job.state is not JobState.LEASED
+        if invalid or agent is None or agent.state is AgentState.REVOKED:
             raise LeaseLost("job_not_leased")
         if job.lease_owner != command.owner:
             raise LeaseLost("owner_mismatch")

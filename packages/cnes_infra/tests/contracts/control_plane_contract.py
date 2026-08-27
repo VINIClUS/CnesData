@@ -38,6 +38,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _assert_active_job_fences,
     _assert_committed_unit,
     _assert_job_failures,
+    _assert_revoked_completion,
     _claim_job,
     _claim_unit,
     _claim_unit_command,
@@ -104,6 +105,7 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     assert renewed.lease_until == clock.now() + timedelta(seconds=60)
     assert adapter.get_job(_TENANT, "job-a") == renewed
     complete = _assert_active_job_fences(adapter, clock)
+    _assert_revoked_completion(adapter, complete)
     clock.advance(timedelta(seconds=31))
     assert adapter.claim_job(_claim_job("job-a", "worker-b", clock)) is None
     clock.advance(timedelta(seconds=30))
@@ -303,6 +305,8 @@ def _case_degraded_unit(adapter: Any, clock: MutableClock) -> None:
     failed = adapter.fail_run_unit(command, event)
     assert failed.state is RunUnitState.SUCCEEDED_DEGRADED
     assert failed.output_manifests == ()
+    assert (failed.lease_owner, failed.lease_until) == (None, None)
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == failed
     assert adapter.get_run(_TENANT, "run-a").missing_sources == ("CNES/ST",)
     assert adapter.pending_outbox(100).count(event) == 1
 
@@ -334,6 +338,7 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     event = _event("run-canceled")
     result = adapter.finalize_run_cancellation(command, event)
     assert result.state is RunState.CANCELED
+    assert adapter.get_run(_TENANT, "run-a") == result
     states = {unit.unit_id: unit.state for unit in adapter.list_run_units(_TENANT, "run-a")}
     assert states == {"unit-a": RunUnitState.SUCCEEDED, "unit-b": RunUnitState.CANCELED}
     assert adapter.finalize_run_cancellation(command, event) == result
