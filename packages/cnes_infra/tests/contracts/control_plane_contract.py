@@ -1,5 +1,3 @@
-"""Casos reutilizáveis de conformidade do plano de controle."""
-
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -63,16 +61,14 @@ from packages.cnes_infra.tests.contracts.clock import (
     _unit,
 )
 
-_Runner = Callable[[Any, MutableClock], None]
 _HASH_B = "b" * 64
 
 
 @dataclass(frozen=True, slots=True)
 class ControlPlaneCase:
     """Executa uma invariável contra um adapter de plano de controle."""
-
     name: str
-    _runner: _Runner = field(repr=False, compare=False)
+    _runner: Callable[[Any, MutableClock], None] = field(repr=False, compare=False)
 
     def run(self, adapter: Any, clock: MutableClock) -> None:
         """Executa o caso e identifica qualquer falha pelo nome."""
@@ -96,11 +92,13 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     assert adapter.list_claimable_jobs(_TENANT, "agent-a", 10) == ()
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is None
     adapter.put_agent(_agent("agent-a"))
-    second_event = _event("job-b-created")
-    adapter.create_job(_job("job-b"), second_event)
-    assert adapter.pending_outbox(100).count(second_event) == 1
-    claimable = adapter.list_claimable_jobs(_TENANT, "agent-a", 1)
-    assert tuple(job.job_id for job in claimable) == ("job-a",)
+    adapter.create_job(_job("job-b"), _event("job-b-created"))
+    for tenant_id, agent_id in ((_TENANT, "agent-z"), ("other", "agent-a")):
+        adapter.put_agent(_agent(agent_id, tenant_id=tenant_id))
+        job = _job("job-0", agent_id, tenant_id)
+        adapter.create_job(job, _event(f"{tenant_id}-job-created", tenant_id=tenant_id))
+    claimable = adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
+    assert tuple(job.job_id for job in claimable) == ("job-a", "job-b")
     claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
     assert claimed is not None
     assert (claimed.attempt, claimed.fencing_token) == (1, 1)
@@ -157,6 +155,9 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
         key = f"raw/{item.tenant_id}/{item.source_type}/{item.competencia}"
         item = item.model_copy(update={"manifest_key": f"{key}/{snapshot_id}/manifest.json"})
         _store_record(adapter, item, clock)
+    identity = (_TENANT, "agent-b", "CNES", "ST", "2026-07")
+    assert adapter.latest_succeeded_job(*identity) == adapter.get_job(
+        _TENANT, "job-agent-b-delta-z")
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 2)
     assert tuple((ref.manifest_id, ref.manifest_key) for ref in chain) == tuple(
         (record.manifest_id, record.manifest_key) for record in records[3:5])
@@ -166,7 +167,6 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
         pass
     else:
         assert short == ()
-
 
 def _case_run_discovery(adapter: Any, clock: MutableClock) -> None:
     deps = (
@@ -205,7 +205,6 @@ def _case_run_units_atomic(adapter: Any, clock: MutableClock) -> None:
     divergent = (units[0], _unit("unit-c"))
     _expect_error(Conflict, lambda: _put_units(adapter, divergent))
     assert adapter.list_run_units(_TENANT, "run-a") == units
-
 
 def _case_unit_claim(adapter: Any, clock: MutableClock) -> None:
     unit_ids = ("unit-a", "unit-b")
@@ -278,7 +277,6 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
         lambda: adapter.fail_run_unit(expired_fail, _event("expired-fail")))
     _assert_retryable_unit_failure(adapter, clock, fail)
 
-
 def _case_degraded_unit(adapter: Any, clock: MutableClock) -> None:
     optional = (RunDependency(source_type="CNES", file_subtype="ST", required=False),)
     adapter.put_run(_run("run-a", dependencies=optional))
@@ -313,8 +311,7 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     adapter.transition_run(
         TransitionRun(
             tenant_id=_TENANT, run_id="run-a", expected_state=RunState.PROCESSING,
-            new_state=RunState.CANCEL_REQUESTED), requested_event,
-    )
+            new_state=RunState.CANCEL_REQUESTED), requested_event)
     assert adapter.pending_outbox(100).count(requested_event) == 1
     command = FinalizeRunCancellation(
         tenant_id=_TENANT, run_id="run-a", expected_state=RunState.CANCEL_REQUESTED,
@@ -325,13 +322,11 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     assert adapter.get_run(_TENANT, "run-a") == result
     states = {unit.unit_id: (unit.state, unit.lease_owner, unit.lease_until)
               for unit in adapter.list_run_units(_TENANT, "run-a")}
-    assert states == {
-        "unit-a": (RunUnitState.SUCCEEDED, None, None),
-        "unit-b": (RunUnitState.CANCELED, None, None),
-        "unit-c": (RunUnitState.CANCELED, None, None)}
+    assert states["unit-a"] == (RunUnitState.SUCCEEDED, None, None)
+    assert states["unit-b"] == states["unit-c"] == (RunUnitState.CANCELED, None, None)
+    assert set(states) == {"unit-a", "unit-b", "unit-c"}
     assert adapter.finalize_run_cancellation(command, event) == result
     assert adapter.pending_outbox(10).count(event) == 1
-
 
 def _case_dispatch(adapter: Any, clock: MutableClock) -> None:
     dispatch = _prepare_unit(adapter, clock)
@@ -348,9 +343,11 @@ def _case_dispatch(adapter: Any, clock: MutableClock) -> None:
     assert adapter.bind_run_dispatch(bind) == started
     _expect_error(Conflict, lambda: adapter.bind_run_dispatch(
         bind.model_copy(update={"execution_ref": "x"})))
+    before_finish = adapter.get_active_run_dispatch(_TENANT, "run-a")
     _expect_error(Conflict, lambda: adapter.finish_run_dispatch(FinishRunDispatch(
         tenant_id=_TENANT, run_id="run-a", dispatch_id=_WAVE_B,
         outcome=DispatchOutcome.SUCCEEDED, finished_at=clock.now())))
+    assert adapter.get_active_run_dispatch(_TENANT, "run-a") == before_finish
     finish = FinishRunDispatch(
         tenant_id=_TENANT, run_id="run-a", dispatch_id=dispatch.dispatch_id,
         outcome=DispatchOutcome.SUCCEEDED, finished_at=clock.now())
@@ -415,12 +412,17 @@ def _case_idempotency(adapter: Any, clock: MutableClock) -> None:
         resource_id="resource-a", now=clock.now(),
         expires_at=clock.now() + timedelta(minutes=5))
     created = adapter.begin_idempotency(first)
+    other_tenant = first.model_copy(update={"tenant_id": "other", "resource_id": "other"})
+    other_scope = first.model_copy(update={"scope": "runs", "resource_id": "scoped"})
+    assert adapter.begin_idempotency(other_tenant).created
+    assert adapter.begin_idempotency(other_scope).created
     replay = adapter.begin_idempotency(first.model_copy(update={"resource_id": "resource-b"}))
     assert created.created
     assert not replay.created
     assert replay.record.resource_id == "resource-a"
     _expect_error(Conflict, lambda: adapter.begin_idempotency(
         first.model_copy(update={"request_hash": _HASH_B})))
+    assert adapter.begin_idempotency(first) == replay
     clock.advance(timedelta(minutes=6))
     replaced = adapter.begin_idempotency(first.model_copy(update={
         "request_hash": _HASH_B, "resource_id": "resource-b", "now": clock.now(),
@@ -430,14 +432,12 @@ def _case_idempotency(adapter: Any, clock: MutableClock) -> None:
 
 
 def _publish(run_id: str, event_id: str, expected: str | None, degraded: bool) -> PublishDataset:
-    state = RunState.PUBLISHED_DEGRADED if degraded else RunState.PUBLISHED
-    version = DatasetVersion(
-        tenant_id=_TENANT, dataset_name="gold", version_id=run_id, run_id=run_id,
-        run_manifest_key=f"reconciliation/{_TENANT}/2026-07/{run_id}/run-manifest.json",
-        created_at=_NOW)
     return PublishDataset(
-        version=version, pointer_name="current", expected_version_id=expected,
-        final_state=state,
+        version=DatasetVersion(
+            tenant_id=_TENANT, dataset_name="gold", version_id=run_id, run_id=run_id,
+            run_manifest_key=f"reconciliation/{_TENANT}/2026-07/{run_id}/run-manifest.json",
+            created_at=_NOW), pointer_name="current", expected_version_id=expected,
+        final_state=RunState.PUBLISHED_DEGRADED if degraded else RunState.PUBLISHED,
         missing_sources=("CNES/ST",) if degraded else (),
         publication_permit=PublicationPermit(
             tenant_id=_TENANT, run_id=run_id, policy_version=1, fencing_token=1),

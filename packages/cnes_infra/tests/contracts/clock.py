@@ -141,8 +141,10 @@ def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
     renewals = (_renew_job(clock).model_copy(update={"owner": "other"}),
                 _renew_job(clock).model_copy(update={"fencing_token": 2}))
     for command in renewals:
+        before = adapter.get_job(_TENANT, "job-a")
         _expect_error((FenceRejected, LeaseLost),
                       lambda command=command: adapter.renew_job_lease(command))
+        assert adapter.get_job(_TENANT, "job-a") == before
     completions = (complete.model_copy(update={"owner": "other"}),
                    complete.model_copy(update={"fencing_token": 2}))
     for index, command in enumerate(completions):
@@ -159,8 +161,8 @@ def _assert_revoked_completion(adapter: Any, complete: CompleteJob) -> None:
 def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
     failed_event = _event("failed-retryable")
     failed = adapter.fail_job(_fail_job("worker-b", 2, "retry"), failed_event)
-    assert (failed.state, failed.lease_owner, failed.lease_until) == (
-        JobState.FAILED_RETRYABLE, None, None)
+    assert (failed.state, failed.error_code, failed.lease_owner, failed.lease_until) == (
+        JobState.FAILED_RETRYABLE, "retry", None, None)
     assert adapter.pending_outbox(100).count(failed_event) == 1
     assert failed in adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
     final_claim = adapter.claim_job(_claim_job("job-a", "worker-c", clock))
@@ -168,13 +170,13 @@ def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
     final_event = _event("failed-final")
     final_command = _fail_job("worker-c", 3, "permanent").model_copy(update={"retryable": False})
     final = adapter.fail_job(final_command, final_event)
-    assert final.state is JobState.FAILED_FINAL
+    assert (final.state, final.error_code, final.lease_owner, final.lease_until) == (
+        JobState.FAILED_FINAL, "permanent", None, None)
     assert adapter.get_job(_TENANT, "job-a") == final
     assert adapter.pending_outbox(100).count(final_event) == 1
 
 
-def _event(event_id: str, now: datetime = _NOW, aggregate_id: str | None = None,
-           tenant_id: str = _TENANT) -> OutboxEvent:
+def _event(event_id, now=_NOW, aggregate_id=None, tenant_id=_TENANT) -> OutboxEvent:
     return OutboxEvent(
         tenant_id=tenant_id, event_id=event_id, event_type="test.event",
         aggregate_id=aggregate_id or event_id, payload={"event_id": event_id},
@@ -182,9 +184,7 @@ def _event(event_id: str, now: datetime = _NOW, aggregate_id: str | None = None,
     )
 
 
-def _agent(
-    agent_id: str, state: AgentState = AgentState.ACTIVE, tenant_id: str = _TENANT
-) -> Agent:
+def _agent(agent_id, state=AgentState.ACTIVE, tenant_id=_TENANT) -> Agent:
     return Agent(
         tenant_id=tenant_id, agent_id=agent_id, state=state, version="1.0",
         certificate_fingerprint=_HASH_A, last_seen_at=None, created_at=_NOW,
