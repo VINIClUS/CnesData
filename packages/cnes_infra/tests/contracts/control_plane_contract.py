@@ -41,6 +41,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _assert_active_job_fences,
     _assert_committed_unit,
     _assert_job_failures,
+    _assert_job_rejected,
     _assert_retryable_unit_failure,
     _assert_revoked_completion,
     _assert_unit_rejected,
@@ -115,16 +116,18 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     _expect_error(LeaseLost, lambda: adapter.renew_job_lease(_renew_job(clock)))
     _expect_error(LeaseLost, lambda: adapter.complete_job(complete, _event("expired-complete")))
     expired = _fail_job("worker-a", 1, "expired")
-    _expect_error(LeaseLost, lambda: adapter.fail_job(expired, _event("expired")))
+    _assert_job_rejected(
+        adapter, LeaseLost, lambda: adapter.fail_job(expired, _event("expired")))
     retried = adapter.claim_job(_claim_job("job-a", "worker-b", clock))
     assert retried is not None
     assert retried.job_id == "job-a"
     assert (retried.attempt, retried.fencing_token) == (2, 2)
     stale = _fail_job("worker-a", 1, "stale")
-    _expect_error((FenceRejected, LeaseLost), lambda: adapter.fail_job(stale, _event("stale")))
+    _assert_job_rejected(adapter, (FenceRejected, LeaseLost),
+                         lambda: adapter.fail_job(stale, _event("stale")))
     stale_fence = stale.model_copy(update={"owner": "worker-b"})
-    _expect_error(FenceRejected,
-                  lambda: adapter.fail_job(stale_fence, _event("stale-fence")))
+    _assert_job_rejected(adapter, FenceRejected,
+                         lambda: adapter.fail_job(stale_fence, _event("stale-fence")))
     _assert_job_failures(adapter, clock)
 
 
@@ -135,8 +138,7 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
         _raw_record("delta-3", "agent-a", 3, _NOW + timedelta(seconds=2)),
         _raw_record("base-agent-b", "agent-b", 1, _NOW),
         _raw_record("delta-z", "agent-b", 2, _NOW + timedelta(seconds=2)),
-        _raw_record("orphan", "agent-z", 2, _NOW + timedelta(seconds=3)),
-    )
+        _raw_record("orphan", "agent-z", 2, _NOW + timedelta(seconds=3)),)
     for record in records:
         _store_record(adapter, record, clock)
     identities = ({"tenant_id": "other"}, {"source_type": "SIHD"},
@@ -154,8 +156,7 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
         _store_record(adapter, item, clock)
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 2)
     assert tuple((ref.manifest_id, ref.manifest_key) for ref in chain) == tuple(
-        (record.manifest_id, record.manifest_key) for record in records[3:5]
-    )
+        (record.manifest_id, record.manifest_key) for record in records[3:5])
     try:
         short = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1)
     except Conflict:
@@ -167,8 +168,7 @@ def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
 def _case_run_discovery(adapter: Any, clock: MutableClock) -> None:
     deps = (
         RunDependency(source_type="CNES", file_subtype="ST", required=True),
-        RunDependency(source_type="CNES_ST", file_subtype="X", required=True),
-    )
+        RunDependency(source_type="CNES_ST", file_subtype="X", required=True),)
     adapter.put_run(_run("waiting-a", RunState.WAITING_INPUTS, deps))
     adapter.put_run(_run("waiting-b", RunState.WAITING_INPUTS))
     adapter.put_run(_run("collision", RunState.WAITING_INPUTS, (deps[1],)))
@@ -186,14 +186,12 @@ def _case_run_discovery(adapter: Any, clock: MutableClock) -> None:
     limited = adapter.list_waiting_runs_for_dependency(_TENANT, "CNES", "ST", "2026-07", 1)
     assert tuple(run.run_id for run in limited) == ("waiting-a",)
     assert run_dependency_key(_TENANT, "CNES", "ST", "2026-07") != run_dependency_key(
-        _TENANT, "CNES_ST", "X", "2026-07"
-    )
+        _TENANT, "CNES_ST", "X", "2026-07")
     recoverable = adapter.list_recoverable_runs(clock.now(), 6)
     assert tuple(run.run_id for run in recoverable) == (
         "canceling", "collision", "processing", "publishing", "waiting-a", "waiting-b")
     assert tuple(run.run_id for run in adapter.list_recoverable_runs(clock.now(), 2)) == (
-        "canceling", "collision"
-    )
+        "canceling", "collision")
 
 
 def _case_run_units_atomic(adapter: Any, clock: MutableClock) -> None:
@@ -241,8 +239,7 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
     invalid = (
         _commit_command(dispatch.dispatch_id, "other", claimed.fencing_token),
         _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token + 1),
-        _commit_command(_WAVE_B, "worker-a", claimed.fencing_token),
-    )
+        _commit_command(_WAVE_B, "worker-a", claimed.fencing_token),)
     for command in invalid:
         event = _event(f"invalid-{command.owner}-{command.fencing_token}")
         action = partial(adapter.commit_run_unit, command, event)
@@ -250,15 +247,13 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
     fail = FailRunUnit(
         tenant_id=_TENANT, run_id="run-a", unit_id="unit-a", dispatch_id=_WAVE_B,
         owner="worker-a", fencing_token=claimed.fencing_token, error_code="stale",
-        retryable=True,
-    )
+        retryable=True)
     invalid_failures = (
         fail.model_copy(update={"dispatch_id": dispatch.dispatch_id, "owner": "other"}),
         fail.model_copy(update={
             "dispatch_id": dispatch.dispatch_id, "fencing_token": claimed.fencing_token + 1
         }),
-        fail,
-    )
+        fail,)
     for command in invalid_failures:
         action = partial(adapter.fail_run_unit, command, _event("invalid-fail"))
         _assert_unit_rejected(adapter, (FenceRejected, LeaseLost), action)
@@ -266,11 +261,9 @@ def _case_unit_fences(adapter: Any, clock: MutableClock) -> None:
     parent_commit = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
     parent_fail = fail.model_copy(update={"dispatch_id": dispatch.dispatch_id})
     _assert_unit_rejected(adapter, (FenceRejected, LeaseLost), lambda: adapter.commit_run_unit(
-        parent_commit, _event("invalid-parent-commit")
-    ))
+        parent_commit, _event("invalid-parent-commit")))
     _assert_unit_rejected(adapter, (FenceRejected, LeaseLost), lambda: adapter.fail_run_unit(
-        parent_fail, _event("invalid-parent-fail")
-    ))
+        parent_fail, _event("invalid-parent-fail")))
     adapter.put_run(_run("run-a"))
     clock.advance(timedelta(seconds=31))
     expired = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
@@ -295,8 +288,7 @@ def _case_degraded_unit(adapter: Any, clock: MutableClock) -> None:
     command = FailRunUnit(
         tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
         dispatch_id=dispatch.dispatch_id, owner="worker-a",
-        fencing_token=claimed.fencing_token, error_code="optional_failed", retryable=False,
-    )
+        fencing_token=claimed.fencing_token, error_code="optional_failed", retryable=False)
     event = _event("unit-degraded")
     failed = adapter.fail_run_unit(command, event)
     assert failed.state is RunUnitState.SUCCEEDED_DEGRADED
@@ -391,10 +383,17 @@ def _case_dispatch_expiry(adapter: Any, clock: MutableClock) -> None:
     assert renewed.generation == 2
     claimed = _claim_unit(adapter, clock, renewed.dispatch_id, "worker-b")
     assert claimed is not None
-    adapter.bind_run_dispatch(BindRunDispatch(
+    short_bind = BindRunDispatch(
         tenant_id=_TENANT, run_id="run-a", dispatch_id=renewed.dispatch_id,
-        execution_ref="short-dispatch", now=clock.now(), lease_seconds=1))
+        execution_ref="short-dispatch", now=clock.now(), lease_seconds=1)
+    adapter.bind_run_dispatch(short_bind)
     clock.advance(timedelta(seconds=2))
+    expired_bind = short_bind.model_copy(update={"now": clock.now()})
+    _expect_error(Conflict, lambda: adapter.bind_run_dispatch(expired_bind))
+    expired_finish = FinishRunDispatch(
+        tenant_id=_TENANT, run_id="run-a", dispatch_id=renewed.dispatch_id,
+        outcome=DispatchOutcome.FAILED, finished_at=clock.now())
+    _expect_error(Conflict, lambda: adapter.finish_run_dispatch(expired_finish))
     commit = _commit_command(renewed.dispatch_id, "worker-b", claimed.fencing_token)
     fail = FailRunUnit(
         tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
@@ -405,14 +404,16 @@ def _case_dispatch_expiry(adapter: Any, clock: MutableClock) -> None:
         commit, _event("expired-dispatch-commit")))
     _assert_unit_rejected(adapter, LeaseLost, lambda: adapter.fail_run_unit(
         fail, _event("expired-dispatch-fail")))
+    before = adapter.get_active_run_dispatch(_TENANT, "run-a")
     _expect_error(Conflict, lambda: _reserve(adapter, clock, "c" * 16))
+    assert adapter.get_active_run_dispatch(_TENANT, "run-a") == before
 
 
 def _case_idempotency(adapter: Any, clock: MutableClock) -> None:
     first = BeginIdempotency(
         tenant_id=_TENANT, scope="jobs", key="key-a", request_hash=_HASH_A,
-        resource_id="resource-a", now=clock.now(), expires_at=clock.now() + timedelta(minutes=5)
-    )
+        resource_id="resource-a", now=clock.now(),
+        expires_at=clock.now() + timedelta(minutes=5))
     created = adapter.begin_idempotency(first)
     replay = adapter.begin_idempotency(first.model_copy(update={"resource_id": "resource-b"}))
     assert created.created
@@ -496,5 +497,4 @@ def control_plane_cases() -> tuple[ControlPlaneCase, ...]:
         ControlPlaneCase("dispatch", _case_dispatch),
         ControlPlaneCase("dispatch_expiry", _case_dispatch_expiry),
         ControlPlaneCase("idempotency", _case_idempotency),
-        ControlPlaneCase("publication", _case_publication),
-    )
+        ControlPlaneCase("publication", _case_publication),)

@@ -350,6 +350,8 @@ class FakeControlPlane(_HarnessState):
         dispatch = self.dispatches.get(key)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict("dispatch_stale")
+        if dispatch.lease_until <= command.now:
+            raise Conflict("dispatch_expired")
         if dispatch.state is DispatchState.STARTED:
             if dispatch.execution_ref != command.execution_ref:
                 raise Conflict("execution_conflict")
@@ -371,6 +373,8 @@ class FakeControlPlane(_HarnessState):
         dispatch = self.dispatches.get(key)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict("dispatch_stale")
+        if dispatch.lease_until <= command.finished_at:
+            raise Conflict("dispatch_expired")
         if dispatch.state is DispatchState.TERMINAL:
             if dispatch.terminal_outcome != command.outcome:
                 raise Conflict("outcome_conflict")

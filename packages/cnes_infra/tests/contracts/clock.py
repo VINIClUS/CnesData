@@ -55,9 +55,7 @@ class MutableClock:
         self.instant += delta
 
 
-def _claim_job(
-    job_id: str, owner: str, clock: MutableClock, tenant_id: str = _TENANT
-) -> ClaimJob:
+def _claim_job(job_id: str, owner: str, clock: MutableClock, tenant_id=_TENANT) -> ClaimJob:
     return ClaimJob(
         tenant_id=tenant_id, job_id=job_id, owner=owner, now=clock.now(), lease_seconds=30
     )
@@ -104,33 +102,34 @@ def _expect_error(
 
 
 def _assert_unit_rejected(
-    adapter: Any,
-    expected: type[Exception] | tuple[type[Exception], ...],
-    action: Callable[[], Any],
-) -> None:
+    adapter: Any, expected: type[Exception] | tuple[type[Exception], ...],
+    action: Callable[[], Any]) -> None:
     before = (
         adapter.list_run_units(_TENANT, "run-a"), adapter.get_run(_TENANT, "run-a"),
-        adapter.pending_outbox(100),
-    )
+        adapter.pending_outbox(100))
     _expect_error(expected, action)
     after = (
         adapter.list_run_units(_TENANT, "run-a"), adapter.get_run(_TENANT, "run-a"),
-        adapter.pending_outbox(100),
-    )
+        adapter.pending_outbox(100))
+    assert after == before
+
+
+def _assert_job_rejected(
+    adapter: Any, expected: type[Exception] | tuple[type[Exception], ...],
+    action: Callable[[], Any]) -> None:
+    before = (
+        adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
+        adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10))
+    _expect_error(expected, action)
+    after = (
+        adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
+        adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10))
     assert after == before
 
 
 def _assert_completion_rejected(adapter: Any, command: CompleteJob, event: OutboxEvent) -> None:
-    before = (
-        adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
-        adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10),
-    )
-    _expect_error((FenceRejected, LeaseLost), lambda: adapter.complete_job(command, event))
-    after = (
-        adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
-        adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10),
-    )
-    assert after == before
+    _assert_job_rejected(adapter, (FenceRejected, LeaseLost),
+                         lambda: adapter.complete_job(command, event))
 
 
 def _assert_active_job_fences(adapter: Any, clock: MutableClock) -> CompleteJob:
