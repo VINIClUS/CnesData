@@ -161,7 +161,7 @@ Logical IDs are stable; GitHub issue numbers are assigned only when materialized
 | W6 | CND-019 | — | — | — | CND-019 merged; CI green on integrated `develop` |
 | W7 | integration/review | CND-020 | CND-021 | CND-022 | Each adapter passes its owned tests |
 | W7b | integration/review | CND-023 in first lane freed by a merged W7 item | remaining W7 work | remaining W7 work | Audit contract green |
-| W8 | integration/review | CND-024 after 020, 021, and 023 merge | CND-022 may finish independently | — | Outbox matrix green |
+| W8 | integration/review | CND-024 after 020, 021, and 023 merge | CND-022 may finish independently | — | Domain dispatcher suite green |
 | W9 | CND-025 | — | — | — | Full Phase 2 gate green on integrated `develop` |
 
 A worktree is freed only after its issue is merged. A dependent branch is always cut from
@@ -177,13 +177,18 @@ configuration, or roadmap files.
 |---|---|---|
 | CND-020 | `cnes_infra/control_plane/sqlite_*.py`, adapter and race tests | `control_plane/__init__.py` |
 | CND-021 | `cnes_infra/control_plane/dynamodb_*.py`, adapter and stale-GSI tests | `control_plane/__init__.py`, emulator wiring |
-| CND-022 | `cnes_infra/object_store/filesystem.py`, `s3.py`, owned tests | `object_store/__init__.py` |
-| CND-023 | `cnes_infra/audit/local_sink.py`, `s3_object_lock_sink.py`, owned tests | `audit/__init__.py` |
+| CND-022 | `cnes_infra/object_store/filesystem.py`, `s3.py`, `_common.py`, owned tests | `object_store/__init__.py` |
+| CND-023 | `cnes_infra/audit/local_sink.py`, `s3_object_lock_sink.py`, audit contract and owned tests | `audit/__init__.py` |
 | CND-024 | `cnes_domain/outbox_dispatcher.py`, domain tests | backend integration |
-| CND-025 | root `tests/integration` adapter matrices | three subpackage `__init__.py` files, root infra export, CI, Compose, markers |
+| CND-025 | root `tests/integration` adapter matrices | three subpackage `__init__.py` files, root infra export, CI, Compose, markers, shared gate script |
 
 The three subpackage `__init__.py` files do not exist at the inspected base. They are
 created once by CND-025 to avoid add/add conflicts between parallel worktrees.
+
+`object_store/_common.py` and `tests/contracts/audit_sink_contract.py` are explicit additive
+hardening extensions to the governing Tasks 12 and 13. They do not replace any approved
+module, constructor, or integration-test path; each is owned by one feature issue and adds
+no public runtime export or repository-global configuration.
 
 ## 9. Control-plane persistence decisions
 
@@ -256,12 +261,16 @@ temporary name. `EEXIST` is resolved by hashing the existing destination: identi
 is idempotent; different content is a conflict.
 
 Temporary names use an adapter-owned namespace containing the destination-key digest and a
-random writer token. Startup and pre-write recovery serialize against publication, remove
-only stale names in that namespace that are not owned by a live writer, and never sweep
-unrelated hidden files. Fault-injection tests cover every durable boundary: temporary
-creation, file `fsync`, no-overwrite link, parent `fsync`, temporary unlink, and final
-directory `fsync`. Reopening must preserve a complete destination or allow an idempotent
-retry, and must remove recoverable adapter temporaries without deleting unrelated files.
+random writer token. Startup and pre-write recovery serialize against publication and
+never sweep unrelated hidden files. If a valid destination and temporary name share an
+inode after a post-link crash, recovery preserves the final name and unlinks only the
+temporary name. If the destination is absent, recovery removes an abandoned pre-publication
+temporary only after acquiring the destination lock; a different existing destination
+makes the temporary a losing writer that may also be removed under that lock.
+Fault-injection tests cover every durable boundary: temporary creation, file `fsync`,
+no-overwrite link, parent `fsync`, temporary unlink, and final directory `fsync`. Reopening
+must preserve a complete destination or allow an idempotent retry, and must remove
+recoverable adapter temporaries without deleting the final or unrelated files.
 
 Focused concurrency tests race multiple writers against the same key with identical and
 different content and assert that no partial file or orphan adapter temporary file remains
@@ -301,8 +310,9 @@ JSONL tail, truncates an incomplete final record, validates canonical records, a
 missing index entries. Replaying an indexed event is idempotent. Tests inject a crash after
 each durable boundary and prove recovery without lost or malformed audit records.
 
-After index recovery, immutable Parquet batches may be materialized from indexed JSONL
-records, but JSONL remains the canonical append log and is never deleted by batching.
+After index recovery, immutable Parquet batches must be materialized from indexed JSONL
+records when `parquet_batch_size` is reached. JSONL remains the canonical append log and is
+never deleted by batching.
 
 ### 11.2 S3 Object Lock audit sink
 
@@ -378,8 +388,12 @@ Phase 2 is done only when:
 - both object stores pass the shared contract plus concurrency/conditional-write tests;
 - both audit sinks and the outbox dispatcher pass crash, conditional-write, and replay
   tests;
+- local audit materializes deterministic, replay-idempotent Parquet batches from recovered
+  canonical JSONL;
 - emulator versions are pinned and the evidence matrix records what each emulator does and
   does not prove;
+- the Phase 2 adapter matrix succeeds for the exact integrated `develop` SHA, not only the
+  pull-request head;
 - public subpackage exports are created once by the controller lane;
 - no issue or release note claims exactly-once outbox delivery, cross-host SQLite, or
   verified S3 WORM behavior.
