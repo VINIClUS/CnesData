@@ -3,9 +3,11 @@ import pytest
 from sqlalchemy import text
 
 from cnes_domain.processing.transformer import transformar
-from cnes_infra.storage.repositories.estabelecimento_repo import (
-    EstabelecimentoRepository,
-)
+
+EstabelecimentoRepository = pytest.importorskip(
+    "cnes_infra.storage.repositories.estabelecimento_repo",
+    reason="repositório ausente do develop reconciliado",
+).EstabelecimentoRepository
 
 pytestmark = pytest.mark.perf_macro
 

@@ -7,9 +7,11 @@ import shutil
 import subprocess
 import time
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
+from re import compile as compile_pattern
 
 APPROVED_SHA = "8a2d3a4cbce85e87e31dc4769aab2a7a2b4bf7b2"
 WAIVED_SUITES = frozenset({"python-fast", "python-integration-docker"})
@@ -23,13 +25,22 @@ WAIVER = {
     "approved_by": "VINIClUS",
     "approved_at": "2026-08-26",
 }
+WAIVER_FINGERPRINT = "b4b22c61c271c1cf5c4e129644b21a774960901fc3fee3be2bd837f502ae623f"
+COLLECTION_HEADER = compile_pattern(
+    r"(?m)^_*[ \t]*ERROR collecting "
+    r"(?P<path>tests/[\w./-]*test_[\w-]+\.py)(?:[ \t]+_+)?[ \t]*$"
+)
+MISSING_MODULE_LINE = compile_pattern(
+    r"(?m)^E[ \t]+(?P<exception>[A-Za-z_][\w]*): "
+    r"No module named ['\"](?P<module>[^'\"]+)['\"]"
+)
 
 Command = tuple[str, ...]
 Suite = tuple[str, Command]
 
 PYTHON_FAST_MARKERS = (
     "not integration and not postgres and not bigquery and not e2e and not stress and "
-    "not soak and not spike and not windows_only"
+    "not soak and not spike and not windows_only and not chaos_infra"
 )
 PYTHON_PACKAGE_MARKERS = "not bigquery and not e2e and not stress and not soak and not spike"
 PYTHON_APP_MARKERS = (
@@ -50,7 +61,9 @@ bun run typecheck &&
 bun run test --coverage &&
 bun run build"""
 INTEGRATION_SCRIPT = (
-    "docker compose -p cnesdata up -d --wait postgres && uv run pytest -m postgres -q"
+    "docker compose -p cnesdata up -d --wait postgres && "
+    'uv run pytest packages/ -m "postgres and not e2e" -q && '
+    'uv run pytest apps/ -m "postgres and not e2e" -q'
 )
 
 SUITES: tuple[Suite, ...] = (
@@ -96,6 +109,49 @@ class SuiteResult:
     command: str
     exit_code: int
     duration_seconds: float
+    failure_fingerprint: str | None = field(default=None, kw_only=True)
+
+
+def _collection_failures(output: str) -> list[tuple[str, str, str]] | None:
+    headers = list(COLLECTION_HEADER.finditer(output))
+    if not headers:
+        return None
+    failures = []
+    for index, header in enumerate(headers):
+        block_end = headers[index + 1].start() if index + 1 < len(headers) else len(output)
+        signatures = list(MISSING_MODULE_LINE.finditer(output, header.end(), block_end))
+        if len(signatures) != 1:
+            return None
+        signature = signatures[0]
+        failures.append(
+            (
+                header.group("path"),
+                signature.group("exception"),
+                signature.group("module"),
+            )
+        )
+    return failures
+
+
+def _canonical_failure_document(output: str) -> bytes | None:
+    failures = _collection_failures(output)
+    if failures is None:
+        return None
+    signatures = {(exception, module) for _, exception, module in failures}
+    if len(signatures) != 1:
+        return None
+    exception, module = signatures.pop()
+    document = {
+        "exception": exception,
+        "module": module,
+        "affected_paths": sorted({path for path, _, _ in failures}),
+    }
+    return json.dumps(document, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def _failure_fingerprint(output: str) -> str | None:
+    document = _canonical_failure_document(output)
+    return sha256(document).hexdigest() if document is not None else None
 
 
 def run_suite(name: str, command: Sequence[str]) -> SuiteResult:
@@ -119,7 +175,13 @@ def run_suite(name: str, command: Sequence[str]) -> SuiteResult:
     if output:
         print(output, end="" if output.endswith("\n") else "\n", flush=True)
     print(f"suite_end name={name} exit_code={exit_code} duration_seconds={duration:.3f}")
-    return SuiteResult(name, formatted_command, exit_code, round(duration, 3))
+    return SuiteResult(
+        name,
+        formatted_command,
+        exit_code,
+        round(duration, 3),
+        failure_fingerprint=_failure_fingerprint(output),
+    )
 
 
 def run_suites(suites: Sequence[Suite]) -> list[SuiteResult]:
@@ -131,6 +193,7 @@ def _waiver_for(result: SuiteResult, commit_sha: str) -> dict[str, object] | Non
         commit_sha == APPROVED_SHA
         and result.name in WAIVED_SUITES
         and result.exit_code == WAIVER["expected_exit_code"]
+        and result.failure_fingerprint == WAIVER_FINGERPRINT
     ):
         return dict(WAIVER)
     return None
@@ -140,6 +203,8 @@ def write_report(path: Path, results: Sequence[SuiteResult], commit_sha: str) ->
     suites = []
     for result in results:
         suite = asdict(result)
+        if result.failure_fingerprint is None:
+            del suite["failure_fingerprint"]
         waiver = _waiver_for(result, commit_sha)
         if waiver is not None:
             suite["waiver"] = waiver

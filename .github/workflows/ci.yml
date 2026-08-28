@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main, develop]
     paths:
@@ -13,6 +14,7 @@ on:
       - 'docs/contracts/openapi.json'
       - 'docs/contracts/schemas/**'
       - '.github/workflows/ci.yml'
+      - 'scripts/ci_python_gate.sh'
   push:
     branches: [main, develop]
     paths:
@@ -24,6 +26,8 @@ on:
       - '.coveragerc'
       - 'docs/contracts/openapi.json'
       - 'docs/contracts/schemas/**'
+      - '.github/workflows/ci.yml'
+      - 'scripts/ci_python_gate.sh'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -60,59 +64,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: astral-sh/setup-uv@v8.0.0
+        with:
+          version: "0.9.26"
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e packages/cnes_contracts
-          pip install -e packages/cnes_domain
-          pip install -e packages/cnes_infra
-          pip install -e apps/data_processor
-          pip install -e apps/central_api
-          pip install -e apps/cnes_db_migrator
-          pip install pytest pytest-cov pytest-asyncio pytest-benchmark pytest-httpx hypothesis ruff duckdb psutil
+        run: uv sync --locked --all-packages
 
-      - name: Verify openapi.json up-to-date
-        run: |
-          python scripts/gen_openapi.py --output /tmp/openapi_fresh.json
-          if ! diff -q docs/contracts/openapi.json /tmp/openapi_fresh.json > /dev/null; then
-            echo "::error::openapi.json drift detected"
-            echo "Run: python scripts/gen_openapi.py"
-            diff docs/contracts/openapi.json /tmp/openapi_fresh.json | head -50
-            exit 1
-          fi
-          echo "openapi.json is up-to-date"
-
-      - name: Verify contracts schemas up-to-date
-        run: |
-          python scripts/gen_contracts.py --output /tmp/contracts_fresh/
-          if ! diff -r docs/contracts/schemas/ /tmp/contracts_fresh/ > /tmp/contracts_diff.out 2>&1; then
-            echo "::error::contract schemas drift detected"
-            cat /tmp/contracts_diff.out | head -50
-            exit 1
-          fi
-          echo "contract schemas up-to-date"
-
-      - name: Lint
-        run: ruff check .
-
-      - name: Run migrations
-        run: |
-          cd packages/cnes_infra
-          alembic -c alembic.ini upgrade head
-
-      - name: Test + coverage (core pkgs, branch 100)
-        run: |
-          pytest \
-            packages/cnes_domain packages/cnes_infra \
-            -m "not bigquery and not e2e and not stress and not soak and not spike" \
-            --cov --cov-config=pyproject.toml \
-            --cov-report=term-missing
-
-      - name: Test + coverage (apps, line 90)
-        run: |
-          pytest \
-            apps/ \
-            -m "not integration and not bigquery and not e2e and not stress and not soak and not spike and not windows_only" \
-            --cov --cov-config=.coveragerc \
-            --cov-report=term-missing
+      - name: Run Python gate
+        run: bash scripts/ci_python_gate.sh
