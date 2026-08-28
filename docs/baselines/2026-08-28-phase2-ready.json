@@ -1,0 +1,42 @@
+{
+  "commit_sha": "aeb7583dcbc7cdf8dea5157f9efbda25e0c78681",
+  "recorded_at": "2026-08-28T22:10:02.251087+00:00",
+  "suites": [
+    {
+      "name": "python-fast",
+      "command": "uv run pytest -m 'not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only and not chaos_infra' -q",
+      "exit_code": 0,
+      "duration_seconds": 25.792
+    },
+    {
+      "name": "python-packages-coverage",
+      "command": "uv run pytest packages/cnes_domain packages/cnes_infra -m 'not bigquery and not e2e and not stress and not soak and not spike' --cov --cov-config=pyproject.toml --cov-report=term-missing",
+      "exit_code": 0,
+      "duration_seconds": 23.264
+    },
+    {
+      "name": "python-apps-coverage",
+      "command": "uv run pytest apps/ -m 'not integration and not bigquery and not e2e and not stress and not soak and not spike and not windows_only' --cov --cov-config=.coveragerc --cov-report=term-missing",
+      "exit_code": 0,
+      "duration_seconds": 9.546
+    },
+    {
+      "name": "go-race-coverage",
+      "command": "sh -c 'cd apps/dump_agent_go &&\ngo test -race -count=1 -coverprofile=coverage.out ./... &&\ngrep -v -E '\"'\"'internal/apiclient/generated\\.go|cmd/|internal/service/|_windows\\.go:'\"'\"' coverage.out > coverage.filtered.out &&\ntotal=$(go tool cover -func=coverage.filtered.out | tail -1 | awk '\"'\"'{print $3}'\"'\"' | tr -d '\"'\"'%'\"'\"') &&\ngo tool cover -func=coverage.filtered.out | tail -1 &&\nawk -v total=\"$total\" '\"'\"'BEGIN { exit !(total >= 65) }'\"'\"''",
+      "exit_code": 0,
+      "duration_seconds": 19.873
+    },
+    {
+      "name": "dashboard",
+      "command": "sh -c 'cd apps/web_dashboard &&\nbun run codegen &&\nbun run lint &&\nbun run typecheck &&\nbun run test --coverage &&\nbun run build'",
+      "exit_code": 0,
+      "duration_seconds": 34.723
+    },
+    {
+      "name": "python-integration-docker",
+      "command": "sh -c 'docker compose -p cnesdata up -d --wait postgres && uv run pytest packages/ -m \"postgres and not e2e\" -q && uv run pytest apps/ -m \"postgres and not e2e\" -q'",
+      "exit_code": 0,
+      "duration_seconds": 9.908
+    }
+  ]
+}
