@@ -95,9 +95,14 @@ Extend `scripts/baseline_matrix_test.py` with cases proving:
 - the same exit code with `AssertionError`, a different missing module, or an empty output
   is rejected;
 - a matching failure on an unapproved SHA or suite is rejected;
-- the canonical document is exactly the compact, sorted-key JSON serialization of
-  `{"affected_paths":["tests/perf/macro/test_data_processor_e2e.py","tests/perf/micro/test_upsert_bench.py","tests/perf/soak/test_upsert_soak.py","tests/perf/spike/test_upsert_spike.py","tests/perf/stress/test_upsert_stress.py"],"exception":"ModuleNotFoundError","module":"cnes_infra.storage.repositories.estabelecimento_repo"}`
-  encoded as UTF-8;
+- the canonical document has exactly three fields: exception
+  `ModuleNotFoundError`, module
+  `cnes_infra.storage.repositories.estabelecimento_repo`, and the following sorted
+  `affected_paths`: `tests/perf/macro/test_data_processor_e2e.py`,
+  `tests/perf/micro/test_upsert_bench.py`, `tests/perf/soak/test_upsert_soak.py`,
+  `tests/perf/spike/test_upsert_spike.py`, and
+  `tests/perf/stress/test_upsert_stress.py`; serialize it as compact sorted-key JSON and
+  encode it as UTF-8;
 - the report contains the SHA-256 of that canonical document, not captured stdout/stderr;
 - changing one byte in any canonical field changes the hash and rejects the waiver.
 
@@ -138,8 +143,8 @@ errors.
 
 **Step 5: Align the complete CI environment with `uv.lock`**
 
-In `.github/workflows/ci.yml`, replace the unbounded test-tool `pip install` with immutable
-`astral-sh/setup-uv@v8.0.0`, request uv 0.9.26, and run
+In `.github/workflows/ci.yml`, replace the unbounded test-tool `pip install` with
+version-pinned `astral-sh/setup-uv@v8.0.0`, request uv 0.9.26, and run
 `uv sync --locked --all-packages`. Execute Python tools through `uv run`. This makes CI use
 the checked-in Ruff 0.15.11, Moto 5.2.3, Testcontainers 4.14.2, and the rest of the locked
 graph rather than resolving a new graph on every run. Do not regenerate `uv.lock`.
@@ -485,6 +490,10 @@ git commit -m "feat(control-plane): add dynamodb adapter"
 - Create: `packages/cnes_infra/tests/object_store/test_s3.py`
 - Do not create: `packages/cnes_infra/src/cnes_infra/object_store/__init__.py`
 
+`_common.py` is an additive hardening extension to governing Task 12. It centralizes only
+private validation/digest behavior, is exclusively owned by CND-022, and adds no public
+export or downstream configuration.
+
 **Step 1: Parametrize the shared contract and prove RED**
 
 Run every `object_store_cases()` entry against a temporary filesystem root and a Moto S3
@@ -518,12 +527,18 @@ raise `Conflict`. Never use `os.replace` for immutable publication.
 
 Use an adapter-owned recoverable temporary-name namespace containing the destination-key
 digest and a random writer token. Serialize cleanup with the same destination lock used
-for publication. On startup and before writing a key, remove only stale temporary names
-that match that namespace, are not held by a live writer, and can be proven not to be the
-published inode; never sweep arbitrary hidden files. Add fault injection after temporary
-creation, file `fsync`, atomic link, first parent `fsync`, temporary unlink, and final
-parent `fsync`. Reopen after every injected crash and prove a complete destination is
-preserved or the operation can be retried safely.
+for publication and never sweep arbitrary hidden files. Classify recovery explicitly:
+
+- when a valid destination and temporary share an inode after a post-link crash, preserve
+  the final name and unlink only the temporary name;
+- when no destination exists, remove an abandoned pre-publication temporary only after the
+  destination lock proves no writer is active, then retry normally;
+- when a different valid destination exists, remove the losing temporary under that lock
+  without touching the destination.
+
+Add fault injection after temporary creation, file `fsync`, atomic link, first parent
+`fsync`, temporary unlink, and final parent `fsync`. Reopen after every injected crash and
+prove a complete destination is preserved or the operation can be retried safely.
 
 Add barrier-controlled races for identical writers and conflicting writers. Assert one
 complete destination, correct hash, no partial reads, and no orphan adapter temporary
@@ -601,6 +616,10 @@ git commit -m "feat(object-store): add filesystem and s3 adapters"
 - Create: `packages/cnes_infra/tests/audit/test_local_sink.py`
 - Create: `packages/cnes_infra/tests/audit/test_s3_object_lock_sink.py`
 - Do not create: `packages/cnes_infra/src/cnes_infra/audit/__init__.py`
+
+`tests/contracts/audit_sink_contract.py` is an additive hardening extension to governing
+Task 13. It gives both approved sinks one backend-neutral case set, is exclusively owned by
+CND-023, and changes no public runtime path or constructor.
 
 **Step 1: Define backend-neutral audit cases and prove RED**
 
@@ -797,8 +816,10 @@ git commit -m "feat(domain): dispatch control plane outbox"
 - Create: `packages/cnes_infra/src/cnes_infra/object_store/__init__.py`
 - Create: `packages/cnes_infra/src/cnes_infra/audit/__init__.py`
 - Modify: `pyproject.toml` (register `local_profile`, `dynamodb_local`, `s3_integration`)
+- Modify: `.github/workflows/ci.yml`
 - Modify: `.github/workflows/python-quality.yml`
 - Modify: `docker-compose.yml`
+- Create: `scripts/ci_phase2_adapters.sh`
 - Do not modify: `uv.lock` (the Python dependencies are already locked)
 - Update after merge: #93 and #97 with issue links and CI evidence
 
@@ -814,7 +835,7 @@ subpackage `__init__.py` files and the existing root `cnes_infra/__init__.py`. K
 `dispatch_once` in `cnes_domain.outbox_dispatcher`; do not re-export it from infrastructure.
 Add import-smoke assertions to both integration tests without changing Phase 1 ports.
 
-**Step 3: Pin the integration emulators and Compose profile**
+**Step 3: Pin the integration emulators and one Compose lifecycle**
 
 Add the `aws-test` profile to `docker-compose.yml` with these exact multi-platform image
 references:
@@ -833,6 +854,37 @@ used by Moto tests. These services are test-only and never dependencies of `PROF
 LocalStack verifies adapter wiring and basic capability, not AWS conditional-write
 atomicity or retention enforcement. Moto remains the locked fast double; a real-AWS WORM
 and concurrency gate remains deferred.
+
+Create executable `scripts/ci_phase2_adapters.sh` as the single local/CI lifecycle for the
+two emulators and the matrix:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+phase2_project="${PHASE2_COMPOSE_PROJECT:-cnesdata}"
+
+phase2_cleanup() {
+  phase2_status=$?
+  trap - EXIT
+  docker compose -p "$phase2_project" --profile aws-test \
+    down -v --remove-orphans || true
+  exit "$phase2_status"
+}
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap phase2_cleanup EXIT
+
+docker compose -p "$phase2_project" --profile aws-test config --images
+docker compose -p "$phase2_project" --profile aws-test up -d --wait \
+  dynamodb-local aws-emulator
+uv run pytest tests/integration/test_local_adapter_matrix.py \
+  tests/integration/test_aws_adapter_matrix.py -q
+```
+
+Run `bash -n scripts/ci_phase2_adapters.sh`. `config --images` records the resolved pinned
+images in local and workflow logs. The `EXIT` trap must preserve the test exit status and
+tear down the same named Compose project on success, failure, or interruption.
 
 **Step 4: Run the integrated matrix**
 
@@ -854,32 +906,38 @@ outbox replay. Together they cover:
 Run:
 
 ```bash
-docker compose --profile aws-test up -d --wait dynamodb-local aws-emulator
-uv run pytest tests/integration/test_local_adapter_matrix.py \
-  tests/integration/test_aws_adapter_matrix.py -q
+PHASE2_COMPOSE_PROJECT=cnesdata bash scripts/ci_phase2_adapters.sh
 ```
 
 Expected: PASS.
 
 **Step 5: Run repository gates**
 
-Add a `phase2-adapters` job to `.github/workflows/python-quality.yml`. It uses
-`astral-sh/setup-uv@v8.0.0` with uv 0.9.26, runs `uv sync --locked --all-packages`, starts
-the exact `aws-test` services, runs both integration tests, and always tears the profile
-down. Locally, with PostgreSQL and the two emulator services healthy, run:
+Use `scripts/ci_phase2_adapters.sh` from both workflow surfaces without duplicating its
+commands:
+
+- append a Phase 2 matrix step to `.github/workflows/ci.yml` after the CND-019 gate. This
+  workflow already runs for pull requests and pushes to `develop`; add `tests/**`,
+  `docker-compose.yml`, and the Phase 2 script to both path filters;
+- add a `phase2-adapters` job to `.github/workflows/python-quality.yml` for only `schedule`
+  and `workflow_dispatch` events. It uses `astral-sh/setup-uv@v8.0.0` with uv 0.9.26, runs
+  `uv sync --locked --all-packages`, and calls the same script. Do not enable the existing
+  PR-context-dependent quality jobs on push.
+
+This makes the PR, exact integrated `develop` push, scheduled run, and manual run execute
+one versioned matrix with unconditional teardown. Locally, run the generic gate and
+baseline before the matrix so its cleanup may safely stop the named Compose project:
 
 ```bash
 docker compose -p cnesdata up -d --wait postgres
-docker compose -p cnesdata --profile aws-test up -d --wait \
-  dynamodb-local aws-emulator
+trap 'docker compose -p cnesdata --profile aws-test down -v --remove-orphans' EXIT
 DB_URL=postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test \
 PG_TEST_URL=postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test \
 COMPETENCIA_ANO=2026 COMPETENCIA_MES=1 DISABLE_PANDERA_IMPORT_WARNING=True \
 COD_MUN_IBGE=354130 ID_MUNICIPIO_IBGE7=3541308 \
 CNPJ_MANTENEDORA=55293427000117 bash scripts/ci_python_gate.sh
-uv run pytest tests/integration/test_local_adapter_matrix.py \
-  tests/integration/test_aws_adapter_matrix.py -q
 uv run python scripts/baseline_matrix.py --output /tmp/phase2-final-baseline.json
+PHASE2_COMPOSE_PROJECT=cnesdata bash scripts/ci_phase2_adapters.sh
 ```
 
 Expected: all commands exit 0. Compare the generated baseline with the CND-019 artifact and
@@ -894,12 +952,15 @@ git add packages/cnes_infra/src/cnes_infra/control_plane/__init__.py \
   packages/cnes_infra/src/cnes_infra/__init__.py \
   tests/integration/test_local_adapter_matrix.py \
   tests/integration/test_aws_adapter_matrix.py \
-  pyproject.toml .github/workflows/python-quality.yml docker-compose.yml
+  scripts/ci_phase2_adapters.sh pyproject.toml \
+  .github/workflows/ci.yml .github/workflows/python-quality.yml docker-compose.yml
 git commit -m "test(infra): gate phase 2 adapter conformance"
 ```
 
-The issue is complete only after the PR and integrated `develop` runs are green. Record the
-run URLs in CND-025, then check Phase 2 complete in #93 and #97.
+The issue is complete only after the PR and integrated `develop` runs are green. The
+integrated CI run must contain the Phase 2 matrix step and its `head_sha` must equal the
+exact CND-025 merge commit. Record both run URLs in CND-025, then check Phase 2 complete in
+#93 and #97.
 
 **Acceptance criteria:**
 
@@ -908,6 +969,8 @@ run URLs in CND-025, then check Phase 2 complete in #93 and #97.
 - [ ] DynamoDB Local 3.3.1 and LocalStack 2026.08.0 use pinned multi-platform index
   digests.
 - [ ] The full adapter and outbox matrix passes.
+- [ ] The same versioned matrix runs on the PR and exact integrated `develop` SHA.
+- [ ] One named Compose project is torn down on success and failure.
 - [ ] Baseline and CI are green without a broadened waiver.
 - [ ] LocalStack results are labeled adapter/capability evidence, not AWS atomicity or WORM
   evidence.
@@ -924,6 +987,6 @@ run URLs in CND-025, then check Phase 2 complete in #93 and #97.
 | CND-022 | CND-019 evidence recorded | Object-store suite and green PR CI |
 | CND-023 | CND-019 evidence recorded and one lane freed | Audit suite and green PR CI |
 | CND-024 | CND-020, CND-021, CND-023 merged green | Domain dispatcher suite and green PR CI |
-| CND-025 | CND-020 through CND-024 merged green | Full matrix plus green integrated `develop` CI |
+| CND-025 | CND-020 through CND-024 merged green | Full matrix on PR and exact integrated `develop` SHA |
 
 Phase 3 issues remain unmaterialized until CND-025 closes this checklist.
