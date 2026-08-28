@@ -62,7 +62,7 @@ state.
   observable semantics.
 - Deliver filesystem and S3 implementations of `ObjectStorePort` with immutable,
   hash-checked publication.
-- Deliver local JSONL and CloudWatch implementations of `AuditSinkPort`.
+- Deliver local JSONL/Parquet and S3 Object Lock implementations of `AuditSinkPort`.
 - Connect the transactional outbox to audit sinks with explicit at-least-once semantics.
 - Prove conformance in an integrated matrix before Phase 2 is declared complete.
 - Keep at most three feature worktrees active and isolate repository-global files in the
@@ -75,7 +75,7 @@ state.
 - A broad cleanup of legacy documentation or unrelated application APIs.
 - A claim that Moto, LocalStack, or any local emulator proves AWS Object Lock/WORM behavior.
 - Cross-host SQLite operation on NFS, SMB, or another network filesystem.
-- Exactly-once delivery to CloudWatch Logs.
+- Exactly-once outbox delivery across a process crash.
 - Creating CND-020 through CND-025 before the readiness gate is merged and green.
 
 ## 4. Readiness gate: CND-019
@@ -88,7 +88,7 @@ The gate must:
 1. Make the repository lint command green using the same Ruff version locally and in CI.
    The current mismatch is concrete: `uv.lock` resolves Ruff 0.15.11 while CI installed
    unpinned Ruff 0.16.5.
-2. Make the already locked Phase 2 test dependencies available in CI: Moto 5.2.3 and
+2. Make CI install and run from the checked-in `uv.lock`, including Moto 5.2.3 and
    Testcontainers 4.14.2. Feature lanes must not need to edit the global CI installer.
 3. Keep any lint compatibility exceptions scoped to exact pre-existing paths; a global
    suppression of `PLR0917` is not acceptable.
@@ -96,12 +96,16 @@ The gate must:
    `cnes_infra.storage.repositories.estabelecimento_repo` module aborting collection.
    Performance modules whose legacy subject is absent may skip explicitly at import time;
    an unrelated collection error may not be waived.
-5. Harden `_waiver_for` so approval requires the approved commit, suite, exit code, and
-   exact normalized failure signature. A different failure with exit code 2 must fail the
-   matrix.
+5. Harden `_waiver_for` so approval requires the approved commit, suite, exit code, and a
+   SHA-256 fingerprint of canonical JSON containing exception class, missing module, and
+   sorted affected test paths. A different failure with exit code 2 or a one-byte field
+   change must fail the matrix; raw logs must not be persisted in baseline JSON.
 6. Produce a fresh baseline report for the reviewed readiness commit. No new waiver may be
    introduced for a Phase 2 implementation failure.
-7. Obtain a successful GitHub Actions CI run for the CND-019 PR and for its integrated
+7. Version one `scripts/ci_python_gate.sh` used by both local verification and CI, so schema
+   drift, lint, migrations, and coverage commands cannot diverge silently.
+8. Add the workflow itself and the versioned gate script to `push.paths`, then obtain a
+   successful GitHub Actions CI run for the CND-019 PR and for the exact integrated
    `develop` commit before any CND-020 through CND-025 branch is created.
 
 Because `develop` is currently unprotected, the controller must record both successful run
@@ -144,7 +148,7 @@ barrier.
 | CND-020 | SQLite control-plane adapter | `feat/cnd-020-sqlite-control-plane` | CND-019 | Feature A/B/C |
 | CND-021 | DynamoDB control-plane adapter | `feat/cnd-021-dynamodb-control-plane` | CND-019 | Feature A/B/C |
 | CND-022 | Filesystem and S3 object stores | `feat/cnd-022-object-stores` | CND-019 | Feature A/B/C |
-| CND-023 | Local and CloudWatch audit sinks | `feat/cnd-023-audit-sinks` | CND-019 | First freed feature lane |
+| CND-023 | Local and S3 Object Lock audit sinks | `feat/cnd-023-audit-sinks` | CND-019 | First freed feature lane |
 | CND-024 | Transactional outbox dispatcher | `feat/cnd-024-outbox-dispatcher` | CND-020, CND-021, CND-023 | Feature lane |
 | CND-025 | Phase 2 adapter conformance gate | `test/cnd-025-adapter-conformance` | CND-020 through CND-024 | Controller |
 
@@ -171,12 +175,12 @@ configuration, or roadmap files.
 
 | Item | Exclusive implementation paths | Deferred controller paths |
 |---|---|---|
-| CND-020 | `cnes_infra/control_plane/sqlite.py`, SQLite tests | `control_plane/__init__.py` |
-| CND-021 | `cnes_infra/control_plane/dynamodb.py`, DynamoDB tests | `control_plane/__init__.py`, emulator wiring |
+| CND-020 | `cnes_infra/control_plane/sqlite_*.py`, adapter and race tests | `control_plane/__init__.py` |
+| CND-021 | `cnes_infra/control_plane/dynamodb_*.py`, adapter and stale-GSI tests | `control_plane/__init__.py`, emulator wiring |
 | CND-022 | `cnes_infra/object_store/filesystem.py`, `s3.py`, owned tests | `object_store/__init__.py` |
-| CND-023 | `cnes_infra/audit/local.py`, `cloudwatch.py`, audit contract and owned tests | `audit/__init__.py` |
-| CND-024 | `cnes_infra/audit/outbox.py`, dispatcher tests | shared exports and profile wiring |
-| CND-025 | conformance matrix and integration tests | all three `__init__.py` files, CI, Compose, manifests, locks, shared config |
+| CND-023 | `cnes_infra/audit/local_sink.py`, `s3_object_lock_sink.py`, owned tests | `audit/__init__.py` |
+| CND-024 | `cnes_domain/outbox_dispatcher.py`, domain tests | backend integration |
+| CND-025 | root `tests/integration` adapter matrices | three subpackage `__init__.py` files, root infra export, CI, Compose, markers |
 
 The three subpackage `__init__.py` files do not exist at the inspected base. They are
 created once by CND-025 to avoid add/add conflicts between parallel worktrees.
@@ -251,8 +255,17 @@ with no-overwrite semantics. It then `fsync`s the parent directory before removi
 temporary name. `EEXIST` is resolved by hashing the existing destination: identical content
 is idempotent; different content is a conflict.
 
+Temporary names use an adapter-owned namespace containing the destination-key digest and a
+random writer token. Startup and pre-write recovery serialize against publication, remove
+only stale names in that namespace that are not owned by a live writer, and never sweep
+unrelated hidden files. Fault-injection tests cover every durable boundary: temporary
+creation, file `fsync`, no-overwrite link, parent `fsync`, temporary unlink, and final
+directory `fsync`. Reopening must preserve a complete destination or allow an idempotent
+retry, and must remove recoverable adapter temporaries without deleting unrelated files.
+
 Focused concurrency tests race multiple writers against the same key with identical and
-different content and assert that no partial file or orphan temporary file remains.
+different content and assert that no partial file or orphan adapter temporary file remains
+after recovery.
 
 ### 10.3 S3
 
@@ -288,16 +301,23 @@ JSONL tail, truncates an incomplete final record, validates canonical records, a
 missing index entries. Replaying an indexed event is idempotent. Tests inject a crash after
 each durable boundary and prove recovery without lost or malformed audit records.
 
-### 11.2 CloudWatch audit sink
+After index recovery, immutable Parquet batches may be materialized from indexed JSONL
+records, but JSONL remains the canonical append log and is never deleted by batching.
 
-- Preserve `event_id`, tenant, aggregate, type, and timestamp in every log event.
-- `AuditSinkPort.append` is a single-event durability boundary, so Phase 2 sends one
-  `PutLogEvents` event per call. It validates the service's message and batch limits before
-  the request; buffered multi-event delivery is not hidden behind `append`.
-- Retries are bounded and distinguish retryable throttling/service errors from permanent
-  validation failures.
-- Delivery is at least once. CloudWatch may contain duplicate events after an ambiguous
-  response; consumers deduplicate by `event_id`.
+### 11.2 S3 Object Lock audit sink
+
+- Use the deterministic key
+  `audit/<tenant>/<yyyy>/<mm>/<dd>/<event_id>.json` and preserve the complete canonical
+  event payload.
+- Verify that bucket Object Lock is enabled during initialization.
+- Upload with `IfNoneMatch="*"`, `ObjectLockMode="COMPLIANCE"`, an explicit UTC retain-until
+  date, SHA-256 metadata, and `Content-MD5` or a supported SDK checksum.
+- Resolve HTTP 412 by comparing the existing object's digest: same content is idempotent,
+  different content is a conflict. Resolve HTTP 409 `ConditionalRequestConflict` through a
+  bounded reread/retry without any unconditional overwrite fallback.
+- Moto and LocalStack may prove request construction and basic capability only. Neither is
+  accepted as proof that AWS retention is enforced. A real-AWS gate is required before the
+  project calls this path WORM-compliant.
 
 ### 11.3 Transactional outbox dispatcher
 
@@ -306,8 +326,9 @@ each durable boundary and prove recovery without lost or malformed audit records
 - Mark it delivered only after append returns successfully.
 - Leave it pending after any sink error.
 - Accept duplicate append attempts after process death; correctness relies on stable
-  `event_id` and sink/consumer deduplication, not an exactly-once claim.
-- Run the same dispatcher cases against both control-plane adapters and both audit sinks.
+  `event_id` and idempotent sink keys/indexes, not an exactly-once claim.
+- Keep the dispatcher in `cnes_domain`: it depends only on `ControlPlanePort`,
+  `AuditSinkPort`, `OutboxEvent`, and time values. Backend matrices belong to CND-025.
 
 ## 12. Emulator and evidence policy
 
@@ -315,19 +336,25 @@ each durable boundary and prove recovery without lost or malformed audit records
 |---|---|---|---|
 | SQLite transactions/WAL | temporary local database | concurrent process/thread tests | same-host durability and fencing |
 | DynamoDB conditions/transactions | Moto 5.2.3 locked by `uv.lock` | DynamoDB Local 3.3.1 pinned by index digest | adapter conformance, not AWS service certification |
-| S3 immutable put/promote | Moto version locked by `uv.lock` | request/error injection; optional pinned LocalStack smoke | standard S3 semantics only |
-| S3 Object Lock/WORM | request-shape test | real AWS deferred | no WORM claim |
-| CloudWatch batching/retry | botocore Stubber/Moto where supported | deterministic fault injection | at-least-once append behavior |
+| S3 immutable put/promote | Moto 5.2.3 plus Stubber | LocalStack 2026.08.0 | adapter request/response conformance; AWS atomicity unverified |
+| S3 Object Lock audit | Moto/Stubber request-shape tests | LocalStack capability smoke; real AWS deferred | no WORM claim |
 
-Emulator image tags or digests must be checked into the controller-owned fixture or Compose
-configuration. `latest` is not an acceptable integration input.
+Emulator image tags and multi-platform index digests must be checked into the
+controller-owned Compose configuration. `latest` is not an acceptable integration input.
 
-The DynamoDB Local version and digest were verified against the AWS verified-publisher
-image on 2026-08-28. The official AWS documentation identifies v3.x as current and
-recommended. Sources:
+The emulator versions and digests were verified against their publisher images on
+2026-08-28. The official AWS documentation identifies DynamoDB Local v3.x as current and
+recommended. The Phase 2 integration pins:
+
+- `amazon/dynamodb-local:3.3.1@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab`;
+- `localstack/localstack:2026.08.0@sha256:21fe0a67fe7993a5b0082a29bfc94fce5a15b6622c87b0d98f9df2882a9afca3`.
+
+Sources:
 
 - <https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DynamoDBLocal.DownloadingAndRunning.html>
 - <https://hub.docker.com/r/amazon/dynamodb-local/tags>
+- <https://hub.docker.com/r/localstack/localstack/tags>
+- <https://docs.getmoto.org/en/latest/docs/services/s3.html>
 
 ## 13. Materialization policy
 
@@ -349,9 +376,10 @@ Phase 2 is done only when:
 - the integrated `develop` commit has a successful CI check;
 - both control-plane adapters pass the shared contract plus backend boundary tests;
 - both object stores pass the shared contract plus concurrency/conditional-write tests;
-- both audit sinks and the outbox dispatcher pass crash, retry, and replay tests;
+- both audit sinks and the outbox dispatcher pass crash, conditional-write, and replay
+  tests;
 - emulator versions are pinned and the evidence matrix records what each emulator does and
   does not prove;
 - public subpackage exports are created once by the controller lane;
-- no issue or release note claims exactly-once CloudWatch delivery, cross-host SQLite, or
+- no issue or release note claims exactly-once outbox delivery, cross-host SQLite, or
   verified S3 WORM behavior.
