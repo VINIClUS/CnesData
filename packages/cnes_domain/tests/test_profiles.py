@@ -25,6 +25,12 @@ def test_aplica_defaults_e_converte_diretorio() -> None:
     )
 
 
+def test_aplica_diretorio_default() -> None:
+    settings = parse_profile({"TENANT_ID": "354130"})
+
+    assert settings.data_dir == Path("data")
+
+
 @pytest.mark.parametrize("tenant_id", [None, "", "35413", "3541308", "35413A"])
 def test_rejeita_tenant_ausente_ou_invalido(tenant_id: str | None) -> None:
     env = {} if tenant_id is None else {"TENANT_ID": tenant_id}

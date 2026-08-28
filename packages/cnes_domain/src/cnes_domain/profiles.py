@@ -53,8 +53,7 @@ _ENV_FIELDS = {
 
 
 def parse_profile(env: Mapping[str, str]) -> ProfileSettings:
-    """Converte variáveis selecionadas em configuração.
-    Args: env: Variáveis ambientais disponíveis.
+    """Args: env: Variáveis ambientais disponíveis.
     Returns: Configuração validada e imutável.
     Raises: ValidationError: Quando a configuração é inválida.
     """
