@@ -1,6 +1,6 @@
 # CnesData Phase 2 Readiness and Adapter Hardening Design
 
-**Status:** Proposed amendment for review  
+**Status:** Ready for review  
 **Date:** 2026-08-28  
 **Tracker:** [#93](https://github.com/VINIClUS/CnesData/issues/93)  
 **Epic:** [#97](https://github.com/VINIClUS/CnesData/issues/97)  
