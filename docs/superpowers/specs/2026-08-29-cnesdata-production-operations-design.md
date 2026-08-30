@@ -158,7 +158,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   CA PEM and the Roles Anywhere profile, with AWS Private CA prohibited. The
   trust policy permits `sts:AssumeRole`, `sts:TagSession` and
   `sts:SetSourceIdentity` only to `rolesanywhere.amazonaws.com`, conditioned on
-  the profile `SourceArn` and API/VPS X.509 identity; no private CA key or leaf
+  the trust-anchor `SourceArn` and API/VPS X.509 identity; the profile remains
+  separately referenced by `credential_process`; no private CA key or leaf
   appears in repository or state;
 - the separate Step Functions role is trusted only by `states.amazonaws.com`.
   `ecs:RunTask` is scoped to the task definition; `ecs:DescribeTasks` and
