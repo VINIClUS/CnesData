@@ -67,19 +67,25 @@ Order:
 
 1. promote/verify the processor digest in ECR;
 2. register new immutable unit and `recover-once` revisions pinned to that exact
-   digest; select the unit revision in the state-machine `TaskDefinition` ARN
-   and the recovery revision in the Scheduler target;
-3. update revision-scoped `ecs:RunTask` and revalidate exact-role
-   `iam:PassRole`, then use `DescribeTaskDefinition`, state-machine and
-   Scheduler evidence to prove both selections resolve to the exact release
-   digest before switching API or frontend. Active Standard executions retain
-   the revision on which they started;
-4. update the inactive API candidate on the VPS;
-5. pass local and tunneled health/authorization smoke tests;
-6. switch Nginx to the candidate;
-7. publish frontend assets and entrypoint;
-8. run the synthetic vertical slice and serving test;
-9. record redacted evidence and retain the previous release.
+   digest without changing the state-machine or Scheduler targets;
+3. extend the Step Functions and Scheduler roles' `ecs:RunTask` grants to authorize
+   both current (old) and candidate (new) revision ARNs; exact-role
+   `iam:PassRole` remains unchanged;
+4. wait for and revalidate IAM propagation, then prove both revisions are
+   authorized;
+5. switch the state-machine `TaskDefinition` ARN and Scheduler recovery target;
+6. use `DescribeTaskDefinition`, state-machine and Scheduler evidence to prove
+   both selected revisions resolve to the exact release digest;
+7. update the inactive API candidate on the VPS;
+8. pass local and tunneled health/authorization smoke tests;
+9. switch Nginx to the candidate;
+10. publish frontend assets and entrypoint;
+11. run the synthetic vertical slice and serving test;
+12. record redacted evidence and retain the previous release.
+
+Retain old revisions and their `ecs:RunTask` grants until all active old Standard
+executions and recovery tasks drain and the rollback-retention period ends. Prune
+only older non-rollback revisions after that point.
 
 No production deployment occurs automatically after merge.
 
@@ -87,10 +93,10 @@ No production deployment occurs automatically after merge.
 
 - **API:** restore the previous Nginx upstream and already-pulled GHCR digest.
 - **Frontend:** restore the prior versioned entrypoint and invalidate it.
-- **Processor:** restore both prior immutable unit and `recover-once` revisions,
-  digests and state-machine/Scheduler routes for new dispatches; active Standard
-  executions continue with the definition they started unless cancellation is
-  safe.
+- **Processor:** rollback assumes the prior routes and grants remain intact;
+  restore both prior immutable unit and `recover-once` revisions, digests and
+  state-machine/Scheduler routes for new dispatches. Active Standard executions
+  continue with the definition they started unless cancellation is safe.
 - **State machine:** revert only new-execution routing; do not edit an active
   execution or DynamoDB record manually.
 - **DynamoDB/S3:** application releases never roll data backward or delete
@@ -157,11 +163,12 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - Revocation imports or updates the CRL at the Roles Anywhere trust anchor; it
   does not depend on OCSP or CDP. Compromise revokes and rotates the leaf,
   confirms fail-closed behavior and alerts the security owner.
-- Roles Anywhere profile/helper `durationSeconds` and IAM role
-  `MaxSessionDuration` are 3600 seconds. This bounded lifetime exceeds
-  botocore's default 15-minute advisory refresh window. On incident, disable the
-  profile or its trust, import/update the CRL and apply `AWSRevokeOlderSessions`
-  or an explicit `aws:TokenIssueTime` Deny to the role.
+- The Roles Anywhere profile sets `durationSeconds=3600`; its signing helper
+  uses `--session-duration 3600`; and the IAM role sets
+  `MaxSessionDuration=3600`. This bounded lifetime exceeds botocore's default
+  15-minute advisory refresh window. On incident, disable the profile or its
+  trust, import/update the CRL and apply `AWSRevokeOlderSessions` or an explicit
+  `aws:TokenIssueTime` Deny to the role.
 - Before declaring fail-closed, verify pre-incident credentials are denied by
   DynamoDB, S3 and Step Functions. Retain the deny for at least the maximum
   session duration plus propagation, issue and install a new leaf, then
@@ -186,8 +193,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   `states:DescribeExecution` on its executions, plus minimum liveness
   `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
   `scheduler.amazonaws.com` with exact `aws:SourceAccount` and
-  `aws:SourceArn`, scopes `ecs:RunTask` to the recovery task definition and
-  passes only its task/execution roles. Recovery uses the unit task's public
+  `aws:SourceArn`, scopes `ecs:RunTask` to recovery revision ARNs and, during
+  activation, both old and candidate revisions; it passes only its task/execution
+  roles. Recovery uses the unit task's public
   subnets, zero-ingress security group and public IP, with logs and alarm. The
   recovery task, API and any takeover actor use ECS liveness reads only for the
   configured cluster/task family with supported conditions; where ECS requires
@@ -214,11 +222,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - no presigned URL for non-serving prefixes;
 - dashboard artifact and browser checks reject a relative `/api` request or an
   API call that bypasses the configured absolute `/api/v1` client;
-- long-lived boto3/botocore clients cross at least one IAM Roles Anywhere
-  `credential_process` expiration/refresh and complete an AWS call without a
-  process or container restart. The helper is not invoked per request and
-  botocore refreshes near the 3600-second expiry; helper or refresh failure
-  fails closed;
+- long-lived boto3/botocore clients complete an AWS call without process or
+  container restart: the initial credential-using call invokes the IAM Roles
+  Anywhere helper; calls before the 15-minute advisory window do not re-invoke
+  it; and the first credential access inside that window invokes one lazy refresh
+  that succeeds. Helper or refresh failure fails closed;
 - VPS config tests require `AWS_CONFIG_FILE` and matching `AWS_PROFILE`; a
   missing or mismatched profile fails before readiness;
 - OpenTofu creates the `us-east-2` trust anchor from external offline public
@@ -231,16 +239,21 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   appears in repository or state;
 - the separate Step Functions role is trusted only by `states.amazonaws.com`
   with the exact `aws:SourceAccount` and the exact production state-machine
-  `aws:SourceArn`. `ecs:RunTask` is scoped to the task definition;
+  `aws:SourceArn`. `ecs:RunTask` is scoped to the current/candidate unit
+  revision ARNs during activation;
   `ecs:DescribeTasks` and `ecs:StopTask` use `Resource: *`; `events:PutTargets`,
   `events:PutRule` and `events:DescribeRule` are scoped to
   `StepFunctionsGetEventsForECSTaskRule`; `iam:PassRole` permits only the task
   and execution roles with `iam:PassedToService=ecs-tasks.amazonaws.com`;
 - release-manifest and promotion tests require immutable unit and `recover-once`
-  revision ARNs pinned to the exact ECR release digest. `DescribeTaskDefinition`,
-  state-machine and Scheduler evidence must resolve each selected revision to
-  that digest before API/frontend switching, including revision-scoped
-  `ecs:RunTask` and exact-role `iam:PassRole` validation;
+  revision ARNs pinned to the exact ECR release digest. Before target switching,
+  both current and candidate revisions have authorized `ecs:RunTask` grants;
+  exact `iam:PassRole` is unchanged; IAM propagation is revalidated; and both
+  revisions are proved authorized. After switching, `DescribeTaskDefinition`,
+  state-machine and Scheduler evidence resolves each selection to that digest;
+- drain/prune tests retain old revisions and `ecs:RunTask` grants through active
+  old Standard/recovery drain and rollback retention, then prune only older
+  non-rollback revisions;
 - recovery validation enforces the separate `recover-once` definition/mode,
   same image and network shape, Scheduler cadence at most half
   `AWS_PROCESSOR_LEASE_SECONDS`, `MaximumRetryAttempts=0`, no seven normal
@@ -248,8 +261,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   deadline equal to the lease that logs/alarms, cancels work, exits nonzero and
   stops the ECS task; overlapping, externally retried or at-least-once duplicate
   invocations have no global concurrency ceiling;
-- profile/helper `durationSeconds` and role `MaxSessionDuration` each equal
-  3600 seconds;
+- profile `durationSeconds=3600`, helper `--session-duration 3600` and role
+  `MaxSessionDuration=3600` are asserted;
   the incident drill disables new sessions, updates CRL, revokes old sessions
   and proves the timed Deny before re-enabling a rotated leaf;
 - semaphore tests require conditional acquisition before initial or recovery
@@ -302,10 +315,12 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - a Step Functions execution starts only the approved Fargate task definition,
   uses only the exact source account/state-machine trust, event rule and pass
   roles above, and fails when any scope drifts;
-- promotion evidence from `DescribeTaskDefinition`, the state machine and
-  Scheduler proves the selected immutable unit and `recover-once` revisions use
-  the exact release ECR digest before the API/frontend switch; active Standard
-  executions remain on their original revision;
+- before target switching, promotion evidence proves propagated `ecs:RunTask`
+  authorization for both old and candidate revisions while exact `iam:PassRole`
+  remains unchanged. After switching, `DescribeTaskDefinition`, state machine
+  and Scheduler prove the selected unit and `recover-once` revisions use the
+  exact release ECR digest; active Standard executions remain on their original
+  revision;
 - the `recover-once` Scheduler run uses the same image/network, emits its log
   and alarm evidence, uses `MaximumRetryAttempts=0`, and cannot start without
   its narrow roles;

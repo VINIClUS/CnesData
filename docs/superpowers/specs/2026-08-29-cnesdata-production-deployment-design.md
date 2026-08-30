@@ -217,7 +217,7 @@ The container:
 - has CPU, memory, PID and log-size limits compatible with the KVM 2 host;
 - sets `AWS_CONFIG_FILE` to a read-only config and `AWS_PROFILE` to its named
   profile, whose `credential_process` invokes IAM Roles Anywhere
-  `aws_signing_helper credential-process`;
+  `aws_signing_helper credential-process --session-duration 3600`;
 - mounts read-only only that config plus the strictly necessary X.509 material
   and helper; the host-owned key is readable only by the fixed runtime UID;
 - accepts neither `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or
@@ -445,8 +445,8 @@ VPS.
 
 - GitHub workflows assume repository/workflow-scoped OIDC roles.
 - The VPS API uses its named `AWS_CONFIG_FILE` profile and IAM Roles Anywhere
-  `aws_signing_helper credential-process`. Its output includes `Expiration`,
-  and boto3/botocore refreshes credentials automatically before expiration.
+  `aws_signing_helper credential-process --session-duration 3600`. Its output
+  includes `Expiration`, and boto3/botocore refreshes lazily on credential use.
 - Fargate uses task roles.
 - Runtime non-AWS secrets use SSM SecureString under
   `/personal/prod/cnesdata/runtime/` and the approved customer-managed KMS key.
