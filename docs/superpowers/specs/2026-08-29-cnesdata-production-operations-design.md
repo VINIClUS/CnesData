@@ -141,6 +141,31 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - Revocation imports or updates the CRL at the Roles Anywhere trust anchor; it
   does not depend on OCSP or CDP. Compromise revokes and rotates the leaf,
   confirms fail-closed behavior and alerts the security owner.
+- Roles Anywhere `durationSeconds` on the profile and the IAM role
+  `MaxSessionDuration` are both 900 seconds. On incident, disable the profile
+  or its trust, import/update the CRL and apply `AWSRevokeOlderSessions` or an
+  explicit `aws:TokenIssueTime` Deny to the role.
+- Before declaring fail-closed, verify pre-incident credentials are denied by
+  DynamoDB, S3 and Step Functions. Retain the deny for at least the maximum
+  session duration plus propagation, issue and install a new leaf, then
+  re-enable the profile/trust and test a new session.
+- The normal unit task is launched by Step Functions. `recover-once` is an
+  EventBridge Scheduler task using the same processor image but a separate task
+  definition and mode, with cadence no greater than half
+  `AWS_PROCESSOR_LEASE_SECONDS`; it requires none of the seven normal processor
+  environment variables. Overlap is allowed and resolved by dispatch CAS.
+- The recovery task role has only control-plane read/write and
+  `states:DescribeExecution`. The Scheduler role trusts
+  `scheduler.amazonaws.com` with exact `aws:SourceAccount` and
+  `aws:SourceArn`, scopes `ecs:RunTask` to the recovery task definition and
+  passes only its task/execution roles. Recovery uses the unit task's public
+  subnets, zero-ingress security group and public IP, with logs and alarm.
+- One environment-wide control-plane DynamoDB semaphore/lease/fence item gates
+  all unit work. Initial API starts and recovery conditionally acquire it before
+  `StartExecution`, bind owner to dispatch/execution, renew it and release it
+  terminally. An expired item cannot authorize takeover until
+  `DescribeExecution` and ECS prove no work active; TTL is garbage collection
+  only. A concurrent request receives the documented quota error or `429`.
 
 ## 7. Test and acceptance matrix
 
@@ -173,6 +198,16 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   `events:PutRule` and `events:DescribeRule` are scoped to
   `StepFunctionsGetEventsForECSTaskRule`; `iam:PassRole` permits only the task
   and execution roles with `iam:PassedToService=ecs-tasks.amazonaws.com`;
+- recovery validation enforces the separate `recover-once` definition/mode,
+  same image and network shape, Scheduler cadence at most half
+  `AWS_PROCESSOR_LEASE_SECONDS`, no seven normal processor environment
+  variables, least-privilege recovery/Scheduler roles, logs and alarm;
+- profile `durationSeconds` and role `MaxSessionDuration` equal 900 seconds;
+  the incident drill disables new sessions, updates CRL, revokes old sessions
+  and proves the timed Deny before re-enabling a rotated leaf;
+- semaphore tests require conditional acquisition before initial or recovery
+  `StartExecution`, dispatch/execution ownership, terminal release, no expired
+  takeover before Step Functions/ECS proof and `429` or quota on contention;
 - the production AWS-012 override accepts `AssignPublicIp=ENABLED` only with
   exact public subnet IDs, the configured zero-ingress security group,
   `FARGATE`, maximum concurrency one, and no NAT Gateway or ALB; it rejects
@@ -209,6 +244,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - a Step Functions execution starts only the approved Fargate task definition,
   uses only the exact source account/state-machine trust, event rule and pass
   roles above, and fails when any scope drifts;
+- the `recover-once` Scheduler run uses the same image/network, emits its log
+  and alarm evidence, and cannot start without its narrow roles;
+- two distinct runs plus a recovery race leave at most one unit Fargate task
+  active; dispatch CAS remains the overlap arbiter;
 - one synthetic run publishes exactly one new immutable version/pointer;
 - the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
   with `Cache-Control: private, no-store` and only `url`, `version_id` and
@@ -276,6 +315,10 @@ Cost controls:
   <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/getting-started.html>
 - IAM Roles Anywhere trust model:
   <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/trust-model.html>
+- IAM Roles Anywhere CreateSession:
+  <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/authentication-create-session.html>
+- IAM revoke role sessions:
+  <https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html>
 - AWS SDK process credentials:
   <https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html>
 - FastAPI CORS:

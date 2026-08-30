@@ -382,7 +382,8 @@ verified in the [production operations design](2026-08-29-cnesdata-production-op
 ### 11.2 Fargate
 
 - one ECS cluster with no continuously running service;
-- tasks launched only by Step Functions;
+- unit tasks launched by Step Functions; separate `recover-once` tasks by
+  EventBridge Scheduler, under the operations contract;
 - Linux/x86_64, initial size 0.25 vCPU and 0.5-1 GiB memory;
 - included 20 GB ephemeral storage unless measured otherwise;
 - maximum one concurrent task and two-hour task timeout;
