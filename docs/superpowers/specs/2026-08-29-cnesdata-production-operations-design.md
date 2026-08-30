@@ -156,9 +156,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   definition and mode, with cadence no greater than half
   `AWS_PROCESSOR_LEASE_SECONDS`; it requires none of the seven normal processor
   environment variables. Scheduler invocations may overlap, retry and duplicate
-  as required by the governing plan. Each is a bounded single pass with a
-  configured batch and appropriate hard timeout; all recovery task-hours count in
-  the 100-hour aggregate and budget freeze. The environment semaphore
+  as required by the governing plan. Each is one bounded pass with
+  `AWS_PROCESSOR_RECOVERY_BATCH_SIZE=100` and a hard timeout equal to
+  `AWS_PROCESSOR_LEASE_SECONDS`; all recovery task-hours count in the 100-hour
+  aggregate and budget freeze. The environment semaphore
   arbitrates cross-run unit starts, while dispatch CAS handles only same-run
   recovery and idempotency.
 - The recovery task role has only control-plane read/write,
@@ -215,7 +216,7 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - recovery validation enforces the separate `recover-once` definition/mode,
   same image and network shape, Scheduler cadence at most half
   `AWS_PROCESSOR_LEASE_SECONDS`, no seven normal processor environment
-  variables, bounded single-pass configured batch/hard timeout, allowed
+  variables, batch 100/lease-length hard timeout, allowed
   overlapping/retried/duplicate invocations, least-privilege recovery/Scheduler
   roles, logs and alarm;
 - profile/helper `durationSeconds` equals 900 and role `MaxSessionDuration`
