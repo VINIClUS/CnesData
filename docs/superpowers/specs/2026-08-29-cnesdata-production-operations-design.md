@@ -69,8 +69,8 @@ Order:
 2. register new immutable unit and `recover-once` revisions pinned to that exact
    digest; select the unit revision in the state-machine `TaskDefinition` ARN
    and the recovery revision in the Scheduler target;
-3. update scoped `ecs:RunTask`/`iam:PassRole` policies when revision ARNs make
-   that necessary, then use `DescribeTaskDefinition`, state-machine and
+3. update revision-scoped `ecs:RunTask` and revalidate exact-role
+   `iam:PassRole`, then use `DescribeTaskDefinition`, state-machine and
    Scheduler evidence to prove both selections resolve to the exact release
    digest before switching API or frontend. Active Standard executions retain
    the revision on which they started;
@@ -239,8 +239,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - release-manifest and promotion tests require immutable unit and `recover-once`
   revision ARNs pinned to the exact ECR release digest. `DescribeTaskDefinition`,
   state-machine and Scheduler evidence must resolve each selected revision to
-  that digest before API/frontend switching, including any revision-scoped
-  `ecs:RunTask`/`iam:PassRole` policy update;
+  that digest before API/frontend switching, including revision-scoped
+  `ecs:RunTask` and exact-role `iam:PassRole` validation;
 - recovery validation enforces the separate `recover-once` definition/mode,
   same image and network shape, Scheduler cadence at most half
   `AWS_PROCESSOR_LEASE_SECONDS`, `MaximumRetryAttempts=0`, no seven normal
