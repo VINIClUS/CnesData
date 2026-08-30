@@ -98,9 +98,10 @@ No production deployment occurs automatically after merge.
   cutoffs contain downstream amplification.
 - Requests beyond product quota fail with `429` or the documented quota error
   before starting Step Functions or Athena.
-- A USD 15 aggregate budget action is the hard ceiling: it freezes new unit and
-  recovery Fargate, Step Functions and Athena starts through automation roles
-  while preserving reads and backups.
+- A USD 15 aggregate budget action is a delayed cost-safety backstop. When it
+  fires, it freezes new unit and recovery Fargate, Step Functions and Athena
+  starts through automation roles while preserving reads and backups. Billing
+  data can lag, so spend may exceed USD 15 before the action applies.
 
 ## 5. Observability and SLOs
 
@@ -237,8 +238,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   dispatch CAS covers same-run recovery only;
 - cost-contract tests count every unit and recovery task-hour toward the
   monitored 100-hour monthly operating target, never as a pre-launch API gate;
-  the USD 15 automatic budget action remains the hard freeze for new unit and
-  recovery Fargate, Step Functions and Athena starts;
+  the delayed USD 15 budget action freezes new unit and recovery Fargate, Step
+  Functions and Athena starts only after it fires; tests do not claim a
+  synchronous spend cap and explicitly allow billing-lag overshoot;
 - recovery role tests scope `states:StartExecution` to the production machine,
   `states:DescribeExecution` to its executions and ECS liveness reads to the
   configured cluster/task family or required narrow `Resource: *` conditions;
@@ -365,6 +367,8 @@ Cost controls:
   <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/authentication-create-session.html>
 - IAM revoke role sessions:
   <https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_revoke-sessions.html>
+- AWS Budgets update-delay considerations:
+  <https://docs.aws.amazon.com/cost-management/latest/userguide/bcm-lite-use-budget.html>
 - AWS SDK process credentials:
   <https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html>
 - FastAPI CORS:
