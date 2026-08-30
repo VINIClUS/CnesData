@@ -170,8 +170,9 @@ Cache headers:
 - error responses: not cached when they may hide a fixed deployment.
 
 S3 versioning preserves entrypoint rollback. A lifecycle retains recent
-releases within the CloudFront Free plan's 5 GB origin allowance and removes
-unreferenced noncurrent objects only after the rollback window.
+releases within a voluntary 5 GB operational cap for the web bucket, aligned
+with the CloudFront Free plan's account-wide 5 GB S3 Standard credit, and
+removes unreferenced noncurrent objects only after the rollback window.
 
 SPA routes use a small deterministic CloudFront Function rewrite to
 `/index.html`; it must not rewrite API paths, assets with extensions or known
@@ -230,14 +231,18 @@ issuer preset, but application/domain interfaces remain provider-neutral.
 The deployment creates:
 
 - one User Pool;
-- one public SPA client using Authorization Code + PKCE and no client secret;
+- one public SPA client using Authorization Code + PKCE and no client secret,
+  with `AllowedOAuthScopes` containing
+  `https://api.cnesdata.vinisantana.com/api.access` alongside existing OIDC
+  scopes;
 - one resource server with identifier `https://api.cnesdata.vinisantana.com`
   and one custom `api.access` scope;
 - exact callback/logout URLs for the production domain;
 - email-based development/demo accounts created out of band;
 - no SMS MFA, paid SMS, social IdP or machine-to-machine client.
 
-The SPA requests the custom resource-server scope and passes
+The dashboard requests `https://api.cnesdata.vinisantana.com/api.access`
+alongside existing OIDC scopes and passes
 `resource=https://api.cnesdata.vinisantana.com` in its authorization request.
 The resulting access token contains
 `aud=https://api.cnesdata.vinisantana.com`. Production config sets

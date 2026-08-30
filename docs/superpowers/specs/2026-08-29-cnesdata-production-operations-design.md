@@ -166,7 +166,8 @@ approximately USD 2-6 depending on Fargate jobs and stored data.
 
 Cost controls:
 
-- CloudFront Free plan and web origin below 5 GB;
+- voluntary 5 GB operational cap for the web bucket, aligned with the
+  CloudFront Free plan's account-wide 5 GB S3 Standard credit;
 - one of the account's maximum three CloudFront Free-plan subscriptions, with
   eligibility and `ACTIVE` status checked before cutover;
 - ECR generally below 2 GB;
@@ -199,12 +200,14 @@ Cost controls:
 
 - Amazon Cognito resource-server configuration:
   <https://docs.aws.amazon.com/cli/latest/reference/cognito-idp/create-resource-server.html>
+- Amazon Cognito authorization endpoint resource binding:
+  <https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html>
 - FastAPI CORS:
   <https://fastapi.tiangolo.com/tutorial/cors/>
 - Amazon S3 CORS configuration:
   <https://docs.aws.amazon.com/AmazonS3/latest/userguide/ManageCorsUsing.html>
-- Amazon ECS private registry authentication:
-  <https://docs.aws.amazon.com/AmazonECS/latest/developerguide/private-auth.html>
+- Amazon ECR with Amazon ECS:
+  <https://docs.aws.amazon.com/AmazonECR/latest/userguide/ECR_on_ECS.html>
 - AWS Step Functions ECS integration:
   <https://docs.aws.amazon.com/step-functions/latest/dg/connect-ecs.html>
 - Amazon DynamoDB on-demand capacity mode:
