@@ -215,8 +215,8 @@ The container:
 - has a read-only root filesystem, bounded tmpfs and no Linux capabilities;
 - publishes one port to `127.0.0.1` only;
 - has CPU, memory, PID and log-size limits compatible with the KVM 2 host;
-- sets `AWS_CONFIG_FILE` to a read-only config containing a named profile whose
-  `credential_process` invokes IAM Roles Anywhere
+- sets `AWS_CONFIG_FILE` to a read-only config and `AWS_PROFILE` to its named
+  profile, whose `credential_process` invokes IAM Roles Anywhere
   `aws_signing_helper credential-process`;
 - mounts read-only only that config plus the strictly necessary X.509 material
   and helper; the host-owned key is readable only by the fixed runtime UID;

@@ -204,6 +204,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - long-lived boto3/botocore clients cross at least one IAM Roles Anywhere
   `credential_process` expiration/refresh and complete an AWS call without a
   process or container restart; helper or refresh failure fails closed;
+- VPS config tests require `AWS_CONFIG_FILE` and matching `AWS_PROFILE`; a
+  missing or mismatched profile fails before readiness;
 - OpenTofu creates the `us-east-2` trust anchor from external offline public
   CA PEM with the required CA, key-usage and SHA-256 constraints, and the Roles
   Anywhere profile, with AWS Private CA prohibited. The trust policy permits
