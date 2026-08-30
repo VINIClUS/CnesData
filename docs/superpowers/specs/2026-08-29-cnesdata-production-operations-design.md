@@ -135,6 +135,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - required-source failure and optional-source degraded publication;
 - pointer CAS race, S3 failure before publication and outbox replay;
 - no presigned URL for non-serving prefixes;
+- the production AWS-012 override accepts `AssignPublicIp=ENABLED` only with
+  exact public subnet IDs, the configured zero-ingress security group,
+  `FARGATE`, maximum concurrency one, and no NAT Gateway or ALB; it rejects
+  `DISABLED`, drift, inbound rules and incompatible launch/network config;
 - CDN private-origin, SPA rewrite, CSP and cache rollback;
 - CloudFront Free eligibility plus exact `ACTIVE` distribution/WAF binding;
 - Nginx and application rate-limit behavior;
@@ -154,8 +158,14 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - API preflights from another origin or for a disallowed method/header are
   denied by FastAPI;
 - one synthetic run publishes exactly one new immutable version/pointer;
-- a signed `serving/` redirect has a 300-second TTL; after following it, the
-  browser reads the expected JSON body;
+- the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
+  with `Cache-Control: private, no-store` and only the signed URL, `version_id`
+  and `expires_in=300`, without exposing tenant or object key;
+- the dashboard makes a second direct S3 `fetch` with credentials omitted and
+  without `Authorization`, `X-Tenant-Id`, cookies or other custom headers; it
+  reads the expected JSON body from the 300-second signed URL;
+- this production handoff replaces the AWS-014 `307` route contract before
+  promotion;
 - logs, traces, state and artifacts contain no secret or synthetic record body;
 - previous API/frontend release can be restored within the documented window.
 

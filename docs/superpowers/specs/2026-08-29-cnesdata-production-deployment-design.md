@@ -39,6 +39,14 @@ This document composes, rather than replaces:
 Domain, manifest, publication, fencing, outbox, serving and tenant-isolation
 contracts in those documents take precedence over deployment convenience.
 
+The following production AWS-012 override is binding. The generic AWS-012
+fixture/validator with `AssignPublicIp=DISABLED` does not govern this profile.
+Before a SHA can pass AWS-012, `validate_state_machine` must validate
+`AssignPublicIp=ENABLED`, the exact configured public subnet IDs and security
+group, zero security-group ingress, `FARGATE` launch type, maximum concurrency
+of one, and no NAT Gateway or ALB. Implementing this delta is a mandatory gate
+for the production profile.
+
 Where examples in an application plan use `us-east-1`, this production
 deployment supplies `AWS_REGION=us-east-2`. Only ACM certificates and
 CloudFront-scoped WAF resources are created through the `us-east-1` provider;
@@ -300,10 +308,18 @@ Objects are immutable by key and verified by SHA-256. `tmp/` expires after its
 bounded recovery window; published raw, reconciliation and serving history is
 not deleted by a deployment workflow.
 
-The API may issue a short-lived signed GET only for exact authorized
-`serving/<tenant>/<run_id>/...` objects selected by the active
-`DatasetPointer`. Raw, normalized, reconciliation, temporary and audit keys are
-never signed to the browser. The initial signed URL TTL is 300 seconds.
+The first API call remains authenticated and tenant-authorized with
+`X-Tenant-Id`. It returns `200` with `Cache-Control: private, no-store` and a
+minimal envelope containing a signed URL for an exact authorized
+`serving/<tenant>/<run_id>/...` object selected by the active `DatasetPointer`,
+`version_id` and `expires_in=300`. The envelope exposes neither tenant nor
+object key. Raw, normalized, reconciliation, temporary and audit keys are
+never signed to the browser.
+
+The dashboard then makes a second `fetch` directly to the signed S3 URL with
+credentials omitted and without `Authorization`, `X-Tenant-Id`, cookies or any
+other custom request header. This production handoff replaces the AWS-014
+`307` route contract before promotion.
 
 The data bucket CORS configuration permits exactly
 `https://cnesdata.vinisantana.com`, methods `GET` and `HEAD`, no custom request
@@ -350,6 +366,12 @@ release claims WORM compliance. Emulator success alone is insufficient.
   APIs use TLS over the Internet gateway;
 - task execution role limited to ECR pull and CloudWatch logs;
 - task role limited to exact DynamoDB/S3/Step Functions application actions.
+
+For this production profile, `validate_state_machine` accepts
+`AssignPublicIp=ENABLED` only with the exact configured public subnet IDs and
+security group, zero ingress, `FARGATE`, maximum concurrency one, and no NAT
+Gateway or ALB. It rejects `DISABLED`, subnet/security-group drift, inbound
+rules and every incompatible launch or network configuration.
 
 The network design deliberately trades an ephemeral public IPv4 during task
 execution for avoiding a NAT Gateway whose fixed monthly cost would exceed the
