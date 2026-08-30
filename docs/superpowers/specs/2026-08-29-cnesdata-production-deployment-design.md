@@ -206,8 +206,13 @@ The container:
 - has a read-only root filesystem, bounded tmpfs and no Linux capabilities;
 - publishes one port to `127.0.0.1` only;
 - has CPU, memory, PID and log-size limits compatible with the KVM 2 host;
-- mounts only public configuration and the CnesData temporary AWS credential
-  directory read-only, so atomic host-side refreshes remain visible;
+- sets `AWS_CONFIG_FILE` to a read-only config containing a named profile whose
+  `credential_process` invokes IAM Roles Anywhere
+  `aws_signing_helper credential-process`;
+- mounts read-only only that config plus the strictly necessary X.509 material
+  and helper, with minimum permissions;
+- accepts neither `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or
+  `AWS_SESSION_TOKEN` nor shared static credentials;
 - has no Docker socket, host network or access to LimnoPulse volumes/networks;
 - reports liveness separately from readiness;
 - emits redacted JSON stdout and optional loopback metrics.
@@ -309,12 +314,13 @@ bounded recovery window; published raw, reconciliation and serving history is
 not deleted by a deployment workflow.
 
 The first API call remains authenticated and tenant-authorized with
-`X-Tenant-Id`. It returns `200` with `Cache-Control: private, no-store` and a
-minimal envelope containing a signed URL for an exact authorized
-`serving/<tenant>/<run_id>/...` object selected by the active `DatasetPointer`,
-`version_id` and `expires_in=300`. The envelope exposes neither tenant nor
-object key. Raw, normalized, reconciliation, temporary and audit keys are
-never signed to the browser.
+`X-Tenant-Id`. It returns `200` with `Cache-Control: private, no-store` and an
+envelope containing only `url`, `version_id` and `expires_in=300`. There are no
+separate tenant or object-key fields, but the SigV4 URL necessarily contains
+the exact authorized `serving/<tenant>/<run_id>/...` key in its path. The URL is
+bearer-sensitive and must never be logged, persisted, included in telemetry,
+referrer or cache. Raw, normalized, reconciliation, temporary and audit keys
+are never signed to the browser; no other prefix may be signed.
 
 The dashboard then makes a second `fetch` directly to the signed S3 URL with
 credentials omitted and without `Authorization`, `X-Tenant-Id`, cookies or any
@@ -411,8 +417,9 @@ No static AWS access key is accepted by application settings, GitHub or the
 VPS.
 
 - GitHub workflows assume repository/workflow-scoped OIDC roles.
-- The VPS API obtains short-lived credentials through its CnesData Roles
-  Anywhere profile and host-side credential renewer.
+- The VPS API uses its named `AWS_CONFIG_FILE` profile and IAM Roles Anywhere
+  `aws_signing_helper credential-process`. Its output includes `Expiration`,
+  and boto3/botocore refreshes credentials automatically before expiration.
 - Fargate uses task roles.
 - Runtime non-AWS secrets use SSM SecureString under
   `/personal/prod/cnesdata/runtime/` and the approved customer-managed KMS key.

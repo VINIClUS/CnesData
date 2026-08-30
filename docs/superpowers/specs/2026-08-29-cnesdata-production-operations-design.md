@@ -135,6 +135,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - required-source failure and optional-source degraded publication;
 - pointer CAS race, S3 failure before publication and outbox replay;
 - no presigned URL for non-serving prefixes;
+- long-lived boto3/botocore clients cross at least one IAM Roles Anywhere
+  `credential_process` expiration/refresh and complete an AWS call without a
+  process or container restart; helper or refresh failure fails closed;
 - the production AWS-012 override accepts `AssignPublicIp=ENABLED` only with
   exact public subnet IDs, the configured zero-ingress security group,
   `FARGATE`, maximum concurrency one, and no NAT Gateway or ALB; it rejects
@@ -159,8 +162,12 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   denied by FastAPI;
 - one synthetic run publishes exactly one new immutable version/pointer;
 - the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
-  with `Cache-Control: private, no-store` and only the signed URL, `version_id`
-  and `expires_in=300`, without exposing tenant or object key;
+  with `Cache-Control: private, no-store` and only `url`, `version_id` and
+  `expires_in=300`, with no separate tenant or object-key field;
+- the bearer-sensitive SigV4 `url` contains the expected authorized `serving/`
+  key, appears in neither logs nor acceptance evidence, is never persisted,
+  sent to telemetry, included in a referrer or cached, and no other prefix is
+  signed;
 - the dashboard makes a second direct S3 `fetch` with credentials omitted and
   without `Authorization`, `X-Tenant-Id`, cookies or other custom headers; it
   reads the expected JSON body from the 300-second signed URL;
@@ -212,6 +219,10 @@ Cost controls:
   <https://docs.aws.amazon.com/cli/latest/reference/cognito-idp/create-resource-server.html>
 - Amazon Cognito authorization endpoint resource binding:
   <https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html>
+- IAM Roles Anywhere credential helper:
+  <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html>
+- AWS SDK process credentials:
+  <https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html>
 - FastAPI CORS:
   <https://fastapi.tiangolo.com/tutorial/cors/>
 - Amazon S3 CORS configuration:
