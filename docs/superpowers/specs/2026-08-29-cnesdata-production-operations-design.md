@@ -154,7 +154,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - API preflights from another origin or for a disallowed method/header are
   denied by FastAPI;
 - one synthetic run publishes exactly one new immutable version/pointer;
-- a signed `serving/` redirect is followed and returns the expected JSON body;
+- a signed `serving/` redirect has a 300-second TTL; after following it, the
+  browser reads the expected JSON body;
 - logs, traces, state and artifacts contain no secret or synthetic record body;
 - previous API/frontend release can be restored within the documented window.
 
