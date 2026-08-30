@@ -160,14 +160,17 @@ it never selects pay-as-you-go or a paid tier implicitly.
 ### 6.2 Release layout and cache policy
 
 The dashboard build is deterministic and contains no secret. It receives only
-public configuration such as `API_BASE_URL=https://api.cnesdata.vinisantana.com`,
-Cognito issuer/client ID and release ID. The OpenTofu output and dashboard
-configuration use that exact absolute API base URL.
+public configuration such as
+`VITE_API_BASE_URL=https://api.cnesdata.vinisantana.com/api/v1`, Cognito
+issuer/client ID and release ID. The OpenTofu output maps that exact value to
+the dashboard build variable `VITE_API_BASE_URL`.
 
 Every dashboard API call, including `auth/me` and activation, uses one
-authenticated client bound to `https://api.cnesdata.vinisantana.com`. Production
-forbids relative `/api` requests. That client sends a bearer token only to the
-API origin and sends `X-Tenant-Id` only for tenant-scoped calls.
+authenticated client bound to
+`https://api.cnesdata.vinisantana.com/api/v1`. Production forbids relative
+`/api` requests. That client sends a bearer token only to the API origin
+`https://api.cnesdata.vinisantana.com` and sends `X-Tenant-Id` only for
+tenant-scoped calls.
 
 Deployment order:
 
