@@ -303,7 +303,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   signed;
 - the dashboard makes a second direct S3 `fetch` with credentials omitted and
   without `Authorization`, `X-Tenant-Id`, cookies or other custom headers; it
-  reads the expected JSON body from the 300-second signed URL;
+  reads the expected JSON body from the 300-second signed URL and asserts the
+  S3 response has `Cache-Control: private, no-store` from object metadata;
 - this production handoff replaces the AWS-014 `307` route contract before
   promotion;
 - logs, traces, state and artifacts contain no secret or synthetic record body;

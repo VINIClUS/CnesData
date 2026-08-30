@@ -342,8 +342,9 @@ are never signed to the browser; no other prefix may be signed.
 
 The dashboard then makes a second `fetch` directly to the signed S3 URL with
 credentials omitted and without `Authorization`, `X-Tenant-Id`, cookies or any
-other custom request header. This production handoff replaces the AWS-014
-`307` route contract before promotion.
+other custom request header. Every `serving/` object has S3 `Cache-Control`
+metadata `private, no-store`, which the second response exposes. This production
+handoff replaces the AWS-014 `307` route contract before promotion.
 
 The data bucket CORS configuration permits exactly
 `https://cnesdata.vinisantana.com`, methods `GET` and `HEAD`, no custom request
