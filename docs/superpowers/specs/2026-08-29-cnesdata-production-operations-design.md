@@ -36,18 +36,19 @@ AWS, Cloudflare or SSH credential.
 
 ### 2.2 Release creation
 
-A candidate release is bound to one green `develop` commit. Its finalized
-release manifest records:
+A candidate release is bound to one green `develop` commit. Its candidate
+manifest records:
 
 - source SHA and test run IDs;
 - API GHCR digest;
 - processor GHCR and promoted ECR digests;
-- immutable unit and `recover-once` task-definition revision ARNs, each pinned
-  to the exact promoted ECR digest;
 - dashboard artifact checksum;
 - Compose/config checksum;
 - OpenTofu/provider lock digest;
 - SBOM checksums and schema version.
+
+The candidate manifest contains no ECS task-definition revision ARN. An
+activation manifest is finalized and signed only after phase A below.
 
 Mutable tags may aid discovery but are never deployment authority.
 
@@ -66,16 +67,20 @@ marker is absent.
 Order:
 
 1. promote/verify the processor digest in ECR;
-2. register new immutable unit and `recover-once` revisions pinned to that exact
-   digest without changing the state-machine or Scheduler targets;
-3. extend the Step Functions and Scheduler roles' `ecs:RunTask` grants to authorize
-   both current (old) and candidate (new) revision ARNs; exact-role
-   `iam:PassRole` remains unchanged;
-4. wait for and revalidate IAM propagation, then prove both revisions are
-   authorized;
-5. switch the state-machine `TaskDefinition` ARN and Scheduler recovery target;
+2. under a reviewed exact OpenTofu plan/apply, phase A registers immutable unit
+   and `recover-once` revisions pinned to that digest and dual-authorizes old
+   and new `ecs:RunTask` ARNs without changing state-machine/Scheduler routes;
+3. wait for and revalidate IAM propagation, prove both revisions authorized,
+   then output their ARNs and phase-A evidence;
+4. finalize and sign one post-registration activation manifest with the exact
+   revision ARNs, digest and phase-A evidence; never re-register those revisions;
+5. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
+   signed activation manifest ARNs and switches the still OpenTofu-owned
+   state-machine `TaskDefinition` ARN and Scheduler recovery target. No
+   out-of-band mutation or `ignore_changes` is allowed;
 6. use `DescribeTaskDefinition`, state-machine and Scheduler evidence to prove
-   both selected revisions resolve to the exact release digest;
+   both selected revisions resolve to the exact release digest, then verify
+   clean OpenTofu state and no drift;
 7. update the inactive API candidate on the VPS;
 8. pass local and tunneled health/authorization smoke tests;
 9. switch Nginx to the candidate;
@@ -93,7 +98,8 @@ No production deployment occurs automatically after merge.
 
 - **API:** restore the previous Nginx upstream and already-pulled GHCR digest.
 - **Frontend:** restore the prior versioned entrypoint and invalidate it.
-- **Processor:** rollback assumes the prior routes and grants remain intact;
+- **Processor:** rollback uses the prior retained activation manifest and a
+  reviewed exact OpenTofu plan/apply. Its prior routes and grants remain intact;
   restore both prior immutable unit and `recover-once` revisions, digests and
   state-machine/Scheduler routes for new dispatches. Active Standard executions
   continue with the definition they started unless cancellation is safe.
@@ -188,7 +194,7 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   Every recovery task-hour is counted in the 100-hour monitored monthly
   operating target. The environment semaphore arbitrates cross-run unit starts,
   while dispatch CAS handles only same-run recovery and idempotency.
-- The recovery task role has only control-plane read/write,
+- The recovery task role has control-plane read/write,
   `states:StartExecution` on the exact production state machine and
   `states:DescribeExecution` on its executions, plus minimum liveness
   `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
@@ -200,6 +206,12 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   recovery task, API and any takeover actor use ECS liveness reads only for the
   configured cluster/task family with supported conditions; where ECS requires
   `Resource: *`, those same narrow conditions apply.
+- For `PUBLISHING`, its publisher data-plane permissions are only
+  `s3:GetObject`, `s3:GetObjectVersion` and `s3:PutObject` on the canonical data
+  bucket's `tmp/`, `normalized/`, `reconciliation/` and `serving/` prefixes used
+  by immutable output manifests/final objects. Copy reads the source and writes
+  the destination only. It has no raw/audit/other-prefix access and no
+  `s3:DeleteObject` or `s3:ListBucket` unless separately demonstrated necessary.
 - One environment-wide control-plane DynamoDB semaphore/lease/fence item gates
   all unit work. Initial API starts and recovery conditionally acquire it before
   `StartExecution`, bind owner to dispatch/execution, renew it and release it
@@ -245,15 +257,19 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   `events:PutRule` and `events:DescribeRule` are scoped to
   `StepFunctionsGetEventsForECSTaskRule`; `iam:PassRole` permits only the task
   and execution roles with `iam:PassedToService=ecs-tasks.amazonaws.com`;
-- release-manifest and promotion tests require immutable unit and `recover-once`
-  revision ARNs pinned to the exact ECR release digest. Before target switching,
-  both current and candidate revisions have authorized `ecs:RunTask` grants;
-  exact `iam:PassRole` is unchanged; IAM propagation is revalidated; and both
-  revisions are proved authorized. After switching, `DescribeTaskDefinition`,
-  state-machine and Scheduler evidence resolves each selection to that digest;
+- candidate-manifest tests reject ECS revision ARNs. Phase-A exact OpenTofu
+  plan/apply registers each revision once, dual-authorizes old/new `ecs:RunTask`
+  ARNs without routing changes, waits for/revalidates IAM propagation and proves
+  both authorized. It outputs phase-A evidence, then one signed activation
+  manifest records the exact revision ARNs/digest;
+- phase-B exact OpenTofu plan/apply consumes that signed manifest and switches
+  only the OpenTofu-owned state-machine/Scheduler targets. Tests reject
+  out-of-band mutation and `ignore_changes`, then prove selected exact digests,
+  clean state and no drift;
 - drain/prune tests retain old revisions and `ecs:RunTask` grants through active
   old Standard/recovery drain and rollback retention, then prune only older
-  non-rollback revisions;
+  non-rollback revisions; rollback consumes the prior retained manifest through
+  a reviewed exact OpenTofu plan/apply;
 - recovery validation enforces the separate `recover-once` definition/mode,
   same image and network shape, Scheduler cadence at most half
   `AWS_PROCESSOR_LEASE_SECONDS`, `MaximumRetryAttempts=0`, no seven normal
@@ -279,6 +295,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - recovery role tests scope `states:StartExecution` to the production machine,
   `states:DescribeExecution` to its executions and ECS liveness reads to the
   configured cluster/task family or required narrow `Resource: *` conditions;
+- a crash during `PUBLISHING` proves the recovery role reads manifest sidecars,
+  promotes/verifies source-to-destination copies, writes reconciliation/serving
+  manifests and completes pointer CAS without `AccessDenied`. Negative tests
+  deny raw/audit/other prefixes plus delete/list operations;
 - the production AWS-012 override accepts `AssignPublicIp=ENABLED` only with
   exact public subnet IDs, the configured zero-ingress security group,
   `FARGATE`, maximum concurrency one, and no NAT Gateway or ALB; it rejects
@@ -315,12 +335,12 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - a Step Functions execution starts only the approved Fargate task definition,
   uses only the exact source account/state-machine trust, event rule and pass
   roles above, and fails when any scope drifts;
-- before target switching, promotion evidence proves propagated `ecs:RunTask`
-  authorization for both old and candidate revisions while exact `iam:PassRole`
-  remains unchanged. After switching, `DescribeTaskDefinition`, state machine
-  and Scheduler prove the selected unit and `recover-once` revisions use the
-  exact release ECR digest; active Standard executions remain on their original
-  revision;
+- phase-A promotion evidence proves propagated old/new `ecs:RunTask`
+  authorization without routing changes, then the signed activation manifest
+  records exact ARNs/digest. Phase-B OpenTofu evidence proves the state-machine
+  and Scheduler selected those revisions, exact ECR digest, clean state and no
+  drift before API/frontend switching; active Standard executions remain on
+  their original revision;
 - the `recover-once` Scheduler run uses the same image/network, emits its log
   and alarm evidence, uses `MaximumRetryAttempts=0`, and cannot start without
   its narrow roles;
