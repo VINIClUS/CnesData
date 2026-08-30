@@ -386,9 +386,11 @@ verified in the [production operations design](2026-08-29-cnesdata-production-op
   EventBridge Scheduler, under the operations contract;
 - Linux/x86_64, initial size 0.25 vCPU and 0.5-1 GiB memory;
 - included 20 GB ephemeral storage unless measured otherwise;
-- maximum one concurrent unit task per environment, bounded recovery overlap,
-  and two-hour unit-task timeout;
-- maximum 100 combined unit and recovery task-hours per month;
+- semaphore-enforced maximum one concurrent unit task per environment;
+  recovery passes may overlap without a global recovery-concurrency ceiling;
+- two-hour unit-task timeout;
+- monitored monthly operating target: 100 task-hours counting every unit and
+  recovery task-hour;
 - no autoscaling and no Fargate Spot in the first release;
 - public subnets with an ephemeral public IPv4, no inbound security-group rule,
   and no NAT Gateway or load balancer;

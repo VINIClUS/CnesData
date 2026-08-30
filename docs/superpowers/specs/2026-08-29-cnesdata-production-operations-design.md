@@ -90,16 +90,17 @@ No production deployment occurs automatically after merge.
 
 - Cloudflare Free rule protects the most sensitive public job/auth surface.
 - Nginx enforces IP-based general and expensive-mutation zones.
-- The API enforces tenant/user/idempotency quotas, maximum 200 jobs, 100
-  combined unit and recovery task-hours per month, one concurrent unit task per
-  environment and bounded recovery overlap.
+- The API enforces tenant/user/idempotency quotas, maximum 200 jobs and the
+  semaphore's one concurrent unit task per environment. The monitored 100-hour
+  monthly operating target counts every unit and recovery task-hour; it is not a
+  pre-launch API limit.
 - DynamoDB maximum throughput, Step Functions bounded retries and Athena bytes
   cutoffs contain downstream amplification.
 - Requests beyond product quota fail with `429` or the documented quota error
   before starting Step Functions or Athena.
-- A USD 15 aggregate budget action freezes new unit and recovery Fargate,
-  Step Functions and Athena starts through automation roles while preserving
-  reads and backups.
+- A USD 15 aggregate budget action is the hard ceiling: it freezes new unit and
+  recovery Fargate, Step Functions and Athena starts through automation roles
+  while preserving reads and backups.
 
 ## 5. Observability and SLOs
 
@@ -155,13 +156,17 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   EventBridge Scheduler task using the same processor image but a separate task
   definition and mode, with cadence no greater than half
   `AWS_PROCESSOR_LEASE_SECONDS`; it requires none of the seven normal processor
-  environment variables. Scheduler invocations may overlap, retry and duplicate
-  as required by the governing plan. Each is one bounded pass with
-  `AWS_PROCESSOR_RECOVERY_BATCH_SIZE=100` and a hard timeout equal to
-  `AWS_PROCESSOR_LEASE_SECONDS`; all recovery task-hours count in the 100-hour
-  aggregate and budget freeze. The environment semaphore
-  arbitrates cross-run unit starts, while dispatch CAS handles only same-run
-  recovery and idempotency.
+  environment variables. Scheduler `MaximumRetryAttempts=0`; at-least-once
+  delivery or an external re-invocation can still create overlapping, retried or
+  duplicate passes, with no global recovery-concurrency ceiling. Each is one
+  bounded pass with
+  `AWS_PROCESSOR_RECOVERY_BATCH_SIZE=100`. Its entrypoint/PID 1 enforces a
+  hard wall-clock deadline equal to `AWS_PROCESSOR_LEASE_SECONDS`; at deadline,
+  it emits timeout logs and alarm, cancels work and exits nonzero so the ECS task
+  stops.
+  Every recovery task-hour is counted in the 100-hour monitored monthly
+  operating target. The environment semaphore arbitrates cross-run unit starts,
+  while dispatch CAS handles only same-run recovery and idempotency.
 - The recovery task role has only control-plane read/write,
   `states:StartExecution` on the exact production state machine and
   `states:DescribeExecution` on its executions, plus minimum liveness
@@ -215,10 +220,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and execution roles with `iam:PassedToService=ecs-tasks.amazonaws.com`;
 - recovery validation enforces the separate `recover-once` definition/mode,
   same image and network shape, Scheduler cadence at most half
-  `AWS_PROCESSOR_LEASE_SECONDS`, no seven normal processor environment
-  variables, batch 100/lease-length hard timeout, allowed
-  overlapping/retried/duplicate invocations, least-privilege recovery/Scheduler
-  roles, logs and alarm;
+  `AWS_PROCESSOR_LEASE_SECONDS`, `MaximumRetryAttempts=0`, no seven normal
+  processor environment variables, batch 100 and a PID 1 hard wall-clock
+  deadline equal to the lease that logs/alarms, cancels work, exits nonzero and
+  stops the ECS task; overlapping, externally retried or at-least-once duplicate
+  invocations have no global concurrency ceiling;
 - profile/helper `durationSeconds` equals 900 and role `MaxSessionDuration`
   equals 3600 seconds;
   the incident drill disables new sessions, updates CRL, revokes old sessions
@@ -226,8 +232,13 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - semaphore tests require conditional acquisition before initial or recovery
   `StartExecution`, dispatch/execution ownership, terminal release, no expired
   takeover before Step Functions/ECS proof, no losing cross-run `StartExecution`
-  and `429` or quota on contention. Overlapping/retried/duplicate recovery
-  invocations remain bounded, while dispatch CAS covers same-run recovery only;
+  and `429` or quota on contention. Overlapping, externally retried and
+  at-least-once duplicate recovery passes remain individually bounded, while
+  dispatch CAS covers same-run recovery only;
+- cost-contract tests count every unit and recovery task-hour toward the
+  monitored 100-hour monthly operating target, never as a pre-launch API gate;
+  the USD 15 automatic budget action remains the hard freeze for new unit and
+  recovery Fargate, Step Functions and Athena starts;
 - recovery role tests scope `states:StartExecution` to the production machine,
   `states:DescribeExecution` to its executions and ECS liveness reads to the
   configured cluster/task family or required narrow `Resource: *` conditions;
@@ -268,12 +279,18 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   uses only the exact source account/state-machine trust, event rule and pass
   roles above, and fails when any scope drifts;
 - the `recover-once` Scheduler run uses the same image/network, emits its log
-  and alarm evidence, and cannot start without its narrow roles;
-- two distinct runs plus overlapping/retried/duplicate recovery invocations
-  leave at most one unit Fargate task active; semaphore losers make no
+  and alarm evidence, uses `MaximumRetryAttempts=0`, and cannot start without
+  its narrow roles;
+- a deliberately hung recovery reaches the PID 1 deadline equal to
+  `AWS_PROCESSOR_LEASE_SECONDS`, cancels, exits nonzero and stops in ECS by that
+  deadline, with log and alarm evidence;
+- two distinct runs plus overlapping, externally retried or at-least-once
+  duplicate recovery passes leave at most one unit Fargate task active;
+  semaphore losers make no
   `StartExecution`, while dispatch CAS remains limited to same-run recovery and
-  every recovery pass stays bounded and its recorded task-hours count in the
-  100-hour aggregate and budget freeze;
+  each recovery pass is individually bounded with no global recovery-concurrency
+  ceiling. Every recorded unit and recovery task-hour counts toward the monitored
+  100-hour monthly operating target, not a pre-launch API limit;
 - one synthetic run publishes exactly one new immutable version/pointer;
 - the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
   with `Cache-Control: private, no-store` and only `url`, `version_id` and
@@ -302,9 +319,10 @@ Cost controls:
 - one of the account's maximum three CloudFront Free-plan subscriptions, with
   eligibility and `ACTIVE` status checked before cutover;
 - ECR generally below 2 GB;
-- maximum one concurrent unit Fargate task per environment, bounded recovery
-  overlap, zero idle desired count and 100 combined unit and recovery task-hours
-  maximum per month, including every recovery invocation;
+- semaphore-enforced maximum one concurrent unit Fargate task per environment;
+  recovery passes are individually bounded but have no global concurrency
+  ceiling; zero idle desired count; and a monitored 100 combined unit and
+  recovery task-hours monthly operating target, including every invocation;
 - Step Functions Standard and 200 executions maximum;
 - Athena 5 GB/query and 100 GB/month;
 - DynamoDB on-demand maximum throughput;
