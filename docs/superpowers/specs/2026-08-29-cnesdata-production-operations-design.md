@@ -36,11 +36,14 @@ AWS, Cloudflare or SSH credential.
 
 ### 2.2 Release creation
 
-A candidate release is bound to one green `develop` commit and records:
+A candidate release is bound to one green `develop` commit. Its finalized
+release manifest records:
 
 - source SHA and test run IDs;
 - API GHCR digest;
 - processor GHCR and promoted ECR digests;
+- immutable unit and `recover-once` task-definition revision ARNs, each pinned
+  to the exact promoted ECR digest;
 - dashboard artifact checksum;
 - Compose/config checksum;
 - OpenTofu/provider lock digest;
@@ -63,12 +66,20 @@ marker is absent.
 Order:
 
 1. promote/verify the processor digest in ECR;
-2. update the inactive API candidate on the VPS;
-3. pass local and tunneled health/authorization smoke tests;
-4. switch Nginx to the candidate;
-5. publish frontend assets and entrypoint;
-6. run the synthetic vertical slice and serving test;
-7. record redacted evidence and retain the previous release.
+2. register new immutable unit and `recover-once` revisions pinned to that exact
+   digest; select the unit revision in the state-machine `TaskDefinition` ARN
+   and the recovery revision in the Scheduler target;
+3. update scoped `ecs:RunTask`/`iam:PassRole` policies when revision ARNs make
+   that necessary, then use `DescribeTaskDefinition`, state-machine and
+   Scheduler evidence to prove both selections resolve to the exact release
+   digest before switching API or frontend. Active Standard executions retain
+   the revision on which they started;
+4. update the inactive API candidate on the VPS;
+5. pass local and tunneled health/authorization smoke tests;
+6. switch Nginx to the candidate;
+7. publish frontend assets and entrypoint;
+8. run the synthetic vertical slice and serving test;
+9. record redacted evidence and retain the previous release.
 
 No production deployment occurs automatically after merge.
 
@@ -76,9 +87,10 @@ No production deployment occurs automatically after merge.
 
 - **API:** restore the previous Nginx upstream and already-pulled GHCR digest.
 - **Frontend:** restore the prior versioned entrypoint and invalidate it.
-- **Processor:** register/select the previous task definition/digest for new
-  dispatches; active Standard executions continue with the definition they
-  started unless the runbook determines cancellation is safe.
+- **Processor:** restore both prior immutable unit and `recover-once` revisions,
+  digests and state-machine/Scheduler routes for new dispatches; active Standard
+  executions continue with the definition they started unless cancellation is
+  safe.
 - **State machine:** revert only new-execution routing; do not edit an active
   execution or DynamoDB record manually.
 - **DynamoDB/S3:** application releases never roll data backward or delete
@@ -145,10 +157,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - Revocation imports or updates the CRL at the Roles Anywhere trust anchor; it
   does not depend on OCSP or CDP. Compromise revokes and rotates the leaf,
   confirms fail-closed behavior and alerts the security owner.
-- Roles Anywhere profile/helper `durationSeconds` is 900 seconds and IAM role
-  `MaxSessionDuration` is 3600 seconds. On incident, disable the profile or its
-  trust, import/update the CRL and apply `AWSRevokeOlderSessions` or an explicit
-  `aws:TokenIssueTime` Deny to the role.
+- Roles Anywhere profile/helper `durationSeconds` and IAM role
+  `MaxSessionDuration` are 3600 seconds. This bounded lifetime exceeds
+  botocore's default 15-minute advisory refresh window. On incident, disable the
+  profile or its trust, import/update the CRL and apply `AWSRevokeOlderSessions`
+  or an explicit `aws:TokenIssueTime` Deny to the role.
 - Before declaring fail-closed, verify pre-incident credentials are denied by
   DynamoDB, S3 and Step Functions. Retain the deny for at least the maximum
   session duration plus propagation, issue and install a new leaf, then
@@ -203,7 +216,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   API call that bypasses the configured absolute `/api/v1` client;
 - long-lived boto3/botocore clients cross at least one IAM Roles Anywhere
   `credential_process` expiration/refresh and complete an AWS call without a
-  process or container restart; helper or refresh failure fails closed;
+  process or container restart. The helper is not invoked per request and
+  botocore refreshes near the 3600-second expiry; helper or refresh failure
+  fails closed;
 - VPS config tests require `AWS_CONFIG_FILE` and matching `AWS_PROFILE`; a
   missing or mismatched profile fails before readiness;
 - OpenTofu creates the `us-east-2` trust anchor from external offline public
@@ -221,6 +236,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   `events:PutRule` and `events:DescribeRule` are scoped to
   `StepFunctionsGetEventsForECSTaskRule`; `iam:PassRole` permits only the task
   and execution roles with `iam:PassedToService=ecs-tasks.amazonaws.com`;
+- release-manifest and promotion tests require immutable unit and `recover-once`
+  revision ARNs pinned to the exact ECR release digest. `DescribeTaskDefinition`,
+  state-machine and Scheduler evidence must resolve each selected revision to
+  that digest before API/frontend switching, including any revision-scoped
+  `ecs:RunTask`/`iam:PassRole` policy update;
 - recovery validation enforces the separate `recover-once` definition/mode,
   same image and network shape, Scheduler cadence at most half
   `AWS_PROCESSOR_LEASE_SECONDS`, `MaximumRetryAttempts=0`, no seven normal
@@ -228,8 +248,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   deadline equal to the lease that logs/alarms, cancels work, exits nonzero and
   stops the ECS task; overlapping, externally retried or at-least-once duplicate
   invocations have no global concurrency ceiling;
-- profile/helper `durationSeconds` equals 900 and role `MaxSessionDuration`
-  equals 3600 seconds;
+- profile/helper `durationSeconds` and role `MaxSessionDuration` each equal
+  3600 seconds;
   the incident drill disables new sessions, updates CRL, revokes old sessions
   and proves the timed Deny before re-enabling a rotated leaf;
 - semaphore tests require conditional acquisition before initial or recovery
@@ -282,6 +302,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - a Step Functions execution starts only the approved Fargate task definition,
   uses only the exact source account/state-machine trust, event rule and pass
   roles above, and fails when any scope drifts;
+- promotion evidence from `DescribeTaskDefinition`, the state machine and
+  Scheduler proves the selected immutable unit and `recover-once` revisions use
+  the exact release ECR digest before the API/frontend switch; active Standard
+  executions remain on their original revision;
 - the `recover-once` Scheduler run uses the same image/network, emits its log
   and alarm evidence, uses `MaximumRetryAttempts=0`, and cannot start without
   its narrow roles;
