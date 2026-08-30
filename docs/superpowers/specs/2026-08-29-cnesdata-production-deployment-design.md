@@ -160,8 +160,14 @@ it never selects pay-as-you-go or a paid tier implicitly.
 ### 6.2 Release layout and cache policy
 
 The dashboard build is deterministic and contains no secret. It receives only
-public configuration such as API base URL, Cognito issuer/client ID and release
-ID.
+public configuration such as `API_BASE_URL=https://api.cnesdata.vinisantana.com`,
+Cognito issuer/client ID and release ID. The OpenTofu output and dashboard
+configuration use that exact absolute API base URL.
+
+Every dashboard API call, including `auth/me` and activation, uses one
+authenticated client bound to `https://api.cnesdata.vinisantana.com`. Production
+forbids relative `/api` requests. That client sends a bearer token only to the
+API origin and sends `X-Tenant-Id` only for tenant-scoped calls.
 
 Deployment order:
 
@@ -250,6 +256,9 @@ The deployment creates:
   scopes;
 - one resource server with identifier `https://api.cnesdata.vinisantana.com`
   and one custom `api.access` scope;
+- one collision-safe AWS-managed prefix domain for the User Pool, generated
+  from the production environment and a unique suffix, with no custom Cognito
+  domain, certificate or DNS resource;
 - exact callback/logout URLs for the production domain;
 - email-based development/demo accounts created out of band;
 - no SMS MFA, paid SMS, social IdP or machine-to-machine client.
@@ -261,6 +270,12 @@ The resulting access token contains
 `aud=https://api.cnesdata.vinisantana.com`. Production config sets
 `OIDC_AUDIENCE=https://api.cnesdata.vinisantana.com`. The dashboard continues
 to send the `access_token`; the verifier remains provider-neutral.
+
+Authorization Code + PKCE requires the AWS-managed prefix domain. Its public
+dashboard configuration and OpenTofu outputs include `COGNITO_DOMAIN` plus the
+absolute `COGNITO_AUTHORIZE_URL`, `COGNITO_TOKEN_URL` and `COGNITO_LOGOUT_URL`
+for `/oauth2/authorize`, `/oauth2/token` and `/logout`. Cognito Lite uses these
+standard endpoints without depending on managed login v2 branding or features.
 
 Tokens establish issuer, audience and subject only. Tenant membership is
 resolved server-side through canonical DynamoDB keys. A tenant claim, header,

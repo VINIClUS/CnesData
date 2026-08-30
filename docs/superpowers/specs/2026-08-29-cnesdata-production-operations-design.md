@@ -20,6 +20,10 @@ the architecture, resources, identity, network and serving contracts.
 Pull requests to `develop` run the existing locked Python/CND/AWS gates plus:
 
 - dashboard lint, typecheck, tests and deterministic production build;
+- dashboard routing checks require
+  `API_BASE_URL=https://api.cnesdata.vinisantana.com`, one authenticated API
+  client for `auth/me` and activation, no production relative `/api` request,
+  bearer only to the API origin and `X-Tenant-Id` only for tenant-scoped calls;
 - API and processor image build tests;
 - OCI vulnerability scan and SBOM generation;
 - OpenTofu format/validate/test and provider-lock verification;
@@ -135,6 +139,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - required-source failure and optional-source degraded publication;
 - pointer CAS race, S3 failure before publication and outbox replay;
 - no presigned URL for non-serving prefixes;
+- dashboard artifact and browser checks reject a relative `/api` request or an
+  API call that bypasses the configured absolute client;
 - long-lived boto3/botocore clients cross at least one IAM Roles Anywhere
   `credential_process` expiration/refresh and complete an AWS call without a
   process or container restart; helper or refresh failure fails closed;
@@ -152,6 +158,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - static site returns the expected release ID over TLS;
 - S3 origin is not publicly readable;
 - API is unreachable at the VPS address/ports and healthy through Tunnel;
+- the collision-safe AWS-managed Cognito prefix domain serves real
+  `/oauth2/authorize`, `/oauth2/token` and `/logout` endpoints; the PKCE code
+  exchange and configured logout URL succeed, with no custom Cognito domain or
+  managed login v2 dependency;
 - demo user authenticates with PKCE and resolves only the demo tenant;
 - a Cognito bearer `access_token` with
   `aud=https://api.cnesdata.vinisantana.com` is accepted in the real
@@ -160,6 +170,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   method/header is accepted by FastAPI;
 - API preflights from another origin or for a disallowed method/header are
   denied by FastAPI;
+- browser network evidence proves `auth/me` and activation use the configured
+  absolute API base URL, never relative `/api`; bearer is sent only to the API
+  and `X-Tenant-Id` only to tenant-scoped calls;
 - one synthetic run publishes exactly one new immutable version/pointer;
 - the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
   with `Cache-Control: private, no-store` and only `url`, `version_id` and
@@ -219,6 +232,8 @@ Cost controls:
   <https://docs.aws.amazon.com/cli/latest/reference/cognito-idp/create-resource-server.html>
 - Amazon Cognito authorization endpoint resource binding:
   <https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html>
+- Amazon Cognito user pool domain:
+  <https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-assign-domain.html>
 - IAM Roles Anywhere credential helper:
   <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html>
 - AWS SDK process credentials:
