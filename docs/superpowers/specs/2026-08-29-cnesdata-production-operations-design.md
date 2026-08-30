@@ -91,7 +91,8 @@ No production deployment occurs automatically after merge.
 - Cloudflare Free rule protects the most sensitive public job/auth surface.
 - Nginx enforces IP-based general and expensive-mutation zones.
 - The API enforces tenant/user/idempotency quotas and maximum 200 jobs,
-  100 task-hours and one concurrent processor task per month/environment.
+  100 total task-hours for unit and recovery work, one unit task and at most one
+  `recover-once` overlap per month/environment.
 - DynamoDB maximum throughput, Step Functions bounded retries and Athena bytes
   cutoffs contain downstream amplification.
 - Requests beyond product quota fail with `429` or the documented quota error
@@ -141,10 +142,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - Revocation imports or updates the CRL at the Roles Anywhere trust anchor; it
   does not depend on OCSP or CDP. Compromise revokes and rotates the leaf,
   confirms fail-closed behavior and alerts the security owner.
-- Roles Anywhere `durationSeconds` on the profile and the IAM role
-  `MaxSessionDuration` are both 900 seconds. On incident, disable the profile
-  or its trust, import/update the CRL and apply `AWSRevokeOlderSessions` or an
-  explicit `aws:TokenIssueTime` Deny to the role.
+- Roles Anywhere profile/helper `durationSeconds` is 900 seconds and IAM role
+  `MaxSessionDuration` is 3600 seconds. On incident, disable the profile or its
+  trust, import/update the CRL and apply `AWSRevokeOlderSessions` or an explicit
+  `aws:TokenIssueTime` Deny to the role.
 - Before declaring fail-closed, verify pre-incident credentials are denied by
   DynamoDB, S3 and Step Functions. Retain the deny for at least the maximum
   session duration plus propagation, issue and install a new leaf, then
@@ -153,19 +154,28 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   EventBridge Scheduler task using the same processor image but a separate task
   definition and mode, with cadence no greater than half
   `AWS_PROCESSOR_LEASE_SECONDS`; it requires none of the seven normal processor
-  environment variables. Overlap is allowed and resolved by dispatch CAS.
-- The recovery task role has only control-plane read/write and
-  `states:DescribeExecution`. The Scheduler role trusts
+  environment variables. Scheduler overlap remains required by the governing
+  plan; the environment semaphore arbitrates cross-run work, while dispatch CAS
+  handles only same-run recovery and idempotency.
+- The recovery task role has only control-plane read/write,
+  `states:StartExecution` on the exact production state machine and
+  `states:DescribeExecution` on its executions, plus minimum liveness
+  `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
   `scheduler.amazonaws.com` with exact `aws:SourceAccount` and
   `aws:SourceArn`, scopes `ecs:RunTask` to the recovery task definition and
   passes only its task/execution roles. Recovery uses the unit task's public
-  subnets, zero-ingress security group and public IP, with logs and alarm.
+  subnets, zero-ingress security group and public IP, with logs and alarm. The
+  recovery task, API and any takeover actor use ECS liveness reads only for the
+  configured cluster/task family with supported conditions; where ECS requires
+  `Resource: *`, those same narrow conditions apply.
 - One environment-wide control-plane DynamoDB semaphore/lease/fence item gates
   all unit work. Initial API starts and recovery conditionally acquire it before
   `StartExecution`, bind owner to dispatch/execution, renew it and release it
   terminally. An expired item cannot authorize takeover until
   `DescribeExecution` and ECS prove no work active; TTL is garbage collection
-  only. A concurrent request receives the documented quota error or `429`.
+  only. The semaphore is the cross-run arbiter: losers do not call
+  `StartExecution`; dispatch CAS applies only to same-run recovery/idempotency.
+  A concurrent request receives the documented quota error or `429`.
 
 ## 7. Test and acceptance matrix
 
@@ -202,12 +212,17 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   same image and network shape, Scheduler cadence at most half
   `AWS_PROCESSOR_LEASE_SECONDS`, no seven normal processor environment
   variables, least-privilege recovery/Scheduler roles, logs and alarm;
-- profile `durationSeconds` and role `MaxSessionDuration` equal 900 seconds;
+- profile/helper `durationSeconds` equals 900 and role `MaxSessionDuration`
+  equals 3600 seconds;
   the incident drill disables new sessions, updates CRL, revokes old sessions
   and proves the timed Deny before re-enabling a rotated leaf;
 - semaphore tests require conditional acquisition before initial or recovery
   `StartExecution`, dispatch/execution ownership, terminal release, no expired
-  takeover before Step Functions/ECS proof and `429` or quota on contention;
+  takeover before Step Functions/ECS proof, no losing cross-run `StartExecution`
+  and `429` or quota on contention; dispatch CAS covers same-run recovery only;
+- recovery role tests scope `states:StartExecution` to the production machine,
+  `states:DescribeExecution` to its executions and ECS liveness reads to the
+  configured cluster/task family or required narrow `Resource: *` conditions;
 - the production AWS-012 override accepts `AssignPublicIp=ENABLED` only with
   exact public subnet IDs, the configured zero-ingress security group,
   `FARGATE`, maximum concurrency one, and no NAT Gateway or ALB; it rejects
@@ -247,7 +262,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - the `recover-once` Scheduler run uses the same image/network, emits its log
   and alarm evidence, and cannot start without its narrow roles;
 - two distinct runs plus a recovery race leave at most one unit Fargate task
-  active; dispatch CAS remains the overlap arbiter;
+  active and at most one `recover-once` overlap; semaphore losers make no
+  `StartExecution`, while dispatch CAS remains limited to same-run recovery;
 - one synthetic run publishes exactly one new immutable version/pointer;
 - the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
   with `Cache-Control: private, no-store` and only `url`, `version_id` and
@@ -276,7 +292,8 @@ Cost controls:
 - one of the account's maximum three CloudFront Free-plan subscriptions, with
   eligibility and `ACTIVE` status checked before cutover;
 - ECR generally below 2 GB;
-- one Fargate task, zero idle desired count, 100 task-hours maximum;
+- one unit Fargate task plus at most one `recover-once` overlap, zero idle
+  desired count and 100 total task-hours maximum for both modes;
 - Step Functions Standard and 200 executions maximum;
 - Athena 5 GB/query and 100 GB/month;
 - DynamoDB on-demand maximum throughput;
