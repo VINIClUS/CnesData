@@ -219,7 +219,7 @@ The container:
   `credential_process` invokes IAM Roles Anywhere
   `aws_signing_helper credential-process`;
 - mounts read-only only that config plus the strictly necessary X.509 material
-  and helper, with minimum permissions;
+  and helper; the host-owned key is readable only by the fixed runtime UID;
 - accepts neither `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or
   `AWS_SESSION_TOKEN` nor shared static credentials;
 - has no Docker socket, host network or access to LimnoPulse volumes/networks;

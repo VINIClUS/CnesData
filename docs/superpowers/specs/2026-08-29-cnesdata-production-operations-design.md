@@ -129,11 +129,15 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   dataset pointer/serving object without altering production data;
 - destructive PITR export/restore requires a separately approved runbook run.
 - The security owner operates the external, offline CA; AWS Private CA is never
-  enabled. The CA private key and API/VPS leaf credentials never enter the repo
-  or OpenTofu state.
-- The owner issues a unique API/VPS X.509v3 leaf, installs its certificate chain
-  and root-only private key outside the container, and rotates it before expiry
-  with overlap and a refresh test.
+  enabled. Its trust-anchor CA has `CA:true`, `Certificate Sign` and `CRL Sign`
+  key usage, and SHA-256 or stronger signatures. The CA private key and API/VPS
+  leaf credentials never enter the repo or OpenTofu state.
+- The owner issues a unique API/VPS X.509v3 leaf with `CA:false`, `Digital
+  Signature` usage and SHA-256 or stronger signatures. Its certificate chain
+  can be readable as needed; its host-owned private key remains outside the
+  container and is bind-mounted read-only for the fixed runtime UID only, with
+  no other user or process able to read it. Rotation occurs before expiry with
+  overlap and a refresh test.
 - Revocation imports or updates the CRL at the Roles Anywhere trust anchor; it
   does not depend on OCSP or CDP. Compromise revokes and rotates the leaf,
   confirms fail-closed behavior and alerts the security owner.
@@ -155,18 +159,20 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   `credential_process` expiration/refresh and complete an AWS call without a
   process or container restart; helper or refresh failure fails closed;
 - OpenTofu creates the `us-east-2` trust anchor from external offline public
-  CA PEM and the Roles Anywhere profile, with AWS Private CA prohibited. The
-  trust policy permits `sts:AssumeRole`, `sts:TagSession` and
+  CA PEM with the required CA, key-usage and SHA-256 constraints, and the Roles
+  Anywhere profile, with AWS Private CA prohibited. The trust policy permits
+  `sts:AssumeRole`, `sts:TagSession` and
   `sts:SetSourceIdentity` only to `rolesanywhere.amazonaws.com`, conditioned on
   the trust-anchor `SourceArn` and API/VPS X.509 identity; the profile remains
   separately referenced by `credential_process`; no private CA key or leaf
   appears in repository or state;
-- the separate Step Functions role is trusted only by `states.amazonaws.com`.
-  `ecs:RunTask` is scoped to the task definition; `ecs:DescribeTasks` and
-  `ecs:StopTask` use `Resource: *`; `events:PutTargets`, `events:PutRule` and
-  `events:DescribeRule` are scoped to `StepFunctionsGetEventsForECSTaskRule`;
-  `iam:PassRole` permits only the task and execution roles with
-  `iam:PassedToService=ecs-tasks.amazonaws.com`;
+- the separate Step Functions role is trusted only by `states.amazonaws.com`
+  with the exact `aws:SourceAccount` and the exact production state-machine
+  `aws:SourceArn`. `ecs:RunTask` is scoped to the task definition;
+  `ecs:DescribeTasks` and `ecs:StopTask` use `Resource: *`; `events:PutTargets`,
+  `events:PutRule` and `events:DescribeRule` are scoped to
+  `StepFunctionsGetEventsForECSTaskRule`; `iam:PassRole` permits only the task
+  and execution roles with `iam:PassedToService=ecs-tasks.amazonaws.com`;
 - the production AWS-012 override accepts `AssignPublicIp=ENABLED` only with
   exact public subnet IDs, the configured zero-ingress security group,
   `FARGATE`, maximum concurrency one, and no NAT Gateway or ALB; it rejects
@@ -186,8 +192,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   exchange and configured logout URL succeed, with no custom Cognito domain or
   managed login v2 dependency;
 - demo user authenticates with PKCE and resolves only the demo tenant;
-- a real API/VPS leaf from the external CA assumes the Roles Anywhere profile;
-  a CRL-revoked leaf is denied, alerts and remains failed closed;
+- a real constrained API/VPS leaf from the external CA assumes the Roles
+  Anywhere profile; a CRL-revoked leaf is denied, alerts and remains failed
+  closed;
 - a Cognito bearer `access_token` with
   `aud=https://api.cnesdata.vinisantana.com` is accepted in the real
   environment;
@@ -200,7 +207,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   relative `/api`; bearer is sent only to the API origin and `X-Tenant-Id` only
   to tenant-scoped calls;
 - a Step Functions execution starts only the approved Fargate task definition,
-  uses only the event rule and pass roles above, and fails when any scope drifts;
+  uses only the exact source account/state-machine trust, event rule and pass
+  roles above, and fails when any scope drifts;
 - one synthetic run publishes exactly one new immutable version/pointer;
 - the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
   with `Cache-Control: private, no-store` and only `url`, `version_id` and
