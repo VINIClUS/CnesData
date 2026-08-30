@@ -375,6 +375,10 @@ release claims WORM compliance. Emulator success alone is insufficient.
 - maximum 200 demo executions per month, enforced by the application/control
   plane rather than assumed from billing alerts.
 
+Step Functions uses a separate execution role assumed by `states.amazonaws.com`;
+its ECS, EventBridge and `iam:PassRole` permission boundary is operationally
+verified in the [production operations design](2026-08-29-cnesdata-production-operations-design.md).
+
 ### 11.2 Fargate
 
 - one ECS cluster with no continuously running service;
@@ -445,6 +449,13 @@ VPS.
   `.env` file is created.
 - Cognito identifiers, bucket names and API URLs are configuration, not secret
   values.
+
+OpenTofu provisions a `us-east-2` Roles Anywhere trust anchor from an external,
+offline CA public PEM and a profile; AWS Private CA is prohibited by the cost
+contract. Its role trusts `rolesanywhere.amazonaws.com` for `sts:AssumeRole`,
+`sts:TagSession` and `sts:SetSourceIdentity` with `SourceArn` and X.509 identity
+conditions. The CA private key and API/VPS leaf credentials never enter the
+repository or OpenTofu state; issuance, revocation and recovery are operational.
 
 IAM policies distinguish API, processor, task execution, GitHub plan, GitHub
 apply, demo seed, audit verification and human break-glass duties. Wildcard

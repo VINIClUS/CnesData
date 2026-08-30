@@ -128,6 +128,15 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - quarterly recovery exercise reconstructs the API and proves one synthetic
   dataset pointer/serving object without altering production data;
 - destructive PITR export/restore requires a separately approved runbook run.
+- The security owner operates the external, offline CA; AWS Private CA is never
+  enabled. The CA private key and API/VPS leaf credentials never enter the repo
+  or OpenTofu state.
+- The owner issues a unique API/VPS X.509v3 leaf, installs its certificate chain
+  and root-only private key outside the container, and rotates it before expiry
+  with overlap and a refresh test.
+- Revocation imports or updates the CRL at the Roles Anywhere trust anchor; it
+  does not depend on OCSP or CDP. Compromise revokes and rotates the leaf,
+  confirms fail-closed behavior and alerts the security owner.
 
 ## 7. Test and acceptance matrix
 
@@ -145,6 +154,18 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - long-lived boto3/botocore clients cross at least one IAM Roles Anywhere
   `credential_process` expiration/refresh and complete an AWS call without a
   process or container restart; helper or refresh failure fails closed;
+- OpenTofu creates the `us-east-2` trust anchor from external offline public
+  CA PEM and the Roles Anywhere profile, with AWS Private CA prohibited. The
+  trust policy permits `sts:AssumeRole`, `sts:TagSession` and
+  `sts:SetSourceIdentity` only to `rolesanywhere.amazonaws.com`, conditioned on
+  the profile `SourceArn` and API/VPS X.509 identity; no private CA key or leaf
+  appears in repository or state;
+- the separate Step Functions role is trusted only by `states.amazonaws.com`.
+  `ecs:RunTask` is scoped to the task definition; `ecs:DescribeTasks` and
+  `ecs:StopTask` use `Resource: *`; `events:PutTargets`, `events:PutRule` and
+  `events:DescribeRule` are scoped to `StepFunctionsGetEventsForECSTaskRule`;
+  `iam:PassRole` permits only the task and execution roles with
+  `iam:PassedToService=ecs-tasks.amazonaws.com`;
 - the production AWS-012 override accepts `AssignPublicIp=ENABLED` only with
   exact public subnet IDs, the configured zero-ingress security group,
   `FARGATE`, maximum concurrency one, and no NAT Gateway or ALB; it rejects
@@ -164,6 +185,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   exchange and configured logout URL succeed, with no custom Cognito domain or
   managed login v2 dependency;
 - demo user authenticates with PKCE and resolves only the demo tenant;
+- a real API/VPS leaf from the external CA assumes the Roles Anywhere profile;
+  a CRL-revoked leaf is denied, alerts and remains failed closed;
 - a Cognito bearer `access_token` with
   `aud=https://api.cnesdata.vinisantana.com` is accepted in the real
   environment;
@@ -175,6 +198,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   `VITE_API_BASE_URL=https://api.cnesdata.vinisantana.com/api/v1`, never
   relative `/api`; bearer is sent only to the API origin and `X-Tenant-Id` only
   to tenant-scoped calls;
+- a Step Functions execution starts only the approved Fargate task definition,
+  uses only the event rule and pass roles above, and fails when any scope drifts;
 - one synthetic run publishes exactly one new immutable version/pointer;
 - the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
   with `Cache-Control: private, no-store` and only `url`, `version_id` and
@@ -238,6 +263,10 @@ Cost controls:
   <https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-assign-domain.html>
 - IAM Roles Anywhere credential helper:
   <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html>
+- IAM Roles Anywhere getting started:
+  <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/getting-started.html>
+- IAM Roles Anywhere trust model:
+  <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/trust-model.html>
 - AWS SDK process credentials:
   <https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html>
 - FastAPI CORS:
