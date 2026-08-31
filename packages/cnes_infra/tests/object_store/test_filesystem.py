@@ -30,8 +30,7 @@ _DURABLE_BOUNDARIES = ("temporary_created", "file_fsynced", "destination_linked"
 _OWNER_XATTR = "user.cnes_object_store_destination"
 
 
-class _SimulatedCrash(RuntimeError):
-    pass
+class _SimulatedCrash(RuntimeError): ...
 
 
 @dataclass(slots=True)
@@ -195,7 +194,6 @@ def test_crash_pre_marker_nao_deixa_temporario(tmp_path: Path) -> None:
         tmp_path, fault_injector=_CrashAt("temporary_created_before_ownership")
     )
     body = b"conteudo"
-
     with pytest.raises(_SimulatedCrash, match="boundary=temporary_created_before_ownership"):
         crashing.put("raw/dados.parquet", BytesIO(body), sha256(body).hexdigest())
     assert _adapter_temporaries(tmp_path) == ()
@@ -282,13 +280,13 @@ def test_reabertura_propaga_erro_ao_ler_ownership(
     assert candidate.read_bytes() == b"preservar"
 
 
-@pytest.mark.parametrize("failure", ["ownership", "read", "write", "flush", "fsync", "checksum"])
+@pytest.mark.parametrize("failure", ["owner", "read", "write", "flush", "fsync", "sha", "dir"])
 def test_falha_ordinaria_de_staging_remove_temporario_e_fsynca_diretorio(
     failure: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = FilesystemObjectStore(tmp_path)
     body = MagicMock(wraps=BytesIO(b"conteudo"))
-    if failure == "ownership":
+    if failure == "owner":
         monkeypatch.setattr(
             os,
             "setxattr",
@@ -318,6 +316,8 @@ def test_falha_ordinaria_de_staging_remove_temporario_e_fsynca_diretorio(
         target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
         if target.is_dir():
             directory_fsyncs += target == _objects_directory(tmp_path)
+            if failure == "dir" and directory_fsyncs == 1:
+                raise OSError(errno.EIO, "staging=failed")
         else:
             regular_fsyncs += 1
             if failure == "fsync" and regular_fsyncs == 2:
@@ -325,14 +325,14 @@ def test_falha_ordinaria_de_staging_remove_temporario_e_fsynca_diretorio(
         real_fsync(descriptor)
 
     monkeypatch.setattr(os, "fsync", failing_fsync)
-    expected = sha256(b"outro" if failure == "checksum" else b"conteudo").hexdigest()
-    error = ValueError if failure == "checksum" else OSError
-    message = "sha256=mismatch" if failure == "checksum" else "staging=failed"
+    expected = sha256(b"outro" if failure == "sha" else b"conteudo").hexdigest()
+    error = ValueError if failure == "sha" else OSError
+    message = "sha256=mismatch" if failure == "sha" else "staging=failed"
     with pytest.raises(error, match=message):
         adapter.put("raw/dados.parquet", body, expected)
 
     assert _adapter_temporaries(tmp_path) == ()
-    assert directory_fsyncs == (0 if failure == "ownership" else 2)
+    assert directory_fsyncs == (0 if failure == "owner" else 2)
 
 
 @pytest.mark.parametrize("kind", ["file", "directory"])

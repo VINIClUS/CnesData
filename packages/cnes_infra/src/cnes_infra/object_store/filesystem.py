@@ -300,7 +300,11 @@ class FilesystemObjectStore:
             self._fault("temporary_created_before_ownership")
             self._mark_temporary(descriptor, key, token)
             _link_descriptor(descriptor, objects, name)
-            os.fsync(objects)
+            try:
+                os.fsync(objects)
+            except OSError:
+                self._remove_temporary(objects, name)
+                raise
             self._fault("temporary_created")
             try:
                 stream = os.fdopen(descriptor, "wb")
