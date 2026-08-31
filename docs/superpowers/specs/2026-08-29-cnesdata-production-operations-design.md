@@ -84,9 +84,9 @@ Order:
    variables to canary-only values. It passes only canary task/execution roles with
    ECS PassedToService. A verifier gets conditioned `GetItem` on the bound key and
    `GetObject`/`GetObjectRetention` on its object; require retention/delivered proof;
-5. promotion assumes the exact release-tagged fence operator and invokes the port
-   close command, atomically only if semaphore is idle and no decision is in flight.
-   The API then rejects admissions with `503`/`Retry-After`; recovery starts none;
+5. promotion assumes the release-tagged fence operator and atomically closes the
+   separate fence item first. New acquire transactions now fail; wait for the semaphore
+   and any in-flight decision to drain. API returns `503`/`Retry-After`; recovery waits;
 6. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
    signed activation manifest ARNs only after verifying that binding, then
    switches only the OpenTofu-owned state-machine `TaskDefinition` ARN; Schedulers
@@ -224,13 +224,13 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   unless separately demonstrated necessary.
 - `ControlPlanePort.mutate_environment_gate(command)` accepts typed acquire, bind,
   renew, release, close-fence and reopen-fence variants and returns owner/version state.
-  The DynamoDB adapter uses conditional transaction/CAS on one environment gate item.
-  API/recovery use runtime variants; the release-tagged promotion operator may only
-  get and close/reopen that exact item. Expired takeover requires Step Functions/ECS
-  proof; TTL only collects garbage. Losers never call `StartExecution` and receive the
-  quota error or `429`; dispatch CAS remains same-run idempotency only.
-- The independent deployment fence blocks initial/recovery dispatch except the bound
-  synthetic canary. Acceptance or rollback explicitly reopens it through the port.
+  Fence and semaphore are separate items. Runtime acquire transactionally requires an
+  open fence while updating semaphore; close happens first, then promotion waits drain.
+  API/recovery use runtime variants; the operator can get/close/reopen only the fence
+  item. Expired takeover needs Step Functions/ECS proof; TTL only collects garbage.
+  Losers never `StartExecution` and receive quota/`429`; dispatch CAS stays same-run.
+- The fence blocks initial/recovery dispatch except the bound synthetic canary.
+  Acceptance or rollback reopens it through the port.
 
 ## 7. Test and acceptance matrix
 
@@ -317,9 +317,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and proves the timed Deny before re-enabling a rotated leaf;
 - gate-port tests cover typed acquire/bind/renew/release/close/reopen and conditional
   adapter transactions. API/recovery use runtime variants; promotion assumes only the
-  release-tagged operator with exact-item get/close/reopen and no other table access.
-  Expired takeover waits for Step Functions/ECS proof; losers never `StartExecution`
-  and receive `429`/quota. Duplicate recovery stays bounded; dispatch CAS is same-run;
+  release-tagged operator with get/close/reopen on the fence item. Direct semaphore
+  reads/writes are denied. Races prove close-first blocks new acquire before drain;
+  expired takeover needs liveness proof; losers never start and get `429`/quota;
 - cost tests count billed pull/start/run/stop. Two minutes per 30-minute recovery and
   audit invocation budget 48+48=96 hours/30 days, leaving 4 of 100 for units. Excess
   fails acceptance/alarms and is not called a hard cap;

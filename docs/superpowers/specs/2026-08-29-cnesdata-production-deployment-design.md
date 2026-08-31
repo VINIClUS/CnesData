@@ -306,9 +306,9 @@ Required deployment controls:
 - deletion protection and lifecycle protection;
 - alarms for throttles, system errors and sustained consumption.
 
-API/processor roles receive only required table/index actions. GitHub roles have no
-direct routine writes; promotion may assume one release-tagged fence operator with
-conditional get/update on the exact gate item. Demo seed uses another manual role.
+API/processor roles receive only required table/index actions. GitHub has no direct
+writes; promotion assumes a release-tagged operator with conditional get/update on
+the separate fence item, never the semaphore item. Demo seed uses another role.
 
 ## 10. Data, serving and audit buckets
 
