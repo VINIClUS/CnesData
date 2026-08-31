@@ -304,7 +304,6 @@ def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> No
     with pytest.raises(_SQLiteFilesystemError, match="sqlite_network_filesystem"):
         adapter.initialize()
 
-
 @pytest.mark.parametrize(
     "network_path",
     [
@@ -347,28 +346,31 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
         assert claimed is not None
         adapter.fail_run_unit(
             FailRunUnit(
-                tenant_id="354130",
-                run_id="run-a",
-                unit_id=unit_id,
-                dispatch_id=dispatch.dispatch_id,
-                owner=f"worker-{unit_id}",
+                tenant_id="354130", run_id="run-a", unit_id=unit_id,
+                dispatch_id=dispatch.dispatch_id, owner=f"worker-{unit_id}",
                 fencing_token=claimed.fencing_token,
-                error_code="optional_failed",
-                retryable=False,
+                error_code="optional_failed", retryable=False,
             ),
             _event(f"degraded-{unit_id}"),
         )
 
     assert adapter.get_run("354130", "run-a").missing_sources == ("CNES/ST",)
 
-
-def test_recaptura_lease_de_dispatch_superado_mas_exclui_dispatch_ativo(adapter, clock) -> None:
-    dispatch = _prepare_unit(adapter, clock)
+def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
+    adapter, database_path, clock
+) -> None:
+    dispatch = _prepare_unit(adapter, clock, ("unit-a", "unit-b"))
+    reopened = SQLiteControlPlane(database_path, clock.now)
+    assert _reserve(reopened, clock, unit_ids=("unit-a", "unit-b")) == dispatch
+    before = reopened.get_active_run_dispatch("354130", "run-a")
+    with pytest.raises(Conflict, match="dispatch_units_conflict"):
+        _reserve(reopened, clock, unit_ids=("unit-a",))
+    assert reopened.get_active_run_dispatch("354130", "run-a") == before
     claimed = adapter.claim_run_unit(_claim_unit_command(dispatch.dispatch_id, "worker-a", clock))
     assert claimed is not None
     bind = BindRunDispatch(
-        tenant_id="354130", run_id="run-a", dispatch_id="b" * 16,
-        execution_ref="exec-a", now=clock.now(), lease_seconds=30,
+        tenant_id="354130", run_id="run-a", dispatch_id="b" * 16, execution_ref="exec-a",
+        now=clock.now(), lease_seconds=30,
     )
     with pytest.raises(Conflict, match="dispatch_stale"):
         adapter.bind_run_dispatch(bind)
@@ -380,7 +382,7 @@ def test_recaptura_lease_de_dispatch_superado_mas_exclui_dispatch_ativo(adapter,
     )
     with pytest.raises(Conflict, match="dispatch_terminal"):
         adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
-    replacement = _reserve(adapter, clock)
+    replacement = _reserve(adapter, clock, unit_ids=dispatch.unit_ids)
     assert (replacement.generation, replacement.dispatch_id != dispatch.dispatch_id) == (2, True)
     reclaimed = adapter.claim_run_unit(
         _claim_unit_command(replacement.dispatch_id, "worker-b", clock)
@@ -391,7 +393,6 @@ def test_recaptura_lease_de_dispatch_superado_mas_exclui_dispatch_ativo(adapter,
     )
     other = _claim_unit_command(replacement.dispatch_id, "worker-c", clock)
     assert adapter.claim_run_unit(other) is None
-
 
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
     dispatch = _prepare_unit(adapter, clock)

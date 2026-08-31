@@ -16,7 +16,12 @@ from cnes_domain.control_plane.enums import (
 )
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
-from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
+from cnes_infra.control_plane.sqlite_schema import (
+    deserialize_model,
+    get_job_terminal_write,
+    put_job_terminal_write,
+    serialize_model,
+)
 
 if TYPE_CHECKING:
     from cnes_domain.control_plane.commands import (
@@ -39,9 +44,7 @@ if TYPE_CHECKING:
 
 def _validate_job_fence(store: Any, connection: Any, command: Any) -> Job:
     job = store.get_job_record(connection, command.tenant_id, command.job_id)
-    agent = None if job is None else store.get_agent_record(
-        connection, job.tenant_id, job.agent_id
-    )
+    agent = None if job is None else store.get_agent_record(connection, job.tenant_id, job.agent_id)
     if job is None or job.state is not JobState.LEASED:
         raise LeaseLost("job_not_leased")
     if agent is None or agent.state is AgentState.REVOKED:
@@ -59,8 +62,7 @@ def claim_job(store: Any, command: ClaimJob) -> Job | None:
     with store.write_transaction() as connection:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
         agent = None if job is None else store.get_agent_record(
-            connection, job.tenant_id, job.agent_id
-        )
+            connection, job.tenant_id, job.agent_id)
         if job is None or agent is None or agent.state is AgentState.REVOKED:
             return None
         retryable = job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}
@@ -92,27 +94,46 @@ def renew_job_lease(store: Any, command: RenewJobLease) -> Job:
 
 def _validate_manifest_identity(job: Job, manifest: Any) -> None:
     expected = (
-        job.tenant_id,
-        job.agent_id,
-        job.source_type,
-        job.file_subtype,
-        job.competencia,
-        job.requested_snapshot_mode,
+        job.tenant_id, job.agent_id, job.source_type,
+        job.file_subtype, job.competencia, job.requested_snapshot_mode,
     )
     actual = (
-        manifest.tenant_id,
-        manifest.agent_id,
-        manifest.source_type,
-        manifest.file_subtype,
-        manifest.competencia,
-        manifest.snapshot_mode,
+        manifest.tenant_id, manifest.agent_id, manifest.source_type,
+        manifest.file_subtype, manifest.competencia, manifest.snapshot_mode,
     )
     if actual != expected:
         raise Conflict("manifest_identity_mismatch")
 
 
+def _validate_terminal_replay(connection: Any, job: Job, command: Any, event: Any) -> None:
+    manifest = getattr(command, "manifest", None)
+    operation = "complete" if manifest is not None else "fail"
+    canonical = (operation, serialize_model(command), serialize_model(event))
+    current = get_job_terminal_write(connection, command.tenant_id, command.job_id)
+    if manifest is not None:
+        result_matches = (
+            job.state is JobState.SUCCEEDED
+            and job.fencing_token == command.fencing_token
+            and job.result_manifest_id == manifest.manifest_id
+            and job.result_manifest_key == manifest.manifest_key
+        )
+    else:
+        expected = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
+        result_matches = (
+            job.state is expected
+            and job.fencing_token == command.fencing_token
+            and job.error_code == command.error_code
+        )
+    if current != canonical or not result_matches:
+        raise Conflict("job_terminal_conflict")
+
+
 def complete_job(store: Any, command: CompleteJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
+        job = store.get_job_record(connection, command.tenant_id, command.job_id)
+        if job is not None and job.state is JobState.SUCCEEDED:
+            _validate_terminal_replay(connection, job, command, event)
+            return job
         job = _validate_job_fence(store, connection, command)
         manifest = command.manifest
         _validate_manifest_identity(job, manifest)
@@ -127,12 +148,18 @@ def complete_job(store: Any, command: CompleteJob, event: OutboxEvent) -> Job:
         )
         store.put_job_record(connection, completed)
         store.put_manifest_record(connection, manifest)
+        put_job_terminal_write(connection, "complete", command, event)
         store.put_outbox_event(connection, event)
         return completed
 
 
 def fail_job(store: Any, command: FailJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
+        job = store.get_job_record(connection, command.tenant_id, command.job_id)
+        failed_states = {JobState.FAILED_RETRYABLE, JobState.FAILED_FINAL}
+        if job is not None and job.state in failed_states:
+            _validate_terminal_replay(connection, job, command, event)
+            return job
         job = _validate_job_fence(store, connection, command)
         state = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
         failed = job.model_copy(
@@ -144,6 +171,7 @@ def fail_job(store: Any, command: FailJob, event: OutboxEvent) -> Job:
             }
         )
         store.put_job_record(connection, failed)
+        put_job_terminal_write(connection, "fail", command, event)
         store.put_outbox_event(connection, event)
         return failed
 
@@ -259,6 +287,8 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
             and current.state in {DispatchState.RESERVED, DispatchState.STARTED}
         )
         if replay:
+            if current.unit_ids != command.unit_ids:
+                raise Conflict("dispatch_units_conflict")
             return current
         live = current and current.state is not DispatchState.TERMINAL
         lease_live = current is not None and current.lease_until > command.now

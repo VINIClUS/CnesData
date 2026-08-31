@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS ix_jobs_claimable
 ON jobs (tenant_id, agent_id, state, created_at, job_id);
+CREATE TABLE IF NOT EXISTS job_terminal_writes (
+    tenant_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    command_data TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, job_id),
+    FOREIGN KEY (tenant_id, job_id) REFERENCES jobs (tenant_id, job_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS raw_manifests (
     tenant_id TEXT NOT NULL,
     manifest_id TEXT NOT NULL,
@@ -155,6 +164,31 @@ def serialize_model(model: BaseModel) -> str:
 
 def deserialize_model[Model: BaseModel](payload: str, model: type[Model]) -> Model:
     return model.model_validate_json(payload)
+
+
+def get_job_terminal_write(
+    connection: Any, tenant_id: str, job_id: str
+) -> tuple[str, ...] | None:
+    row = connection.execute(
+        "SELECT operation, command_data, event_data FROM job_terminal_writes "
+        "WHERE tenant_id = ? AND job_id = ?",
+        (tenant_id, job_id),
+    ).fetchone()
+    return None if row is None else tuple(row)
+
+
+def put_job_terminal_write(connection: Any, operation: str, command: Any, event: Any) -> None:
+    connection.execute(
+        "INSERT INTO job_terminal_writes "
+        "(tenant_id, job_id, operation, command_data, event_data) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT (tenant_id, job_id) DO UPDATE SET "
+        "operation = excluded.operation, command_data = excluded.command_data, "
+        "event_data = excluded.event_data",
+        (
+            command.tenant_id, command.job_id, operation,
+            serialize_model(command), serialize_model(event),
+        ),
+    )
 
 
 def is_network_filesystem(path: Path) -> bool:
