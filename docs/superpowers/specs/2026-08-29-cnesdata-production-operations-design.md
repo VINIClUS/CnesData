@@ -141,11 +141,11 @@ No production deployment occurs automatically after merge.
   cutoffs contain downstream amplification.
 - Requests beyond product quota fail with `429` or the documented quota error
   before starting Step Functions or Athena.
-- At USD 15, OpenTofu creates a dedicated same-account `ExecutionRoleArn` trusted
-  only by `budgets.amazonaws.com` for the exact Budget ARN/source account. It gets
-  `iam:AttachRolePolicy` on named promotion/API, recovery task/Scheduler, Step Functions
-  execution and Athena roles, conditioned to `cnesdata-cost-freeze`. Audit stays on;
-  only cost-clear detaches after reviewed recovery; history remains and billing may lag.
+- At USD 15, OpenTofu creates a same-account `ExecutionRoleArn` trusted only by
+  `budgets.amazonaws.com` for the exact Budget ARN/account. It gets
+  `iam:AttachRolePolicy` on promotion/API/recovery task/Scheduler/Step Functions/Athena with
+  `iam:PolicyARN`=freeze. Promotion gets `iam:ListAttachedRolePolicies` only on itself;
+  freeze aborts; audit stays; reviewed cost-clear detaches; history stays; billing lags.
 
 ## 5. Observability and SLOs
 
@@ -326,7 +326,7 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - cost tests count billed pull/start/run/stop. Two minutes per 30-minute recovery and
   audit budget 48+48=96 hours/30 days leaves 4 for units; excess is alarmed. Tests assert
   same-account `ExecutionRoleArn`, exact Budget trust and `iam:AttachRolePolicy` limited
-  by target role/`iam:PolicyARN`; freeze, audit continuity and cost-clear remain proven;
+  by target role/`iam:PolicyARN`; promotion self-read/abort, audit and cost-clear are proven;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
