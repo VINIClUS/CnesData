@@ -73,19 +73,17 @@ Order:
 2. under a reviewed exact OpenTofu plan/apply, phase A registers immutable unit,
    recovery and audit-dispatch revisions pinned to exact `ECR_URI@sha256` and
    dual-authorizes old and new `ecs:RunTask` ARNs without routing changes;
-   it creates release canary task/execution/seeder roles plus a persistent canary
+   it creates canary task/execution/seeder/verifier roles plus a persistent canary
    table and bucket owned by OpenTofu;
 3. wait for and revalidate IAM propagation, prove all revisions authorized,
    then output their ARNs and phase-A evidence;
-4. sign one activation manifest with candidate manifest SHA-256, release ID,
-   source SHA, exact revision ARNs, verified
-   `ECR_URI@sha256` and phase-A evidence; never re-register them. Assume a seeder
-   role restricted to `PutItem` on the exact canary table and write one bound pending
-   event. Run the dispatcher via promotion `RunTask`, overriding roles plus
-   `AWS_CONTROL_PLANE_TABLE`/`AWS_AUDIT_BUCKET` to canary resources only;
-   promotion can pass only canary task/execution roles, conditioned by
-   `iam:PassedToService=ecs-tasks.amazonaws.com`. Require its COMPLIANCE object,
-   retention and delivered marker for that event before continuing;
+4. sign one activation manifest with candidate SHA-256, release ID, source SHA,
+   exact revisions, ECR digest and phase-A evidence; never re-register them. A seeder
+   restricted to `PutItem` on the exact canary table writes one bound pending event.
+   Run the dispatcher through promotion `RunTask`, overriding roles and resource
+   variables to canary-only values. It passes only canary task/execution roles with
+   ECS PassedToService. A verifier gets conditioned `GetItem` on the bound key and
+   `GetObject`/`GetObjectRetention` on its object; require retention/delivered proof;
 5. atomically close the deployment fence only if the unit semaphore is idle and
    no dispatch decision is in flight. The API then rejects tenant admissions
    with `503`/`Retry-After`, and recovery starts no new executions;
@@ -192,10 +190,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   DynamoDB, S3 and Step Functions. Retain the deny for at least the maximum
   session duration plus propagation, issue and install a new leaf, then
   re-enable the profile/trust and test a new session.
-- Step Functions launches unit tasks. Scheduler `recover-once` uses the same image,
-  separate mode, cadence at most half the lease and batch 100. Its composition
-  builds only coordinator dependencies: no normal variables or audit sink.
-  PID 1 enforces the lease deadline; the semaphore is cross-run, dispatch CAS same-run.
+- Step Functions launches unit tasks with production `AWS_PROCESSOR_LEASE_SECONDS=7200`.
+  Hourly `recover-once` uses the same image, separate mode, batch 100 and coordinator
+  composition without normal variables/audit sink. PID 1 enforces the lease deadline;
+  the semaphore is cross-run and dispatch CAS same-run.
 - Scheduler runs independent `dispatch-outbox-once` every 30 minutes with the same
   image, own definition/mode/role and 60-second PID deadline. `run_aws_entrypoint`
   allowlists it; composition builds DynamoDB, S3 audit sink and UTC clock, then calls
@@ -296,19 +294,21 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   while fenced. Faults converge that route; reopening requires both accepted;
 - canary tests seed a release-bound pending event and require exact revision/overrides,
   its COMPLIANCE object, retention and delivered marker. Seeder `PutItem` is canary-table
-  only; `PassRole` is canary/ECS only; other releases denied; roles lifecycle-expire;
+  only. Verifier IAM allows conditioned `GetItem` and bound-object `GetObject` plus
+  `GetObjectRetention`; `PassRole` is exact canary/ECS; other releases denied; roles expire;
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
   starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
   uses the production hostname after that switch. Any failure or fence-budget
-  cutoff restores prior routes and reopens admissions within 60 seconds;
+  cutoff before phase C restores prior routes and reopens within 60 seconds. Partial
+  phase-B/C applies instead remain fail-closed until reviewed convergence completes;
 - drain/prune tests retain old revisions and `ecs:RunTask` grants through active
   old Standard/recovery drain and rollback retention, then prune only older
   non-rollback revisions; rollback consumes the prior retained manifest through
   a reviewed exact OpenTofu plan/apply;
 - recovery validation enforces the separate `recover-once` definition/mode,
   same image/network, coordinator-only composition without normal variables or
-  audit sink, cadence at most half `AWS_PROCESSOR_LEASE_SECONDS`, batch 100 and
+  audit sink, production lease 7200, hourly cadence, batch 100 and
   `MaximumRetryAttempts=0`. Its PID 1 hard wall-clock
   deadline equal to the lease that logs/alarms, cancels work, exits nonzero and
   stops the ECS task; overlapping, externally retried or at-least-once duplicate
@@ -324,9 +324,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and `429` or quota on contention. Overlapping, externally retried and
   at-least-once duplicate recovery passes remain individually bounded, while
   dispatch CAS covers same-run recovery only;
-- cost tests count billed pull/start/run/stop for every task in the 100-hour target.
-  Audit budgets two billed minutes per 30-minute invocation (48 hours/30 days):
-  60-second PID plus one overhead minute. Excess fails acceptance/alarms, not a cap;
+- cost tests count billed pull/start/run/stop. Two minutes per hourly recovery and
+  30-minute audit invocation budget 24+48=72 hours/30 days, leaving 28 of 100 for
+  units. Excess fails acceptance/alarms and is not called a hard cap;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
