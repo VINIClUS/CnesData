@@ -361,6 +361,7 @@ InfluxDB backup bucket.
 
 The real-AWS acceptance gate proves retention and conflict behavior before any
 release claims WORM compliance. Emulator success alone is insufficient.
+Scheduled `recover-once` passes drain the transactional outbox under the operations contract.
 
 ## 11. Processing plane
 

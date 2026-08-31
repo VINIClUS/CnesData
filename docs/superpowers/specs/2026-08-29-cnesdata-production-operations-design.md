@@ -195,24 +195,19 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   re-enable the profile/trust and test a new session.
 - The normal unit task is launched by Step Functions. `recover-once` is an
   EventBridge Scheduler task using the same processor image but a separate task
-  definition and mode, with cadence no greater than half
-  `AWS_PROCESSOR_LEASE_SECONDS`; it requires none of the seven normal processor
-  environment variables. Scheduler `MaximumRetryAttempts=0`; at-least-once
-  delivery or an external re-invocation can still create overlapping, retried or
-  duplicate passes, with no global recovery-concurrency ceiling. Each is one
-  bounded pass with
-  `AWS_PROCESSOR_RECOVERY_BATCH_SIZE=100`. Its entrypoint/PID 1 enforces a
-  hard wall-clock deadline equal to `AWS_PROCESSOR_LEASE_SECONDS`; at deadline,
-  it emits timeout logs and alarm, cancels work and exits nonzero so the ECS task
-  stops.
-  Every recovery task-hour is counted in the 100-hour monitored monthly
-  operating target. The environment semaphore arbitrates cross-run unit starts,
-  while dispatch CAS handles only same-run recovery and idempotency.
+  definition/mode and cadence at most half `AWS_PROCESSOR_LEASE_SECONDS`; it
+  requires none of the seven normal processor variables. Each bounded pass runs
+  coordinator recovery, then `dispatch_once(limit=100)`. Sink failures remain
+  pending, do not block later events, emit alarm/nonzero exit and retry on the
+  next cadence; same-event replay is idempotent. Scheduler retries are zero, but
+  at-least-once/external invocation can overlap without a global recovery-task
+  ceiling. PID 1 enforces a hard deadline equal to the lease, cancels work and
+  exits nonzero. Every pass counts toward the 100-hour target. The environment
+  semaphore arbitrates cross-run unit starts; dispatch CAS is same-run only.
 - Recovery role has control-plane read/write; `states:StartExecution` and
   `states:DescribeStateMachine` on the exact production state machine;
-  `states:DescribeExecution`/`states:StopExecution` on its executions, plus
-  minimum liveness
-  `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
+  `states:DescribeExecution`/`states:StopExecution` on executions; minimum
+  liveness `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
   `scheduler.amazonaws.com` with exact `aws:SourceAccount` and
   `aws:SourceArn`, scopes `ecs:RunTask` to recovery revision ARNs and, during
   activation, both old and candidate revisions; it passes only its task/execution
@@ -221,6 +216,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   recovery task, API and any takeover actor use ECS liveness reads only for the
   configured cluster/task family with supported conditions; where ECS requires
   `Resource: *`, those same narrow conditions apply.
+- Recovery audit IAM allows `s3:GetBucketObjectLockConfiguration` on the bucket;
+  `s3:GetObject`/`s3:PutObject`/`s3:PutObjectRetention` on `audit/*`; no delete/list/bypass.
 - For `PUBLISHING`, `s3:GetObject`/`s3:GetObjectVersion` read only the canonical
   data bucket's `tmp/`, `normalized/`, `reconciliation/` and `serving/` prefixes.
   `s3:PutObject` writes only final `normalized/`, `reconciliation/` and
@@ -250,7 +247,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - OIDC/JWKS rotation, revoked membership and cross-tenant denial;
 - old fence/dispatch rejection and duplicate execution replay;
 - required-source failure and optional-source degraded publication;
-- pointer CAS race, S3 failure before publication and outbox replay;
+- scheduled outbox dispatch reads at most 100 ordered events, writes the
+  deterministic COMPLIANCE object, marks delivered only after success, retries
+  pending failures next pass and proves same-hash replay idempotent;
 - no presigned URL for non-serving prefixes;
 - dashboard artifact and browser checks reject a relative `/api` request or an
   API call that bypasses the configured absolute `/api/v1` client;
@@ -333,6 +332,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   machine, describe/stop-execution to its executions and ECS liveness to the
   configured cluster/task family or required narrow `Resource: *` conditions.
   Cancellation/failed binding proves stop succeeds; another machine is denied;
+- audit IAM tests allow only lock-configuration read plus get/put/put-retention
+  on the exact audit prefix; deny delete, list, bypass and every data-bucket key;
 - a crash during `PUBLISHING` proves the recovery role reads manifest sidecars,
   promotes/verifies source-to-destination copies, writes reconciliation/serving
   manifests and completes pointer CAS without `AccessDenied`. Negative tests
@@ -387,8 +388,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   candidate through the switched production hostname. Only the bound canary is
   admitted before acceptance; failure restores prior routes while fenced;
 - the `recover-once` Scheduler run uses the same image/network, emits its log
-  and alarm evidence, uses `MaximumRetryAttempts=0`, and cannot start without
-  its narrow roles;
+  and alarm evidence, uses `MaximumRetryAttempts=0`, drains one bounded outbox
+  batch to an Object-Locked audit object and cannot start without narrow roles;
 - a deliberately hung recovery reaches the PID 1 deadline equal to
   `AWS_PROCESSOR_LEASE_SECONDS`, cancels, exits nonzero and stops in ECS by that
   deadline, with log and alarm evidence;
