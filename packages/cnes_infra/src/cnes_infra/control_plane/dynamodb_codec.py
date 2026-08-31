@@ -80,25 +80,6 @@ def query_pages(client: Any, request: dict[str, Any]) -> Iterator[tuple[Item, ..
         page_request["ExclusiveStartKey"] = last_key
 
 
-def strong_candidates[T: BaseModel](
-    client: Any, table_name: str, candidates: tuple[Item, ...], model_type: type[T]
-) -> tuple[T, ...]:
-    """Relê candidatos únicos na tabela base."""
-    keys = {
-        (item.get("base_pk", item["pk"])["S"], item.get("base_sk", item["sk"])["S"])
-        for item in candidates
-    }
-    models = []
-    for key in sorted(keys):
-        response = client.get_item(
-            TableName=table_name, Key=item_key(*key), ConsistentRead=True
-        )
-        item = response.get("Item")
-        if item is not None and item.get("entity", {}).get("S") == model_type.__name__.upper():
-            models.append(decode_model(item, model_type))
-    return tuple(models)
-
-
 def bounded_candidates[T: BaseModel](
     client: Any,
     request: dict[str, Any],
@@ -166,6 +147,31 @@ def query_partition(client: Any, table_name: str, partition: str, prefix: str) -
             "ConsistentRead": True,
         },
     )
+
+
+def bounded_partition(
+    client: Any, table_name: str, key: tuple[str, str], max_items: int
+) -> tuple[Item, ...] | None:
+    """Consulta uma partição forte dentro de orçamento fechado."""
+    items: list[Item] = []
+    request: dict[str, Any] = {
+        "TableName": table_name,
+        "KeyConditionExpression": "pk = :partition AND begins_with(sk, :prefix)",
+        "ExpressionAttributeValues": {
+            ":partition": {"S": key[0]}, ":prefix": {"S": key[1]}},
+        "ConsistentRead": True,
+    }
+    for _ in range(max_items + 1):
+        request["Limit"] = max_items + 1 - len(items)
+        response = client.query(**request)
+        items.extend(response.get("Items", ()))
+        last_key = response.get("LastEvaluatedKey")
+        if len(items) > max_items:
+            return None
+        if not last_key:
+            return tuple(items)
+        request["ExclusiveStartKey"] = last_key
+    return None
 
 
 def put_action(table_name: str, item: Item, expected_payload: str | None) -> Action:

@@ -23,6 +23,12 @@ def run_partition(tenant_id: str, run_id: str) -> str:
     return f"{tenant_partition(tenant_id)}#RUN#{key_component(run_id)}"
 
 
+def raw_partition(tenant_id: str, source_type: str, file_subtype: str, competencia: str) -> str:
+    """Cria a partição base de uma identidade raw."""
+    identity = "#".join(map(key_component, (source_type, file_subtype, competencia)))
+    return f"{tenant_partition(tenant_id)}#RAW#{identity}"
+
+
 def entity_key(tenant_id: str, entity: str, identifier: str) -> tuple[str, str]:
     """Cria a chave base de uma entidade do tenant."""
     return tenant_partition(tenant_id), f"{entity}#{key_component(identifier)}"

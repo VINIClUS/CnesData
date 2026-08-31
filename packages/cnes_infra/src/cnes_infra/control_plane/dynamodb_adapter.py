@@ -30,6 +30,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
     Action,
     Item,
     bounded_candidates,
+    bounded_partition,
     check_action,
     decode_model,
     encode_marker,
@@ -37,15 +38,14 @@ from cnes_infra.control_plane.dynamodb_codec import (
     execute_transaction,
     payload,
     put_action,
-    query_all,
     query_partition,
-    strong_candidates,
 )
 from cnes_infra.control_plane.dynamodb_keys import (
     dependency_marker_key,
     entity_key,
     item_key,
     key_component,
+    raw_partition,
     run_entity_key,
     run_partition,
     timestamp,
@@ -103,13 +103,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             "KeyConditionExpression": f"{index_name}pk = :partition",
             "ExpressionAttributeValues": {":partition": {"S": partition}},
         }
-        if args:
-            return bounded_candidates(self._client, request, *args)
-        return query_all(self._client, request)
-    def _strong_candidates[T: BaseModel](
-        self, candidates: tuple[Item, ...], model_type: type[T]
-    ) -> tuple[T, ...]:
-        return strong_candidates(self._client, self._table_name, candidates, model_type)
+        return bounded_candidates(self._client, request, *args)
     def _transact(self, actions: tuple[Action, ...]) -> None:
         execute_transaction(self._client, actions)
     def _put_direct(self, item: Item) -> None:
@@ -144,7 +138,9 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
                 f"{key_component(record.agent_id)}#{key_component(record.snapshot_id)}"
             ),
         }
-        key = entity_key(record.tenant_id, "RAW", record.manifest_id)
+        partition = raw_partition(
+            record.tenant_id, record.source_type, record.file_subtype, record.competencia)
+        key = partition, f"MANIFEST#{key_component(record.manifest_id)}"
         return encode_model(record, "RAWMANIFESTRECORD", key, attributes)
     def _run_item(self, run: Run) -> Item:
         attributes = {}
@@ -212,27 +208,33 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         return self._get_model(entity_key(tenant_id, "JOB", job_id), Job)
     def latest_succeeded_job(self, *args: str) -> Job | None:
         """Retorna o job concluído mais recente da identidade."""
-        agent_id = args[1]
-        partition = "RAW#" + "#".join(key_component(value) for value in args[:1] + args[2:])
-        candidates = self._strong_candidates(self._query("gsi2", partition), Job)
-        matches = (
-            job
-            for job in candidates
-            if job.agent_id == agent_id and job.state is JobState.SUCCEEDED
-        )
-        return max(matches, key=lambda job: (job.created_at, job.job_id), default=None)
-
+        tenant_id, agent_id, source_type, file_subtype, competencia = args
+        partition = raw_partition(tenant_id, source_type, file_subtype, competencia)
+        return self._get_model((partition, f"LATEST_JOB#{key_component(agent_id)}"), Job)
+    def _latest_job_action(self, job: Job) -> Action:
+        partition = raw_partition(
+            job.tenant_id, job.source_type, job.file_subtype, job.competencia)
+        key = partition, f"LATEST_JOB#{key_component(job.agent_id)}"
+        current_item = self._get_item(key)
+        marker = encode_model(job, "JOB", key)
+        if current_item is None:
+            return put_action(self._table_name, marker, None)
+        current = decode_model(current_item, Job)
+        if (current.created_at, current.job_id) >= (job.created_at, job.job_id):
+            return check_action(self._table_name, current_item)
+        return put_action(self._table_name, marker, payload(current_item))
     def list_raw_manifest_chain(self, *args: Any) -> tuple[ManifestRef, ...]:
         """Retorna a cadeia válida de manifestos raw."""
         tenant_id, source_type, file_subtype, competencia, *rest = args
         limit = rest[0] if rest else 31
-        items = query_partition(
-            self._client, self._table_name, *entity_key(tenant_id, "RAW", "")
-        )
+        if limit < 1:
+            return ()
+        partition = raw_partition(tenant_id, source_type, file_subtype, competencia)
+        items = bounded_partition(
+            self._client, self._table_name, (partition, "MANIFEST#"), limit * 10)
+        if items is None:
+            return ()
         records = [decode_model(item, RawManifestRecord) for item in items]
-        records = [record for record in records if (
-            record.source_type, record.file_subtype, record.competencia
-        ) == (source_type, file_subtype, competencia)]
         chains = tuple(filter(None, (self._valid_chain(records, head) for head in records)))
         ancestors = {item.manifest_id for chain in chains for item in chain[:-1]}
         endpoints = (chain for chain in chains if chain[-1].manifest_id not in ancestors)
@@ -249,7 +251,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
                 for item in chain
             )
         return ()
-
     @staticmethod
     def _valid_chain(
         records: list[RawManifestRecord], head: RawManifestRecord
@@ -271,7 +272,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             chain.append(current)
         chain.reverse()
         return tuple(chain) if current.snapshot_id == base else ()
-
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Job, ...]:
         """Lista jobs elegíveis para claim."""
         agent = self.get_agent(tenant_id, agent_id)

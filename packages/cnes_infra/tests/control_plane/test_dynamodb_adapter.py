@@ -63,14 +63,14 @@ class ClientSpy:
         self.client = client
         self.transactions: list[list[dict[str, Any]]] = []
         self.calls: list[str] = []
-        self.query_limits: list[int | None] = []
+        self.query_requests: list[dict[str, Any]] = []
     def transact_write_items(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("transact_write_items")
         self.transactions.append(kwargs["TransactItems"])
         return self.client.transact_write_items(**kwargs)
     def query(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("query")
-        self.query_limits.append(kwargs.get("Limit"))
+        self.query_requests.append(dict(kwargs))
         kwargs.setdefault("Limit", getattr(self, "query_limit", 100))
         return self.client.query(**kwargs)
     def __getattr__(self, name: str) -> Any:
@@ -129,7 +129,8 @@ def _store_record_matching_mode(adapter: Any, record: Any, clock: MutableClock) 
     job_id = f"job-{record.agent_id}-{record.snapshot_id}"
     job = _job(job_id, record.agent_id, record.tenant_id).model_copy(update={
         "source_type": record.source_type, "file_subtype": record.file_subtype,
-        "competencia": record.competencia, "requested_snapshot_mode": record.snapshot_mode})
+        "competencia": record.competencia, "requested_snapshot_mode": record.snapshot_mode,
+        "created_at": record.created_at})
     adapter.put_agent(_agent(record.agent_id, tenant_id=record.tenant_id))
     adapter.create_job(job, _event(f"created-{job_id}", tenant_id=record.tenant_id))
     claimed = adapter.claim_job(_claim_job(job_id, "raw-worker", clock, record.tenant_id))
@@ -145,9 +146,8 @@ def _put_many_units(adapter: DynamoDBControlPlane, amount: int) -> tuple[Any, ..
     command = PutRunUnits(
         tenant_id=_TENANT, run_id="run-a", expected_run_state=RunState.PROCESSING, units=units)
     return adapter.put_run_units(command)
-def _expected_item(
-    model: Any, entity: str, key: tuple[str, str], indexes: dict[str, str]
-) -> dict[str, Any]:
+def _expected_item(model: Any, entity: str, key: tuple[str, str],
+    indexes: dict[str, str]) -> dict[str, Any]:
     item = {
         "pk": {"S": key[0]},
         "sk": {"S": key[1]},

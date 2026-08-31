@@ -62,6 +62,10 @@ class OneItemPageClient(ClientSpy):
         if kwargs.get("IndexName") == "gsi2" and (hidden := getattr(self, "hidden_gsi2sk", None)):
             response["Items"] = [item for item in response["Items"] if item["gsi2sk"] != hidden]
         return response
+class EmptyPageClient(ClientSpy):
+    def query(self, **kwargs: Any) -> dict[str, Any]:
+        return self.query_requests.append(dict(kwargs)) or {
+            "Items": [], "LastEvaluatedKey": {"pk": {"S": "next"}}}
 @pytest.fixture
 def ctx() -> Any:
     with mock_aws():
@@ -120,16 +124,44 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 3)
     assert tuple(ref.manifest_id for ref in chain) == (
         full.manifest_id, sibling_b.manifest_id, head.manifest_id)
+    partition = "TENANT#333534313330#RAW#434e4553#5354#323032362d3037"
+    assert 1 <= len(stale.query_requests) <= 31
+    assert all(request.get("ConsistentRead") is True and "IndexName" not in request
+               and request["ExpressionAttributeValues"][":partition"]["S"] == partition
+               and 1 <= request["Limit"] <= 31 for request in stale.query_requests)
+    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 0) == ()
+    for index in range(7):
+        record = _raw_record(f"extra-{index}", f"agent-{index}", 1, clock.now())
+        adapter._put_direct(adapter._raw_item(record))
+    before = len(stale.query_requests)
+    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1) == ()
+    assert len(stale.query_requests) - before == 1
+    adapter._client = empty = EmptyPageClient(adapter._client)
+    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1) == ()
+    assert len(empty.query_requests) == 11
+def test_latest_succeeded_ignora_omissao_do_gsi(ctx: _DynamoContext) -> None:
+    _, clock, adapter = ctx
+    adapter._client = spy = ClientSpy(adapter._client)
+    old = _raw_record("old", "agent-a", 1, clock.now())
+    new = _raw_record("new", "agent-a", 1, clock.now() + timedelta(seconds=1))
+    for record in (old, new):
+        _store_record_matching_mode(adapter, record, clock)
+    requests = [next(iter(action.values())) for action in spy.transactions[-1]]
+    items = [request["Item" if "Item" in request else "Key"] for request in requests]
+    assert len(requests) == len({(item["pk"]["S"], item["sk"]["S"]) for item in items}) == 5
+    completed = adapter.get_job(_TENANT, "job-agent-a-new")
+    adapter._client = stale = OneItemPageClient(spy.client)
+    stale.hidden_gsi2sk = adapter._job_item(completed)["gsi2sk"]
+    result = adapter.latest_succeeded_job(_TENANT, "agent-a", "CNES", "ST", "2026-07")
+    assert (result, stale.query_requests) == (completed, [])
 def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     adapter.put_agent(_agent("agent-a"))
     job = _job("job-a").model_copy(update={"state": JobState.FAILED_FINAL})
     adapter._put_direct(adapter._job_item(job))
     base_key = entity_key(_TENANT, "JOB", "job-a")
-    attrs = {
-        "gsi1pk": f"JOB_CLAIM#{key_component(_TENANT)}#{key_component('agent-a')}",
-        "gsi1sk": f"{_NOW.isoformat()}#PENDING#job-a",
-    }
+    attrs = {"gsi1pk": f"JOB_CLAIM#{key_component(_TENANT)}#{key_component('agent-a')}",
+             "gsi1sk": f"{_NOW.isoformat()}#PENDING#job-a"}
     marker = encode_marker("STALE_JOB", entity_key(_TENANT, "STALE_JOB", "job-a"), base_key, attrs)
     client.put_item(TableName=_TABLE_NAME, Item=marker)
     assert adapter.list_claimable_jobs(_TENANT, "agent-a", 10) == ()
@@ -138,15 +170,9 @@ def test_candidato_gsi_obsoleto_nao_recupera_run_terminal(ctx: _DynamoContext) -
     client, clock, adapter = ctx
     run = _run("run-a", RunState.PUBLISHED)
     adapter.put_run(run)
-    marker = encode_marker(
-        "STALE_RUN",
-        entity_key(_TENANT, "STALE_RUN", "run-a"),
-        run_entity_key(_TENANT, "run-a"),
-        {
-            "gsi4pk": "RUN_RECOVERABLE",
-            "gsi4sk": f"{_NOW.isoformat()}#{_TENANT}#run-a",
-        },
-    )
+    marker = encode_marker("STALE_RUN", entity_key(_TENANT, "STALE_RUN", "run-a"),
+        run_entity_key(_TENANT, "run-a"), {"gsi4pk": "RUN_RECOVERABLE",
+        "gsi4sk": f"{_NOW.isoformat()}#{_TENANT}#run-a"})
     client.put_item(TableName=_TABLE_NAME, Item=marker)
     assert adapter.list_recoverable_runs(clock.now(), 10) == ()
     tenant_z = _run("run-a").model_copy(update={"tenant_id": "z"})
@@ -164,14 +190,9 @@ def test_expiracao_logica_substitui_item_ttl_ainda_presente(ctx: _DynamoContext)
     clock.advance(timedelta(minutes=6))
     retained = client.scan(TableName=_TABLE_NAME)["Items"]
     assert any(item.get("expires_at") for item in retained)
-    replacement = first.model_copy(
-        update={
-            "request_hash": _HASH_B,
-            "resource_id": "resource-b",
-            "now": clock.now(),
-            "expires_at": clock.now() + timedelta(minutes=5),
-        }
-    )
+    replacement = first.model_copy(update={
+        "request_hash": _HASH_B, "resource_id": "resource-b", "now": clock.now(),
+        "expires_at": clock.now() + timedelta(minutes=5)})
     outcome = adapter.begin_idempotency(replacement)
     assert outcome.created
     assert outcome.record.resource_id == "resource-b"
@@ -196,12 +217,10 @@ def test_chaves_compostas_isolam_componentes_com_delimitador(ctx: _DynamoContext
         run = _run(run_id).model_copy(update={"tenant_id": tenant_id})
         unit = _unit("shared").model_copy(update={"tenant_id": tenant_id, "run_id": run_id})
         adapter.put_run(run)
-        adapter.put_run_units(PutRunUnits(
-            tenant_id=tenant_id, run_id=run_id,
+        adapter.put_run_units(PutRunUnits(tenant_id=tenant_id, run_id=run_id,
             expected_run_state=RunState.PROCESSING, units=(unit,)))
-        adapter.reserve_run_dispatch(ReserveRunDispatch(
-            tenant_id=tenant_id, run_id=run_id, wave_id="a" * 16,
-            unit_ids=("shared",), now=_NOW, lease_seconds=30))
+        adapter.reserve_run_dispatch(ReserveRunDispatch(tenant_id=tenant_id, run_id=run_id,
+            wave_id="a" * 16, unit_ids=("shared",), now=_NOW, lease_seconds=30))
         expected.append(unit)
     for identity, unit in zip(identities, expected, strict=True):
         assert adapter.list_run_units(*identity) == (unit,)
@@ -261,10 +280,8 @@ def test_create_job_retorna_replay_e_rejeita_divergencia(ctx: _DynamoContext) ->
         adapter.create_job(job, event)
 def test_transicao_e_unidades_rejeitam_run_ausente_ou_estado_obsoleto(ctx: _DynamoContext) -> None:
     _, _, adapter = ctx
-    transition = TransitionRun(
-        tenant_id=_TENANT, run_id="run-a", expected_state=RunState.PLANNED,
-        new_state=RunState.WAITING_INPUTS,
-    )
+    transition = TransitionRun(tenant_id=_TENANT, run_id="run-a",
+        expected_state=RunState.PLANNED, new_state=RunState.WAITING_INPUTS)
     with pytest.raises(NotFound, match="run_missing"):
         adapter.transition_run(transition, _event("missing-run"))
     with pytest.raises(NotFound, match="run_missing"):
@@ -295,10 +312,8 @@ def test_cancel_job_exige_lease_e_e_idempotente(ctx: _DynamoContext) -> None:
     assert adapter.get_job(_TENANT, "job-a") == canceled
 def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
-    command = FinalizeRunCancellation(
-        tenant_id=_TENANT, run_id="run-a", expected_state=RunState.CANCEL_REQUESTED,
-        canceled_at=clock.now(),
-    )
+    command = FinalizeRunCancellation(tenant_id=_TENANT, run_id="run-a",
+        expected_state=RunState.CANCEL_REQUESTED, canceled_at=clock.now())
     with pytest.raises(NotFound, match="run_missing"):
         adapter.finalize_run_cancellation(command, _event("missing-run"))
     adapter.put_run(_run("run-a", RunState.CANCEL_REQUESTED))
@@ -310,10 +325,9 @@ def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(ctx: _DynamoCo
     assert adapter.get_run(_TENANT, "run-a") == canceled
 def _access_request(state: AccessRequestState = AccessRequestState.PENDING) -> AccessRequest:
     decided = state is not AccessRequestState.PENDING
-    return AccessRequest(
-        tenant_id=_TENANT, request_id="request-a", user_id="user-a", state=state,
-        decided_by="admin-a" if decided else None, decided_at=_NOW if decided else None,
-    )
+    return AccessRequest(tenant_id=_TENANT, request_id="request-a", user_id="user-a",
+        state=state, decided_by="admin-a" if decided else None,
+        decided_at=_NOW if decided else None)
 def _foreign_event(adapter: DynamoDBControlPlane) -> Any:
     event = _event("foreign-event", tenant_id="other")
     adapter.create_job(_job("foreign-job", tenant_id="other"), event)
@@ -365,19 +379,16 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(ctx: _DynamoContext
         adapter.mark_outbox_delivered("job-created", delivered_at + timedelta(seconds=1))
     with pytest.raises(NotFound, match="outbox_event_missing"):
         adapter.mark_outbox_delivered("missing", delivered_at)
-    events = tuple(_event(f"event-{index}").model_copy(
-        update={"created_at": clock.now() + timedelta(seconds=index)}
-    ) for index in range(3)
-    )
+    events = tuple(_event(f"event-{index}").model_copy(update={
+        "created_at": clock.now() + timedelta(seconds=index)}) for index in range(3))
     for index, event in enumerate(events):
         adapter.create_job(_job(f"job-{index}"), event)
     markers = (("missing", "missing", 3), ("stale", "job-created", 2), ("newer", "event-1", 1))
     for marker_id, base_id, minutes in markers:
-        marker = encode_marker(
-            "STALE_OUTBOX", entity_key(_TENANT, "STALE_OUTBOX", marker_id),
-            outbox_key(base_id), {"gsi6pk": "OUTBOX#PENDING", "gsi6sk":
-                f"{(clock.now() - timedelta(minutes=minutes)).isoformat()}#{marker_id}"},
-        )
+        marker = encode_marker("STALE_OUTBOX",
+            entity_key(_TENANT, "STALE_OUTBOX", marker_id), outbox_key(base_id),
+            {"gsi6pk": "OUTBOX#PENDING", "gsi6sk":
+             f"{(clock.now() - timedelta(minutes=minutes)).isoformat()}#{marker_id}"})
         client.put_item(TableName=_TABLE_NAME, Item=marker)
     paginated = OneItemPageClient(client)
     adapter._client = paginated
@@ -385,14 +396,12 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(ctx: _DynamoContext
     paginated = OneItemPageClient(client)
     adapter._client = paginated
     assert adapter.pending_outbox(2) == events[:2]
-    assert paginated.query_limits == [2, 2, 1]
+    assert [request.get("Limit") for request in paginated.query_requests] == [2, 2, 1]
 def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     assert adapter.claim_job(_claim_job("missing", "worker-a", clock)) is None
-    renewal = RenewJobLease(
-        tenant_id=_TENANT, job_id="missing", owner="worker-a", fencing_token=1,
-        now=clock.now(), lease_seconds=30,
-    )
+    renewal = RenewJobLease(tenant_id=_TENANT, job_id="missing", owner="worker-a",
+        fencing_token=1, now=clock.now(), lease_seconds=30)
     with pytest.raises(NotFound, match="job_missing"):
         adapter.renew_job_lease(renewal)
     adapter.put_agent(_agent("agent-a"))
@@ -453,10 +462,8 @@ def test_codec_propaga_erro_dynamodb_nao_condicional() -> None:
     class InvalidClient:
         @staticmethod
         def transact_write_items(**kwargs: Any) -> None:
-            raise ClientError(
-                {"Error": {"Code": "ValidationException", "Message": "invalid"}},
-                "TransactWriteItems",
-            )
+            raise ClientError({"Error": {
+                "Code": "ValidationException", "Message": "invalid"}}, "TransactWriteItems")
     with pytest.raises(ClientError):
         execute_transaction(InvalidClient(), ())
 @pytest.mark.parametrize("reason", [None, "ThrottlingError", "ProvisionedThroughputExceeded",
@@ -466,19 +473,15 @@ def test_codec_propaga_cancelamento_sem_falha_condicional(reason: str | None) ->
         @staticmethod
         def transact_write_items(**kwargs: Any) -> None:
             reasons = [] if reason is None else [{"Code": reason}]
-            raise ClientError(
-                {"Error": {"Code": "TransactionCanceledException"},
-                 "CancellationReasons": reasons}, "TransactWriteItems",
-            )
+            raise ClientError({"Error": {"Code": "TransactionCanceledException"},
+                "CancellationReasons": reasons}, "TransactWriteItems")
     with pytest.raises(ClientError):
         execute_transaction(CanceledClient(), ())
 def test_idempotencia_recupera_resultado_de_corrida_confirmada(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
-    command = BeginIdempotency(
-        tenant_id=_TENANT, scope="jobs", key="race", request_hash=_HASH_A,
-        resource_id="resource-a", now=clock.now(),
-        expires_at=clock.now() + timedelta(minutes=5),
-    )
+    command = BeginIdempotency(tenant_id=_TENANT, scope="jobs", key="race",
+        request_hash=_HASH_A, resource_id="resource-a", now=clock.now(),
+        expires_at=clock.now() + timedelta(minutes=5))
     transact = adapter._transact
     def wins_then_reports_conflict(actions: Any) -> None:
         transact(actions)
@@ -490,11 +493,8 @@ def test_idempotencia_recupera_resultado_de_corrida_confirmada(ctx: _DynamoConte
 def test_idempotencia_propaga_conflito_sem_vencedor_visivel(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     adapter._client = FailingTransactionClient(adapter._client)
-    command = BeginIdempotency(
-        tenant_id=_TENANT, scope="jobs", key="lost-race", request_hash=_HASH_A,
-        resource_id="resource-a",
-        now=clock.now(),
-        expires_at=clock.now() + timedelta(minutes=5),
-    )
+    command = BeginIdempotency(tenant_id=_TENANT, scope="jobs", key="lost-race",
+        request_hash=_HASH_A, resource_id="resource-a", now=clock.now(),
+        expires_at=clock.now() + timedelta(minutes=5))
     with pytest.raises(Conflict, match="transaction_conflict"):
         adapter.begin_idempotency(command)
