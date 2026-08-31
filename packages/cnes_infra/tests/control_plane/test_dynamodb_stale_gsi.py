@@ -46,7 +46,10 @@ _HASH_B = "b" * 64
 class OneItemPageClient(ClientSpy):
     def query(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("query")
-        return self.client.query(**kwargs, Limit=1)
+        response = self.client.query(**kwargs, Limit=1)
+        if kwargs.get("IndexName") == "gsi6":
+            response["Items"] *= 2
+        return response
 @pytest.fixture
 def dynamodb_context() -> Any:
     with mock_aws():
@@ -363,13 +366,11 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(
     events = tuple(
         _event(f"event-{index}").model_copy(
             update={"created_at": clock.now() + timedelta(seconds=index)}
-        )
-        for index in range(3)
+        ) for index in range(3)
     )
     for index, event in enumerate(events):
         adapter.create_job(_job(f"job-{index}"), event)
-    markers = (("missing", "missing", 3), ("stale", "job-created", 2),
-               ("duplicate", "event-0", 1))
+    markers = (("missing", "missing", 3), ("stale", "job-created", 2), ("newer", "event-1", 1))
     for marker_id, base_id, minutes in markers:
         marker = encode_marker(
             "STALE_OUTBOX", entity_key(_TENANT, "STALE_OUTBOX", marker_id),
@@ -379,7 +380,8 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(
         client.put_item(TableName=_TABLE_NAME, Item=marker)
     paginated = OneItemPageClient(client)
     adapter._client = paginated
-    assert adapter.pending_outbox(0) == ()
+    assert (adapter.pending_outbox(0), adapter.pending_outbox(1)) == ((), events[:1])
+    paginated.calls.clear()
     assert adapter.pending_outbox(2) == events[:2]
     assert paginated.calls.count("query") == 5
 def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(
@@ -478,7 +480,6 @@ def test_idempotencia_recupera_resultado_de_corrida_confirmada(
         raise Conflict("transaction_conflict")
     adapter._transact = wins_then_reports_conflict
     outcome = adapter.begin_idempotency(command)
-
     assert not outcome.created
     assert outcome.record.resource_id == "resource-a"
 def test_idempotencia_propaga_conflito_sem_vencedor_visivel(
@@ -495,6 +496,5 @@ def test_idempotencia_propaga_conflito_sem_vencedor_visivel(
         now=clock.now(),
         expires_at=clock.now() + timedelta(minutes=5),
     )
-
     with pytest.raises(Conflict, match="transaction_conflict"):
         adapter.begin_idempotency(command)

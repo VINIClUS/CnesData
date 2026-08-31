@@ -206,6 +206,19 @@ class DynamoDBPublication:
         """Retorna um evento pela identidade global."""
         return self._get_outbox_event(event_id)
 
+    def _pending_outbox_event(
+        self, candidate: Item, key: tuple[str, str]
+    ) -> OutboxEvent | None:
+        item = self._get_item(key)
+        if item is None or item.get("entity", {}).get("S") != "OUTBOXEVENT":
+            return None
+        event = decode_model(item, OutboxEvent)
+        current_index = (item.get("gsi6pk"), item.get("gsi6sk"))
+        candidate_index = (candidate.get("gsi6pk"), candidate.get("gsi6sk"))
+        if event.delivered_at is not None or current_index != candidate_index:
+            return None
+        return event
+
     def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]:
         """Lista eventos pendentes globalmente."""
         if limit <= 0:
@@ -228,13 +241,10 @@ class DynamoDBPublication:
                 )
                 if key in seen:
                     continue
+                event = self._pending_outbox_event(candidate, key)
+                if event is None:
+                    continue
                 seen.add(key)
-                item = self._get_item(key)
-                if item is None or item.get("entity", {}).get("S") != "OUTBOXEVENT":
-                    continue
-                event = decode_model(item, OutboxEvent)
-                if event.delivered_at is not None:
-                    continue
                 events.append(event)
                 if len(events) == limit:
                     return tuple(events)
