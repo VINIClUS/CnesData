@@ -22,10 +22,9 @@ from packages.cnes_infra.tests.contracts.object_store_contract import (
     object_store_cases,
 )
 
-_DURABLE_BOUNDARIES = ("temporary_created", "file_fsynced", "destination_linked") + (
-    "directory_fsynced",
-    "temporary_unlinked",
-    "directory_final_fsynced",
+_DURABLE_BOUNDARIES = (
+    "temporary_created", "file_fsynced", "destination_linked",
+    "directory_fsynced", "temporary_unlinked", "directory_final_fsynced",
 )
 _OWNER_XATTR = "user.cnes_object_store_destination"
 
@@ -109,9 +108,12 @@ def test_cumpre_contrato_compartilhado(
     case: ObjectStoreCase, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     root = tmp_path_factory.mktemp(case.name)
-    adapter = FilesystemObjectStore(root)
-    case.run(adapter, MutableClock(datetime(2026, 7, 15, tzinfo=UTC)))
-    adapter.delete("raw/ausente")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.chdir(root.parent)
+        adapter = FilesystemObjectStore(root.name)
+        patch.chdir(root)
+        case.run(adapter, MutableClock(datetime(2026, 7, 15, tzinfo=UTC)))
+        adapter.delete("raw/ausente")
 
 
 @pytest.mark.linux_only
@@ -310,7 +312,6 @@ def test_falha_ordinaria_remove_temporario_e_fsynca_diretorio(
     real_fsync = os.fsync
     regular_fsyncs = 0
     directory_fsyncs = 0
-
     def failing_fsync(descriptor: int) -> None:
         nonlocal directory_fsyncs, regular_fsyncs
         target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
@@ -323,7 +324,6 @@ def test_falha_ordinaria_remove_temporario_e_fsynca_diretorio(
             if mode == "fsync" and regular_fsyncs == 2:
                 raise OSError(errno.EIO, "staging=failed")
         real_fsync(descriptor)
-
     monkeypatch.setattr(os, "fsync", failing_fsync)
     expected = sha256(b"outro" if mode == "sha" else b"conteudo").hexdigest()
     error = ValueError if mode == "sha" else OSError

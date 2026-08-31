@@ -121,7 +121,7 @@ class FilesystemObjectStore:
     def __init__(
         self, root: str | Path, fault_injector: Callable[[str], None] | None = None
     ) -> None:
-        self._root = Path(root)
+        self._root = Path(root).absolute()
         self._fault_injector = fault_injector
         _mkdir_durable(self._root)
         self._ensure_layout()
