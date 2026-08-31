@@ -2,19 +2,28 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from cnes_domain.control_plane.commands import CancelJob, CompleteJob
+from cnes_domain.control_plane.commands import (
+    CancelJob,
+    CompleteJob,
+    FailRunUnit,
+    FinishRunDispatch,
+)
 from cnes_domain.control_plane.entities import AccessRequest, Job, RawManifestRecord, Tenant
-from cnes_domain.control_plane.enums import AccessRequestState, JobState
-from cnes_domain.control_plane.errors import Conflict, NotFound
+from cnes_domain.control_plane.enums import AccessRequestState, DispatchOutcome, JobState
+from cnes_domain.control_plane.errors import Conflict, LeaseLost, NotFound
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from packages.cnes_infra.tests.contracts import control_plane_contract
 from packages.cnes_infra.tests.contracts.clock import (
     MutableClock,
     _agent,
     _claim_job,
+    _claim_unit,
+    _commit_command,
     _event,
     _job,
+    _prepare_unit,
     _raw_record,
+    _reserve,
 )
 from packages.cnes_infra.tests.contracts.control_plane_contract import control_plane_cases
 
@@ -320,6 +329,54 @@ def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(
     assert sqlite_control_plane.pending_outbox(100) == (created,)
     with pytest.raises(NotFound, match="outbox_event_missing"):
         sqlite_control_plane.mark_outbox_delivered("missing", datetime.now(UTC))
+
+
+@pytest.mark.parametrize("operation", ["commit_run_unit", "fail_run_unit"])
+def test_rejeita_resultado_de_unidade_terminal_ou_de_outro_dispatch(
+    sqlite_control_plane, clock, operation
+) -> None:
+    dispatch = _prepare_unit(sqlite_control_plane, clock)
+    claimed = _claim_unit(sqlite_control_plane, clock, dispatch.dispatch_id, "worker-a")
+    assert claimed is not None
+    commit = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    command = commit
+    if operation == "fail_run_unit":
+        command = FailRunUnit(
+            tenant_id="354130", run_id="run-a", unit_id="unit-a",
+            dispatch_id=dispatch.dispatch_id, owner="worker-a",
+            fencing_token=claimed.fencing_token, error_code="late", retryable=True,
+        )
+    sqlite_control_plane.finish_run_dispatch(
+        FinishRunDispatch(
+            tenant_id="354130", run_id="run-a", dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.FAILED, finished_at=clock.now(),
+        )
+    )
+    action = getattr(sqlite_control_plane, operation)
+    before = (
+        sqlite_control_plane.list_run_units("354130", "run-a"),
+        sqlite_control_plane.pending_outbox(100),
+    )
+
+    with pytest.raises(LeaseLost, match="dispatch_inactive"):
+        action(command, _event("late-result"))
+
+    assert before == (
+        sqlite_control_plane.list_run_units("354130", "run-a"),
+        sqlite_control_plane.pending_outbox(100),
+    )
+    replacement = _reserve(sqlite_control_plane, clock)
+    stale = command.model_copy(update={"dispatch_id": replacement.dispatch_id})
+    before_stale = (
+        sqlite_control_plane.list_run_units("354130", "run-a"),
+        sqlite_control_plane.pending_outbox(100),
+    )
+    with pytest.raises(LeaseLost, match="unit_dispatch_mismatch"):
+        action(stale, _event("stale-result"))
+    assert before_stale == (
+        sqlite_control_plane.list_run_units("354130", "run-a"),
+        sqlite_control_plane.pending_outbox(100),
+    )
 
 
 def test_cancela_job_leased_e_torna_replay_idempotente(sqlite_control_plane, clock) -> None:

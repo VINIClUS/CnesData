@@ -255,6 +255,7 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
             current
             and current.wave_id == command.wave_id
             and current.lease_until > command.now
+            and current.state in {DispatchState.RESERVED, DispatchState.STARTED}
         )
         if replay:
             return current
@@ -373,10 +374,14 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
         raise LeaseLost("parent_not_processing")
     if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
         raise LeaseLost("dispatch_mismatch")
+    if dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTED}:
+        raise LeaseLost("dispatch_inactive")
     if dispatch.lease_until <= store.now():
         raise LeaseLost("dispatch_expired")
     if unit is None or unit.state is not RunUnitState.LEASED:
         raise LeaseLost("unit_not_leased")
+    if unit.dispatch_id != command.dispatch_id:
+        raise LeaseLost("unit_dispatch_mismatch")
     if unit.lease_owner != command.owner:
         raise LeaseLost("owner_mismatch")
     if unit.fencing_token != command.fencing_token:

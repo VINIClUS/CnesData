@@ -278,6 +278,8 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
         run = store.get_run_record(connection, version.tenant_id, version.run_id)
         if run is None or run.state is not RunState.PUBLISHING:
             raise Conflict("run_not_publishing")
+        if run.dataset_name != version.dataset_name:
+            raise Conflict("run_dataset_mismatch")
         updated = run.model_copy(
             update={"state": command.final_state, "missing_sources": command.missing_sources}
         )

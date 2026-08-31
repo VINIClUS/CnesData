@@ -36,8 +36,10 @@ from packages.cnes_infra.tests.contracts.clock import (
     _commit_command,
     _event,
     _job,
+    _prepare_unit,
     _put_units,
     _raw_record,
+    _reserve,
     _run,
     _store_record,
     _unit,
@@ -341,16 +343,7 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
     dependency = (RunDependency(source_type="CNES", file_subtype="ST", required=False),)
     adapter.put_run(_run("run-a", dependencies=dependency))
     _put_units(adapter, (_unit("unit-a"), _unit("unit-b")))
-    dispatch = adapter.reserve_run_dispatch(
-        ReserveRunDispatch(
-            tenant_id="354130",
-            run_id="run-a",
-            wave_id="a" * 16,
-            unit_ids=("unit-a", "unit-b"),
-            now=clock.now(),
-            lease_seconds=30,
-        )
-    )
+    dispatch = _reserve(adapter, clock, unit_ids=("unit-a", "unit-b"))
     for unit_id in ("unit-a", "unit-b"):
         claimed = adapter.claim_run_unit(
             _claim_unit_command(dispatch.dispatch_id, f"worker-{unit_id}", clock, unit_id)
@@ -374,18 +367,7 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
 
 
 def test_rejeita_bind_de_dispatch_ausente_ou_terminal(adapter, clock) -> None:
-    adapter.put_run(_run("run-a"))
-    _put_units(adapter, (_unit("unit-a"),))
-    dispatch = adapter.reserve_run_dispatch(
-        ReserveRunDispatch(
-            tenant_id="354130",
-            run_id="run-a",
-            wave_id="a" * 16,
-            unit_ids=("unit-a",),
-            now=clock.now(),
-            lease_seconds=60,
-        )
-    )
+    dispatch = _prepare_unit(adapter, clock)
     bind = BindRunDispatch(
         tenant_id="354130",
         run_id="run-a",
@@ -407,6 +389,8 @@ def test_rejeita_bind_de_dispatch_ausente_ou_terminal(adapter, clock) -> None:
     )
     with pytest.raises(Conflict, match="dispatch_terminal"):
         adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
+    replacement = _reserve(adapter, clock)
+    assert (replacement.generation, replacement.dispatch_id != dispatch.dispatch_id) == (2, True)
 
 
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
@@ -435,9 +419,19 @@ def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> Non
         adapter.commit_run_unit(expired, _event("expired-commit"))
 
 
-def test_rejeita_replay_de_versao_quando_pointer_ja_avancou(adapter) -> None:
-    adapter.put_run(_run("run-a", RunState.PUBLISHING))
+def test_rejeita_dataset_divergente_e_replay_apos_pointer_avancar(adapter) -> None:
+    run = _run("run-a", RunState.PUBLISHING)
+    adapter.put_run(run)
     first = _publish("run-a", "published-a", None, False)
+    mismatched = first.model_copy(
+        update={"version": first.version.model_copy(update={"dataset_name": "silver"})}
+    )
+    with pytest.raises(Conflict, match="run_dataset_mismatch"):
+        adapter.publish_dataset(mismatched)
+    assert adapter.get_run("354130", "run-a") == run
+    assert adapter.get_dataset_pointer("354130", "silver") is None
+    assert adapter.get_dataset_version("354130", "silver", "run-a") is None
+    assert mismatched.event not in adapter.pending_outbox(100)
     adapter.publish_dataset(first)
     adapter.put_run(_run("run-b", RunState.PUBLISHING))
     adapter.publish_dataset(_publish("run-b", "published-b", "run-a", False))
