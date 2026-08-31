@@ -96,12 +96,12 @@ Order:
 11. while fenced, admit only the release-bound synthetic canary. The hard fence
     budget reserves rollback margin, aborting unfinished work early enough to
     restore prior routes and reopen admissions within 60 seconds of step 5;
-12. retain the prior release and record redacted evidence. Failure in steps 6-11
-    restores all prior routes while fenced, then reopens admissions.
+12. retain the prior release and evidence. After successful phase B, later failure
+    restores prior routes within the fence budget. A partial apply stays fenced
+    until a diagnosed, reviewed plan converges every route; never reopen mixed.
 
-Retain old revisions and their `ecs:RunTask` grants until all active old Standard
-executions and recovery tasks drain and the rollback-retention period ends. Prune
-only older non-rollback revisions after that point.
+Retain old revisions and `ecs:RunTask` grants until active old Standard/recovery
+work drains and rollback retention ends. Then prune older non-rollback revisions.
 
 No production deployment occurs automatically after merge.
 
@@ -293,7 +293,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   only the OpenTofu-owned state-machine/Scheduler targets after verifying the
   binding. API/frontend steps verify the same binding. Tests reject artifact
   mixing, out-of-band mutation and `ignore_changes`, then prove selected exact
-  digests, clean state and no drift;
+  digests, clean state and no drift. Fault injection leaves a partial apply fenced
+  until a diagnosed, reviewed plan converges all routes; mixed routes never reopen;
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
   starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
@@ -328,12 +329,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
-- recovery role tests scope `states:StartExecution`/`states:DescribeStateMachine`
-  to the exact production state machine,
-  `states:DescribeExecution`/`states:StopExecution` to its executions and ECS
-  liveness reads to the configured cluster/task family or required narrow
-  `Resource: *` conditions. Cancellation and failed replacement binding prove
-  recovery can stop the execution, while another machine is denied;
+- recovery-role tests scope start/describe-machine to the exact production
+  machine, describe/stop-execution to its executions and ECS liveness to the
+  configured cluster/task family or required narrow `Resource: *` conditions.
+  Cancellation/failed binding proves stop succeeds; another machine is denied;
 - a crash during `PUBLISHING` proves the recovery role reads manifest sidecars,
   promotes/verifies source-to-destination copies, writes reconciliation/serving
   manifests and completes pointer CAS without `AccessDenied`. Negative tests
