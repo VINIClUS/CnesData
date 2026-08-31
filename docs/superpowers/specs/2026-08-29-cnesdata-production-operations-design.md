@@ -141,11 +141,11 @@ No production deployment occurs automatically after merge.
   cutoffs contain downstream amplification.
 - Requests beyond product quota fail with `429` or the documented quota error
   before starting Step Functions or Athena.
-- The USD 15 action uses its service-linked role to attach OpenTofu-owned
-  `cnesdata-cost-freeze` to promotion/API, recovery task/Scheduler, Step Functions
-  execution and Athena-operator roles. It denies new compute/query starts; promotion
-  self-reads and aborts. Audit task/Scheduler stay on. Only cost-clear detaches after
-  reviewed spend/forecast recovery; history is retained and billing may lag.
+- At USD 15, OpenTofu creates a dedicated same-account `ExecutionRoleArn` trusted
+  only by `budgets.amazonaws.com` for the exact Budget ARN/source account. It gets
+  `iam:AttachRolePolicy` on named promotion/API, recovery task/Scheduler, Step Functions
+  execution and Athena roles, conditioned to `cnesdata-cost-freeze`. Audit stays on;
+  only cost-clear detaches after reviewed recovery; history remains and billing may lag.
 
 ## 5. Observability and SLOs
 
@@ -324,9 +324,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   semaphore writes are denied. Races prove close-first blocks acquire before drain;
   expired takeover needs liveness proof; losers never start and get `429`/quota;
 - cost tests count billed pull/start/run/stop. Two minutes per 30-minute recovery and
-  audit invocation budget 48+48=96 hours/30 days, leaving 4 for units; excess is alarmed.
-  Freeze tests attach to promotion/API, recovery task/Scheduler and Step Functions/Athena
-  roles; prove self-read/abort, audit task/Scheduler continuity and cost-clear;
+  audit budget 48+48=96 hours/30 days leaves 4 for units; excess is alarmed. Tests assert
+  same-account `ExecutionRoleArn`, exact Budget trust and `iam:AttachRolePolicy` limited
+  by target role/`iam:PolicyARN`; freeze, audit continuity and cost-clear remain proven;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
