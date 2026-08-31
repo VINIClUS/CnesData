@@ -149,6 +149,35 @@ def query_partition(client: Any, table_name: str, partition: str, prefix: str) -
     )
 
 
+def aggregate_items(
+    client: Any, table_name: str, base_key: tuple[str, str], child_key: tuple[str, str]
+) -> tuple[Item | None, tuple[Item, ...]]:
+    """Relê fortemente um agregado e todos os filhos do prefixo."""
+    response = client.get_item(
+        TableName=table_name, Key=item_key(*base_key), ConsistentRead=True)
+    return response.get("Item"), query_partition(client, table_name, *child_key)
+
+
+def aggregate_replay(
+    client: Any, table_name: str, expected: tuple[Item, tuple[str, str], tuple[Item, ...]]
+) -> bool:
+    """Reconhece replay exato de um agregado base e seus filhos."""
+    base, child_key, children = expected
+    base_key = base["pk"]["S"], base["sk"]["S"]
+    current, current_children = aggregate_items(client, table_name, base_key, child_key)
+    if current is None:
+        if current_children:
+            raise Conflict("run_dependency_conflict")
+        return False
+    if current != base:
+        raise Conflict("run_conflict")
+    def keyed(items: tuple[Item, ...]) -> dict[tuple[str, str], Item]:
+        return {(item["pk"]["S"], item["sk"]["S"]): item for item in items}
+    if keyed(current_children) != keyed(children):
+        raise Conflict("run_dependency_conflict")
+    return True
+
+
 def bounded_partition(
     client: Any, table_name: str, key: tuple[str, str], max_items: int
 ) -> tuple[Item, ...] | None:

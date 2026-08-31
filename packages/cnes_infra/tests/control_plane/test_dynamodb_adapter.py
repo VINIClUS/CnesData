@@ -183,23 +183,16 @@ def _store_waiting(adapter: DynamoDBControlPlane, run: Any, event_id: str) -> An
     return run
 def _expected_unit_action(index: int, state: RunUnitState) -> dict[str, Any]:
     unit = _unit(f"unit-{index:03d}").model_copy(update={"state": state})
-    item = _expected_item(
-        unit,
-        "RUNUNIT",
-        unit_key(_TENANT, "run-a", f"unit-{index:03d}"),
-        {
-            "gsi5pk": f"RUN_ITEMS#{key_component(_TENANT)}#{key_component('run-a')}",
-            "gsi5sk": f"UNIT#{key_component(f'unit-{index:03d}')}",
-        },
-    )
+    indexes = {
+        "gsi5pk": f"RUN_ITEMS#{key_component(_TENANT)}#{key_component('run-a')}",
+        "gsi5sk": f"UNIT#{key_component(f'unit-{index:03d}')}"}
+    item = _expected_item(unit, "RUNUNIT",
+        unit_key(_TENANT, "run-a", f"unit-{index:03d}"), indexes)
     expected = None if state is RunUnitState.PENDING else _unit(f"unit-{index:03d}")
     return _expected_put(item, expected.model_dump_json() if expected is not None else None)
 def _hide_unit_from_gsi(adapter: DynamoDBControlPlane, unit_id: str) -> None:
-    item = adapter._client.get_item(
-        TableName=_TABLE_NAME,
-        Key=item_key(*unit_key(_TENANT, "run-a", unit_id)),
-        ConsistentRead=True,
-    )["Item"]
+    item = adapter._client.get_item(TableName=_TABLE_NAME,
+        Key=item_key(*unit_key(_TENANT, "run-a", unit_id)), ConsistentRead=True)["Item"]
     item.pop("gsi5pk")
     item.pop("gsi5sk")
     adapter._client.put_item(TableName=_TABLE_NAME, Item=item)
@@ -214,12 +207,9 @@ def test_grava_99_unidades_em_ate_100_acoes_unicas(ctx: _DynamoContext) -> None:
     run = _run("run-a")
     expected_check = {
         "ConditionCheck": {
-            "TableName": _TABLE_NAME,
-            "Key": item_key(*run_entity_key(_TENANT, "run-a")),
+            "TableName": _TABLE_NAME, "Key": item_key(*run_entity_key(_TENANT, "run-a")),
             "ConditionExpression": "payload = :expected",
-            "ExpressionAttributeValues": {":expected": {"S": run.model_dump_json()}},
-        }
-    }
+            "ExpressionAttributeValues": {":expected": {"S": run.model_dump_json()}}}}
     assert actions == [
         expected_check,
         *(_expected_unit_action(index, RunUnitState.PENDING) for index in range(99)),
@@ -240,15 +230,13 @@ def test_rejeita_uniao_de_99_unidades_antes_de_transacao(ctx: _DynamoContext) ->
     units = _put_many_units(adapter, 99)
     first = ReserveRunDispatch(
         tenant_id=_TENANT, run_id="run-a", wave_id="a" * 16,
-        unit_ids=tuple(unit.unit_id for unit in units[:98]), now=clock.now(), lease_seconds=30,
-    )
+        unit_ids=tuple(unit.unit_id for unit in units[:98]), now=clock.now(), lease_seconds=30)
     adapter.reserve_run_dispatch(first)
     clock.advance(timedelta(seconds=31))
     spy = ClientSpy(adapter._client)
     adapter._client = spy
-    replacement = first.model_copy(update={
-        "wave_id": "b" * 16, "unit_ids": ("unit-098",), "now": clock.now(),
-    })
+    replacement = first.model_copy(update={"wave_id": "b" * 16,
+        "unit_ids": ("unit-098",), "now": clock.now()})
     with pytest.raises(Conflict, match="transaction_limit"):
         adapter.reserve_run_dispatch(replacement)
     assert spy.transactions == []
@@ -258,11 +246,8 @@ def _prepare_cancellation(adapter: DynamoDBControlPlane, amount: int) -> None:
     adapter.put_run(_run("run-a", RunState.CANCEL_REQUESTED))
 def _finalize(adapter: DynamoDBControlPlane, clock: MutableClock) -> Any:
     command = FinalizeRunCancellation(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        expected_state=RunState.CANCEL_REQUESTED,
-        canceled_at=clock.now(),
-    )
+        tenant_id=_TENANT, run_id="run-a", expected_state=RunState.CANCEL_REQUESTED,
+        canceled_at=clock.now())
     return adapter.finalize_run_cancellation(command, _event("run-canceled"))
 def test_cancela_98_unidades_em_100_acoes_unicas(ctx: _DynamoContext) -> None:
     adapter, clock = ctx
@@ -276,16 +261,10 @@ def test_cancela_98_unidades_em_100_acoes_unicas(ctx: _DynamoContext) -> None:
     run_item = _expected_item(canceled, "RUN", run_entity_key(_TENANT, "run-a"), {})
     original_payload = _run("run-a", RunState.CANCEL_REQUESTED).model_dump_json()
     event = _event("run-canceled")
-    event_item = _expected_item(
-        event,
-        "OUTBOXEVENT",
-        outbox_key("run-canceled"),
-        {
-            "gsi6pk": "OUTBOX#PENDING",
-            "gsi6sk": f"{_NOW.isoformat(timespec='microseconds')}#"
-                       f"{key_component('run-canceled')}",
-        },
-    )
+    indexes = {"gsi6pk": "OUTBOX#PENDING",
+        "gsi6sk": f"{_NOW.isoformat(timespec='microseconds')}#"
+                  f"{key_component('run-canceled')}"}
+    event_item = _expected_item(event, "OUTBOXEVENT", outbox_key("run-canceled"), indexes)
     assert actions == [
         _expected_put(run_item, original_payload),
         *(_expected_unit_action(index, RunUnitState.CANCELED) for index in range(98)),
@@ -338,11 +317,44 @@ def test_waiting_reverte_run_quando_marcador_falha(state: RunState, ctx: _Dynamo
     identity = "RUN_DEP#" + "#".join(map(key_component, (_TENANT, "SOURCE-0", "ST", "2026-07")))
     marker_key = dependency_marker_key(_TENANT, "run-a", identity)
     adapter._client.put_item(TableName=_TABLE_NAME, Item=item_key(*marker_key))
-    with pytest.raises(Conflict, match="transaction_conflict"):
+    error = "transaction_conflict" if state is RunState.PLANNED else "run_dependency_conflict"
+    with pytest.raises(Conflict, match=error):
         _store_waiting(adapter, run, "waiting-rollback")
     expected = run if state is RunState.PLANNED else None
     assert adapter.get_run(_TENANT, "run-a") == expected
     assert adapter.get_outbox_event("waiting-rollback") is None
+def test_put_waiting_recupera_resposta_perdida_e_rejeita_divergencias(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, _ = ctx
+    run = _dependency_run(2, RunState.WAITING_INPUTS, "run-replay")
+    transact = adapter._transact
+    def commit_then_lose_response(actions: Any) -> None:
+        transact(actions)
+        raise Conflict("transaction_conflict")
+    adapter._transact = commit_then_lose_response
+    adapter.put_run(run)
+    adapter._transact = transact
+    adapter._client = spy = ClientSpy(adapter._client)
+    adapter.put_run(run)
+    assert any(request.get("ConsistentRead") is True for request in spy.query_requests)
+    before = spy.scan(TableName=_TABLE_NAME)["Items"]
+    divergent = run.model_copy(update={"created_at": _NOW + timedelta(seconds=1)})
+    with pytest.raises(Conflict, match="run_conflict"):
+        adapter.put_run(divergent)
+    assert spy.scan(TableName=_TABLE_NAME)["Items"] == before
+    marker = next(item for item in before if item.get("entity", {}).get("S") == "RUN_DEP")
+    marker["gsi3sk"] = {"S": "divergent"}
+    spy.put_item(TableName=_TABLE_NAME, Item=marker)
+    changed = spy.scan(TableName=_TABLE_NAME)["Items"]
+    with pytest.raises(Conflict, match="run_dependency_conflict"):
+        adapter.put_run(run)
+    assert spy.scan(TableName=_TABLE_NAME)["Items"] == changed
+    fresh = _dependency_run(1, RunState.WAITING_INPUTS, "run-loser")
+    adapter._client = FailingTransactionClient(spy.client)
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.put_run(fresh)
+    assert adapter.get_run(_TENANT, "run-loser") is None
 def test_claims_retornam_none_quando_cas_perde_corrida(ctx: _DynamoContext) -> None:
     adapter, clock = ctx
     adapter.put_agent(_agent("agent-a"))
@@ -352,27 +364,13 @@ def test_claims_retornam_none_quando_cas_perde_corrida(ctx: _DynamoContext) -> N
     adapter._client = adapter._client.client
     dispatch = _prepare_unit(adapter, clock)
     adapter._client = FailingTransactionClient(adapter._client)
-    command = ClaimRunUnit(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        unit_id="unit-a",
-        dispatch_id=dispatch.dispatch_id,
-        owner="worker-a",
-        now=clock.now(),
-        lease_seconds=30,
-    )
+    command = ClaimRunUnit(tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
+        dispatch_id=dispatch.dispatch_id, owner="worker-a", now=clock.now(), lease_seconds=30)
     assert adapter.claim_run_unit(command) is None
 def test_unit_ausente_nao_e_reivindicada_nem_finalizada(ctx: _DynamoContext) -> None:
     adapter, clock = ctx
-    claim = ClaimRunUnit(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        unit_id="unit-a",
-        dispatch_id="a" * 16,
-        owner="worker-a",
-        now=clock.now(),
-        lease_seconds=30,
-    )
+    claim = ClaimRunUnit(tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
+        dispatch_id="a" * 16, owner="worker-a", now=clock.now(), lease_seconds=30)
     assert adapter.claim_run_unit(claim) is None
     with pytest.raises(NotFound, match="unit_context_missing"):
         adapter.commit_run_unit(_commit_command("a" * 16, "worker-a", 1), _event("missing-unit"))

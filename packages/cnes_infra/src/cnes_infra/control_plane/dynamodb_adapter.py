@@ -29,6 +29,7 @@ from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
     Item,
+    aggregate_replay,
     bounded_candidates,
     bounded_partition,
     check_action,
@@ -75,8 +76,6 @@ _NONTERMINAL_UNITS = {
     RunUnitState.LEASED,
     RunUnitState.FAILED_RETRYABLE,
 }
-
-
 class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
     """Persiste o plano de controle em uma tabela DynamoDB."""
 
@@ -282,7 +281,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             "gsi1", partition, Job, lambda job: self._job_is_claimable(job, self._clock()), limit
         )
         return tuple(sorted(eligible, key=lambda job: (job.created_at, job.job_id))[:limit])
-
     @staticmethod
     def _job_is_claimable(job: Job, now: datetime) -> bool:
         if job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}:
@@ -290,7 +288,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         return (
             job.state is JobState.LEASED and job.lease_until is not None and job.lease_until <= now
         )
-
     def _dependency_actions(self, run: Run, reserved_actions: int) -> tuple[Action, ...]:
         if run.state is not RunState.WAITING_INPUTS:
             return ()
@@ -310,20 +307,30 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             marker = encode_marker("RUN_DEP", marker_key, base_key, attributes)
             actions.append(put_action(self._table_name, marker, None))
         return tuple(actions)
-
     def put_run(self, run: Run) -> None:
         """Persiste um run e seus índices de dependência."""
         if run.state is not RunState.WAITING_INPUTS:
             self._put_direct(self._run_item(run))
             return
+        if self._waiting_run_replay(run):
+            return
         actions = (put_action(self._table_name, self._run_item(run), None),
                    *self._dependency_actions(run, 1))
-        self._transact(actions)
-
+        try:
+            self._transact(actions)
+        except Conflict:
+            if self._waiting_run_replay(run):
+                return
+            raise
+    def _waiting_run_replay(self, run: Run) -> bool:
+        actions = self._dependency_actions(run, 1)
+        children = tuple(action["Put"]["Item"] for action in actions)
+        child_key = dependency_marker_key(run.tenant_id, run.run_id, "")
+        expected = self._run_item(run), child_key, children
+        return aggregate_replay(self._client, self._table_name, expected)
     def get_run(self, tenant_id: str, run_id: str) -> Run | None:
         """Retorna o run solicitado."""
         return self._get_model(run_entity_key(tenant_id, run_id), Run)
-
     def list_waiting_runs_for_dependency(self, *args: Any) -> tuple[Run, ...]:
         """Lista runs aguardando uma dependência."""
         tenant_id, source_type, file_subtype, competencia, *rest = args
@@ -340,7 +347,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             )
         runs = self._query("gsi3", identity, Run, valid, limit)
         return tuple(sorted(runs, key=lambda run: (run.created_at, run.run_id))[:limit])
-
     def list_recoverable_runs(self, now: datetime, limit: int = 100) -> tuple[Run, ...]:
         """Lista runs recuperáveis no instante informado."""
         valid = self._query(
@@ -348,7 +354,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             lambda run: run.state in _RECOVERABLE and run.created_at <= now, limit)
         ordered = sorted(valid, key=lambda run: (run.created_at, run.tenant_id, run.run_id))
         return tuple(ordered[:limit])
-
     def transition_run(self, command: TransitionRun, event: OutboxEvent) -> Run:
         """Transiciona um run e grava o evento atomicamente."""
         key = run_entity_key(command.tenant_id, command.run_id)
@@ -368,7 +373,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         )
         self._transact(actions)
         return updated
-
     def put_run_units(self, command: PutRunUnits) -> tuple[RunUnit, ...]:
         """Persiste o grafo de unidades atomicamente."""
         units = tuple(sorted(command.units, key=lambda unit: unit.unit_id))
@@ -422,7 +426,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             )
         )
         return updated
-
     def finalize_run_cancellation(
         self, command: FinalizeRunCancellation, event: OutboxEvent
     ) -> Run:
@@ -451,14 +454,12 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         actions.append(self._event_action(command.tenant_id, event))
         self._transact(tuple(actions))
         return updated_run
-
     def _cancel_unit_action(self, unit: RunUnit, run: Run) -> Action:
         canceled = transition_run_unit(unit, RunUnitState.CANCELED, run).model_copy(
             update={"lease_owner": None, "lease_until": None}
         )
         expected = payload(self._unit_item(unit))
         return put_action(self._table_name, self._unit_item(canceled), expected)
-
     def put_access_request(self, request: AccessRequest, event: OutboxEvent) -> None:
         """Cria uma solicitação de acesso atomicamente."""
         key = entity_key(request.tenant_id, "ACCESS", request.request_id)
@@ -472,7 +473,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         self._transact(
             (put_action(self._table_name, item, None), self._event_action(request.tenant_id, event))
         )
-
     def get_access_request(self, tenant_id: str, request_id: str) -> AccessRequest | None:
         """Retorna a solicitação de acesso."""
         return self._get_model(entity_key(tenant_id, "ACCESS", request_id), AccessRequest)
