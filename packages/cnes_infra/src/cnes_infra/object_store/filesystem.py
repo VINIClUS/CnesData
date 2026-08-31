@@ -94,7 +94,7 @@ class FilesystemObjectStore:
             return _RecoveryKind.LINKED
         if destination.is_file():
             return _RecoveryKind.LOSING
-        raise Conflict("invalid_destination")
+        raise Conflict("destination=invalid")
 
     def _recover(self, destination: Path, namespace: str) -> None:
         recoveries: set[_RecoveryKind] = set()
@@ -140,7 +140,7 @@ class FilesystemObjectStore:
             existing = self._stat(key, destination)
             self._remove_temporary(staged.path, destination.parent)
             if existing.sha256 != staged.digest:
-                raise Conflict("immutable_object") from error
+                raise Conflict("object=immutable") from error
             return existing, False
         return ObjectStat(key=key, size_bytes=staged.size, sha256=staged.digest), True
 

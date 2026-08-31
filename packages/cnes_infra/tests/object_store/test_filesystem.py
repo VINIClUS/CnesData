@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
+from threading import Event, Thread
 from typing import Any
 
 import pytest
@@ -42,18 +43,28 @@ class _CrashAt:
     def __call__(self, boundary: str) -> None:
         if boundary == self.boundary and not self.triggered:
             self.triggered = True
-            raise _SimulatedCrash(boundary)
+            raise _SimulatedCrash(f"boundary={boundary}")
 
 
 def _adapter_temporaries(root: Path) -> tuple[Path, ...]:
     return tuple(root.rglob(".cnes-object-store-*.tmp"))
 
 
-def _process_put(root: str, body: bytes, barrier: Any, results: Any) -> None:
+def _process_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
+    barrier, results, destination_linked, reader_done = controls
     expected = sha256(body).hexdigest()
+
+    def wait_for_reader(boundary: str) -> None:
+        if boundary == "destination_linked":
+            destination_linked.set()
+            if not reader_done.wait(timeout=5):
+                raise TimeoutError("reader=timeout")
+
     barrier.wait()
     try:
-        stat = FilesystemObjectStore(root).put("raw/race", BytesIO(body), expected)
+        stat = FilesystemObjectStore(root, fault_injector=wait_for_reader).put(
+            "raw/race", BytesIO(body), expected
+        )
         results.put(("ok", stat.sha256))
     except Conflict:
         results.put(("conflict", expected))
@@ -66,7 +77,7 @@ def _process_paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> No
         if boundary == "temporary_created":
             reached.set()
             if not release.wait(timeout=5):
-                raise TimeoutError("release_timeout")
+                raise TimeoutError("release=timeout")
 
     try:
         digest = sha256(body).hexdigest()
@@ -74,6 +85,21 @@ def _process_paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> No
         results.put("ok")
     except Exception as error:
         results.put(type(error).__name__)
+
+
+def _read_during_publication(root: str, controls: tuple[Any, ...]) -> None:
+    reader_ready, destination_linked, reader_done, observed = controls
+    reader_ready.set()
+    if not destination_linked.wait(timeout=5):
+        reader_done.set()
+        return
+    try:
+        with FilesystemObjectStore(root).open("raw/race") as stream:
+            observed.append(stream.read())
+    except FileNotFoundError:
+        pass
+    finally:
+        reader_done.set()
 
 
 @pytest.mark.parametrize("case", object_store_cases(), ids=lambda case: case.name)
@@ -106,7 +132,7 @@ def test_recupera_cada_fronteira_duravel_sem_apagar_arquivo_alheio(
         else:
             crashing.promote(source_key, "raw/dados.parquet", expected)
 
-    with pytest.raises(_SimulatedCrash, match=boundary):
+    with pytest.raises(_SimulatedCrash, match=f"boundary={boundary}"):
         perform()
 
     recovered = FilesystemObjectStore(tmp_path)
@@ -131,7 +157,7 @@ def test_remove_temporario_perdedor_sem_tocar_destino_valido(tmp_path: Path) -> 
     destination.write_bytes(winner)
 
     recovered = FilesystemObjectStore(tmp_path)
-    with pytest.raises(Conflict, match="immutable_object"):
+    with pytest.raises(Conflict, match="object=immutable"):
         recovered.put(key, BytesIO(losing), sha256(losing).hexdigest())
 
     assert destination.read_bytes() == winner
@@ -148,7 +174,7 @@ def test_rejeita_destino_invalido_sem_remove_lo_na_recuperacao(tmp_path: Path) -
     destination = tmp_path / key
     destination.mkdir()
 
-    with pytest.raises(Conflict, match="invalid_destination"):
+    with pytest.raises(Conflict, match="destination=invalid"):
         FilesystemObjectStore(tmp_path).put(key, BytesIO(body), sha256(body).hexdigest())
 
     assert destination.is_dir()
@@ -157,11 +183,16 @@ def test_rejeita_destino_invalido_sem_remove_lo_na_recuperacao(tmp_path: Path) -
 def test_remove_staging_quando_sha256_diverge(tmp_path: Path) -> None:
     adapter = FilesystemObjectStore(tmp_path)
 
-    with pytest.raises(ValueError, match="sha256_mismatch"):
+    with pytest.raises(ValueError, match="sha256=mismatch"):
         adapter.put("raw/invalido", BytesIO(b"conteudo"), sha256(b"outro").hexdigest())
 
     assert adapter.stat("raw/invalido") is None
     assert _adapter_temporaries(tmp_path) == ()
+
+
+def test_rejeita_chave_invalida_com_erro_estruturado(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="object_key=invalid"):
+        FilesystemObjectStore(tmp_path).stat("../fora")
 
 
 def test_nao_faz_fallback_quando_hard_link_e_incompativel(
@@ -171,11 +202,11 @@ def test_nao_faz_fallback_quando_hard_link_e_incompativel(
     adapter = FilesystemObjectStore(tmp_path)
 
     def reject_link(source: Path, destination: Path) -> None:
-        raise OSError(errno.EPERM, "hard_link_incompativel")
+        raise OSError(errno.EPERM, "hard_link=incompatible")
 
     monkeypatch.setattr(os, "link", reject_link)
 
-    with pytest.raises(OSError, match="hard_link_incompativel"):
+    with pytest.raises(OSError, match="hard_link=incompatible"):
         adapter.put("raw/sem-fallback", BytesIO(body), sha256(body).hexdigest())
 
     assert adapter.stat("raw/sem-fallback") is None
@@ -227,20 +258,29 @@ def test_corrida_entre_processos_publica_um_destino_completo(
     bodies = (b"a" * (2 * 1024 * 1024),) * 2 if identical else (b"a" * 1024, b"b" * 2048)
     barrier = context.Barrier(3)
     results = context.Queue()
+    destination_linked = context.Event()
+    reader_done = context.Event()
+    reader_ready = Event()
+    observed: list[bytes] = []
+    reader = Thread(
+        target=_read_during_publication,
+        args=(str(tmp_path), (reader_ready, destination_linked, reader_done, observed)),
+    )
+    reader.start()
+    assert reader_ready.wait(timeout=5)
     processes = [
-        context.Process(target=_process_put, args=(str(tmp_path), body, barrier, results))
+        context.Process(
+            target=_process_put,
+            args=(str(tmp_path), body, (barrier, results, destination_linked, reader_done)),
+        )
         for body in bodies
     ]
     for process in processes:
         process.start()
     barrier.wait()
-    observed = []
-    while any(process.is_alive() for process in processes):
-        try:
-            with FilesystemObjectStore(tmp_path).open("raw/race") as stream:
-                observed.append(stream.read())
-        except FileNotFoundError:
-            pass
+    reader.join(timeout=10)
+    assert not reader.is_alive()
+    assert observed
     for process in processes:
         process.join(timeout=10)
         assert process.exitcode == 0

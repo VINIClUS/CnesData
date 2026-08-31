@@ -93,10 +93,10 @@ class S3ObjectStore:
             return
         actual = response.get("ChecksumSHA256")
         if actual is None:
-            raise ValueError("checksum_response_missing")
+            raise ValueError("checksum_response=missing")
         expected = b64encode(bytes.fromhex(expected_sha256)).decode()
         if actual != expected:
-            raise ValueError("checksum_response_mismatch")
+            raise ValueError("checksum_response=mismatch")
 
     def _put_staged(
         self, key: str, staged: BinaryIO, size: int, expected_sha256: str
@@ -111,7 +111,7 @@ class S3ObjectStore:
             except ClientError as error:
                 code = _error_code(error)
                 if code == "BadDigest":
-                    raise ValueError("checksum_rejected") from error
+                    raise ValueError("checksum=rejected") from error
                 if code not in {"ConditionalRequestConflict", "PreconditionFailed"}:
                     raise
                 existing = self._read_stored(key)
@@ -122,10 +122,10 @@ class S3ObjectStore:
                         existing.metadata_sha256,
                     )
                     if values != (size, expected_sha256, expected_sha256):
-                        raise Conflict("immutable_object") from error
+                        raise Conflict("object=immutable") from error
                     return existing.stat
                 if code == "PreconditionFailed" or attempt == 2:
-                    raise Conflict("conditional_request_conflict") from error
+                    raise Conflict("conditional_request=conflict") from error
                 attempt += 1
                 continue
             self._validate_response_checksum(response, expected_sha256)

@@ -114,7 +114,7 @@ def test_interrompe_retry_condicional_apos_tres_respostas_409() -> None:
                 expected_params={"Bucket": "bucket", "Key": "raw/objeto"},
             )
 
-        with pytest.raises(Conflict, match="conditional_request_conflict"):
+        with pytest.raises(Conflict, match="conditional_request=conflict"):
             S3ObjectStore(client, "bucket").put("raw/objeto", BytesIO(body), digest)
 
 
@@ -157,7 +157,7 @@ def test_rejeita_sha256_local_antes_de_acessar_s3() -> None:
     client = _client()
 
     with Stubber(client):
-        with pytest.raises(ValueError, match="sha256_mismatch"):
+        with pytest.raises(ValueError, match="sha256=mismatch"):
             S3ObjectStore(client, "bucket").put(
                 "raw/objeto", BytesIO(b"conteudo"), sha256(b"outro").hexdigest()
             )
@@ -227,7 +227,7 @@ def test_rejeita_412_quando_metadata_nao_confirma_destino(
             {"Bucket": "bucket", "Key": "raw/objeto"},
         )
 
-        with pytest.raises(Conflict, match="immutable_object"):
+        with pytest.raises(Conflict, match="object=immutable"):
             S3ObjectStore(client, "bucket").put("raw/objeto", BytesIO(body), digest)
 
 
@@ -257,7 +257,7 @@ def test_envia_retencao_e_sha256_explicito_e_valida_resposta() -> None:
 
 @pytest.mark.parametrize(
     ("response", "message"),
-    [({}, "checksum_response_missing"), ({"ChecksumSHA256": "AAAA"}, "checksum_response_mismatch")],
+    [({}, "checksum_response=missing"), ({"ChecksumSHA256": "AAAA"}, "checksum_response=mismatch")],
     ids=["ausente", "divergente"],
 )
 def test_rejeita_checksum_de_resposta_ausente_ou_divergente(
@@ -299,10 +299,10 @@ def test_rejeita_baddigest_do_s3() -> None:
             retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
         )
 
-        with pytest.raises(ValueError, match="checksum_rejected"):
+        with pytest.raises(ValueError, match="checksum=rejected"):
             adapter.put("locked/objeto", BytesIO(body), digest)
 
 
 @pytest.mark.skip(reason="retention_enforcement_requires_real_aws")
 def test_enforcement_de_retencao_requer_aws_real() -> None:
-    raise AssertionError("real_aws_required")
+    raise AssertionError("real_aws=required")
