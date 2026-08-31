@@ -24,6 +24,7 @@ from packages.cnes_infra.tests.contracts.clock import MutableClock
 _DURABLE_BOUNDARIES = ("temporary_created_before_ownership", "temporary_created", "file_fsynced",
     "destination_linked", "directory_fsynced",
     "temporary_unlinked", "directory_final_fsynced",)
+_INTERNAL = ".cnes-object-store-internal"
 _OWNER_XATTR = "user.cnes_object_store_destination"
 
 
@@ -365,8 +366,7 @@ def test_fifo_final_nao_bloqueia(tmp_path: Path) -> None:
     FilesystemObjectStore(tmp_path)
     fifo = _objects_directory(tmp_path) / sha256(key.encode()).hexdigest()
     os.mkfifo(fifo)
-    context = multiprocessing.get_context("spawn")
-    results = context.Queue()
+    results = (context := multiprocessing.get_context("spawn")).Queue()
     process = context.Process(target=_process_final, args=(str(tmp_path), results))
     process.start()
     process.join(timeout=1)
@@ -385,19 +385,19 @@ def test_chaves_prefixadas_coexistem(order: tuple[str, str], tmp_path: Path) -> 
         adapter.put(key, BytesIO(bodies[key]), sha256(bodies[key]).hexdigest())
     with adapter.open("a") as parent, adapter.open("a/b") as child:
         assert (parent.read(), child.read()) == (b"pai", b"filho")
-    lock_key = f".cnes-object-store-{sha256(b'a').hexdigest()}.lock"
-    assert adapter.stat(lock_key) is None
-    adapter.put(lock_key, BytesIO(b"lock"), sha256(b"lock").hexdigest())
-    assert adapter.stat(lock_key) is not None
-
-
-def test_root_aberto_nao_segue_ancestral_substituido(tmp_path: Path) -> None:
-    parent, replacement = tmp_path / "original", tmp_path / "replacement"
-    adapter = FilesystemObjectStore(parent / "store")
-    parent.rename(tmp_path / "moved")
-    parent.symlink_to(replacement, target_is_directory=True)
-    adapter.put("raw/objeto", BytesIO(b"conteudo"), sha256(b"conteudo").hexdigest())
-    assert not replacement.exists()
+@pytest.mark.parametrize("relative", ["", _INTERNAL, f"{_INTERNAL}/objects", f"{_INTERNAL}/locks"])
+def test_descritores_nao_seguem_layout_substituido(relative: str, tmp_path: Path) -> None:
+    descriptor_count, parent = len(os.listdir("/proc/self/fd")), tmp_path / "original"
+    adapter = FilesystemObjectStore(root := parent / "store")
+    target = root / relative if relative else parent
+    target.rename(tmp_path / "moved")
+    target.mkdir()
+    key = f".cnes-object-store-{sha256(b'a').hexdigest()}.lock"
+    adapter.put(key, BytesIO(b"conteudo"), sha256(b"conteudo").hexdigest())
+    assert tuple(target.iterdir()) == ()
+    assert adapter.stat(key) is not None
+    del adapter
+    assert len(os.listdir("/proc/self/fd")) == descriptor_count
 
 
 def test_construtor_rejeita_symlink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -78,6 +78,12 @@ def _open_root(directory: Path) -> int:
     return current
 
 
+def _close_descriptors(descriptors: tuple[int, ...]) -> None:
+    with ExitStack() as stack:
+        for descriptor in descriptors:
+            stack.callback(os.close, descriptor)
+
+
 def _link_descriptor(descriptor: int, directory: int, name: str) -> None:
     result = _LINKAT(descriptor, b"", directory, os.fsencode(name), _AT_EMPTY_PATH)
     if result != 0:
@@ -138,35 +144,36 @@ class FilesystemObjectStore:
         with ExitStack() as stack:
             self._root_descriptor = _open_root(root_path)
             stack.callback(os.close, self._root_descriptor)
-            self._ensure_layout()
+            self._internal_descriptor = _open_or_create_directory(
+                self._root_descriptor, _LAYOUT
+            )
+            stack.callback(os.close, self._internal_descriptor)
+            self._objects_descriptor = _open_or_create_directory(
+                self._internal_descriptor, _OBJECTS
+            )
+            stack.callback(os.close, self._objects_descriptor)
+            self._locks_descriptor = _open_or_create_directory(
+                self._internal_descriptor, _LOCKS
+            )
+            stack.callback(os.close, self._locks_descriptor)
             self._recover_startup()
-            self._root_finalizer = finalize(self, os.close, self._root_descriptor)
+            descriptors = (
+                self._root_descriptor,
+                self._internal_descriptor,
+                self._objects_descriptor,
+                self._locks_descriptor,
+            )
+            self._descriptors_finalizer = finalize(
+                self, _close_descriptors, descriptors
+            )
             stack.pop_all()
-
-    def _ensure_layout(self) -> None:
-        root = os.dup(self._root_descriptor)
-        try:
-            internal = _open_or_create_directory(root, _LAYOUT)
-            try:
-                objects = _open_or_create_directory(internal, _OBJECTS)
-                os.close(objects)
-                locks = _open_or_create_directory(internal, _LOCKS)
-                os.close(locks)
-            finally:
-                os.close(internal)
-        finally:
-            os.close(root)
 
     @contextmanager
     def _layout(self) -> Iterator[_Layout]:
         with ExitStack() as stack:
-            root = os.dup(self._root_descriptor)
-            stack.callback(os.close, root)
-            internal = os.open(_LAYOUT, _DIRECTORY_FLAGS, dir_fd=root)
-            stack.callback(os.close, internal)
-            objects = os.open(_OBJECTS, _DIRECTORY_FLAGS, dir_fd=internal)
+            objects = os.dup(self._objects_descriptor)
             stack.callback(os.close, objects)
-            locks = os.open(_LOCKS, _DIRECTORY_FLAGS, dir_fd=internal)
+            locks = os.dup(self._locks_descriptor)
             stack.callback(os.close, locks)
             yield _Layout(objects=objects, locks=locks)
 
