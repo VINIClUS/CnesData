@@ -361,7 +361,7 @@ InfluxDB backup bucket.
 
 The real-AWS acceptance gate proves retention and conflict behavior before any
 release claims WORM compliance. Emulator success alone is insufficient.
-Scheduled `recover-once` passes drain the transactional outbox under the operations contract.
+A dedicated scheduled dispatcher drains the transactional outbox under the operations contract.
 
 ## 11. Processing plane
 
@@ -384,15 +384,15 @@ including the AWS-required wildcard Logs actions, are verified in the
 ### 11.2 Fargate
 
 - one ECS cluster with no continuously running service;
-- unit tasks launched by Step Functions; separate `recover-once` tasks by
-  EventBridge Scheduler, under the operations contract;
+- unit tasks launch by Step Functions; separate recovery/audit-dispatch tasks
+  launch by EventBridge Scheduler under the operations contract;
 - Linux/x86_64, initial size 0.25 vCPU and 0.5-1 GiB memory;
 - included 20 GB ephemeral storage unless measured otherwise;
 - semaphore-enforced maximum one concurrent unit task per environment;
   recovery passes may overlap without a global recovery-concurrency ceiling;
 - two-hour unit-task timeout;
-- monitored monthly operating target: 100 task-hours counting every unit and
-  recovery task-hour;
+- monitored monthly target: 100 task-hours counting unit, recovery and audit
+  dispatcher tasks;
 - no autoscaling and no Fargate Spot in the first release;
 - public subnets with an ephemeral public IPv4, no inbound security-group rule,
   and no NAT Gateway or load balancer;

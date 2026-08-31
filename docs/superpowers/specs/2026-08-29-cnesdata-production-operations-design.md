@@ -69,10 +69,10 @@ Order:
 
 1. copy/promote and verify the processor digest in the expected ECR repository,
    yielding its exact `ECR_URI@sha256`;
-2. under a reviewed exact OpenTofu plan/apply, phase A registers immutable unit
-   and `recover-once` revisions pinned to that exact `ECR_URI@sha256` and
+2. under a reviewed exact OpenTofu plan/apply, phase A registers immutable unit,
+   recovery and audit-dispatch revisions pinned to exact `ECR_URI@sha256` and
    dual-authorizes old and new `ecs:RunTask` ARNs without routing changes;
-3. wait for and revalidate IAM propagation, prove both revisions authorized,
+3. wait for and revalidate IAM propagation, prove all revisions authorized,
    then output their ARNs and phase-A evidence;
 4. finalize and sign one post-registration activation manifest with the candidate
    manifest SHA-256, release ID, source SHA, exact revision ARNs, verified
@@ -82,11 +82,11 @@ Order:
    with `503`/`Retry-After`, and recovery starts no new executions;
 6. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
    signed activation manifest ARNs only after verifying that binding, then
-   switches the still OpenTofu-owned state-machine `TaskDefinition` ARN and
-   Scheduler recovery target. No out-of-band mutation or `ignore_changes` is
+   switches the OpenTofu-owned state-machine `TaskDefinition` ARN and both
+   Scheduler targets. No out-of-band mutation or `ignore_changes` is
    allowed;
 7. use `DescribeTaskDefinition`, state-machine and Scheduler evidence to prove
-   both selected revisions resolve to the exact release digest and verify the
+   all selected revisions resolve to the exact release digest and verify the
    manifest binding, then verify clean OpenTofu state and no drift;
 8. verify that same signed binding, update the inactive API candidate and pass
    local health/authorization smoke tests;
@@ -100,8 +100,8 @@ Order:
     restores prior routes within the fence budget. A partial apply stays fenced
     until a diagnosed, reviewed plan converges every route; never reopen mixed.
 
-Retain old revisions and `ecs:RunTask` grants until active old Standard/recovery
-work drains and rollback retention ends. Then prune older non-rollback revisions.
+Retain old revisions/grants until active old Standard/scheduled work drains and
+rollback retention ends. Then prune older non-rollback revisions.
 
 No production deployment occurs automatically after merge.
 
@@ -111,8 +111,8 @@ No production deployment occurs automatically after merge.
 - **Frontend:** restore the prior versioned entrypoint and invalidate it.
 - **Processor:** rollback uses the prior retained activation manifest and a
   reviewed exact OpenTofu plan/apply. Its prior routes and grants remain intact;
-  restore both prior immutable unit and `recover-once` revisions, digests and
-  state-machine/Scheduler routes for new dispatches. Active Standard executions
+  restore prior unit, recovery and audit-dispatch revisions/digests plus all
+  state-machine/Scheduler routes. Active Standard executions
   continue with the definition they started unless cancellation is safe.
 - **State machine:** revert only new-execution routing; do not edit an active
   execution or DynamoDB record manually.
@@ -129,17 +129,16 @@ No production deployment occurs automatically after merge.
   semaphore's one concurrent unit task per environment. A separate atomic
   monthly counter permits at most 200 Step Functions execution attempts across
   initial and recovery starts; each caller increments it before `StartExecution`
-  or rejects the start when exhausted. The monitored 100-hour
-  monthly operating target counts every unit and recovery task-hour; it is not a
-  pre-launch API limit.
+  or rejects the start when exhausted. The monitored 100-hour monthly target
+  counts every unit, recovery and audit-dispatch task-hour; it is not a gate.
 - DynamoDB maximum throughput, Step Functions bounded retries and Athena bytes
   cutoffs contain downstream amplification.
 - Requests beyond product quota fail with `429` or the documented quota error
   before starting Step Functions or Athena.
 - A USD 15 aggregate budget action is a delayed cost-safety backstop. When it
-  fires, it freezes new unit and recovery Fargate, Step Functions and Athena
-  starts through automation roles while preserving reads and backups. Billing
-  data can lag, so spend may exceed USD 15 before the action applies.
+  fires, it freezes new unit/recovery Fargate, Step Functions and Athena starts;
+  bounded audit dispatch, reads and backups remain enabled. Billing data can lag,
+  so spend may exceed USD 15 before the action applies.
 
 ## 5. Observability and SLOs
 
@@ -194,29 +193,30 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   session duration plus propagation, issue and install a new leaf, then
   re-enable the profile/trust and test a new session.
 - The normal unit task is launched by Step Functions. `recover-once` is an
-  EventBridge Scheduler task using the same processor image but a separate task
-  definition/mode and cadence at most half `AWS_PROCESSOR_LEASE_SECONDS`; it
-  requires none of the seven normal processor variables. Each bounded pass runs
-  coordinator recovery, then `dispatch_once(limit=100)`. Sink failures remain
-  pending, do not block later events, emit alarm/nonzero exit and retry on the
-  next cadence; same-event replay is idempotent. Scheduler retries are zero, but
-  at-least-once/external invocation can overlap without a global recovery-task
-  ceiling. PID 1 enforces a hard deadline equal to the lease, cancels work and
-  exits nonzero. Every pass counts toward the 100-hour target. The environment
+  EventBridge Scheduler task using the same image but a separate definition/mode,
+  cadence at most half the lease and batch 100; it needs none of the seven normal
+  processor variables. Scheduler retries are zero; at-least-once/external passes
+  may overlap. PID 1 enforces the lease deadline, cancels and exits nonzero. The
   semaphore arbitrates cross-run unit starts; dispatch CAS is same-run only.
+- `dispatch-outbox-once` is an independent Scheduler Fargate task with the same
+  image, its own definition/mode/role, five-minute cadence, batch 100 and
+  five-minute PID 1 deadline. It invokes only `dispatch_once`; recovery failure
+  and the budget freeze cannot suppress it. Sink failures remain pending, do not
+  block later events, alarm/exit nonzero and retry next cadence; replay is
+  idempotent. Scheduler retries are zero. Every task-hour counts toward the target.
 - Recovery role has control-plane read/write; `states:StartExecution` and
   `states:DescribeStateMachine` on the exact production state machine;
   `states:DescribeExecution`/`states:StopExecution` on executions; minimum
   liveness `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
   `scheduler.amazonaws.com` with exact `aws:SourceAccount` and
-  `aws:SourceArn`, scopes `ecs:RunTask` to recovery revision ARNs and, during
-  activation, both old and candidate revisions; it passes only its task/execution
-  roles. Recovery uses the unit task's public
-  subnets, zero-ingress security group and public IP, with logs and alarm. The
+  `aws:SourceArn`, scopes `ecs:RunTask` to recovery revisions and passes only its
+  task/execution roles. The dispatch Scheduler role has equivalent exact scope
+  only for dispatch revisions. Both use public subnets, zero-ingress security
+  groups, public IP, logs and alarm. The
   recovery task, API and any takeover actor use ECS liveness reads only for the
   configured cluster/task family with supported conditions; where ECS requires
   `Resource: *`, those same narrow conditions apply.
-- Recovery audit IAM allows `s3:GetBucketObjectLockConfiguration` on the bucket;
+- Dispatch audit IAM allows `s3:GetBucketObjectLockConfiguration` on the bucket;
   `s3:GetObject`/`s3:PutObject`/`s3:PutObjectRetention` on `audit/*`; no delete/list/bypass.
 - For `PUBLISHING`, `s3:GetObject`/`s3:GetObjectVersion` read only the canonical
   data bucket's `tmp/`, `normalized/`, `reconciliation/` and `serving/` prefixes.
@@ -320,11 +320,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and `429` or quota on contention. Overlapping, externally retried and
   at-least-once duplicate recovery passes remain individually bounded, while
   dispatch CAS covers same-run recovery only;
-- cost-contract tests count every unit and recovery task-hour toward the
+- cost-contract tests count every unit, recovery and audit-dispatch task-hour in the
   monitored 100-hour monthly operating target, never as a pre-launch API gate;
   the delayed USD 15 budget action freezes new unit and recovery Fargate, Step
-  Functions and Athena starts only after it fires; tests do not claim a
-  synchronous spend cap and explicitly allow billing-lag overshoot;
+  Functions and Athena starts only after it fires, while audit dispatch stays
+  enabled; tests allow billing-lag overshoot and claim no synchronous cap;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
@@ -379,7 +379,7 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   authorization without routing changes, then the signed activation manifest
   binds candidate manifest SHA-256, release ID, source SHA, exact ARNs/digest
   and phase-A evidence. Phase-B OpenTofu evidence verifies that binding and
-  proves the state machine and Scheduler selected those revisions, exact ECR
+  proves the state machine and both Schedulers selected those revisions, exact ECR
   digest, clean state and no drift; API/frontend evidence verifies the same
   binding before switching. Active Standard executions remain on their original
   revision;
@@ -387,9 +387,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   flight, local smoke passed before switching, and tunneled smoke reached the
   candidate through the switched production hostname. Only the bound canary is
   admitted before acceptance; failure restores prior routes while fenced;
-- the `recover-once` Scheduler run uses the same image/network, emits its log
-  and alarm evidence, uses `MaximumRetryAttempts=0`, drains one bounded outbox
-  batch to an Object-Locked audit object and cannot start without narrow roles;
+- independent `recover-once` and `dispatch-outbox-once` runs use their exact
+  images/networks/roles and zero Scheduler retries. A forced recovery failure and
+  budget freeze do not stop bounded audit delivery to an Object-Locked object;
 - a deliberately hung recovery reaches the PID 1 deadline equal to
   `AWS_PROCESSOR_LEASE_SECONDS`, cancels, exits nonzero and stops in ECS by that
   deadline, with log and alarm evidence;
@@ -398,8 +398,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   semaphore losers make no
   `StartExecution`, while dispatch CAS remains limited to same-run recovery and
   each recovery pass is individually bounded with no global recovery-concurrency
-  ceiling. Every recorded unit and recovery task-hour counts toward the monitored
-  100-hour monthly operating target, not a pre-launch API limit;
+  ceiling. Every unit, recovery and audit-dispatch task-hour counts toward the
+  monitored 100-hour target, not a pre-launch API limit;
 - one synthetic run publishes exactly one new immutable version/pointer;
 - the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
   with `Cache-Control: private, no-store` and only `url`, `version_id` and
@@ -431,8 +431,8 @@ Cost controls:
 - ECR generally below 2 GB;
 - semaphore-enforced maximum one concurrent unit Fargate task per environment;
   recovery passes are individually bounded but have no global concurrency
-  ceiling; zero idle desired count; and a monitored 100 combined unit and
-  recovery task-hours monthly operating target, including every invocation;
+  ceiling; zero idle desired count; and a monitored 100 combined unit, recovery
+  and audit-dispatch task-hours monthly target, including every invocation;
 - Step Functions Standard and 200 execution attempts maximum, atomically shared
   by initial and recovery starts;
 - Athena 5 GB/query and 100 GB/month;
