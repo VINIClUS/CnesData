@@ -347,8 +347,9 @@ class DynamoDBClaims:
         replay = self._dispatch_replay(current, command)
         if replay is not None:
             return replay
+        prior_unit_items = ()
         if current is not None and current.state is not DispatchState.TERMINAL:
-            self._validate_replacement_units(current, command.now)
+            prior_unit_items = self._replacement_unit_items(current, command.now)
         unit_items = self._dispatch_unit_items(command)
         generation = 1 if current is None else current.generation + 1
         raw_id = f"{command.tenant_id}\x1f{command.run_id}\x1f{command.wave_id}\x1f{generation}"
@@ -363,8 +364,12 @@ class DynamoDBClaims:
             lease_until=command.now + timedelta(seconds=command.lease_seconds),
         )
         expected = payload(current_item) if current_item is not None else None
+        checked_items = {
+            (item["pk"]["S"], item["sk"]["S"]): item
+            for item in (*prior_unit_items, *unit_items)
+        }
         actions = [check_action(self._table_name, run_item)]
-        actions.extend(check_action(self._table_name, item) for item in unit_items)
+        actions.extend(check_action(self._table_name, item) for item in checked_items.values())
         actions.append(put_action(self._table_name, self._dispatch_item(dispatch), expected))
         self._transact(tuple(actions))
         return dispatch
@@ -384,7 +389,8 @@ class DynamoDBClaims:
             raise Conflict("active_dispatch_conflict")
         return None
 
-    def _validate_replacement_units(self, dispatch: RunDispatch, now: Any) -> None:
+    def _replacement_unit_items(self, dispatch: RunDispatch, now: Any) -> tuple[Item, ...]:
+        items = []
         for unit_id in dispatch.unit_ids:
             item = self._get_item(unit_key(dispatch.tenant_id, dispatch.run_id, unit_id))
             if item is None:
@@ -397,6 +403,8 @@ class DynamoDBClaims:
             )
             if live:
                 raise Conflict("dispatch_unit_unavailable")
+            items.append(item)
+        return tuple(items)
 
     def _dispatch_unit_items(self, command: ReserveRunDispatch) -> tuple[Item, ...]:
         items = []
