@@ -196,10 +196,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   separate definition/mode, cadence at most half the lease, batch 100 and none of
   the seven normal variables. Retries are zero; at-least-once passes may overlap.
   PID 1 enforces the lease deadline; the semaphore is cross-run, dispatch CAS same-run.
-- `dispatch-outbox-once` is an independent Scheduler Fargate task with the same
-  image and its own definition/mode/role. `run_aws_entrypoint` allowlists that
-  command; its composition builds only the DynamoDB control plane and S3 audit
-  sink, then invokes `dispatch_once(limit=100)`. Cadence/deadline are five minutes.
+- Scheduler runs independent `dispatch-outbox-once` every five minutes with the
+  same image, own definition/mode/role and five-minute PID deadline.
+  `run_aws_entrypoint` allowlists it; composition builds only DynamoDB and S3 audit
+  sink and UTC clock, then calls `dispatch_once(control_plane, sink, now, limit=100)`.
   Recovery failure and budget freeze cannot suppress it. Sink failures remain
   pending, do not block later events and retry next cadence; alarm/exit is nonzero,
   replay idempotent, Scheduler retries zero and task-hours counted.
@@ -247,7 +247,7 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - old fence/dispatch rejection and duplicate execution replay;
 - required-source failure and optional-source degraded publication;
 - dispatcher boot tests accept only `dispatch-outbox-once` without unit variables
-  and inject only control plane/audit sink. A pass reads at most 100 ordered events,
+  and inject control plane, audit sink and deterministic UTC clock. A pass reads 100,
   writes the COMPLIANCE object, marks after success, retries pending failures and
   proves same-hash replay idempotent;
 - no presigned URL for non-serving prefixes;
