@@ -153,7 +153,7 @@ Initial internal targets:
 - API availability 99.5%;
 - eligible processing-job success 99%;
 - routine API p95 below two seconds;
-- routine deployment interruption at most 60 seconds.
+- routine deployment interruption at most 30 minutes.
 
 Grafana Alloy collects VPS/API/Nginx/Tunnel telemetry without Docker-socket
 access. CloudWatch owns DynamoDB, Step Functions, ECS, S3 and Athena alarms.
@@ -190,8 +190,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   DynamoDB, S3 and Step Functions. Retain the deny for at least the maximum
   session duration plus propagation, issue and install a new leaf, then
   re-enable the profile/trust and test a new session.
-- Step Functions launches unit tasks with production `AWS_PROCESSOR_LEASE_SECONDS=7200`.
-  Hourly `recover-once` uses the same image, separate mode, batch 100 and coordinator
+- Step Functions launches unit tasks with production `AWS_PROCESSOR_LEASE_SECONDS=3600`.
+  `recover-once` runs every 30 minutes with the same image, mode, batch 100 and coordinator
   composition without normal variables/audit sink. PID 1 enforces the lease deadline;
   the semaphore is cross-run and dispatch CAS same-run.
 - Scheduler runs independent `dispatch-outbox-once` every 30 minutes with the same
@@ -299,16 +299,16 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
   starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
-  uses the production hostname after that switch. Any failure or fence-budget
-  cutoff before phase C restores prior routes and reopens within 60 seconds. Partial
-  phase-B/C applies instead remain fail-closed until reviewed convergence completes;
+  uses the production hostname after that switch. The entire successful fence through
+  both phase-C acceptances is capped at 30 minutes; routine cutoff restores routes
+  within budget. Partial phase-B/C applies remain fail-closed until reviewed convergence;
 - drain/prune tests retain old revisions and `ecs:RunTask` grants through active
   old Standard/recovery drain and rollback retention, then prune only older
   non-rollback revisions; rollback consumes the prior retained manifest through
   a reviewed exact OpenTofu plan/apply;
 - recovery validation enforces the separate `recover-once` definition/mode,
   same image/network, coordinator-only composition without normal variables or
-  audit sink, production lease 7200, hourly cadence, batch 100 and
+  audit sink, production lease 3600, 30-minute cadence, batch 100 and
   `MaximumRetryAttempts=0`. Its PID 1 hard wall-clock
   deadline equal to the lease that logs/alarms, cancels work, exits nonzero and
   stops the ECS task; overlapping, externally retried or at-least-once duplicate
@@ -324,9 +324,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and `429` or quota on contention. Overlapping, externally retried and
   at-least-once duplicate recovery passes remain individually bounded, while
   dispatch CAS covers same-run recovery only;
-- cost tests count billed pull/start/run/stop. Two minutes per hourly recovery and
-  30-minute audit invocation budget 24+48=72 hours/30 days, leaving 28 of 100 for
-  units. Excess fails acceptance/alarms and is not called a hard cap;
+- cost tests count billed pull/start/run/stop. Two minutes per 30-minute recovery and
+  audit invocation budget 48+48=96 hours/30 days, leaving 4 of 100 for units. Excess
+  fails acceptance/alarms and is not called a hard cap;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
