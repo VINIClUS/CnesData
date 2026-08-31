@@ -142,10 +142,10 @@ No production deployment occurs automatically after merge.
 - Requests beyond product quota fail with `429` or the documented quota error
   before starting Step Functions or Athena.
 - The USD 15 action uses its service-linked role to attach OpenTofu-owned
-  `cnesdata-cost-freeze` to promotion/API/recovery roles. This persistent marker denies
-  new unit/recovery, Step Functions and Athena; promotion may list only its own policies
-  and aborts while attached. Audit remains on. Only the cost-clear operator detaches it
-  after reviewed spend/forecast recovery; history is retained and billing may lag.
+  `cnesdata-cost-freeze` to promotion/API/recovery, Step Functions execution and
+  Athena-operator roles. This marker denies new compute/query starts; promotion lists
+  only its own policies and aborts. Audit stays on. Only cost-clear detaches after
+  reviewed spend/forecast recovery; history is retained and billing may lag.
 
 ## 5. Observability and SLOs
 
@@ -214,9 +214,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   configured cluster/family conditions, including required narrow `Resource: *`.
 - Dispatch audit IAM allows `s3:GetBucketObjectLockConfiguration` on the bucket;
   `s3:GetObject`/`s3:PutObject`/`s3:PutObjectRetention` on `audit/*`; no delete/list/bypass.
-  It allows `dynamodb:Query` on the exact outbox GSI and
-  `dynamodb:GetItem`/`dynamodb:UpdateItem` on the exact control-plane table only;
-  scan, delete, put and access to any other table/index are denied.
+  It permits exact-GSI `Query` and table `GetItem`/`UpdateItem` only with
+  `dynamodb:LeadingKeys` matching outbox/event or cursor namespaces. Scan, delete, put,
+  other indexes/tables and run/fence/semaphore keys are denied.
 - For `PUBLISHING`, `s3:GetObject`/`s3:GetObjectVersion` read only the canonical
   data bucket's `tmp/`, `normalized/`, `reconciliation/` and `serving/` prefixes.
   `s3:PutObject` writes only final `normalized/`, `reconciliation/` and
@@ -325,8 +325,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   expired takeover needs liveness proof; losers never start and get `429`/quota;
 - cost tests count billed pull/start/run/stop. Two minutes per 30-minute recovery and
   audit invocation budget 48+48=96 hours/30 days, leaving 4 of 100 for units. Excess
-  fails acceptance/alarms, not a cap. Freeze tests prove budget attachment, promotion
-  self-read/abort, audit continuity and audited cost-clear-only detachment;
+  fails acceptance/alarms, not a cap. Freeze tests attach to promotion/API/recovery,
+  Step Functions/Athena roles, prove self-read/abort, audit continuity and cost-clear;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
@@ -334,8 +334,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   machine, describe/stop-execution to its executions and ECS liveness to the
   configured cluster/task family or required narrow `Resource: *` conditions.
   Cancellation/failed binding proves stop succeeds; another machine is denied;
-- audit IAM tests allow exact outbox-GSI query, table get/update and audit-bucket
-  lock/get/put/retention; deny other tables/indexes, scan, delete, list and bypass;
+- audit IAM tests allow outbox/cursor `LeadingKeys` and audit lock/get/put/retention;
+  deny run/fence/semaphore keys, other tables/indexes, scan/delete/list/bypass;
 - a crash during `PUBLISHING` proves the recovery role reads manifest sidecars,
   promotes/verifies source-to-destination copies, writes reconciliation/serving
   manifests and completes pointer CAS without `AccessDenied`. Negative tests
