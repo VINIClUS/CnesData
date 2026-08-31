@@ -259,15 +259,15 @@ def _has_live_unit_lease(connection: Any, dispatch: RunDispatch, now: Any) -> bo
 def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
         current = _get_dispatch(connection, command.tenant_id, command.run_id)
+        same_wave = current is not None and current.wave_id == command.wave_id
+        if same_wave and current.unit_ids != command.unit_ids:
+            raise Conflict("dispatch_units_conflict")
         replay = (
-            current
-            and current.wave_id == command.wave_id
+            same_wave
             and current.lease_until > command.now
             and current.state in {DispatchState.RESERVED, DispatchState.STARTED}
         )
         if replay:
-            if current.unit_ids != command.unit_ids:
-                raise Conflict("dispatch_units_conflict")
             return current
         live = current and current.state is not DispatchState.TERMINAL
         lease_live = current is not None and current.lease_until > command.now

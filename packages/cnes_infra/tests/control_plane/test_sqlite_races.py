@@ -113,10 +113,8 @@ def test_serializa_claim_renovacao_e_publicacao_concorrentes(
     adapter, database_path, clock
 ) -> None:
     _prepare_job(adapter)
-    writers = (
-        SQLiteControlPlane(database_path, clock.now),
-        SQLiteControlPlane(database_path, clock.now),
-    )
+    writers = (SQLiteControlPlane(database_path, clock.now),
+               SQLiteControlPlane(database_path, clock.now))
     claims = _race(
         lambda: writers[0].claim_job(_claim_job("job-a", "worker-a", clock)),
         lambda: writers[1].claim_job(_claim_job("job-a", "worker-b", clock)),
@@ -146,10 +144,8 @@ def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, 
     _prepare_job(adapter)
     claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
     assert claimed is not None
-    writers = (
-        SQLiteControlPlane(database_path, clock.now),
-        SQLiteControlPlane(database_path, clock.now),
-    )
+    writers = (SQLiteControlPlane(database_path, clock.now),
+               SQLiteControlPlane(database_path, clock.now))
     renew = RenewJobLease(
         tenant_id="354130", job_id="job-a", owner="worker-a",
         fencing_token=claimed.fencing_token, now=clock.now(), lease_seconds=60)
@@ -200,7 +196,6 @@ def test_converte_busy_em_erro_local(adapter, database_path, clock, monkeypatch)
 
 def test_traduz_falha_de_conexao_em_erro_local(tmp_path, clock, monkeypatch) -> None:
     broken = SQLiteControlPlane(tmp_path / "broken.sqlite3", clock.now)
-
     def fail_connect():
         raise sqlite3.OperationalError("disk_unavailable")
 
@@ -214,7 +209,6 @@ def test_traduz_falha_de_conexao_em_erro_local(tmp_path, clock, monkeypatch) -> 
 def test_propaga_erro_operacional_que_nao_e_contencao(tmp_path, clock) -> None:
     uninitialized = SQLiteControlPlane(tmp_path / "empty.sqlite3", clock.now)
     tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
-
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         uninitialized.put_tenant(tenant)
 
@@ -238,11 +232,8 @@ def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, cl
         )
     adapter.put_run(_run("run-a", RunState.WAITING_INPUTS))
     command = PutRunUnits(
-        tenant_id="354130",
-        run_id="run-a",
-        expected_run_state=RunState.PROCESSING,
-        units=(_unit("unit-a"),),
-    )
+        tenant_id="354130", run_id="run-a", expected_run_state=RunState.PROCESSING,
+        units=(_unit("unit-a"),))
     with pytest.raises(Conflict, match="run_state_conflict"):
         adapter.put_run_units(command)
 
@@ -256,9 +247,7 @@ def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None
     pointer = adapter.publish_dataset(_publish("run-a", "published", None, False))
     idempotency = BeginIdempotency(
         tenant_id="354130", scope="jobs", key="key-a", request_hash="a" * 64,
-        resource_id="job-a", now=clock.now(),
-        expires_at=clock.now() + timedelta(minutes=5),
-    )
+        resource_id="job-a", now=clock.now(), expires_at=clock.now() + timedelta(minutes=5))
     adapter.begin_idempotency(idempotency)
     adapter.put_run(_run("run-units"))
     unit_a = _unit("unit-a").model_copy(update={"run_id": "run-units"})
@@ -289,13 +278,11 @@ def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> No
 
 @pytest.mark.parametrize(
     "network_path",
-    [
-        pytest.param(r"\\server\share\control.sqlite3"),
-        pytest.param("smb://server/share/control.sqlite3"),
-        pytest.param("nfs://server/share/control.sqlite3"),
-        pytest.param("/net/server/share/control.sqlite3"),
-        pytest.param("/Network/Servers/server/share/control.sqlite3"),
-    ],
+    [pytest.param(r"\\server\share\control.sqlite3"),
+     pytest.param("smb://server/share/control.sqlite3"),
+     pytest.param("nfs://server/share/control.sqlite3"),
+     pytest.param("/net/server/share/control.sqlite3"),
+     pytest.param("/Network/Servers/server/share/control.sqlite3")],
 )
 def test_detecta_formas_conhecidas_de_filesystem_de_rede_sem_proc(
     network_path, tmp_path, monkeypatch
@@ -304,7 +291,6 @@ def test_detecta_formas_conhecidas_de_filesystem_de_rede_sem_proc(
         raise OSError("proc_unavailable")
 
     monkeypatch.setattr(sqlite_schema.Path, "read_text", unavailable)
-
     assert _is_network_filesystem(sqlite_adapter.Path(network_path))
     assert not _is_network_filesystem(tmp_path / "control.sqlite3")
 
@@ -312,7 +298,6 @@ def test_detecta_formas_conhecidas_de_filesystem_de_rede_sem_proc(
 def test_rejeita_inicializacao_quando_wal_nao_e_ativado(tmp_path, clock, monkeypatch) -> None:
     adapter = SQLiteControlPlane(tmp_path / "control.sqlite3", clock.now)
     monkeypatch.setattr(adapter, "_connect", lambda: sqlite3.connect(":memory:"))
-
     with pytest.raises(_SQLiteFilesystemError, match="sqlite_wal_unavailable"):
         adapter.initialize()
 
@@ -365,6 +350,8 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     )
     with pytest.raises(Conflict, match="dispatch_terminal"):
         adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
+    with pytest.raises(Conflict, match="dispatch_units_conflict"):
+        _reserve(adapter, clock, unit_ids=("unit-a",))
     replacement = _reserve(adapter, clock, unit_ids=dispatch.unit_ids)
     assert (replacement.generation, replacement.dispatch_id != dispatch.dispatch_id) == (2, True)
     reclaimed = adapter.claim_run_unit(
@@ -376,6 +363,10 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     )
     other = _claim_unit_command(replacement.dispatch_id, "worker-c", clock)
     assert adapter.claim_run_unit(other) is None
+    clock.advance(timedelta(seconds=31))
+    with pytest.raises(Conflict, match="dispatch_units_conflict"):
+        _reserve(adapter, clock, unit_ids=("unit-a",))
+    assert _reserve(adapter, clock, unit_ids=dispatch.unit_ids).generation == 3
 
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
     dispatch = _prepare_unit(adapter, clock)
@@ -488,3 +479,22 @@ def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> 
         ("a", "run-shared"),
         ("a", "run-z"),
     )
+
+
+def test_limita_ancestralidade_longa_sem_recursao(adapter, clock) -> None:
+    base = _raw_record("deep-1", "deep-agent", 1, clock.now())
+    previous = None
+    with adapter.write_transaction() as connection:
+        for sequence in range(1, 1102):
+            snapshot = f"deep-{sequence}"
+            record = base.model_copy(update={
+                "manifest_id": f"manifest-deep-agent-{snapshot}", "snapshot_id": snapshot,
+                "manifest_key": f"raw/354130/CNES/2026-07/{snapshot}/manifest.json",
+                "snapshot_mode": "FULL" if sequence == 1 else "DELTA",
+                "base_snapshot_id": None if sequence == 1 else "deep-1", "sequence": sequence,
+                "previous_manifest_sha256": previous, "manifest_sha256": f"{sequence:064x}",
+                "created_at": clock.now() + timedelta(seconds=sequence)})
+            adapter.put_manifest_record(connection, record)
+            previous = record.manifest_sha256
+    assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07") == ()
+    assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 2) == ()

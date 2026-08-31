@@ -77,29 +77,29 @@ def latest_succeeded_job(store: Any, values: tuple[str, ...]) -> Job | None:
 
 
 def _build_ancestry(
-    records: tuple[RawManifestRecord, ...], current: RawManifestRecord
-) -> tuple[RawManifestRecord, ...]:
-    if current.sequence == 1:
-        return (current,)
-    predecessors = sorted(
-        (
-            item
-            for item in records
-            if item.sequence == current.sequence - 1
-            and item.manifest_sha256 == current.previous_manifest_sha256
-        ),
-        key=lambda item: (item.created_at, item.snapshot_id),
-        reverse=True,
-    )
-    for predecessor in predecessors:
-        ancestry = _build_ancestry(records, predecessor)
-        if ancestry:
-            return (*ancestry, current)
+    records: tuple[RawManifestRecord, ...], current: RawManifestRecord, limit: int
+) -> tuple[RawManifestRecord, ...] | None:
+    paths = [(current, (current,))]
+    while paths:
+        item, ancestry = paths.pop()
+        if len(ancestry) > limit:
+            return None
+        if item.sequence == 1:
+            return tuple(reversed(ancestry))
+        predecessors = sorted(
+            (candidate for candidate in records
+             if candidate.sequence == item.sequence - 1
+             and candidate.manifest_sha256 == item.previous_manifest_sha256),
+            key=lambda candidate: (candidate.created_at, candidate.snapshot_id),
+            reverse=True,
+        )
+        paths.extend((predecessor, (*ancestry, predecessor))
+                     for predecessor in reversed(predecessors))
     return ()
 
 
 def _select_raw_chain(
-    records: tuple[RawManifestRecord, ...],
+    records: tuple[RawManifestRecord, ...], limit: int,
 ) -> tuple[RawManifestRecord, ...]:
     heads = sorted(
         records,
@@ -115,7 +115,9 @@ def _select_raw_chain(
             and base in (item.snapshot_id, item.base_snapshot_id)
             and item.sequence <= head.sequence
         )
-        chain = _build_ancestry(branch, head)
+        chain = _build_ancestry(branch, head, limit)
+        if chain is None:
+            return ()
         if len(chain) == head.sequence:
             return chain
     return ()
@@ -130,9 +132,7 @@ def list_raw_manifest_chain(store: Any, values: tuple[Any, ...]) -> tuple[Manife
             (tenant_id, source_type, file_subtype, competencia),
         ).fetchall()
     records = tuple(deserialize_model(row[0], RawManifestRecord) for row in rows)
-    selected = _select_raw_chain(records)
-    if len(selected) > limit:
-        return ()
+    selected = _select_raw_chain(records, limit)
     return tuple(
         ManifestRef(manifest_id=item.manifest_id, manifest_key=item.manifest_key)
         for item in selected
