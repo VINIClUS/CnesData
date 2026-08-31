@@ -210,7 +210,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   while dispatch CAS handles only same-run recovery and idempotency.
 - The recovery task role has control-plane read/write,
   `states:StartExecution` on the exact production state machine and
-  `states:DescribeExecution` on its executions, plus minimum liveness
+  `states:DescribeExecution` and `states:StopExecution` on its executions, plus
+  minimum liveness
   `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
   `scheduler.amazonaws.com` with exact `aws:SourceAccount` and
   `aws:SourceArn`, scopes `ecs:RunTask` to recovery revision ARNs and, during
@@ -324,8 +325,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
 - recovery role tests scope `states:StartExecution` to the production machine,
-  `states:DescribeExecution` to its executions and ECS liveness reads to the
-  configured cluster/task family or required narrow `Resource: *` conditions;
+  `states:DescribeExecution`/`states:StopExecution` to its executions and ECS
+  liveness reads to the configured cluster/task family or required narrow
+  `Resource: *` conditions. Cancellation and failed replacement binding prove
+  recovery can stop the execution, while another machine is denied;
 - a crash during `PUBLISHING` proves the recovery role reads manifest sidecars,
   promotes/verifies source-to-destination copies, writes reconciliation/serving
   manifests and completes pointer CAS without `AccessDenied`. Negative tests
