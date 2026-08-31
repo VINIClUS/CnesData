@@ -244,8 +244,9 @@ class SQLiteControlPlane:
                 serialize_model(job),
             ),
         )
-
     def put_outbox_event(self, connection: sqlite3.Connection, event: OutboxEvent) -> None:
+        if event.delivered_at is not None:
+            raise Conflict("outbox_event_already_delivered")
         current = _fetch_one(
             connection,
             "SELECT data FROM outbox_events WHERE event_id = ?",
@@ -267,7 +268,6 @@ class SQLiteControlPlane:
                 serialize_model(event),
             ),
         )
-
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
         with self.write_transaction() as connection:
             current = self.get_job_record(connection, job.tenant_id, job.job_id)
