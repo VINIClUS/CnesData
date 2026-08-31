@@ -423,5 +423,6 @@ class FilesystemObjectStore:
                 os.close(descriptor)
                 os.unlink(digest, dir_fd=layout.objects)
             except FileNotFoundError:
+                os.fsync(layout.objects)
                 return
             os.fsync(layout.objects)

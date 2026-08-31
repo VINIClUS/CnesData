@@ -22,8 +22,7 @@ from packages.cnes_infra.tests.contracts.clock import MutableClock
 
 _DURABLE_BOUNDARIES = (
     "temporary_created", "file_fsynced", "destination_linked", "directory_fsynced",
-    "temporary_unlinked", "directory_final_fsynced",
-)
+    "temporary_unlinked", "directory_final_fsynced",)
 _OWNER_XATTR = "user.cnes_object_store_destination"
 
 
@@ -122,21 +121,18 @@ def test_contrato(case: contract.ObjectStoreCase, tmp_path_factory: pytest.TempP
         adapter = FilesystemObjectStore(root.name)
         patch.chdir(root)
         case.run(adapter, MutableClock(datetime(2026, 7, 15, tzinfo=UTC)))
-        adapter.delete("raw/ausente")
 
 
 @pytest.mark.linux_only
 def test_fsynca_ancestral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = tmp_path / "store"
-    observed: list[Path] = []
-    real_fsync = os.fsync
+    root, observed, real_fsync = tmp_path / "store", [], os.fsync
     def observe_fsync(descriptor: int) -> None:
         target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
         if target.is_dir():
             observed.append(target)
         real_fsync(descriptor)
     monkeypatch.setattr(os, "fsync", observe_fsync)
-    FilesystemObjectStore(root)
+    adapter = FilesystemObjectStore(root)
     assert observed[:4] == [tmp_path.parent, tmp_path, root, next(root.iterdir())]
     observed.clear()
     FilesystemObjectStore(root)
@@ -144,16 +140,20 @@ def test_fsynca_ancestral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     observed.clear()
     FilesystemObjectStore(root / "nested")
     assert observed[:2] == [tmp_path, root]
+    destination = _objects_directory(root) / sha256(b"raw/ausente").hexdigest()
+    destination.touch()
+    destination.unlink()
+    observed.clear()
+    adapter.delete("raw/ausente")
+    assert observed == [destination.parent]
 
 
 @pytest.mark.parametrize("operation", ["put", "promote"])
 @pytest.mark.parametrize("boundary", _DURABLE_BOUNDARIES)
 def test_recupera_fronteira_duravel(boundary: str, operation: str, tmp_path: Path) -> None:
-    body = b"conteudo-completo"
-    expected = sha256(body).hexdigest()
-    unrelated = tmp_path / ".arquivo-do-usuario"
+    body, expected = b"conteudo-completo", sha256(b"conteudo-completo").hexdigest()
+    unrelated, source_key = tmp_path / ".arquivo-do-usuario", "staging/dados.parquet"
     unrelated.write_bytes(b"preservar")
-    source_key = "staging/dados.parquet"
     FilesystemObjectStore(tmp_path).put(source_key, BytesIO(body), expected)
     crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt(boundary))
     def perform() -> None:
