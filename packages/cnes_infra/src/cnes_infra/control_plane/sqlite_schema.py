@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from cnes_domain.control_plane.enums import JobState
+from cnes_domain.control_plane.errors import Conflict
+
 if TYPE_CHECKING:
     import sqlite3
     from collections.abc import Callable
@@ -93,6 +96,17 @@ CREATE TABLE IF NOT EXISTS run_units (
     data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, run_id, unit_id),
     FOREIGN KEY (tenant_id, run_id) REFERENCES runs (tenant_id, run_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS run_unit_terminal_writes (
+    tenant_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    unit_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    command_data TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, run_id, unit_id),
+    FOREIGN KEY (tenant_id, run_id, unit_id)
+        REFERENCES run_units (tenant_id, run_id, unit_id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS run_dispatches (
     tenant_id TEXT NOT NULL,
@@ -189,6 +203,64 @@ def put_job_terminal_write(connection: Any, operation: str, command: Any, event:
             serialize_model(command), serialize_model(event),
         ),
     )
+
+
+def validate_job_terminal_replay(connection: Any, job: Any, command: Any, event: Any) -> None:
+    manifest = getattr(command, "manifest", None)
+    operation = "complete" if manifest is not None else "fail"
+    canonical = (operation, serialize_model(command), serialize_model(event))
+    current = get_job_terminal_write(connection, command.tenant_id, command.job_id)
+    if manifest is not None:
+        result_matches = (
+            job.state is JobState.SUCCEEDED
+            and job.fencing_token == command.fencing_token
+            and job.result_manifest_id == manifest.manifest_id
+            and job.result_manifest_key == manifest.manifest_key
+        )
+    else:
+        expected = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
+        result_matches = (
+            job.state is expected
+            and job.fencing_token == command.fencing_token
+            and job.error_code == command.error_code
+        )
+    if current != canonical or not result_matches:
+        raise Conflict("job_terminal_conflict")
+
+
+def get_run_unit_terminal_write(connection: Any, command: Any) -> tuple[str, ...] | None:
+    row = connection.execute(
+        "SELECT operation, command_data, event_data FROM run_unit_terminal_writes "
+        "WHERE tenant_id = ? AND run_id = ? AND unit_id = ?",
+        (command.tenant_id, command.run_id, command.unit_id),
+    ).fetchone()
+    return None if row is None else tuple(row)
+
+
+def put_run_unit_terminal_write(
+    connection: Any, operation: str, command: Any, event: Any
+) -> None:
+    connection.execute(
+        "INSERT INTO run_unit_terminal_writes "
+        "(tenant_id, run_id, unit_id, operation, command_data, event_data) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (tenant_id, run_id, unit_id) DO UPDATE SET "
+        "operation = excluded.operation, command_data = excluded.command_data, "
+        "event_data = excluded.event_data",
+        (
+            command.tenant_id, command.run_id, command.unit_id, operation,
+            serialize_model(command), serialize_model(event),
+        ),
+    )
+
+
+def validate_run_unit_terminal_replay(
+    connection: Any, unit: Any, command: Any, event: Any
+) -> Any:
+    operation = "commit" if hasattr(command, "output_manifests") else "fail"
+    canonical = (operation, serialize_model(command), serialize_model(event))
+    if get_run_unit_terminal_write(connection, command) != canonical:
+        raise Conflict("unit_terminal_conflict")
+    return unit
 
 
 def is_network_filesystem(path: Path) -> bool:

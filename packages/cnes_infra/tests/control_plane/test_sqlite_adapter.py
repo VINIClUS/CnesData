@@ -8,8 +8,19 @@ from cnes_domain.control_plane.commands import (
     FailRunUnit,
     FinishRunDispatch,
 )
-from cnes_domain.control_plane.entities import AccessRequest, Job, RawManifestRecord, Tenant
-from cnes_domain.control_plane.enums import AccessRequestState, DispatchOutcome, JobState
+from cnes_domain.control_plane.entities import (
+    AccessRequest,
+    Job,
+    RawManifestRecord,
+    RunDependency,
+    Tenant,
+)
+from cnes_domain.control_plane.enums import (
+    AccessRequestState,
+    DispatchOutcome,
+    JobState,
+    RunUnitState,
+)
 from cnes_domain.control_plane.errors import Conflict, LeaseLost, NotFound
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from packages.cnes_infra.tests.contracts import control_plane_contract
@@ -25,6 +36,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _prepare_unit,
     _raw_record,
     _reserve,
+    _run,
 )
 from packages.cnes_infra.tests.contracts.control_plane_contract import control_plane_cases
 
@@ -47,8 +59,7 @@ def test_sqlite_control_plane_cumpre_contrato(
 ) -> None:
     if case.name == "raw_chains":
         monkeypatch.setattr(
-            control_plane_contract, "_store_record", _store_record_with_matching_mode
-        )
+            control_plane_contract, "_store_record", _store_record_with_matching_mode)
     case.run(sqlite_control_plane, clock)
 
 
@@ -68,18 +79,7 @@ def _store_record_with_matching_mode(adapter, record, clock) -> None:
         fencing_token=claimed.fencing_token, manifest=record,
     )
     event = _event(f"completed-{job_id}", tenant_id=record.tenant_id)
-    completed = adapter.complete_job(command, event)
-    assert (completed.state, completed.lease_owner, completed.lease_until) == (
-        JobState.SUCCEEDED, None, None)
-    assert (completed.result_manifest_id, completed.result_manifest_key) == (
-        record.manifest_id, record.manifest_key)
-    assert adapter.get_job(record.tenant_id, job_id) == completed
-    identity = (
-        record.tenant_id, record.agent_id, record.source_type,
-        record.file_subtype, record.competencia,
-    )
-    assert adapter.latest_succeeded_job(*identity) == completed
-    assert adapter.pending_outbox(100).count(event) == 1
+    adapter.complete_job(command, event)
 
 
 def _claim_job_for_record(adapter, record, job_id, clock) -> Job:
@@ -95,16 +95,9 @@ def _claim_job_for_record(adapter, record, job_id, clock) -> Job:
 
 
 def test_aceita_argumentos_nomeados_e_limites_padrao(sqlite_control_plane) -> None:
-    identity = {
-        "tenant_id": "354130",
-        "source_type": "CNES",
-        "file_subtype": "ST",
-        "competencia": "2026-07",
-    }
-
-    assert sqlite_control_plane.latest_succeeded_job(
-        agent_id="agent-a", **identity
-    ) is None
+    identity = {"tenant_id": "354130", "source_type": "CNES",
+                "file_subtype": "ST", "competencia": "2026-07"}
+    assert sqlite_control_plane.latest_succeeded_job(agent_id="agent-a", **identity) is None
     assert sqlite_control_plane.list_raw_manifest_chain(**identity) == ()
     assert sqlite_control_plane.list_waiting_runs_for_dependency(**identity) == ()
     positional = tuple(identity.values())
@@ -134,8 +127,7 @@ def test_manifesto_repetido_e_idempotente_mas_conteudo_divergente_conflita(
     first = _claim_job_for_record(sqlite_control_plane, record, "job-first", clock)
     replay = _claim_job_for_record(sqlite_control_plane, record, "job-replay", clock)
     divergent = RawManifestRecord.model_validate(
-        record.model_dump() | {"manifest_sha256": "b" * 64}
-    )
+        record.model_dump() | {"manifest_sha256": "b" * 64})
     stale = _claim_job_for_record(sqlite_control_plane, record, "job-stale", clock)
     sqlite_control_plane.complete_job(
         CompleteJob(
@@ -156,17 +148,13 @@ def test_manifesto_repetido_e_idempotente_mas_conteudo_divergente_conflita(
         tenant_id="354130", job_id=stale.job_id, owner="raw-worker",
         fencing_token=stale.fencing_token, manifest=divergent,
     )
-
     with pytest.raises(Conflict, match="manifest_immutable"):
         sqlite_control_plane.complete_job(divergent_command, _event("completed-stale"))
-
     assert replayed.state is JobState.SUCCEEDED
     assert sqlite_control_plane.get_job("354130", stale.job_id) == stale
     assert sqlite_control_plane.pending_outbox(100) == before_outbox
     recovered = sqlite_control_plane.complete_job(
-        divergent_command.model_copy(update={"manifest": record}),
-        _event("completed-recovered"),
-    )
+        divergent_command.model_copy(update={"manifest": record}), _event("completed-recovered"))
     assert recovered.result_manifest_id == record.manifest_id
 
 
@@ -210,18 +198,14 @@ def test_replay_terminal_exato_e_divergente(sqlite_control_plane, clock, operati
         replay_command = command.model_copy(update={"error_code": "changed"})
     else:
         replay_command = command.model_copy(update={"retryable": False})
-    before = (
-        reopened.get_job("354130", "job-a"),
-        reopened.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07"),
-        reopened.pending_outbox(100),
-    )
+    before = (reopened.get_job("354130", "job-a"),
+              reopened.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07"),
+              reopened.pending_outbox(100))
     with pytest.raises(Conflict, match="job_terminal_conflict"):
         getattr(reopened, operation)(replay_command, replay_event)
-    assert before == (
-        reopened.get_job("354130", "job-a"),
-        reopened.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07"),
-        reopened.pending_outbox(100),
-    )
+    assert before == (reopened.get_job("354130", "job-a"),
+                      reopened.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07"),
+                      reopened.pending_outbox(100))
 
 
 def test_seleciona_ancestralidade_da_delta_mais_nova_entre_irmas(
@@ -246,14 +230,9 @@ def test_seleciona_ancestralidade_da_delta_mais_nova_entre_irmas(
     )
     for record in (base, sibling_old, sibling_new, sibling_broken, head):
         _store_record_with_matching_mode(sqlite_control_plane, record, clock)
-    chain = sqlite_control_plane.list_raw_manifest_chain(
-        "354130", "CNES", "ST", "2026-07", 3
-    )
+    chain = sqlite_control_plane.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 3)
     assert tuple(reference.manifest_id for reference in chain) == (
-        base.manifest_id,
-        sibling_new.manifest_id,
-        head.manifest_id,
-    )
+        base.manifest_id, sibling_new.manifest_id, head.manifest_id)
 
 
 def test_persiste_tenant_solicitacao_de_acesso_e_entrega_outbox(
@@ -327,9 +306,7 @@ def test_rejeita_conflitos_e_replays_de_solicitacao_de_acesso(
     assert sqlite_control_plane.pending_outbox(100) == (decided, created)
 
 
-def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(
-    sqlite_control_plane,
-) -> None:
+def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(sqlite_control_plane) -> None:
     agent = _agent("agent-a")
     sqlite_control_plane.put_agent(agent)
     assert sqlite_control_plane.get_agent("354130", "agent-a") == agent
@@ -371,28 +348,59 @@ def test_rejeita_resultado_de_unidade_terminal_ou_de_outro_dispatch(
         )
     )
     action = getattr(sqlite_control_plane, operation)
-    before = (
-        sqlite_control_plane.list_run_units("354130", "run-a"),
-        sqlite_control_plane.pending_outbox(100),
-    )
+    before = _unit_snapshot(sqlite_control_plane)
     with pytest.raises(LeaseLost, match="dispatch_inactive"):
         action(command, _event("late-result"))
-    assert before == (
-        sqlite_control_plane.list_run_units("354130", "run-a"),
-        sqlite_control_plane.pending_outbox(100),
-    )
+    assert before == _unit_snapshot(sqlite_control_plane)
     replacement = _reserve(sqlite_control_plane, clock)
     stale = command.model_copy(update={"dispatch_id": replacement.dispatch_id})
-    before_stale = (
-        sqlite_control_plane.list_run_units("354130", "run-a"),
-        sqlite_control_plane.pending_outbox(100),
-    )
+    before_stale = _unit_snapshot(sqlite_control_plane)
     with pytest.raises(LeaseLost, match="unit_dispatch_mismatch"):
         action(stale, _event("stale-result"))
-    assert before_stale == (
-        sqlite_control_plane.list_run_units("354130", "run-a"),
-        sqlite_control_plane.pending_outbox(100),
-    )
+    assert before_stale == _unit_snapshot(sqlite_control_plane)
+
+
+def _unit_snapshot(adapter):
+    return adapter.list_run_units("354130", "run-a"), adapter.pending_outbox(100)
+
+
+@pytest.mark.parametrize(
+    ("operation", "retryable", "required", "expected"),
+    [("commit_run_unit", True, True, RunUnitState.SUCCEEDED),
+     ("fail_run_unit", True, True, RunUnitState.FAILED_RETRYABLE),
+     ("fail_run_unit", False, True, RunUnitState.FAILED_FINAL),
+     ("fail_run_unit", False, False, RunUnitState.SUCCEEDED_DEGRADED)],
+)
+def test_replay_terminal_de_unidade_exato_e_divergente(
+    sqlite_control_plane, clock, operation, retryable, required, expected
+) -> None:
+    dispatch = _prepare_unit(sqlite_control_plane, clock)
+    if not required:
+        dependency = (RunDependency(source_type="CNES", file_subtype="ST", required=False),)
+        sqlite_control_plane.put_run(_run("run-a", dependencies=dependency))
+    claimed = _claim_unit(sqlite_control_plane, clock, dispatch.dispatch_id, "worker-a")
+    assert claimed is not None
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    if operation == "fail_run_unit":
+        command = FailRunUnit(
+            tenant_id="354130", run_id="run-a", unit_id="unit-a",
+            dispatch_id=dispatch.dispatch_id, owner="worker-a",
+            fencing_token=claimed.fencing_token, error_code="failed", retryable=retryable,
+        )
+    event = _event("unit-terminal")
+    terminal = getattr(sqlite_control_plane, operation)(command, event)
+    reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
+    reopened.initialize()
+    assert terminal.state is expected
+    assert getattr(reopened, operation)(command, event) == terminal
+    before = _unit_snapshot(reopened)
+    with pytest.raises(Conflict, match="unit_terminal_conflict"):
+        getattr(reopened, operation)(
+            command.model_copy(update={"fencing_token": command.fencing_token + 1}), event
+        )
+    with pytest.raises(Conflict, match="unit_terminal_conflict"):
+        getattr(reopened, operation)(command, event.model_copy(update={"payload": {}}))
+    assert before == _unit_snapshot(reopened)
 
 
 def test_cancela_job_leased_e_torna_replay_idempotente(sqlite_control_plane, clock) -> None:
@@ -428,34 +436,25 @@ def test_rejeita_cancelamento_fora_de_leased_sem_mutacao(
     created = _event("job-created")
     sqlite_control_plane.create_job(job, created)
     command = CancelJob(tenant_id="354130", job_id="job-a", requested_by="user-a")
-
     with pytest.raises(Conflict, match="job_not_leased"):
         sqlite_control_plane.cancel_job(command, _event("cancel-rejected"))
-
     assert sqlite_control_plane.get_job("354130", "job-a") == job
     assert sqlite_control_plane.pending_outbox(10) == (created,)
 
 
 def _manifesto_com_identidade(base: RawManifestRecord, field: str) -> RawManifestRecord:
     updates = {
-        "tenant_id": {
-            "tenant_id": "other", "manifest_key": "raw/other/CNES/2026-07/result/manifest.json",
-        },
+        "tenant_id": {"tenant_id": "other",
+                      "manifest_key": "raw/other/CNES/2026-07/result/manifest.json"},
         "agent_id": {"agent_id": "agent-b"},
-        "source_type": {
-            "source_type": "SIHD", "manifest_key": "raw/354130/SIHD/2026-07/result/manifest.json",
-        },
+        "source_type": {"source_type": "SIHD",
+                        "manifest_key": "raw/354130/SIHD/2026-07/result/manifest.json"},
         "file_subtype": {"file_subtype": "PF"},
-        "competencia": {
-            "competencia": "2026-06",
-            "manifest_key": "raw/354130/CNES/2026-06/result/manifest.json",
-        },
-        "snapshot_mode": {
-            "snapshot_mode": "DELTA",
-            "sequence": 2,
-            "base_snapshot_id": "base-agent-a",
-            "previous_manifest_sha256": "a" * 64,
-        },
+        "competencia": {"competencia": "2026-06",
+                        "manifest_key": "raw/354130/CNES/2026-06/result/manifest.json"},
+        "snapshot_mode": {"snapshot_mode": "DELTA", "sequence": 2,
+                          "base_snapshot_id": "base-agent-a",
+                          "previous_manifest_sha256": "a" * 64},
     }
     return RawManifestRecord.model_validate(base.model_dump() | updates[field])
 

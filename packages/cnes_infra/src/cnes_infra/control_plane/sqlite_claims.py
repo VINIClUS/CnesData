@@ -18,9 +18,11 @@ from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
 from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
-    get_job_terminal_write,
     put_job_terminal_write,
+    put_run_unit_terminal_write,
     serialize_model,
+    validate_job_terminal_replay,
+    validate_run_unit_terminal_replay,
 )
 
 if TYPE_CHECKING:
@@ -105,34 +107,11 @@ def _validate_manifest_identity(job: Job, manifest: Any) -> None:
         raise Conflict("manifest_identity_mismatch")
 
 
-def _validate_terminal_replay(connection: Any, job: Job, command: Any, event: Any) -> None:
-    manifest = getattr(command, "manifest", None)
-    operation = "complete" if manifest is not None else "fail"
-    canonical = (operation, serialize_model(command), serialize_model(event))
-    current = get_job_terminal_write(connection, command.tenant_id, command.job_id)
-    if manifest is not None:
-        result_matches = (
-            job.state is JobState.SUCCEEDED
-            and job.fencing_token == command.fencing_token
-            and job.result_manifest_id == manifest.manifest_id
-            and job.result_manifest_key == manifest.manifest_key
-        )
-    else:
-        expected = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
-        result_matches = (
-            job.state is expected
-            and job.fencing_token == command.fencing_token
-            and job.error_code == command.error_code
-        )
-    if current != canonical or not result_matches:
-        raise Conflict("job_terminal_conflict")
-
-
 def complete_job(store: Any, command: CompleteJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
         if job is not None and job.state is JobState.SUCCEEDED:
-            _validate_terminal_replay(connection, job, command, event)
+            validate_job_terminal_replay(connection, job, command, event)
             return job
         job = _validate_job_fence(store, connection, command)
         manifest = command.manifest
@@ -158,7 +137,7 @@ def fail_job(store: Any, command: FailJob, event: OutboxEvent) -> Job:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
         failed_states = {JobState.FAILED_RETRYABLE, JobState.FAILED_FINAL}
         if job is not None and job.state in failed_states:
-            _validate_terminal_replay(connection, job, command, event)
+            validate_job_terminal_replay(connection, job, command, event)
             return job
         job = _validate_job_fence(store, connection, command)
         state = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
@@ -426,6 +405,12 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
 
 def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> RunUnit:
     with store.write_transaction() as connection:
+        current = next(
+            (unit for unit in _list_run_units(connection, command.tenant_id, command.run_id)
+             if unit.unit_id == command.unit_id), None
+        )
+        if current is not None and current.state is RunUnitState.SUCCEEDED:
+            return validate_run_unit_terminal_replay(connection, current, command, event)
         unit, run = _validate_unit_fence(store, connection, command)
         completed = transition_run_unit(unit, RunUnitState.SUCCEEDED, run).model_copy(
             update={
@@ -435,12 +420,24 @@ def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> R
             }
         )
         _put_run_unit(connection, completed)
+        put_run_unit_terminal_write(connection, "commit", command, event)
         store.put_outbox_event(connection, event)
         return completed
 
 
 def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUnit:
     with store.write_transaction() as connection:
+        current = next(
+            (unit for unit in _list_run_units(connection, command.tenant_id, command.run_id)
+             if unit.unit_id == command.unit_id), None
+        )
+        terminal = {
+            RunUnitState.FAILED_RETRYABLE,
+            RunUnitState.FAILED_FINAL,
+            RunUnitState.SUCCEEDED_DEGRADED,
+        }
+        if current is not None and current.state in terminal:
+            return validate_run_unit_terminal_replay(connection, current, command, event)
         unit, run = _validate_unit_fence(store, connection, command)
         optional = any(
             (item.source_type, item.file_subtype) == (unit.source_type, unit.file_subtype)
@@ -458,6 +455,7 @@ def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUn
         )
         failed = transition_run_unit(failed, state, run)
         _put_run_unit(connection, failed)
+        put_run_unit_terminal_write(connection, "fail", command, event)
         if state is RunUnitState.SUCCEEDED_DEGRADED:
             source = f"{unit.source_type}/{unit.file_subtype}"
             missing_sources = tuple(dict.fromkeys((*run.missing_sources, source)))

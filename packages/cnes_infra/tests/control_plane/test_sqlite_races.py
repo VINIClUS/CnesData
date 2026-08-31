@@ -95,11 +95,8 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
     existing = _event("event-collision")
     adapter.create_job(_job("job-a"), existing)
     transition = TransitionRun(
-        tenant_id="354130",
-        run_id="run-a",
-        expected_state=RunState.PROCESSING,
-        new_state=RunState.PUBLISHING,
-    )
+        tenant_id="354130", run_id="run-a", expected_state=RunState.PROCESSING,
+        new_state=RunState.PUBLISHING)
     conflicting = existing.model_copy(update={"aggregate_id": "run-a"})
     with pytest.raises(Conflict, match="run_state_conflict"):
         adapter.transition_run(
@@ -128,13 +125,8 @@ def test_serializa_claim_renovacao_e_publicacao_concorrentes(
     assert len(winners) == 1
     claimed = winners[0]
     renew = RenewJobLease(
-        tenant_id="354130",
-        job_id="job-a",
-        owner=claimed.lease_owner,
-        fencing_token=claimed.fencing_token,
-        now=clock.now(),
-        lease_seconds=60,
-    )
+        tenant_id="354130", job_id="job-a", owner=claimed.lease_owner,
+        fencing_token=claimed.fencing_token, now=clock.now(), lease_seconds=60)
     renewals = _race(
         lambda: writers[0].renew_job_lease(renew),
         lambda: writers[1].renew_job_lease(renew),
@@ -159,20 +151,11 @@ def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, 
         SQLiteControlPlane(database_path, clock.now),
     )
     renew = RenewJobLease(
-        tenant_id="354130",
-        job_id="job-a",
-        owner="worker-a",
-        fencing_token=claimed.fencing_token,
-        now=clock.now(),
-        lease_seconds=60,
-    )
+        tenant_id="354130", job_id="job-a", owner="worker-a",
+        fencing_token=claimed.fencing_token, now=clock.now(), lease_seconds=60)
     reclaim = ClaimJob(
-        tenant_id="354130",
-        job_id="job-a",
-        owner="worker-b",
-        now=clock.now() + timedelta(seconds=31),
-        lease_seconds=30,
-    )
+        tenant_id="354130", job_id="job-a", owner="worker-b",
+        now=clock.now() + timedelta(seconds=31), lease_seconds=30)
     renewed, reclaimed = _race(
         lambda: writers[0].renew_job_lease(renew),
         lambda: writers[1].claim_job(reclaim),
@@ -415,6 +398,13 @@ def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) ->
     run = _run("run-a", RunState.PUBLISHING)
     adapter.put_run(run)
     first = _publish("run-a", "published-a", None, True)
+    invalid_pointer = first.model_copy(update={"pointer_name": "CURRENT"})
+    with pytest.raises(Conflict, match="pointer_name_not_current"):
+        adapter.publish_dataset(invalid_pointer)
+    assert adapter.get_run("354130", "run-a") == run
+    assert adapter.get_dataset_pointer("354130", "gold") is None
+    assert adapter.get_dataset_version("354130", "gold", "run-a") is None
+    assert invalid_pointer.event not in adapter.pending_outbox(100)
     mismatched = first.model_copy(
         update={"version": first.version.model_copy(update={"dataset_name": "silver"})}
     )

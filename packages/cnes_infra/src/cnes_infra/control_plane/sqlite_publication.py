@@ -293,6 +293,8 @@ def _validate_publication_replay(
 
 
 def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
+    if command.pointer_name != "current":
+        raise Conflict("pointer_name_not_current")
     version = command.version
     with store.write_transaction() as connection:
         current_version = _get_version(
