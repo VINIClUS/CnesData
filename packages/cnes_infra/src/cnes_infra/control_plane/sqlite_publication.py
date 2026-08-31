@@ -110,13 +110,14 @@ def _build_ancestry(
 def _select_raw_chain(
     connection: Any, identity: tuple[str, ...], limit: int,
 ) -> tuple[RawManifestRecord, ...]:
-    cursor = (None, None, None)
+    cursor = (None, None, None, None)
     while True:
         rows = connection.execute(
-            "SELECT data, created_at, agent_id, snapshot_id FROM raw_manifests "
+            "SELECT data, created_at, agent_id, snapshot_id, manifest_id FROM raw_manifests "
             "WHERE tenant_id = ? AND source_type = ? AND file_subtype = ? AND competencia = ? "
-            "AND (? IS NULL OR (created_at, agent_id, snapshot_id) < (?, ?, ?)) "
-            "ORDER BY created_at DESC, agent_id DESC, snapshot_id DESC LIMIT ?",
+            "AND (? IS NULL OR (created_at, agent_id, snapshot_id, manifest_id) "
+            "< (?, ?, ?, ?)) ORDER BY created_at DESC, agent_id DESC, snapshot_id DESC, "
+            "manifest_id DESC LIMIT ?",
             (*identity, cursor[0], *cursor, max(limit, 1)),
         ).fetchall()
         if not rows:

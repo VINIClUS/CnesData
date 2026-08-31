@@ -260,6 +260,9 @@ def _has_live_unit_lease(connection: Any, dispatch: RunDispatch, now: Any) -> bo
 
 def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
+        run = store.get_run_record(connection, command.tenant_id, command.run_id)
+        if run is None or run.state is not RunState.PROCESSING:
+            raise Conflict("parent_not_processing")
         validate_run_dispatch_wave(connection, command)
         current = _get_dispatch(connection, command.tenant_id, command.run_id)
         same_wave = current is not None and current.wave_id == command.wave_id

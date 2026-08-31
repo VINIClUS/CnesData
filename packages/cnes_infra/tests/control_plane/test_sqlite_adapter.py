@@ -235,6 +235,21 @@ def test_seleciona_ancestralidade_da_delta_mais_nova_entre_irmas(
         base.manifest_id, sibling_new.manifest_id, head.manifest_id)
 
 
+def test_pagina_heads_com_empate_ate_encontrar_chain_valida(sqlite_control_plane, clock) -> None:
+    base = _raw_record("same", "agent-tie", 1, clock.now()).model_copy(
+        update={"manifest_id": "manifest-x"})
+    broken = _raw_record("same", "agent-tie", 2, clock.now()).model_copy(
+        update={"previous_manifest_sha256": "e" * 64})
+    with sqlite_control_plane.write_transaction() as connection:
+        for manifest_id in ("manifest-z", "manifest-y"):
+            sqlite_control_plane.put_manifest_record(
+                connection, broken.model_copy(update={"manifest_id": manifest_id}))
+        sqlite_control_plane.put_manifest_record(connection, base)
+    chain = sqlite_control_plane.list_raw_manifest_chain(
+        "354130", "CNES", "ST", "2026-07", 2)
+    assert tuple(item.manifest_id for item in chain) == (base.manifest_id,)
+
+
 def test_persiste_tenant_solicitacao_de_acesso_e_entrega_outbox(
     sqlite_control_plane, clock
 ) -> None:
@@ -283,8 +298,7 @@ def test_rejeita_conflitos_e_replays_de_solicitacao_de_acesso(
     })
     before = (sqlite_control_plane.get_access_request("354130", "request-a"), (created,))
     invalid = pending if invalid_kind == "state" else approved.model_copy(
-        update={"user_id": "user-b"}
-    )
+        update={"user_id": "user-b"})
     with pytest.raises(Conflict, match=error):
         sqlite_control_plane.decide_access_request(invalid, ignored)
     assert before == (
@@ -296,12 +310,10 @@ def test_rejeita_conflitos_e_replays_de_solicitacao_de_acesso(
     assert sqlite_control_plane.decide_access_request(approved, ignored) == approved
     with pytest.raises(Conflict, match="access_request_state_conflict"):
         sqlite_control_plane.decide_access_request(
-            approved.model_copy(update={"state": AccessRequestState.REJECTED}), ignored
-        )
+            approved.model_copy(update={"state": AccessRequestState.REJECTED}), ignored)
     with pytest.raises(Conflict, match="access_request_state_conflict"):
         sqlite_control_plane.decide_access_request(
-            pending.model_copy(update={"request_id": "missing"}), ignored
-        )
+            pending.model_copy(update={"request_id": "missing"}), ignored)
     assert sqlite_control_plane.get_access_request("354130", "request-a") == approved
     assert sqlite_control_plane.pending_outbox(100) == (decided, created)
 
@@ -317,8 +329,7 @@ def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(sqlite_control_plan
     assert sqlite_control_plane.create_job(job, _event("ignored")) == job
     with pytest.raises(Conflict, match="job_conflict"):
         sqlite_control_plane.create_job(
-            job.model_copy(update={"source_type": "SIHD"}), _event("job-conflict")
-        )
+            job.model_copy(update={"source_type": "SIHD"}), _event("job-conflict"))
     second = _job("job-b")
     assert sqlite_control_plane.create_job(second, created) == second
     assert sqlite_control_plane.pending_outbox(100) == (created,)
@@ -474,26 +485,16 @@ def test_rejeita_manifesto_com_identidade_divergente_sem_mutacao(
     assert claimed is not None
     manifest = _manifesto_com_identidade(_raw_record("result", "agent-a", 1, clock.now()), field)
     command_values = {
-        "tenant_id": "354130",
-        "job_id": "job-a",
-        "owner": "worker-a",
-        "fencing_token": claimed.fencing_token,
-        "manifest": manifest,
+        "tenant_id": "354130", "job_id": "job-a", "owner": "worker-a",
+        "fencing_token": claimed.fencing_token, "manifest": manifest,
     }
-    command = (
-        CompleteJob.model_construct(**command_values)
-        if field == "tenant_id"
-        else CompleteJob(**command_values)
-    )
+    command = (CompleteJob.model_construct(**command_values) if field == "tenant_id"
+               else CompleteJob(**command_values))
 
     with pytest.raises(Conflict, match="manifest_identity_mismatch"):
         sqlite_control_plane.complete_job(command, _event("job-completed"))
 
     assert sqlite_control_plane.get_job("354130", "job-a") == claimed
-    assert sqlite_control_plane.list_raw_manifest_chain(
-        "354130", "CNES", "ST", "2026-07"
-    ) == ()
-    assert sqlite_control_plane.list_raw_manifest_chain(
-        "other", "CNES", "ST", "2026-07"
-    ) == ()
+    assert sqlite_control_plane.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07") == ()
+    assert sqlite_control_plane.list_raw_manifest_chain("other", "CNES", "ST", "2026-07") == ()
     assert sqlite_control_plane.pending_outbox(10) == (created,)

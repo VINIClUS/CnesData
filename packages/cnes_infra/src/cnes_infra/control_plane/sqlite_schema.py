@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS raw_manifests (
 CREATE INDEX IF NOT EXISTS ix_raw_manifest_heads
 ON raw_manifests (
     tenant_id, source_type, file_subtype, competencia,
-    created_at DESC, agent_id DESC, snapshot_id DESC
+    created_at DESC, agent_id DESC, snapshot_id DESC, manifest_id DESC
 );
 CREATE INDEX IF NOT EXISTS ix_raw_manifest_ancestry
 ON raw_manifests (

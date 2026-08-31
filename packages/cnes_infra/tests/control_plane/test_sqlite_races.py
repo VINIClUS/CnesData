@@ -294,8 +294,7 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
     dispatch = _reserve(adapter, clock, unit_ids=("unit-a", "unit-b"))
     for unit_id in ("unit-a", "unit-b"):
         claimed = adapter.claim_run_unit(
-            _claim_unit_command(dispatch.dispatch_id, f"worker-{unit_id}", clock, unit_id)
-        )
+            _claim_unit_command(dispatch.dispatch_id, f"worker-{unit_id}", clock, unit_id))
         assert claimed is not None
         adapter.fail_run_unit(
             FailRunUnit(
@@ -304,8 +303,7 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
                 fencing_token=claimed.fencing_token,
                 error_code="optional_failed", retryable=False,
             ),
-            _event(f"degraded-{unit_id}"),
-        )
+            _event(f"degraded-{unit_id}"))
     assert adapter.get_run("354130", "run-a").missing_sources == ("CNES/ST",)
 
 def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
@@ -329,9 +327,7 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     adapter.finish_run_dispatch(
         FinishRunDispatch(
             tenant_id="354130", run_id="run-a", dispatch_id=dispatch.dispatch_id,
-            outcome=DispatchOutcome.FAILED, finished_at=clock.now(),
-        )
-    )
+            outcome=DispatchOutcome.FAILED, finished_at=clock.now()))
     with pytest.raises(Conflict, match="dispatch_terminal"):
         adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
     with pytest.raises(Conflict, match="dispatch_units_conflict"):
@@ -339,12 +335,10 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     replacement = _reserve(adapter, clock, unit_ids=dispatch.unit_ids)
     assert (replacement.generation, replacement.dispatch_id != dispatch.dispatch_id) == (2, True)
     reclaimed = adapter.claim_run_unit(
-        _claim_unit_command(replacement.dispatch_id, "worker-b", clock)
-    )
+        _claim_unit_command(replacement.dispatch_id, "worker-b", clock))
     assert reclaimed is not None
     assert (reclaimed.attempt, reclaimed.fencing_token, reclaimed.dispatch_id) == (
-        claimed.attempt + 1, claimed.fencing_token + 1, replacement.dispatch_id,
-    )
+        claimed.attempt + 1, claimed.fencing_token + 1, replacement.dispatch_id)
     other = _claim_unit_command(replacement.dispatch_id, "worker-c", clock)
     assert adapter.claim_run_unit(other) is None
     clock.advance(timedelta(seconds=31))
@@ -365,14 +359,25 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
         _reserve(reopened, clock, "a" * 16, ("unit-a",))
     assert _reserve(reopened, clock, "a" * 16, dispatch.unit_ids).generation == 5
 
+
+@pytest.mark.parametrize("state", [None, RunState.WAITING_INPUTS])
+def test_rejeita_reserva_sem_run_pai_processing_sem_mutacao(adapter, clock, state) -> None:
+    if state is not None:
+        adapter.put_run(_run("run-a", state))
+    with pytest.raises(Conflict, match="parent_not_processing"):
+        _reserve(adapter, clock)
+    adapter.put_run(_run("run-a"))
+    dispatch = _reserve(adapter, clock, unit_ids=("unit-b",))
+    assert (dispatch.generation, dispatch.unit_ids) == (1, ("unit-b",))
+
+
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
     dispatch = _prepare_unit(adapter, clock)
     pending = _commit_command(dispatch.dispatch_id, "worker-a", 0)
     with pytest.raises(LeaseLost, match="unit_not_leased"):
         adapter.commit_run_unit(pending, _event("pending-commit"))
     claim = _claim_unit_command(dispatch.dispatch_id, "worker-a", clock).model_copy(
-        update={"lease_seconds": 10}
-    )
+        update={"lease_seconds": 10})
     claimed = adapter.claim_run_unit(claim)
     assert claimed is not None
     clock.advance(timedelta(seconds=11))
@@ -394,8 +399,7 @@ def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) ->
     assert adapter.get_dataset_version("354130", "gold", "run-a") is None
     assert invalid_pointer.event not in adapter.pending_outbox(100)
     mismatched = first.model_copy(
-        update={"version": first.version.model_copy(update={"dataset_name": "silver"})}
-    )
+        update={"version": first.version.model_copy(update={"dataset_name": "silver"})})
     with pytest.raises(Conflict, match="run_dataset_mismatch"):
         adapter.publish_dataset(mismatched)
     assert adapter.get_run("354130", "run-a") == run
@@ -415,16 +419,14 @@ def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) ->
     before = (
         adapter.get_run("354130", "run-a"), pointer,
         adapter.get_dataset_version("354130", "gold", "run-a"),
-        adapter.pending_outbox(100),
-    )
+        adapter.pending_outbox(100))
     with pytest.raises(Conflict, match="publication_replay_conflict"):
         adapter.publish_dataset(divergent)
     assert before == (
         adapter.get_run("354130", "run-a"),
         adapter.get_dataset_pointer("354130", "gold"),
         adapter.get_dataset_version("354130", "gold", "run-a"),
-        adapter.pending_outbox(100),
-    )
+        adapter.pending_outbox(100))
     assert adapter.publish_dataset(first) == pointer
     adapter.put_run(_run("run-b", RunState.PUBLISHING))
     adapter.publish_dataset(_publish("run-b", "published-b", "run-a", False))
@@ -441,8 +443,7 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     adapter.put_run(_run("run-units"))
     units = tuple(
         _unit(unit_id).model_copy(update={"run_id": "run-units"})
-        for unit_id in ("unit-a", "unit-b")
-    )
+        for unit_id in ("unit-a", "unit-b"))
     _put_units(adapter, units, "run-units")
     base = _raw_record("base-agent-raw", "agent-raw", 1, clock.now())
     _store_record(adapter, base, clock)
@@ -458,8 +459,7 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     pending = adapter.pending_outbox(1)
     assert len(pending) == 1
     assert pending[0] == min(adapter.pending_outbox(100), key=lambda event: (
-        event.created_at, event.event_id
-    ))
+        event.created_at, event.event_id))
 
 
 def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> None:
