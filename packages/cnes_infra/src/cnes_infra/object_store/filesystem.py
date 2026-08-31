@@ -13,6 +13,7 @@ from pathlib import Path
 from secrets import token_hex
 from stat import S_ISREG
 from typing import TYPE_CHECKING
+from weakref import finalize
 
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.ports.object_store import ObjectStat
@@ -123,14 +124,19 @@ class FilesystemObjectStore:
     def __init__(
         self, root: str | Path, fault_injector: Callable[[str], None] | None = None
     ) -> None:
-        self._root = Path(root).absolute()
         self._fault_injector = fault_injector
-        _mkdir_durable(self._root)
-        self._ensure_layout()
-        self._recover_startup()
+        root_path = Path(root).absolute()
+        _mkdir_durable(root_path)
+        with ExitStack() as stack:
+            self._root_descriptor = os.open(root_path, _DIRECTORY_FLAGS)
+            stack.callback(os.close, self._root_descriptor)
+            self._ensure_layout()
+            self._recover_startup()
+            self._root_finalizer = finalize(self, os.close, self._root_descriptor)
+            stack.pop_all()
 
     def _ensure_layout(self) -> None:
-        root = os.open(self._root, _DIRECTORY_FLAGS)
+        root = os.dup(self._root_descriptor)
         try:
             internal = _open_or_create_directory(root, _LAYOUT)
             try:
@@ -146,7 +152,7 @@ class FilesystemObjectStore:
     @contextmanager
     def _layout(self) -> Iterator[_Layout]:
         with ExitStack() as stack:
-            root = os.open(self._root, _DIRECTORY_FLAGS)
+            root = os.dup(self._root_descriptor)
             stack.callback(os.close, root)
             internal = os.open(_LAYOUT, _DIRECTORY_FLAGS, dir_fd=root)
             stack.callback(os.close, internal)
@@ -221,19 +227,26 @@ class FilesystemObjectStore:
                 candidate = self._startup_owner(layout.objects, name, identity)
                 if candidate is None:
                     continue
-                key, digest = candidate
+                key, digest, temporary = candidate
                 with self._namespace_lock(layout.locks, digest, blocking=False) as acquired:
                     if acquired:
                         self._recover(layout.objects, key, digest)
+                        continue
+                if self._classify_recovery(layout.objects, temporary, digest):
+                    self._remove_temporary(layout.objects, name)
+                    continue
+                with self._namespace_lock(layout.locks, digest):
+                    self._recover(layout.objects, key, digest)
 
     def _startup_owner(
         self, objects: int, name: str, identity: tuple[str, str]
-    ) -> tuple[str, str] | None:
+    ) -> tuple[str, str, os.stat_result] | None:
         digest = identity[0].removeprefix(_TEMP_PREFIX)
         descriptor = _open_candidate(objects, name)
         if descriptor is None:
             return None
         try:
+            metadata = os.fstat(descriptor)
             owner = _temporary_owner(descriptor)
         finally:
             os.close(descriptor)
@@ -243,7 +256,7 @@ class FilesystemObjectStore:
             key, expected = self._identity(owner[0])
         except ValueError:
             return None
-        return (key, digest) if expected == digest else None
+        return (key, digest, metadata) if expected == digest else None
 
     @staticmethod
     def _remove_temporary(objects: int, name: str) -> None:
@@ -254,19 +267,19 @@ class FilesystemObjectStore:
         os.fsync(objects)
 
     @staticmethod
-    def _classify_recovery(objects: int, temporary: os.stat_result, digest: str) -> None:
+    def _classify_recovery(objects: int, temporary: os.stat_result, digest: str) -> bool:
         try:
             destination = os.open(digest, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=objects)
         except FileNotFoundError:
-            return
+            return False
         try:
             metadata = os.fstat(destination)
         finally:
             os.close(destination)
         if os.path.samestat(temporary, metadata):
-            return
+            return True
         if S_ISREG(metadata.st_mode):
-            return
+            return False
         raise Conflict("destination=invalid")
 
     def _recover(self, objects: int, key: str, digest: str) -> None:

@@ -79,7 +79,7 @@ def _process_paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> No
             reached.set()
             if not release.wait(timeout=5):
                 raise TimeoutError("release=timeout")
-
+            raise _SimulatedCrash("writer=crashed")
     try:
         digest = sha256(body).hexdigest()
         FilesystemObjectStore(root, fault_injector=pause).put("raw/locked", BytesIO(body), digest)
@@ -375,32 +375,24 @@ def test_chaves_com_prefixo_coexistem_em_qualquer_ordem(
         assert stream.read() == b"lock"
 
 
-def test_troca_adversarial_nao_remove_objeto_externo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "store"
-    key = "inside/dados.parquet"
+@pytest.mark.parametrize("ancestor", [False, True], ids=["root", "ancestor"])
+def test_root_aberto_nao_segue_path_substituido(ancestor: bool, tmp_path: Path) -> None:
+    parent = tmp_path / "original"
+    root = parent / "store"
     adapter = FilesystemObjectStore(root)
-    adapter.put(key, BytesIO(b"interno"), sha256(b"interno").hexdigest())
-    external = tmp_path / "outside/dados.parquet"
-    external.parent.mkdir()
-    external.write_bytes(b"externo")
-    real_lstat = Path.lstat
-    swapped = False
-
-    def swap_after_check(path: Path) -> os.stat_result:
-        nonlocal swapped
-        result = real_lstat(path)
-        if path == root / "inside" and not swapped:
-            path.rename(root / "parked")
-            path.symlink_to(external.parent, target_is_directory=True)
-            swapped = True
-        return result
-
-    monkeypatch.setattr(Path, "lstat", swap_after_check)
-    adapter.delete(key)
-
-    assert external.read_bytes() == b"externo"
+    target = parent if ancestor else root
+    target.rename(tmp_path / "moved")
+    replacement = tmp_path / "replacement"
+    replacement.mkdir()
+    target.symlink_to(replacement, target_is_directory=True)
+    body = b"conteudo"
+    adapter.put("raw/objeto", BytesIO(body), sha256(body).hexdigest())
+    with adapter.open("raw/objeto") as stream:
+        assert stream.read() == body
+    assert adapter.stat("raw/objeto") is not None
+    adapter.delete("raw/objeto")
+    assert adapter.stat("raw/objeto") is None
+    assert tuple(replacement.iterdir()) == ()
 
 
 @pytest.mark.parametrize("link_kind", ["staging", "publication"])
@@ -427,9 +419,8 @@ def test_nao_faz_fallback_quando_link_e_incompativel(
 
 
 @pytest.mark.linux_only
-def test_lock_do_destino_bloqueia_outro_processo_durante_staging(tmp_path: Path) -> None:
+def test_startup_recupera_apos_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import multiprocessing
-
     context = multiprocessing.get_context("spawn")
     reached = context.Event()
     release = context.Event()
@@ -441,15 +432,24 @@ def test_lock_do_destino_bloqueia_outro_processo_durante_staging(tmp_path: Path)
     process.start()
     assert reached.wait(timeout=5)
     lock_path = next(next(tmp_path.rglob("locks")).iterdir())
-
     with lock_path.open("a+b") as lock:
         with pytest.raises(BlockingIOError):
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-    release.set()
+    real_flock = fcntl.flock
+    def release_writer(descriptor: int, operation: int) -> None:
+        if operation & fcntl.LOCK_NB:
+            try:
+                return real_flock(descriptor, operation)
+            finally:
+                release.set()
+        release.set()
+        return real_flock(descriptor, operation)
+    monkeypatch.setattr(fcntl, "flock", release_writer)
+    FilesystemObjectStore(tmp_path)
     process.join(timeout=10)
     assert process.exitcode == 0
-    assert results.get(timeout=2) == "ok"
+    assert results.get(timeout=2) == "_SimulatedCrash"
+    assert _adapter_temporaries(tmp_path) == ()
 
 
 @pytest.mark.linux_only
