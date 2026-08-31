@@ -29,6 +29,7 @@ _DURABLE_BOUNDARIES = (
     "temporary_unlinked",
     "directory_final_fsynced",
 )
+_OWNER_XATTR = "user.cnes_object_store_destination"
 
 
 class _SimulatedCrash(RuntimeError):
@@ -193,6 +194,98 @@ def test_nova_escrita_recupera_temporario_abandonado_no_mesmo_adapter(tmp_path: 
     assert _adapter_temporaries(tmp_path) == ()
     with adapter.open("raw/dados.parquet") as stream:
         assert stream.read() == body
+
+
+def test_reabertura_preserva_objeto_valido_com_nome_de_temporario(tmp_path: Path) -> None:
+    other_key = "raw/outro.parquet"
+    digest = sha256(other_key.encode()).hexdigest()
+    valid_key = f"raw/.cnes-object-store-{digest}-writer.tmp"
+    body = b"objeto-valido"
+    adapter = FilesystemObjectStore(tmp_path)
+    adapter.put(valid_key, BytesIO(body), sha256(body).hexdigest())
+
+    reopened = FilesystemObjectStore(tmp_path)
+
+    with reopened.open(valid_key) as stream:
+        assert stream.read() == body
+
+
+def test_pre_write_preserva_objeto_valido_com_nome_de_temporario(tmp_path: Path) -> None:
+    destination_key = "raw/destino.parquet"
+    digest = sha256(destination_key.encode()).hexdigest()
+    valid_key = f"raw/.cnes-object-store-{digest}-writer.tmp"
+    valid_body = b"objeto-valido"
+    destination_body = b"novo-destino"
+    adapter = FilesystemObjectStore(tmp_path)
+    adapter.put(valid_key, BytesIO(valid_body), sha256(valid_body).hexdigest())
+
+    adapter.put(
+        destination_key,
+        BytesIO(destination_body),
+        sha256(destination_body).hexdigest(),
+    )
+
+    with adapter.open(valid_key) as stream:
+        assert stream.read() == valid_body
+
+
+def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> None:
+    directory = tmp_path / "raw"
+    directory.mkdir()
+    different_parent_owner = "other/owner.parquet"
+    different_parent_digest = sha256(different_parent_owner.encode()).hexdigest()
+    mismatch_owner = "raw/owner.parquet"
+    candidates = {
+        directory / f".cnes-object-store-{'b' * 64}-writer.tmp": None,
+        directory / f".cnes-object-store-{'c' * 64}-writer.tmp": b"\xff",
+        directory / f".cnes-object-store-{'d' * 64}-writer.tmp": b"../invalid",
+        directory / f".cnes-object-store-{different_parent_digest}-writer.tmp": (
+            different_parent_owner.encode()
+        ),
+        directory / f".cnes-object-store-{'e' * 64}-writer.tmp": mismatch_owner.encode(),
+    }
+    for candidate, owner in candidates.items():
+        candidate.write_bytes(b"preservar")
+        if owner is not None:
+            os.setxattr(candidate, _OWNER_XATTR, owner)
+
+    FilesystemObjectStore(tmp_path)
+
+    assert all(candidate.read_bytes() == b"preservar" for candidate in candidates)
+
+
+def test_reabertura_propaga_erro_ao_ler_ownership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = tmp_path / f".cnes-object-store-{'f' * 64}-writer.tmp"
+    candidate.write_bytes(b"preservar")
+
+    def deny_xattr(path: os.PathLike[str], attribute: str) -> bytes:
+        raise PermissionError(errno.EACCES, "xattr=denied")
+
+    monkeypatch.setattr(os, "getxattr", deny_xattr)
+
+    with pytest.raises(PermissionError, match="xattr=denied"):
+        FilesystemObjectStore(tmp_path)
+
+    assert candidate.read_bytes() == b"preservar"
+
+
+def test_falha_ao_marcar_ownership_remove_temporario(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = FilesystemObjectStore(tmp_path)
+
+    def reject_xattr(descriptor: int, attribute: str, value: bytes) -> None:
+        raise OSError(errno.ENOTSUP, "xattr=unsupported")
+
+    monkeypatch.setattr(os, "setxattr", reject_xattr)
+
+    with pytest.raises(OSError, match="xattr=unsupported"):
+        adapter.put("raw/dados.parquet", BytesIO(b"conteudo"), sha256(b"conteudo").hexdigest())
+
+    assert adapter.stat("raw/dados.parquet") is None
+    assert _adapter_temporaries(tmp_path) == ()
 
 
 def test_remove_temporario_perdedor_sem_tocar_destino_valido(tmp_path: Path) -> None:

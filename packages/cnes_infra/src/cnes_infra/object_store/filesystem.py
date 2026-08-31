@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
 _TEMP_PREFIX = ".cnes-object-store-"
 _HEX_DIGITS = frozenset("0123456789abcdef")
+_OWNER_XATTR = "user.cnes_object_store_destination"
+_MISSING_XATTR_ERRNOS = frozenset({errno.ENODATA, errno.ENOENT})
 
 
 class _RecoveryKind(Enum):
@@ -53,6 +55,19 @@ def _temporary_namespace(path: Path) -> str | None:
     if len(digest) != 64 or not token:
         return None
     return namespace if set(digest) <= _HEX_DIGITS else None
+
+
+def _temporary_owner(path: Path) -> str | None:
+    try:
+        value = os.getxattr(path, _OWNER_XATTR)
+    except OSError as error:
+        if error.errno in _MISSING_XATTR_ERRNOS:
+            return None
+        raise
+    try:
+        return value.decode()
+    except UnicodeDecodeError:
+        return None
 
 
 class FilesystemObjectStore:
@@ -103,26 +118,30 @@ class FilesystemObjectStore:
         with self._namespace_lock(destination.parent, namespace):
             yield
 
-    def _destination_for_namespace(self, directory: Path, namespace: str) -> Path | None:
-        for candidate in directory.iterdir():
-            key = candidate.relative_to(self._root).as_posix()
-            if self._namespace(key) == namespace:
-                return candidate
-        return None
+    def _owned_destination(self, temporary: Path, namespace: str) -> Path | None:
+        owner = _temporary_owner(temporary)
+        if owner is None:
+            return None
+        try:
+            destination = self._path(owner)
+        except ValueError:
+            return None
+        if destination == temporary or destination.parent != temporary.parent:
+            return None
+        return destination if self._namespace(owner) == namespace else None
 
     def _recover_startup(self) -> None:
         for temporary in self._root.rglob(f"{_TEMP_PREFIX}*.tmp"):
             namespace = _temporary_namespace(temporary)
             if namespace is None:
                 continue
+            destination = self._owned_destination(temporary, namespace)
+            if destination is None:
+                continue
             with self._namespace_lock(temporary.parent, namespace, blocking=False) as acquired:
                 if not acquired or not temporary.exists():
                     continue
-                destination = self._destination_for_namespace(temporary.parent, namespace)
-                if destination is None:
-                    self._remove_temporary(temporary, temporary.parent)
-                else:
-                    self._recover(destination, namespace)
+                self._recover(destination, namespace)
 
     @staticmethod
     def _remove_temporary(temporary: Path, directory: Path) -> None:
@@ -142,10 +161,22 @@ class FilesystemObjectStore:
     def _recover(self, destination: Path, namespace: str) -> None:
         recoveries: set[_RecoveryKind] = set()
         for temporary in destination.parent.glob(f"{namespace}-*.tmp"):
+            if self._owned_destination(temporary, namespace) != destination:
+                continue
             recoveries.add(self._classify_recovery(temporary, destination))
             temporary.unlink(missing_ok=True)
         if recoveries:
             _fsync_directory(destination.parent)
+
+    def _mark_temporary(self, temporary: Path, descriptor: int, destination: Path) -> None:
+        owner = destination.relative_to(self._root).as_posix().encode()
+        try:
+            os.setxattr(descriptor, _OWNER_XATTR, owner)
+            os.fsync(descriptor)
+            _fsync_directory(destination.parent)
+        except Exception:
+            self._remove_temporary(temporary, destination.parent)
+            raise
 
     def _stage(
         self, destination: Path, namespace: str, body: BinaryIO, expected_sha256: str
@@ -155,6 +186,7 @@ class FilesystemObjectStore:
         )
         temporary = Path(name)
         try:
+            self._mark_temporary(temporary, descriptor, destination)
             self._fault("temporary_created")
             with os.fdopen(descriptor, "wb") as stream:
                 descriptor = -1
