@@ -85,8 +85,7 @@ def test_deduplica_candidatos_e_rele_base_antes_do_claim(dynamodb_context: _Dyna
             entity_key(_TENANT, "JOB", suffix) if suffix == "missing" else base_key,
             attributes)
         client.put_item(TableName=_TABLE_NAME, Item=marker)
-    spy = ClientSpy(client)
-    adapter._client = spy
+    adapter._client = spy = ClientSpy(client)
     jobs = adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
     assert tuple(job.job_id for job in jobs) == ("job-a",)
     consistent_reads = [call for call in spy.calls if call == "get_item"]
@@ -103,9 +102,10 @@ def test_query_limitada_para_apos_primeiro_candidato_valido(ctx: _DynamoContext)
     assert tuple(job.job_id for job in jobs) == ("job-a",)
     assert (adapter.list_claimable_jobs(_TENANT, "agent-a", 0),
             paginated.calls.count("query")) == ((), 1)
-def test_cadeia_raw_segue_ancestralidade_sem_mesclar_deltas_irmaos(ctx: _DynamoContext) -> None:
+@pytest.mark.parametrize("base_minutes", [3, 4])
+def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
-    full = _raw_record("base", "agent-a", 1, clock.now())
+    full = _raw_record("base", "agent-a", 1, clock.now() + timedelta(minutes=base_minutes))
     sibling_a = _raw_record("delta-a", "agent-a", 2, clock.now() + timedelta(minutes=1))
     sibling_b = _raw_record("delta-b", "agent-a", 2, clock.now() + timedelta(minutes=2))
     head = _raw_record("head", "agent-a", 3, clock.now() + timedelta(minutes=3))
@@ -245,6 +245,11 @@ def test_codec_nao_introduz_decimal_nos_itens(dynamodb_context: _DynamoContext) 
     assert not contains_decimal(client.scan(TableName=_TABLE_NAME)["Items"])
 def test_create_job_retorna_replay_e_rejeita_divergencia(ctx: _DynamoContext) -> None:
     _, _, adapter = ctx
+    adapter._client = spy = ClientSpy(adapter._client)
+    delivered = _event("already-delivered").model_copy(update={"delivered_at": _NOW})
+    with pytest.raises(Conflict, match="event_delivery_conflict"):
+        adapter.create_job(_job("delivered"), delivered)
+    assert "transact_write_items" not in spy.calls
     job = _job("job-a")
     event = _event("job-created")
     adapter.create_job(job, event)
@@ -427,9 +432,7 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(ctx: _DynamoCo
     )
     with pytest.raises(Conflict, match="manifest_identity_conflict"):
         adapter.complete_job(complete, _event("invalid-manifest"))
-def test_publicacao_rejeita_run_ausente_e_reproduz_ponteiro_nomeado(
-    ctx: _DynamoContext,
-) -> None:
+def test_publicacao_rejeita_run_ausente_e_reproduz_ponteiro(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
     command = _publish("run-a", "published", None, False)
@@ -484,10 +487,8 @@ def test_idempotencia_recupera_resultado_de_corrida_confirmada(ctx: _DynamoConte
     outcome = adapter.begin_idempotency(command)
     assert not outcome.created
     assert outcome.record.resource_id == "resource-a"
-def test_idempotencia_propaga_conflito_sem_vencedor_visivel(
-    dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
-) -> None:
-    _, clock, adapter = dynamodb_context
+def test_idempotencia_propaga_conflito_sem_vencedor_visivel(ctx: _DynamoContext) -> None:
+    _, clock, adapter = ctx
     adapter._client = FailingTransactionClient(adapter._client)
     command = BeginIdempotency(
         tenant_id=_TENANT, scope="jobs", key="lost-race", request_hash=_HASH_A,

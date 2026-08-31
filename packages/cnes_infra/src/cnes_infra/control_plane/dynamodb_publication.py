@@ -68,6 +68,8 @@ class DynamoDBPublication:
         return encode_model(event, "OUTBOXEVENT", outbox_key(event.event_id), attributes)
 
     def _event_action(self, tenant_id: str, event: OutboxEvent) -> Action:
+        if event.delivered_at is not None:
+            raise Conflict("event_delivery_conflict")
         if event.tenant_id != tenant_id:
             raise Conflict("event_tenant_conflict")
         existing = self._get_outbox_event(event.event_id)

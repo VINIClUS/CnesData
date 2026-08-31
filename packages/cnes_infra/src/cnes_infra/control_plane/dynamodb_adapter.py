@@ -246,15 +246,15 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         values = (tenant_id, source_type, file_subtype, competencia)
         partition = "RAW#" + "#".join(key_component(value) for value in values)
         records = list(self._strong_candidates(self._query("gsi2", partition), RawManifestRecord))
-        candidates = sorted(
-            records,
-            key=lambda item: (item.created_at, item.agent_id, item.snapshot_id),
+        chains = tuple(filter(None, (self._valid_chain(records, head) for head in records)))
+        ancestors = {item.manifest_id for chain in chains for item in chain[:-1]}
+        endpoints = (chain for chain in chains if chain[-1].manifest_id not in ancestors)
+        ordered = sorted(
+            endpoints,
+            key=lambda chain: (chain[-1].created_at, chain[-1].agent_id, chain[-1].snapshot_id),
             reverse=True,
         )
-        for head in candidates:
-            chain = self._valid_chain(records, head)
-            if not chain:
-                continue
+        for chain in ordered:
             if len(chain) > limit:
                 return ()
             return tuple(
