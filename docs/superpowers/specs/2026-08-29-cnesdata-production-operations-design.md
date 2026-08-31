@@ -142,9 +142,9 @@ No production deployment occurs automatically after merge.
 - Requests beyond product quota fail with `429` or the documented quota error
   before starting Step Functions or Athena.
 - The USD 15 action uses its service-linked role to attach OpenTofu-owned
-  `cnesdata-cost-freeze` to promotion/API/recovery, Step Functions execution and
-  Athena-operator roles. This marker denies new compute/query starts; promotion lists
-  only its own policies and aborts. Audit stays on. Only cost-clear detaches after
+  `cnesdata-cost-freeze` to promotion/API, recovery task/Scheduler, Step Functions
+  execution and Athena-operator roles. It denies new compute/query starts; promotion
+  self-reads and aborts. Audit task/Scheduler stay on. Only cost-clear detaches after
   reviewed spend/forecast recovery; history is retained and billing may lag.
 
 ## 5. Observability and SLOs
@@ -324,9 +324,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   semaphore writes are denied. Races prove close-first blocks acquire before drain;
   expired takeover needs liveness proof; losers never start and get `429`/quota;
 - cost tests count billed pull/start/run/stop. Two minutes per 30-minute recovery and
-  audit invocation budget 48+48=96 hours/30 days, leaving 4 of 100 for units. Excess
-  fails acceptance/alarms, not a cap. Freeze tests attach to promotion/API/recovery,
-  Step Functions/Athena roles, prove self-read/abort, audit continuity and cost-clear;
+  audit invocation budget 48+48=96 hours/30 days, leaving 4 for units; excess is alarmed.
+  Freeze tests attach to promotion/API, recovery task/Scheduler and Step Functions/Athena
+  roles; prove self-read/abort, audit task/Scheduler continuity and cost-clear;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
