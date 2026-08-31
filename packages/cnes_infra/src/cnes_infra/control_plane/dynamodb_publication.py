@@ -186,6 +186,10 @@ class DynamoDBPublication:
     def _get_outbox_event(self, event_id: str) -> OutboxEvent | None:
         return self._get_model(outbox_key(event_id), OutboxEvent)
 
+    def _require_event_replay(self, tenant_id: str, event: OutboxEvent) -> None:
+        if event.tenant_id != tenant_id or self._get_outbox_event(event.event_id) != event:
+            raise Conflict("event_id_conflict")
+
     def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
         """Retorna um evento pela identidade global."""
         return self._get_outbox_event(event_id)

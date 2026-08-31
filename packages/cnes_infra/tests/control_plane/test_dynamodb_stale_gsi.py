@@ -46,6 +46,12 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
 _HASH_B = "b" * 64
 
 
+class OneItemPageClient(ClientSpy):
+    def query(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("query")
+        return self.client.query(**kwargs, Limit=1)
+
+
 @pytest.fixture
 def dynamodb_context() -> Any:
     with mock_aws():
@@ -83,6 +89,22 @@ def test_deduplica_candidatos_e_rele_base_antes_do_claim(
     consistent_reads = [call for call in spy.calls if call == "get_item"]
     assert len(consistent_reads) == 2
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is not None
+
+
+def test_query_percorre_todas_as_paginas_antes_de_ordenar_e_limitar(
+    dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
+) -> None:
+    _, _, adapter = dynamodb_context
+    adapter.put_agent(_agent("agent-a"))
+    for job_id in ("job-b", "job-a"):
+        adapter.create_job(_job(job_id), _event(f"created-{job_id}"))
+    paginated = OneItemPageClient(adapter._client)
+    adapter._client = paginated
+
+    jobs = adapter.list_claimable_jobs(_TENANT, "agent-a", 2)
+
+    assert tuple(job.job_id for job in jobs) == ("job-a", "job-b")
+    assert paginated.calls.count("query") == 2
 
 
 def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(
@@ -235,6 +257,12 @@ def test_create_job_retorna_replay_e_rejeita_divergencia(
     adapter.create_job(job, event)
 
     assert adapter.create_job(job, event) == job
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.create_job(job, _foreign_event(adapter))
+    divergent = event.model_copy(update={"payload": {"event_id": "divergent"}})
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.create_job(job, divergent)
+    assert adapter.get_job(_TENANT, "job-a") == job
     with pytest.raises(Conflict, match="job_conflict"):
         adapter.create_job(job.model_copy(update={"agent_id": "agent-b"}), event)
 
@@ -278,6 +306,9 @@ def test_cancel_job_exige_lease_e_e_idempotente(
 
     assert canceled.state is JobState.CANCEL_REQUESTED
     assert adapter.cancel_job(command, event) == canceled
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.cancel_job(command, _foreign_event(adapter))
+    assert adapter.get_job(_TENANT, "job-a") == canceled
 
 
 def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(
@@ -292,9 +323,13 @@ def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(
     )
     with pytest.raises(NotFound, match="run_missing"):
         adapter.finalize_run_cancellation(command, _event("missing-run"))
-    canceled = _run("run-a", RunState.CANCELED)
-    adapter.put_run(canceled)
-    assert adapter.finalize_run_cancellation(command, _event("unused")) == canceled
+    adapter.put_run(_run("run-a", RunState.CANCEL_REQUESTED))
+    event = _event("run-canceled")
+    canceled = adapter.finalize_run_cancellation(command, event)
+    assert adapter.finalize_run_cancellation(command, event) == canceled
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.finalize_run_cancellation(command, _foreign_event(adapter))
+    assert adapter.get_run(_TENANT, "run-a") == canceled
 
 
 def _access_request(state: AccessRequestState = AccessRequestState.PENDING) -> AccessRequest:
@@ -309,6 +344,12 @@ def _access_request(state: AccessRequestState = AccessRequestState.PENDING) -> A
     )
 
 
+def _foreign_event(adapter: DynamoDBControlPlane) -> Any:
+    event = _event("foreign-event", tenant_id="other")
+    adapter.create_job(_job("foreign-job", tenant_id="other"), event)
+    return event
+
+
 def test_access_request_tem_criacao_decisao_e_replays_atomicos(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -321,6 +362,9 @@ def test_access_request_tem_criacao_decisao_e_replays_atomicos(
     adapter.put_access_request(pending, _event("access-created"))
     adapter.put_access_request(pending, _event("access-created"))
     assert adapter.get_access_request(_TENANT, "request-a") == pending
+    foreign = _foreign_event(adapter)
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.put_access_request(pending, foreign)
     with pytest.raises(Conflict, match="access_request_conflict"):
         adapter.put_access_request(
             pending.model_copy(update={"user_id": "user-b"}), _event("divergent-access")
@@ -329,6 +373,9 @@ def test_access_request_tem_criacao_decisao_e_replays_atomicos(
 
     assert adapter.decide_access_request(approved, _event("access-approved")) == approved
     assert adapter.decide_access_request(approved, _event("access-approved")) == approved
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.decide_access_request(approved, foreign)
+    assert adapter.get_access_request(_TENANT, "request-a") == approved
     with pytest.raises(Conflict, match="access_request_conflict"):
         adapter.decide_access_request(
             _access_request(AccessRequestState.REJECTED), _event("access-rejected")

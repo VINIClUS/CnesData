@@ -13,13 +13,13 @@ from cnes_domain.control_plane.commands import (
     FinishRunDispatch,
     PutRunUnits,
     ReserveRunDispatch,
-    TransitionRun,
 )
-from cnes_domain.control_plane.enums import DispatchOutcome, RunState
+from cnes_domain.control_plane.enums import DispatchOutcome, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
-from cnes_infra.control_plane.dynamodb_codec import execute_transaction, put_action
+from cnes_infra.control_plane.dynamodb_codec import execute_transaction, payload, put_action
+from cnes_infra.control_plane.dynamodb_keys import run_entity_key
 from packages.cnes_infra.tests.contracts.clock import (
     _NOW,
     _TENANT,
@@ -143,10 +143,61 @@ def _put_many_units(adapter: DynamoDBControlPlane, amount: int) -> tuple[Any, ..
     )
 
 
-def _action_key(action: dict[str, Any]) -> tuple[str, str]:
-    request = next(iter(action.values()))
-    values = request.get("Item", request.get("Key"))
-    return values["pk"]["S"], values["sk"]["S"]
+def _expected_item(
+    model: Any, entity: str, key: tuple[str, str], indexes: dict[str, str]
+) -> dict[str, Any]:
+    item = {
+        "pk": {"S": key[0]},
+        "sk": {"S": key[1]},
+        "entity": {"S": entity},
+        "payload": {"S": model.model_dump_json()},
+    }
+    return item | {name: {"S": value} for name, value in indexes.items()}
+
+
+def _expected_put(item: dict[str, Any], expected: str | None) -> dict[str, Any]:
+    request = {"TableName": _TABLE_NAME, "Item": item}
+    request["ConditionExpression"] = (
+        "attribute_not_exists(pk)" if expected is None else "payload = :expected"
+    )
+    if expected is not None:
+        request["ExpressionAttributeValues"] = {":expected": {"S": expected}}
+    return {"Put": request}
+
+
+def _transaction_action(identifier: str) -> dict[str, Any]:
+    item = {
+        "pk": {"S": "TENANT#354130"},
+        "sk": {"S": f"TEST#{identifier}"},
+        "payload": {"S": "{}"},
+    }
+    return put_action(_TABLE_NAME, item, None)
+
+
+def _expected_unit_action(index: int, state: RunUnitState) -> dict[str, Any]:
+    unit = _unit(f"unit-{index:03d}").model_copy(update={"state": state})
+    item = _expected_item(
+        unit,
+        "RUNUNIT",
+        (f"TENANT#{_TENANT}#RUN#run-a", f"UNIT#unit-{index:03d}"),
+        {
+            "gsi5pk": f"RUN_ITEMS#{_TENANT}#run-a",
+            "gsi5sk": f"UNIT#unit-{index:03d}",
+        },
+    )
+    expected = None if state is RunUnitState.PENDING else _unit(f"unit-{index:03d}")
+    return _expected_put(item, expected.model_dump_json() if expected is not None else None)
+
+
+def _hide_unit_from_gsi(adapter: DynamoDBControlPlane, unit_id: str) -> None:
+    item = adapter._client.get_item(
+        TableName=_TABLE_NAME,
+        Key={"pk": {"S": f"TENANT#{_TENANT}#RUN#run-a"}, "sk": {"S": f"UNIT#{unit_id}"}},
+        ConsistentRead=True,
+    )["Item"]
+    item.pop("gsi5pk")
+    item.pop("gsi5sk")
+    adapter._client.put_item(TableName=_TABLE_NAME, Item=item)
 
 
 def test_grava_99_unidades_em_ate_100_acoes_unicas(
@@ -156,17 +207,21 @@ def test_grava_99_unidades_em_ate_100_acoes_unicas(
     adapter.put_run(_run("run-a"))
     spy = ClientSpy(adapter._client)
     adapter._client = spy
-
     assert _put_many_units(adapter, 99) == _many_units(99)
-
     actions = spy.transactions[-1]
-    keys = [_action_key(action) for action in actions]
-    assert len(actions) == 100
-    assert tuple(next(iter(action)) for action in actions) == (
-        "ConditionCheck",
-        *("Put" for _ in range(99)),
-    )
-    assert len(keys) == len(set(keys))
+    run = _run("run-a")
+    expected_check = {
+        "ConditionCheck": {
+            "TableName": _TABLE_NAME,
+            "Key": {"pk": {"S": f"TENANT#{_TENANT}"}, "sk": {"S": "RUN#run-a"}},
+            "ConditionExpression": "payload = :expected",
+            "ExpressionAttributeValues": {":expected": {"S": run.model_dump_json()}},
+        }
+    }
+    assert actions == [
+        expected_check,
+        *(_expected_unit_action(index, RunUnitState.PENDING) for index in range(99)),
+    ]
 
 
 def test_rejeita_100_unidades_antes_de_chamar_boto3(
@@ -175,10 +230,8 @@ def test_rejeita_100_unidades_antes_de_chamar_boto3(
     adapter, _ = dynamodb_adapter
     spy = ClientSpy(adapter._client)
     adapter._client = spy
-
     with pytest.raises(Conflict, match="transaction_limit"):
         _put_many_units(adapter, 100)
-
     assert spy.calls == []
 
 
@@ -203,16 +256,29 @@ def test_cancela_98_unidades_em_100_acoes_unicas(
 ) -> None:
     adapter, clock = dynamodb_adapter
     _prepare_cancellation(adapter, 98)
+    _hide_unit_from_gsi(adapter, "unit-097")
     spy = ClientSpy(adapter._client)
     adapter._client = spy
-
     assert _finalize(adapter, clock).state is RunState.CANCELED
-
     actions = spy.transactions[-1]
-    keys = [_action_key(action) for action in actions]
-    assert len(actions) == 100
-    assert all(tuple(action) == ("Put",) for action in actions)
-    assert len(keys) == len(set(keys))
+    canceled = _run("run-a", RunState.CANCELED)
+    run_item = _expected_item(canceled, "RUN", (f"TENANT#{_TENANT}", "RUN#run-a"), {})
+    original_payload = _run("run-a", RunState.CANCEL_REQUESTED).model_dump_json()
+    event = _event("run-canceled")
+    event_item = _expected_item(
+        event,
+        "OUTBOXEVENT",
+        ("TENANT#_GLOBAL", "OUTBOX#run-canceled"),
+        {
+            "gsi6pk": "OUTBOX#PENDING",
+            "gsi6sk": f"{_NOW.isoformat(timespec='microseconds')}#run-canceled",
+        },
+    )
+    assert actions == [
+        _expected_put(run_item, original_payload),
+        *(_expected_unit_action(index, RunUnitState.CANCELED) for index in range(98)),
+        _expected_put(event_item, None),
+    ]
 
 
 def test_rejeita_cancelamento_de_99_unidades_sem_transacao(
@@ -220,94 +286,62 @@ def test_rejeita_cancelamento_de_99_unidades_sem_transacao(
 ) -> None:
     adapter, clock = dynamodb_adapter
     _prepare_cancellation(adapter, 99)
+    _hide_unit_from_gsi(adapter, "unit-098")
     spy = ClientSpy(adapter._client)
     adapter._client = spy
-
     with pytest.raises(Conflict, match="transaction_limit"):
         _finalize(adapter, clock)
-
     assert spy.transactions == []
     assert adapter.get_run(_TENANT, "run-a").state is RunState.CANCEL_REQUESTED
     assert all(unit.state.value == "PENDING" for unit in adapter.list_run_units(_TENANT, "run-a"))
     assert adapter.get_outbox_event("run-canceled") is None
 
 
-def test_rejeita_chaves_duplicadas_antes_de_enviar_transacao(
+def test_rejeita_transacao_com_chaves_duplicadas_ou_mais_de_100_acoes(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
     adapter, _ = dynamodb_adapter
     spy = ClientSpy(adapter._client)
-    item = {
-        "pk": {"S": "TENANT#354130"},
-        "sk": {"S": "TEST#same"},
-        "payload": {"S": "{}"},
-    }
-    action = put_action(_TABLE_NAME, item, None)
-
+    action = _transaction_action("same")
     with pytest.raises(Conflict, match="duplicate_transaction_key"):
         execute_transaction(spy, (action, action))
-
-    assert spy.transactions == []
-
-
-def test_transacao_falha_sem_mutar_run_ou_outbox(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, _ = dynamodb_adapter
-    original = _run("run-a")
-    adapter.put_run(original)
-    adapter._client = FailingTransactionClient(adapter._client)
-    command = TransitionRun(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        expected_state=RunState.PROCESSING,
-        new_state=RunState.FAILED,
-    )
-
-    with pytest.raises(Conflict, match="transaction_conflict"):
-        adapter.transition_run(command, _event("run-failed"))
-
-    assert adapter.get_run(_TENANT, "run-a") == original
-    assert adapter.get_outbox_event("run-failed") is None
-
-
-def test_rejeita_mais_de_100_acoes_antes_do_cliente(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, _ = dynamodb_adapter
-    spy = ClientSpy(adapter._client)
-    actions = tuple(
-        put_action(
-            _TABLE_NAME,
-            {
-                "pk": {"S": "TENANT#354130"},
-                "sk": {"S": f"TEST#{index}"},
-                "payload": {"S": "{}"},
-            },
-            None,
-        )
-        for index in range(101)
-    )
+    actions = tuple(_transaction_action(str(index)) for index in range(101))
     with pytest.raises(Conflict, match="transaction_limit"):
         execute_transaction(spy, actions)
     assert spy.calls == []
 
 
-def test_claim_job_retorna_none_quando_cas_perde_corrida(
+def test_moto_cancela_transacao_inteira_quando_condicao_falha(
+    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
+) -> None:
+    adapter, _ = dynamodb_adapter
+    original = _run("run-a")
+    adapter.put_run(original)
+    existing_event = _event("existing")
+    adapter._put_direct(adapter._outbox_item(existing_event))
+    original_item = adapter._get_item(run_entity_key(_TENANT, "run-a"))
+    updated_item = _expected_item(
+        _run("run-a", RunState.FAILED), "RUN", run_entity_key(_TENANT, "run-a"), {}
+    )
+    actions = (
+        put_action(_TABLE_NAME, updated_item, payload(original_item)),
+        put_action(_TABLE_NAME, adapter._outbox_item(_event("existing")), None),
+    )
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        execute_transaction(adapter._client, actions)
+    assert adapter.get_run(_TENANT, "run-a") == original
+    assert adapter.get_outbox_event("existing") == existing_event
+
+
+def test_claims_retornam_none_quando_cas_perde_corrida(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
     adapter, clock = dynamodb_adapter
     adapter.put_agent(_agent("agent-a"))
     adapter.create_job(_job("job-a"), _event("job-created"))
     adapter._client = FailingTransactionClient(adapter._client)
-
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is None
-
-
-def test_claim_unit_retorna_none_quando_cas_perde_corrida(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+    adapter._client = adapter._client.client
     dispatch = _prepare_unit(adapter, clock)
     adapter._client = FailingTransactionClient(adapter._client)
     command = ClaimRunUnit(
@@ -319,7 +353,6 @@ def test_claim_unit_retorna_none_quando_cas_perde_corrida(
         now=clock.now(),
         lease_seconds=30,
     )
-
     assert adapter.claim_run_unit(command) is None
 
 
@@ -356,7 +389,6 @@ def test_dispatch_terminal_invalida_commit_de_unidade(
             finished_at=clock.now(),
         )
     )
-
     with pytest.raises(LeaseLost, match="dispatch_terminal"):
         adapter.commit_run_unit(
             _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token),
@@ -446,7 +478,6 @@ def test_commit_rejeita_dispatch_da_unidade_obsoleto(
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
     stale = claimed.model_copy(update={"dispatch_id": "b" * 16})
     adapter._put_direct(adapter._unit_item(stale))
-
     with pytest.raises(FenceRejected, match="unit_dispatch_rejected"):
         adapter.commit_run_unit(
             _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token),
@@ -465,6 +496,5 @@ def test_validador_rejeita_lease_corrompido_sem_prazo() -> None:
         }
     )
     command = _commit_command("a" * 16, "worker-a", 1)
-
     with pytest.raises(LeaseLost, match="unit_lease_expired"):
         DynamoDBClaims._validate_unit_fence(unit, command, _NOW)

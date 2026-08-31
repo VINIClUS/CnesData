@@ -59,6 +59,35 @@ def payload(item: Item) -> str:
     return str(item["payload"]["S"])
 
 
+def query_all(client: Any, request: dict[str, Any]) -> tuple[Item, ...]:
+    """Percorre todas as páginas de uma Query."""
+    items: list[Item] = []
+    page_request = dict(request)
+    while True:
+        response = client.query(**page_request)
+        items.extend(response.get("Items", ()))
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key:
+            return tuple(items)
+        page_request["ExclusiveStartKey"] = last_key
+
+
+def query_partition(client: Any, table_name: str, partition: str, prefix: str) -> tuple[Item, ...]:
+    """Consulta uma partição base com leitura forte."""
+    return query_all(
+        client,
+        {
+            "TableName": table_name,
+            "KeyConditionExpression": "pk = :partition AND begins_with(sk, :prefix)",
+            "ExpressionAttributeValues": {
+                ":partition": {"S": partition},
+                ":prefix": {"S": prefix},
+            },
+            "ConsistentRead": True,
+        },
+    )
+
+
 def put_action(table_name: str, item: Item, expected_payload: str | None) -> Action:
     """Cria uma ação Put condicional."""
     request: dict[str, Any] = {"TableName": table_name, "Item": item}

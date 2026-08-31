@@ -38,12 +38,15 @@ from cnes_infra.control_plane.dynamodb_codec import (
     execute_transaction,
     payload,
     put_action,
+    query_all,
+    query_partition,
 )
 from cnes_infra.control_plane.dynamodb_keys import (
     dependency_marker_key,
     entity_key,
     item_key,
     run_entity_key,
+    run_partition,
     timestamp,
     unit_key,
 )
@@ -94,13 +97,15 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         return decode_model(item, model_type) if item is not None else None
 
     def _query(self, index_name: str, partition: str) -> tuple[Item, ...]:
-        response = self._client.query(
-            TableName=self._table_name,
-            IndexName=index_name,
-            KeyConditionExpression=f"{index_name}pk = :partition",
-            ExpressionAttributeValues={":partition": {"S": partition}},
+        return query_all(
+            self._client,
+            {
+                "TableName": self._table_name,
+                "IndexName": index_name,
+                "KeyConditionExpression": f"{index_name}pk = :partition",
+                "ExpressionAttributeValues": {":partition": {"S": partition}},
+            },
         )
-        return tuple(response.get("Items", ()))
 
     def _strong_candidates[T: BaseModel](
         self, candidates: tuple[Item, ...], model_type: type[T]
@@ -217,6 +222,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if existing is not None:
             if existing != job:
                 raise Conflict("job_conflict")
+            self._require_event_replay(job.tenant_id, event)
             return existing
         actions = (
             put_action(self._table_name, self._job_item(job), None),
@@ -407,6 +413,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             raise NotFound("job_missing")
         job = decode_model(item, Job)
         if job.state is JobState.CANCEL_REQUESTED:
+            self._require_event_replay(job.tenant_id, event)
             return job
         if job.state is not JobState.LEASED:
             raise Conflict("job_state_conflict")
@@ -429,10 +436,15 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             raise NotFound("run_missing")
         run = decode_model(run_item, Run)
         if run.state is RunState.CANCELED:
+            self._require_event_replay(run.tenant_id, event)
             return run
         if run.state is not command.expected_state:
             raise Conflict("run_state_conflict")
-        units = self.list_run_units(command.tenant_id, command.run_id)
+        items = query_partition(
+            self._client, self._table_name,
+            run_partition(command.tenant_id, command.run_id), "UNIT#"
+        )
+        units = tuple(decode_model(item, RunUnit) for item in items)
         cancellable = tuple(unit for unit in units if unit.state in _NONTERMINAL_UNITS)
         if len(cancellable) >= 99:
             raise Conflict("transaction_limit")
@@ -458,6 +470,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if existing is not None:
             if existing != request:
                 raise Conflict("access_request_conflict")
+            self._require_event_replay(request.tenant_id, event)
             return
         self._transact((put_action(self._table_name, item, None), self._event_action(event)))
 
@@ -473,6 +486,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             raise NotFound("access_request_missing")
         existing = decode_model(item, AccessRequest)
         if existing == request:
+            self._require_event_replay(request.tenant_id, event)
             return existing
         if existing.state.value != "PENDING":
             raise Conflict("access_request_conflict")
