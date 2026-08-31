@@ -264,9 +264,7 @@ def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, cl
         adapter.put_run_units(command)
 
 
-def test_reabertura_preserva_registros_leases_pointer_idempotencia_e_outbox(
-    adapter, database_path, clock
-) -> None:
+def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None:
     tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
     adapter.put_tenant(tenant)
     _prepare_job(adapter)
@@ -274,24 +272,29 @@ def test_reabertura_preserva_registros_leases_pointer_idempotencia_e_outbox(
     adapter.put_run(_run("run-a", RunState.PUBLISHING))
     pointer = adapter.publish_dataset(_publish("run-a", "published", None, False))
     idempotency = BeginIdempotency(
-        tenant_id="354130",
-        scope="jobs",
-        key="key-a",
-        request_hash="a" * 64,
-        resource_id="job-a",
-        now=clock.now(),
+        tenant_id="354130", scope="jobs", key="key-a", request_hash="a" * 64,
+        resource_id="job-a", now=clock.now(),
         expires_at=clock.now() + timedelta(minutes=5),
     )
     adapter.begin_idempotency(idempotency)
-
+    adapter.put_run(_run("run-units"))
+    unit_a = _unit("unit-a").model_copy(update={"run_id": "run-units"})
+    unit_b = _unit("unit-b").model_copy(update={"run_id": "run-units"})
+    canonical = (unit_a, unit_b)
+    assert _put_units(adapter, (unit_b, unit_a), "run-units") == canonical
     reopened = SQLiteControlPlane(database_path, clock.now)
     reopened.initialize()
-
     assert reopened.get_tenant(tenant.tenant_id) == tenant
     assert reopened.get_job("354130", "job-a") == claimed
     assert reopened.get_dataset_pointer("354130", "gold") == pointer
     assert not reopened.begin_idempotency(idempotency).created
     assert reopened.pending_outbox(10) == adapter.pending_outbox(10)
+    assert _put_units(reopened, canonical, "run-units") == canonical
+    before = reopened.list_run_units("354130", "run-units")
+    divergent = (unit_a, _unit("unit-c").model_copy(update={"run_id": "run-units"}))
+    with pytest.raises(Conflict, match="units_conflict"):
+        _put_units(reopened, divergent, "run-units")
+    assert reopened.list_run_units("354130", "run-units") == before
 
 
 def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> None:
