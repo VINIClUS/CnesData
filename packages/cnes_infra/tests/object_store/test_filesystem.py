@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cnes_domain.control_plane.errors import Conflict
-from cnes_infra.object_store.filesystem import FilesystemObjectStore
+from cnes_infra.object_store.filesystem import FilesystemObjectStore, _open_or_create_directory
 from packages.cnes_infra.tests.contracts import object_store_contract as contract
 from packages.cnes_infra.tests.contracts.clock import MutableClock
 
@@ -57,15 +57,14 @@ def _process_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
                 raise TimeoutError("reader=timeout")
     barrier.wait()
     try:
-        stat = FilesystemObjectStore(root, fault_injector=wait_for_reader).put(
-            "raw/race", BytesIO(body), expected
-        )
+        adapter = FilesystemObjectStore(root, fault_injector=wait_for_reader)
+        stat = adapter.put("raw/race", BytesIO(body), expected)
         results.put(("ok", stat.sha256))
     except Conflict:
         results.put(("conflict", expected))
 
 
-def _process_paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
+def _paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
     reached, release, results = controls
     def pause(boundary: str) -> None:
         if boundary == "temporary_created":
@@ -94,8 +93,6 @@ def _process_final(root: str, results: Any) -> None:
                     result.close()
         except Exception as error:
             results.put((type(error).__name__, str(error)))
-        else:
-            results.put(("ok", ""))
 
 
 def _read_during_publication(root: str, controls: tuple[Any, ...]) -> None:
@@ -148,6 +145,17 @@ def test_fsynca_ancestral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert observed == [destination.parent]
 
 
+def test_fecha_diretorio_se_fsync_do_parent_falha(monkeypatch: pytest.MonkeyPatch) -> None:
+    close = MagicMock()
+    monkeypatch.setattr(os, "mkdir", MagicMock())
+    monkeypatch.setattr(os, "open", MagicMock(return_value=7))
+    monkeypatch.setattr(os, "fsync", MagicMock(side_effect=OSError(errno.EIO, "fsync=failed")))
+    monkeypatch.setattr(os, "close", close)
+    with pytest.raises(OSError, match="fsync=failed"):
+        _open_or_create_directory(3, "objects")
+    close.assert_called_once_with(7)
+
+
 @pytest.mark.parametrize("operation", ["put", "promote"])
 @pytest.mark.parametrize("boundary", _DURABLE_BOUNDARIES)
 def test_recupera_fronteira_duravel(boundary: str, operation: str, tmp_path: Path) -> None:
@@ -179,12 +187,9 @@ def test_scan_ignora_temp_removido(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced"))
     with pytest.raises(_SimulatedCrash, match="boundary=file_fsynced"):
         crashing.put("raw/dados.parquet", BytesIO(b"abandonado"), sha256(b"abandonado").hexdigest())
-    temporary = _adapter_temporaries(tmp_path)[0]
-    removed: list[Path] = []
-    real_open = os.open
+    temporary, removed, real_open = _adapter_temporaries(tmp_path)[0], [], os.open
     def vanish_before_open(
-        path: Any, flags: int, mode: int = 0o777, *, dir_fd: int | None = None
-    ) -> int:
+        path: Any, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
         if path == temporary.name and not removed:
             removed.append(temporary)
             temporary.unlink()
@@ -195,9 +200,8 @@ def test_scan_ignora_temp_removido(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_crash_pre_marker_nao_deixa_temporario(tmp_path: Path) -> None:
-    crashing = FilesystemObjectStore(
-        tmp_path, fault_injector=_CrashAt("temporary_created_before_ownership")
-    )
+    boundary = "temporary_created_before_ownership"
+    crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt(boundary))
     body = b"conteudo"
     with pytest.raises(_SimulatedCrash, match="boundary=temporary_created_before_ownership"):
         crashing.put("raw/dados.parquet", BytesIO(body), sha256(body).hexdigest())
@@ -219,8 +223,7 @@ def test_nova_escrita_recupera_temporario_abandonado_no_mesmo_adapter(tmp_path: 
 @pytest.mark.parametrize("recovery", ["startup", "pre_write"])
 def test_recuperacao_preserva_alias_legal(alias_kind: str, recovery: str, tmp_path: Path) -> None:
     key, body = "raw/destino.parquet", b"objeto-valido"
-    digest = sha256(body).hexdigest()
-    namespace = sha256(key.encode()).hexdigest()
+    digest, namespace = sha256(body).hexdigest(), sha256(key.encode()).hexdigest()
     adapter = FilesystemObjectStore(tmp_path)
     alias = _objects_directory(tmp_path) / f".cnes-object-store-{namespace}-writer.tmp"
     if alias_kind == "hard_link":
@@ -266,37 +269,42 @@ def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> 
     assert fifo.exists()
 
 
-def test_propaga_erro_de_ownership(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    FilesystemObjectStore(tmp_path)
-    candidate = _objects_directory(tmp_path) / f".cnes-object-store-{'f' * 64}-writer.tmp"
-    candidate.write_bytes(b"preservar")
-    real_open = os.open
-    def deny_candidate(path: Any, *args: Any, **kwargs: Any) -> int:
-        if path == candidate.name:
-            raise PermissionError(errno.EACCES, "xattr=denied")
-        return real_open(path, *args, **kwargs)
-    monkeypatch.setattr(os, "open", deny_candidate)
-    with pytest.raises(PermissionError, match="xattr=denied"):
-        FilesystemObjectStore(tmp_path)
-    monkeypatch.setattr(os, "open", real_open)
-    monkeypatch.setattr(
-        os, "getxattr", MagicMock(side_effect=PermissionError(errno.EACCES, "xattr=denied"))
-    )
-    with pytest.raises(PermissionError, match="xattr=denied"):
-        FilesystemObjectStore(tmp_path)
-    assert candidate.read_bytes() == b"preservar"
+@pytest.mark.parametrize("caller", ["startup", "pre_write"])
+@pytest.mark.parametrize("failure", ["open", "fstat", "xattr"])
+def test_inspecao_de_ownership_fecha_fd(
+    caller: str, failure: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    key, body = "raw/owner.parquet", b"preservar"
+    adapter, digest = FilesystemObjectStore(tmp_path), sha256(key.encode()).hexdigest()
+    candidate = _objects_directory(tmp_path) / f".cnes-object-store-{digest}-writer.tmp"
+    candidate.write_bytes(body)
+    os.setxattr(candidate, _OWNER_XATTR, f"{key}\0writer".encode())
+    if failure == "open":
+        real_open = os.open
+        def fail_open(path: Any, *args: Any, **kwargs: Any) -> int:
+            if path == candidate.name:
+                raise PermissionError(errno.EACCES, "inspection=failed")
+            return real_open(path, *args, **kwargs)
+        monkeypatch.setattr(os, "open", fail_open)
+    else:
+        syscall = "fstat" if failure == "fstat" else "getxattr"
+        error = OSError(errno.EIO, "inspection=failed")
+        monkeypatch.setattr(os, syscall, MagicMock(side_effect=error))
+    descriptor_count = len(os.listdir("/proc/self/fd"))
+    target, args = (
+        (FilesystemObjectStore, (tmp_path,)) if caller == "startup"
+        else (adapter.put, (key, BytesIO(body), sha256(body).hexdigest())))
+    with pytest.raises(OSError, match="inspection=failed"):
+        target(*args)
+    assert len(os.listdir("/proc/self/fd")) == descriptor_count
+    assert candidate.read_bytes() == body
 
 
 @pytest.mark.parametrize("mode", ["owner", "read", "write", "flush", "fsync", "sha", "dir", "dst"])
-def test_falha_remove_temp_e_fsynca_dir(
-    mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_falha_staging(mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     adapter, body = FilesystemObjectStore(tmp_path), MagicMock(wraps=BytesIO(b"conteudo"))
     if mode == "owner":
         monkeypatch.setattr(
-            os,
-            "setxattr",
-            MagicMock(side_effect=OSError(errno.ENOTSUP, "staging=failed")),
-        )
+            os, "setxattr", MagicMock(side_effect=OSError(errno.ENOTSUP, "staging=failed")))
     if mode == "read":
         body.read.side_effect = OSError(errno.EIO, "staging=failed")
     real_fdopen = os.fdopen
@@ -310,8 +318,7 @@ def test_falha_remove_temp_e_fsynca_dir(
         return writer
     if mode in {"write", "flush"}:
         monkeypatch.setattr(os, "fdopen", failing_fdopen)
-    real_fsync = os.fsync
-    regular_fsyncs = directory_fsyncs = 0
+    real_fsync, regular_fsyncs, directory_fsyncs = os.fsync, 0, 0
     def failing_fsync(descriptor: int) -> None:
         nonlocal directory_fsyncs, regular_fsyncs
         target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
@@ -410,8 +417,7 @@ def test_root_aberto_nao_segue_path_substituido(ancestor: bool, tmp_path: Path) 
 
 
 @pytest.mark.parametrize("link_kind", ["staging", "publication"])
-def test_link_incompativel_sem_fallback(
-    link_kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sem_fallback(link_kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     body, adapter = b"conteudo", FilesystemObjectStore(tmp_path)
     if link_kind == "staging":
         directory = _objects_directory(tmp_path)
@@ -435,8 +441,7 @@ def test_startup_recupera_apos_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     context = multiprocessing.get_context("spawn")
     reached, release, results = context.Event(), context.Event(), context.Queue()
     process = context.Process(
-        target=_process_paused_put,
-        args=(str(tmp_path), b"conteudo", (reached, release, results)),)
+        target=_paused_put, args=(str(tmp_path), b"conteudo", (reached, release, results)))
     process.start()
     assert reached.wait(timeout=5)
     lock_path = next(next(tmp_path.rglob("locks")).iterdir())
@@ -468,18 +473,13 @@ def test_corrida_publica_destino_completo(identical: bool, tmp_path: Path) -> No
     barrier, results = context.Barrier(3), context.Queue()
     destination_linked, reader_done = context.Event(), context.Event()
     reader_ready, observed = Event(), []
-    reader = Thread(
-        target=_read_during_publication,
-        args=(str(tmp_path), (reader_ready, destination_linked, reader_done, observed)),)
+    reader_controls = reader_ready, destination_linked, reader_done, observed
+    reader = Thread(target=_read_during_publication, args=(str(tmp_path), reader_controls))
     reader.start()
     assert reader_ready.wait(timeout=5)
-    processes = [
-        context.Process(
-            target=_process_put,
-            args=(str(tmp_path), body, (barrier, results, destination_linked, reader_done)),
-        )
-        for body in bodies
-    ]
+    writer_controls = barrier, results, destination_linked, reader_done
+    processes = [context.Process(target=_process_put, args=(str(tmp_path), body, writer_controls))
+                 for body in bodies]
     for process in processes:
         process.start()
     barrier.wait()

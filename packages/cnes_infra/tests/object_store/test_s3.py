@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
 from typing import Any
+from unittest.mock import MagicMock
 
 import boto3
 import pytest
@@ -275,6 +276,19 @@ def test_envia_retencao_e_sha256_explicito_e_valida_resposta() -> None:
         stat = adapter.put("locked/objeto", BytesIO(body), digest)
 
     assert (stat.size_bytes, stat.sha256) == (len(body), digest)
+
+
+def test_rejeita_retencao_naive_antes_de_acessar_cliente() -> None:
+    client = MagicMock()
+    with pytest.raises(ValueError, match="retain_until=naive"):
+        S3ObjectStore(
+            client,
+            "bucket",
+            retention=S3Retention(
+                "COMPLIANCE", datetime(2036, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+            ),
+        )
+    client.assert_not_called()
 
 
 @pytest.mark.parametrize("extra_days", [0, 1], ids=["igual", "maior"])

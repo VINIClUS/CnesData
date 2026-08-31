@@ -77,7 +77,11 @@ def _open_or_create_directory(parent: int, name: str) -> int:
     except FileExistsError:
         pass
     descriptor = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent)
-    os.fsync(parent)
+    try:
+        os.fsync(parent)
+    except Exception:
+        os.close(descriptor)
+        raise
     return descriptor
 
 
@@ -223,8 +227,12 @@ class FilesystemObjectStore:
         descriptor = _open_candidate(objects, name)
         if descriptor is None:
             return None
-        metadata = os.fstat(descriptor)
-        owner = _temporary_owner(descriptor) if S_ISREG(metadata.st_mode) else None
+        try:
+            metadata = os.fstat(descriptor)
+            owner = _temporary_owner(descriptor) if S_ISREG(metadata.st_mode) else None
+        except Exception:
+            os.close(descriptor)
+            raise
         if owner != (key, identity[1]):
             os.close(descriptor)
             return None

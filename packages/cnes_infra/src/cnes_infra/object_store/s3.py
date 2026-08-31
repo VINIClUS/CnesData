@@ -40,6 +40,10 @@ class S3Retention:
     mode: Literal["GOVERNANCE", "COMPLIANCE"]
     retain_until: datetime
 
+    def __post_init__(self) -> None:
+        if self.retain_until.utcoffset() is None:
+            raise ValueError("retain_until=naive")
+
 
 class S3ObjectStore:
     def __init__(
