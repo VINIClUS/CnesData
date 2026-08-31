@@ -307,8 +307,8 @@ Required deployment controls:
 - alarms for throttles, system errors and sustained consumption.
 
 API/processor roles receive only required table/index actions. GitHub has no direct
-writes; promotion assumes a release-tagged operator with conditional get/update on
-the separate fence item, never the semaphore item. Demo seed uses another role.
+writes; promotion's operator strongly reads fence/semaphore but updates only the
+separate fence item. Demo seed uses another role; semaphore writes are denied.
 
 ## 10. Data, serving and audit buckets
 
@@ -464,7 +464,7 @@ conditions. The CA private key and API/VPS leaf credentials never enter the
 repository or OpenTofu state; issuance, revocation and recovery are operational.
 
 IAM policies distinguish API, processor, task execution, GitHub plan/apply,
-release-tagged fence operator, demo seed, audit verification and break-glass duties.
+fence/cost-clear operators, demo seed, audit verification and break-glass duties.
 Wildcard permissions require an AWS API that cannot be narrowed and a documented
 condition boundary.
 

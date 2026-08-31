@@ -86,8 +86,8 @@ Order:
    ECS PassedToService. Verifier gets exact-GSI `Query`, conditioned `GetItem` and
    bound `GetObject`/`GetObjectRetention`; require retention/delivered proof;
 5. promotion assumes the release-tagged fence operator and atomically closes the
-   separate fence item first. New acquire transactions now fail; wait for the semaphore
-   and any in-flight decision to drain. API returns `503`/`Retry-After`; recovery waits;
+   separate fence item first. New acquire transactions fail; use strongly consistent
+   gate observation to await semaphore/decision drain. API returns `503`; recovery waits;
 6. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
    signed activation manifest ARNs only after verifying that binding, then
    switches only the OpenTofu-owned state-machine `TaskDefinition` ARN; Schedulers
@@ -141,10 +141,11 @@ No production deployment occurs automatically after merge.
   cutoffs contain downstream amplification.
 - Requests beyond product quota fail with `429` or the documented quota error
   before starting Step Functions or Athena.
-- A USD 15 aggregate budget action is a delayed cost-safety backstop. When it
-  fires, it freezes new unit/recovery Fargate, Step Functions and Athena starts;
-  bounded audit dispatch, reads and backups remain enabled. Billing data can lag,
-  so spend may exceed USD 15 before the action applies.
+- The USD 15 action uses its service-linked role to attach OpenTofu-owned
+  `cnesdata-cost-freeze` to promotion/API/recovery roles. This persistent marker denies
+  new unit/recovery, Step Functions and Athena; promotion may list only its own policies
+  and aborts while attached. Audit remains on. Only the cost-clear operator detaches it
+  after reviewed spend/forecast recovery; history is retained and billing may lag.
 
 ## 5. Observability and SLOs
 
@@ -223,12 +224,12 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   Copy reads the source and writes the destination only. It has no
   raw/audit/other-prefix access and no `s3:DeleteObject` or `s3:ListBucket`
   unless separately demonstrated necessary.
-- `ControlPlanePort.mutate_environment_gate(command)` accepts typed acquire, bind,
-  renew, release, close-fence and reopen-fence variants and returns owner/version state.
+- `ControlPlanePort` exposes strongly consistent `observe_environment_gate()` and typed
+  acquire, bind, renew, release, close-fence and reopen-fence mutation commands.
   Fence and semaphore are separate items. Runtime acquire transactionally requires an
   open fence while updating semaphore; close happens first, then promotion waits drain.
-  API/recovery use runtime variants; the operator can get/close/reopen only the fence
-  item. Expired takeover needs Step Functions/ECS proof; TTL only collects garbage.
+  API/recovery use runtime variants; operator reads fence/semaphore but updates only
+  fence. Expired takeover needs Step Functions/ECS proof; TTL only collects garbage.
   Losers never `StartExecution` and receive quota/`429`; dispatch CAS stays same-run.
 - The fence blocks initial/recovery dispatch except the bound synthetic canary.
   Acceptance or rollback reopens it through the port.
@@ -319,12 +320,13 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and proves the timed Deny before re-enabling a rotated leaf;
 - gate-port tests cover typed acquire/bind/renew/release/close/reopen and conditional
   adapter transactions. API/recovery use runtime variants; promotion assumes only the
-  release-tagged operator with get/close/reopen on the fence item. Direct semaphore
-  reads/writes are denied. Races prove close-first blocks new acquire before drain;
+  operator with strong reads of fence/semaphore and close/reopen only on fence. Direct
+  semaphore writes are denied. Races prove close-first blocks acquire before drain;
   expired takeover needs liveness proof; losers never start and get `429`/quota;
 - cost tests count billed pull/start/run/stop. Two minutes per 30-minute recovery and
   audit invocation budget 48+48=96 hours/30 days, leaving 4 of 100 for units. Excess
-  fails acceptance/alarms and is not called a hard cap;
+  fails acceptance/alarms, not a cap. Freeze tests prove budget attachment, promotion
+  self-read/abort, audit continuity and audited cost-clear-only detachment;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
