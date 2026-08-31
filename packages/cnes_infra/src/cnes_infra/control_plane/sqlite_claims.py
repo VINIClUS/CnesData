@@ -305,6 +305,9 @@ def get_active_run_dispatch(store: Any, tenant_id: str, run_id: str) -> RunDispa
 
 def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
+        run = store.get_run_record(connection, command.tenant_id, command.run_id)
+        if run is None or run.state is not RunState.PROCESSING:
+            raise Conflict("parent_not_processing")
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict("dispatch_stale")

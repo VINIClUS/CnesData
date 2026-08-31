@@ -52,11 +52,9 @@ _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 def clock() -> MutableClock:
     return MutableClock(_NOW)
 
-
 @pytest.fixture
 def database_path(tmp_path):
     return tmp_path / "control-plane.sqlite3"
-
 
 @pytest.fixture
 def adapter(database_path, clock) -> SQLiteControlPlane:
@@ -64,14 +62,12 @@ def adapter(database_path, clock) -> SQLiteControlPlane:
     control_plane.initialize()
     return control_plane
 
-
 def _capture(action: Any, barrier: Barrier) -> Any:
     barrier.wait()
     try:
         return action()
     except Exception as error:
         return error
-
 
 def _race(first: Any, second: Any) -> tuple[Any, Any]:
     barrier = Barrier(3)
@@ -81,11 +77,9 @@ def _race(first: Any, second: Any) -> tuple[Any, Any]:
         barrier.wait()
         return tuple(future.result() for future in futures)
 
-
 def _prepare_job(adapter: SQLiteControlPlane) -> None:
     adapter.put_agent(_agent("agent-a"))
     adapter.create_job(_job("job-a"), _event("job-created"))
-
 
 def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> None:
     adapter.put_run(_run("run-a"))
@@ -103,7 +97,6 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
         adapter.transition_run(transition, conflicting)
     assert adapter.get_run("354130", "run-a") == _run("run-a")
     assert adapter.pending_outbox(10) == (existing,)
-
 
 def test_serializa_claim_renovacao_e_publicacao_concorrentes(
     adapter, database_path, clock
@@ -130,7 +123,6 @@ def test_serializa_claim_renovacao_e_publicacao_concorrentes(
     assert sum(isinstance(result, DatasetPointer) for result in publications) == 1
     assert sum(isinstance(result, Conflict) for result in publications) == 1
 
-
 def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, clock) -> None:
     _prepare_job(adapter)
     claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
@@ -154,7 +146,6 @@ def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, 
         assert renewed.fencing_token == 1
         assert adapter.get_job("354130", "job-a") == renewed
 
-
 def test_incrementa_fence_apos_expiracao_ou_lease_ausente(adapter, clock) -> None:
     _prepare_job(adapter)
     first = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
@@ -170,11 +161,9 @@ def test_incrementa_fence_apos_expiracao_ou_lease_ausente(adapter, clock) -> Non
     assert reclaimed is not None
     assert (reclaimed.attempt, reclaimed.fencing_token) == (1, 1)
 
-
 def test_configura_busy_timeout_de_cinco_segundos(adapter) -> None:
     with adapter.read_connection() as connection:
         assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)
-
 
 def test_converte_busy_em_erro_local(adapter, database_path, clock, monkeypatch) -> None:
     monkeypatch.setattr(sqlite_adapter, "_BUSY_TIMEOUT_MS", 1)
@@ -188,7 +177,6 @@ def test_converte_busy_em_erro_local(adapter, database_path, clock, monkeypatch)
         blocker.rollback()
         blocker.close()
 
-
 def test_traduz_falha_de_conexao_em_erro_local(tmp_path, clock, monkeypatch) -> None:
     broken = SQLiteControlPlane(tmp_path / "broken.sqlite3", clock.now)
     def fail_connect():
@@ -199,13 +187,11 @@ def test_traduz_falha_de_conexao_em_erro_local(tmp_path, clock, monkeypatch) -> 
     with pytest.raises(_SQLiteFilesystemError, match="sqlite_filesystem"):
         broken.get_tenant("354130")
 
-
 def test_propaga_erro_operacional_que_nao_e_contencao(tmp_path, clock) -> None:
     uninitialized = SQLiteControlPlane(tmp_path / "empty.sqlite3", clock.now)
     tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         uninitialized.put_tenant(tenant)
-
 
 def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, clock) -> None:
     _prepare_job(adapter)
@@ -223,7 +209,6 @@ def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, cl
         units=(_unit("unit-a"),))
     with pytest.raises(Conflict, match="run_state_conflict"):
         adapter.put_run_units(command)
-
 
 def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None:
     tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
@@ -255,13 +240,11 @@ def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None
         _put_units(reopened, divergent, "run-units")
     assert reopened.list_run_units("354130", "run-units") == before
 
-
 def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> None:
     monkeypatch.setattr(sqlite_adapter, "_is_network_filesystem", lambda path: True)
     adapter = SQLiteControlPlane(tmp_path / "network" / "control.sqlite3", clock.now)
     with pytest.raises(_SQLiteFilesystemError, match="sqlite_network_filesystem"):
         adapter.initialize()
-
 @pytest.mark.parametrize(
     "network_path",
     [pytest.param(r"\\server\share\control.sqlite3"),
@@ -361,7 +344,9 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
 
 
 @pytest.mark.parametrize("state", [None, RunState.WAITING_INPUTS])
-def test_rejeita_reserva_sem_run_pai_processing_sem_mutacao(adapter, clock, state) -> None:
+def test_rejeita_reserva_e_bind_sem_run_pai_processing_sem_mutacao(
+    adapter, clock, state
+) -> None:
     if state is not None:
         adapter.put_run(_run("run-a", state))
     with pytest.raises(Conflict, match="parent_not_processing"):
@@ -369,6 +354,20 @@ def test_rejeita_reserva_sem_run_pai_processing_sem_mutacao(adapter, clock, stat
     adapter.put_run(_run("run-a"))
     dispatch = _reserve(adapter, clock, unit_ids=("unit-b",))
     assert (dispatch.generation, dispatch.unit_ids) == (1, ("unit-b",))
+    if state is None:
+        with adapter.write_transaction() as connection:
+            connection.execute("DELETE FROM runs WHERE tenant_id = ? AND run_id = ?",
+                               ("354130", "run-a"))
+    else:
+        adapter.transition_run(TransitionRun(
+            tenant_id="354130", run_id="run-a", expected_state=RunState.PROCESSING,
+            new_state=RunState.PUBLISHING), _event("run-publishing"))
+    bind = BindRunDispatch(
+        tenant_id="354130", run_id="run-a", dispatch_id=dispatch.dispatch_id,
+        execution_ref="exec-delayed", now=clock.now(), lease_seconds=30)
+    with pytest.raises(Conflict, match="parent_not_processing"):
+        adapter.bind_run_dispatch(bind)
+    assert adapter.get_active_run_dispatch("354130", "run-a") == dispatch
 
 
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
