@@ -29,6 +29,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _agent,
     _claim_job,
     _event,
+    _fail_job,
     _job,
     _raw_record,
     _run,
@@ -245,14 +246,16 @@ def test_create_job_retorna_replay_e_rejeita_divergencia(
     assert adapter.get_job(_TENANT, "job-a") == job
     with pytest.raises(Conflict, match="job_conflict"):
         adapter.create_job(job.model_copy(update={"agent_id": "agent-b"}), event)
+    key = {"pk": {"S": "TENANT#_GLOBAL"}, "sk": {"S": "OUTBOX#job-created"}}
+    adapter._client.delete_item(TableName=_TABLE_NAME, Key=key)
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.create_job(job, event)
 def test_transicao_e_unidades_rejeitam_run_ausente_ou_estado_obsoleto(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
     _, _, adapter = dynamodb_context
     transition = TransitionRun(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        expected_state=RunState.PROCESSING,
+        tenant_id=_TENANT, run_id="run-a", expected_state=RunState.PROCESSING,
         new_state=RunState.FAILED,
     )
     with pytest.raises(NotFound, match="run_missing"):
@@ -288,9 +291,7 @@ def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(
 ) -> None:
     _, clock, adapter = dynamodb_context
     command = FinalizeRunCancellation(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        expected_state=RunState.CANCEL_REQUESTED,
+        tenant_id=_TENANT, run_id="run-a", expected_state=RunState.CANCEL_REQUESTED,
         canceled_at=clock.now(),
     )
     with pytest.raises(NotFound, match="run_missing"):
@@ -305,12 +306,8 @@ def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(
 def _access_request(state: AccessRequestState = AccessRequestState.PENDING) -> AccessRequest:
     decided = state is not AccessRequestState.PENDING
     return AccessRequest(
-        tenant_id=_TENANT,
-        request_id="request-a",
-        user_id="user-a",
-        state=state,
-        decided_by="admin-a" if decided else None,
-        decided_at=_NOW if decided else None,
+        tenant_id=_TENANT, request_id="request-a", user_id="user-a", state=state,
+        decided_by="admin-a" if decided else None, decided_at=_NOW if decided else None,
     )
 def _foreign_event(adapter: DynamoDBControlPlane) -> Any:
     event = _event("foreign-event", tenant_id="other")
@@ -358,15 +355,18 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(
     delivered_at = clock.now() + timedelta(seconds=1)
     adapter.mark_outbox_delivered("job-created", delivered_at)
     assert adapter.pending_outbox(10) == ()
+    assert adapter.create_job(_job("job-a"), _event("job-created")) == _job("job-a")
+    divergent = _event("job-created").model_copy(update={"payload": {"changed": True}})
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.create_job(_job("job-a"), divergent)
     adapter.mark_outbox_delivered("job-created", delivered_at)
     with pytest.raises(Conflict, match="outbox_delivery_conflict"):
         adapter.mark_outbox_delivered("job-created", delivered_at + timedelta(seconds=1))
     with pytest.raises(NotFound, match="outbox_event_missing"):
         adapter.mark_outbox_delivered("missing", delivered_at)
-    events = tuple(
-        _event(f"event-{index}").model_copy(
-            update={"created_at": clock.now() + timedelta(seconds=index)}
-        ) for index in range(3)
+    events = tuple(_event(f"event-{index}").model_copy(
+        update={"created_at": clock.now() + timedelta(seconds=index)}
+    ) for index in range(3)
     )
     for index, event in enumerate(events):
         adapter.create_job(_job(f"job-{index}"), event)
@@ -390,12 +390,8 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(
     _, clock, adapter = dynamodb_context
     assert adapter.claim_job(_claim_job("missing", "worker-a", clock)) is None
     renewal = RenewJobLease(
-        tenant_id=_TENANT,
-        job_id="missing",
-        owner="worker-a",
-        fencing_token=1,
-        now=clock.now(),
-        lease_seconds=30,
+        tenant_id=_TENANT, job_id="missing", owner="worker-a", fencing_token=1,
+        now=clock.now(), lease_seconds=30,
     )
     with pytest.raises(NotFound, match="job_missing"):
         adapter.renew_job_lease(renewal)
@@ -415,20 +411,25 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(
     adapter._transact = transact
     assert adapter.get_job(_TENANT, "job-a") == claimed
     adapter.put_agent(_agent("agent-a"))
+    adapter._transact = revoke_then_renew
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.fail_job(_fail_job("worker-a", claimed.fencing_token, "failed"),
+                         _event("failed-after-revoke"))
+    adapter._transact = transact
+    assert adapter.get_job(_TENANT, "job-a") == claimed
+    assert adapter.get_outbox_event("failed-after-revoke") is None
+    adapter.put_agent(_agent("agent-a"))
     manifest = _raw_record("result", "agent-b", 1, clock.now())
     complete = CompleteJob(
-        tenant_id=_TENANT,
-        job_id="job-a",
-        owner="worker-a",
-        fencing_token=claimed.fencing_token,
-        manifest=manifest,
+        tenant_id=_TENANT, job_id="job-a", owner="worker-a",
+        fencing_token=claimed.fencing_token, manifest=manifest,
     )
     with pytest.raises(Conflict, match="manifest_identity_conflict"):
         adapter.complete_job(complete, _event("invalid-manifest"))
 def test_publicacao_rejeita_run_ausente_e_reproduz_ponteiro_nomeado(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
-    _, _, adapter = dynamodb_context
+    _, clock, adapter = dynamodb_context
     from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
     command = _publish("run-a", "published", None, False)
     with pytest.raises(NotFound, match="run_missing"):
@@ -438,6 +439,12 @@ def test_publicacao_rejeita_run_ausente_e_reproduz_ponteiro_nomeado(
     pointer = adapter.publish_dataset(named)
     assert pointer.pointer_name == "candidate"
     assert adapter.publish_dataset(named) == pointer
+    adapter.mark_outbox_delivered(named.event.event_id, clock.now())
+    assert adapter.publish_dataset(named) == pointer
+    changed = named.model_copy(update={"event": named.event.model_copy(
+        update={"payload": {"changed": True}})})
+    with pytest.raises(Conflict, match="publication_replay_conflict"):
+        adapter.publish_dataset(changed)
 def test_codec_propaga_erro_dynamodb_nao_condicional() -> None:
     class InvalidClient:
         @staticmethod
@@ -466,12 +473,8 @@ def test_idempotencia_recupera_resultado_de_corrida_confirmada(
 ) -> None:
     _, clock, adapter = dynamodb_context
     command = BeginIdempotency(
-        tenant_id=_TENANT,
-        scope="jobs",
-        key="race",
-        request_hash=_HASH_A,
-        resource_id="resource-a",
-        now=clock.now(),
+        tenant_id=_TENANT, scope="jobs", key="race", request_hash=_HASH_A,
+        resource_id="resource-a", now=clock.now(),
         expires_at=clock.now() + timedelta(minutes=5),
     )
     transact = adapter._transact
@@ -488,10 +491,7 @@ def test_idempotencia_propaga_conflito_sem_vencedor_visivel(
     _, clock, adapter = dynamodb_context
     adapter._client = FailingTransactionClient(adapter._client)
     command = BeginIdempotency(
-        tenant_id=_TENANT,
-        scope="jobs",
-        key="lost-race",
-        request_hash=_HASH_A,
+        tenant_id=_TENANT, scope="jobs", key="lost-race", request_hash=_HASH_A,
         resource_id="resource-a",
         now=clock.now(),
         expires_at=clock.now() + timedelta(minutes=5),

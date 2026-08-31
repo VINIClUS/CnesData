@@ -14,6 +14,7 @@ from cnes_domain.control_plane.commands import (
     FinishRunDispatch,
     PutRunUnits,
     ReserveRunDispatch,
+    TransitionRun,
 )
 from cnes_domain.control_plane.enums import DispatchOutcome, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
@@ -42,18 +43,19 @@ from packages.cnes_infra.tests.contracts.control_plane_contract import (
 
 _TABLE_NAME = "cnesdata-control-plane"
 _INDEXES = tuple(f"gsi{number}" for number in range(1, 7))
-
 class ClientSpy:
     def __init__(self, client: Any) -> None:
         self.client = client
         self.transactions: list[list[dict[str, Any]]] = []
         self.calls: list[str] = []
-
     def transact_write_items(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("transact_write_items")
         self.transactions.append(kwargs["TransactItems"])
         return self.client.transact_write_items(**kwargs)
-
+    def query(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("query")
+        kwargs.setdefault("Limit", getattr(self, "query_limit", 100))
+        return self.client.query(**kwargs)
     def __getattr__(self, name: str) -> Any:
         attribute = getattr(self.client, name)
         if not callable(attribute):
@@ -61,9 +63,7 @@ class ClientSpy:
         def tracked(**kwargs: Any) -> Any:
             self.calls.append(name)
             return attribute(**kwargs)
-
         return tracked
-
 class FailingTransactionClient(ClientSpy):
     def transact_write_items(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("transact_write_items")
@@ -73,7 +73,6 @@ class FailingTransactionClient(ClientSpy):
              "CancellationReasons": [{"Code": "ConditionalCheckFailed"}]},
             "TransactWriteItems",
         )
-
 def _create_table(client: object) -> None:
     index_attributes = tuple(f"{index}{suffix}" for index in _INDEXES for suffix in ("pk", "sk"))
     attribute_definitions = [
@@ -105,7 +104,6 @@ def _create_table(client: object) -> None:
         TableName=_TABLE_NAME,
         TimeToLiveSpecification={"Enabled": True, "AttributeName": "expires_at"},
     )
-
 @pytest.fixture
 def dynamodb_adapter() -> Iterator[tuple[DynamoDBControlPlane, MutableClock]]:
     with mock_aws():
@@ -113,7 +111,6 @@ def dynamodb_adapter() -> Iterator[tuple[DynamoDBControlPlane, MutableClock]]:
         _create_table(client)
         clock = MutableClock(_NOW)
         yield DynamoDBControlPlane(client, _TABLE_NAME, clock.now), clock
-
 @pytest.mark.parametrize("case", control_plane_cases(), ids=lambda case: case.name)
 def test_cumpre_contrato_compartilhado(
     case: ControlPlaneCase,
@@ -121,10 +118,8 @@ def test_cumpre_contrato_compartilhado(
 ) -> None:
     adapter, clock = dynamodb_adapter
     case.run(adapter, clock)
-
 def _many_units(amount: int) -> tuple[Any, ...]:
     return tuple(_unit(f"unit-{index:03d}") for index in range(amount))
-
 def _put_many_units(adapter: DynamoDBControlPlane, amount: int) -> tuple[Any, ...]:
     units = tuple(reversed(_many_units(amount)))
     return adapter.put_run_units(
@@ -135,7 +130,6 @@ def _put_many_units(adapter: DynamoDBControlPlane, amount: int) -> tuple[Any, ..
             units=units,
         )
     )
-
 def _expected_item(
     model: Any, entity: str, key: tuple[str, str], indexes: dict[str, str]
 ) -> dict[str, Any]:
@@ -146,7 +140,6 @@ def _expected_item(
         "payload": {"S": model.model_dump_json()},
     }
     return item | {name: {"S": value} for name, value in indexes.items()}
-
 def _expected_put(item: dict[str, Any], expected: str | None) -> dict[str, Any]:
     request = {"TableName": _TABLE_NAME, "Item": item}
     request["ConditionExpression"] = (
@@ -155,7 +148,6 @@ def _expected_put(item: dict[str, Any], expected: str | None) -> dict[str, Any]:
     if expected is not None:
         request["ExpressionAttributeValues"] = {":expected": {"S": expected}}
     return {"Put": request}
-
 def _transaction_action(identifier: str) -> dict[str, Any]:
     item = {
         "pk": {"S": "TENANT#354130"},
@@ -163,7 +155,6 @@ def _transaction_action(identifier: str) -> dict[str, Any]:
         "payload": {"S": "{}"},
     }
     return put_action(_TABLE_NAME, item, None)
-
 def _expected_unit_action(index: int, state: RunUnitState) -> dict[str, Any]:
     unit = _unit(f"unit-{index:03d}").model_copy(update={"state": state})
     item = _expected_item(
@@ -177,7 +168,6 @@ def _expected_unit_action(index: int, state: RunUnitState) -> dict[str, Any]:
     )
     expected = None if state is RunUnitState.PENDING else _unit(f"unit-{index:03d}")
     return _expected_put(item, expected.model_dump_json() if expected is not None else None)
-
 def _hide_unit_from_gsi(adapter: DynamoDBControlPlane, unit_id: str) -> None:
     item = adapter._client.get_item(
         TableName=_TABLE_NAME,
@@ -187,7 +177,6 @@ def _hide_unit_from_gsi(adapter: DynamoDBControlPlane, unit_id: str) -> None:
     item.pop("gsi5pk")
     item.pop("gsi5sk")
     adapter._client.put_item(TableName=_TABLE_NAME, Item=item)
-
 def test_grava_99_unidades_em_ate_100_acoes_unicas(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
@@ -214,7 +203,6 @@ def test_grava_99_unidades_em_ate_100_acoes_unicas(
     with pytest.raises(Conflict, match="run_units_conflict"):
         _put_many_units(adapter, 98)
     assert adapter.list_run_units(_TENANT, "run-a") == _many_units(99)
-
 def test_rejeita_100_unidades_antes_de_chamar_boto3(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
@@ -224,7 +212,6 @@ def test_rejeita_100_unidades_antes_de_chamar_boto3(
     with pytest.raises(Conflict, match="transaction_limit"):
         _put_many_units(adapter, 100)
     assert spy.calls == []
-
 def test_rejeita_uniao_de_99_unidades_antes_de_transacao(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
@@ -245,12 +232,10 @@ def test_rejeita_uniao_de_99_unidades_antes_de_transacao(
     with pytest.raises(Conflict, match="transaction_limit"):
         adapter.reserve_run_dispatch(replacement)
     assert spy.transactions == []
-
 def _prepare_cancellation(adapter: DynamoDBControlPlane, amount: int) -> None:
     adapter.put_run(_run("run-a"))
     _put_many_units(adapter, amount)
     adapter.put_run(_run("run-a", RunState.CANCEL_REQUESTED))
-
 def _finalize(adapter: DynamoDBControlPlane, clock: MutableClock) -> Any:
     command = FinalizeRunCancellation(
         tenant_id=_TENANT,
@@ -259,7 +244,6 @@ def _finalize(adapter: DynamoDBControlPlane, clock: MutableClock) -> Any:
         canceled_at=clock.now(),
     )
     return adapter.finalize_run_cancellation(command, _event("run-canceled"))
-
 def test_cancela_98_unidades_em_100_acoes_unicas(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
@@ -288,7 +272,6 @@ def test_cancela_98_unidades_em_100_acoes_unicas(
         *(_expected_unit_action(index, RunUnitState.CANCELED) for index in range(98)),
         _expected_put(event_item, None),
     ]
-
 def test_rejeita_cancelamento_de_99_unidades_sem_transacao(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
@@ -301,9 +284,11 @@ def test_rejeita_cancelamento_de_99_unidades_sem_transacao(
         _finalize(adapter, clock)
     assert spy.transactions == []
     assert adapter.get_run(_TENANT, "run-a").state is RunState.CANCEL_REQUESTED
-    assert all(unit.state.value == "PENDING" for unit in adapter.list_run_units(_TENANT, "run-a"))
+    spy.calls.clear()
+    spy.query_limit = 1
+    assert adapter.list_run_units(_TENANT, "run-a") == _many_units(99)
+    assert spy.calls.count("query") == 99
     assert adapter.get_outbox_event("run-canceled") is None
-
 def test_rejeita_transacao_com_chaves_duplicadas_ou_mais_de_100_acoes(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
@@ -404,18 +389,18 @@ def test_dispatch_expirado_rejeita_corrida_que_aluga_unidade_omitida(
     adapter, clock = dynamodb_adapter
     reserve = ReserveRunDispatch(
         tenant_id=_TENANT, run_id="run-a", wave_id="a" * 16,
-        unit_ids=("unit-000",), now=clock.now(), lease_seconds=30,
-    )
+        unit_ids=("unit-000",), now=clock.now(), lease_seconds=30)
     with pytest.raises(Conflict, match="run_not_processing"):
         adapter.reserve_run_dispatch(reserve)
     assert adapter.get_active_run_dispatch(_TENANT, "run-a") is None
     bind = BindRunDispatch(
         tenant_id=_TENANT, run_id="run-a", dispatch_id="a" * 16,
-        execution_ref="missing", now=clock.now(), lease_seconds=30,
-    )
-    with pytest.raises(NotFound, match="dispatch_missing"):
+        execution_ref="missing", now=clock.now(), lease_seconds=30)
+    with pytest.raises(Conflict, match="run_not_processing"):
         adapter.bind_run_dispatch(bind)
     adapter.put_run(_run("run-a"))
+    with pytest.raises(NotFound, match="dispatch_missing"):
+        adapter.bind_run_dispatch(bind)
     with pytest.raises(Conflict, match="dispatch_unit_missing"):
         adapter.reserve_run_dispatch(reserve)
     _put_many_units(adapter, 2)
@@ -461,6 +446,19 @@ def test_dispatch_started_expirado_e_recuperavel_sem_lease_vivo(
         tenant_id=_TENANT, run_id="run-a", dispatch_id=dispatch.dispatch_id,
         execution_ref="exec-b", now=clock.now(), lease_seconds=1,
     )
+    contender = DynamoDBControlPlane(adapter._client, _TABLE_NAME, clock.now)
+    transact = adapter._transact
+    def cancel_then_bind(actions: Any) -> None:
+        contender.transition_run(
+            TransitionRun(tenant_id=_TENANT, run_id="run-a", expected_state=RunState.PROCESSING,
+                          new_state=RunState.CANCEL_REQUESTED), _event("cancel-before-bind"))
+        transact(actions)
+    adapter._transact = cancel_then_bind
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.bind_run_dispatch(bind)
+    adapter._transact = transact
+    assert adapter.get_active_run_dispatch(_TENANT, "run-a") == dispatch
+    adapter.put_run(_run("run-a"))
     adapter.bind_run_dispatch(bind)
     clock.advance(timedelta(seconds=2))
     recovered = adapter.reserve_run_dispatch(

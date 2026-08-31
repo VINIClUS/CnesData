@@ -144,6 +144,7 @@ class DynamoDBClaims:
         """Falha um job leased e grava seu evento."""
         item, job = self._leased_job(command.tenant_id, command.job_id)
         self._validate_job_fence(job, command.owner, command.fencing_token, self._clock())
+        agent_item = self._active_agent_item(job)
         state = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
         updated = transition_job(job, state).model_copy(
             update={
@@ -154,6 +155,7 @@ class DynamoDBClaims:
         )
         self._transact(
             (
+                check_action(self._table_name, agent_item),
                 put_action(self._table_name, self._job_item(updated), payload(item)),
                 self._event_action(job.tenant_id, event),
             )
@@ -432,6 +434,9 @@ class DynamoDBClaims:
 
     def bind_run_dispatch(self, command: BindRunDispatch) -> RunDispatch:
         """Vincula o dispatch a uma execução externa."""
+        run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
+        if run_item is None or decode_model(run_item, Run).state is not RunState.PROCESSING:
+            raise Conflict("run_not_processing")
         item, dispatch = self._required_dispatch(command.tenant_id, command.run_id)
         self._validate_dispatch_lease(dispatch, command.dispatch_id, command.now)
         if dispatch.state is DispatchState.STARTED:
@@ -445,7 +450,10 @@ class DynamoDBClaims:
                 "lease_until": command.now + timedelta(seconds=command.lease_seconds),
             }
         )
-        self._transact((put_action(self._table_name, self._dispatch_item(updated), payload(item)),))
+        self._transact((
+            check_action(self._table_name, run_item),
+            put_action(self._table_name, self._dispatch_item(updated), payload(item)),
+        ))
         return updated
 
     def finish_run_dispatch(self, command: FinishRunDispatch) -> RunDispatch:

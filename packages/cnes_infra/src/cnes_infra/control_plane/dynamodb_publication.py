@@ -177,7 +177,7 @@ class DynamoDBPublication:
             and version == command.version
             and pointer is not None
             and pointer.version_id == command.version.version_id
-            and event == command.event
+            and self._event_replay_matches(event, command.event)
         )
         if not exact:
             raise Conflict("publication_replay_conflict")
@@ -198,8 +198,15 @@ class DynamoDBPublication:
     def _get_outbox_event(self, event_id: str) -> OutboxEvent | None:
         return self._get_model(outbox_key(event_id), OutboxEvent)
 
+    @staticmethod
+    def _event_replay_matches(current: OutboxEvent | None, event: OutboxEvent) -> bool:
+        if current is None:
+            return False
+        return current.model_copy(update={"delivered_at": event.delivered_at}) == event
+
     def _require_event_replay(self, tenant_id: str, event: OutboxEvent) -> None:
-        if event.tenant_id != tenant_id or self._get_outbox_event(event.event_id) != event:
+        current = self._get_outbox_event(event.event_id)
+        if event.tenant_id != tenant_id or not self._event_replay_matches(current, event):
             raise Conflict("event_id_conflict")
 
     def get_outbox_event(self, event_id: str) -> OutboxEvent | None:

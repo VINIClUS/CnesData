@@ -398,10 +398,10 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         return units
     def list_run_units(self, tenant_id: str, run_id: str) -> tuple[RunUnit, ...]:
         """Lista as unidades do run."""
-        partition = f"RUN_ITEMS#{tenant_id}#{run_id}"
-        units = self._strong_candidates(self._query("gsi5", partition), RunUnit)
+        partition = run_partition(tenant_id, run_id)
+        items = query_partition(self._client, self._table_name, partition, "UNIT#")
+        units = (decode_model(item, RunUnit) for item in items)
         return tuple(sorted(units, key=lambda unit: unit.unit_id))
-
     def cancel_job(self, command: CancelJob, event: OutboxEvent) -> Job:
         """Solicita o cancelamento de um job leased."""
         key = entity_key(command.tenant_id, "JOB", command.job_id)
