@@ -18,11 +18,13 @@ from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
 from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
+    put_job_cancellation,
     put_job_terminal_write,
     put_run_cancellation,
     put_run_dispatch_finish,
     put_run_unit_terminal_write,
     serialize_model,
+    validate_job_cancellation,
     validate_job_terminal_replay,
     validate_run_cancellation,
     validate_run_dispatch_finish,
@@ -131,13 +133,11 @@ def complete_job(store: Any, command: CompleteJob, event: OutboxEvent) -> Job:
                 "result_manifest_key": manifest.manifest_key,
             }
         )
+        store.put_outbox_event(connection, event, command.tenant_id)
         store.put_job_record(connection, completed)
         store.put_manifest_record(connection, manifest)
         put_job_terminal_write(connection, "complete", command, event)
-        store.put_outbox_event(connection, event)
         return completed
-
-
 def fail_job(store: Any, command: FailJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
@@ -155,24 +155,24 @@ def fail_job(store: Any, command: FailJob, event: OutboxEvent) -> Job:
                 "error_code": command.error_code,
             }
         )
+        store.put_outbox_event(connection, event, command.tenant_id)
         store.put_job_record(connection, failed)
         put_job_terminal_write(connection, "fail", command, event)
-        store.put_outbox_event(connection, event)
         return failed
-
-
 def cancel_job(store: Any, command: CancelJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
         if job is None:
             raise Conflict("job_missing")
         if job.state is JobState.CANCEL_REQUESTED:
+            validate_job_cancellation(connection, command, event)
             return job
         if job.state is not JobState.LEASED:
             raise Conflict("job_not_leased")
         canceled = job.model_copy(update={"state": JobState.CANCEL_REQUESTED})
+        store.put_outbox_event(connection, event, command.tenant_id)
         store.put_job_record(connection, canceled)
-        store.put_outbox_event(connection, event)
+        put_job_cancellation(connection, command, event)
         return canceled
 
 
@@ -428,9 +428,9 @@ def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> R
                 "output_manifests": command.output_manifests,
             }
         )
+        store.put_outbox_event(connection, event, command.tenant_id)
         _put_run_unit(connection, completed)
         put_run_unit_terminal_write(connection, "commit", command, event)
-        store.put_outbox_event(connection, event)
         return completed
 
 
@@ -463,6 +463,7 @@ def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUn
             update={"error_code": command.error_code, "lease_owner": None, "lease_until": None}
         )
         failed = transition_run_unit(failed, state, run)
+        store.put_outbox_event(connection, event, command.tenant_id)
         _put_run_unit(connection, failed)
         put_run_unit_terminal_write(connection, "fail", command, event)
         if state is RunUnitState.SUCCEEDED_DEGRADED:
@@ -470,7 +471,6 @@ def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUn
             missing_sources = tuple(dict.fromkeys((*run.missing_sources, source)))
             updated = run.model_copy(update={"missing_sources": missing_sources})
             store.put_run_record(connection, updated)
-        store.put_outbox_event(connection, event)
         return failed
 def finalize_run_cancellation(
     store: Any, command: FinalizeRunCancellation, event: OutboxEvent
@@ -487,6 +487,7 @@ def finalize_run_cancellation(
             RunUnitState.FAILED_FINAL, RunUnitState.CANCELED,
         }
         units = _list_run_units(connection, command.tenant_id, command.run_id)
+        store.put_outbox_event(connection, event, command.tenant_id)
         for unit in units:
             if unit.state not in terminal:
                 canceled = transition_run_unit(unit, RunUnitState.CANCELED, run).model_copy(
@@ -495,5 +496,4 @@ def finalize_run_cancellation(
         canceled_run = transition_run(run, RunState.CANCELED)
         store.put_run_record(connection, canceled_run)
         put_run_cancellation(connection, command, event)
-        store.put_outbox_event(connection, event)
         return canceled_run

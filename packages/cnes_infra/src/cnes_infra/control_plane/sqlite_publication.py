@@ -16,7 +16,12 @@ from cnes_domain.control_plane.entities import (
 from cnes_domain.control_plane.enums import AccessRequestState, JobState, RunState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.transitions import transition_run as apply_run_transition
-from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
+from cnes_infra.control_plane.sqlite_schema import (
+    deserialize_model,
+    put_access_request_decision,
+    serialize_model,
+    validate_access_request_decision,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -204,8 +209,8 @@ def transition_run(store: Any, command: TransitionRun, event: OutboxEvent) -> Ru
         updated = apply_run_transition(run, command.new_state).model_copy(
             update={"missing_sources": command.missing_sources}
         )
+        store.put_outbox_event(connection, event, command.tenant_id)
         store.put_run_record(connection, updated)
-        store.put_outbox_event(connection, event)
         return updated
 
 
@@ -335,11 +340,11 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
             version_id=version.version_id,
             updated_at=store.now(),
         )
+        store.put_outbox_event(connection, command.event, version.tenant_id)
         _put_version(connection, version)
         _put_publication(connection, command)
         _put_pointer(connection, result)
         store.put_run_record(connection, updated)
-        store.put_outbox_event(connection, command.event)
         return result
 
 
@@ -368,12 +373,14 @@ def get_access_request(store: Any, tenant_id: str, request_id: str) -> AccessReq
 
 def put_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -> None:
     with store.write_transaction() as connection:
+        if request.state is not AccessRequestState.PENDING:
+            raise Conflict("access_request_creation_state")
         current = _get_access_request(connection, request.tenant_id, request.request_id)
         if current is not None and current != request:
             raise Conflict("access_request_conflict")
         if current is None:
+            store.put_outbox_event(connection, event, request.tenant_id)
             _put_access_request(connection, request)
-            store.put_outbox_event(connection, event)
 
 
 def decide_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -> AccessRequest:
@@ -387,9 +394,11 @@ def decide_access_request(store: Any, request: AccessRequest, event: OutboxEvent
         if request.state not in {AccessRequestState.APPROVED, AccessRequestState.REJECTED}:
             raise Conflict("access_request_decision_state")
         if current == request:
+            validate_access_request_decision(connection, request, event)
             return request
         if current.state is not AccessRequestState.PENDING:
             raise Conflict("access_request_state_conflict")
+        store.put_outbox_event(connection, event, request.tenant_id)
         _put_access_request(connection, request)
-        store.put_outbox_event(connection, event)
+        put_access_request_decision(connection, request, event)
         return request

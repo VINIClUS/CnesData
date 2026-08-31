@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS job_terminal_writes (
     PRIMARY KEY (tenant_id, job_id),
     FOREIGN KEY (tenant_id, job_id) REFERENCES jobs (tenant_id, job_id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS job_cancellation_writes (
+    tenant_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    command_data TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, job_id),
+    FOREIGN KEY (tenant_id, job_id) REFERENCES jobs (tenant_id, job_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS raw_manifests (
     tenant_id TEXT NOT NULL,
     manifest_id TEXT NOT NULL,
@@ -202,6 +210,14 @@ CREATE TABLE IF NOT EXISTS access_requests (
     data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, request_id)
 );
+CREATE TABLE IF NOT EXISTS access_request_decision_writes (
+    tenant_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, request_id),
+    FOREIGN KEY (tenant_id, request_id)
+        REFERENCES access_requests (tenant_id, request_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS outbox_events (
     event_id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
@@ -240,6 +256,40 @@ def validate_job_creation_replay(connection: Any, job: Any, event: Any) -> None:
     ).fetchone()
     if row is None or row[0] != serialize_model(event):
         raise Conflict("job_creation_conflict")
+
+
+def put_job_cancellation(connection: Any, command: Any, event: Any) -> None:
+    connection.execute(
+        "INSERT INTO job_cancellation_writes "
+        "(tenant_id, job_id, command_data, event_data) VALUES (?, ?, ?, ?)",
+        (command.tenant_id, command.job_id, serialize_model(command), serialize_model(event)),
+    )
+
+
+def validate_job_cancellation(connection: Any, command: Any, event: Any) -> None:
+    row = connection.execute(
+        "SELECT command_data, event_data FROM job_cancellation_writes "
+        "WHERE tenant_id = ? AND job_id = ?", (command.tenant_id, command.job_id),
+    ).fetchone()
+    if row is None or tuple(row) != (serialize_model(command), serialize_model(event)):
+        raise Conflict("job_cancellation_conflict")
+
+
+def put_access_request_decision(connection: Any, request: Any, event: Any) -> None:
+    connection.execute(
+        "INSERT INTO access_request_decision_writes "
+        "(tenant_id, request_id, event_data) VALUES (?, ?, ?)",
+        (request.tenant_id, request.request_id, serialize_model(event)),
+    )
+
+
+def validate_access_request_decision(connection: Any, request: Any, event: Any) -> None:
+    row = connection.execute(
+        "SELECT event_data FROM access_request_decision_writes "
+        "WHERE tenant_id = ? AND request_id = ?", (request.tenant_id, request.request_id),
+    ).fetchone()
+    if row is None or row[0] != serialize_model(event):
+        raise Conflict("access_request_decision_conflict")
 
 
 def get_job_terminal_write(

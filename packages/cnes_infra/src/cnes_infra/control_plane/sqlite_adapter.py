@@ -244,7 +244,9 @@ class SQLiteControlPlane:
                 serialize_model(job),
             ),
         )
-    def put_outbox_event(self, connection: sqlite3.Connection, event: OutboxEvent) -> None:
+    def put_outbox_event(self, connection, event: OutboxEvent, tenant_id: str) -> None:
+        if event.tenant_id != tenant_id:
+            raise Conflict("outbox_event_tenant_mismatch")
         if event.delivered_at is not None:
             raise Conflict("outbox_event_already_delivered")
         current = _fetch_one(
@@ -261,9 +263,7 @@ class SQLiteControlPlane:
             "INSERT INTO outbox_events "
             "(event_id, tenant_id, created_at, delivered_at, data) VALUES (?, ?, ?, ?, ?)",
             (
-                event.event_id,
-                event.tenant_id,
-                event.created_at.isoformat(),
+                event.event_id, event.tenant_id, event.created_at.isoformat(),
                 None if event.delivered_at is None else event.delivered_at.isoformat(),
                 serialize_model(event),
             ),
@@ -276,9 +276,9 @@ class SQLiteControlPlane:
                     raise Conflict("job_conflict")
                 validate_job_creation_replay(connection, job, event)
                 return current
+            self.put_outbox_event(connection, event, job.tenant_id)
             self.put_job_record(connection, job)
             put_job_creation_write(connection, job, event)
-            self.put_outbox_event(connection, event)
             return job
     def list_claimable_jobs(
         self, tenant_id: str, agent_id: str, limit: int
