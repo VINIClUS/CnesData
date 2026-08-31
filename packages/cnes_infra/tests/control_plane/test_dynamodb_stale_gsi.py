@@ -119,8 +119,7 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     stale.hidden_gsi2sk = adapter._raw_item(head)["gsi2sk"]
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 3)
     assert tuple(ref.manifest_id for ref in chain) == (
-        full.manifest_id, sibling_b.manifest_id, head.manifest_id,
-    )
+        full.manifest_id, sibling_b.manifest_id, head.manifest_id)
 def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     adapter.put_agent(_agent("agent-a"))
@@ -263,8 +262,8 @@ def test_create_job_retorna_replay_e_rejeita_divergencia(ctx: _DynamoContext) ->
 def test_transicao_e_unidades_rejeitam_run_ausente_ou_estado_obsoleto(ctx: _DynamoContext) -> None:
     _, _, adapter = ctx
     transition = TransitionRun(
-        tenant_id=_TENANT, run_id="run-a", expected_state=RunState.PROCESSING,
-        new_state=RunState.FAILED,
+        tenant_id=_TENANT, run_id="run-a", expected_state=RunState.PLANNED,
+        new_state=RunState.WAITING_INPUTS,
     )
     with pytest.raises(NotFound, match="run_missing"):
         adapter.transition_run(transition, _event("missing-run"))
@@ -273,6 +272,8 @@ def test_transicao_e_unidades_rejeitam_run_ausente_ou_estado_obsoleto(ctx: _Dyna
     adapter.put_run(_run("run-a", RunState.PUBLISHING))
     with pytest.raises(Conflict, match="run_state_conflict"):
         adapter.transition_run(transition, _event("stale-run"))
+    waiting = adapter.list_waiting_runs_for_dependency(_TENANT, "CNES", "ST", "2026-07", 10)
+    assert (waiting, adapter.get_outbox_event("stale-run")) == ((), None)
     with pytest.raises(Conflict, match="run_state_conflict"):
         _put_many_units(adapter, 1)
 def test_cancel_job_exige_lease_e_e_idempotente(ctx: _DynamoContext) -> None:
@@ -427,8 +428,7 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(ctx: _DynamoCo
         adapter.complete_job(complete, _event("invalid-manifest"))
 @pytest.mark.parametrize("changes", [
     {"dataset_name": "silver"},
-    {"run_manifest_key": f"reconciliation/{_TENANT}/2026-06/run-a/run-manifest.json"},
-])
+    {"run_manifest_key": f"reconciliation/{_TENANT}/2026-06/run-a/run-manifest.json"}])
 def test_publicacao_valida_run_e_replay(changes: dict[str, str], ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     from packages.cnes_infra.tests.contracts.control_plane_contract import _publish

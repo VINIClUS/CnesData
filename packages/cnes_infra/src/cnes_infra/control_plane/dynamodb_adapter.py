@@ -157,7 +157,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
                 ),
             }
         return encode_model(run, "RUN", run_entity_key(run.tenant_id, run.run_id), attributes)
-
     def _unit_item(self, unit: RunUnit) -> Item:
         attributes = {
             "gsi5pk": (
@@ -171,35 +170,28 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             unit_key(unit.tenant_id, unit.run_id, unit.unit_id),
             attributes,
         )
-
     def get_tenant(self, tenant_id: str) -> Tenant | None:
         """Retorna o tenant solicitado."""
         return self._get_model(entity_key(tenant_id, "TENANT", tenant_id), Tenant)
-
     def put_tenant(self, tenant: Tenant) -> None:
         """Persiste um tenant."""
         self._put_direct(
             encode_model(tenant, "TENANT", entity_key(tenant.tenant_id, "TENANT", tenant.tenant_id))
         )
-
     def get_membership(self, tenant_id: str, user_id: str) -> Membership | None:
         """Retorna a associação solicitada."""
         return self._get_model(entity_key(tenant_id, "MEMBERSHIP", user_id), Membership)
-
     def put_membership(self, membership: Membership) -> None:
         """Persiste uma associação."""
         key = entity_key(membership.tenant_id, "MEMBERSHIP", membership.user_id)
         self._put_direct(encode_model(membership, "MEMBERSHIP", key))
-
     def get_agent(self, tenant_id: str, agent_id: str) -> Agent | None:
         """Retorna o agente solicitado."""
         return self._get_model(entity_key(tenant_id, "AGENT", agent_id), Agent)
-
     def put_agent(self, agent: Agent) -> None:
         """Persiste um agente."""
         key = entity_key(agent.tenant_id, "AGENT", agent.agent_id)
         self._put_direct(encode_model(agent, "AGENT", key))
-
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
         """Cria um job e seu evento atomicamente."""
         key = entity_key(job.tenant_id, "JOB", job.job_id)
@@ -215,11 +207,9 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         )
         self._transact(actions)
         return job
-
     def get_job(self, tenant_id: str, job_id: str) -> Job | None:
         """Retorna o job solicitado."""
         return self._get_model(entity_key(tenant_id, "JOB", job_id), Job)
-
     def latest_succeeded_job(self, *args: str) -> Job | None:
         """Retorna o job concluído mais recente da identidade."""
         agent_id = args[1]
@@ -301,13 +291,13 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             job.state is JobState.LEASED and job.lease_until is not None and job.lease_until <= now
         )
 
-    def put_run(self, run: Run) -> None:
-        """Persiste um run e seus índices de dependência."""
+    def _dependency_actions(self, run: Run, reserved_actions: int) -> tuple[Action, ...]:
         if run.state is not RunState.WAITING_INPUTS:
-            self._put_direct(self._run_item(run))
-            return
-        actions = [put_action(self._table_name, self._run_item(run), None)]
+            return ()
+        if len(run.dependencies) + reserved_actions > 100:
+            raise Conflict("transaction_limit")
         base_key = run_entity_key(run.tenant_id, run.run_id)
+        actions = []
         for dependency in run.dependencies:
             values = (run.tenant_id, dependency.source_type,
                       dependency.file_subtype, run.competencia)
@@ -319,7 +309,16 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             }
             marker = encode_marker("RUN_DEP", marker_key, base_key, attributes)
             actions.append(put_action(self._table_name, marker, None))
-        self._transact(tuple(actions))
+        return tuple(actions)
+
+    def put_run(self, run: Run) -> None:
+        """Persiste um run e seus índices de dependência."""
+        if run.state is not RunState.WAITING_INPUTS:
+            self._put_direct(self._run_item(run))
+            return
+        actions = (put_action(self._table_name, self._run_item(run), None),
+                   *self._dependency_actions(run, 1))
+        self._transact(actions)
 
     def get_run(self, tenant_id: str, run_id: str) -> Run | None:
         """Retorna o run solicitado."""
@@ -364,6 +363,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         )
         actions = (
             put_action(self._table_name, self._run_item(updated), payload(item)),
+            *self._dependency_actions(updated, 2),
             self._event_action(command.tenant_id, event),
         )
         self._transact(actions)

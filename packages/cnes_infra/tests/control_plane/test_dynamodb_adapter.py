@@ -169,6 +169,18 @@ def _transaction_action(identifier: str) -> dict[str, Any]:
         "payload": {"S": "{}"},
     }
     return put_action(_TABLE_NAME, item, None)
+def _dependency_run(count: int, state: RunState, run_id: str) -> Any:
+    return _run(run_id, state, tuple(
+        RunDependency(source_type=f"SOURCE-{index}", file_subtype="ST", required=True)
+        for index in range(count)
+    ))
+def _store_waiting(adapter: DynamoDBControlPlane, run: Any, event_id: str) -> Any:
+    if run.state is RunState.PLANNED:
+        command = TransitionRun(tenant_id=_TENANT, run_id=run.run_id, expected_state=run.state,
+            new_state=RunState.WAITING_INPUTS)
+        return adapter.transition_run(command, _event(event_id))
+    adapter.put_run(run)
+    return run
 def _expected_unit_action(index: int, state: RunUnitState) -> dict[str, Any]:
     unit = _unit(f"unit-{index:03d}").model_copy(update={"state": state})
     item = _expected_item(
@@ -294,45 +306,45 @@ def test_rejeita_cancelamento_de_99_unidades_sem_transacao(ctx: _DynamoContext) 
     assert adapter.list_run_units(_TENANT, "run-a") == _many_units(99)
     assert spy.calls.count("query") == 99
     assert adapter.get_outbox_event("run-canceled") is None
-def test_put_run_limita_100_acoes_e_usa_chaves_unicas(ctx: _DynamoContext) -> None:
+@pytest.mark.parametrize(("state","count"),[(RunState.WAITING_INPUTS,99),(RunState.PLANNED,98)])
+def test_waiting_limita_acoes_e_chaves(state: RunState, count: int, ctx: _DynamoContext) -> None:
     adapter, _ = ctx
+    run = _dependency_run(count, state, "run-limit")
+    if state is RunState.PLANNED:
+        adapter.put_run(run)
     spy = ClientSpy(adapter._client)
     adapter._client = spy
-    def waiting(count: int, run_id: str) -> Any:
-        dependencies = tuple(
-            RunDependency(source_type=f"SOURCE-{index}", file_subtype="ST", required=True)
-            for index in range(count)
-        )
-        return _run(run_id, RunState.WAITING_INPUTS, dependencies)
-    adapter.put_run(waiting(99, "run-99"))
+    overflow = _dependency_run(count + 1, state, "run-overflow")
+    if state is RunState.PLANNED:
+        adapter.put_run(overflow)
+    mutations = (len(spy.transactions), spy.calls.count("put_item"))
+    with pytest.raises(Conflict, match="transaction_limit"):
+        _store_waiting(adapter, overflow, "waiting-overflow")
+    assert (len(spy.transactions), spy.calls.count("put_item")) == mutations
+    _store_waiting(adapter, run, "waiting-limit")
     actions = spy.transactions[-1]
     keys = {(action["Put"]["Item"]["pk"]["S"], action["Put"]["Item"]["sk"]["S"])
             for action in actions}
     assert len(actions) == len(keys) == 100
-    calls = tuple(spy.calls)
-    with pytest.raises(Conflict, match="transaction_limit"):
-        adapter.put_run(waiting(100, "run-100"))
-    assert tuple(spy.calls) == calls
-def test_rejeita_transacao_com_chaves_duplicadas(ctx: _DynamoContext) -> None:
-    adapter, _ = ctx
-    spy = ClientSpy(adapter._client)
     action = _transaction_action("same")
     with pytest.raises(Conflict, match="duplicate_transaction_key"):
         execute_transaction(spy, (action, action))
-    assert spy.calls == []
-def test_put_run_reverte_run_quando_marcador_falha(ctx: _DynamoContext) -> None:
+@pytest.mark.parametrize("state", [RunState.WAITING_INPUTS, RunState.PLANNED])
+def test_waiting_reverte_run_quando_marcador_falha(state: RunState, ctx: _DynamoContext) -> None:
     adapter, _ = ctx
-    run = _run("run-a", RunState.WAITING_INPUTS)
-    identity = "RUN_DEP#" + "#".join(map(key_component, (_TENANT, "CNES", "ST", "2026-07")))
+    run = _dependency_run(1, state, "run-a")
+    if state is RunState.PLANNED:
+        adapter.put_run(run)
+    identity = "RUN_DEP#" + "#".join(map(key_component, (_TENANT, "SOURCE-0", "ST", "2026-07")))
     marker_key = dependency_marker_key(_TENANT, "run-a", identity)
     adapter._client.put_item(TableName=_TABLE_NAME, Item=item_key(*marker_key))
     with pytest.raises(Conflict, match="transaction_conflict"):
-        adapter.put_run(run)
-    assert adapter.get_run(_TENANT, "run-a") is None
-def test_claims_retornam_none_quando_cas_perde_corrida(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+        _store_waiting(adapter, run, "waiting-rollback")
+    expected = run if state is RunState.PLANNED else None
+    assert adapter.get_run(_TENANT, "run-a") == expected
+    assert adapter.get_outbox_event("waiting-rollback") is None
+def test_claims_retornam_none_quando_cas_perde_corrida(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     adapter.put_agent(_agent("agent-a"))
     adapter.create_job(_job("job-a"), _event("job-created"))
     adapter._client = FailingTransactionClient(adapter._client)
@@ -350,10 +362,8 @@ def test_claims_retornam_none_quando_cas_perde_corrida(
         lease_seconds=30,
     )
     assert adapter.claim_run_unit(command) is None
-def test_unit_ausente_nao_e_reivindicada_nem_finalizada(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_unit_ausente_nao_e_reivindicada_nem_finalizada(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     claim = ClaimRunUnit(
         tenant_id=_TENANT,
         run_id="run-a",
@@ -366,10 +376,8 @@ def test_unit_ausente_nao_e_reivindicada_nem_finalizada(
     assert adapter.claim_run_unit(claim) is None
     with pytest.raises(NotFound, match="unit_context_missing"):
         adapter.commit_run_unit(_commit_command("a" * 16, "worker-a", 1), _event("missing-unit"))
-def test_dispatch_terminal_invalida_commit_de_unidade(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_dispatch_terminal_invalida_commit_de_unidade(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     dispatch = _prepare_unit(adapter, clock)
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
     adapter.finish_run_dispatch(
@@ -386,10 +394,8 @@ def test_dispatch_terminal_invalida_commit_de_unidade(
             _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token),
             _event("terminal-dispatch"),
         )
-def test_dispatch_expirado_rejeita_corrida_que_aluga_unidade_omitida(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_dispatch_expirado_rejeita_unidade_omitida(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     reserve = ReserveRunDispatch(
         tenant_id=_TENANT, run_id="run-a", wave_id="a" * 16,
         unit_ids=("unit-000",), now=clock.now(), lease_seconds=30)
@@ -439,10 +445,8 @@ def test_dispatch_expirado_rejeita_corrida_que_aluga_unidade_omitida(
     adapter._put_direct(adapter._unit_item(terminal))
     with pytest.raises(Conflict, match="dispatch_unit_unavailable"):
         adapter.reserve_run_dispatch(replacement.model_copy(update={"unit_ids": ("unit-001",)}))
-def test_dispatch_started_expirado_e_recuperavel_sem_lease_vivo(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_dispatch_started_expirado_e_recuperavel(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     dispatch = _prepare_unit(adapter, clock)
     bind = BindRunDispatch(
         tenant_id=_TENANT, run_id="run-a", dispatch_id=dispatch.dispatch_id,
@@ -470,11 +474,8 @@ def test_dispatch_started_expirado_e_recuperavel_sem_lease_vivo(
         )
     )
     assert recovered.generation == 2
-
-def test_commit_rejeita_dispatch_da_unidade_obsoleto(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_commit_rejeita_dispatch_obsoleto(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     dispatch = _prepare_unit(adapter, clock)
     claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
     stale = claimed.model_copy(update={"dispatch_id": "b" * 16})
@@ -484,7 +485,6 @@ def test_commit_rejeita_dispatch_da_unidade_obsoleto(
             _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token),
             _event("stale-unit-dispatch"),
         )
-
 def test_validador_rejeita_lease_corrompido_sem_prazo() -> None:
     unit = _unit("unit-a").model_copy(
         update={
