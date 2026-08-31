@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
+from stat import S_ISREG
 from typing import TYPE_CHECKING
 
 from cnes_domain.control_plane.errors import Conflict
@@ -49,25 +50,28 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
-def _temporary_namespace(path: Path) -> str | None:
+def _temporary_identity(path: Path) -> tuple[str, str] | None:
     namespace, _, token = path.name.removesuffix(".tmp").rpartition("-")
     digest = namespace.removeprefix(_TEMP_PREFIX)
     if len(digest) != 64 or not token:
         return None
-    return namespace if set(digest) <= _HEX_DIGITS else None
+    return (namespace, token) if set(digest) <= _HEX_DIGITS else None
 
 
-def _temporary_owner(path: Path) -> str | None:
+def _temporary_owner(path: Path) -> tuple[str, str] | None:
+    if not S_ISREG(path.lstat().st_mode):
+        return None
     try:
-        value = os.getxattr(path, _OWNER_XATTR)
+        value = os.getxattr(path, _OWNER_XATTR, follow_symlinks=False)
     except OSError as error:
         if error.errno in _MISSING_XATTR_ERRNOS:
             return None
         raise
     try:
-        return value.decode()
+        ownership = value.decode().split("\0", maxsplit=1)
     except UnicodeDecodeError:
         return None
+    return (ownership[0], ownership[1]) if len(ownership) == 2 else None
 
 
 class FilesystemObjectStore:
@@ -119,9 +123,11 @@ class FilesystemObjectStore:
             yield
 
     def _owned_destination(self, temporary: Path, namespace: str) -> Path | None:
-        owner = _temporary_owner(temporary)
-        if owner is None:
+        identity = _temporary_identity(temporary)
+        ownership = _temporary_owner(temporary)
+        if identity is None or ownership is None or identity[1] != ownership[1]:
             return None
+        owner = ownership[0]
         try:
             destination = self._path(owner)
         except ValueError:
@@ -132,14 +138,15 @@ class FilesystemObjectStore:
 
     def _recover_startup(self) -> None:
         for temporary in self._root.rglob(f"{_TEMP_PREFIX}*.tmp"):
-            namespace = _temporary_namespace(temporary)
-            if namespace is None:
+            identity = _temporary_identity(temporary)
+            if identity is None:
                 continue
+            namespace = identity[0]
             destination = self._owned_destination(temporary, namespace)
             if destination is None:
                 continue
             with self._namespace_lock(temporary.parent, namespace, blocking=False) as acquired:
-                if not acquired or not temporary.exists():
+                if not acquired:
                     continue
                 self._recover(destination, namespace)
 
@@ -152,7 +159,7 @@ class FilesystemObjectStore:
     def _classify_recovery(temporary: Path, destination: Path) -> _RecoveryKind:
         if not destination.exists():
             return _RecoveryKind.ABANDONED
-        if os.path.samestat(temporary.stat(), destination.stat()):
+        if os.path.samestat(temporary.lstat(), destination.stat()):
             return _RecoveryKind.LINKED
         if destination.is_file():
             return _RecoveryKind.LOSING
@@ -168,10 +175,13 @@ class FilesystemObjectStore:
         if recoveries:
             _fsync_directory(destination.parent)
 
-    def _mark_temporary(self, temporary: Path, descriptor: int, destination: Path) -> None:
-        owner = destination.relative_to(self._root).as_posix().encode()
+    def _mark_temporary(
+        self, temporary: Path, descriptor: int, destination: Path, token: str
+    ) -> None:
+        key = destination.relative_to(self._root).as_posix()
+        ownership = f"{key}\0{token}".encode()
         try:
-            os.setxattr(descriptor, _OWNER_XATTR, owner)
+            os.setxattr(descriptor, _OWNER_XATTR, ownership)
             os.fsync(descriptor)
             _fsync_directory(destination.parent)
         except Exception:
@@ -185,8 +195,9 @@ class FilesystemObjectStore:
             dir=destination.parent, prefix=f"{namespace}-", suffix=".tmp"
         )
         temporary = Path(name)
+        token = temporary.name.removesuffix(".tmp").rpartition("-")[2]
         try:
-            self._mark_temporary(temporary, descriptor, destination)
+            self._mark_temporary(temporary, descriptor, destination, token)
             self._fault("temporary_created")
             with os.fdopen(descriptor, "wb") as stream:
                 descriptor = -1

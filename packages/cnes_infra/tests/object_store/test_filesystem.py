@@ -229,6 +229,49 @@ def test_pre_write_preserva_objeto_valido_com_nome_de_temporario(tmp_path: Path)
         assert stream.read() == valid_body
 
 
+@pytest.mark.parametrize("recovery", ["startup", "pre_write"])
+def test_recuperacao_preserva_hard_link_legal_com_token_alheio(
+    recovery: str, tmp_path: Path
+) -> None:
+    key = "raw/destino.parquet"
+    body = b"objeto-valido"
+    digest = sha256(body).hexdigest()
+    namespace = sha256(key.encode()).hexdigest()
+    alias = tmp_path / "raw" / f".cnes-object-store-{namespace}-anything.tmp"
+    adapter = FilesystemObjectStore(tmp_path)
+    adapter.put(key, BytesIO(body), digest)
+    os.link(tmp_path / key, alias)
+
+    if recovery == "startup":
+        FilesystemObjectStore(tmp_path)
+    else:
+        adapter.put(key, BytesIO(body), digest)
+
+    assert alias.read_bytes() == body
+
+
+@pytest.mark.parametrize("recovery", ["startup", "pre_write"])
+def test_recuperacao_preserva_symlink_legal_com_token_exato(recovery: str, tmp_path: Path) -> None:
+    key = "raw/destino.parquet"
+    body = b"objeto-valido"
+    digest = sha256(body).hexdigest()
+    adapter = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("destination_linked"))
+
+    with pytest.raises(_SimulatedCrash, match="boundary=destination_linked"):
+        adapter.put(key, BytesIO(body), digest)
+    alias = _adapter_temporaries(tmp_path)[0]
+    alias.unlink()
+    alias.symlink_to(Path(key).name)
+
+    if recovery == "startup":
+        FilesystemObjectStore(tmp_path)
+    else:
+        adapter.put(key, BytesIO(body), digest)
+
+    assert alias.is_symlink()
+    assert alias.read_bytes() == body
+
+
 def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> None:
     directory = tmp_path / "raw"
     directory.mkdir()
@@ -238,11 +281,13 @@ def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> 
     candidates = {
         directory / f".cnes-object-store-{'b' * 64}-writer.tmp": None,
         directory / f".cnes-object-store-{'c' * 64}-writer.tmp": b"\xff",
-        directory / f".cnes-object-store-{'d' * 64}-writer.tmp": b"../invalid",
+        directory / f".cnes-object-store-{'d' * 64}-writer.tmp": b"../invalid\0writer",
         directory / f".cnes-object-store-{different_parent_digest}-writer.tmp": (
-            different_parent_owner.encode()
+            f"{different_parent_owner}\0writer".encode()
         ),
-        directory / f".cnes-object-store-{'e' * 64}-writer.tmp": mismatch_owner.encode(),
+        directory / f".cnes-object-store-{'e' * 64}-writer.tmp": (
+            f"{mismatch_owner}\0writer".encode()
+        ),
     }
     for candidate, owner in candidates.items():
         candidate.write_bytes(b"preservar")
@@ -260,7 +305,7 @@ def test_reabertura_propaga_erro_ao_ler_ownership(
     candidate = tmp_path / f".cnes-object-store-{'f' * 64}-writer.tmp"
     candidate.write_bytes(b"preservar")
 
-    def deny_xattr(path: os.PathLike[str], attribute: str) -> bytes:
+    def deny_xattr(path: os.PathLike[str], attribute: str, *, follow_symlinks: bool) -> bytes:
         raise PermissionError(errno.EACCES, "xattr=denied")
 
     monkeypatch.setattr(os, "getxattr", deny_xattr)
