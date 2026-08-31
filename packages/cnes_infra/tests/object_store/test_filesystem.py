@@ -133,7 +133,7 @@ def test_fsynca_pai_de_cada_diretorio_interno_criado_ou_existente(
     assert observed[:3] == [tmp_path, root, next(root.iterdir())]
     observed.clear()
     FilesystemObjectStore(root)
-    assert observed == [root, next(root.iterdir()), next(root.iterdir())]
+    assert observed == [tmp_path, root, next(root.iterdir()), next(root.iterdir())]
 
 
 @pytest.mark.parametrize("operation", ["put", "promote"])

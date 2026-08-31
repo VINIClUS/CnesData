@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from base64 import b64encode
 from dataclasses import dataclass
+from datetime import datetime
 from tempfile import TemporaryFile
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -15,7 +16,6 @@ from cnes_infra.object_store._common import require_digest, stream_with_digest, 
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager as ContextManager
-    from datetime import datetime
     from typing import BinaryIO
 
 
@@ -98,6 +98,19 @@ class S3ObjectStore:
         if actual != expected:
             raise ValueError("checksum_response=mismatch")
 
+    def _validate_replay_retention(self, key: str) -> None:
+        requested = self._retention
+        if requested is None:
+            return
+        response = self._client.get_object_retention(Bucket=self._bucket, Key=self._key(key))
+        existing = response.get("Retention", {})
+        retain_until = existing.get("RetainUntilDate")
+        sufficient_until = (
+            isinstance(retain_until, datetime) and retain_until >= requested.retain_until
+        )
+        if existing.get("Mode") != requested.mode or not sufficient_until:
+            raise Conflict("retention=insufficient")
+
     def _put_staged(
         self, key: str, staged: BinaryIO, size: int, expected_sha256: str
     ) -> ObjectStat:
@@ -123,6 +136,7 @@ class S3ObjectStore:
                     )
                     if values != (size, expected_sha256, expected_sha256):
                         raise Conflict("object=immutable") from error
+                    self._validate_replay_retention(key)
                     return existing.stat
                 if code == "PreconditionFailed" or attempt == 2:
                     raise Conflict("conditional_request=conflict") from error

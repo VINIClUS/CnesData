@@ -1,7 +1,7 @@
 """Conformidade do armazenamento de objetos no S3."""
 
 from base64 import b64encode
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
 from typing import Any
@@ -55,6 +55,28 @@ def _retention_params(body: bytes, retain_until: datetime) -> dict[str, Any]:
         "ObjectLockMode": "COMPLIANCE",
         "ObjectLockRetainUntilDate": retain_until,
     }
+
+
+def _stub_retention_replay(
+    stubber: Stubber, body: bytes, retain_until: datetime, response: dict[str, Any]
+) -> None:
+    digest = sha256(body).hexdigest()
+    stubber.add_client_error(
+        "put_object",
+        service_error_code="PreconditionFailed",
+        http_status_code=412,
+        expected_params=_retention_params(body, retain_until),
+    )
+    stubber.add_response(
+        "get_object",
+        _object_response(body, digest),
+        {"Bucket": "bucket", "Key": "locked/objeto"},
+    )
+    stubber.add_response(
+        "get_object_retention",
+        response,
+        {"Bucket": "bucket", "Key": "locked/objeto"},
+    )
 
 
 @mock_aws
@@ -253,6 +275,73 @@ def test_envia_retencao_e_sha256_explicito_e_valida_resposta() -> None:
         stat = adapter.put("locked/objeto", BytesIO(body), digest)
 
     assert (stat.size_bytes, stat.sha256) == (len(body), digest)
+
+
+@pytest.mark.parametrize("extra_days", [0, 1], ids=["igual", "maior"])
+def test_aceita_replay_412_quando_retencao_existente_satisfaz_pedido(
+    extra_days: int,
+) -> None:
+    body = b"conteudo-retido"
+    digest = sha256(body).hexdigest()
+    retain_until = datetime(2036, 1, 1, tzinfo=UTC)
+    response = {
+        "Retention": {
+            "Mode": "COMPLIANCE",
+            "RetainUntilDate": retain_until + timedelta(days=extra_days),
+        }
+    }
+    client = _client()
+
+    with Stubber(client) as stubber:
+        _stub_retention_replay(stubber, body, retain_until, response)
+        adapter = S3ObjectStore(
+            client,
+            "bucket",
+            retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
+        )
+        stat = adapter.put("locked/objeto", BytesIO(body), digest)
+        stubber.assert_no_pending_responses()
+
+    assert (stat.size_bytes, stat.sha256) == (len(body), digest)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {},
+        {
+            "Retention": {
+                "Mode": "COMPLIANCE",
+                "RetainUntilDate": datetime(2035, 12, 31, tzinfo=UTC),
+            }
+        },
+        {
+            "Retention": {
+                "Mode": "GOVERNANCE",
+                "RetainUntilDate": datetime(2036, 1, 1, tzinfo=UTC),
+            }
+        },
+    ],
+    ids=["ausente", "menor", "modo-divergente"],
+)
+def test_rejeita_replay_412_quando_retencao_existente_nao_satisfaz_pedido(
+    response: dict[str, Any],
+) -> None:
+    body = b"conteudo-retido"
+    digest = sha256(body).hexdigest()
+    retain_until = datetime(2036, 1, 1, tzinfo=UTC)
+    client = _client()
+
+    with Stubber(client) as stubber:
+        _stub_retention_replay(stubber, body, retain_until, response)
+        adapter = S3ObjectStore(
+            client,
+            "bucket",
+            retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
+        )
+        with pytest.raises(Conflict, match="retention=insufficient"):
+            adapter.put("locked/objeto", BytesIO(body), digest)
+        stubber.assert_no_pending_responses()
 
 
 @pytest.mark.parametrize(
