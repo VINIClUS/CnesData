@@ -205,8 +205,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   wraps; poison stays pending/retries without starvation. Alarm/exit is nonzero.
 - Recovery role has control-plane read/write; `states:StartExecution` and
   `states:DescribeStateMachine` on the exact machine, `states:DescribeExecution`
-  and `states:StopExecution` on executions, plus ECS liveness. The Roles Anywhere API
-  role gets start/describe-machine on that machine and describe/stop on its executions.
+  and `states:StopExecution` plus ECS liveness. API gets exact-machine start/describe,
+  execution describe/stop and data-bucket `serving/*` `s3:GetObject` for stat/browser reads.
   Scheduler trusts only `scheduler.amazonaws.com` with exact source account/ARN, runs
   revisions and passes its task/execution roles. Dispatch Scheduler scope is equivalent
   only for dispatch revisions. Both use public subnets, zero-ingress groups,
@@ -401,9 +401,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   ceiling. Every unit, recovery and audit-dispatch task-hour counts toward the
   monitored 100-hour target, not a pre-launch API limit;
 - one synthetic run publishes exactly one new immutable version/pointer;
-- the authenticated, tenant-authorized `X-Tenant-Id` API call returns `200`
-  with `Cache-Control: private, no-store` and only `url`, `version_id` and
-  `expires_in=300`, with no separate tenant or object-key field;
+- the authenticated tenant-authorized call first completes the serving-key metadata stat;
+  with `X-Tenant-Id` it returns `200`, `Cache-Control: private, no-store` and only
+  `url`, `version_id` and `expires_in=300`, with no tenant or object-key field;
 - the bearer-sensitive SigV4 `url` contains the expected authorized `serving/`
   key, appears in neither logs nor acceptance evidence, is never persisted,
   sent to telemetry, included in a referrer or cached, and no other prefix is
