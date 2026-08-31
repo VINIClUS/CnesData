@@ -1,0 +1,486 @@
+"""DynamoDB control-plane adapter."""
+
+from __future__ import annotations
+
+from itertools import pairwise
+from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel
+
+from cnes_domain.control_plane.entities import (
+    AccessRequest,
+    Agent,
+    Job,
+    ManifestRef,
+    Membership,
+    OutboxEvent,
+    RawManifestRecord,
+    Run,
+    RunUnit,
+    Tenant,
+)
+from cnes_domain.control_plane.enums import AgentState, JobState, RunState, RunUnitState
+from cnes_domain.control_plane.errors import Conflict, NotFound
+from cnes_domain.control_plane.ids import run_dependency_key
+from cnes_domain.control_plane.transitions import (
+    transition_job,
+    transition_run,
+    transition_run_unit,
+)
+from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
+from cnes_infra.control_plane.dynamodb_codec import (
+    Action,
+    Item,
+    check_action,
+    decode_model,
+    encode_marker,
+    encode_model,
+    execute_transaction,
+    payload,
+    put_action,
+)
+from cnes_infra.control_plane.dynamodb_keys import (
+    dependency_marker_key,
+    entity_key,
+    item_key,
+    run_entity_key,
+    timestamp,
+    unit_key,
+)
+from cnes_infra.control_plane.dynamodb_publication import DynamoDBPublication
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import datetime
+
+    from cnes_domain.control_plane.commands import (
+        CancelJob,
+        FinalizeRunCancellation,
+        PutRunUnits,
+        TransitionRun,
+    )
+
+_RECOVERABLE = {
+    RunState.WAITING_INPUTS,
+    RunState.PROCESSING,
+    RunState.PUBLISHING,
+    RunState.CANCEL_REQUESTED,
+}
+_NONTERMINAL_UNITS = {
+    RunUnitState.PENDING,
+    RunUnitState.LEASED,
+    RunUnitState.FAILED_RETRYABLE,
+}
+
+
+class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
+    """Persiste o plano de controle em uma tabela DynamoDB."""
+
+    def __init__(self, client: Any, table_name: str, clock: Callable[[], datetime]) -> None:
+        self._client = client
+        self._table_name = table_name
+        self._clock = clock
+
+    def _get_item(self, key: tuple[str, str]) -> Item | None:
+        response = self._client.get_item(
+            TableName=self._table_name,
+            Key=item_key(*key),
+            ConsistentRead=True,
+        )
+        return response.get("Item")
+
+    def _get_model[T: BaseModel](self, key: tuple[str, str], model_type: type[T]) -> T | None:
+        item = self._get_item(key)
+        return decode_model(item, model_type) if item is not None else None
+
+    def _query(self, index_name: str, partition: str) -> tuple[Item, ...]:
+        response = self._client.query(
+            TableName=self._table_name,
+            IndexName=index_name,
+            KeyConditionExpression=f"{index_name}pk = :partition",
+            ExpressionAttributeValues={":partition": {"S": partition}},
+        )
+        return tuple(response.get("Items", ()))
+
+    def _strong_candidates[T: BaseModel](
+        self, candidates: tuple[Item, ...], model_type: type[T]
+    ) -> tuple[T, ...]:
+        keys = {
+            (
+                item.get("base_pk", item["pk"])["S"],
+                item.get("base_sk", item["sk"])["S"],
+            )
+            for item in candidates
+        }
+        models = []
+        for key in sorted(keys):
+            item = self._get_item(key)
+            if item is not None and item.get("entity", {}).get("S") == model_type.__name__.upper():
+                models.append(decode_model(item, model_type))
+        return tuple(models)
+
+    def _transact(self, actions: tuple[Action, ...]) -> None:
+        execute_transaction(self._client, actions)
+
+    def _event_action(self, event: OutboxEvent) -> Action:
+        existing = self._get_outbox_event(event.event_id)
+        if existing is not None:
+            raise Conflict("event_id_conflict")
+        return put_action(self._table_name, self._outbox_item(event), None)
+
+    def _put_direct(self, item: Item) -> None:
+        self._client.put_item(TableName=self._table_name, Item=item)
+
+    def _job_item(self, job: Job) -> Item:
+        identity = f"RAW#{job.tenant_id}#{job.source_type}#{job.file_subtype}#{job.competencia}"
+        attributes = {
+            "gsi2pk": identity,
+            "gsi2sk": f"JOB#{timestamp(job.created_at)}#{job.agent_id}#{job.job_id}",
+        }
+        if job.state in {JobState.PENDING, JobState.LEASED, JobState.FAILED_RETRYABLE}:
+            available = job.lease_until or job.created_at
+            attributes |= {
+                "gsi1pk": f"JOB_CLAIM#{job.tenant_id}#{job.agent_id}",
+                "gsi1sk": f"{timestamp(available)}#{job.state.value}#{job.job_id}",
+            }
+        key = entity_key(job.tenant_id, "JOB", job.job_id)
+        return encode_model(job, "JOB", key, attributes)
+
+    def _raw_item(self, record: RawManifestRecord) -> Item:
+        identity = (
+            f"RAW#{record.tenant_id}#{record.source_type}#"
+            f"{record.file_subtype}#{record.competencia}"
+        )
+        attributes = {
+            "gsi2pk": identity,
+            "gsi2sk": (
+                f"RAW#{record.sequence:020d}#{timestamp(record.created_at)}#"
+                f"{record.agent_id}#{record.snapshot_id}"
+            ),
+        }
+        key = entity_key(record.tenant_id, "RAW", record.manifest_id)
+        return encode_model(record, "RAWMANIFESTRECORD", key, attributes)
+
+    def _run_item(self, run: Run) -> Item:
+        attributes = {}
+        if run.state in _RECOVERABLE:
+            attributes = {
+                "gsi4pk": "RUN_RECOVERABLE",
+                "gsi4sk": f"{timestamp(run.created_at)}#{run.tenant_id}#{run.run_id}",
+            }
+        return encode_model(run, "RUN", run_entity_key(run.tenant_id, run.run_id), attributes)
+
+    def _unit_item(self, unit: RunUnit) -> Item:
+        attributes = {
+            "gsi5pk": f"RUN_ITEMS#{unit.tenant_id}#{unit.run_id}",
+            "gsi5sk": f"UNIT#{unit.unit_id}",
+        }
+        return encode_model(
+            unit,
+            "RUNUNIT",
+            unit_key(unit.tenant_id, unit.run_id, unit.unit_id),
+            attributes,
+        )
+
+    def get_tenant(self, tenant_id: str) -> Tenant | None:
+        """Retorna o tenant solicitado."""
+        return self._get_model(entity_key(tenant_id, "TENANT", tenant_id), Tenant)
+
+    def put_tenant(self, tenant: Tenant) -> None:
+        """Persiste um tenant."""
+        self._put_direct(
+            encode_model(tenant, "TENANT", entity_key(tenant.tenant_id, "TENANT", tenant.tenant_id))
+        )
+
+    def get_membership(self, tenant_id: str, user_id: str) -> Membership | None:
+        """Retorna a associação solicitada."""
+        return self._get_model(entity_key(tenant_id, "MEMBERSHIP", user_id), Membership)
+
+    def put_membership(self, membership: Membership) -> None:
+        """Persiste uma associação."""
+        key = entity_key(membership.tenant_id, "MEMBERSHIP", membership.user_id)
+        self._put_direct(encode_model(membership, "MEMBERSHIP", key))
+
+    def get_agent(self, tenant_id: str, agent_id: str) -> Agent | None:
+        """Retorna o agente solicitado."""
+        return self._get_model(entity_key(tenant_id, "AGENT", agent_id), Agent)
+
+    def put_agent(self, agent: Agent) -> None:
+        """Persiste um agente."""
+        key = entity_key(agent.tenant_id, "AGENT", agent.agent_id)
+        self._put_direct(encode_model(agent, "AGENT", key))
+
+    def create_job(self, job: Job, event: OutboxEvent) -> Job:
+        """Cria um job e seu evento atomicamente."""
+        key = entity_key(job.tenant_id, "JOB", job.job_id)
+        existing = self._get_model(key, Job)
+        if existing is not None:
+            if existing != job:
+                raise Conflict("job_conflict")
+            return existing
+        actions = (
+            put_action(self._table_name, self._job_item(job), None),
+            self._event_action(event),
+        )
+        self._transact(actions)
+        return job
+
+    def get_job(self, tenant_id: str, job_id: str) -> Job | None:
+        """Retorna o job solicitado."""
+        return self._get_model(entity_key(tenant_id, "JOB", job_id), Job)
+
+    def latest_succeeded_job(self, *args: str) -> Job | None:
+        """Retorna o job concluído mais recente da identidade."""
+        tenant_id, agent_id, source_type, file_subtype, competencia = args
+        partition = f"RAW#{tenant_id}#{source_type}#{file_subtype}#{competencia}"
+        candidates = self._strong_candidates(self._query("gsi2", partition), Job)
+        matches = (
+            job
+            for job in candidates
+            if job.agent_id == agent_id and job.state is JobState.SUCCEEDED
+        )
+        return max(matches, key=lambda job: (job.created_at, job.job_id), default=None)
+
+    def list_raw_manifest_chain(self, *args: Any) -> tuple[ManifestRef, ...]:
+        """Retorna a cadeia válida de manifestos raw."""
+        tenant_id, source_type, file_subtype, competencia, *rest = args
+        limit = rest[0] if rest else 31
+        partition = f"RAW#{tenant_id}#{source_type}#{file_subtype}#{competencia}"
+        records = list(self._strong_candidates(self._query("gsi2", partition), RawManifestRecord))
+        candidates = sorted(
+            records,
+            key=lambda item: (item.created_at, item.agent_id, item.snapshot_id),
+            reverse=True,
+        )
+        for head in candidates:
+            chain = self._valid_chain(records, head)
+            if not chain:
+                continue
+            if len(chain) > limit:
+                return ()
+            return tuple(
+                ManifestRef(manifest_id=item.manifest_id, manifest_key=item.manifest_key)
+                for item in chain
+            )
+        return ()
+
+    @staticmethod
+    def _valid_chain(
+        records: list[RawManifestRecord], head: RawManifestRecord
+    ) -> tuple[RawManifestRecord, ...]:
+        base = head.snapshot_id if head.sequence == 1 else head.base_snapshot_id
+        chain = [
+            item
+            for item in records
+            if item.agent_id == head.agent_id
+            and base in (item.snapshot_id, item.base_snapshot_id)
+            and item.sequence <= head.sequence
+        ]
+        chain.sort(key=lambda item: item.sequence)
+        sequences = [item.sequence for item in chain]
+        hashes_match = all(
+            current.previous_manifest_sha256 == previous.manifest_sha256
+            for previous, current in pairwise(chain)
+        )
+        valid = sequences == list(range(1, head.sequence + 1)) and hashes_match
+        return tuple(chain) if valid else ()
+
+    def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Job, ...]:
+        """Lista jobs elegíveis para claim."""
+        agent = self.get_agent(tenant_id, agent_id)
+        if agent is None or agent.state is not AgentState.ACTIVE:
+            return ()
+        partition = f"JOB_CLAIM#{tenant_id}#{agent_id}"
+        jobs = self._strong_candidates(self._query("gsi1", partition), Job)
+        eligible = [job for job in jobs if self._job_is_claimable(job, self._clock())]
+        return tuple(sorted(eligible, key=lambda job: (job.created_at, job.job_id))[:limit])
+
+    @staticmethod
+    def _job_is_claimable(job: Job, now: datetime) -> bool:
+        if job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}:
+            return True
+        return (
+            job.state is JobState.LEASED and job.lease_until is not None and job.lease_until <= now
+        )
+
+    def put_run(self, run: Run) -> None:
+        """Persiste um run e seus índices de dependência."""
+        self._put_direct(self._run_item(run))
+        if run.state is not RunState.WAITING_INPUTS:
+            return
+        base_key = run_entity_key(run.tenant_id, run.run_id)
+        for dependency in run.dependencies:
+            identity = run_dependency_key(
+                run.tenant_id, dependency.source_type, dependency.file_subtype, run.competencia
+            )
+            marker_key = dependency_marker_key(run.tenant_id, run.run_id, identity)
+            attributes = {
+                "gsi3pk": identity,
+                "gsi3sk": f"{timestamp(run.created_at)}#{run.run_id}",
+            }
+            self._put_direct(encode_marker("RUN_DEP", marker_key, base_key, attributes))
+
+    def get_run(self, tenant_id: str, run_id: str) -> Run | None:
+        """Retorna o run solicitado."""
+        return self._get_model(run_entity_key(tenant_id, run_id), Run)
+
+    def list_waiting_runs_for_dependency(self, *args: Any) -> tuple[Run, ...]:
+        """Lista runs aguardando uma dependência."""
+        tenant_id, source_type, file_subtype, competencia, *rest = args
+        limit = rest[0] if rest else 100
+        identity = run_dependency_key(tenant_id, source_type, file_subtype, competencia)
+        runs = self._strong_candidates(self._query("gsi3", identity), Run)
+        valid = [
+            run
+            for run in runs
+            if run.state is RunState.WAITING_INPUTS
+            and run.tenant_id == tenant_id
+            and run.competencia == competencia
+            and any(
+                (dep.source_type, dep.file_subtype) == (source_type, file_subtype)
+                for dep in run.dependencies
+            )
+        ]
+        return tuple(sorted(valid, key=lambda run: (run.created_at, run.run_id))[:limit])
+
+    def list_recoverable_runs(self, now: datetime, limit: int = 100) -> tuple[Run, ...]:
+        """Lista runs recuperáveis no instante informado."""
+        runs = self._strong_candidates(self._query("gsi4", "RUN_RECOVERABLE"), Run)
+        valid = [run for run in runs if run.state in _RECOVERABLE and run.created_at <= now]
+        ordered = sorted(valid, key=lambda run: (run.created_at, run.run_id, run.tenant_id))
+        return tuple(ordered[:limit])
+
+    def transition_run(self, command: TransitionRun, event: OutboxEvent) -> Run:
+        """Transiciona um run e grava o evento atomicamente."""
+        key = run_entity_key(command.tenant_id, command.run_id)
+        item = self._get_item(key)
+        if item is None:
+            raise NotFound("run_missing")
+        run = decode_model(item, Run)
+        if run.state is not command.expected_state:
+            raise Conflict("run_state_conflict")
+        updated = transition_run(run, command.new_state).model_copy(
+            update={"missing_sources": command.missing_sources}
+        )
+        actions = (
+            put_action(self._table_name, self._run_item(updated), payload(item)),
+            self._event_action(event),
+        )
+        self._transact(actions)
+        return updated
+
+    def put_run_units(self, command: PutRunUnits) -> tuple[RunUnit, ...]:
+        """Persiste o grafo de unidades atomicamente."""
+        if len(command.units) >= 100:
+            raise Conflict("transaction_limit")
+        run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
+        if run_item is None:
+            raise NotFound("run_missing")
+        run = decode_model(run_item, Run)
+        if run.state is not command.expected_run_state:
+            raise Conflict("run_state_conflict")
+        existing = tuple(
+            self._get_model(unit_key(unit.tenant_id, unit.run_id, unit.unit_id), RunUnit)
+            for unit in command.units
+        )
+        if any(existing):
+            if existing == command.units:
+                return command.units
+            raise Conflict("run_units_conflict")
+        actions = (check_action(self._table_name, run_item),) + tuple(
+            put_action(self._table_name, self._unit_item(unit), None) for unit in command.units
+        )
+        self._transact(actions)
+        return command.units
+
+    def list_run_units(self, tenant_id: str, run_id: str) -> tuple[RunUnit, ...]:
+        """Lista as unidades do run."""
+        partition = f"RUN_ITEMS#{tenant_id}#{run_id}"
+        units = self._strong_candidates(self._query("gsi5", partition), RunUnit)
+        return tuple(sorted(units, key=lambda unit: unit.unit_id))
+
+    def cancel_job(self, command: CancelJob, event: OutboxEvent) -> Job:
+        """Solicita o cancelamento de um job leased."""
+        key = entity_key(command.tenant_id, "JOB", command.job_id)
+        item = self._get_item(key)
+        if item is None:
+            raise NotFound("job_missing")
+        job = decode_model(item, Job)
+        if job.state is JobState.CANCEL_REQUESTED:
+            return job
+        if job.state is not JobState.LEASED:
+            raise Conflict("job_state_conflict")
+        updated = transition_job(job, JobState.CANCEL_REQUESTED)
+        self._transact(
+            (
+                put_action(self._table_name, self._job_item(updated), payload(item)),
+                self._event_action(event),
+            )
+        )
+        return updated
+
+    def finalize_run_cancellation(
+        self, command: FinalizeRunCancellation, event: OutboxEvent
+    ) -> Run:
+        """Finaliza o cancelamento do agregado do run."""
+        run_key = run_entity_key(command.tenant_id, command.run_id)
+        run_item = self._get_item(run_key)
+        if run_item is None:
+            raise NotFound("run_missing")
+        run = decode_model(run_item, Run)
+        if run.state is RunState.CANCELED:
+            return run
+        if run.state is not command.expected_state:
+            raise Conflict("run_state_conflict")
+        units = self.list_run_units(command.tenant_id, command.run_id)
+        cancellable = tuple(unit for unit in units if unit.state in _NONTERMINAL_UNITS)
+        if len(cancellable) >= 99:
+            raise Conflict("transaction_limit")
+        updated_run = transition_run(run, RunState.CANCELED)
+        actions = [put_action(self._table_name, self._run_item(updated_run), payload(run_item))]
+        actions.extend(self._cancel_unit_action(unit, run) for unit in cancellable)
+        actions.append(self._event_action(event))
+        self._transact(tuple(actions))
+        return updated_run
+
+    def _cancel_unit_action(self, unit: RunUnit, run: Run) -> Action:
+        canceled = transition_run_unit(unit, RunUnitState.CANCELED, run).model_copy(
+            update={"lease_owner": None, "lease_until": None}
+        )
+        expected = payload(self._unit_item(unit))
+        return put_action(self._table_name, self._unit_item(canceled), expected)
+
+    def put_access_request(self, request: AccessRequest, event: OutboxEvent) -> None:
+        """Cria uma solicitação de acesso atomicamente."""
+        key = entity_key(request.tenant_id, "ACCESS", request.request_id)
+        item = encode_model(request, "ACCESSREQUEST", key)
+        existing = self._get_model(key, AccessRequest)
+        if existing is not None:
+            if existing != request:
+                raise Conflict("access_request_conflict")
+            return
+        self._transact((put_action(self._table_name, item, None), self._event_action(event)))
+
+    def get_access_request(self, tenant_id: str, request_id: str) -> AccessRequest | None:
+        """Retorna a solicitação de acesso."""
+        return self._get_model(entity_key(tenant_id, "ACCESS", request_id), AccessRequest)
+
+    def decide_access_request(self, request: AccessRequest, event: OutboxEvent) -> AccessRequest:
+        """Persiste a decisão de acesso atomicamente."""
+        key = entity_key(request.tenant_id, "ACCESS", request.request_id)
+        item = self._get_item(key)
+        if item is None:
+            raise NotFound("access_request_missing")
+        existing = decode_model(item, AccessRequest)
+        if existing == request:
+            return existing
+        if existing.state.value != "PENDING":
+            raise Conflict("access_request_conflict")
+        updated = encode_model(request, "ACCESSREQUEST", key)
+        self._transact(
+            (
+                put_action(self._table_name, updated, payload(item)),
+                self._event_action(event),
+            )
+        )
+        return request
