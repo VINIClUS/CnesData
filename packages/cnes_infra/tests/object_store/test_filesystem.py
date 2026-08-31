@@ -21,10 +21,7 @@ from packages.cnes_infra.tests.contracts.object_store_contract import (
     object_store_cases,
 )
 
-_DURABLE_BOUNDARIES = (
-    "temporary_created",
-    "file_fsynced",
-    "destination_linked",
+_DURABLE_BOUNDARIES = ("temporary_created", "file_fsynced", "destination_linked") + (
     "directory_fsynced",
     "temporary_unlinked",
     "directory_final_fsynced",
@@ -109,8 +106,27 @@ def test_cumpre_contrato_compartilhado(
 ) -> None:
     root = tmp_path_factory.mktemp(case.name)
     clock = MutableClock(datetime(2026, 7, 15, tzinfo=UTC))
-
     case.run(FilesystemObjectStore(root), clock)
+
+
+@pytest.mark.linux_only
+def test_fsynca_pai_de_cada_diretorio_criado(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = FilesystemObjectStore(tmp_path)
+    observed: list[Path] = []
+    real_fsync = os.fsync
+
+    def observe_fsync(descriptor: int) -> None:
+        target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        if target.is_dir():
+            observed.append(target)
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", observe_fsync)
+    body = b"conteudo"
+    adapter.put("nivel-1/nivel-2/dados.parquet", BytesIO(body), sha256(body).hexdigest())
+    assert observed[:3] == [tmp_path, tmp_path / "nivel-1", tmp_path / "nivel-1/nivel-2"]
 
 
 @pytest.mark.parametrize("operation", ["put", "promote"])
@@ -135,7 +151,6 @@ def test_recupera_cada_fronteira_duravel_sem_apagar_arquivo_alheio(
 
     with pytest.raises(_SimulatedCrash, match=f"boundary={boundary}"):
         perform()
-
     recovered = FilesystemObjectStore(tmp_path)
     current = recovered.stat("raw/dados.parquet")
     assert current is None or (current.size_bytes, current.sha256) == (len(body), expected)
@@ -166,65 +181,66 @@ def test_reabre_e_remove_temporario_pre_publicacao_sem_operar_na_chave(
     crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt(boundary))
     body = b"abandonado"
     digest = sha256(body).hexdigest()
-
     with pytest.raises(_SimulatedCrash, match=f"boundary={boundary}"):
         crashing.put("raw/abandonado.parquet", BytesIO(body), digest)
-
     recoverable = tuple(path for path in _adapter_temporaries(tmp_path) if path not in malformed)
     assert recoverable
     FilesystemObjectStore(tmp_path)
-
     assert all(not path.exists() for path in recoverable)
     assert (tmp_path / valid_key).read_bytes() == valid_body
     assert unrelated.read_bytes() == b"preservar"
     assert all(hidden.read_bytes() == b"preservar" for hidden in malformed)
 
 
+def test_reabertura_ignora_temporario_removido_durante_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced"))
+    with pytest.raises(_SimulatedCrash, match="boundary=file_fsynced"):
+        crashing.put("raw/dados.parquet", BytesIO(b"abandonado"), sha256(b"abandonado").hexdigest())
+    temporary = _adapter_temporaries(tmp_path)[0]
+    real_lstat = Path.lstat
+    removed: list[Path] = []
+
+    def vanish_before_lstat(path: Path) -> os.stat_result:
+        if path == temporary:
+            removed.append(path)
+            path.unlink()
+        return real_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", vanish_before_lstat)
+    FilesystemObjectStore(tmp_path)
+    assert removed == [temporary]
+
+
 def test_nova_escrita_recupera_temporario_abandonado_no_mesmo_adapter(tmp_path: Path) -> None:
     body = b"conteudo"
     digest = sha256(body).hexdigest()
     adapter = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced"))
-
     with pytest.raises(_SimulatedCrash, match="boundary=file_fsynced"):
         adapter.put("raw/dados.parquet", BytesIO(body), digest)
-
     assert _adapter_temporaries(tmp_path)
     adapter.put("raw/dados.parquet", BytesIO(body), digest)
-
     assert _adapter_temporaries(tmp_path) == ()
     with adapter.open("raw/dados.parquet") as stream:
         assert stream.read() == body
 
 
-def test_reabertura_preserva_objeto_valido_com_nome_de_temporario(tmp_path: Path) -> None:
-    other_key = "raw/outro.parquet"
-    digest = sha256(other_key.encode()).hexdigest()
-    valid_key = f"raw/.cnes-object-store-{digest}-writer.tmp"
-    body = b"objeto-valido"
-    adapter = FilesystemObjectStore(tmp_path)
-    adapter.put(valid_key, BytesIO(body), sha256(body).hexdigest())
-
-    reopened = FilesystemObjectStore(tmp_path)
-
-    with reopened.open(valid_key) as stream:
-        assert stream.read() == body
-
-
-def test_pre_write_preserva_objeto_valido_com_nome_de_temporario(tmp_path: Path) -> None:
+@pytest.mark.parametrize("recovery", ["startup", "pre_write"])
+def test_recuperacao_preserva_objeto_valido_com_nome_de_temporario(
+    recovery: str, tmp_path: Path
+) -> None:
     destination_key = "raw/destino.parquet"
     digest = sha256(destination_key.encode()).hexdigest()
     valid_key = f"raw/.cnes-object-store-{digest}-writer.tmp"
     valid_body = b"objeto-valido"
-    destination_body = b"novo-destino"
     adapter = FilesystemObjectStore(tmp_path)
     adapter.put(valid_key, BytesIO(valid_body), sha256(valid_body).hexdigest())
-
-    adapter.put(
-        destination_key,
-        BytesIO(destination_body),
-        sha256(destination_body).hexdigest(),
-    )
-
+    if recovery == "startup":
+        adapter = FilesystemObjectStore(tmp_path)
+    else:
+        body = b"novo-destino"
+        adapter.put(destination_key, BytesIO(body), sha256(body).hexdigest())
     with adapter.open(valid_key) as stream:
         assert stream.read() == valid_body
 

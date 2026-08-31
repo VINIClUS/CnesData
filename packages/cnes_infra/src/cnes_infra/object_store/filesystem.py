@@ -50,6 +50,17 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
+def _mkdir_durable(directory: Path) -> None:
+    missing: list[Path] = []
+    current = directory
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+    for path in reversed(missing):
+        path.mkdir(exist_ok=True)
+        _fsync_directory(path.parent)
+
+
 def _temporary_identity(path: Path) -> tuple[str, str] | None:
     namespace, _, token = path.name.removesuffix(".tmp").rpartition("-")
     digest = namespace.removeprefix(_TEMP_PREFIX)
@@ -59,9 +70,9 @@ def _temporary_identity(path: Path) -> tuple[str, str] | None:
 
 
 def _temporary_owner(path: Path) -> tuple[str, str] | None:
-    if not S_ISREG(path.lstat().st_mode):
-        return None
     try:
+        if not S_ISREG(path.lstat().st_mode):
+            return None
         value = os.getxattr(path, _OWNER_XATTR, follow_symlinks=False)
     except OSError as error:
         if error.errno in _MISSING_XATTR_ERRNOS:
@@ -80,7 +91,7 @@ class FilesystemObjectStore:
     ) -> None:
         self._root = Path(root)
         self._fault_injector = fault_injector
-        self._root.mkdir(parents=True, exist_ok=True)
+        _mkdir_durable(self._root)
         self._recover_startup()
 
     def _fault(self, boundary: str) -> None:
@@ -232,7 +243,7 @@ class FilesystemObjectStore:
 
     def _publish(self, key: str, body: BinaryIO, expected_sha256: str) -> ObjectStat:
         destination = self._path(key)
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        _mkdir_durable(destination.parent)
         namespace = self._namespace(key)
         with self._destination_lock(destination, namespace):
             self._recover(destination, namespace)
@@ -266,7 +277,7 @@ class FilesystemObjectStore:
 
     def delete(self, key: str) -> None:
         destination = self._path(key)
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        _mkdir_durable(destination.parent)
         namespace = self._namespace(key)
         with self._destination_lock(destination, namespace):
             self._recover(destination, namespace)
