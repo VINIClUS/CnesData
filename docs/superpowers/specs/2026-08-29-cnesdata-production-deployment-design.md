@@ -373,12 +373,12 @@ release claims WORM compliance. Emulator success alone is insufficient.
 - bounded retries with jitter and explicit catch/terminal states;
 - execution names derived from canonical dispatch IDs;
 - CloudWatch execution logging without data payloads;
-- maximum 200 demo executions per month, enforced by the application/control
-  plane rather than assumed from billing alerts.
+- maximum 200 demo execution attempts monthly, enforced by the control plane.
 
 Step Functions uses a separate execution role assumed by `states.amazonaws.com`;
-its ECS, EventBridge and `iam:PassRole` permission boundary is operationally
-verified in the [production operations design](2026-08-29-cnesdata-production-operations-design.md).
+its ECS, EventBridge, CloudWatch Logs delivery and `iam:PassRole` boundaries,
+including the AWS-required wildcard Logs actions, are verified in the
+[production operations design](2026-08-29-cnesdata-production-operations-design.md).
 
 ### 11.2 Fargate
 

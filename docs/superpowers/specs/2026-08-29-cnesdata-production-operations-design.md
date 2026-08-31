@@ -93,8 +93,9 @@ Order:
 9. switch Nginx to the candidate and run tunneled health/authorization through
    the normal production hostname, which now resolves to that candidate;
 10. publish frontend assets and entrypoint;
-11. while the fence rejects tenant jobs, admit only the release-bound synthetic
-    canary, run its vertical slice and serving test, then reopen admissions;
+11. while fenced, admit only the release-bound synthetic canary. The hard fence
+    budget reserves rollback margin, aborting unfinished work early enough to
+    restore prior routes and reopen admissions within 60 seconds of step 5;
 12. record redacted evidence and retain the previous release. A failure in
     steps 6-11 keeps the fence closed and immediately restores the prior API,
     processor and Scheduler routes before reopening admissions.
@@ -270,13 +271,17 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   separately referenced by `credential_process`; no private CA key or leaf
   appears in repository or state;
 - the separate Step Functions role is trusted only by `states.amazonaws.com`
-  with the exact `aws:SourceAccount` and the exact production state-machine
-  `aws:SourceArn`. `ecs:RunTask` is scoped to the current/candidate unit
-  revision ARNs during activation;
+  with exact `aws:SourceAccount` and production state-machine `aws:SourceArn`.
+  `ecs:RunTask` is scoped to current/candidate unit revision ARNs in activation;
   `ecs:DescribeTasks` and `ecs:StopTask` use `Resource: *`; `events:PutTargets`,
   `events:PutRule` and `events:DescribeRule` are scoped to
   `StepFunctionsGetEventsForECSTaskRule`; `iam:PassRole` permits only the task
-  and execution roles with `iam:PassedToService=ecs-tasks.amazonaws.com`;
+  and execution roles with `iam:PassedToService=ecs-tasks.amazonaws.com`. Logs
+  delivery permits `logs:CreateLogDelivery`, `logs:GetLogDelivery`,
+  `logs:UpdateLogDelivery`, `logs:DeleteLogDelivery`, `logs:ListLogDeliveries`,
+  `logs:CreateLogStream`, `logs:PutLogEvents`, `logs:PutResourcePolicy`,
+  `logs:DescribeResourcePolicies` and `logs:DescribeLogGroups`, all with required
+  `Resource: *`. Acceptance observes payload-free logs and denies any omitted action;
 - candidate-manifest tests require release ID/source SHA, processor GHCR digest
   and expected ECR destination/repository while rejecting ECS revision ARNs and
   a promoted ECR digest. Phase-A exact OpenTofu plan/apply registers each
@@ -293,8 +298,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - promotion tests close the deployment fence before phase B, prove no dispatch
   decision remains in flight, reject tenant jobs and recovery starts, and allow
   only the bound canary. Local smoke precedes the Nginx switch; tunneled smoke
-  uses the production hostname after that switch. Any failure restores prior
-  routes before admissions reopen;
+  uses the production hostname after that switch. Any failure or fence-budget
+  cutoff restores prior routes and reopens admissions within 60 seconds;
 - drain/prune tests retain old revisions and `ecs:RunTask` grants through active
   old Standard/recovery drain and rollback retention, then prune only older
   non-rollback revisions; rollback consumes the prior retained manifest through
