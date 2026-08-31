@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import ctypes
 import errno
 import fcntl
 import os
-import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
-from stat import S_ISREG
+from secrets import token_hex
+from stat import S_ISLNK, S_ISREG
 from typing import TYPE_CHECKING
 
 from cnes_domain.control_plane.errors import Conflict
@@ -27,6 +28,11 @@ _TEMP_PREFIX = ".cnes-object-store-"
 _HEX_DIGITS = frozenset("0123456789abcdef")
 _OWNER_XATTR = "user.cnes_object_store_destination"
 _MISSING_XATTR_ERRNOS = frozenset({errno.ENODATA, errno.ENOENT})
+_AT_FDCWD = -100
+_AT_EMPTY_PATH = 0x1000
+_LINKAT = ctypes.CDLL(None, use_errno=True).linkat
+_LINKAT.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_int)
+_LINKAT.restype = ctypes.c_int
 
 
 class _RecoveryKind(Enum):
@@ -59,6 +65,25 @@ def _mkdir_durable(directory: Path) -> None:
     for path in reversed(missing):
         path.mkdir(exist_ok=True)
         _fsync_directory(path.parent)
+
+
+def _reject_symlink_components(root: Path, path: Path) -> None:
+    current = root
+    for part in path.relative_to(root).parts:
+        current /= part
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            return
+        if S_ISLNK(mode):
+            raise ValueError("object_path=symlink")
+
+
+def _link_descriptor(descriptor: int, destination: Path) -> None:
+    result = _LINKAT(descriptor, b"", _AT_FDCWD, os.fsencode(destination), _AT_EMPTY_PATH)
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), destination)
 
 
 def _temporary_identity(path: Path) -> tuple[str, str] | None:
@@ -99,7 +124,9 @@ class FilesystemObjectStore:
             self._fault_injector(boundary)
 
     def _path(self, key: str) -> Path:
-        return self._root / validate_key(key)
+        path = self._root / validate_key(key)
+        _reject_symlink_components(self._root, path)
+        return path
 
     @staticmethod
     def _stat(key: str, path: Path) -> ObjectStat:
@@ -186,35 +213,34 @@ class FilesystemObjectStore:
         if recoveries:
             _fsync_directory(destination.parent)
 
-    def _mark_temporary(
-        self, temporary: Path, descriptor: int, destination: Path, token: str
-    ) -> None:
+    def _mark_temporary(self, descriptor: int, destination: Path, token: str) -> None:
         key = destination.relative_to(self._root).as_posix()
         ownership = f"{key}\0{token}".encode()
-        try:
-            os.setxattr(descriptor, _OWNER_XATTR, ownership)
-            os.fsync(descriptor)
-            _fsync_directory(destination.parent)
-        except Exception:
-            self._remove_temporary(temporary, destination.parent)
-            raise
+        os.setxattr(descriptor, _OWNER_XATTR, ownership)
+        os.fsync(descriptor)
 
     def _stage(
         self, destination: Path, namespace: str, body: BinaryIO, expected_sha256: str
     ) -> _StagedFile:
-        descriptor, name = tempfile.mkstemp(
-            dir=destination.parent, prefix=f"{namespace}-", suffix=".tmp"
-        )
-        temporary = Path(name)
-        token = temporary.name.removesuffix(".tmp").rpartition("-")[2]
+        descriptor = os.open(destination.parent, os.O_RDWR | os.O_TMPFILE, 0o600)
+        token = token_hex(16)
+        temporary = destination.parent / f"{namespace}-{token}.tmp"
         try:
-            self._mark_temporary(temporary, descriptor, destination, token)
+            self._fault("temporary_created_before_ownership")
+            self._mark_temporary(descriptor, destination, token)
+            _link_descriptor(descriptor, temporary)
+            _fsync_directory(destination.parent)
             self._fault("temporary_created")
-            with os.fdopen(descriptor, "wb") as stream:
+            try:
+                stream = os.fdopen(descriptor, "wb")
                 descriptor = -1
-                size, digest = stream_with_digest(body, stream)
-                stream.flush()
-                os.fsync(stream.fileno())
+                with stream:
+                    size, digest = stream_with_digest(body, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except Exception:
+                self._remove_temporary(temporary, destination.parent)
+                raise
             self._fault("file_fsynced")
             try:
                 require_digest(digest, expected_sha256)
