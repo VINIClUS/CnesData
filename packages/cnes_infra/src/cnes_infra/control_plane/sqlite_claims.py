@@ -348,7 +348,9 @@ def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:
         if invalid or not valid_dispatch:
             return None
         claimable = unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE}
-        claimable |= unit.state is RunUnitState.LEASED and unit.lease_until <= command.now
+        claimable |= unit.state is RunUnitState.LEASED and (
+            unit.dispatch_id != command.dispatch_id or unit.lease_until <= command.now
+        )
         if not claimable:
             return None
         claimed = unit.model_copy(

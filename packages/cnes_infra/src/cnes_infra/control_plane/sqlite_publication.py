@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from cnes_domain.control_plane.commands import PublishDataset
 from cnes_domain.control_plane.entities import (
     AccessRequest,
     DatasetPointer,
@@ -20,7 +21,7 @@ from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from cnes_domain.control_plane.commands import PublishDataset, TransitionRun
+    from cnes_domain.control_plane.commands import TransitionRun
     from cnes_domain.control_plane.entities import OutboxEvent, Run
 
 LATEST_JOB_FIELDS = (
@@ -231,6 +232,15 @@ def get_dataset_version(store: Any, values: tuple[str, str, str]) -> DatasetVers
         return _get_version(connection, *values)
 
 
+def _get_publication(connection: Any, version: DatasetVersion) -> PublishDataset | None:
+    row = connection.execute(
+        "SELECT data FROM dataset_publications "
+        "WHERE tenant_id = ? AND dataset_name = ? AND version_id = ?",
+        (version.tenant_id, version.dataset_name, version.version_id),
+    ).fetchone()
+    return None if row is None else deserialize_model(row[0], PublishDataset)
+
+
 def _put_version(connection: Any, version: DatasetVersion) -> None:
     connection.execute(
         "INSERT INTO dataset_versions (tenant_id, dataset_name, version_id, data) "
@@ -241,6 +251,15 @@ def _put_version(connection: Any, version: DatasetVersion) -> None:
             version.version_id,
             serialize_model(version),
         ),
+    )
+
+
+def _put_publication(connection: Any, command: PublishDataset) -> None:
+    version = command.version
+    connection.execute(
+        "INSERT INTO dataset_publications (tenant_id, dataset_name, version_id, data) "
+        "VALUES (?, ?, ?, ?)",
+        (version.tenant_id, version.dataset_name, version.version_id, serialize_model(command)),
     )
 
 
@@ -258,6 +277,21 @@ def _put_pointer(connection: Any, pointer: DatasetPointer) -> None:
     )
 
 
+def _validate_publication_replay(
+    store: Any, connection: Any, command: PublishDataset, pointer: DatasetPointer
+) -> DatasetPointer:
+    canonical = _get_publication(connection, command.version)
+    run = store.get_run_record(connection, command.version.tenant_id, command.version.run_id)
+    terminal_matches = (
+        run is not None
+        and run.state is command.final_state
+        and run.missing_sources == command.missing_sources
+    )
+    if canonical != command or not terminal_matches:
+        raise Conflict("publication_replay_conflict")
+    return pointer
+
+
 def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
     version = command.version
     with store.write_transaction() as connection:
@@ -271,7 +305,7 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
             if current_version != version:
                 raise Conflict("version_immutable")
             if pointer is not None and pointer.version_id == version.version_id:
-                return pointer
+                return _validate_publication_replay(store, connection, command, pointer)
         actual = None if pointer is None else pointer.version_id
         if actual != command.expected_version_id:
             raise Conflict("pointer_cas")
@@ -291,6 +325,7 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
             updated_at=store.now(),
         )
         _put_version(connection, version)
+        _put_publication(connection, command)
         _put_pointer(connection, result)
         store.put_run_record(connection, updated)
         store.put_outbox_event(connection, command.event)
@@ -333,9 +368,16 @@ def put_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -
 def decide_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -> AccessRequest:
     with store.write_transaction() as connection:
         current = _get_access_request(connection, request.tenant_id, request.request_id)
+        if current is None:
+            raise Conflict("access_request_state_conflict")
+        identity = (current.tenant_id, current.request_id, current.user_id)
+        if identity != (request.tenant_id, request.request_id, request.user_id):
+            raise Conflict("access_request_identity_conflict")
+        if request.state not in {AccessRequestState.APPROVED, AccessRequestState.REJECTED}:
+            raise Conflict("access_request_decision_state")
         if current == request:
             return request
-        if current is None or current.state is not AccessRequestState.PENDING:
+        if current.state is not AccessRequestState.PENDING:
             raise Conflict("access_request_state_conflict")
         _put_access_request(connection, request)
         store.put_outbox_event(connection, event)

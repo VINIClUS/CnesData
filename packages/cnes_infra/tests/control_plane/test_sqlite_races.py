@@ -15,7 +15,6 @@ from cnes_domain.control_plane.commands import (
     FinishRunDispatch,
     PutRunUnits,
     RenewJobLease,
-    ReserveRunDispatch,
     TransitionRun,
 )
 from cnes_domain.control_plane.entities import DatasetPointer, RunDependency, Tenant
@@ -102,7 +101,6 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
         new_state=RunState.PUBLISHING,
     )
     conflicting = existing.model_copy(update={"aggregate_id": "run-a"})
-
     with pytest.raises(Conflict, match="run_state_conflict"):
         adapter.transition_run(
             transition.model_copy(update={"expected_state": RunState.WAITING_INPUTS}),
@@ -110,7 +108,6 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
         )
     with pytest.raises(Conflict, match="outbox_event_conflict"):
         adapter.transition_run(transition, conflicting)
-
     assert adapter.get_run("354130", "run-a") == _run("run-a")
     assert adapter.pending_outbox(10) == (existing,)
 
@@ -176,12 +173,10 @@ def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, 
         now=clock.now() + timedelta(seconds=31),
         lease_seconds=30,
     )
-
     renewed, reclaimed = _race(
         lambda: writers[0].renew_job_lease(renew),
         lambda: writers[1].claim_job(reclaim),
     )
-
     if isinstance(renewed, LeaseLost):
         assert reclaimed is not None
         assert reclaimed.fencing_token == 2
@@ -196,9 +191,7 @@ def test_incrementa_fence_apos_expiracao(adapter, clock) -> None:
     _prepare_job(adapter)
     first = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
     clock.advance(timedelta(seconds=31))
-
     second = adapter.claim_job(_claim_job("job-a", "worker-b", clock))
-
     assert first is not None
     assert second is not None
     assert (first.fencing_token, second.fencing_token) == (1, 2)
@@ -366,63 +359,58 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
     assert adapter.get_run("354130", "run-a").missing_sources == ("CNES/ST",)
 
 
-def test_rejeita_bind_de_dispatch_ausente_ou_terminal(adapter, clock) -> None:
+def test_recaptura_lease_de_dispatch_superado_mas_exclui_dispatch_ativo(adapter, clock) -> None:
     dispatch = _prepare_unit(adapter, clock)
+    claimed = adapter.claim_run_unit(_claim_unit_command(dispatch.dispatch_id, "worker-a", clock))
+    assert claimed is not None
     bind = BindRunDispatch(
-        tenant_id="354130",
-        run_id="run-a",
-        dispatch_id="b" * 16,
-        execution_ref="exec-a",
-        now=clock.now(),
-        lease_seconds=30,
+        tenant_id="354130", run_id="run-a", dispatch_id="b" * 16,
+        execution_ref="exec-a", now=clock.now(), lease_seconds=30,
     )
     with pytest.raises(Conflict, match="dispatch_stale"):
         adapter.bind_run_dispatch(bind)
     adapter.finish_run_dispatch(
         FinishRunDispatch(
-            tenant_id="354130",
-            run_id="run-a",
-            dispatch_id=dispatch.dispatch_id,
-            outcome=DispatchOutcome.FAILED,
-            finished_at=clock.now(),
+            tenant_id="354130", run_id="run-a", dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.FAILED, finished_at=clock.now(),
         )
     )
     with pytest.raises(Conflict, match="dispatch_terminal"):
         adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
     replacement = _reserve(adapter, clock)
     assert (replacement.generation, replacement.dispatch_id != dispatch.dispatch_id) == (2, True)
+    reclaimed = adapter.claim_run_unit(
+        _claim_unit_command(replacement.dispatch_id, "worker-b", clock)
+    )
+    assert reclaimed is not None
+    assert (reclaimed.attempt, reclaimed.fencing_token, reclaimed.dispatch_id) == (
+        claimed.attempt + 1, claimed.fencing_token + 1, replacement.dispatch_id,
+    )
+    other = _claim_unit_command(replacement.dispatch_id, "worker-c", clock)
+    assert adapter.claim_run_unit(other) is None
 
 
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
-    adapter.put_run(_run("run-a"))
-    _put_units(adapter, (_unit("unit-a"),))
-    dispatch = adapter.reserve_run_dispatch(
-        ReserveRunDispatch(
-            tenant_id="354130",
-            run_id="run-a",
-            wave_id="a" * 16,
-            unit_ids=("unit-a",),
-            now=clock.now(),
-            lease_seconds=60,
-        )
-    )
+    dispatch = _prepare_unit(adapter, clock)
     pending = _commit_command(dispatch.dispatch_id, "worker-a", 0)
     with pytest.raises(LeaseLost, match="unit_not_leased"):
         adapter.commit_run_unit(pending, _event("pending-commit"))
-    claimed = adapter.claim_run_unit(
-        _claim_unit_command(dispatch.dispatch_id, "worker-a", clock, "unit-a")
+    claim = _claim_unit_command(dispatch.dispatch_id, "worker-a", clock).model_copy(
+        update={"lease_seconds": 10}
     )
+    claimed = adapter.claim_run_unit(claim)
     assert claimed is not None
-    clock.advance(timedelta(seconds=31))
+    clock.advance(timedelta(seconds=11))
     expired = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
     with pytest.raises(LeaseLost, match="lease_expired"):
         adapter.commit_run_unit(expired, _event("expired-commit"))
 
 
-def test_rejeita_dataset_divergente_e_replay_apos_pointer_avancar(adapter) -> None:
+@pytest.mark.parametrize("field", ["final_state", "missing_sources", "permit", "event"])
+def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) -> None:
     run = _run("run-a", RunState.PUBLISHING)
     adapter.put_run(run)
-    first = _publish("run-a", "published-a", None, False)
+    first = _publish("run-a", "published-a", None, True)
     mismatched = first.model_copy(
         update={"version": first.version.model_copy(update={"dataset_name": "silver"})}
     )
@@ -432,10 +420,32 @@ def test_rejeita_dataset_divergente_e_replay_apos_pointer_avancar(adapter) -> No
     assert adapter.get_dataset_pointer("354130", "silver") is None
     assert adapter.get_dataset_version("354130", "silver", "run-a") is None
     assert mismatched.event not in adapter.pending_outbox(100)
-    adapter.publish_dataset(first)
+    pointer = adapter.publish_dataset(first)
+    permit = first.publication_permit.model_copy(update={"policy_version": 2})
+    event = first.event.model_copy(update={"payload": {"changed": True}})
+    updates = {
+        "final_state": {"final_state": RunState.PUBLISHED, "missing_sources": ()},
+        "missing_sources": {"missing_sources": ("SIHD/ER",)},
+        "permit": {"publication_permit": permit},
+        "event": {"event": event},
+    }
+    divergent = first.model_copy(update=updates[field])
+    before = (
+        adapter.get_run("354130", "run-a"), pointer,
+        adapter.get_dataset_version("354130", "gold", "run-a"),
+        adapter.pending_outbox(100),
+    )
+    with pytest.raises(Conflict, match="publication_replay_conflict"):
+        adapter.publish_dataset(divergent)
+    assert before == (
+        adapter.get_run("354130", "run-a"),
+        adapter.get_dataset_pointer("354130", "gold"),
+        adapter.get_dataset_version("354130", "gold", "run-a"),
+        adapter.pending_outbox(100),
+    )
+    assert adapter.publish_dataset(first) == pointer
     adapter.put_run(_run("run-b", RunState.PUBLISHING))
     adapter.publish_dataset(_publish("run-b", "published-b", "run-a", False))
-
     with pytest.raises(Conflict, match="pointer_cas"):
         adapter.publish_dataset(first)
 
@@ -454,17 +464,13 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     _put_units(adapter, units, "run-units")
     base = _raw_record("base-agent-raw", "agent-raw", 1, clock.now())
     _store_record(adapter, base, clock)
-
-    assert tuple(job.job_id for job in adapter.list_claimable_jobs(
-        "354130", "agent-order", 1
-    )) == ("job-a",)
-    assert tuple(run.run_id for run in adapter.list_waiting_runs_for_dependency(
-        "354130", "CNES", "ST", "2026-07", 1
-    )) == ("run-a",)
+    jobs = adapter.list_claimable_jobs("354130", "agent-order", 1)
+    assert tuple(job.job_id for job in jobs) == ("job-a",)
+    runs = adapter.list_waiting_runs_for_dependency("354130", "CNES", "ST", "2026-07", 1)
+    assert tuple(run.run_id for run in runs) == ("run-a",)
     assert adapter.list_recoverable_runs(clock.now(), 1)[0].run_id == "run-a"
-    assert tuple(unit.unit_id for unit in adapter.list_run_units(
-        "354130", "run-units"
-    )) == ("unit-a", "unit-b")
+    run_units = adapter.list_run_units("354130", "run-units")
+    assert tuple(unit.unit_id for unit in run_units) == ("unit-a", "unit-b")
     assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 0) == ()
     assert len(adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 1)) == 1
     pending = adapter.pending_outbox(1)
@@ -483,9 +489,7 @@ def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> 
     )
     for run in runs:
         adapter.put_run(run)
-
     recoverable = adapter.list_recoverable_runs(clock.now(), 2)
-
     assert tuple((run.tenant_id, run.run_id) for run in recoverable) == (
         ("a", "run-shared"),
         ("a", "run-z"),

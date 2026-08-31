@@ -242,23 +242,15 @@ def test_persiste_tenant_solicitacao_de_acesso_e_entrega_outbox(
         tenant_id="354130", municipality_name="Presidente Epitácio", created_at=clock.now()
     )
     pending = AccessRequest(
-        tenant_id=tenant.tenant_id,
-        request_id="request-a",
-        user_id="user-a",
-        state=AccessRequestState.PENDING,
-        decided_by=None,
-        decided_at=None,
+        tenant_id=tenant.tenant_id, request_id="request-a", user_id="user-a",
+        state=AccessRequestState.PENDING, decided_by=None, decided_at=None,
     )
     created = _event("access-requested")
     sqlite_control_plane.put_tenant(tenant)
     sqlite_control_plane.put_access_request(pending, created)
-    approved = pending.model_copy(
-        update={
-            "state": AccessRequestState.APPROVED,
-            "decided_by": "admin-a",
-            "decided_at": clock.now(),
-        }
-    )
+    approved = pending.model_copy(update={
+        "state": AccessRequestState.APPROVED, "decided_by": "admin-a", "decided_at": clock.now(),
+    })
     decided = _event("access-approved")
 
     assert sqlite_control_plane.decide_access_request(approved, decided) == approved
@@ -271,16 +263,16 @@ def test_persiste_tenant_solicitacao_de_acesso_e_entrega_outbox(
     assert sqlite_control_plane.pending_outbox(10) == (created,)
 
 
+@pytest.mark.parametrize(
+    ("invalid_kind", "error"),
+    [("state", "access_request_decision_state"), ("identity", "access_request_identity_conflict")],
+)
 def test_rejeita_conflitos_e_replays_de_solicitacao_de_acesso(
-    sqlite_control_plane, clock
+    sqlite_control_plane, clock, invalid_kind, error
 ) -> None:
     pending = AccessRequest(
-        tenant_id="354130",
-        request_id="request-a",
-        user_id="user-a",
-        state=AccessRequestState.PENDING,
-        decided_by=None,
-        decided_at=None,
+        tenant_id="354130", request_id="request-a", user_id="user-a",
+        state=AccessRequestState.PENDING, decided_by=None, decided_at=None,
     )
     created = _event("access-requested")
     ignored = _event("access-replay")
@@ -289,22 +281,30 @@ def test_rejeita_conflitos_e_replays_de_solicitacao_de_acesso(
     divergent = pending.model_copy(update={"user_id": "user-b"})
     with pytest.raises(Conflict, match="access_request_conflict"):
         sqlite_control_plane.put_access_request(divergent, _event("access-conflict"))
-    approved = pending.model_copy(
-        update={
-            "state": AccessRequestState.APPROVED,
-            "decided_by": "admin-a",
-            "decided_at": clock.now(),
-        }
+    approved = pending.model_copy(update={
+        "state": AccessRequestState.APPROVED, "decided_by": "admin-a", "decided_at": clock.now(),
+    })
+    before = (sqlite_control_plane.get_access_request("354130", "request-a"), (created,))
+    invalid = pending if invalid_kind == "state" else approved.model_copy(
+        update={"user_id": "user-b"}
+    )
+    with pytest.raises(Conflict, match=error):
+        sqlite_control_plane.decide_access_request(invalid, ignored)
+    assert before == (
+        sqlite_control_plane.get_access_request("354130", "request-a"),
+        sqlite_control_plane.pending_outbox(100),
     )
     decided = _event("access-approved")
     assert sqlite_control_plane.decide_access_request(approved, decided) == approved
     assert sqlite_control_plane.decide_access_request(approved, ignored) == approved
     with pytest.raises(Conflict, match="access_request_state_conflict"):
         sqlite_control_plane.decide_access_request(
-            pending.model_copy(update={"request_id": "missing"}), ignored
+            approved.model_copy(update={"state": AccessRequestState.REJECTED}), ignored
         )
     with pytest.raises(Conflict, match="access_request_state_conflict"):
-        sqlite_control_plane.decide_access_request(pending, ignored)
+        sqlite_control_plane.decide_access_request(
+            pending.model_copy(update={"request_id": "missing"}), ignored
+        )
     assert sqlite_control_plane.get_access_request("354130", "request-a") == approved
     assert sqlite_control_plane.pending_outbox(100) == (decided, created)
 
