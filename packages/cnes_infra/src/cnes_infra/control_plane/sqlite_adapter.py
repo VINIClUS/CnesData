@@ -61,7 +61,7 @@ if TYPE_CHECKING:
         RunUnit,
     )
 
-_BUSY_TIMEOUT_MS = 100
+_BUSY_TIMEOUT_MS = 5000
 class _SQLiteBusyError(RuntimeError):
     pass
 
@@ -111,7 +111,6 @@ class SQLiteControlPlane:
             isolation_level=None,
         )
         connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA busy_timeout=100")
         return connection
 
     def initialize(self) -> None:
@@ -306,12 +305,20 @@ class SQLiteControlPlane:
         return sqlite_claims.renew_job_lease(self, command)
 
     def put_manifest_record(
-        self, connection: sqlite3.Connection, manifest: RawManifestRecord
-    ) -> None:
+        self, connection: sqlite3.Connection, manifest: RawManifestRecord) -> None:
+        current = _fetch_one(
+            connection,
+            "SELECT data FROM raw_manifests WHERE tenant_id = ? AND manifest_id = ?",
+            (manifest.tenant_id, manifest.manifest_id),
+            type(manifest),
+        )
+        if current is not None:
+            if current != manifest:
+                raise Conflict("manifest_immutable")
+            return
         connection.execute(
             "INSERT INTO raw_manifests (tenant_id, manifest_id, agent_id, source_type, "
-            "file_subtype, competencia, created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT (tenant_id, manifest_id) DO UPDATE SET data = excluded.data",
+            "file_subtype, competencia, created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 manifest.tenant_id,
                 manifest.manifest_id,

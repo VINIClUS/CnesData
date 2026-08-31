@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 from cnes_domain.control_plane.entities import (
@@ -76,6 +75,28 @@ def latest_succeeded_job(store: Any, values: tuple[str, ...]) -> Job | None:
     return None if row is None else deserialize_model(row[0], Job)
 
 
+def _build_ancestry(
+    records: tuple[RawManifestRecord, ...], current: RawManifestRecord
+) -> tuple[RawManifestRecord, ...]:
+    if current.sequence == 1:
+        return (current,)
+    predecessors = sorted(
+        (
+            item
+            for item in records
+            if item.sequence == current.sequence - 1
+            and item.manifest_sha256 == current.previous_manifest_sha256
+        ),
+        key=lambda item: (item.created_at, item.snapshot_id),
+        reverse=True,
+    )
+    for predecessor in predecessors:
+        ancestry = _build_ancestry(records, predecessor)
+        if ancestry:
+            return (*ancestry, current)
+    return ()
+
+
 def _select_raw_chain(
     records: tuple[RawManifestRecord, ...],
 ) -> tuple[RawManifestRecord, ...]:
@@ -86,23 +107,16 @@ def _select_raw_chain(
     )
     for head in heads:
         base = head.snapshot_id if head.sequence == 1 else head.base_snapshot_id
-        chain = sorted(
-            (
-                item
-                for item in records
-                if item.agent_id == head.agent_id
-                and base in (item.snapshot_id, item.base_snapshot_id)
-                and item.sequence <= head.sequence
-            ),
-            key=lambda item: item.sequence,
+        branch = tuple(
+            item
+            for item in records
+            if item.agent_id == head.agent_id
+            and base in (item.snapshot_id, item.base_snapshot_id)
+            and item.sequence <= head.sequence
         )
-        hashes_match = all(
-            current.previous_manifest_sha256 == previous.manifest_sha256
-            for previous, current in pairwise(chain)
-        )
-        contiguous = [item.sequence for item in chain] == list(range(1, head.sequence + 1))
-        if contiguous and hashes_match:
-            return tuple(chain)
+        chain = _build_ancestry(branch, head)
+        if len(chain) == head.sequence:
+            return chain
     return ()
 
 
@@ -166,7 +180,7 @@ def list_recoverable_runs(store: Any, now: datetime, limit: int) -> tuple[Run, .
     with store.read_connection() as connection:
         rows = connection.execute(
             "SELECT data FROM runs WHERE state IN (?, ?, ?, ?) "
-            "ORDER BY created_at, run_id LIMIT ?",
+            "ORDER BY created_at, tenant_id, run_id LIMIT ?",
             (*states, limit),
         ).fetchall()
     return tuple(store.decode_run(row[0]) for row in rows)

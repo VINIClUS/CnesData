@@ -8,14 +8,18 @@ import pytest
 
 from cnes_domain.control_plane.commands import (
     BeginIdempotency,
+    BindRunDispatch,
+    CancelJob,
     ClaimJob,
     FailRunUnit,
+    FinishRunDispatch,
+    PutRunUnits,
     RenewJobLease,
     ReserveRunDispatch,
     TransitionRun,
 )
 from cnes_domain.control_plane.entities import DatasetPointer, RunDependency, Tenant
-from cnes_domain.control_plane.enums import RunState
+from cnes_domain.control_plane.enums import DispatchOutcome, RunState
 from cnes_domain.control_plane.errors import Conflict, LeaseLost
 from cnes_infra.control_plane import sqlite_adapter, sqlite_schema
 from cnes_infra.control_plane.sqlite_adapter import (
@@ -29,6 +33,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _agent,
     _claim_job,
     _claim_unit_command,
+    _commit_command,
     _event,
     _job,
     _put_units,
@@ -96,6 +101,11 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
     )
     conflicting = existing.model_copy(update={"aggregate_id": "run-a"})
 
+    with pytest.raises(Conflict, match="run_state_conflict"):
+        adapter.transition_run(
+            transition.model_copy(update={"expected_state": RunState.WAITING_INPUTS}),
+            _event("invalid-transition"),
+        )
     with pytest.raises(Conflict, match="outbox_event_conflict"):
         adapter.transition_run(transition, conflicting)
 
@@ -192,7 +202,13 @@ def test_incrementa_fence_apos_expiracao(adapter, clock) -> None:
     assert (first.fencing_token, second.fencing_token) == (1, 2)
 
 
-def test_converte_esgotamento_do_busy_timeout_em_erro_local(adapter, database_path, clock) -> None:
+def test_configura_busy_timeout_de_cinco_segundos(adapter) -> None:
+    with adapter.read_connection() as connection:
+        assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)
+
+
+def test_converte_busy_em_erro_local(adapter, database_path, clock, monkeypatch) -> None:
+    monkeypatch.setattr(sqlite_adapter, "_BUSY_TIMEOUT_MS", 1)
     blocker = sqlite3.connect(database_path, isolation_level=None)
     blocker.execute("BEGIN IMMEDIATE")
     tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
@@ -202,6 +218,55 @@ def test_converte_esgotamento_do_busy_timeout_em_erro_local(adapter, database_pa
     finally:
         blocker.rollback()
         blocker.close()
+
+
+def test_traduz_falha_de_conexao_em_erro_local(tmp_path, clock, monkeypatch) -> None:
+    broken = SQLiteControlPlane(tmp_path / "broken.sqlite3", clock.now)
+
+    def fail_connect():
+        raise sqlite3.OperationalError("disk_unavailable")
+
+    monkeypatch.setattr(broken, "_connect", fail_connect)
+    with pytest.raises(_SQLiteFilesystemError, match="sqlite_filesystem"):
+        broken.initialize()
+    with pytest.raises(_SQLiteFilesystemError, match="sqlite_filesystem"):
+        broken.get_tenant("354130")
+
+
+def test_propaga_erro_operacional_que_nao_e_contencao(tmp_path, clock) -> None:
+    uninitialized = SQLiteControlPlane(tmp_path / "empty.sqlite3", clock.now)
+    tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
+
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        uninitialized.put_tenant(tenant)
+
+
+def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, clock) -> None:
+    _prepare_job(adapter)
+    renew = RenewJobLease(
+        tenant_id="354130",
+        job_id="job-a",
+        owner="worker-a",
+        fencing_token=0,
+        now=clock.now(),
+        lease_seconds=30,
+    )
+    with pytest.raises(LeaseLost, match="job_not_leased"):
+        adapter.renew_job_lease(renew)
+    with pytest.raises(Conflict, match="job_missing"):
+        adapter.cancel_job(
+            CancelJob(tenant_id="354130", job_id="missing", requested_by="user-a"),
+            _event("cancel-missing"),
+        )
+    adapter.put_run(_run("run-a", RunState.WAITING_INPUTS))
+    command = PutRunUnits(
+        tenant_id="354130",
+        run_id="run-a",
+        expected_run_state=RunState.PROCESSING,
+        units=(_unit("unit-a"),),
+    )
+    with pytest.raises(Conflict, match="run_state_conflict"):
+        adapter.put_run_units(command)
 
 
 def test_reabertura_preserva_registros_leases_pointer_idempotencia_e_outbox(
@@ -308,6 +373,79 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
     assert adapter.get_run("354130", "run-a").missing_sources == ("CNES/ST",)
 
 
+def test_rejeita_bind_de_dispatch_ausente_ou_terminal(adapter, clock) -> None:
+    adapter.put_run(_run("run-a"))
+    _put_units(adapter, (_unit("unit-a"),))
+    dispatch = adapter.reserve_run_dispatch(
+        ReserveRunDispatch(
+            tenant_id="354130",
+            run_id="run-a",
+            wave_id="a" * 16,
+            unit_ids=("unit-a",),
+            now=clock.now(),
+            lease_seconds=60,
+        )
+    )
+    bind = BindRunDispatch(
+        tenant_id="354130",
+        run_id="run-a",
+        dispatch_id="b" * 16,
+        execution_ref="exec-a",
+        now=clock.now(),
+        lease_seconds=30,
+    )
+    with pytest.raises(Conflict, match="dispatch_stale"):
+        adapter.bind_run_dispatch(bind)
+    adapter.finish_run_dispatch(
+        FinishRunDispatch(
+            tenant_id="354130",
+            run_id="run-a",
+            dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.FAILED,
+            finished_at=clock.now(),
+        )
+    )
+    with pytest.raises(Conflict, match="dispatch_terminal"):
+        adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
+
+
+def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
+    adapter.put_run(_run("run-a"))
+    _put_units(adapter, (_unit("unit-a"),))
+    dispatch = adapter.reserve_run_dispatch(
+        ReserveRunDispatch(
+            tenant_id="354130",
+            run_id="run-a",
+            wave_id="a" * 16,
+            unit_ids=("unit-a",),
+            now=clock.now(),
+            lease_seconds=60,
+        )
+    )
+    pending = _commit_command(dispatch.dispatch_id, "worker-a", 0)
+    with pytest.raises(LeaseLost, match="unit_not_leased"):
+        adapter.commit_run_unit(pending, _event("pending-commit"))
+    claimed = adapter.claim_run_unit(
+        _claim_unit_command(dispatch.dispatch_id, "worker-a", clock, "unit-a")
+    )
+    assert claimed is not None
+    clock.advance(timedelta(seconds=31))
+    expired = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    with pytest.raises(LeaseLost, match="lease_expired"):
+        adapter.commit_run_unit(expired, _event("expired-commit"))
+
+
+def test_rejeita_replay_de_versao_quando_pointer_ja_avancou(adapter) -> None:
+    adapter.put_run(_run("run-a", RunState.PUBLISHING))
+    first = _publish("run-a", "published-a", None, False)
+    adapter.publish_dataset(first)
+    adapter.put_run(_run("run-b", RunState.PUBLISHING))
+    adapter.publish_dataset(_publish("run-b", "published-b", "run-a", False))
+
+    with pytest.raises(Conflict, match="pointer_cas"):
+        adapter.publish_dataset(first)
+
+
 def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     adapter.put_agent(_agent("agent-order"))
     for job_id in ("job-b", "job-a"):
@@ -340,3 +478,21 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     assert pending[0] == min(adapter.pending_outbox(100), key=lambda event: (
         event.created_at, event.event_id
     ))
+
+
+def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> None:
+    runs = (
+        _run("run-a").model_copy(update={"tenant_id": "b"}),
+        _run("run-z").model_copy(update={"tenant_id": "a"}),
+        _run("run-shared").model_copy(update={"tenant_id": "b"}),
+        _run("run-shared").model_copy(update={"tenant_id": "a"}),
+    )
+    for run in runs:
+        adapter.put_run(run)
+
+    recoverable = adapter.list_recoverable_runs(clock.now(), 2)
+
+    assert tuple((run.tenant_id, run.run_id) for run in recoverable) == (
+        ("a", "run-shared"),
+        ("a", "run-z"),
+    )
