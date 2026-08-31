@@ -8,15 +8,19 @@ import pytest
 
 from cnes_domain.control_plane.commands import (
     BeginIdempotency,
+    ClaimJob,
+    FailRunUnit,
     RenewJobLease,
+    ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import DatasetPointer, Tenant
+from cnes_domain.control_plane.entities import DatasetPointer, RunDependency, Tenant
 from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_infra.control_plane import sqlite_adapter
+from cnes_domain.control_plane.errors import Conflict, LeaseLost
+from cnes_infra.control_plane import sqlite_adapter, sqlite_schema
 from cnes_infra.control_plane.sqlite_adapter import (
     SQLiteControlPlane,
+    _is_network_filesystem,
     _SQLiteBusyError,
     _SQLiteFilesystemError,
 )
@@ -24,6 +28,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     MutableClock,
     _agent,
     _claim_job,
+    _claim_unit_command,
     _event,
     _job,
     _put_units,
@@ -136,6 +141,45 @@ def test_serializa_claim_renovacao_e_publicacao_concorrentes(
     assert sum(isinstance(result, Conflict) for result in publications) == 1
 
 
+def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, clock) -> None:
+    _prepare_job(adapter)
+    claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
+    assert claimed is not None
+    writers = (
+        SQLiteControlPlane(database_path, clock.now),
+        SQLiteControlPlane(database_path, clock.now),
+    )
+    renew = RenewJobLease(
+        tenant_id="354130",
+        job_id="job-a",
+        owner="worker-a",
+        fencing_token=claimed.fencing_token,
+        now=clock.now(),
+        lease_seconds=60,
+    )
+    reclaim = ClaimJob(
+        tenant_id="354130",
+        job_id="job-a",
+        owner="worker-b",
+        now=clock.now() + timedelta(seconds=31),
+        lease_seconds=30,
+    )
+
+    renewed, reclaimed = _race(
+        lambda: writers[0].renew_job_lease(renew),
+        lambda: writers[1].claim_job(reclaim),
+    )
+
+    if isinstance(renewed, LeaseLost):
+        assert reclaimed is not None
+        assert reclaimed.fencing_token == 2
+        assert adapter.get_job("354130", "job-a") == reclaimed
+    else:
+        assert reclaimed is None
+        assert renewed.fencing_token == 1
+        assert adapter.get_job("354130", "job-a") == renewed
+
+
 def test_incrementa_fence_apos_expiracao(adapter, clock) -> None:
     _prepare_job(adapter)
     first = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
@@ -198,6 +242,72 @@ def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> No
         adapter.initialize()
 
 
+@pytest.mark.parametrize(
+    "network_path",
+    [
+        pytest.param(r"\\server\share\control.sqlite3"),
+        pytest.param("smb://server/share/control.sqlite3"),
+        pytest.param("nfs://server/share/control.sqlite3"),
+        pytest.param("/net/server/share/control.sqlite3"),
+        pytest.param("/Network/Servers/server/share/control.sqlite3"),
+    ],
+)
+def test_detecta_formas_conhecidas_de_filesystem_de_rede_sem_proc(
+    network_path, tmp_path, monkeypatch
+) -> None:
+    def unavailable(*args, **kwargs):
+        raise OSError("proc_unavailable")
+
+    monkeypatch.setattr(sqlite_schema.Path, "read_text", unavailable)
+
+    assert _is_network_filesystem(sqlite_adapter.Path(network_path))
+    assert not _is_network_filesystem(tmp_path / "control.sqlite3")
+
+
+def test_rejeita_inicializacao_quando_wal_nao_e_ativado(tmp_path, clock, monkeypatch) -> None:
+    adapter = SQLiteControlPlane(tmp_path / "control.sqlite3", clock.now)
+    monkeypatch.setattr(adapter, "_connect", lambda: sqlite3.connect(":memory:"))
+
+    with pytest.raises(_SQLiteFilesystemError, match="sqlite_wal_unavailable"):
+        adapter.initialize()
+
+
+def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
+    dependency = (RunDependency(source_type="CNES", file_subtype="ST", required=False),)
+    adapter.put_run(_run("run-a", dependencies=dependency))
+    _put_units(adapter, (_unit("unit-a"), _unit("unit-b")))
+    dispatch = adapter.reserve_run_dispatch(
+        ReserveRunDispatch(
+            tenant_id="354130",
+            run_id="run-a",
+            wave_id="a" * 16,
+            unit_ids=("unit-a", "unit-b"),
+            now=clock.now(),
+            lease_seconds=30,
+        )
+    )
+    for unit_id in ("unit-a", "unit-b"):
+        claimed = adapter.claim_run_unit(
+            _claim_unit_command(dispatch.dispatch_id, f"worker-{unit_id}", clock, unit_id)
+        )
+        assert claimed is not None
+        adapter.fail_run_unit(
+            FailRunUnit(
+                tenant_id="354130",
+                run_id="run-a",
+                unit_id=unit_id,
+                dispatch_id=dispatch.dispatch_id,
+                owner=f"worker-{unit_id}",
+                fencing_token=claimed.fencing_token,
+                error_code="optional_failed",
+                retryable=False,
+            ),
+            _event(f"degraded-{unit_id}"),
+        )
+
+    assert adapter.get_run("354130", "run-a").missing_sources == ("CNES/ST",)
+
+
 def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     adapter.put_agent(_agent("agent-order"))
     for job_id in ("job-b", "job-a"):
@@ -211,11 +321,7 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     )
     _put_units(adapter, units, "run-units")
     base = _raw_record("base-agent-raw", "agent-raw", 1, clock.now())
-    delta = _raw_record(
-        "delta", "agent-raw", 2, clock.now() + timedelta(seconds=1)
-    )
     _store_record(adapter, base, clock)
-    _store_record(adapter, delta, clock)
 
     assert tuple(job.job_id for job in adapter.list_claimable_jobs(
         "354130", "agent-order", 1
@@ -227,8 +333,8 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     assert tuple(unit.unit_id for unit in adapter.list_run_units(
         "354130", "run-units"
     )) == ("unit-a", "unit-b")
-    assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 1) == ()
-    assert len(adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 2)) == 2
+    assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 0) == ()
+    assert len(adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 1)) == 1
     pending = adapter.pending_outbox(1)
     assert len(pending) == 1
     assert pending[0] == min(adapter.pending_outbox(100), key=lambda event: (

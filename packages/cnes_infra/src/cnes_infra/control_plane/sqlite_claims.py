@@ -90,10 +90,30 @@ def renew_job_lease(store: Any, command: RenewJobLease) -> Job:
         return renewed
 
 
+def _validate_manifest_identity(job: Job, manifest: Any) -> None:
+    expected = (
+        job.agent_id,
+        job.source_type,
+        job.file_subtype,
+        job.competencia,
+        job.requested_snapshot_mode,
+    )
+    actual = (
+        manifest.agent_id,
+        manifest.source_type,
+        manifest.file_subtype,
+        manifest.competencia,
+        manifest.snapshot_mode,
+    )
+    if actual != expected:
+        raise Conflict("manifest_identity_mismatch")
+
+
 def complete_job(store: Any, command: CompleteJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
         job = _validate_job_fence(store, connection, command)
         manifest = command.manifest
+        _validate_manifest_identity(job, manifest)
         completed = job.model_copy(
             update={
                 "state": JobState.SUCCEEDED,
@@ -400,7 +420,8 @@ def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUn
         _put_run_unit(connection, failed)
         if state is RunUnitState.SUCCEEDED_DEGRADED:
             source = f"{unit.source_type}/{unit.file_subtype}"
-            updated = run.model_copy(update={"missing_sources": (*run.missing_sources, source)})
+            missing_sources = tuple(dict.fromkeys((*run.missing_sources, source)))
+            updated = run.model_copy(update={"missing_sources": missing_sources})
             store.put_run_record(connection, updated)
         store.put_outbox_event(connection, event)
         return failed

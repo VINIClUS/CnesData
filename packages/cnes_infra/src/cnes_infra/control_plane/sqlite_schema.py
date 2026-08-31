@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -10,7 +11,6 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     import sqlite3
     from collections.abc import Callable
-    from pathlib import Path
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tenants (
@@ -133,6 +133,13 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 );
 """
 
+_NETWORK_FILESYSTEMS = {"9p", "afs", "cifs", "fuse.sshfs", "nfs", "nfs4", "smbfs"}
+_NETWORK_PATH_PREFIXES = ("//", "smb:/", "nfs:/", "afp:/", "/net/", "/Network/Servers/")
+
+
+class _SQLiteWALUnavailable(RuntimeError):
+    pass
+
 def serialize_model(model: BaseModel) -> str:
     return json.dumps(model.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
 
@@ -141,11 +148,30 @@ def deserialize_model[Model: BaseModel](payload: str, model: type[Model]) -> Mod
     return model.model_validate_json(payload)
 
 
+def is_network_filesystem(path: Path) -> bool:
+    raw_path = str(path).replace("\\", "/")
+    if raw_path.startswith(_NETWORK_PATH_PREFIXES):
+        return True
+    try:
+        mounts = Path("/proc/self/mounts").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    resolved = path.parent.resolve()
+    matches = []
+    for line in mounts:
+        fields = line.split()
+        if len(fields) >= 3 and resolved.is_relative_to(Path(fields[1])):
+            matches.append((len(fields[1]), fields[2]))
+    return bool(matches and max(matches)[1] in _NETWORK_FILESYSTEMS)
+
+
 def initialize_schema(connect: Callable[[], sqlite3.Connection], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = connect()
     try:
-        connection.execute("PRAGMA journal_mode=WAL")
+        result = connection.execute("PRAGMA journal_mode=WAL").fetchone()
+        if result is None or str(result[0]).lower() != "wal":
+            raise _SQLiteWALUnavailable("sqlite_wal_unavailable")
         connection.executescript(_SCHEMA)
         connection.commit()
     finally:

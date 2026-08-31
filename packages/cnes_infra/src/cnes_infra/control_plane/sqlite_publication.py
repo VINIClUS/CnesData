@@ -24,6 +24,38 @@ if TYPE_CHECKING:
     from cnes_domain.control_plane.commands import PublishDataset, TransitionRun
     from cnes_domain.control_plane.entities import OutboxEvent, Run
 
+LATEST_JOB_FIELDS = (
+    "tenant_id",
+    "agent_id",
+    "source_type",
+    "file_subtype",
+    "competencia",
+)
+DEPENDENCY_FIELDS = ("tenant_id", "source_type", "file_subtype", "competencia", "limit")
+
+
+def normalize_long_call(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    fields: tuple[str, ...],
+    default_limit: int | None = None,
+) -> tuple[Any, ...]:
+    if len(args) > len(fields):
+        raise TypeError(f"too_many_arguments={len(args)}")
+    values = dict(zip(fields, args, strict=False))
+    for name, value in kwargs.items():
+        if name not in fields:
+            raise TypeError(f"unexpected_argument={name}")
+        if name in values:
+            raise TypeError(f"duplicate_argument={name}")
+        values[name] = value
+    if default_limit is not None and "limit" not in values:
+        values["limit"] = default_limit
+    missing = tuple(name for name in fields if name not in values)
+    if missing:
+        raise TypeError(f"missing_arguments={','.join(missing)}")
+    return tuple(values[name] for name in fields)
+
 
 def latest_succeeded_job(store: Any, values: tuple[str, ...]) -> Job | None:
     tenant_id, agent_id, source_type, file_subtype, competencia = values

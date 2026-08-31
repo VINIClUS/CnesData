@@ -22,8 +22,10 @@ from cnes_domain.control_plane.enums import AgentState, JobState
 from cnes_domain.control_plane.errors import Conflict, NotFound
 from cnes_infra.control_plane import sqlite_claims, sqlite_idempotency, sqlite_publication
 from cnes_infra.control_plane.sqlite_schema import (
+    _SQLiteWALUnavailable,
     deserialize_model,
     initialize_schema,
+    is_network_filesystem,
     serialize_model,
 )
 
@@ -60,7 +62,6 @@ if TYPE_CHECKING:
     )
 
 _BUSY_TIMEOUT_MS = 100
-_NETWORK_FILESYSTEMS = {"9p", "afs", "cifs", "fuse.sshfs", "nfs", "nfs4", "smbfs"}
 class _SQLiteBusyError(RuntimeError):
     pass
 
@@ -90,17 +91,7 @@ def _fetch_all[Model: BaseModel](
 
 
 def _is_network_filesystem(path: Path) -> bool:
-    try:
-        mounts = Path("/proc/self/mounts").read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return False
-    resolved = path.parent.resolve()
-    matches = []
-    for line in mounts:
-        fields = line.split()
-        if len(fields) >= 3 and resolved.is_relative_to(Path(fields[1])):
-            matches.append((len(fields[1]), fields[2]))
-    return bool(matches and max(matches)[1] in _NETWORK_FILESYSTEMS)
+    return is_network_filesystem(path)
 
 
 class SQLiteControlPlane:
@@ -128,6 +119,8 @@ class SQLiteControlPlane:
             raise _SQLiteFilesystemError("sqlite_network_filesystem")
         try:
             initialize_schema(self._connect, self._database_path)
+        except _SQLiteWALUnavailable as error:
+            raise _SQLiteFilesystemError("sqlite_wal_unavailable") from error
         except (OSError, sqlite3.Error) as error:
             raise _SQLiteFilesystemError("sqlite_filesystem") from error
 
@@ -363,11 +356,17 @@ class SQLiteControlPlane:
                 (delivered_at.isoformat(), serialize_model(delivered), event_id),
             )
 
-    def latest_succeeded_job(self, *args: str) -> Job | None:
-        return sqlite_publication.latest_succeeded_job(self, args)
+    def latest_succeeded_job(self, *args: str, **kwargs: str) -> Job | None:
+        values = sqlite_publication.normalize_long_call(
+            args, kwargs, sqlite_publication.LATEST_JOB_FIELDS
+        )
+        return sqlite_publication.latest_succeeded_job(self, values)
 
-    def list_raw_manifest_chain(self, *args: Any) -> tuple[ManifestRef, ...]:
-        return sqlite_publication.list_raw_manifest_chain(self, args)
+    def list_raw_manifest_chain(self, *args: Any, **kwargs: Any) -> tuple[ManifestRef, ...]:
+        values = sqlite_publication.normalize_long_call(
+            args, kwargs, sqlite_publication.DEPENDENCY_FIELDS, 31
+        )
+        return sqlite_publication.list_raw_manifest_chain(self, values)
 
     def cancel_job(self, command: CancelJob, event: OutboxEvent) -> Job:
         return sqlite_claims.cancel_job(self, command, event)
@@ -422,8 +421,11 @@ class SQLiteControlPlane:
     def get_run(self, tenant_id: str, run_id: str) -> Run | None:
         return sqlite_publication.get_run(self, tenant_id, run_id)
 
-    def list_waiting_runs_for_dependency(self, *args: Any) -> tuple[Run, ...]:
-        return sqlite_publication.list_waiting_runs(self, args)
+    def list_waiting_runs_for_dependency(self, *args: Any, **kwargs: Any) -> tuple[Run, ...]:
+        values = sqlite_publication.normalize_long_call(
+            args, kwargs, sqlite_publication.DEPENDENCY_FIELDS, 100
+        )
+        return sqlite_publication.list_waiting_runs(self, values)
 
     def list_recoverable_runs(self, now: datetime, limit: int = 100) -> tuple[Run, ...]:
         return sqlite_publication.list_recoverable_runs(self, now, limit)
