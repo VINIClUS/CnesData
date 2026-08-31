@@ -1,12 +1,13 @@
 """DynamoDB item codec and transaction construction."""
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
 
 from cnes_domain.control_plane.errors import Conflict
+from cnes_infra.control_plane.dynamodb_keys import item_key
 
 type Item = dict[str, dict[str, Any]]
 type Action = dict[str, dict[str, Any]]
@@ -62,14 +63,93 @@ def payload(item: Item) -> str:
 def query_all(client: Any, request: dict[str, Any]) -> tuple[Item, ...]:
     """Percorre todas as páginas de uma Query."""
     items: list[Item] = []
+    for page in query_pages(client, request):
+        items.extend(page)
+    return tuple(items)
+
+
+def query_pages(client: Any, request: dict[str, Any]) -> Iterator[tuple[Item, ...]]:
+    """Percorre páginas de uma Query sob demanda."""
     page_request = dict(request)
     while True:
         response = client.query(**page_request)
-        items.extend(response.get("Items", ()))
+        yield tuple(response.get("Items", ()))
         last_key = response.get("LastEvaluatedKey")
         if not last_key:
-            return tuple(items)
+            return
         page_request["ExclusiveStartKey"] = last_key
+
+
+def strong_candidates[T: BaseModel](
+    client: Any, table_name: str, candidates: tuple[Item, ...], model_type: type[T]
+) -> tuple[T, ...]:
+    """Relê candidatos únicos na tabela base."""
+    keys = {
+        (item.get("base_pk", item["pk"])["S"], item.get("base_sk", item["sk"])["S"])
+        for item in candidates
+    }
+    models = []
+    for key in sorted(keys):
+        response = client.get_item(
+            TableName=table_name, Key=item_key(*key), ConsistentRead=True
+        )
+        item = response.get("Item")
+        if item is not None and item.get("entity", {}).get("S") == model_type.__name__.upper():
+            models.append(decode_model(item, model_type))
+    return tuple(models)
+
+
+def bounded_candidates[T: BaseModel](
+    client: Any,
+    request: dict[str, Any],
+    *args: Any,
+) -> tuple[T, ...]:
+    """Relê candidatos válidos até preencher o limite solicitado."""
+    model_type, predicate, limit = args
+    if limit <= 0:
+        return ()
+    page_request = dict(request)
+    index = request["IndexName"]
+    seen = set()
+    base_items = {}
+    models = []
+    while True:
+        page_request["Limit"] = limit - len(models)
+        response = client.query(**page_request)
+        for candidate in response.get("Items", ()):
+            key = (candidate.get("base_pk", candidate["pk"])["S"],
+                   candidate.get("base_sk", candidate["sk"])["S"])
+            signature = (*key, candidate[f"{index}pk"]["S"], candidate[f"{index}sk"]["S"])
+            if signature in seen:
+                continue
+            seen.add(signature)
+            if key not in base_items:
+                base_items[key] = client.get_item(
+                    TableName=request["TableName"], Key=item_key(*key), ConsistentRead=True
+                ).get("Item")
+            item = base_items[key]
+            if not _candidate_matches(item, candidate, index, model_type):
+                continue
+            model = decode_model(item, model_type)
+            if predicate(model):
+                models.append(model)
+                if len(models) == limit:
+                    return tuple(models)
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key:
+            return tuple(models)
+        page_request["ExclusiveStartKey"] = last_key
+
+
+def _candidate_matches(
+    item: Item | None, candidate: Item, index: str, model_type: type[BaseModel]
+) -> bool:
+    if item is None or item.get("entity", {}).get("S") != model_type.__name__.upper():
+        return False
+    names = (f"{index}pk", f"{index}sk")
+    return not all(name in item for name in names) or all(
+        item[name] == candidate.get(name) for name in names
+    )
 
 
 def query_partition(client: Any, table_name: str, partition: str, prefix: str) -> tuple[Item, ...]:

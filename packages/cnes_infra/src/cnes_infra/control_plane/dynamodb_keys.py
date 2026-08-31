@@ -3,9 +3,14 @@
 from datetime import datetime
 
 
+def key_component(value: str) -> str:
+    """Codifica componente preservando ordem e removendo ambiguidade."""
+    return value.encode().hex()
+
+
 def tenant_partition(tenant_id: str) -> str:
     """Cria a partição base do tenant."""
-    return f"TENANT#{tenant_id}"
+    return f"TENANT#{key_component(tenant_id)}"
 
 
 def global_partition() -> str:
@@ -15,12 +20,12 @@ def global_partition() -> str:
 
 def run_partition(tenant_id: str, run_id: str) -> str:
     """Cria a partição agregada do run."""
-    return f"{tenant_partition(tenant_id)}#RUN#{run_id}"
+    return f"{tenant_partition(tenant_id)}#RUN#{key_component(run_id)}"
 
 
 def entity_key(tenant_id: str, entity: str, identifier: str) -> tuple[str, str]:
     """Cria a chave base de uma entidade do tenant."""
-    return tenant_partition(tenant_id), f"{entity}#{identifier}"
+    return tenant_partition(tenant_id), f"{entity}#{key_component(identifier)}"
 
 
 def run_entity_key(tenant_id: str, run_id: str) -> tuple[str, str]:
@@ -30,7 +35,7 @@ def run_entity_key(tenant_id: str, run_id: str) -> tuple[str, str]:
 
 def unit_key(tenant_id: str, run_id: str, unit_id: str) -> tuple[str, str]:
     """Cria a chave base de uma unidade."""
-    return run_partition(tenant_id, run_id), f"UNIT#{unit_id}"
+    return run_partition(tenant_id, run_id), f"UNIT#{key_component(unit_id)}"
 
 
 def dispatch_key(tenant_id: str, run_id: str) -> tuple[str, str]:
@@ -40,27 +45,35 @@ def dispatch_key(tenant_id: str, run_id: str) -> tuple[str, str]:
 
 def idempotency_key(tenant_id: str, scope: str, key: str) -> tuple[str, str]:
     """Cria a chave base de idempotência."""
-    return tenant_partition(tenant_id), f"IDEMPOTENCY#{scope}#{key}"
+    return tenant_partition(tenant_id), (
+        f"IDEMPOTENCY#{key_component(scope)}#{key_component(key)}"
+    )
 
 
 def version_key(tenant_id: str, dataset_name: str, version_id: str) -> tuple[str, str]:
     """Cria a chave base de uma versão."""
-    return tenant_partition(tenant_id), f"VERSION#{dataset_name}#{version_id}"
+    return tenant_partition(tenant_id), (
+        f"VERSION#{key_component(dataset_name)}#{key_component(version_id)}"
+    )
 
 
 def pointer_key(tenant_id: str, dataset_name: str, pointer_name: str) -> tuple[str, str]:
     """Cria a chave base de um ponteiro."""
-    return tenant_partition(tenant_id), f"POINTER#{dataset_name}#{pointer_name}"
+    return tenant_partition(tenant_id), (
+        f"POINTER#{key_component(dataset_name)}#{key_component(pointer_name)}"
+    )
 
 
 def outbox_key(event_id: str) -> tuple[str, str]:
     """Cria a chave global de um evento."""
-    return global_partition(), f"OUTBOX#{event_id}"
+    return global_partition(), f"OUTBOX#{key_component(event_id)}"
 
 
 def dependency_marker_key(tenant_id: str, run_id: str, dependency_key: str) -> tuple[str, str]:
     """Cria a chave de um marcador de dependência."""
-    return tenant_partition(tenant_id), f"RUN_DEP#{run_id}#{dependency_key}"
+    return tenant_partition(tenant_id), (
+        f"RUN_DEP#{key_component(run_id)}#{key_component(dependency_key)}"
+    )
 
 
 def timestamp(value: datetime) -> str:

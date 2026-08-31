@@ -20,7 +20,6 @@ from cnes_domain.control_plane.entities import (
 )
 from cnes_domain.control_plane.enums import AgentState, JobState, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, NotFound
-from cnes_domain.control_plane.ids import run_dependency_key
 from cnes_domain.control_plane.transitions import (
     transition_job,
     transition_run,
@@ -30,6 +29,7 @@ from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
     Item,
+    bounded_candidates,
     check_action,
     decode_model,
     encode_marker,
@@ -39,11 +39,13 @@ from cnes_infra.control_plane.dynamodb_codec import (
     put_action,
     query_all,
     query_partition,
+    strong_candidates,
 )
 from cnes_infra.control_plane.dynamodb_keys import (
     dependency_marker_key,
     entity_key,
     item_key,
+    key_component,
     run_entity_key,
     run_partition,
     timestamp,
@@ -95,33 +97,21 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         item = self._get_item(key)
         return decode_model(item, model_type) if item is not None else None
 
-    def _query(self, index_name: str, partition: str) -> tuple[Item, ...]:
-        return query_all(
-            self._client,
-            {
-                "TableName": self._table_name,
-                "IndexName": index_name,
-                "KeyConditionExpression": f"{index_name}pk = :partition",
-                "ExpressionAttributeValues": {":partition": {"S": partition}},
-            },
-        )
+    def _query(self, index_name: str, partition: str, *args: Any) -> Any:
+        request = {
+            "TableName": self._table_name,
+            "IndexName": index_name,
+            "KeyConditionExpression": f"{index_name}pk = :partition",
+            "ExpressionAttributeValues": {":partition": {"S": partition}},
+        }
+        if args:
+            return bounded_candidates(self._client, request, *args)
+        return query_all(self._client, request)
 
     def _strong_candidates[T: BaseModel](
         self, candidates: tuple[Item, ...], model_type: type[T]
     ) -> tuple[T, ...]:
-        keys = {
-            (
-                item.get("base_pk", item["pk"])["S"],
-                item.get("base_sk", item["sk"])["S"],
-            )
-            for item in candidates
-        }
-        models = []
-        for key in sorted(keys):
-            item = self._get_item(key)
-            if item is not None and item.get("entity", {}).get("S") == model_type.__name__.upper():
-                models.append(decode_model(item, model_type))
-        return tuple(models)
+        return strong_candidates(self._client, self._table_name, candidates, model_type)
 
     def _transact(self, actions: tuple[Action, ...]) -> None:
         execute_transaction(self._client, actions)
@@ -130,30 +120,34 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         self._client.put_item(TableName=self._table_name, Item=item)
 
     def _job_item(self, job: Job) -> Item:
-        identity = f"RAW#{job.tenant_id}#{job.source_type}#{job.file_subtype}#{job.competencia}"
+        values = (job.tenant_id, job.source_type, job.file_subtype, job.competencia)
+        identity = "RAW#" + "#".join(key_component(value) for value in values)
         attributes = {
             "gsi2pk": identity,
-            "gsi2sk": f"JOB#{timestamp(job.created_at)}#{job.agent_id}#{job.job_id}",
+            "gsi2sk": (
+                f"JOB#{timestamp(job.created_at)}#{key_component(job.agent_id)}#"
+                f"{key_component(job.job_id)}"
+            ),
         }
         if job.state in {JobState.PENDING, JobState.LEASED, JobState.FAILED_RETRYABLE}:
-            available = job.lease_until or job.created_at
             attributes |= {
-                "gsi1pk": f"JOB_CLAIM#{job.tenant_id}#{job.agent_id}",
-                "gsi1sk": f"{timestamp(available)}#{job.state.value}#{job.job_id}",
+                "gsi1pk": (
+                    f"JOB_CLAIM#{key_component(job.tenant_id)}#"
+                    f"{key_component(job.agent_id)}"
+                ),
+                "gsi1sk": f"{timestamp(job.created_at)}#{key_component(job.job_id)}",
             }
         key = entity_key(job.tenant_id, "JOB", job.job_id)
         return encode_model(job, "JOB", key, attributes)
 
     def _raw_item(self, record: RawManifestRecord) -> Item:
-        identity = (
-            f"RAW#{record.tenant_id}#{record.source_type}#"
-            f"{record.file_subtype}#{record.competencia}"
-        )
+        values = (record.tenant_id, record.source_type, record.file_subtype, record.competencia)
+        identity = "RAW#" + "#".join(key_component(value) for value in values)
         attributes = {
             "gsi2pk": identity,
             "gsi2sk": (
                 f"RAW#{record.sequence:020d}#{timestamp(record.created_at)}#"
-                f"{record.agent_id}#{record.snapshot_id}"
+                f"{key_component(record.agent_id)}#{key_component(record.snapshot_id)}"
             ),
         }
         key = entity_key(record.tenant_id, "RAW", record.manifest_id)
@@ -164,14 +158,19 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if run.state in _RECOVERABLE:
             attributes = {
                 "gsi4pk": "RUN_RECOVERABLE",
-                "gsi4sk": f"{timestamp(run.created_at)}#{run.tenant_id}#{run.run_id}",
+                "gsi4sk": (
+                    f"{timestamp(run.created_at)}#{key_component(run.tenant_id)}#"
+                    f"{key_component(run.run_id)}"
+                ),
             }
         return encode_model(run, "RUN", run_entity_key(run.tenant_id, run.run_id), attributes)
 
     def _unit_item(self, unit: RunUnit) -> Item:
         attributes = {
-            "gsi5pk": f"RUN_ITEMS#{unit.tenant_id}#{unit.run_id}",
-            "gsi5sk": f"UNIT#{unit.unit_id}",
+            "gsi5pk": (
+                f"RUN_ITEMS#{key_component(unit.tenant_id)}#{key_component(unit.run_id)}"
+            ),
+            "gsi5sk": f"UNIT#{key_component(unit.unit_id)}",
         }
         return encode_model(
             unit,
@@ -230,8 +229,8 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
 
     def latest_succeeded_job(self, *args: str) -> Job | None:
         """Retorna o job concluído mais recente da identidade."""
-        tenant_id, agent_id, source_type, file_subtype, competencia = args
-        partition = f"RAW#{tenant_id}#{source_type}#{file_subtype}#{competencia}"
+        agent_id = args[1]
+        partition = "RAW#" + "#".join(key_component(value) for value in args[:1] + args[2:])
         candidates = self._strong_candidates(self._query("gsi2", partition), Job)
         matches = (
             job
@@ -244,7 +243,8 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         """Retorna a cadeia válida de manifestos raw."""
         tenant_id, source_type, file_subtype, competencia, *rest = args
         limit = rest[0] if rest else 31
-        partition = f"RAW#{tenant_id}#{source_type}#{file_subtype}#{competencia}"
+        values = (tenant_id, source_type, file_subtype, competencia)
+        partition = "RAW#" + "#".join(key_component(value) for value in values)
         records = list(self._strong_candidates(self._query("gsi2", partition), RawManifestRecord))
         candidates = sorted(
             records,
@@ -290,9 +290,10 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         agent = self.get_agent(tenant_id, agent_id)
         if agent is None or agent.state is not AgentState.ACTIVE:
             return ()
-        partition = f"JOB_CLAIM#{tenant_id}#{agent_id}"
-        jobs = self._strong_candidates(self._query("gsi1", partition), Job)
-        eligible = [job for job in jobs if self._job_is_claimable(job, self._clock())]
+        partition = f"JOB_CLAIM#{key_component(tenant_id)}#{key_component(agent_id)}"
+        eligible = self._query(
+            "gsi1", partition, Job, lambda job: self._job_is_claimable(job, self._clock()), limit
+        )
         return tuple(sorted(eligible, key=lambda job: (job.created_at, job.job_id))[:limit])
 
     @staticmethod
@@ -310,13 +311,13 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             return
         base_key = run_entity_key(run.tenant_id, run.run_id)
         for dependency in run.dependencies:
-            identity = run_dependency_key(
-                run.tenant_id, dependency.source_type, dependency.file_subtype, run.competencia
-            )
+            values = (run.tenant_id, dependency.source_type,
+                      dependency.file_subtype, run.competencia)
+            identity = "RUN_DEP#" + "#".join(key_component(value) for value in values)
             marker_key = dependency_marker_key(run.tenant_id, run.run_id, identity)
             attributes = {
                 "gsi3pk": identity,
-                "gsi3sk": f"{timestamp(run.created_at)}#{run.run_id}",
+                "gsi3sk": f"{timestamp(run.created_at)}#{key_component(run.run_id)}",
             }
             self._put_direct(encode_marker("RUN_DEP", marker_key, base_key, attributes))
 
@@ -328,26 +329,25 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         """Lista runs aguardando uma dependência."""
         tenant_id, source_type, file_subtype, competencia, *rest = args
         limit = rest[0] if rest else 100
-        identity = run_dependency_key(tenant_id, source_type, file_subtype, competencia)
-        runs = self._strong_candidates(self._query("gsi3", identity), Run)
-        valid = [
-            run
-            for run in runs
-            if run.state is RunState.WAITING_INPUTS
-            and run.tenant_id == tenant_id
-            and run.competencia == competencia
-            and any(
-                (dep.source_type, dep.file_subtype) == (source_type, file_subtype)
-                for dep in run.dependencies
+        values = (tenant_id, source_type, file_subtype, competencia)
+        identity = "RUN_DEP#" + "#".join(key_component(value) for value in values)
+        def valid(run: Run) -> bool:
+            return (
+                run.state is RunState.WAITING_INPUTS
+                and run.tenant_id == tenant_id
+                and run.competencia == competencia
+                and any((dep.source_type, dep.file_subtype) == (source_type, file_subtype)
+                        for dep in run.dependencies)
             )
-        ]
-        return tuple(sorted(valid, key=lambda run: (run.created_at, run.run_id))[:limit])
+        runs = self._query("gsi3", identity, Run, valid, limit)
+        return tuple(sorted(runs, key=lambda run: (run.created_at, run.run_id))[:limit])
 
     def list_recoverable_runs(self, now: datetime, limit: int = 100) -> tuple[Run, ...]:
         """Lista runs recuperáveis no instante informado."""
-        runs = self._strong_candidates(self._query("gsi4", "RUN_RECOVERABLE"), Run)
-        valid = [run for run in runs if run.state in _RECOVERABLE and run.created_at <= now]
-        ordered = sorted(valid, key=lambda run: (run.created_at, run.run_id, run.tenant_id))
+        valid = self._query(
+            "gsi4", "RUN_RECOVERABLE", Run,
+            lambda run: run.state in _RECOVERABLE and run.created_at <= now, limit)
+        ordered = sorted(valid, key=lambda run: (run.created_at, run.tenant_id, run.run_id))
         return tuple(ordered[:limit])
 
     def transition_run(self, command: TransitionRun, event: OutboxEvent) -> Run:

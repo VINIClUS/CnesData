@@ -29,6 +29,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
 )
 from cnes_infra.control_plane.dynamodb_keys import (
     idempotency_key,
+    key_component,
     outbox_key,
     pointer_key,
     run_entity_key,
@@ -62,7 +63,7 @@ class DynamoDBPublication:
         if event.delivered_at is None:
             attributes = {
                 "gsi6pk": "OUTBOX#PENDING",
-                "gsi6sk": f"{timestamp(event.created_at)}#{event.event_id}",
+                "gsi6sk": f"{timestamp(event.created_at)}#{key_component(event.event_id)}",
             }
         return encode_model(event, "OUTBOXEVENT", outbox_key(event.event_id), attributes)
 

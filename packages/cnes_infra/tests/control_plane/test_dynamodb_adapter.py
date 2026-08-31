@@ -21,7 +21,13 @@ from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost,
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import execute_transaction, payload, put_action
-from cnes_infra.control_plane.dynamodb_keys import run_entity_key
+from cnes_infra.control_plane.dynamodb_keys import (
+    item_key,
+    key_component,
+    outbox_key,
+    run_entity_key,
+    unit_key,
+)
 from packages.cnes_infra.tests.contracts.clock import (
     _NOW,
     _TENANT,
@@ -43,6 +49,10 @@ from packages.cnes_infra.tests.contracts.control_plane_contract import (
 
 _TABLE_NAME = "cnesdata-control-plane"
 _INDEXES = tuple(f"gsi{number}" for number in range(1, 7))
+type _DynamoContext = tuple[DynamoDBControlPlane, MutableClock]
+@pytest.fixture
+def ctx(dynamodb_adapter: _DynamoContext) -> _DynamoContext:
+    return dynamodb_adapter
 class ClientSpy:
     def __init__(self, client: Any) -> None:
         self.client = client
@@ -160,10 +170,10 @@ def _expected_unit_action(index: int, state: RunUnitState) -> dict[str, Any]:
     item = _expected_item(
         unit,
         "RUNUNIT",
-        (f"TENANT#{_TENANT}#RUN#run-a", f"UNIT#unit-{index:03d}"),
+        unit_key(_TENANT, "run-a", f"unit-{index:03d}"),
         {
-            "gsi5pk": f"RUN_ITEMS#{_TENANT}#run-a",
-            "gsi5sk": f"UNIT#unit-{index:03d}",
+            "gsi5pk": f"RUN_ITEMS#{key_component(_TENANT)}#{key_component('run-a')}",
+            "gsi5sk": f"UNIT#{key_component(f'unit-{index:03d}')}",
         },
     )
     expected = None if state is RunUnitState.PENDING else _unit(f"unit-{index:03d}")
@@ -171,16 +181,14 @@ def _expected_unit_action(index: int, state: RunUnitState) -> dict[str, Any]:
 def _hide_unit_from_gsi(adapter: DynamoDBControlPlane, unit_id: str) -> None:
     item = adapter._client.get_item(
         TableName=_TABLE_NAME,
-        Key={"pk": {"S": f"TENANT#{_TENANT}#RUN#run-a"}, "sk": {"S": f"UNIT#{unit_id}"}},
+        Key=item_key(*unit_key(_TENANT, "run-a", unit_id)),
         ConsistentRead=True,
     )["Item"]
     item.pop("gsi5pk")
     item.pop("gsi5sk")
     adapter._client.put_item(TableName=_TABLE_NAME, Item=item)
-def test_grava_99_unidades_em_ate_100_acoes_unicas(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, _ = dynamodb_adapter
+def test_grava_99_unidades_em_ate_100_acoes_unicas(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
     adapter.put_run(_run("run-a"))
     spy = ClientSpy(adapter._client)
     adapter._client = spy
@@ -191,7 +199,7 @@ def test_grava_99_unidades_em_ate_100_acoes_unicas(
     expected_check = {
         "ConditionCheck": {
             "TableName": _TABLE_NAME,
-            "Key": {"pk": {"S": f"TENANT#{_TENANT}"}, "sk": {"S": "RUN#run-a"}},
+            "Key": item_key(*run_entity_key(_TENANT, "run-a")),
             "ConditionExpression": "payload = :expected",
             "ExpressionAttributeValues": {":expected": {"S": run.model_dump_json()}},
         }
@@ -203,19 +211,15 @@ def test_grava_99_unidades_em_ate_100_acoes_unicas(
     with pytest.raises(Conflict, match="run_units_conflict"):
         _put_many_units(adapter, 98)
     assert adapter.list_run_units(_TENANT, "run-a") == _many_units(99)
-def test_rejeita_100_unidades_antes_de_chamar_boto3(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, _ = dynamodb_adapter
+def test_rejeita_100_unidades_antes_de_chamar_boto3(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
     spy = ClientSpy(adapter._client)
     adapter._client = spy
     with pytest.raises(Conflict, match="transaction_limit"):
         _put_many_units(adapter, 100)
     assert spy.calls == []
-def test_rejeita_uniao_de_99_unidades_antes_de_transacao(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_rejeita_uniao_de_99_unidades_antes_de_transacao(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     adapter.put_run(_run("run-a"))
     units = _put_many_units(adapter, 99)
     first = ReserveRunDispatch(
@@ -244,10 +248,8 @@ def _finalize(adapter: DynamoDBControlPlane, clock: MutableClock) -> Any:
         canceled_at=clock.now(),
     )
     return adapter.finalize_run_cancellation(command, _event("run-canceled"))
-def test_cancela_98_unidades_em_100_acoes_unicas(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_cancela_98_unidades_em_100_acoes_unicas(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     _prepare_cancellation(adapter, 98)
     _hide_unit_from_gsi(adapter, "unit-097")
     spy = ClientSpy(adapter._client)
@@ -255,16 +257,17 @@ def test_cancela_98_unidades_em_100_acoes_unicas(
     assert _finalize(adapter, clock).state is RunState.CANCELED
     actions = spy.transactions[-1]
     canceled = _run("run-a", RunState.CANCELED)
-    run_item = _expected_item(canceled, "RUN", (f"TENANT#{_TENANT}", "RUN#run-a"), {})
+    run_item = _expected_item(canceled, "RUN", run_entity_key(_TENANT, "run-a"), {})
     original_payload = _run("run-a", RunState.CANCEL_REQUESTED).model_dump_json()
     event = _event("run-canceled")
     event_item = _expected_item(
         event,
         "OUTBOXEVENT",
-        ("TENANT#_GLOBAL", "OUTBOX#run-canceled"),
+        outbox_key("run-canceled"),
         {
             "gsi6pk": "OUTBOX#PENDING",
-            "gsi6sk": f"{_NOW.isoformat(timespec='microseconds')}#run-canceled",
+            "gsi6sk": f"{_NOW.isoformat(timespec='microseconds')}#"
+                       f"{key_component('run-canceled')}",
         },
     )
     assert actions == [
@@ -272,10 +275,8 @@ def test_cancela_98_unidades_em_100_acoes_unicas(
         *(_expected_unit_action(index, RunUnitState.CANCELED) for index in range(98)),
         _expected_put(event_item, None),
     ]
-def test_rejeita_cancelamento_de_99_unidades_sem_transacao(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_rejeita_cancelamento_de_99_unidades_sem_transacao(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
     _prepare_cancellation(adapter, 99)
     _hide_unit_from_gsi(adapter, "unit-098")
     spy = ClientSpy(adapter._client)
@@ -428,7 +429,7 @@ def test_dispatch_expirado_rejeita_corrida_que_aluga_unidade_omitida(
         adapter.reserve_run_dispatch(replacement)
     adapter._client.delete_item(
         TableName=_TABLE_NAME,
-        Key={"pk": {"S": f"TENANT#{_TENANT}#RUN#run-a"}, "sk": {"S": "UNIT#unit-001"}},
+        Key=item_key(*unit_key(_TENANT, "run-a", "unit-001")),
     )
     with pytest.raises(Conflict, match="dispatch_unit_missing"):
         adapter.reserve_run_dispatch(replacement)

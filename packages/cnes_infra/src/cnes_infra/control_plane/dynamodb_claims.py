@@ -28,6 +28,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
 from cnes_infra.control_plane.dynamodb_keys import (
     dispatch_key,
     entity_key,
+    key_component,
     run_entity_key,
     unit_key,
 )
@@ -52,7 +53,10 @@ class DynamoDBClaims:
 
     def _dispatch_item(self, dispatch: RunDispatch) -> Item:
         attributes = {
-            "gsi5pk": f"RUN_ITEMS#{dispatch.tenant_id}#{dispatch.run_id}",
+            "gsi5pk": (
+                f"RUN_ITEMS#{key_component(dispatch.tenant_id)}#"
+                f"{key_component(dispatch.run_id)}"
+            ),
             "gsi5sk": "DISPATCH#ACTIVE",
         }
         key = dispatch_key(dispatch.tenant_id, dispatch.run_id)
