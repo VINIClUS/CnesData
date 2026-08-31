@@ -318,16 +318,15 @@ class SQLiteControlPlane:
             return
         connection.execute(
             "INSERT INTO raw_manifests (tenant_id, manifest_id, agent_id, source_type, "
-            "file_subtype, competencia, created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "file_subtype, competencia, snapshot_id, base_snapshot_id, sequence, "
+            "previous_manifest_sha256, manifest_sha256, created_at, data) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                manifest.tenant_id,
-                manifest.manifest_id,
-                manifest.agent_id,
-                manifest.source_type,
-                manifest.file_subtype,
-                manifest.competencia,
-                manifest.created_at.isoformat(),
-                serialize_model(manifest),
+                manifest.tenant_id, manifest.manifest_id, manifest.agent_id,
+                manifest.source_type, manifest.file_subtype, manifest.competencia,
+                manifest.snapshot_id, manifest.base_snapshot_id, manifest.sequence,
+                manifest.previous_manifest_sha256, manifest.manifest_sha256,
+                manifest.created_at.isoformat(), serialize_model(manifest),
             ),
         )
 

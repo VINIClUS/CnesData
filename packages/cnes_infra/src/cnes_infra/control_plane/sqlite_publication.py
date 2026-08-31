@@ -76,8 +76,23 @@ def latest_succeeded_job(store: Any, values: tuple[str, ...]) -> Job | None:
     return None if row is None else deserialize_model(row[0], Job)
 
 
+def _predecessors(
+    connection: Any, identity: tuple[str, ...], current: RawManifestRecord, limit: int
+) -> tuple[RawManifestRecord, ...]:
+    rows = connection.execute(
+        "SELECT data FROM raw_manifests WHERE tenant_id = ? AND source_type = ? "
+        "AND file_subtype = ? AND competencia = ? AND agent_id = ? AND sequence = ? "
+        "AND manifest_sha256 = ? AND (snapshot_id = ? OR base_snapshot_id = ?) "
+        "ORDER BY created_at DESC, snapshot_id DESC LIMIT ?",
+        (*identity, current.agent_id, current.sequence - 1,
+         current.previous_manifest_sha256, current.base_snapshot_id,
+         current.base_snapshot_id, max(limit, 1)),
+    )
+    return tuple(deserialize_model(row[0], RawManifestRecord) for row in rows)
+
+
 def _build_ancestry(
-    records: tuple[RawManifestRecord, ...], current: RawManifestRecord, limit: int
+    connection: Any, identity: tuple[str, ...], current: RawManifestRecord, limit: int
 ) -> tuple[RawManifestRecord, ...] | None:
     paths = [(current, (current,))]
     while paths:
@@ -86,53 +101,41 @@ def _build_ancestry(
             return None
         if item.sequence == 1:
             return tuple(reversed(ancestry))
-        predecessors = sorted(
-            (candidate for candidate in records
-             if candidate.sequence == item.sequence - 1
-             and candidate.manifest_sha256 == item.previous_manifest_sha256),
-            key=lambda candidate: (candidate.created_at, candidate.snapshot_id),
-            reverse=True,
-        )
+        predecessors = _predecessors(connection, identity, item, limit)
         paths.extend((predecessor, (*ancestry, predecessor))
                      for predecessor in reversed(predecessors))
     return ()
 
 
 def _select_raw_chain(
-    records: tuple[RawManifestRecord, ...], limit: int,
+    connection: Any, identity: tuple[str, ...], limit: int,
 ) -> tuple[RawManifestRecord, ...]:
-    heads = sorted(
-        records,
-        key=lambda item: (item.created_at, item.agent_id, item.snapshot_id),
-        reverse=True,
-    )
-    for head in heads:
-        base = head.snapshot_id if head.sequence == 1 else head.base_snapshot_id
-        branch = tuple(
-            item
-            for item in records
-            if item.agent_id == head.agent_id
-            and base in (item.snapshot_id, item.base_snapshot_id)
-            and item.sequence <= head.sequence
-        )
-        chain = _build_ancestry(branch, head, limit)
-        if chain is None:
+    cursor = (None, None, None)
+    while True:
+        rows = connection.execute(
+            "SELECT data, created_at, agent_id, snapshot_id FROM raw_manifests "
+            "WHERE tenant_id = ? AND source_type = ? AND file_subtype = ? AND competencia = ? "
+            "AND (? IS NULL OR (created_at, agent_id, snapshot_id) < (?, ?, ?)) "
+            "ORDER BY created_at DESC, agent_id DESC, snapshot_id DESC LIMIT ?",
+            (*identity, cursor[0], *cursor, max(limit, 1)),
+        ).fetchall()
+        if not rows:
             return ()
-        if len(chain) == head.sequence:
-            return chain
-    return ()
+        for row in rows:
+            head = deserialize_model(row[0], RawManifestRecord)
+            chain = _build_ancestry(connection, identity, head, limit)
+            if chain is None:
+                return ()
+            if len(chain) == head.sequence:
+                return chain
+        cursor = tuple(rows[-1][1:])
 
 
 def list_raw_manifest_chain(store: Any, values: tuple[Any, ...]) -> tuple[ManifestRef, ...]:
     tenant_id, source_type, file_subtype, competencia, limit = values
+    identity = (tenant_id, source_type, file_subtype, competencia)
     with store.read_connection() as connection:
-        rows = connection.execute(
-            "SELECT data FROM raw_manifests WHERE tenant_id = ? AND source_type = ? "
-            "AND file_subtype = ? AND competencia = ?",
-            (tenant_id, source_type, file_subtype, competencia),
-        ).fetchall()
-    records = tuple(deserialize_model(row[0], RawManifestRecord) for row in rows)
-    selected = _select_raw_chain(records, limit)
+        selected = _select_raw_chain(connection, identity, limit)
     return tuple(
         ManifestRef(manifest_id=item.manifest_id, manifest_key=item.manifest_key)
         for item in selected

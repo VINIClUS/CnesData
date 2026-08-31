@@ -63,9 +63,24 @@ CREATE TABLE IF NOT EXISTS raw_manifests (
     source_type TEXT NOT NULL,
     file_subtype TEXT NOT NULL,
     competencia TEXT NOT NULL,
+    snapshot_id TEXT NOT NULL,
+    base_snapshot_id TEXT,
+    sequence INTEGER NOT NULL,
+    previous_manifest_sha256 TEXT,
+    manifest_sha256 TEXT NOT NULL,
     created_at TEXT NOT NULL,
     data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, manifest_id)
+);
+CREATE INDEX IF NOT EXISTS ix_raw_manifest_heads
+ON raw_manifests (
+    tenant_id, source_type, file_subtype, competencia,
+    created_at DESC, agent_id DESC, snapshot_id DESC
+);
+CREATE INDEX IF NOT EXISTS ix_raw_manifest_ancestry
+ON raw_manifests (
+    tenant_id, source_type, file_subtype, competencia, agent_id,
+    sequence, manifest_sha256, base_snapshot_id, snapshot_id
 );
 CREATE TABLE IF NOT EXISTS runs (
     tenant_id TEXT NOT NULL,

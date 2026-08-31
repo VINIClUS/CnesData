@@ -20,7 +20,7 @@ from cnes_domain.control_plane.commands import (
 from cnes_domain.control_plane.entities import DatasetPointer, RunDependency, Tenant
 from cnes_domain.control_plane.enums import DispatchOutcome, RunState
 from cnes_domain.control_plane.errors import Conflict, LeaseLost
-from cnes_infra.control_plane import sqlite_adapter, sqlite_schema
+from cnes_infra.control_plane import sqlite_adapter, sqlite_publication, sqlite_schema
 from cnes_infra.control_plane.sqlite_adapter import (
     SQLiteControlPlane,
     _is_network_filesystem,
@@ -473,12 +473,10 @@ def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> 
         adapter.put_run(run)
     recoverable = adapter.list_recoverable_runs(clock.now(), 2)
     assert tuple((run.tenant_id, run.run_id) for run in recoverable) == (
-        ("a", "run-shared"),
-        ("a", "run-z"),
-    )
+        ("a", "run-shared"), ("a", "run-z"))
 
 
-def test_limita_ancestralidade_longa_sem_recursao(adapter, clock) -> None:
+def test_limita_ancestralidade_longa_sem_recursao(adapter, clock, monkeypatch) -> None:
     base = _raw_record("deep-1", "deep-agent", 1, clock.now())
     previous = None
     with adapter.write_transaction() as connection:
@@ -493,5 +491,10 @@ def test_limita_ancestralidade_longa_sem_recursao(adapter, clock) -> None:
                 "created_at": clock.now() + timedelta(seconds=sequence)})
             adapter.put_manifest_record(connection, record)
             previous = record.manifest_sha256
+    deserialize = sqlite_publication.deserialize_model
+    calls = []
+    monkeypatch.setattr(sqlite_publication, "deserialize_model",
+                        lambda *args: (calls.append(None), deserialize(*args))[1])
     assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07") == ()
     assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 2) == ()
+    assert len(calls) <= 35
