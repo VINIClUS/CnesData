@@ -51,26 +51,6 @@ class _StagedFile:
     digest: str
 
 
-def _fsync_directory(directory: Path) -> None:
-    descriptor = os.open(directory, _DIRECTORY_FLAGS)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
-def _mkdir_durable(directory: Path) -> None:
-    missing: list[Path] = []
-    current = directory
-    while not current.exists():
-        missing.append(current)
-        current = current.parent
-    _fsync_directory(current.parent)
-    for path in reversed(missing):
-        path.mkdir(exist_ok=True)
-        _fsync_directory(path.parent)
-
-
 def _open_or_create_directory(parent: int, name: str) -> int:
     try:
         os.mkdir(name, dir_fd=parent)
@@ -83,6 +63,19 @@ def _open_or_create_directory(parent: int, name: str) -> int:
         os.close(descriptor)
         raise
     return descriptor
+
+
+def _open_root(directory: Path) -> int:
+    current = os.open("/", _DIRECTORY_FLAGS)
+    try:
+        for name in directory.parts[1:]:
+            child = _open_or_create_directory(current, name)
+            os.close(current)
+            current = child
+    except Exception:
+        os.close(current)
+        raise
+    return current
 
 
 def _link_descriptor(descriptor: int, directory: int, name: str) -> None:
@@ -142,9 +135,8 @@ class FilesystemObjectStore:
     ) -> None:
         self._fault_injector = fault_injector
         root_path = Path(root).absolute()
-        _mkdir_durable(root_path)
         with ExitStack() as stack:
-            self._root_descriptor = os.open(root_path, _DIRECTORY_FLAGS)
+            self._root_descriptor = _open_root(root_path)
             stack.callback(os.close, self._root_descriptor)
             self._ensure_layout()
             self._recover_startup()

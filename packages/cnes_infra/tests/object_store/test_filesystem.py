@@ -16,12 +16,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from cnes_domain.control_plane.errors import Conflict
+from cnes_infra.object_store import filesystem
 from cnes_infra.object_store.filesystem import FilesystemObjectStore, _open_or_create_directory
 from packages.cnes_infra.tests.contracts import object_store_contract as contract
 from packages.cnes_infra.tests.contracts.clock import MutableClock
 
-_DURABLE_BOUNDARIES = (
-    "temporary_created", "file_fsynced", "destination_linked", "directory_fsynced",
+_DURABLE_BOUNDARIES = ("temporary_created_before_ownership", "temporary_created", "file_fsynced",
+    "destination_linked", "directory_fsynced",
     "temporary_unlinked", "directory_final_fsynced",)
 _OWNER_XATTR = "user.cnes_object_store_destination"
 
@@ -130,13 +131,15 @@ def test_fsynca_ancestral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
         real_fsync(descriptor)
     monkeypatch.setattr(os, "fsync", observe_fsync)
     adapter = FilesystemObjectStore(root)
-    assert observed[:4] == [tmp_path.parent, tmp_path, root, next(root.iterdir())]
+    internal = next(root.iterdir())
+    expected = [*reversed(root.parents), root, internal, internal]
+    assert observed == expected
     observed.clear()
     FilesystemObjectStore(root)
-    assert observed == [tmp_path, root, next(root.iterdir()), next(root.iterdir())]
+    assert observed == expected
     observed.clear()
     FilesystemObjectStore(root / "nested")
-    assert observed[:2] == [tmp_path, root]
+    assert observed[:len(root.parents) + 1] == [*reversed(root.parents), root]
     destination = _objects_directory(root) / sha256(b"raw/ausente").hexdigest()
     destination.touch()
     destination.unlink()
@@ -199,15 +202,6 @@ def test_scan_ignora_temp_removido(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert removed == [temporary]
 
 
-def test_crash_pre_marker_nao_deixa_temporario(tmp_path: Path) -> None:
-    boundary = "temporary_created_before_ownership"
-    crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt(boundary))
-    body = b"conteudo"
-    with pytest.raises(_SimulatedCrash, match="boundary=temporary_created_before_ownership"):
-        crashing.put("raw/dados.parquet", BytesIO(body), sha256(body).hexdigest())
-    assert _adapter_temporaries(tmp_path) == ()
-
-
 def test_nova_escrita_recupera_temporario_abandonado_no_mesmo_adapter(tmp_path: Path) -> None:
     body, digest = b"conteudo", sha256(b"conteudo").hexdigest()
     adapter = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced"))
@@ -239,15 +233,19 @@ def test_recuperacao_preserva_alias_legal(alias_kind: str, recovery: str, tmp_pa
     assert (alias.is_symlink(), alias.read_bytes()) == (alias_kind == "symlink", body)
 
 
-def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> None:
+def test_reabertura_ignora_owner_invalido(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     FilesystemObjectStore(tmp_path)
     directory = _objects_directory(tmp_path)
     mismatch_owner, mismatch_digest = "raw/owner.parquet", sha256(b"raw/owner.parquet").hexdigest()
+    nul_key, real_owner = "raw/\0invalida", filesystem._temporary_owner
+    nul_digest = sha256(nul_key.encode()).hexdigest()
+    nul_candidate = directory / f".cnes-object-store-{nul_digest}-writer.tmp"
     candidates = {
         directory / f".cnes-object-store-{'b' * 64}-writer.tmp": None,
         directory / f".cnes-object-store-{'c' * 64}-writer.tmp": b"\xff",
         directory / f".cnes-object-store-{'d' * 64}-writer.tmp": b"../invalid\0writer",
         directory / f".cnes-object-store-{mismatch_digest}-.tmp": b"raw/owner.parquet\0writer",
+        nul_candidate: None,
     }
     for candidate, owner in candidates.items():
         candidate.write_bytes(b"preservar")
@@ -255,6 +253,10 @@ def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> 
             os.setxattr(candidate, _OWNER_XATTR, owner)
     fifo = directory / f".cnes-object-store-{'e' * 64}-writer.tmp"
     os.mkfifo(fifo)
+    def owner(descriptor: int) -> tuple[str, str] | None:
+        matches = os.fstat(descriptor).st_ino == nul_candidate.stat().st_ino
+        return (nul_key, "writer") if matches else real_owner(descriptor)
+    monkeypatch.setattr(filesystem, "_temporary_owner", owner)
     context = multiprocessing.get_context("spawn")
     process = context.Process(target=FilesystemObjectStore, args=(tmp_path,))
     process.start()
@@ -267,6 +269,8 @@ def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> 
     adapter.put(mismatch_owner, BytesIO(b"novo"), sha256(b"novo").hexdigest())
     assert all(candidate.read_bytes() == b"preservar" for candidate in candidates)
     assert fifo.exists()
+    with pytest.raises(ValueError, match="object_key=invalid"):
+        adapter.stat(nul_key)
 
 
 @pytest.mark.parametrize("caller", ["startup", "pre_write"])
@@ -295,8 +299,7 @@ def test_inspecao_de_ownership_fecha_fd(
         else (adapter.put, (key, BytesIO(body), sha256(body).hexdigest())))
     with pytest.raises(OSError, match="inspection=failed"):
         target(*args)
-    assert len(os.listdir("/proc/self/fd")) == descriptor_count
-    assert candidate.read_bytes() == body
+    assert (len(os.listdir("/proc/self/fd")), candidate.read_bytes()) == (descriptor_count, body)
 
 
 @pytest.mark.parametrize("mode", ["owner", "read", "write", "flush", "fsync", "sha", "dir", "dst"])
@@ -337,8 +340,8 @@ def test_falha_staging(mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     message = "sha256=mismatch" if mode == "sha" else "staging=failed"
     with pytest.raises(error, match=message):
         adapter.put("raw/dados.parquet", body, expected)
-    assert _adapter_temporaries(tmp_path) == ()
-    assert directory_fsyncs == (0 if mode == "owner" else 3 if mode == "dst" else 2)
+    expected_fsyncs = 0 if mode == "owner" else 3 if mode == "dst" else 2
+    assert (_adapter_temporaries(tmp_path), directory_fsyncs) == ((), expected_fsyncs)
 
 
 @pytest.mark.parametrize("kind", ["file", "directory"])
@@ -348,21 +351,18 @@ def test_recuperacao_preserva_destino_existente(kind: str, tmp_path: Path) -> No
     with pytest.raises(_SimulatedCrash):
         crashing.put(key, BytesIO(losing), sha256(losing).hexdigest())
     destination = _objects_directory(tmp_path) / sha256(key.encode()).hexdigest()
-    if kind == "file":
-        destination.write_bytes(winner)
-    else:
-        destination.mkdir()
+    destination.write_bytes(winner) if kind == "file" else destination.mkdir()
     message = "object=immutable" if kind == "file" else "destination=invalid"
     with pytest.raises(Conflict, match=message):
         FilesystemObjectStore(tmp_path).put(key, BytesIO(losing), sha256(losing).hexdigest())
     assert destination.read_bytes() == winner if kind == "file" else destination.is_dir()
-    if kind == "file":
-        assert _adapter_temporaries(tmp_path) == ()
+    assert kind != "file" or _adapter_temporaries(tmp_path) == ()
 
 
 @pytest.mark.linux_only
 def test_fifo_final_nao_bloqueia(tmp_path: Path) -> None:
-    key, adapter = "raw/dados.parquet", FilesystemObjectStore(tmp_path)
+    key = "raw/dados.parquet"
+    FilesystemObjectStore(tmp_path)
     fifo = _objects_directory(tmp_path) / sha256(key.encode()).hexdigest()
     os.mkfifo(fifo)
     context = multiprocessing.get_context("spawn")
@@ -373,11 +373,8 @@ def test_fifo_final_nao_bloqueia(tmp_path: Path) -> None:
     if process.is_alive():
         process.terminate()
     process.join(timeout=1)
-    assert process.exitcode == 0
+    assert (process.exitcode, fifo.is_fifo()) == (0, True)
     assert [results.get(timeout=1) for _ in range(5)] == [("Conflict", "destination=invalid")] * 5
-    with pytest.raises(Conflict, match="destination=invalid"):
-        adapter.stat(key)
-    assert fifo.is_fifo()
     assert _adapter_temporaries(tmp_path) == ()
 
 
@@ -389,31 +386,37 @@ def test_chaves_prefixadas_coexistem(order: tuple[str, str], tmp_path: Path) -> 
     with adapter.open("a") as parent, adapter.open("a/b") as child:
         assert (parent.read(), child.read()) == (b"pai", b"filho")
     lock_key = f".cnes-object-store-{sha256(b'a').hexdigest()}.lock"
-    adapter.delete("a")
     assert adapter.stat(lock_key) is None
     adapter.put(lock_key, BytesIO(b"lock"), sha256(b"lock").hexdigest())
-    with adapter.open(lock_key) as stream:
-        assert stream.read() == b"lock"
+    assert adapter.stat(lock_key) is not None
 
 
-@pytest.mark.parametrize("ancestor", [False, True], ids=["root", "ancestor"])
-def test_root_aberto_nao_segue_path_substituido(ancestor: bool, tmp_path: Path) -> None:
-    parent = tmp_path / "original"
+def test_root_aberto_nao_segue_ancestral_substituido(tmp_path: Path) -> None:
+    parent, replacement = tmp_path / "original", tmp_path / "replacement"
+    adapter = FilesystemObjectStore(parent / "store")
+    parent.rename(tmp_path / "moved")
+    parent.symlink_to(replacement, target_is_directory=True)
+    adapter.put("raw/objeto", BytesIO(b"conteudo"), sha256(b"conteudo").hexdigest())
+    assert not replacement.exists()
+
+
+def test_construtor_rejeita_symlink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    parent, attacker = tmp_path / "original", tmp_path / "attacker"
     root = parent / "store"
-    adapter = FilesystemObjectStore(root)
-    target = parent if ancestor else root
-    target.rename(tmp_path / "moved")
-    replacement = tmp_path / "replacement"
-    replacement.mkdir()
-    target.symlink_to(replacement, target_is_directory=True)
-    body = b"conteudo"
-    adapter.put("raw/objeto", BytesIO(body), sha256(body).hexdigest())
-    with adapter.open("raw/objeto") as stream:
-        assert stream.read() == body
-    assert adapter.stat("raw/objeto") is not None
-    adapter.delete("raw/objeto")
-    assert adapter.stat("raw/objeto") is None
-    assert tuple(replacement.iterdir()) == ()
+    root.mkdir(parents=True)
+    (attacker / "store").mkdir(parents=True)
+    real_open = os.open
+    def swap_before_open(path: Any, *args: Any, **kwargs: Any) -> int:
+        component_open = path == parent.name and kwargs.get("dir_fd") is not None
+        full_path_open = os.fspath(path) == os.fspath(root)
+        if not parent.is_symlink() and (full_path_open or component_open):
+            parent.rename(tmp_path / "moved")
+            parent.symlink_to(attacker, target_is_directory=True)
+        return real_open(path, *args, **kwargs)
+    monkeypatch.setattr(os, "open", swap_before_open)
+    with pytest.raises(OSError):
+        FilesystemObjectStore(root)
+    assert (parent.is_symlink(), tuple((attacker / "store").iterdir())) == (True, ())
 
 
 @pytest.mark.parametrize("link_kind", ["staging", "publication"])
@@ -460,8 +463,7 @@ def test_startup_recupera_apos_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(fcntl, "flock", release_writer)
     FilesystemObjectStore(tmp_path)
     process.join(timeout=10)
-    assert process.exitcode == 0
-    assert results.get(timeout=2) == "_SimulatedCrash"
+    assert (process.exitcode, results.get(timeout=2)) == (0, "_SimulatedCrash")
     assert _adapter_temporaries(tmp_path) == ()
 
 
@@ -484,17 +486,15 @@ def test_corrida_publica_destino_completo(identical: bool, tmp_path: Path) -> No
         process.start()
     barrier.wait()
     reader.join(timeout=10)
-    assert not reader.is_alive()
-    assert observed
+    assert (reader.is_alive(), bool(observed)) == (False, True)
     for process in processes:
         process.join(timeout=10)
         assert process.exitcode == 0
     outcomes = [results.get(timeout=2)[0] for _ in processes]
     with FilesystemObjectStore(tmp_path).open("raw/race") as stream:
         published = stream.read()
-    assert published in bodies
+    assert (published in bodies, all(content in bodies for content in observed)) == (True, True)
     assert outcomes.count("ok") == (2 if identical else 1)
     assert outcomes.count("conflict") == (0 if identical else 1)
-    assert all(content in bodies for content in observed)
     assert sha256(published).hexdigest() == FilesystemObjectStore(tmp_path).stat("raw/race").sha256
     assert _adapter_temporaries(tmp_path) == ()

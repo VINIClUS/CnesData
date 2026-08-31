@@ -291,6 +291,13 @@ def test_rejeita_retencao_naive_antes_de_acessar_cliente() -> None:
     client.assert_not_called()
 
 
+def test_rejeita_chave_nul_antes_de_acessar_s3() -> None:
+    client = MagicMock()
+    with pytest.raises(ValueError, match="object_key=invalid"):
+        S3ObjectStore(client, "bucket").put("raw/\0objeto", BytesIO(b"x"), sha256(b"x").hexdigest())
+    assert client.mock_calls == []
+
+
 @pytest.mark.parametrize("extra_days", [0, 1], ids=["igual", "maior"])
 def test_aceita_replay_412_quando_retencao_existente_satisfaz_pedido(
     extra_days: int,

@@ -13,7 +13,7 @@ _CHUNK_SIZE = 1024 * 1024
 
 def validate_key(key: str) -> str:
     parts = key.split("/")
-    if not key or key.startswith("/") or "\\" in key:
+    if not key or key.startswith("/") or "\\" in key or "\0" in key:
         raise ValueError("object_key=invalid")
     if any(part in {"", ".", ".."} for part in parts):
         raise ValueError("object_key=invalid")
