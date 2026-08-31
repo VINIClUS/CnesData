@@ -16,11 +16,11 @@ from cnes_domain.control_plane.commands import (
     TransitionRun,
 )
 from cnes_domain.control_plane.entities import AccessRequest, Tenant
-from cnes_domain.control_plane.enums import AccessRequestState, JobState, RunState
+from cnes_domain.control_plane.enums import AccessRequestState, AgentState, JobState, RunState
 from cnes_domain.control_plane.errors import Conflict, LeaseLost, NotFound
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_codec import encode_marker, execute_transaction
-from cnes_infra.control_plane.dynamodb_keys import entity_key, run_entity_key
+from cnes_infra.control_plane.dynamodb_keys import entity_key, outbox_key, run_entity_key
 from packages.cnes_infra.tests.contracts.clock import (
     _HASH_A,
     _NOW,
@@ -43,14 +43,10 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
 )
 
 _HASH_B = "b" * 64
-
-
 class OneItemPageClient(ClientSpy):
     def query(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("query")
         return self.client.query(**kwargs, Limit=1)
-
-
 @pytest.fixture
 def dynamodb_context() -> Any:
     with mock_aws():
@@ -58,8 +54,6 @@ def dynamodb_context() -> Any:
         _create_table(client)
         clock = MutableClock(_NOW)
         yield client, clock, DynamoDBControlPlane(client, _TABLE_NAME, clock.now)
-
-
 def test_deduplica_candidatos_e_rele_base_antes_do_claim(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -86,8 +80,6 @@ def test_deduplica_candidatos_e_rele_base_antes_do_claim(
     consistent_reads = [call for call in spy.calls if call == "get_item"]
     assert len(consistent_reads) == 2
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is not None
-
-
 def test_query_percorre_todas_as_paginas_antes_de_ordenar_e_limitar(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -100,8 +92,6 @@ def test_query_percorre_todas_as_paginas_antes_de_ordenar_e_limitar(
     jobs = adapter.list_claimable_jobs(_TENANT, "agent-a", 2)
     assert tuple(job.job_id for job in jobs) == ("job-a", "job-b")
     assert paginated.calls.count("query") == 2
-
-
 def test_cadeia_raw_segue_ancestralidade_sem_mesclar_deltas_irmaos(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -125,8 +115,6 @@ def test_cadeia_raw_segue_ancestralidade_sem_mesclar_deltas_irmaos(
     assert tuple(ref.manifest_id for ref in chain) == (
         full.manifest_id, sibling_b.manifest_id, head.manifest_id,
     )
-
-
 def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -147,8 +135,6 @@ def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(
     client.put_item(TableName=_TABLE_NAME, Item=marker)
     assert adapter.list_claimable_jobs(_TENANT, "agent-a", 10) == ()
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is None
-
-
 def test_candidato_gsi_obsoleto_nao_recupera_run_terminal(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -166,8 +152,6 @@ def test_candidato_gsi_obsoleto_nao_recupera_run_terminal(
     )
     client.put_item(TableName=_TABLE_NAME, Item=marker)
     assert adapter.list_recoverable_runs(clock.now(), 10) == ()
-
-
 def test_expiracao_logica_substitui_item_ttl_ainda_presente(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -196,8 +180,6 @@ def test_expiracao_logica_substitui_item_ttl_ainda_presente(
     outcome = adapter.begin_idempotency(replacement)
     assert outcome.created
     assert outcome.record.resource_id == "resource-b"
-
-
 def test_colisao_global_de_evento_rejeita_segundo_tenant_sem_mutacao(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -213,8 +195,6 @@ def test_colisao_global_de_evento_rejeita_segundo_tenant_sem_mutacao(
         adapter.create_job(_job("job-c"), _event("fresh-other", tenant_id="other"))
     assert adapter.get_job(_TENANT, "job-c") is None
     assert adapter.get_outbox_event("fresh-other") is None
-
-
 def test_claim_cas_perdedor_nao_desfaz_vencedor_persistido(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -227,13 +207,10 @@ def test_claim_cas_perdedor_nao_desfaz_vencedor_persistido(
     def win_before_stale_cas(actions: Any) -> None:
         winners.append(adapter.claim_job(_claim_job("job-a", "worker-b", clock)))
         transact(actions)
-
     loser._transact = win_before_stale_cas
     assert loser.claim_job(_claim_job("job-a", "worker-a", clock)) is None
     assert winners[0] is not None
     assert adapter.get_job(_TENANT, "job-a") == winners[0]
-
-
 def test_codec_nao_introduz_decimal_nos_itens(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -249,8 +226,6 @@ def test_codec_nao_introduz_decimal_nos_itens(
             return any(contains_decimal(item) for item in value)
         return isinstance(value, Decimal)
     assert not contains_decimal(client.scan(TableName=_TABLE_NAME)["Items"])
-
-
 def test_create_job_retorna_replay_e_rejeita_divergencia(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -267,8 +242,6 @@ def test_create_job_retorna_replay_e_rejeita_divergencia(
     assert adapter.get_job(_TENANT, "job-a") == job
     with pytest.raises(Conflict, match="job_conflict"):
         adapter.create_job(job.model_copy(update={"agent_id": "agent-b"}), event)
-
-
 def test_transicao_e_unidades_rejeitam_run_ausente_ou_estado_obsoleto(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -288,8 +261,6 @@ def test_transicao_e_unidades_rejeitam_run_ausente_ou_estado_obsoleto(
         adapter.transition_run(transition, _event("stale-run"))
     with pytest.raises(Conflict, match="run_state_conflict"):
         _put_many_units(adapter, 1)
-
-
 def test_cancel_job_exige_lease_e_e_idempotente(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -309,8 +280,6 @@ def test_cancel_job_exige_lease_e_e_idempotente(
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.cancel_job(command, _foreign_event(adapter))
     assert adapter.get_job(_TENANT, "job-a") == canceled
-
-
 def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -330,8 +299,6 @@ def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.finalize_run_cancellation(command, _foreign_event(adapter))
     assert adapter.get_run(_TENANT, "run-a") == canceled
-
-
 def _access_request(state: AccessRequestState = AccessRequestState.PENDING) -> AccessRequest:
     decided = state is not AccessRequestState.PENDING
     return AccessRequest(
@@ -342,14 +309,10 @@ def _access_request(state: AccessRequestState = AccessRequestState.PENDING) -> A
         decided_by="admin-a" if decided else None,
         decided_at=_NOW if decided else None,
     )
-
-
 def _foreign_event(adapter: DynamoDBControlPlane) -> Any:
     event = _event("foreign-event", tenant_id="other")
     adapter.create_job(_job("foreign-job", tenant_id="other"), event)
     return event
-
-
 def test_access_request_tem_criacao_decisao_e_replays_atomicos(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -370,6 +333,11 @@ def test_access_request_tem_criacao_decisao_e_replays_atomicos(
             pending.model_copy(update={"user_id": "user-b"}), _event("divergent-access")
         )
     approved = _access_request(AccessRequestState.APPROVED)
+    changed_user = approved.model_copy(update={"user_id": "user-b"})
+    with pytest.raises(Conflict, match="access_request_conflict"):
+        adapter.decide_access_request(changed_user, _event("changed-user"))
+    assert adapter.get_access_request(_TENANT, "request-a") == pending
+    assert adapter.get_outbox_event("changed-user") is None
     assert adapter.decide_access_request(approved, _event("access-approved")) == approved
     assert adapter.decide_access_request(approved, _event("access-approved")) == approved
     with pytest.raises(Conflict, match="event_id_conflict"):
@@ -379,12 +347,10 @@ def test_access_request_tem_criacao_decisao_e_replays_atomicos(
         adapter.decide_access_request(
             _access_request(AccessRequestState.REJECTED), _event("access-rejected")
         )
-
-
 def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
-    _, clock, adapter = dynamodb_context
+    client, clock, adapter = dynamodb_context
     adapter.create_job(_job("job-a"), _event("job-created"))
     delivered_at = clock.now() + timedelta(seconds=1)
     adapter.mark_outbox_delivered("job-created", delivered_at)
@@ -394,8 +360,28 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(
         adapter.mark_outbox_delivered("job-created", delivered_at + timedelta(seconds=1))
     with pytest.raises(NotFound, match="outbox_event_missing"):
         adapter.mark_outbox_delivered("missing", delivered_at)
-
-
+    events = tuple(
+        _event(f"event-{index}").model_copy(
+            update={"created_at": clock.now() + timedelta(seconds=index)}
+        )
+        for index in range(3)
+    )
+    for index, event in enumerate(events):
+        adapter.create_job(_job(f"job-{index}"), event)
+    markers = (("missing", "missing", 3), ("stale", "job-created", 2),
+               ("duplicate", "event-0", 1))
+    for marker_id, base_id, minutes in markers:
+        marker = encode_marker(
+            "STALE_OUTBOX", entity_key(_TENANT, "STALE_OUTBOX", marker_id),
+            outbox_key(base_id), {"gsi6pk": "OUTBOX#PENDING", "gsi6sk":
+                f"{(clock.now() - timedelta(minutes=minutes)).isoformat()}#{marker_id}"},
+        )
+        client.put_item(TableName=_TABLE_NAME, Item=marker)
+    paginated = OneItemPageClient(client)
+    adapter._client = paginated
+    assert adapter.pending_outbox(0) == ()
+    assert adapter.pending_outbox(2) == events[:2]
+    assert paginated.calls.count("query") == 5
 def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -416,6 +402,17 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(
     with pytest.raises(LeaseLost, match="job_not_leased"):
         adapter.renew_job_lease(renewal.model_copy(update={"job_id": "job-a"}))
     claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
+    contender = DynamoDBControlPlane(adapter._client, _TABLE_NAME, clock.now)
+    transact = adapter._transact
+    def revoke_then_renew(actions: Any) -> None:
+        contender.put_agent(_agent("agent-a", AgentState.REVOKED))
+        transact(actions)
+    adapter._transact = revoke_then_renew
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.renew_job_lease(renewal.model_copy(update={"job_id": "job-a"}))
+    adapter._transact = transact
+    assert adapter.get_job(_TENANT, "job-a") == claimed
+    adapter.put_agent(_agent("agent-a"))
     manifest = _raw_record("result", "agent-b", 1, clock.now())
     complete = CompleteJob(
         tenant_id=_TENANT,
@@ -426,8 +423,6 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(
     )
     with pytest.raises(Conflict, match="manifest_identity_conflict"):
         adapter.complete_job(complete, _event("invalid-manifest"))
-
-
 def test_publicacao_rejeita_run_ausente_e_reproduz_ponteiro_nomeado(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -441,8 +436,6 @@ def test_publicacao_rejeita_run_ausente_e_reproduz_ponteiro_nomeado(
     pointer = adapter.publish_dataset(named)
     assert pointer.pointer_name == "candidate"
     assert adapter.publish_dataset(named) == pointer
-
-
 def test_codec_propaga_erro_dynamodb_nao_condicional() -> None:
     class InvalidClient:
         @staticmethod
@@ -453,8 +446,19 @@ def test_codec_propaga_erro_dynamodb_nao_condicional() -> None:
             )
     with pytest.raises(ClientError):
         execute_transaction(InvalidClient(), ())
-
-
+@pytest.mark.parametrize("reason", [None, "ThrottlingError", "ProvisionedThroughputExceeded",
+                                    "TransactionConflict"])
+def test_codec_propaga_cancelamento_sem_falha_condicional(reason: str | None) -> None:
+    class CanceledClient:
+        @staticmethod
+        def transact_write_items(**kwargs: Any) -> None:
+            reasons = [] if reason is None else [{"Code": reason}]
+            raise ClientError(
+                {"Error": {"Code": "TransactionCanceledException"},
+                 "CancellationReasons": reasons}, "TransactWriteItems",
+            )
+    with pytest.raises(ClientError):
+        execute_transaction(CanceledClient(), ())
 def test_idempotencia_recupera_resultado_de_corrida_confirmada(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
@@ -472,15 +476,11 @@ def test_idempotencia_recupera_resultado_de_corrida_confirmada(
     def wins_then_reports_conflict(actions: Any) -> None:
         transact(actions)
         raise Conflict("transaction_conflict")
-
     adapter._transact = wins_then_reports_conflict
-
     outcome = adapter.begin_idempotency(command)
 
     assert not outcome.created
     assert outcome.record.resource_id == "resource-a"
-
-
 def test_idempotencia_propaga_conflito_sem_vencedor_visivel(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:

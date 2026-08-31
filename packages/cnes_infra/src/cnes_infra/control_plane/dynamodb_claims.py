@@ -94,10 +94,16 @@ class DynamoDBClaims:
         """Renova o lease de um job fenced."""
         item, job = self._leased_job(command.tenant_id, command.job_id)
         self._validate_job_fence(job, command.owner, command.fencing_token, command.now)
+        agent_item = self._active_agent_item(job)
         updated = job.model_copy(
             update={"lease_until": command.now + timedelta(seconds=command.lease_seconds)}
         )
-        self._transact((put_action(self._table_name, self._job_item(updated), payload(item)),))
+        self._transact(
+            (
+                check_action(self._table_name, agent_item),
+                put_action(self._table_name, self._job_item(updated), payload(item)),
+            )
+        )
         return updated
 
     def complete_job(self, command: CompleteJob, event: Any) -> Job:

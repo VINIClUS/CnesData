@@ -371,7 +371,8 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
 
     def put_run_units(self, command: PutRunUnits) -> tuple[RunUnit, ...]:
         """Persiste o grafo de unidades atomicamente."""
-        if len(command.units) >= 100:
+        units = tuple(sorted(command.units, key=lambda unit: unit.unit_id))
+        if len(units) >= 100:
             raise Conflict("transaction_limit")
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
         if run_item is None:
@@ -387,15 +388,14 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             )
         )
         if any(existing):
-            if existing == command.units:
-                return command.units
+            if existing == units:
+                return units
             raise Conflict("run_units_conflict")
         actions = (check_action(self._table_name, run_item),) + tuple(
-            put_action(self._table_name, self._unit_item(unit), None) for unit in command.units
+            put_action(self._table_name, self._unit_item(unit), None) for unit in units
         )
         self._transact(actions)
-        return command.units
-
+        return units
     def list_run_units(self, tenant_id: str, run_id: str) -> tuple[RunUnit, ...]:
         """Lista as unidades do run."""
         partition = f"RUN_ITEMS#{tenant_id}#{run_id}"
@@ -476,7 +476,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
     def get_access_request(self, tenant_id: str, request_id: str) -> AccessRequest | None:
         """Retorna a solicitação de acesso."""
         return self._get_model(entity_key(tenant_id, "ACCESS", request_id), AccessRequest)
-
     def decide_access_request(self, request: AccessRequest, event: OutboxEvent) -> AccessRequest:
         """Persiste a decisão de acesso atomicamente."""
         key = entity_key(request.tenant_id, "ACCESS", request.request_id)
@@ -487,7 +486,9 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if existing == request:
             self._require_event_replay(request.tenant_id, event)
             return existing
-        if existing.state.value != "PENDING":
+        original_identity = (existing.tenant_id, existing.request_id, existing.user_id)
+        requested_identity = (request.tenant_id, request.request_id, request.user_id)
+        if existing.state.value != "PENDING" or original_identity != requested_identity:
             raise Conflict("access_request_conflict")
         updated = encode_model(request, "ACCESSREQUEST", key)
         self._transact(

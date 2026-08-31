@@ -133,6 +133,11 @@ def execute_transaction(client: Any, actions: Iterable[Action]) -> None:
         client.transact_write_items(TransactItems=list(normalized))
     except ClientError as error:
         code = error.response.get("Error", {}).get("Code")
-        if code in {"ConditionalCheckFailedException", "TransactionCanceledException"}:
+        reasons = error.response.get("CancellationReasons") or ()
+        reason_codes = {reason.get("Code") for reason in reasons} - {None, "None"}
+        conditional = code == "TransactionCanceledException" and reason_codes == {
+            "ConditionalCheckFailed"
+        }
+        if conditional:
             raise Conflict("transaction_conflict") from error
         raise

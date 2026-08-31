@@ -208,10 +208,40 @@ class DynamoDBPublication:
 
     def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]:
         """Lista eventos pendentes globalmente."""
-        candidates = self._query("gsi6", "OUTBOX#PENDING")
-        events = self._strong_candidates(candidates, OutboxEvent)
-        pending = (event for event in events if event.delivered_at is None)
-        return tuple(sorted(pending, key=lambda event: (event.created_at, event.event_id))[:limit])
+        if limit <= 0:
+            return ()
+        request = {
+            "TableName": self._table_name,
+            "IndexName": "gsi6",
+            "KeyConditionExpression": "gsi6pk = :partition",
+            "ExpressionAttributeValues": {":partition": {"S": "OUTBOX#PENDING"}},
+            "ScanIndexForward": True,
+        }
+        events = []
+        seen = set()
+        while True:
+            response = self._client.query(**request)
+            for candidate in response.get("Items", ()):
+                key = (
+                    candidate.get("base_pk", candidate["pk"])["S"],
+                    candidate.get("base_sk", candidate["sk"])["S"],
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                item = self._get_item(key)
+                if item is None or item.get("entity", {}).get("S") != "OUTBOXEVENT":
+                    continue
+                event = decode_model(item, OutboxEvent)
+                if event.delivered_at is not None:
+                    continue
+                events.append(event)
+                if len(events) == limit:
+                    return tuple(events)
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                return tuple(events)
+            request["ExclusiveStartKey"] = last_key
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
         """Marca um evento global como entregue."""

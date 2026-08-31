@@ -58,7 +58,6 @@ class ClientSpy:
         attribute = getattr(self.client, name)
         if not callable(attribute):
             return attribute
-
         def tracked(**kwargs: Any) -> Any:
             self.calls.append(name)
             return attribute(**kwargs)
@@ -70,7 +69,8 @@ class FailingTransactionClient(ClientSpy):
         self.calls.append("transact_write_items")
         self.transactions.append(kwargs["TransactItems"])
         raise ClientError(
-            {"Error": {"Code": "TransactionCanceledException", "Message": "cancelled"}},
+            {"Error": {"Code": "TransactionCanceledException", "Message": "cancelled"},
+             "CancellationReasons": [{"Code": "ConditionalCheckFailed"}]},
             "TransactWriteItems",
         )
 
@@ -126,7 +126,7 @@ def _many_units(amount: int) -> tuple[Any, ...]:
     return tuple(_unit(f"unit-{index:03d}") for index in range(amount))
 
 def _put_many_units(adapter: DynamoDBControlPlane, amount: int) -> tuple[Any, ...]:
-    units = _many_units(amount)
+    units = tuple(reversed(_many_units(amount)))
     return adapter.put_run_units(
         PutRunUnits(
             tenant_id=_TENANT,
@@ -195,6 +195,7 @@ def test_grava_99_unidades_em_ate_100_acoes_unicas(
     adapter.put_run(_run("run-a"))
     spy = ClientSpy(adapter._client)
     adapter._client = spy
+    _put_many_units(adapter, 99)
     assert _put_many_units(adapter, 99) == _many_units(99)
     actions = spy.transactions[-1]
     run = _run("run-a")
