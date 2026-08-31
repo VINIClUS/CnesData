@@ -119,6 +119,19 @@ def _open_candidate(objects: int, name: str) -> int | None:
         raise
 
 
+def _open_regular(directory: int, name: str) -> int:
+    descriptor = os.open(
+        name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory
+    )
+    try:
+        if not S_ISREG(os.fstat(descriptor).st_mode):
+            raise Conflict("destination=invalid")
+    except Exception:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
 class FilesystemObjectStore:
     def __init__(
         self, root: str | Path, fault_injector: Callable[[str], None] | None = None
@@ -179,7 +192,7 @@ class FilesystemObjectStore:
 
     @classmethod
     def _stat_at(cls, key: str, directory: int, name: str) -> ObjectStat:
-        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+        descriptor = _open_regular(directory, name)
         return cls._stat_descriptor(key, descriptor)
 
     @contextmanager
@@ -268,18 +281,14 @@ class FilesystemObjectStore:
     @staticmethod
     def _classify_recovery(objects: int, temporary: os.stat_result, digest: str) -> bool:
         try:
-            destination = os.open(digest, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=objects)
+            destination = _open_regular(objects, digest)
         except FileNotFoundError:
             return False
         try:
             metadata = os.fstat(destination)
         finally:
             os.close(destination)
-        if os.path.samestat(temporary, metadata):
-            return True
-        if S_ISREG(metadata.st_mode):
-            return False
-        raise Conflict("destination=invalid")
+        return os.path.samestat(temporary, metadata)
 
     def _recover(self, objects: int, key: str, digest: str) -> None:
         namespace = f"{_TEMP_PREFIX}{digest}"
@@ -353,8 +362,10 @@ class FilesystemObjectStore:
             if error.errno != errno.EEXIST:
                 self._remove_temporary(objects, staged.name)
                 raise
-            existing = self._stat_at(key, objects, digest)
-            self._remove_temporary(objects, staged.name)
+            try:
+                existing = self._stat_at(key, objects, digest)
+            finally:
+                self._remove_temporary(objects, staged.name)
             if existing.sha256 != staged.digest:
                 raise Conflict("object=immutable") from error
             return existing, False
@@ -386,7 +397,7 @@ class FilesystemObjectStore:
     def open(self, key: str) -> ContextManager[BinaryIO]:
         _, digest = self._identity(key)
         with self._layout() as layout:
-            descriptor = os.open(digest, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=layout.objects)
+            descriptor = _open_regular(layout.objects, digest)
         return os.fdopen(descriptor, "rb")
 
     def stat(self, key: str) -> ObjectStat | None:
@@ -408,7 +419,7 @@ class FilesystemObjectStore:
         with self._layout() as layout, self._namespace_lock(layout.locks, digest):
             self._recover(layout.objects, valid_key, digest)
             try:
-                descriptor = os.open(digest, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=layout.objects)
+                descriptor = _open_regular(layout.objects, digest)
                 os.close(descriptor)
                 os.unlink(digest, dir_fd=layout.objects)
             except FileNotFoundError:

@@ -17,15 +17,12 @@ import pytest
 
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.object_store.filesystem import FilesystemObjectStore
+from packages.cnes_infra.tests.contracts import object_store_contract as contract
 from packages.cnes_infra.tests.contracts.clock import MutableClock
-from packages.cnes_infra.tests.contracts.object_store_contract import (
-    ObjectStoreCase,
-    object_store_cases,
-)
 
 _DURABLE_BOUNDARIES = (
-    "temporary_created", "file_fsynced", "destination_linked",
-    "directory_fsynced", "temporary_unlinked", "directory_final_fsynced",
+    "temporary_created", "file_fsynced", "destination_linked", "directory_fsynced",
+    "temporary_unlinked", "directory_final_fsynced",
 )
 _OWNER_XATTR = "user.cnes_object_store_destination"
 
@@ -37,7 +34,6 @@ class _SimulatedCrash(RuntimeError): ...
 class _CrashAt:
     boundary: str
     triggered: bool = False
-
     def __call__(self, boundary: str) -> None:
         if boundary == self.boundary and not self.triggered:
             self.triggered = True
@@ -72,7 +68,6 @@ def _process_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
 
 def _process_paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
     reached, release, results = controls
-
     def pause(boundary: str) -> None:
         if boundary == "temporary_created":
             reached.set()
@@ -85,6 +80,23 @@ def _process_paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> No
         results.put("ok")
     except Exception as error:
         results.put(type(error).__name__)
+
+
+def _process_final(root: str, results: Any) -> None:
+    key, adapter = "raw/dados.parquet", FilesystemObjectStore(root)
+    operations = (("stat", b""), ("open", b""), ("delete", b""), ("put", b"a"), ("put", b"b"))
+    for operation, body in operations:
+        try:
+            if operation == "put":
+                adapter.put(key, BytesIO(body), sha256(body).hexdigest())
+            else:
+                result = getattr(adapter, operation)(key)
+                if operation == "open":
+                    result.close()
+        except Exception as error:
+            results.put((type(error).__name__, str(error)))
+        else:
+            results.put(("ok", ""))
 
 
 def _read_during_publication(root: str, controls: tuple[Any, ...]) -> None:
@@ -102,10 +114,8 @@ def _read_during_publication(root: str, controls: tuple[Any, ...]) -> None:
         reader_done.set()
 
 
-@pytest.mark.parametrize("case", object_store_cases(), ids=lambda case: case.name)
-def test_cumpre_contrato_compartilhado(
-    case: ObjectStoreCase, tmp_path_factory: pytest.TempPathFactory
-) -> None:
+@pytest.mark.parametrize("case", contract.object_store_cases(), ids=lambda case: case.name)
+def test_contrato(case: contract.ObjectStoreCase, tmp_path_factory: pytest.TempPathFactory) -> None:
     root = tmp_path_factory.mktemp(case.name)
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root.parent)
@@ -116,9 +126,7 @@ def test_cumpre_contrato_compartilhado(
 
 
 @pytest.mark.linux_only
-def test_fsynca_pai_de_cada_diretorio_interno_criado_ou_existente(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_fsynca_ancestral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "store"
     observed: list[Path] = []
     real_fsync = os.fsync
@@ -140,9 +148,7 @@ def test_fsynca_pai_de_cada_diretorio_interno_criado_ou_existente(
 
 @pytest.mark.parametrize("operation", ["put", "promote"])
 @pytest.mark.parametrize("boundary", _DURABLE_BOUNDARIES)
-def test_recupera_cada_fronteira_duravel_sem_apagar_arquivo_alheio(
-    boundary: str, operation: str, tmp_path: Path
-) -> None:
+def test_recupera_fronteira_duravel(boundary: str, operation: str, tmp_path: Path) -> None:
     body = b"conteudo-completo"
     expected = sha256(body).hexdigest()
     unrelated = tmp_path / ".arquivo-do-usuario"
@@ -169,9 +175,7 @@ def test_recupera_cada_fronteira_duravel_sem_apagar_arquivo_alheio(
     assert unrelated.read_bytes() == b"preservar"
 
 
-def test_reabertura_ignora_temporario_removido_durante_scan(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scan_ignora_temp_removido(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced"))
     with pytest.raises(_SimulatedCrash, match="boundary=file_fsynced"):
         crashing.put("raw/dados.parquet", BytesIO(b"abandonado"), sha256(b"abandonado").hexdigest())
@@ -201,8 +205,7 @@ def test_crash_pre_marker_nao_deixa_temporario(tmp_path: Path) -> None:
 
 
 def test_nova_escrita_recupera_temporario_abandonado_no_mesmo_adapter(tmp_path: Path) -> None:
-    body = b"conteudo"
-    digest = sha256(body).hexdigest()
+    body, digest = b"conteudo", sha256(b"conteudo").hexdigest()
     adapter = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced"))
     with pytest.raises(_SimulatedCrash, match="boundary=file_fsynced"):
         adapter.put("raw/dados.parquet", BytesIO(body), digest)
@@ -215,8 +218,7 @@ def test_nova_escrita_recupera_temporario_abandonado_no_mesmo_adapter(tmp_path: 
 @pytest.mark.parametrize("alias_kind", ["hard_link", "symlink"])
 @pytest.mark.parametrize("recovery", ["startup", "pre_write"])
 def test_recuperacao_preserva_alias_legal(alias_kind: str, recovery: str, tmp_path: Path) -> None:
-    key = "raw/destino.parquet"
-    body = b"objeto-valido"
+    key, body = "raw/destino.parquet", b"objeto-valido"
     digest = sha256(body).hexdigest()
     namespace = sha256(key.encode()).hexdigest()
     adapter = FilesystemObjectStore(tmp_path)
@@ -237,8 +239,7 @@ def test_recuperacao_preserva_alias_legal(alias_kind: str, recovery: str, tmp_pa
 def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> None:
     FilesystemObjectStore(tmp_path)
     directory = _objects_directory(tmp_path)
-    mismatch_owner = "raw/owner.parquet"
-    mismatch_digest = sha256(mismatch_owner.encode()).hexdigest()
+    mismatch_owner, mismatch_digest = "raw/owner.parquet", sha256(b"raw/owner.parquet").hexdigest()
     candidates = {
         directory / f".cnes-object-store-{'b' * 64}-writer.tmp": None,
         directory / f".cnes-object-store-{'c' * 64}-writer.tmp": b"\xff",
@@ -265,9 +266,7 @@ def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> 
     assert fifo.exists()
 
 
-def test_reabertura_propaga_erro_ao_ler_ownership(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_propaga_erro_de_ownership(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     FilesystemObjectStore(tmp_path)
     candidate = _objects_directory(tmp_path) / f".cnes-object-store-{'f' * 64}-writer.tmp"
     candidate.write_bytes(b"preservar")
@@ -289,11 +288,9 @@ def test_reabertura_propaga_erro_ao_ler_ownership(
 
 
 @pytest.mark.parametrize("mode", ["owner", "read", "write", "flush", "fsync", "sha", "dir", "dst"])
-def test_falha_ordinaria_remove_temporario_e_fsynca_diretorio(
-    mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    adapter = FilesystemObjectStore(tmp_path)
-    body = MagicMock(wraps=BytesIO(b"conteudo"))
+def test_falha_remove_temp_e_fsynca_dir(
+    mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter, body = FilesystemObjectStore(tmp_path), MagicMock(wraps=BytesIO(b"conteudo"))
     if mode == "owner":
         monkeypatch.setattr(
             os,
@@ -314,8 +311,7 @@ def test_falha_ordinaria_remove_temporario_e_fsynca_diretorio(
     if mode in {"write", "flush"}:
         monkeypatch.setattr(os, "fdopen", failing_fdopen)
     real_fsync = os.fsync
-    regular_fsyncs = 0
-    directory_fsyncs = 0
+    regular_fsyncs = directory_fsyncs = 0
     def failing_fsync(descriptor: int) -> None:
         nonlocal directory_fsyncs, regular_fsyncs
         target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
@@ -340,19 +336,16 @@ def test_falha_ordinaria_remove_temporario_e_fsynca_diretorio(
 
 @pytest.mark.parametrize("kind", ["file", "directory"])
 def test_recuperacao_preserva_destino_existente(kind: str, tmp_path: Path) -> None:
-    losing = b"perdedor"
-    winner = b"vencedor"
-    key = "raw/dados.parquet"
+    losing, winner, key = b"perdedor", b"vencedor", "raw/dados.parquet"
     crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced"))
     with pytest.raises(_SimulatedCrash):
         crashing.put(key, BytesIO(losing), sha256(losing).hexdigest())
     destination = _objects_directory(tmp_path) / sha256(key.encode()).hexdigest()
     if kind == "file":
         destination.write_bytes(winner)
-        message = "object=immutable"
     else:
         destination.mkdir()
-        message = "destination=invalid"
+    message = "object=immutable" if kind == "file" else "destination=invalid"
     with pytest.raises(Conflict, match=message):
         FilesystemObjectStore(tmp_path).put(key, BytesIO(losing), sha256(losing).hexdigest())
     assert destination.read_bytes() == winner if kind == "file" else destination.is_dir()
@@ -360,12 +353,30 @@ def test_recuperacao_preserva_destino_existente(kind: str, tmp_path: Path) -> No
         assert _adapter_temporaries(tmp_path) == ()
 
 
+@pytest.mark.linux_only
+def test_fifo_final_nao_bloqueia(tmp_path: Path) -> None:
+    key, adapter = "raw/dados.parquet", FilesystemObjectStore(tmp_path)
+    fifo = _objects_directory(tmp_path) / sha256(key.encode()).hexdigest()
+    os.mkfifo(fifo)
+    context = multiprocessing.get_context("spawn")
+    results = context.Queue()
+    process = context.Process(target=_process_final, args=(str(tmp_path), results))
+    process.start()
+    process.join(timeout=1)
+    if process.is_alive():
+        process.terminate()
+    process.join(timeout=1)
+    assert process.exitcode == 0
+    assert [results.get(timeout=1) for _ in range(5)] == [("Conflict", "destination=invalid")] * 5
+    with pytest.raises(Conflict, match="destination=invalid"):
+        adapter.stat(key)
+    assert fifo.is_fifo()
+    assert _adapter_temporaries(tmp_path) == ()
+
+
 @pytest.mark.parametrize("order", [("a", "a/b"), ("a/b", "a")])
-def test_chaves_com_prefixo_coexistem_em_qualquer_ordem(
-    order: tuple[str, str], tmp_path: Path
-) -> None:
-    adapter = FilesystemObjectStore(tmp_path)
-    bodies = {"a": b"pai", "a/b": b"filho"}
+def test_chaves_prefixadas_coexistem(order: tuple[str, str], tmp_path: Path) -> None:
+    adapter, bodies = FilesystemObjectStore(tmp_path), {"a": b"pai", "a/b": b"filho"}
     for key in order:
         adapter.put(key, BytesIO(bodies[key]), sha256(bodies[key]).hexdigest())
     with adapter.open("a") as parent, adapter.open("a/b") as child:
@@ -399,11 +410,9 @@ def test_root_aberto_nao_segue_path_substituido(ancestor: bool, tmp_path: Path) 
 
 
 @pytest.mark.parametrize("link_kind", ["staging", "publication"])
-def test_nao_faz_fallback_quando_link_e_incompativel(
-    link_kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    body = b"conteudo"
-    adapter = FilesystemObjectStore(tmp_path)
+def test_link_incompativel_sem_fallback(
+    link_kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    body, adapter = b"conteudo", FilesystemObjectStore(tmp_path)
     if link_kind == "staging":
         directory = _objects_directory(tmp_path)
         namespace = sha256(b"raw/sem-fallback").hexdigest()
@@ -424,13 +433,10 @@ def test_nao_faz_fallback_quando_link_e_incompativel(
 @pytest.mark.linux_only
 def test_startup_recupera_apos_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     context = multiprocessing.get_context("spawn")
-    reached = context.Event()
-    release = context.Event()
-    results = context.Queue()
+    reached, release, results = context.Event(), context.Event(), context.Queue()
     process = context.Process(
         target=_process_paused_put,
-        args=(str(tmp_path), b"conteudo", (reached, release, results)),
-    )
+        args=(str(tmp_path), b"conteudo", (reached, release, results)),)
     process.start()
     assert reached.wait(timeout=5)
     lock_path = next(next(tmp_path.rglob("locks")).iterdir())
@@ -456,21 +462,15 @@ def test_startup_recupera_apos_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.linux_only
 @pytest.mark.parametrize("identical", [True, False], ids=["identicos", "conflitantes"])
-def test_corrida_entre_processos_publica_um_destino_completo(
-    identical: bool, tmp_path: Path
-) -> None:
+def test_corrida_publica_destino_completo(identical: bool, tmp_path: Path) -> None:
     context = multiprocessing.get_context("spawn")
     bodies = (b"a" * (2 * 1024 * 1024),) * 2 if identical else (b"a" * 1024, b"b" * 2048)
-    barrier = context.Barrier(3)
-    results = context.Queue()
-    destination_linked = context.Event()
-    reader_done = context.Event()
-    reader_ready = Event()
-    observed: list[bytes] = []
+    barrier, results = context.Barrier(3), context.Queue()
+    destination_linked, reader_done = context.Event(), context.Event()
+    reader_ready, observed = Event(), []
     reader = Thread(
         target=_read_during_publication,
-        args=(str(tmp_path), (reader_ready, destination_linked, reader_done, observed)),
-    )
+        args=(str(tmp_path), (reader_ready, destination_linked, reader_done, observed)),)
     reader.start()
     assert reader_ready.wait(timeout=5)
     processes = [
