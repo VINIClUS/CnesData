@@ -70,15 +70,12 @@ def _mkdir_durable(directory: Path) -> None:
 
 
 def _open_or_create_directory(parent: int, name: str) -> int:
-    created = False
     try:
         os.mkdir(name, dir_fd=parent)
-        created = True
     except FileExistsError:
         pass
     descriptor = os.open(name, _DIRECTORY_FLAGS, dir_fd=parent)
-    if created:
-        os.fsync(parent)
+    os.fsync(parent)
     return descriptor
 
 
@@ -357,7 +354,11 @@ class FilesystemObjectStore:
             stat, linked = self._link(valid_key, layout.objects, digest, staged)
             if linked:
                 self._fault("destination_linked")
-                os.fsync(layout.objects)
+                try:
+                    os.fsync(layout.objects)
+                except OSError:
+                    self._remove_temporary(layout.objects, staged.name)
+                    raise
                 self._fault("directory_fsynced")
             self._remove_temporary(layout.objects, staged.name)
             self._fault("temporary_unlinked")

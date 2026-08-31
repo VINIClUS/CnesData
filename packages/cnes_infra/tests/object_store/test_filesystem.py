@@ -115,22 +115,23 @@ def test_cumpre_contrato_compartilhado(
 
 
 @pytest.mark.linux_only
-def test_fsynca_pai_de_cada_diretorio_interno_criado(
+def test_fsynca_pai_de_cada_diretorio_interno_criado_ou_existente(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "store"
     observed: list[Path] = []
     real_fsync = os.fsync
-
     def observe_fsync(descriptor: int) -> None:
         target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
         if target.is_dir():
             observed.append(target)
         real_fsync(descriptor)
-
     monkeypatch.setattr(os, "fsync", observe_fsync)
     FilesystemObjectStore(root)
     assert observed[:3] == [tmp_path, root, next(root.iterdir())]
+    observed.clear()
+    FilesystemObjectStore(root)
+    assert observed == [root, next(root.iterdir()), next(root.iterdir())]
 
 
 @pytest.mark.parametrize("operation", ["put", "promote"])
@@ -280,19 +281,19 @@ def test_reabertura_propaga_erro_ao_ler_ownership(
     assert candidate.read_bytes() == b"preservar"
 
 
-@pytest.mark.parametrize("failure", ["owner", "read", "write", "flush", "fsync", "sha", "dir"])
-def test_falha_ordinaria_de_staging_remove_temporario_e_fsynca_diretorio(
-    failure: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("mode", ["owner", "read", "write", "flush", "fsync", "sha", "dir", "dst"])
+def test_falha_ordinaria_remove_temporario_e_fsynca_diretorio(
+    mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adapter = FilesystemObjectStore(tmp_path)
     body = MagicMock(wraps=BytesIO(b"conteudo"))
-    if failure == "owner":
+    if mode == "owner":
         monkeypatch.setattr(
             os,
             "setxattr",
             MagicMock(side_effect=OSError(errno.ENOTSUP, "staging=failed")),
         )
-    if failure == "read":
+    if mode == "read":
         body.read.side_effect = OSError(errno.EIO, "staging=failed")
     real_fdopen = os.fdopen
 
@@ -302,10 +303,9 @@ def test_falha_ordinaria_de_staging_remove_temporario_e_fsynca_diretorio(
         writer.__enter__.return_value = writer
         writer.__exit__.side_effect = stream.__exit__
         writer.fileno.side_effect = stream.fileno
-        getattr(writer, failure).side_effect = OSError(errno.EIO, "staging=failed")
+        getattr(writer, mode).side_effect = OSError(errno.EIO, "staging=failed")
         return writer
-
-    if failure in {"write", "flush"}:
+    if mode in {"write", "flush"}:
         monkeypatch.setattr(os, "fdopen", failing_fdopen)
     real_fsync = os.fsync
     regular_fsyncs = 0
@@ -316,23 +316,23 @@ def test_falha_ordinaria_de_staging_remove_temporario_e_fsynca_diretorio(
         target = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
         if target.is_dir():
             directory_fsyncs += target == _objects_directory(tmp_path)
-            if failure == "dir" and directory_fsyncs == 1:
+            if mode in {"dir", "dst"} and directory_fsyncs == (2 if mode == "dst" else 1):
                 raise OSError(errno.EIO, "staging=failed")
         else:
             regular_fsyncs += 1
-            if failure == "fsync" and regular_fsyncs == 2:
+            if mode == "fsync" and regular_fsyncs == 2:
                 raise OSError(errno.EIO, "staging=failed")
         real_fsync(descriptor)
 
     monkeypatch.setattr(os, "fsync", failing_fsync)
-    expected = sha256(b"outro" if failure == "sha" else b"conteudo").hexdigest()
-    error = ValueError if failure == "sha" else OSError
-    message = "sha256=mismatch" if failure == "sha" else "staging=failed"
+    expected = sha256(b"outro" if mode == "sha" else b"conteudo").hexdigest()
+    error = ValueError if mode == "sha" else OSError
+    message = "sha256=mismatch" if mode == "sha" else "staging=failed"
     with pytest.raises(error, match=message):
         adapter.put("raw/dados.parquet", body, expected)
 
     assert _adapter_temporaries(tmp_path) == ()
-    assert directory_fsyncs == (0 if failure == "owner" else 2)
+    assert directory_fsyncs == (0 if mode == "owner" else 3 if mode == "dst" else 2)
 
 
 @pytest.mark.parametrize("kind", ["file", "directory"])
