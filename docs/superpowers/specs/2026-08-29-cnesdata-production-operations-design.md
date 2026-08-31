@@ -82,25 +82,27 @@ Order:
    `ECR_URI@sha256` and phase-A evidence; never re-register those revisions. Run
    it via promotion `RunTask`, overriding task role, `AWS_CONTROL_PLANE_TABLE` and
    `AWS_AUDIT_BUCKET` to the OpenTofu-owned canary role/table/bucket only;
+   promotion can pass only canary task/execution roles, conditioned by
+   `iam:PassedToService=ecs-tasks.amazonaws.com`;
 5. atomically close the deployment fence only if the unit semaphore is idle and
    no dispatch decision is in flight. The API then rejects tenant admissions
    with `503`/`Retry-After`, and recovery starts no new executions;
 6. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
    signed activation manifest ARNs only after verifying that binding, then
-   switches the OpenTofu-owned state-machine `TaskDefinition` ARN and recovery
-   Scheduler only; audit dispatch stays on its prior validated revision. No
+   switches only the OpenTofu-owned state-machine `TaskDefinition` ARN; both
+   Schedulers stay on prior validated revisions. No
    out-of-band mutation or `ignore_changes` is allowed;
 7. use `DescribeTaskDefinition`, state-machine and Scheduler evidence to prove
-   selected unit/recovery revisions match the release while audit dispatch still
-   matches the prior manifest; then verify binding, clean state and no drift;
+   selected unit revision matches the release while both Schedulers match the
+   prior manifest; then verify binding, clean state and no drift;
 8. verify that same signed binding, update the inactive API candidate and pass
    local health/authorization smoke tests;
 9. switch Nginx to the candidate and run tunneled health/authorization through
    the normal production hostname, which now resolves to that candidate;
 10. publish frontend assets and entrypoint;
 11. while fenced, run the bound application canary, then reopen within 60 seconds;
-12. after acceptance, reviewed phase C switches only the audit Scheduler and proves
-    binding/digest/no drift. Failure keeps its prior route and deployment incomplete;
+12. after acceptance, reviewed phase C switches recovery and audit Schedulers, then
+    proves binding/digest/no drift. Failure keeps prior routes/deployment incomplete;
     retain the prior release/evidence.
 
 Retain old revisions/grants until active old Standard/scheduled work drains and
@@ -283,16 +285,16 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   candidate manifest SHA-256, release ID, source SHA, revision ARNs, verified
   digest and phase-A evidence;
 - phase-B exact OpenTofu plan/apply consumes that signed manifest and switches
-  only the state-machine/recovery target while audit dispatch remains prior.
+  only the state-machine target while both Schedulers remain prior.
   API/frontend verify the binding. Tests reject artifact
   mixing, out-of-band mutation and `ignore_changes`, then prove selected exact
   digests, clean state and no drift. Fault injection leaves a partial apply fenced
   until a diagnosed, reviewed plan converges all routes; mixed routes never reopen;
 - phase C runs only after application and isolated dispatcher canaries pass,
-  switches only audit Scheduler by reviewed apply and leaves the old route on failure;
-- canary tests permit only exact revision/role/table/bucket overrides and deny
-  production/other releases. Table data expires by TTL, retained objects by
-  lifecycle, and phase C removes the role;
+  switches both Schedulers by reviewed apply and leaves old routes on failure;
+- canary tests permit exact revision/role/table/bucket overrides and `PassRole`
+  only for canary task/execution roles with ECS PassedToService; deny production
+  and other releases. TTL/lifecycle expire data; phase C removes the role;
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
   starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
@@ -378,8 +380,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   authorization without routing changes, then the signed activation manifest
   binds candidate manifest SHA-256, release ID, source SHA, exact ARNs/digest
   and phase-A evidence. Phase-B OpenTofu evidence verifies that binding and
-  proves phase B selected unit/recovery while audit remained prior. After both
-  canaries, phase C selects the bound audit revision; each phase proves exact ECR
+  proves phase B selected unit while both Schedulers remained prior. After both
+  canaries, phase C selects bound recovery/audit revisions; each phase proves ECR
   digest, clean state and no drift. Active executions keep original revisions;
 - promotion evidence proves the fence closed before phase B, no dispatch was in
   flight, local smoke passed before switching, and tunneled smoke reached the
