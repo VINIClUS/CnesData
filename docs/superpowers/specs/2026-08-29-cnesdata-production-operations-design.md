@@ -84,9 +84,9 @@ Order:
    variables to canary-only values. It passes only canary task/execution roles with
    ECS PassedToService. A verifier gets conditioned `GetItem` on the bound key and
    `GetObject`/`GetObjectRetention` on its object; require retention/delivered proof;
-5. atomically close the deployment fence only if the unit semaphore is idle and
-   no dispatch decision is in flight. The API then rejects tenant admissions
-   with `503`/`Retry-After`, and recovery starts no new executions;
+5. promotion assumes the exact release-tagged fence operator and invokes the port
+   close command, atomically only if semaphore is idle and no decision is in flight.
+   The API then rejects admissions with `503`/`Retry-After`; recovery starts none;
 6. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
    signed activation manifest ARNs only after verifying that binding, then
    switches only the OpenTofu-owned state-machine `TaskDefinition` ARN; Schedulers
@@ -222,18 +222,15 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   Copy reads the source and writes the destination only. It has no
   raw/audit/other-prefix access and no `s3:DeleteObject` or `s3:ListBucket`
   unless separately demonstrated necessary.
-- One environment-wide control-plane DynamoDB semaphore/lease/fence item gates
-  all unit work. Initial API starts and recovery conditionally acquire it before
-  `StartExecution`, bind owner to dispatch/execution, renew it and release it
-  terminally. An expired item cannot authorize takeover until
-  `DescribeExecution` and ECS prove no work active; TTL is garbage collection
-  only. The semaphore is the cross-run arbiter: losers do not call
-  `StartExecution`; dispatch CAS applies only to same-run recovery/idempotency.
-  A concurrent request receives the documented quota error or `429`.
-- The deployment fence shares this control plane but is independent of the unit
-  semaphore. It blocks initial and recovery dispatch, except for one
-  release-bound synthetic canary during promotion, until rollback or acceptance
-  explicitly reopens admissions.
+- `ControlPlanePort.mutate_environment_gate(command)` accepts typed acquire, bind,
+  renew, release, close-fence and reopen-fence variants and returns owner/version state.
+  The DynamoDB adapter uses conditional transaction/CAS on one environment gate item.
+  API/recovery use runtime variants; the release-tagged promotion operator may only
+  get and close/reopen that exact item. Expired takeover requires Step Functions/ECS
+  proof; TTL only collects garbage. Losers never call `StartExecution` and receive the
+  quota error or `429`; dispatch CAS remains same-run idempotency only.
+- The independent deployment fence blocks initial/recovery dispatch except the bound
+  synthetic canary. Acceptance or rollback explicitly reopens it through the port.
 
 ## 7. Test and acceptance matrix
 
@@ -318,12 +315,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   `MaxSessionDuration=3600` are asserted;
   the incident drill disables new sessions, updates CRL, revokes old sessions
   and proves the timed Deny before re-enabling a rotated leaf;
-- semaphore tests require conditional acquisition before initial or recovery
-  `StartExecution`, dispatch/execution ownership, terminal release, no expired
-  takeover before Step Functions/ECS proof, no losing cross-run `StartExecution`
-  and `429` or quota on contention. Overlapping, externally retried and
-  at-least-once duplicate recovery passes remain individually bounded, while
-  dispatch CAS covers same-run recovery only;
+- gate-port tests cover typed acquire/bind/renew/release/close/reopen and conditional
+  adapter transactions. API/recovery use runtime variants; promotion assumes only the
+  release-tagged operator with exact-item get/close/reopen and no other table access.
+  Expired takeover waits for Step Functions/ECS proof; losers never `StartExecution`
+  and receive `429`/quota. Duplicate recovery stays bounded; dispatch CAS is same-run;
 - cost tests count billed pull/start/run/stop. Two minutes per 30-minute recovery and
   audit invocation budget 48+48=96 hours/30 days, leaving 4 of 100 for units. Excess
   fails acceptance/alarms and is not called a hard cap;

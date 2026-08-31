@@ -306,9 +306,9 @@ Required deployment controls:
 - deletion protection and lifecycle protection;
 - alarms for throttles, system errors and sustained consumption.
 
-The API and processor roles receive only their required table/index actions.
-No GitHub role has routine data-plane write access; demo seeding uses a separate
-manual operation role.
+API/processor roles receive only required table/index actions. GitHub roles have no
+direct routine writes; promotion may assume one release-tagged fence operator with
+conditional get/update on the exact gate item. Demo seed uses another manual role.
 
 ## 10. Data, serving and audit buckets
 
@@ -463,10 +463,10 @@ contract. Its role trusts `rolesanywhere.amazonaws.com` for `sts:AssumeRole`,
 conditions. The CA private key and API/VPS leaf credentials never enter the
 repository or OpenTofu state; issuance, revocation and recovery are operational.
 
-IAM policies distinguish API, processor, task execution, GitHub plan, GitHub
-apply, demo seed, audit verification and human break-glass duties. Wildcard
-resource permissions require an AWS API that cannot be narrowed further and a
-documented condition boundary.
+IAM policies distinguish API, processor, task execution, GitHub plan/apply,
+release-tagged fence operator, demo seed, audit verification and break-glass duties.
+Wildcard permissions require an AWS API that cannot be narrowed and a documented
+condition boundary.
 
 ## 14. OpenTofu design
 
