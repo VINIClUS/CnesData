@@ -23,7 +23,8 @@ Pull requests to `develop` run the existing locked Python/CND/AWS gates plus:
 - dashboard routing checks require
   `VITE_API_BASE_URL=https://api.cnesdata.vinisantana.com/api/v1`, mapped from
   the exact OpenTofu output into the dashboard build, one authenticated API
-  client for `auth/me` and activation, no production relative `/api` request,
+  client for `auth/me` and `/api/v1/activate/confirm`, no legacy origin-level
+  activation or production relative `/api` request,
   bearer only to the API origin and `X-Tenant-Id` only for tenant-scoped calls;
 - API and processor image build tests;
 - OCI vulnerability scan and SBOM generation;
@@ -76,29 +77,28 @@ Order:
    then output their ARNs and phase-A evidence;
 4. finalize and sign one post-registration activation manifest with the candidate
    manifest SHA-256, release ID, source SHA, exact revision ARNs, verified
-   `ECR_URI@sha256` and phase-A evidence; never re-register those revisions;
+   `ECR_URI@sha256` and phase-A evidence; never re-register those revisions. Run
+   the candidate dispatcher against an isolated nonproduction table/bucket;
 5. atomically close the deployment fence only if the unit semaphore is idle and
    no dispatch decision is in flight. The API then rejects tenant admissions
    with `503`/`Retry-After`, and recovery starts no new executions;
 6. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
    signed activation manifest ARNs only after verifying that binding, then
-   switches the OpenTofu-owned state-machine `TaskDefinition` ARN and both
-   Scheduler targets. No out-of-band mutation or `ignore_changes` is
-   allowed;
+   switches the OpenTofu-owned state-machine `TaskDefinition` ARN and recovery
+   Scheduler only; audit dispatch stays on its prior validated revision. No
+   out-of-band mutation or `ignore_changes` is allowed;
 7. use `DescribeTaskDefinition`, state-machine and Scheduler evidence to prove
-   all selected revisions resolve to the exact release digest and verify the
-   manifest binding, then verify clean OpenTofu state and no drift;
+   selected unit/recovery revisions match the release while audit dispatch still
+   matches the prior manifest; then verify binding, clean state and no drift;
 8. verify that same signed binding, update the inactive API candidate and pass
    local health/authorization smoke tests;
 9. switch Nginx to the candidate and run tunneled health/authorization through
    the normal production hostname, which now resolves to that candidate;
 10. publish frontend assets and entrypoint;
-11. while fenced, admit only the release-bound synthetic canary. The hard fence
-    budget reserves rollback margin, aborting unfinished work early enough to
-    restore prior routes and reopen admissions within 60 seconds of step 5;
-12. retain the prior release and evidence. After successful phase B, later failure
-    restores prior routes within the fence budget. A partial apply stays fenced
-    until a diagnosed, reviewed plan converges every route; never reopen mixed.
+11. while fenced, run the bound application canary, then reopen within 60 seconds;
+12. after acceptance, reviewed phase C switches only the audit Scheduler and proves
+    binding/digest/no drift. Failure keeps its prior route and deployment incomplete;
+    retain the prior release/evidence.
 
 Retain old revisions/grants until active old Standard/scheduled work drains and
 rollback retention ends. Then prune older non-rollback revisions.
@@ -289,11 +289,13 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   candidate manifest SHA-256, release ID, source SHA, revision ARNs, verified
   digest and phase-A evidence;
 - phase-B exact OpenTofu plan/apply consumes that signed manifest and switches
-  only the OpenTofu-owned state-machine/Scheduler targets after verifying the
-  binding. API/frontend steps verify the same binding. Tests reject artifact
+  only the state-machine/recovery target while audit dispatch remains prior.
+  API/frontend verify the binding. Tests reject artifact
   mixing, out-of-band mutation and `ignore_changes`, then prove selected exact
   digests, clean state and no drift. Fault injection leaves a partial apply fenced
   until a diagnosed, reviewed plan converges all routes; mixed routes never reopen;
+- phase C runs only after application and isolated dispatcher canaries pass,
+  switches only audit Scheduler by reviewed apply and leaves the old route on failure;
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
   starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
@@ -369,9 +371,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - API preflights from another origin or for a disallowed method/header are
   denied by FastAPI;
 - browser network evidence proves `auth/me` and activation use the configured
-  `VITE_API_BASE_URL=https://api.cnesdata.vinisantana.com/api/v1`, never
-  relative `/api`; bearer is sent only to the API origin and `X-Tenant-Id` only
-  to tenant-scoped calls;
+  base and exact `/api/v1/activate/confirm`; the legacy origin route and relative
+  `/api` are absent. Bearer is API-origin only and tenant header tenant-call only;
 - a Step Functions execution starts only the approved Fargate task definition,
   uses only the exact source account/state-machine trust, event rule and pass
   roles above, and fails when any scope drifts;
@@ -379,10 +380,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   authorization without routing changes, then the signed activation manifest
   binds candidate manifest SHA-256, release ID, source SHA, exact ARNs/digest
   and phase-A evidence. Phase-B OpenTofu evidence verifies that binding and
-  proves the state machine and both Schedulers selected those revisions, exact ECR
-  digest, clean state and no drift; API/frontend evidence verifies the same
-  binding before switching. Active Standard executions remain on their original
-  revision;
+  proves phase B selected unit/recovery while audit remained prior. After both
+  canaries, phase C selects the bound audit revision; each phase proves exact ECR
+  digest, clean state and no drift. Active executions keep original revisions;
 - promotion evidence proves the fence closed before phase B, no dispatch was in
   flight, local smoke passed before switching, and tunneled smoke reached the
   candidate through the switched production hostname. Only the bound canary is

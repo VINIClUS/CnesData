@@ -165,12 +165,11 @@ public configuration such as
 issuer/client ID and release ID. The OpenTofu output maps that exact value to
 the dashboard build variable `VITE_API_BASE_URL`.
 
-Every dashboard API call, including `auth/me` and activation, uses one
-authenticated client bound to
-`https://api.cnesdata.vinisantana.com/api/v1`. Production forbids relative
-`/api` requests. That client sends a bearer token only to the API origin
-`https://api.cnesdata.vinisantana.com` and sends `X-Tenant-Id` only for
-tenant-scoped calls.
+Every dashboard call, including `auth/me` and activation, uses one authenticated
+client bound to `https://api.cnesdata.vinisantana.com/api/v1`. FastAPI mounts
+activation at `/api/v1/activate/confirm`; origin-level `/activate/confirm` is
+removed. Production forbids relative `/api`. The client sends bearer only to
+`https://api.cnesdata.vinisantana.com` and `X-Tenant-Id` only for tenant calls.
 
 Deployment order:
 
