@@ -73,12 +73,15 @@ Order:
 2. under a reviewed exact OpenTofu plan/apply, phase A registers immutable unit,
    recovery and audit-dispatch revisions pinned to exact `ECR_URI@sha256` and
    dual-authorizes old and new `ecs:RunTask` ARNs without routing changes;
+   it creates the release canary role; persistent canary table/bucket are
+   OpenTofu-owned;
 3. wait for and revalidate IAM propagation, prove all revisions authorized,
    then output their ARNs and phase-A evidence;
 4. finalize and sign one post-registration activation manifest with the candidate
    manifest SHA-256, release ID, source SHA, exact revision ARNs, verified
    `ECR_URI@sha256` and phase-A evidence; never re-register those revisions. Run
-   the candidate dispatcher against an isolated nonproduction table/bucket;
+   the candidate dispatcher via promotion `RunTask` with a canary-role override,
+   scoped only to the OpenTofu-owned canary table/GSI and release bucket prefix;
 5. atomically close the deployment fence only if the unit semaphore is idle and
    no dispatch decision is in flight. The API then rejects tenant admissions
    with `503`/`Retry-After`, and recovery starts no new executions;
@@ -169,24 +172,17 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - quarterly recovery exercise reconstructs the API and proves one synthetic
   dataset pointer/serving object without altering production data;
 - destructive PITR export/restore requires a separately approved runbook run.
-- The security owner operates the external, offline CA; AWS Private CA is never
-  enabled. Its trust-anchor CA has `CA:true`, `Certificate Sign` and `CRL Sign`
-  key usage, and SHA-256 or stronger signatures. The CA private key and API/VPS
-  leaf credentials never enter the repo or OpenTofu state.
-- The owner issues a unique API/VPS X.509v3 leaf with `CA:false`, `Digital
-  Signature` usage and SHA-256 or stronger signatures. Its certificate chain
-  can be readable as needed; its host-owned private key remains outside the
-  container and is bind-mounted read-only for the fixed runtime UID only, with
-  no other user or process able to read it. Rotation occurs before expiry with
-  overlap and a refresh test.
-- Revocation imports or updates the CRL at the Roles Anywhere trust anchor; it
-  does not depend on OCSP or CDP. Compromise revokes and rotates the leaf,
-  confirms fail-closed behavior and alerts the security owner.
-- The Roles Anywhere profile sets `durationSeconds=3600`; its signing helper
-  uses `--session-duration 3600`; and the IAM role sets
-  `MaxSessionDuration=3600`. This bounded lifetime exceeds botocore's default
-  15-minute advisory refresh window. On incident, disable the profile or its
-  trust, import/update the CRL and apply `AWSRevokeOlderSessions` or an explicit
+- The security owner operates the external offline CA; AWS Private CA is disabled.
+  Trust-anchor CA has `CA:true`, certificate/CRL signing usage and SHA-256 or
+  stronger signatures; CA private key/leaf credentials never enter repo/state.
+- The unique API/VPS X.509v3 leaf has `CA:false`, `Digital Signature` and SHA-256
+  or stronger. Its chain may be readable; its host key stays outside the container,
+  read-only to the fixed UID and no other process. Rotate before expiry with overlap.
+- Revocation updates the trust-anchor CRL, never OCSP/CDP; compromise revokes and
+  rotates the leaf, proves fail-closed behavior and alerts the security owner.
+- Roles Anywhere profile/helper/role session limits are all 3600 seconds, beyond
+  botocore's 15-minute advisory refresh window. On incident, disable profile/trust,
+  update CRL and apply `AWSRevokeOlderSessions` or an explicit
   `aws:TokenIssueTime` Deny to the role.
 - Before declaring fail-closed, verify pre-incident credentials are denied by
   DynamoDB, S3 and Step Functions. Retain the deny for at least the maximum
@@ -296,6 +292,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   until a diagnosed, reviewed plan converges all routes; mixed routes never reopen;
 - phase C runs only after application and isolated dispatcher canaries pass,
   switches only audit Scheduler by reviewed apply and leaves the old route on failure;
+- canary IAM lets promotion run the exact dispatch revision/pass only its canary
+  role; that role denies production and other releases. Seeded table data expires
+  by TTL, retained objects expire by bucket lifecycle, and phase C removes the role;
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
   starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
@@ -312,6 +311,7 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   deadline equal to the lease that logs/alarms, cancels work, exits nonzero and
   stops the ECS task; overlapping, externally retried or at-least-once duplicate
   invocations have no global concurrency ceiling;
+- unit-task tests enforce hard termination no later than the non-renewable lease;
 - profile `durationSeconds=3600`, helper `--session-duration 3600` and role
   `MaxSessionDuration=3600` are asserted;
   the incident drill disables new sessions, updates CRL, revokes old sessions

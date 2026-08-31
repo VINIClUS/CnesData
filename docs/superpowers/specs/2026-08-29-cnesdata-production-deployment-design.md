@@ -389,7 +389,7 @@ including the AWS-required wildcard Logs actions, are verified in the
 - included 20 GB ephemeral storage unless measured otherwise;
 - semaphore-enforced maximum one concurrent unit task per environment;
   recovery passes may overlap without a global recovery-concurrency ceiling;
-- two-hour unit-task timeout;
+- unit-task hard timeout no later than its non-renewable lease expiry;
 - monitored monthly target: 100 task-hours counting unit, recovery and audit
   dispatcher tasks;
 - no autoscaling and no Fargate Spot in the first release;
