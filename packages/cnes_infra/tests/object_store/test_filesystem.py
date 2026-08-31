@@ -2,6 +2,7 @@
 
 import errno
 import fcntl
+import multiprocessing
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -54,13 +55,11 @@ def _objects_directory(root: Path) -> Path:
 def _process_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
     barrier, results, destination_linked, reader_done = controls
     expected = sha256(body).hexdigest()
-
     def wait_for_reader(boundary: str) -> None:
         if boundary == "destination_linked":
             destination_linked.set()
             if not reader_done.wait(timeout=5):
                 raise TimeoutError("reader=timeout")
-
     barrier.wait()
     try:
         stat = FilesystemObjectStore(root, fault_injector=wait_for_reader).put(
@@ -148,13 +147,11 @@ def test_recupera_cada_fronteira_duravel_sem_apagar_arquivo_alheio(
     source_key = "staging/dados.parquet"
     FilesystemObjectStore(tmp_path).put(source_key, BytesIO(body), expected)
     crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt(boundary))
-
     def perform() -> None:
         if operation == "put":
             crashing.put("raw/dados.parquet", BytesIO(body), expected)
         else:
             crashing.promote(source_key, "raw/dados.parquet", expected)
-
     with pytest.raises(_SimulatedCrash, match=f"boundary={boundary}"):
         perform()
     recovered = FilesystemObjectStore(tmp_path)
@@ -178,7 +175,6 @@ def test_reabertura_ignora_temporario_removido_durante_scan(
     temporary = _adapter_temporaries(tmp_path)[0]
     removed: list[Path] = []
     real_open = os.open
-
     def vanish_before_open(
         path: Any, flags: int, mode: int = 0o777, *, dir_fd: int | None = None
     ) -> int:
@@ -186,7 +182,6 @@ def test_reabertura_ignora_temporario_removido_durante_scan(
             removed.append(temporary)
             temporary.unlink()
         return real_open(path, flags, mode, dir_fd=dir_fd)
-
     monkeypatch.setattr(os, "open", vanish_before_open)
     FilesystemObjectStore(tmp_path)
     assert removed == [temporary]
@@ -251,11 +246,20 @@ def test_reabertura_preserva_lookalikes_sem_ownership_valido(tmp_path: Path) -> 
         candidate.write_bytes(b"preservar")
         if owner is not None:
             os.setxattr(candidate, _OWNER_XATTR, owner)
-
+    fifo = directory / f".cnes-object-store-{'e' * 64}-writer.tmp"
+    os.mkfifo(fifo)
+    context = multiprocessing.get_context("spawn")
+    process = context.Process(target=FilesystemObjectStore, args=(tmp_path,))
+    process.start()
+    process.join(timeout=1)
+    if process.is_alive():
+        process.terminate()
+    process.join(timeout=1)
+    assert process.exitcode == 0
     adapter = FilesystemObjectStore(tmp_path)
     adapter.put(mismatch_owner, BytesIO(b"novo"), sha256(b"novo").hexdigest())
-
     assert all(candidate.read_bytes() == b"preservar" for candidate in candidates)
+    assert fifo.exists()
 
 
 def test_reabertura_propaga_erro_ao_ler_ownership(
@@ -265,7 +269,6 @@ def test_reabertura_propaga_erro_ao_ler_ownership(
     candidate = _objects_directory(tmp_path) / f".cnes-object-store-{'f' * 64}-writer.tmp"
     candidate.write_bytes(b"preservar")
     real_open = os.open
-
     def deny_candidate(path: Any, *args: Any, **kwargs: Any) -> int:
         if path == candidate.name:
             raise PermissionError(errno.EACCES, "xattr=denied")
@@ -420,7 +423,6 @@ def test_nao_faz_fallback_quando_link_e_incompativel(
 
 @pytest.mark.linux_only
 def test_startup_recupera_apos_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import multiprocessing
     context = multiprocessing.get_context("spawn")
     reached = context.Event()
     release = context.Event()
@@ -457,8 +459,6 @@ def test_startup_recupera_apos_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 def test_corrida_entre_processos_publica_um_destino_completo(
     identical: bool, tmp_path: Path
 ) -> None:
-    import multiprocessing
-
     context = multiprocessing.get_context("spawn")
     bodies = (b"a" * (2 * 1024 * 1024),) * 2 if identical else (b"a" * 1024, b"b" * 2048)
     barrier = context.Barrier(3)

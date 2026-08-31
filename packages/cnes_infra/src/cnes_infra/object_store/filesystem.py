@@ -113,9 +113,9 @@ def _temporary_owner(descriptor: int) -> tuple[str, str] | None:
 
 def _open_candidate(objects: int, name: str) -> int | None:
     try:
-        return os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=objects)
+        return os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=objects)
     except OSError as error:
-        if error.errno in {errno.ENOENT, errno.ELOOP}:
+        if error.errno in {errno.ENOENT, errno.ENXIO, errno.ELOOP}:
             return None
         raise
 
@@ -247,7 +247,7 @@ class FilesystemObjectStore:
             return None
         try:
             metadata = os.fstat(descriptor)
-            owner = _temporary_owner(descriptor)
+            owner = _temporary_owner(descriptor) if S_ISREG(metadata.st_mode) else None
         finally:
             os.close(descriptor)
         if owner is None or owner[1] != identity[1]:
