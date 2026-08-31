@@ -198,15 +198,15 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   image, own definition/mode/role and 60-second PID deadline. `run_aws_entrypoint`
   allowlists it; composition builds DynamoDB, S3 audit sink and UTC clock, then calls
   `dispatch_once(control_plane, sink, now, limit=100)`.
-  Recovery failure and budget freeze cannot suppress it. Sink failures stay pending;
-  a persisted cursor advances each batch and wraps, retrying poison without starvation.
-  Alarm/exit is nonzero, replay idempotent, Scheduler retries zero and hours counted.
+  `ControlPlanePort` replaces `pending_outbox(limit)` with table-backed cursor page/read
+  and CAS-advance operations, no hidden persistence. Each evaluated page advances and
+  wraps; poison stays pending/retries without starvation. Alarm/exit is nonzero.
 - Recovery role has control-plane read/write; `states:StartExecution` and
   `states:DescribeStateMachine` on the exact machine, `states:DescribeExecution`
-  and `states:StopExecution` on executions, plus ECS liveness. The Roles Anywhere
-  API role gets only `states:DescribeStateMachine` on that exact machine. Scheduler
-  trusts only `scheduler.amazonaws.com` with exact source account/ARN, runs revisions
-  and passes only its task/execution roles. Dispatch Scheduler scope is equivalent
+  and `states:StopExecution` on executions, plus ECS liveness. The Roles Anywhere API
+  role gets start/describe-machine on that machine and describe/stop on its executions.
+  Scheduler trusts only `scheduler.amazonaws.com` with exact source account/ARN, runs
+  revisions and passes its task/execution roles. Dispatch Scheduler scope is equivalent
   only for dispatch revisions. Both use public subnets, zero-ingress groups,
   public IP, logs and alarms. Recovery/API/takeover ECS liveness reads use the
   configured cluster/family conditions, including required narrow `Resource: *`.
@@ -245,17 +245,17 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - old fence/dispatch rejection and duplicate execution replay;
 - required-source failure and optional-source degraded publication;
 - dispatcher boot tests accept only `dispatch-outbox-once` without unit variables
-  and inject control plane, audit sink and deterministic UTC clock. A pass reads 100,
-  writes COMPLIANCE, marks after success and advances a persisted cursor. Tests prove
-  100 poison events do not starve a second batch, wrap retries and replay is idempotent;
+  and inject control plane, audit sink and UTC clock. Port tests require cursor-aware
+  page/read plus cursor-advance CAS. A pass writes COMPLIANCE and marks after success;
+  100 poison events do not starve a second page; wrap retries and replay is idempotent;
 - no presigned URL for non-serving prefixes;
 - dashboard artifact and browser checks reject a relative `/api` request or an
   API call that bypasses the configured absolute `/api/v1` client;
 - long-lived boto3/botocore clients call AWS without restart: first use invokes
   Roles Anywhere helper, pre-advisory-window calls do not, and first access inside
   the 15-minute window refreshes once. Helper/refresh failure fails closed;
-- VPS boot requires matching AWS config/profile and exact-machine describe permission;
-  invalid values fail. API composition omits audit sink and audit-bucket requests;
+- VPS boot requires matching AWS config/profile, exact-machine start/describe and
+  execution describe/stop; invalid scope fails. API omits audit sink/bucket requests;
 - OpenTofu creates the `us-east-2` trust anchor from external offline public
   CA PEM with the required CA, key-usage and SHA-256 constraints, and the Roles
   Anywhere profile, with AWS Private CA prohibited. The trust policy permits
