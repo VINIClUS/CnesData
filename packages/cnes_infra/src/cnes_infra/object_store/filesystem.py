@@ -65,8 +65,7 @@ def _mkdir_durable(directory: Path) -> None:
     while not current.exists():
         missing.append(current)
         current = current.parent
-    if not missing:
-        _fsync_directory(directory.parent)
+    _fsync_directory(current.parent)
     for path in reversed(missing):
         path.mkdir(exist_ok=True)
         _fsync_directory(path.parent)

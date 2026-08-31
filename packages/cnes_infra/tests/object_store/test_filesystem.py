@@ -129,10 +129,13 @@ def test_fsynca_pai_de_cada_diretorio_interno_criado_ou_existente(
         real_fsync(descriptor)
     monkeypatch.setattr(os, "fsync", observe_fsync)
     FilesystemObjectStore(root)
-    assert observed[:3] == [tmp_path, root, next(root.iterdir())]
+    assert observed[:4] == [tmp_path.parent, tmp_path, root, next(root.iterdir())]
     observed.clear()
     FilesystemObjectStore(root)
     assert observed == [tmp_path, root, next(root.iterdir()), next(root.iterdir())]
+    observed.clear()
+    FilesystemObjectStore(root / "nested")
+    assert observed[:2] == [tmp_path, root]
 
 
 @pytest.mark.parametrize("operation", ["put", "promote"])
@@ -273,7 +276,6 @@ def test_reabertura_propaga_erro_ao_ler_ownership(
         if path == candidate.name:
             raise PermissionError(errno.EACCES, "xattr=denied")
         return real_open(path, *args, **kwargs)
-
     monkeypatch.setattr(os, "open", deny_candidate)
     with pytest.raises(PermissionError, match="xattr=denied"):
         FilesystemObjectStore(tmp_path)
@@ -301,7 +303,6 @@ def test_falha_ordinaria_remove_temporario_e_fsynca_diretorio(
     if mode == "read":
         body.read.side_effect = OSError(errno.EIO, "staging=failed")
     real_fdopen = os.fdopen
-
     def failing_fdopen(*args: Any, **kwargs: Any) -> MagicMock:
         stream = real_fdopen(*args, **kwargs)
         writer = MagicMock(wraps=stream)
@@ -333,7 +334,6 @@ def test_falha_ordinaria_remove_temporario_e_fsynca_diretorio(
     message = "sha256=mismatch" if mode == "sha" else "staging=failed"
     with pytest.raises(error, match=message):
         adapter.put("raw/dados.parquet", body, expected)
-
     assert _adapter_temporaries(tmp_path) == ()
     assert directory_fsyncs == (0 if mode == "owner" else 3 if mode == "dst" else 2)
 
