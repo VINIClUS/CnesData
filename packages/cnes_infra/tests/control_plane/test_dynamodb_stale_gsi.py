@@ -40,7 +40,6 @@ from packages.cnes_infra.tests.contracts.clock import (
     _job,
     _raw_record,
     _run,
-    _store_record,
     _unit,
 )
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
@@ -49,6 +48,7 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
     FailingTransactionClient,
     _create_table,
     _put_many_units,
+    _store_record_matching_mode,
 )
 
 _HASH_B = "b" * 64
@@ -114,7 +114,7 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     sibling_b = linked(sibling_b, manifest_sha256="c" * 64)
     head = linked(head, previous_manifest_sha256="c" * 64)
     for record in (full, sibling_a, sibling_b, head):
-        _store_record(adapter, record, clock)
+        _store_record_matching_mode(adapter, record, clock)
     adapter._client = stale = OneItemPageClient(adapter._client)
     stale.hidden_gsi2sk = adapter._raw_item(head)["gsi2sk"]
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 3)
@@ -419,13 +419,13 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(ctx: _DynamoCo
     assert adapter.get_job(_TENANT, "job-a") == claimed
     assert adapter.get_outbox_event("failed-after-revoke") is None
     adapter.put_agent(_agent("agent-a"))
-    manifest = _raw_record("result", "agent-b", 1, clock.now())
-    complete = CompleteJob(
-        tenant_id=_TENANT, job_id="job-a", owner="worker-a",
-        fencing_token=claimed.fencing_token, manifest=manifest,
-    )
-    with pytest.raises(Conflict, match="manifest_identity_conflict"):
-        adapter.complete_job(complete, _event("invalid-manifest"))
+    manifests = (_raw_record("result", "agent-b", 1, clock.now()),
+                 _raw_record("result", "agent-a", 2, clock.now()))
+    for index, manifest in enumerate(manifests):
+        complete = CompleteJob(tenant_id=_TENANT, job_id="job-a", owner="worker-a",
+            fencing_token=claimed.fencing_token, manifest=manifest)
+        with pytest.raises(Conflict, match="manifest_identity_conflict"):
+            adapter.complete_job(complete, _event(f"invalid-manifest-{index}"))
 @pytest.mark.parametrize("changes", [
     {"dataset_name": "silver"},
     {"run_manifest_key": f"reconciliation/{_TENANT}/2026-06/run-a/run-manifest.json"}])

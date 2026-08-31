@@ -115,13 +115,15 @@ class DynamoDBClaims:
         item, job = self._leased_job(command.tenant_id, command.job_id)
         self._validate_job_fence(job, command.owner, command.fencing_token, self._clock())
         agent_item = self._active_agent_item(job)
-        identity = (job.tenant_id, job.agent_id, job.source_type, job.file_subtype, job.competencia)
+        identity = (job.tenant_id, job.agent_id, job.source_type, job.file_subtype,
+                    job.competencia, job.requested_snapshot_mode)
         manifest_identity = (
             command.manifest.tenant_id,
             command.manifest.agent_id,
             command.manifest.source_type,
             command.manifest.file_subtype,
             command.manifest.competencia,
+            command.manifest.snapshot_mode,
         )
         if identity != manifest_identity:
             raise Conflict("manifest_identity_conflict")
@@ -360,7 +362,7 @@ class DynamoDBClaims:
         if replay is not None:
             return replay
         prior_unit_items = ()
-        if current is not None and current.state is not DispatchState.TERMINAL:
+        if current is not None:
             prior_unit_items = self._replacement_unit_items(current, command.now)
         unit_items = self._dispatch_unit_items(command)
         generation = 1 if current is None else current.generation + 1

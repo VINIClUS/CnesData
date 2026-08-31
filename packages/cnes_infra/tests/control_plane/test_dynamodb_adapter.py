@@ -10,6 +10,7 @@ from moto import mock_aws
 from cnes_domain.control_plane.commands import (
     BindRunDispatch,
     ClaimRunUnit,
+    CompleteJob,
     FinalizeRunCancellation,
     FinishRunDispatch,
     PutRunUnits,
@@ -17,7 +18,7 @@ from cnes_domain.control_plane.commands import (
     TransitionRun,
 )
 from cnes_domain.control_plane.entities import RunDependency
-from cnes_domain.control_plane.enums import DispatchOutcome, RunState, RunUnitState
+from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
@@ -30,6 +31,7 @@ from cnes_infra.control_plane.dynamodb_keys import (
     run_entity_key,
     unit_key,
 )
+from packages.cnes_infra.tests.contracts import control_plane_contract
 from packages.cnes_infra.tests.contracts.clock import (
     _NOW,
     _TENANT,
@@ -37,6 +39,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _agent,
     _claim_job,
     _claim_unit,
+    _claim_unit_command,
     _commit_command,
     _event,
     _job,
@@ -82,23 +85,18 @@ class FailingTransactionClient(ClientSpy):
     def transact_write_items(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("transact_write_items")
         self.transactions.append(kwargs["TransactItems"])
-        raise ClientError(
-            {"Error": {"Code": "TransactionCanceledException", "Message": "cancelled"},
-             "CancellationReasons": [{"Code": "ConditionalCheckFailed"}]},
-            "TransactWriteItems",
-        )
+        response = {"Error": {"Code": "TransactionCanceledException", "Message": "cancelled"},
+                    "CancellationReasons": [{"Code": "ConditionalCheckFailed"}]}
+        raise ClientError(response, "TransactWriteItems")
 def _create_table(client: object) -> None:
     index_attributes = tuple(f"{index}{suffix}" for index in _INDEXES for suffix in ("pk", "sk"))
-    attribute_definitions = [
-        {"AttributeName": name, "AttributeType": "S"} for name in ("pk", "sk", *index_attributes)
-    ]
+    attribute_definitions = [{"AttributeName": name, "AttributeType": "S"}
+                             for name in ("pk", "sk", *index_attributes)]
     global_secondary_indexes = [
         {
             "IndexName": index,
-            "KeySchema": [
-                {"AttributeName": f"{index}pk", "KeyType": "HASH"},
-                {"AttributeName": f"{index}sk", "KeyType": "RANGE"},
-            ],
+            "KeySchema": [{"AttributeName": f"{index}pk", "KeyType": "HASH"},
+                          {"AttributeName": f"{index}sk", "KeyType": "RANGE"}],
             "Projection": {"ProjectionType": "ALL"},
             "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
         }
@@ -106,18 +104,14 @@ def _create_table(client: object) -> None:
     ]
     client.create_table(
         TableName=_TABLE_NAME,
-        KeySchema=[
-            {"AttributeName": "pk", "KeyType": "HASH"},
-            {"AttributeName": "sk", "KeyType": "RANGE"},
-        ],
+        KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"},
+                   {"AttributeName": "sk", "KeyType": "RANGE"}],
         AttributeDefinitions=attribute_definitions,
         GlobalSecondaryIndexes=global_secondary_indexes,
         ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
     )
-    client.update_time_to_live(
-        TableName=_TABLE_NAME,
-        TimeToLiveSpecification={"Enabled": True, "AttributeName": "expires_at"},
-    )
+    client.update_time_to_live(TableName=_TABLE_NAME,
+        TimeToLiveSpecification={"Enabled": True, "AttributeName": "expires_at"})
 @pytest.fixture
 def dynamodb_adapter() -> Iterator[tuple[DynamoDBControlPlane, MutableClock]]:
     with mock_aws():
@@ -126,24 +120,31 @@ def dynamodb_adapter() -> Iterator[tuple[DynamoDBControlPlane, MutableClock]]:
         clock = MutableClock(_NOW)
         yield DynamoDBControlPlane(client, _TABLE_NAME, clock.now), clock
 @pytest.mark.parametrize("case", control_plane_cases(), ids=lambda case: case.name)
-def test_cumpre_contrato_compartilhado(
-    case: ControlPlaneCase,
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, clock = dynamodb_adapter
+def test_cumpre_contrato(case: ControlPlaneCase, ctx: _DynamoContext, monkeypatch: Any) -> None:
+    adapter, clock = ctx
+    if case.name == "raw_chains":
+        monkeypatch.setattr(control_plane_contract, "_store_record", _store_record_matching_mode)
     case.run(adapter, clock)
+def _store_record_matching_mode(adapter: Any, record: Any, clock: MutableClock) -> None:
+    job_id = f"job-{record.agent_id}-{record.snapshot_id}"
+    job = _job(job_id, record.agent_id, record.tenant_id).model_copy(update={
+        "source_type": record.source_type, "file_subtype": record.file_subtype,
+        "competencia": record.competencia, "requested_snapshot_mode": record.snapshot_mode})
+    adapter.put_agent(_agent(record.agent_id, tenant_id=record.tenant_id))
+    adapter.create_job(job, _event(f"created-{job_id}", tenant_id=record.tenant_id))
+    claimed = adapter.claim_job(_claim_job(job_id, "raw-worker", clock, record.tenant_id))
+    assert claimed is not None
+    command = CompleteJob(
+        tenant_id=record.tenant_id, job_id=job_id, owner="raw-worker",
+        fencing_token=claimed.fencing_token, manifest=record)
+    adapter.complete_job(command, _event(f"completed-{job_id}", tenant_id=record.tenant_id))
 def _many_units(amount: int) -> tuple[Any, ...]:
     return tuple(_unit(f"unit-{index:03d}") for index in range(amount))
 def _put_many_units(adapter: DynamoDBControlPlane, amount: int) -> tuple[Any, ...]:
     units = tuple(reversed(_many_units(amount)))
-    return adapter.put_run_units(
-        PutRunUnits(
-            tenant_id=_TENANT,
-            run_id="run-a",
-            expected_run_state=RunState.PROCESSING,
-            units=units,
-        )
-    )
+    command = PutRunUnits(
+        tenant_id=_TENANT, run_id="run-a", expected_run_state=RunState.PROCESSING, units=units)
+    return adapter.put_run_units(command)
 def _expected_item(
     model: Any, entity: str, key: tuple[str, str], indexes: dict[str, str]
 ) -> dict[str, Any]:
@@ -172,8 +173,7 @@ def _transaction_action(identifier: str) -> dict[str, Any]:
 def _dependency_run(count: int, state: RunState, run_id: str) -> Any:
     return _run(run_id, state, tuple(
         RunDependency(source_type=f"SOURCE-{index}", file_subtype="ST", required=True)
-        for index in range(count)
-    ))
+        for index in range(count)))
 def _store_waiting(adapter: DynamoDBControlPlane, run: Any, event_id: str) -> Any:
     if run.state is RunState.PLANNED:
         command = TransitionRun(tenant_id=_TENANT, run_id=run.run_id, expected_state=run.state,
@@ -418,27 +418,27 @@ def test_dispatch_expirado_rejeita_unidade_omitida(ctx: _DynamoContext) -> None:
     clock.advance(timedelta(seconds=31))
     replacement = reserve.model_copy(update={"wave_id": "b" * 16, "now": clock.now()})
     contender = DynamoDBControlPlane(adapter._client, _TABLE_NAME, clock.now)
+    claim_clock = MutableClock(_NOW + timedelta(seconds=29))
+    claim = _claim_unit_command(dispatch.dispatch_id, "worker-a", claim_clock, "unit-001")
+    assert contender.claim_run_unit(claim) is not None
+    terminal_dispatch = dispatch.model_copy(update={
+        "state": DispatchState.TERMINAL, "terminal_outcome": DispatchOutcome.CANCELED})
+    adapter._put_direct(adapter._dispatch_item(terminal_dispatch))
+    with pytest.raises(Conflict, match="dispatch_unit_unavailable"):
+        adapter.reserve_run_dispatch(replacement)
+    adapter._put_direct(adapter._unit_item(_unit("unit-001")))
     transact = adapter._transact
-    def lease_omitted_then_replace(actions: Any) -> None:
-        claim = ClaimRunUnit(
-            tenant_id=_TENANT, run_id="run-a", unit_id="unit-001",
-            dispatch_id=dispatch.dispatch_id, owner="worker-a",
-            now=_NOW + timedelta(seconds=29), lease_seconds=60,
-        )
-        assert contender.claim_run_unit(claim) is not None
+    def mutate_prior_then_replace(actions: Any) -> None:
+        stale = _unit("unit-001").model_copy(update={"state": RunUnitState.SUCCEEDED})
+        contender._put_direct(contender._unit_item(stale))
         transact(actions)
-    adapter._transact = lease_omitted_then_replace
+    adapter._transact = mutate_prior_then_replace
     with pytest.raises(Conflict, match="transaction_conflict"):
         adapter.reserve_run_dispatch(replacement)
     adapter._transact = transact
-    assert adapter._required_dispatch(_TENANT, "run-a")[1] == dispatch
-    assert adapter.list_run_units(_TENANT, "run-a")[1].state is RunUnitState.LEASED
-    with pytest.raises(Conflict, match="dispatch_unit_unavailable"):
-        adapter.reserve_run_dispatch(replacement)
+    assert adapter._required_dispatch(_TENANT, "run-a")[1] == terminal_dispatch
     adapter._client.delete_item(
-        TableName=_TABLE_NAME,
-        Key=item_key(*unit_key(_TENANT, "run-a", "unit-001")),
-    )
+        TableName=_TABLE_NAME, Key=item_key(*unit_key(_TENANT, "run-a", "unit-001")))
     with pytest.raises(Conflict, match="dispatch_unit_missing"):
         adapter.reserve_run_dispatch(replacement)
     terminal = _unit("unit-001").model_copy(update={"state": RunUnitState.SUCCEEDED})
