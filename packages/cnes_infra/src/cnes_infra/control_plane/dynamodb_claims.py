@@ -129,7 +129,7 @@ class DynamoDBClaims:
             check_action(self._table_name, agent_item),
             put_action(self._table_name, self._job_item(updated), payload(item)),
             put_action(self._table_name, self._raw_item(command.manifest), None),
-            self._event_action(event),
+            self._event_action(job.tenant_id, event),
         )
         self._transact(actions)
         return updated
@@ -149,7 +149,7 @@ class DynamoDBClaims:
         self._transact(
             (
                 put_action(self._table_name, self._job_item(updated), payload(item)),
-                self._event_action(event),
+                self._event_action(job.tenant_id, event),
             )
         )
         return updated
@@ -251,7 +251,7 @@ class DynamoDBClaims:
             check_action(self._table_name, run_item),
             check_action(self._table_name, dispatch_item),
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
-            self._event_action(event),
+            self._event_action(command.tenant_id, event),
         )
         self._transact(actions)
         return updated
@@ -282,7 +282,7 @@ class DynamoDBClaims:
             )
         else:
             actions.append(check_action(self._table_name, run_item))
-        actions.append(self._event_action(event))
+        actions.append(self._event_action(command.tenant_id, event))
         self._transact(tuple(actions))
         return updated
 
@@ -347,6 +347,8 @@ class DynamoDBClaims:
         replay = self._dispatch_replay(current, command)
         if replay is not None:
             return replay
+        if current is not None and current.state is not DispatchState.TERMINAL:
+            self._validate_replacement_units(current, command.now)
         unit_items = self._dispatch_unit_items(command)
         generation = 1 if current is None else current.generation + 1
         raw_id = f"{command.tenant_id}\x1f{command.run_id}\x1f{command.wave_id}\x1f{generation}"
@@ -377,12 +379,24 @@ class DynamoDBClaims:
         same = current.wave_id == command.wave_id and current.unit_ids == command.unit_ids
         if active and same:
             return current
-        replaceable = current.state is DispatchState.TERMINAL or (
-            current.state is DispatchState.RESERVED and current.lease_until <= command.now
-        )
+        replaceable = current.state is DispatchState.TERMINAL or current.lease_until <= command.now
         if not replaceable:
             raise Conflict("active_dispatch_conflict")
         return None
+
+    def _validate_replacement_units(self, dispatch: RunDispatch, now: Any) -> None:
+        for unit_id in dispatch.unit_ids:
+            item = self._get_item(unit_key(dispatch.tenant_id, dispatch.run_id, unit_id))
+            if item is None:
+                raise Conflict("dispatch_unit_missing")
+            unit = decode_model(item, RunUnit)
+            live = (
+                unit.state is RunUnitState.LEASED
+                and unit.lease_until is not None
+                and unit.lease_until > now
+            )
+            if live:
+                raise Conflict("dispatch_unit_unavailable")
 
     def _dispatch_unit_items(self, command: ReserveRunDispatch) -> tuple[Item, ...]:
         items = []

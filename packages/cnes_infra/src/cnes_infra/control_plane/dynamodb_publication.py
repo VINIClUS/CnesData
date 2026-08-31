@@ -20,6 +20,7 @@ from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict, NotFound
 from cnes_domain.control_plane.transitions import transition_run
 from cnes_infra.control_plane.dynamodb_codec import (
+    Action,
     Item,
     decode_model,
     encode_model,
@@ -64,6 +65,14 @@ class DynamoDBPublication:
                 "gsi6sk": f"{timestamp(event.created_at)}#{event.event_id}",
             }
         return encode_model(event, "OUTBOXEVENT", outbox_key(event.event_id), attributes)
+
+    def _event_action(self, tenant_id: str, event: OutboxEvent) -> Action:
+        if event.tenant_id != tenant_id:
+            raise Conflict("event_tenant_conflict")
+        existing = self._get_outbox_event(event.event_id)
+        if existing is not None:
+            raise Conflict("event_id_conflict")
+        return put_action(self._table_name, self._outbox_item(event), None)
 
     def begin_idempotency(self, command: BeginIdempotency) -> IdempotencyOutcome:
         """Inicia ou reproduz uma operação idempotente."""
@@ -143,7 +152,7 @@ class DynamoDBPublication:
             put_action(self._table_name, self._version_item(command.version), None),
             put_action(self._table_name, self._pointer_item(pointer), expected_pointer),
             put_action(self._table_name, self._run_item(updated_run), payload(run_item)),
-            self._event_action(command.event),
+            self._event_action(command.version.tenant_id, command.event),
         )
         self._transact(actions)
         return pointer
@@ -157,7 +166,10 @@ class DynamoDBPublication:
             command.version.dataset_name,
             command.version.version_id,
         )
-        pointer = self.get_dataset_pointer(command.version.tenant_id, command.version.dataset_name)
+        key = pointer_key(
+            command.version.tenant_id, command.version.dataset_name, command.pointer_name
+        )
+        pointer = self._get_model(key, DatasetPointer)
         event = self._get_outbox_event(command.event.event_id)
         exact = (
             run.state is command.final_state

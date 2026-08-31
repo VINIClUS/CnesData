@@ -1,7 +1,5 @@
-from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
-from threading import Barrier
 from typing import Any
 
 import boto3
@@ -34,6 +32,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _job,
     _raw_record,
     _run,
+    _store_record,
 )
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
     _TABLE_NAME,
@@ -82,9 +81,7 @@ def test_deduplica_candidatos_e_rele_base_antes_do_claim(
         client.put_item(TableName=_TABLE_NAME, Item=marker)
     spy = ClientSpy(client)
     adapter._client = spy
-
     jobs = adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
-
     assert tuple(job.job_id for job in jobs) == ("job-a",)
     consistent_reads = [call for call in spy.calls if call == "get_item"]
     assert len(consistent_reads) == 2
@@ -100,11 +97,34 @@ def test_query_percorre_todas_as_paginas_antes_de_ordenar_e_limitar(
         adapter.create_job(_job(job_id), _event(f"created-{job_id}"))
     paginated = OneItemPageClient(adapter._client)
     adapter._client = paginated
-
     jobs = adapter.list_claimable_jobs(_TENANT, "agent-a", 2)
-
     assert tuple(job.job_id for job in jobs) == ("job-a", "job-b")
     assert paginated.calls.count("query") == 2
+
+
+def test_cadeia_raw_segue_ancestralidade_sem_mesclar_deltas_irmaos(
+    dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
+) -> None:
+    _, clock, adapter = dynamodb_context
+    full = _raw_record("base", "agent-a", 1, clock.now())
+    sibling_a = _raw_record("delta-a", "agent-a", 2, clock.now() + timedelta(minutes=1))
+    sibling_b = _raw_record("delta-b", "agent-a", 2, clock.now() + timedelta(minutes=2))
+    head = _raw_record("head", "agent-a", 3, clock.now() + timedelta(minutes=3))
+    sibling_a = sibling_a.model_copy(
+        update={"base_snapshot_id": "base", "manifest_sha256": _HASH_B}
+    )
+    sibling_b = sibling_b.model_copy(
+        update={"base_snapshot_id": "base", "manifest_sha256": "c" * 64}
+    )
+    head = head.model_copy(
+        update={"base_snapshot_id": "base", "previous_manifest_sha256": "c" * 64}
+    )
+    for record in (full, sibling_a, sibling_b, head):
+        _store_record(adapter, record, clock)
+    chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 3)
+    assert tuple(ref.manifest_id for ref in chain) == (
+        full.manifest_id, sibling_b.manifest_id, head.manifest_id,
+    )
 
 
 def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(
@@ -125,7 +145,6 @@ def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(
         },
     )
     client.put_item(TableName=_TABLE_NAME, Item=marker)
-
     assert adapter.list_claimable_jobs(_TENANT, "agent-a", 10) == ()
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is None
 
@@ -146,7 +165,6 @@ def test_candidato_gsi_obsoleto_nao_recupera_run_terminal(
         },
     )
     client.put_item(TableName=_TABLE_NAME, Item=marker)
-
     assert adapter.list_recoverable_runs(clock.now(), 10) == ()
 
 
@@ -175,9 +193,7 @@ def test_expiracao_logica_substitui_item_ttl_ainda_presente(
             "expires_at": clock.now() + timedelta(minutes=5),
         }
     )
-
     outcome = adapter.begin_idempotency(replacement)
-
     assert outcome.created
     assert outcome.record.resource_id == "resource-b"
 
@@ -189,63 +205,50 @@ def test_colisao_global_de_evento_rejeita_segundo_tenant_sem_mutacao(
     adapter.create_job(_job("job-a"), _event("shared-event"))
     other_job = _job("job-b", tenant_id="other")
     other_event = _event("shared-event", tenant_id="other")
-
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.create_job(other_job, other_event)
-
     assert adapter.get_job("other", "job-b") is None
     assert adapter.get_outbox_event("shared-event").tenant_id == _TENANT
+    with pytest.raises(Conflict, match="event_tenant_conflict"):
+        adapter.create_job(_job("job-c"), _event("fresh-other", tenant_id="other"))
+    assert adapter.get_job(_TENANT, "job-c") is None
+    assert adapter.get_outbox_event("fresh-other") is None
 
 
-def test_claim_concorrente_produz_um_unico_vencedor(
+def test_claim_cas_perdedor_nao_desfaz_vencedor_persistido(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
     client, clock, adapter = dynamodb_context
     adapter.put_agent(_agent("agent-a"))
     adapter.create_job(_job("job-a"), _event("job-created"))
-    barrier = Barrier(2)
+    loser = DynamoDBControlPlane(client, _TABLE_NAME, clock.now)
+    transact = loser._transact
+    winners = []
+    def win_before_stale_cas(actions: Any) -> None:
+        winners.append(adapter.claim_job(_claim_job("job-a", "worker-b", clock)))
+        transact(actions)
 
-    def claim(owner: str) -> Any:
-        contender = DynamoDBControlPlane(client, _TABLE_NAME, clock.now)
-        command = _claim_job("job-a", owner, clock)
-        barrier.wait()
-        return contender.claim_job(command)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        outcomes = tuple(executor.map(claim, ("worker-a", "worker-b")))
-
-    winners = tuple(outcome for outcome in outcomes if outcome is not None)
-    assert len(winners) == 1
-    assert winners[0].fencing_token == 1
+    loser._transact = win_before_stale_cas
+    assert loser.claim_job(_claim_job("job-a", "worker-a", clock)) is None
+    assert winners[0] is not None
     assert adapter.get_job(_TENANT, "job-a") == winners[0]
 
 
 def test_codec_nao_introduz_decimal_nos_itens(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
-    client, _, adapter = dynamodb_context
+    client, clock, adapter = dynamodb_context
     adapter.create_job(_job("job-a"), _event("job-created"))
-
+    tenant = Tenant(tenant_id=_TENANT, municipality_name="Epitácio", created_at=clock.now())
+    adapter.put_tenant(tenant)
+    assert adapter.get_tenant(_TENANT) == tenant
     def contains_decimal(value: Any) -> bool:
         if isinstance(value, dict):
             return any(contains_decimal(item) for item in value.values())
         if isinstance(value, list):
             return any(contains_decimal(item) for item in value)
         return isinstance(value, Decimal)
-
     assert not contains_decimal(client.scan(TableName=_TABLE_NAME)["Items"])
-
-
-def test_persiste_tenant_com_isolamento(
-    dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
-) -> None:
-    _, clock, adapter = dynamodb_context
-    tenant = Tenant(tenant_id=_TENANT, municipality_name="Epitácio", created_at=clock.now())
-
-    adapter.put_tenant(tenant)
-
-    assert adapter.get_tenant(_TENANT) == tenant
-    assert adapter.get_tenant("other") is None
 
 
 def test_create_job_retorna_replay_e_rejeita_divergencia(
@@ -255,7 +258,6 @@ def test_create_job_retorna_replay_e_rejeita_divergencia(
     job = _job("job-a")
     event = _event("job-created")
     adapter.create_job(job, event)
-
     assert adapter.create_job(job, event) == job
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.create_job(job, _foreign_event(adapter))
@@ -301,9 +303,7 @@ def test_cancel_job_exige_lease_e_e_idempotente(
         adapter.cancel_job(command, _event("pending-cancel"))
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is not None
     event = _event("job-cancel-requested")
-
     canceled = adapter.cancel_job(command, event)
-
     assert canceled.state is JobState.CANCEL_REQUESTED
     assert adapter.cancel_job(command, event) == canceled
     with pytest.raises(Conflict, match="event_id_conflict"):
@@ -370,7 +370,6 @@ def test_access_request_tem_criacao_decisao_e_replays_atomicos(
             pending.model_copy(update={"user_id": "user-b"}), _event("divergent-access")
         )
     approved = _access_request(AccessRequestState.APPROVED)
-
     assert adapter.decide_access_request(approved, _event("access-approved")) == approved
     assert adapter.decide_access_request(approved, _event("access-approved")) == approved
     with pytest.raises(Conflict, match="event_id_conflict"):
@@ -388,9 +387,7 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(
     _, clock, adapter = dynamodb_context
     adapter.create_job(_job("job-a"), _event("job-created"))
     delivered_at = clock.now() + timedelta(seconds=1)
-
     adapter.mark_outbox_delivered("job-created", delivered_at)
-
     assert adapter.pending_outbox(10) == ()
     adapter.mark_outbox_delivered("job-created", delivered_at)
     with pytest.raises(Conflict, match="outbox_delivery_conflict"):
@@ -431,14 +428,19 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(
         adapter.complete_job(complete, _event("invalid-manifest"))
 
 
-def test_publicacao_rejeita_run_ausente(
+def test_publicacao_rejeita_run_ausente_e_reproduz_ponteiro_nomeado(
     dynamodb_context: tuple[Any, MutableClock, DynamoDBControlPlane],
 ) -> None:
     _, _, adapter = dynamodb_context
     from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
-
+    command = _publish("run-a", "published", None, False)
     with pytest.raises(NotFound, match="run_missing"):
-        adapter.publish_dataset(_publish("run-a", "published", None, False))
+        adapter.publish_dataset(command)
+    adapter.put_run(_run("run-a", RunState.PUBLISHING))
+    named = command.model_copy(update={"pointer_name": "candidate"})
+    pointer = adapter.publish_dataset(named)
+    assert pointer.pointer_name == "candidate"
+    assert adapter.publish_dataset(named) == pointer
 
 
 def test_codec_propaga_erro_dynamodb_nao_condicional() -> None:
@@ -449,7 +451,6 @@ def test_codec_propaga_erro_dynamodb_nao_condicional() -> None:
                 {"Error": {"Code": "ValidationException", "Message": "invalid"}},
                 "TransactWriteItems",
             )
-
     with pytest.raises(ClientError):
         execute_transaction(InvalidClient(), ())
 
@@ -468,7 +469,6 @@ def test_idempotencia_recupera_resultado_de_corrida_confirmada(
         expires_at=clock.now() + timedelta(minutes=5),
     )
     transact = adapter._transact
-
     def wins_then_reports_conflict(actions: Any) -> None:
         transact(actions)
         raise Conflict("transaction_conflict")

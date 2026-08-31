@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import timedelta
 from typing import Any
 
 import boto3
@@ -222,6 +223,9 @@ def test_grava_99_unidades_em_ate_100_acoes_unicas(
         expected_check,
         *(_expected_unit_action(index, RunUnitState.PENDING) for index in range(99)),
     ]
+    with pytest.raises(Conflict, match="run_units_conflict"):
+        _put_many_units(adapter, 98)
+    assert adapter.list_run_units(_TENANT, "run-a") == _many_units(99)
 
 
 def test_rejeita_100_unidades_antes_de_chamar_boto3(
@@ -396,78 +400,71 @@ def test_dispatch_terminal_invalida_commit_de_unidade(
         )
 
 
-def test_dispatch_ausente_ou_sem_run_e_rejeitado(
+def test_dispatch_expirado_rejeita_substituicao_que_omite_lease_vivo(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
     adapter, clock = dynamodb_adapter
     reserve = ReserveRunDispatch(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        wave_id="a" * 16,
-        unit_ids=("unit-a",),
-        now=clock.now(),
-        lease_seconds=30,
+        tenant_id=_TENANT, run_id="run-a", wave_id="a" * 16,
+        unit_ids=("unit-000",), now=clock.now(), lease_seconds=30,
     )
     with pytest.raises(Conflict, match="run_not_processing"):
         adapter.reserve_run_dispatch(reserve)
     assert adapter.get_active_run_dispatch(_TENANT, "run-a") is None
     bind = BindRunDispatch(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        dispatch_id="a" * 16,
-        execution_ref="exec-a",
-        now=clock.now(),
-        lease_seconds=30,
+        tenant_id=_TENANT, run_id="run-a", dispatch_id="a" * 16,
+        execution_ref="missing", now=clock.now(), lease_seconds=30,
     )
     with pytest.raises(NotFound, match="dispatch_missing"):
         adapter.bind_run_dispatch(bind)
+    adapter.put_run(_run("run-a"))
+    with pytest.raises(Conflict, match="dispatch_unit_missing"):
+        adapter.reserve_run_dispatch(reserve)
+    _put_many_units(adapter, 2)
+    dispatch = adapter.reserve_run_dispatch(
+        reserve.model_copy(update={"unit_ids": ("unit-000", "unit-001")})
+    )
+    claim = ClaimRunUnit(
+        tenant_id=_TENANT, run_id="run-a", unit_id="unit-001",
+        dispatch_id=dispatch.dispatch_id, owner="worker-a", now=clock.now(), lease_seconds=60,
+    )
+    assert adapter.claim_run_unit(claim) is not None
+    clock.advance(timedelta(seconds=31))
+    replacement = reserve.model_copy(
+        update={"wave_id": "b" * 16, "now": clock.now()}
+    )
+    with pytest.raises(Conflict, match="dispatch_unit_unavailable"):
+        adapter.reserve_run_dispatch(replacement)
+    adapter._client.delete_item(
+        TableName=_TABLE_NAME,
+        Key={"pk": {"S": f"TENANT#{_TENANT}#RUN#run-a"}, "sk": {"S": "UNIT#unit-001"}},
+    )
+    with pytest.raises(Conflict, match="dispatch_unit_missing"):
+        adapter.reserve_run_dispatch(replacement)
+    terminal = _unit("unit-001").model_copy(update={"state": RunUnitState.SUCCEEDED})
+    adapter._put_direct(adapter._unit_item(terminal))
+    with pytest.raises(Conflict, match="dispatch_unit_unavailable"):
+        adapter.reserve_run_dispatch(replacement.model_copy(update={"unit_ids": ("unit-001",)}))
 
 
-def test_dispatch_rejeita_unidade_ausente_ou_terminal(
+def test_dispatch_started_expirado_e_recuperavel_sem_lease_vivo(
     dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
 ) -> None:
     adapter, clock = dynamodb_adapter
-    adapter.put_run(_run("run-a"))
-    reserve = ReserveRunDispatch(
-        tenant_id=_TENANT,
-        run_id="run-a",
-        wave_id="a" * 16,
-        unit_ids=("unit-000",),
-        now=clock.now(),
-        lease_seconds=30,
+    dispatch = _prepare_unit(adapter, clock)
+    bind = BindRunDispatch(
+        tenant_id=_TENANT, run_id="run-a", dispatch_id=dispatch.dispatch_id,
+        execution_ref="exec-b", now=clock.now(), lease_seconds=1,
     )
-    with pytest.raises(Conflict, match="dispatch_unit_missing"):
-        adapter.reserve_run_dispatch(reserve)
-    _put_many_units(adapter, 1)
-    dispatch = adapter.reserve_run_dispatch(reserve)
-    claimed = adapter.claim_run_unit(
-        ClaimRunUnit(
-            tenant_id=_TENANT,
-            run_id="run-a",
-            unit_id="unit-000",
-            dispatch_id=dispatch.dispatch_id,
-            owner="worker-a",
-            now=clock.now(),
-            lease_seconds=30,
+    adapter.bind_run_dispatch(bind)
+    clock.advance(timedelta(seconds=2))
+    recovered = adapter.reserve_run_dispatch(
+        ReserveRunDispatch(
+            tenant_id=_TENANT, run_id="run-a", wave_id="b" * 16,
+            unit_ids=("unit-a",), now=clock.now(), lease_seconds=30,
         )
     )
-    adapter.commit_run_unit(
-        _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token).model_copy(
-            update={"unit_id": "unit-000"}
-        ),
-        _event("unit-complete"),
-    )
-    adapter.finish_run_dispatch(
-        FinishRunDispatch(
-            tenant_id=_TENANT,
-            run_id="run-a",
-            dispatch_id=dispatch.dispatch_id,
-            outcome=DispatchOutcome.SUCCEEDED,
-            finished_at=clock.now(),
-        )
-    )
-    with pytest.raises(Conflict, match="dispatch_unit_unavailable"):
-        adapter.reserve_run_dispatch(reserve.model_copy(update={"wave_id": "b" * 16}))
+    assert recovered.generation == 2
 
 
 def test_commit_rejeita_dispatch_da_unidade_obsoleto(

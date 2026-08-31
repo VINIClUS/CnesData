@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
@@ -127,12 +126,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
     def _transact(self, actions: tuple[Action, ...]) -> None:
         execute_transaction(self._client, actions)
 
-    def _event_action(self, event: OutboxEvent) -> Action:
-        existing = self._get_outbox_event(event.event_id)
-        if existing is not None:
-            raise Conflict("event_id_conflict")
-        return put_action(self._table_name, self._outbox_item(event), None)
-
     def _put_direct(self, item: Item) -> None:
         self._client.put_item(TableName=self._table_name, Item=item)
 
@@ -226,7 +219,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             return existing
         actions = (
             put_action(self._table_name, self._job_item(job), None),
-            self._event_action(event),
+            self._event_action(job.tenant_id, event),
         )
         self._transact(actions)
         return job
@@ -275,21 +268,22 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         records: list[RawManifestRecord], head: RawManifestRecord
     ) -> tuple[RawManifestRecord, ...]:
         base = head.snapshot_id if head.sequence == 1 else head.base_snapshot_id
-        chain = [
-            item
-            for item in records
-            if item.agent_id == head.agent_id
-            and base in (item.snapshot_id, item.base_snapshot_id)
-            and item.sequence <= head.sequence
-        ]
-        chain.sort(key=lambda item: item.sequence)
-        sequences = [item.sequence for item in chain]
-        hashes_match = all(
-            current.previous_manifest_sha256 == previous.manifest_sha256
-            for previous, current in pairwise(chain)
-        )
-        valid = sequences == list(range(1, head.sequence + 1)) and hashes_match
-        return tuple(chain) if valid else ()
+        chain = [head]
+        current = head
+        while current.sequence > 1:
+            predecessors = [
+                item for item in records
+                if item.agent_id == head.agent_id
+                and item.sequence == current.sequence - 1
+                and item.manifest_sha256 == current.previous_manifest_sha256
+                and base in (item.snapshot_id, item.base_snapshot_id)
+            ]
+            if len(predecessors) != 1:
+                return ()
+            current = predecessors[0]
+            chain.append(current)
+        chain.reverse()
+        return tuple(chain) if current.snapshot_id == base else ()
 
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Job, ...]:
         """Lista jobs elegíveis para claim."""
@@ -370,7 +364,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         )
         actions = (
             put_action(self._table_name, self._run_item(updated), payload(item)),
-            self._event_action(event),
+            self._event_action(command.tenant_id, event),
         )
         self._transact(actions)
         return updated
@@ -386,8 +380,11 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if run.state is not command.expected_run_state:
             raise Conflict("run_state_conflict")
         existing = tuple(
-            self._get_model(unit_key(unit.tenant_id, unit.run_id, unit.unit_id), RunUnit)
-            for unit in command.units
+            decode_model(item, RunUnit)
+            for item in query_partition(
+                self._client, self._table_name,
+                run_partition(command.tenant_id, command.run_id), "UNIT#"
+            )
         )
         if any(existing):
             if existing == command.units:
@@ -421,7 +418,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         self._transact(
             (
                 put_action(self._table_name, self._job_item(updated), payload(item)),
-                self._event_action(event),
+                self._event_action(command.tenant_id, event),
             )
         )
         return updated
@@ -451,7 +448,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         updated_run = transition_run(run, RunState.CANCELED)
         actions = [put_action(self._table_name, self._run_item(updated_run), payload(run_item))]
         actions.extend(self._cancel_unit_action(unit, run) for unit in cancellable)
-        actions.append(self._event_action(event))
+        actions.append(self._event_action(command.tenant_id, event))
         self._transact(tuple(actions))
         return updated_run
 
@@ -472,7 +469,9 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
                 raise Conflict("access_request_conflict")
             self._require_event_replay(request.tenant_id, event)
             return
-        self._transact((put_action(self._table_name, item, None), self._event_action(event)))
+        self._transact(
+            (put_action(self._table_name, item, None), self._event_action(request.tenant_id, event))
+        )
 
     def get_access_request(self, tenant_id: str, request_id: str) -> AccessRequest | None:
         """Retorna a solicitação de acesso."""
@@ -494,7 +493,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         self._transact(
             (
                 put_action(self._table_name, updated, payload(item)),
-                self._event_action(event),
+                self._event_action(request.tenant_id, event),
             )
         )
         return request
