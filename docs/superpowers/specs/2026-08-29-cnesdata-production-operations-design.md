@@ -192,32 +192,31 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   DynamoDB, S3 and Step Functions. Retain the deny for at least the maximum
   session duration plus propagation, issue and install a new leaf, then
   re-enable the profile/trust and test a new session.
-- The normal unit task is launched by Step Functions. `recover-once` is an
-  EventBridge Scheduler task using the same image but a separate definition/mode,
-  cadence at most half the lease and batch 100; it needs none of the seven normal
-  processor variables. Scheduler retries are zero; at-least-once/external passes
-  may overlap. PID 1 enforces the lease deadline, cancels and exits nonzero. The
-  semaphore arbitrates cross-run unit starts; dispatch CAS is same-run only.
+- Step Functions launches unit tasks. Scheduler `recover-once` uses the same image,
+  separate definition/mode, cadence at most half the lease, batch 100 and none of
+  the seven normal variables. Retries are zero; at-least-once passes may overlap.
+  PID 1 enforces the lease deadline; the semaphore is cross-run, dispatch CAS same-run.
 - `dispatch-outbox-once` is an independent Scheduler Fargate task with the same
-  image, its own definition/mode/role, five-minute cadence, batch 100 and
-  five-minute PID 1 deadline. It invokes only `dispatch_once`; recovery failure
-  and the budget freeze cannot suppress it. Sink failures remain pending, do not
-  block later events, alarm/exit nonzero and retry next cadence; replay is
-  idempotent. Scheduler retries are zero. Every task-hour counts toward the target.
+  image and its own definition/mode/role. `run_aws_entrypoint` allowlists that
+  command; its composition builds only the DynamoDB control plane and S3 audit
+  sink, then invokes `dispatch_once(limit=100)`. Cadence/deadline are five minutes.
+  Recovery failure and budget freeze cannot suppress it. Sink failures remain
+  pending, do not block later events and retry next cadence; alarm/exit is nonzero,
+  replay idempotent, Scheduler retries zero and task-hours counted.
 - Recovery role has control-plane read/write; `states:StartExecution` and
-  `states:DescribeStateMachine` on the exact production state machine;
-  `states:DescribeExecution`/`states:StopExecution` on executions; minimum
-  liveness `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
-  `scheduler.amazonaws.com` with exact `aws:SourceAccount` and
-  `aws:SourceArn`, scopes `ecs:RunTask` to recovery revisions and passes only its
-  task/execution roles. The dispatch Scheduler role has equivalent exact scope
-  only for dispatch revisions. Both use public subnets, zero-ingress security
-  groups, public IP, logs and alarm. The
-  recovery task, API and any takeover actor use ECS liveness reads only for the
-  configured cluster/task family with supported conditions; where ECS requires
-  `Resource: *`, those same narrow conditions apply.
+  `states:DescribeStateMachine` on the exact machine, `states:DescribeExecution`
+  and `states:StopExecution` on executions, plus `ecs:ListTasks`/`ecs:DescribeTasks`.
+  Its Scheduler role trusts only
+  `scheduler.amazonaws.com` with exact source account/ARN, runs recovery revisions
+  and passes only its task/execution roles. Dispatch Scheduler scope is equivalent
+  only for dispatch revisions. Both use public subnets, zero-ingress groups,
+  public IP, logs and alarms. Recovery/API/takeover ECS liveness reads use the
+  configured cluster/family conditions, including required narrow `Resource: *`.
 - Dispatch audit IAM allows `s3:GetBucketObjectLockConfiguration` on the bucket;
   `s3:GetObject`/`s3:PutObject`/`s3:PutObjectRetention` on `audit/*`; no delete/list/bypass.
+  It allows `dynamodb:Query` on the exact outbox GSI and
+  `dynamodb:GetItem`/`dynamodb:UpdateItem` on the exact control-plane table only;
+  scan, delete, put and access to any other table/index are denied.
 - For `PUBLISHING`, `s3:GetObject`/`s3:GetObjectVersion` read only the canonical
   data bucket's `tmp/`, `normalized/`, `reconciliation/` and `serving/` prefixes.
   `s3:PutObject` writes only final `normalized/`, `reconciliation/` and
@@ -247,9 +246,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - OIDC/JWKS rotation, revoked membership and cross-tenant denial;
 - old fence/dispatch rejection and duplicate execution replay;
 - required-source failure and optional-source degraded publication;
-- scheduled outbox dispatch reads at most 100 ordered events, writes the
-  deterministic COMPLIANCE object, marks delivered only after success, retries
-  pending failures next pass and proves same-hash replay idempotent;
+- dispatcher boot tests accept only `dispatch-outbox-once` without unit variables
+  and inject only control plane/audit sink. A pass reads at most 100 ordered events,
+  writes the COMPLIANCE object, marks after success, retries pending failures and
+  proves same-hash replay idempotent;
 - no presigned URL for non-serving prefixes;
 - dashboard artifact and browser checks reject a relative `/api` request or an
   API call that bypasses the configured absolute `/api/v1` client;
@@ -332,8 +332,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   machine, describe/stop-execution to its executions and ECS liveness to the
   configured cluster/task family or required narrow `Resource: *` conditions.
   Cancellation/failed binding proves stop succeeds; another machine is denied;
-- audit IAM tests allow only lock-configuration read plus get/put/put-retention
-  on the exact audit prefix; deny delete, list, bypass and every data-bucket key;
+- audit IAM tests allow exact outbox-GSI query, table get/update and audit-bucket
+  lock/get/put/retention; deny other tables/indexes, scan, delete, list and bypass;
 - a crash during `PUBLISHING` proves the recovery role reads manifest sidecars,
   promotes/verifies source-to-destination copies, writes reconciliation/serving
   manifests and completes pointer CAS without `AccessDenied`. Negative tests
