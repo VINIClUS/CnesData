@@ -19,10 +19,12 @@ from cnes_domain.control_plane.transitions import transition_run, transition_run
 from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
     put_job_terminal_write,
+    put_run_cancellation,
     put_run_dispatch_finish,
     put_run_unit_terminal_write,
     serialize_model,
     validate_job_terminal_replay,
+    validate_run_cancellation,
     validate_run_dispatch_finish,
     validate_run_dispatch_wave,
     validate_run_unit_terminal_replay,
@@ -470,31 +472,28 @@ def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUn
             store.put_run_record(connection, updated)
         store.put_outbox_event(connection, event)
         return failed
-
-
 def finalize_run_cancellation(
     store: Any, command: FinalizeRunCancellation, event: OutboxEvent
 ) -> Any:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
         if run is not None and run.state is RunState.CANCELED:
+            validate_run_cancellation(connection, command, event)
             return run
         if run is None or run.state is not RunState.CANCEL_REQUESTED:
             raise Conflict("run_not_canceling")
         terminal = {
-            RunUnitState.SUCCEEDED,
-            RunUnitState.SUCCEEDED_DEGRADED,
-            RunUnitState.FAILED_FINAL,
-            RunUnitState.CANCELED,
+            RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED,
+            RunUnitState.FAILED_FINAL, RunUnitState.CANCELED,
         }
         units = _list_run_units(connection, command.tenant_id, command.run_id)
         for unit in units:
             if unit.state not in terminal:
                 canceled = transition_run_unit(unit, RunUnitState.CANCELED, run).model_copy(
-                    update={"lease_owner": None, "lease_until": None}
-                )
+                    update={"lease_owner": None, "lease_until": None})
                 _put_run_unit(connection, canceled)
         canceled_run = transition_run(run, RunState.CANCELED)
         store.put_run_record(connection, canceled_run)
+        put_run_cancellation(connection, command, event)
         store.put_outbox_event(connection, event)
         return canceled_run

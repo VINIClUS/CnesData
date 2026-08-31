@@ -51,17 +51,14 @@ _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 @pytest.fixture
 def clock() -> MutableClock:
     return MutableClock(_NOW)
-
 @pytest.fixture
 def database_path(tmp_path):
     return tmp_path / "control-plane.sqlite3"
-
 @pytest.fixture
 def adapter(database_path, clock) -> SQLiteControlPlane:
     control_plane = SQLiteControlPlane(database_path, clock.now)
     control_plane.initialize()
     return control_plane
-
 def _capture(action: Any, barrier: Barrier) -> Any:
     barrier.wait()
     try:
@@ -76,11 +73,9 @@ def _race(first: Any, second: Any) -> tuple[Any, Any]:
                    executor.submit(_capture, second, barrier))
         barrier.wait()
         return tuple(future.result() for future in futures)
-
 def _prepare_job(adapter: SQLiteControlPlane) -> None:
     adapter.put_agent(_agent("agent-a"))
     adapter.create_job(_job("job-a"), _event("job-created"))
-
 def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> None:
     adapter.put_run(_run("run-a"))
     adapter.put_agent(_agent("agent-a"))
@@ -97,7 +92,6 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
         adapter.transition_run(transition, conflicting)
     assert adapter.get_run("354130", "run-a") == _run("run-a")
     assert adapter.pending_outbox(10) == (existing,)
-
 def test_serializa_claim_renovacao_e_publicacao_concorrentes(
     adapter, database_path, clock
 ) -> None:
@@ -122,7 +116,6 @@ def test_serializa_claim_renovacao_e_publicacao_concorrentes(
         lambda: writers[1].publish_dataset(_publish("run-pub-b", "pub-b", None, False)))
     assert sum(isinstance(result, DatasetPointer) for result in publications) == 1
     assert sum(isinstance(result, Conflict) for result in publications) == 1
-
 def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, clock) -> None:
     _prepare_job(adapter)
     claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
@@ -145,7 +138,6 @@ def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, 
         assert reclaimed is None
         assert renewed.fencing_token == 1
         assert adapter.get_job("354130", "job-a") == renewed
-
 def test_incrementa_fence_apos_expiracao_ou_lease_ausente(adapter, clock) -> None:
     _prepare_job(adapter)
     first = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
@@ -160,11 +152,9 @@ def test_incrementa_fence_apos_expiracao_ou_lease_ausente(adapter, clock) -> Non
     reclaimed = adapter.claim_job(_claim_job("job-b", "worker-c", clock))
     assert reclaimed is not None
     assert (reclaimed.attempt, reclaimed.fencing_token) == (1, 1)
-
 def test_configura_busy_timeout_de_cinco_segundos(adapter) -> None:
     with adapter.read_connection() as connection:
         assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)
-
 def test_converte_busy_em_erro_local(adapter, database_path, clock, monkeypatch) -> None:
     monkeypatch.setattr(sqlite_adapter, "_BUSY_TIMEOUT_MS", 1)
     blocker = sqlite3.connect(database_path, isolation_level=None)
@@ -176,7 +166,6 @@ def test_converte_busy_em_erro_local(adapter, database_path, clock, monkeypatch)
     finally:
         blocker.rollback()
         blocker.close()
-
 def test_traduz_falha_de_conexao_em_erro_local(tmp_path, clock, monkeypatch) -> None:
     broken = SQLiteControlPlane(tmp_path / "broken.sqlite3", clock.now)
     def fail_connect():
@@ -186,7 +175,6 @@ def test_traduz_falha_de_conexao_em_erro_local(tmp_path, clock, monkeypatch) -> 
         broken.initialize()
     with pytest.raises(_SQLiteFilesystemError, match="sqlite_filesystem"):
         broken.get_tenant("354130")
-
 def test_propaga_erro_operacional_que_nao_e_contencao(tmp_path, clock) -> None:
     uninitialized = SQLiteControlPlane(tmp_path / "empty.sqlite3", clock.now)
     tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
@@ -498,3 +486,15 @@ def test_limita_ancestralidade_longa_sem_recursao(adapter, clock, monkeypatch) -
     assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07") == ()
     assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 2) == ()
     assert len(calls) <= 35
+    with adapter.write_transaction() as connection:
+        for index in range(100):
+            broken = base.model_copy(update={
+                "manifest_id": f"invalid-{index:03}", "snapshot_id": f"invalid-{index:03}",
+                "manifest_key": f"raw/354130/CNES/2026-07/invalid-{index:03}/manifest.json",
+                "snapshot_mode": "DELTA", "sequence": 2, "base_snapshot_id": "missing",
+                "previous_manifest_sha256": "e" * 64,
+                "created_at": clock.now() + timedelta(days=1, seconds=index)})
+            adapter.put_manifest_record(connection, broken)
+    calls.clear()
+    assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 2) == ()
+    assert len(calls) <= 8

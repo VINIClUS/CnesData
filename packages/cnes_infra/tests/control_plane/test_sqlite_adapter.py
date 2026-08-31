@@ -59,6 +59,22 @@ def test_sqlite_control_plane_cumpre_contrato(
         monkeypatch.setattr(
             control_plane_contract, "_store_record", _store_record_with_matching_mode)
     case.run(sqlite_control_plane, clock)
+    if case.name == "cancellation":
+        command = control_plane_contract.FinalizeRunCancellation(
+            tenant_id="354130", run_id="run-a",
+            expected_state=control_plane_contract.RunState.CANCEL_REQUESTED,
+            canceled_at=clock.now())
+        event = _event("run-canceled")
+        reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
+        reopened.initialize()
+        result = reopened.finalize_run_cancellation(command, event)
+        before = (result, reopened.pending_outbox(100))
+        with pytest.raises(Conflict, match="run_cancellation_conflict"):
+            reopened.finalize_run_cancellation(command.model_copy(
+                update={"canceled_at": clock.now() + timedelta(seconds=1)}), event)
+        with pytest.raises(Conflict, match="run_cancellation_conflict"):
+            reopened.finalize_run_cancellation(command, event.model_copy(update={"payload": {}}))
+        assert before == (reopened.get_run("354130", "run-a"), reopened.pending_outbox(100))
 
 def _store_record_with_matching_mode(adapter, record, clock) -> None:
     job_id = f"job-{record.agent_id}-{record.snapshot_id}"
@@ -198,8 +214,6 @@ def test_replay_terminal_exato_e_divergente(sqlite_control_plane, clock, operati
     assert before == (reopened.get_job("354130", "job-a"),
                       reopened.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07"),
                       reopened.pending_outbox(100))
-
-
 def test_seleciona_ancestralidade_da_delta_mais_nova_entre_irmas(
     sqlite_control_plane, clock
 ) -> None:
@@ -225,8 +239,6 @@ def test_seleciona_ancestralidade_da_delta_mais_nova_entre_irmas(
     chain = sqlite_control_plane.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 3)
     assert tuple(reference.manifest_id for reference in chain) == (
         base.manifest_id, sibling_new.manifest_id, head.manifest_id)
-
-
 def test_pagina_heads_com_empate_ate_encontrar_chain_valida(sqlite_control_plane, clock) -> None:
     base = _raw_record("same", "agent-tie", 1, clock.now()).model_copy(
         update={"manifest_id": "manifest-x"})
@@ -240,8 +252,6 @@ def test_pagina_heads_com_empate_ate_encontrar_chain_valida(sqlite_control_plane
     chain = sqlite_control_plane.list_raw_manifest_chain(
         "354130", "CNES", "ST", "2026-07", 2)
     assert tuple(item.manifest_id for item in chain) == (base.manifest_id,)
-
-
 def test_persiste_tenant_solicitacao_de_acesso_e_entrega_outbox(
     sqlite_control_plane, clock
 ) -> None:
@@ -265,8 +275,6 @@ def test_persiste_tenant_solicitacao_de_acesso_e_entrega_outbox(
     assert sqlite_control_plane.pending_outbox(10) == (decided, created)
     sqlite_control_plane.mark_outbox_delivered(decided.event_id, clock.now())
     assert sqlite_control_plane.pending_outbox(10) == (created,)
-
-
 @pytest.mark.parametrize(
     ("invalid_kind", "error"),
     [("state", "access_request_decision_state"), ("identity", "access_request_identity_conflict")],
@@ -308,8 +316,6 @@ def test_rejeita_conflitos_e_replays_de_solicitacao_de_acesso(
             pending.model_copy(update={"request_id": "missing"}), ignored)
     assert sqlite_control_plane.get_access_request("354130", "request-a") == approved
     assert sqlite_control_plane.pending_outbox(100) == (decided, created)
-
-
 def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(
     sqlite_control_plane, clock
 ) -> None:
@@ -335,8 +341,6 @@ def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(
     assert sqlite_control_plane.pending_outbox(100) == (created,)
     with pytest.raises(NotFound, match="outbox_event_missing"):
         sqlite_control_plane.mark_outbox_delivered("missing", datetime.now(UTC))
-
-
 @pytest.mark.parametrize("operation", ["commit_run_unit", "fail_run_unit"])
 def test_rejeita_resultado_de_unidade_terminal_ou_de_outro_dispatch(
     sqlite_control_plane, clock, operation
@@ -369,12 +373,8 @@ def test_rejeita_resultado_de_unidade_terminal_ou_de_outro_dispatch(
     with pytest.raises(LeaseLost, match="unit_dispatch_mismatch"):
         action(stale, _event("stale-result"))
     assert before_stale == _unit_snapshot(sqlite_control_plane)
-
-
 def _unit_snapshot(adapter):
     return adapter.list_run_units("354130", "run-a"), adapter.pending_outbox(100)
-
-
 @pytest.mark.parametrize(
     ("operation", "retryable", "required", "expected"),
     [("commit_run_unit", True, True, RunUnitState.SUCCEEDED),

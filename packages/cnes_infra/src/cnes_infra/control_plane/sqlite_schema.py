@@ -158,6 +158,14 @@ CREATE TABLE IF NOT EXISTS run_dispatch_terminal_writes (
     command_data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, run_id, dispatch_id)
 );
+CREATE TABLE IF NOT EXISTS run_cancellation_writes (
+    tenant_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    command_data TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, run_id),
+    FOREIGN KEY (tenant_id, run_id) REFERENCES runs (tenant_id, run_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS idempotency_records (
     tenant_id TEXT NOT NULL,
     scope TEXT NOT NULL,
@@ -333,6 +341,25 @@ def validate_run_dispatch_finish(connection: Any, command: Any) -> None:
     ).fetchone()
     if row is None or row[0] != serialize_model(command):
         raise Conflict("dispatch_finish_conflict")
+
+
+def put_run_cancellation(connection: Any, command: Any, event: Any) -> None:
+    connection.execute(
+        "INSERT INTO run_cancellation_writes "
+        "(tenant_id, run_id, command_data, event_data) VALUES (?, ?, ?, ?)",
+        (command.tenant_id, command.run_id, serialize_model(command), serialize_model(event)),
+    )
+
+
+def validate_run_cancellation(connection: Any, command: Any, event: Any) -> None:
+    row = connection.execute(
+        "SELECT command_data, event_data FROM run_cancellation_writes "
+        "WHERE tenant_id = ? AND run_id = ?",
+        (command.tenant_id, command.run_id),
+    ).fetchone()
+    canonical = (serialize_model(command), serialize_model(event))
+    if row is None or tuple(row) != canonical:
+        raise Conflict("run_cancellation_conflict")
 
 
 def validate_run_dispatch_wave(connection: Any, command: Any) -> None:

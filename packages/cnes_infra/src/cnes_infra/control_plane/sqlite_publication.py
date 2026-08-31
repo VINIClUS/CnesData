@@ -32,6 +32,7 @@ LATEST_JOB_FIELDS = (
     "competencia",
 )
 DEPENDENCY_FIELDS = ("tenant_id", "source_type", "file_subtype", "competencia", "limit")
+_HEAD_SCAN_PAGES = 4
 
 
 def normalize_long_call(
@@ -111,17 +112,20 @@ def _select_raw_chain(
     connection: Any, identity: tuple[str, ...], limit: int,
 ) -> tuple[RawManifestRecord, ...]:
     cursor = (None, None, None, None)
-    while True:
+    page_size = max(limit, 1)
+    remaining = page_size * _HEAD_SCAN_PAGES
+    while remaining:
         rows = connection.execute(
             "SELECT data, created_at, agent_id, snapshot_id, manifest_id FROM raw_manifests "
             "WHERE tenant_id = ? AND source_type = ? AND file_subtype = ? AND competencia = ? "
             "AND (? IS NULL OR (created_at, agent_id, snapshot_id, manifest_id) "
             "< (?, ?, ?, ?)) ORDER BY created_at DESC, agent_id DESC, snapshot_id DESC, "
             "manifest_id DESC LIMIT ?",
-            (*identity, cursor[0], *cursor, max(limit, 1)),
+            (*identity, cursor[0], *cursor, min(page_size, remaining)),
         ).fetchall()
         if not rows:
             return ()
+        remaining -= len(rows)
         for row in rows:
             head = deserialize_model(row[0], RawManifestRecord)
             chain = _build_ancestry(connection, identity, head, limit)
@@ -130,6 +134,7 @@ def _select_raw_chain(
             if len(chain) == head.sequence:
                 return chain
         cursor = tuple(rows[-1][1:])
+    return ()
 
 
 def list_raw_manifest_chain(store: Any, values: tuple[Any, ...]) -> tuple[ManifestRef, ...]:
