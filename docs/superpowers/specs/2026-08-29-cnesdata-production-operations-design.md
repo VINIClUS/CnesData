@@ -77,9 +77,9 @@ Order:
 4. finalize and sign one post-registration activation manifest with the candidate
    manifest SHA-256, release ID, source SHA, exact revision ARNs, verified
    `ECR_URI@sha256` and phase-A evidence; never re-register those revisions;
-5. atomically close the environment deployment fence. The API then rejects all
-   tenant job admissions with `503` and `Retry-After`, recovery starts no new
-   executions, and the workflow waits until no dispatch decision is in flight;
+5. atomically close the deployment fence only if the unit semaphore is idle and
+   no dispatch decision is in flight. The API then rejects tenant admissions
+   with `503`/`Retry-After`, and recovery starts no new executions;
 6. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
    signed activation manifest ARNs only after verifying that binding, then
    switches the still OpenTofu-owned state-machine `TaskDefinition` ARN and
@@ -96,9 +96,8 @@ Order:
 11. while fenced, admit only the release-bound synthetic canary. The hard fence
     budget reserves rollback margin, aborting unfinished work early enough to
     restore prior routes and reopen admissions within 60 seconds of step 5;
-12. record redacted evidence and retain the previous release. A failure in
-    steps 6-11 keeps the fence closed and immediately restores the prior API,
-    processor and Scheduler routes before reopening admissions.
+12. retain the prior release and record redacted evidence. Failure in steps 6-11
+    restores all prior routes while fenced, then reopens admissions.
 
 Retain old revisions and their `ecs:RunTask` grants until all active old Standard
 executions and recovery tasks drain and the rollback-retention period ends. Prune
@@ -209,9 +208,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   Every recovery task-hour is counted in the 100-hour monitored monthly
   operating target. The environment semaphore arbitrates cross-run unit starts,
   while dispatch CAS handles only same-run recovery and idempotency.
-- The recovery task role has control-plane read/write,
-  `states:StartExecution` on the exact production state machine and
-  `states:DescribeExecution` and `states:StopExecution` on its executions, plus
+- Recovery role has control-plane read/write; `states:StartExecution` and
+  `states:DescribeStateMachine` on the exact production state machine;
+  `states:DescribeExecution`/`states:StopExecution` on its executions, plus
   minimum liveness
   `ecs:ListTasks`/`ecs:DescribeTasks`. The Scheduler role trusts
   `scheduler.amazonaws.com` with exact `aws:SourceAccount` and
@@ -295,9 +294,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   binding. API/frontend steps verify the same binding. Tests reject artifact
   mixing, out-of-band mutation and `ignore_changes`, then prove selected exact
   digests, clean state and no drift;
-- promotion tests close the deployment fence before phase B, prove no dispatch
-  decision remains in flight, reject tenant jobs and recovery starts, and allow
-  only the bound canary. Local smoke precedes the Nginx switch; tunneled smoke
+- promotion tests atomically close the fence before phase B only when the unit
+  semaphore is idle and no dispatch is in flight, then reject tenant/recovery
+  starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
   uses the production hostname after that switch. Any failure or fence-budget
   cutoff restores prior routes and reopens admissions within 60 seconds;
 - drain/prune tests retain old revisions and `ecs:RunTask` grants through active
@@ -329,7 +328,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
-- recovery role tests scope `states:StartExecution` to the production machine,
+- recovery role tests scope `states:StartExecution`/`states:DescribeStateMachine`
+  to the exact production state machine,
   `states:DescribeExecution`/`states:StopExecution` to its executions and ECS
   liveness reads to the configured cluster/task family or required narrow
   `Resource: *` conditions. Cancellation and failed replacement binding prove
