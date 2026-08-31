@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from typing import BinaryIO
 
 _TEMP_PREFIX = ".cnes-object-store-"
+_HEX_DIGITS = frozenset("0123456789abcdef")
 
 
 class _RecoveryKind(Enum):
@@ -46,6 +47,14 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
+def _temporary_namespace(path: Path) -> str | None:
+    namespace, _, token = path.name.removesuffix(".tmp").rpartition("-")
+    digest = namespace.removeprefix(_TEMP_PREFIX)
+    if len(digest) != 64 or not token:
+        return None
+    return namespace if set(digest) <= _HEX_DIGITS else None
+
+
 class FilesystemObjectStore:
     def __init__(
         self, root: str | Path, fault_injector: Callable[[str], None] | None = None
@@ -53,6 +62,7 @@ class FilesystemObjectStore:
         self._root = Path(root)
         self._fault_injector = fault_injector
         self._root.mkdir(parents=True, exist_ok=True)
+        self._recover_startup()
 
     def _fault(self, boundary: str) -> None:
         if self._fault_injector is not None:
@@ -72,14 +82,47 @@ class FilesystemObjectStore:
         return f"{_TEMP_PREFIX}{sha256(key.encode()).hexdigest()}"
 
     @contextmanager
-    def _destination_lock(self, destination: Path, namespace: str) -> Iterator[None]:
-        lock_path = destination.parent / f"{namespace}.lock"
+    def _namespace_lock(
+        self, directory: Path, namespace: str, *, blocking: bool = True
+    ) -> Iterator[bool]:
+        lock_path = directory / f"{namespace}.lock"
         with lock_path.open("a+b") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
             try:
-                yield
+                fcntl.flock(lock.fileno(), flags)
+            except BlockingIOError:
+                yield False
+                return
+            try:
+                yield True
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    @contextmanager
+    def _destination_lock(self, destination: Path, namespace: str) -> Iterator[None]:
+        with self._namespace_lock(destination.parent, namespace):
+            yield
+
+    def _destination_for_namespace(self, directory: Path, namespace: str) -> Path | None:
+        for candidate in directory.iterdir():
+            key = candidate.relative_to(self._root).as_posix()
+            if self._namespace(key) == namespace:
+                return candidate
+        return None
+
+    def _recover_startup(self) -> None:
+        for temporary in self._root.rglob(f"{_TEMP_PREFIX}*.tmp"):
+            namespace = _temporary_namespace(temporary)
+            if namespace is None:
+                continue
+            with self._namespace_lock(temporary.parent, namespace, blocking=False) as acquired:
+                if not acquired or not temporary.exists():
+                    continue
+                destination = self._destination_for_namespace(temporary.parent, namespace)
+                if destination is None:
+                    self._remove_temporary(temporary, temporary.parent)
+                else:
+                    self._recover(destination, namespace)
 
     @staticmethod
     def _remove_temporary(temporary: Path, directory: Path) -> None:

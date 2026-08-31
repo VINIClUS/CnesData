@@ -145,6 +145,56 @@ def test_recupera_cada_fronteira_duravel_sem_apagar_arquivo_alheio(
     assert unrelated.read_bytes() == b"preservar"
 
 
+@pytest.mark.parametrize("boundary", ["temporary_created", "file_fsynced"])
+def test_reabre_e_remove_temporario_pre_publicacao_sem_operar_na_chave(
+    boundary: str, tmp_path: Path
+) -> None:
+    valid_key = "raw/valido.parquet"
+    valid_body = b"destino-valido"
+    adapter = FilesystemObjectStore(tmp_path)
+    adapter.put(valid_key, BytesIO(valid_body), sha256(valid_body).hexdigest())
+    unrelated = tmp_path / ".arquivo-do-usuario"
+    unrelated.write_bytes(b"preservar")
+    malformed = (
+        tmp_path / ".cnes-object-store-nao-relacionado.tmp",
+        tmp_path / f".cnes-object-store-{'a' * 64}-.tmp",
+        tmp_path / f".cnes-object-store-{'A' * 64}-token.tmp",
+    )
+    for hidden in malformed:
+        hidden.write_bytes(b"preservar")
+    crashing = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt(boundary))
+    body = b"abandonado"
+    digest = sha256(body).hexdigest()
+
+    with pytest.raises(_SimulatedCrash, match=f"boundary={boundary}"):
+        crashing.put("raw/abandonado.parquet", BytesIO(body), digest)
+
+    recoverable = tuple(path for path in _adapter_temporaries(tmp_path) if path not in malformed)
+    assert recoverable
+    FilesystemObjectStore(tmp_path)
+
+    assert all(not path.exists() for path in recoverable)
+    assert (tmp_path / valid_key).read_bytes() == valid_body
+    assert unrelated.read_bytes() == b"preservar"
+    assert all(hidden.read_bytes() == b"preservar" for hidden in malformed)
+
+
+def test_nova_escrita_recupera_temporario_abandonado_no_mesmo_adapter(tmp_path: Path) -> None:
+    body = b"conteudo"
+    digest = sha256(body).hexdigest()
+    adapter = FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced"))
+
+    with pytest.raises(_SimulatedCrash, match="boundary=file_fsynced"):
+        adapter.put("raw/dados.parquet", BytesIO(body), digest)
+
+    assert _adapter_temporaries(tmp_path)
+    adapter.put("raw/dados.parquet", BytesIO(body), digest)
+
+    assert _adapter_temporaries(tmp_path) == ()
+    with adapter.open("raw/dados.parquet") as stream:
+        assert stream.read() == body
+
+
 def test_remove_temporario_perdedor_sem_tocar_destino_valido(tmp_path: Path) -> None:
     losing = b"perdedor"
     winner = b"vencedor"
