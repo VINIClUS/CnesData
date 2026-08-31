@@ -41,12 +41,20 @@ CREATE TABLE IF NOT EXISTS jobs (
     file_subtype TEXT NOT NULL,
     competencia TEXT NOT NULL,
     state TEXT NOT NULL,
+    lease_until TEXT,
     created_at TEXT NOT NULL,
     data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, job_id)
 );
-CREATE INDEX IF NOT EXISTS ix_jobs_claimable
-ON jobs (tenant_id, agent_id, state, created_at, job_id);
+CREATE INDEX IF NOT EXISTS ix_jobs_claimable_v2
+ON jobs (tenant_id, agent_id, state, lease_until, created_at, job_id);
+CREATE TABLE IF NOT EXISTS job_creation_writes (
+    tenant_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, job_id),
+    FOREIGN KEY (tenant_id, job_id) REFERENCES jobs (tenant_id, job_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS job_terminal_writes (
     tenant_id TEXT NOT NULL,
     job_id TEXT NOT NULL,
@@ -143,6 +151,13 @@ CREATE TABLE IF NOT EXISTS run_dispatch_wave_identities (
     PRIMARY KEY (tenant_id, run_id, wave_id),
     FOREIGN KEY (tenant_id, run_id) REFERENCES runs (tenant_id, run_id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS run_dispatch_terminal_writes (
+    tenant_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    dispatch_id TEXT NOT NULL,
+    command_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, run_id, dispatch_id)
+);
 CREATE TABLE IF NOT EXISTS idempotency_records (
     tenant_id TEXT NOT NULL,
     scope TEXT NOT NULL,
@@ -201,6 +216,22 @@ def serialize_model(model: BaseModel) -> str:
 
 def deserialize_model[Model: BaseModel](payload: str, model: type[Model]) -> Model:
     return model.model_validate_json(payload)
+
+
+def put_job_creation_write(connection: Any, job: Any, event: Any) -> None:
+    connection.execute(
+        "INSERT INTO job_creation_writes (tenant_id, job_id, event_data) VALUES (?, ?, ?)",
+        (job.tenant_id, job.job_id, serialize_model(event)),
+    )
+
+
+def validate_job_creation_replay(connection: Any, job: Any, event: Any) -> None:
+    row = connection.execute(
+        "SELECT event_data FROM job_creation_writes WHERE tenant_id = ? AND job_id = ?",
+        (job.tenant_id, job.job_id),
+    ).fetchone()
+    if row is None or row[0] != serialize_model(event):
+        raise Conflict("job_creation_conflict")
 
 
 def get_job_terminal_write(
@@ -284,6 +315,24 @@ def validate_run_unit_terminal_replay(
     if get_run_unit_terminal_write(connection, command) != canonical:
         raise Conflict("unit_terminal_conflict")
     return unit
+
+
+def put_run_dispatch_finish(connection: Any, command: Any) -> None:
+    connection.execute(
+        "INSERT INTO run_dispatch_terminal_writes "
+        "(tenant_id, run_id, dispatch_id, command_data) VALUES (?, ?, ?, ?)",
+        (command.tenant_id, command.run_id, command.dispatch_id, serialize_model(command)),
+    )
+
+
+def validate_run_dispatch_finish(connection: Any, command: Any) -> None:
+    row = connection.execute(
+        "SELECT command_data FROM run_dispatch_terminal_writes "
+        "WHERE tenant_id = ? AND run_id = ? AND dispatch_id = ?",
+        (command.tenant_id, command.run_id, command.dispatch_id),
+    ).fetchone()
+    if row is None or row[0] != serialize_model(command):
+        raise Conflict("dispatch_finish_conflict")
 
 
 def validate_run_dispatch_wave(connection: Any, command: Any) -> None:

@@ -26,7 +26,9 @@ from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
     initialize_schema,
     is_network_filesystem,
+    put_job_creation_write,
     serialize_model,
+    validate_job_creation_replay,
 )
 
 if TYPE_CHECKING:
@@ -219,14 +221,15 @@ class SQLiteControlPlane:
     def get_job(self, tenant_id: str, job_id: str) -> Job | None:
         with self.read_connection() as connection:
             return self.get_job_record(connection, tenant_id, job_id)
-
     def put_job_record(self, connection: sqlite3.Connection, job: Job) -> None:
         connection.execute(
             "INSERT INTO jobs (tenant_id, job_id, agent_id, source_type, file_subtype, "
-            "competencia, state, created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "competencia, state, lease_until, created_at, data) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (tenant_id, job_id) DO UPDATE SET agent_id = excluded.agent_id, "
             "source_type = excluded.source_type, file_subtype = excluded.file_subtype, "
             "competencia = excluded.competencia, state = excluded.state, "
+            "lease_until = excluded.lease_until, "
             "created_at = excluded.created_at, data = excluded.data",
             (
                 job.tenant_id,
@@ -236,6 +239,7 @@ class SQLiteControlPlane:
                 job.file_subtype,
                 job.competencia,
                 job.state.value,
+                None if job.lease_until is None else job.lease_until.isoformat(),
                 job.created_at.isoformat(),
                 serialize_model(job),
             ),
@@ -270,11 +274,12 @@ class SQLiteControlPlane:
             if current is not None:
                 if current != job:
                     raise Conflict("job_conflict")
+                validate_job_creation_replay(connection, job, event)
                 return current
             self.put_job_record(connection, job)
+            put_job_creation_write(connection, job, event)
             self.put_outbox_event(connection, event)
             return job
-
     def list_claimable_jobs(
         self, tenant_id: str, agent_id: str, limit: int
     ) -> tuple[Job, ...]:
@@ -282,21 +287,17 @@ class SQLiteControlPlane:
             agent = self.get_agent_record(connection, tenant_id, agent_id)
             if agent is None or agent.state is AgentState.REVOKED:
                 return ()
-            jobs = _fetch_all(
+            return _fetch_all(
                 connection,
                 "SELECT data FROM jobs WHERE tenant_id = ? AND agent_id = ? "
-                "ORDER BY created_at, job_id",
-                (tenant_id, agent_id),
+                "AND (state IN (?, ?) OR (state = ? AND "
+                "(lease_until IS NULL OR lease_until <= ?))) "
+                "ORDER BY created_at, job_id LIMIT ?",
+                (tenant_id, agent_id, JobState.PENDING.value,
+                 JobState.FAILED_RETRYABLE.value, JobState.LEASED.value,
+                 self.now().isoformat(), limit),
                 Job,
             )
-        claimable = [
-            job
-            for job in jobs
-            if job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}
-            or (job.state is JobState.LEASED
-                and (job.lease_until is None or job.lease_until <= self.now()))
-        ]
-        return tuple(claimable[:limit])
 
     def claim_job(self, command: ClaimJob) -> Job | None:
         return sqlite_claims.claim_job(self, command)

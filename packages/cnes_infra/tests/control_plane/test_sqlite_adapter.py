@@ -45,13 +45,11 @@ from packages.cnes_infra.tests.contracts.control_plane_contract import control_p
 def clock() -> MutableClock:
     return MutableClock(datetime(2026, 7, 15, 12, tzinfo=UTC))
 
-
 @pytest.fixture
 def sqlite_control_plane(tmp_path, clock: MutableClock) -> SQLiteControlPlane:
     adapter = SQLiteControlPlane(tmp_path / "control-plane.sqlite3", clock.now)
     adapter.initialize()
     return adapter
-
 
 @pytest.mark.parametrize("case", control_plane_cases(), ids=lambda case: case.name)
 def test_sqlite_control_plane_cumpre_contrato(
@@ -61,7 +59,6 @@ def test_sqlite_control_plane_cumpre_contrato(
         monkeypatch.setattr(
             control_plane_contract, "_store_record", _store_record_with_matching_mode)
     case.run(sqlite_control_plane, clock)
-
 
 def _store_record_with_matching_mode(adapter, record, clock) -> None:
     job_id = f"job-{record.agent_id}-{record.snapshot_id}"
@@ -81,7 +78,6 @@ def _store_record_with_matching_mode(adapter, record, clock) -> None:
     event = _event(f"completed-{job_id}", tenant_id=record.tenant_id)
     adapter.complete_job(command, event)
 
-
 def _claim_job_for_record(adapter, record, job_id, clock) -> Job:
     job = _job(job_id, record.agent_id, record.tenant_id).model_copy(update={
         "source_type": record.source_type, "file_subtype": record.file_subtype,
@@ -93,7 +89,6 @@ def _claim_job_for_record(adapter, record, job_id, clock) -> Job:
     assert claimed is not None
     return claimed
 
-
 def test_aceita_argumentos_nomeados_e_limites_padrao(sqlite_control_plane) -> None:
     identity = {"tenant_id": "354130", "source_type": "CNES",
                 "file_subtype": "ST", "competencia": "2026-07"}
@@ -103,7 +98,6 @@ def test_aceita_argumentos_nomeados_e_limites_padrao(sqlite_control_plane) -> No
     positional = tuple(identity.values())
     assert sqlite_control_plane.list_raw_manifest_chain(*positional) == ()
     assert sqlite_control_plane.list_waiting_runs_for_dependency(*positional) == ()
-
 
 def test_rejeita_formas_invalidas_das_fronteiras_variadicas(sqlite_control_plane) -> None:
     identity = ("354130", "agent-a", "CNES", "ST", "2026-07")
@@ -118,7 +112,6 @@ def test_rejeita_formas_invalidas_das_fronteiras_variadicas(sqlite_control_plane
         sqlite_control_plane.latest_succeeded_job("354130", tenant_id="354130")
     with pytest.raises(TypeError, match="missing_arguments=agent_id"):
         sqlite_control_plane.latest_succeeded_job("354130")
-
 
 def test_manifesto_repetido_e_idempotente_mas_conteudo_divergente_conflita(
     sqlite_control_plane, clock
@@ -156,7 +149,6 @@ def test_manifesto_repetido_e_idempotente_mas_conteudo_divergente_conflita(
     recovered = sqlite_control_plane.complete_job(
         divergent_command.model_copy(update={"manifest": record}), _event("completed-recovered"))
     assert recovered.result_manifest_id == record.manifest_id
-
 
 @pytest.mark.parametrize(
     ("operation", "field"),
@@ -318,7 +310,9 @@ def test_rejeita_conflitos_e_replays_de_solicitacao_de_acesso(
     assert sqlite_control_plane.pending_outbox(100) == (decided, created)
 
 
-def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(sqlite_control_plane) -> None:
+def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(
+    sqlite_control_plane, clock
+) -> None:
     agent = _agent("agent-a")
     sqlite_control_plane.put_agent(agent)
     assert sqlite_control_plane.get_agent("354130", "agent-a") == agent
@@ -326,7 +320,13 @@ def test_replays_e_conflitos_de_job_outbox_e_entrega_ausente(sqlite_control_plan
     job = _job("job-a")
     created = _event("job-created")
     assert sqlite_control_plane.create_job(job, created) == job
-    assert sqlite_control_plane.create_job(job, _event("ignored")) == job
+    reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
+    reopened.initialize()
+    assert reopened.create_job(job, created) == job
+    before = reopened.pending_outbox(100)
+    with pytest.raises(Conflict, match="job_creation_conflict"):
+        reopened.create_job(job, created.model_copy(update={"payload": {}}))
+    assert reopened.pending_outbox(100) == before
     with pytest.raises(Conflict, match="job_conflict"):
         sqlite_control_plane.create_job(
             job.model_copy(update={"source_type": "SIHD"}), _event("job-conflict"))

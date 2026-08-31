@@ -239,7 +239,6 @@ def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None
     with pytest.raises(Conflict, match="units_conflict"):
         _put_units(reopened, divergent, "run-units")
     assert reopened.list_run_units("354130", "run-units") == before
-
 def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> None:
     monkeypatch.setattr(sqlite_adapter, "_is_network_filesystem", lambda path: True)
     adapter = SQLiteControlPlane(tmp_path / "network" / "control.sqlite3", clock.now)
@@ -261,15 +260,11 @@ def test_detecta_formas_conhecidas_de_filesystem_de_rede_sem_proc(
     monkeypatch.setattr(sqlite_schema.Path, "read_text", unavailable)
     assert _is_network_filesystem(sqlite_adapter.Path(network_path))
     assert not _is_network_filesystem(tmp_path / "control.sqlite3")
-
-
 def test_rejeita_inicializacao_quando_wal_nao_e_ativado(tmp_path, clock, monkeypatch) -> None:
     adapter = SQLiteControlPlane(tmp_path / "control.sqlite3", clock.now)
     monkeypatch.setattr(adapter, "_connect", lambda: sqlite3.connect(":memory:"))
     with pytest.raises(_SQLiteFilesystemError, match="sqlite_wal_unavailable"):
         adapter.initialize()
-
-
 def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
     dependency = (RunDependency(source_type="CNES", file_subtype="ST", required=False),)
     adapter.put_run(_run("run-a", dependencies=dependency))
@@ -288,7 +283,6 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
             ),
             _event(f"degraded-{unit_id}"))
     assert adapter.get_run("354130", "run-a").missing_sources == ("CNES/ST",)
-
 def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     adapter, database_path, clock
 ) -> None:
@@ -307,10 +301,16 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     )
     with pytest.raises(Conflict, match="dispatch_stale"):
         adapter.bind_run_dispatch(bind)
-    adapter.finish_run_dispatch(
-        FinishRunDispatch(
-            tenant_id="354130", run_id="run-a", dispatch_id=dispatch.dispatch_id,
-            outcome=DispatchOutcome.FAILED, finished_at=clock.now()))
+    finish = FinishRunDispatch(
+        tenant_id="354130", run_id="run-a", dispatch_id=dispatch.dispatch_id,
+        outcome=DispatchOutcome.FAILED, finished_at=clock.now())
+    finished = adapter.finish_run_dispatch(finish)
+    replay = SQLiteControlPlane(database_path, clock.now)
+    replay.initialize()
+    assert replay.finish_run_dispatch(finish) == finished
+    with pytest.raises(Conflict, match="dispatch_finish_conflict"):
+        replay.finish_run_dispatch(finish.model_copy(
+            update={"finished_at": clock.now() + timedelta(microseconds=1)}))
     with pytest.raises(Conflict, match="dispatch_terminal"):
         adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
     with pytest.raises(Conflict, match="dispatch_units_conflict"):
@@ -341,8 +341,6 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     with pytest.raises(Conflict, match="dispatch_units_conflict"):
         _reserve(reopened, clock, "a" * 16, ("unit-a",))
     assert _reserve(reopened, clock, "a" * 16, dispatch.unit_ids).generation == 5
-
-
 @pytest.mark.parametrize("state", [None, RunState.WAITING_INPUTS])
 def test_rejeita_reserva_e_bind_sem_run_pai_processing_sem_mutacao(
     adapter, clock, state
@@ -368,8 +366,6 @@ def test_rejeita_reserva_e_bind_sem_run_pai_processing_sem_mutacao(
     with pytest.raises(Conflict, match="parent_not_processing"):
         adapter.bind_run_dispatch(bind)
     assert adapter.get_active_run_dispatch("354130", "run-a") == dispatch
-
-
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
     dispatch = _prepare_unit(adapter, clock)
     pending = _commit_command(dispatch.dispatch_id, "worker-a", 0)
@@ -383,7 +379,6 @@ def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> Non
     expired = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
     with pytest.raises(LeaseLost, match="lease_expired"):
         adapter.commit_run_unit(expired, _event("expired-commit"))
-
 
 @pytest.mark.parametrize("field", ["final_state", "missing_sources", "permit", "event"])
 def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) -> None:
@@ -432,11 +427,17 @@ def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) ->
     with pytest.raises(Conflict, match="pointer_cas"):
         adapter.publish_dataset(first)
 
-
-def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
+def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock, monkeypatch) -> None:
     adapter.put_agent(_agent("agent-order"))
     for job_id in ("job-b", "job-a"):
         adapter.create_job(_job(job_id, "agent-order"), _event(f"created-{job_id}"))
+    with adapter.write_transaction() as connection:
+        connection.execute("UPDATE jobs SET state = ?, data = ? WHERE job_id = ?",
+                           ("SUCCEEDED", "{", "job-b"))
+    deserialize = sqlite_adapter.deserialize_model
+    calls = []
+    monkeypatch.setattr(sqlite_adapter, "deserialize_model",
+                        lambda *args: (calls.append(None), deserialize(*args))[1])
     adapter.put_run(_run("run-b", RunState.WAITING_INPUTS))
     adapter.put_run(_run("run-a", RunState.WAITING_INPUTS))
     adapter.put_run(_run("run-units"))
@@ -446,8 +447,10 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     _put_units(adapter, units, "run-units")
     base = _raw_record("base-agent-raw", "agent-raw", 1, clock.now())
     _store_record(adapter, base, clock)
+    calls.clear()
     jobs = adapter.list_claimable_jobs("354130", "agent-order", 1)
     assert tuple(job.job_id for job in jobs) == ("job-a",)
+    assert len(calls) <= 2
     runs = adapter.list_waiting_runs_for_dependency("354130", "CNES", "ST", "2026-07", 1)
     assert tuple(run.run_id for run in runs) == ("run-a",)
     assert adapter.list_recoverable_runs(clock.now(), 1)[0].run_id == "run-a"
@@ -459,7 +462,6 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock) -> None:
     assert len(pending) == 1
     assert pending[0] == min(adapter.pending_outbox(100), key=lambda event: (
         event.created_at, event.event_id))
-
 
 def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> None:
     runs = (
@@ -473,7 +475,6 @@ def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> 
     recoverable = adapter.list_recoverable_runs(clock.now(), 2)
     assert tuple((run.tenant_id, run.run_id) for run in recoverable) == (
         ("a", "run-shared"), ("a", "run-z"))
-
 
 def test_limita_ancestralidade_longa_sem_recursao(adapter, clock, monkeypatch) -> None:
     base = _raw_record("deep-1", "deep-agent", 1, clock.now())

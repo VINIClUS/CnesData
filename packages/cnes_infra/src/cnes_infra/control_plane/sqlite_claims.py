@@ -19,9 +19,11 @@ from cnes_domain.control_plane.transitions import transition_run, transition_run
 from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
     put_job_terminal_write,
+    put_run_dispatch_finish,
     put_run_unit_terminal_write,
     serialize_model,
     validate_job_terminal_replay,
+    validate_run_dispatch_finish,
     validate_run_dispatch_wave,
     validate_run_unit_terminal_replay,
 )
@@ -302,7 +304,6 @@ def get_active_run_dispatch(store: Any, tenant_id: str, run_id: str) -> RunDispa
         return None
     return dispatch if dispatch.lease_until > store.now() else None
 
-
 def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
@@ -329,7 +330,6 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
         _put_dispatch(connection, started)
         return started
 
-
 def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
@@ -338,13 +338,13 @@ def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
         if dispatch.lease_until <= command.finished_at:
             raise Conflict("dispatch_expired")
         if dispatch.state is DispatchState.TERMINAL:
-            if dispatch.terminal_outcome != command.outcome:
-                raise Conflict("outcome_conflict")
+            validate_run_dispatch_finish(connection, command)
             return dispatch
         finished = dispatch.model_copy(
             update={"state": DispatchState.TERMINAL, "terminal_outcome": command.outcome}
         )
         _put_dispatch(connection, finished)
+        put_run_dispatch_finish(connection, command)
         return finished
 
 
