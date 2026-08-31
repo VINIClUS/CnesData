@@ -58,12 +58,14 @@ class ClientSpy:
         self.client = client
         self.transactions: list[list[dict[str, Any]]] = []
         self.calls: list[str] = []
+        self.query_limits: list[int | None] = []
     def transact_write_items(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("transact_write_items")
         self.transactions.append(kwargs["TransactItems"])
         return self.client.transact_write_items(**kwargs)
     def query(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("query")
+        self.query_limits.append(kwargs.get("Limit"))
         kwargs.setdefault("Limit", getattr(self, "query_limit", 100))
         return self.client.query(**kwargs)
     def __getattr__(self, name: str) -> Any:
@@ -303,10 +305,8 @@ def test_rejeita_transacao_com_chaves_duplicadas_ou_mais_de_100_acoes(
         execute_transaction(spy, actions)
     assert spy.calls == []
 
-def test_moto_cancela_transacao_inteira_quando_condicao_falha(
-    dynamodb_adapter: tuple[DynamoDBControlPlane, MutableClock],
-) -> None:
-    adapter, _ = dynamodb_adapter
+def test_moto_cancela_transacao_inteira_quando_condicao_falha(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
     original = _run("run-a")
     adapter.put_run(original)
     existing_event = _event("existing")

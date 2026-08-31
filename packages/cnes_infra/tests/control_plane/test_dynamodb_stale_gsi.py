@@ -58,9 +58,8 @@ def ctx(dynamodb_context: _DynamoContext) -> _DynamoContext:
     return dynamodb_context
 class OneItemPageClient(ClientSpy):
     def query(self, **kwargs: Any) -> dict[str, Any]:
-        self.calls.append("query")
         kwargs.setdefault("Limit", 1)
-        response = self.client.query(**kwargs)
+        response = super().query(**kwargs)
         if kwargs.get("IndexName") == "gsi6":
             response["Items"] *= 2
         return response
@@ -384,9 +383,10 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(ctx: _DynamoContext
     paginated = OneItemPageClient(client)
     adapter._client = paginated
     assert (adapter.pending_outbox(0), adapter.pending_outbox(1)) == ((), events[:1])
-    paginated.calls.clear()
+    paginated = OneItemPageClient(client)
+    adapter._client = paginated
     assert adapter.pending_outbox(2) == events[:2]
-    assert paginated.calls.count("query") == 5
+    assert paginated.query_limits == [2, 2, 1]
 def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     assert adapter.claim_job(_claim_job("missing", "worker-a", clock)) is None

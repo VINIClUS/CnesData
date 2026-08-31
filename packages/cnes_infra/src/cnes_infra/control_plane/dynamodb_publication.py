@@ -241,6 +241,7 @@ class DynamoDBPublication:
         events = []
         seen = set()
         while True:
+            request["Limit"] = limit - len(events)
             response = self._client.query(**request)
             for candidate in response.get("Items", ()):
                 key = (
