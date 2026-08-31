@@ -96,7 +96,6 @@ def _is_network_filesystem(path: Path) -> bool:
 
 class SQLiteControlPlane:
     """Persiste o plano de controle em um arquivo SQLite local."""
-
     def __init__(self, database_path: Path, clock: Callable[[], datetime]) -> None:
         self._database_path = Path(database_path)
         self._clock = clock
@@ -294,7 +293,8 @@ class SQLiteControlPlane:
             job
             for job in jobs
             if job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}
-            or (job.state is JobState.LEASED and job.lease_until <= self.now())
+            or (job.state is JobState.LEASED
+                and (job.lease_until is None or job.lease_until <= self.now()))
         ]
         return tuple(claimable[:limit])
 

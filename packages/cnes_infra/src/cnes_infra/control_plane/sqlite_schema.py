@@ -120,6 +120,14 @@ CREATE TABLE IF NOT EXISTS run_dispatches (
     PRIMARY KEY (tenant_id, run_id),
     UNIQUE (tenant_id, dispatch_id)
 );
+CREATE TABLE IF NOT EXISTS run_dispatch_wave_identities (
+    tenant_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    wave_id TEXT NOT NULL,
+    unit_ids TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, run_id, wave_id),
+    FOREIGN KEY (tenant_id, run_id) REFERENCES runs (tenant_id, run_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS idempotency_records (
     tenant_id TEXT NOT NULL,
     scope TEXT NOT NULL,
@@ -261,6 +269,24 @@ def validate_run_unit_terminal_replay(
     if get_run_unit_terminal_write(connection, command) != canonical:
         raise Conflict("unit_terminal_conflict")
     return unit
+
+
+def validate_run_dispatch_wave(connection: Any, command: Any) -> None:
+    unit_ids = json.dumps(command.unit_ids, separators=(",", ":"))
+    row = connection.execute(
+        "SELECT unit_ids FROM run_dispatch_wave_identities "
+        "WHERE tenant_id = ? AND run_id = ? AND wave_id = ?",
+        (command.tenant_id, command.run_id, command.wave_id),
+    ).fetchone()
+    if row is not None:
+        if row[0] != unit_ids:
+            raise Conflict("dispatch_units_conflict")
+        return
+    connection.execute(
+        "INSERT INTO run_dispatch_wave_identities (tenant_id, run_id, wave_id, unit_ids) "
+        "VALUES (?, ?, ?, ?)",
+        (command.tenant_id, command.run_id, command.wave_id, unit_ids),
+    )
 
 
 def is_network_filesystem(path: Path) -> bool:

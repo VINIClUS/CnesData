@@ -22,6 +22,7 @@ from cnes_infra.control_plane.sqlite_schema import (
     put_run_unit_terminal_write,
     serialize_model,
     validate_job_terminal_replay,
+    validate_run_dispatch_wave,
     validate_run_unit_terminal_replay,
 )
 
@@ -68,7 +69,8 @@ def claim_job(store: Any, command: ClaimJob) -> Job | None:
         if job is None or agent is None or agent.state is AgentState.REVOKED:
             return None
         retryable = job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}
-        expired = job.state is JobState.LEASED and job.lease_until <= command.now
+        expired = job.state is JobState.LEASED and (
+            job.lease_until is None or job.lease_until <= command.now)
         if not retryable and not expired:
             return None
         claimed = job.model_copy(
@@ -258,10 +260,9 @@ def _has_live_unit_lease(connection: Any, dispatch: RunDispatch, now: Any) -> bo
 
 def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
+        validate_run_dispatch_wave(connection, command)
         current = _get_dispatch(connection, command.tenant_id, command.run_id)
         same_wave = current is not None and current.wave_id == command.wave_id
-        if same_wave and current.unit_ids != command.unit_ids:
-            raise Conflict("dispatch_units_conflict")
         replay = (
             same_wave
             and current.lease_until > command.now

@@ -76,10 +76,8 @@ def _capture(action: Any, barrier: Barrier) -> Any:
 def _race(first: Any, second: Any) -> tuple[Any, Any]:
     barrier = Barrier(3)
     with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = (
-            executor.submit(_capture, first, barrier),
-            executor.submit(_capture, second, barrier),
-        )
+        futures = (executor.submit(_capture, first, barrier),
+                   executor.submit(_capture, second, barrier))
         barrier.wait()
         return tuple(future.result() for future in futures)
 
@@ -99,10 +97,8 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
         new_state=RunState.PUBLISHING)
     conflicting = existing.model_copy(update={"aggregate_id": "run-a"})
     with pytest.raises(Conflict, match="run_state_conflict"):
-        adapter.transition_run(
-            transition.model_copy(update={"expected_state": RunState.WAITING_INPUTS}),
-            _event("invalid-transition"),
-        )
+        adapter.transition_run(transition.model_copy(
+            update={"expected_state": RunState.WAITING_INPUTS}), _event("invalid-transition"))
     with pytest.raises(Conflict, match="outbox_event_conflict"):
         adapter.transition_run(transition, conflicting)
     assert adapter.get_run("354130", "run-a") == _run("run-a")
@@ -115,27 +111,22 @@ def test_serializa_claim_renovacao_e_publicacao_concorrentes(
     _prepare_job(adapter)
     writers = (SQLiteControlPlane(database_path, clock.now),
                SQLiteControlPlane(database_path, clock.now))
-    claims = _race(
-        lambda: writers[0].claim_job(_claim_job("job-a", "worker-a", clock)),
-        lambda: writers[1].claim_job(_claim_job("job-a", "worker-b", clock)),
-    )
+    claims = _race(lambda: writers[0].claim_job(_claim_job("job-a", "worker-a", clock)),
+                   lambda: writers[1].claim_job(_claim_job("job-a", "worker-b", clock)))
     winners = [result for result in claims if result is not None]
     assert len(winners) == 1
     claimed = winners[0]
     renew = RenewJobLease(
         tenant_id="354130", job_id="job-a", owner=claimed.lease_owner,
         fencing_token=claimed.fencing_token, now=clock.now(), lease_seconds=60)
-    renewals = _race(
-        lambda: writers[0].renew_job_lease(renew),
-        lambda: writers[1].renew_job_lease(renew),
-    )
+    renewals = _race(lambda: writers[0].renew_job_lease(renew),
+                     lambda: writers[1].renew_job_lease(renew))
     assert renewals[0] == renewals[1]
     adapter.put_run(_run("run-pub-a", RunState.PUBLISHING))
     adapter.put_run(_run("run-pub-b", RunState.PUBLISHING))
     publications = _race(
         lambda: writers[0].publish_dataset(_publish("run-pub-a", "pub-a", None, False)),
-        lambda: writers[1].publish_dataset(_publish("run-pub-b", "pub-b", None, False)),
-    )
+        lambda: writers[1].publish_dataset(_publish("run-pub-b", "pub-b", None, False)))
     assert sum(isinstance(result, DatasetPointer) for result in publications) == 1
     assert sum(isinstance(result, Conflict) for result in publications) == 1
 
@@ -152,10 +143,8 @@ def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, 
     reclaim = ClaimJob(
         tenant_id="354130", job_id="job-a", owner="worker-b",
         now=clock.now() + timedelta(seconds=31), lease_seconds=30)
-    renewed, reclaimed = _race(
-        lambda: writers[0].renew_job_lease(renew),
-        lambda: writers[1].claim_job(reclaim),
-    )
+    renewed, reclaimed = _race(lambda: writers[0].renew_job_lease(renew),
+                               lambda: writers[1].claim_job(reclaim))
     if isinstance(renewed, LeaseLost):
         assert reclaimed is not None
         assert reclaimed.fencing_token == 2
@@ -166,7 +155,7 @@ def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, 
         assert adapter.get_job("354130", "job-a") == renewed
 
 
-def test_incrementa_fence_apos_expiracao(adapter, clock) -> None:
+def test_incrementa_fence_apos_expiracao_ou_lease_ausente(adapter, clock) -> None:
     _prepare_job(adapter)
     first = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
     clock.advance(timedelta(seconds=31))
@@ -174,6 +163,12 @@ def test_incrementa_fence_apos_expiracao(adapter, clock) -> None:
     assert first is not None
     assert second is not None
     assert (first.fencing_token, second.fencing_token) == (1, 2)
+    missing_lease = _job("job-b").model_copy(update={"state": first.state})
+    adapter.create_job(missing_lease, _event("job-b-created"))
+    assert missing_lease in adapter.list_claimable_jobs("354130", "agent-a", 10)
+    reclaimed = adapter.claim_job(_claim_job("job-b", "worker-c", clock))
+    assert reclaimed is not None
+    assert (reclaimed.attempt, reclaimed.fencing_token) == (1, 1)
 
 
 def test_configura_busy_timeout_de_cinco_segundos(adapter) -> None:
@@ -198,7 +193,6 @@ def test_traduz_falha_de_conexao_em_erro_local(tmp_path, clock, monkeypatch) -> 
     broken = SQLiteControlPlane(tmp_path / "broken.sqlite3", clock.now)
     def fail_connect():
         raise sqlite3.OperationalError("disk_unavailable")
-
     monkeypatch.setattr(broken, "_connect", fail_connect)
     with pytest.raises(_SQLiteFilesystemError, match="sqlite_filesystem"):
         broken.initialize()
@@ -216,20 +210,13 @@ def test_propaga_erro_operacional_que_nao_e_contencao(tmp_path, clock) -> None:
 def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, clock) -> None:
     _prepare_job(adapter)
     renew = RenewJobLease(
-        tenant_id="354130",
-        job_id="job-a",
-        owner="worker-a",
-        fencing_token=0,
-        now=clock.now(),
-        lease_seconds=30,
-    )
+        tenant_id="354130", job_id="job-a", owner="worker-a", fencing_token=0,
+        now=clock.now(), lease_seconds=30)
     with pytest.raises(LeaseLost, match="job_not_leased"):
         adapter.renew_job_lease(renew)
     with pytest.raises(Conflict, match="job_missing"):
-        adapter.cancel_job(
-            CancelJob(tenant_id="354130", job_id="missing", requested_by="user-a"),
-            _event("cancel-missing"),
-        )
+        adapter.cancel_job(CancelJob(
+            tenant_id="354130", job_id="missing", requested_by="user-a"), _event("cancel-missing"))
     adapter.put_run(_run("run-a", RunState.WAITING_INPUTS))
     command = PutRunUnits(
         tenant_id="354130", run_id="run-a", expected_run_state=RunState.PROCESSING,
@@ -272,7 +259,6 @@ def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None
 def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> None:
     monkeypatch.setattr(sqlite_adapter, "_is_network_filesystem", lambda path: True)
     adapter = SQLiteControlPlane(tmp_path / "network" / "control.sqlite3", clock.now)
-
     with pytest.raises(_SQLiteFilesystemError, match="sqlite_network_filesystem"):
         adapter.initialize()
 
@@ -289,7 +275,6 @@ def test_detecta_formas_conhecidas_de_filesystem_de_rede_sem_proc(
 ) -> None:
     def unavailable(*args, **kwargs):
         raise OSError("proc_unavailable")
-
     monkeypatch.setattr(sqlite_schema.Path, "read_text", unavailable)
     assert _is_network_filesystem(sqlite_adapter.Path(network_path))
     assert not _is_network_filesystem(tmp_path / "control.sqlite3")
@@ -321,7 +306,6 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
             ),
             _event(f"degraded-{unit_id}"),
         )
-
     assert adapter.get_run("354130", "run-a").missing_sources == ("CNES/ST",)
 
 def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
@@ -366,7 +350,20 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     clock.advance(timedelta(seconds=31))
     with pytest.raises(Conflict, match="dispatch_units_conflict"):
         _reserve(adapter, clock, unit_ids=("unit-a",))
-    assert _reserve(adapter, clock, unit_ids=dispatch.unit_ids).generation == 3
+    third = _reserve(adapter, clock, unit_ids=dispatch.unit_ids)
+    assert third.generation == 3
+    adapter.finish_run_dispatch(FinishRunDispatch(
+        tenant_id="354130", run_id="run-a", dispatch_id=third.dispatch_id,
+        outcome=DispatchOutcome.FAILED, finished_at=clock.now()))
+    wave_b = _reserve(adapter, clock, "b" * 16, dispatch.unit_ids)
+    adapter.finish_run_dispatch(FinishRunDispatch(
+        tenant_id="354130", run_id="run-a", dispatch_id=wave_b.dispatch_id,
+        outcome=DispatchOutcome.FAILED, finished_at=clock.now()))
+    reopened = SQLiteControlPlane(database_path, clock.now)
+    reopened.initialize()
+    with pytest.raises(Conflict, match="dispatch_units_conflict"):
+        _reserve(reopened, clock, "a" * 16, ("unit-a",))
+    assert _reserve(reopened, clock, "a" * 16, dispatch.unit_ids).generation == 5
 
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
     dispatch = _prepare_unit(adapter, clock)
