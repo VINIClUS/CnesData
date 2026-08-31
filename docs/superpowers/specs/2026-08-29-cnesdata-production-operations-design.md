@@ -80,10 +80,11 @@ Order:
 4. sign one activation manifest with candidate SHA-256, release ID, source SHA,
    exact revisions, ECR digest and phase-A evidence; never re-register them. A seeder
    restricted to `PutItem` on the exact canary table writes one bound pending event.
-   Run the dispatcher through promotion `RunTask`, overriding roles and resource
+   The verifier polls the exact canary GSI until that event is visible, bounded to
+   60 seconds and fail-closed; then run promotion `RunTask`, overriding roles/resource
    variables to canary-only values. It passes only canary task/execution roles with
-   ECS PassedToService. A verifier gets conditioned `GetItem` on the bound key and
-   `GetObject`/`GetObjectRetention` on its object; require retention/delivered proof;
+   ECS PassedToService. Verifier gets exact-GSI `Query`, conditioned `GetItem` and
+   bound `GetObject`/`GetObjectRetention`; require retention/delivered proof;
 5. promotion assumes the release-tagged fence operator and atomically closes the
    separate fence item first. New acquire transactions now fail; wait for the semaphore
    and any in-flight decision to drain. API returns `503`/`Retry-After`; recovery waits;
@@ -290,8 +291,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - phase C follows both canaries; separate reviewed applies accept recovery, then audit,
   while fenced. Faults converge that route; reopening requires both accepted;
 - canary tests seed a release-bound pending event and require exact revision/overrides,
-  its COMPLIANCE object, retention and delivered marker. Seeder `PutItem` is canary-table
-  only. Verifier IAM allows conditioned `GetItem` and bound-object `GetObject` plus
+  then boundedly poll its exact GSI before dispatch; timeout fails closed. They require
+  its COMPLIANCE object, retention and delivered marker. Seeder `PutItem` is table-only.
+  Verifier IAM allows exact-GSI `Query`, conditioned `GetItem`, bound `GetObject` plus
   `GetObjectRetention`; `PassRole` is exact canary/ECS; other releases denied; roles expire;
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
