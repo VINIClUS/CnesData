@@ -73,15 +73,15 @@ Order:
 2. under a reviewed exact OpenTofu plan/apply, phase A registers immutable unit,
    recovery and audit-dispatch revisions pinned to exact `ECR_URI@sha256` and
    dual-authorizes old and new `ecs:RunTask` ARNs without routing changes;
-   it creates the release canary role; persistent canary table/bucket are
+   it creates release canary roles; persistent canary table/bucket are
    OpenTofu-owned;
 3. wait for and revalidate IAM propagation, prove all revisions authorized,
    then output their ARNs and phase-A evidence;
 4. finalize and sign one post-registration activation manifest with the candidate
    manifest SHA-256, release ID, source SHA, exact revision ARNs, verified
    `ECR_URI@sha256` and phase-A evidence; never re-register those revisions. Run
-   it via promotion `RunTask`, overriding task role, `AWS_CONTROL_PLANE_TABLE` and
-   `AWS_AUDIT_BUCKET` to the OpenTofu-owned canary role/table/bucket only;
+   it via promotion `RunTask`, overriding task/execution roles plus
+   `AWS_CONTROL_PLANE_TABLE`/`AWS_AUDIT_BUCKET` to canary resources only;
    promotion can pass only canary task/execution roles, conditioned by
    `iam:PassedToService=ecs-tasks.amazonaws.com`;
 5. atomically close the deployment fence only if the unit semaphore is idle and
@@ -194,10 +194,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   separate mode, cadence at most half the lease and batch 100. Its composition
   builds only coordinator dependencies: no normal variables or audit sink.
   PID 1 enforces the lease deadline; the semaphore is cross-run, dispatch CAS same-run.
-- Scheduler runs independent `dispatch-outbox-once` every five minutes with the
-  same image, own definition/mode/role and five-minute PID deadline.
-  `run_aws_entrypoint` allowlists it; composition builds only DynamoDB and S3 audit
-  sink and UTC clock, then calls `dispatch_once(control_plane, sink, now, limit=100)`.
+- Scheduler runs independent `dispatch-outbox-once` every 30 minutes with the same
+  image, own definition/mode/role and 60-second PID deadline. `run_aws_entrypoint`
+  allowlists it; composition builds DynamoDB, S3 audit sink and UTC clock, then calls
+  `dispatch_once(control_plane, sink, now, limit=100)`.
   Recovery failure and budget freeze cannot suppress it. Sink failures remain
   pending, do not block later events and retry next cadence; alarm/exit is nonzero,
   replay idempotent, Scheduler retries zero and task-hours counted.
@@ -292,9 +292,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   until a diagnosed, reviewed plan converges all routes; mixed routes never reopen;
 - phase C runs only after application and isolated dispatcher canaries pass,
   switches both Schedulers by reviewed apply and leaves old routes on failure;
-- canary tests permit exact revision/role/table/bucket overrides and `PassRole`
-  only for canary task/execution roles with ECS PassedToService; deny production
-  and other releases. TTL/lifecycle expire data; phase C removes the role;
+- canary tests require exact revision, task/execution-role and table/bucket overrides;
+  `PassRole` is limited to canary task/execution roles with ECS PassedToService;
+  production/other releases are denied; phase C removes roles after lifecycle/TTL;
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
   starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
@@ -322,11 +322,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and `429` or quota on contention. Overlapping, externally retried and
   at-least-once duplicate recovery passes remain individually bounded, while
   dispatch CAS covers same-run recovery only;
-- cost-contract tests count every unit, recovery and audit-dispatch task-hour in the
-  monitored 100-hour monthly operating target, never as a pre-launch API gate;
-  the delayed USD 15 budget action freezes new unit and recovery Fargate, Step
-  Functions and Athena starts only after it fires, while audit dispatch stays
-  enabled; tests allow billing-lag overshoot and claim no synchronous cap;
+- cost tests count all task-hours in the 100-hour target; 30-minute cadence and
+  60-second deadline bound audit dispatch to 48 hours per 30 days. USD 15 budget
+  action freezes unit/recovery, Step Functions and Athena, while audit stays
+  enabled; billing-lag overshoot is allowed and no synchronous cap is claimed;
 - execution-quota tests atomically count every initial and recovery
   `StartExecution` attempt against one 200-attempt monthly maximum and reject
   both callers when exhausted;
