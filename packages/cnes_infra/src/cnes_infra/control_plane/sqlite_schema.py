@@ -108,6 +108,15 @@ CREATE TABLE IF NOT EXISTS runs (
     data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, run_id)
 );
+CREATE TABLE IF NOT EXISTS run_transition_writes (
+    tenant_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    expected_state TEXT NOT NULL,
+    command_data TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, run_id, expected_state),
+    FOREIGN KEY (tenant_id, run_id) REFERENCES runs (tenant_id, run_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS run_dependencies (
     tenant_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
@@ -290,6 +299,25 @@ def validate_access_request_decision(connection: Any, request: Any, event: Any) 
     ).fetchone()
     if row is None or row[0] != serialize_model(event):
         raise Conflict("access_request_decision_conflict")
+
+
+def put_run_transition(connection: Any, command: Any, event: Any) -> None:
+    connection.execute(
+        "INSERT INTO run_transition_writes "
+        "(tenant_id, run_id, expected_state, command_data, event_data) VALUES (?, ?, ?, ?, ?)",
+        (command.tenant_id, command.run_id, command.expected_state.value,
+         serialize_model(command), serialize_model(event)),
+    )
+
+
+def validate_run_transition(connection: Any, command: Any, event: Any) -> None:
+    row = connection.execute(
+        "SELECT command_data, event_data FROM run_transition_writes "
+        "WHERE tenant_id = ? AND run_id = ? AND expected_state = ?",
+        (command.tenant_id, command.run_id, command.expected_state.value),
+    ).fetchone()
+    if row is None or tuple(row) != (serialize_model(command), serialize_model(event)):
+        raise Conflict("run_transition_conflict")
 
 
 def get_job_terminal_write(

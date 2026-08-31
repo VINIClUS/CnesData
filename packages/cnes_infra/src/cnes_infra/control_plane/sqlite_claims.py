@@ -337,11 +337,11 @@ def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict("dispatch_stale")
-        if dispatch.lease_until <= command.finished_at:
-            raise Conflict("dispatch_expired")
         if dispatch.state is DispatchState.TERMINAL:
             validate_run_dispatch_finish(connection, command)
             return dispatch
+        if dispatch.lease_until <= command.finished_at:
+            raise Conflict("dispatch_expired")
         finished = dispatch.model_copy(
             update={"state": DispatchState.TERMINAL, "terminal_outcome": command.outcome}
         )

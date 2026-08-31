@@ -19,8 +19,10 @@ from cnes_domain.control_plane.transitions import transition_run as apply_run_tr
 from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
     put_access_request_decision,
+    put_run_transition,
     serialize_model,
     validate_access_request_decision,
+    validate_run_transition,
 )
 
 if TYPE_CHECKING:
@@ -204,6 +206,9 @@ def list_recoverable_runs(store: Any, now: datetime, limit: int) -> tuple[Run, .
 def transition_run(store: Any, command: TransitionRun, event: OutboxEvent) -> Run:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
+        if run is not None and run.state is command.new_state:
+            validate_run_transition(connection, command, event)
+            return run
         if run is None or run.state is not command.expected_state:
             raise Conflict("run_state_conflict")
         updated = apply_run_transition(run, command.new_state).model_copy(
@@ -211,6 +216,7 @@ def transition_run(store: Any, command: TransitionRun, event: OutboxEvent) -> Ru
         )
         store.put_outbox_event(connection, event, command.tenant_id)
         store.put_run_record(connection, updated)
+        put_run_transition(connection, command, event)
         return updated
 
 

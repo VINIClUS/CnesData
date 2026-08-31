@@ -46,8 +46,6 @@ from packages.cnes_infra.tests.contracts.clock import (
 from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
 
 _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
-
-
 @pytest.fixture
 def clock() -> MutableClock:
     return MutableClock(_NOW)
@@ -65,7 +63,6 @@ def _capture(action: Any, barrier: Barrier) -> Any:
         return action()
     except Exception as error:
         return error
-
 def _race(first: Any, second: Any) -> tuple[Any, Any]:
     barrier = Barrier(3)
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -90,11 +87,19 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
             update={"expected_state": RunState.WAITING_INPUTS}), _event("invalid-transition"))
     with pytest.raises(Conflict, match="outbox_event_conflict"):
         adapter.transition_run(transition, conflicting)
-    assert adapter.get_run("354130", "run-a") == _run("run-a")
     assert adapter.pending_outbox(10) == (existing,)
-def test_serializa_claim_renovacao_e_publicacao_concorrentes(
-    adapter, database_path, clock
-) -> None:
+    event = _event("run-transitioned")
+    updated = adapter.transition_run(transition, event)
+    retry = SQLiteControlPlane(adapter._database_path, clock.now)
+    retry.initialize()
+    assert retry.transition_run(transition, event) == updated
+    before = (updated, retry.pending_outbox(10))
+    with pytest.raises(Conflict, match="run_transition_conflict"):
+        retry.transition_run(transition.model_copy(update={"missing_sources": ("CNES/ST",)}), event)
+    with pytest.raises(Conflict, match="run_transition_conflict"):
+        retry.transition_run(transition, event.model_copy(update={"payload": {}}))
+    assert before == (retry.get_run("354130", "run-a"), retry.pending_outbox(10))
+def test_serializa_escritores_concorrentes(adapter, database_path, clock) -> None:
     _prepare_job(adapter)
     writers = (SQLiteControlPlane(database_path, clock.now),
                SQLiteControlPlane(database_path, clock.now))
@@ -180,7 +185,6 @@ def test_propaga_erro_operacional_que_nao_e_contencao(tmp_path, clock) -> None:
     tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         uninitialized.put_tenant(tenant)
-
 def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, clock) -> None:
     _prepare_job(adapter)
     renew = RenewJobLease(
@@ -197,7 +201,6 @@ def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, cl
         units=(_unit("unit-a"),))
     with pytest.raises(Conflict, match="run_state_conflict"):
         adapter.put_run_units(command)
-
 def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None:
     tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
     adapter.put_tenant(tenant)
@@ -240,9 +243,7 @@ def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> No
      pytest.param("/net/server/share/control.sqlite3"),
      pytest.param("/Network/Servers/server/share/control.sqlite3")],
 )
-def test_detecta_formas_conhecidas_de_filesystem_de_rede_sem_proc(
-    network_path, tmp_path, monkeypatch
-) -> None:
+def test_detecta_filesystem_de_rede(network_path, tmp_path, monkeypatch) -> None:
     def unavailable(*args, **kwargs):
         raise OSError("proc_unavailable")
     monkeypatch.setattr(sqlite_schema.Path, "read_text", unavailable)
@@ -271,9 +272,7 @@ def test_deduplica_fonte_ausente_em_unidades_degradadas(adapter, clock) -> None:
             ),
             _event(f"degraded-{unit_id}"))
     assert adapter.get_run("354130", "run-a").missing_sources == ("CNES/ST",)
-def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
-    adapter, database_path, clock
-) -> None:
+def test_replay_dispatch_e_recaptura(adapter, database_path, clock) -> None:
     dispatch = _prepare_unit(adapter, clock, ("unit-a", "unit-b"))
     reopened = SQLiteControlPlane(database_path, clock.now)
     assert _reserve(reopened, clock, unit_ids=("unit-a", "unit-b")) == dispatch
@@ -292,15 +291,22 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
     finish = FinishRunDispatch(
         tenant_id="354130", run_id="run-a", dispatch_id=dispatch.dispatch_id,
         outcome=DispatchOutcome.FAILED, finished_at=clock.now())
+    with pytest.raises(Conflict, match="dispatch_expired"):
+        adapter.finish_run_dispatch(finish.model_copy(update={"finished_at": dispatch.lease_until}))
     finished = adapter.finish_run_dispatch(finish)
     replay = SQLiteControlPlane(database_path, clock.now)
     replay.initialize()
     assert replay.finish_run_dispatch(finish) == finished
+    with pytest.raises(Conflict, match="dispatch_terminal"):
+        adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
+    expired = finished.model_copy(update={"lease_until": finish.finished_at})
+    with replay.write_transaction() as connection:
+        connection.execute("UPDATE run_dispatches SET lease_until = ?, data = ? WHERE run_id = ?",
+            (expired.lease_until.isoformat(), expired.model_dump_json(), expired.run_id))
+    assert replay.finish_run_dispatch(finish) == expired
     with pytest.raises(Conflict, match="dispatch_finish_conflict"):
         replay.finish_run_dispatch(finish.model_copy(
             update={"finished_at": clock.now() + timedelta(microseconds=1)}))
-    with pytest.raises(Conflict, match="dispatch_terminal"):
-        adapter.bind_run_dispatch(bind.model_copy(update={"dispatch_id": dispatch.dispatch_id}))
     with pytest.raises(Conflict, match="dispatch_units_conflict"):
         _reserve(adapter, clock, unit_ids=("unit-a",))
     replacement = _reserve(adapter, clock, unit_ids=dispatch.unit_ids)
@@ -330,9 +336,7 @@ def test_replay_de_dispatch_exige_unidades_exatas_e_recaptura_lease_superada(
         _reserve(reopened, clock, "a" * 16, ("unit-a",))
     assert _reserve(reopened, clock, "a" * 16, dispatch.unit_ids).generation == 5
 @pytest.mark.parametrize("state", [None, RunState.WAITING_INPUTS])
-def test_rejeita_reserva_e_bind_sem_run_pai_processing_sem_mutacao(
-    adapter, clock, state
-) -> None:
+def test_rejeita_dispatch_sem_run_processing(adapter, clock, state) -> None:
     if state is not None:
         adapter.put_run(_run("run-a", state))
     with pytest.raises(Conflict, match="parent_not_processing"):
@@ -367,7 +371,6 @@ def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> Non
     expired = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
     with pytest.raises(LeaseLost, match="lease_expired"):
         adapter.commit_run_unit(expired, _event("expired-commit"))
-
 @pytest.mark.parametrize("field", ["final_state", "missing_sources", "permit", "event"])
 def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) -> None:
     run = _run("run-a", RunState.PUBLISHING)
@@ -414,7 +417,6 @@ def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) ->
     adapter.publish_dataset(_publish("run-b", "published-b", "run-a", False))
     with pytest.raises(Conflict, match="pointer_cas"):
         adapter.publish_dataset(first)
-
 def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock, monkeypatch) -> None:
     adapter.put_agent(_agent("agent-order"))
     for job_id in ("job-b", "job-a"):
@@ -450,7 +452,6 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock, monkeypatc
     assert len(pending) == 1
     assert pending[0] == min(adapter.pending_outbox(100), key=lambda event: (
         event.created_at, event.event_id))
-
 def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> None:
     runs = (
         _run("run-a").model_copy(update={"tenant_id": "b"}),
@@ -463,7 +464,6 @@ def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> 
     recoverable = adapter.list_recoverable_runs(clock.now(), 2)
     assert tuple((run.tenant_id, run.run_id) for run in recoverable) == (
         ("a", "run-shared"), ("a", "run-z"))
-
 def test_limita_ancestralidade_longa_sem_recursao(adapter, clock, monkeypatch) -> None:
     base = _raw_record("deep-1", "deep-agent", 1, clock.now())
     previous = None
