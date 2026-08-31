@@ -53,25 +53,24 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
 
 _HASH_B = "b" * 64
 type _DynamoContext = tuple[Any, MutableClock, DynamoDBControlPlane]
-@pytest.fixture
-def ctx(dynamodb_context: _DynamoContext) -> _DynamoContext:
-    return dynamodb_context
 class OneItemPageClient(ClientSpy):
     def query(self, **kwargs: Any) -> dict[str, Any]:
         kwargs.setdefault("Limit", 1)
         response = super().query(**kwargs)
         if kwargs.get("IndexName") == "gsi6":
             response["Items"] *= 2
+        if kwargs.get("IndexName") == "gsi2" and (hidden := getattr(self, "hidden_gsi2sk", None)):
+            response["Items"] = [item for item in response["Items"] if item["gsi2sk"] != hidden]
         return response
 @pytest.fixture
-def dynamodb_context() -> Any:
+def ctx() -> Any:
     with mock_aws():
         client = boto3.client("dynamodb", region_name="us-east-1")
         _create_table(client)
         clock = MutableClock(_NOW)
         yield client, clock, DynamoDBControlPlane(client, _TABLE_NAME, clock.now)
-def test_deduplica_candidatos_e_rele_base_antes_do_claim(dynamodb_context: _DynamoContext) -> None:
-    client, clock, adapter = dynamodb_context
+def test_deduplica_candidatos_e_rele_base_antes_do_claim(ctx: _DynamoContext) -> None:
+    client, clock, adapter = ctx
     adapter.put_agent(_agent("agent-a"))
     adapter.create_job(_job("job-a"), _event("job-created"))
     base_key = entity_key(_TENANT, "JOB", "job-a")
@@ -109,17 +108,15 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     sibling_a = _raw_record("delta-a", "agent-a", 2, clock.now() + timedelta(minutes=1))
     sibling_b = _raw_record("delta-b", "agent-a", 2, clock.now() + timedelta(minutes=2))
     head = _raw_record("head", "agent-a", 3, clock.now() + timedelta(minutes=3))
-    sibling_a = sibling_a.model_copy(
-        update={"base_snapshot_id": "base", "manifest_sha256": _HASH_B}
-    )
-    sibling_b = sibling_b.model_copy(
-        update={"base_snapshot_id": "base", "manifest_sha256": "c" * 64}
-    )
-    head = head.model_copy(
-        update={"base_snapshot_id": "base", "previous_manifest_sha256": "c" * 64}
-    )
+    def linked(record: Any, **updates: Any) -> Any:
+        return record.model_copy(update={"base_snapshot_id": "base", **updates})
+    sibling_a = linked(sibling_a, manifest_sha256=_HASH_B)
+    sibling_b = linked(sibling_b, manifest_sha256="c" * 64)
+    head = linked(head, previous_manifest_sha256="c" * 64)
     for record in (full, sibling_a, sibling_b, head):
         _store_record(adapter, record, clock)
+    adapter._client = stale = OneItemPageClient(adapter._client)
+    stale.hidden_gsi2sk = adapter._raw_item(head)["gsi2sk"]
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 3)
     assert tuple(ref.manifest_id for ref in chain) == (
         full.manifest_id, sibling_b.manifest_id, head.manifest_id,
@@ -130,15 +127,11 @@ def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(ctx: _DynamoContext)
     job = _job("job-a").model_copy(update={"state": JobState.FAILED_FINAL})
     adapter._put_direct(adapter._job_item(job))
     base_key = entity_key(_TENANT, "JOB", "job-a")
-    marker = encode_marker(
-        "STALE_JOB",
-        entity_key(_TENANT, "STALE_JOB", "job-a"),
-        base_key,
-        {
-            "gsi1pk": f"JOB_CLAIM#{key_component(_TENANT)}#{key_component('agent-a')}",
-            "gsi1sk": f"{_NOW.isoformat()}#PENDING#job-a",
-        },
-    )
+    attrs = {
+        "gsi1pk": f"JOB_CLAIM#{key_component(_TENANT)}#{key_component('agent-a')}",
+        "gsi1sk": f"{_NOW.isoformat()}#PENDING#job-a",
+    }
+    marker = encode_marker("STALE_JOB", entity_key(_TENANT, "STALE_JOB", "job-a"), base_key, attrs)
     client.put_item(TableName=_TABLE_NAME, Item=marker)
     assert adapter.list_claimable_jobs(_TENANT, "agent-a", 10) == ()
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is None
@@ -230,8 +223,8 @@ def test_claim_cas_perdedor_nao_desfaz_vencedor_persistido(ctx: _DynamoContext) 
     assert loser.claim_job(_claim_job("job-a", "worker-a", clock)) is None
     assert winners[0] is not None
     assert adapter.get_job(_TENANT, "job-a") == winners[0]
-def test_codec_nao_introduz_decimal_nos_itens(dynamodb_context: _DynamoContext) -> None:
-    client, clock, adapter = dynamodb_context
+def test_codec_nao_introduz_decimal_nos_itens(ctx: _DynamoContext) -> None:
+    client, clock, adapter = ctx
     adapter.create_job(_job("job-a"), _event("job-created"))
     tenant = Tenant(tenant_id=_TENANT, municipality_name="Epitácio", created_at=clock.now())
     adapter.put_tenant(tenant)
@@ -282,8 +275,8 @@ def test_transicao_e_unidades_rejeitam_run_ausente_ou_estado_obsoleto(ctx: _Dyna
         adapter.transition_run(transition, _event("stale-run"))
     with pytest.raises(Conflict, match="run_state_conflict"):
         _put_many_units(adapter, 1)
-def test_cancel_job_exige_lease_e_e_idempotente(dynamodb_context: _DynamoContext) -> None:
-    _, clock, adapter = dynamodb_context
+def test_cancel_job_exige_lease_e_e_idempotente(ctx: _DynamoContext) -> None:
+    _, clock, adapter = ctx
     command = CancelJob(tenant_id=_TENANT, job_id="job-a", requested_by="user-a")
     with pytest.raises(NotFound, match="job_missing"):
         adapter.cancel_job(command, _event("missing-cancel"))
@@ -432,13 +425,20 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(ctx: _DynamoCo
     )
     with pytest.raises(Conflict, match="manifest_identity_conflict"):
         adapter.complete_job(complete, _event("invalid-manifest"))
-def test_publicacao_rejeita_run_ausente_e_reproduz_ponteiro(ctx: _DynamoContext) -> None:
+@pytest.mark.parametrize("changes", [
+    {"dataset_name": "silver"},
+    {"run_manifest_key": f"reconciliation/{_TENANT}/2026-06/run-a/run-manifest.json"},
+])
+def test_publicacao_valida_run_e_replay(changes: dict[str, str], ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
     command = _publish("run-a", "published", None, False)
     with pytest.raises(NotFound, match="run_missing"):
         adapter.publish_dataset(command)
     adapter.put_run(_run("run-a", RunState.PUBLISHING))
+    invalid = command.model_copy(update={"version": command.version.model_copy(update=changes)})
+    with pytest.raises(Conflict, match="publication_run_conflict"):
+        adapter.publish_dataset(invalid)
     named = command.model_copy(update={"pointer_name": "candidate"})
     pointer = adapter.publish_dataset(named)
     assert pointer.pointer_name == "candidate"

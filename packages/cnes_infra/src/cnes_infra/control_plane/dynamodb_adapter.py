@@ -96,7 +96,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
     def _get_model[T: BaseModel](self, key: tuple[str, str], model_type: type[T]) -> T | None:
         item = self._get_item(key)
         return decode_model(item, model_type) if item is not None else None
-
     def _query(self, index_name: str, partition: str, *args: Any) -> Any:
         request = {
             "TableName": self._table_name,
@@ -107,18 +106,14 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if args:
             return bounded_candidates(self._client, request, *args)
         return query_all(self._client, request)
-
     def _strong_candidates[T: BaseModel](
         self, candidates: tuple[Item, ...], model_type: type[T]
     ) -> tuple[T, ...]:
         return strong_candidates(self._client, self._table_name, candidates, model_type)
-
     def _transact(self, actions: tuple[Action, ...]) -> None:
         execute_transaction(self._client, actions)
-
     def _put_direct(self, item: Item) -> None:
         self._client.put_item(TableName=self._table_name, Item=item)
-
     def _job_item(self, job: Job) -> Item:
         values = (job.tenant_id, job.source_type, job.file_subtype, job.competencia)
         identity = "RAW#" + "#".join(key_component(value) for value in values)
@@ -139,7 +134,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             }
         key = entity_key(job.tenant_id, "JOB", job.job_id)
         return encode_model(job, "JOB", key, attributes)
-
     def _raw_item(self, record: RawManifestRecord) -> Item:
         values = (record.tenant_id, record.source_type, record.file_subtype, record.competencia)
         identity = "RAW#" + "#".join(key_component(value) for value in values)
@@ -152,7 +146,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         }
         key = entity_key(record.tenant_id, "RAW", record.manifest_id)
         return encode_model(record, "RAWMANIFESTRECORD", key, attributes)
-
     def _run_item(self, run: Run) -> Item:
         attributes = {}
         if run.state in _RECOVERABLE:
@@ -243,9 +236,13 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         """Retorna a cadeia válida de manifestos raw."""
         tenant_id, source_type, file_subtype, competencia, *rest = args
         limit = rest[0] if rest else 31
-        values = (tenant_id, source_type, file_subtype, competencia)
-        partition = "RAW#" + "#".join(key_component(value) for value in values)
-        records = list(self._strong_candidates(self._query("gsi2", partition), RawManifestRecord))
+        items = query_partition(
+            self._client, self._table_name, *entity_key(tenant_id, "RAW", "")
+        )
+        records = [decode_model(item, RawManifestRecord) for item in items]
+        records = [record for record in records if (
+            record.source_type, record.file_subtype, record.competencia
+        ) == (source_type, file_subtype, competencia)]
         chains = tuple(filter(None, (self._valid_chain(records, head) for head in records)))
         ancestors = {item.manifest_id for chain in chains for item in chain[:-1]}
         endpoints = (chain for chain in chains if chain[-1].manifest_id not in ancestors)
@@ -306,9 +303,10 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
 
     def put_run(self, run: Run) -> None:
         """Persiste um run e seus índices de dependência."""
-        self._put_direct(self._run_item(run))
         if run.state is not RunState.WAITING_INPUTS:
+            self._put_direct(self._run_item(run))
             return
+        actions = [put_action(self._table_name, self._run_item(run), None)]
         base_key = run_entity_key(run.tenant_id, run.run_id)
         for dependency in run.dependencies:
             values = (run.tenant_id, dependency.source_type,
@@ -319,7 +317,9 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
                 "gsi3pk": identity,
                 "gsi3sk": f"{timestamp(run.created_at)}#{key_component(run.run_id)}",
             }
-            self._put_direct(encode_marker("RUN_DEP", marker_key, base_key, attributes))
+            marker = encode_marker("RUN_DEP", marker_key, base_key, attributes)
+            actions.append(put_action(self._table_name, marker, None))
+        self._transact(tuple(actions))
 
     def get_run(self, tenant_id: str, run_id: str) -> Run | None:
         """Retorna o run solicitado."""

@@ -127,6 +127,7 @@ class DynamoDBPublication:
         if run_item is None:
             raise NotFound("run_missing")
         run = decode_model(run_item, Run)
+        self._validate_publication_run(command, run)
         replay = self._publication_replay(command, run)
         if replay is not None:
             return replay
@@ -159,6 +160,16 @@ class DynamoDBPublication:
         )
         self._transact(actions)
         return pointer
+
+    @staticmethod
+    def _validate_publication_run(command: PublishDataset, run: Run) -> None:
+        expected_key = (
+            f"reconciliation/{run.tenant_id}/{run.competencia}/{run.run_id}/run-manifest.json"
+        )
+        if (command.version.dataset_name, command.version.run_manifest_key) != (
+            run.dataset_name, expected_key
+        ):
+            raise Conflict("publication_run_conflict")
 
     def _publication_replay(self, command: PublishDataset, run: Run) -> DatasetPointer | None:
         terminal = {RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED}
