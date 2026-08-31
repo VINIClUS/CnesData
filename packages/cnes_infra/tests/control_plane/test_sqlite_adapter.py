@@ -53,7 +53,8 @@ def _store_record_with_matching_mode(adapter, record, clock) -> None:
         }
     )
     adapter.put_agent(_agent(record.agent_id, tenant_id=record.tenant_id))
-    adapter.create_job(job, _event(f"created-{job_id}", tenant_id=record.tenant_id))
+    created = _event(f"created-{job_id}", tenant_id=record.tenant_id)
+    adapter.create_job(job, created)
     claimed = adapter.claim_job(_claim_job(job_id, "raw-worker", clock, record.tenant_id))
     assert claimed is not None
     command = CompleteJob(
@@ -63,9 +64,27 @@ def _store_record_with_matching_mode(adapter, record, clock) -> None:
         fencing_token=claimed.fencing_token,
         manifest=record,
     )
-    adapter.complete_job(
-        command, _event(f"completed-{job_id}", tenant_id=record.tenant_id)
+    event = _event(f"completed-{job_id}", tenant_id=record.tenant_id)
+    completed = adapter.complete_job(command, event)
+    assert (completed.state, completed.lease_owner, completed.lease_until) == (
+        JobState.SUCCEEDED,
+        None,
+        None,
     )
+    assert (completed.result_manifest_id, completed.result_manifest_key) == (
+        record.manifest_id,
+        record.manifest_key,
+    )
+    assert adapter.get_job(record.tenant_id, job_id) == completed
+    identity = (
+        record.tenant_id,
+        record.agent_id,
+        record.source_type,
+        record.file_subtype,
+        record.competencia,
+    )
+    assert adapter.latest_succeeded_job(*identity) == completed
+    assert adapter.pending_outbox(100).count(event) == 1
 
 
 def test_aceita_argumentos_nomeados_e_limites_padrao(sqlite_control_plane) -> None:
@@ -170,6 +189,10 @@ def test_rejeita_cancelamento_fora_de_leased_sem_mutacao(
 
 def _manifesto_com_identidade(base: RawManifestRecord, field: str) -> RawManifestRecord:
     updates = {
+        "tenant_id": {
+            "tenant_id": "other",
+            "manifest_key": "raw/other/CNES/2026-07/result/manifest.json",
+        },
         "agent_id": {"agent_id": "agent-b"},
         "source_type": {
             "source_type": "SIHD",
@@ -193,6 +216,7 @@ def _manifesto_com_identidade(base: RawManifestRecord, field: str) -> RawManifes
 @pytest.mark.parametrize(
     "field",
     [
+        pytest.param("tenant_id"),
         pytest.param("agent_id"),
         pytest.param("source_type"),
         pytest.param("file_subtype"),
@@ -210,12 +234,17 @@ def test_rejeita_manifesto_com_identidade_divergente_sem_mutacao(
     claimed = sqlite_control_plane.claim_job(_claim_job("job-a", "worker-a", clock))
     assert claimed is not None
     manifest = _manifesto_com_identidade(_raw_record("result", "agent-a", 1, clock.now()), field)
-    command = CompleteJob(
-        tenant_id="354130",
-        job_id="job-a",
-        owner="worker-a",
-        fencing_token=claimed.fencing_token,
-        manifest=manifest,
+    command_values = {
+        "tenant_id": "354130",
+        "job_id": "job-a",
+        "owner": "worker-a",
+        "fencing_token": claimed.fencing_token,
+        "manifest": manifest,
+    }
+    command = (
+        CompleteJob.model_construct(**command_values)
+        if field == "tenant_id"
+        else CompleteJob(**command_values)
     )
 
     with pytest.raises(Conflict, match="manifest_identity_mismatch"):
@@ -224,5 +253,8 @@ def test_rejeita_manifesto_com_identidade_divergente_sem_mutacao(
     assert sqlite_control_plane.get_job("354130", "job-a") == claimed
     assert sqlite_control_plane.list_raw_manifest_chain(
         "354130", "CNES", "ST", "2026-07"
+    ) == ()
+    assert sqlite_control_plane.list_raw_manifest_chain(
+        "other", "CNES", "ST", "2026-07"
     ) == ()
     assert sqlite_control_plane.pending_outbox(10) == (created,)

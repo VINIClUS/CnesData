@@ -92,6 +92,7 @@ def renew_job_lease(store: Any, command: RenewJobLease) -> Job:
 
 def _validate_manifest_identity(job: Job, manifest: Any) -> None:
     expected = (
+        job.tenant_id,
         job.agent_id,
         job.source_type,
         job.file_subtype,
@@ -99,6 +100,7 @@ def _validate_manifest_identity(job: Job, manifest: Any) -> None:
         job.requested_snapshot_mode,
     )
     actual = (
+        manifest.tenant_id,
         manifest.agent_id,
         manifest.source_type,
         manifest.file_subtype,
