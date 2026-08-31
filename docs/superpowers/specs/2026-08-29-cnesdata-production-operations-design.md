@@ -77,21 +77,27 @@ Order:
 4. finalize and sign one post-registration activation manifest with the candidate
    manifest SHA-256, release ID, source SHA, exact revision ARNs, verified
    `ECR_URI@sha256` and phase-A evidence; never re-register those revisions;
-5. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
+5. atomically close the environment deployment fence. The API then rejects all
+   tenant job admissions with `503` and `Retry-After`, recovery starts no new
+   executions, and the workflow waits until no dispatch decision is in flight;
+6. under a separate reviewed exact OpenTofu plan/apply, phase B consumes the
    signed activation manifest ARNs only after verifying that binding, then
    switches the still OpenTofu-owned state-machine `TaskDefinition` ARN and
    Scheduler recovery target. No out-of-band mutation or `ignore_changes` is
    allowed;
-6. use `DescribeTaskDefinition`, state-machine and Scheduler evidence to prove
+7. use `DescribeTaskDefinition`, state-machine and Scheduler evidence to prove
    both selected revisions resolve to the exact release digest and verify the
    manifest binding, then verify clean OpenTofu state and no drift;
-7. verify that same signed binding before updating the inactive API candidate
-   and before frontend publication;
-8. pass local and tunneled health/authorization smoke tests;
-9. switch Nginx to the candidate;
+8. verify that same signed binding, update the inactive API candidate and pass
+   local health/authorization smoke tests;
+9. switch Nginx to the candidate and run tunneled health/authorization through
+   the normal production hostname, which now resolves to that candidate;
 10. publish frontend assets and entrypoint;
-11. run the synthetic vertical slice and serving test;
-12. record redacted evidence and retain the previous release.
+11. while the fence rejects tenant jobs, admit only the release-bound synthetic
+    canary, run its vertical slice and serving test, then reopen admissions;
+12. record redacted evidence and retain the previous release. A failure in
+    steps 6-11 keeps the fence closed and immediately restores the prior API,
+    processor and Scheduler routes before reopening admissions.
 
 Retain old revisions and their `ecs:RunTask` grants until all active old Standard
 executions and recovery tasks drain and the rollback-retention period ends. Prune
@@ -120,7 +126,10 @@ No production deployment occurs automatically after merge.
 - Cloudflare Free rule protects the most sensitive public job/auth surface.
 - Nginx enforces IP-based general and expensive-mutation zones.
 - The API enforces tenant/user/idempotency quotas, maximum 200 jobs and the
-  semaphore's one concurrent unit task per environment. The monitored 100-hour
+  semaphore's one concurrent unit task per environment. A separate atomic
+  monthly counter permits at most 200 Step Functions execution attempts across
+  initial and recovery starts; each caller increments it before `StartExecution`
+  or rejects the start when exhausted. The monitored 100-hour
   monthly operating target counts every unit and recovery task-hour; it is not a
   pre-launch API limit.
 - DynamoDB maximum throughput, Step Functions bounded retries and Athena bytes
@@ -226,6 +235,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   only. The semaphore is the cross-run arbiter: losers do not call
   `StartExecution`; dispatch CAS applies only to same-run recovery/idempotency.
   A concurrent request receives the documented quota error or `429`.
+- The deployment fence shares this control plane but is independent of the unit
+  semaphore. It blocks initial and recovery dispatch, except for one
+  release-bound synthetic canary during promotion, until rollback or acceptance
+  explicitly reopens admissions.
 
 ## 7. Test and acceptance matrix
 
@@ -276,6 +289,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   binding. API/frontend steps verify the same binding. Tests reject artifact
   mixing, out-of-band mutation and `ignore_changes`, then prove selected exact
   digests, clean state and no drift;
+- promotion tests close the deployment fence before phase B, prove no dispatch
+  decision remains in flight, reject tenant jobs and recovery starts, and allow
+  only the bound canary. Local smoke precedes the Nginx switch; tunneled smoke
+  uses the production hostname after that switch. Any failure restores prior
+  routes before admissions reopen;
 - drain/prune tests retain old revisions and `ecs:RunTask` grants through active
   old Standard/recovery drain and rollback retention, then prune only older
   non-rollback revisions; rollback consumes the prior retained manifest through
@@ -302,6 +320,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   the delayed USD 15 budget action freezes new unit and recovery Fargate, Step
   Functions and Athena starts only after it fires; tests do not claim a
   synchronous spend cap and explicitly allow billing-lag overshoot;
+- execution-quota tests atomically count every initial and recovery
+  `StartExecution` attempt against one 200-attempt monthly maximum and reject
+  both callers when exhausted;
 - recovery role tests scope `states:StartExecution` to the production machine,
   `states:DescribeExecution` to its executions and ECS liveness reads to the
   configured cluster/task family or required narrow `Resource: *` conditions;
@@ -354,6 +375,10 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   digest, clean state and no drift; API/frontend evidence verifies the same
   binding before switching. Active Standard executions remain on their original
   revision;
+- promotion evidence proves the fence closed before phase B, no dispatch was in
+  flight, local smoke passed before switching, and tunneled smoke reached the
+  candidate through the switched production hostname. Only the bound canary is
+  admitted before acceptance; failure restores prior routes while fenced;
 - the `recover-once` Scheduler run uses the same image/network, emits its log
   and alarm evidence, uses `MaximumRetryAttempts=0`, and cannot start without
   its narrow roles;
@@ -400,7 +425,8 @@ Cost controls:
   recovery passes are individually bounded but have no global concurrency
   ceiling; zero idle desired count; and a monitored 100 combined unit and
   recovery task-hours monthly operating target, including every invocation;
-- Step Functions Standard and 200 executions maximum;
+- Step Functions Standard and 200 execution attempts maximum, atomically shared
+  by initial and recovery starts;
 - Athena 5 GB/query and 100 GB/month;
 - DynamoDB on-demand maximum throughput;
 - short CloudWatch retention and no Container Insights;
