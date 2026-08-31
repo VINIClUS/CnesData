@@ -193,8 +193,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   session duration plus propagation, issue and install a new leaf, then
   re-enable the profile/trust and test a new session.
 - Step Functions launches unit tasks. Scheduler `recover-once` uses the same image,
-  separate definition/mode, cadence at most half the lease, batch 100 and none of
-  the seven normal variables. Retries are zero; at-least-once passes may overlap.
+  separate mode, cadence at most half the lease and batch 100. Its composition
+  builds only coordinator dependencies: no normal variables or audit sink.
   PID 1 enforces the lease deadline; the semaphore is cross-run, dispatch CAS same-run.
 - Scheduler runs independent `dispatch-outbox-once` every five minutes with the
   same image, own definition/mode/role and five-minute PID deadline.
@@ -306,9 +306,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   non-rollback revisions; rollback consumes the prior retained manifest through
   a reviewed exact OpenTofu plan/apply;
 - recovery validation enforces the separate `recover-once` definition/mode,
-  same image and network shape, Scheduler cadence at most half
-  `AWS_PROCESSOR_LEASE_SECONDS`, `MaximumRetryAttempts=0`, no seven normal
-  processor environment variables, batch 100 and a PID 1 hard wall-clock
+  same image/network, coordinator-only composition without normal variables or
+  audit sink, cadence at most half `AWS_PROCESSOR_LEASE_SECONDS`, batch 100 and
+  `MaximumRetryAttempts=0`. Its PID 1 hard wall-clock
   deadline equal to the lease that logs/alarms, cancels work, exits nonzero and
   stops the ECS task; overlapping, externally retried or at-least-once duplicate
   invocations have no global concurrency ceiling;
