@@ -447,6 +447,7 @@ VPS.
 - The VPS API uses its named `AWS_CONFIG_FILE` profile and IAM Roles Anywhere
   `aws_signing_helper credential-process --session-duration 3600`. Its output
   includes `Expiration`, and boto3/botocore refreshes lazily on credential use.
+- API AWS composition omits the audit sink; only the dispatcher initializes it.
 - Fargate uses task roles.
 - Runtime non-AWS secrets use SSM SecureString under
   `/personal/prod/cnesdata/runtime/` and the approved customer-managed KMS key.

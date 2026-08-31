@@ -80,8 +80,8 @@ Order:
 4. finalize and sign one post-registration activation manifest with the candidate
    manifest SHA-256, release ID, source SHA, exact revision ARNs, verified
    `ECR_URI@sha256` and phase-A evidence; never re-register those revisions. Run
-   the candidate dispatcher via promotion `RunTask` with a canary-role override,
-   scoped only to the OpenTofu-owned canary table/GSI and release bucket prefix;
+   it via promotion `RunTask`, overriding task role, `AWS_CONTROL_PLANE_TABLE` and
+   `AWS_AUDIT_BUCKET` to the OpenTofu-owned canary role/table/bucket only;
 5. atomically close the deployment fence only if the unit semaphore is idle and
    no dispatch decision is in flight. The API then rejects tenant admissions
    with `503`/`Retry-After`, and recovery starts no new executions;
@@ -249,13 +249,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - no presigned URL for non-serving prefixes;
 - dashboard artifact and browser checks reject a relative `/api` request or an
   API call that bypasses the configured absolute `/api/v1` client;
-- long-lived boto3/botocore clients complete an AWS call without process or
-  container restart: the initial credential-using call invokes the IAM Roles
-  Anywhere helper; calls before the 15-minute advisory window do not re-invoke
-  it; and the first credential access inside that window invokes one lazy refresh
-  that succeeds. Helper or refresh failure fails closed;
-- VPS config tests require `AWS_CONFIG_FILE` and matching `AWS_PROFILE`; a
-  missing or mismatched profile fails before readiness;
+- long-lived boto3/botocore clients call AWS without restart: first use invokes
+  Roles Anywhere helper, pre-advisory-window calls do not, and first access inside
+  the 15-minute window refreshes once. Helper/refresh failure fails closed;
+- VPS boot requires matching `AWS_CONFIG_FILE`/`AWS_PROFILE`; invalid values fail.
+  API composition omits audit sink and makes no audit-bucket request;
 - OpenTofu creates the `us-east-2` trust anchor from external offline public
   CA PEM with the required CA, key-usage and SHA-256 constraints, and the Roles
   Anywhere profile, with AWS Private CA prohibited. The trust policy permits
@@ -292,9 +290,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   until a diagnosed, reviewed plan converges all routes; mixed routes never reopen;
 - phase C runs only after application and isolated dispatcher canaries pass,
   switches only audit Scheduler by reviewed apply and leaves the old route on failure;
-- canary IAM lets promotion run the exact dispatch revision/pass only its canary
-  role; that role denies production and other releases. Seeded table data expires
-  by TTL, retained objects expire by bucket lifecycle, and phase C removes the role;
+- canary tests permit only exact revision/role/table/bucket overrides and deny
+  production/other releases. Table data expires by TTL, retained objects by
+  lifecycle, and phase C removes the role;
 - promotion tests atomically close the fence before phase B only when the unit
   semaphore is idle and no dispatch is in flight, then reject tenant/recovery
   starts and allow only the bound canary. Local smoke precedes Nginx; tunneled smoke
