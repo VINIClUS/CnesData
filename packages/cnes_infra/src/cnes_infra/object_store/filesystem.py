@@ -124,9 +124,14 @@ def _open_candidate(objects: int, name: str) -> int | None:
 
 
 def _open_regular(directory: int, name: str) -> int:
-    descriptor = os.open(
-        name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory
-    )
+    try:
+        descriptor = os.open(
+            name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory
+        )
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise Conflict("destination=invalid") from error
+        raise
     try:
         if not S_ISREG(os.fstat(descriptor).st_mode):
             raise Conflict("destination=invalid")

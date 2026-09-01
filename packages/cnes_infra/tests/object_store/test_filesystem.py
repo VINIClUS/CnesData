@@ -103,7 +103,6 @@ def test_contrato(case: contract.ObjectStoreCase, tmp_path_factory: pytest.TempP
         patch.chdir(root)
         case.run(adapter, MutableClock(datetime(2026, 7, 15, tzinfo=UTC)))
 
-
 @pytest.mark.linux_only
 def test_fsynca_ancestral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root, observed, real_fsync = tmp_path / "store", [], os.fsync
@@ -130,7 +129,6 @@ def test_fsynca_ancestral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     adapter.delete("raw/ausente")
     assert observed == [destination.parent]
 
-
 def test_fecha_diretorio_se_fsync_do_parent_falha(monkeypatch: pytest.MonkeyPatch) -> None:
     close = MagicMock()
     monkeypatch.setattr(os, "mkdir", MagicMock())
@@ -140,7 +138,6 @@ def test_fecha_diretorio_se_fsync_do_parent_falha(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(OSError, match="fsync=failed"):
         _open_or_create_directory(3, "objects")
     close.assert_called_once_with(7)
-
 
 @pytest.mark.parametrize("operation", ["put", "promote"])
 @pytest.mark.parametrize("boundary", _DURABLE_BOUNDARIES)
@@ -344,7 +341,7 @@ def test_recuperacao_preserva_destino_existente(kind: str, tmp_path: Path) -> No
         FilesystemObjectStore(tmp_path).put(key, BytesIO(losing), sha256(losing).hexdigest())
     assert destination.read_bytes() == winner if kind == "file" else destination.is_dir()
     assert kind != "file" or _adapter_temporaries(tmp_path) == ()
-@pytest.mark.parametrize("kind", ["directory", "fifo"])
+@pytest.mark.parametrize("kind", ["directory", "fifo", "symlink"])
 def test_startup_descarta_temp_ante_destino_malformado(kind: str, tmp_path: Path) -> None:
     bad_key, other_key, body = "raw/malformado", "raw/outro", b"conteudo"
     writers = (
@@ -355,9 +352,14 @@ def test_startup_descarta_temp_ante_destino_malformado(kind: str, tmp_path: Path
         with pytest.raises(_SimulatedCrash):
             writer.put(key, BytesIO(body), sha256(body).hexdigest())
     destination = _objects_directory(tmp_path) / sha256(bad_key.encode()).hexdigest()
-    destination.mkdir() if kind == "directory" else os.mkfifo(destination)
+    if kind == "directory":
+        destination.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(destination)
+    else:
+        destination.symlink_to("malformed")
     recovered = FilesystemObjectStore(tmp_path)
-    assert destination.is_dir() if kind == "directory" else destination.is_fifo()
+    assert destination.is_symlink() if kind == "symlink" else destination.exists()
     assert (_adapter_temporaries(tmp_path), recovered.stat(other_key)) == ((), None)
     with pytest.raises(Conflict, match="destination=invalid"):
         recovered.stat(bad_key)
@@ -436,7 +438,6 @@ def test_sem_fallback(link_kind: str, tmp_path: Path, monkeypatch: pytest.Monkey
     assert adapter.stat("raw/sem-fallback") is None
     assert _adapter_temporaries(tmp_path) == (() if attacker is None else (attacker,))
     assert attacker is None or attacker.read_bytes() == b"preservar"
-
 
 @pytest.mark.linux_only
 def test_startup_recupera_apos_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
