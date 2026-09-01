@@ -214,6 +214,78 @@ def _ancestry_item(
     return item
 
 
+def _waiting_item(record: RawManifestRecord, ancestry: Item) -> Item | None:
+    if record.sequence == 1:
+        return None
+    prefix = _ancestry_prefix(
+        record, record.sequence - 1, str(record.previous_manifest_sha256)).replace(
+            "ANCESTRY#", "WAITING#", 1)
+    return {
+        "pk": ancestry["pk"], "sk": {"S": prefix + key_component(record.manifest_id)},
+        "entity": {"S": "RAWWAITING"}, "payload": {"S": record.model_dump_json()},
+        "base_pk": ancestry["pk"], "base_sk": ancestry["sk"],
+    }
+
+
+def _waiting_children(
+    client: Any, table_name: str, record: RawManifestRecord, remaining: int
+) -> tuple[Item, ...]:
+    partition = raw_partition(
+        record.tenant_id, record.source_type, record.file_subtype, record.competencia)
+    prefix = _ancestry_prefix(record, record.sequence, record.manifest_sha256).replace(
+        "ANCESTRY#", "WAITING#", 1)
+    response = client.query(
+        TableName=table_name,
+        KeyConditionExpression="pk = :partition AND begins_with(sk, :prefix)",
+        ExpressionAttributeValues={
+            ":partition": {"S": partition}, ":prefix": {"S": prefix}},
+        ConsistentRead=True,
+        Limit=remaining + 1)
+    children = tuple(response.get("Items", ()))
+    if len(children) > remaining:
+        raise Conflict("transaction_limit")
+    return children
+
+
+def _chain_action(table_name: str, ancestry: Item, chain: tuple[dict[str, str], ...]) -> Action:
+    updated = dict(ancestry)
+    updated["chain"] = {"S": json.dumps(chain, separators=(",", ":"))}
+    return {"Put": {
+        "TableName": table_name, "Item": updated,
+        "ConditionExpression": "attribute_exists(pk) AND attribute_not_exists(chain)"}}
+
+
+def _repair_descendants(
+    client: Any, table_name: str, root: RawManifestRecord, root_chain: tuple[dict[str, str], ...]
+) -> tuple[tuple[Action, ...], tuple[tuple[RawManifestRecord, tuple[dict[str, str], ...]], ...]]:
+    actions: list[Action] = []
+    endpoints = []
+    pending = [(root, root_chain)]
+    visited = 0
+    while pending:
+        parent, chain = pending.pop()
+        children = _waiting_children(client, table_name, parent, 92 - visited)
+        visited += len(children)
+        if not children:
+            endpoints.append((parent, chain))
+            continue
+        for marker in children:
+            child = decode_model(marker, RawManifestRecord)
+            key = marker["base_pk"]["S"], marker["base_sk"]["S"]
+            ancestry = client.get_item(
+                TableName=table_name, Key=item_key(*key), ConsistentRead=True).get("Item")
+            if ancestry is None:
+                raise Conflict("raw_ancestry_conflict")
+            ref = {"manifest_id": child.manifest_id, "manifest_key": child.manifest_key}
+            child_chain = (*chain, ref)
+            if "chain" not in ancestry:
+                actions.append(_chain_action(table_name, ancestry, child_chain))
+            elif tuple(json.loads(ancestry["chain"]["S"])) != child_chain:
+                raise Conflict("raw_ancestry_conflict")
+            pending.append((child, child_chain))
+    return tuple(actions), tuple(endpoints)
+
+
 def _head_action(
     client: Any, table_name: str, record: RawManifestRecord, chain: tuple[dict[str, str], ...]
 ) -> Action:
@@ -246,8 +318,17 @@ def raw_manifest_actions(
     chain = _manifest_chain(client, table_name, record, partition)
     ancestry = _ancestry_item(record, raw_item, chain)
     actions = [put_action(table_name, raw_item, None), put_action(table_name, ancestry, None)]
+    waiting = _waiting_item(record, ancestry)
+    if waiting is not None:
+        actions.append(put_action(table_name, waiting, None))
     if chain is not None:
-        actions.append(_head_action(client, table_name, record, chain))
+        repairs, endpoints = _repair_descendants(client, table_name, record, chain)
+        actions.extend(repairs)
+        head_record, head_chain = max(
+            endpoints,
+            key=lambda item: (
+                item[0].created_at, item[0].agent_id, item[0].snapshot_id))
+        actions.append(_head_action(client, table_name, head_record, head_chain))
     return tuple(actions)
 
 

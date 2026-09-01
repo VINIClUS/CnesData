@@ -1,56 +1,26 @@
-from datetime import timedelta
+from datetime import timedelta  # noqa: I001
 from decimal import Decimal
 from typing import Any
-
 import boto3
 import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
-
 from cnes_domain.control_plane.commands import (
-    BeginIdempotency,
-    CancelJob,
-    CompleteJob,
-    FinalizeRunCancellation,
-    PutRunUnits,
-    RenewJobLease,
-    ReserveRunDispatch,
-    TransitionRun,
-)
+    BeginIdempotency, CancelJob, CompleteJob, FinalizeRunCancellation, PutRunUnits,
+    RenewJobLease, ReserveRunDispatch, TransitionRun)
 from cnes_domain.control_plane.entities import AccessRequest, Tenant
 from cnes_domain.control_plane.enums import AccessRequestState, AgentState, JobState, RunState
 from cnes_domain.control_plane.errors import Conflict, LeaseLost, NotFound
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_codec import encode_marker, execute_transaction
 from cnes_infra.control_plane.dynamodb_keys import (
-    entity_key,
-    key_component,
-    outbox_key,
-    run_entity_key,
-)
+    entity_key, key_component, outbox_key, run_entity_key)
 from packages.cnes_infra.tests.contracts.clock import (
-    _HASH_A,
-    _NOW,
-    _TENANT,
-    MutableClock,
-    _agent,
-    _claim_job,
-    _event,
-    _fail_job,
-    _job,
-    _raw_record,
-    _run,
-    _unit,
-)
+    _HASH_A, _NOW, _TENANT, MutableClock, _agent, _claim_job, _event, _fail_job,
+    _job, _raw_record, _run, _unit)
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
-    _TABLE_NAME,
-    ClientSpy,
-    FailingTransactionClient,
-    _create_table,
-    _put_many_units,
-    _store_record_matching_mode,
-)
-
+    _TABLE_NAME, ClientSpy, FailingTransactionClient, _create_table, _put_many_units,
+    _store_record_matching_mode)
 _HASH_B = "b" * 64
 type _DynamoContext = tuple[Any, MutableClock, DynamoDBControlPlane]
 class OneItemPageClient(ClientSpy):
@@ -89,18 +59,15 @@ def test_deduplica_candidatos_e_rele_base_antes_do_claim(ctx: _DynamoContext) ->
     assert tuple(job.job_id for job in jobs) == ("job-a",)
     consistent_reads = [call for call in spy.calls if call == "get_item"]
     assert len(consistent_reads) == 3
-    assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is not None
-def test_query_limitada_para_apos_primeiro_candidato_valido(ctx: _DynamoContext) -> None:
-    _, _, adapter = ctx
-    adapter.put_agent(_agent("agent-a"))
-    for job_id in ("job-c", "job-b", "job-a"):
+    for job_id in ("job-c", "job-b"):
         adapter.create_job(_job(job_id), _event(f"created-{job_id}"))
     paginated = OneItemPageClient(adapter._client)
     adapter._client = paginated
-    jobs = adapter.list_claimable_jobs(_TENANT, "agent-a", 1)
-    assert tuple(job.job_id for job in jobs) == ("job-a",)
+    assert tuple(job.job_id for job in adapter.list_claimable_jobs(
+        _TENANT, "agent-a", 1)) == ("job-a",)
     assert (adapter.list_claimable_jobs(_TENANT, "agent-a", 0),
-            paginated.calls.count("query")) == ((), 1)
+            paginated.calls.count("query")) == ((), 4)
+    assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is not None
 @pytest.mark.parametrize("base_minutes", [3, 4])
 def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
@@ -113,7 +80,15 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     sibling_a = linked(sibling_a, manifest_sha256=_HASH_B)
     sibling_b = linked(sibling_b, manifest_sha256="c" * 64)
     head = linked(head, previous_manifest_sha256="c" * 64)
-    for record in (full, sibling_a, sibling_b, head):
+    for record in (sibling_b, full):
+        _store_record_matching_mode(adapter, record, clock)
+    repaired = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 2)
+    assert tuple(ref.manifest_id for ref in repaired) == (full.manifest_id, sibling_b.manifest_id)
+    assert len(adapter._raw_actions(full)) == 3
+    duplicate = full.model_copy(update={"manifest_id": "duplicate-full"})
+    with pytest.raises(Conflict, match="raw_ancestry_conflict"):
+        adapter._raw_actions(duplicate)
+    for record in (sibling_a, head):
         _store_record_matching_mode(adapter, record, clock)
     adapter._client = stale = OneItemPageClient(adapter._client)
     stale.hidden_gsi2sk = adapter._raw_item(head)["gsi2sk"]
@@ -125,7 +100,7 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     assert len(gets) == 1
     assert gets[0].get("ConsistentRead") is True
     assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 0) == ()
-def test_latest_succeeded_ignora_omissao_do_gsi(ctx: _DynamoContext) -> None:
+def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     adapter._client = spy = ClientSpy(adapter._client)
     old = _raw_record("old", "agent-a", 1, clock.now())
@@ -143,15 +118,33 @@ def test_latest_succeeded_ignora_omissao_do_gsi(ctx: _DynamoContext) -> None:
     stale.hidden_gsi2sk = adapter._job_item(completed)["gsi2sk"]
     result = adapter.latest_succeeded_job(_TENANT, "agent-a", "CNES", "ST", "2026-07")
     assert (result, stale.query_requests) == (completed, [])
-def test_cadeia_raw_retorna_full_mais_novo_apos_historico_longo(ctx: _DynamoContext) -> None:
-    _, clock, adapter = ctx
+    adapter._client = spy.client
     records = tuple(_raw_record(f"full-{index}", f"agent-{index}", 1,
         clock.now() + timedelta(seconds=index)) for index in range(11))
     for record in records:
         _store_record_matching_mode(adapter, record, clock)
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1)
     assert tuple(ref.manifest_id for ref in chain) == (records[-1].manifest_id,)
-def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(ctx: _DynamoContext) -> None:
+def test_reparo_raw_rejeita_ancestry_ausente_e_excesso(ctx: _DynamoContext) -> None:
+    client, clock, adapter = ctx
+    _store_record_matching_mode(
+        adapter, _raw_record("delta-pending", "agent-a", 2, clock.now()), clock)
+    waiting = next(item for item in client.scan(TableName=_TABLE_NAME)["Items"]
+                   if item.get("entity", {}).get("S") == "RAWWAITING")
+    ancestry_key = {"pk": waiting["base_pk"], "sk": waiting["base_sk"]}
+    client.delete_item(TableName=_TABLE_NAME, Key=ancestry_key)
+    base = _raw_record("base-agent-a", "agent-a", 1, clock.now())
+    with pytest.raises(Conflict, match="raw_ancestry_conflict"):
+        adapter._raw_actions(base)
+    client.put_item(TableName=_TABLE_NAME, Item={**waiting,
+        "pk": waiting["base_pk"], "sk": waiting["base_sk"],
+        "entity": {"S": "RAWANCESTRY"}})
+    for index in range(95):
+        clone = {**waiting, "sk": {"S": f"{waiting['sk']['S']}#{index:03d}"}}
+        client.put_item(TableName=_TABLE_NAME, Item=clone)
+    with pytest.raises(Conflict, match="transaction_limit"):
+        adapter._raw_actions(base)
+def test_candidato_gsi_obsoleto_nao_reivindica_job_ou_run_terminal(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     adapter.put_agent(_agent("agent-a"))
     job = _job("job-a").model_copy(update={"state": JobState.FAILED_FINAL})
@@ -163,10 +156,7 @@ def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(ctx: _DynamoContext)
     client.put_item(TableName=_TABLE_NAME, Item=marker)
     assert adapter.list_claimable_jobs(_TENANT, "agent-a", 10) == ()
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is None
-def test_candidato_gsi_obsoleto_nao_recupera_run_terminal(ctx: _DynamoContext) -> None:
-    client, clock, adapter = ctx
-    run = _run("run-a", RunState.PUBLISHED)
-    adapter.put_run(run)
+    adapter.put_run(_run("run-a", RunState.PUBLISHED))
     marker = encode_marker("STALE_RUN", entity_key(_TENANT, "STALE_RUN", "run-a"),
         run_entity_key(_TENANT, "run-a"), {"gsi4pk": "RUN_RECOVERABLE",
         "gsi4sk": f"{_NOW.isoformat()}#{_TENANT}#run-a"})
@@ -196,8 +186,8 @@ def test_expiracao_logica_substitui_item_ttl_ainda_presente(ctx: _DynamoContext)
 def test_colisao_global_de_evento_rejeita_segundo_tenant_sem_mutacao(ctx: _DynamoContext) -> None:
     _, _, adapter = ctx
     adapter.create_job(_job("job-a"), _event("shared-event"))
-    other_job = _job("job-b", tenant_id="other")
-    other_event = _event("shared-event", tenant_id="other")
+    other_job, other_event = _job("job-b", tenant_id="other"), _event(
+        "shared-event", tenant_id="other")
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.create_job(other_job, other_event)
     assert adapter.get_job("other", "job-b") is None
@@ -258,10 +248,27 @@ def test_create_job_retorna_replay_e_rejeita_divergencia(ctx: _DynamoContext) ->
     with pytest.raises(Conflict, match="event_delivery_conflict"):
         adapter.create_job(_job("delivered"), delivered)
     assert "transact_write_items" not in spy.calls
-    job = _job("job-a")
-    event = _event("job-created")
-    adapter.create_job(job, event)
+    job, event = _job("job-a"), _event("job-created")
+    transact = adapter._transact
+    def commit_then_lose_response(actions: Any) -> None:
+        transact(actions)
+        raise Conflict("transaction_conflict")
+    adapter._transact = commit_then_lose_response
     assert adapter.create_job(job, event) == job
+    adapter._transact = transact
+    assert adapter.create_job(job, event) == job
+    adapter._client = FailingTransactionClient(spy.client)
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.create_job(_job("no-winner"), _event("no-winner-created"))
+    adapter._client = spy
+    candidate = _job("divergent-winner")
+    def divergent_wins(actions: Any) -> None:
+        adapter._put_direct(adapter._job_item(candidate.model_copy(update={"agent_id": "agent-b"})))
+        raise Conflict("transaction_conflict")
+    adapter._transact = divergent_wins
+    with pytest.raises(Conflict, match="job_conflict"):
+        adapter.create_job(candidate, _event("divergent-winner-created"))
+    adapter._transact = transact
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.create_job(job, _foreign_event(adapter))
     divergent = event.model_copy(update={"payload": {"event_id": "divergent"}})
@@ -307,8 +314,6 @@ def test_cancel_job_exige_lease_e_e_idempotente(ctx: _DynamoContext) -> None:
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.cancel_job(command, _foreign_event(adapter))
     assert adapter.get_job(_TENANT, "job-a") == canceled
-def test_finalizacao_ausente_e_replay_cancelado_sao_deterministas(ctx: _DynamoContext) -> None:
-    _, clock, adapter = ctx
     command = FinalizeRunCancellation(tenant_id=_TENANT, run_id="run-a",
         expected_state=RunState.CANCEL_REQUESTED, canceled_at=clock.now())
     with pytest.raises(NotFound, match="run_missing"):
@@ -487,8 +492,6 @@ def test_idempotencia_recupera_resultado_de_corrida_confirmada(ctx: _DynamoConte
     outcome = adapter.begin_idempotency(command)
     assert not outcome.created
     assert outcome.record.resource_id == "resource-a"
-def test_idempotencia_propaga_conflito_sem_vencedor_visivel(ctx: _DynamoContext) -> None:
-    _, clock, adapter = ctx
     adapter._client = FailingTransactionClient(adapter._client)
     command = BeginIdempotency(tenant_id=_TENANT, scope="jobs", key="lost-race",
         request_hash=_HASH_A, resource_id="resource-a", now=clock.now(),

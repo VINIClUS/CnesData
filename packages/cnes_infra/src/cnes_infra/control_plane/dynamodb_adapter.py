@@ -204,7 +204,16 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             put_action(self._table_name, self._job_item(job), None),
             self._event_action(job.tenant_id, event),
         )
-        self._transact(actions)
+        try:
+            self._transact(actions)
+        except Conflict:
+            winner = self._get_model(key, Job)
+            if winner is None:
+                raise
+            if winner != job:
+                raise Conflict("job_conflict") from None
+            self._require_event_replay(job.tenant_id, event)
+            return winner
         return job
     def get_job(self, tenant_id: str, job_id: str) -> Job | None:
         """Retorna o job solicitado."""
