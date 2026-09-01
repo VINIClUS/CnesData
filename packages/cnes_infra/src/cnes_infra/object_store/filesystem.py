@@ -46,6 +46,7 @@ class _Layout:
 
 @dataclass(frozen=True, slots=True)
 class _StagedFile:
+    descriptor: int
     name: str
     size: int
     digest: str
@@ -334,8 +335,7 @@ class FilesystemObjectStore:
                 raise
             self._fault("temporary_created")
             try:
-                stream = os.fdopen(descriptor, "wb")
-                descriptor = -1
+                stream = os.fdopen(os.dup(descriptor), "wb")
                 with stream:
                     size, content_digest = stream_with_digest(body, stream)
                     stream.flush()
@@ -349,7 +349,11 @@ class FilesystemObjectStore:
             except ValueError:
                 self._remove_temporary(objects, name)
                 raise
-            return _StagedFile(name=name, size=size, digest=content_digest)
+            staged = _StagedFile(
+                descriptor=descriptor, name=name, size=size, digest=content_digest
+            )
+            descriptor = -1
+            return staged
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
@@ -358,13 +362,7 @@ class FilesystemObjectStore:
         self, key: str, objects: int, digest: str, staged: _StagedFile
     ) -> tuple[ObjectStat, bool]:
         try:
-            os.link(
-                staged.name,
-                digest,
-                src_dir_fd=objects,
-                dst_dir_fd=objects,
-                follow_symlinks=False,
-            )
+            _link_descriptor(staged.descriptor, objects, digest)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 self._remove_temporary(objects, staged.name)
@@ -383,20 +381,23 @@ class FilesystemObjectStore:
         with self._layout() as layout, self._namespace_lock(layout.locks, digest):
             self._recover(layout.objects, valid_key, digest)
             staged = self._stage(layout.objects, (valid_key, digest), body, expected_sha256)
-            stat, linked = self._link(valid_key, layout.objects, digest, staged)
-            if linked:
-                self._fault("destination_linked")
-                try:
-                    os.fsync(layout.objects)
-                except OSError:
-                    self._remove_temporary(layout.objects, staged.name)
-                    raise
-                self._fault("directory_fsynced")
-            self._remove_temporary(layout.objects, staged.name)
-            self._fault("temporary_unlinked")
-            os.fsync(layout.objects)
-            self._fault("directory_final_fsynced")
-            return stat
+            try:
+                stat, linked = self._link(valid_key, layout.objects, digest, staged)
+                if linked:
+                    self._fault("destination_linked")
+                    try:
+                        os.fsync(layout.objects)
+                    except OSError:
+                        self._remove_temporary(layout.objects, staged.name)
+                        raise
+                    self._fault("directory_fsynced")
+                self._remove_temporary(layout.objects, staged.name)
+                self._fault("temporary_unlinked")
+                os.fsync(layout.objects)
+                self._fault("directory_final_fsynced")
+                return stat
+            finally:
+                os.close(staged.descriptor)
 
     def put(self, key: str, body: BinaryIO, expected_sha256: str) -> ObjectStat:
         return self._publish(key, body, expected_sha256)
