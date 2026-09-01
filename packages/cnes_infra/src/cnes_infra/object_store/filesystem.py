@@ -129,7 +129,7 @@ def _open_regular(directory: int, name: str) -> int:
             name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory
         )
     except OSError as error:
-        if error.errno == errno.ELOOP:
+        if error.errno in {errno.ELOOP, errno.ENXIO}:
             raise Conflict("destination=invalid") from error
         raise
     try:
