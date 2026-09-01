@@ -436,13 +436,24 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         item = encode_model(request, "ACCESSREQUEST", key)
         existing = self._get_model(key, AccessRequest)
         if existing is not None:
-            if existing != request:
-                raise Conflict("access_request_conflict")
-            self._require_event_replay(request.tenant_id, event)
+            self._require_access_replay(request, event, existing)
             return
-        self._transact(
-            (put_action(self._table_name, item, None), self._event_action(request.tenant_id, event))
-        )
+        try:
+            self._transact((
+                put_action(self._table_name, item, None),
+                self._event_action(request.tenant_id, event),
+            ))
+        except Conflict:
+            winner = self._get_model(key, AccessRequest)
+            if winner is None:
+                raise
+            self._require_access_replay(request, event, winner)
+    def _require_access_replay(
+        self, request: AccessRequest, event: OutboxEvent, existing: AccessRequest
+    ) -> None:
+        if existing != request:
+            raise Conflict("access_request_conflict")
+        self._require_event_replay(request.tenant_id, event)
     def get_access_request(self, tenant_id: str, request_id: str) -> AccessRequest | None:
         """Retorna a solicitação de acesso."""
         return self._get_model(entity_key(tenant_id, "ACCESS", request_id), AccessRequest)

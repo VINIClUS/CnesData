@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterator  # noqa: I001
 from datetime import timedelta
 from typing import Any
 
@@ -8,49 +8,23 @@ from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from cnes_domain.control_plane.commands import (
-    BindRunDispatch,
-    ClaimRunUnit,
-    CompleteJob,
-    FinalizeRunCancellation,
-    FinishRunDispatch,
-    PutRunUnits,
-    ReserveRunDispatch,
-    TransitionRun,
-)
-from cnes_domain.control_plane.entities import RunDependency
+    BindRunDispatch, ClaimRunUnit, CompleteJob, FailRunUnit, FinalizeRunCancellation,
+    FinishRunDispatch, PutRunUnits, ReserveRunDispatch, TransitionRun)
+from cnes_domain.control_plane.entities import AccessRequest, RunDependency
+from cnes_domain.control_plane.enums import AccessRequestState
 from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import execute_transaction, put_action
 from cnes_infra.control_plane.dynamodb_keys import (
-    dependency_marker_key,
-    item_key,
-    key_component,
-    outbox_key,
-    run_entity_key,
-    unit_key,
-)
+    dependency_marker_key, item_key, key_component, outbox_key, run_entity_key, unit_key)
 from packages.cnes_infra.tests.contracts import control_plane_contract
 from packages.cnes_infra.tests.contracts.clock import (
-    _NOW,
-    _TENANT,
-    MutableClock,
-    _agent,
-    _claim_job,
-    _claim_unit,
-    _claim_unit_command,
-    _commit_command,
-    _event,
-    _job,
-    _prepare_unit,
-    _run,
-    _unit,
-)
+    _NOW, _TENANT, MutableClock, _agent, _claim_job, _claim_unit, _claim_unit_command,
+    _commit_command, _event, _job, _prepare_unit, _run, _unit)
 from packages.cnes_infra.tests.contracts.control_plane_contract import (
-    ControlPlaneCase,
-    control_plane_cases,
-)
+    ControlPlaneCase, control_plane_cases)
 
 _TABLE_NAME = "cnesdata-control-plane"
 _INDEXES = tuple(f"gsi{number}" for number in range(1, 7))
@@ -369,6 +343,32 @@ def test_claims_retornam_none_quando_cas_perde_corrida(ctx: _DynamoContext) -> N
     command = ClaimRunUnit(tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
         dispatch_id=dispatch.dispatch_id, owner="worker-a", now=clock.now(), lease_seconds=30)
     assert adapter.claim_run_unit(command) is None
+def test_falha_opcional_rele_parent_apos_cas_concorrente(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    dependency = RunDependency(source_type="CNES", file_subtype="ST", required=False)
+    adapter.put_run(_run("run-a", dependencies=(dependency,)))
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = FailRunUnit(tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",
+        dispatch_id=dispatch.dispatch_id, owner="worker-a", fencing_token=claimed.fencing_token,
+        error_code="optional_failed", retryable=False)
+    transact = adapter._transact
+    def parent_wins(actions: Any) -> None:
+        current = adapter.get_run(_TENANT, "run-a")
+        adapter.put_run(current.model_copy(update={"missing_sources": ("SIHD/AIH",)}))
+        transact(actions)
+    adapter._transact = parent_wins
+    failed = adapter.fail_run_unit(command, _event("unit-degraded"))
+    assert (failed.state, adapter.get_run(_TENANT, "run-a").missing_sources) == (
+        RunUnitState.SUCCEEDED_DEGRADED, ("CNES/ST", "SIHD/AIH"))
+def test_access_request_propaga_conflito_sem_winner(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
+    request = AccessRequest(tenant_id=_TENANT, request_id="missing-winner", user_id="user-a",
+                            state=AccessRequestState.PENDING, decided_by=None, decided_at=None)
+    adapter._client = FailingTransactionClient(adapter._client)
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.put_access_request(request, _event("missing-winner"))
+    assert adapter.get_access_request(_TENANT, "missing-winner") is None
 def test_unit_ausente_nao_e_reivindicada_nem_finalizada(ctx: _DynamoContext) -> None:
     adapter, clock = ctx
     claim = ClaimRunUnit(tenant_id=_TENANT, run_id="run-a", unit_id="unit-a",

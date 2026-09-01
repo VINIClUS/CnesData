@@ -269,9 +269,9 @@ class DynamoDBClaims:
         )
         self._transact(actions)
         return updated
-
-    def fail_run_unit(self, command: FailRunUnit, event: Any) -> RunUnit:
-        """Falha ou degrada uma unidade fenced."""
+    def _fail_run_unit_actions(
+        self, command: FailRunUnit, event: Any
+    ) -> tuple[RunUnit, tuple[Action, ...]]:
         context = self._leased_unit_context(command)
         run_item, dispatch_item, unit_item, run, unit = context
         state = self._failed_unit_state(run, unit, command.retryable)
@@ -297,9 +297,16 @@ class DynamoDBClaims:
         else:
             actions.append(check_action(self._table_name, run_item))
         actions.append(self._event_action(command.tenant_id, event))
-        self._transact(tuple(actions))
+        return updated, tuple(actions)
+    def fail_run_unit(self, command: FailRunUnit, event: Any) -> RunUnit:
+        """Falha ou degrada uma unidade fenced."""
+        updated, actions = self._fail_run_unit_actions(command, event)
+        try:
+            self._transact(actions)
+        except Conflict:
+            updated, actions = self._fail_run_unit_actions(command, event)
+            self._transact(actions)
         return updated
-
     def _leased_unit_context(self, command: Any) -> tuple[Any, ...]:
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
         dispatch_item = self._get_item(dispatch_key(command.tenant_id, command.run_id))
@@ -314,7 +321,6 @@ class DynamoDBClaims:
         self._validate_dispatch_lease(dispatch, command.dispatch_id, self._clock())
         self._validate_unit_fence(unit, command, self._clock())
         return run_item, dispatch_item, unit_item, run, unit
-
     @staticmethod
     def _validate_dispatch_lease(dispatch: RunDispatch, dispatch_id: str, now: Any) -> None:
         if dispatch.dispatch_id != dispatch_id:
@@ -323,7 +329,6 @@ class DynamoDBClaims:
             raise LeaseLost("dispatch_terminal")
         if dispatch.lease_until <= now:
             raise LeaseLost("dispatch_expired")
-
     @staticmethod
     def _validate_unit_fence(unit: RunUnit, command: Any, now: Any) -> None:
         if unit.fencing_token != command.fencing_token:
@@ -334,7 +339,6 @@ class DynamoDBClaims:
             raise LeaseLost("unit_owner_lost")
         if unit.lease_until is None or unit.lease_until <= now:
             raise LeaseLost("unit_lease_expired")
-
     @staticmethod
     def _failed_unit_state(run: Run, unit: RunUnit, retryable: bool) -> RunUnitState:
         if retryable:
@@ -350,7 +354,6 @@ class DynamoDBClaims:
         if dependency is not None and not dependency.required:
             return RunUnitState.SUCCEEDED_DEGRADED
         return RunUnitState.FAILED_FINAL
-
     def reserve_run_dispatch(self, command: ReserveRunDispatch) -> RunDispatch:
         """Reserva uma geração de dispatch do run."""
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
@@ -387,7 +390,6 @@ class DynamoDBClaims:
         actions.append(put_action(self._table_name, self._dispatch_item(dispatch), expected))
         self._transact(tuple(actions))
         return dispatch
-
     @staticmethod
     def _dispatch_replay(
         current: RunDispatch | None, command: ReserveRunDispatch
@@ -402,7 +404,6 @@ class DynamoDBClaims:
         if not replaceable:
             raise Conflict("active_dispatch_conflict")
         return None
-
     def _replacement_unit_items(self, dispatch: RunDispatch, now: Any) -> tuple[Item, ...]:
         items = []
         for unit_id in dispatch.unit_ids:
@@ -419,7 +420,6 @@ class DynamoDBClaims:
                 raise Conflict("dispatch_unit_unavailable")
             items.append(item)
         return tuple(items)
-
     def _dispatch_unit_items(self, command: ReserveRunDispatch) -> tuple[Item, ...]:
         items = []
         for unit_id in command.unit_ids:

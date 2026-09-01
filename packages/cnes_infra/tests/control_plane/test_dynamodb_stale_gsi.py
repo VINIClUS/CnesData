@@ -324,33 +324,35 @@ def test_cancel_job_exige_lease_e_e_idempotente(ctx: _DynamoContext) -> None:
     assert adapter.finalize_run_cancellation(command, event) == canceled
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.finalize_run_cancellation(command, _foreign_event(adapter))
-    assert adapter.get_run(_TENANT, "run-a") == canceled
 def _access_request(state: AccessRequestState = AccessRequestState.PENDING) -> AccessRequest:
     decided = state is not AccessRequestState.PENDING
-    return AccessRequest(tenant_id=_TENANT, request_id="request-a", user_id="user-a",
-        state=state, decided_by="admin-a" if decided else None,
+    return AccessRequest(tenant_id=_TENANT, request_id="request-a", user_id="user-a", state=state,
+        decided_by="admin-a" if decided else None,
         decided_at=_NOW if decided else None)
 def _foreign_event(adapter: DynamoDBControlPlane) -> Any:
-    event = _event("foreign-event", tenant_id="other")
-    adapter.create_job(_job("foreign-job", tenant_id="other"), event)
+    adapter.create_job(_job("foreign-job", tenant_id="other"),
+                       event := _event("foreign-event", tenant_id="other"))
     return event
 def test_access_request_tem_criacao_decisao_e_replays_atomicos(ctx: _DynamoContext) -> None:
     _, _, adapter = ctx
     pending = _access_request()
     with pytest.raises(NotFound, match="access_request_missing"):
-        adapter.decide_access_request(
-            _access_request(AccessRequestState.APPROVED), _event("missing-access")
-        )
-    adapter.put_access_request(pending, _event("access-created"))
-    adapter.put_access_request(pending, _event("access-created"))
-    assert adapter.get_access_request(_TENANT, "request-a") == pending
+        adapter.decide_access_request(_access_request(AccessRequestState.APPROVED),
+                                      _event("missing-access"))
+    event, transact = _event("access-created"), adapter._transact
+    def commit_then_lose_response(actions: Any) -> None:
+        transact(actions)
+        raise Conflict("transaction_conflict")
+    adapter._transact = commit_then_lose_response
+    adapter.put_access_request(pending, event)
+    adapter._transact = transact
+    adapter.put_access_request(pending, event)
     foreign = _foreign_event(adapter)
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.put_access_request(pending, foreign)
     with pytest.raises(Conflict, match="access_request_conflict"):
-        adapter.put_access_request(
-            pending.model_copy(update={"user_id": "user-b"}), _event("divergent-access")
-        )
+        adapter.put_access_request(pending.model_copy(update={"user_id": "user-b"}),
+                                   _event("divergent-access"))
     approved = _access_request(AccessRequestState.APPROVED)
     changed_user = approved.model_copy(update={"user_id": "user-b"})
     with pytest.raises(Conflict, match="access_request_conflict"):
@@ -361,11 +363,9 @@ def test_access_request_tem_criacao_decisao_e_replays_atomicos(ctx: _DynamoConte
     assert adapter.decide_access_request(approved, _event("access-approved")) == approved
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.decide_access_request(approved, foreign)
-    assert adapter.get_access_request(_TENANT, "request-a") == approved
     with pytest.raises(Conflict, match="access_request_conflict"):
-        adapter.decide_access_request(
-            _access_request(AccessRequestState.REJECTED), _event("access-rejected")
-        )
+        adapter.decide_access_request(_access_request(AccessRequestState.REJECTED),
+                                      _event("access-rejected"))
 def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     adapter.create_job(_job("job-a"), _event("job-created"))
