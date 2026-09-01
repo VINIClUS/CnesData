@@ -62,10 +62,6 @@ class OneItemPageClient(ClientSpy):
         if kwargs.get("IndexName") == "gsi2" and (hidden := getattr(self, "hidden_gsi2sk", None)):
             response["Items"] = [item for item in response["Items"] if item["gsi2sk"] != hidden]
         return response
-class EmptyPageClient(ClientSpy):
-    def query(self, **kwargs: Any) -> dict[str, Any]:
-        return self.query_requests.append(dict(kwargs)) or {
-            "Items": [], "LastEvaluatedKey": {"pk": {"S": "next"}}}
 @pytest.fixture
 def ctx() -> Any:
     with mock_aws():
@@ -124,21 +120,11 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 3)
     assert tuple(ref.manifest_id for ref in chain) == (
         full.manifest_id, sibling_b.manifest_id, head.manifest_id)
-    partition = "TENANT#333534313330#RAW#434e4553#5354#323032362d3037"
-    assert 1 <= len(stale.query_requests) <= 31
-    assert all(request.get("ConsistentRead") is True and "IndexName" not in request
-               and request["ExpressionAttributeValues"][":partition"]["S"] == partition
-               and 1 <= request["Limit"] <= 31 for request in stale.query_requests)
+    gets = [request for name, request in stale.requests if name == "get_item"]
+    assert stale.query_requests == []
+    assert len(gets) == 1
+    assert gets[0].get("ConsistentRead") is True
     assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 0) == ()
-    for index in range(7):
-        record = _raw_record(f"extra-{index}", f"agent-{index}", 1, clock.now())
-        adapter._put_direct(adapter._raw_item(record))
-    before = len(stale.query_requests)
-    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1) == ()
-    assert len(stale.query_requests) - before == 1
-    adapter._client = empty = EmptyPageClient(adapter._client)
-    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1) == ()
-    assert len(empty.query_requests) == 11
 def test_latest_succeeded_ignora_omissao_do_gsi(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     adapter._client = spy = ClientSpy(adapter._client)
@@ -148,12 +134,23 @@ def test_latest_succeeded_ignora_omissao_do_gsi(ctx: _DynamoContext) -> None:
         _store_record_matching_mode(adapter, record, clock)
     requests = [next(iter(action.values())) for action in spy.transactions[-1]]
     items = [request["Item" if "Item" in request else "Key"] for request in requests]
-    assert len(requests) == len({(item["pk"]["S"], item["sk"]["S"]) for item in items}) == 5
+    assert len(requests) == len({(item["pk"]["S"], item["sk"]["S"]) for item in items}) == 7
+    head = next(request for request in requests
+                if request.get("Item", {}).get("entity") == {"S": "RAWHEAD"})
+    assert head["ConditionExpression"] == "payload = :expected"
     completed = adapter.get_job(_TENANT, "job-agent-a-new")
     adapter._client = stale = OneItemPageClient(spy.client)
     stale.hidden_gsi2sk = adapter._job_item(completed)["gsi2sk"]
     result = adapter.latest_succeeded_job(_TENANT, "agent-a", "CNES", "ST", "2026-07")
     assert (result, stale.query_requests) == (completed, [])
+def test_cadeia_raw_retorna_full_mais_novo_apos_historico_longo(ctx: _DynamoContext) -> None:
+    _, clock, adapter = ctx
+    records = tuple(_raw_record(f"full-{index}", f"agent-{index}", 1,
+        clock.now() + timedelta(seconds=index)) for index in range(11))
+    for record in records:
+        _store_record_matching_mode(adapter, record, clock)
+    chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1)
+    assert tuple(ref.manifest_id for ref in chain) == (records[-1].manifest_id,)
 def test_candidato_gsi_obsoleto_nao_reivindica_job_terminal(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     adapter.put_agent(_agent("agent-a"))

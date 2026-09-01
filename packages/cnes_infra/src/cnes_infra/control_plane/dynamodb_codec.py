@@ -1,13 +1,15 @@
 """DynamoDB item codec and transaction construction."""
 
+import json
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
 
+from cnes_domain.control_plane.entities import ManifestRef, RawManifestRecord
 from cnes_domain.control_plane.errors import Conflict
-from cnes_infra.control_plane.dynamodb_keys import item_key
+from cnes_infra.control_plane.dynamodb_keys import item_key, key_component, raw_partition, timestamp
 
 type Item = dict[str, dict[str, Any]]
 type Action = dict[str, dict[str, Any]]
@@ -178,29 +180,107 @@ def aggregate_replay(
     return True
 
 
-def bounded_partition(
-    client: Any, table_name: str, key: tuple[str, str], max_items: int
-) -> tuple[Item, ...] | None:
-    """Consulta uma partição forte dentro de orçamento fechado."""
-    items: list[Item] = []
-    request: dict[str, Any] = {
-        "TableName": table_name,
-        "KeyConditionExpression": "pk = :partition AND begins_with(sk, :prefix)",
-        "ExpressionAttributeValues": {
-            ":partition": {"S": key[0]}, ":prefix": {"S": key[1]}},
-        "ConsistentRead": True,
+def _ancestry_prefix(record: RawManifestRecord, sequence: int, digest: str) -> str:
+    base = record.snapshot_id if record.sequence == 1 else record.base_snapshot_id
+    values = (record.agent_id, str(base), f"{sequence:020d}", digest)
+    return "ANCESTRY#" + "#".join(map(key_component, values)) + "#"
+
+
+def _manifest_chain(
+    client: Any, table_name: str, record: RawManifestRecord, partition: str
+) -> tuple[dict[str, str], ...] | None:
+    ref = {"manifest_id": record.manifest_id, "manifest_key": record.manifest_key}
+    if record.sequence == 1:
+        return (ref,)
+    prefix = _ancestry_prefix(record, record.sequence - 1, str(record.previous_manifest_sha256))
+    predecessor = unique_partition_item(client, table_name, partition, prefix)
+    if predecessor is None or "chain" not in predecessor:
+        return None
+    chain = tuple(json.loads(predecessor["chain"]["S"]))
+    return (*chain, ref)
+
+
+def _ancestry_item(
+    record: RawManifestRecord, raw_item: Item, chain: tuple[dict[str, str], ...] | None
+) -> Item:
+    prefix = _ancestry_prefix(record, record.sequence, record.manifest_sha256)
+    item = {
+        "pk": raw_item["pk"], "sk": {"S": prefix + key_component(record.manifest_id)},
+        "entity": {"S": "RAWANCESTRY"}, "base_pk": raw_item["pk"],
+        "base_sk": raw_item["sk"],
     }
-    for _ in range(max_items + 1):
-        request["Limit"] = max_items + 1 - len(items)
-        response = client.query(**request)
-        items.extend(response.get("Items", ()))
-        last_key = response.get("LastEvaluatedKey")
-        if len(items) > max_items:
-            return None
-        if not last_key:
-            return tuple(items)
-        request["ExclusiveStartKey"] = last_key
-    return None
+    if chain is not None:
+        item["chain"] = {"S": json.dumps(chain, separators=(",", ":"))}
+    return item
+
+
+def _head_action(
+    client: Any, table_name: str, record: RawManifestRecord, chain: tuple[dict[str, str], ...]
+) -> Action:
+    partition = raw_partition(
+        record.tenant_id, record.source_type, record.file_subtype, record.competencia)
+    key = partition, "HEAD#CURRENT"
+    current = client.get_item(TableName=table_name, Key=item_key(*key), ConsistentRead=True).get(
+        "Item")
+    ordering = (
+        f"{timestamp(record.created_at)}#{key_component(record.agent_id)}#"
+        f"{key_component(record.snapshot_id)}")
+    data = {"ordering": ordering, "chain": chain}
+    head = {"pk": {"S": partition}, "sk": {"S": key[1]}, "entity": {"S": "RAWHEAD"},
+            "payload": {"S": json.dumps(data, separators=(",", ":"))}}
+    if current is None:
+        return put_action(table_name, head, None)
+    previous = json.loads(current["payload"]["S"])
+    descendant = previous["chain"][-1]["manifest_id"] in {
+        item["manifest_id"] for item in chain[:-1]}
+    if descendant or ordering > previous["ordering"]:
+        return put_action(table_name, head, payload(current))
+    return check_action(table_name, current)
+
+
+def raw_manifest_actions(
+    client: Any, table_name: str, record: RawManifestRecord, raw_item: Item
+) -> tuple[Action, ...]:
+    """Cria manifesto, ancestry e HEAD atomicamente."""
+    partition = raw_item["pk"]["S"]
+    chain = _manifest_chain(client, table_name, record, partition)
+    ancestry = _ancestry_item(record, raw_item, chain)
+    actions = [put_action(table_name, raw_item, None), put_action(table_name, ancestry, None)]
+    if chain is not None:
+        actions.append(_head_action(client, table_name, record, chain))
+    return tuple(actions)
+
+
+def raw_head_chain(
+    client: Any, table_name: str, partition: str, limit: int
+) -> tuple[ManifestRef, ...]:
+    """Lê fortemente a cadeia HEAD materializada."""
+    if limit < 1:
+        return ()
+    response = client.get_item(
+        TableName=table_name, Key=item_key(partition, "HEAD#CURRENT"), ConsistentRead=True)
+    head = response.get("Item")
+    if head is None:
+        return ()
+    chain = json.loads(head["payload"]["S"])["chain"]
+    if len(chain) > limit:
+        return ()
+    return tuple(ManifestRef.model_validate(item) for item in chain)
+
+
+def unique_partition_item(
+    client: Any, table_name: str, partition: str, prefix: str
+) -> Item | None:
+    """Retorna o único item forte de um prefixo, limitado a dois."""
+    response = client.query(
+        TableName=table_name,
+        KeyConditionExpression="pk = :partition AND begins_with(sk, :prefix)",
+        ExpressionAttributeValues={
+            ":partition": {"S": partition}, ":prefix": {"S": prefix}},
+        ConsistentRead=True,
+        Limit=2)
+    items = response.get("Items", ())
+    return items[0] if len(items) == 1 else None
 
 
 def put_action(table_name: str, item: Item, expected_payload: str | None) -> Action:

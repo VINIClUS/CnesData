@@ -31,7 +31,6 @@ from cnes_infra.control_plane.dynamodb_codec import (
     Item,
     aggregate_replay,
     bounded_candidates,
-    bounded_partition,
     check_action,
     decode_model,
     encode_marker,
@@ -40,6 +39,8 @@ from cnes_infra.control_plane.dynamodb_codec import (
     payload,
     put_action,
     query_partition,
+    raw_head_chain,
+    raw_manifest_actions,
 )
 from cnes_infra.control_plane.dynamodb_keys import (
     dependency_marker_key,
@@ -141,6 +142,9 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             record.tenant_id, record.source_type, record.file_subtype, record.competencia)
         key = partition, f"MANIFEST#{key_component(record.manifest_id)}"
         return encode_model(record, "RAWMANIFESTRECORD", key, attributes)
+    def _raw_actions(self, record: RawManifestRecord) -> tuple[Action, ...]:
+        return raw_manifest_actions(
+            self._client, self._table_name, record, self._raw_item(record))
     def _run_item(self, run: Run) -> Item:
         attributes = {}
         if run.state in _RECOVERABLE:
@@ -226,51 +230,8 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         """Retorna a cadeia válida de manifestos raw."""
         tenant_id, source_type, file_subtype, competencia, *rest = args
         limit = rest[0] if rest else 31
-        if limit < 1:
-            return ()
         partition = raw_partition(tenant_id, source_type, file_subtype, competencia)
-        items = bounded_partition(
-            self._client, self._table_name, (partition, "MANIFEST#"), limit * 10)
-        if items is None:
-            return ()
-        records = [decode_model(item, RawManifestRecord) for item in items]
-        chains = tuple(filter(None, (self._valid_chain(records, head) for head in records)))
-        ancestors = {item.manifest_id for chain in chains for item in chain[:-1]}
-        endpoints = (chain for chain in chains if chain[-1].manifest_id not in ancestors)
-        ordered = sorted(
-            endpoints,
-            key=lambda chain: (chain[-1].created_at, chain[-1].agent_id, chain[-1].snapshot_id),
-            reverse=True,
-        )
-        for chain in ordered:
-            if len(chain) > limit:
-                return ()
-            return tuple(
-                ManifestRef(manifest_id=item.manifest_id, manifest_key=item.manifest_key)
-                for item in chain
-            )
-        return ()
-    @staticmethod
-    def _valid_chain(
-        records: list[RawManifestRecord], head: RawManifestRecord
-    ) -> tuple[RawManifestRecord, ...]:
-        base = head.snapshot_id if head.sequence == 1 else head.base_snapshot_id
-        chain = [head]
-        current = head
-        while current.sequence > 1:
-            predecessors = [
-                item for item in records
-                if item.agent_id == head.agent_id
-                and item.sequence == current.sequence - 1
-                and item.manifest_sha256 == current.previous_manifest_sha256
-                and base in (item.snapshot_id, item.base_snapshot_id)
-            ]
-            if len(predecessors) != 1:
-                return ()
-            current = predecessors[0]
-            chain.append(current)
-        chain.reverse()
-        return tuple(chain) if current.snapshot_id == base else ()
+        return raw_head_chain(self._client, self._table_name, partition, limit)
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Job, ...]:
         """Lista jobs elegíveis para claim."""
         agent = self.get_agent(tenant_id, agent_id)

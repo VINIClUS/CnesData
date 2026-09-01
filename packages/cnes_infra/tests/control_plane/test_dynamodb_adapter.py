@@ -64,6 +64,7 @@ class ClientSpy:
         self.transactions: list[list[dict[str, Any]]] = []
         self.calls: list[str] = []
         self.query_requests: list[dict[str, Any]] = []
+        self.requests: list[tuple[str, dict[str, Any]]] = []
     def transact_write_items(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("transact_write_items")
         self.transactions.append(kwargs["TransactItems"])
@@ -79,6 +80,7 @@ class ClientSpy:
             return attribute
         def tracked(**kwargs: Any) -> Any:
             self.calls.append(name)
+            self.requests.append((name, dict(kwargs)))
             return attribute(**kwargs)
         return tracked
 class FailingTransactionClient(ClientSpy):

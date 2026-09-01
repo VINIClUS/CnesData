@@ -140,7 +140,7 @@ class DynamoDBClaims:
         actions = (
             check_action(self._table_name, agent_item),
             put_action(self._table_name, self._job_item(updated), payload(item)),
-            put_action(self._table_name, self._raw_item(command.manifest), None),
+            *self._raw_actions(command.manifest),
             self._latest_job_action(updated),
             self._event_action(job.tenant_id, event),
         )
