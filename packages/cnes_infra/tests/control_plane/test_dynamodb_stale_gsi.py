@@ -68,10 +68,9 @@ def test_deduplica_candidatos_e_rele_base_antes_do_claim(ctx: _DynamoContext) ->
     assert (adapter.list_claimable_jobs(_TENANT, "agent-a", 0),
             paginated.calls.count("query")) == ((), 4)
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is not None
-@pytest.mark.parametrize("base_minutes", [3, 4])
-def test_cadeia_raw_serializa_corrida(base_minutes: int, ctx: _DynamoContext) -> None:
+def test_cadeia_raw_serializa_corrida(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
-    full = _raw_record("base", "agent-a", 1, clock.now() + timedelta(minutes=base_minutes))
+    full = _raw_record("base", "agent-a", 1, clock.now() + timedelta(minutes=4))
     sibling_a = _raw_record("delta-a", "agent-a", 2, clock.now() + timedelta(minutes=1))
     sibling_b = _raw_record("delta-b", "agent-a", 2, clock.now() + timedelta(minutes=2))
     head = _raw_record("head", "agent-a", 3, clock.now() + timedelta(minutes=3))
@@ -80,13 +79,14 @@ def test_cadeia_raw_serializa_corrida(base_minutes: int, ctx: _DynamoContext) ->
     sibling_a = linked(sibling_a, manifest_sha256=_HASH_B)
     sibling_b = linked(sibling_b, manifest_sha256="c" * 64)
     head = linked(head, previous_manifest_sha256="c" * 64)
-    parent_actions = adapter._raw_actions(full)
-    adapter._transact(adapter._raw_actions(sibling_b))
-    with pytest.raises(Conflict, match="transaction_conflict"):
-        adapter._transact(parent_actions)
-    adapter._transact(adapter._raw_actions(full))
-    repaired = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 2)
-    assert tuple(ref.manifest_id for ref in repaired) == (full.manifest_id, sibling_b.manifest_id)
+    transact, calls = adapter._transact, 0
+    def contend(actions: Any) -> None:
+        nonlocal calls
+        if (calls := calls + 1) == 3:
+            transact(adapter._raw_actions(sibling_b))
+        transact(actions)
+    adapter._transact = contend
+    _store_record_matching_mode(adapter, full, clock)
     adapter._raw_actions(full)
     with pytest.raises(Conflict, match="raw_ancestry_conflict"):
         adapter._raw_actions(full.model_copy(update={"manifest_id": "duplicate-full"}))

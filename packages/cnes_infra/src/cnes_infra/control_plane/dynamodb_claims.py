@@ -61,7 +61,6 @@ class DynamoDBClaims:
         }
         key = dispatch_key(dispatch.tenant_id, dispatch.run_id)
         return encode_model(dispatch, "RUNDISPATCH", key, attributes)
-
     def claim_job(self, command: ClaimJob) -> Job | None:
         """Reivindica um job elegível com novo fence."""
         key = entity_key(command.tenant_id, "JOB", command.job_id)
@@ -93,7 +92,6 @@ class DynamoDBClaims:
         except Conflict:
             return None
         return updated
-
     def renew_job_lease(self, command: RenewJobLease) -> Job:
         """Renova o lease de um job fenced."""
         item, job = self._leased_job(command.tenant_id, command.job_id)
@@ -109,9 +107,9 @@ class DynamoDBClaims:
             )
         )
         return updated
-
-    def complete_job(self, command: CompleteJob, event: Any) -> Job:
-        """Conclui job, manifesto e evento atomicamente."""
+    def _complete_job_actions(
+        self, command: CompleteJob, event: Any
+    ) -> tuple[Job, tuple[Action, ...]]:
         item, job = self._leased_job(command.tenant_id, command.job_id)
         self._validate_job_fence(job, command.owner, command.fencing_token, self._clock())
         agent_item = self._active_agent_item(job)
@@ -144,7 +142,15 @@ class DynamoDBClaims:
             self._latest_job_action(updated),
             self._event_action(job.tenant_id, event),
         )
-        self._transact(actions)
+        return updated, actions
+    def complete_job(self, command: CompleteJob, event: Any) -> Job:
+        """Conclui job, manifesto e evento atomicamente."""
+        updated, actions = self._complete_job_actions(command, event)
+        try:
+            self._transact(actions)
+        except Conflict:
+            updated, actions = self._complete_job_actions(command, event)
+            self._transact(actions)
         return updated
     def fail_job(self, command: FailJob, event: Any) -> Job:
         """Falha um job leased e grava seu evento."""
@@ -167,7 +173,6 @@ class DynamoDBClaims:
             )
         )
         return updated
-
     def _leased_job(self, tenant_id: str, job_id: str) -> tuple[Item, Job]:
         item = self._get_item(entity_key(tenant_id, "JOB", job_id))
         if item is None:
@@ -176,7 +181,6 @@ class DynamoDBClaims:
         if job.state is not JobState.LEASED:
             raise LeaseLost("job_not_leased")
         return item, job
-
     @staticmethod
     def _validate_job_fence(job: Job, owner: str, fence: int, now: Any) -> None:
         if job.fencing_token != fence:
@@ -185,13 +189,11 @@ class DynamoDBClaims:
             raise LeaseLost("job_owner_lost")
         if job.lease_until is None or job.lease_until <= now:
             raise LeaseLost("job_lease_expired")
-
     def _active_agent_item(self, job: Job) -> Item:
         item = self._get_item(entity_key(job.tenant_id, "AGENT", job.agent_id))
         if item is None or decode_model(item, Agent).state is not AgentState.ACTIVE:
             raise LeaseLost("agent_revoked")
         return item
-
     def claim_run_unit(self, command: ClaimRunUnit) -> RunUnit | None:
         """Reivindica uma unidade despachada com novo fence."""
         context = self._unit_claim_context(command)
@@ -223,7 +225,6 @@ class DynamoDBClaims:
         except Conflict:
             return None
         return updated
-
     def _unit_claim_context(self, command: ClaimRunUnit) -> tuple[Any, ...] | None:
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
         dispatch_item = self._get_item(dispatch_key(command.tenant_id, command.run_id))
@@ -248,7 +249,6 @@ class DynamoDBClaims:
         if run.state is not RunState.PROCESSING or not valid_dispatch or not claimable:
             return None
         return run_item, dispatch_item, unit_item, unit
-
     def commit_run_unit(self, command: CommitRunUnit, event: Any) -> RunUnit:
         """Confirma a saída de uma unidade fenced."""
         context = self._leased_unit_context(command)
