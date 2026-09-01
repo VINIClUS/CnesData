@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from cnes_domain.control_plane.commands import PublishDataset
@@ -99,29 +100,35 @@ def _predecessors(
     return tuple(deserialize_model(row[0], RawManifestRecord) for row in rows)
 
 
-def _build_ancestry(
-    connection: Any, identity: tuple[str, ...], current: RawManifestRecord, limit: int
-) -> tuple[RawManifestRecord, ...] | None:
+@dataclass
+class _AncestrySearch:
+    identity: tuple[str, ...]
+    remaining: int
+    predecessors: dict[Any, tuple[RawManifestRecord, ...]]
+
+
+def _build_ancestry(connection: Any, identity: Any, current: RawManifestRecord, limit: int):
+    search = identity if isinstance(identity, _AncestrySearch) else _AncestrySearch(
+        identity, max(limit, 1) * _HEAD_SCAN_PAGES, {})
     paths = [(current, (current,))]
-    predecessors_by_key = {}
     expanded = set()
-    remaining = max(limit, 1) * _HEAD_SCAN_PAGES
     while paths:
         item, ancestry = paths.pop()
         if item.manifest_id in expanded:
             continue
-        if remaining == 0:
+        if search.remaining == 0:
             return None
         expanded.add(item.manifest_id)
-        remaining -= 1
+        search.remaining -= 1
         if len(ancestry) > limit:
             return None
         if item.sequence == 1:
             return tuple(reversed(ancestry))
         key = (item.agent_id, item.sequence, item.previous_manifest_sha256, item.base_snapshot_id)
-        if key not in predecessors_by_key:
-            predecessors_by_key[key] = _predecessors(connection, identity, item, limit)
-        predecessors = predecessors_by_key[key]
+        if key not in search.predecessors:
+            search.predecessors[key] = _predecessors(
+                connection, search.identity, item, limit)
+        predecessors = search.predecessors[key]
         paths.extend((predecessor, (*ancestry, predecessor))
                      for predecessor in reversed(predecessors))
     return ()
@@ -133,6 +140,7 @@ def _select_raw_chain(
     cursor = (None, None, None, None)
     page_size = max(limit, 1)
     remaining = page_size * _HEAD_SCAN_PAGES
+    search = _AncestrySearch(identity, remaining, {})
     while remaining:
         rows = connection.execute(
             "SELECT data, created_at, agent_id, snapshot_id, manifest_id FROM raw_manifests "
@@ -147,7 +155,7 @@ def _select_raw_chain(
         remaining -= len(rows)
         for row in rows:
             head = deserialize_model(row[0], RawManifestRecord)
-            chain = _build_ancestry(connection, identity, head, limit)
+            chain = _build_ancestry(connection, search, head, limit)
             if chain is None:
                 return ()
             if len(chain) == head.sequence:
@@ -288,10 +296,12 @@ def _put_version(connection: Any, version: DatasetVersion) -> None:
 
 def _put_publication(connection: Any, command: PublishDataset) -> None:
     version = command.version
+    permit = command.publication_permit.model_copy(update={"binding_context": None})
+    canonical = command.model_copy(update={"publication_permit": permit})
     connection.execute(
         "INSERT INTO dataset_publications (tenant_id, dataset_name, version_id, data) "
         "VALUES (?, ?, ?, ?)",
-        (version.tenant_id, version.dataset_name, version.version_id, serialize_model(command)),
+        (version.tenant_id, version.dataset_name, version.version_id, serialize_model(canonical)),
     )
 
 
@@ -319,6 +329,8 @@ def _validate_publication_replay(
         and run.state is command.final_state
         and run.missing_sources == command.missing_sources
     )
+    permit = command.publication_permit.model_copy(update={"binding_context": None})
+    command = command.model_copy(update={"publication_permit": permit})
     if canonical != command or not terminal_matches:
         raise Conflict("publication_replay_conflict")
     return pointer

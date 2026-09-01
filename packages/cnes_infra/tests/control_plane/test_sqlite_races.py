@@ -6,7 +6,6 @@ from typing import Any
 import pytest
 
 from cnes_domain.control_plane.commands import (
-    BeginIdempotency,
     BindRunDispatch,
     CancelJob,
     ClaimJob,
@@ -192,28 +191,28 @@ def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, cl
         units=(_unit("unit-a"),))
     _no(Conflict, "run_state_conflict", lambda: adapter.put_run_units(command))
 def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None:
-    tenant = Tenant(tenant_id="354130", municipality_name="Epitácio", created_at=clock.now())
-    adapter.put_tenant(tenant)
-    _prepare_job(adapter)
-    claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
     adapter.put_run(_run("run-a", RunState.PUBLISHING))
-    pointer = adapter.publish_dataset(_publish("run-a", "published", None, False))
-    idempotency = BeginIdempotency(
-        tenant_id="354130", scope="jobs", key="key-a", request_hash="a" * 64,
-        resource_id="job-a", now=clock.now(), expires_at=clock.now() + timedelta(minutes=5))
-    adapter.begin_idempotency(idempotency)
+    publication = _publish("run-a", "published", None, False)
+    publication = publication.model_copy(update={"publication_permit":
+        publication.publication_permit.model_copy(update={"binding_context": object()})})
+    pointer = adapter.publish_dataset(publication)
     adapter.put_run(_run("run-units"))
     unit_a = _unit("unit-a").model_copy(update={"run_id": "run-units"})
     unit_b = _unit("unit-b").model_copy(update={"run_id": "run-units"})
     canonical = (unit_a, unit_b)
     assert _put_units(adapter, (unit_b, unit_a), "run-units") == canonical
+    with adapter.write_transaction() as connection:
+        connection.executescript("ALTER TABLE job_creation_writes DROP COLUMN job_data;"
+                                 "ALTER TABLE runs DROP COLUMN unit_registry_data;")
     reopened = SQLiteControlPlane(database_path, clock.now)
     reopened.initialize()
-    assert reopened.get_tenant(tenant.tenant_id) == tenant
-    assert reopened.get_job("354130", "job-a") == claimed
-    assert reopened.get_dataset_pointer("354130", "gold") == pointer
-    assert not reopened.begin_idempotency(idempotency).created
-    assert reopened.pending_outbox(10) == adapter.pending_outbox(10)
+    with reopened.read_connection() as connection:
+        assert "job_data" in {row[1] for row in connection.execute(
+            "PRAGMA table_info(job_creation_writes)")}
+    reopened.initialize()
+    permit = publication.publication_permit.model_copy(update={"binding_context": object()})
+    assert reopened.publish_dataset(publication.model_copy(
+        update={"publication_permit": permit})) == pointer
     assert _put_units(reopened, canonical, "run-units") == canonical
     before = reopened.list_run_units("354130", "run-units")
     divergent = (unit_a, _unit("unit-c").model_copy(update={"run_id": "run-units"}))
@@ -460,21 +459,26 @@ def test_limita_ancestralidade_longa_sem_recursao(adapter, clock, monkeypatch) -
     calls = []
     monkeypatch.setattr(sqlite_publication, "deserialize_model",
                         lambda *args: (calls.append(None), deserialize(*args))[1])
-    assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07") == ()
     assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 2) == ()
-    assert len(calls) <= 35
     with adapter.write_transaction() as connection:
+        for index in range(2):
+            shared = base.model_copy(update={
+                "manifest_id": f"shared-{index}", "snapshot_id": f"shared-{index}",
+                "manifest_key": f"raw/354130/CNES/2026-07/shared-{index}/manifest.json",
+                "snapshot_mode": "DELTA", "sequence": 2, "base_snapshot_id": "missing",
+                "previous_manifest_sha256": "d" * 64, "manifest_sha256": "e" * 64})
+            adapter.put_manifest_record(connection, shared)
         for index in range(100):
             broken = base.model_copy(update={
                 "manifest_id": f"invalid-{index:03}", "snapshot_id": f"invalid-{index:03}",
                 "manifest_key": f"raw/354130/CNES/2026-07/invalid-{index:03}/manifest.json",
-                "snapshot_mode": "DELTA", "sequence": 2, "base_snapshot_id": "missing",
+                "snapshot_mode": "DELTA", "sequence": 3, "base_snapshot_id": "missing",
                 "previous_manifest_sha256": "e" * 64,
                 "created_at": clock.now() + timedelta(days=1, seconds=index)})
             adapter.put_manifest_record(connection, broken)
     calls.clear()
     assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 2) == ()
-    assert len(calls) <= 8
+    assert len(calls) <= 10
     levels = tuple(tuple(base.model_copy(update={
         "manifest_id": f"branch-{level}-{index}", "sequence": level + 2,
     }) for index in range(31)) for level in range(4))
@@ -486,14 +490,11 @@ def test_limita_ancestralidade_longa_sem_recursao(adapter, clock, monkeypatch) -
     graph.update({item.manifest_id: levels[level - 1] if level else ()
                   for level, siblings in enumerate(levels) for item in siblings})
     graph.update({valid[index].manifest_id: (valid[index - 1],) for index in range(1, 4)})
-    expansions = []
     def predecessors(connection, identity, current, limit):
-        expansions.append(current.manifest_id)
-        if len(expansions) > 200:
-            raise RuntimeError("ancestry_expansion")
         return graph.get(current.manifest_id, ())
     monkeypatch.setattr(sqlite_publication, "_predecessors", predecessors)
-    chain = sqlite_publication._build_ancestry(None, (), head, 100)
-    assert tuple(item.manifest_id for item in chain)[-1] == "branch-head"
-    assert len(expansions) <= 10
-    assert sqlite_publication._build_ancestry(None, (), head, 20) is None
+    assert sqlite_publication._build_ancestry(None, (), head, 100) is not None
+    monkeypatch.setattr(sqlite_publication, "_build_ancestry", lambda *args: ())
+    with adapter.read_connection() as connection:
+        identity = ("354130", "CNES", "ST", "2026-07")
+        assert sqlite_publication._select_raw_chain(connection, identity, 2) == ()

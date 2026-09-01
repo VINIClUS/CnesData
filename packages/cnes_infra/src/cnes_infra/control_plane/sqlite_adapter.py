@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -33,7 +34,6 @@ from cnes_infra.control_plane.sqlite_schema import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
-    from datetime import datetime
 
     from cnes_domain.control_plane.commands import (
         BeginIdempotency,
@@ -344,6 +344,8 @@ class SQLiteControlPlane:
             )
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
+        if delivered_at.tzinfo is None or delivered_at.utcoffset() != timedelta(0):
+            raise ValueError("datetime_not_utc")
         with self.write_transaction() as connection:
             event = _fetch_one(
                 connection,

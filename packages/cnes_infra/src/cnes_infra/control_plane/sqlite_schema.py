@@ -247,30 +247,20 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     data TEXT NOT NULL
 );
 """
-
 _NETWORK_FILESYSTEMS = {"9p", "afs", "cifs", "fuse.sshfs", "nfs", "nfs4", "smbfs"}
 _NETWORK_PATH_PREFIXES = ("//", "smb:/", "nfs:/", "afp:/", "/net/", "/Network/Servers/")
-
-
 class _SQLiteWALUnavailable(RuntimeError):
     pass
-
 def serialize_model(model: BaseModel) -> str:
     return json.dumps(model.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-
-
 def deserialize_model[Model: BaseModel](payload: str, model: type[Model]) -> Model:
     return model.model_validate_json(payload)
-
-
 def put_job_creation_write(connection: Any, job: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO job_creation_writes (tenant_id, job_id, job_data, event_data) "
         "VALUES (?, ?, ?, ?)",
         (job.tenant_id, job.job_id, serialize_model(job), serialize_model(event)),
     )
-
-
 def validate_job_creation_replay(connection: Any, job: Any, event: Any) -> None:
     row = connection.execute(
         "SELECT job_data, event_data FROM job_creation_writes WHERE tenant_id = ? AND job_id = ?",
@@ -284,7 +274,6 @@ def put_job_cancellation(connection: Any, command: Any, event: Any) -> None:
         "(tenant_id, job_id, command_data, event_data) VALUES (?, ?, ?, ?)",
         (command.tenant_id, command.job_id, serialize_model(command), serialize_model(event)),
     )
-
 def validate_job_cancellation(connection: Any, command: Any, event: Any) -> None:
     row = connection.execute(
         "SELECT command_data, event_data FROM job_cancellation_writes "
@@ -298,7 +287,6 @@ def put_access_request_decision(connection: Any, request: Any, event: Any) -> No
         "(tenant_id, request_id, event_data) VALUES (?, ?, ?)",
         (request.tenant_id, request.request_id, serialize_model(event)),
     )
-
 def validate_access_request_decision(connection: Any, request: Any, event: Any) -> None:
     row = connection.execute(
         "SELECT event_data FROM access_request_decision_writes "
@@ -306,7 +294,6 @@ def validate_access_request_decision(connection: Any, request: Any, event: Any) 
     ).fetchone()
     if row is None or row[0] != serialize_model(event):
         raise Conflict("access_request_decision_conflict")
-
 def put_run_transition(connection: Any, command: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO run_transition_writes "
@@ -314,7 +301,6 @@ def put_run_transition(connection: Any, command: Any, event: Any) -> None:
         (command.tenant_id, command.run_id, command.expected_state.value,
          serialize_model(command), serialize_model(event)),
     )
-
 def validate_run_transition(connection: Any, command: Any, event: Any) -> None:
     row = connection.execute(
         "SELECT command_data, event_data FROM run_transition_writes "
@@ -323,7 +309,6 @@ def validate_run_transition(connection: Any, command: Any, event: Any) -> None:
     ).fetchone()
     if row is None or tuple(row) != (serialize_model(command), serialize_model(event)):
         raise Conflict("run_transition_conflict")
-
 def get_job_terminal_write(
     connection: Any, tenant_id: str, job_id: str
 ) -> tuple[str, ...] | None:
@@ -333,7 +318,6 @@ def get_job_terminal_write(
         (tenant_id, job_id),
     ).fetchone()
     return None if row is None else tuple(row)
-
 def put_job_terminal_write(connection: Any, operation: str, command: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO job_terminal_writes "
@@ -346,7 +330,6 @@ def put_job_terminal_write(connection: Any, operation: str, command: Any, event:
             serialize_model(command), serialize_model(event),
         ),
     )
-
 def validate_job_terminal_replay(connection: Any, job: Any, command: Any, event: Any) -> None:
     manifest = getattr(command, "manifest", None)
     operation = "complete" if manifest is not None else "fail"
@@ -368,7 +351,6 @@ def validate_job_terminal_replay(connection: Any, job: Any, command: Any, event:
         )
     if current != canonical or not result_matches:
         raise Conflict("job_terminal_conflict")
-
 def get_run_unit_terminal_write(connection: Any, command: Any) -> tuple[str, ...] | None:
     row = connection.execute(
         "SELECT operation, command_data, event_data FROM run_unit_terminal_writes "
@@ -376,7 +358,6 @@ def get_run_unit_terminal_write(connection: Any, command: Any) -> tuple[str, ...
         (command.tenant_id, command.run_id, command.unit_id),
     ).fetchone()
     return None if row is None else tuple(row)
-
 def put_run_unit_terminal_write(
     connection: Any, operation: str, command: Any, event: Any
 ) -> None:
@@ -391,7 +372,6 @@ def put_run_unit_terminal_write(
             serialize_model(command), serialize_model(event),
         ),
     )
-
 def validate_run_unit_terminal_replay(
     connection: Any, unit: Any, command: Any, event: Any
 ) -> Any:
@@ -400,21 +380,18 @@ def validate_run_unit_terminal_replay(
     if get_run_unit_terminal_write(connection, command) != canonical:
         raise Conflict("unit_terminal_conflict")
     return unit
-
 def put_run_dispatch_finish(connection: Any, command: Any) -> None:
     connection.execute(
         "INSERT INTO run_dispatch_terminal_writes "
         "(tenant_id, run_id, dispatch_id, command_data) VALUES (?, ?, ?, ?)",
         (command.tenant_id, command.run_id, command.dispatch_id, serialize_model(command)),
     )
-
 def put_run_dispatch_bind(connection: Any, command: Any) -> None:
     connection.execute(
         "INSERT INTO run_dispatch_bind_writes "
         "(tenant_id, run_id, dispatch_id, command_data) VALUES (?, ?, ?, ?)",
         (command.tenant_id, command.run_id, command.dispatch_id, serialize_model(command)),
     )
-
 def validate_run_dispatch_bind(connection: Any, command: Any) -> None:
     row = connection.execute(
         "SELECT command_data FROM run_dispatch_bind_writes "
@@ -423,7 +400,6 @@ def validate_run_dispatch_bind(connection: Any, command: Any) -> None:
     ).fetchone()
     if row is None or row[0] != serialize_model(command):
         raise Conflict("dispatch_bind_conflict")
-
 def validate_run_dispatch_finish(connection: Any, command: Any) -> None:
     row = connection.execute(
         "SELECT command_data FROM run_dispatch_terminal_writes "
@@ -438,8 +414,6 @@ def put_run_cancellation(connection: Any, command: Any, event: Any) -> None:
         "(tenant_id, run_id, command_data, event_data) VALUES (?, ?, ?, ?)",
         (command.tenant_id, command.run_id, serialize_model(command), serialize_model(event)),
     )
-
-
 def validate_run_cancellation(connection: Any, command: Any, event: Any) -> None:
     row = connection.execute(
         "SELECT command_data, event_data FROM run_cancellation_writes "
@@ -449,8 +423,6 @@ def validate_run_cancellation(connection: Any, command: Any, event: Any) -> None
     canonical = (serialize_model(command), serialize_model(event))
     if row is None or tuple(row) != canonical:
         raise Conflict("run_cancellation_conflict")
-
-
 def validate_run_dispatch_wave(connection: Any, command: Any) -> None:
     unit_ids = json.dumps(command.unit_ids, separators=(",", ":"))
     row = connection.execute(
@@ -467,8 +439,6 @@ def validate_run_dispatch_wave(connection: Any, command: Any) -> None:
         "VALUES (?, ?, ?, ?)",
         (command.tenant_id, command.run_id, command.wave_id, unit_ids),
     )
-
-
 def is_network_filesystem(path: Path) -> bool:
     raw_path = str(path).replace("\\", "/")
     if raw_path.startswith(_NETWORK_PATH_PREFIXES):
@@ -484,8 +454,24 @@ def is_network_filesystem(path: Path) -> bool:
         if len(fields) >= 3 and resolved.is_relative_to(Path(fields[1])):
             matches.append((len(fields[1]), fields[2]))
     return bool(matches and max(matches)[1] in _NETWORK_FILESYSTEMS)
-
-
+def _migrate_schema(connection: sqlite3.Connection) -> None:
+    job_columns = {row[1] for row in connection.execute(
+        "PRAGMA table_info(job_creation_writes)")}
+    if "job_data" not in job_columns:
+        connection.execute("ALTER TABLE job_creation_writes ADD COLUMN job_data TEXT")
+    run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+    if "unit_registry_data" not in run_columns:
+        connection.execute("ALTER TABLE runs ADD COLUMN unit_registry_data TEXT")
+    rows = connection.execute(
+        "SELECT tenant_id, run_id FROM runs WHERE unit_registry_data IS NULL").fetchall()
+    for tenant_id, run_id in rows:
+        units = connection.execute(
+            "SELECT data FROM run_units WHERE tenant_id = ? AND run_id = ? ORDER BY unit_id",
+            (tenant_id, run_id)).fetchall()
+        if units:
+            connection.execute(
+                "UPDATE runs SET unit_registry_data = ? WHERE tenant_id = ? AND run_id = ?",
+                ("\x1e".join(row[0] for row in units), tenant_id, run_id))
 def initialize_schema(connect: Callable[[], sqlite3.Connection], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = connect()
@@ -494,6 +480,7 @@ def initialize_schema(connect: Callable[[], sqlite3.Connection], path: Path) -> 
         if result is None or str(result[0]).lower() != "wal":
             raise _SQLiteWALUnavailable("sqlite_wal_unavailable")
         connection.executescript(_SCHEMA)
+        _migrate_schema(connection)
         connection.commit()
     finally:
         connection.close()

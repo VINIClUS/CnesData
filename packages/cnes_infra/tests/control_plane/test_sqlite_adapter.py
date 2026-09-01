@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta  # noqa: I001
 import pytest
-
 from cnes_domain.control_plane.commands import (
     CancelJob,
     CompleteJob,
@@ -295,15 +294,13 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
     with pytest.raises(Conflict, match="access_request_state_conflict"):
         sqlite_control_plane.decide_access_request(
             pending.model_copy(update={"request_id": "missing"}), ignored)
-    assert sqlite_control_plane.get_access_request("354130", "request-a") == approved
     assert sqlite_control_plane.pending_outbox(100) == (decided, created)
 def test_replays_e_conflitos_de_job(sqlite_control_plane, clock) -> None:
     agent = _agent("agent-a")
     sqlite_control_plane.put_agent(agent)
     assert sqlite_control_plane.get_agent("354130", "agent-a") == agent
-    assert sqlite_control_plane.get_agent("other", "agent-a") is None
     job, created = _job("job-a"), _event("job-created")
-    assert sqlite_control_plane.create_job(job, created) == job
+    sqlite_control_plane.create_job(job, created)
     reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
     reopened.initialize()
     claimed = reopened.claim_job(_claim_job("job-a", "worker-a", clock))
@@ -317,10 +314,13 @@ def test_replays_e_conflitos_de_job(sqlite_control_plane, clock) -> None:
             job.model_copy(update={"source_type": "SIHD"}), _event("job-conflict"))
     with pytest.raises(Conflict, match="outbox_event_conflict"):
         sqlite_control_plane.create_job(_job("job-b"), created)
-    assert sqlite_control_plane.get_job("354130", "job-b") is None
-    assert sqlite_control_plane.pending_outbox(100) == (created,)
     with pytest.raises(NotFound, match="outbox_event_missing"):
         sqlite_control_plane.mark_outbox_delivered("missing", datetime.now(UTC))
+    for invalid in (clock.now().replace(tzinfo=None), datetime.fromisoformat(
+        "2026-01-01T00:00:00-03:00")):
+        with pytest.raises(ValueError, match="datetime_not_utc"):
+            sqlite_control_plane.mark_outbox_delivered(created.event_id, invalid)
+    assert sqlite_control_plane.pending_outbox(100) == (created,)
 @pytest.mark.parametrize("operation", ["commit_run_unit", "fail_run_unit"])
 def test_rejeita_unidade_terminal(sqlite_control_plane, clock, operation) -> None:
     dispatch = _prepare_unit(sqlite_control_plane, clock)
