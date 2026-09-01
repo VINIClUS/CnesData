@@ -376,11 +376,12 @@ def _get_access_request(
     return None if row is None else deserialize_model(row[0], AccessRequest)
 
 
-def _put_access_request(connection: Any, request: AccessRequest) -> None:
+def _put_access_request(connection: Any, request: AccessRequest, event: OutboxEvent) -> None:
     connection.execute(
-        "INSERT INTO access_requests (tenant_id, request_id, data) VALUES (?, ?, ?) "
+        "INSERT INTO access_requests (tenant_id, request_id, data, creation_event_data) "
+        "VALUES (?, ?, ?, ?) "
         "ON CONFLICT (tenant_id, request_id) DO UPDATE SET data = excluded.data",
-        (request.tenant_id, request.request_id, serialize_model(request)),
+        (request.tenant_id, request.request_id, serialize_model(request), serialize_model(event)),
     )
 
 
@@ -396,9 +397,16 @@ def put_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -
         current = _get_access_request(connection, request.tenant_id, request.request_id)
         if current is not None and current != request:
             raise Conflict("access_request_conflict")
-        if current is None:
-            store.put_outbox_event(connection, event, request.tenant_id)
-            _put_access_request(connection, request)
+        if current is not None:
+            row = connection.execute(
+                "SELECT creation_event_data FROM access_requests "
+                "WHERE tenant_id = ? AND request_id = ?",
+                (request.tenant_id, request.request_id)).fetchone()
+            if row is None or row[0] != serialize_model(event):
+                raise Conflict("access_request_creation_conflict")
+            return
+        store.put_outbox_event(connection, event, request.tenant_id)
+        _put_access_request(connection, request, event)
 
 
 def decide_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -> AccessRequest:
@@ -417,6 +425,6 @@ def decide_access_request(store: Any, request: AccessRequest, event: OutboxEvent
         if current.state is not AccessRequestState.PENDING:
             raise Conflict("access_request_state_conflict")
         store.put_outbox_event(connection, event, request.tenant_id)
-        _put_access_request(connection, request)
+        _put_access_request(connection, request, event)
         put_access_request_decision(connection, request, event)
         return request

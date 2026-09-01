@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta  # noqa: I001
 
 import pytest
 
@@ -39,8 +39,6 @@ from packages.cnes_infra.tests.contracts.clock import (
     _run,
 )
 from packages.cnes_infra.tests.contracts.control_plane_contract import control_plane_cases
-
-
 @pytest.fixture
 def clock() -> MutableClock:
     return MutableClock(datetime(2026, 7, 15, 12, tzinfo=UTC))
@@ -258,10 +256,8 @@ def test_persiste_acesso_e_outbox(sqlite_control_plane, clock) -> None:
     [("state", "access_request_decision_state"), ("identity", "access_request_identity_conflict")],
 )
 def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind, error) -> None:
-    pending = AccessRequest(
-        tenant_id="354130", request_id="request-a", user_id="user-a",
-        state=AccessRequestState.PENDING, decided_by=None, decided_at=None,
-    )
+    pending = AccessRequest(tenant_id="354130", request_id="request-a", user_id="user-a",
+        state=AccessRequestState.PENDING, decided_by=None, decided_at=None)
     created = _event("access-requested")
     ignored = _event("access-replay")
     approved = pending.model_copy(update={
@@ -270,7 +266,11 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
     with pytest.raises(Conflict, match="access_request_creation_state"):
         sqlite_control_plane.put_access_request(approved, ignored)
     sqlite_control_plane.put_access_request(pending, created)
-    sqlite_control_plane.put_access_request(pending, ignored)
+    replay = created.model_copy(update={"tenant_id": "other", "payload": {"changed": True},
+        "delivered_at": clock.now()})
+    with pytest.raises(Conflict, match="access_request_creation_conflict"):
+        sqlite_control_plane.put_access_request(pending, replay)
+    sqlite_control_plane.put_access_request(pending, created)
     divergent = pending.model_copy(update={"user_id": "user-b"})
     with pytest.raises(Conflict, match="access_request_conflict"):
         sqlite_control_plane.put_access_request(divergent, _event("access-conflict"))
@@ -326,8 +326,7 @@ def test_rejeita_unidade_terminal(sqlite_control_plane, clock, operation) -> Non
     dispatch = _prepare_unit(sqlite_control_plane, clock)
     claimed = _claim_unit(sqlite_control_plane, clock, dispatch.dispatch_id, "worker-a")
     assert claimed is not None
-    commit = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
-    command = commit
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
     if operation == "fail_run_unit":
         command = FailRunUnit(
             tenant_id="354130", run_id="run-a", unit_id="unit-a",
@@ -345,6 +344,7 @@ def test_rejeita_unidade_terminal(sqlite_control_plane, clock, operation) -> Non
     with pytest.raises(LeaseLost, match="dispatch_inactive"):
         action(command, _event("late-result"))
     assert before == _unit_snapshot(sqlite_control_plane)
+    clock.advance(timedelta(seconds=31))
     replacement = _reserve(sqlite_control_plane, clock)
     stale = command.model_copy(update={"dispatch_id": replacement.dispatch_id})
     before_stale = _unit_snapshot(sqlite_control_plane)

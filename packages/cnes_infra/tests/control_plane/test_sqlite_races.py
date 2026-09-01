@@ -1,4 +1,4 @@
-import sqlite3
+import sqlite3  # noqa: I001
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
@@ -44,8 +44,6 @@ from packages.cnes_infra.tests.contracts.clock import (
     _unit,
 )
 from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
-
-
 @pytest.fixture
 def clock() -> MutableClock:
     return MutableClock(datetime(2026, 7, 15, 12, tzinfo=UTC))
@@ -299,6 +297,8 @@ def test_replay_dispatch_e_recaptura(adapter, database_path, clock) -> None:
         finish.model_copy(update={"finished_at": clock.now() + timedelta(microseconds=1)})))
     _no(Conflict, "dispatch_units_conflict", lambda: _reserve(
         adapter, clock, unit_ids=("unit-a",)))
+    _no(Conflict, "dispatch_live", lambda: _reserve(adapter, clock, unit_ids=dispatch.unit_ids))
+    clock.advance(timedelta(seconds=31))
     replacement = _reserve(adapter, clock, unit_ids=dispatch.unit_ids)
     assert (replacement.generation, replacement.dispatch_id != dispatch.dispatch_id) == (2, True)
     reclaimed = adapter.claim_run_unit(

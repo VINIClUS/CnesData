@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS access_requests (
     tenant_id TEXT NOT NULL,
     request_id TEXT NOT NULL,
     data TEXT NOT NULL,
+    creation_event_data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, request_id)
 );
 CREATE TABLE IF NOT EXISTS access_request_decision_writes (

@@ -247,16 +247,16 @@ def _put_dispatch(connection: Any, dispatch: RunDispatch) -> None:
     )
 
 
-def _has_live_unit_lease(connection: Any, dispatch: RunDispatch, now: Any) -> bool:
-    units = _list_run_units(connection, dispatch.tenant_id, dispatch.run_id)
+def _has_live_unit_lease(connection: Any, command: Any, dispatch: RunDispatch | None) -> bool:
+    units = _list_run_units(connection, command.tenant_id, command.run_id)
+    affected = set(command.unit_ids) | (set(dispatch.unit_ids) if dispatch else set())
     return any(
-        unit.dispatch_id == dispatch.dispatch_id
+        unit.unit_id in affected
         and unit.state is RunUnitState.LEASED
-        and unit.lease_until > now
+        and unit.lease_until is not None
+        and unit.lease_until > command.now
         for unit in units
     )
-
-
 def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
@@ -278,7 +278,7 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
             return current
         live = current and current.state is not DispatchState.TERMINAL
         lease_live = current is not None and current.lease_until > command.now
-        if live and (lease_live or _has_live_unit_lease(connection, current, command.now)):
+        if _has_live_unit_lease(connection, command, current) or (live and lease_live):
             raise Conflict("dispatch_live")
         generation = 1 if current is None else current.generation + 1
         identity = "\x1f".join(
@@ -296,8 +296,6 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
         )
         _put_dispatch(connection, dispatch)
         return dispatch
-
-
 def get_active_run_dispatch(store: Any, tenant_id: str, run_id: str) -> RunDispatch | None:
     with store.read_connection() as connection:
         row = connection.execute(
