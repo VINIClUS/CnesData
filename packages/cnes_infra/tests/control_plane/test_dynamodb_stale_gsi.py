@@ -69,7 +69,7 @@ def test_deduplica_candidatos_e_rele_base_antes_do_claim(ctx: _DynamoContext) ->
             paginated.calls.count("query")) == ((), 4)
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is not None
 @pytest.mark.parametrize("base_minutes", [3, 4])
-def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) -> None:
+def test_cadeia_raw_serializa_corrida(base_minutes: int, ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     full = _raw_record("base", "agent-a", 1, clock.now() + timedelta(minutes=base_minutes))
     sibling_a = _raw_record("delta-a", "agent-a", 2, clock.now() + timedelta(minutes=1))
@@ -80,15 +80,17 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     sibling_a = linked(sibling_a, manifest_sha256=_HASH_B)
     sibling_b = linked(sibling_b, manifest_sha256="c" * 64)
     head = linked(head, previous_manifest_sha256="c" * 64)
-    for record in (sibling_b, full):
-        _store_record_matching_mode(adapter, record, clock)
+    parent_actions = adapter._raw_actions(full)
+    adapter._transact(adapter._raw_actions(sibling_b))
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter._transact(parent_actions)
+    adapter._transact(adapter._raw_actions(full))
     repaired = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 2)
     assert tuple(ref.manifest_id for ref in repaired) == (full.manifest_id, sibling_b.manifest_id)
-    assert len(adapter._raw_actions(full)) == 3
-    duplicate = full.model_copy(update={"manifest_id": "duplicate-full"})
+    adapter._raw_actions(full)
     with pytest.raises(Conflict, match="raw_ancestry_conflict"):
-        adapter._raw_actions(duplicate)
-    for record in (sibling_a, head):
+        adapter._raw_actions(full.model_copy(update={"manifest_id": "duplicate-full"}))
+    for record in (head, sibling_a):
         _store_record_matching_mode(adapter, record, clock)
     adapter._client = stale = OneItemPageClient(adapter._client)
     stale.hidden_gsi2sk = adapter._raw_item(head)["gsi2sk"]
@@ -96,9 +98,7 @@ def test_cadeia_raw_prefere_descendente(base_minutes: int, ctx: _DynamoContext) 
     assert tuple(ref.manifest_id for ref in chain) == (
         full.manifest_id, sibling_b.manifest_id, head.manifest_id)
     gets = [request for name, request in stale.requests if name == "get_item"]
-    assert stale.query_requests == []
-    assert len(gets) == 1
-    assert gets[0].get("ConsistentRead") is True
+    assert (stale.query_requests, len(gets), gets[0].get("ConsistentRead")) == ([], 1, True)
     assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 0) == ()
 def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
@@ -109,7 +109,7 @@ def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext)
         _store_record_matching_mode(adapter, record, clock)
     requests = [next(iter(action.values())) for action in spy.transactions[-1]]
     items = [request["Item" if "Item" in request else "Key"] for request in requests]
-    assert len(requests) == len({(item["pk"]["S"], item["sk"]["S"]) for item in items}) == 7
+    assert len(requests) == len({(item["pk"]["S"], item["sk"]["S"]) for item in items}) == 8
     head = next(request for request in requests
                 if request.get("Item", {}).get("entity") == {"S": "RAWHEAD"})
     assert head["ConditionExpression"] == "payload = :expected"

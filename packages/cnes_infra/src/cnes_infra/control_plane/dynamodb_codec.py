@@ -214,9 +214,7 @@ def _ancestry_item(
     return item
 
 
-def _waiting_item(record: RawManifestRecord, ancestry: Item) -> Item | None:
-    if record.sequence == 1:
-        return None
+def _waiting_item(record: RawManifestRecord, ancestry: Item) -> Item:
     prefix = _ancestry_prefix(
         record, record.sequence - 1, str(record.previous_manifest_sha256)).replace(
             "ANCESTRY#", "WAITING#", 1)
@@ -225,6 +223,19 @@ def _waiting_item(record: RawManifestRecord, ancestry: Item) -> Item | None:
         "entity": {"S": "RAWWAITING"}, "payload": {"S": record.model_dump_json()},
         "base_pk": ancestry["pk"], "base_sk": ancestry["sk"],
     }
+
+
+def _raw_version_action(client: Any, table_name: str, partition: str) -> Action:
+    key = partition, "RAWVERSION#CURRENT"
+    current = client.get_item(
+        TableName=table_name, Key=item_key(*key), ConsistentRead=True).get("Item")
+    generation = 1 if current is None else int(payload(current)) + 1
+    item = {
+        "pk": {"S": partition}, "sk": {"S": key[1]},
+        "entity": {"S": "RAWVERSION"}, "payload": {"S": str(generation)},
+    }
+    expected = None if current is None else payload(current)
+    return put_action(table_name, item, expected)
 
 
 def _waiting_children(
@@ -315,10 +326,11 @@ def raw_manifest_actions(
 ) -> tuple[Action, ...]:
     """Cria manifesto, ancestry e HEAD atomicamente."""
     partition = raw_item["pk"]["S"]
+    version = _raw_version_action(client, table_name, partition)
     chain = _manifest_chain(client, table_name, record, partition)
     ancestry = _ancestry_item(record, raw_item, chain)
     actions = [put_action(table_name, raw_item, None), put_action(table_name, ancestry, None)]
-    waiting = _waiting_item(record, ancestry)
+    waiting = _waiting_item(record, ancestry) if chain is None else None
     if waiting is not None:
         actions.append(put_action(table_name, waiting, None))
     if chain is not None:
@@ -329,6 +341,7 @@ def raw_manifest_actions(
             key=lambda item: (
                 item[0].created_at, item[0].agent_id, item[0].snapshot_id))
         actions.append(_head_action(client, table_name, head_record, head_chain))
+    actions.append(version)
     return tuple(actions)
 
 
