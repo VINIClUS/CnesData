@@ -31,6 +31,7 @@ def _is_missing(error: ClientError) -> bool:
 class _StoredObject:
     stat: ObjectStat
     metadata_sha256: str | None
+    version_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +70,11 @@ class S3ObjectStore:
             size, digest = stream_with_digest(body)
         stat = ObjectStat(key=key, size_bytes=size, sha256=digest)
         metadata_sha256 = response.get("Metadata", {}).get("sha256")
-        return _StoredObject(stat=stat, metadata_sha256=metadata_sha256)
+        return _StoredObject(
+            stat=stat,
+            metadata_sha256=metadata_sha256,
+            version_id=response.get("VersionId"),
+        )
 
     def _read_stat(self, key: str) -> ObjectStat | None:
         stored = self._read_stored(key)
@@ -102,11 +107,17 @@ class S3ObjectStore:
         if actual != expected:
             raise ValueError("checksum_response=mismatch")
 
-    def _validate_replay_retention(self, key: str) -> None:
+    def _validate_replay_retention(self, key: str, version_id: str | None) -> None:
         requested = self._retention
         if requested is None:
             return
-        response = self._client.get_object_retention(Bucket=self._bucket, Key=self._key(key))
+        if not version_id:
+            raise Conflict("retention_version=missing")
+        response = self._client.get_object_retention(
+            Bucket=self._bucket,
+            Key=self._key(key),
+            VersionId=version_id,
+        )
         existing = response.get("Retention", {})
         retain_until = existing.get("RetainUntilDate")
         sufficient_until = (
@@ -140,7 +151,7 @@ class S3ObjectStore:
                     )
                     if values != (size, expected_sha256, expected_sha256):
                         raise Conflict("object=immutable") from error
-                    self._validate_replay_retention(key)
+                    self._validate_replay_retention(key, existing.version_id)
                     return existing.stat
                 if code == "PreconditionFailed" or attempt == 2:
                     raise Conflict("conditional_request=conflict") from error

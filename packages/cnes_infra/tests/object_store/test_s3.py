@@ -70,13 +70,13 @@ def _stub_retention_replay(
     )
     stubber.add_response(
         "get_object",
-        _object_response(body, digest),
+        _object_response(body, digest) | {"VersionId": "verified-version"},
         {"Bucket": "bucket", "Key": "locked/objeto"},
     )
     stubber.add_response(
         "get_object_retention",
         response,
-        {"Bucket": "bucket", "Key": "locked/objeto"},
+        {"Bucket": "bucket", "Key": "locked/objeto", "VersionId": "verified-version"},
     )
 
 
@@ -361,6 +361,23 @@ def test_rejeita_replay_412_quando_retencao_existente_nao_satisfaz_pedido(
             retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
         )
         with pytest.raises(Conflict, match="retention=insufficient"):
+            adapter.put("locked/objeto", BytesIO(body), digest)
+        stubber.assert_no_pending_responses()
+
+
+def test_rejeita_replay_retido_sem_version_id_verificado() -> None:
+    body, retain_until = b"conteudo-retido", datetime(2036, 1, 1, tzinfo=UTC)
+    digest, client = sha256(body).hexdigest(), _client()
+    with Stubber(client) as stubber:
+        stubber.add_client_error(
+            "put_object", service_error_code="PreconditionFailed", http_status_code=412,
+            expected_params=_retention_params(body, retain_until))
+        stubber.add_response(
+            "get_object", _object_response(body, digest),
+            {"Bucket": "bucket", "Key": "locked/objeto"})
+        adapter = S3ObjectStore(client, "bucket", retention=S3Retention(
+            mode="COMPLIANCE", retain_until=retain_until))
+        with pytest.raises(Conflict, match="retention_version=missing"):
             adapter.put("locked/objeto", BytesIO(body), digest)
         stubber.assert_no_pending_responses()
 
