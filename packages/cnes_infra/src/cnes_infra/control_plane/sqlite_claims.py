@@ -52,7 +52,6 @@ if TYPE_CHECKING:
     )
     from cnes_domain.control_plane.entities import Job, OutboxEvent
 
-
 def _validate_job_fence(store: Any, connection: Any, command: Any) -> Job:
     job = store.get_job_record(connection, command.tenant_id, command.job_id)
     agent = None if job is None else store.get_agent_record(connection, job.tenant_id, job.agent_id)
@@ -67,7 +66,6 @@ def _validate_job_fence(store: Any, connection: Any, command: Any) -> Job:
     if job.lease_until is None or job.lease_until <= store.now():
         raise LeaseLost("lease_expired")
     return job
-
 
 def claim_job(store: Any, command: ClaimJob) -> Job | None:
     with store.write_transaction() as connection:
@@ -93,7 +91,6 @@ def claim_job(store: Any, command: ClaimJob) -> Job | None:
         store.put_job_record(connection, claimed)
         return claimed
 
-
 def renew_job_lease(store: Any, command: RenewJobLease) -> Job:
     with store.write_transaction() as connection:
         job = _validate_job_fence(store, connection, command)
@@ -102,7 +99,6 @@ def renew_job_lease(store: Any, command: RenewJobLease) -> Job:
         )
         store.put_job_record(connection, renewed)
         return renewed
-
 
 def _validate_manifest_identity(job: Job, manifest: Any) -> None:
     expected = (
@@ -115,7 +111,6 @@ def _validate_manifest_identity(job: Job, manifest: Any) -> None:
     )
     if actual != expected:
         raise Conflict("manifest_identity_mismatch")
-
 
 def complete_job(store: Any, command: CompleteJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
@@ -177,14 +172,12 @@ def cancel_job(store: Any, command: CancelJob, event: OutboxEvent) -> Job:
         put_job_cancellation(connection, command, event)
         return canceled
 
-
 def _list_run_units(connection: Any, tenant_id: str, run_id: str) -> tuple[RunUnit, ...]:
     rows = connection.execute(
         "SELECT data FROM run_units WHERE tenant_id = ? AND run_id = ? ORDER BY unit_id",
         (tenant_id, run_id),
     ).fetchall()
     return tuple(deserialize_model(row[0], RunUnit) for row in rows)
-
 
 def list_run_units(store: Any, tenant_id: str, run_id: str) -> tuple[RunUnit, ...]:
     with store.read_connection() as connection:
@@ -269,6 +262,10 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
         if run is None or run.state is not RunState.PROCESSING:
             raise Conflict("parent_not_processing")
+        registered = {unit.unit_id for unit in _list_run_units(
+            connection, command.tenant_id, command.run_id)}
+        if any(unit_id not in registered for unit_id in command.unit_ids):
+            raise Conflict("dispatch_unit_missing")
         validate_run_dispatch_wave(connection, command)
         current = _get_dispatch(connection, command.tenant_id, command.run_id)
         same_wave = current is not None and current.wave_id == command.wave_id
@@ -303,7 +300,13 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
 
 def get_active_run_dispatch(store: Any, tenant_id: str, run_id: str) -> RunDispatch | None:
     with store.read_connection() as connection:
-        dispatch = _get_dispatch(connection, tenant_id, run_id)
+        row = connection.execute(
+            "SELECT d.data FROM run_dispatches d JOIN runs r "
+            "ON r.tenant_id = d.tenant_id AND r.run_id = d.run_id "
+            "WHERE d.tenant_id = ? AND d.run_id = ? AND r.state = ?",
+            (tenant_id, run_id, RunState.PROCESSING.value),
+        ).fetchone()
+    dispatch = None if row is None else deserialize_model(row[0], RunDispatch)
     if dispatch is None or dispatch.state is DispatchState.TERMINAL:
         return None
     return dispatch if dispatch.lease_until > store.now() else None
@@ -350,7 +353,6 @@ def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
         put_run_dispatch_finish(connection, command)
         return finished
 
-
 def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:
     with store.write_transaction() as connection:
         units = _list_run_units(connection, command.tenant_id, command.run_id)
@@ -386,7 +388,6 @@ def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:
         _put_run_unit(connection, claimed)
         return claimed
 
-
 def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[RunUnit, Any]:
     units = _list_run_units(connection, command.tenant_id, command.run_id)
     unit = next((item for item in units if item.unit_id == command.unit_id), None)
@@ -411,7 +412,6 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
     if unit.lease_until is None or unit.lease_until <= store.now():
         raise LeaseLost("lease_expired")
     return unit, run
-
 
 def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> RunUnit:
     with store.write_transaction() as connection:

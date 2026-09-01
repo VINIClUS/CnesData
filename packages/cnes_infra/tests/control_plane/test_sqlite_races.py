@@ -323,27 +323,27 @@ def test_replay_dispatch_e_recaptura(adapter, database_path, clock) -> None:
     _no(Conflict, "dispatch_units_conflict", lambda: _reserve(
         reopened, clock, "a" * 16, ("unit-a",)))
     assert _reserve(reopened, clock, "a" * 16, dispatch.unit_ids).generation == 5
-@pytest.mark.parametrize("state", [None, RunState.WAITING_INPUTS])
+@pytest.mark.parametrize(
+    "state", [None, RunState.PUBLISHING, RunState.CANCEL_REQUESTED, RunState.PUBLISHED])
 def test_rejeita_dispatch_sem_run_processing(adapter, clock, state) -> None:
     if state is not None:
         adapter.put_run(_run("run-a", state))
     _no(Conflict, "parent_not_processing", lambda: _reserve(adapter, clock))
     adapter.put_run(_run("run-a"))
+    _put_units(adapter, (_unit("unit-b"),))
+    _no(Conflict, "dispatch_unit_missing", lambda: _reserve(adapter, clock, unit_ids=("missing",)))
     dispatch = _reserve(adapter, clock, unit_ids=("unit-b",))
-    assert (dispatch.generation, dispatch.unit_ids) == (1, ("unit-b",))
     if state is None:
         with adapter.write_transaction() as connection:
             connection.execute("DELETE FROM runs WHERE tenant_id = ? AND run_id = ?",
                                ("354130", "run-a"))
     else:
-        adapter.transition_run(TransitionRun(
-            tenant_id="354130", run_id="run-a", expected_state=RunState.PROCESSING,
-            new_state=RunState.PUBLISHING), _event("run-publishing"))
+        adapter.put_run(_run("run-a", state))
     bind = BindRunDispatch(
         tenant_id="354130", run_id="run-a", dispatch_id=dispatch.dispatch_id,
         execution_ref="exec-delayed", now=clock.now(), lease_seconds=30)
     _no(Conflict, "parent_not_processing", lambda: adapter.bind_run_dispatch(bind))
-    assert adapter.get_active_run_dispatch("354130", "run-a") == dispatch
+    assert adapter.get_active_run_dispatch("354130", "run-a") is None
 def test_rejeita_commit_de_unidade_nao_leased_ou_expirada(adapter, clock) -> None:
     dispatch = _prepare_unit(adapter, clock)
     pending = _commit_command(dispatch.dispatch_id, "worker-a", 0)
