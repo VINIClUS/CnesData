@@ -21,12 +21,14 @@ from cnes_infra.control_plane.sqlite_schema import (
     put_job_cancellation,
     put_job_terminal_write,
     put_run_cancellation,
+    put_run_dispatch_bind,
     put_run_dispatch_finish,
     put_run_unit_terminal_write,
     serialize_model,
     validate_job_cancellation,
     validate_job_terminal_replay,
     validate_run_cancellation,
+    validate_run_dispatch_bind,
     validate_run_dispatch_finish,
     validate_run_dispatch_wave,
     validate_run_unit_terminal_replay,
@@ -314,12 +316,11 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict("dispatch_stale")
+        if dispatch.state is DispatchState.STARTED:
+            validate_run_dispatch_bind(connection, command)
+            return dispatch
         if dispatch.lease_until <= command.now:
             raise Conflict("dispatch_expired")
-        if dispatch.state is DispatchState.STARTED:
-            if dispatch.execution_ref != command.execution_ref:
-                raise Conflict("execution_conflict")
-            return dispatch
         if dispatch.state is not DispatchState.RESERVED:
             raise Conflict("dispatch_terminal")
         started = dispatch.model_copy(
@@ -330,8 +331,8 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
             }
         )
         _put_dispatch(connection, started)
+        put_run_dispatch_bind(connection, command)
         return started
-
 def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)

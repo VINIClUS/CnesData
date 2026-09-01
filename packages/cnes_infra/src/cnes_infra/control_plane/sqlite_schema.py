@@ -168,6 +168,15 @@ CREATE TABLE IF NOT EXISTS run_dispatch_wave_identities (
     PRIMARY KEY (tenant_id, run_id, wave_id),
     FOREIGN KEY (tenant_id, run_id) REFERENCES runs (tenant_id, run_id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS run_dispatch_bind_writes (
+    tenant_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    dispatch_id TEXT NOT NULL,
+    command_data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, run_id, dispatch_id),
+    FOREIGN KEY (tenant_id, run_id)
+        REFERENCES run_dispatches (tenant_id, run_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS run_dispatch_terminal_writes (
     tenant_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
@@ -266,14 +275,12 @@ def validate_job_creation_replay(connection: Any, job: Any, event: Any) -> None:
     if row is None or row[0] != serialize_model(event):
         raise Conflict("job_creation_conflict")
 
-
 def put_job_cancellation(connection: Any, command: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO job_cancellation_writes "
         "(tenant_id, job_id, command_data, event_data) VALUES (?, ?, ?, ?)",
         (command.tenant_id, command.job_id, serialize_model(command), serialize_model(event)),
     )
-
 
 def validate_job_cancellation(connection: Any, command: Any, event: Any) -> None:
     row = connection.execute(
@@ -283,14 +290,12 @@ def validate_job_cancellation(connection: Any, command: Any, event: Any) -> None
     if row is None or tuple(row) != (serialize_model(command), serialize_model(event)):
         raise Conflict("job_cancellation_conflict")
 
-
 def put_access_request_decision(connection: Any, request: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO access_request_decision_writes "
         "(tenant_id, request_id, event_data) VALUES (?, ?, ?)",
         (request.tenant_id, request.request_id, serialize_model(event)),
     )
-
 
 def validate_access_request_decision(connection: Any, request: Any, event: Any) -> None:
     row = connection.execute(
@@ -300,7 +305,6 @@ def validate_access_request_decision(connection: Any, request: Any, event: Any) 
     if row is None or row[0] != serialize_model(event):
         raise Conflict("access_request_decision_conflict")
 
-
 def put_run_transition(connection: Any, command: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO run_transition_writes "
@@ -308,7 +312,6 @@ def put_run_transition(connection: Any, command: Any, event: Any) -> None:
         (command.tenant_id, command.run_id, command.expected_state.value,
          serialize_model(command), serialize_model(event)),
     )
-
 
 def validate_run_transition(connection: Any, command: Any, event: Any) -> None:
     row = connection.execute(
@@ -319,7 +322,6 @@ def validate_run_transition(connection: Any, command: Any, event: Any) -> None:
     if row is None or tuple(row) != (serialize_model(command), serialize_model(event)):
         raise Conflict("run_transition_conflict")
 
-
 def get_job_terminal_write(
     connection: Any, tenant_id: str, job_id: str
 ) -> tuple[str, ...] | None:
@@ -329,7 +331,6 @@ def get_job_terminal_write(
         (tenant_id, job_id),
     ).fetchone()
     return None if row is None else tuple(row)
-
 
 def put_job_terminal_write(connection: Any, operation: str, command: Any, event: Any) -> None:
     connection.execute(
@@ -343,7 +344,6 @@ def put_job_terminal_write(connection: Any, operation: str, command: Any, event:
             serialize_model(command), serialize_model(event),
         ),
     )
-
 
 def validate_job_terminal_replay(connection: Any, job: Any, command: Any, event: Any) -> None:
     manifest = getattr(command, "manifest", None)
@@ -367,7 +367,6 @@ def validate_job_terminal_replay(connection: Any, job: Any, command: Any, event:
     if current != canonical or not result_matches:
         raise Conflict("job_terminal_conflict")
 
-
 def get_run_unit_terminal_write(connection: Any, command: Any) -> tuple[str, ...] | None:
     row = connection.execute(
         "SELECT operation, command_data, event_data FROM run_unit_terminal_writes "
@@ -375,7 +374,6 @@ def get_run_unit_terminal_write(connection: Any, command: Any) -> tuple[str, ...
         (command.tenant_id, command.run_id, command.unit_id),
     ).fetchone()
     return None if row is None else tuple(row)
-
 
 def put_run_unit_terminal_write(
     connection: Any, operation: str, command: Any, event: Any
@@ -392,7 +390,6 @@ def put_run_unit_terminal_write(
         ),
     )
 
-
 def validate_run_unit_terminal_replay(
     connection: Any, unit: Any, command: Any, event: Any
 ) -> Any:
@@ -402,7 +399,6 @@ def validate_run_unit_terminal_replay(
         raise Conflict("unit_terminal_conflict")
     return unit
 
-
 def put_run_dispatch_finish(connection: Any, command: Any) -> None:
     connection.execute(
         "INSERT INTO run_dispatch_terminal_writes "
@@ -410,6 +406,21 @@ def put_run_dispatch_finish(connection: Any, command: Any) -> None:
         (command.tenant_id, command.run_id, command.dispatch_id, serialize_model(command)),
     )
 
+def put_run_dispatch_bind(connection: Any, command: Any) -> None:
+    connection.execute(
+        "INSERT INTO run_dispatch_bind_writes "
+        "(tenant_id, run_id, dispatch_id, command_data) VALUES (?, ?, ?, ?)",
+        (command.tenant_id, command.run_id, command.dispatch_id, serialize_model(command)),
+    )
+
+def validate_run_dispatch_bind(connection: Any, command: Any) -> None:
+    row = connection.execute(
+        "SELECT command_data FROM run_dispatch_bind_writes "
+        "WHERE tenant_id = ? AND run_id = ? AND dispatch_id = ?",
+        (command.tenant_id, command.run_id, command.dispatch_id),
+    ).fetchone()
+    if row is None or row[0] != serialize_model(command):
+        raise Conflict("dispatch_bind_conflict")
 
 def validate_run_dispatch_finish(connection: Any, command: Any) -> None:
     row = connection.execute(

@@ -103,13 +103,25 @@ def _build_ancestry(
     connection: Any, identity: tuple[str, ...], current: RawManifestRecord, limit: int
 ) -> tuple[RawManifestRecord, ...] | None:
     paths = [(current, (current,))]
+    predecessors_by_key = {}
+    expanded = set()
+    remaining = max(limit, 1) * _HEAD_SCAN_PAGES
     while paths:
         item, ancestry = paths.pop()
+        if item.manifest_id in expanded:
+            continue
+        if remaining == 0:
+            return None
+        expanded.add(item.manifest_id)
+        remaining -= 1
         if len(ancestry) > limit:
             return None
         if item.sequence == 1:
             return tuple(reversed(ancestry))
-        predecessors = _predecessors(connection, identity, item, limit)
+        key = (item.agent_id, item.sequence, item.previous_manifest_sha256, item.base_snapshot_id)
+        if key not in predecessors_by_key:
+            predecessors_by_key[key] = _predecessors(connection, identity, item, limit)
+        predecessors = predecessors_by_key[key]
         paths.extend((predecessor, (*ancestry, predecessor))
                      for predecessor in reversed(predecessors))
     return ()
