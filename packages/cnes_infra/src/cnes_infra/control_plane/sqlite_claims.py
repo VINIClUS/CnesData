@@ -182,8 +182,6 @@ def _list_run_units(connection: Any, tenant_id: str, run_id: str) -> tuple[RunUn
 def list_run_units(store: Any, tenant_id: str, run_id: str) -> tuple[RunUnit, ...]:
     with store.read_connection() as connection:
         return _list_run_units(connection, tenant_id, run_id)
-
-
 def _put_run_unit(connection: Any, unit: RunUnit) -> None:
     connection.execute(
         "INSERT INTO run_units (tenant_id, run_id, unit_id, state, lease_until, "
@@ -201,8 +199,6 @@ def _put_run_unit(connection: Any, unit: RunUnit) -> None:
             serialize_model(unit),
         ),
     )
-
-
 def put_run_units(store: Any, command: PutRunUnits) -> tuple[RunUnit, ...]:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
@@ -210,23 +206,26 @@ def put_run_units(store: Any, command: PutRunUnits) -> tuple[RunUnit, ...]:
             raise Conflict("run_state_conflict")
         current = _list_run_units(connection, command.tenant_id, command.run_id)
         canonical = tuple(sorted(command.units, key=lambda unit: unit.unit_id))
+        registry = "\x1e".join(serialize_model(unit) for unit in canonical)
+        row = connection.execute(
+            "SELECT unit_registry_data FROM runs WHERE tenant_id = ? AND run_id = ?",
+            (command.tenant_id, command.run_id)).fetchone()
         if current:
-            if current != canonical:
+            if row[0] != registry:
                 raise Conflict("units_conflict")
             return current
         for unit in canonical:
             _put_run_unit(connection, unit)
+        connection.execute(
+            "UPDATE runs SET unit_registry_data = ? WHERE tenant_id = ? AND run_id = ?",
+            (registry, command.tenant_id, command.run_id))
         return canonical
-
-
 def _get_dispatch(connection: Any, tenant_id: str, run_id: str) -> RunDispatch | None:
     row = connection.execute(
         "SELECT data FROM run_dispatches WHERE tenant_id = ? AND run_id = ?",
         (tenant_id, run_id),
     ).fetchone()
     return None if row is None else deserialize_model(row[0], RunDispatch)
-
-
 def _put_dispatch(connection: Any, dispatch: RunDispatch) -> None:
     connection.execute(
         "INSERT INTO run_dispatches (tenant_id, run_id, dispatch_id, wave_id, generation, "

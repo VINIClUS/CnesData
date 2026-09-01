@@ -51,6 +51,7 @@ ON jobs (tenant_id, agent_id, state, lease_until, created_at, job_id);
 CREATE TABLE IF NOT EXISTS job_creation_writes (
     tenant_id TEXT NOT NULL,
     job_id TEXT NOT NULL,
+    job_data TEXT NOT NULL,
     event_data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, job_id),
     FOREIGN KEY (tenant_id, job_id) REFERENCES jobs (tenant_id, job_id) ON DELETE CASCADE
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS runs (
     state TEXT NOT NULL,
     created_at TEXT NOT NULL,
     data TEXT NOT NULL,
+    unit_registry_data TEXT,
     PRIMARY KEY (tenant_id, run_id)
 );
 CREATE TABLE IF NOT EXISTS run_transition_writes (
@@ -263,19 +265,19 @@ def deserialize_model[Model: BaseModel](payload: str, model: type[Model]) -> Mod
 
 def put_job_creation_write(connection: Any, job: Any, event: Any) -> None:
     connection.execute(
-        "INSERT INTO job_creation_writes (tenant_id, job_id, event_data) VALUES (?, ?, ?)",
-        (job.tenant_id, job.job_id, serialize_model(event)),
+        "INSERT INTO job_creation_writes (tenant_id, job_id, job_data, event_data) "
+        "VALUES (?, ?, ?, ?)",
+        (job.tenant_id, job.job_id, serialize_model(job), serialize_model(event)),
     )
 
 
 def validate_job_creation_replay(connection: Any, job: Any, event: Any) -> None:
     row = connection.execute(
-        "SELECT event_data FROM job_creation_writes WHERE tenant_id = ? AND job_id = ?",
+        "SELECT job_data, event_data FROM job_creation_writes WHERE tenant_id = ? AND job_id = ?",
         (job.tenant_id, job.job_id),
     ).fetchone()
-    if row is None or row[0] != serialize_model(event):
+    if row is None or tuple(row) != (serialize_model(job), serialize_model(event)):
         raise Conflict("job_creation_conflict")
-
 def put_job_cancellation(connection: Any, command: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO job_cancellation_writes "
@@ -290,7 +292,6 @@ def validate_job_cancellation(connection: Any, command: Any, event: Any) -> None
     ).fetchone()
     if row is None or tuple(row) != (serialize_model(command), serialize_model(event)):
         raise Conflict("job_cancellation_conflict")
-
 def put_access_request_decision(connection: Any, request: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO access_request_decision_writes "
@@ -431,8 +432,6 @@ def validate_run_dispatch_finish(connection: Any, command: Any) -> None:
     ).fetchone()
     if row is None or row[0] != serialize_model(command):
         raise Conflict("dispatch_finish_conflict")
-
-
 def put_run_cancellation(connection: Any, command: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO run_cancellation_writes "

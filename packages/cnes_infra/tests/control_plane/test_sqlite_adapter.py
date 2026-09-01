@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta  # noqa: I001
-
 import pytest
 
 from cnes_domain.control_plane.commands import (
@@ -303,21 +302,22 @@ def test_replays_e_conflitos_de_job(sqlite_control_plane, clock) -> None:
     sqlite_control_plane.put_agent(agent)
     assert sqlite_control_plane.get_agent("354130", "agent-a") == agent
     assert sqlite_control_plane.get_agent("other", "agent-a") is None
-    job = _job("job-a")
-    created = _event("job-created")
+    job, created = _job("job-a"), _event("job-created")
     assert sqlite_control_plane.create_job(job, created) == job
     reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
     reopened.initialize()
-    assert reopened.create_job(job, created) == job
-    before = reopened.pending_outbox(100)
+    claimed = reopened.claim_job(_claim_job("job-a", "worker-a", clock))
+    assert reopened.create_job(job, created) == claimed
+    before = reopened.get_job("354130", "job-a"), reopened.pending_outbox(100)
     with pytest.raises(Conflict, match="job_creation_conflict"):
         reopened.create_job(job, created.model_copy(update={"payload": {}}))
-    assert reopened.pending_outbox(100) == before
-    with pytest.raises(Conflict, match="job_conflict"):
+    assert (reopened.get_job("354130", "job-a"), reopened.pending_outbox(100)) == before
+    with pytest.raises(Conflict, match="job_creation_conflict"):
         sqlite_control_plane.create_job(
             job.model_copy(update={"source_type": "SIHD"}), _event("job-conflict"))
-    second = _job("job-b")
-    assert sqlite_control_plane.create_job(second, created) == second
+    with pytest.raises(Conflict, match="outbox_event_conflict"):
+        sqlite_control_plane.create_job(_job("job-b"), created)
+    assert sqlite_control_plane.get_job("354130", "job-b") is None
     assert sqlite_control_plane.pending_outbox(100) == (created,)
     with pytest.raises(NotFound, match="outbox_event_missing"):
         sqlite_control_plane.mark_outbox_delivered("missing", datetime.now(UTC))

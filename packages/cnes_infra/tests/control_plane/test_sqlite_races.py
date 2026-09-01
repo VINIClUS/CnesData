@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
 from typing import Any
-
 import pytest
 
 from cnes_domain.control_plane.commands import (
@@ -86,10 +85,9 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
     transition = TransitionRun(
         tenant_id="354130", run_id="run-a", expected_state=RunState.PROCESSING,
         new_state=RunState.PUBLISHING)
-    conflicting = existing.model_copy(update={"aggregate_id": "run-a"})
     _no(Conflict, "run_state_conflict", lambda: adapter.transition_run(transition.model_copy(
         update={"expected_state": RunState.WAITING_INPUTS}), _event("invalid-transition")))
-    _no(Conflict, "outbox_event_conflict", lambda: adapter.transition_run(transition, conflicting))
+    _no(Conflict, "outbox_event_conflict", lambda: adapter.transition_run(transition, existing))
     assert adapter.pending_outbox(10) == (existing,)
     event = _event("run-transitioned")
     updated = adapter.transition_run(transition, event)
@@ -267,6 +265,7 @@ def test_replay_dispatch_e_recaptura(adapter, database_path, clock) -> None:
         reopened, clock, unit_ids=("unit-a",)))
     assert reopened.get_active_run_dispatch("354130", "run-a") == before
     claimed = adapter.claim_run_unit(_claim_unit_command(dispatch.dispatch_id, "worker-a", clock))
+    _put_units(adapter, (_unit("unit-a"), _unit("unit-b")))
     bind = BindRunDispatch(
         tenant_id="354130", run_id="run-a", dispatch_id="b" * 16, execution_ref="exec-a",
         now=clock.now(), lease_seconds=30)

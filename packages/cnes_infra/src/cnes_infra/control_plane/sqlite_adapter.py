@@ -256,9 +256,7 @@ class SQLiteControlPlane:
             OutboxEvent,
         )
         if current is not None:
-            if current != event:
-                raise Conflict("outbox_event_conflict")
-            return
+            raise Conflict("outbox_event_conflict")
         connection.execute(
             "INSERT INTO outbox_events "
             "(event_id, tenant_id, created_at, delivered_at, data) VALUES (?, ?, ?, ?, ?)",
@@ -272,8 +270,6 @@ class SQLiteControlPlane:
         with self.write_transaction() as connection:
             current = self.get_job_record(connection, job.tenant_id, job.job_id)
             if current is not None:
-                if current != job:
-                    raise Conflict("job_conflict")
                 validate_job_creation_replay(connection, job, event)
                 return current
             self.put_outbox_event(connection, event, job.tenant_id)
