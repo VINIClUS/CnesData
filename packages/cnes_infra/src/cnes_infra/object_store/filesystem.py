@@ -290,7 +290,7 @@ class FilesystemObjectStore:
     def _classify_recovery(objects: int, temporary: os.stat_result, digest: str) -> bool:
         try:
             destination = _open_regular(objects, digest)
-        except FileNotFoundError:
+        except (FileNotFoundError, Conflict):
             return False
         try:
             metadata = os.fstat(destination)

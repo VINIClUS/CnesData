@@ -26,11 +26,7 @@ _DURABLE_BOUNDARIES = ("temporary_created_before_ownership", "temporary_created"
     "temporary_unlinked", "directory_final_fsynced",)
 _INTERNAL = ".cnes-object-store-internal"
 _OWNER_XATTR = "user.cnes_object_store_destination"
-
-
 class _SimulatedCrash(RuntimeError): ...
-
-
 @dataclass(slots=True)
 class _CrashAt:
     boundary: str
@@ -39,16 +35,10 @@ class _CrashAt:
         if boundary == self.boundary and not self.triggered:
             self.triggered = True
             raise _SimulatedCrash(f"boundary={boundary}")
-
-
 def _adapter_temporaries(root: Path) -> tuple[Path, ...]:
     return tuple(root.rglob(".cnes-object-store-*.tmp"))
-
-
 def _objects_directory(root: Path) -> Path:
     return next(path for path in root.rglob("objects") if path.is_dir())
-
-
 def _process_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
     barrier, results, destination_linked, reader_done = controls
     expected = sha256(body).hexdigest()
@@ -64,8 +54,6 @@ def _process_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
         results.put(("ok", stat.sha256))
     except Conflict:
         results.put(("conflict", expected))
-
-
 def _paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
     reached, release, results = controls
     def pause(boundary: str) -> None:
@@ -80,8 +68,6 @@ def _paused_put(root: str, body: bytes, controls: tuple[Any, ...]) -> None:
         results.put("ok")
     except Exception as error:
         results.put(type(error).__name__)
-
-
 def _process_final(root: str, results: Any) -> None:
     key, adapter = "raw/dados.parquet", FilesystemObjectStore(root)
     operations = (("stat", b""), ("open", b""), ("delete", b""), ("put", b"a"), ("put", b"b"))
@@ -95,8 +81,6 @@ def _process_final(root: str, results: Any) -> None:
                     result.close()
         except Exception as error:
             results.put((type(error).__name__, str(error)))
-
-
 def _read_during_publication(root: str, controls: tuple[Any, ...]) -> None:
     reader_ready, destination_linked, reader_done, observed = controls
     reader_ready.set()
@@ -110,8 +94,6 @@ def _read_during_publication(root: str, controls: tuple[Any, ...]) -> None:
         pass
     finally:
         reader_done.set()
-
-
 @pytest.mark.parametrize("case", contract.object_store_cases(), ids=lambda case: case.name)
 def test_contrato(case: contract.ObjectStoreCase, tmp_path_factory: pytest.TempPathFactory) -> None:
     root = tmp_path_factory.mktemp(case.name)
@@ -362,6 +344,23 @@ def test_recuperacao_preserva_destino_existente(kind: str, tmp_path: Path) -> No
         FilesystemObjectStore(tmp_path).put(key, BytesIO(losing), sha256(losing).hexdigest())
     assert destination.read_bytes() == winner if kind == "file" else destination.is_dir()
     assert kind != "file" or _adapter_temporaries(tmp_path) == ()
+@pytest.mark.parametrize("kind", ["directory", "fifo"])
+def test_startup_descarta_temp_ante_destino_malformado(kind: str, tmp_path: Path) -> None:
+    bad_key, other_key, body = "raw/malformado", "raw/outro", b"conteudo"
+    writers = (
+        FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced")),
+        FilesystemObjectStore(tmp_path, fault_injector=_CrashAt("file_fsynced")),
+    )
+    for writer, key in zip(writers, (bad_key, other_key), strict=True):
+        with pytest.raises(_SimulatedCrash):
+            writer.put(key, BytesIO(body), sha256(body).hexdigest())
+    destination = _objects_directory(tmp_path) / sha256(bad_key.encode()).hexdigest()
+    destination.mkdir() if kind == "directory" else os.mkfifo(destination)
+    recovered = FilesystemObjectStore(tmp_path)
+    assert destination.is_dir() if kind == "directory" else destination.is_fifo()
+    assert (_adapter_temporaries(tmp_path), recovered.stat(other_key)) == ((), None)
+    with pytest.raises(Conflict, match="destination=invalid"):
+        recovered.stat(bad_key)
 @pytest.mark.linux_only
 def test_fifo_final_nao_bloqueia(tmp_path: Path) -> None:
     key = "raw/dados.parquet"
