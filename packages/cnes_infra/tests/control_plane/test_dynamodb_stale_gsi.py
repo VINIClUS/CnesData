@@ -207,7 +207,6 @@ def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext)
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1)
     assert tuple(ref.manifest_id for ref in chain) == (records[-1].manifest_id,)
 
-
 def test_reparo_raw_rejeita_ancestry_ausente_e_excesso(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     _store_record(adapter, _raw_record("delta-pending", "agent-a", 2, clock.now()), clock)
@@ -228,14 +227,16 @@ def test_reparo_raw_rejeita_ancestry_ausente_e_excesso(ctx: _DynamoContext) -> N
             "pk": waiting["base_pk"],
             "sk": waiting["base_sk"],
             "entity": {"S": "RAWANCESTRY"},
+            "chain": {"S": "[]"},
         },
     )
+    with pytest.raises(Conflict, match="raw_ancestry_conflict"):
+        adapter._raw_actions(base)
     for index in range(95):
         clone = {**waiting, "sk": {"S": f"{waiting['sk']['S']}#{index:03d}"}}
         client.put_item(TableName=_TABLE_NAME, Item=clone)
     with pytest.raises(Conflict, match="transaction_limit"):
         adapter._raw_actions(base)
-
 
 def test_candidato_gsi_obsoleto_nao_reivindica_job_ou_run_terminal(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
@@ -265,7 +266,6 @@ def test_candidato_gsi_obsoleto_nao_reivindica_job_ou_run_terminal(ctx: _DynamoC
     adapter.put_run(tenant_z)
     adapter.put_run(tenant_a)
     assert adapter.list_recoverable_runs(clock.now(), 1) == (tenant_a,)
-
 
 def test_expiracao_logica_substitui_item_ttl_ainda_presente(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
