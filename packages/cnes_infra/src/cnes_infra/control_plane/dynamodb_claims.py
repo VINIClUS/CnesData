@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from hashlib import sha256
+from json import dumps
 from time import sleep
 from typing import TYPE_CHECKING, Any
 
@@ -310,7 +311,7 @@ class DynamoDBClaims:
             command.unit_id,
             event.event_id,
         )
-        return sha256("\x1f".join(values).encode()).hexdigest()[:36]
+        return sha256(dumps(values, separators=(",", ":")).encode()).hexdigest()[:36]
 
     @staticmethod
     def _is_server_error(error: ClientError) -> bool:

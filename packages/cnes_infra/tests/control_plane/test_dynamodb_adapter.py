@@ -364,6 +364,18 @@ def test_token_de_commit_diferencia_tabelas(ctx: _DynamoContext) -> None:
     assert other._commit_client_request_token(command, event) != token
 
 
+def test_token_de_commit_nao_colide_com_separador_em_identificadores(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, _ = ctx
+    command = _commit_command("a" * 16, "worker-a", 1).model_copy(update={"unit_id": "a"})
+    first = adapter._commit_client_request_token(command, _event("b\x1fc"))
+    colliding = command.model_copy(update={"unit_id": "a\x1fb"})
+    second = adapter._commit_client_request_token(colliding, _event("c"))
+
+    assert second != first
+
+
 @pytest.mark.parametrize("error_type", [ReadTimeoutError, ConnectionClosedError])
 def test_commit_reconhece_resposta_de_transporte_perdida_apos_transacao_confirmada(
     ctx: _DynamoContext, error_type: type[Exception]
