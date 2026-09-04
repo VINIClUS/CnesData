@@ -381,6 +381,38 @@ def test_commit_repete_transacao_com_token_estavel_apos_timeout_antes_da_respost
     assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
 
 
+def test_commit_propaga_conflito_se_repeticao_apos_timeout_nao_encontra_replay(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def timeout_then_persist_incompatible(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+        winner = claimed.model_copy(
+            update={
+                "state": RunUnitState.SUCCEEDED,
+                "lease_owner": None,
+                "lease_until": None,
+                "output_manifests": command.output_manifests,
+            }
+        )
+        adapter._put_direct(adapter._unit_item(winner))
+
+    adapter._client = ClientSpy(
+        adapter._client, before_transaction=timeout_then_persist_incompatible
+    )
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.commit_run_unit(command, event)
+
+
 def test_commit_propaga_conflito_quando_evento_persistido_nao_corresponde(
     ctx: _DynamoContext,
 ) -> None:
