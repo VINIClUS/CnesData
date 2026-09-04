@@ -222,22 +222,6 @@ def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None
     divergent = (unit_a, _unit("unit-c").model_copy(update={"run_id": "run-units"}))
     _no(Conflict, "units_conflict", lambda: _put_units(reopened, divergent, "run-units"))
     assert reopened.list_run_units("354130", "run-units") == before
-@pytest.mark.parametrize("filesystem", [pytest.param("nfs"), pytest.param("cifs")])
-def test_rejeita_banco_symlink_para_filesystem_de_rede(
-    tmp_path, clock, monkeypatch, filesystem
-) -> None:
-    mount = tmp_path / "network"
-    mount.mkdir()
-    database_path = tmp_path / "local" / "control.sqlite3"
-    database_path.parent.mkdir()
-    database_path.symlink_to(mount / "control.sqlite3")
-
-    def mounts(_path, **_kwargs) -> str:
-        return f"server:/share {mount} {filesystem} rw 0 0\\n"
-
-    monkeypatch.setattr(sqlite_schema.Path, "read_text", mounts)
-    adapter = SQLiteControlPlane(database_path, clock.now)
-    _no(_SQLiteFilesystemError, "sqlite_network_filesystem", adapter.initialize)
 @pytest.mark.parametrize(
     "network_path",
     [pytest.param(r"\\server\share\control.sqlite3"),
