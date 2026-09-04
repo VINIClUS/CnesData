@@ -4,6 +4,7 @@ import pytest
 
 from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatch
 from cnes_domain.control_plane.enums import DispatchOutcome
+from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from packages.cnes_infra.tests.contracts.clock import MutableClock, _prepare_unit
 
@@ -65,3 +66,26 @@ def test_migra_resposta_de_bind(adapter, clock) -> None:
     reopened = SQLiteControlPlane(adapter._database_path, clock.now)
     reopened.initialize()
     assert reopened.bind_run_dispatch(bind) == started
+
+
+def test_rejeita_bind_de_dispatch_finalizado_sem_replay(adapter, clock) -> None:
+    dispatch = _prepare_unit(adapter, clock)
+    adapter.finish_run_dispatch(
+        FinishRunDispatch(
+            tenant_id="354130",
+            run_id="run-a",
+            dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.SUCCEEDED,
+            finished_at=clock.now(),
+        )
+    )
+    bind = BindRunDispatch(
+        tenant_id="354130",
+        run_id="run-a",
+        dispatch_id=dispatch.dispatch_id,
+        execution_ref="exec-a",
+        now=clock.now(),
+        lease_seconds=30,
+    )
+    with pytest.raises(Conflict, match="dispatch_terminal"):
+        adapter.bind_run_dispatch(bind)

@@ -319,9 +319,6 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict("dispatch_stale")
-        if dispatch.state is DispatchState.STARTED:
-            validate_run_dispatch_bind(connection, command)
-            return dispatch
         if dispatch.lease_until <= command.now:
             raise Conflict("dispatch_expired")
         if dispatch.state is not DispatchState.RESERVED:
