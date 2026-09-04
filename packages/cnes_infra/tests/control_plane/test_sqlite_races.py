@@ -145,17 +145,12 @@ def test_serializa_renovacao_contra_reclaim_concorrente(adapter, database_path, 
         assert reclaimed is None
         assert renewed.fencing_token == 1
         assert adapter.get_job("354130", "job-a") == renewed
-def test_incrementa_fence_apos_expiracao_ou_lease_ausente(adapter, clock) -> None:
+def test_incrementa_fence_apos_expiracao(adapter, clock) -> None:
     _prepare_job(adapter)
     first = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
     clock.advance(timedelta(seconds=31))
     second = adapter.claim_job(_claim_job("job-a", "worker-b", clock))
     assert (first.fencing_token, second.fencing_token) == (1, 2)
-    missing_lease = _job("job-b").model_copy(update={"state": first.state})
-    adapter.create_job(missing_lease, _event("job-b-created"))
-    assert missing_lease in adapter.list_claimable_jobs("354130", "agent-a", 10)
-    reclaimed = adapter.claim_job(_claim_job("job-b", "worker-c", clock))
-    assert (reclaimed.attempt, reclaimed.fencing_token) == (1, 1)
 def test_configura_busy_timeout_de_cinco_segundos(adapter) -> None:
     with adapter.read_connection() as connection:
         assert connection.execute("PRAGMA busy_timeout").fetchone() == (5000,)

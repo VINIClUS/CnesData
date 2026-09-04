@@ -375,13 +375,13 @@ def test_rejeita_cancelamento_fora_de_leased(sqlite_control_plane, state) -> Non
             "result_manifest_key": "raw/354130/CNES/2026-07/result/manifest.json",
         }
     job = Job.model_validate(_job("job-a").model_dump() | updates)
-    created = _event("job-created")
-    sqlite_control_plane.create_job(job, created)
+    with sqlite_control_plane.write_transaction() as connection:
+        sqlite_control_plane.put_job_record(connection, job)
     command = CancelJob(tenant_id="354130", job_id="job-a", requested_by="user-a")
     with pytest.raises(Conflict, match="job_not_leased"):
         sqlite_control_plane.cancel_job(command, _event("cancel-rejected"))
     assert sqlite_control_plane.get_job("354130", "job-a") == job
-    assert sqlite_control_plane.pending_outbox(10) == (created,)
+    assert sqlite_control_plane.pending_outbox(10) == ()
 def _manifesto_com_identidade(base: RawManifestRecord, field: str) -> RawManifestRecord:
     updates = {
         "tenant_id": {"tenant_id": "other",

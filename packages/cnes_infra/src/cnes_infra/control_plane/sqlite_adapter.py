@@ -21,15 +21,18 @@ from cnes_domain.control_plane.entities import (
 )
 from cnes_domain.control_plane.enums import AgentState, JobState
 from cnes_domain.control_plane.errors import Conflict, NotFound
-from cnes_infra.control_plane import sqlite_claims, sqlite_idempotency, sqlite_publication
+from cnes_infra.control_plane import (
+    sqlite_claims,
+    sqlite_idempotency,
+    sqlite_job,
+    sqlite_publication,
+)
 from cnes_infra.control_plane.sqlite_schema import (
     _SQLiteWALUnavailable,
     deserialize_model,
     initialize_schema,
     is_network_filesystem,
-    put_job_creation_write,
     serialize_model,
-    validate_job_creation_replay,
 )
 
 if TYPE_CHECKING:
@@ -267,15 +270,7 @@ class SQLiteControlPlane:
             ),
         )
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
-        with self.write_transaction() as connection:
-            current = self.get_job_record(connection, job.tenant_id, job.job_id)
-            if current is not None:
-                validate_job_creation_replay(connection, job, event)
-                return current
-            self.put_outbox_event(connection, event, job.tenant_id)
-            self.put_job_record(connection, job)
-            put_job_creation_write(connection, job, event)
-            return job
+        return sqlite_job.create_job(self, job, event)
     def list_claimable_jobs(
         self, tenant_id: str, agent_id: str, limit: int
     ) -> tuple[Job, ...]:
