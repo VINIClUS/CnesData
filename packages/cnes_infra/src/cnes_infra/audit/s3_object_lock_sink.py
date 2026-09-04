@@ -63,4 +63,6 @@ class S3ObjectLockAuditSink:
             "COMPLIANCE", event.created_at + timedelta(days=self._retention_days)
         )
         store = S3ObjectStore(self._client, self._bucket, retention=retention)
+        identity_key = f"audit/.event-id/{event_id}.json"
+        store.put(identity_key, BytesIO(body), digest)
         store.put(key, BytesIO(body), digest)

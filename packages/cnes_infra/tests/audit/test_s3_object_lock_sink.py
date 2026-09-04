@@ -73,6 +73,7 @@ class _S3Probe:
         return tuple(
             StoredAuditEvent(key, body, metadata["sha256"])
             for key, (body, metadata, _) in self.client.objects.items()
+            if not key.startswith("audit/.event-id/")
         )
 
     def fail_next(self) -> None:
@@ -82,6 +83,17 @@ class _S3Probe:
 @pytest.mark.parametrize("case", audit_sink_cases(), ids=lambda case: case.name)
 def test_cumpre_contrato_compartilhado(case: AuditSinkCase) -> None:
     case.run(_S3Probe())
+
+
+def test_rejeita_mesmo_event_id_em_particao_s3_divergente() -> None:
+    client = _MemoryS3()
+    sink = S3ObjectLockAuditSink(client, "audit-bucket", 30)
+    event = audit_event()
+    sink.append(event)
+    changed = event.model_copy(update={"tenant_id": "tenant-b"})
+
+    with pytest.raises(Conflict, match="object=immutable"):
+        sink.append(changed)
 
 
 def _client_error(code: str, status: int, operation: str) -> ClientError:
@@ -115,12 +127,24 @@ def _put_params(event: Any) -> dict[str, Any]:
     }
 
 
+def _identity_params(event: Any) -> dict[str, Any]:
+    params = _put_params(event)
+    params["Key"] = f"audit/.event-id/{event.event_id}.json"
+    return params
+
+
+def _identity(stubber: Stubber, event: Any) -> None:
+    params = _identity_params(event)
+    stubber.add_response("put_object", {"ChecksumSHA256": params["ChecksumSHA256"]}, params)
+
+
 def test_envia_requisicao_exata_sem_newline() -> None:
     event = audit_event()
     params = _put_params(event)
     client = _client()
     with Stubber(client) as stubber:
         _enabled(stubber)
+        _identity(stubber, event)
         stubber.add_response(
             "put_object", {"ChecksumSHA256": params["ChecksumSHA256"]}, params
         )
@@ -164,6 +188,7 @@ def test_rejeita_checksum_ausente_ou_divergente(
     event, client = audit_event(), _client()
     with Stubber(client) as stubber:
         _enabled(stubber)
+        _identity(stubber, event)
         stubber.add_response("put_object", response, _put_params(event))
         sink = S3ObjectLockAuditSink(client, "audit-bucket", 30)
         with pytest.raises(ValueError, match=f"checksum_response={message}"):
@@ -174,6 +199,7 @@ def test_rejeita_baddigest() -> None:
     event, client = audit_event(), _client()
     with Stubber(client) as stubber:
         _enabled(stubber)
+        _identity(stubber, event)
         stubber.add_client_error(
             "put_object",
             service_error_code="BadDigest",
@@ -199,6 +225,7 @@ def test_aceita_replay_412_com_conteudo_e_retencao_integrais() -> None:
     digest = sha256(body).hexdigest()
     with Stubber(client) as stubber:
         _enabled(stubber)
+        _identity(stubber, event)
         stubber.add_client_error(
             "put_object", service_error_code="PreconditionFailed", http_status_code=412,
             expected_params=params)
@@ -224,6 +251,7 @@ def test_rejeita_replay_412_com_conteudo_divergente() -> None:
     different = b"divergente"
     with Stubber(client) as stubber:
         _enabled(stubber)
+        _identity(stubber, event)
         stubber.add_client_error(
             "put_object", service_error_code="PreconditionFailed", http_status_code=412,
             expected_params=params)
@@ -241,6 +269,7 @@ def test_limita_retry_409_e_releitura(attempts: int) -> None:
     params = _put_params(event)
     with Stubber(client) as stubber:
         _enabled(stubber)
+        _identity(stubber, event)
         for _ in range(attempts):
             stubber.add_client_error(
                 "put_object", service_error_code="ConditionalRequestConflict",

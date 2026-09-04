@@ -253,22 +253,37 @@ def test_importa_sink_sem_dependencia_opcional_pyarrow(
 def test_sincroniza_hierarquia_nova_antes_de_confirmar_indice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    sink = LocalAuditSink(tmp_path)
     synchronized: list[Path] = []
     monkeypatch.setattr(
         LocalAuditSink, "_fsync_directory", staticmethod(synchronized.append)
     )
+    sink = LocalAuditSink(tmp_path)
 
     sink.append(audit_event())
 
     audit = tmp_path / "audit"
     assert synchronized == [
+        tmp_path,
         audit,
         audit / "tenant-a",
         audit / "tenant-a" / "2026",
         audit / "tenant-a" / "2026" / "07",
         audit / "tenant-a" / "2026" / "07" / "15",
     ]
+
+
+def test_sincroniza_ancestrais_novos_da_raiz(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synchronized: list[Path] = []
+    monkeypatch.setattr(
+        LocalAuditSink, "_fsync_directory", staticmethod(synchronized.append)
+    )
+    root = tmp_path / "nested" / "root"
+
+    LocalAuditSink(root)
+
+    assert synchronized == [tmp_path, tmp_path / "nested", root]
 
 
 def test_materializa_lote_parquet_textual_e_deterministico(tmp_path: Path) -> None:

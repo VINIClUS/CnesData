@@ -126,7 +126,7 @@ class LocalAuditSink:
         self._root = Path(root).absolute()
         self._audit_root = self._root / "audit"
         self._batch_size = parquet_batch_size
-        self._audit_root.mkdir(parents=True, exist_ok=True)
+        self._ensure_audit_root()
         self._lock_path = self._audit_root / ".sink.lock"
         self._database_path = self._audit_root / "index.sqlite3"
         with self._locked(), self._connect() as database:
@@ -134,6 +134,16 @@ class LocalAuditSink:
             database.commit()
             self._recover(database)
             self._materialize_batches(database)
+
+    def _ensure_audit_root(self) -> None:
+        missing = []
+        current = self._audit_root
+        while not current.exists():
+            missing.append(current)
+            current = current.parent
+        for directory in reversed(missing):
+            directory.mkdir()
+            self._fsync_directory(directory.parent)
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
