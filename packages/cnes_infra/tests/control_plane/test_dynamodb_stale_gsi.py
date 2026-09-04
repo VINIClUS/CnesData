@@ -162,6 +162,7 @@ def test_cadeia_raw_serializa_corrida(ctx: _DynamoContext) -> None:
 
     adapter._client = ClientSpy(client, before_transaction=contend)
     _submit_raw_record(adapter, full, clock)
+    adapter._raw_actions(full)
     for record in (head, sibling_a):
         _store_record(adapter, record, clock)
     assert adapter.get_job(_TENANT, "job-agent-a-base").state is JobState.SUCCEEDED
@@ -206,7 +207,6 @@ def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext)
         _store_record(adapter, record, clock)
     chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1)
     assert tuple(ref.manifest_id for ref in chain) == (records[-1].manifest_id,)
-
 def test_reparo_raw_rejeita_ancestry_ausente_e_excesso(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     _store_record(adapter, _raw_record("delta-pending", "agent-a", 2, clock.now()), clock)
