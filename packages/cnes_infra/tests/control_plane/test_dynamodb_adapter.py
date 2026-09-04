@@ -343,6 +343,17 @@ def test_commit_retorna_sucesso_quando_resposta_da_transacao_confirmada_se_perde
     assert adapter.get_outbox_event(event.event_id) == event
 
 
+def test_token_de_commit_diferencia_tabelas(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    command = _commit_command("a" * 16, "worker-a", 1)
+    event = _event("unit-completed")
+    other = DynamoDBControlPlane(adapter._client, "another-control-plane", clock.now)
+
+    token = adapter._commit_client_request_token(command, event)
+
+    assert other._commit_client_request_token(command, event) != token
+
+
 @pytest.mark.parametrize("error_type", [ReadTimeoutError, ConnectionClosedError])
 def test_commit_reconhece_resposta_de_transporte_perdida_apos_transacao_confirmada(
     ctx: _DynamoContext, error_type: type[Exception]

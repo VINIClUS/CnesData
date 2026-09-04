@@ -299,9 +299,14 @@ class DynamoDBClaims:
             raise
         return updated
 
-    @staticmethod
-    def _commit_client_request_token(command: CommitRunUnit, event: Any) -> str:
-        values = (command.tenant_id, command.run_id, command.unit_id, event.event_id)
+    def _commit_client_request_token(self, command: CommitRunUnit, event: Any) -> str:
+        values = (
+            self._table_name,
+            command.tenant_id,
+            command.run_id,
+            command.unit_id,
+            event.event_id,
+        )
         return sha256("\x1f".join(values).encode()).hexdigest()[:36]
 
     @staticmethod
