@@ -275,7 +275,7 @@ def test_replay_dispatch_e_recaptura(adapter, database_path, clock) -> None:
     started = adapter.bind_run_dispatch(bind)
     expired = started.model_copy(update={"lease_until": bind.now})
     _write_dispatch(adapter, expired)
-    assert reopened.bind_run_dispatch(bind) == expired
+    assert reopened.bind_run_dispatch(bind) == started
     for update in ({"now": bind.now + timedelta(seconds=1)}, {"lease_seconds": 31},
                    {"execution_ref": "exec-b"}):
         _no(Conflict, "dispatch_bind_conflict", lambda update=update: reopened.bind_run_dispatch(
@@ -287,7 +287,7 @@ def test_replay_dispatch_e_recaptura(adapter, database_path, clock) -> None:
     _no(Conflict, "dispatch_expired", lambda: adapter.finish_run_dispatch(
         finish.model_copy(update={"finished_at": dispatch.lease_until})))
     finished = adapter.finish_run_dispatch(finish)
-    _no(Conflict, "dispatch_terminal", lambda: adapter.bind_run_dispatch(bind))
+    assert adapter.bind_run_dispatch(bind) == started
     expired = finished.model_copy(update={"lease_until": finish.finished_at})
     _write_dispatch(reopened, expired)
     assert reopened.finish_run_dispatch(finish) == expired

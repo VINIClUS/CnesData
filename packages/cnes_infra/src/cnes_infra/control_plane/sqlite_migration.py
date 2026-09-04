@@ -12,6 +12,15 @@ if TYPE_CHECKING:
 
 
 def migrate_schema(db: sqlite3.Connection) -> None:
+    bind_columns = {row[1] for row in db.execute("PRAGMA table_info(run_dispatch_bind_writes)")}
+    if "response_data" not in bind_columns:
+        db.execute("ALTER TABLE run_dispatch_bind_writes ADD COLUMN response_data TEXT")
+    db.execute(
+        "UPDATE run_dispatch_bind_writes SET response_data = (SELECT data FROM "
+        "run_dispatches WHERE run_dispatches.tenant_id = run_dispatch_bind_writes.tenant_id "
+        "AND run_dispatches.run_id = run_dispatch_bind_writes.run_id) "
+        "WHERE response_data IS NULL"
+    )
     job_columns = {row[1] for row in db.execute("PRAGMA table_info(job_creation_writes)")}
     if "job_data" not in job_columns:
         db.execute("ALTER TABLE job_creation_writes ADD COLUMN job_data TEXT")

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from cnes_domain.control_plane.entities import RunDispatch
 from cnes_domain.control_plane.enums import JobState
 from cnes_domain.control_plane.errors import Conflict
 
@@ -174,6 +175,7 @@ CREATE TABLE IF NOT EXISTS run_dispatch_bind_writes (
     run_id TEXT NOT NULL,
     dispatch_id TEXT NOT NULL,
     command_data TEXT NOT NULL,
+    response_data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, run_id, dispatch_id),
     FOREIGN KEY (tenant_id, run_id)
         REFERENCES run_dispatches (tenant_id, run_id) ON DELETE CASCADE
@@ -246,6 +248,8 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     delivered_at TEXT,
     data TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS ix_outbox_pending
+ON outbox_events (created_at, event_id) WHERE delivered_at IS NULL;
 """
 _NETWORK_FILESYSTEMS = {"9p", "afs", "cifs", "fuse.sshfs", "nfs", "nfs4", "smbfs"}
 _NETWORK_PATH_PREFIXES = ("//", "smb:/", "nfs:/", "afp:/", "/net/", "/Network/Servers/")
@@ -389,20 +393,31 @@ def put_run_dispatch_finish(connection: Any, command: Any) -> None:
         "(tenant_id, run_id, dispatch_id, command_data) VALUES (?, ?, ?, ?)",
         (command.tenant_id, command.run_id, command.dispatch_id, serialize_model(command)),
     )
-def put_run_dispatch_bind(connection: Any, command: Any) -> None:
+def put_run_dispatch_bind(connection: Any, command: Any, dispatch: Any) -> None:
     connection.execute(
         "INSERT INTO run_dispatch_bind_writes "
-        "(tenant_id, run_id, dispatch_id, command_data) VALUES (?, ?, ?, ?)",
-        (command.tenant_id, command.run_id, command.dispatch_id, serialize_model(command)),
+        "(tenant_id, run_id, dispatch_id, command_data, response_data) VALUES (?, ?, ?, ?, ?)",
+        (
+            command.tenant_id,
+            command.run_id,
+            command.dispatch_id,
+            serialize_model(command),
+            serialize_model(dispatch),
+        ),
     )
-def validate_run_dispatch_bind(connection: Any, command: Any) -> None:
+
+
+def validate_run_dispatch_bind(connection: Any, command: Any) -> RunDispatch | None:
     row = connection.execute(
-        "SELECT command_data FROM run_dispatch_bind_writes "
+        "SELECT command_data, response_data FROM run_dispatch_bind_writes "
         "WHERE tenant_id = ? AND run_id = ? AND dispatch_id = ?",
         (command.tenant_id, command.run_id, command.dispatch_id),
     ).fetchone()
-    if row is None or row[0] != serialize_model(command):
+    if row is None:
+        return None
+    if row[0] != serialize_model(command):
         raise Conflict("dispatch_bind_conflict")
+    return None if row[1] is None else deserialize_model(row[1], RunDispatch)
 def validate_run_dispatch_finish(connection: Any, command: Any) -> None:
     row = connection.execute(
         "SELECT command_data FROM run_dispatch_terminal_writes "

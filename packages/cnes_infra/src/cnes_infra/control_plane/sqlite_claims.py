@@ -310,6 +310,9 @@ def get_active_run_dispatch(store: Any, tenant_id: str, run_id: str) -> RunDispa
 
 def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
+        replay = validate_run_dispatch_bind(connection, command)
+        if replay is not None:
+            return replay
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
         if run is None or run.state is not RunState.PROCESSING:
             raise Conflict("parent_not_processing")
@@ -331,7 +334,7 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
             }
         )
         _put_dispatch(connection, started)
-        put_run_dispatch_bind(connection, command)
+        put_run_dispatch_bind(connection, command, started)
         return started
 def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
