@@ -45,6 +45,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _event,
     _job,
     _prepare_unit,
+    _renew_job,
     _run,
     _unit,
 )
@@ -278,6 +279,83 @@ def test_claims_retornam_none_quando_cas_perde_corrida(ctx: _DynamoContext) -> N
         lease_seconds=30,
     )
     assert adapter.claim_run_unit(command) is None
+
+
+def test_claim_job_com_relogio_futuro_nao_toma_lease_vivo(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    adapter.put_agent(_agent("agent-a"))
+    adapter.create_job(_job("job-a"), _event("job-created"))
+    leased = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
+    assert leased is not None
+    future_claim = _claim_job("job-a", "worker-b", clock).model_copy(
+        update={"now": clock.now() + timedelta(seconds=31)}
+    )
+
+    assert adapter.claim_job(future_claim) is None
+    assert adapter.get_job(_TENANT, "job-a") == leased
+
+
+@pytest.mark.parametrize(
+    "reported_now", [(_NOW - timedelta(hours=1),), (_NOW + timedelta(hours=1),)]
+)
+def test_renovacao_de_job_usa_relogio_autoritativo(
+    ctx: _DynamoContext, reported_now: Any
+) -> None:
+    adapter, clock = ctx
+    adapter.put_agent(_agent("agent-a"))
+    adapter.create_job(_job("job-a"), _event("job-created"))
+    claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
+    assert claimed is not None
+    renewal = _renew_job(clock).model_copy(update={"now": reported_now})
+
+    renewed = adapter.renew_job_lease(renewal)
+
+    assert renewed.lease_until == clock.now() + timedelta(seconds=renewal.lease_seconds)
+    assert adapter.get_job(_TENANT, "job-a") == renewed
+
+
+def test_commit_retorna_sucesso_quando_resposta_da_transacao_confirmada_se_perde(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    adapter._client = ClientSpy(adapter._client, after_transaction=_lose_transaction_response)
+
+    completed = adapter.commit_run_unit(command, event)
+
+    assert completed.state is RunUnitState.SUCCEEDED
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+    assert adapter.get_outbox_event(event.event_id) == event
+
+
+def test_commit_propaga_conflito_quando_evento_persistido_nao_corresponde(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+
+    def persist_winner_incompativel(_: list[dict[str, Any]]) -> None:
+        winner = claimed.model_copy(
+            update={
+                "state": RunUnitState.SUCCEEDED,
+                "lease_owner": None,
+                "lease_until": None,
+                "output_manifests": command.output_manifests,
+            }
+        )
+        different_event = event.model_copy(update={"payload": {"event_id": "different"}})
+        adapter._put_direct(adapter._unit_item(winner))
+        adapter._put_direct(adapter._outbox_item(different_event))
+
+    adapter._client = ClientSpy(adapter._client, before_transaction=persist_winner_incompativel)
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.commit_run_unit(command, event)
 
 
 def test_falha_opcional_rele_parent_apos_cas_concorrente(ctx: _DynamoContext) -> None:

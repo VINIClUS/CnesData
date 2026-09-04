@@ -62,6 +62,7 @@ class DynamoDBClaims:
         return encode_model(dispatch, "RUNDISPATCH", key, attributes)
     def claim_job(self, command: ClaimJob) -> Job | None:
         """Reivindica um job elegível com novo fence."""
+        now = self._clock()
         key = entity_key(command.tenant_id, "JOB", command.job_id)
         item = self._get_item(key)
         if item is None:
@@ -70,7 +71,7 @@ class DynamoDBClaims:
         agent_item = self._get_item(entity_key(command.tenant_id, "AGENT", job.agent_id))
         if agent_item is None or decode_model(agent_item, Agent).state is not AgentState.ACTIVE:
             return None
-        if not self._job_is_claimable(job, command.now):
+        if not self._job_is_claimable(job, now):
             return None
         leased = transition_job(job, JobState.LEASED) if job.state is not JobState.LEASED else job
         updated = leased.model_copy(
@@ -78,7 +79,7 @@ class DynamoDBClaims:
                 "attempt": job.attempt + 1,
                 "fencing_token": job.fencing_token + 1,
                 "lease_owner": command.owner,
-                "lease_until": command.now + timedelta(seconds=command.lease_seconds),
+                "lease_until": now + timedelta(seconds=command.lease_seconds),
                 "error_code": None,
             }
         )
@@ -93,11 +94,12 @@ class DynamoDBClaims:
         return updated
     def renew_job_lease(self, command: RenewJobLease) -> Job:
         """Renova o lease de um job fenced."""
+        now = self._clock()
         item, job = self._leased_job(command.tenant_id, command.job_id)
-        self._validate_job_fence(job, command.owner, command.fencing_token, command.now)
+        self._validate_job_fence(job, command.owner, command.fencing_token, now)
         agent_item = self._active_agent_item(job)
         updated = job.model_copy(
-            update={"lease_until": command.now + timedelta(seconds=command.lease_seconds)}
+            update={"lease_until": now + timedelta(seconds=command.lease_seconds)}
         )
         self._transact(
             (
@@ -271,8 +273,23 @@ class DynamoDBClaims:
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
             self._event_action(command.tenant_id, event),
         )
-        self._transact(actions)
+        try:
+            self._transact(actions)
+        except Conflict:
+            if self._commit_run_unit_replay(command, event, updated):
+                return updated
+            raise
         return updated
+
+    def _commit_run_unit_replay(
+        self, command: CommitRunUnit, event: Any, updated: RunUnit
+    ) -> bool:
+        winner = self._get_model(
+            unit_key(command.tenant_id, command.run_id, command.unit_id), RunUnit
+        )
+        return winner == updated and self._event_replay_matches(
+            self._get_outbox_event(event.event_id), event
+        )
     def _fail_run_unit_actions(
         self, command: FailRunUnit, event: Any
     ) -> tuple[RunUnit, tuple[Action, ...]]:
