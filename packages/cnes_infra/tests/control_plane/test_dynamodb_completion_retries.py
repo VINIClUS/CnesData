@@ -9,6 +9,7 @@ from cnes_domain.control_plane.commands import CompleteJob
 from cnes_domain.control_plane.enums import JobState, RunState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
+from cnes_infra.control_plane.dynamodb_keys import item_key, run_entity_key
 from packages.cnes_infra.tests.contracts.clock import (
     _NOW,
     _TENANT,
@@ -98,6 +99,17 @@ def test_complete_tenta_tres_vezes_sem_mutar_em_contencao(
     assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1) == ()
 
 
+def test_latest_job_preserva_marcador_mais_recente(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    newest = _job("z-newest").model_copy(update={"created_at": clock.now()})
+    older = _job("a-older").model_copy(update={"created_at": clock.now()})
+    adapter._transact((adapter._latest_job_action(newest),))
+    adapter._transact((adapter._latest_job_action(older),))
+    latest = adapter.latest_succeeded_job(_TENANT, "agent-a", "CNES", "ST", "2026-07")
+    assert latest is not None
+    assert latest.job_id == newest.job_id
+
+
 def test_publicacao_aceita_replay_identico_apos_conflito_com_leitura_forte(
     ctx: _DynamoContext,
 ) -> None:
@@ -132,3 +144,35 @@ def test_publicacao_rejeita_winner_divergente_apos_conflito(ctx: _DynamoContext)
     with pytest.raises(Conflict, match="publication_replay_conflict"):
         adapter.publish_dataset(command)
     assert adapter.get_outbox_event(command.event.event_id) is None
+
+
+def test_publicacao_propaga_conflito_sem_run_vencedor(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
+    command = _publish("run-a", "published", None, False)
+    adapter.put_run(_run("run-a", RunState.PUBLISHING))
+
+    def remove_run_then_report_conflict(_: list[dict[str, Any]]) -> None:
+        adapter._client.client.delete_item(
+            TableName=_TABLE_NAME,
+            Key=item_key(*run_entity_key(_TENANT, "run-a")),
+        )
+        _lose_transaction_response(())
+
+    adapter._client = ClientSpy(
+        adapter._client,
+        before_transaction=remove_run_then_report_conflict,
+    )
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.publish_dataset(command)
+
+
+def test_publicacao_propaga_conflito_com_run_ainda_publicando(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
+    command = _publish("run-a", "published", None, False)
+    adapter.put_run(_run("run-a", RunState.PUBLISHING))
+    adapter._client = ClientSpy(
+        adapter._client,
+        before_transaction=_raise_transaction_canceled,
+    )
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.publish_dataset(command)
