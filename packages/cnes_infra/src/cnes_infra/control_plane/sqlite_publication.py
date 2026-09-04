@@ -330,7 +330,9 @@ def _validate_publication_replay(
     command = command.model_copy(update={"publication_permit": permit})
     if canonical != command or not terminal_matches:
         raise Conflict("publication_replay_conflict")
-    return pointer if row[1] is None else deserialize_model(row[1], DatasetPointer)
+    if row[1] is None:
+        raise Conflict("publication_replay_response_missing")
+    return deserialize_model(row[1], DatasetPointer)
 
 
 def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:

@@ -6,6 +6,7 @@ from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatc
 from cnes_domain.control_plane.enums import DispatchOutcome, RunState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
+from cnes_infra.control_plane.sqlite_schema import serialize_model
 from packages.cnes_infra.tests.contracts.clock import MutableClock, _prepare_unit, _reserve, _run
 from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
 
@@ -61,10 +62,36 @@ def test_migra_resposta_de_publicacao(adapter) -> None:
     command = _publish("run-a", "published-a", None, False)
     pointer = adapter.publish_dataset(command)
     with adapter.write_transaction() as connection:
+        permit = command.publication_permit.model_copy(update={"binding_context": {"legacy": True}})
+        legacy = command.model_copy(update={"publication_permit": permit})
+        connection.execute("UPDATE dataset_publications SET data = ?", (serialize_model(legacy),))
         connection.execute("ALTER TABLE dataset_publications DROP COLUMN response_data")
     reopened = SQLiteControlPlane(adapter._database_path, adapter.now)
     reopened.initialize()
     assert reopened.publish_dataset(command) == pointer
+
+
+def test_rejeita_replay_legado_sem_resposta(adapter) -> None:
+    adapter.put_run(_run("run-a", RunState.PUBLISHING))
+    first = _publish("run-a", "published-a", None, False)
+    adapter.publish_dataset(first)
+    adapter.put_run(_run("run-b", RunState.PUBLISHING))
+    adapter.publish_dataset(_publish("run-b", "published-b", "run-a", False))
+    adapter.put_run(
+        _run("run-c", RunState.PUBLISHING).model_copy(update={"dataset_name": "archive"})
+    )
+    third = _publish("run-c", "published-c", None, False)
+    third = third.model_copy(
+        update={"version": third.version.model_copy(update={"dataset_name": "archive"})}
+    )
+    adapter.publish_dataset(third)
+    with adapter.write_transaction() as connection:
+        connection.execute("DELETE FROM dataset_pointers WHERE dataset_name = 'archive'")
+        connection.execute("ALTER TABLE dataset_publications DROP COLUMN response_data")
+    reopened = SQLiteControlPlane(adapter._database_path, adapter.now)
+    reopened.initialize()
+    with pytest.raises(Conflict, match="publication_replay_response_missing"):
+        reopened.publish_dataset(first)
 
 
 def test_cria_indice_para_outbox_pendente(adapter) -> None:

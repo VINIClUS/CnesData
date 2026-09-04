@@ -4,8 +4,8 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatch
-from cnes_domain.control_plane.entities import AccessRequest, Job, RunDispatch
+from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatch, PublishDataset
+from cnes_domain.control_plane.entities import AccessRequest, DatasetPointer, Job, RunDispatch
 from cnes_domain.control_plane.enums import AccessRequestState, DispatchState, JobState
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
@@ -126,6 +126,29 @@ def _migrate_publication_response(db: sqlite3.Connection) -> None:
     columns = {row[1] for row in db.execute("PRAGMA table_info(dataset_publications)")}
     if "response_data" not in columns:
         db.execute("ALTER TABLE dataset_publications ADD COLUMN response_data TEXT")
+    rows = db.execute(
+        "SELECT p.tenant_id, p.dataset_name, p.version_id, p.data, d.data "
+        "FROM dataset_publications p LEFT JOIN dataset_pointers d "
+        "ON d.tenant_id = p.tenant_id AND d.dataset_name = p.dataset_name "
+        "AND d.pointer_name = 'current' WHERE p.response_data IS NULL"
+    )
+    for tenant_id, dataset_name, version_id, data, pointer_data in rows:
+        command = deserialize_model(data, PublishDataset)
+        permit = command.publication_permit.model_copy(update={"binding_context": None})
+        db.execute(
+            "UPDATE dataset_publications SET data = ? WHERE tenant_id = ? AND dataset_name = ? "
+            "AND version_id = ?",
+            (serialize_model(command.model_copy(update={"publication_permit": permit})), tenant_id,
+             dataset_name, version_id),
+        )
+        if pointer_data is not None:
+            pointer = deserialize_model(pointer_data, DatasetPointer)
+            if pointer.version_id == version_id:
+                db.execute(
+                    "UPDATE dataset_publications SET response_data = ? WHERE tenant_id = ? "
+                    "AND dataset_name = ? AND version_id = ?",
+                    (serialize_model(pointer), tenant_id, dataset_name, version_id),
+                )
 
 
 def _migrate_run_units(db: sqlite3.Connection) -> None:
