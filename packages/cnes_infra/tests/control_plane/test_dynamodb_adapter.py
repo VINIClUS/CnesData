@@ -76,6 +76,7 @@ class ClientSpy:
         self.before_transaction = before_transaction
         self.after_transaction = after_transaction
         self.transactions: list[list[dict[str, Any]]] = []
+        self.transaction_requests: list[dict[str, Any]] = []
         self.calls: list[str] = []
         self.query_requests: list[dict[str, Any]] = []
         self.requests: list[tuple[str, dict[str, Any]]] = []
@@ -84,6 +85,7 @@ class ClientSpy:
         actions: list[dict[str, Any]] = kwargs["TransactItems"]
         self.calls.append("transact_write_items")
         self.transactions.append(actions)
+        self.transaction_requests.append(dict(kwargs))
         if self.before_transaction is not None:
             self.before_transaction(actions)
         response = self.client.transact_write_items(**kwargs)
@@ -350,6 +352,33 @@ def test_commit_reconhece_resposta_de_transporte_perdida_apos_transacao_confirma
 
     assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
     assert adapter.get_outbox_event(event.event_id) == event
+
+
+def test_commit_repete_transacao_com_token_estavel_apos_timeout_antes_da_resposta(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def lose_first_response(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+
+    spy = ClientSpy(adapter._client, before_transaction=lose_first_response)
+    adapter._client = spy
+
+    completed = adapter.commit_run_unit(command, event)
+
+    tokens = [request["ClientRequestToken"] for request in spy.transaction_requests]
+    assert tokens[0] == tokens[1]
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
 
 
 def test_commit_propaga_conflito_quando_evento_persistido_nao_corresponde(

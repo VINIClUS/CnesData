@@ -107,8 +107,10 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             "ExpressionAttributeValues": {":partition": {"S": partition}},
         }
         return bounded_candidates(self._client, request, query)
-    def _transact(self, actions: tuple[Action, ...]) -> None:
-        execute_transaction(self._client, actions)
+    def _transact(
+        self, actions: tuple[Action, ...], client_request_token: str | None = None
+    ) -> None:
+        execute_transaction(self._client, actions, client_request_token)
     def _put_direct(self, item: Item) -> None:
         self._client.put_item(TableName=self._table_name, Item=item)
     def _job_item(self, job: Job) -> Item:

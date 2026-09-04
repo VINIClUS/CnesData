@@ -275,13 +275,26 @@ class DynamoDBClaims:
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
             self._event_action(command.tenant_id, event),
         )
+        token = self._commit_client_request_token(command, event)
         try:
-            self._transact(actions)
-        except (Conflict, ConnectionClosedError, ReadTimeoutError):
+            self._transact(actions, token)
+        except (ConnectionClosedError, ReadTimeoutError):
+            try:
+                self._transact(actions, token)
+            except (Conflict, ConnectionClosedError, ReadTimeoutError):
+                if self._commit_run_unit_replay(command, event, updated):
+                    return updated
+                raise
+        except Conflict:
             if self._commit_run_unit_replay(command, event, updated):
                 return updated
             raise
         return updated
+
+    @staticmethod
+    def _commit_client_request_token(command: CommitRunUnit, event: Any) -> str:
+        values = (command.tenant_id, command.run_id, command.unit_id, event.event_id)
+        return sha256("\x1f".join(values).encode()).hexdigest()[:36]
 
     def _commit_run_unit_replay(
         self, command: CommitRunUnit, event: Any, updated: RunUnit
