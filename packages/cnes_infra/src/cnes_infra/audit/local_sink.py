@@ -14,8 +14,7 @@ from pathlib import Path
 from secrets import token_hex
 from typing import TYPE_CHECKING
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+import polars as pl
 
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.errors import Conflict
@@ -34,17 +33,15 @@ CREATE TABLE IF NOT EXISTS events (
     batch_path TEXT
 )
 """
-_PARQUET_SCHEMA = pa.schema(
-    [
-        pa.field("tenant_id", pa.string()),
-        pa.field("event_id", pa.string()),
-        pa.field("event_type", pa.string()),
-        pa.field("aggregate_id", pa.string()),
-        pa.field("payload_json", pa.string()),
-        pa.field("created_at", pa.string()),
-        pa.field("delivered_at", pa.string()),
-    ]
-)
+_PARQUET_SCHEMA = {
+    "tenant_id": pl.String,
+    "event_id": pl.String,
+    "event_type": pl.String,
+    "aggregate_id": pl.String,
+    "payload_json": pl.String,
+    "created_at": pl.String,
+    "delivered_at": pl.String,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +68,7 @@ class _BatchEntry:
     log_path: str
     offset: int
     length: int
+    digest: str
 
 
 def _canonical_event(event: OutboxEvent) -> bytes:
@@ -239,20 +237,32 @@ class LocalAuditSink:
                 self._materialize_batches(database)
                 return
             path = self._root / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
+            self._ensure_log_directory(path.parent)
             self._append_record(database, _PendingAppend(event, path, record))
             self._materialize_batches(database)
+
+    def _ensure_log_directory(self, directory: Path) -> None:
+        current = self._audit_root
+        for part in directory.relative_to(self._audit_root).parts:
+            child = current / part
+            if not child.exists():
+                child.mkdir()
+                self._fsync_directory(current)
+            current = child
 
     def _append_record(
         self, database: sqlite3.Connection, pending: _PendingAppend
     ) -> None:
-        with pending.path.open("a+b") as stream:
+        created = not pending.path.exists()
+        with pending.path.open("a+b", buffering=0) as stream:
             stream.seek(0, os.SEEK_END)
             offset = stream.tell()
             stream.write(pending.record)
             self._fault("after_file_write")
             stream.flush()
             os.fsync(stream.fileno())
+            if created:
+                self._fsync_directory(pending.path.parent)
             self._fault("after_file_fsync")
         digest = sha256(pending.record.removesuffix(b"\n")).hexdigest()
         entry = _IndexEntry(
@@ -270,7 +280,7 @@ class LocalAuditSink:
 
     def _materialize_batches(self, database: sqlite3.Connection) -> None:
         rows = database.execute(
-            "SELECT event_id, tenant_id, log_path, offset, length FROM events "
+            "SELECT event_id, tenant_id, log_path, offset, length, sha256 FROM events "
             "WHERE batch_path IS NULL ORDER BY tenant_id, log_path, offset"
         ).fetchall()
         entries = [_BatchEntry(*row) for row in rows]
@@ -283,10 +293,7 @@ class LocalAuditSink:
     def _materialize_batch(
         self, database: sqlite3.Connection, entries: list[_BatchEntry]
     ) -> None:
-        records = [
-            self._read_record(entry.log_path, entry.offset, entry.length)
-            for entry in entries
-        ]
+        records = [self._read_record(entry) for entry in entries]
         digest = sha256(b"".join(records)).hexdigest()
         relative = Path(entries[0].log_path).parent / f"batch-{digest}.parquet"
         table = self._parquet_table(records)
@@ -297,16 +304,20 @@ class LocalAuditSink:
         )
         database.commit()
 
-    def _read_record(self, relative: str, offset: int, length: int) -> bytes:
-        with (self._root / relative).open("rb") as stream:
-            stream.seek(offset)
-            record = stream.read(length)
-        if len(record) != length or not record.endswith(b"\n"):
+    def _read_record(self, entry: _BatchEntry) -> bytes:
+        with (self._root / entry.log_path).open("rb") as stream:
+            stream.seek(entry.offset)
+            record = stream.read(entry.length)
+        if len(record) != entry.length or not record.endswith(b"\n"):
             raise ValueError("audit_record=missing")
+        event, digest = self._validate_record(entry.log_path, record)
+        valid = event.event_id == entry.event_id and event.tenant_id == entry.tenant_id
+        if not valid or digest != entry.digest:
+            raise ValueError("audit_record=invalid")
         return record
 
     @staticmethod
-    def _parquet_table(records: list[bytes]) -> pa.Table:
+    def _parquet_table(records: list[bytes]) -> pl.DataFrame:
         serialized = [json.loads(record) for record in records]
         rows = [
             {
@@ -322,13 +333,13 @@ class LocalAuditSink:
             }
             for item in serialized
         ]
-        return pa.Table.from_pylist(rows, schema=_PARQUET_SCHEMA)
+        return pl.DataFrame(rows, schema=_PARQUET_SCHEMA)
 
-    def _publish_parquet(self, destination: Path, table: pa.Table) -> None:
+    def _publish_parquet(self, destination: Path, table: pl.DataFrame) -> None:
         temporary = destination.with_name(f".{destination.name}.{token_hex(8)}.tmp")
         try:
             with temporary.open("xb") as stream:
-                pq.write_table(table, stream)
+                table.write_parquet(stream)
                 stream.flush()
                 os.fsync(stream.fileno())
             expected = _file_digest(temporary)

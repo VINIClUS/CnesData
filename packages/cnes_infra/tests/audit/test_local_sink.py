@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import builtins
+import importlib
 import json
 import multiprocessing
+import os
 import sqlite3
+import sys
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pyarrow.parquet as pq
+import polars as pl
 import pytest
 
 from cnes_domain.control_plane.errors import Conflict
@@ -63,6 +67,26 @@ class _FaultSink(LocalAuditSink):
             raise OSError("audit_write=denied")
 
 
+class _CrashSink(LocalAuditSink):
+    def __init__(self, root: Path, boundary: str) -> None:
+        self.boundary = boundary
+        super().__init__(root)
+
+    def _fault(self, boundary: str) -> None:
+        if boundary == self.boundary:
+            os._exit(91)
+
+
+class _BlockPyArrowImport:
+    def __init__(self) -> None:
+        self._original = builtins.__import__
+
+    def __call__(self, name: str, *args: object, **kwargs: object) -> object:
+        if name == "pyarrow" or name.startswith("pyarrow."):
+            raise ModuleNotFoundError(name)
+        return self._original(name, *args, **kwargs)
+
+
 @pytest.mark.parametrize("case", audit_sink_cases(), ids=lambda case: case.name)
 def test_cumpre_contrato_compartilhado(tmp_path: Path, case: AuditSinkCase) -> None:
     case.run(_LocalProbe(tmp_path))
@@ -74,10 +98,15 @@ def test_cumpre_contrato_compartilhado(tmp_path: Path, case: AuditSinkCase) -> N
 )
 def test_recupera_evento_completo_apos_falha(tmp_path: Path, boundary: str) -> None:
     event = audit_event()
-    sink = _FaultSink(tmp_path)
-    sink.boundary = boundary
-    with pytest.raises(OSError, match="audit_write=denied"):
-        sink.append(event)
+    context = multiprocessing.get_context("spawn")
+    process = context.Process(
+        target=_crash_append_in_process, args=(str(tmp_path), boundary)
+    )
+    process.start()
+    process.join(timeout=10)
+
+    assert process.exitcode == 91
+    assert _log_path(tmp_path).read_bytes() == canonical_body(event) + b"\n"
 
     reopened = LocalAuditSink(tmp_path)
     reopened.append(event)
@@ -140,6 +169,10 @@ def _append_in_process(root: str, event_id: str) -> None:
     LocalAuditSink(Path(root)).append(audit_event(event_id))
 
 
+def _crash_append_in_process(root: str, boundary: str) -> None:
+    _CrashSink(Path(root), boundary).append(audit_event())
+
+
 def test_serializa_append_entre_processos(tmp_path: Path) -> None:
     context = multiprocessing.get_context("spawn")
     processes = [
@@ -156,6 +189,38 @@ def test_serializa_append_entre_processos(tmp_path: Path) -> None:
     assert len(_log_path(tmp_path).read_bytes().splitlines()) == 12
 
 
+def test_importa_sink_sem_dependencia_opcional_pyarrow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delitem(sys.modules, "cnes_infra.audit.local_sink")
+    monkeypatch.setattr(builtins, "__import__", _BlockPyArrowImport())
+
+    module = importlib.import_module("cnes_infra.audit.local_sink")
+
+    assert module.LocalAuditSink
+
+
+def test_sincroniza_hierarquia_nova_antes_de_confirmar_indice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sink = LocalAuditSink(tmp_path)
+    synchronized: list[Path] = []
+    monkeypatch.setattr(
+        LocalAuditSink, "_fsync_directory", staticmethod(synchronized.append)
+    )
+
+    sink.append(audit_event())
+
+    audit = tmp_path / "audit"
+    assert synchronized == [
+        audit,
+        audit / "tenant-a",
+        audit / "tenant-a" / "2026",
+        audit / "tenant-a" / "2026" / "07",
+        audit / "tenant-a" / "2026" / "07" / "15",
+    ]
+
+
 def test_materializa_lote_parquet_textual_e_deterministico(tmp_path: Path) -> None:
     events = (audit_event("event-001"), audit_event("event-002", payload={"n": 2}))
     sink = LocalAuditSink(tmp_path, parquet_batch_size=2)
@@ -165,9 +230,9 @@ def test_materializa_lote_parquet_textual_e_deterministico(tmp_path: Path) -> No
     jsonl = b"".join(canonical_body(event) + b"\n" for event in events)
     digest = sha256(jsonl).hexdigest()
     parquet = _log_path(tmp_path).parent / f"batch-{digest}.parquet"
-    table = pq.read_table(parquet)
+    table = pl.read_parquet(parquet)
 
-    assert table.schema.names == [
+    assert table.columns == [
         "tenant_id",
         "event_id",
         "event_type",
@@ -176,9 +241,9 @@ def test_materializa_lote_parquet_textual_e_deterministico(tmp_path: Path) -> No
         "created_at",
         "delivered_at",
     ]
-    assert all(str(field.type) == "string" for field in table.schema)
-    assert table.column("event_id").to_pylist() == ["event-001", "event-002"]
-    assert table.column("payload_json").to_pylist()[1] == '{"n":2}'
+    assert all(value == pl.String for value in table.schema.values())
+    assert table.get_column("event_id").to_list() == ["event-001", "event-002"]
+    assert table.get_column("payload_json").to_list()[1] == '{"n":2}'
     assert _log_path(tmp_path).read_bytes() == jsonl
 
     _clear_batch_associations(tmp_path)
@@ -210,6 +275,18 @@ def test_rejeita_lote_quando_registro_indexado_foi_truncado(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="audit_record=missing"):
         LocalAuditSink(tmp_path, parquet_batch_size=2)
+
+
+def test_rejeita_lote_quando_registro_indexado_muda_sem_alterar_tamanho(
+    tmp_path: Path,
+) -> None:
+    sink = LocalAuditSink(tmp_path, parquet_batch_size=2)
+    sink.append(audit_event("event-001"))
+    log = _log_path(tmp_path)
+    log.write_bytes(log.read_bytes().replace(b"event-001", b"event-009"))
+
+    with pytest.raises(ValueError, match="audit_record=invalid"):
+        LocalAuditSink(tmp_path, parquet_batch_size=1)
 
 
 def test_rejeita_parametros_e_componentes_inseguros(tmp_path: Path) -> None:
