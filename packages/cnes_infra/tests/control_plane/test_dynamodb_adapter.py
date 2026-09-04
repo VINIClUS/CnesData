@@ -126,6 +126,16 @@ def _lose_transaction_response(_: list[dict[str, Any]]) -> None:
     raise Conflict("transaction_conflict")
 
 
+def _dynamodb_client_error(status: int) -> ClientError:
+    return ClientError(
+        {
+            "Error": {"Code": "InternalServerError"},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        },
+        "TransactWriteItems",
+    )
+
+
 def _create_table(client: object) -> None:
     index_attributes = tuple(f"{index}{suffix}" for index in _INDEXES for suffix in ("pk", "sk"))
     attribute_definitions = [
@@ -377,6 +387,102 @@ def test_commit_repete_transacao_com_token_estavel_apos_timeout_antes_da_respost
 
     tokens = [request["ClientRequestToken"] for request in spy.transaction_requests]
     assert tokens[0] == tokens[1]
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
+@pytest.mark.parametrize("status", [500, 503])
+def test_commit_repete_transacao_com_token_estavel_apos_erro_dynamodb_5xx(
+    ctx: _DynamoContext, status: int
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def fail_first_response(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise _dynamodb_client_error(status)
+
+    spy = ClientSpy(adapter._client, before_transaction=fail_first_response)
+    adapter._client = spy
+
+    completed = adapter.commit_run_unit(command, event)
+
+    tokens = [request["ClientRequestToken"] for request in spy.transaction_requests]
+    assert tokens[0] == tokens[1]
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
+def test_commit_propaga_erro_dynamodb_4xx(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+
+    def fail_request(_: list[dict[str, Any]]) -> None:
+        raise _dynamodb_client_error(400)
+
+    adapter._client = ClientSpy(adapter._client, before_transaction=fail_request)
+
+    with pytest.raises(ClientError, match="InternalServerError"):
+        adapter.commit_run_unit(command, _event("unit-completed"))
+
+
+@pytest.mark.parametrize("status", [400, 500])
+def test_commit_propaga_segundo_erro_dynamodb_apos_timeout(
+    ctx: _DynamoContext, status: int
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    attempts = 0
+
+    def timeout_then_fail(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+        raise _dynamodb_client_error(status)
+
+    adapter._client = ClientSpy(adapter._client, before_transaction=timeout_then_fail)
+    with pytest.raises(ClientError, match="InternalServerError"):
+        adapter.commit_run_unit(command, _event("unit-completed"))
+
+
+def test_commit_reconhece_erro_dynamodb_5xx_apos_repeticao_confirmada(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def fail_first_request(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+
+    def fail_second_response(_: list[dict[str, Any]]) -> None:
+        raise _dynamodb_client_error(500)
+
+    adapter._client = ClientSpy(
+        adapter._client,
+        before_transaction=fail_first_request,
+        after_transaction=fail_second_response,
+    )
+
+    completed = adapter.commit_run_unit(command, event)
+
     assert adapter.get_outbox_event(event.event_id) == event
     assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
 

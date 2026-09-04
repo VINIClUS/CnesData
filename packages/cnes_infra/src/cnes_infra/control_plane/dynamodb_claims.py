@@ -6,7 +6,7 @@ from datetime import timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any
 
-from botocore.exceptions import ConnectionClosedError, ReadTimeoutError
+from botocore.exceptions import ClientError, ConnectionClosedError, ReadTimeoutError
 
 from cnes_domain.control_plane.entities import Agent, Job, Run, RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import (
@@ -278,10 +278,18 @@ class DynamoDBClaims:
         token = self._commit_client_request_token(command, event)
         try:
             self._transact(actions, token)
-        except (ConnectionClosedError, ReadTimeoutError):
+        except (ConnectionClosedError, ReadTimeoutError, ClientError) as error:
+            if isinstance(error, ClientError) and not self._is_server_error(error):
+                raise
             try:
                 self._transact(actions, token)
-            except (Conflict, ConnectionClosedError, ReadTimeoutError):
+            except (ConnectionClosedError, ReadTimeoutError, ClientError) as retry_error:
+                if isinstance(retry_error, ClientError) and not self._is_server_error(retry_error):
+                    raise
+                if self._commit_run_unit_replay(command, event, updated):
+                    return updated
+                raise
+            except Conflict:
                 if self._commit_run_unit_replay(command, event, updated):
                     return updated
                 raise
@@ -295,6 +303,11 @@ class DynamoDBClaims:
     def _commit_client_request_token(command: CommitRunUnit, event: Any) -> str:
         values = (command.tenant_id, command.run_id, command.unit_id, event.event_id)
         return sha256("\x1f".join(values).encode()).hexdigest()[:36]
+
+    @staticmethod
+    def _is_server_error(error: ClientError) -> bool:
+        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        return isinstance(status, int) and 500 <= status < 600
 
     def _commit_run_unit_replay(
         self, command: CommitRunUnit, event: Any, updated: RunUnit
