@@ -16,20 +16,22 @@ from cnes_domain.control_plane.enums import (
 )
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
+from cnes_infra.control_plane.sqlite_dispatch import (
+    put_run_dispatch_bind,
+    put_run_dispatch_finish,
+    validate_run_dispatch_bind,
+    validate_run_dispatch_finish,
+)
 from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
     put_job_cancellation,
     put_job_terminal_write,
     put_run_cancellation,
-    put_run_dispatch_bind,
-    put_run_dispatch_finish,
     put_run_unit_terminal_write,
     serialize_model,
     validate_job_cancellation,
     validate_job_terminal_replay,
     validate_run_cancellation,
-    validate_run_dispatch_bind,
-    validate_run_dispatch_finish,
     validate_run_dispatch_wave,
     validate_run_unit_terminal_replay,
 )
@@ -335,19 +337,19 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
         return started
 def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
+        replay = validate_run_dispatch_finish(connection, command)
+        if replay is not None:
+            return replay
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict("dispatch_stale")
-        if dispatch.state is DispatchState.TERMINAL:
-            validate_run_dispatch_finish(connection, command)
-            return dispatch
         if dispatch.lease_until <= command.finished_at:
             raise Conflict("dispatch_expired")
         finished = dispatch.model_copy(
             update={"state": DispatchState.TERMINAL, "terminal_outcome": command.outcome}
         )
         _put_dispatch(connection, finished)
-        put_run_dispatch_finish(connection, command)
+        put_run_dispatch_finish(connection, command, finished)
         return finished
 
 def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:

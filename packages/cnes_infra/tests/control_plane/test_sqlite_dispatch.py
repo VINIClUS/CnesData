@@ -6,7 +6,7 @@ from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatc
 from cnes_domain.control_plane.enums import DispatchOutcome
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from packages.cnes_infra.tests.contracts.clock import MutableClock, _prepare_unit
+from packages.cnes_infra.tests.contracts.clock import MutableClock, _prepare_unit, _reserve
 
 
 @pytest.fixture
@@ -61,6 +61,15 @@ def test_migra_resposta_de_bind(adapter, clock) -> None:
         lease_seconds=30,
     )
     started = adapter.bind_run_dispatch(bind)
+    adapter.finish_run_dispatch(
+        FinishRunDispatch(
+            tenant_id="354130",
+            run_id="run-a",
+            dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.SUCCEEDED,
+            finished_at=clock.now(),
+        )
+    )
     with adapter.write_transaction() as connection:
         connection.execute("ALTER TABLE run_dispatch_bind_writes DROP COLUMN response_data")
     reopened = SQLiteControlPlane(adapter._database_path, clock.now)
@@ -89,3 +98,71 @@ def test_rejeita_bind_de_dispatch_finalizado_sem_replay(adapter, clock) -> None:
     )
     with pytest.raises(Conflict, match="dispatch_terminal"):
         adapter.bind_run_dispatch(bind)
+
+
+def test_reexecuta_finish_apos_nova_geracao(adapter, clock) -> None:
+    dispatch = _prepare_unit(adapter, clock)
+    finish = FinishRunDispatch(
+        tenant_id="354130",
+        run_id="run-a",
+        dispatch_id=dispatch.dispatch_id,
+        outcome=DispatchOutcome.SUCCEEDED,
+        finished_at=clock.now(),
+    )
+    finished = adapter.finish_run_dispatch(finish)
+    replacement = _reserve(adapter, clock)
+    assert replacement.dispatch_id != dispatch.dispatch_id
+    assert adapter.finish_run_dispatch(finish) == finished
+
+
+def test_migra_resposta_de_finish(adapter, clock) -> None:
+    dispatch = _prepare_unit(adapter, clock)
+    finish = FinishRunDispatch(
+        tenant_id="354130",
+        run_id="run-a",
+        dispatch_id=dispatch.dispatch_id,
+        outcome=DispatchOutcome.SUCCEEDED,
+        finished_at=clock.now(),
+    )
+    finished = adapter.finish_run_dispatch(finish)
+    with adapter.write_transaction() as connection:
+        connection.execute("ALTER TABLE run_dispatch_terminal_writes DROP COLUMN response_data")
+    reopened = SQLiteControlPlane(adapter._database_path, clock.now)
+    reopened.initialize()
+    assert reopened.finish_run_dispatch(finish) == finished
+
+
+def test_nao_reconstroi_respostas_de_dispatch_substituido(adapter, clock) -> None:
+    dispatch = _prepare_unit(adapter, clock)
+    bind = BindRunDispatch(
+        tenant_id="354130",
+        run_id="run-a",
+        dispatch_id=dispatch.dispatch_id,
+        execution_ref="exec-a",
+        now=clock.now(),
+        lease_seconds=30,
+    )
+    adapter.bind_run_dispatch(bind)
+    adapter.finish_run_dispatch(
+        FinishRunDispatch(
+            tenant_id="354130",
+            run_id="run-a",
+            dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.SUCCEEDED,
+            finished_at=clock.now(),
+        )
+    )
+    _reserve(adapter, clock)
+    with adapter.write_transaction() as connection:
+        connection.executescript(
+            "ALTER TABLE run_dispatch_bind_writes DROP COLUMN response_data;"
+            "ALTER TABLE run_dispatch_terminal_writes DROP COLUMN response_data;"
+        )
+    reopened = SQLiteControlPlane(adapter._database_path, clock.now)
+    reopened.initialize()
+    with reopened.read_connection() as connection:
+        responses = connection.execute(
+            "SELECT response_data FROM run_dispatch_bind_writes UNION ALL "
+            "SELECT response_data FROM run_dispatch_terminal_writes"
+        ).fetchall()
+    assert responses == [(None,), (None,)]

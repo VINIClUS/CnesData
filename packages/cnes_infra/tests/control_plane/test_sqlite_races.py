@@ -290,7 +290,7 @@ def test_replay_dispatch_e_recaptura(adapter, database_path, clock) -> None:
     assert adapter.bind_run_dispatch(bind) == started
     expired = finished.model_copy(update={"lease_until": finish.finished_at})
     _write_dispatch(reopened, expired)
-    assert reopened.finish_run_dispatch(finish) == expired
+    assert reopened.finish_run_dispatch(finish) == finished
     _no(Conflict, "dispatch_finish_conflict", lambda: reopened.finish_run_dispatch(
         finish.model_copy(update={"finished_at": clock.now() + timedelta(microseconds=1)})))
     _no(Conflict, "dispatch_units_conflict", lambda: _reserve(
