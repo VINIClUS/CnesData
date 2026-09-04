@@ -6,6 +6,8 @@ from datetime import timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any
 
+from botocore.exceptions import ConnectionClosedError, ReadTimeoutError
+
 from cnes_domain.control_plane.entities import Agent, Job, Run, RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import (
     AgentState,
@@ -275,7 +277,7 @@ class DynamoDBClaims:
         )
         try:
             self._transact(actions)
-        except Conflict:
+        except (Conflict, ConnectionClosedError, ReadTimeoutError):
             if self._commit_run_unit_replay(command, event, updated):
                 return updated
             raise

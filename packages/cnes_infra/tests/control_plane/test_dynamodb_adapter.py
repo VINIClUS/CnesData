@@ -4,7 +4,7 @@ from typing import Any
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ConnectionClosedError, ReadTimeoutError
 from moto import mock_aws
 
 from cnes_domain.control_plane.commands import (
@@ -327,6 +327,27 @@ def test_commit_retorna_sucesso_quando_resposta_da_transacao_confirmada_se_perde
     completed = adapter.commit_run_unit(command, event)
 
     assert completed.state is RunUnitState.SUCCEEDED
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+    assert adapter.get_outbox_event(event.event_id) == event
+
+
+@pytest.mark.parametrize("error_type", [ReadTimeoutError, ConnectionClosedError])
+def test_commit_reconhece_resposta_de_transporte_perdida_apos_transacao_confirmada(
+    ctx: _DynamoContext, error_type: type[Exception]
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+
+    def lose_response(_: list[dict[str, Any]]) -> None:
+        raise error_type(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+
+    adapter._client = ClientSpy(adapter._client, after_transaction=lose_response)
+
+    completed = adapter.commit_run_unit(command, event)
+
     assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
     assert adapter.get_outbox_event(event.event_id) == event
 
