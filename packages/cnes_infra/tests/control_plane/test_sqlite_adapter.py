@@ -1,5 +1,7 @@
-from datetime import UTC, datetime, timedelta  # noqa: I001
+from datetime import UTC, datetime, timedelta
+
 import pytest
+
 from cnes_domain.control_plane.commands import (
     CancelJob,
     CompleteJob,
@@ -37,6 +39,8 @@ from packages.cnes_infra.tests.contracts.clock import (
     _run,
 )
 from packages.cnes_infra.tests.contracts.control_plane_contract import control_plane_cases
+
+
 @pytest.fixture
 def clock() -> MutableClock:
     return MutableClock(datetime(2026, 7, 15, 12, tzinfo=UTC))

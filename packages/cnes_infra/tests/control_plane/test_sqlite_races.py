@@ -1,8 +1,9 @@
-import sqlite3  # noqa: I001
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
 from typing import Any
+
 import pytest
 
 from cnes_domain.control_plane.commands import (
@@ -42,6 +43,8 @@ from packages.cnes_infra.tests.contracts.clock import (
     _unit,
 )
 from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
+
+
 @pytest.fixture
 def clock() -> MutableClock:
     return MutableClock(datetime(2026, 7, 15, 12, tzinfo=UTC))
@@ -219,9 +222,21 @@ def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None
     divergent = (unit_a, _unit("unit-c").model_copy(update={"run_id": "run-units"}))
     _no(Conflict, "units_conflict", lambda: _put_units(reopened, divergent, "run-units"))
     assert reopened.list_run_units("354130", "run-units") == before
-def test_rejeita_banco_em_filesystem_de_rede(tmp_path, clock, monkeypatch) -> None:
-    monkeypatch.setattr(sqlite_adapter, "_is_network_filesystem", lambda path: True)
-    adapter = SQLiteControlPlane(tmp_path / "network" / "control.sqlite3", clock.now)
+@pytest.mark.parametrize("filesystem", [pytest.param("nfs"), pytest.param("cifs")])
+def test_rejeita_banco_symlink_para_filesystem_de_rede(
+    tmp_path, clock, monkeypatch, filesystem
+) -> None:
+    mount = tmp_path / "network"
+    mount.mkdir()
+    database_path = tmp_path / "local" / "control.sqlite3"
+    database_path.parent.mkdir()
+    database_path.symlink_to(mount / "control.sqlite3")
+
+    def mounts(_path, **_kwargs) -> str:
+        return f"server:/share {mount} {filesystem} rw 0 0\\n"
+
+    monkeypatch.setattr(sqlite_schema.Path, "read_text", mounts)
+    adapter = SQLiteControlPlane(database_path, clock.now)
     _no(_SQLiteFilesystemError, "sqlite_network_filesystem", adapter.initialize)
 @pytest.mark.parametrize(
     "network_path",

@@ -1,5 +1,4 @@
 """SQLite control-plane schema and serialization."""
-
 from __future__ import annotations
 
 import json
@@ -452,7 +451,7 @@ def is_network_filesystem(path: Path) -> bool:
         mounts = Path("/proc/self/mounts").read_text(encoding="utf-8").splitlines()
     except OSError:
         return False
-    resolved = path.parent.resolve()
+    resolved = path.resolve()
     matches = []
     for line in mounts:
         fields = line.split()
