@@ -202,8 +202,6 @@ def _put_run_unit(connection: Any, unit: RunUnit) -> None:
 def put_run_units(store: Any, command: PutRunUnits) -> tuple[RunUnit, ...]:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
-        if run is None or run.state is not command.expected_run_state:
-            raise Conflict("run_state_conflict")
         current = _list_run_units(connection, command.tenant_id, command.run_id)
         canonical = tuple(sorted(command.units, key=lambda unit: unit.unit_id))
         registry = "\x1e".join(serialize_model(unit) for unit in canonical)
@@ -214,6 +212,8 @@ def put_run_units(store: Any, command: PutRunUnits) -> tuple[RunUnit, ...]:
             if row[0] != registry:
                 raise Conflict("units_conflict")
             return current
+        if run is None or run.state is not command.expected_run_state:
+            raise Conflict("run_state_conflict")
         for unit in canonical:
             _put_run_unit(connection, unit)
         connection.execute(

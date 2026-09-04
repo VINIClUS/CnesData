@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from cnes_domain.control_plane.enums import JobState
+from cnes_domain.control_plane.entities import AccessRequest
+from cnes_domain.control_plane.enums import AccessRequestState, JobState
 from cnes_domain.control_plane.errors import Conflict
 
 if TYPE_CHECKING:
@@ -228,6 +229,7 @@ CREATE TABLE IF NOT EXISTS access_requests (
     tenant_id TEXT NOT NULL,
     request_id TEXT NOT NULL,
     data TEXT NOT NULL,
+    creation_request_data TEXT NOT NULL,
     creation_event_data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, request_id)
 );
@@ -301,14 +303,17 @@ def put_run_transition(connection: Any, command: Any, event: Any) -> None:
         (command.tenant_id, command.run_id, command.expected_state.value,
          serialize_model(command), serialize_model(event)),
     )
-def validate_run_transition(connection: Any, command: Any, event: Any) -> None:
+def validate_run_transition(connection: Any, command: Any, event: Any) -> bool:
     row = connection.execute(
         "SELECT command_data, event_data FROM run_transition_writes "
         "WHERE tenant_id = ? AND run_id = ? AND expected_state = ?",
         (command.tenant_id, command.run_id, command.expected_state.value),
     ).fetchone()
-    if row is None or tuple(row) != (serialize_model(command), serialize_model(event)):
+    if row is None:
+        return False
+    if tuple(row) != (serialize_model(command), serialize_model(event)):
         raise Conflict("run_transition_conflict")
+    return True
 def get_job_terminal_write(
     connection: Any, tenant_id: str, job_id: str
 ) -> tuple[str, ...] | None:
@@ -454,22 +459,38 @@ def is_network_filesystem(path: Path) -> bool:
         if len(fields) >= 3 and resolved.is_relative_to(Path(fields[1])):
             matches.append((len(fields[1]), fields[2]))
     return bool(matches and max(matches)[1] in _NETWORK_FILESYSTEMS)
-def _migrate_schema(connection: sqlite3.Connection) -> None:
-    job_columns = {row[1] for row in connection.execute(
-        "PRAGMA table_info(job_creation_writes)")}
+def _migrate_schema(db: sqlite3.Connection) -> None:
+    job_columns = {row[1] for row in db.execute("PRAGMA table_info(job_creation_writes)")}
     if "job_data" not in job_columns:
-        connection.execute("ALTER TABLE job_creation_writes ADD COLUMN job_data TEXT")
-    run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+        db.execute("ALTER TABLE job_creation_writes ADD COLUMN job_data TEXT")
+    db.execute(
+        "UPDATE job_creation_writes SET job_data = (SELECT data FROM jobs WHERE "
+        "jobs.tenant_id = job_creation_writes.tenant_id "
+        "AND jobs.job_id = job_creation_writes.job_id) WHERE job_data IS NULL")
+    run_columns = {row[1] for row in db.execute("PRAGMA table_info(runs)")}
     if "unit_registry_data" not in run_columns:
-        connection.execute("ALTER TABLE runs ADD COLUMN unit_registry_data TEXT")
-    rows = connection.execute(
+        db.execute("ALTER TABLE runs ADD COLUMN unit_registry_data TEXT")
+    access_columns = {row[1] for row in db.execute("PRAGMA table_info(access_requests)")}
+    if "creation_request_data" not in access_columns:
+        db.execute("ALTER TABLE access_requests ADD COLUMN creation_request_data TEXT")
+    for tenant_id, request_id, data in db.execute(
+        "SELECT tenant_id, request_id, data FROM access_requests "
+        "WHERE creation_request_data IS NULL"):
+        current = deserialize_model(data, AccessRequest)
+        original = current.model_copy(update={"state": AccessRequestState.PENDING,
+            "decided_by": None, "decided_at": None})
+        db.execute(
+            "UPDATE access_requests SET creation_request_data = ? WHERE "
+            "tenant_id = ? AND request_id = ?",
+            (serialize_model(original), tenant_id, request_id))
+    rows = db.execute(
         "SELECT tenant_id, run_id FROM runs WHERE unit_registry_data IS NULL").fetchall()
     for tenant_id, run_id in rows:
-        units = connection.execute(
+        units = db.execute(
             "SELECT data FROM run_units WHERE tenant_id = ? AND run_id = ? ORDER BY unit_id",
             (tenant_id, run_id)).fetchall()
         if units:
-            connection.execute(
+            db.execute(
                 "UPDATE runs SET unit_registry_data = ? WHERE tenant_id = ? AND run_id = ?",
                 ("\x1e".join(row[0] for row in units), tenant_id, run_id))
 def initialize_schema(connect: Callable[[], sqlite3.Connection], path: Path) -> None:

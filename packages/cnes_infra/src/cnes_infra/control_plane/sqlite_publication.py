@@ -226,8 +226,7 @@ def list_recoverable_runs(store: Any, now: datetime, limit: int) -> tuple[Run, .
 def transition_run(store: Any, command: TransitionRun, event: OutboxEvent) -> Run:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
-        if run is not None and run.state is command.new_state:
-            validate_run_transition(connection, command, event)
+        if run is not None and validate_run_transition(connection, command, event):
             return run
         if run is None or run.state is not command.expected_state:
             raise Conflict("run_state_conflict")
@@ -390,10 +389,12 @@ def _get_access_request(
 
 def _put_access_request(connection: Any, request: AccessRequest, event: OutboxEvent) -> None:
     connection.execute(
-        "INSERT INTO access_requests (tenant_id, request_id, data, creation_event_data) "
-        "VALUES (?, ?, ?, ?) "
+        "INSERT INTO access_requests "
+        "(tenant_id, request_id, data, creation_request_data, creation_event_data) "
+        "VALUES (?, ?, ?, ?, ?) "
         "ON CONFLICT (tenant_id, request_id) DO UPDATE SET data = excluded.data",
-        (request.tenant_id, request.request_id, serialize_model(request), serialize_model(event)),
+        (request.tenant_id, request.request_id, serialize_model(request),
+         serialize_model(request), serialize_model(event)),
     )
 
 
@@ -407,14 +408,14 @@ def put_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -
         if request.state is not AccessRequestState.PENDING:
             raise Conflict("access_request_creation_state")
         current = _get_access_request(connection, request.tenant_id, request.request_id)
-        if current is not None and current != request:
-            raise Conflict("access_request_conflict")
         if current is not None:
             row = connection.execute(
-                "SELECT creation_event_data FROM access_requests "
+                "SELECT creation_request_data, creation_event_data FROM access_requests "
                 "WHERE tenant_id = ? AND request_id = ?",
                 (request.tenant_id, request.request_id)).fetchone()
-            if row is None or row[0] != serialize_model(event):
+            if row is None or row[0] != serialize_model(request):
+                raise Conflict("access_request_conflict")
+            if row[1] != serialize_model(event):
                 raise Conflict("access_request_creation_conflict")
             return
         store.put_outbox_event(connection, event, request.tenant_id)

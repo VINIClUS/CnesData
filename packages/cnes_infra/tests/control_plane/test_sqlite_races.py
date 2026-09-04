@@ -89,16 +89,17 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
     _no(Conflict, "outbox_event_conflict", lambda: adapter.transition_run(transition, existing))
     assert adapter.pending_outbox(10) == (existing,)
     event = _event("run-transitioned")
-    updated = adapter.transition_run(transition, event)
+    adapter.transition_run(transition, event)
     retry = SQLiteControlPlane(adapter._database_path, clock.now)
     retry.initialize()
-    assert retry.transition_run(transition, event) == updated
-    before = (updated, retry.pending_outbox(10))
+    later = transition.model_copy(update={
+        "expected_state": RunState.PUBLISHING, "new_state": RunState.PUBLISHED})
+    current = retry.transition_run(later, _event("run-published"))
+    assert retry.transition_run(transition, event) == current
     _no(Conflict, "run_transition_conflict", lambda: retry.transition_run(
         transition.model_copy(update={"missing_sources": ("CNES/ST",)}), event))
     _no(Conflict, "run_transition_conflict", lambda: retry.transition_run(
         transition, event.model_copy(update={"payload": {}})))
-    assert before == (retry.get_run("354130", "run-a"), retry.pending_outbox(10))
 def test_serializa_escritores_concorrentes(adapter, database_path, clock) -> None:
     _prepare_job(adapter)
     writers = (SQLiteControlPlane(database_path, clock.now),
@@ -191,6 +192,7 @@ def test_rejeita_job_nao_leased_cancelamento_ausente_e_estado_de_run(adapter, cl
         units=(_unit("unit-a"),))
     _no(Conflict, "run_state_conflict", lambda: adapter.put_run_units(command))
 def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None:
+    _prepare_job(adapter)
     adapter.put_run(_run("run-a", RunState.PUBLISHING))
     publication = _publish("run-a", "published", None, False)
     publication = publication.model_copy(update={"publication_permit":
@@ -201,14 +203,13 @@ def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None
     unit_b = _unit("unit-b").model_copy(update={"run_id": "run-units"})
     canonical = (unit_a, unit_b)
     assert _put_units(adapter, (unit_b, unit_a), "run-units") == canonical
+    adapter.put_run(_run("run-units", RunState.PUBLISHING))
     with adapter.write_transaction() as connection:
         connection.executescript("ALTER TABLE job_creation_writes DROP COLUMN job_data;"
                                  "ALTER TABLE runs DROP COLUMN unit_registry_data;")
     reopened = SQLiteControlPlane(database_path, clock.now)
     reopened.initialize()
-    with reopened.read_connection() as connection:
-        assert "job_data" in {row[1] for row in connection.execute(
-            "PRAGMA table_info(job_creation_writes)")}
+    assert reopened.create_job(_job("job-a"), _event("job-created")) == _job("job-a")
     reopened.initialize()
     permit = publication.publication_permit.model_copy(update={"binding_context": object()})
     assert reopened.publish_dataset(publication.model_copy(

@@ -268,7 +268,6 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
         "delivered_at": clock.now()})
     with pytest.raises(Conflict, match="access_request_creation_conflict"):
         sqlite_control_plane.put_access_request(pending, replay)
-    sqlite_control_plane.put_access_request(pending, created)
     divergent = pending.model_copy(update={"user_id": "user-b"})
     with pytest.raises(Conflict, match="access_request_conflict"):
         sqlite_control_plane.put_access_request(divergent, _event("access-conflict"))
@@ -286,6 +285,7 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
     reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
     reopened.initialize()
     assert reopened.decide_access_request(approved, decided) == approved
+    reopened.put_access_request(pending, created)
     with pytest.raises(Conflict, match="access_request_decision_conflict"):
         reopened.decide_access_request(approved, ignored)
     with pytest.raises(Conflict, match="access_request_state_conflict"):
