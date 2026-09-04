@@ -136,6 +136,16 @@ def _dynamodb_client_error(status: int) -> ClientError:
     )
 
 
+def _transaction_in_progress_error() -> ClientError:
+    return ClientError(
+        {
+            "Error": {"Code": "TransactionInProgressException"},
+            "ResponseMetadata": {"HTTPStatusCode": 400},
+        },
+        "TransactWriteItems",
+    )
+
+
 def _create_table(client: object) -> None:
     index_attributes = tuple(f"{index}{suffix}" for index in _INDEXES for suffix in ("pk", "sk"))
     attribute_definitions = [
@@ -398,6 +408,38 @@ def test_commit_repete_transacao_com_token_estavel_apos_timeout_antes_da_respost
 
     tokens = [request["ClientRequestToken"] for request in spy.transaction_requests]
     assert tokens[0] == tokens[1]
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
+def test_commit_repete_apos_transacao_em_progresso(
+    ctx: _DynamoContext, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(
+        "cnes_infra.control_plane.dynamodb_claims.sleep", lambda _: None, raising=False
+    )
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def timeout_then_in_progress(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+        if attempts == 2:
+            raise _transaction_in_progress_error()
+
+    spy = ClientSpy(adapter._client, before_transaction=timeout_then_in_progress)
+    adapter._client = spy
+
+    completed = adapter.commit_run_unit(command, event)
+
+    tokens = [request["ClientRequestToken"] for request in spy.transaction_requests]
+    assert tokens == [tokens[0]] * 3
     assert adapter.get_outbox_event(event.event_id) == event
     assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
 

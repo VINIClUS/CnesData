@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from hashlib import sha256
+from time import sleep
 from typing import TYPE_CHECKING, Any
 
 from botocore.exceptions import ClientError, ConnectionClosedError, ReadTimeoutError
@@ -279,12 +280,14 @@ class DynamoDBClaims:
         try:
             self._transact(actions, token)
         except (ConnectionClosedError, ReadTimeoutError, ClientError) as error:
-            if isinstance(error, ClientError) and not self._is_server_error(error):
+            if isinstance(error, ClientError) and not self._is_retryable_client_error(error):
                 raise
             try:
-                self._transact(actions, token)
+                self._retry_commit_transaction(actions, token)
             except (ConnectionClosedError, ReadTimeoutError, ClientError) as retry_error:
-                if isinstance(retry_error, ClientError) and not self._is_server_error(retry_error):
+                if isinstance(retry_error, ClientError) and not self._is_retryable_client_error(
+                    retry_error
+                ):
                     raise
                 if self._commit_run_unit_replay(command, event, updated):
                     return updated
@@ -313,6 +316,23 @@ class DynamoDBClaims:
     def _is_server_error(error: ClientError) -> bool:
         status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         return isinstance(status, int) and 500 <= status < 600
+
+    def _retry_commit_transaction(self, actions: tuple[Action, ...], token: str) -> None:
+        try:
+            self._transact(actions, token)
+        except ClientError as error:
+            if not self._is_transaction_in_progress(error):
+                raise
+            sleep(5)
+            self._transact(actions, token)
+
+    @classmethod
+    def _is_retryable_client_error(cls, error: ClientError) -> bool:
+        return cls._is_server_error(error) or cls._is_transaction_in_progress(error)
+
+    @staticmethod
+    def _is_transaction_in_progress(error: ClientError) -> bool:
+        return error.response.get("Error", {}).get("Code") == "TransactionInProgressException"
 
     def _commit_run_unit_replay(
         self, command: CommitRunUnit, event: Any, updated: RunUnit
