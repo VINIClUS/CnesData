@@ -176,6 +176,16 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(ctx: _DynamoContext
     assert [request.get("Limit") for request in paginated.query_requests] == [2, 2, 1]
 
 
+def test_replay_de_evento_entregue_rejeita_timestamp_forjado(ctx: _DynamoContext) -> None:
+    _, clock, adapter = ctx
+    job, event = _job("job-a"), _event("job-created")
+    adapter.create_job(job, event)
+    adapter.mark_outbox_delivered(event.event_id, clock.now())
+    forged = event.model_copy(update={"delivered_at": clock.now() + timedelta(seconds=1)})
+    with pytest.raises(Conflict, match="event_id_conflict"):
+        adapter.create_job(job, forged)
+
+
 def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(ctx: _DynamoContext) -> None:
     _, clock, adapter = ctx
     assert adapter.claim_job(_claim_job("missing", "worker-a", clock)) is None

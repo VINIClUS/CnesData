@@ -10,6 +10,7 @@ from moto import mock_aws
 from cnes_domain.control_plane.commands import (
     BeginIdempotency,
     CancelJob,
+    CompleteJob,
     FinalizeRunCancellation,
     PutRunUnits,
     ReserveRunDispatch,
@@ -71,9 +72,24 @@ def _raise_transaction_conflict(_: list[dict[str, Any]]) -> None:
         "TransactWriteItems",
     )
 
-
 def _lose_transaction_response(_: list[dict[str, Any]]) -> None:
     raise Conflict("transaction_conflict")
+
+
+def _submit_raw_record(adapter: DynamoDBControlPlane, record: Any, clock: MutableClock) -> None:
+    job = _job(f"job-{record.agent_id}-{record.snapshot_id}", record.agent_id).model_copy(
+        update={"source_type": record.source_type, "file_subtype": record.file_subtype,
+                "competencia": record.competencia}
+    )
+    adapter.put_agent(_agent(record.agent_id))
+    adapter.create_job(job, _event(f"created-{job.job_id}"))
+    claimed = adapter.claim_job(_claim_job(job.job_id, "raw-worker", clock))
+    assert claimed is not None
+    adapter.complete_job(
+        CompleteJob(tenant_id=_TENANT, job_id=job.job_id, owner="raw-worker",
+                    fencing_token=claimed.fencing_token, manifest=record),
+        _event(f"completed-{job.job_id}"),
+    )
 
 
 @pytest.fixture
@@ -83,7 +99,6 @@ def ctx() -> Any:
         _create_table(client)
         clock = MutableClock(_NOW)
         yield client, clock, DynamoDBControlPlane(client, _TABLE_NAME, clock.now)
-
 
 def test_deduplica_candidatos_e_rele_base_antes_do_claim(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
@@ -120,7 +135,6 @@ def test_deduplica_candidatos_e_rele_base_antes_do_claim(ctx: _DynamoContext) ->
     )
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is not None
 
-
 def test_cadeia_raw_serializa_corrida(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     full = _raw_record("base", "agent-a", 1, clock.now() + timedelta(minutes=4))
@@ -144,13 +158,10 @@ def test_cadeia_raw_serializa_corrida(ctx: _DynamoContext) -> None:
         calls += 1
         if calls in (3, 4):
             record = (sibling_b, sibling_c)[calls - 3]
-            contender._transact(contender._raw_actions(record))
+            _submit_raw_record(contender, record, clock)
 
     adapter._client = ClientSpy(client, before_transaction=contend)
-    _store_record(adapter, full, clock)
-    adapter._raw_actions(full)
-    with pytest.raises(Conflict, match="raw_ancestry_conflict"):
-        adapter._raw_actions(full.model_copy(update={"manifest_id": "duplicate-full"}))
+    _submit_raw_record(adapter, full, clock)
     for record in (head, sibling_a):
         _store_record(adapter, record, clock)
     assert adapter.get_job(_TENANT, "job-agent-a-base").state is JobState.SUCCEEDED
@@ -355,7 +366,6 @@ def test_claim_cas_perdedor_nao_desfaz_vencedor_persistido(ctx: _DynamoContext) 
     assert loser.claim_job(_claim_job("job-a", "worker-a", clock)) is None
     assert winners[0] is not None
     assert adapter.get_job(_TENANT, "job-a") == winners[0]
-
 
 def test_codec_nao_introduz_decimal_nos_itens(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx

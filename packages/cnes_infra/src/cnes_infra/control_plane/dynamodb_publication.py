@@ -224,9 +224,9 @@ class DynamoDBPublication:
 
     @staticmethod
     def _event_replay_matches(current: OutboxEvent | None, event: OutboxEvent) -> bool:
-        if current is None:
+        if current is None or event.delivered_at is not None:
             return False
-        return current.model_copy(update={"delivered_at": event.delivered_at}) == event
+        return current.model_copy(update={"delivered_at": None}) == event
 
     def _require_event_replay(self, tenant_id: str, event: OutboxEvent) -> None:
         current = self._get_outbox_event(event.event_id)

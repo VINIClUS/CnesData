@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import timedelta
 from typing import Any
 
 import boto3
@@ -99,15 +100,53 @@ def test_complete_tenta_tres_vezes_sem_mutar_em_contencao(
     assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1) == ()
 
 
+def test_complete_retorna_replay_apos_resposta_transacional_perdida(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    claimed = _leased_job(adapter, clock)
+    command = CompleteJob(
+        tenant_id=_TENANT,
+        job_id="job-a",
+        owner="worker-a",
+        fencing_token=claimed.fencing_token,
+        manifest=_raw_record("snapshot-a", "agent-a", 1, clock.now()),
+    )
+    adapter._client = ClientSpy(adapter._client, after_transaction=_lose_transaction_response)
+    completed = adapter.complete_job(command, _event("job-completed"))
+    assert completed.state is JobState.SUCCEEDED
+    assert adapter.get_job(_TENANT, "job-a") == completed
+
+
 def test_latest_job_preserva_marcador_mais_recente(ctx: _DynamoContext) -> None:
     adapter, clock = ctx
-    newest = _job("z-newest").model_copy(update={"created_at": clock.now()})
-    older = _job("a-older").model_copy(update={"created_at": clock.now()})
-    adapter._transact((adapter._latest_job_action(newest),))
-    adapter._transact((adapter._latest_job_action(older),))
+    newest = _job("z-newest").model_copy(update={"created_at": clock.now() + timedelta(1)})
+    older = _job("a-older")
+    newest_manifest = _raw_record("base-agent-a", "agent-a", 1, clock.now())
+    _complete_raw_job(adapter, clock, newest, newest_manifest)
+    _complete_raw_job(adapter, clock, older, _raw_record("delta", "agent-a", 2, clock.now()))
     latest = adapter.latest_succeeded_job(_TENANT, "agent-a", "CNES", "ST", "2026-07")
     assert latest is not None
     assert latest.job_id == newest.job_id
+
+
+def _complete_raw_job(
+    adapter: DynamoDBControlPlane, clock: MutableClock, job: Any, manifest: Any
+) -> None:
+    adapter.put_agent(_agent(job.agent_id))
+    adapter.create_job(job, _event(f"created-{job.job_id}"))
+    claimed = adapter.claim_job(_claim_job(job.job_id, "worker-a", clock))
+    assert claimed is not None
+    adapter.complete_job(
+        CompleteJob(
+            tenant_id=_TENANT,
+            job_id=job.job_id,
+            owner="worker-a",
+            fencing_token=claimed.fencing_token,
+            manifest=manifest,
+        ),
+        _event(f"completed-{job.job_id}"),
+    )
 
 
 def test_publicacao_aceita_replay_identico_apos_conflito_com_leitura_forte(

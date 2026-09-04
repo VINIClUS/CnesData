@@ -113,18 +113,13 @@ class DynamoDBClaims:
         self._validate_job_fence(job, command.owner, command.fencing_token, self._clock())
         agent_item = self._active_agent_item(job)
         identity = (job.tenant_id, job.agent_id, job.source_type, job.file_subtype, job.competencia)
-        manifest_identity = (
-            command.manifest.tenant_id,
-            command.manifest.agent_id,
-            command.manifest.source_type,
-            command.manifest.file_subtype,
-            command.manifest.competencia,
-        )
+        manifest_identity = (command.manifest.tenant_id, command.manifest.agent_id,
+                             command.manifest.source_type, command.manifest.file_subtype,
+                             command.manifest.competencia)
         if identity != manifest_identity:
             raise Conflict("manifest_identity_conflict")
         updated = Job.model_validate(
-            job.model_dump()
-            | {
+            job.model_dump() | {
                 "state": JobState.SUCCEEDED,
                 "lease_owner": None,
                 "lease_until": None,
@@ -132,14 +127,26 @@ class DynamoDBClaims:
                 "result_manifest_key": command.manifest.manifest_key,
             }
         )
-        actions = (
-            check_action(self._table_name, agent_item),
+        actions = (check_action(self._table_name, agent_item),
             put_action(self._table_name, self._job_item(updated), payload(item)),
             *self._raw_actions(command.manifest),
             self._latest_job_action(updated),
             self._event_action(job.tenant_id, event),
         )
         return updated, actions
+    def _complete_job_replay(self, command: CompleteJob, event: Any, updated: Job) -> bool:
+        raw_item = self._raw_item(command.manifest)
+        return (
+            self.get_job(command.tenant_id, command.job_id) == updated
+            and self._get_model(
+                (raw_item["pk"]["S"], raw_item["sk"]["S"]), type(command.manifest)
+            ) == command.manifest
+            and self.latest_succeeded_job(
+                command.tenant_id, command.manifest.agent_id, command.manifest.source_type,
+                command.manifest.file_subtype, command.manifest.competencia,
+            ) == updated
+            and self._event_replay_matches(self._get_outbox_event(event.event_id), event)
+        )
     def complete_job(self, command: CompleteJob, event: Any) -> Job:
         """Conclui job, manifesto e evento atomicamente."""
         conflict = None
@@ -149,6 +156,8 @@ class DynamoDBClaims:
                 self._transact(actions)
             except Conflict as error:
                 conflict = error
+                if self._complete_job_replay(command, event, updated):
+                    return updated
                 continue
             return updated
         raise TimeoutError("transaction_contention") from conflict
@@ -350,7 +359,6 @@ class DynamoDBClaims:
         if dependency is not None and not dependency.required:
             return RunUnitState.SUCCEEDED_DEGRADED
         return RunUnitState.FAILED_FINAL
-
     def reserve_run_dispatch(self, command: ReserveRunDispatch) -> RunDispatch:
         """Reserva uma geração de dispatch do run."""
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
@@ -386,7 +394,6 @@ class DynamoDBClaims:
         actions.append(put_action(self._table_name, self._dispatch_item(dispatch), expected))
         self._transact(tuple(actions))
         return dispatch
-
     @staticmethod
     def _dispatch_replay(
         current: RunDispatch | None, command: ReserveRunDispatch
@@ -398,7 +405,6 @@ class DynamoDBClaims:
         if current.wave_id != command.wave_id or current.unit_ids != command.unit_ids:
             raise Conflict("active_dispatch_conflict")
         return current
-
     def _replacement_unit_items(self, dispatch: RunDispatch, now: Any) -> tuple[Item, ...]:
         items = []
         for unit_id in dispatch.unit_ids:
@@ -415,7 +421,6 @@ class DynamoDBClaims:
                 raise Conflict("dispatch_unit_unavailable")
             items.append(item)
         return tuple(items)
-
     def _dispatch_unit_items(self, command: ReserveRunDispatch) -> tuple[Item, ...]:
         items = []
         for unit_id in command.unit_ids:
@@ -427,7 +432,6 @@ class DynamoDBClaims:
                 raise Conflict("dispatch_unit_unavailable")
             items.append(item)
         return tuple(items)
-
     @staticmethod
     def _unit_is_claimable(unit: RunUnit, now: Any) -> bool:
         return unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE} or (
@@ -435,7 +439,6 @@ class DynamoDBClaims:
             and unit.lease_until is not None
             and unit.lease_until <= now
         )
-
     def bind_run_dispatch(self, command: BindRunDispatch) -> RunDispatch:
         """Vincula o dispatch a uma execução externa."""
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
@@ -461,7 +464,6 @@ class DynamoDBClaims:
             )
         )
         return updated
-
     def finish_run_dispatch(self, command: FinishRunDispatch) -> RunDispatch:
         """Finaliza um dispatch ativo."""
         item, dispatch = self._required_dispatch(command.tenant_id, command.run_id)
@@ -481,13 +483,11 @@ class DynamoDBClaims:
         )
         self._transact((put_action(self._table_name, self._dispatch_item(updated), payload(item)),))
         return updated
-
     def _required_dispatch(self, tenant_id: str, run_id: str) -> tuple[Item, RunDispatch]:
         item = self._get_item(dispatch_key(tenant_id, run_id))
         if item is None:
             raise NotFound("dispatch_missing")
         return item, decode_model(item, RunDispatch)
-
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
         """Retorna o dispatch ativo do run."""
         item = self._get_item(dispatch_key(tenant_id, run_id))
