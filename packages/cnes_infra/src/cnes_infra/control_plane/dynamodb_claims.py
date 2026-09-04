@@ -283,6 +283,8 @@ class DynamoDBClaims:
         except (ConnectionClosedError, ReadTimeoutError, ClientError) as error:
             if isinstance(error, ClientError) and not self._is_retryable_client_error(error):
                 raise
+            if isinstance(error, ClientError) and self._is_transaction_in_progress(error):
+                sleep(5)
             try:
                 self._retry_commit_transaction(actions, token)
             except (ConnectionClosedError, ReadTimeoutError, ClientError) as retry_error:

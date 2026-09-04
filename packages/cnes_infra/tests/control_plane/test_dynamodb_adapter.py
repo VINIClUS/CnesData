@@ -456,6 +456,49 @@ def test_commit_repete_apos_transacao_em_progresso(
     assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
 
 
+def test_commit_aguarda_transacao_em_progresso_inicial(
+    ctx: _DynamoContext, monkeypatch: Any
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    delays: list[int] = []
+    attempts = 0
+
+    def finish_original_transaction(delay: int) -> None:
+        delays.append(delay)
+        winner = claimed.model_copy(
+            update={
+                "state": RunUnitState.SUCCEEDED,
+                "lease_owner": None,
+                "lease_until": None,
+                "output_manifests": command.output_manifests,
+            }
+        )
+        adapter._put_direct(adapter._unit_item(winner))
+        adapter._put_direct(adapter._outbox_item(event))
+
+    def in_progress_then_timeout(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise _transaction_in_progress_error()
+        raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+
+    monkeypatch.setattr(
+        "cnes_infra.control_plane.dynamodb_claims.sleep", finish_original_transaction
+    )
+    adapter._client = ClientSpy(adapter._client, before_transaction=in_progress_then_timeout)
+
+    completed = adapter.commit_run_unit(command, event)
+
+    assert delays == [5]
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
 @pytest.mark.parametrize("status", [500, 503])
 def test_commit_repete_transacao_com_token_estavel_apos_erro_dynamodb_5xx(
     ctx: _DynamoContext, status: int
