@@ -142,7 +142,7 @@ class LocalAuditSink:
             missing.append(current)
             current = current.parent
         for directory in reversed(missing):
-            directory.mkdir()
+            directory.mkdir(exist_ok=True)
             self._fsync_directory(directory.parent)
 
     @contextmanager

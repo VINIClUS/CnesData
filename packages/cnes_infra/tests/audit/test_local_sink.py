@@ -9,8 +9,10 @@ import multiprocessing
 import os
 import sqlite3
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
+from threading import Barrier
 from typing import TYPE_CHECKING
 
 import polars as pl
@@ -284,6 +286,27 @@ def test_sincroniza_ancestrais_novos_da_raiz(
     LocalAuditSink(root)
 
     assert synchronized == [tmp_path, tmp_path / "nested", root]
+
+
+def test_tolera_criacao_concorrente_da_raiz(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "nested" / "root"
+    first_directory = tmp_path / "nested"
+    barrier = Barrier(2)
+    original_mkdir = Path.mkdir
+
+    def synchronized_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+        if path == first_directory:
+            barrier.wait(timeout=5)
+        original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", synchronized_mkdir)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        sinks = list(executor.map(lambda _: LocalAuditSink(root), range(2)))
+
+    assert len(sinks) == 2
 
 
 def test_materializa_lote_parquet_textual_e_deterministico(tmp_path: Path) -> None:
