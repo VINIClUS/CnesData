@@ -286,6 +286,8 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
     )
     decided = _event("access-approved")
     assert sqlite_control_plane.decide_access_request(approved, decided) == approved
+    with sqlite_control_plane.write_transaction() as connection:
+        connection.execute("ALTER TABLE access_requests DROP COLUMN creation_request_data")
     reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
     reopened.initialize()
     assert reopened.decide_access_request(approved, decided) == approved
