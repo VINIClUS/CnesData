@@ -445,12 +445,17 @@ def _validate_actions(actions: tuple[Action, ...]) -> None:
         raise Conflict("duplicate_transaction_key")
 
 
-def execute_transaction(client: Any, actions: Iterable[Action]) -> None:
+def execute_transaction(
+    client: Any, actions: Iterable[Action], client_request_token: str | None = None
+) -> None:
     """Valida e envia uma transação de chaves únicas."""
     normalized = tuple(actions)
     _validate_actions(normalized)
+    request = {"TransactItems": list(normalized)}
+    if client_request_token is not None:
+        request["ClientRequestToken"] = client_request_token
     try:
-        client.transact_write_items(TransactItems=list(normalized))
+        client.transact_write_items(**request)
     except ClientError as error:
         code = error.response.get("Error", {}).get("Code")
         reasons = error.response.get("CancellationReasons") or ()

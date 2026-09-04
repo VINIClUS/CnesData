@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from datetime import timedelta
 from hashlib import sha256
+from json import dumps
+from time import sleep
 from typing import TYPE_CHECKING, Any
+
+from botocore.exceptions import ClientError, ConnectionClosedError, ReadTimeoutError
 
 from cnes_domain.control_plane.entities import Agent, Job, Run, RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import (
@@ -62,6 +66,7 @@ class DynamoDBClaims:
         return encode_model(dispatch, "RUNDISPATCH", key, attributes)
     def claim_job(self, command: ClaimJob) -> Job | None:
         """Reivindica um job elegível com novo fence."""
+        now = self._clock()
         key = entity_key(command.tenant_id, "JOB", command.job_id)
         item = self._get_item(key)
         if item is None:
@@ -70,7 +75,7 @@ class DynamoDBClaims:
         agent_item = self._get_item(entity_key(command.tenant_id, "AGENT", job.agent_id))
         if agent_item is None or decode_model(agent_item, Agent).state is not AgentState.ACTIVE:
             return None
-        if not self._job_is_claimable(job, command.now):
+        if not self._job_is_claimable(job, now):
             return None
         leased = transition_job(job, JobState.LEASED) if job.state is not JobState.LEASED else job
         updated = leased.model_copy(
@@ -78,7 +83,7 @@ class DynamoDBClaims:
                 "attempt": job.attempt + 1,
                 "fencing_token": job.fencing_token + 1,
                 "lease_owner": command.owner,
-                "lease_until": command.now + timedelta(seconds=command.lease_seconds),
+                "lease_until": now + timedelta(seconds=command.lease_seconds),
                 "error_code": None,
             }
         )
@@ -93,11 +98,12 @@ class DynamoDBClaims:
         return updated
     def renew_job_lease(self, command: RenewJobLease) -> Job:
         """Renova o lease de um job fenced."""
+        now = self._clock()
         item, job = self._leased_job(command.tenant_id, command.job_id)
-        self._validate_job_fence(job, command.owner, command.fencing_token, command.now)
+        self._validate_job_fence(job, command.owner, command.fencing_token, now)
         agent_item = self._active_agent_item(job)
         updated = job.model_copy(
-            update={"lease_until": command.now + timedelta(seconds=command.lease_seconds)}
+            update={"lease_until": now + timedelta(seconds=command.lease_seconds)}
         )
         self._transact(
             (
@@ -271,8 +277,75 @@ class DynamoDBClaims:
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
             self._event_action(command.tenant_id, event),
         )
-        self._transact(actions)
+        token = self._commit_client_request_token(command, event)
+        try:
+            self._transact(actions, token)
+        except (ConnectionClosedError, ReadTimeoutError, ClientError) as error:
+            if isinstance(error, ClientError) and not self._is_retryable_client_error(error):
+                raise
+            if isinstance(error, ClientError) and self._is_transaction_in_progress(error):
+                sleep(5)
+            try:
+                self._retry_commit_transaction(actions, token)
+            except (ConnectionClosedError, ReadTimeoutError, ClientError) as retry_error:
+                if isinstance(retry_error, ClientError) and not self._is_retryable_client_error(
+                    retry_error
+                ):
+                    raise
+                if self._commit_run_unit_replay(command, event, updated):
+                    return updated
+                raise
+            except Conflict:
+                if self._commit_run_unit_replay(command, event, updated):
+                    return updated
+                raise
+        except Conflict:
+            if self._commit_run_unit_replay(command, event, updated):
+                return updated
+            raise
         return updated
+
+    def _commit_client_request_token(self, command: CommitRunUnit, event: Any) -> str:
+        values = (
+            self._table_name,
+            command.tenant_id,
+            command.run_id,
+            command.unit_id,
+            event.event_id,
+        )
+        return sha256(dumps(values, separators=(",", ":")).encode()).hexdigest()[:36]
+
+    @staticmethod
+    def _is_server_error(error: ClientError) -> bool:
+        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        return isinstance(status, int) and 500 <= status < 600
+
+    def _retry_commit_transaction(self, actions: tuple[Action, ...], token: str) -> None:
+        try:
+            self._transact(actions, token)
+        except ClientError as error:
+            if not self._is_transaction_in_progress(error):
+                raise
+            sleep(5)
+            self._transact(actions, token)
+
+    @classmethod
+    def _is_retryable_client_error(cls, error: ClientError) -> bool:
+        return cls._is_server_error(error) or cls._is_transaction_in_progress(error)
+
+    @staticmethod
+    def _is_transaction_in_progress(error: ClientError) -> bool:
+        return error.response.get("Error", {}).get("Code") == "TransactionInProgressException"
+
+    def _commit_run_unit_replay(
+        self, command: CommitRunUnit, event: Any, updated: RunUnit
+    ) -> bool:
+        winner = self._get_model(
+            unit_key(command.tenant_id, command.run_id, command.unit_id), RunUnit
+        )
+        return winner == updated and self._event_replay_matches(
+            self._get_outbox_event(event.event_id), event
+        )
     def _fail_run_unit_actions(
         self, command: FailRunUnit, event: Any
     ) -> tuple[RunUnit, tuple[Action, ...]]:

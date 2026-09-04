@@ -4,7 +4,7 @@ from typing import Any
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ConnectionClosedError, ReadTimeoutError
 from moto import mock_aws
 
 from cnes_domain.control_plane.commands import (
@@ -45,6 +45,7 @@ from packages.cnes_infra.tests.contracts.clock import (
     _event,
     _job,
     _prepare_unit,
+    _renew_job,
     _run,
     _unit,
 )
@@ -75,6 +76,7 @@ class ClientSpy:
         self.before_transaction = before_transaction
         self.after_transaction = after_transaction
         self.transactions: list[list[dict[str, Any]]] = []
+        self.transaction_requests: list[dict[str, Any]] = []
         self.calls: list[str] = []
         self.query_requests: list[dict[str, Any]] = []
         self.requests: list[tuple[str, dict[str, Any]]] = []
@@ -83,6 +85,7 @@ class ClientSpy:
         actions: list[dict[str, Any]] = kwargs["TransactItems"]
         self.calls.append("transact_write_items")
         self.transactions.append(actions)
+        self.transaction_requests.append(dict(kwargs))
         if self.before_transaction is not None:
             self.before_transaction(actions)
         response = self.client.transact_write_items(**kwargs)
@@ -121,6 +124,26 @@ def _raise_transaction_canceled(_: list[dict[str, Any]]) -> None:
 
 def _lose_transaction_response(_: list[dict[str, Any]]) -> None:
     raise Conflict("transaction_conflict")
+
+
+def _dynamodb_client_error(status: int) -> ClientError:
+    return ClientError(
+        {
+            "Error": {"Code": "InternalServerError"},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        },
+        "TransactWriteItems",
+    )
+
+
+def _transaction_in_progress_error() -> ClientError:
+    return ClientError(
+        {
+            "Error": {"Code": "TransactionInProgressException"},
+            "ResponseMetadata": {"HTTPStatusCode": 400},
+        },
+        "TransactWriteItems",
+    )
 
 
 def _create_table(client: object) -> None:
@@ -278,6 +301,357 @@ def test_claims_retornam_none_quando_cas_perde_corrida(ctx: _DynamoContext) -> N
         lease_seconds=30,
     )
     assert adapter.claim_run_unit(command) is None
+
+
+def test_claim_job_com_relogio_futuro_nao_toma_lease_vivo(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    adapter.put_agent(_agent("agent-a"))
+    adapter.create_job(_job("job-a"), _event("job-created"))
+    leased = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
+    assert leased is not None
+    future_claim = _claim_job("job-a", "worker-b", clock).model_copy(
+        update={"now": clock.now() + timedelta(seconds=31)}
+    )
+
+    assert adapter.claim_job(future_claim) is None
+    assert adapter.get_job(_TENANT, "job-a") == leased
+
+
+@pytest.mark.parametrize(
+    "reported_now", [(_NOW - timedelta(hours=1),), (_NOW + timedelta(hours=1),)]
+)
+def test_renovacao_de_job_usa_relogio_autoritativo(
+    ctx: _DynamoContext, reported_now: Any
+) -> None:
+    adapter, clock = ctx
+    adapter.put_agent(_agent("agent-a"))
+    adapter.create_job(_job("job-a"), _event("job-created"))
+    claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
+    assert claimed is not None
+    renewal = _renew_job(clock).model_copy(update={"now": reported_now})
+
+    renewed = adapter.renew_job_lease(renewal)
+
+    assert renewed.lease_until == clock.now() + timedelta(seconds=renewal.lease_seconds)
+    assert adapter.get_job(_TENANT, "job-a") == renewed
+
+
+def test_commit_retorna_sucesso_quando_resposta_da_transacao_confirmada_se_perde(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    adapter._client = ClientSpy(adapter._client, after_transaction=_lose_transaction_response)
+
+    completed = adapter.commit_run_unit(command, event)
+
+    assert completed.state is RunUnitState.SUCCEEDED
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+    assert adapter.get_outbox_event(event.event_id) == event
+
+
+def test_token_de_commit_diferencia_tabelas(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    command = _commit_command("a" * 16, "worker-a", 1)
+    event = _event("unit-completed")
+    other = DynamoDBControlPlane(adapter._client, "another-control-plane", clock.now)
+
+    token = adapter._commit_client_request_token(command, event)
+
+    assert other._commit_client_request_token(command, event) != token
+
+
+def test_token_de_commit_nao_colide_com_separador_em_identificadores(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, _ = ctx
+    command = _commit_command("a" * 16, "worker-a", 1).model_copy(update={"unit_id": "a"})
+    first = adapter._commit_client_request_token(command, _event("b\x1fc"))
+    colliding = command.model_copy(update={"unit_id": "a\x1fb"})
+    second = adapter._commit_client_request_token(colliding, _event("c"))
+
+    assert second != first
+
+
+@pytest.mark.parametrize("error_type", [ReadTimeoutError, ConnectionClosedError])
+def test_commit_reconhece_resposta_de_transporte_perdida_apos_transacao_confirmada(
+    ctx: _DynamoContext, error_type: type[Exception]
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+
+    def lose_response(_: list[dict[str, Any]]) -> None:
+        raise error_type(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+
+    adapter._client = ClientSpy(adapter._client, after_transaction=lose_response)
+
+    completed = adapter.commit_run_unit(command, event)
+
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+    assert adapter.get_outbox_event(event.event_id) == event
+
+
+def test_commit_repete_transacao_com_token_estavel_apos_timeout_antes_da_resposta(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def lose_first_response(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+
+    spy = ClientSpy(adapter._client, before_transaction=lose_first_response)
+    adapter._client = spy
+
+    completed = adapter.commit_run_unit(command, event)
+
+    tokens = [request["ClientRequestToken"] for request in spy.transaction_requests]
+    assert tokens[0] == tokens[1]
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
+def test_commit_repete_apos_transacao_em_progresso(
+    ctx: _DynamoContext, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(
+        "cnes_infra.control_plane.dynamodb_claims.sleep", lambda _: None, raising=False
+    )
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def timeout_then_in_progress(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+        if attempts == 2:
+            raise _transaction_in_progress_error()
+
+    spy = ClientSpy(adapter._client, before_transaction=timeout_then_in_progress)
+    adapter._client = spy
+
+    completed = adapter.commit_run_unit(command, event)
+
+    tokens = [request["ClientRequestToken"] for request in spy.transaction_requests]
+    assert tokens == [tokens[0]] * 3
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
+def test_commit_aguarda_transacao_em_progresso_inicial(
+    ctx: _DynamoContext, monkeypatch: Any
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    delays: list[int] = []
+    attempts = 0
+
+    def finish_original_transaction(delay: int) -> None:
+        delays.append(delay)
+        winner = claimed.model_copy(
+            update={
+                "state": RunUnitState.SUCCEEDED,
+                "lease_owner": None,
+                "lease_until": None,
+                "output_manifests": command.output_manifests,
+            }
+        )
+        adapter._put_direct(adapter._unit_item(winner))
+        adapter._put_direct(adapter._outbox_item(event))
+
+    def in_progress_then_timeout(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise _transaction_in_progress_error()
+        raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+
+    monkeypatch.setattr(
+        "cnes_infra.control_plane.dynamodb_claims.sleep", finish_original_transaction
+    )
+    adapter._client = ClientSpy(adapter._client, before_transaction=in_progress_then_timeout)
+
+    completed = adapter.commit_run_unit(command, event)
+
+    assert delays == [5]
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
+@pytest.mark.parametrize("status", [500, 503])
+def test_commit_repete_transacao_com_token_estavel_apos_erro_dynamodb_5xx(
+    ctx: _DynamoContext, status: int
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def fail_first_response(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise _dynamodb_client_error(status)
+
+    spy = ClientSpy(adapter._client, before_transaction=fail_first_response)
+    adapter._client = spy
+
+    completed = adapter.commit_run_unit(command, event)
+
+    tokens = [request["ClientRequestToken"] for request in spy.transaction_requests]
+    assert tokens[0] == tokens[1]
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
+def test_commit_propaga_erro_dynamodb_4xx(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+
+    def fail_request(_: list[dict[str, Any]]) -> None:
+        raise _dynamodb_client_error(400)
+
+    adapter._client = ClientSpy(adapter._client, before_transaction=fail_request)
+
+    with pytest.raises(ClientError, match="InternalServerError"):
+        adapter.commit_run_unit(command, _event("unit-completed"))
+
+
+@pytest.mark.parametrize("status", [400, 500])
+def test_commit_propaga_segundo_erro_dynamodb_apos_timeout(
+    ctx: _DynamoContext, status: int
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    attempts = 0
+
+    def timeout_then_fail(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+        raise _dynamodb_client_error(status)
+
+    adapter._client = ClientSpy(adapter._client, before_transaction=timeout_then_fail)
+    with pytest.raises(ClientError, match="InternalServerError"):
+        adapter.commit_run_unit(command, _event("unit-completed"))
+
+
+def test_commit_reconhece_erro_dynamodb_5xx_apos_repeticao_confirmada(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def fail_first_request(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+
+    def fail_second_response(_: list[dict[str, Any]]) -> None:
+        raise _dynamodb_client_error(500)
+
+    adapter._client = ClientSpy(
+        adapter._client,
+        before_transaction=fail_first_request,
+        after_transaction=fail_second_response,
+    )
+
+    completed = adapter.commit_run_unit(command, event)
+
+    assert adapter.get_outbox_event(event.event_id) == event
+    assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
+
+
+def test_commit_propaga_conflito_se_repeticao_apos_timeout_nao_encontra_replay(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+    attempts = 0
+
+    def timeout_then_persist_incompatible(_: list[dict[str, Any]]) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ReadTimeoutError(endpoint_url="https://dynamodb.us-east-1.amazonaws.com")
+        winner = claimed.model_copy(
+            update={
+                "state": RunUnitState.SUCCEEDED,
+                "lease_owner": None,
+                "lease_until": None,
+                "output_manifests": command.output_manifests,
+            }
+        )
+        adapter._put_direct(adapter._unit_item(winner))
+
+    adapter._client = ClientSpy(
+        adapter._client, before_transaction=timeout_then_persist_incompatible
+    )
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.commit_run_unit(command, event)
+
+
+def test_commit_propaga_conflito_quando_evento_persistido_nao_corresponde(
+    ctx: _DynamoContext,
+) -> None:
+    adapter, clock = ctx
+    dispatch = _prepare_unit(adapter, clock)
+    claimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-a")
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("unit-completed")
+
+    def persist_winner_incompativel(_: list[dict[str, Any]]) -> None:
+        winner = claimed.model_copy(
+            update={
+                "state": RunUnitState.SUCCEEDED,
+                "lease_owner": None,
+                "lease_until": None,
+                "output_manifests": command.output_manifests,
+            }
+        )
+        different_event = event.model_copy(update={"payload": {"event_id": "different"}})
+        adapter._put_direct(adapter._unit_item(winner))
+        adapter._put_direct(adapter._outbox_item(different_event))
+
+    adapter._client = ClientSpy(adapter._client, before_transaction=persist_winner_incompativel)
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.commit_run_unit(command, event)
 
 
 def test_falha_opcional_rele_parent_apos_cas_concorrente(ctx: _DynamoContext) -> None:
