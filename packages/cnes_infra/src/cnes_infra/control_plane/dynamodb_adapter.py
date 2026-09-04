@@ -28,6 +28,7 @@ from cnes_domain.control_plane.transitions import (
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
+    CandidateQuery,
     Item,
     aggregate_replay,
     bounded_candidates,
@@ -77,6 +78,8 @@ _NONTERMINAL_UNITS = {
     RunUnitState.LEASED,
     RunUnitState.FAILED_RETRYABLE,
 }
+
+
 class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
     """Persiste o plano de controle em uma tabela DynamoDB."""
 
@@ -84,7 +87,6 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         self._client = client
         self._table_name = table_name
         self._clock = clock
-
     def _get_item(self, key: tuple[str, str]) -> Item | None:
         response = self._client.get_item(
             TableName=self._table_name,
@@ -92,18 +94,19 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             ConsistentRead=True,
         )
         return response.get("Item")
-
     def _get_model[T: BaseModel](self, key: tuple[str, str], model_type: type[T]) -> T | None:
         item = self._get_item(key)
         return decode_model(item, model_type) if item is not None else None
-    def _query(self, index_name: str, partition: str, *args: Any) -> Any:
+    def _query[T: BaseModel](
+        self, index_name: str, partition: str, query: CandidateQuery[T]
+    ) -> tuple[T, ...]:
         request = {
             "TableName": self._table_name,
             "IndexName": index_name,
             "KeyConditionExpression": f"{index_name}pk = :partition",
             "ExpressionAttributeValues": {":partition": {"S": partition}},
         }
-        return bounded_candidates(self._client, request, *args)
+        return bounded_candidates(self._client, request, query)
     def _transact(self, actions: tuple[Action, ...]) -> None:
         execute_transaction(self._client, actions)
     def _put_direct(self, item: Item) -> None:
@@ -121,8 +124,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if job.state in {JobState.PENDING, JobState.LEASED, JobState.FAILED_RETRYABLE}:
             attributes |= {
                 "gsi1pk": (
-                    f"JOB_CLAIM#{key_component(job.tenant_id)}#"
-                    f"{key_component(job.agent_id)}"
+                    f"JOB_CLAIM#{key_component(job.tenant_id)}#{key_component(job.agent_id)}"
                 ),
                 "gsi1sk": f"{timestamp(job.created_at)}#{key_component(job.job_id)}",
             }
@@ -139,12 +141,12 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             ),
         }
         partition = raw_partition(
-            record.tenant_id, record.source_type, record.file_subtype, record.competencia)
+            record.tenant_id, record.source_type, record.file_subtype, record.competencia
+        )
         key = partition, f"MANIFEST#{key_component(record.manifest_id)}"
         return encode_model(record, "RAWMANIFESTRECORD", key, attributes)
     def _raw_actions(self, record: RawManifestRecord) -> tuple[Action, ...]:
-        return raw_manifest_actions(
-            self._client, self._table_name, record, self._raw_item(record))
+        return raw_manifest_actions(self._client, self._table_name, record, self._raw_item(record))
     def _run_item(self, run: Run) -> Item:
         attributes = {}
         if run.state in _RECOVERABLE:
@@ -158,9 +160,7 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         return encode_model(run, "RUN", run_entity_key(run.tenant_id, run.run_id), attributes)
     def _unit_item(self, unit: RunUnit) -> Item:
         attributes = {
-            "gsi5pk": (
-                f"RUN_ITEMS#{key_component(unit.tenant_id)}#{key_component(unit.run_id)}"
-            ),
+            "gsi5pk": (f"RUN_ITEMS#{key_component(unit.tenant_id)}#{key_component(unit.run_id)}"),
             "gsi5sk": f"UNIT#{key_component(unit.unit_id)}",
         }
         return encode_model(
@@ -218,14 +218,17 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
     def get_job(self, tenant_id: str, job_id: str) -> Job | None:
         """Retorna o job solicitado."""
         return self._get_model(entity_key(tenant_id, "JOB", job_id), Job)
-    def latest_succeeded_job(self, *args: str) -> Job | None:
-        """Retorna o job concluído mais recente da identidade."""
-        tenant_id, agent_id, source_type, file_subtype, competencia = args
+    def latest_succeeded_job(
+        self, tenant_id: str, agent_id: str, source_type: str, file_subtype: str,
+        competencia: str) -> Job | None:
+        """Retorna o job concluído mais recente da identidade.
+        Args: tenant_id, agent_id, source_type, file_subtype, competencia.
+        Returns: Job encontrado, se houver.
+        """
         partition = raw_partition(tenant_id, source_type, file_subtype, competencia)
         return self._get_model((partition, f"LATEST_JOB#{key_component(agent_id)}"), Job)
     def _latest_job_action(self, job: Job) -> Action:
-        partition = raw_partition(
-            job.tenant_id, job.source_type, job.file_subtype, job.competencia)
+        partition = raw_partition(job.tenant_id, job.source_type, job.file_subtype, job.competencia)
         key = partition, f"LATEST_JOB#{key_component(job.agent_id)}"
         current_item = self._get_item(key)
         marker = encode_model(job, "JOB", key)
@@ -235,10 +238,13 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if (current.created_at, current.job_id) >= (job.created_at, job.job_id):
             return check_action(self._table_name, current_item)
         return put_action(self._table_name, marker, payload(current_item))
-    def list_raw_manifest_chain(self, *args: Any) -> tuple[ManifestRef, ...]:
-        """Retorna a cadeia válida de manifestos raw."""
-        tenant_id, source_type, file_subtype, competencia, *rest = args
-        limit = rest[0] if rest else 31
+    def list_raw_manifest_chain(
+        self, tenant_id: str, source_type: str, file_subtype: str,
+        competencia: str, limit: int = 31) -> tuple[ManifestRef, ...]:
+        """Retorna a cadeia válida de manifestos raw.
+        Args: tenant_id, source_type, file_subtype, competencia, limit.
+        Returns: Manifestos ordenados da cadeia válida.
+        """
         partition = raw_partition(tenant_id, source_type, file_subtype, competencia)
         return raw_head_chain(self._client, self._table_name, partition, limit)
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Job, ...]:
@@ -248,7 +254,8 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             return ()
         partition = f"JOB_CLAIM#{key_component(tenant_id)}#{key_component(agent_id)}"
         eligible = self._query(
-            "gsi1", partition, Job, lambda job: self._job_is_claimable(job, self._clock()), limit
+            "gsi1", partition,
+            CandidateQuery(Job, lambda job: self._job_is_claimable(job, self._clock()), limit),
         )
         return tuple(sorted(eligible, key=lambda job: (job.created_at, job.job_id))[:limit])
     @staticmethod
@@ -301,10 +308,13 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
     def get_run(self, tenant_id: str, run_id: str) -> Run | None:
         """Retorna o run solicitado."""
         return self._get_model(run_entity_key(tenant_id, run_id), Run)
-    def list_waiting_runs_for_dependency(self, *args: Any) -> tuple[Run, ...]:
-        """Lista runs aguardando uma dependência."""
-        tenant_id, source_type, file_subtype, competencia, *rest = args
-        limit = rest[0] if rest else 100
+    def list_waiting_runs_for_dependency(
+        self, tenant_id: str, source_type: str, file_subtype: str,
+        competencia: str, limit: int = 100) -> tuple[Run, ...]:
+        """Lista runs aguardando uma dependência.
+        Args: tenant_id, source_type, file_subtype, competencia, limit.
+        Returns: Runs elegíveis ordenados.
+        """
         values = (tenant_id, source_type, file_subtype, competencia)
         identity = "RUN_DEP#" + "#".join(key_component(value) for value in values)
         def valid(run: Run) -> bool:
@@ -315,13 +325,16 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
                 and any((dep.source_type, dep.file_subtype) == (source_type, file_subtype)
                         for dep in run.dependencies)
             )
-        runs = self._query("gsi3", identity, Run, valid, limit)
+        runs = self._query("gsi3", identity, CandidateQuery(Run, valid, limit))
         return tuple(sorted(runs, key=lambda run: (run.created_at, run.run_id))[:limit])
     def list_recoverable_runs(self, now: datetime, limit: int = 100) -> tuple[Run, ...]:
         """Lista runs recuperáveis no instante informado."""
         valid = self._query(
-            "gsi4", "RUN_RECOVERABLE", Run,
-            lambda run: run.state in _RECOVERABLE and run.created_at <= now, limit)
+            "gsi4", "RUN_RECOVERABLE",
+            CandidateQuery(
+                Run, lambda run: run.state in _RECOVERABLE and run.created_at <= now, limit
+            ),
+        )
         ordered = sorted(valid, key=lambda run: (run.created_at, run.tenant_id, run.run_id))
         return tuple(ordered[:limit])
     def transition_run(self, command: TransitionRun, event: OutboxEvent) -> Run:
@@ -411,8 +424,10 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
         if run.state is not command.expected_state:
             raise Conflict("run_state_conflict")
         items = query_partition(
-            self._client, self._table_name,
-            run_partition(command.tenant_id, command.run_id), "UNIT#"
+            self._client,
+            self._table_name,
+            run_partition(command.tenant_id, command.run_id),
+            "UNIT#",
         )
         units = tuple(decode_model(item, RunUnit) for item in items)
         cancellable = tuple(unit for unit in units if unit.state in _NONTERMINAL_UNITS)
@@ -439,10 +454,12 @@ class DynamoDBControlPlane(DynamoDBClaims, DynamoDBPublication):
             self._require_access_replay(request, event, existing)
             return
         try:
-            self._transact((
-                put_action(self._table_name, item, None),
-                self._event_action(request.tenant_id, event),
-            ))
+            self._transact(
+                (
+                    put_action(self._table_name, item, None),
+                    self._event_action(request.tenant_id, event),
+                )
+            )
         except Conflict:
             winner = self._get_model(key, AccessRequest)
             if winner is None:

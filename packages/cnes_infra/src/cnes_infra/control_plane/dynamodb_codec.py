@@ -1,7 +1,8 @@
 """DynamoDB item codec and transaction construction."""
 
 import json
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from botocore.exceptions import ClientError
@@ -13,6 +14,13 @@ from cnes_infra.control_plane.dynamodb_keys import item_key, key_component, raw_
 
 type Item = dict[str, dict[str, Any]]
 type Action = dict[str, dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class CandidateQuery[T: BaseModel]:
+    model_type: type[T]
+    predicate: Callable[[T], bool]
+    limit: int
 
 
 def encode_model(
@@ -85,11 +93,10 @@ def query_pages(client: Any, request: dict[str, Any]) -> Iterator[tuple[Item, ..
 def bounded_candidates[T: BaseModel](
     client: Any,
     request: dict[str, Any],
-    *args: Any,
+    query: CandidateQuery[T],
 ) -> tuple[T, ...]:
     """Relê candidatos válidos até preencher o limite solicitado."""
-    model_type, predicate, limit = args
-    if limit <= 0:
+    if query.limit <= 0:
         return ()
     page_request = dict(request)
     index = request["IndexName"]
@@ -97,11 +104,13 @@ def bounded_candidates[T: BaseModel](
     base_items = {}
     models = []
     while True:
-        page_request["Limit"] = limit - len(models)
+        page_request["Limit"] = query.limit - len(models)
         response = client.query(**page_request)
         for candidate in response.get("Items", ()):
-            key = (candidate.get("base_pk", candidate["pk"])["S"],
-                   candidate.get("base_sk", candidate["sk"])["S"])
+            key = (
+                candidate.get("base_pk", candidate["pk"])["S"],
+                candidate.get("base_sk", candidate["sk"])["S"],
+            )
             signature = (*key, candidate[f"{index}pk"]["S"], candidate[f"{index}sk"]["S"])
             if signature in seen:
                 continue
@@ -111,12 +120,12 @@ def bounded_candidates[T: BaseModel](
                     TableName=request["TableName"], Key=item_key(*key), ConsistentRead=True
                 ).get("Item")
             item = base_items[key]
-            if not _candidate_matches(item, candidate, index, model_type):
+            if not _candidate_matches(item, candidate, index, query.model_type):
                 continue
-            model = decode_model(item, model_type)
-            if predicate(model):
+            model = decode_model(item, query.model_type)
+            if query.predicate(model):
                 models.append(model)
-                if len(models) == limit:
+                if len(models) == query.limit:
                     return tuple(models)
         last_key = response.get("LastEvaluatedKey")
         if not last_key:
@@ -155,8 +164,7 @@ def aggregate_items(
     client: Any, table_name: str, base_key: tuple[str, str], child_key: tuple[str, str]
 ) -> tuple[Item | None, tuple[Item, ...]]:
     """Relê fortemente um agregado e todos os filhos do prefixo."""
-    response = client.get_item(
-        TableName=table_name, Key=item_key(*base_key), ConsistentRead=True)
+    response = client.get_item(TableName=table_name, Key=item_key(*base_key), ConsistentRead=True)
     return response.get("Item"), query_partition(client, table_name, *child_key)
 
 
@@ -173,8 +181,10 @@ def aggregate_replay(
         return False
     if current != base:
         raise Conflict("run_conflict")
+
     def keyed(items: tuple[Item, ...]) -> dict[tuple[str, str], Item]:
         return {(item["pk"]["S"], item["sk"]["S"]): item for item in items}
+
     if keyed(current_children) != keyed(children):
         raise Conflict("run_dependency_conflict")
     return True
@@ -205,8 +215,10 @@ def _ancestry_item(
 ) -> Item:
     prefix = _ancestry_prefix(record, record.sequence, record.manifest_sha256)
     item = {
-        "pk": raw_item["pk"], "sk": {"S": prefix + key_component(record.manifest_id)},
-        "entity": {"S": "RAWANCESTRY"}, "base_pk": raw_item["pk"],
+        "pk": raw_item["pk"],
+        "sk": {"S": prefix + key_component(record.manifest_id)},
+        "entity": {"S": "RAWANCESTRY"},
+        "base_pk": raw_item["pk"],
         "base_sk": raw_item["sk"],
     }
     if chain is not None:
@@ -216,23 +228,29 @@ def _ancestry_item(
 
 def _waiting_item(record: RawManifestRecord, ancestry: Item) -> Item:
     prefix = _ancestry_prefix(
-        record, record.sequence - 1, str(record.previous_manifest_sha256)).replace(
-            "ANCESTRY#", "WAITING#", 1)
+        record, record.sequence - 1, str(record.previous_manifest_sha256)
+    ).replace("ANCESTRY#", "WAITING#", 1)
     return {
-        "pk": ancestry["pk"], "sk": {"S": prefix + key_component(record.manifest_id)},
-        "entity": {"S": "RAWWAITING"}, "payload": {"S": record.model_dump_json()},
-        "base_pk": ancestry["pk"], "base_sk": ancestry["sk"],
+        "pk": ancestry["pk"],
+        "sk": {"S": prefix + key_component(record.manifest_id)},
+        "entity": {"S": "RAWWAITING"},
+        "payload": {"S": record.model_dump_json()},
+        "base_pk": ancestry["pk"],
+        "base_sk": ancestry["sk"],
     }
 
 
 def _raw_version_action(client: Any, table_name: str, partition: str) -> Action:
     key = partition, "RAWVERSION#CURRENT"
-    current = client.get_item(
-        TableName=table_name, Key=item_key(*key), ConsistentRead=True).get("Item")
+    current = client.get_item(TableName=table_name, Key=item_key(*key), ConsistentRead=True).get(
+        "Item"
+    )
     generation = 1 if current is None else int(payload(current)) + 1
     item = {
-        "pk": {"S": partition}, "sk": {"S": key[1]},
-        "entity": {"S": "RAWVERSION"}, "payload": {"S": str(generation)},
+        "pk": {"S": partition},
+        "sk": {"S": key[1]},
+        "entity": {"S": "RAWVERSION"},
+        "payload": {"S": str(generation)},
     }
     expected = None if current is None else payload(current)
     return put_action(table_name, item, expected)
@@ -242,16 +260,18 @@ def _waiting_children(
     client: Any, table_name: str, record: RawManifestRecord, remaining: int
 ) -> tuple[Item, ...]:
     partition = raw_partition(
-        record.tenant_id, record.source_type, record.file_subtype, record.competencia)
+        record.tenant_id, record.source_type, record.file_subtype, record.competencia
+    )
     prefix = _ancestry_prefix(record, record.sequence, record.manifest_sha256).replace(
-        "ANCESTRY#", "WAITING#", 1)
+        "ANCESTRY#", "WAITING#", 1
+    )
     response = client.query(
         TableName=table_name,
         KeyConditionExpression="pk = :partition AND begins_with(sk, :prefix)",
-        ExpressionAttributeValues={
-            ":partition": {"S": partition}, ":prefix": {"S": prefix}},
+        ExpressionAttributeValues={":partition": {"S": partition}, ":prefix": {"S": prefix}},
         ConsistentRead=True,
-        Limit=remaining + 1)
+        Limit=remaining + 1,
+    )
     children = tuple(response.get("Items", ()))
     if len(children) > remaining:
         raise Conflict("transaction_limit")
@@ -261,9 +281,13 @@ def _waiting_children(
 def _chain_action(table_name: str, ancestry: Item, chain: tuple[dict[str, str], ...]) -> Action:
     updated = dict(ancestry)
     updated["chain"] = {"S": json.dumps(chain, separators=(",", ":"))}
-    return {"Put": {
-        "TableName": table_name, "Item": updated,
-        "ConditionExpression": "attribute_exists(pk) AND attribute_not_exists(chain)"}}
+    return {
+        "Put": {
+            "TableName": table_name,
+            "Item": updated,
+            "ConditionExpression": "attribute_exists(pk) AND attribute_not_exists(chain)",
+        }
+    }
 
 
 def _repair_descendants(
@@ -284,7 +308,8 @@ def _repair_descendants(
             child = decode_model(marker, RawManifestRecord)
             key = marker["base_pk"]["S"], marker["base_sk"]["S"]
             ancestry = client.get_item(
-                TableName=table_name, Key=item_key(*key), ConsistentRead=True).get("Item")
+                TableName=table_name, Key=item_key(*key), ConsistentRead=True
+            ).get("Item")
             if ancestry is None:
                 raise Conflict("raw_ancestry_conflict")
             ref = {"manifest_id": child.manifest_id, "manifest_key": child.manifest_key}
@@ -301,21 +326,29 @@ def _head_action(
     client: Any, table_name: str, record: RawManifestRecord, chain: tuple[dict[str, str], ...]
 ) -> Action:
     partition = raw_partition(
-        record.tenant_id, record.source_type, record.file_subtype, record.competencia)
+        record.tenant_id, record.source_type, record.file_subtype, record.competencia
+    )
     key = partition, "HEAD#CURRENT"
     current = client.get_item(TableName=table_name, Key=item_key(*key), ConsistentRead=True).get(
-        "Item")
+        "Item"
+    )
     ordering = (
         f"{timestamp(record.created_at)}#{key_component(record.agent_id)}#"
-        f"{key_component(record.snapshot_id)}")
+        f"{key_component(record.snapshot_id)}"
+    )
     data = {"ordering": ordering, "chain": chain}
-    head = {"pk": {"S": partition}, "sk": {"S": key[1]}, "entity": {"S": "RAWHEAD"},
-            "payload": {"S": json.dumps(data, separators=(",", ":"))}}
+    head = {
+        "pk": {"S": partition},
+        "sk": {"S": key[1]},
+        "entity": {"S": "RAWHEAD"},
+        "payload": {"S": json.dumps(data, separators=(",", ":"))},
+    }
     if current is None:
         return put_action(table_name, head, None)
     previous = json.loads(current["payload"]["S"])
     descendant = previous["chain"][-1]["manifest_id"] in {
-        item["manifest_id"] for item in chain[:-1]}
+        item["manifest_id"] for item in chain[:-1]
+    }
     if descendant or ordering > previous["ordering"]:
         return put_action(table_name, head, payload(current))
     return check_action(table_name, current)
@@ -337,9 +370,8 @@ def raw_manifest_actions(
         repairs, endpoints = _repair_descendants(client, table_name, record, chain)
         actions.extend(repairs)
         head_record, head_chain = max(
-            endpoints,
-            key=lambda item: (
-                item[0].created_at, item[0].agent_id, item[0].snapshot_id))
+            endpoints, key=lambda item: (item[0].created_at, item[0].agent_id, item[0].snapshot_id)
+        )
         actions.append(_head_action(client, table_name, head_record, head_chain))
     actions.append(version)
     return tuple(actions)
@@ -352,7 +384,8 @@ def raw_head_chain(
     if limit < 1:
         return ()
     response = client.get_item(
-        TableName=table_name, Key=item_key(partition, "HEAD#CURRENT"), ConsistentRead=True)
+        TableName=table_name, Key=item_key(partition, "HEAD#CURRENT"), ConsistentRead=True
+    )
     head = response.get("Item")
     if head is None:
         return ()
@@ -362,17 +395,15 @@ def raw_head_chain(
     return tuple(ManifestRef.model_validate(item) for item in chain)
 
 
-def unique_partition_item(
-    client: Any, table_name: str, partition: str, prefix: str
-) -> Item | None:
+def unique_partition_item(client: Any, table_name: str, partition: str, prefix: str) -> Item | None:
     """Retorna o único item forte de um prefixo, limitado a dois."""
     response = client.query(
         TableName=table_name,
         KeyConditionExpression="pk = :partition AND begins_with(sk, :prefix)",
-        ExpressionAttributeValues={
-            ":partition": {"S": partition}, ":prefix": {"S": prefix}},
+        ExpressionAttributeValues={":partition": {"S": partition}, ":prefix": {"S": prefix}},
         ConsistentRead=True,
-        Limit=2)
+        Limit=2,
+    )
     items = response.get("Items", ())
     return items[0] if len(items) == 1 else None
 

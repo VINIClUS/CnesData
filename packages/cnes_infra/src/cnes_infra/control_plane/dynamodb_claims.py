@@ -54,8 +54,7 @@ class DynamoDBClaims:
     def _dispatch_item(self, dispatch: RunDispatch) -> Item:
         attributes = {
             "gsi5pk": (
-                f"RUN_ITEMS#{key_component(dispatch.tenant_id)}#"
-                f"{key_component(dispatch.run_id)}"
+                f"RUN_ITEMS#{key_component(dispatch.tenant_id)}#{key_component(dispatch.run_id)}"
             ),
             "gsi5sk": "DISPATCH#ACTIVE",
         }
@@ -113,15 +112,13 @@ class DynamoDBClaims:
         item, job = self._leased_job(command.tenant_id, command.job_id)
         self._validate_job_fence(job, command.owner, command.fencing_token, self._clock())
         agent_item = self._active_agent_item(job)
-        identity = (job.tenant_id, job.agent_id, job.source_type, job.file_subtype,
-                    job.competencia, job.requested_snapshot_mode)
+        identity = (job.tenant_id, job.agent_id, job.source_type, job.file_subtype, job.competencia)
         manifest_identity = (
             command.manifest.tenant_id,
             command.manifest.agent_id,
             command.manifest.source_type,
             command.manifest.file_subtype,
             command.manifest.competencia,
-            command.manifest.snapshot_mode,
         )
         if identity != manifest_identity:
             raise Conflict("manifest_identity_conflict")
@@ -145,13 +142,16 @@ class DynamoDBClaims:
         return updated, actions
     def complete_job(self, command: CompleteJob, event: Any) -> Job:
         """Conclui job, manifesto e evento atomicamente."""
-        updated, actions = self._complete_job_actions(command, event)
-        try:
-            self._transact(actions)
-        except Conflict:
+        conflict = None
+        for _ in range(3):
             updated, actions = self._complete_job_actions(command, event)
-            self._transact(actions)
-        return updated
+            try:
+                self._transact(actions)
+            except Conflict as error:
+                conflict = error
+                continue
+            return updated
+        raise TimeoutError("transaction_contention") from conflict
     def fail_job(self, command: FailJob, event: Any) -> Job:
         """Falha um job leased e grava seu evento."""
         item, job = self._leased_job(command.tenant_id, command.job_id)
@@ -234,19 +234,14 @@ class DynamoDBClaims:
         run = decode_model(run_item, Run)
         dispatch = decode_model(dispatch_item, RunDispatch)
         unit = decode_model(unit_item, RunUnit)
-        valid_dispatch = (
-            dispatch.dispatch_id == command.dispatch_id
-            and dispatch.state in {DispatchState.RESERVED, DispatchState.STARTED}
-            and dispatch.lease_until > command.now
-            and command.unit_id in dispatch.unit_ids
-        )
-        claimable = unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE}
-        claimable = claimable or (
-            unit.state is RunUnitState.LEASED
-            and unit.lease_until is not None
-            and unit.lease_until <= command.now
-        )
-        if run.state is not RunState.PROCESSING or not valid_dispatch or not claimable:
+        if (
+            run.state is not RunState.PROCESSING
+            or dispatch.dispatch_id != command.dispatch_id
+            or dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTED}
+            or dispatch.lease_until <= command.now
+            or command.unit_id not in dispatch.unit_ids
+            or not self._unit_is_claimable(unit, command.now)
+        ):
             return None
         return run_item, dispatch_item, unit_item, unit
     def commit_run_unit(self, command: CommitRunUnit, event: Any) -> RunUnit:
@@ -339,6 +334,7 @@ class DynamoDBClaims:
             raise LeaseLost("unit_owner_lost")
         if unit.lease_until is None or unit.lease_until <= now:
             raise LeaseLost("unit_lease_expired")
+
     @staticmethod
     def _failed_unit_state(run: Run, unit: RunUnit, retryable: bool) -> RunUnitState:
         if retryable:
@@ -354,6 +350,7 @@ class DynamoDBClaims:
         if dependency is not None and not dependency.required:
             return RunUnitState.SUCCEEDED_DEGRADED
         return RunUnitState.FAILED_FINAL
+
     def reserve_run_dispatch(self, command: ReserveRunDispatch) -> RunDispatch:
         """Reserva uma geração de dispatch do run."""
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
@@ -382,28 +379,26 @@ class DynamoDBClaims:
         )
         expected = payload(current_item) if current_item is not None else None
         checked_items = {
-            (item["pk"]["S"], item["sk"]["S"]): item
-            for item in (*prior_unit_items, *unit_items)
+            (item["pk"]["S"], item["sk"]["S"]): item for item in (*prior_unit_items, *unit_items)
         }
         actions = [check_action(self._table_name, run_item)]
         actions.extend(check_action(self._table_name, item) for item in checked_items.values())
         actions.append(put_action(self._table_name, self._dispatch_item(dispatch), expected))
         self._transact(tuple(actions))
         return dispatch
+
     @staticmethod
     def _dispatch_replay(
         current: RunDispatch | None, command: ReserveRunDispatch
     ) -> RunDispatch | None:
         if current is None:
             return None
-        active = current.state is not DispatchState.TERMINAL and current.lease_until > command.now
-        same = current.wave_id == command.wave_id and current.unit_ids == command.unit_ids
-        if active and same:
-            return current
-        replaceable = current.state is DispatchState.TERMINAL or current.lease_until <= command.now
-        if not replaceable:
+        if current.state is DispatchState.TERMINAL or current.lease_until <= command.now:
+            return None
+        if current.wave_id != command.wave_id or current.unit_ids != command.unit_ids:
             raise Conflict("active_dispatch_conflict")
-        return None
+        return current
+
     def _replacement_unit_items(self, dispatch: RunDispatch, now: Any) -> tuple[Item, ...]:
         items = []
         for unit_id in dispatch.unit_ids:
@@ -420,6 +415,7 @@ class DynamoDBClaims:
                 raise Conflict("dispatch_unit_unavailable")
             items.append(item)
         return tuple(items)
+
     def _dispatch_unit_items(self, command: ReserveRunDispatch) -> tuple[Item, ...]:
         items = []
         for unit_id in command.unit_ids:
@@ -427,16 +423,18 @@ class DynamoDBClaims:
             if item is None:
                 raise Conflict("dispatch_unit_missing")
             unit = decode_model(item, RunUnit)
-            claimable = unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE}
-            claimable = claimable or (
-                unit.state is RunUnitState.LEASED
-                and unit.lease_until is not None
-                and unit.lease_until <= command.now
-            )
-            if not claimable:
+            if not self._unit_is_claimable(unit, command.now):
                 raise Conflict("dispatch_unit_unavailable")
             items.append(item)
         return tuple(items)
+
+    @staticmethod
+    def _unit_is_claimable(unit: RunUnit, now: Any) -> bool:
+        return unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE} or (
+            unit.state is RunUnitState.LEASED
+            and unit.lease_until is not None
+            and unit.lease_until <= now
+        )
 
     def bind_run_dispatch(self, command: BindRunDispatch) -> RunDispatch:
         """Vincula o dispatch a uma execução externa."""
@@ -456,10 +454,12 @@ class DynamoDBClaims:
                 "lease_until": command.now + timedelta(seconds=command.lease_seconds),
             }
         )
-        self._transact((
-            check_action(self._table_name, run_item),
-            put_action(self._table_name, self._dispatch_item(updated), payload(item)),
-        ))
+        self._transact(
+            (
+                check_action(self._table_name, run_item),
+                put_action(self._table_name, self._dispatch_item(updated), payload(item)),
+            )
+        )
         return updated
 
     def finish_run_dispatch(self, command: FinishRunDispatch) -> RunDispatch:

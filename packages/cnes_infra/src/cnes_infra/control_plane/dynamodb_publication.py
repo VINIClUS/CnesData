@@ -158,7 +158,16 @@ class DynamoDBPublication:
             put_action(self._table_name, self._run_item(updated_run), payload(run_item)),
             self._event_action(command.version.tenant_id, command.event),
         )
-        self._transact(actions)
+        try:
+            self._transact(actions)
+        except Conflict:
+            winner_item = self._get_item(run_key)
+            if winner_item is None:
+                raise
+            winner = self._publication_replay(command, decode_model(winner_item, Run))
+            if winner is None:
+                raise
+            return winner
         return pointer
 
     @staticmethod
@@ -167,7 +176,8 @@ class DynamoDBPublication:
             f"reconciliation/{run.tenant_id}/{run.competencia}/{run.run_id}/run-manifest.json"
         )
         if (command.version.dataset_name, command.version.run_manifest_key) != (
-            run.dataset_name, expected_key
+            run.dataset_name,
+            expected_key,
         ):
             raise Conflict("publication_run_conflict")
 
@@ -227,9 +237,7 @@ class DynamoDBPublication:
         """Retorna um evento pela identidade global."""
         return self._get_outbox_event(event_id)
 
-    def _pending_outbox_event(
-        self, candidate: Item, key: tuple[str, str]
-    ) -> OutboxEvent | None:
+    def _pending_outbox_event(self, candidate: Item, key: tuple[str, str]) -> OutboxEvent | None:
         item = self._get_item(key)
         if item is None or item.get("entity", {}).get("S") != "OUTBOXEVENT":
             return None
