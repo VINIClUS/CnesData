@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 import pytest
 
+import cnes_infra.audit.local_sink as local_sink_module
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.audit.local_sink import LocalAuditSink
 from packages.cnes_infra.tests.contracts.audit_sink_contract import (
@@ -87,6 +88,21 @@ class _BlockPyArrowImport:
         return self._original(name, *args, **kwargs)
 
 
+class _ShortWriter:
+    def __init__(self) -> None:
+        self.content = bytearray()
+
+    def write(self, content: bytes | memoryview) -> int:
+        chunk = bytes(content[:3])
+        self.content.extend(chunk)
+        return len(chunk)
+
+
+class _StoppedWriter:
+    def write(self, content: bytes | memoryview) -> int:
+        return 0
+
+
 @pytest.mark.parametrize("case", audit_sink_cases(), ids=lambda case: case.name)
 def test_cumpre_contrato_compartilhado(tmp_path: Path, case: AuditSinkCase) -> None:
     case.run(_LocalProbe(tmp_path))
@@ -127,6 +143,40 @@ def test_recupera_orfao_antes_do_append_de_sink_ja_instanciado(tmp_path: Path) -
 
     assert _index_count(tmp_path) == 2
     assert len(_log_path(tmp_path).read_bytes().splitlines()) == 2
+
+
+def test_repete_escrita_curta_ate_persistir_registro_completo() -> None:
+    writer = _ShortWriter()
+
+    local_sink_module._write_all(writer, b"registro-completo")
+
+    assert writer.content == b"registro-completo"
+
+
+def test_rejeita_escrita_sem_progresso() -> None:
+    with pytest.raises(OSError, match="audit_write=incomplete"):
+        local_sink_module._write_all(_StoppedWriter(), b"registro")
+
+
+def test_sincroniza_orfao_recuperado_antes_do_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    LocalAuditSink(tmp_path)
+    log = _log_path(tmp_path)
+    log.parent.mkdir(parents=True)
+    log.write_bytes(canonical_body(audit_event()) + b"\n")
+    synchronized: list[Path] = []
+    original_fsync = os.fsync
+
+    def record_fsync(descriptor: int) -> None:
+        synchronized.append(Path(os.readlink(f"/proc/self/fd/{descriptor}")))
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", record_fsync)
+
+    LocalAuditSink(tmp_path)
+
+    assert log in synchronized
 
 
 def test_trunca_somente_cauda_parcial(tmp_path: Path) -> None:

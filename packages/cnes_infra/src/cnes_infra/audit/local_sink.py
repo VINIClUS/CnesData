@@ -12,7 +12,7 @@ from hashlib import sha256
 from itertools import groupby
 from pathlib import Path
 from secrets import token_hex
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO
 
 import polars as pl
 
@@ -108,6 +108,15 @@ def _batch_group(entry: _BatchEntry) -> tuple[str, str]:
     return entry.tenant_id, entry.log_path
 
 
+def _write_all(stream: BinaryIO, record: bytes) -> None:
+    remaining = memoryview(record)
+    while remaining:
+        written = stream.write(remaining)
+        if written is None or written <= 0:
+            raise OSError("audit_write=incomplete")
+        remaining = remaining[written:]
+
+
 class LocalAuditSink:
     """Entrega ao menos uma vez baseada em ``event_id`` estável, não exactly-once."""
 
@@ -160,6 +169,7 @@ class LocalAuditSink:
         ).fetchone()
         offset = int(row[0])
         with path.open("r+b") as stream:
+            recovered = False
             stream.seek(offset)
             while record := stream.readline():
                 if not record.endswith(b"\n"):
@@ -172,7 +182,11 @@ class LocalAuditSink:
                     event.event_id, event.tenant_id, relative, offset, len(record), digest
                 )
                 self._index(database, entry)
+                recovered = True
                 offset += len(record)
+            if recovered:
+                stream.flush()
+                os.fsync(stream.fileno())
 
     def _validate_record(self, relative: str, record: bytes) -> tuple[OutboxEvent, str]:
         body = record.removesuffix(b"\n")
@@ -257,7 +271,7 @@ class LocalAuditSink:
         with pending.path.open("a+b", buffering=0) as stream:
             stream.seek(0, os.SEEK_END)
             offset = stream.tell()
-            stream.write(pending.record)
+            _write_all(stream, pending.record)
             self._fault("after_file_write")
             stream.flush()
             os.fsync(stream.fileno())
