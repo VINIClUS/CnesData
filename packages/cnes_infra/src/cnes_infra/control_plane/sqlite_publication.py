@@ -271,15 +271,6 @@ def get_dataset_version(store: Any, values: tuple[str, str, str]) -> DatasetVers
         return _get_version(connection, *values)
 
 
-def _get_publication(connection: Any, version: DatasetVersion) -> PublishDataset | None:
-    row = connection.execute(
-        "SELECT data FROM dataset_publications "
-        "WHERE tenant_id = ? AND dataset_name = ? AND version_id = ?",
-        (version.tenant_id, version.dataset_name, version.version_id),
-    ).fetchone()
-    return None if row is None else deserialize_model(row[0], PublishDataset)
-
-
 def _put_version(connection: Any, version: DatasetVersion) -> None:
     connection.execute(
         "INSERT INTO dataset_versions (tenant_id, dataset_name, version_id, data) "
@@ -293,14 +284,16 @@ def _put_version(connection: Any, version: DatasetVersion) -> None:
     )
 
 
-def _put_publication(connection: Any, command: PublishDataset) -> None:
+def _put_publication(connection: Any, command: PublishDataset, result: DatasetPointer) -> None:
     version = command.version
     permit = command.publication_permit.model_copy(update={"binding_context": None})
     canonical = command.model_copy(update={"publication_permit": permit})
     connection.execute(
-        "INSERT INTO dataset_publications (tenant_id, dataset_name, version_id, data) "
-        "VALUES (?, ?, ?, ?)",
-        (version.tenant_id, version.dataset_name, version.version_id, serialize_model(canonical)),
+        "INSERT INTO dataset_publications "
+        "(tenant_id, dataset_name, version_id, data, response_data) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (version.tenant_id, version.dataset_name, version.version_id, serialize_model(canonical),
+         serialize_model(result)),
     )
 
 
@@ -319,9 +312,14 @@ def _put_pointer(connection: Any, pointer: DatasetPointer) -> None:
 
 
 def _validate_publication_replay(
-    store: Any, connection: Any, command: PublishDataset, pointer: DatasetPointer
-) -> DatasetPointer:
-    canonical = _get_publication(connection, command.version)
+    store: Any, connection: Any, command: PublishDataset, pointer: DatasetPointer | None
+) -> DatasetPointer | None:
+    row = connection.execute(
+        "SELECT data, response_data FROM dataset_publications "
+        "WHERE tenant_id = ? AND dataset_name = ? AND version_id = ?",
+        (command.version.tenant_id, command.version.dataset_name, command.version.version_id),
+    ).fetchone()
+    canonical = None if row is None else deserialize_model(row[0], PublishDataset)
     run = store.get_run_record(connection, command.version.tenant_id, command.version.run_id)
     terminal_matches = (
         run is not None
@@ -332,7 +330,7 @@ def _validate_publication_replay(
     command = command.model_copy(update={"publication_permit": permit})
     if canonical != command or not terminal_matches:
         raise Conflict("publication_replay_conflict")
-    return pointer
+    return pointer if row[1] is None else deserialize_model(row[1], DatasetPointer)
 
 
 def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
@@ -349,8 +347,7 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
         if current_version is not None:
             if current_version != version:
                 raise Conflict("version_immutable")
-            if pointer is not None and pointer.version_id == version.version_id:
-                return _validate_publication_replay(store, connection, command, pointer)
+            return _validate_publication_replay(store, connection, command, pointer)
         actual = None if pointer is None else pointer.version_id
         if actual != command.expected_version_id:
             raise Conflict("pointer_cas")
@@ -359,6 +356,8 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
             raise Conflict("run_not_publishing")
         if run.dataset_name != version.dataset_name:
             raise Conflict("run_dataset_mismatch")
+        if version.run_manifest_key.split("/")[2] != run.competencia:
+            raise Conflict("run_competencia_mismatch")
         updated = run.model_copy(
             update={"state": command.final_state, "missing_sources": command.missing_sources}
         )
@@ -371,7 +370,7 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
         )
         store.put_outbox_event(connection, command.event, version.tenant_id)
         _put_version(connection, version)
-        _put_publication(connection, command)
+        _put_publication(connection, command, result)
         _put_pointer(connection, result)
         store.put_run_record(connection, updated)
         return result

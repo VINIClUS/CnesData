@@ -3,10 +3,11 @@ from datetime import UTC, datetime
 import pytest
 
 from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatch
-from cnes_domain.control_plane.enums import DispatchOutcome
+from cnes_domain.control_plane.enums import DispatchOutcome, RunState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from packages.cnes_infra.tests.contracts.clock import MutableClock, _prepare_unit, _reserve
+from packages.cnes_infra.tests.contracts.clock import MutableClock, _prepare_unit, _reserve, _run
+from packages.cnes_infra.tests.contracts.control_plane_contract import _publish
 
 
 @pytest.fixture
@@ -42,6 +43,28 @@ def test_reexecuta_bind_apos_dispatch_terminal(adapter, clock) -> None:
         )
     )
     assert adapter.bind_run_dispatch(bind) == started
+
+
+def test_rejeita_publicacao_de_competencia_divergente(adapter) -> None:
+    adapter.put_run(_run("run-a", RunState.PUBLISHING))
+    command = _publish("run-a", "published-a", None, False)
+    version = command.version.model_copy(
+        update={"run_manifest_key": "reconciliation/354130/2026-06/run-a/run-manifest.json"}
+    )
+    with pytest.raises(Conflict, match="run_competencia_mismatch"):
+        adapter.publish_dataset(command.model_copy(update={"version": version}))
+    assert adapter.get_dataset_pointer("354130", "gold") is None
+
+
+def test_migra_resposta_de_publicacao(adapter) -> None:
+    adapter.put_run(_run("run-a", RunState.PUBLISHING))
+    command = _publish("run-a", "published-a", None, False)
+    pointer = adapter.publish_dataset(command)
+    with adapter.write_transaction() as connection:
+        connection.execute("ALTER TABLE dataset_publications DROP COLUMN response_data")
+    reopened = SQLiteControlPlane(adapter._database_path, adapter.now)
+    reopened.initialize()
+    assert reopened.publish_dataset(command) == pointer
 
 
 def test_cria_indice_para_outbox_pendente(adapter) -> None:

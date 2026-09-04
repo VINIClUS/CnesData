@@ -89,6 +89,8 @@ def _migrate_access_snapshot(db: sqlite3.Connection) -> None:
     columns = {row[1] for row in db.execute("PRAGMA table_info(access_requests)")}
     if "creation_request_data" not in columns:
         db.execute("ALTER TABLE access_requests ADD COLUMN creation_request_data TEXT")
+    if "creation_event_data" not in columns:
+        db.execute("ALTER TABLE access_requests ADD COLUMN creation_event_data TEXT")
     rows = db.execute(
         "SELECT tenant_id, request_id, data FROM access_requests "
         "WHERE creation_request_data IS NULL"
@@ -102,6 +104,12 @@ def _migrate_access_snapshot(db: sqlite3.Connection) -> None:
             "AND request_id = ?",
             (serialize_model(original), tenant_id, request_id),
         )
+
+
+def _migrate_publication_response(db: sqlite3.Connection) -> None:
+    columns = {row[1] for row in db.execute("PRAGMA table_info(dataset_publications)")}
+    if "response_data" not in columns:
+        db.execute("ALTER TABLE dataset_publications ADD COLUMN response_data TEXT")
 
 
 def _migrate_run_units(db: sqlite3.Connection) -> None:
@@ -128,4 +136,5 @@ def migrate_schema(db: sqlite3.Connection) -> None:
     _migrate_finish_responses(db)
     _migrate_job_snapshot(db)
     _migrate_access_snapshot(db)
+    _migrate_publication_response(db)
     _migrate_run_units(db)

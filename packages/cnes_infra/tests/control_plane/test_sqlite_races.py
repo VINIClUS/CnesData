@@ -389,7 +389,7 @@ def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) ->
     assert adapter.publish_dataset(first) == pointer
     adapter.put_run(_run("run-b", RunState.PUBLISHING))
     adapter.publish_dataset(_publish("run-b", "published-b", "run-a", False))
-    _no(Conflict, "pointer_cas", lambda: adapter.publish_dataset(first))
+    assert adapter.publish_dataset(first) == pointer
 def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock, monkeypatch) -> None:
     adapter.put_agent(_agent("agent-order"))
     for job_id in ("job-b", "job-a"):

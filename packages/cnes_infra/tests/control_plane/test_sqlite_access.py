@@ -36,6 +36,7 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
     with pytest.raises(Conflict, match="access_request_creation_state"):
         sqlite_control_plane.put_access_request(approved, ignored)
     sqlite_control_plane.put_access_request(pending, created)
+    sqlite_control_plane.put_access_request(pending, created)
     replay = created.model_copy(update={"tenant_id": "other", "payload": {"changed": True},
         "delivered_at": clock.now()})
     with pytest.raises(Conflict, match="access_request_creation_conflict"):
@@ -55,11 +56,15 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
     decided = _event("access-approved")
     assert sqlite_control_plane.decide_access_request(approved, decided) == approved
     with sqlite_control_plane.write_transaction() as connection:
-        connection.execute("ALTER TABLE access_requests DROP COLUMN creation_request_data")
+        connection.executescript(
+            "ALTER TABLE access_requests DROP COLUMN creation_request_data;"
+            "ALTER TABLE access_requests DROP COLUMN creation_event_data;"
+        )
     reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
     reopened.initialize()
     assert reopened.decide_access_request(approved, decided) == approved
-    reopened.put_access_request(pending, created)
+    with pytest.raises(Conflict, match="access_request_creation_conflict"):
+        reopened.put_access_request(pending, created)
     with pytest.raises(Conflict, match="access_request_decision_conflict"):
         reopened.decide_access_request(approved, ignored)
     with pytest.raises(Conflict, match="access_request_state_conflict"):

@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS dataset_publications (
     dataset_name TEXT NOT NULL,
     version_id TEXT NOT NULL,
     data TEXT NOT NULL,
+    response_data TEXT NOT NULL,
     PRIMARY KEY (tenant_id, dataset_name, version_id),
     FOREIGN KEY (tenant_id, dataset_name, version_id)
         REFERENCES dataset_versions (tenant_id, dataset_name, version_id) ON DELETE CASCADE
