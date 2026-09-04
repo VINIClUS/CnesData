@@ -5,8 +5,8 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatch
-from cnes_domain.control_plane.entities import AccessRequest, RunDispatch
-from cnes_domain.control_plane.enums import AccessRequestState, DispatchState
+from cnes_domain.control_plane.entities import AccessRequest, Job, RunDispatch
+from cnes_domain.control_plane.enums import AccessRequestState, DispatchState, JobState
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
 if TYPE_CHECKING:
@@ -78,11 +78,27 @@ def _migrate_job_snapshot(db: sqlite3.Connection) -> None:
     columns = {row[1] for row in db.execute("PRAGMA table_info(job_creation_writes)")}
     if "job_data" not in columns:
         db.execute("ALTER TABLE job_creation_writes ADD COLUMN job_data TEXT")
-    db.execute(
-        "UPDATE job_creation_writes SET job_data = (SELECT data FROM jobs WHERE "
-        "jobs.tenant_id = job_creation_writes.tenant_id "
-        "AND jobs.job_id = job_creation_writes.job_id) WHERE job_data IS NULL"
+    rows = db.execute(
+        "SELECT w.tenant_id, w.job_id, j.data FROM job_creation_writes w JOIN jobs j "
+        "ON j.tenant_id = w.tenant_id AND j.job_id = w.job_id WHERE w.job_data IS NULL"
     )
+    for tenant_id, job_id, data in rows:
+        job = deserialize_model(data, Job).model_copy(
+            update={
+                "state": JobState.PENDING,
+                "attempt": 0,
+                "fencing_token": 0,
+                "lease_owner": None,
+                "lease_until": None,
+                "result_manifest_id": None,
+                "result_manifest_key": None,
+                "error_code": None,
+            }
+        )
+        db.execute(
+            "UPDATE job_creation_writes SET job_data = ? WHERE tenant_id = ? AND job_id = ?",
+            (serialize_model(job), tenant_id, job_id),
+        )
 
 
 def _migrate_access_snapshot(db: sqlite3.Connection) -> None:

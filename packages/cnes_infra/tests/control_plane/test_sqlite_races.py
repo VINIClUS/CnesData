@@ -202,12 +202,14 @@ def test_reabertura_canonicaliza_unidades(adapter, database_path, clock) -> None
     canonical = (unit_a, unit_b)
     assert _put_units(adapter, (unit_b, unit_a), "run-units") == canonical
     adapter.put_run(_run("run-units", RunState.PUBLISHING))
+    claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
+    assert claimed is not None
     with adapter.write_transaction() as connection:
         connection.executescript("ALTER TABLE job_creation_writes DROP COLUMN job_data;"
                                  "ALTER TABLE runs DROP COLUMN unit_registry_data;")
     reopened = SQLiteControlPlane(database_path, clock.now)
     reopened.initialize()
-    assert reopened.create_job(_job("job-a"), _event("job-created")) == _job("job-a")
+    assert reopened.create_job(_job("job-a"), _event("job-created")) == claimed
     reopened.initialize()
     permit = publication.publication_permit.model_copy(update={"binding_context": object()})
     assert reopened.publish_dataset(publication.model_copy(
