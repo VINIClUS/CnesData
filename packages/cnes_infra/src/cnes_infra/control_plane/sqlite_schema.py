@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from cnes_domain.control_plane.enums import JobState
 from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 if TYPE_CHECKING:
     import sqlite3
@@ -272,7 +273,7 @@ def validate_job_creation_replay(connection: Any, job: Any, event: Any) -> None:
         (job.tenant_id, job.job_id),
     ).fetchone()
     if row is None or tuple(row) != (serialize_model(job), serialize_model(event)):
-        raise Conflict("job_creation_conflict")
+        raise Conflict(ErrorCode.JOB_CREATION_CONFLICT)
 def put_job_cancellation(connection: Any, command: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO job_cancellation_writes "
@@ -285,7 +286,7 @@ def validate_job_cancellation(connection: Any, command: Any, event: Any) -> None
         "WHERE tenant_id = ? AND job_id = ?", (command.tenant_id, command.job_id),
     ).fetchone()
     if row is None or tuple(row) != (serialize_model(command), serialize_model(event)):
-        raise Conflict("job_cancellation_conflict")
+        raise Conflict(ErrorCode.JOB_CANCELLATION_CONFLICT)
 def put_access_request_decision(connection: Any, request: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO access_request_decision_writes "
@@ -298,7 +299,7 @@ def validate_access_request_decision(connection: Any, request: Any, event: Any) 
         "WHERE tenant_id = ? AND request_id = ?", (request.tenant_id, request.request_id),
     ).fetchone()
     if row is None or row[0] != serialize_model(event):
-        raise Conflict("access_request_decision_conflict")
+        raise Conflict(ErrorCode.ACCESS_REQUEST_DECISION_CONFLICT)
 def put_run_transition(connection: Any, command: Any, event: Any) -> None:
     connection.execute(
         "INSERT INTO run_transition_writes "
@@ -315,7 +316,7 @@ def validate_run_transition(connection: Any, command: Any, event: Any) -> bool:
     if row is None:
         return False
     if tuple(row) != (serialize_model(command), serialize_model(event)):
-        raise Conflict("run_transition_conflict")
+        raise Conflict(ErrorCode.RUN_TRANSITION_CONFLICT)
     return True
 def get_job_terminal_write(
     connection: Any, tenant_id: str, job_id: str
@@ -358,7 +359,7 @@ def validate_job_terminal_replay(connection: Any, job: Any, command: Any, event:
             and job.error_code == command.error_code
         )
     if current != canonical or not result_matches:
-        raise Conflict("job_terminal_conflict")
+        raise Conflict(ErrorCode.JOB_TERMINAL_CONFLICT)
 def get_run_unit_terminal_write(connection: Any, command: Any) -> tuple[str, ...] | None:
     row = connection.execute(
         "SELECT operation, command_data, event_data FROM run_unit_terminal_writes "
@@ -386,7 +387,7 @@ def validate_run_unit_terminal_replay(
     operation = "commit" if hasattr(command, "output_manifests") else "fail"
     canonical = (operation, serialize_model(command), serialize_model(event))
     if get_run_unit_terminal_write(connection, command) != canonical:
-        raise Conflict("unit_terminal_conflict")
+        raise Conflict(ErrorCode.UNIT_TERMINAL_CONFLICT)
     return unit
 def put_run_cancellation(connection: Any, command: Any, event: Any) -> None:
     connection.execute(
@@ -402,7 +403,7 @@ def validate_run_cancellation(connection: Any, command: Any, event: Any) -> None
     ).fetchone()
     canonical = (serialize_model(command), serialize_model(event))
     if row is None or tuple(row) != canonical:
-        raise Conflict("run_cancellation_conflict")
+        raise Conflict(ErrorCode.RUN_CANCELLATION_CONFLICT)
 def validate_run_dispatch_wave(connection: Any, command: Any) -> None:
     unit_ids = json.dumps(command.unit_ids, separators=(",", ":"))
     row = connection.execute(
@@ -412,7 +413,7 @@ def validate_run_dispatch_wave(connection: Any, command: Any) -> None:
     ).fetchone()
     if row is not None:
         if row[0] != unit_ids:
-            raise Conflict("dispatch_units_conflict")
+            raise Conflict(ErrorCode.DISPATCH_UNITS_CONFLICT)
         return
     connection.execute(
         "INSERT INTO run_dispatch_wave_identities (tenant_id, run_id, wave_id, unit_ids) "

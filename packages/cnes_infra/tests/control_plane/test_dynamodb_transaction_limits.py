@@ -92,7 +92,14 @@ def test_rejeita_uniao_de_99_unidades_antes_de_transacao(ctx: _DynamoContext) ->
         now=clock.now(),
         lease_seconds=30,
     )
-    adapter.reserve_run_dispatch(first)
+    adapter._client = original = ClientSpy(adapter._client)
+    dispatch = adapter.reserve_run_dispatch(first)
+    assert len(original.transactions) == 1
+    actions = original.transactions[0]
+    assert len(actions) == 100
+    assert len([action for action in actions if "ConditionCheck" in action]) == 99
+    assert list(actions[-1]) == ["Put"]
+    assert adapter.get_active_run_dispatch(_TENANT, "run-a") == dispatch
     clock.advance(timedelta(seconds=31))
     adapter._client = spy = ClientSpy(adapter._client)
     replacement = first.model_copy(

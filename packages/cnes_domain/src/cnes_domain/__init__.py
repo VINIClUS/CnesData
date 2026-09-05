@@ -62,11 +62,18 @@ from cnes_domain.control_plane.ids import (
     run_dependency_key,
     unit_id,
 )
+from cnes_domain.control_plane.queries import (
+    LatestSucceededJobQuery,
+    RawIdentity,
+    RawManifestChainQuery,
+    WaitingRunsForDependencyQuery,
+)
 from cnes_domain.control_plane.transitions import (
     transition_job,
     transition_run,
     transition_run_unit,
 )
+from cnes_domain.ports.control_plane import TypedRawQueryPort
 from cnes_domain.profiles import (
     AuthMode,
     BillingMode,
@@ -106,6 +113,7 @@ __all__ = [
     "JobIdentity",
     "JobState",
     "JsonValue",
+    "LatestSucceededJobQuery",
     "LeaseLost",
     "ManifestRef",
     "Membership",
@@ -115,6 +123,8 @@ __all__ = [
     "PublicationPermit",
     "PublishDataset",
     "PutRunUnits",
+    "RawIdentity",
+    "RawManifestChainQuery",
     "RawManifestRecord",
     "RenewJobLease",
     "ReserveRunDispatch",
@@ -129,6 +139,8 @@ __all__ = [
     "RuntimeProfile",
     "Tenant",
     "TransitionRun",
+    "TypedRawQueryPort",
+    "WaitingRunsForDependencyQuery",
     "job_id",
     "parse_profile",
     "run_dependency_key",

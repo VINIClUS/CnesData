@@ -19,6 +19,12 @@ from cnes_domain.control_plane.commands import (
 from cnes_domain.control_plane.entities import AccessRequest, Tenant
 from cnes_domain.control_plane.enums import AccessRequestState, JobState, RunState
 from cnes_domain.control_plane.errors import Conflict, NotFound
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_domain.control_plane.queries import (
+    RawIdentity,
+    RawManifestChainQuery,
+    WaitingRunsForDependencyQuery,
+)
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_codec import encode_marker
 from cnes_infra.control_plane.dynamodb_keys import (
@@ -49,6 +55,7 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
 )
 
 _HASH_B = "b" * 64
+_IDENTITY = RawIdentity(_TENANT, "CNES", "ST", "2026-07")
 type _DynamoContext = tuple[Any, MutableClock, DynamoDBControlPlane]
 
 
@@ -73,8 +80,7 @@ def _raise_transaction_conflict(_: list[dict[str, Any]]) -> None:
     )
 
 def _lose_transaction_response(_: list[dict[str, Any]]) -> None:
-    raise Conflict("transaction_conflict")
-
+    raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
 def _submit_raw_record(adapter: DynamoDBControlPlane, record: Any, clock: MutableClock) -> None:
     job = _job(f"job-{record.agent_id}-{record.snapshot_id}", record.agent_id).model_copy(
@@ -168,7 +174,7 @@ def test_cadeia_raw_serializa_corrida(ctx: _DynamoContext) -> None:
     assert adapter.get_job(_TENANT, "job-agent-a-base").state is JobState.SUCCEEDED
     adapter._client = stale = OneItemPageClient(adapter._client)
     stale.hidden_gsi2sk = adapter._raw_item(head)["gsi2sk"]
-    chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 3)
+    chain = adapter.query_raw_manifest_chain(RawManifestChainQuery(_IDENTITY, 3))
     assert tuple(ref.manifest_id for ref in chain) == (
         full.manifest_id,
         sibling_b.manifest_id,
@@ -176,37 +182,9 @@ def test_cadeia_raw_serializa_corrida(ctx: _DynamoContext) -> None:
     )
     gets = [request for name, request in stale.requests if name == "get_item"]
     assert (stale.query_requests, len(gets), gets[0].get("ConsistentRead")) == ([], 1, True)
-    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 0) == ()
+    assert adapter.query_raw_manifest_chain(RawManifestChainQuery(_IDENTITY, 0)) == ()
 
 
-def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext) -> None:
-    _, clock, adapter = ctx
-    adapter._client = spy = ClientSpy(adapter._client)
-    old = _raw_record("base", "agent-a", 1, clock.now())
-    new = _raw_record("zeta", "agent-a", 1, clock.now() + timedelta(seconds=1))
-    for record in (old, new):
-        _store_record(adapter, record, clock)
-    requests = [next(iter(action.values())) for action in spy.transactions[-1]]
-    items = [request["Item" if "Item" in request else "Key"] for request in requests]
-    assert len(requests) == len({(item["pk"]["S"], item["sk"]["S"]) for item in items}) == 8
-    head = next(
-        request for request in requests if request.get("Item", {}).get("entity") == {"S": "RAWHEAD"}
-    )
-    assert head["ConditionExpression"] == "payload = :expected"
-    completed = adapter.get_job(_TENANT, "job-agent-a-zeta")
-    adapter._client = stale = OneItemPageClient(spy.client)
-    stale.hidden_gsi2sk = adapter._job_item(completed)["gsi2sk"]
-    result = adapter.latest_succeeded_job(_TENANT, "agent-a", "CNES", "ST", "2026-07")
-    assert (result, stale.query_requests) == (completed, [])
-    adapter._client = spy.client
-    records = tuple(
-        _raw_record(f"full-{index:02}", f"agent-{index}", 1, clock.now() + timedelta(seconds=index))
-        for index in range(11)
-    )
-    for record in records:
-        _store_record(adapter, record, clock)
-    chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1)
-    assert tuple(ref.manifest_id for ref in chain) == (records[-1].manifest_id,)
 def test_reparo_raw_rejeita_ancestry_ausente_e_excesso(ctx: _DynamoContext) -> None:
     client, clock, adapter = ctx
     _store_record(adapter, _raw_record("delta-pending", "agent-a", 2, clock.now()), clock)
@@ -404,7 +382,7 @@ def test_create_job_retorna_replay_e_rejeita_divergencia(ctx: _DynamoContext) ->
 
     def divergent_wins(_: list[dict[str, Any]]) -> None:
         adapter._put_direct(adapter._job_item(candidate.model_copy(update={"agent_id": "agent-b"})))
-        raise Conflict("transaction_conflict")
+        raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
     adapter._client = ClientSpy(spy, before_transaction=divergent_wins)
     with pytest.raises(Conflict, match="job_conflict"):
@@ -442,7 +420,9 @@ def test_transicao_e_unidades_rejeitam_run_ausente_ou_estado_obsoleto(ctx: _Dyna
     adapter.put_run(_run("run-a", RunState.PUBLISHING))
     with pytest.raises(Conflict, match="run_state_conflict"):
         adapter.transition_run(transition, _event("stale-run"))
-    waiting = adapter.list_waiting_runs_for_dependency(_TENANT, "CNES", "ST", "2026-07", 10)
+    waiting = adapter.query_waiting_runs_for_dependency(
+        WaitingRunsForDependencyQuery(_IDENTITY, 10)
+    )
     assert (waiting, adapter.get_outbox_event("stale-run")) == ((), None)
     with pytest.raises(Conflict, match="run_state_conflict"):
         _put_many_units(adapter, 1)

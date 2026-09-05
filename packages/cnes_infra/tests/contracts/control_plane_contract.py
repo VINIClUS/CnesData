@@ -18,8 +18,7 @@ from cnes_domain.control_plane.commands import (
 from cnes_domain.control_plane.entities import DatasetVersion, Membership, RunDependency
 from cnes_domain.control_plane.enums import AgentState, DispatchOutcome, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
-from cnes_domain.control_plane.ids import run_dependency_key
-from cnes_domain.ports.control_plane import ControlPlanePort
+from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
 from packages.cnes_infra.tests.contracts.clock import (
     _HASH_A,
     _NOW,
@@ -44,12 +43,15 @@ from packages.cnes_infra.tests.contracts.clock import (
     _job,
     _prepare_unit,
     _put_units,
-    _raw_record,
     _renew_job,
     _reserve,
     _run,
-    _store_record,
     _unit,
+)
+from packages.cnes_infra.tests.contracts.control_plane_raw_contract import (
+    _case_legacy_shims,
+    _case_raw_chains,
+    _case_run_discovery,
 )
 
 _HASH_B = "b" * 64
@@ -65,6 +67,7 @@ class ControlPlaneCase:
         """Executa o caso e identifica qualquer falha pelo nome."""
         try:
             assert isinstance(adapter, ControlPlanePort)
+            assert isinstance(adapter, TypedRawQueryPort)
             self._runner(adapter, clock)
         except Exception as error:
             raise AssertionError(f"case={self.name}") from error
@@ -121,80 +124,6 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
                          lambda: adapter.fail_job(stale_fence, _event("stale-fence")))
     _assert_job_failures(adapter, clock)
 
-def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:
-    records = (
-        _raw_record("base-agent-a", "agent-a", 1, _NOW),
-        _raw_record("delta-2", "agent-a", 2, _NOW + timedelta(seconds=1)),
-        _raw_record("delta-3", "agent-a", 3, _NOW + timedelta(seconds=2)),
-        _raw_record("wrong-base", "agent-a", 4, _NOW + timedelta(seconds=3)).model_copy(
-            update={"base_snapshot_id": "base-agent-b"}),
-        _raw_record("base-agent-b", "agent-b", 1, _NOW),
-        _raw_record("delta-z", "agent-b", 2, _NOW + timedelta(seconds=2)),
-        _raw_record("orphan", "agent-z", 2, _NOW + timedelta(seconds=3)),
-        _raw_record("base-agent-y", "agent-y", 1, _NOW - timedelta(seconds=1)),
-        _raw_record("broken", "agent-y", 2, _NOW + timedelta(seconds=5)).model_copy(
-            update={"previous_manifest_sha256": _HASH_B}),)
-    for record in records:
-        _store_record(adapter, record, clock)
-    identities = ({"tenant_id": "other"}, {"source_type": "SIHD"}, {"file_subtype": "PF"},
-                  {"competencia": "2026-06"})
-    for index, identity in enumerate(identities):
-        snapshot_id = f"foreign-{index}"
-        update = {
-            "agent_id": snapshot_id, "snapshot_id": snapshot_id,
-            "manifest_id": f"manifest-{snapshot_id}", **identity,
-            "created_at": _NOW + timedelta(minutes=index + 1),
-        }
-        item = records[0].model_copy(update=update)
-        key = f"raw/{item.tenant_id}/{item.source_type}/{item.competencia}"
-        item = item.model_copy(update={"manifest_key": f"{key}/{snapshot_id}/manifest.json"})
-        _store_record(adapter, item, clock)
-    failed = _job("job-agent-b-failed", "agent-b").model_copy(
-        update={"created_at": _NOW + timedelta(minutes=10)})
-    adapter.create_job(failed, _event("failed-created"))
-    failed_claim = adapter.claim_job(_claim_job(failed.job_id, "failed-worker", clock))
-    failed_command = _fail_job("failed-worker", failed_claim.fencing_token, "failed").model_copy(
-        update={"job_id": failed.job_id, "retryable": False})
-    adapter.fail_job(failed_command, _event("failed-final"))
-    identity = (_TENANT, "agent-b", "CNES", "ST", "2026-07")
-    assert adapter.latest_succeeded_job(*identity) == adapter.get_job(
-        _TENANT, "job-agent-b-delta-z")
-    chain = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 2)
-    assert tuple((ref.manifest_id, ref.manifest_key) for ref in chain) == tuple(
-        (record.manifest_id, record.manifest_key) for record in records[4:6])
-    try:
-        short = adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1)
-    except Conflict:
-        pass
-    else:
-        assert short == ()
-def _case_run_discovery(adapter: Any, clock: MutableClock) -> None:
-    deps = (
-        RunDependency(source_type="CNES", file_subtype="ST", required=True),
-        RunDependency(source_type="CNES_ST", file_subtype="X", required=True),)
-    adapter.put_run(_run("waiting-a", RunState.WAITING_INPUTS, deps))
-    adapter.put_run(_run("waiting-b", RunState.WAITING_INPUTS))
-    adapter.put_run(_run("collision", RunState.WAITING_INPUTS, (deps[1],)))
-    adapter.put_run(_run("processing", RunState.PROCESSING))
-    adapter.put_run(_run("publishing", RunState.PUBLISHING))
-    adapter.put_run(_run("canceling", RunState.CANCEL_REQUESTED))
-    adapter.put_run(_run("published", RunState.PUBLISHED))
-    future = {"created_at": clock.now() + timedelta(days=1)}
-    foreign = _run("foreign-tenant", RunState.WAITING_INPUTS)
-    adapter.put_run(foreign.model_copy(update={"tenant_id": "other", **future}))
-    foreign = _run("foreign-period", RunState.WAITING_INPUTS)
-    adapter.put_run(foreign.model_copy(update={"competencia": "2026-06", **future}))
-    waiting = adapter.list_waiting_runs_for_dependency(_TENANT, "CNES", "ST", "2026-07", 10)
-    assert tuple(run.run_id for run in waiting) == ("waiting-a", "waiting-b")
-    limited = adapter.list_waiting_runs_for_dependency(_TENANT, "CNES", "ST", "2026-07", 1)
-    assert tuple(run.run_id for run in limited) == ("waiting-a",)
-    assert run_dependency_key(_TENANT, "CNES", "ST", "2026-07") != run_dependency_key(
-        _TENANT, "CNES_ST", "X", "2026-07")
-    recoverable = adapter.list_recoverable_runs(clock.now(), 6)
-    assert tuple(run.run_id for run in recoverable) == (
-        "canceling", "collision", "processing", "publishing", "waiting-a", "waiting-b")
-    assert tuple(run.run_id for run in adapter.list_recoverable_runs(clock.now(), 2)) == (
-        "canceling", "collision")
 
 def _case_run_units_atomic(adapter: Any, clock: MutableClock) -> None:
     adapter.put_run(_run("run-a"))
@@ -489,6 +418,7 @@ def control_plane_cases() -> tuple[ControlPlaneCase, ...]:
         ControlPlaneCase("authorization_jobs", _case_authorization_jobs),
         ControlPlaneCase("raw_chains", _case_raw_chains),
         ControlPlaneCase("run_discovery", _case_run_discovery),
+        ControlPlaneCase("legacy_shims", _case_legacy_shims),
         ControlPlaneCase("run_units_atomic", _case_run_units_atomic),
         ControlPlaneCase("unit_claim", _case_unit_claim),
         ControlPlaneCase("unit_fences", _case_unit_fences),

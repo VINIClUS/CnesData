@@ -25,6 +25,7 @@ from cnes_domain.control_plane.enums import (
     RunUnitState,
 )
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import put_action
@@ -80,7 +81,6 @@ class ClientSpy:
         self.calls: list[str] = []
         self.query_requests: list[dict[str, Any]] = []
         self.requests: list[tuple[str, dict[str, Any]]] = []
-
     def transact_write_items(self, **kwargs: Any) -> dict[str, Any]:
         actions: list[dict[str, Any]] = kwargs["TransactItems"]
         self.calls.append("transact_write_items")
@@ -123,7 +123,7 @@ def _raise_transaction_canceled(_: list[dict[str, Any]]) -> None:
 
 
 def _lose_transaction_response(_: list[dict[str, Any]]) -> None:
-    raise Conflict("transaction_conflict")
+    raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
 
 def _dynamodb_client_error(status: int) -> ClientError:

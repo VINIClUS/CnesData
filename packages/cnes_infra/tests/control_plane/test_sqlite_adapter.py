@@ -23,7 +23,7 @@ from cnes_domain.control_plane.enums import (
 )
 from cnes_domain.control_plane.errors import Conflict, LeaseLost, NotFound
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from packages.cnes_infra.tests.contracts import control_plane_contract
+from packages.cnes_infra.tests.contracts import control_plane_contract, control_plane_raw_contract
 from packages.cnes_infra.tests.contracts.clock import (
     MutableClock,
     _agent,
@@ -53,7 +53,7 @@ def sqlite_control_plane(tmp_path, clock: MutableClock) -> SQLiteControlPlane:
 def test_cumpre_contrato(case, sqlite_control_plane, clock, monkeypatch) -> None:
     if case.name == "raw_chains":
         monkeypatch.setattr(
-            control_plane_contract, "_store_record", _store_record_with_matching_mode)
+            control_plane_raw_contract, "_store_record", _store_record_with_matching_mode)
     case.run(sqlite_control_plane, clock)
     if case.name == "cancellation":
         command = control_plane_contract.FinalizeRunCancellation(

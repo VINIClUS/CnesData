@@ -21,12 +21,14 @@ from cnes_domain.control_plane.entities import (
 )
 from cnes_domain.control_plane.enums import AgentState, JobState
 from cnes_domain.control_plane.errors import Conflict, NotFound
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane import (
     sqlite_claims,
     sqlite_idempotency,
     sqlite_job,
     sqlite_publication,
 )
+from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 from cnes_infra.control_plane.sqlite_schema import (
     _SQLiteWALUnavailable,
     deserialize_model,
@@ -65,6 +67,11 @@ if TYPE_CHECKING:
         RunDispatch,
         RunUnit,
     )
+    from cnes_domain.control_plane.queries import (
+        LatestSucceededJobQuery,
+        RawManifestChainQuery,
+        WaitingRunsForDependencyQuery,
+    )
 
 _BUSY_TIMEOUT_MS = 5000
 class _SQLiteBusyError(RuntimeError):
@@ -99,7 +106,7 @@ def _is_network_filesystem(path: Path) -> bool:
     return is_network_filesystem(path)
 
 
-class SQLiteControlPlane:
+class SQLiteControlPlane(DeprecatedRawQueryMixin):
     """Persiste o plano de controle em um arquivo SQLite local."""
     def __init__(self, database_path: Path, clock: Callable[[], datetime]) -> None:
         self._database_path = Path(database_path)
@@ -249,9 +256,9 @@ class SQLiteControlPlane:
         )
     def put_outbox_event(self, connection, event: OutboxEvent, tenant_id: str) -> None:
         if event.tenant_id != tenant_id:
-            raise Conflict("outbox_event_tenant_mismatch")
+            raise Conflict(ErrorCode.OUTBOX_EVENT_TENANT_MISMATCH)
         if event.delivered_at is not None:
-            raise Conflict("outbox_event_already_delivered")
+            raise Conflict(ErrorCode.OUTBOX_EVENT_ALREADY_DELIVERED)
         current = _fetch_one(
             connection,
             "SELECT data FROM outbox_events WHERE event_id = ?",
@@ -259,7 +266,7 @@ class SQLiteControlPlane:
             OutboxEvent,
         )
         if current is not None:
-            raise Conflict("outbox_event_conflict")
+            raise Conflict(ErrorCode.OUTBOX_EVENT_CONFLICT)
         connection.execute(
             "INSERT INTO outbox_events "
             "(event_id, tenant_id, created_at, delivered_at, data) VALUES (?, ?, ?, ?, ?)",
@@ -306,7 +313,7 @@ class SQLiteControlPlane:
         )
         if current is not None:
             if current != manifest:
-                raise Conflict("manifest_immutable")
+                raise Conflict(ErrorCode.MANIFEST_IMMUTABLE)
             return
         connection.execute(
             "INSERT INTO raw_manifests (tenant_id, manifest_id, agent_id, source_type, "
@@ -349,24 +356,18 @@ class SQLiteControlPlane:
                 OutboxEvent,
             )
             if event is None:
-                raise NotFound("outbox_event_missing")
+                raise NotFound(ErrorCode.OUTBOX_EVENT_MISSING)
             delivered = event.model_copy(update={"delivered_at": delivered_at})
             connection.execute(
                 "UPDATE outbox_events SET delivered_at = ?, data = ? WHERE event_id = ?",
                 (delivered_at.isoformat(), serialize_model(delivered), event_id),
             )
 
-    def latest_succeeded_job(self, *args: str, **kwargs: str) -> Job | None:
-        values = sqlite_publication.normalize_long_call(
-            args, kwargs, sqlite_publication.LATEST_JOB_FIELDS
-        )
-        return sqlite_publication.latest_succeeded_job(self, values)
+    def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Job | None:
+        return sqlite_publication.query_latest_succeeded_job(self, query)
 
-    def list_raw_manifest_chain(self, *args: Any, **kwargs: Any) -> tuple[ManifestRef, ...]:
-        values = sqlite_publication.normalize_long_call(
-            args, kwargs, sqlite_publication.DEPENDENCY_FIELDS, 31
-        )
-        return sqlite_publication.list_raw_manifest_chain(self, values)
+    def query_raw_manifest_chain(self, query: RawManifestChainQuery) -> tuple[ManifestRef, ...]:
+        return sqlite_publication.query_raw_manifest_chain(self, query)
 
     def cancel_job(self, command: CancelJob, event: OutboxEvent) -> Job:
         return sqlite_claims.cancel_job(self, command, event)
@@ -421,11 +422,17 @@ class SQLiteControlPlane:
     def get_run(self, tenant_id: str, run_id: str) -> Run | None:
         return sqlite_publication.get_run(self, tenant_id, run_id)
 
-    def list_waiting_runs_for_dependency(self, *args: Any, **kwargs: Any) -> tuple[Run, ...]:
-        values = sqlite_publication.normalize_long_call(
-            args, kwargs, sqlite_publication.DEPENDENCY_FIELDS, 100
-        )
-        return sqlite_publication.list_waiting_runs(self, values)
+    def query_waiting_runs_for_dependency(
+        self, query: WaitingRunsForDependencyQuery
+    ) -> tuple[Run, ...]:
+        return sqlite_publication.query_waiting_runs_for_dependency(self, query)
+
+    def _query_legacy_waiting_runs_for_dependency(
+        self, query: WaitingRunsForDependencyQuery
+    ) -> tuple[Run, ...]:
+        if query.limit < 0:
+            return sqlite_publication.fetch_waiting_runs_for_dependency(self, query)
+        return self.query_waiting_runs_for_dependency(query)
 
     def list_recoverable_runs(self, now: datetime, limit: int = 100) -> tuple[Run, ...]:
         return sqlite_publication.list_recoverable_runs(self, now, limit)

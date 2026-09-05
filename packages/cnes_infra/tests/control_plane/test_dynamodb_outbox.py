@@ -14,6 +14,7 @@ from cnes_domain.control_plane.commands import (
 from cnes_domain.control_plane.entities import AccessRequest
 from cnes_domain.control_plane.enums import AccessRequestState, AgentState, RunState
 from cnes_domain.control_plane.errors import Conflict, LeaseLost, NotFound
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_codec import encode_marker, execute_transaction
 from cnes_infra.control_plane.dynamodb_keys import (
@@ -65,7 +66,7 @@ def _raise_transaction_conflict(_: list[dict[str, Any]]) -> None:
 
 
 def _lose_transaction_response(_: list[dict[str, Any]]) -> None:
-    raise Conflict("transaction_conflict")
+    raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
 
 @pytest.fixture

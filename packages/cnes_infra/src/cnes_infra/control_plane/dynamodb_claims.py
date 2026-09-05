@@ -1,4 +1,4 @@
-"""DynamoDB lease, fence, unit, and dispatch transactions."""
+"""Transações de jobs e unidades protegidas por lease e fencing."""
 
 from __future__ import annotations
 
@@ -19,51 +19,38 @@ from cnes_domain.control_plane.enums import (
     RunUnitState,
 )
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_domain.control_plane.queries import LatestSucceededJobQuery, RawIdentity
 from cnes_domain.control_plane.transitions import transition_job, transition_run_unit
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
     Item,
     check_action,
     decode_model,
-    encode_model,
     payload,
     put_action,
 )
 from cnes_infra.control_plane.dynamodb_keys import (
     dispatch_key,
     entity_key,
-    key_component,
     run_entity_key,
     unit_key,
 )
 
 if TYPE_CHECKING:
     from cnes_domain.control_plane.commands import (
-        BindRunDispatch,
         ClaimJob,
         ClaimRunUnit,
         CommitRunUnit,
         CompleteJob,
         FailJob,
         FailRunUnit,
-        FinishRunDispatch,
         RenewJobLease,
-        ReserveRunDispatch,
     )
 
 
 class DynamoDBClaims:
     """Implementa decisões protegidas por lease e fencing token."""
-
-    def _dispatch_item(self, dispatch: RunDispatch) -> Item:
-        attributes = {
-            "gsi5pk": (
-                f"RUN_ITEMS#{key_component(dispatch.tenant_id)}#{key_component(dispatch.run_id)}"
-            ),
-            "gsi5sk": "DISPATCH#ACTIVE",
-        }
-        key = dispatch_key(dispatch.tenant_id, dispatch.run_id)
-        return encode_model(dispatch, "RUNDISPATCH", key, attributes)
     def claim_job(self, command: ClaimJob) -> Job | None:
         """Reivindica um job elegível com novo fence."""
         now = self._clock()
@@ -123,7 +110,7 @@ class DynamoDBClaims:
                              command.manifest.source_type, command.manifest.file_subtype,
                              command.manifest.competencia)
         if identity != manifest_identity:
-            raise Conflict("manifest_identity_conflict")
+            raise Conflict(ErrorCode.MANIFEST_IDENTITY_CONFLICT)
         updated = Job.model_validate(
             job.model_dump() | {
                 "state": JobState.SUCCEEDED,
@@ -142,14 +129,17 @@ class DynamoDBClaims:
         return updated, actions
     def _complete_job_replay(self, command: CompleteJob, event: Any, updated: Job) -> bool:
         raw_item = self._raw_item(command.manifest)
+        manifest = command.manifest
+        identity = RawIdentity(
+            command.tenant_id, manifest.source_type, manifest.file_subtype, manifest.competencia
+        )
         return (
             self.get_job(command.tenant_id, command.job_id) == updated
             and self._get_model(
                 (raw_item["pk"]["S"], raw_item["sk"]["S"]), type(command.manifest)
             ) == command.manifest
-            and self.latest_succeeded_job(
-                command.tenant_id, command.manifest.agent_id, command.manifest.source_type,
-                command.manifest.file_subtype, command.manifest.competencia,
+            and self.query_latest_succeeded_job(
+                LatestSucceededJobQuery(identity, manifest.agent_id)
             ) == updated
             and self._event_replay_matches(self._get_outbox_event(event.event_id), event)
         )
@@ -191,23 +181,23 @@ class DynamoDBClaims:
     def _leased_job(self, tenant_id: str, job_id: str) -> tuple[Item, Job]:
         item = self._get_item(entity_key(tenant_id, "JOB", job_id))
         if item is None:
-            raise NotFound("job_missing")
+            raise NotFound(ErrorCode.JOB_MISSING)
         job = decode_model(item, Job)
         if job.state is not JobState.LEASED:
-            raise LeaseLost("job_not_leased")
+            raise LeaseLost(ErrorCode.JOB_NOT_LEASED)
         return item, job
     @staticmethod
     def _validate_job_fence(job: Job, owner: str, fence: int, now: Any) -> None:
         if job.fencing_token != fence:
-            raise FenceRejected("job_fence_rejected")
+            raise FenceRejected(ErrorCode.JOB_FENCE_REJECTED)
         if job.lease_owner != owner:
-            raise LeaseLost("job_owner_lost")
+            raise LeaseLost(ErrorCode.JOB_OWNER_LOST)
         if job.lease_until is None or job.lease_until <= now:
-            raise LeaseLost("job_lease_expired")
+            raise LeaseLost(ErrorCode.JOB_LEASE_EXPIRED)
     def _active_agent_item(self, job: Job) -> Item:
         item = self._get_item(entity_key(job.tenant_id, "AGENT", job.agent_id))
         if item is None or decode_model(item, Agent).state is not AgentState.ACTIVE:
-            raise LeaseLost("agent_revoked")
+            raise LeaseLost(ErrorCode.AGENT_REVOKED)
         return item
     def claim_run_unit(self, command: ClaimRunUnit) -> RunUnit | None:
         """Reivindica uma unidade despachada com novo fence."""
@@ -389,33 +379,25 @@ class DynamoDBClaims:
         dispatch_item = self._get_item(dispatch_key(command.tenant_id, command.run_id))
         unit_item = self._get_item(unit_key(command.tenant_id, command.run_id, command.unit_id))
         if run_item is None or dispatch_item is None or unit_item is None:
-            raise NotFound("unit_context_missing")
+            raise NotFound(ErrorCode.UNIT_CONTEXT_MISSING)
         run = decode_model(run_item, Run)
         dispatch = decode_model(dispatch_item, RunDispatch)
         unit = decode_model(unit_item, RunUnit)
         if run.state is not RunState.PROCESSING:
-            raise LeaseLost("run_not_processing")
+            raise LeaseLost(ErrorCode.RUN_NOT_PROCESSING)
         self._validate_dispatch_lease(dispatch, command.dispatch_id, self._clock())
         self._validate_unit_fence(unit, command, self._clock())
         return run_item, dispatch_item, unit_item, run, unit
     @staticmethod
-    def _validate_dispatch_lease(dispatch: RunDispatch, dispatch_id: str, now: Any) -> None:
-        if dispatch.dispatch_id != dispatch_id:
-            raise FenceRejected("dispatch_fence_rejected")
-        if dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTED}:
-            raise LeaseLost("dispatch_terminal")
-        if dispatch.lease_until <= now:
-            raise LeaseLost("dispatch_expired")
-    @staticmethod
     def _validate_unit_fence(unit: RunUnit, command: Any, now: Any) -> None:
         if unit.fencing_token != command.fencing_token:
-            raise FenceRejected("unit_fence_rejected")
+            raise FenceRejected(ErrorCode.UNIT_FENCE_REJECTED)
         if unit.dispatch_id != command.dispatch_id:
-            raise FenceRejected("unit_dispatch_rejected")
+            raise FenceRejected(ErrorCode.UNIT_DISPATCH_REJECTED)
         if unit.lease_owner != command.owner:
-            raise LeaseLost("unit_owner_lost")
+            raise LeaseLost(ErrorCode.UNIT_OWNER_LOST)
         if unit.lease_until is None or unit.lease_until <= now:
-            raise LeaseLost("unit_lease_expired")
+            raise LeaseLost(ErrorCode.UNIT_LEASE_EXPIRED)
 
     @staticmethod
     def _failed_unit_state(run: Run, unit: RunUnit, retryable: bool) -> RunUnitState:
@@ -432,79 +414,6 @@ class DynamoDBClaims:
         if dependency is not None and not dependency.required:
             return RunUnitState.SUCCEEDED_DEGRADED
         return RunUnitState.FAILED_FINAL
-    def reserve_run_dispatch(self, command: ReserveRunDispatch) -> RunDispatch:
-        """Reserva uma geração de dispatch do run."""
-        run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
-        if run_item is None or decode_model(run_item, Run).state is not RunState.PROCESSING:
-            raise Conflict("run_not_processing")
-        current_item = self._get_item(dispatch_key(command.tenant_id, command.run_id))
-        current = decode_model(current_item, RunDispatch) if current_item else None
-        replay = self._dispatch_replay(current, command)
-        if replay is not None:
-            return replay
-        prior_unit_items = ()
-        if current is not None:
-            prior_unit_items = self._replacement_unit_items(current, command.now)
-        unit_items = self._dispatch_unit_items(command)
-        generation = 1 if current is None else current.generation + 1
-        raw_id = f"{command.tenant_id}\x1f{command.run_id}\x1f{command.wave_id}\x1f{generation}"
-        dispatch = RunDispatch(
-            tenant_id=command.tenant_id,
-            run_id=command.run_id,
-            wave_id=command.wave_id,
-            dispatch_id=sha256(raw_id.encode()).hexdigest()[:16],
-            generation=generation,
-            unit_ids=command.unit_ids,
-            state=DispatchState.RESERVED,
-            lease_until=command.now + timedelta(seconds=command.lease_seconds),
-        )
-        expected = payload(current_item) if current_item is not None else None
-        checked_items = {
-            (item["pk"]["S"], item["sk"]["S"]): item for item in (*prior_unit_items, *unit_items)
-        }
-        actions = [check_action(self._table_name, run_item)]
-        actions.extend(check_action(self._table_name, item) for item in checked_items.values())
-        actions.append(put_action(self._table_name, self._dispatch_item(dispatch), expected))
-        self._transact(tuple(actions))
-        return dispatch
-    @staticmethod
-    def _dispatch_replay(
-        current: RunDispatch | None, command: ReserveRunDispatch
-    ) -> RunDispatch | None:
-        if current is None:
-            return None
-        if current.state is DispatchState.TERMINAL or current.lease_until <= command.now:
-            return None
-        if current.wave_id != command.wave_id or current.unit_ids != command.unit_ids:
-            raise Conflict("active_dispatch_conflict")
-        return current
-    def _replacement_unit_items(self, dispatch: RunDispatch, now: Any) -> tuple[Item, ...]:
-        items = []
-        for unit_id in dispatch.unit_ids:
-            item = self._get_item(unit_key(dispatch.tenant_id, dispatch.run_id, unit_id))
-            if item is None:
-                raise Conflict("dispatch_unit_missing")
-            unit = decode_model(item, RunUnit)
-            live = (
-                unit.state is RunUnitState.LEASED
-                and unit.lease_until is not None
-                and unit.lease_until > now
-            )
-            if live:
-                raise Conflict("dispatch_unit_unavailable")
-            items.append(item)
-        return tuple(items)
-    def _dispatch_unit_items(self, command: ReserveRunDispatch) -> tuple[Item, ...]:
-        items = []
-        for unit_id in command.unit_ids:
-            item = self._get_item(unit_key(command.tenant_id, command.run_id, unit_id))
-            if item is None:
-                raise Conflict("dispatch_unit_missing")
-            unit = decode_model(item, RunUnit)
-            if not self._unit_is_claimable(unit, command.now):
-                raise Conflict("dispatch_unit_unavailable")
-            items.append(item)
-        return tuple(items)
     @staticmethod
     def _unit_is_claimable(unit: RunUnit, now: Any) -> bool:
         return unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE} or (
@@ -512,62 +421,3 @@ class DynamoDBClaims:
             and unit.lease_until is not None
             and unit.lease_until <= now
         )
-    def bind_run_dispatch(self, command: BindRunDispatch) -> RunDispatch:
-        """Vincula o dispatch a uma execução externa."""
-        run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
-        if run_item is None or decode_model(run_item, Run).state is not RunState.PROCESSING:
-            raise Conflict("run_not_processing")
-        item, dispatch = self._required_dispatch(command.tenant_id, command.run_id)
-        self._validate_dispatch_lease(dispatch, command.dispatch_id, command.now)
-        if dispatch.state is DispatchState.STARTED:
-            if dispatch.execution_ref == command.execution_ref:
-                return dispatch
-            raise Conflict("dispatch_binding_conflict")
-        updated = dispatch.model_copy(
-            update={
-                "state": DispatchState.STARTED,
-                "execution_ref": command.execution_ref,
-                "lease_until": command.now + timedelta(seconds=command.lease_seconds),
-            }
-        )
-        self._transact(
-            (
-                check_action(self._table_name, run_item),
-                put_action(self._table_name, self._dispatch_item(updated), payload(item)),
-            )
-        )
-        return updated
-    def finish_run_dispatch(self, command: FinishRunDispatch) -> RunDispatch:
-        """Finaliza um dispatch ativo."""
-        item, dispatch = self._required_dispatch(command.tenant_id, command.run_id)
-        if dispatch.dispatch_id != command.dispatch_id:
-            raise Conflict("dispatch_id_conflict")
-        if dispatch.state is DispatchState.TERMINAL:
-            if dispatch.terminal_outcome is command.outcome:
-                return dispatch
-            raise Conflict("dispatch_outcome_conflict")
-        if dispatch.lease_until <= command.finished_at:
-            raise Conflict("dispatch_expired")
-        updated = dispatch.model_copy(
-            update={
-                "state": DispatchState.TERMINAL,
-                "terminal_outcome": command.outcome,
-            }
-        )
-        self._transact((put_action(self._table_name, self._dispatch_item(updated), payload(item)),))
-        return updated
-    def _required_dispatch(self, tenant_id: str, run_id: str) -> tuple[Item, RunDispatch]:
-        item = self._get_item(dispatch_key(tenant_id, run_id))
-        if item is None:
-            raise NotFound("dispatch_missing")
-        return item, decode_model(item, RunDispatch)
-    def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
-        """Retorna o dispatch ativo do run."""
-        item = self._get_item(dispatch_key(tenant_id, run_id))
-        if item is None:
-            return None
-        dispatch = decode_model(item, RunDispatch)
-        active = (
-            dispatch.state is not DispatchState.TERMINAL and dispatch.lease_until > self._clock()
-        )
-        return dispatch if active else None
