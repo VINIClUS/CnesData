@@ -48,8 +48,6 @@ class DynamoDBQueries:
 
     def query_raw_manifest_chain(self, query: RawManifestChainQuery) -> tuple[ManifestRef, ...]:
         """Returns: Cadeia válida de manifestos RAW ordenados."""
-        if query.limit <= 0:
-            return ()
         identity = query.identity
         partition = raw_partition(
             identity.tenant_id, identity.source_type, identity.file_subtype, identity.competencia

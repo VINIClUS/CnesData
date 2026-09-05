@@ -126,10 +126,15 @@ class ControlPlanePort(Protocol):
 
 @runtime_checkable
 class TypedRawQueryPort(Protocol):
-    def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Job | None: ...
+    def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Job | None:
+        raise NotImplementedError
+
     def query_raw_manifest_chain(
         self, query: RawManifestChainQuery
-    ) -> tuple[ManifestRef, ...]: ...
+    ) -> tuple[ManifestRef, ...]:
+        raise NotImplementedError
+
     def query_waiting_runs_for_dependency(
         self, query: WaitingRunsForDependencyQuery
-    ) -> tuple[Run, ...]: ...
+    ) -> tuple[Run, ...]:
+        raise NotImplementedError
