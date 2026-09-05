@@ -18,6 +18,7 @@ from cnes_domain.control_plane.entities import (
 )
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict, NotFound
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.control_plane.transitions import transition_run
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
@@ -69,12 +70,12 @@ class DynamoDBPublication:
 
     def _event_action(self, tenant_id: str, event: OutboxEvent) -> Action:
         if event.delivered_at is not None:
-            raise Conflict("event_delivery_conflict")
+            raise Conflict(ErrorCode.EVENT_DELIVERY_CONFLICT)
         if event.tenant_id != tenant_id:
-            raise Conflict("event_tenant_conflict")
+            raise Conflict(ErrorCode.EVENT_TENANT_CONFLICT)
         existing = self._get_outbox_event(event.event_id)
         if existing is not None:
-            raise Conflict("event_id_conflict")
+            raise Conflict(ErrorCode.EVENT_ID_CONFLICT)
         return put_action(self._table_name, self._outbox_item(event), None)
 
     def begin_idempotency(self, command: BeginIdempotency) -> IdempotencyOutcome:
@@ -117,7 +118,7 @@ class DynamoDBPublication:
         if record.expires_at <= command.now:
             return None
         if record.request_hash != command.request_hash:
-            raise Conflict("idempotency_hash_conflict")
+            raise Conflict(ErrorCode.IDEMPOTENCY_HASH_CONFLICT)
         return IdempotencyOutcome(record=record, created=False)
 
     def publish_dataset(self, command: PublishDataset) -> DatasetPointer:
@@ -125,14 +126,14 @@ class DynamoDBPublication:
         run_key = run_entity_key(command.version.tenant_id, command.version.run_id)
         run_item = self._get_item(run_key)
         if run_item is None:
-            raise NotFound("run_missing")
+            raise NotFound(ErrorCode.RUN_MISSING)
         run = decode_model(run_item, Run)
         self._validate_publication_run(command, run)
         replay = self._publication_replay(command, run)
         if replay is not None:
             return replay
         if run.state is not RunState.PUBLISHING:
-            raise Conflict("run_not_publishing")
+            raise Conflict(ErrorCode.RUN_NOT_PUBLISHING)
         pointer_key_value = pointer_key(
             command.version.tenant_id, command.version.dataset_name, command.pointer_name
         )
@@ -140,7 +141,7 @@ class DynamoDBPublication:
         current = decode_model(pointer_item, DatasetPointer) if pointer_item else None
         current_version = current.version_id if current is not None else None
         if current_version != command.expected_version_id:
-            raise Conflict("pointer_version_conflict")
+            raise Conflict(ErrorCode.POINTER_VERSION_CONFLICT)
         pointer = DatasetPointer(
             tenant_id=command.version.tenant_id,
             dataset_name=command.version.dataset_name,
@@ -179,7 +180,7 @@ class DynamoDBPublication:
             run.dataset_name,
             expected_key,
         ):
-            raise Conflict("publication_run_conflict")
+            raise Conflict(ErrorCode.PUBLICATION_RUN_CONFLICT)
 
     def _publication_replay(self, command: PublishDataset, run: Run) -> DatasetPointer | None:
         terminal = {RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED}
@@ -204,7 +205,7 @@ class DynamoDBPublication:
             and self._event_replay_matches(event, command.event)
         )
         if not exact:
-            raise Conflict("publication_replay_conflict")
+            raise Conflict(ErrorCode.PUBLICATION_REPLAY_CONFLICT)
         return pointer
 
     def get_dataset_pointer(self, tenant_id: str, dataset_name: str) -> DatasetPointer | None:
@@ -231,7 +232,7 @@ class DynamoDBPublication:
     def _require_event_replay(self, tenant_id: str, event: OutboxEvent) -> None:
         current = self._get_outbox_event(event.event_id)
         if event.tenant_id != tenant_id or not self._event_replay_matches(current, event):
-            raise Conflict("event_id_conflict")
+            raise Conflict(ErrorCode.EVENT_ID_CONFLICT)
 
     def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
         """Retorna um evento pela identidade global."""
@@ -288,11 +289,11 @@ class DynamoDBPublication:
         key = outbox_key(event_id)
         item = self._get_item(key)
         if item is None:
-            raise NotFound("outbox_event_missing")
+            raise NotFound(ErrorCode.OUTBOX_EVENT_MISSING)
         event = decode_model(item, OutboxEvent)
         if event.delivered_at is not None:
             if event.delivered_at != delivered_at:
-                raise Conflict("outbox_delivery_conflict")
+                raise Conflict(ErrorCode.OUTBOX_DELIVERY_CONFLICT)
             return
         updated = event.model_copy(update={"delivered_at": delivered_at})
         self._transact((put_action(self._table_name, self._outbox_item(updated), payload(item)),))

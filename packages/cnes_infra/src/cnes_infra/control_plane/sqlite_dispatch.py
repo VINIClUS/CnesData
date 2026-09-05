@@ -5,6 +5,7 @@ from typing import Any
 
 from cnes_domain.control_plane.entities import RunDispatch
 from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
 
@@ -31,7 +32,7 @@ def validate_run_dispatch_bind(connection: Any, command: Any) -> RunDispatch | N
     if row is None:
         return None
     if row[0] != serialize_model(command):
-        raise Conflict("dispatch_bind_conflict")
+        raise Conflict(ErrorCode.DISPATCH_BIND_CONFLICT)
     return None if row[1] is None else deserialize_model(row[1], RunDispatch)
 
 
@@ -58,5 +59,5 @@ def validate_run_dispatch_finish(connection: Any, command: Any) -> RunDispatch |
     if row is None:
         return None
     if row[0] != serialize_model(command):
-        raise Conflict("dispatch_finish_conflict")
+        raise Conflict(ErrorCode.DISPATCH_FINISH_CONFLICT)
     return None if row[1] is None else deserialize_model(row[1], RunDispatch)

@@ -2,6 +2,7 @@
 
 from cnes_domain.control_plane.entities import Job, Run, RunUnit
 from cnes_domain.control_plane.enums import JobState, RunStage, RunState, RunUnitState
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.control_plane.errors import InvalidTransition
 
 _JOB_TRANSITIONS = {
@@ -76,20 +77,20 @@ def transition_run(run: Run, new_state: RunState) -> Run:
 
 def _validate_parent(unit: RunUnit, parent_run: Run | None) -> Run:
     if parent_run is None:
-        raise InvalidTransition("parent_run_required")
+        raise InvalidTransition(ErrorCode.PARENT_RUN_REQUIRED)
     if (unit.tenant_id, unit.run_id) != (parent_run.tenant_id, parent_run.run_id):
-        raise InvalidTransition("parent_run_mismatch")
+        raise InvalidTransition(ErrorCode.PARENT_RUN_MISMATCH)
     return parent_run
 
 
 def _validate_degradation(unit: RunUnit, parent_run: Run | None) -> None:
     parent = _validate_parent(unit, parent_run)
     if unit.stage is not RunStage.NORMALIZE:
-        raise InvalidTransition("degraded_normalize_required")
+        raise InvalidTransition(ErrorCode.DEGRADED_NORMALIZE_REQUIRED)
     if not unit.error_code:
-        raise InvalidTransition("degraded_error_required")
+        raise InvalidTransition(ErrorCode.DEGRADED_ERROR_REQUIRED)
     if unit.output_manifests:
-        raise InvalidTransition("degraded_outputs_forbidden")
+        raise InvalidTransition(ErrorCode.DEGRADED_OUTPUTS_FORBIDDEN)
     matching = (
         dependency
         for dependency in parent.dependencies
@@ -98,13 +99,13 @@ def _validate_degradation(unit: RunUnit, parent_run: Run | None) -> None:
     )
     dependency = next(matching, None)
     if dependency is None or dependency.required:
-        raise InvalidTransition("optional_dependency_required")
+        raise InvalidTransition(ErrorCode.OPTIONAL_DEPENDENCY_REQUIRED)
 
 
 def _validate_cancellation(unit: RunUnit, parent_run: Run | None) -> None:
     parent = _validate_parent(unit, parent_run)
     if parent.state is not RunState.CANCEL_REQUESTED:
-        raise InvalidTransition("parent_run_not_canceling")
+        raise InvalidTransition(ErrorCode.PARENT_RUN_NOT_CANCELING)
 
 
 def transition_run_unit(

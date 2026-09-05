@@ -15,6 +15,7 @@ from cnes_domain.control_plane.enums import (
     RunUnitState,
 )
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
 from cnes_infra.control_plane.sqlite_dispatch import (
     put_run_dispatch_bind,
@@ -58,15 +59,15 @@ def _validate_job_fence(store: Any, connection: Any, command: Any) -> Job:
     job = store.get_job_record(connection, command.tenant_id, command.job_id)
     agent = None if job is None else store.get_agent_record(connection, job.tenant_id, job.agent_id)
     if job is None or job.state is not JobState.LEASED:
-        raise LeaseLost("job_not_leased")
+        raise LeaseLost(ErrorCode.JOB_NOT_LEASED)
     if agent is None or agent.state is AgentState.REVOKED:
-        raise LeaseLost("agent_revoked")
+        raise LeaseLost(ErrorCode.AGENT_REVOKED)
     if job.lease_owner != command.owner:
-        raise LeaseLost("owner_mismatch")
+        raise LeaseLost(ErrorCode.OWNER_MISMATCH)
     if job.fencing_token != command.fencing_token:
-        raise FenceRejected("fence_mismatch")
+        raise FenceRejected(ErrorCode.FENCE_MISMATCH)
     if job.lease_until is None or job.lease_until <= store.now():
-        raise LeaseLost("lease_expired")
+        raise LeaseLost(ErrorCode.LEASE_EXPIRED)
     return job
 
 def claim_job(store: Any, command: ClaimJob) -> Job | None:
@@ -112,7 +113,7 @@ def _validate_manifest_identity(job: Job, manifest: Any) -> None:
         manifest.file_subtype, manifest.competencia, manifest.snapshot_mode,
     )
     if actual != expected:
-        raise Conflict("manifest_identity_mismatch")
+        raise Conflict(ErrorCode.MANIFEST_IDENTITY_MISMATCH)
 
 def complete_job(store: Any, command: CompleteJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
@@ -162,12 +163,12 @@ def cancel_job(store: Any, command: CancelJob, event: OutboxEvent) -> Job:
     with store.write_transaction() as connection:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
         if job is None:
-            raise Conflict("job_missing")
+            raise Conflict(ErrorCode.JOB_MISSING)
         if job.state is JobState.CANCEL_REQUESTED:
             validate_job_cancellation(connection, command, event)
             return job
         if job.state is not JobState.LEASED:
-            raise Conflict("job_not_leased")
+            raise Conflict(ErrorCode.JOB_NOT_LEASED)
         canceled = job.model_copy(update={"state": JobState.CANCEL_REQUESTED})
         store.put_outbox_event(connection, event, command.tenant_id)
         store.put_job_record(connection, canceled)
@@ -212,10 +213,10 @@ def put_run_units(store: Any, command: PutRunUnits) -> tuple[RunUnit, ...]:
             (command.tenant_id, command.run_id)).fetchone()
         if current:
             if row[0] != registry:
-                raise Conflict("units_conflict")
+                raise Conflict(ErrorCode.UNITS_CONFLICT)
             return current
         if run is None or run.state is not command.expected_run_state:
-            raise Conflict("run_state_conflict")
+            raise Conflict(ErrorCode.RUN_STATE_CONFLICT)
         for unit in canonical:
             _put_run_unit(connection, unit)
         connection.execute(
@@ -262,11 +263,11 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
         if run is None or run.state is not RunState.PROCESSING:
-            raise Conflict("parent_not_processing")
+            raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
         registered = {unit.unit_id for unit in _list_run_units(
             connection, command.tenant_id, command.run_id)}
         if any(unit_id not in registered for unit_id in command.unit_ids):
-            raise Conflict("dispatch_unit_missing")
+            raise Conflict(ErrorCode.DISPATCH_UNIT_MISSING)
         validate_run_dispatch_wave(connection, command)
         current = _get_dispatch(connection, command.tenant_id, command.run_id)
         same_wave = current is not None and current.wave_id == command.wave_id
@@ -280,7 +281,7 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
         live = current and current.state is not DispatchState.TERMINAL
         lease_live = current is not None and current.lease_until > command.now
         if _has_live_unit_lease(connection, command, current) or (live and lease_live):
-            raise Conflict("dispatch_live")
+            raise Conflict(ErrorCode.DISPATCH_LIVE)
         generation = 1 if current is None else current.generation + 1
         identity = "\x1f".join(
             (command.tenant_id, command.run_id, command.wave_id, str(generation), *command.unit_ids)
@@ -317,14 +318,14 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
             return replay
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
         if run is None or run.state is not RunState.PROCESSING:
-            raise Conflict("parent_not_processing")
+            raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
-            raise Conflict("dispatch_stale")
+            raise Conflict(ErrorCode.DISPATCH_STALE)
         if dispatch.lease_until <= command.now:
-            raise Conflict("dispatch_expired")
+            raise Conflict(ErrorCode.DISPATCH_EXPIRED)
         if dispatch.state is not DispatchState.RESERVED:
-            raise Conflict("dispatch_terminal")
+            raise Conflict(ErrorCode.DISPATCH_TERMINAL)
         started = dispatch.model_copy(
             update={
                 "state": DispatchState.STARTED,
@@ -342,9 +343,9 @@ def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
             return replay
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
-            raise Conflict("dispatch_stale")
+            raise Conflict(ErrorCode.DISPATCH_STALE)
         if dispatch.lease_until <= command.finished_at:
-            raise Conflict("dispatch_expired")
+            raise Conflict(ErrorCode.DISPATCH_EXPIRED)
         finished = dispatch.model_copy(
             update={"state": DispatchState.TERMINAL, "terminal_outcome": command.outcome}
         )
@@ -393,23 +394,23 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
     run = store.get_run_record(connection, command.tenant_id, command.run_id)
     dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
     if run is None or run.state is not RunState.PROCESSING:
-        raise LeaseLost("parent_not_processing")
+        raise LeaseLost(ErrorCode.PARENT_NOT_PROCESSING)
     if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
-        raise LeaseLost("dispatch_mismatch")
+        raise LeaseLost(ErrorCode.DISPATCH_MISMATCH)
     if dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTED}:
-        raise LeaseLost("dispatch_inactive")
+        raise LeaseLost(ErrorCode.DISPATCH_INACTIVE)
     if dispatch.lease_until <= store.now():
-        raise LeaseLost("dispatch_expired")
+        raise LeaseLost(ErrorCode.DISPATCH_EXPIRED)
     if unit is None or unit.state is not RunUnitState.LEASED:
-        raise LeaseLost("unit_not_leased")
+        raise LeaseLost(ErrorCode.UNIT_NOT_LEASED)
     if unit.dispatch_id != command.dispatch_id:
-        raise LeaseLost("unit_dispatch_mismatch")
+        raise LeaseLost(ErrorCode.UNIT_DISPATCH_MISMATCH)
     if unit.lease_owner != command.owner:
-        raise LeaseLost("owner_mismatch")
+        raise LeaseLost(ErrorCode.OWNER_MISMATCH)
     if unit.fencing_token != command.fencing_token:
-        raise FenceRejected("fence_mismatch")
+        raise FenceRejected(ErrorCode.FENCE_MISMATCH)
     if unit.lease_until is None or unit.lease_until <= store.now():
-        raise LeaseLost("lease_expired")
+        raise LeaseLost(ErrorCode.LEASE_EXPIRED)
     return unit, run
 
 def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> RunUnit:
@@ -481,7 +482,7 @@ def finalize_run_cancellation(
             validate_run_cancellation(connection, command, event)
             return run
         if run is None or run.state is not RunState.CANCEL_REQUESTED:
-            raise Conflict("run_not_canceling")
+            raise Conflict(ErrorCode.RUN_NOT_CANCELING)
         terminal = {
             RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED,
             RunUnitState.FAILED_FINAL, RunUnitState.CANCELED,

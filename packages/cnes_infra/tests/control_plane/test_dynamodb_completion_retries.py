@@ -9,6 +9,11 @@ from moto import mock_aws
 from cnes_domain.control_plane.commands import CompleteJob
 from cnes_domain.control_plane.enums import JobState, RunState
 from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.queries import (
+    LatestSucceededJobQuery,
+    RawIdentity,
+    RawManifestChainQuery,
+)
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_keys import item_key, run_entity_key
 from packages.cnes_infra.tests.contracts.clock import (
@@ -32,6 +37,7 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
 )
 
 type _DynamoContext = tuple[DynamoDBControlPlane, MutableClock]
+_IDENTITY = RawIdentity(_TENANT, "CNES", "ST", "2026-07")
 
 
 @pytest.fixture
@@ -72,7 +78,9 @@ def test_complete_aceita_modo_de_manifesto_diferente_do_solicitado(
         _event("job-completed"),
     )
     assert completed.state is JobState.SUCCEEDED
-    assert adapter.latest_succeeded_job(_TENANT, "agent-a", "CNES", "ST", "2026-07") == completed
+    assert adapter.query_latest_succeeded_job(
+        LatestSucceededJobQuery(_IDENTITY, "agent-a")
+    ) == completed
 
 
 def test_complete_tenta_tres_vezes_sem_mutar_em_contencao(
@@ -97,10 +105,11 @@ def test_complete_tenta_tres_vezes_sem_mutar_em_contencao(
     assert len(failing.transactions) == 3
     assert adapter.get_job(_TENANT, "job-a") == claimed
     assert adapter.get_outbox_event("job-completed") is None
-    assert adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 1) == ()
+    assert adapter.query_raw_manifest_chain(RawManifestChainQuery(_IDENTITY, 1)) == ()
 
 
-def test_complete_retorna_replay_apos_resposta_transacional_perdida(
+@pytest.mark.filterwarnings("error::DeprecationWarning")
+def test_complete_retorna_replay_apos_resposta_transacional_perdida_sem_consulta_legada(
     ctx: _DynamoContext,
 ) -> None:
     adapter, clock = ctx
@@ -112,10 +121,17 @@ def test_complete_retorna_replay_apos_resposta_transacional_perdida(
         fencing_token=claimed.fencing_token,
         manifest=_raw_record("snapshot-a", "agent-a", 1, clock.now()),
     )
-    adapter._client = ClientSpy(adapter._client, after_transaction=_lose_transaction_response)
+    adapter._client = spy = ClientSpy(adapter._client, after_transaction=_lose_transaction_response)
     completed = adapter.complete_job(command, _event("job-completed"))
     assert completed.state is JobState.SUCCEEDED
     assert adapter.get_job(_TENANT, "job-a") == completed
+    assert len(spy.transactions) == 1
+    latest_reads = [
+        request for name, request in spy.requests
+        if name == "get_item" and request["Key"]["sk"]["S"].startswith("LATEST_JOB#")
+    ]
+    assert len(latest_reads) == 2
+    assert all(request["ConsistentRead"] is True for request in latest_reads)
 
 
 def test_latest_job_preserva_marcador_mais_recente(ctx: _DynamoContext) -> None:
@@ -125,7 +141,7 @@ def test_latest_job_preserva_marcador_mais_recente(ctx: _DynamoContext) -> None:
     newest_manifest = _raw_record("base-agent-a", "agent-a", 1, clock.now())
     _complete_raw_job(adapter, clock, newest, newest_manifest)
     _complete_raw_job(adapter, clock, older, _raw_record("delta", "agent-a", 2, clock.now()))
-    latest = adapter.latest_succeeded_job(_TENANT, "agent-a", "CNES", "ST", "2026-07")
+    latest = adapter.query_latest_succeeded_job(LatestSucceededJobQuery(_IDENTITY, "agent-a"))
     assert latest is not None
     assert latest.job_id == newest.job_id
 

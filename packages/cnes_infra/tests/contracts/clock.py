@@ -28,6 +28,12 @@ from cnes_domain.control_plane.entities import (
 )
 from cnes_domain.control_plane.enums import AgentState, JobState, RunStage, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_domain.control_plane.queries import (
+    LatestSucceededJobQuery,
+    RawIdentity,
+    RawManifestChainQuery,
+)
 from cnes_domain.control_plane.transitions import transition_run
 
 _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
@@ -117,13 +123,14 @@ def _assert_unit_rejected(
 def _assert_job_rejected(
     adapter: Any, expected: type[Exception] | tuple[type[Exception], ...],
     action: Callable[[], Any]) -> None:
+    query = RawManifestChainQuery(RawIdentity(_TENANT, "CNES", "ST", "2026-07"), 10)
     before = (
         adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
-        adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10))
+        adapter.query_raw_manifest_chain(query))
     _expect_error(expected, action)
     after = (
         adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
-        adapter.list_raw_manifest_chain(_TENANT, "CNES", "ST", "2026-07", 10))
+        adapter.query_raw_manifest_chain(query))
     assert after == before
 
 
@@ -242,9 +249,10 @@ def _store_record(adapter: Any, record: RawManifestRecord, clock: MutableClock) 
         record.manifest_id, record.manifest_key
     )
     assert adapter.get_job(record.tenant_id, job.job_id) == completed
-    identity = (record.tenant_id, record.agent_id, record.source_type,
-                record.file_subtype, record.competencia)
-    assert adapter.latest_succeeded_job(*identity) == completed
+    identity = RawIdentity(record.tenant_id, record.source_type,
+                           record.file_subtype, record.competencia)
+    assert adapter.query_latest_succeeded_job(
+        LatestSucceededJobQuery(identity, record.agent_id)) == completed
     assert adapter.pending_outbox(100).count(event) == 1
 
 
@@ -391,7 +399,7 @@ class _HarnessState:
         existing = self.jobs.get(key)
         if existing is not None:
             if existing != job:
-                raise Conflict("job_conflict")
+                raise Conflict(ErrorCode.JOB_CONFLICT)
             return existing
         self.jobs[key] = job
         self.outbox[event.event_id] = event
@@ -400,21 +408,11 @@ class _HarnessState:
     def get_job(self, tenant_id: str, job_id: str) -> Any | None:
         return self.jobs.get((tenant_id, job_id))
 
-    def latest_succeeded_job(self, *args: str) -> Any | None:
-        tenant_id, agent_id, source_type, file_subtype, competencia = args
-        matches = [
-            job
-            for job in self.jobs.values()
-            if (job.tenant_id, job.agent_id, job.source_type, job.file_subtype, job.competencia)
-            == (tenant_id, agent_id, source_type, file_subtype, competencia)
-            and job.state.value == "SUCCEEDED"
-        ]
-        return max(matches, key=lambda job: (job.created_at, job.job_id), default=None)
 
     def cancel_job(self, command: Any, event: Any) -> Any:
         job = self.get_job(command.tenant_id, command.job_id)
         if job is None:
-            raise Conflict("job_missing")
+            raise Conflict(ErrorCode.JOB_MISSING)
         canceled = job.model_copy(update={"state": "CANCEL_REQUESTED"})
         self.jobs[(job.tenant_id, job.job_id)] = canceled
         self.outbox[event.event_id] = event
@@ -429,7 +427,7 @@ class _HarnessState:
     def transition_run(self, command: Any, event: Any) -> Any:
         run = self.get_run(command.tenant_id, command.run_id)
         if run is None or run.state is not command.expected_state:
-            raise Conflict("run_state_conflict")
+            raise Conflict(ErrorCode.RUN_STATE_CONFLICT)
         updated = transition_run(run, command.new_state).model_copy(
             update={"missing_sources": command.missing_sources}
         )

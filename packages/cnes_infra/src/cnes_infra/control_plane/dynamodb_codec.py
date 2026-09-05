@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from cnes_domain.control_plane.entities import ManifestRef, RawManifestRecord
 from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.dynamodb_keys import item_key, key_component, raw_partition, timestamp
 
 type Item = dict[str, dict[str, Any]]
@@ -177,16 +178,16 @@ def aggregate_replay(
     current, current_children = aggregate_items(client, table_name, base_key, child_key)
     if current is None:
         if current_children:
-            raise Conflict("run_dependency_conflict")
+            raise Conflict(ErrorCode.RUN_DEPENDENCY_CONFLICT)
         return False
     if current != base:
-        raise Conflict("run_conflict")
+        raise Conflict(ErrorCode.RUN_CONFLICT)
 
     def keyed(items: tuple[Item, ...]) -> dict[tuple[str, str], Item]:
         return {(item["pk"]["S"], item["sk"]["S"]): item for item in items}
 
     if keyed(current_children) != keyed(children):
-        raise Conflict("run_dependency_conflict")
+        raise Conflict(ErrorCode.RUN_DEPENDENCY_CONFLICT)
     return True
 
 
@@ -274,7 +275,7 @@ def _waiting_children(
     )
     children = tuple(response.get("Items", ()))
     if len(children) > remaining:
-        raise Conflict("transaction_limit")
+        raise Conflict(ErrorCode.TRANSACTION_LIMIT)
     return children
 
 
@@ -311,13 +312,13 @@ def _repair_descendants(
                 TableName=table_name, Key=item_key(*key), ConsistentRead=True
             ).get("Item")
             if ancestry is None:
-                raise Conflict("raw_ancestry_conflict")
+                raise Conflict(ErrorCode.RAW_ANCESTRY_CONFLICT)
             ref = {"manifest_id": child.manifest_id, "manifest_key": child.manifest_key}
             child_chain = (*chain, ref)
             if "chain" not in ancestry:
                 actions.append(_chain_action(table_name, ancestry, child_chain))
             elif tuple(json.loads(ancestry["chain"]["S"])) != child_chain:
-                raise Conflict("raw_ancestry_conflict")
+                raise Conflict(ErrorCode.RAW_ANCESTRY_CONFLICT)
             pending.append((child, child_chain))
     return tuple(actions), tuple(endpoints)
 
@@ -439,10 +440,10 @@ def _action_key(action: Action) -> tuple[str, str]:
 
 def _validate_actions(actions: tuple[Action, ...]) -> None:
     if len(actions) > 100:
-        raise Conflict("transaction_limit")
+        raise Conflict(ErrorCode.TRANSACTION_LIMIT)
     keys = tuple(_action_key(action) for action in actions)
     if len(set(keys)) != len(keys):
-        raise Conflict("duplicate_transaction_key")
+        raise Conflict(ErrorCode.DUPLICATE_TRANSACTION_KEY)
 
 
 def execute_transaction(
@@ -464,5 +465,5 @@ def execute_transaction(
             "ConditionalCheckFailed"
         }
         if conditional:
-            raise Conflict("transaction_conflict") from error
+            raise Conflict(ErrorCode.TRANSACTION_CONFLICT) from error
         raise

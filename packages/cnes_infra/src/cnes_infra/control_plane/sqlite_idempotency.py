@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from cnes_domain.control_plane.commands import IdempotencyOutcome
 from cnes_domain.control_plane.entities import IdempotencyRecord
 from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ def begin_idempotency(store: Any, command: BeginIdempotency) -> IdempotencyOutco
         current = None if row is None else deserialize_model(row[0], IdempotencyRecord)
         if current is not None and current.expires_at > command.now:
             if current.request_hash != command.request_hash:
-                raise Conflict("idempotency_hash_conflict")
+                raise Conflict(ErrorCode.IDEMPOTENCY_HASH_CONFLICT)
             return IdempotencyOutcome(record=current, created=False)
         record = IdempotencyRecord(
             tenant_id=command.tenant_id,

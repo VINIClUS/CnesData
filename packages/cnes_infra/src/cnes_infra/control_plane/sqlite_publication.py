@@ -16,6 +16,7 @@ from cnes_domain.control_plane.entities import (
 )
 from cnes_domain.control_plane.enums import AccessRequestState, JobState, RunState
 from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.control_plane.transitions import transition_run as apply_run_transition
 from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
@@ -31,54 +32,28 @@ if TYPE_CHECKING:
 
     from cnes_domain.control_plane.commands import TransitionRun
     from cnes_domain.control_plane.entities import OutboxEvent, Run
+    from cnes_domain.control_plane.queries import (
+        LatestSucceededJobQuery,
+        RawManifestChainQuery,
+        WaitingRunsForDependencyQuery,
+    )
 
-LATEST_JOB_FIELDS = (
-    "tenant_id",
-    "agent_id",
-    "source_type",
-    "file_subtype",
-    "competencia",
-)
-DEPENDENCY_FIELDS = ("tenant_id", "source_type", "file_subtype", "competencia", "limit")
 _HEAD_SCAN_PAGES = 4
 
 
-def normalize_long_call(
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-    fields: tuple[str, ...],
-    default_limit: int | None = None,
-) -> tuple[Any, ...]:
-    if len(args) > len(fields):
-        raise TypeError(f"too_many_arguments={len(args)}")
-    values = dict(zip(fields, args, strict=False))
-    for name, value in kwargs.items():
-        if name not in fields:
-            raise TypeError(f"unexpected_argument={name}")
-        if name in values:
-            raise TypeError(f"duplicate_argument={name}")
-        values[name] = value
-    if default_limit is not None and "limit" not in values:
-        values["limit"] = default_limit
-    missing = tuple(name for name in fields if name not in values)
-    if missing:
-        raise TypeError(f"missing_arguments={','.join(missing)}")
-    return tuple(values[name] for name in fields)
-
-
-def latest_succeeded_job(store: Any, values: tuple[str, ...]) -> Job | None:
-    tenant_id, agent_id, source_type, file_subtype, competencia = values
+def query_latest_succeeded_job(store: Any, query: LatestSucceededJobQuery) -> Job | None:
+    identity = query.identity
     with store.read_connection() as connection:
         row = connection.execute(
             "SELECT data FROM jobs WHERE tenant_id = ? AND agent_id = ? "
             "AND source_type = ? AND file_subtype = ? AND competencia = ? "
             "AND state = ? ORDER BY created_at DESC, job_id DESC LIMIT 1",
             (
-                tenant_id,
-                agent_id,
-                source_type,
-                file_subtype,
-                competencia,
+                identity.tenant_id,
+                query.agent_id,
+                identity.source_type,
+                identity.file_subtype,
+                identity.competencia,
                 JobState.SUCCEEDED.value,
             ),
         ).fetchone()
@@ -164,11 +139,13 @@ def _select_raw_chain(
     return ()
 
 
-def list_raw_manifest_chain(store: Any, values: tuple[Any, ...]) -> tuple[ManifestRef, ...]:
-    tenant_id, source_type, file_subtype, competencia, limit = values
-    identity = (tenant_id, source_type, file_subtype, competencia)
+def query_raw_manifest_chain(store: Any, query: RawManifestChainQuery) -> tuple[ManifestRef, ...]:
+    if query.limit <= 0:
+        return ()
+    raw = query.identity
+    identity = (raw.tenant_id, raw.source_type, raw.file_subtype, raw.competencia)
     with store.read_connection() as connection:
-        selected = _select_raw_chain(connection, identity, limit)
+        selected = _select_raw_chain(connection, identity, query.limit)
     return tuple(
         ManifestRef(manifest_id=item.manifest_id, manifest_key=item.manifest_key)
         for item in selected
@@ -185,8 +162,19 @@ def get_run(store: Any, tenant_id: str, run_id: str) -> Run | None:
         return store.get_run_record(connection, tenant_id, run_id)
 
 
-def list_waiting_runs(store: Any, values: tuple[Any, ...]) -> tuple[Run, ...]:
-    tenant_id, source_type, file_subtype, competencia, limit = values
+def query_waiting_runs_for_dependency(
+    store: Any, query: WaitingRunsForDependencyQuery
+) -> tuple[Run, ...]:
+    if query.limit <= 0:
+        return ()
+    return fetch_waiting_runs_for_dependency(store, query)
+
+
+def fetch_waiting_runs_for_dependency(
+    store: Any, query: WaitingRunsForDependencyQuery
+) -> tuple[Run, ...]:
+    # Legacy SQLite queries preserve negative LIMIT as an unbounded result.
+    identity = query.identity
     with store.read_connection() as connection:
         rows = connection.execute(
             "SELECT r.data FROM runs r JOIN run_dependencies d "
@@ -195,12 +183,12 @@ def list_waiting_runs(store: Any, values: tuple[Any, ...]) -> tuple[Run, ...]:
             "AND r.competencia = ? AND r.state = ? "
             "ORDER BY r.created_at, r.run_id LIMIT ?",
             (
-                tenant_id,
-                source_type,
-                file_subtype,
-                competencia,
+                identity.tenant_id,
+                identity.source_type,
+                identity.file_subtype,
+                identity.competencia,
                 RunState.WAITING_INPUTS.value,
-                limit,
+                query.limit,
             ),
         ).fetchall()
     return tuple(store.decode_run(row[0]) for row in rows)
@@ -229,7 +217,7 @@ def transition_run(store: Any, command: TransitionRun, event: OutboxEvent) -> Ru
         if run is not None and validate_run_transition(connection, command, event):
             return run
         if run is None or run.state is not command.expected_state:
-            raise Conflict("run_state_conflict")
+            raise Conflict(ErrorCode.RUN_STATE_CONFLICT)
         updated = apply_run_transition(run, command.new_state).model_copy(
             update={"missing_sources": command.missing_sources}
         )
@@ -329,15 +317,15 @@ def _validate_publication_replay(
     permit = command.publication_permit.model_copy(update={"binding_context": None})
     command = command.model_copy(update={"publication_permit": permit})
     if canonical != command or not terminal_matches:
-        raise Conflict("publication_replay_conflict")
+        raise Conflict(ErrorCode.PUBLICATION_REPLAY_CONFLICT)
     if row[1] is None:
-        raise Conflict("publication_replay_response_missing")
+        raise Conflict(ErrorCode.PUBLICATION_REPLAY_RESPONSE_MISSING)
     return deserialize_model(row[1], DatasetPointer)
 
 
 def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
     if command.pointer_name != "current":
-        raise Conflict("pointer_name_not_current")
+        raise Conflict(ErrorCode.POINTER_NAME_NOT_CURRENT)
     version = command.version
     with store.write_transaction() as connection:
         current_version = _get_version(
@@ -348,18 +336,18 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
         )
         if current_version is not None:
             if current_version != version:
-                raise Conflict("version_immutable")
+                raise Conflict(ErrorCode.VERSION_IMMUTABLE)
             return _validate_publication_replay(store, connection, command, pointer)
         actual = None if pointer is None else pointer.version_id
         if actual != command.expected_version_id:
-            raise Conflict("pointer_cas")
+            raise Conflict(ErrorCode.POINTER_CAS)
         run = store.get_run_record(connection, version.tenant_id, version.run_id)
         if run is None or run.state is not RunState.PUBLISHING:
-            raise Conflict("run_not_publishing")
+            raise Conflict(ErrorCode.RUN_NOT_PUBLISHING)
         if run.dataset_name != version.dataset_name:
-            raise Conflict("run_dataset_mismatch")
+            raise Conflict(ErrorCode.RUN_DATASET_MISMATCH)
         if version.run_manifest_key.split("/")[2] != run.competencia:
-            raise Conflict("run_competencia_mismatch")
+            raise Conflict(ErrorCode.RUN_COMPETENCIA_MISMATCH)
         updated = run.model_copy(
             update={"state": command.final_state, "missing_sources": command.missing_sources}
         )
@@ -407,7 +395,7 @@ def get_access_request(store: Any, tenant_id: str, request_id: str) -> AccessReq
 def put_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -> None:
     with store.write_transaction() as connection:
         if request.state is not AccessRequestState.PENDING:
-            raise Conflict("access_request_creation_state")
+            raise Conflict(ErrorCode.ACCESS_REQUEST_CREATION_STATE)
         current = _get_access_request(connection, request.tenant_id, request.request_id)
         if current is not None:
             row = connection.execute(
@@ -415,9 +403,9 @@ def put_access_request(store: Any, request: AccessRequest, event: OutboxEvent) -
                 "WHERE tenant_id = ? AND request_id = ?",
                 (request.tenant_id, request.request_id)).fetchone()
             if row is None or row[0] != serialize_model(request):
-                raise Conflict("access_request_conflict")
+                raise Conflict(ErrorCode.ACCESS_REQUEST_CONFLICT)
             if row[1] != serialize_model(event):
-                raise Conflict("access_request_creation_conflict")
+                raise Conflict(ErrorCode.ACCESS_REQUEST_CREATION_CONFLICT)
             return
         store.put_outbox_event(connection, event, request.tenant_id)
         _put_access_request(connection, request, event)
@@ -427,17 +415,17 @@ def decide_access_request(store: Any, request: AccessRequest, event: OutboxEvent
     with store.write_transaction() as connection:
         current = _get_access_request(connection, request.tenant_id, request.request_id)
         if current is None:
-            raise Conflict("access_request_state_conflict")
+            raise Conflict(ErrorCode.ACCESS_REQUEST_STATE_CONFLICT)
         identity = (current.tenant_id, current.request_id, current.user_id)
         if identity != (request.tenant_id, request.request_id, request.user_id):
-            raise Conflict("access_request_identity_conflict")
+            raise Conflict(ErrorCode.ACCESS_REQUEST_IDENTITY_CONFLICT)
         if request.state not in {AccessRequestState.APPROVED, AccessRequestState.REJECTED}:
-            raise Conflict("access_request_decision_state")
+            raise Conflict(ErrorCode.ACCESS_REQUEST_DECISION_STATE)
         if current == request:
             validate_access_request_decision(connection, request, event)
             return request
         if current.state is not AccessRequestState.PENDING:
-            raise Conflict("access_request_state_conflict")
+            raise Conflict(ErrorCode.ACCESS_REQUEST_STATE_CONFLICT)
         store.put_outbox_event(connection, event, request.tenant_id)
         _put_access_request(connection, request, event)
         put_access_request_decision(connection, request, event)
