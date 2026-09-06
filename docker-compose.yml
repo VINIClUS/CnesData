@@ -232,6 +232,34 @@ services:
     - ./docker-compose.keycloak:/opt/keycloak/data/import:ro
     profiles:
     - dev
+  dynamodb-local:
+    image: amazon/dynamodb-local:3.3.1@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab
+    command: -jar DynamoDBLocal.jar -inMemory -sharedDb
+    ports:
+    - "127.0.0.1:18000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:8000 >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    profiles:
+    - aws-test
+  localstack:
+    image: localstack/localstack:4.11.1@sha256:3071c9c72a1e9dbc23ad33540617ad7825ffeba80a8f421eff798b97850f9de5
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      SERVICES: s3
+    ports:
+    - "127.0.0.1:4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    profiles:
+    - aws-test
 volumes:
   pgdata_test: null
   minio_data: null

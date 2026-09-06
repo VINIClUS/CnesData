@@ -6,6 +6,7 @@ on:
     branches: [main, develop]
     paths:
       - 'packages/**'
+      - 'tests/**'
       - 'apps/central_api/**'
       - 'apps/data_processor/**'
       - 'apps/cnes_db_migrator/**'
@@ -14,11 +15,14 @@ on:
       - 'docs/contracts/openapi.json'
       - 'docs/contracts/schemas/**'
       - '.github/workflows/ci.yml'
+      - 'docker-compose.yml'
       - 'scripts/ci_python_gate.sh'
+      - 'scripts/ci_phase2_adapters.sh'
   push:
     branches: [main, develop]
     paths:
       - 'packages/**'
+      - 'tests/**'
       - 'apps/central_api/**'
       - 'apps/data_processor/**'
       - 'apps/cnes_db_migrator/**'
@@ -27,7 +31,9 @@ on:
       - 'docs/contracts/openapi.json'
       - 'docs/contracts/schemas/**'
       - '.github/workflows/ci.yml'
+      - 'docker-compose.yml'
       - 'scripts/ci_python_gate.sh'
+      - 'scripts/ci_phase2_adapters.sh'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -73,3 +79,6 @@ jobs:
 
       - name: Run Python gate
         run: bash scripts/ci_python_gate.sh
+
+      - name: Run Phase 2 adapter conformance
+        run: bash scripts/ci_phase2_adapters.sh

@@ -43,6 +43,9 @@ markers = [
     "chaos: fault injection resilience tests",
     "chaos_infra: testcontainers infra chaos tests",
     "negative: hypothesis-driven negative input tests",
+    "local_profile: matriz integrada dos adapters locais Phase 2",
+    "dynamodb_local: testes que requerem DynamoDB Local",
+    "s3_integration: testes que requerem S3 compatível",
 ]
 
 [tool.ruff]
