@@ -95,6 +95,23 @@ def _assert_provisioned_resources(dynamodb: Any, s3: Any) -> None:
     assert lock["ObjectLockConfiguration"]["ObjectLockEnabled"] == "Enabled"
 
 
+def _publish_object(store: Any) -> Any:
+    body = b"phase-2-aws"
+    digest = sha256(body).hexdigest()
+    store.put("staging/job-aws.parquet", BytesIO(body), digest)
+    published = store.promote(
+        "staging/job-aws.parquet", "raw/354130/job-aws.parquet", digest
+    )
+    assert store.put("raw/354130/job-aws.parquet", BytesIO(body), digest) == published
+    with pytest.raises(Conflict, match="object=immutable"):
+        store.put(
+            "raw/354130/job-aws.parquet",
+            BytesIO(b"divergente"),
+            sha256(b"divergente").hexdigest(),
+        )
+    return published
+
+
 @pytest.mark.dynamodb_local
 @pytest.mark.s3_integration
 def test_replay_integrado_preserva_objetos_e_evidencia_de_retencao() -> None:
@@ -111,20 +128,7 @@ def test_replay_integrado_preserva_objetos_e_evidencia_de_retencao() -> None:
     created = control_plane.create_job(_job(), _event())
     assert control_plane.create_job(_job(), _event()) == created
 
-    body = b"phase-2-aws"
-    digest = sha256(body).hexdigest()
-    store = S3ObjectStore(s3, OBJECT_BUCKET)
-    store.put("staging/job-aws.parquet", BytesIO(body), digest)
-    published = store.promote(
-        "staging/job-aws.parquet", "raw/354130/job-aws.parquet", digest
-    )
-    assert store.put("raw/354130/job-aws.parquet", BytesIO(body), digest) == published
-    with pytest.raises(Conflict, match="object=immutable"):
-        store.put(
-            "raw/354130/job-aws.parquet",
-            BytesIO(b"divergente"),
-            sha256(b"divergente").hexdigest(),
-        )
+    published = _publish_object(S3ObjectStore(s3, OBJECT_BUCKET))
 
     sink = S3ObjectLockAuditSink(s3, AUDIT_BUCKET, retention_days=30)
     first = dispatch_once(_InterruptedControlPlane(control_plane), sink, DELIVERED_AT)
