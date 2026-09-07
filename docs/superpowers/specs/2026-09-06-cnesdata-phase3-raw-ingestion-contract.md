@@ -108,6 +108,13 @@ aplicação não concedem identidade. Certificado ausente ou não verificável r
 ausente ou revogado, tenant divergente ou fingerprint divergente recebe `403`, antes de acessar
 job ou objeto.
 
+As rotas raw só podem ser expostas atrás de terminador mTLS confiável que valide posse da chave
+privada e a cadeia contra a CA configurada. O terminador remove qualquer `X-SSL-Client-*` recebido
+do cliente e sobrescreve esses headers com o resultado da própria sessão TLS. O backend Uvicorn
+fica em rede privada, sem porta publicada ou caminho alternativo do cliente até os headers
+confiáveis. Parser de certificado baseado em headers não constitui autenticação fora dessa
+fronteira.
+
 `EDGE_JOB_LEASE_SECONDS` é 300. Claim, heartbeat, upload e manifesto sempre revalidam job, owner,
 lease e fencing token quando o job ainda está vivo. O PUT usa streaming Starlette, spool com
 limiar de 8 MiB em memória e limite inicial de 1 GiB. O corpo inteiro nunca é retido em memória.

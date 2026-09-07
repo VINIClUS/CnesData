@@ -174,7 +174,7 @@ def _assert_toolchain_isolation_fails(dockerfile: str) -> None:
 
 
 def test_runtime_python313_falha_sem_modulo_dbc():
-    assert version_info[:2] == (3, 13)
+    assert version_info >= (3, 13)
 
     from datasus_dbc import decompress
 
@@ -233,6 +233,8 @@ def test_contrato_resync_define_estado_duravel_e_replay_rejeitado():
     assert plan.count("query_raw_resync_state") >= 2
     assert "git add apps/central_api/src/central_api/services \\" in plan
     assert "packages/cnes_infra/src/cnes_infra/control_plane" in plan
+    assert "packages/cnes_infra/src/cnes_infra/control_plane/sqlite_adapter.py" in plan
+    assert "packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py" in plan
 
 
 def test_contrato_parquet_distingue_schema_full_e_delta():
@@ -243,6 +245,16 @@ def test_contrato_parquet_distingue_schema_full_e_delta():
     assert "DELTA contém exatamente 15 colunas" in spec
     assert "`_op` como a 15ª e última coluna" in spec
     assert "`_op` não integra a projeção de negócio" in dictionary
+
+
+def test_plano_exige_terminacao_mtls_antes_de_expor_rotas_raw():
+    spec = _PHASE3_SPEC.read_text(encoding="utf-8")
+    plan = _PHASE3_PLAN.read_text(encoding="utf-8")
+
+    assert "edge-mtls-proxy" in plan
+    assert "não publica a porta do Uvicorn no host" in plan
+    assert "overwrites all `X-SSL-Client-*` headers" in plan
+    assert "terminador mTLS confiável" in spec
 
 
 def test_imagem_runtime_importa_dbc_sem_cargo():

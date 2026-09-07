@@ -1400,8 +1400,10 @@ Tasks CND-030–034 consume the normative contract at
 - Modify: `packages/cnes_domain/tests/control_plane/test_entities.py`
 - Modify: `packages/cnes_domain/tests/control_plane/test_queries.py`
 - Modify: `packages/cnes_infra/src/cnes_infra/control_plane/sqlite_claims.py`
+- Modify: `packages/cnes_infra/src/cnes_infra/control_plane/sqlite_adapter.py`
 - Modify: `packages/cnes_infra/src/cnes_infra/control_plane/sqlite_schema.py`
 - Modify: `packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_claims.py`
+- Modify: `packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py`
 - Modify: `packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_keys.py`
 - Modify: `packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_queries.py`
 - Modify: `packages/cnes_infra/tests/contracts/control_plane_raw_contract.py`
@@ -1522,8 +1524,10 @@ git add apps/central_api/src/central_api/services \
   packages/cnes_domain/tests/control_plane/test_entities.py \
   packages/cnes_domain/tests/control_plane/test_queries.py \
   packages/cnes_infra/src/cnes_infra/control_plane/sqlite_claims.py \
+  packages/cnes_infra/src/cnes_infra/control_plane/sqlite_adapter.py \
   packages/cnes_infra/src/cnes_infra/control_plane/sqlite_schema.py \
   packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_claims.py \
+  packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py \
   packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_keys.py \
   packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_queries.py \
   packages/cnes_infra/tests/contracts/control_plane_raw_contract.py \
@@ -1711,6 +1715,8 @@ git commit -m "feat(ingestion): add DATASUS CNES raw adapter"
   `RawManifestSubmission(job_id, fencing_token, manifest)` returns
   `RawManifestResponse(accepted, manifest_id, manifest_sha256, full_resync_required, reason)`.
   `RawUploadService` receives authenticated identity, canonical job/fence/key and an async stream.
+- Produces no public listener or global route composition. These routes remain unmounted until
+  CND-034 installs and proves the trusted mTLS boundary.
 
 - [ ] **Step 1: Write failing tenant/fence/resync route tests**
 
@@ -1749,6 +1755,8 @@ First write and identical replay return `200`, divergence `409`, overflow past 1
 wrong media type `415`. Never call `request.body()`. Manifest registration builds
 `RegisterRawManifest` from authenticated identity and explicit submission job/fence; accepted
 responses are `200`, while every resync reason maps to `409` with the complete typed response.
+Focused tests override the verified-identity dependency directly; request headers alone never
+manufacture an authenticated identity. CND-031 does not expose the routers in `app.py`.
 
 - [ ] **Step 4: Verify route coverage**
 
@@ -1782,12 +1790,16 @@ git commit -m "feat(api): expose target raw ingestion protocol"
 ### Task 20: CND-034 — End-to-end raw ingestion and Phase 3 serial integration
 
 **Files:**
+- Create: `apps/central_api/nginx/edge-mtls.conf`
 - Create: `tests/integration/test_local_raw_ingestion.py`
+- Create: `tests/integration/test_local_edge_mtls.py`
 - Create: `tests/integration/test_national_raw_ingestion.py`
 - Create: `apps/central_api/src/central_api/services/national_ingestion.py`
 - Create: `apps/central_api/tests/services/test_national_ingestion.py`
 - Modify: `apps/central_api/src/central_api/app.py`
 - Modify: `apps/central_api/src/central_api/deps.py`
+- Modify: `.env.example`
+- Modify: `docker-compose.yml`
 - Modify: `packages/cnes_infra/src/cnes_infra/ingestion/__init__.py`
 - Modify: `packages/cnes_contracts/src/cnes_contracts/__init__.py`
 - Modify: `packages/cnes_contracts/src/cnes_contracts/export.py`
@@ -1807,7 +1819,7 @@ git commit -m "feat(api): expose target raw ingestion protocol"
 - Produces: `NationalRefreshRequest(tenant_id, competencia, snapshot_id, idempotency_key)`;
   `NationalIngestionService.refresh(request) -> RawAcceptance`; one local Protocol-typed graph;
   generated Python/Go contracts for all four endpoints; restart/replay/resync evidence for local
-  FULL/DELTA and centrally claimed DATASUS PF ingestion.
+  FULL/DELTA and centrally claimed DATASUS PF ingestion; and the `edge-mtls-proxy` trust boundary.
 
 - [ ] **Step 1: Write the failing end-to-end test**
 
@@ -1831,6 +1843,11 @@ overwrites, typed `409` scopes durable `force_full` to one source key, and only 
 FULL consumes it without `_op`. Assert raw acceptance never changes `DatasetPointer`, normal
 national tests use a fake transport, and `PROFILE=local` constructs no PostgreSQL, MinIO or GCP.
 
+Add a real TLS integration test that generates an ephemeral CA/server/client certificate set,
+starts the Compose boundary, and proves: no client certificate is rejected; spoofed
+`X-SSL-Client-*` headers without a client certificate are rejected; a valid client reaches the
+route with terminator-derived identity; and `127.0.0.1:8000` is unreachable from the host.
+
 - [ ] **Step 2: Prove composition and generated client are stale**
 
 Run: `uv run pytest tests/integration/test_local_raw_ingestion.py -m local_profile -q && cd apps/dump_agent_go && go test ./internal/apiclient`
@@ -1852,9 +1869,18 @@ constructs PostgreSQL, MinIO, GCP or AWS adapters.
 The Go adapter sends its durable envelope as the exact `RawManifestSubmission(job_id,
 fencing_token,manifest)` and derives neither job nor fence from mutable process state during retry.
 
+Add `edge-mtls-proxy` as the only host-published API endpoint. Its nginx config requires a client
+certificate for `/api/v1/edge/` and validates it against the configured CA. It strips and
+overwrites all `X-SSL-Client-*` headers with `$ssl_client_verify` and
+`$ssl_client_escaped_cert`, then proxies to the private backend.
+`central-api` não publica a porta do Uvicorn no host. It uses `expose` on a private Compose
+network. Certificate/key/CA paths come from environment-mounted files; no private key is
+committed. Health checks run inside the trust boundary. Do not include CND-031 routers unless this
+proxy configuration and the direct-access test are present.
+
 - [ ] **Step 4: Run the Phase 3 gate**
 
-Run: `uv run pytest tests/integration/test_local_raw_ingestion.py tests/integration/test_national_raw_ingestion.py apps/central_api/tests/routes/test_raw_* apps/central_api/tests/services/test_national_ingestion.py -m local_profile -q && uv run ruff check apps/central_api packages/cnes_infra && cd apps/dump_agent_go && go test -race -count=1 ./... && cd ../web_dashboard && bun run codegen`
+Run: `uv run pytest tests/integration/test_local_raw_ingestion.py tests/integration/test_local_edge_mtls.py tests/integration/test_national_raw_ingestion.py apps/central_api/tests/routes/test_raw_* apps/central_api/tests/services/test_national_ingestion.py -m local_profile -q && uv run ruff check apps/central_api packages/cnes_infra && cd apps/dump_agent_go && go test -race -count=1 ./... && cd ../web_dashboard && bun run codegen`
 
 Expected: PASS; generated artifacts have no unstaged drift after rerunning their generators.
 
@@ -1862,7 +1888,9 @@ Expected: PASS; generated artifacts have no unstaged drift after rerunning their
 
 ```bash
 git add tests/integration/test_local_raw_ingestion.py \
+  tests/integration/test_local_edge_mtls.py \
   tests/integration/test_national_raw_ingestion.py \
+  apps/central_api/nginx/edge-mtls.conf .env.example docker-compose.yml \
   apps/central_api/src/central_api/app.py apps/central_api/src/central_api/deps.py \
   apps/central_api/src/central_api/services/national_ingestion.py \
   apps/central_api/tests/services/test_national_ingestion.py \
