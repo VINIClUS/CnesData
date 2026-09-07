@@ -1378,14 +1378,28 @@ Tasks CND-030–034 consume the normative contract at
 - Create: `apps/central_api/src/central_api/services/delta_policy.py`
 - Create: `apps/central_api/tests/services/test_raw_ingestion.py`
 - Create: `apps/central_api/tests/services/test_delta_policy.py`
-- Modify: none
+- Modify: `packages/cnes_domain/src/cnes_domain/control_plane/commands.py`
+- Modify: `packages/cnes_domain/src/cnes_domain/control_plane/entities.py`
+- Modify: `packages/cnes_domain/src/cnes_domain/control_plane/queries.py`
+- Modify: `packages/cnes_domain/src/cnes_domain/ports/control_plane.py`
+- Modify: `packages/cnes_domain/tests/control_plane/test_entities.py`
+- Modify: `packages/cnes_domain/tests/control_plane/test_queries.py`
+- Modify: `packages/cnes_infra/src/cnes_infra/control_plane/sqlite_claims.py`
+- Modify: `packages/cnes_infra/src/cnes_infra/control_plane/sqlite_schema.py`
+- Modify: `packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_claims.py`
+- Modify: `packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_keys.py`
+- Modify: `packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_queries.py`
+- Modify: `packages/cnes_infra/tests/contracts/control_plane_raw_contract.py`
+- Modify: `packages/cnes_infra/tests/control_plane/test_sqlite_adapter.py`
+- Modify: `packages/cnes_infra/tests/control_plane/test_dynamodb_adapter.py`
 
 **Interfaces:**
 - Consumes: the CND-029 normative contract, `RawManifest`, `manifest_sha256`, `ObjectStorePort`,
   `RawManifestRecord`, `ControlPlanePort.get_job/complete_job/fail_job`, and only the typed raw
-  reads `TypedRawQueryPort.query_latest_succeeded_job(LatestSucceededJobQuery)` and
-  `query_raw_manifest_chain(RawManifestChainQuery(limit=31))` built with `RawIdentity`. Deprecated
-  positional `latest_succeeded_job` and `list_raw_manifest_chain` are forbidden.
+  reads `TypedRawQueryPort.query_latest_succeeded_job(LatestSucceededJobQuery)`,
+  `query_raw_manifest_chain(RawManifestChainQuery(limit=31))`, and
+  `query_raw_resync_state(RawResyncStateQuery)` built with `RawIdentity`. Deprecated positional
+  `latest_succeeded_job` and `list_raw_manifest_chain` are forbidden.
 - Produces: `ResyncReason(StrEnum)` in exact order `AGENT_RESYNC_REQUIRED`, `BASE_UNKNOWN`,
   `SEQUENCE_GAP`, `HASH_CHAIN_MISMATCH`, `SCHEMA_INCOMPATIBLE`, `BASE_TOO_OLD`,
   `CHAIN_TOO_LONG`; frozen `RawAcceptance(accepted: bool, manifest_id: str,
@@ -1394,6 +1408,12 @@ Tasks CND-030–034 consume the normative contract at
   fencing_token: int, manifest: RawManifest, manifest_bytes: bytes, now: datetime)`; `DeltaPolicy`
   with the frozen seven-day/30-delta ceilings; and
   `RawIngestionService.register(command) -> RawAcceptance`.
+- Extends the control-plane contract with `RawResyncState`, keyed by exact tenant, agent, source,
+  subtype, and competence; `RawResyncStateQuery(identity, agent_id)`; and nullable
+  `rejected_manifest_sha256` on `FailJob` and `Job`. A `RAW_RESYNC_*` final failure requires the
+  hash, stores it on the failed job, and creates or preserves the marker atomically with its
+  outbox event. Completing an accepted FULL removes that marker in the same transaction as job,
+  raw index, and acceptance event. Other failures and completions never clear it.
 
 - [ ] **Step 1: Write failing gap/age/hash tests**
 
@@ -1438,8 +1458,9 @@ requested mode, and canonical bytes before branching on state. An authenticated 
 resync `FAILED_FINAL` replay follows a read-only terminal path before live lease/owner/fence
 validation, because terminal jobs have cleared leases. `SUCCEEDED` requires its stored result,
 chain, data object, sidecar and canonical hash to match. `FAILED_FINAL` with
-`RAW_RESYNC_<REASON>` requires the same authenticated identity and canonical manifest hash that
-produced the rejection. Both return the original response; divergence never mutates.
+`RAW_RESYNC_<REASON>` requires the same authenticated identity and canonical manifest hash as the
+job's stored `rejected_manifest_sha256`. Both return the original response; missing or divergent
+rejection hashes never mutate.
 
 Only a new registration requires `LEASED`, exact owner, unexpired lease and current fence. Before
 loading DELTA history or evaluating any policy reason, require the exact canonical data key
@@ -1447,15 +1468,19 @@ loading DELTA history or evaluating any policy reason, require the exact canonic
 require its stat SHA-256 and size to equal the manifest. Key, existence, hash, or size failure
 returns without job, chain-index, outbox, sidecar, or dataset-pointer mutation.
 
-Only after that object validation may DELTA load history through `LatestSucceededJobQuery` and
-`RawManifestChainQuery(limit=31)` and evaluate every reason in the frozen order. A valid policy
-rejection atomically calls `fail_job` to record `FAILED_FINAL`, `RAW_RESYNC_<REASON>` and one
-deterministic `raw.manifest.resync_required`; it creates no sidecar. An accepted registration then
-writes the immutable manifest JSON key
+Only after that object validation may DELTA load `RawResyncStateQuery`, history through
+`LatestSucceededJobQuery` and `RawManifestChainQuery(limit=31)`, and evaluate every reason in the
+frozen order. An existing exact marker is the sole predicate for `AGENT_RESYNC_REQUIRED`. A valid
+policy rejection atomically calls `fail_job` to record `FAILED_FINAL`,
+`RAW_RESYNC_<REASON>`, the rejected canonical hash, the durable marker, and one deterministic
+`raw.manifest.resync_required`; it creates no sidecar. An accepted registration then writes the
+immutable manifest JSON key
 `raw/<tenant>/<source>/<competencia>/<snapshot_id>/manifest.json`. Build the exact
 `RawManifestRecord` projection including that key and canonical manifest hash, then complete the Job
-so its result fields, chain index, and `raw.manifest.accepted` outbox commit atomically. Any
-validation failure writes no manifest/index and leaves the dataset pointer unchanged.
+so its result fields, chain index, and `raw.manifest.accepted` outbox commit atomically. An
+accepted FULL also removes the exact marker in that transaction; accepted DELTA and failed FULL
+leave marker state unchanged. Any validation failure writes no manifest/index and leaves the
+dataset pointer unchanged.
 Only after that commit returns, invoke `accepted_manifest(record)`. Scheduling callback failure is
 sanitized/logged and does not undo or falsely reject the durable raw acceptance; the outbox plus
 CND-060 bounded waiting-run recovery retries launch.

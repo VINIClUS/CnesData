@@ -17,6 +17,20 @@ from cnes_contracts.manifests.validation import manifest_sha256
 _ROOT = Path(__file__).resolve().parents[4]
 _FIXTURE = Path(__file__).parent / "fixtures" / "PFSP2601.dbc"
 _GOLDEN = _ROOT / "docs" / "fixtures" / "data-plane" / "raw-manifest-v1.json"
+_PHASE3_PLAN = (
+    _ROOT
+    / "docs"
+    / "superpowers"
+    / "plans"
+    / "2026-08-23-cnesdata-data-plane-local-profile-implementation-plan.md"
+)
+_PHASE3_SPEC = (
+    _ROOT
+    / "docs"
+    / "superpowers"
+    / "specs"
+    / "2026-09-06-cnesdata-phase3-raw-ingestion-contract.md"
+)
 _GOLDEN_SHA256 = "9c6005f90bbc5af3bcb3c5469474e44ea895e4e2e8ef27e014e0933e45af0e99"
 _GOLDEN_BYTES = (
     b'{"manifest_version":1,"manifest_id":"fixture-cnes-nacional-v1",'
@@ -196,6 +210,24 @@ def test_extra_national_fixa_dependencias_compativeis():
     ]
     assert "cnes-infra[national]" in central_api["dependencies"]
     assert "cnes-infra" not in central_api["dependencies"]
+
+
+def test_instalacao_local_declara_toolchain_do_extra_national():
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "Rust (`cargo` e `rustc`)" in readme
+    assert "compilador C (`gcc` no Linux)" in readme
+
+
+def test_contrato_resync_define_estado_duravel_e_replay_rejeitado():
+    spec = _PHASE3_SPEC.read_text(encoding="utf-8")
+    plan = _PHASE3_PLAN.read_text(encoding="utf-8")
+
+    assert "RawResyncState" in spec
+    assert "rejected_manifest_sha256" in spec
+    assert "FULL aceito remove o marcador" in spec
+    assert "RawResyncState" in plan
+    assert "rejected_manifest_sha256" in plan
 
 
 def test_imagem_runtime_importa_dbc_sem_cargo():

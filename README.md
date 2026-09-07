@@ -64,6 +64,7 @@ Regenerar o contrato versionado:
 Pre-requisitos:
 
 - Python 3.13 e `uv`
+- Rust (`cargo` e `rustc`) e compilador C (`gcc` no Linux) para compilar o extra `national`
 - Docker e Docker Compose
 - Go 1.26 para `apps/dump_agent_go`
 - Bun 1.3 para `apps/web_dashboard`

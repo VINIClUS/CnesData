@@ -240,14 +240,23 @@ DELTA é avaliado nesta ordem exata e interrompe na primeira razão aplicável:
 6. `BASE_TOO_OLD`
 7. `CHAIN_TOO_LONG`
 
+`RawResyncState` é o marcador durável do servidor, isolado pela tupla exata
+`(tenant_id, agent_id, source_type, file_subtype, competencia)`. O marcador inexiste antes da
+primeira rejeição de política. `AGENT_RESYNC_REQUIRED` aplica-se se, e somente se, o marcador já
+existir quando um DELTA começar a avaliação. Qualquer rejeição válida de DELTA cria ou mantém o
+marcador na mesma transação do job e do evento. Um FULL aceito remove o marcador na mesma
+transação do aceite; falha de FULL, aceite de DELTA e qualquer erro anterior à política não o
+removem. O marcador não cria job nem agenda trabalho.
+
 FULL requer sequência 1 e base/hash anterior nulos. DELTA requer base conhecida, sequência
 anterior mais um, hash canônico anterior, mesmo schema, idade da base de no máximo sete dias e
 menos de 30 deltas já aceitos. Configuração pode reduzir, mas nunca ampliar ou desabilitar esses
 limites.
 
 Uma rejeição válida da política DELTA conclui atomicamente o job em `FAILED_FINAL`, grava
-`RAW_RESYNC_<REASON>` e emite um único `raw.manifest.resync_required`; ela não cria sidecar nem
-altera dataset pointer. O ID, payload e timestamp do evento são determinísticos.
+`RAW_RESYNC_<REASON>`, persiste no job o `rejected_manifest_sha256` dos bytes canônicos recebidos,
+cria ou mantém `RawResyncState` e emite um único `raw.manifest.resync_required`; ela não cria
+sidecar nem altera dataset pointer. O ID, payload e timestamp do evento são determinísticos.
 
 Falha de autenticação, identidade, modo do job, owner, lease, fence, bytes não canônicos ou
 objeto ausente/divergente não altera job, índice, outbox ou dataset pointer. O servidor não
@@ -259,3 +268,5 @@ Envelopes raw são imutáveis e duráveis, contendo job ID, fencing token, sourc
 canônico e hash do manifesto antes do envio. Novo fence cria novo envelope. Rede ou `5xx` retém o
 envelope; somente `2xx` ou `409` tipado o encerra. Replay terminal autenticado de aceite ou
 rejeição acontece antes de exigir lease/owner/fence ainda vivos e não duplica índice ou evento.
+O replay de rejeição exige igualdade com o `rejected_manifest_sha256` guardado no job; hash
+ausente ou divergente é conflito sem mutação.
