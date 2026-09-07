@@ -169,7 +169,21 @@ def test_imagem_runtime_importa_dbc_sem_cargo():
     assert builder.startswith("python:3.13-slim AS builder")
     assert all(re.search(rf"\b{tool}\b", builder) for tool in ("cargo", "rustc", "gcc"))
     assert builder.index("apt-get install") < builder.index("uv pip install")
-    assert re.search(r"\b(?:cargo|rustc)\b", runtime) is None
+    assert "apt-get install" not in runtime
+    assert re.search(r"\b(?:cargo|rustc|gcc)\b", runtime) is None
+    logical_runtime = runtime.replace("\\\n", " ")
+    builder_copies = tuple(
+        tuple(line.split()[2:])
+        for line in logical_runtime.splitlines()
+        if line.startswith("COPY --from=builder ")
+    )
+    assert builder_copies == (
+        (
+            "/usr/local/lib/python3.13/site-packages",
+            "/usr/local/lib/python3.13/site-packages",
+        ),
+        ("/usr/local/bin/uvicorn", "/usr/local/bin/uvicorn"),
+    )
 
 
 def test_manifesto_raw_golden_preserva_bytes_canonicos():
