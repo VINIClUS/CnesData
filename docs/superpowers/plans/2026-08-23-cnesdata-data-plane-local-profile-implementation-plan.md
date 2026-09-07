@@ -1420,6 +1420,10 @@ the claimed Job, stale fencing token, non-LEASED Job, and canonical manifest byt
 the parsed model. Every case fails before an object/index/outbox mutation. Test accepted and
 rejected terminal replay after lease clearing, divergent replay, atomic rejection/outbox, sidecar
 ordering, and callback failure after durable acceptance.
+Add `test_objeto_invalido_precede_resync_e_nao_muta_control_plane`: combine an absent or
+hash/size-divergent object with a manifest that would otherwise yield `BASE_UNKNOWN`; assert no
+job, chain index, outbox, sidecar, or dataset-pointer mutation. The object-validation error must
+win instead of returning the typed resync result.
 
 - [ ] **Step 2: Prove the service is absent**
 
@@ -1437,12 +1441,17 @@ chain, data object, sidecar and canonical hash to match. `FAILED_FINAL` with
 `RAW_RESYNC_<REASON>` requires the same authenticated identity and canonical manifest hash that
 produced the rejection. Both return the original response; divergence never mutates.
 
-Only a new registration requires `LEASED`, exact owner, unexpired lease and current fence. For
-DELTA, load history through `LatestSucceededJobQuery` and `RawManifestChainQuery(limit=31)`, then
-evaluate every reason in the frozen order. A valid policy rejection atomically calls `fail_job` to
-record `FAILED_FINAL`, `RAW_RESYNC_<REASON>` and one deterministic
-`raw.manifest.resync_required`; it creates no sidecar. Verify an accepted registration's raw object
-hash/size before writing the immutable manifest JSON key
+Only a new registration requires `LEASED`, exact owner, unexpired lease and current fence. Before
+loading DELTA history or evaluating any policy reason, require the exact canonical data key
+`raw/<tenant>/<source>/<competencia>/<snapshot_id>/data.parquet`, require the object to exist, and
+require its stat SHA-256 and size to equal the manifest. Key, existence, hash, or size failure
+returns without job, chain-index, outbox, sidecar, or dataset-pointer mutation.
+
+Only after that object validation may DELTA load history through `LatestSucceededJobQuery` and
+`RawManifestChainQuery(limit=31)` and evaluate every reason in the frozen order. A valid policy
+rejection atomically calls `fail_job` to record `FAILED_FINAL`, `RAW_RESYNC_<REASON>` and one
+deterministic `raw.manifest.resync_required`; it creates no sidecar. An accepted registration then
+writes the immutable manifest JSON key
 `raw/<tenant>/<source>/<competencia>/<snapshot_id>/manifest.json`. Build the exact
 `RawManifestRecord` projection including that key and canonical manifest hash, then complete the Job
 so its result fields, chain index, and `raw.manifest.accepted` outbox commit atomically. Any
