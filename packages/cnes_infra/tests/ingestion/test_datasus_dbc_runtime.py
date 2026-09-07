@@ -16,6 +16,7 @@ from cnes_contracts.manifests.validation import manifest_sha256
 
 _ROOT = Path(__file__).resolve().parents[4]
 _FIXTURE = Path(__file__).parent / "fixtures" / "PFSP2601.dbc"
+_PF_DICTIONARY = _ROOT / "docs" / "data-dictionary-datasus-pf.md"
 _GOLDEN = _ROOT / "docs" / "fixtures" / "data-plane" / "raw-manifest-v1.json"
 _PHASE3_PLAN = (
     _ROOT
@@ -232,6 +233,16 @@ def test_contrato_resync_define_estado_duravel_e_replay_rejeitado():
     assert plan.count("query_raw_resync_state") >= 2
     assert "git add apps/central_api/src/central_api/services \\" in plan
     assert "packages/cnes_infra/src/cnes_infra/control_plane" in plan
+
+
+def test_contrato_parquet_distingue_schema_full_e_delta():
+    spec = _PHASE3_SPEC.read_text(encoding="utf-8")
+    dictionary = _PF_DICTIONARY.read_text(encoding="utf-8")
+
+    assert "FULL contém exatamente as 14 colunas" in spec
+    assert "DELTA contém exatamente 15 colunas" in spec
+    assert "`_op` como a 15ª e última coluna" in spec
+    assert "`_op` não integra a projeção de negócio" in dictionary
 
 
 def test_imagem_runtime_importa_dbc_sem_cargo():

@@ -89,6 +89,12 @@ A saída usa exatamente esta ordem e estes tipos:
 | 13 | `CH_HOSPITALAR` | `Int64` | `HORAHOSP` |
 | 14 | `FONTE` | `String` | Literal `NACIONAL` |
 
+Essa tabela é a projeção de negócio e o schema exato de um snapshot FULL.
+`_op` não integra a projeção de negócio. Somente no transporte DELTA, `_op` é acrescentada como a
+15ª e última coluna,
+com dtype `String`, não nula e valor restrito a `I`, `U` ou `D`. As 14 colunas anteriores não
+mudam de tipo, nome ou posição.
+
 ## Regras de conversão
 
 - Espaços de campos `C` são removidos nas extremidades antes da validação.

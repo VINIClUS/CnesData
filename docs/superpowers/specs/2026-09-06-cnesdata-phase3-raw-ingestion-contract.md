@@ -76,9 +76,11 @@ O objeto de dados é um Parquet simples com estas opções obrigatórias:
 - metadado `CreatedBy` exatamente `Polars`;
 - nenhuma compressão gzip externa e nenhuma extensão `.parquet.gz`.
 
-As 14 colunas, tipos e ordem seguem o dicionário PF e o fixture
-`docs/fixtures/data-plane/cnes-nacional-v1.parquet`. Entradas idênticas devem produzir bytes e
-SHA-256 idênticos.
+As 14 colunas de negócio, tipos e ordem seguem o dicionário PF e o fixture
+`docs/fixtures/data-plane/cnes-nacional-v1.parquet`. FULL contém exatamente as 14 colunas nessa
+ordem. DELTA contém exatamente 15 colunas: as mesmas 14 e `_op` como a 15ª e última coluna.
+`_op` é `String` não nula restrita a `I`, `U` ou `D`. Nenhuma outra coluna é permitida.
+Entradas idênticas devem produzir bytes e SHA-256 idênticos.
 
 ## 4. Chaves e imutabilidade
 
