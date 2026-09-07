@@ -191,6 +191,20 @@ class PublishDataset(BaseModel):
     final_state: RunState; missing_sources: tuple[str, ...]
     publication_permit: PublicationPermit; event: OutboxEvent
 
+# cnes_domain.control_plane.queries
+@dataclass(frozen=True, slots=True)
+class RawIdentity:
+    tenant_id: str; source_type: str; file_subtype: str; competencia: str
+@dataclass(frozen=True, slots=True)
+class LatestSucceededJobQuery:
+    identity: RawIdentity; agent_id: str
+@dataclass(frozen=True, slots=True)
+class RawManifestChainQuery:
+    identity: RawIdentity; limit: int = 31
+@dataclass(frozen=True, slots=True)
+class WaitingRunsForDependencyQuery:
+    identity: RawIdentity; limit: int = 100
+
 # cnes_domain.ports.control_plane
 class ControlPlanePort(Protocol):
     def get_tenant(self, tenant_id: str) -> Tenant | None: ...
@@ -201,12 +215,6 @@ class ControlPlanePort(Protocol):
     def put_agent(self, agent: Agent) -> None: ...
     def create_job(self, job: Job, event: OutboxEvent) -> Job: ...
     def get_job(self, tenant_id: str, job_id: str) -> Job | None: ...
-    def latest_succeeded_job(self, tenant_id: str, agent_id: str,
-                             source_type: str, file_subtype: str,
-                             competencia: str) -> Job | None: ...
-    def list_raw_manifest_chain(self, tenant_id: str, source_type: str,
-                                file_subtype: str, competencia: str,
-                                limit: int = 31) -> tuple[ManifestRef, ...]: ...
     def list_claimable_jobs(self, tenant_id: str, agent_id: str,
                             limit: int) -> tuple[Job, ...]: ...
     def claim_job(self, command: ClaimJob) -> Job | None: ...
@@ -216,9 +224,6 @@ class ControlPlanePort(Protocol):
     def cancel_job(self, command: CancelJob, event: OutboxEvent) -> Job: ...
     def put_run(self, run: Run) -> None: ...
     def get_run(self, tenant_id: str, run_id: str) -> Run | None: ...
-    def list_waiting_runs_for_dependency(self, tenant_id: str, source_type: str,
-                                         file_subtype: str, competencia: str,
-                                         limit: int = 100) -> tuple[Run, ...]: ...
     def list_recoverable_runs(self, now: datetime, limit: int = 100) -> tuple[Run, ...]: ...
     def transition_run(self, command: TransitionRun, event: OutboxEvent) -> Run: ...
     def put_run_units(self, command: PutRunUnits) -> tuple[RunUnit, ...]: ...
@@ -243,6 +248,15 @@ class ControlPlanePort(Protocol):
                               event: OutboxEvent) -> AccessRequest: ...
     def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]: ...
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None: ...
+
+class TypedRawQueryPort(Protocol):
+    def query_latest_succeeded_job(self,
+                                   query: LatestSucceededJobQuery) -> Job | None: ...
+    def query_raw_manifest_chain(self,
+                                 query: RawManifestChainQuery) -> tuple[ManifestRef, ...]: ...
+    def query_waiting_runs_for_dependency(
+        self, query: WaitingRunsForDependencyQuery
+    ) -> tuple[Run, ...]: ...
 
 # cnes_domain.ports.object_store
 @dataclass(frozen=True, slots=True)
@@ -1352,6 +1366,11 @@ git commit -m "test(infra): integrate adapter conformance matrix"
 
 ## Phase 3 — raw ingestion and Edge Agent protocol
 
+CND-029 resolved the Phase 3 source, upload, runtime, Parquet, manifest, and resync decisions.
+Tasks CND-030–034 consume the normative contract at
+`docs/superpowers/specs/2026-09-06-cnesdata-phase3-raw-ingestion-contract.md` and the PF mapping at
+`docs/data-dictionary-datasus-pf.md`; they must not infer alternative source or wire behavior.
+
 ### Task 16: CND-030 — Raw validation, delta-chain policy, and immutable registration
 
 **Files:**
@@ -1362,25 +1381,45 @@ git commit -m "test(infra): integrate adapter conformance matrix"
 - Modify: none
 
 **Interfaces:**
-- Consumes: `RawManifest`, `manifest_sha256`, `ObjectStorePort`, `RawManifestRecord`, `ControlPlanePort.get_job`, `ControlPlanePort.complete_job`, and `ControlPlanePort.latest_succeeded_job(tenant_id, agent_id, source_type, file_subtype, competencia) -> Job | None` added to the CND-012 port before CND-020 implementation.
-- Produces: `ResyncReason(StrEnum)` values `SEQUENCE_GAP`, `BASE_UNKNOWN`, `HASH_CHAIN_MISMATCH`, `SCHEMA_INCOMPATIBLE`, `AGENT_RESYNC_REQUIRED`, `BASE_TOO_OLD`, `CHAIN_TOO_LONG`; frozen `RawAcceptance(accepted, manifest_id, full_resync_required, reason)`; frozen `RegisterRawManifest(tenant_id: str, agent_id: str, job_id: str, owner: str, fencing_token: int, manifest: RawManifest, manifest_bytes: bytes, now: datetime)`; `DeltaPolicy(max_base_age=timedelta(days=7), max_chain_length=30)`; `AcceptedManifest = Callable[[RawManifestRecord], None]`; `RawIngestionService(control_plane, object_store, policy, accepted_manifest=noop)`; `register(command: RegisterRawManifest) -> RawAcceptance`.
+- Consumes: the CND-029 normative contract, `RawManifest`, `manifest_sha256`, `ObjectStorePort`,
+  `RawManifestRecord`, `ControlPlanePort.get_job/complete_job/fail_job`, and only the typed raw
+  reads `TypedRawQueryPort.query_latest_succeeded_job(LatestSucceededJobQuery)` and
+  `query_raw_manifest_chain(RawManifestChainQuery(limit=31))` built with `RawIdentity`. Deprecated
+  positional `latest_succeeded_job` and `list_raw_manifest_chain` are forbidden.
+- Produces: `ResyncReason(StrEnum)` in exact order `AGENT_RESYNC_REQUIRED`, `BASE_UNKNOWN`,
+  `SEQUENCE_GAP`, `HASH_CHAIN_MISMATCH`, `SCHEMA_INCOMPATIBLE`, `BASE_TOO_OLD`,
+  `CHAIN_TOO_LONG`; frozen `RawAcceptance(accepted: bool, manifest_id: str,
+  manifest_sha256: str, full_resync_required: bool, reason: ResyncReason | None)`; frozen
+  `RegisterRawManifest(tenant_id: str, agent_id: str, job_id: str, owner: str,
+  fencing_token: int, manifest: RawManifest, manifest_bytes: bytes, now: datetime)`; `DeltaPolicy`
+  with the frozen seven-day/30-delta ceilings; and
+  `RawIngestionService.register(command) -> RawAcceptance`.
 
 - [ ] **Step 1: Write failing gap/age/hash tests**
 
+Use a table-driven test covering all seven reasons in the frozen evaluation order, including the
+exact seven-day and 30-delta boundaries. Representative manifest mutations include:
+
 ```python
 @pytest.mark.parametrize("mutation,reason", [
+    ({"base_snapshot_id": "unknown"}, ResyncReason.BASE_UNKNOWN),
     ({"sequence": 4}, ResyncReason.SEQUENCE_GAP),
     ({"previous_manifest_sha256": "f" * 64}, ResyncReason.HASH_CHAIN_MISMATCH),
 ])
 def test_delta_invalido_solicita_full(base_manifest, mutation, reason, service, now):
     delta = base_manifest.model_copy(update={"snapshot_mode": "DELTA", **mutation})
     result = service.register(register_command(delta, now))
-    assert result == RawAcceptance(False, delta.manifest_id, True, reason)
+    assert result.accepted is False
+    assert result.manifest_id == delta.manifest_id
+    assert result.full_resync_required is True
+    assert result.reason is reason
 ```
 
 Also test wrong tenant/agent/job identity, a manifest whose source/subtype/competence differs from
 the claimed Job, stale fencing token, non-LEASED Job, and canonical manifest bytes that do not match
-the parsed model. Every case fails before an object/index/outbox mutation.
+the parsed model. Every case fails before an object/index/outbox mutation. Test accepted and
+rejected terminal replay after lease clearing, divergent replay, atomic rejection/outbox, sidecar
+ordering, and callback failure after durable acceptance.
 
 - [ ] **Step 2: Prove the service is absent**
 
@@ -1390,14 +1429,20 @@ Expected: collection FAIL importing `central_api.services.delta_policy`.
 
 - [ ] **Step 3: Add fail-closed policy and registration transaction order**
 
-Strongly load `command.job_id` and require the exact authenticated tenant/agent, `LEASED` owner,
-current fence, source/subtype/competence, and canonical `manifest_bytes`; do not infer a Job from
-source fields or accept tenant/agent authority from the manifest body. For FULL require sequence 1.
-For DELTA load the latest succeeded job and its manifest object,
-validate snapshot/base IDs, sequence `previous+1`, previous manifest canonical hash, equal schema
-version, base age `<=7 days`, and delta count `<30`; limits may be reduced by configuration but
-never disabled or raised. Verify the referenced raw object stat equals manifest hash/size before
-writing the immutable manifest JSON key
+Strongly load `command.job_id`; require exact authenticated tenant/agent, manifest/job identity,
+requested mode, and canonical bytes before branching on state. An authenticated `SUCCEEDED` or
+resync `FAILED_FINAL` replay follows a read-only terminal path before live lease/owner/fence
+validation, because terminal jobs have cleared leases. `SUCCEEDED` requires its stored result,
+chain, data object, sidecar and canonical hash to match. `FAILED_FINAL` with
+`RAW_RESYNC_<REASON>` requires the same authenticated identity and canonical manifest hash that
+produced the rejection. Both return the original response; divergence never mutates.
+
+Only a new registration requires `LEASED`, exact owner, unexpired lease and current fence. For
+DELTA, load history through `LatestSucceededJobQuery` and `RawManifestChainQuery(limit=31)`, then
+evaluate every reason in the frozen order. A valid policy rejection atomically calls `fail_job` to
+record `FAILED_FINAL`, `RAW_RESYNC_<REASON>` and one deterministic
+`raw.manifest.resync_required`; it creates no sidecar. Verify an accepted registration's raw object
+hash/size before writing the immutable manifest JSON key
 `raw/<tenant>/<source>/<competencia>/<snapshot_id>/manifest.json`. Build the exact
 `RawManifestRecord` projection including that key and canonical manifest hash, then complete the Job
 so its result fields, chain index, and `raw.manifest.accepted` outbox commit atomically. Any
@@ -1428,13 +1473,30 @@ git commit -m "feat(ingestion): validate raw manifests and delta chains"
 - Modify: `apps/dump_agent_go/internal/delta/store_test.go`
 - Modify: `apps/dump_agent_go/internal/queue/envelope.go`
 - Modify: `apps/dump_agent_go/internal/queue/envelope_test.go`
+- Modify: `apps/dump_agent_go/internal/queue/outbox.go`
+- Modify: `apps/dump_agent_go/internal/queue/outbox_test.go`
+- Modify: `apps/dump_agent_go/internal/upload/put.go`
+- Modify: `apps/dump_agent_go/internal/upload/put_test.go`
+- Modify: `apps/dump_agent_go/internal/writer/delta_parquet.go`
+- Modify: `apps/dump_agent_go/internal/writer/delta_parquet_test.go`
+- Modify: `apps/dump_agent_go/internal/worker/consumer.go`
+- Modify: `apps/dump_agent_go/internal/worker/consumer_test.go`
+- Modify: `apps/dump_agent_go/internal/worker/drain.go`
+- Modify: `apps/dump_agent_go/internal/worker/drain_test.go`
 - Modify: `apps/dump_agent_go/internal/worker/executor.go`
 - Modify: `apps/dump_agent_go/internal/worker/executor_rundelta_test.go`
+- Modify: `apps/dump_agent_go/internal/worker/outbox_adapter.go`
+- Modify: `apps/dump_agent_go/internal/worker/outbox_adapter_test.go`
 - Modify: none of `go.mod`, `go.sum`, or generated API files
 
 **Interfaces:**
-- Consumes: current `delta.Store`, `delta.PendingTx`, `JobExecutor.RunDelta`, SHA-256 tee, and CND-011 manifest JSON shape.
-- Produces: Go `manifest.Raw` with JSON tags matching `RawManifest`; `manifest.Build(BuildRequest) (Raw, error)`; `delta.ChainHead(SourceKey) (snapshotID string, sequence uint32, manifestSHA256 string, createdAt time.Time, ok bool, err error)`; queue envelope fields `JobID string`, `FencingToken uint64`, `ManifestJSON []byte`, and `ManifestSHA256 string`; `FullResync(reason string) error` that clears only the named source key after server acknowledgement.
+- Consumes: the CND-029 golden, Parquet and HTTP contracts; current `delta.Store`,
+  `delta.PendingTx`, `JobExecutor.RunDelta`, durable bbolt outbox, SHA-256 tee and streaming
+  uploader. Generated API files remain owned by CND-034.
+- Produces: canonical Go `manifest.Raw`/`manifest.Build`, `delta.ChainHead(SourceKey)`, durable
+  per-source `force_full`, and immutable raw envelopes containing `JobID`, `FencingToken`,
+  `SourceKey`, `ManifestJSON`, and `ManifestSHA256`. Streaming PUT sends `X-Fencing-Token`,
+  `X-Object-Key`, and `application/octet-stream` without buffering the full Parquet.
 
 - [ ] **Step 1: Write failing manifest/chain tests**
 
@@ -1457,18 +1519,22 @@ Expected: compile FAIL because `internal/manifest` does not exist.
 
 - [ ] **Step 3: Add exact manifest JSON and durable chain metadata**
 
-Use RFC3339 UTC timestamps, canonical lowercase SHA-256, manifest version 1, source/file subtype
-enums matching Python, and object layout from spec §6.1. Copy the claimed `job_id` and current
-`fencing_token` into the durable envelope outside `ManifestJSON`; retries submit the identical
-`RawManifestSubmission`, and a newly claimed fence produces a new envelope rather than mutating the
-old one. Persist the chain head in bbolt only after the raw-manifest API acknowledgement; a
-transport/upload failure retains the prior head. A full-resync response marks the next extraction
-FULL and clears committed delta fingerprints only for that `SourceKey`; it never deletes the
-durable outbound envelope before acknowledgement.
+Use RFC3339 UTC timestamps, explicit nulls, canonical lowercase SHA-256, the frozen Parquet options
+and object layout. Persist pending fingerprints before enqueue; persist claimed job/fence/source
+key/canonical manifest/hash in an immutable envelope before acknowledgement. A new fence creates a
+new envelope; retries submit the exact old values. Network and `5xx` retain pending state, prior
+head and envelope. On `2xx`, atomically confirm pending fingerprints and the server-returned head
+before deleting the envelope. On typed `409`, persist `force_full` and discard only that source
+key's pending fingerprints before deleting the envelope; preserve its committed head/fingerprints.
+Raw envelopes are exempt from generic TTL/count eviction. `force_full` is consumed only by a later
+server-requested FULL and never schedules a job locally. FULL emits every row without `_op`;
+DELTA emits only I/U/D rows and `_op` is exactly `I`, `U`, or `D`.
 
 - [ ] **Step 4: Run Go race and coverage gates**
 
-Run: `cd apps/dump_agent_go && go test -race -count=1 -coverprofile=coverage.out ./... && grep -v -E "internal/apiclient/generated\.go|cmd/|internal/service/|_windows\.go:" coverage.out > coverage.filtered.out && go tool cover -func=coverage.filtered.out | tail -1`
+Run the race suite for `internal/manifest`, `internal/delta`, `internal/queue`, `internal/upload`,
+`internal/writer`, and `internal/worker`, then run the repository Go coverage command and enforce
+the existing filtered 65% gate.
 
 Expected: PASS and filtered total coverage at least 65%.
 
@@ -1476,7 +1542,8 @@ Expected: PASS and filtered total coverage at least 65%.
 
 ```bash
 git add apps/dump_agent_go/internal/manifest apps/dump_agent_go/internal/delta \
-  apps/dump_agent_go/internal/queue apps/dump_agent_go/internal/worker
+  apps/dump_agent_go/internal/queue apps/dump_agent_go/internal/upload \
+  apps/dump_agent_go/internal/writer apps/dump_agent_go/internal/worker
 git commit -m "feat(edge): emit raw manifest v1 chains"
 ```
 
@@ -1487,11 +1554,17 @@ git commit -m "feat(edge): emit raw manifest v1 chains"
 - Create: `packages/cnes_infra/src/cnes_infra/ingestion/datasus_cnes_raw.py`
 - Create: `packages/cnes_infra/tests/ingestion/test_datasus_cnes_transport.py`
 - Create: `packages/cnes_infra/tests/ingestion/test_datasus_cnes_raw.py`
+- Create: `packages/cnes_infra/tests/ingestion/test_datasus_cnes_ftp_smoke.py`
 - Modify: none
 
 **Interfaces:**
-- Consumes: CND-011 `RawManifest`, CND-012 `ObjectStorePort`, current `CircuitBreaker`, `requests.Session`, and the CND-002 `cnes-nacional-v1.parquet` source contract.
-- Produces: `DatasusCnesRequest(tenant_id, competencia, file_subtype, snapshot_id, agent_id, agent_version)`; `DatasusCnesTransportPort.fetch(request) -> Iterator[Mapping[str, object]]`; `DatasusCnesRawAdapter(transport, store, clock).extract(request) -> RawManifest`.
+- Consumes: the CND-029 source contract, PF dictionary and non-sensitive DBC fixture;
+  `datasus-dbc`, `dbfread`, `ftplib`, `CircuitBreaker`, `RawManifest`, `ObjectStorePort`, and the
+  CND-002 `cnes-nacional-v1.parquet` contract.
+- Produces: `DatasusCnesRequest(tenant_id, competencia, file_subtype, snapshot_id, agent_id,
+  agent_version)`; `DatasusCnesTransportPort.fetch(request) -> Iterator[Mapping[str, object]]`;
+  `DatasusCnesRawAdapter(transport, store, clock).extract(request) -> RawManifest`; and anonymous
+  FTP transport for exactly `CNES/200508_/Dados/PF/PF{UF}{YYMM}.dbc`.
 
 - [ ] **Step 1: Write failing adapter tests against a transport fake**
 
@@ -1507,19 +1580,36 @@ def test_adapter_produz_o_mesmo_raw_contract(request, transport, store, clock):
 
 - [ ] **Step 2: Prove the adapter is absent**
 
-Run: `uv run pytest packages/cnes_infra/tests/ingestion/test_datasus_cnes_raw.py -q`
+Run:
+
+```bash
+uv run pytest packages/cnes_infra/tests/ingestion/test_datasus_cnes_transport.py \
+  packages/cnes_infra/tests/ingestion/test_datasus_cnes_raw.py -q
+```
 
 Expected: collection FAIL importing `cnes_infra.ingestion.datasus_cnes_raw`.
 
 - [ ] **Step 3: Add deterministic raw generation and the approved transport**
 
-Write rows in fixed source-column order with Polars, Zstandard-compressed Parquet, stable null types, and no business reconciliation. The concrete transport must use the official DATASUS distribution endpoint, pagination/file checksum semantics, authentication requirements, and field mapping ratified in the governing spec amendment described under **External decision gate**; do not infer query parameters from the current single-establishment `CnesOficialWebAdapter` and do not retain BigQuery as fallback.
+Resolve UF from tenant IBGE6 and YYMM only from the requested competency. Compare FTP `SIZE` and
+`MDTM` before/after, count and hash local bytes, validate DBC/DBF/layout/competency, convert
+file-to-file, read incrementally, and clean temporaries in every path. FTP `550` is retryable
+`source_not_published`; never probe ST, BigQuery or another month. Plain FTP proves no publisher
+identity or source authenticity.
 
-- [ ] **Step 4: Verify adapter determinism and HTTP failure behavior**
+Retain only exact `CODUFMUN`/`COMPETEN` rows and apply the 12-to-14 mapping from the PF dictionary,
+including typed nulls, strict `PROF_SUS` S/N, hour sum, code padding, `FONTE=NACIONAL`, duplicate
+preservation and deterministic all-column sort with nulls last. Write only the immutable data
+object as simple Parquet with Zstd 3, statistics, row groups up to 64,000 and `CreatedBy=Polars`;
+return a FULL sequence-1 `CNES_NACIONAL/CNES_VINCULO` manifest for `system-datasus`. Do not write
+the sidecar or mutate control-plane state.
+
+- [ ] **Step 4: Verify adapter determinism and FTP failure behavior**
 
 Run: `uv run ruff check packages/cnes_infra/src/cnes_infra/ingestion/datasus_cnes_* packages/cnes_infra/tests/ingestion/test_datasus_cnes_* && uv run pytest packages/cnes_infra/tests/ingestion/test_datasus_cnes_* --cov=cnes_infra.ingestion.datasus_cnes_raw --cov-branch --cov-fail-under=100 -q`
 
-Expected: PASS once the decision gate is resolved; identical fixture rows produce identical Parquet/object hashes.
+Expected: PASS; identical fixture rows produce identical Parquet/object hashes. Real FTP smoke is
+explicitly opt-in and never a normal CI dependency.
 
 - [ ] **Step 5: Commit**
 
@@ -1535,13 +1625,21 @@ git commit -m "feat(ingestion): add DATASUS CNES raw adapter"
 - Create: `apps/central_api/src/central_api/routes/raw_jobs.py`
 - Create: `apps/central_api/src/central_api/routes/raw_manifests.py`
 - Create: `apps/central_api/src/central_api/schemas/raw_api.py`
+- Create: `apps/central_api/src/central_api/services/raw_upload.py`
 - Create: `apps/central_api/tests/routes/test_raw_jobs.py`
 - Create: `apps/central_api/tests/routes/test_raw_manifests.py`
+- Create: `apps/central_api/tests/services/test_raw_upload.py`
 - Modify: none
 
 **Interfaces:**
-- Consumes: CND-020 SQLite behavior behind `ControlPlanePort`, CND-030 `RawIngestionService`, and server-resolved `tenant_id`/authenticated `agent_id` dependencies.
-- Produces: `GET /api/v1/edge/jobs/next`, `POST /api/v1/edge/jobs/{job_id}/heartbeat`, `POST /api/v1/edge/raw-manifests`; request `RawManifestSubmission(job_id: str, fencing_token: int, manifest: RawManifest)`; response `RawManifestResponse(accepted: bool, manifest_id: str, full_resync_required: bool, reason: str | None)`.
+- Consumes: the CND-029 mTLS/HTTP/upload contract, CND-020 target control-plane methods, CND-030
+  `RawIngestionService`, `ObjectStorePort`, and server-resolved tenant, agent and certificate
+  fingerprint. Routes and service import no concrete storage adapter.
+- Produces all four endpoints: `GET /api/v1/edge/jobs/next`, heartbeat, streaming
+  `PUT /api/v1/edge/jobs/{job_id}/raw-object`, and `POST /api/v1/edge/raw-manifests`.
+  `RawManifestSubmission(job_id, fencing_token, manifest)` returns
+  `RawManifestResponse(accepted, manifest_id, manifest_sha256, full_resync_required, reason)`.
+  `RawUploadService` receives authenticated identity, canonical job/fence/key and an async stream.
 
 - [ ] **Step 1: Write failing tenant/fence/resync route tests**
 
@@ -1550,30 +1648,52 @@ def test_raw_manifest_rejeita_tenant_do_body_divergente(client, submission):
     body = submission.model_copy(update={
         "manifest": submission.manifest.model_copy(update={"tenant_id": "999999"}),
     }).model_dump(mode="json")
-    response = client.post("/api/v1/edge/raw-manifests", json=body,
-                           headers=agent_headers("354130", "agent-01"))
+    response = client.post("/api/v1/edge/raw-manifests", json=body)
     assert response.status_code == 403
     assert response.json()["detail"] == "tenant_mismatch"
 ```
 
 - [ ] **Step 2: Prove routes are absent**
 
-Run: `uv run pytest apps/central_api/tests/routes/test_raw_jobs.py apps/central_api/tests/routes/test_raw_manifests.py -q`
+Run:
 
-Expected: FAIL because the test app cannot include `raw_jobs.router`/`raw_manifests.router`.
+```bash
+uv run pytest apps/central_api/tests/routes/test_raw_jobs.py \
+  apps/central_api/tests/routes/test_raw_manifests.py \
+  apps/central_api/tests/services/test_raw_upload.py -q
+```
+
+Expected: FAIL because the routes and `RawUploadService` do not exist.
 
 - [ ] **Step 3: Add thin FastAPI routes with injected ports**
 
-Routes obtain `ControlPlanePort`, `RawIngestionService`, fixed tenant, and agent identity through
-`Depends` callables local to the route modules so feature tests override them without editing
-`deps.py`. Job discovery returns IDs only; claim revalidates the canonical job/agent. Heartbeat
-requires matching owner/fence. Manifest registration builds `RegisterRawManifest` from authenticated
-tenant/agent plus the explicit submission Job/fence; it rejects tenant/agent/job mismatch before
-object access and maps each `ResyncReason` to HTTP 409 plus the typed resync response.
+Routes obtain target ports and verified mTLS identity through route-local `Depends` callables.
+Missing/revoked/mismatched agent identity fails before job/object access. GET next returns `204` or
+a strongly claimed canonical job with mode, fence, lease and `raw_upload_path`; heartbeat renews
+the exact live owner/fence for 300 seconds.
+
+PUT requires the frozen fence/key headers and media type. Validate job/fence/key before consuming
+the stream and immediately before publishing; hash and count incrementally through an 8 MiB spool.
+First write and identical replay return `200`, divergence `409`, overflow past 1 GiB `413`, and
+wrong media type `415`. Never call `request.body()`. Manifest registration builds
+`RegisterRawManifest` from authenticated identity and explicit submission job/fence; accepted
+responses are `200`, while every resync reason maps to `409` with the complete typed response.
 
 - [ ] **Step 4: Verify route coverage**
 
-Run: `uv run ruff check apps/central_api/src/central_api/routes/raw_* apps/central_api/src/central_api/schemas/raw_api.py apps/central_api/tests/routes/test_raw_* && uv run pytest apps/central_api/tests/routes/test_raw_* --cov=central_api.routes.raw_jobs --cov=central_api.routes.raw_manifests --cov-branch --cov-fail-under=90 -q`
+Run:
+
+```bash
+uv run ruff check apps/central_api/src/central_api/routes/raw_* \
+  apps/central_api/src/central_api/schemas/raw_api.py \
+  apps/central_api/src/central_api/services/raw_upload.py \
+  apps/central_api/tests/routes/test_raw_* \
+  apps/central_api/tests/services/test_raw_upload.py
+uv run pytest apps/central_api/tests/routes/test_raw_* \
+  apps/central_api/tests/services/test_raw_upload.py \
+  --cov=central_api.routes.raw_jobs --cov=central_api.routes.raw_manifests \
+  --cov=central_api.services.raw_upload --cov-branch --cov-fail-under=90 -q
+```
 
 Expected: PASS and no route imports SQLite, filesystem, SQLAlchemy, or MinIO directly.
 
@@ -1582,7 +1702,9 @@ Expected: PASS and no route imports SQLite, filesystem, SQLAlchemy, or MinIO dir
 ```bash
 git add apps/central_api/src/central_api/routes/raw_jobs.py \
   apps/central_api/src/central_api/routes/raw_manifests.py \
-  apps/central_api/src/central_api/schemas/raw_api.py apps/central_api/tests/routes/test_raw_*
+  apps/central_api/src/central_api/schemas/raw_api.py \
+  apps/central_api/src/central_api/services/raw_upload.py \
+  apps/central_api/tests/routes/test_raw_* apps/central_api/tests/services/test_raw_upload.py
 git commit -m "feat(api): expose target raw ingestion protocol"
 ```
 
@@ -1595,21 +1717,26 @@ git commit -m "feat(api): expose target raw ingestion protocol"
 - Create: `apps/central_api/tests/services/test_national_ingestion.py`
 - Modify: `apps/central_api/src/central_api/app.py`
 - Modify: `apps/central_api/src/central_api/deps.py`
-- Modify: `apps/central_api/pyproject.toml`
-- Modify: `packages/cnes_infra/pyproject.toml`
 - Modify: `packages/cnes_infra/src/cnes_infra/ingestion/__init__.py`
 - Modify: `packages/cnes_contracts/src/cnes_contracts/__init__.py`
+- Modify: `packages/cnes_contracts/src/cnes_contracts/export.py`
 - Modify: `docs/openapi.json` (generated)
 - Modify: `docs/contracts/openapi.json` (generated)
 - Modify: `docs/contracts/schemas/*.json` (generated)
 - Modify: `apps/dump_agent_go/internal/apiclient/generated.go` (generated)
 - Modify: `apps/dump_agent_go/internal/apiclient/overlay.yaml`
 - Modify: `apps/dump_agent_go/internal/apiclient/adapter.go`
-- Modify: `uv.lock`
+- Modify: `apps/dump_agent_go/internal/apiclient/adapter_test.go`
+- Modify: none of the package manifests, `uv.lock`, `go.mod`, or `go.sum`
 
 **Interfaces:**
-- Consumes: accepted CND-030–033 and local adapters.
-- Produces: `NationalRefreshRequest(tenant_id: str, competencia: str, snapshot_id: str, idempotency_key: str)`; `NationalIngestionService(control_plane, raw_adapter, raw_ingestion, clock).refresh(request) -> RawAcceptance`; local DI graph, generated Python/Go HTTP contract, one full plus one delta Edge-to-filesystem flow, and one centrally claimed DATASUS-to-raw flow with restart persistence.
+- Consumes: accepted CND-030 typed raw registration, CND-031 four routes/mTLS/upload service,
+  CND-032 durable Go behavior, CND-033 PF adapter, `ProfileSettings`,
+  `SQLiteControlPlane(database_path, clock)`, `FilesystemObjectStore`, and target Protocols.
+- Produces: `NationalRefreshRequest(tenant_id, competencia, snapshot_id, idempotency_key)`;
+  `NationalIngestionService.refresh(request) -> RawAcceptance`; one local Protocol-typed graph;
+  generated Python/Go contracts for all four endpoints; restart/replay/resync evidence for local
+  FULL/DELTA and centrally claimed DATASUS PF ingestion.
 
 - [ ] **Step 1: Write the failing end-to-end test**
 
@@ -1628,6 +1755,11 @@ Add a national-path test proving the service idempotently ensures the internal a
 fence plus the adapter manifest to `RawIngestionService`, and stores a chain-indexed raw manifest.
 Neither service may complete a Job directly or bypass raw validation.
 
+Also prove restart/replay creates one chain/event sequence, divergent object replay never
+overwrites, typed `409` scopes durable `force_full` to one source key, and only a later requested
+FULL consumes it without `_op`. Assert raw acceptance never changes `DatasetPointer`, normal
+national tests use a fake transport, and `PROFILE=local` constructs no PostgreSQL, MinIO or GCP.
+
 - [ ] **Step 2: Prove composition and generated client are stale**
 
 Run: `uv run pytest tests/integration/test_local_raw_ingestion.py -m local_profile -q && cd apps/dump_agent_go && go test ./internal/apiclient`
@@ -1636,7 +1768,16 @@ Expected: FAIL because the app does not compose target adapters/routes and the g
 
 - [ ] **Step 3: Compose local ports and regenerate shared artifacts**
 
-In `deps.py`, build `ProfileSettings`, `SQLiteControlPlane(data_dir.parent / "state/cnesdata.sqlite3")`, `FilesystemObjectStore(data_dir)`, `RawIngestionService`, and `NationalIngestionService`; store only Protocol-typed values on `app.state`. The national service creates/claims a normal canonical Job owned by the internal active Agent `system-datasus`, calls the CND-033 adapter, canonicalizes the manifest bytes, and registers through `RegisterRawManifest`; it never writes the chain index or succeeds the Job itself. Include the new routers in `app.py`. Add direct package dependencies, lock them, generate both OpenAPI files, generate Pydantic schemas, update the Go overlay, regenerate `generated.go`, and wire the CND-032 queued manifest acknowledgement/full-resync path. Migration mode may still include legacy routers, but `PROFILE=local` must never construct the legacy engine or MinIO wrapper.
+In `deps.py`, build once `ProfileSettings`, `SQLiteControlPlane(database_path, clock)`,
+`FilesystemObjectStore(data_dir)`, `RawIngestionService`, `RawUploadService`, and
+`NationalIngestionService`; store Protocol-typed control plane, typed raw query, object store and
+services on `app.state`. The national service idempotently ensures/claims `system-datasus`, calls
+only the PF adapter, canonicalizes bytes and registers through `RegisterRawManifest`; it never
+writes the chain index or completes/fails a job directly. Include the four routes in `app.py`.
+Generate both OpenAPI files and Pydantic schemas, update the Go overlay/client, and wire CND-032
+acknowledgement/full-resync behavior. Package manifests and `uv.lock` are already owned by CND-029
+and remain unchanged. Migration mode may retain legacy routers; `PROFILE=local` never imports or
+constructs PostgreSQL, MinIO, GCP or AWS adapters.
 The Go adapter sends its durable envelope as the exact `RawManifestSubmission(job_id,
 fencing_token,manifest)` and derives neither job nor fence from mutable process state during retry.
 
@@ -1650,9 +1791,14 @@ Expected: PASS; generated artifacts have no unstaged drift after rerunning their
 
 ```bash
 git add tests/integration/test_local_raw_ingestion.py \
-  tests/integration/test_national_raw_ingestion.py apps/central_api \
-  packages/cnes_infra packages/cnes_contracts/src/cnes_contracts \
-  docs/openapi.json docs/contracts apps/dump_agent_go/internal/apiclient uv.lock
+  tests/integration/test_national_raw_ingestion.py \
+  apps/central_api/src/central_api/app.py apps/central_api/src/central_api/deps.py \
+  apps/central_api/src/central_api/services/national_ingestion.py \
+  apps/central_api/tests/services/test_national_ingestion.py \
+  packages/cnes_infra/src/cnes_infra/ingestion/__init__.py \
+  packages/cnes_contracts/src/cnes_contracts/__init__.py \
+  packages/cnes_contracts/src/cnes_contracts/export.py docs/openapi.json docs/contracts \
+  apps/dump_agent_go/internal/apiclient
 git commit -m "feat(local): integrate raw ingestion vertical"
 ```
 
@@ -3020,7 +3166,10 @@ git commit -m "feat(local): complete CNES local profile acceptance"
 - Serial: CND-000 → CND-001 → CND-002; CND-003 may follow CND-000 in parallel with CND-001 only if it does not touch the baseline report.
 - Wave 1: CND-010 and CND-011 are independent; CND-012 follows both; CND-013 follows CND-012; CND-014 is the serial integration owner after both contract branches are accepted.
 - Adapter wave: CND-020, CND-021, CND-022, and CND-023 are independent after CND-013/CND-014 dependency preparation. CND-024 follows both control planes and both sinks. CND-025 is serial and integrates the complete SQLite/DynamoDB Local/filesystem/S3-compatible matrix.
-- Raw wave: CND-030, CND-032, and CND-033 can run independently after their listed contracts exist. CND-031 follows CND-030. CND-034 is serial and owns DI, dependency manifests, generated OpenAPI/schema, and generated Go client changes.
+- Raw readiness CND-029 is resolved by the normative PF/upload/runtime contract. CND-030,
+  CND-032, and CND-033 can run independently after its merge; CND-031 follows CND-030. CND-034
+  is serial and owns DI plus generated OpenAPI/schema/Go client changes, but no package manifest or
+  lockfile.
 - Orchestration wave: CND-041 starts as soon as CND-010/CND-011 are merged and is independent of adapters; CND-042 follows CND-012/CND-041. CND-040 waits for CND-020/CND-021/CND-030. CND-043 follows CND-040/CND-041; CND-044 follows CND-022/CND-024/CND-043; CND-045 is the serial race/crash gate.
 - Processing wave: CND-050 and CND-051 are independent because their shared request/result types are frozen in CND-011. CND-052 → CND-053 → CND-054 is serial.
 - Product wave: CND-060, CND-061, and CND-062 own disjoint feature files after serving schema freeze; CND-060 freezes `SourceCatalog`, `SourcePipeline`/`SourceRegistry`, run planning, stage dispatch, and the initial CNES bundle before any SIHD/BPA/SIA processing worktree is dispatched. CND-060 also exposes its paired control-plane/object-store instances, while CND-062 tests the two-port serving policy with fakes; neither worktree edits the other's files. Those later source lanes create source-owned stage functions plus disjoint package definition files; their serial controller integration extends the shared catalog and registry. CND-063 follows CND-062; CND-064 is the only final integration owner for app bootstrap, serving-policy/store injection, package manifests/locks, generated artifacts, CI, and Compose.
@@ -3031,12 +3180,10 @@ Cross-plan consumption must use the same corrected boundary: AWS signed serving 
 the returned `ServingGrant.object_keys` as the complete allowlist. The AWS lane may not retain the
 former control-plane-only constructor or rederive serving keys from request input.
 
-## External decision gate
-
-The approved data-plane design mandates an official DATASUS adapter but does not specify the official bulk endpoint/file catalog, authentication, pagination/archive checksum behavior, or a field mapping for both establishments and professional links. The current repository's `CnesOficialWebAdapter` performs only a single-establishment existence check and cannot satisfy CND-033. Before dispatching CND-033, amend the governing spec with that concrete source contract; CND-033 and therefore CND-034/CND-051 onward remain blocked until it is ratified. No implementation worker may guess the endpoint or retain BigQuery as a fallback.
-
 ## Self-review results
 
 - **Spec coverage:** CND-000–003, 010–014, 020–025, 030–034, 040–045, 050–054, and 060–064 each map to one independently reviewable task. AWS application composition, billing, source parity, cutover, and removal are explicitly excluded. Delta limits, leases/fencing, degraded fan-in, atomic pointer/outbox publication, local isolation, authorized serving, audit replay, and backup/restore all have concrete tests.
-- **Specificity scan:** No vague deferred-work phrase or wildcard task remains. The only blocked work is the explicit DATASUS source decision gate above; its adapter interfaces and tests are nevertheless fixed.
+- **Specificity scan:** No vague deferred-work phrase or wildcard task remains. CND-029 fixes the
+  PF-only DATASUS source, dictionary, upload, Parquet, manifest, runtime and resync behavior
+  consumed by CND-030–034.
 - **Type consistency:** All later tasks use the canonical request/result types from `cnes_contracts.manifests.processing`; normalization and materialization results carry non-empty tuples so source plugins may emit multiple typed artifacts. They use the `SourceType` enum from `cnes_contracts.manifests.raw`, target PEP 544 ports from `cnes_domain.ports`, package-owned `PipelineDefinition`/`SourceCatalog`, the app-level `SourcePipeline` stage registry, and the composition signatures from CND-060. `Job`, `Run`, and staged `RunUnit` remain distinct; `version_id=run_id` is consistent from publisher through serving. CND-062 and its local/AWS composition consumers use `LocalServingAccess(control_plane, object_store)`; the active `DatasetVersion.run_manifest_key` is loaded and validated before the unchanged `ServingGrant.object_keys` tuple is derived exactly from serving outputs.
