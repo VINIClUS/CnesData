@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "FastAPI application — HTTP ingestion + job status"
 requires-python = ">=3.13"
 dependencies = [
-    "cnes-infra",
+    "cnes-infra[national]",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "httpx>=0.28",

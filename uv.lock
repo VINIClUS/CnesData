@@ -217,7 +217,7 @@ name = "central-api"
 version = "0.1.0"
 source = { editable = "apps/central_api" }
 dependencies = [
-    { name = "cnes-infra" },
+    { name = "cnes-infra", extra = ["national"] },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "python-multipart" },
@@ -227,7 +227,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cnes-infra", editable = "packages/cnes_infra" },
+    { name = "cnes-infra", extras = ["national"], editable = "packages/cnes_infra" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "python-multipart", specifier = ">=0.0.12" },
@@ -439,6 +439,10 @@ etl = [
     { name = "requests" },
     { name = "sqlalchemy-firebird" },
 ]
+national = [
+    { name = "datasus-dbc" },
+    { name = "dbfread" },
+]
 otel = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
@@ -454,6 +458,8 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.43" },
     { name = "cnes-contracts", editable = "packages/cnes_contracts" },
     { name = "cnes-domain", editable = "packages/cnes_domain" },
+    { name = "datasus-dbc", marker = "extra == 'national'", specifier = ">=0.1.3,<0.2" },
+    { name = "dbfread", marker = "extra == 'national'", specifier = ">=2.0.7,<3" },
     { name = "fdb", marker = "extra == 'etl'", specifier = ">=2.0" },
     { name = "firebird-base", marker = "extra == 'etl'", specifier = ">=2.0" },
     { name = "firebird-driver", marker = "extra == 'etl'", specifier = ">=2.0" },
@@ -481,7 +487,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "sqlalchemy-firebird", marker = "extra == 'etl'", specifier = ">=2.1" },
 ]
-provides-extras = ["etl", "otel"]
+provides-extras = ["national", "etl", "otel"]
 
 [[package]]
 name = "cnesdata-workspace"
@@ -671,6 +677,12 @@ requires-dist = [
     { name = "cnes-infra", extras = ["etl"], editable = "packages/cnes_infra" },
     { name = "httpx", specifier = ">=0.27" },
 ]
+
+[[package]]
+name = "datasus-dbc"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/23/c6/184abf8c6d7717c65bbcec3c6c00fb644ab747b31c4a3b7d302190482f6e/datasus_dbc-0.1.3.tar.gz", hash = "sha256:5d463f16f8c896247463f22eb31b3c3f756837f7c1be5cecc868c5114df4df8c", size = 6405, upload-time = "2024-04-16T21:19:22.06Z" }
 
 [[package]]
 name = "db-dtypes"

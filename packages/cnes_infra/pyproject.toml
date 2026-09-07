@@ -20,6 +20,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+national = [
+    "datasus-dbc>=0.1.3,<0.2",
+    "dbfread>=2.0.7,<3",
+]
 etl = [
     "fdb>=2.0",
     "firebird-driver>=2.0",
