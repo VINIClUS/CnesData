@@ -96,7 +96,8 @@ class Job(BaseModel):
     state: JobState; attempt: int; fencing_token: int
     lease_owner: str | None; lease_until: datetime | None
     result_manifest_id: str | None; result_manifest_key: str | None
-    error_code: str | None; created_at: datetime
+    error_code: str | None; rejected_manifest_sha256: str | None = None
+    created_at: datetime
 class RunDependency(BaseModel):
     source_type: str; file_subtype: str; required: bool
 class Run(BaseModel):
@@ -110,6 +111,9 @@ class RawManifestRecord(BaseModel):
     source_type: str; file_subtype: str; competencia: str
     snapshot_mode: str; snapshot_id: str; base_snapshot_id: str | None; sequence: int
     previous_manifest_sha256: str | None; manifest_sha256: str; created_at: datetime
+class RawResyncState(BaseModel):
+    tenant_id: str; agent_id: str; source_type: str; file_subtype: str
+    competencia: str; required_since: datetime
 class RunUnit(BaseModel):
     tenant_id: str; run_id: str; unit_id: str
     stage: RunStage; source_type: str | None; file_subtype: str | None
@@ -148,7 +152,7 @@ class CompleteJob(BaseModel):
     manifest: RawManifestRecord
 class FailJob(BaseModel):
     tenant_id: str; job_id: str; owner: str; fencing_token: int
-    error_code: str; retryable: bool
+    error_code: str; retryable: bool; rejected_manifest_sha256: str | None = None
 class CancelJob(BaseModel):
     tenant_id: str; job_id: str; requested_by: str
 class TransitionRun(BaseModel):
@@ -202,6 +206,12 @@ class LatestSucceededJobQuery:
 class RawManifestChainQuery:
     identity: RawIdentity; limit: int = 31
 @dataclass(frozen=True, slots=True)
+class AgentRawManifestChainQuery:
+    identity: RawIdentity; agent_id: str; limit: int = 31
+@dataclass(frozen=True, slots=True)
+class RawResyncStateQuery:
+    identity: RawIdentity; agent_id: str
+@dataclass(frozen=True, slots=True)
 class WaitingRunsForDependencyQuery:
     identity: RawIdentity; limit: int = 100
 
@@ -254,6 +264,11 @@ class TypedRawQueryPort(Protocol):
                                    query: LatestSucceededJobQuery) -> Job | None: ...
     def query_raw_manifest_chain(self,
                                  query: RawManifestChainQuery) -> tuple[ManifestRef, ...]: ...
+    def query_agent_raw_manifest_chain(
+        self, query: AgentRawManifestChainQuery
+    ) -> tuple[ManifestRef, ...]: ...
+    def query_raw_resync_state(self,
+                               query: RawResyncStateQuery) -> RawResyncState | None: ...
     def query_waiting_runs_for_dependency(
         self, query: WaitingRunsForDependencyQuery
     ) -> tuple[Run, ...]: ...
@@ -1397,7 +1412,7 @@ Tasks CND-030–034 consume the normative contract at
 - Consumes: the CND-029 normative contract, `RawManifest`, `manifest_sha256`, `ObjectStorePort`,
   `RawManifestRecord`, `ControlPlanePort.get_job/complete_job/fail_job`, and only the typed raw
   reads `TypedRawQueryPort.query_latest_succeeded_job(LatestSucceededJobQuery)`,
-  `query_raw_manifest_chain(RawManifestChainQuery(limit=31))`, and
+  `query_agent_raw_manifest_chain(AgentRawManifestChainQuery(agent_id, limit=31))`, and
   `query_raw_resync_state(RawResyncStateQuery)` built with `RawIdentity`. Deprecated positional
   `latest_succeeded_job` and `list_raw_manifest_chain` are forbidden.
 - Produces: `ResyncReason(StrEnum)` in exact order `AGENT_RESYNC_REQUIRED`, `BASE_UNKNOWN`,
@@ -1409,11 +1424,14 @@ Tasks CND-030–034 consume the normative contract at
   with the frozen seven-day/30-delta ceilings; and
   `RawIngestionService.register(command) -> RawAcceptance`.
 - Extends the control-plane contract with `RawResyncState`, keyed by exact tenant, agent, source,
-  subtype, and competence; `RawResyncStateQuery(identity, agent_id)`; and nullable
-  `rejected_manifest_sha256` on `FailJob` and `Job`. A `RAW_RESYNC_*` final failure requires the
-  hash, stores it on the failed job, and creates or preserves the marker atomically with its
-  outbox event. Completing an accepted FULL removes that marker in the same transaction as job,
-  raw index, and acceptance event. Other failures and completions never clear it.
+  subtype, and competence; `RawResyncStateQuery(identity, agent_id)`;
+  `AgentRawManifestChainQuery(identity, agent_id, limit=31)`; and nullable
+  `rejected_manifest_sha256` on `FailJob` and `Job`. The existing `RawManifestChainQuery` remains
+  the agent-neutral orchestration read and is forbidden for DELTA policy. A `RAW_RESYNC_*` final
+  failure requires the hash, stores it on the failed job, and creates or preserves the marker
+  atomically with its outbox event. Completing an accepted FULL removes that marker in the same
+  transaction as job, raw index, and acceptance event. Other failures and completions never clear
+  it.
 
 - [ ] **Step 1: Write failing gap/age/hash tests**
 
@@ -1469,9 +1487,10 @@ require its stat SHA-256 and size to equal the manifest. Key, existence, hash, o
 returns without job, chain-index, outbox, sidecar, or dataset-pointer mutation.
 
 Only after that object validation may DELTA load `RawResyncStateQuery`, history through
-`LatestSucceededJobQuery` and `RawManifestChainQuery(limit=31)`, and evaluate every reason in the
-frozen order. An existing exact marker is the sole predicate for `AGENT_RESYNC_REQUIRED`. A valid
-policy rejection atomically calls `fail_job` to record `FAILED_FINAL`,
+`LatestSucceededJobQuery` and `AgentRawManifestChainQuery(agent_id, limit=31)`, and evaluate every
+reason in the frozen order. The latest job and every chain member must belong to the authenticated
+agent. An existing exact marker is the sole predicate for `AGENT_RESYNC_REQUIRED`. A valid policy
+rejection atomically calls `fail_job` to record `FAILED_FINAL`,
 `RAW_RESYNC_<REASON>`, the rejected canonical hash, the durable marker, and one deterministic
 `raw.manifest.resync_required`; it creates no sidecar. An accepted registration then writes the
 immutable manifest JSON key
@@ -1494,7 +1513,22 @@ Expected: PASS at the app 90% coverage gate.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/central_api/src/central_api/services apps/central_api/tests/services
+git add apps/central_api/src/central_api/services \
+  apps/central_api/tests/services \
+  packages/cnes_domain/src/cnes_domain/control_plane/commands.py \
+  packages/cnes_domain/src/cnes_domain/control_plane/entities.py \
+  packages/cnes_domain/src/cnes_domain/control_plane/queries.py \
+  packages/cnes_domain/src/cnes_domain/ports/control_plane.py \
+  packages/cnes_domain/tests/control_plane/test_entities.py \
+  packages/cnes_domain/tests/control_plane/test_queries.py \
+  packages/cnes_infra/src/cnes_infra/control_plane/sqlite_claims.py \
+  packages/cnes_infra/src/cnes_infra/control_plane/sqlite_schema.py \
+  packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_claims.py \
+  packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_keys.py \
+  packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_queries.py \
+  packages/cnes_infra/tests/contracts/control_plane_raw_contract.py \
+  packages/cnes_infra/tests/control_plane/test_sqlite_adapter.py \
+  packages/cnes_infra/tests/control_plane/test_dynamodb_adapter.py
 git commit -m "feat(ingestion): validate raw manifests and delta chains"
 ```
 

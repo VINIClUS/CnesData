@@ -228,6 +228,10 @@ def test_contrato_resync_define_estado_duravel_e_replay_rejeitado():
     assert "FULL aceito remove o marcador" in spec
     assert "RawResyncState" in plan
     assert "rejected_manifest_sha256" in plan
+    assert "AgentRawManifestChainQuery" in plan
+    assert plan.count("query_raw_resync_state") >= 2
+    assert "git add apps/central_api/src/central_api/services \\" in plan
+    assert "packages/cnes_infra/src/cnes_infra/control_plane" in plan
 
 
 def test_imagem_runtime_importa_dbc_sem_cargo():

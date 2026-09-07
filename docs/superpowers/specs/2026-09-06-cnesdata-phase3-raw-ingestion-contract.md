@@ -251,7 +251,8 @@ removem. O marcador não cria job nem agenda trabalho.
 FULL requer sequência 1 e base/hash anterior nulos. DELTA requer base conhecida, sequência
 anterior mais um, hash canônico anterior, mesmo schema, idade da base de no máximo sete dias e
 menos de 30 deltas já aceitos. Configuração pode reduzir, mas nunca ampliar ou desabilitar esses
-limites.
+limites. A cabeça e todos os membros da cadeia avaliados para DELTA pertencem ao mesmo `agent_id`
+autenticado; uma consulta agent-neutral nunca participa dessa política.
 
 Uma rejeição válida da política DELTA conclui atomicamente o job em `FAILED_FINAL`, grava
 `RAW_RESYNC_<REASON>`, persiste no job o `rejected_manifest_sha256` dos bytes canônicos recebidos,
