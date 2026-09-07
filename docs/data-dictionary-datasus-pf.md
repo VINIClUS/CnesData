@@ -113,6 +113,8 @@ Não há deduplicação: toda linha PF válida é preservada, inclusive duplicat
 Depois da projeção, as linhas são ordenadas pelas 14 colunas, na ordem definida acima, em ordem
 ascendente e com nulls last em cada coluna. A ordenação não usa índice de leitura, relógio nem
 dados externos.
+Para DELTA, cada bucket de operação usa essa mesma chave antes da serialização; os buckets são
+emitidos na ordem `I`, `U`, `D`. A iteração de map não participa da ordem.
 Linhas completamente iguais continuam repetidas.
 
 Essas regras são somente de projeção raw. Não corrigem documento, nome, vínculo, CBO ou carga

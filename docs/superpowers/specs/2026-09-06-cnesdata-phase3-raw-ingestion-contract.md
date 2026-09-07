@@ -80,6 +80,8 @@ As 14 colunas de negócio, tipos e ordem seguem o dicionário PF e o fixture
 `docs/fixtures/data-plane/cnes-nacional-v1.parquet`. FULL contém exatamente as 14 colunas nessa
 ordem. DELTA contém exatamente 15 colunas: as mesmas 14 e `_op` como a 15ª e última coluna.
 `_op` é `String` não nula restrita a `I`, `U` ou `D`. Nenhuma outra coluna é permitida.
+O writer DELTA ordena cada bucket pela chave congelada das 14 colunas, ascendente e com nulos por
+último, e emite os buckets na ordem fixa `I`, `U`, `D`. Iteração de map nunca determina a ordem.
 Entradas idênticas devem produzir bytes e SHA-256 idênticos.
 
 ## 4. Chaves e imutabilidade
@@ -280,3 +282,5 @@ envelope; somente `2xx` ou `409` tipado o encerra. Replay terminal autenticado d
 rejeição acontece antes de exigir lease/owner/fence ainda vivos e não duplica índice ou evento.
 O replay de rejeição exige igualdade com o `rejected_manifest_sha256` guardado no job; hash
 ausente ou divergente é conflito sem mutação.
+O replay de aceite consulta o índice imutável diretamente por `(tenant_id, result_manifest_id)`;
+ele não depende de a entrada continuar dentro de uma leitura limitada da cabeça ou da cadeia.

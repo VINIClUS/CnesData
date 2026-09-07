@@ -230,7 +230,9 @@ def test_contrato_resync_define_estado_duravel_e_replay_rejeitado():
     assert "RawResyncState" in plan
     assert "rejected_manifest_sha256" in plan
     assert "AgentRawManifestChainQuery" in plan
+    assert "RawManifestByIdQuery" in plan
     assert plan.count("query_raw_resync_state") >= 2
+    assert plan.count("query_raw_manifest_by_id") >= 2
     assert "git add apps/central_api/src/central_api/services \\" in plan
     assert "packages/cnes_infra/src/cnes_infra/control_plane" in plan
     assert "packages/cnes_infra/src/cnes_infra/control_plane/sqlite_adapter.py" in plan
@@ -240,11 +242,14 @@ def test_contrato_resync_define_estado_duravel_e_replay_rejeitado():
 def test_contrato_parquet_distingue_schema_full_e_delta():
     spec = _PHASE3_SPEC.read_text(encoding="utf-8")
     dictionary = _PF_DICTIONARY.read_text(encoding="utf-8")
+    plan = _PHASE3_PLAN.read_text(encoding="utf-8")
 
     assert "FULL contém exatamente as 14 colunas" in spec
     assert "DELTA contém exatamente 15 colunas" in spec
     assert "`_op` como a 15ª e última coluna" in spec
     assert "`_op` não integra a projeção de negócio" in dictionary
+    assert "buckets na ordem fixa `I`, `U`, `D`" in spec
+    assert "TestDeltaParquetOrdenaBucketsAntesDeSerializar" in plan
 
 
 def test_plano_exige_terminacao_mtls_antes_de_expor_rotas_raw():

@@ -206,6 +206,9 @@ class LatestSucceededJobQuery:
 class RawManifestChainQuery:
     identity: RawIdentity; limit: int = 31
 @dataclass(frozen=True, slots=True)
+class RawManifestByIdQuery:
+    tenant_id: str; manifest_id: str
+@dataclass(frozen=True, slots=True)
 class AgentRawManifestChainQuery:
     identity: RawIdentity; agent_id: str; limit: int = 31
 @dataclass(frozen=True, slots=True)
@@ -264,6 +267,9 @@ class TypedRawQueryPort(Protocol):
                                    query: LatestSucceededJobQuery) -> Job | None: ...
     def query_raw_manifest_chain(self,
                                  query: RawManifestChainQuery) -> tuple[ManifestRef, ...]: ...
+    def query_raw_manifest_by_id(
+        self, query: RawManifestByIdQuery
+    ) -> RawManifestRecord | None: ...
     def query_agent_raw_manifest_chain(
         self, query: AgentRawManifestChainQuery
     ) -> tuple[ManifestRef, ...]: ...
@@ -1414,6 +1420,7 @@ Tasks CND-030–034 consume the normative contract at
 - Consumes: the CND-029 normative contract, `RawManifest`, `manifest_sha256`, `ObjectStorePort`,
   `RawManifestRecord`, `ControlPlanePort.get_job/complete_job/fail_job`, and only the typed raw
   reads `TypedRawQueryPort.query_latest_succeeded_job(LatestSucceededJobQuery)`,
+  `query_raw_manifest_by_id(RawManifestByIdQuery)`,
   `query_agent_raw_manifest_chain(AgentRawManifestChainQuery(agent_id, limit=31))`, and
   `query_raw_resync_state(RawResyncStateQuery)` built with `RawIdentity`. Deprecated positional
   `latest_succeeded_job` and `list_raw_manifest_chain` are forbidden.
@@ -1427,6 +1434,7 @@ Tasks CND-030–034 consume the normative contract at
   `RawIngestionService.register(command) -> RawAcceptance`.
 - Extends the control-plane contract with `RawResyncState`, keyed by exact tenant, agent, source,
   subtype, and competence; `RawResyncStateQuery(identity, agent_id)`;
+  `RawManifestByIdQuery(tenant_id, manifest_id)`;
   `AgentRawManifestChainQuery(identity, agent_id, limit=31)`; and nullable
   `rejected_manifest_sha256` on `FailJob` and `Job`. The existing `RawManifestChainQuery` remains
   the agent-neutral orchestration read and is forbidden for DELTA policy. A `RAW_RESYNC_*` final
@@ -1459,7 +1467,8 @@ Also test wrong tenant/agent/job identity, a manifest whose source/subtype/compe
 the claimed Job, stale fencing token, non-LEASED Job, and canonical manifest bytes that do not match
 the parsed model. Every case fails before an object/index/outbox mutation. Test accepted and
 rejected terminal replay after lease clearing, divergent replay, atomic rejection/outbox, sidecar
-ordering, and callback failure after durable acceptance.
+ordering, and callback failure after durable acceptance. Accepted replay must still succeed after
+more than 31 newer chain entries displace its manifest from every bounded head/chain query.
 Add `test_objeto_invalido_precede_resync_e_nao_muta_control_plane`: combine an absent or
 hash/size-divergent object with a manifest that would otherwise yield `BASE_UNKNOWN`; assert no
 job, chain index, outbox, sidecar, or dataset-pointer mutation. The object-validation error must
@@ -1477,8 +1486,10 @@ Strongly load `command.job_id`; require exact authenticated tenant/agent, manife
 requested mode, and canonical bytes before branching on state. An authenticated `SUCCEEDED` or
 resync `FAILED_FINAL` replay follows a read-only terminal path before live lease/owner/fence
 validation, because terminal jobs have cleared leases. `SUCCEEDED` requires its stored result,
-chain, data object, sidecar and canonical hash to match. `FAILED_FINAL` with
-`RAW_RESYNC_<REASON>` requires the same authenticated identity and canonical manifest hash as the
+the point-loaded `RawManifestByIdQuery(tenant_id, result_manifest_id)`, data object, sidecar and
+canonical hash to match; bounded latest/chain reads are forbidden for this replay.
+`FAILED_FINAL` with `RAW_RESYNC_<REASON>` requires the same authenticated identity and canonical
+manifest hash as the
 job's stored `rejected_manifest_sha256`. Both return the original response; missing or divergent
 rejection hashes never mutate.
 
@@ -1600,7 +1611,11 @@ before deleting the envelope. On typed `409`, persist `force_full` and discard o
 key's pending fingerprints before deleting the envelope; preserve its committed head/fingerprints.
 Raw envelopes are exempt from generic TTL/count eviction. `force_full` is consumed only by a later
 server-requested FULL and never schedules a job locally. FULL emits every row without `_op`;
-DELTA emits only I/U/D rows and `_op` is exactly `I`, `U`, or `D`.
+DELTA emits only I/U/D rows and `_op` is exactly `I`, `U`, or `D`. Before serialization, sort each
+operation bucket by the frozen 14-column ascending/nulls-last key, then emit the buckets in exact
+`I`, `U`, `D` order. Never rely on Go map iteration. Add
+`TestDeltaParquetOrdenaBucketsAntesDeSerializar`, feeding identical rows through different map
+insertion orders and asserting byte-identical Parquet and SHA-256.
 
 - [ ] **Step 4: Run Go race and coverage gates**
 
