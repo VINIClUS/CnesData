@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import re
-import sys
-import tomllib
+from hashlib import sha256
 from pathlib import Path
+from re import search as regex_search
+from re import split as regex_split
+from sys import version_info
+from tomllib import loads as load_toml
 
-import pytest
 from dbfread import DBF
 
 from cnes_contracts import RawManifest
@@ -117,19 +117,19 @@ _PF_RECORD = {
 
 
 def _project(path: str) -> dict[str, object]:
-    return tomllib.loads((_ROOT / path).read_text(encoding="utf-8"))["project"]
+    return load_toml((_ROOT / path).read_text(encoding="utf-8"))["project"]
 
 
 def _assert_toolchain_isolated(dockerfile: str) -> None:
-    stages = re.split(r"(?m)^FROM ", dockerfile)[1:]
+    stages = regex_split(r"(?m)^FROM ", dockerfile)[1:]
 
     assert len(stages) == 2
     builder, runtime = stages
     assert builder.startswith("python:3.13-slim AS builder")
-    assert all(re.search(rf"\b{tool}\b", builder) for tool in ("cargo", "rustc", "gcc"))
+    assert all(regex_search(rf"\b{tool}\b", builder) for tool in ("cargo", "rustc", "gcc"))
     assert builder.index("apt-get install") < builder.index("uv pip install")
     assert "apt-get install" not in runtime
-    assert re.search(r"\b(?:cargo|rustc|gcc)\b", runtime) is None
+    assert regex_search(r"\b(?:cargo|rustc|gcc)\b", runtime) is None
     logical_runtime = runtime.replace("\\\n", " ")
     instructions = tuple(tuple(line.split()) for line in logical_runtime.splitlines())
     builder_copies = tuple(
@@ -150,19 +150,27 @@ def _assert_toolchain_isolated(dockerfile: str) -> None:
     )
 
 
+def _assert_toolchain_isolation_fails(dockerfile: str) -> None:
+    try:
+        _assert_toolchain_isolated(dockerfile)
+    except AssertionError:
+        return
+    raise AssertionError
+
+
 def test_runtime_python313_falha_sem_modulo_dbc():
-    assert sys.version_info[:2] == (3, 13)
+    assert version_info[:2] == (3, 13)
 
-    import datasus_dbc
+    from datasus_dbc import decompress
 
-    assert callable(datasus_dbc.decompress)
+    assert callable(decompress)
 
 
 def test_fixture_dbc_converte_para_dbf_sem_dados_sensiveis(tmp_path: Path):
-    import datasus_dbc
+    from datasus_dbc import decompress
 
     output = tmp_path / "PFSP2601.dbf"
-    datasus_dbc.decompress(str(_FIXTURE), str(output))
+    decompress(str(_FIXTURE), str(output))
 
     table = DBF(output, load=False, encoding="latin-1")
     records = iter(table)
@@ -174,8 +182,8 @@ def test_fixture_dbc_converte_para_dbf_sem_dados_sensiveis(tmp_path: Path):
         == _PF_LAYOUT
     )
     assert dict(record) == _PF_RECORD
-    with pytest.raises(StopIteration):
-        next(records)
+    exhausted = object()
+    assert next(records, exhausted) is exhausted
 
 
 def test_extra_national_fixa_dependencias_compativeis():
@@ -196,20 +204,17 @@ def test_imagem_runtime_importa_dbc_sem_cargo():
     _assert_toolchain_isolated(dockerfile)
 
 
-@pytest.mark.parametrize(
-    "copy_instruction",
-    [
+def test_imagem_runtime_rejeita_copy_amplo_com_formatacao_alternativa():
+    copy_instructions = (
         "    COPY --from=builder /usr/local/bin /usr/local/bin",
         "copy --from=builder /usr/local/bin /usr/local/bin",
-    ],
-)
-def test_imagem_runtime_rejeita_copy_amplo_com_formatacao_alternativa(copy_instruction: str):
+    )
     dockerfile = (_ROOT / "apps" / "central_api" / "Dockerfile").read_text(encoding="utf-8")
     runtime = "FROM python:3.13-slim\n"
-    mutated = dockerfile.replace(runtime, f"{runtime}{copy_instruction}\n", 1)
 
-    with pytest.raises(AssertionError):
-        _assert_toolchain_isolated(mutated)
+    for copy_instruction in copy_instructions:
+        mutated = dockerfile.replace(runtime, f"{runtime}{copy_instruction}\n", 1)
+        _assert_toolchain_isolation_fails(mutated)
 
 
 def test_manifesto_raw_golden_preserva_bytes_canonicos():
@@ -217,6 +222,6 @@ def test_manifesto_raw_golden_preserva_bytes_canonicos():
     manifest = RawManifest.model_validate_json(payload)
 
     assert payload == _GOLDEN_BYTES
-    assert hashlib.sha256(payload).hexdigest() == _GOLDEN_SHA256
+    assert sha256(payload).hexdigest() == _GOLDEN_SHA256
     assert manifest.model_dump_json(exclude_none=False, by_alias=False).encode() == payload
     assert manifest_sha256(manifest) == _GOLDEN_SHA256

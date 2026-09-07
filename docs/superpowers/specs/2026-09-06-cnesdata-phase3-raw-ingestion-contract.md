@@ -48,11 +48,15 @@ O transporte usa FTP anônimo e executa, nesta ordem:
 4. Exige metadados pré/pós idênticos e contagem local igual a `SIZE`.
 5. Valida o DBC completo e o converte de arquivo para arquivo em DBF temporário.
 6. Abre o DBF incrementalmente, valida o layout de 40 campos e os valores necessários.
-7. Retém somente `CODUFMUN=<IBGE6>` e `COMPETEN=<YYYYMM>`.
+7. Confirma que a competência do conteúdo é `COMPETEN=<YYYYMM>` solicitado.
+8. Somente então retém as linhas com `CODUFMUN=<IBGE6>`.
 
 Falha de rede, FTP temporária, indisponibilidade de `SIZE`/`MDTM` ou mudança dos metadados durante
-a transferência é retryable. DBC inválido, DBF inválido, schema divergente, competência
-divergente ou valor de campo inválido é falha final de dados. Recursos FTP, arquivos e diretórios
+a transferência é retryable. DBC inválido, DBF inválido, schema divergente, valor de campo
+inválido ou arquivo PF cuja competência de conteúdo não corresponde à solicitada é falha final
+de dados. A divergência de competência precede o filtro municipal e não é
+`source_not_published`. Somente após confirmar a competência do arquivo, a ausência de linhas
+para o IBGE6 solicitado é `source_not_published`, retryable. Recursos FTP, arquivos e diretórios
 temporários são fechados ou removidos em `finally`, inclusive em falha.
 
 FTP simples não autentica o publicador e o DATASUS não fornece checksum nesse endpoint. As duas

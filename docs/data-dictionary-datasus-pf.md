@@ -57,13 +57,16 @@ largura, escala ou quantidade é falha final de schema.
 
 ## Filtro obrigatório
 
-Somente linhas que satisfaçam simultaneamente estas condições são emitidas:
+O arquivo PF é validado em duas etapas, nesta ordem:
 
-- `CODUFMUN` igual ao IBGE6 do tenant;
-- `COMPETEN` igual à competência solicitada convertida de `YYYY-MM` para `YYYYMM`.
+- primeiro, a competência de conteúdo deve corresponder à competência solicitada convertida de
+  `YYYY-MM` para `YYYYMM`;
+- somente depois, são emitidas as linhas cujo `CODUFMUN` é igual ao IBGE6 do tenant.
 
-`UFMUNRES` não substitui `CODUFMUN`. Ausência de linhas da competência e do município
-solicitados é `source_not_published`, retryable, sem buscar outro mês.
+Arquivo PF cuja competência de conteúdo não corresponde à solicitada é falha final de dados;
+essa divergência precede o filtro municipal e não é `source_not_published`. Somente após
+confirmar a competência do arquivo, ausência de linhas para o IBGE6 solicitado é
+`source_not_published`, retryable, sem buscar outro mês. `UFMUNRES` não substitui `CODUFMUN`.
 
 ## Projeção raw de 14 colunas
 

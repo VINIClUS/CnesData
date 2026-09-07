@@ -1606,7 +1606,10 @@ file-to-file, read incrementally, and clean temporaries in every path. FTP `550`
 `source_not_published`; never probe ST, BigQuery or another month. Plain FTP proves no publisher
 identity or source authenticity.
 
-Retain only exact `CODUFMUN`/`COMPETEN` rows and apply the 12-to-14 mapping from the PF dictionary,
+Treat a PF whose content competency differs from the requested competency as a final data failure,
+before municipality filtering. Only after confirming the file competency, treat no rows for the
+requested `CODUFMUN` as retryable `source_not_published`. Retain only exact `CODUFMUN` rows for
+the confirmed `COMPETEN` and apply the 12-to-14 mapping from the PF dictionary,
 including typed nulls, strict `PROF_SUS` S/N, hour sum, code padding, `FONTE=NACIONAL`, duplicate
 preservation and deterministic all-column sort with nulls last. Write only the immutable data
 object as simple Parquet with Zstd 3, statistics, row groups up to 64,000 and `CreatedBy=Polars`;
