@@ -17,13 +17,14 @@ type NaturalKey = tuple[str, str, str, str]
 
 LOGGER = logging.getLogger(__name__)
 MANIFEST_FILE = "fixture-manifest.json"
+RAW_MANIFEST_FILE = "raw-manifest-v1.json"
 LOCAL_FILE = "cnes-local-v1.parquet"
 NATIONAL_FILE = "cnes-nacional-v1.parquet"
 GOLD_FILE = "cnes-gold-v2.parquet"
 SERVING_FILE = "cnes-serving-v1.json"
 PARQUET_FILES = (LOCAL_FILE, NATIONAL_FILE, GOLD_FILE)
 ARTIFACT_FILES = frozenset((*PARQUET_FILES, SERVING_FILE))
-EXPECTED_FILES = frozenset((*ARTIFACT_FILES, MANIFEST_FILE))
+EXPECTED_FILES = frozenset((*ARTIFACT_FILES, MANIFEST_FILE, RAW_MANIFEST_FILE))
 LOCAL_MANIFEST_ID = "fixture-cnes-local-v1"
 NATIONAL_MANIFEST_ID = "fixture-cnes-nacional-v1"
 SOURCE_MANIFEST_IDS = [LOCAL_MANIFEST_ID, NATIONAL_MANIFEST_ID]
