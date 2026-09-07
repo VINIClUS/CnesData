@@ -120,6 +120,36 @@ def _project(path: str) -> dict[str, object]:
     return tomllib.loads((_ROOT / path).read_text(encoding="utf-8"))["project"]
 
 
+def _assert_toolchain_isolated(dockerfile: str) -> None:
+    stages = re.split(r"(?m)^FROM ", dockerfile)[1:]
+
+    assert len(stages) == 2
+    builder, runtime = stages
+    assert builder.startswith("python:3.13-slim AS builder")
+    assert all(re.search(rf"\b{tool}\b", builder) for tool in ("cargo", "rustc", "gcc"))
+    assert builder.index("apt-get install") < builder.index("uv pip install")
+    assert "apt-get install" not in runtime
+    assert re.search(r"\b(?:cargo|rustc|gcc)\b", runtime) is None
+    logical_runtime = runtime.replace("\\\n", " ")
+    instructions = tuple(tuple(line.split()) for line in logical_runtime.splitlines())
+    builder_copies = tuple(
+        (tokens[0].casefold(), tokens[1].casefold(), *tokens[2:])
+        for tokens in instructions
+        if len(tokens) >= 2
+        and tokens[0].casefold() == "copy"
+        and "--from=builder" in (token.casefold() for token in tokens[1:])
+    )
+    assert builder_copies == (
+        (
+            "copy",
+            "--from=builder",
+            "/usr/local/lib/python3.13/site-packages",
+            "/usr/local/lib/python3.13/site-packages",
+        ),
+        ("copy", "--from=builder", "/usr/local/bin/uvicorn", "/usr/local/bin/uvicorn"),
+    )
+
+
 def test_runtime_python313_falha_sem_modulo_dbc():
     assert sys.version_info[:2] == (3, 13)
 
@@ -162,28 +192,24 @@ def test_extra_national_fixa_dependencias_compativeis():
 
 def test_imagem_runtime_importa_dbc_sem_cargo():
     dockerfile = (_ROOT / "apps" / "central_api" / "Dockerfile").read_text(encoding="utf-8")
-    stages = re.split(r"(?m)^FROM ", dockerfile)[1:]
 
-    assert len(stages) == 2
-    builder, runtime = stages
-    assert builder.startswith("python:3.13-slim AS builder")
-    assert all(re.search(rf"\b{tool}\b", builder) for tool in ("cargo", "rustc", "gcc"))
-    assert builder.index("apt-get install") < builder.index("uv pip install")
-    assert "apt-get install" not in runtime
-    assert re.search(r"\b(?:cargo|rustc|gcc)\b", runtime) is None
-    logical_runtime = runtime.replace("\\\n", " ")
-    builder_copies = tuple(
-        tuple(line.split()[2:])
-        for line in logical_runtime.splitlines()
-        if line.startswith("COPY --from=builder ")
-    )
-    assert builder_copies == (
-        (
-            "/usr/local/lib/python3.13/site-packages",
-            "/usr/local/lib/python3.13/site-packages",
-        ),
-        ("/usr/local/bin/uvicorn", "/usr/local/bin/uvicorn"),
-    )
+    _assert_toolchain_isolated(dockerfile)
+
+
+@pytest.mark.parametrize(
+    "copy_instruction",
+    [
+        "    COPY --from=builder /usr/local/bin /usr/local/bin",
+        "copy --from=builder /usr/local/bin /usr/local/bin",
+    ],
+)
+def test_imagem_runtime_rejeita_copy_amplo_com_formatacao_alternativa(copy_instruction: str):
+    dockerfile = (_ROOT / "apps" / "central_api" / "Dockerfile").read_text(encoding="utf-8")
+    runtime = "FROM python:3.13-slim\n"
+    mutated = dockerfile.replace(runtime, f"{runtime}{copy_instruction}\n", 1)
+
+    with pytest.raises(AssertionError):
+        _assert_toolchain_isolated(mutated)
 
 
 def test_manifesto_raw_golden_preserva_bytes_canonicos():
