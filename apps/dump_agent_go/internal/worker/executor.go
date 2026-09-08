@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"runtime/debug"
 	"strings"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/cnesdata/dumpagent/internal/integrity"
 	"github.com/cnesdata/dumpagent/internal/manifest"
 	"github.com/cnesdata/dumpagent/internal/obs"
+	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/writer"
 	"golang.org/x/sync/errgroup"
@@ -103,6 +105,56 @@ func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (int64, error) {
 
 func removeUnpersistedRawSpool(directory, name string, cause error) error {
 	return errors.Join(cause, upload.RemoveRawSpool(directory, name))
+}
+
+func (e *JobExecutor) reconcileRawState(current delta.PendingRef) error {
+	if e.RawOutbox == nil || e.DeltaStore == nil || e.RawSpoolDirectory == "" {
+		return errors.New("raw_executor=unconfigured")
+	}
+	items, err := allEnvelopeItems(e.RawOutbox)
+	if err != nil {
+		return err
+	}
+	refs, retained := retainedRawState(current, items)
+	if _, err := e.DeltaStore.ReconcileRawPending(refs); err != nil {
+		return err
+	}
+	return reconcileRawSpoolFiles(e.RawSpoolDirectory, retained)
+}
+
+func retainedRawState(current delta.PendingRef,
+	items []queue.Item,
+) ([]delta.PendingRef, map[string]bool) {
+	refs := []delta.PendingRef{current}
+	spools := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item.Envelope.Type == queue.TypeRawManifest {
+			spools[item.Envelope.SpoolName] = true
+			refs = append(refs, pendingRef(item.Envelope))
+		}
+	}
+	return refs, spools
+}
+
+func reconcileRawSpoolFiles(directory string, retained map[string]bool) error {
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "raw-") ||
+			!strings.HasSuffix(name, ".parquet") || retained[name] {
+			continue
+		}
+		if err := upload.RemoveRawSpool(directory, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func streamParquet(ctx context.Context, write func(io.Writer) error,

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/manifest"
 	"github.com/cnesdata/dumpagent/internal/queue"
-	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/writer"
 )
 
@@ -40,45 +38,6 @@ type rawCycle struct {
 }
 
 const rawTerminalPollInterval = 10 * time.Millisecond
-
-func (e *JobExecutor) reconcileRawState(current delta.PendingRef) error {
-	if e.RawOutbox == nil || e.DeltaStore == nil || e.RawSpoolDirectory == "" {
-		return errors.New("raw_executor=unconfigured")
-	}
-	items, err := allEnvelopeItems(e.RawOutbox)
-	if err != nil {
-		return err
-	}
-	refs := []delta.PendingRef{current}
-	retained := make(map[string]bool, len(items))
-	for _, item := range items {
-		if item.Envelope.Type == queue.TypeRawManifest {
-			retained[item.Envelope.SpoolName] = true
-			refs = append(refs, pendingRef(item.Envelope))
-		}
-	}
-	if _, err := e.DeltaStore.ReconcileRawPending(refs); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(e.RawSpoolDirectory)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, "raw-") ||
-			!strings.HasSuffix(name, ".parquet") || retained[name] {
-			continue
-		}
-		if err := upload.RemoveRawSpool(e.RawSpoolDirectory, name); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 func allEnvelopeItems(out EnvelopeOutbox) ([]queue.Item, error) {
 	for limit := drainBatchSize; ; limit *= 2 {
