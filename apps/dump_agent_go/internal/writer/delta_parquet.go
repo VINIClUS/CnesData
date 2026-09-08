@@ -82,6 +82,7 @@ type rawColumn struct {
 	kind pq.Kind
 }
 
+//nolint:misspell // NOME_PROFISSIONAL is a frozen CNES field name.
 var rawColumns = []rawColumn{
 	{"CPF", pq.ByteArray}, {"CNS", pq.ByteArray}, {"NOME_PROFISSIONAL", pq.ByteArray},
 	{"NOME_SOCIAL", pq.ByteArray}, {"SEXO", pq.ByteArray}, {"CBO", pq.ByteArray},
@@ -120,7 +121,7 @@ func writeRawParquet(dst io.Writer, buckets []rawBucket, deltaMode bool) (err er
 		}
 	}
 	schema := buildRawSchema(deltaMode)
-	pw := pq.NewWriter(dst, schema, &pq.WriterConfig{CreatedBy: "Polars"},
+	pw := pq.NewGenericWriter[any](dst, schema, &pq.WriterConfig{CreatedBy: "Polars"},
 		pq.Compression(&zstd.Codec{Level: zstd.SpeedDefault}),
 		pq.MaxRowsPerRowGroup(64000), pq.DataPageStatistics(true))
 	defer func() { err = errors.Join(err, pw.Close()) }()
@@ -185,7 +186,7 @@ func rawValue(col rawColumn, value any) (pq.Value, error) {
 	return pq.Value{}, fmt.Errorf("raw_column_type_invalid=%s", col.name)
 }
 
-func writeRawBucket(pw *pq.Writer, schema *pq.Schema, bucket rawBucket) error {
+func writeRawBucket(pw *pq.GenericWriter[any], schema *pq.Schema, bucket rawBucket) error {
 	rows := slices.Clone(bucket.rows)
 	slices.SortStableFunc(rows, compareRawRows)
 	for _, row := range rows {

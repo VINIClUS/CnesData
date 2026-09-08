@@ -275,9 +275,12 @@ func makeKey(b *bbolt.Bucket, t time.Time) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if seq > uint64(^uint32(0)) {
+		return nil, fmt.Errorf("outbox_sequence=overflow")
+	}
 	key := make([]byte, 12)
 	// UnixNano is non-negative for any time >= 1970-01-01; safe to cast.
 	binary.BigEndian.PutUint64(key[0:8], uint64(t.UnixNano())) //nolint:gosec // G115
-	binary.BigEndian.PutUint32(key[8:12], uint32(seq&0xffffffff))
+	binary.BigEndian.PutUint32(key[8:12], uint32(seq))         //nolint:gosec // Bounds checked above.
 	return key, nil
 }

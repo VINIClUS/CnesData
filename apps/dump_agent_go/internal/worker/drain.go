@@ -41,7 +41,7 @@ type RawDrainer struct {
 	Uploader       upload.RawUploader
 }
 
-// NewRawDrainer constrói o drainer independente da composição do serviço.
+// NewRawDrainer constrói o drainer sem depender da composição do serviço.
 func NewRawDrainer(client RawManifestClient, store *delta.Store, legacy JobAPIClient) *RawDrainer {
 	return &RawDrainer{client: client, store: store, legacy: legacy}
 }
@@ -96,7 +96,7 @@ func (d *RawDrainer) deliverRaw(ctx context.Context, out EnvelopeOutbox, item qu
 func (d *RawDrainer) uploadAndConfirm(ctx context.Context,
 	env queue.Envelope, raw manifest.Raw,
 ) error {
-	_, err := upload.UploadRawSpool(ctx, d.Uploader, upload.RawSpoolUpload{
+	_, err := upload.PutRawSpool(ctx, d.Uploader, upload.RawSpoolUpload{
 		Directory: d.SpoolDirectory, Name: env.SpoolName, URL: env.UploadURL,
 		FencingToken: env.FencingToken, Manifest: raw})
 	if err != nil {

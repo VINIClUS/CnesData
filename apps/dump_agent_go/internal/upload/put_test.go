@@ -64,21 +64,21 @@ func TestSpoolDuravelPreservaBytesEValidaAntesDePut(t *testing.T) {
 	})
 	request := RawSpoolUpload{Directory: directory, Name: spool.Name, URL: "upload",
 		FencingToken: 1, Manifest: manifest.Raw{SizeBytes: spool.SizeBytes, ObjectSHA256: spool.SHA256}}
-	_, err = UploadRawSpool(context.Background(), uploader, request)
+	_, err = PutRawSpool(context.Background(), uploader, request)
 	require.NoError(t, err)
 	require.Equal(t, 1, calls)
 	request.Manifest.SizeBytes++
-	_, err = UploadRawSpool(context.Background(), uploader, request)
+	_, err = PutRawSpool(context.Background(), uploader, request)
 	require.Error(t, err)
 	request.Manifest.SizeBytes--
 	require.NoError(t, os.WriteFile(filepath.Join(directory, spool.Name),
 		[]byte("PAR1changedPAR1"), 0o600))
-	_, err = UploadRawSpool(context.Background(), uploader, request)
+	_, err = PutRawSpool(context.Background(), uploader, request)
 	require.Error(t, err)
 	require.Equal(t, 1, calls)
 	require.NoError(t, RemoveRawSpool(directory, spool.Name))
 	require.NoError(t, RemoveRawSpool(directory, spool.Name))
-	_, err = UploadRawSpool(context.Background(), uploader, request)
+	_, err = PutRawSpool(context.Background(), uploader, request)
 	require.Error(t, err)
 }
 

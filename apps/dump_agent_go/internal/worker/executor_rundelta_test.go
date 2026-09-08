@@ -53,6 +53,7 @@ func rawJob() worker.Job {
 		}}
 }
 
+//nolint:misspell // NOME_PROFISSIONAL is a frozen CNES field name.
 func newRawExecutor(t *testing.T) *worker.JobExecutor {
 	t.Helper()
 	directory := t.TempDir()
@@ -386,7 +387,7 @@ func (s *stubFailUploader) Put(
 	return 0, s.err
 }
 
-func confirmRawExecutor(t *testing.T, executor *worker.JobExecutor, job worker.Job) manifest.Raw {
+func confirmRawExecutor(t *testing.T, executor *worker.JobExecutor, job worker.Job) {
 	t.Helper()
 	items, err := executor.RawOutbox.Peek(10)
 	require.NoError(t, err)
@@ -396,7 +397,6 @@ func confirmRawExecutor(t *testing.T, executor *worker.JobExecutor, job worker.J
 	require.NoError(t, executor.DeltaStore.ConfirmPending(
 		rawPendingRef(job), raw, strings.Repeat("b", 64)))
 	require.NoError(t, executor.RawOutbox.Delete(items[0].Key))
-	return raw
 }
 
 func TestDeltaRawUsaCabecaConfirmadaEPreservaChavesNulasNaExclusao(t *testing.T) {

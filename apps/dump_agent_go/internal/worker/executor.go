@@ -89,7 +89,7 @@ func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (int64, error) {
 	if err := e.enqueueRaw(cycle, raw); err != nil {
 		return 0, removeUnpersistedRawSpool(e.RawSpoolDirectory, spool.Name, err)
 	}
-	size, err := upload.UploadRawSpool(ctx, e.RawUploader, upload.RawSpoolUpload{
+	size, err := upload.PutRawSpool(ctx, e.RawUploader, upload.RawSpoolUpload{
 		Directory: e.RawSpoolDirectory, Name: spool.Name, URL: job.UploadURL,
 		FencingToken: job.FencingToken, Manifest: raw})
 	if err != nil {

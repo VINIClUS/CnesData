@@ -393,7 +393,7 @@ func TestDeltaPreservaVinculosCompletosEMultiplicidade(t *testing.T) {
 		{"reordena_mesma_identidade", []delta.Row{a, workforceLink("010101", "S", 30)},
 			[]delta.Row{workforceLink("010101", "S", 30), a}, nil},
 		{"remove_duplicata", []delta.Row{a, a}, []delta.Row{a}, []string{"D"}},
-		{"adiciona_duplicatas", []delta.Row{a}, []delta.Row{a, a, a}, []string{"I", "I"}},
+		{"adiciona_repetidos", []delta.Row{a}, []delta.Row{a, a, a}, []string{"I", "I"}},
 		{"muda_uma_duplicata", []delta.Row{a, a},
 			[]delta.Row{a, workforceLink("010101", "S", 30)}, []string{"U"}},
 	}

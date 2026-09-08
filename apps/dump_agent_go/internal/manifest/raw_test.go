@@ -136,6 +136,7 @@ func TestManifestoRawRejeitaNomeDeObjetoDiferenteDeDataParquet(t *testing.T) {
 	}
 }
 
+//nolint:misspell // cnes-profissional-v1 is frozen by the cross-language golden.
 func goldenRequest() BuildRequest {
 	return BuildRequest{
 		JobID:         "fixture-cnes-nacional-v1",

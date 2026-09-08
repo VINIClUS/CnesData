@@ -245,6 +245,7 @@ func (e *JobExecutor) rawReplayConfigured(job *Job) bool {
 	return job != nil && job.RawRequest != nil && e.RawOutbox != nil && job.FencingToken > 0
 }
 
+//nolint:misspell // NOME_PROFISSIONAL is a frozen CNES field name.
 func rawProfile() delta.Profile {
 	return delta.Profile{Source: "cnes", Intent: "profissionais",
 		PKExtractor: func(row delta.Row) string {

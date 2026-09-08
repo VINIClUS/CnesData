@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"go.etcd.io/bbolt"
 )
 
 func rawEnvelope(t *testing.T, job string, fence uint64) Envelope {
@@ -352,6 +354,19 @@ func TestOutbox_CloseIdempotent(t *testing.T) {
 	}
 	if err := ob.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestOutbox_RejeitaOverflowDaSequencia(t *testing.T) {
+	ob, _ := newTestOutbox(t)
+	err := ob.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket([]byte(bucketName)).SetSequence(uint64(^uint32(0)))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.Append(Envelope{JobUUID: "overflow"}); err == nil {
+		t.Fatal("expected sequence overflow")
 	}
 }
 

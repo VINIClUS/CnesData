@@ -88,8 +88,8 @@ func writeRawSpool(ctx context.Context, file *os.File,
 	return size, digest.SumHex(), errors.Join(err, <-producer, ctx.Err())
 }
 
-// UploadRawSpool valida tamanho/hash antes do PUT e verifica o corpo consumido.
-func UploadRawSpool(ctx context.Context, uploader RawUploader,
+// PutRawSpool valida tamanho/hash antes do PUT e verifica o corpo consumido.
+func PutRawSpool(ctx context.Context, uploader RawUploader,
 	request RawSpoolUpload,
 ) (int64, error) {
 	if uploader == nil {
