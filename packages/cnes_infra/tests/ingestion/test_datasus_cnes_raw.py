@@ -112,6 +112,22 @@ def _error_code(rows: list[dict[str, object]]) -> tuple[str, bool]:
     return captured.value.code, captured.value.retryable
 
 
+def _replace_dbf_field(payload: bytearray, field_name: str, value: bytes) -> None:
+    record_offset = 1
+    descriptor_offset = 32
+    while payload[descriptor_offset] != 0x0D:
+        descriptor = payload[descriptor_offset : descriptor_offset + 32]
+        name = bytes(descriptor[:11]).split(b"\x00", 1)[0].decode("ascii")
+        length = descriptor[16]
+        if name == field_name:
+            header_size = int.from_bytes(payload[8:10], "little")
+            payload[header_size + record_offset : header_size + record_offset + length] = value
+            return
+        record_offset += length
+        descriptor_offset += 32
+    raise AssertionError(field_name)
+
+
 def test_projeta_schema_padding_documentos_nulos_e_horas():
     manifest, store = _extract(
         [_row(CPF_PROF="99999999999", CNS_PROF="999999999999999", HORAOUTR="")]
@@ -433,4 +449,30 @@ def test_preserva_cancelamento_do_descompressor(monkeypatch: pytest.MonkeyPatch)
     with pytest.raises(KeyboardInterrupt):
         DatasusCnesRawAdapter(transport, store, lambda: _CREATED_AT).extract(_request())
 
+    assert store.calls == []
+
+
+def test_rejeita_overflow_numerico_do_dbf_como_campo_invalido(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = _Store()
+    transport = DatasusCnesFtpTransport()
+    real_decompress = transport_module.decompress
+
+    def download(_remote: str, destination: Path) -> None:
+        destination.write_bytes(_DBC_FIXTURE.read_bytes())
+
+    def inject_overflow(source: str, destination: str) -> None:
+        real_decompress(source, destination)
+        payload = bytearray(Path(destination).read_bytes())
+        _replace_dbf_field(payload, "HORAOUTR", b"***")
+        Path(destination).write_bytes(payload)
+
+    monkeypatch.setattr(transport, "_download_protected", download)
+    monkeypatch.setattr(transport_module, "decompress", inject_overflow)
+
+    with pytest.raises(Exception) as captured:
+        DatasusCnesRawAdapter(transport, store, lambda: _CREATED_AT).extract(_request())
+
+    assert (captured.value.code, captured.value.retryable) == ("field_invalid", False)
     assert store.calls == []

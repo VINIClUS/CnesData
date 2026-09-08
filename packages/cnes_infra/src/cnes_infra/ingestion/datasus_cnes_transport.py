@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Never, Protocol
 
 from datasus_dbc import decompress
-from dbfread import DBF
+from dbfread import DBF, FieldParser
 
 from cnes_domain.pipeline.circuit_breaker import CircuitBreaker, CircuitBreakerAberto
 
@@ -126,6 +126,13 @@ class DatasusCnesTransportPort(Protocol):
 
 class _Closable(Protocol):
     def close(self) -> None: ...  # pragma: no cover
+
+
+class _PfFieldParser(FieldParser):
+    def parseN(self, field: object, data: bytes) -> object:  # noqa: N802
+        if b"*" in data:
+            return data
+        return super().parseN(field, data)
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,7 +315,12 @@ class DatasusCnesFtpTransport:
     @staticmethod
     def _open_dbf(dbf_path: Path) -> object:
         try:
-            return DBF(str(dbf_path), load=False, encoding="latin-1")
+            return DBF(
+                str(dbf_path),
+                load=False,
+                encoding="latin-1",
+                parserclass=_PfFieldParser,
+            )
         except Exception:
             _raise("dbf_invalid", False)
 
