@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
@@ -91,11 +92,11 @@ class DatasusCnesRawAdapter:
         finally:
             close = getattr(iterator, "close", None)
             if callable(close):
-                try:
+                if failed:
+                    with suppress(Exception):
+                        close()
+                else:
                     close()
-                except Exception:
-                    if not failed:
-                        raise
 
     @staticmethod
     def _project(
