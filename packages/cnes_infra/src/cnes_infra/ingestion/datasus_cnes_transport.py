@@ -224,11 +224,13 @@ class DatasusCnesFtpTransport:
 
     def _download_protected(self, remote_path: str, destination: Path) -> None:
         try:
-            self._breaker.call(self._download, remote_path, destination)
+            published = self._breaker.call(self._download, remote_path, destination)
         except CircuitBreakerAberto:
             _raise("circuit_open", True)
+        if not published:
+            _raise("source_not_published", True)
 
-    def _download(self, remote_path: str, destination: Path) -> None:
+    def _download(self, remote_path: str, destination: Path) -> bool:
         ftp: FTP | None = None
         try:
             ftp = self._ftp_factory()
@@ -245,12 +247,14 @@ class DatasusCnesFtpTransport:
         except DatasusCnesError:
             raise
         except error_perm as error:
-            code = "source_not_published" if str(error).startswith("550") else "source_unavailable"
-            _raise(code, True)
+            if str(error).startswith("550"):
+                return False
+            _raise("source_unavailable", True)
         except (FtpError, OSError, EOFError):
             _raise("source_unavailable", True)
         finally:
             self._close_ftp(ftp)
+        return True
 
     @staticmethod
     def _metadata(ftp: FTP, remote_path: str) -> _Metadata:
