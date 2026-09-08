@@ -2,9 +2,36 @@ package queue
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestEnvelopeRawPreservaIdentidadeEBytes(t *testing.T) {
+	in := rawEnvelope(t, "job-1", 7)
+	payload, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{
+		"job_id", "fencing_token", "source_key", "manifest_json", "manifest_sha256",
+	} {
+		if _, ok := fields[field]; !ok {
+			t.Errorf("missing_field=%s", field)
+		}
+	}
+	var out Envelope
+	if err := json.Unmarshal(payload, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatal("identity_changed=true")
+	}
+}
 
 func TestEnvelope_RoundTripComplete(t *testing.T) {
 	now := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)

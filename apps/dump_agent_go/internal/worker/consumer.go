@@ -50,7 +50,9 @@ type Consumer struct {
 }
 
 // NewConsumer construtor.
-func NewConsumer(api JobAPIClient, source JobSpecSource, executor JobExecutorIface, cfg ConsumerConfig) *Consumer {
+func NewConsumer(api JobAPIClient, source JobSpecSource,
+	executor JobExecutorIface, cfg ConsumerConfig,
+) *Consumer {
 	return &Consumer{api: api, source: source, executor: executor, config: cfg}
 }
 
@@ -110,6 +112,12 @@ func (c *Consumer) processJob(ctx context.Context, job Job) {
 	jobCancel()
 	<-hbCh
 
+	if job.RawRequest != nil {
+		if execErr != nil {
+			slog.Warn("raw_execution_failed", "job_id", job.ID)
+		}
+		return
+	}
 	if execErr != nil {
 		if err := c.api.FailJob(ctx, job, execErr); err != nil {
 			slog.Error("fail_job_api_error", "job_id", job.ID, "err", err.Error())

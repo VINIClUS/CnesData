@@ -1,17 +1,168 @@
 package worker
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/breaker"
+	"github.com/cnesdata/dumpagent/internal/delta"
+	"github.com/cnesdata/dumpagent/internal/manifest"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/queue"
+	"github.com/cnesdata/dumpagent/internal/upload"
 )
+
+// RawManifestResponse contém o acknowledgement tipado do servidor.
+type RawManifestResponse struct {
+	StatusCode     int
+	ManifestSHA256 string
+	ForceFull      bool
+	Reason         string
+}
+
+// RawManifestClient envia a identidade imutável do manifesto persistido.
+type RawManifestClient interface {
+	SendRawManifest(context.Context, queue.Envelope) (RawManifestResponse, error)
+}
+
+// RawDrainer confirma estado durável antes de remover manifests da fila.
+type RawDrainer struct {
+	client         RawManifestClient
+	store          *delta.Store
+	legacy         JobAPIClient
+	SpoolDirectory string
+	Uploader       upload.RawUploader
+}
+
+// NewRawDrainer constrói o drainer independente da composição do serviço.
+func NewRawDrainer(client RawManifestClient, store *delta.Store, legacy JobAPIClient) *RawDrainer {
+	return &RawDrainer{client: client, store: store, legacy: legacy}
+}
+
+// Drain envia um lote de envelopes e conserva qualquer falha para replay.
+func (d *RawDrainer) Drain(ctx context.Context, out EnvelopeOutbox) error {
+	items, err := out.Peek(drainBatchSize)
+	if err != nil {
+		return err
+	}
+	legacy := &Drainer{out: out, breaker: breaker.New(5, time.Minute, "raw_legacy"), inner: d.legacy}
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if item.Envelope.Type != queue.TypeRawManifest {
+			if d.legacy == nil || !legacy.dispatchOne(ctx, item) {
+				return errors.New("legacy_dispatch=pending")
+			}
+			continue
+		}
+		if err := d.deliverRaw(ctx, out, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *RawDrainer) deliverRaw(ctx context.Context, out EnvelopeOutbox, item queue.Item) error {
+	raw, err := decodeRawEnvelope(item.Envelope)
+	if err != nil {
+		return err
+	}
+	terminal, err := out.RawTerminal(item.Key)
+	if err != nil {
+		return err
+	}
+	if !terminal {
+		if err := d.uploadAndConfirm(ctx, item.Envelope, raw); err != nil {
+			return err
+		}
+		if err := out.MarkRawTerminal(item.Key); err != nil {
+			return err
+		}
+	}
+	if err := upload.RemoveRawSpool(d.SpoolDirectory, item.Envelope.SpoolName); err != nil {
+		return err
+	}
+	return out.Delete(item.Key)
+}
+
+func (d *RawDrainer) uploadAndConfirm(ctx context.Context,
+	env queue.Envelope, raw manifest.Raw,
+) error {
+	_, err := upload.UploadRawSpool(ctx, d.Uploader, upload.RawSpoolUpload{
+		Directory: d.SpoolDirectory, Name: env.SpoolName, URL: env.UploadURL,
+		FencingToken: env.FencingToken, Manifest: raw})
+	if err != nil {
+		return err
+	}
+	return d.confirm(ctx, env)
+}
+
+func (d *RawDrainer) confirm(ctx context.Context, env queue.Envelope) error {
+	raw, err := decodeRawEnvelope(env)
+	if err != nil {
+		return err
+	}
+	if d.client == nil || d.store == nil {
+		return errors.New("raw_drainer=unconfigured")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, dispatchTimeout)
+	defer cancel()
+	response, err := d.client.SendRawManifest(callCtx, env)
+	if err != nil {
+		return err
+	}
+	ref := pendingRef(env)
+	if successfulRawResponse(response) {
+		return d.store.ConfirmPending(ref, raw, response.ManifestSHA256)
+	}
+	if resyncRawResponse(response, env) {
+		return d.store.RequireFull(ref, response.Reason)
+	}
+	return fmt.Errorf("raw_ack=invalid_or_retryable status=%d", response.StatusCode)
+}
+
+func successfulRawResponse(response RawManifestResponse) bool {
+	return response.StatusCode >= 200 && response.StatusCode < 300 &&
+		!response.ForceFull && response.Reason == ""
+}
+
+func resyncRawResponse(response RawManifestResponse, env queue.Envelope) bool {
+	return response.StatusCode == http.StatusConflict && response.ForceFull &&
+		strings.TrimSpace(response.Reason) != "" && response.ManifestSHA256 == env.ManifestSHA256
+}
+
+func decodeRawEnvelope(env queue.Envelope) (manifest.Raw, error) {
+	var raw manifest.Raw
+	if err := json.Unmarshal(env.ManifestJSON, &raw); err != nil {
+		return raw, errors.New("raw_manifest=json_invalid")
+	}
+	canonical, err := manifest.CanonicalJSON(raw)
+	if err != nil {
+		return raw, err
+	}
+	hash, err := manifest.SHA256(raw)
+	if err != nil {
+		return raw, err
+	}
+	if raw.ManifestID != env.JobID || raw.SnapshotID != env.JobID ||
+		env.FencingToken == 0 || hash != env.ManifestSHA256 ||
+		!bytes.Equal(canonical, env.ManifestJSON) {
+		return raw, errors.New("raw_manifest=identity_invalid")
+	}
+	return raw, validateRawScope(env.SourceKey, raw)
+}
+
+func pendingRef(env queue.Envelope) delta.PendingRef {
+	return delta.PendingRef{SourceKey: env.SourceKey, JobID: env.JobID, FencingToken: env.FencingToken}
+}
 
 const (
 	drainTickInterval   = 30 * time.Second
@@ -25,7 +176,7 @@ const (
 // Drainer ships persisted envelopes to the central_api in FIFO order,
 // gated by a circuit breaker. End-of-tick eviction enforces TTL + cap.
 type Drainer struct {
-	out      *queue.Outbox
+	out      EnvelopeOutbox
 	breaker  *breaker.CircuitBreaker
 	inner    JobAPIClient
 	interval time.Duration
@@ -97,6 +248,9 @@ func (d *Drainer) tick(ctx context.Context) {
 
 // dispatchOne returns true when the loop may continue.
 func (d *Drainer) dispatchOne(ctx context.Context, item queue.Item) bool {
+	if item.Envelope.Type == queue.TypeRawManifest {
+		return false
+	}
 	callCtx, cancel := context.WithTimeout(ctx, dispatchTimeout)
 	defer cancel()
 
@@ -118,7 +272,12 @@ func (d *Drainer) dispatchOne(ctx context.Context, item queue.Item) bool {
 	if errors.Is(callErr, breaker.ErrOpen) {
 		return false
 	}
+	return d.applyResponse(ctx, item, resp, dispErr)
+}
 
+func (d *Drainer) applyResponse(ctx context.Context, item queue.Item,
+	resp *http.Response, dispErr error,
+) bool {
 	cls, sleep := queue.Classify(resp, dispErr)
 	switch cls {
 	case queue.ClassSuccess:
