@@ -2,14 +2,32 @@ from typing import Any
 
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.queries import (
+    AgentRawManifestChainQuery,
     LatestSucceededJobQuery,
+    RawManifestByIdQuery,
     RawManifestChainQuery,
+    RawResyncStateQuery,
     WaitingRunsForDependencyQuery,
 )
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 
 
 class HarnessRawQueries(DeprecatedRawQueryMixin):
+    def query_raw_manifest_by_id(self, query: RawManifestByIdQuery) -> Any | None:
+        return next(
+            (record for record in self.raw_records
+             if (record.tenant_id, record.manifest_id) == (query.tenant_id, query.manifest_id)),
+            None,
+        )
+
+    def query_agent_raw_manifest_chain(
+        self, query: AgentRawManifestChainQuery
+    ) -> tuple[Any, ...]:
+        return ()
+
+    def query_raw_resync_state(self, query: RawResyncStateQuery) -> Any | None:
+        return None
+
     def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Any | None:
         identity = query.identity
         matches = [

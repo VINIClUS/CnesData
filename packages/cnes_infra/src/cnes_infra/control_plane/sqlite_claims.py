@@ -1,5 +1,4 @@
 """SQLite lease and fencing operations."""
-
 from __future__ import annotations
 
 from datetime import timedelta
@@ -17,6 +16,7 @@ from cnes_domain.control_plane.enums import (
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
+from cnes_infra.control_plane import sqlite_raw_registration
 from cnes_infra.control_plane.sqlite_dispatch import (
     put_run_dispatch_bind,
     put_run_dispatch_finish,
@@ -54,7 +54,6 @@ if TYPE_CHECKING:
         ReserveRunDispatch,
     )
     from cnes_domain.control_plane.entities import Job, OutboxEvent
-
 def _validate_job_fence(store: Any, connection: Any, command: Any) -> Job:
     job = store.get_job_record(connection, command.tenant_id, command.job_id)
     agent = None if job is None else store.get_agent_record(connection, job.tenant_id, job.agent_id)
@@ -69,7 +68,6 @@ def _validate_job_fence(store: Any, connection: Any, command: Any) -> Job:
     if job.lease_until is None or job.lease_until <= store.now():
         raise LeaseLost(ErrorCode.LEASE_EXPIRED)
     return job
-
 def claim_job(store: Any, command: ClaimJob) -> Job | None:
     with store.write_transaction() as connection:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
@@ -136,6 +134,9 @@ def complete_job(store: Any, command: CompleteJob, event: OutboxEvent) -> Job:
         store.put_outbox_event(connection, event, command.tenant_id)
         store.put_job_record(connection, completed)
         store.put_manifest_record(connection, manifest)
+        sqlite_raw_registration.advance_agent_head(connection, completed, command)
+        if manifest.snapshot_mode == "FULL":
+            sqlite_raw_registration.delete_resync_state(connection, manifest)
         put_job_terminal_write(connection, "complete", command, event)
         return completed
 def fail_job(store: Any, command: FailJob, event: OutboxEvent) -> Job:
@@ -146,6 +147,7 @@ def fail_job(store: Any, command: FailJob, event: OutboxEvent) -> Job:
             validate_job_terminal_replay(connection, job, command, event)
             return job
         job = _validate_job_fence(store, connection, command)
+        sqlite_raw_registration.validate_resync_rejection(connection, job, command)
         state = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
         failed = job.model_copy(
             update={
@@ -153,10 +155,13 @@ def fail_job(store: Any, command: FailJob, event: OutboxEvent) -> Job:
                 "lease_owner": None,
                 "lease_until": None,
                 "error_code": command.error_code,
+                "rejected_manifest_sha256": command.rejected_manifest_sha256,
             }
         )
         store.put_outbox_event(connection, event, command.tenant_id)
         store.put_job_record(connection, failed)
+        if command.rejected_manifest_sha256 is not None:
+            sqlite_raw_registration.put_resync_state(store, connection, failed)
         put_job_terminal_write(connection, "fail", command, event)
         return failed
 def cancel_job(store: Any, command: CancelJob, event: OutboxEvent) -> Job:
@@ -174,7 +179,6 @@ def cancel_job(store: Any, command: CancelJob, event: OutboxEvent) -> Job:
         store.put_job_record(connection, canceled)
         put_job_cancellation(connection, command, event)
         return canceled
-
 def _list_run_units(connection: Any, tenant_id: str, run_id: str) -> tuple[RunUnit, ...]:
     rows = connection.execute(
         "SELECT data FROM run_units WHERE tenant_id = ? AND run_id = ? ORDER BY unit_id",
@@ -247,8 +251,6 @@ def _put_dispatch(connection: Any, dispatch: RunDispatch) -> None:
             serialize_model(dispatch),
         ),
     )
-
-
 def _has_live_unit_lease(connection: Any, command: Any, dispatch: RunDispatch | None) -> bool:
     units = _list_run_units(connection, command.tenant_id, command.run_id)
     affected = set(command.unit_ids) | (set(dispatch.unit_ids) if dispatch else set())
@@ -433,8 +435,6 @@ def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> R
         _put_run_unit(connection, completed)
         put_run_unit_terminal_write(connection, "commit", command, event)
         return completed
-
-
 def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUnit:
     with store.write_transaction() as connection:
         current = next(

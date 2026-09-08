@@ -45,9 +45,18 @@ def query_latest_succeeded_job(store: Any, query: LatestSucceededJobQuery) -> Jo
     identity = query.identity
     with store.read_connection() as connection:
         row = connection.execute(
-            "SELECT data FROM jobs WHERE tenant_id = ? AND agent_id = ? "
-            "AND source_type = ? AND file_subtype = ? AND competencia = ? "
-            "AND state = ? ORDER BY created_at DESC, job_id DESC LIMIT 1",
+            "SELECT jobs.data FROM jobs LEFT JOIN raw_agent_heads ON "
+            "raw_agent_heads.tenant_id = jobs.tenant_id "
+            "AND raw_agent_heads.agent_id = jobs.agent_id "
+            "AND raw_agent_heads.source_type = jobs.source_type "
+            "AND raw_agent_heads.file_subtype = jobs.file_subtype "
+            "AND raw_agent_heads.competencia = jobs.competencia WHERE "
+            "jobs.tenant_id = ? AND jobs.agent_id = ? AND jobs.source_type = ? "
+            "AND jobs.file_subtype = ? AND jobs.competencia = ? AND jobs.state = ? "
+            "AND (raw_agent_heads.job_id IS NULL OR jobs.job_id = raw_agent_heads.job_id) "
+            "ORDER BY (jobs.job_id = raw_agent_heads.job_id) DESC, "
+            "CASE WHEN raw_agent_heads.job_id IS NULL THEN jobs.created_at END DESC, "
+            "CASE WHEN raw_agent_heads.job_id IS NULL THEN jobs.job_id END DESC LIMIT 1",
             (
                 identity.tenant_id,
                 query.agent_id,

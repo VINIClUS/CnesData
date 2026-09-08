@@ -5,17 +5,37 @@ import pytest
 
 import cnes_domain
 from cnes_domain import control_plane, ports
-from cnes_domain.control_plane.entities import Job, ManifestRef, Run
+from cnes_domain.control_plane.entities import (
+    Job,
+    ManifestRef,
+    RawManifestRecord,
+    RawResyncState,
+    Run,
+)
 from cnes_domain.control_plane.queries import (
+    AgentRawManifestChainQuery,
     LatestSucceededJobQuery,
     RawIdentity,
+    RawManifestByIdQuery,
     RawManifestChainQuery,
+    RawResyncStateQuery,
     WaitingRunsForDependencyQuery,
 )
 from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
 
 
 class _TypedQueries:
+    def query_raw_manifest_by_id(self, query: RawManifestByIdQuery) -> RawManifestRecord | None:
+        return None
+
+    def query_agent_raw_manifest_chain(
+        self, query: AgentRawManifestChainQuery
+    ) -> tuple[ManifestRef, ...]:
+        return ()
+
+    def query_raw_resync_state(self, query: RawResyncStateQuery) -> RawResyncState | None:
+        return None
+
     def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Job | None:
         return None
 
@@ -33,6 +53,16 @@ class _TypedQueries:
 class _IncompleteQueries:
     def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Job | None:
         return None
+
+    def query_raw_manifest_chain(
+        self, query: RawManifestChainQuery
+    ) -> tuple[ManifestRef, ...]:
+        return ()
+
+    def query_waiting_runs_for_dependency(
+        self, query: WaitingRunsForDependencyQuery
+    ) -> tuple[Run, ...]:
+        return ()
 
 
 def test_identidade_raw_aceita_componentes_canonicos() -> None:
@@ -73,11 +103,17 @@ def test_consultas_raw_preservam_identidade_e_limites_padrao() -> None:
     latest = LatestSucceededJobQuery(identity, "agent-01")
     manifests = RawManifestChainQuery(identity)
     waiting = WaitingRunsForDependencyQuery(identity)
+    by_id = RawManifestByIdQuery("354130", "manifest-1")
+    agent_chain = AgentRawManifestChainQuery(identity, "agent-01")
+    resync = RawResyncStateQuery(identity, "agent-01")
 
     assert latest.identity is identity
     assert latest.agent_id == "agent-01"
     assert manifests.limit == 31
     assert waiting.limit == 100
+    assert (by_id.tenant_id, by_id.manifest_id) == ("354130", "manifest-1")
+    assert agent_chain.limit == 31
+    assert resync.identity is identity
 
 
 def test_consulta_de_job_rejeita_agente_invalido() -> None:
@@ -122,6 +158,15 @@ def test_porta_tipadas_reconhece_implementacao_em_runtime() -> None:
 
 
 def test_porta_tipadas_expoe_assinaturas_de_uma_consulta() -> None:
+    assert str(signature(TypedRawQueryPort.query_raw_manifest_by_id)) == (
+        "(self, query: 'RawManifestByIdQuery') -> 'RawManifestRecord | None'"
+    )
+    assert str(signature(TypedRawQueryPort.query_agent_raw_manifest_chain)) == (
+        "(self, query: 'AgentRawManifestChainQuery') -> 'tuple[ManifestRef, ...]'"
+    )
+    assert str(signature(TypedRawQueryPort.query_raw_resync_state)) == (
+        "(self, query: 'RawResyncStateQuery') -> 'RawResyncState | None'"
+    )
     assert str(signature(TypedRawQueryPort.query_latest_succeeded_job)) == (
         "(self, query: 'LatestSucceededJobQuery') -> 'Job | None'"
     )

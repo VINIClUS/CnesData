@@ -25,63 +25,41 @@ _COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _LOWER_HEX_16 = re.compile(r"^[0-9a-f]{16}$")
 _LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.:-]+$")
-
-
 def _require_non_blank(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("blank_value")
     return value
-
-
 def _optional_non_blank(value: str | None) -> str | None:
     return _require_non_blank(value) if value is not None else value
-
-
 def _require_key_component(value: str) -> str:
     _require_non_blank(value)
     if value in {".", ".."} or any(char in value for char in "#/\\"):
         raise ValueError("invalid_key_component")
     return value
-
-
 def _require_competencia(value: str) -> str:
     if not isinstance(value, str) or not _COMPETENCIA.fullmatch(value):
         raise ValueError("invalid_competencia")
     return value
-
-
 def _require_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("datetime_not_utc")
     return value
-
-
 def _optional_utc(value: datetime | None) -> datetime | None:
     return _require_utc(value) if value is not None else value
-
-
 def _require_sha256(value: str) -> str:
     if not _LOWER_HEX_64.fullmatch(value):
         raise ValueError("invalid_sha256")
     return value
-
-
 def _optional_sha256(value: str | None) -> str | None:
     return _require_sha256(value) if value is not None else value
-
-
 def _optional_error_code(value: str | None) -> str | None:
     if value is not None and not _ERROR_CODE.fullmatch(value):
         raise ValueError("invalid_error_code")
     return value
-
-
 def _require_dispatch_id(value: str, name: str) -> str:
     if not _LOWER_HEX_16.fullmatch(value):
         raise ValueError(f"invalid_{name}")
     return value
-
-
 def _require_sidecar_key(value: str) -> str:
     if value.startswith("/") or "//" in value or "\\" in value:
         raise ValueError("invalid_manifest_key")
@@ -90,8 +68,6 @@ def _require_sidecar_key(value: str) -> str:
     if len(parts) < 3 or parts[-1] not in {"manifest.json", "run-manifest.json"} or invalid_parts:
         raise ValueError("invalid_manifest_key")
     return value
-
-
 def _require_finite_json(value: JsonValue) -> JsonValue:
     if isinstance(value, float) and not isfinite(value):
         raise ValueError("non_finite_json_float")
@@ -102,23 +78,17 @@ def _require_finite_json(value: JsonValue) -> JsonValue:
         for item in value.values():
             _require_finite_json(item)
     return value
-
-
 def _unique_non_blank(values: tuple[str, ...], duplicate_message: str) -> tuple[str, ...]:
     for value in values:
         _require_non_blank(value)
     if len(set(values)) != len(values):
         raise ValueError(duplicate_message)
     return values
-
-
 def _require_unique_refs(refs: tuple[ManifestRef, ...]) -> None:
     ids = {ref.manifest_id for ref in refs}
     keys = {ref.manifest_key for ref in refs}
     if len(ids) != len(refs) or len(keys) != len(refs):
         raise ValueError("duplicate_manifest_ref")
-
-
 class _ControlPlaneModel(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
@@ -169,6 +139,7 @@ class Job(_ControlPlaneModel):
     result_manifest_id: str | None
     result_manifest_key: str | None
     error_code: str | None
+    rejected_manifest_sha256: str | None = None
     created_at: datetime
     _strings = field_validator("tenant_id", "job_id", "agent_id", "source_type", "file_subtype")(
         _require_key_component
@@ -177,6 +148,7 @@ class Job(_ControlPlaneModel):
     _datetimes = field_validator("lease_until", "created_at")(_optional_utc)
     _optional_ids = field_validator("lease_owner", "result_manifest_id")(_optional_non_blank)
     _error_value = field_validator("error_code")(_optional_error_code)
+    _rejected_hash = field_validator("rejected_manifest_sha256")(_optional_sha256)
     @model_validator(mode="after")
     def _validate_consistency(self) -> Job:
         if (self.lease_owner is None) != (self.lease_until is None):
@@ -185,6 +157,13 @@ class Job(_ControlPlaneModel):
             raise ValueError("result_manifest_pair_required")
         if self.state is JobState.SUCCEEDED and self.result_manifest_id is None:
             raise ValueError("succeeded_manifest_required")
+        is_resync = self.state is JobState.FAILED_FINAL and bool(
+            self.error_code and self.error_code.startswith("RAW_RESYNC_")
+        )
+        if is_resync and self.rejected_manifest_sha256 is None:
+            raise ValueError("resync_hash_required")
+        if not is_resync and self.rejected_manifest_sha256 is not None:
+            raise ValueError("resync_hash_forbidden")
         self._validate_result_key()
         return self
 
@@ -285,6 +264,19 @@ class RawManifestRecord(_ControlPlaneModel):
         if self.manifest_key != f"{expected}{self.snapshot_id}/manifest.json":
             raise ValueError("invalid_manifest_key")
         return self
+
+
+class RawResyncState(_ControlPlaneModel):
+    tenant_id: str
+    agent_id: str
+    source_type: str
+    file_subtype: str
+    competencia: str
+    required_since: datetime
+    _components = field_validator(
+        "tenant_id", "agent_id", "source_type", "file_subtype")(_require_key_component)
+    _competencia_value = field_validator("competencia")(_require_competencia)
+    _required_utc = field_validator("required_since")(_require_utc)
 
 
 class RunUnit(_ControlPlaneModel):

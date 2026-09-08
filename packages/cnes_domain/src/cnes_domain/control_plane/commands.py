@@ -16,6 +16,7 @@ from cnes_domain.control_plane.entities import (
     _ControlPlaneModel,
     _optional_error_code,
     _optional_non_blank,
+    _optional_sha256,
     _require_dispatch_id,
     _require_non_blank,
     _require_sha256,
@@ -85,8 +86,10 @@ class CompleteJob(_ControlPlaneModel):
     owner: str
     fencing_token: int
     manifest: RawManifestRecord
+    expected_head_manifest_id: str | None = None
 
     _strings = field_validator("tenant_id", "job_id", "owner")(_require_non_blank)
+    _expected_head = field_validator("expected_head_manifest_id")(_optional_non_blank)
     _fence = field_validator("fencing_token")(_require_non_negative)
 
     @model_validator(mode="after")
@@ -103,10 +106,35 @@ class FailJob(_ControlPlaneModel):
     fencing_token: int
     error_code: str
     retryable: bool
+    rejected_manifest_sha256: str | None = None
+    expected_head_manifest_id: str | None = None
+    expected_resync_marker: bool | None = None
 
     _strings = field_validator("tenant_id", "job_id", "owner")(_require_non_blank)
     _error = field_validator("error_code")(_optional_error_code)
     _fence = field_validator("fencing_token")(_require_non_negative)
+    _rejected_hash = field_validator("rejected_manifest_sha256")(_optional_sha256)
+    _expected_head = field_validator("expected_head_manifest_id")(_optional_non_blank)
+
+    @model_validator(mode="after")
+    def _validate_rejected_hash(self) -> FailJob:
+        is_resync = not self.retryable and self.error_code.startswith("RAW_RESYNC_")
+        if is_resync and self.rejected_manifest_sha256 is None:
+            raise ValueError("resync_hash_required")
+        guarded = (
+            self.expected_head_manifest_id is not None
+            or self.expected_resync_marker is not None
+        )
+        if guarded and not is_resync:
+            raise ValueError("resync_guard_forbidden")
+        if (
+            self.expected_head_manifest_id is not None
+            and self.expected_resync_marker is not False
+        ):
+            raise ValueError("head_guard_requires_absent_marker")
+        if not is_resync and self.rejected_manifest_sha256 is not None:
+            raise ValueError("resync_hash_forbidden")
+        return self
 
 
 class CancelJob(_ControlPlaneModel):
