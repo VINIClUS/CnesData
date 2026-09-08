@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -113,6 +114,18 @@ func TestExecutorRawPersistePendenteEEnvelopeAntesDoUpload(t *testing.T) {
 	committed, err := exe.DeltaStore.GetCommitted(rawPendingRef(job).SourceKey)
 	require.NoError(t, err)
 	require.Empty(t, committed)
+}
+
+func TestExecutorRawRemoveSpoolSemEnvelopeAntesDoNovoRun(t *testing.T) {
+	executor, job := newRawExecutor(t), rawJob()
+	require.NoError(t, os.MkdirAll(executor.RawSpoolDirectory, 0o700))
+	orphan := filepath.Join(executor.RawSpoolDirectory, "raw-orphan.parquet")
+	require.NoError(t, os.WriteFile(orphan, []byte("orphan"), 0o600))
+
+	_, err := executor.RunRaw(context.Background(), &job)
+	require.NoError(t, err)
+	_, err = os.Stat(orphan)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestFalhaDeUploadRawPreservaEstadoDuravel(t *testing.T) {

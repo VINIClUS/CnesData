@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/manifest"
 	"github.com/cnesdata/dumpagent/internal/queue"
+	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/writer"
 )
 
@@ -38,6 +40,49 @@ type rawCycle struct {
 }
 
 const rawTerminalPollInterval = 10 * time.Millisecond
+
+func (e *JobExecutor) reconcileRawSpools() error {
+	if e.RawOutbox == nil || e.RawSpoolDirectory == "" {
+		return errors.New("raw_executor=unconfigured")
+	}
+	entries, err := os.ReadDir(e.RawSpoolDirectory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	items, err := allEnvelopeItems(e.RawOutbox)
+	if err != nil {
+		return err
+	}
+	retained := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item.Envelope.Type == queue.TypeRawManifest {
+			retained[item.Envelope.SpoolName] = true
+		}
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "raw-") ||
+			!strings.HasSuffix(name, ".parquet") || retained[name] {
+			continue
+		}
+		if err := upload.RemoveRawSpool(e.RawSpoolDirectory, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func allEnvelopeItems(out EnvelopeOutbox) ([]queue.Item, error) {
+	for limit := drainBatchSize; ; limit *= 2 {
+		items, err := out.Peek(limit)
+		if err != nil || len(items) < limit {
+			return items, err
+		}
+	}
+}
 
 // WaitRawTerminal mantém a lease até o ack remoto estar durável ou o envelope sumir.
 func (e *JobExecutor) WaitRawTerminal(ctx context.Context, job *Job) error {

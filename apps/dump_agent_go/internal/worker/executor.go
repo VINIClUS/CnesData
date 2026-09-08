@@ -66,6 +66,9 @@ type JobExecutor struct {
 
 // RunRaw prepara o manifesto durável e envia o Parquet sem confirmar estado.
 func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (int64, error) {
+	if err := e.reconcileRawSpools(); err != nil {
+		return 0, err
+	}
 	if size, replay, err := e.replayRaw(job); replay || err != nil {
 		return size, err
 	}
