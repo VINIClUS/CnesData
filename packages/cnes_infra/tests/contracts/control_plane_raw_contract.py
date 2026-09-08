@@ -2,20 +2,27 @@ from datetime import timedelta
 from typing import Any
 from warnings import catch_warnings, simplefilter
 
+import pytest
+
+from cnes_domain.control_plane.commands import CompleteJob
 from cnes_domain.control_plane.entities import RunDependency
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.ids import run_dependency_key
 from cnes_domain.control_plane.queries import (
+    AgentRawManifestChainQuery,
     LatestSucceededJobQuery,
     RawIdentity,
+    RawManifestByIdQuery,
     RawManifestChainQuery,
+    RawResyncStateQuery,
     WaitingRunsForDependencyQuery,
 )
 from packages.cnes_infra.tests.contracts.clock import (
     _NOW,
     _TENANT,
     MutableClock,
+    _agent,
     _claim_job,
     _event,
     _fail_job,
@@ -26,6 +33,167 @@ from packages.cnes_infra.tests.contracts.clock import (
 )
 
 _HASH_B = "b" * 64
+
+
+def _accept_record(adapter: Any, record: Any, clock: MutableClock, job_id: str) -> None:
+    job = _job(job_id).model_copy(update={
+        "requested_snapshot_mode": record.snapshot_mode,
+        "created_at": record.created_at,
+    })
+    adapter.create_job(job, _event(f"{job_id}-created"))
+    claim = adapter.claim_job(_claim_job(job_id, "worker", clock))
+    adapter.complete_job(
+        CompleteJob(
+            tenant_id=_TENANT,
+            job_id=job_id,
+            owner="worker",
+            fencing_token=claim.fencing_token,
+            manifest=record,
+        ),
+        _event(f"{job_id}-accepted"),
+    )
+
+
+def _reject_twice(adapter: Any, clock: MutableClock, identity: RawIdentity) -> None:
+    adapter.put_agent(_agent("agent-a"))
+    rejected = _job("job-rejected")
+    adapter.create_job(rejected, _event("rejected-created"))
+    claim = adapter.claim_job(_claim_job(rejected.job_id, "worker", clock))
+    command = _fail_job("worker", claim.fencing_token, "RAW_RESYNC_BASE_UNKNOWN").model_copy(
+        update={
+            "job_id": rejected.job_id,
+            "retryable": False,
+            "rejected_manifest_sha256": _HASH_B,
+            "expected_resync_marker": False,
+        }
+    )
+    event = _event("resync-required")
+    failed = adapter.fail_job(command, event)
+    marker = adapter.query_raw_resync_state(RawResyncStateQuery(identity, "agent-a"))
+    assert failed.rejected_manifest_sha256 == _HASH_B
+    assert marker is not None
+    assert marker.required_since == clock.now()
+    assert adapter.pending_outbox(100).count(event) == 1
+
+    repeated = _job("job-repeated")
+    adapter.create_job(repeated, _event("repeated-created"))
+    repeated_claim = adapter.claim_job(_claim_job(repeated.job_id, "worker", clock))
+    repeated_command = command.model_copy(update={
+        "job_id": repeated.job_id,
+        "fencing_token": repeated_claim.fencing_token,
+        "expected_resync_marker": True,
+    })
+    adapter.fail_job(repeated_command, _event("resync-repeated"))
+    assert adapter.query_raw_resync_state(RawResyncStateQuery(identity, "agent-a")) == marker
+
+
+def _accept_full_and_delta(adapter: Any, clock: MutableClock, identity: RawIdentity) -> None:
+    marker = adapter.query_raw_resync_state(RawResyncStateQuery(identity, "agent-a"))
+    delta = _raw_record("delta-preserves", "agent-a", 2, clock.now())
+    _accept_record(adapter, delta, clock, "job-delta")
+    assert adapter.query_raw_resync_state(RawResyncStateQuery(identity, "agent-a")) == marker
+    assert adapter.query_agent_raw_manifest_chain(
+        AgentRawManifestChainQuery(identity, "agent-a")
+    ) == ()
+
+    clock.advance(timedelta(seconds=1))
+    full = _raw_record("full-clears", "agent-a", 1, clock.now())
+    _accept_record(adapter, full, clock, "job-full")
+    assert adapter.query_raw_manifest_by_id(
+        RawManifestByIdQuery(_TENANT, full.manifest_id)
+    ) == full
+    assert adapter.query_raw_manifest_by_id(
+        RawManifestByIdQuery("other", full.manifest_id)
+    ) is None
+    chain = adapter.query_agent_raw_manifest_chain(
+        AgentRawManifestChainQuery(identity, "agent-a", 31)
+    )
+    assert tuple(ref.manifest_id for ref in chain) == (full.manifest_id,)
+    assert adapter.query_raw_resync_state(RawResyncStateQuery(identity, "agent-a")) is None
+
+    clock.advance(timedelta(seconds=1))
+    linked = _raw_record("linked", "agent-a", 2, clock.now()).model_copy(update={
+        "base_snapshot_id": full.snapshot_id,
+        "previous_manifest_sha256": full.manifest_sha256,
+    })
+    _accept_record(adapter, linked, clock, "job-linked")
+    assert adapter.query_agent_raw_manifest_chain(
+        AgentRawManifestChainQuery(identity, "agent-a", 1)
+    ) == ()
+
+
+def _case_raw_registration_state(adapter: Any, clock: MutableClock) -> None:
+    identity = RawIdentity(_TENANT, "CNES", "ST", "2026-07")
+    assert adapter.query_agent_raw_manifest_chain(
+        AgentRawManifestChainQuery(identity, "agent-a", 0)
+    ) == ()
+    assert adapter.query_agent_raw_manifest_chain(
+        AgentRawManifestChainQuery(identity, "agent-a")
+    ) == ()
+    _reject_twice(adapter, clock, identity)
+    _accept_full_and_delta(adapter, clock, identity)
+
+
+def _delta_completion(adapter: Any, record: Any, clock: MutableClock, job_id: str) -> CompleteJob:
+    job = _job(job_id).model_copy(update={"requested_snapshot_mode": "DELTA"})
+    adapter.create_job(job, _event(f"{job_id}-created"))
+    claim = adapter.claim_job(_claim_job(job_id, "worker", clock))
+    return CompleteJob(
+        tenant_id=_TENANT,
+        job_id=job_id,
+        owner="worker",
+        fencing_token=claim.fencing_token,
+        manifest=record,
+        expected_head_manifest_id="manifest-agent-a-base-agent-a",
+    )
+
+
+def _case_delta_completion_cas(adapter: Any, clock: MutableClock) -> None:
+    adapter.put_agent(_agent("agent-a"))
+    base = _raw_record("base-agent-a", "agent-a", 1, clock.now())
+    _accept_record(adapter, base, clock, "job-z-base")
+    deltas = tuple(
+        _raw_record(f"delta-{suffix}", "agent-a", 2, clock.now()).model_copy(
+            update={"previous_manifest_sha256": base.manifest_sha256}
+        )
+        for suffix in ("a", "b")
+    )
+    commands = tuple(
+        _delta_completion(adapter, item, clock, f"job-{suffix}-delta")
+        for item, suffix in zip(deltas, ("a", "b"), strict=True)
+    )
+    adapter.complete_job(commands[0], _event("delta-a-accepted"))
+    identity = RawIdentity(_TENANT, "CNES", "ST", "2026-07")
+    assert adapter.query_latest_succeeded_job(
+        LatestSucceededJobQuery(identity, "agent-a")
+    ).result_manifest_id == deltas[0].manifest_id
+    with pytest.raises(Conflict):
+        adapter.complete_job(commands[1], _event("delta-b-accepted"))
+    assert adapter.query_raw_manifest_by_id(
+        RawManifestByIdQuery(_TENANT, deltas[1].manifest_id)
+    ) is None
+
+
+def _case_delta_completion_rejects_marker(adapter: Any, clock: MutableClock) -> None:
+    adapter.put_agent(_agent("agent-a"))
+    base = _raw_record("base-agent-a", "agent-a", 1, clock.now())
+    _accept_record(adapter, base, clock, "job-base")
+    delta = _raw_record("delta-marker", "agent-a", 2, clock.now()).model_copy(
+        update={"previous_manifest_sha256": base.manifest_sha256}
+    )
+    completion = _delta_completion(adapter, delta, clock, "job-delta-marker")
+    marker_job = _job("job-marker")
+    adapter.create_job(marker_job, _event("marker-created"))
+    marker_claim = adapter.claim_job(_claim_job("job-marker", "marker-worker", clock))
+    failure = _fail_job(
+        "marker-worker", marker_claim.fencing_token, "RAW_RESYNC_BASE_UNKNOWN"
+    ).model_copy(update={
+        "job_id": "job-marker", "retryable": False,
+        "rejected_manifest_sha256": _HASH_B,
+    })
+    adapter.fail_job(failure, _event("marker-required"))
+    with pytest.raises(Conflict):
+        adapter.complete_job(completion, _event("delta-marker-accepted"))
 
 
 def _case_raw_chains(adapter: Any, clock: MutableClock) -> None:

@@ -35,14 +35,19 @@ if TYPE_CHECKING:
         ManifestRef,
         Membership,
         OutboxEvent,
+        RawManifestRecord,
+        RawResyncState,
         Run,
         RunDispatch,
         RunUnit,
         Tenant,
     )
     from cnes_domain.control_plane.queries import (
+        AgentRawManifestChainQuery,
         LatestSucceededJobQuery,
+        RawManifestByIdQuery,
         RawManifestChainQuery,
+        RawResyncStateQuery,
         WaitingRunsForDependencyQuery,
     )
 
@@ -126,6 +131,21 @@ class ControlPlanePort(Protocol):
 
 @runtime_checkable
 class TypedRawQueryPort(Protocol):
+    def query_raw_manifest_by_id(
+        self, query: RawManifestByIdQuery
+    ) -> RawManifestRecord | None:
+        raise NotImplementedError
+
+    def query_agent_raw_manifest_chain(
+        self, query: AgentRawManifestChainQuery
+    ) -> tuple[ManifestRef, ...]:
+        raise NotImplementedError
+
+    def query_raw_resync_state(
+        self, query: RawResyncStateQuery
+    ) -> RawResyncState | None:
+        raise NotImplementedError
+
     def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Job | None:
         raise NotImplementedError
 

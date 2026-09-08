@@ -47,7 +47,9 @@ from cnes_infra.control_plane.dynamodb_keys import (
     entity_key,
     item_key,
     key_component,
+    raw_manifest_lookup_key,
     raw_partition,
+    raw_resync_key,
     run_entity_key,
     run_partition,
     timestamp,
@@ -140,7 +142,16 @@ class DynamoDBControlPlane(
         key = partition, f"MANIFEST#{key_component(record.manifest_id)}"
         return encode_model(record, "RAWMANIFESTRECORD", key, attributes)
     def _raw_actions(self, record: RawManifestRecord) -> tuple[Action, ...]:
-        return raw_manifest_actions(self._client, self._table_name, record, self._raw_item(record))
+        lookup = encode_model(
+            record,
+            "RAWMANIFESTRECORD",
+            raw_manifest_lookup_key(record.tenant_id, record.manifest_id),
+        )
+        actions = list(
+            raw_manifest_actions(self._client, self._table_name, record, self._raw_item(record))
+        )
+        actions.append(put_action(self._table_name, lookup, None))
+        return tuple(actions)
     def _run_item(self, run: Run) -> Item:
         attributes = {}
         if run.state in _RECOVERABLE:
@@ -212,17 +223,50 @@ class DynamoDBControlPlane(
     def get_job(self, tenant_id: str, job_id: str) -> Job | None:
         """Retorna o job solicitado."""
         return self._get_model(entity_key(tenant_id, "JOB", job_id), Job)
-    def _latest_job_action(self, job: Job) -> Action:
+    def _latest_job_action(
+        self, job: Job, expected_head_manifest_id: str | None = None,
+        resync_marker_present: bool | None = None,
+    ) -> Action:
         partition = raw_partition(job.tenant_id, job.source_type, job.file_subtype, job.competencia)
         key = partition, f"LATEST_JOB#{key_component(job.agent_id)}"
         current_item = self._get_item(key)
         marker = encode_model(job, "JOB", key)
         if current_item is None:
+            if expected_head_manifest_id is not None:
+                raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
             return put_action(self._table_name, marker, None)
         current = decode_model(current_item, Job)
-        if (current.created_at, current.job_id) >= (job.created_at, job.job_id):
+        if (
+            expected_head_manifest_id is not None
+            and current.result_manifest_id != expected_head_manifest_id
+        ):
+            raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+        if expected_head_manifest_id is not None:
+            return put_action(self._table_name, marker, payload(current_item))
+        if resync_marker_present is not True and (current.created_at, current.job_id) >= (
+            job.created_at, job.job_id
+        ):
             return check_action(self._table_name, current_item)
         return put_action(self._table_name, marker, payload(current_item))
+    def _raw_resync_marker_present(self, manifest: Any) -> bool | None:
+        if manifest.snapshot_mode != "FULL":
+            return None
+        partition = raw_partition(
+            manifest.tenant_id, manifest.source_type, manifest.file_subtype, manifest.competencia)
+        return self._get_item(raw_resync_key(partition, manifest.agent_id)) is not None
+    def _accepted_resync_actions(
+        self, manifest: Any, marker_present: bool | None
+    ) -> tuple[Action, ...]:
+        if marker_present is None:
+            return ()
+        partition = raw_partition(
+            manifest.tenant_id, manifest.source_type, manifest.file_subtype, manifest.competencia)
+        key = raw_resync_key(partition, manifest.agent_id)
+        existence = "exists" if marker_present else "not_exists"
+        return ({"Delete": {"TableName": self._table_name,
+            "Key": {"pk": {"S": key[0]}, "sk": {"S": key[1]}},
+            "ConditionExpression": f"attribute_{existence}(pk)",
+        }},)
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Job, ...]:
         """Lista jobs elegíveis para claim."""
         agent = self.get_agent(tenant_id, agent_id)

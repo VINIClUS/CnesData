@@ -29,6 +29,16 @@ def raw_partition(tenant_id: str, source_type: str, file_subtype: str, competenc
     return f"{tenant_partition(tenant_id)}#RAW#{identity}"
 
 
+def raw_manifest_lookup_key(tenant_id: str, manifest_id: str) -> tuple[str, str]:
+    """Cria a projeção forte e imutável por ID do manifesto."""
+    return entity_key(tenant_id, "RAW_MANIFEST", manifest_id)
+
+
+def raw_resync_key(partition: str, agent_id: str) -> tuple[str, str]:
+    """Cria a chave forte do marcador de resync do agente."""
+    return partition, f"RESYNC#{key_component(agent_id)}"
+
+
 def entity_key(tenant_id: str, entity: str, identifier: str) -> tuple[str, str]:
     """Cria a chave base de uma entidade do tenant."""
     return tenant_partition(tenant_id), f"{entity}#{key_component(identifier)}"

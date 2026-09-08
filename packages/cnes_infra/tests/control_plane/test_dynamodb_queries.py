@@ -200,7 +200,13 @@ def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext)
         _store_record(adapter, record, clock)
     requests = [next(iter(action.values())) for action in spy.transactions[-1]]
     items = [request["Item" if "Item" in request else "Key"] for request in requests]
-    assert len(requests) == len({(item["pk"]["S"], item["sk"]["S"]) for item in items}) == 8
+    assert len(requests) == len({(item["pk"]["S"], item["sk"]["S"]) for item in items}) == 10
+    raw_records = [
+        request for request in requests
+        if request.get("Item", {}).get("entity") == {"S": "RAWMANIFESTRECORD"}
+    ]
+    assert len(raw_records) == 2
+    assert any("Delete" in action for action in spy.transactions[-1])
     head = next(
         request for request in requests if request.get("Item", {}).get("entity") == {"S": "RAWHEAD"}
     )

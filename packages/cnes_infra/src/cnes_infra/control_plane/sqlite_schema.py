@@ -99,6 +99,27 @@ ON raw_manifests (
     tenant_id, source_type, file_subtype, competencia, agent_id,
     sequence, manifest_sha256, base_snapshot_id, snapshot_id
 );
+CREATE TABLE IF NOT EXISTS raw_agent_heads (
+    tenant_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    file_subtype TEXT NOT NULL,
+    competencia TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    manifest_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, agent_id, source_type, file_subtype, competencia),
+    FOREIGN KEY (tenant_id, job_id) REFERENCES jobs (tenant_id, job_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS raw_resync_states (
+    tenant_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    file_subtype TEXT NOT NULL,
+    competencia TEXT NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, agent_id, source_type, file_subtype, competencia)
+);
 CREATE TABLE IF NOT EXISTS runs (
     tenant_id TEXT NOT NULL,
     run_id TEXT NOT NULL,

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from botocore.exceptions import ClientError, ConnectionClosedError, ReadTimeoutError
 
-from cnes_domain.control_plane.entities import Agent, Job, Run, RunDispatch, RunUnit
+from cnes_domain.control_plane.entities import Agent, Job, RawResyncState, Run, RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import (
     AgentState,
     DispatchState,
@@ -25,14 +25,20 @@ from cnes_domain.control_plane.transitions import transition_job, transition_run
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
     Item,
+    absent_check_action,
     check_action,
     decode_model,
+    encode_model,
     payload,
     put_action,
 )
 from cnes_infra.control_plane.dynamodb_keys import (
     dispatch_key,
     entity_key,
+    key_component,
+    raw_manifest_lookup_key,
+    raw_partition,
+    raw_resync_key,
     run_entity_key,
     unit_key,
 )
@@ -120,15 +126,32 @@ class DynamoDBClaims:
                 "result_manifest_key": command.manifest.manifest_key,
             }
         )
+        resync_marker = self._raw_resync_marker_present(command.manifest)
         actions = (check_action(self._table_name, agent_item),
             put_action(self._table_name, self._job_item(updated), payload(item)),
             *self._raw_actions(command.manifest),
-            self._latest_job_action(updated),
+            self._latest_job_action(
+                updated, command.expected_head_manifest_id, resync_marker),
+            *self._delta_resync_guard_actions(command),
+            *self._accepted_resync_actions(command.manifest, resync_marker),
             self._event_action(job.tenant_id, event),
         )
         return updated, actions
+
+    def _delta_resync_guard_actions(self, command: CompleteJob) -> tuple[Action, ...]:
+        if command.expected_head_manifest_id is None:
+            return ()
+        manifest = command.manifest
+        partition = raw_partition(
+            manifest.tenant_id, manifest.source_type,
+            manifest.file_subtype, manifest.competencia,
+        )
+        key = raw_resync_key(partition, manifest.agent_id)
+        if self._get_item(key) is not None:
+            raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+        return (absent_check_action(self._table_name, key),)
+
     def _complete_job_replay(self, command: CompleteJob, event: Any, updated: Job) -> bool:
-        raw_item = self._raw_item(command.manifest)
         manifest = command.manifest
         identity = RawIdentity(
             command.tenant_id, manifest.source_type, manifest.file_subtype, manifest.competencia
@@ -136,7 +159,8 @@ class DynamoDBClaims:
         return (
             self.get_job(command.tenant_id, command.job_id) == updated
             and self._get_model(
-                (raw_item["pk"]["S"], raw_item["sk"]["S"]), type(command.manifest)
+                raw_manifest_lookup_key(manifest.tenant_id, manifest.manifest_id),
+                type(command.manifest),
             ) == command.manifest
             and self.query_latest_succeeded_job(
                 LatestSucceededJobQuery(identity, manifest.agent_id)
@@ -163,21 +187,65 @@ class DynamoDBClaims:
         self._validate_job_fence(job, command.owner, command.fencing_token, self._clock())
         agent_item = self._active_agent_item(job)
         state = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
-        updated = transition_job(job, state).model_copy(
-            update={
-                "lease_owner": None,
-                "lease_until": None,
-                "error_code": command.error_code,
-            }
-        )
-        self._transact(
-            (
-                check_action(self._table_name, agent_item),
-                put_action(self._table_name, self._job_item(updated), payload(item)),
-                self._event_action(job.tenant_id, event),
-            )
-        )
+        updated = transition_job(job, state).model_copy(update={
+            "lease_owner": None,
+            "lease_until": None,
+            "error_code": command.error_code,
+            "rejected_manifest_sha256": command.rejected_manifest_sha256,
+        })
+        actions = [
+            check_action(self._table_name, agent_item),
+            put_action(self._table_name, self._job_item(updated), payload(item)),
+        ]
+        if command.rejected_manifest_sha256 is not None:
+            actions.extend(self._rejection_head_guard_actions(job, command))
+            actions.append(self._resync_action(job, command.expected_resync_marker))
+        actions.append(self._event_action(job.tenant_id, event))
+        self._transact(tuple(actions))
         return updated
+    def _rejection_head_guard_actions(self, job: Job, command: FailJob) -> tuple[Action, ...]:
+        if command.expected_resync_marker is not False:
+            return ()
+        partition = raw_partition(
+            job.tenant_id, job.source_type, job.file_subtype, job.competencia
+        )
+        key = partition, f"LATEST_JOB#{key_component(job.agent_id)}"
+        item = self._get_item(key)
+        expected = command.expected_head_manifest_id
+        if item is None:
+            if expected is not None:
+                raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+            return (absent_check_action(self._table_name, key),)
+        if expected is None or decode_model(item, Job).result_manifest_id != expected:
+            raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+        return (check_action(self._table_name, item),)
+    def _resync_action(self, job: Job, expected_marker: bool | None = None) -> Action:
+        key = self._resync_key(job)
+        state = RawResyncState(
+            tenant_id=job.tenant_id, agent_id=job.agent_id,
+            source_type=job.source_type, file_subtype=job.file_subtype,
+            competencia=job.competencia, required_since=self._clock(),
+        )
+        item = encode_model(state, "RAWRESYNCSTATE", key)
+        update: dict[str, Any] = {
+            "TableName": self._table_name,
+            "Key": {"pk": item["pk"], "sk": item["sk"]},
+            "UpdateExpression": (
+                "SET #entity = if_not_exists(#entity, :entity), "
+                "#payload = if_not_exists(#payload, :payload)"
+            ),
+            "ExpressionAttributeNames": {"#entity": "entity", "#payload": "payload"},
+            "ExpressionAttributeValues": {":entity": item["entity"], ":payload": item["payload"]},
+        }
+        if expected_marker is not None:
+            existence = "exists" if expected_marker else "not_exists"
+            update["ConditionExpression"] = f"attribute_{existence}(pk)"
+        return {"Update": update}
+    @staticmethod
+    def _resync_key(job: Job) -> tuple[str, str]:
+        partition = raw_partition(
+            job.tenant_id, job.source_type, job.file_subtype, job.competencia)
+        return raw_resync_key(partition, job.agent_id)
     def _leased_job(self, tenant_id: str, job_id: str) -> tuple[Item, Job]:
         item = self._get_item(entity_key(tenant_id, "JOB", job_id))
         if item is None:

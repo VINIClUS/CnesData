@@ -35,6 +35,35 @@ class RawManifestChainQuery:
 
 
 @dataclass(frozen=True, slots=True)
+class RawManifestByIdQuery:
+    tenant_id: str
+    manifest_id: str
+
+    def __post_init__(self) -> None:
+        _require_key_component(self.tenant_id)
+        _require_key_component(self.manifest_id)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRawManifestChainQuery:
+    identity: RawIdentity
+    agent_id: str
+    limit: int = 31
+
+    def __post_init__(self) -> None:
+        _require_key_component(self.agent_id)
+
+
+@dataclass(frozen=True, slots=True)
+class RawResyncStateQuery:
+    identity: RawIdentity
+    agent_id: str
+
+    def __post_init__(self) -> None:
+        _require_key_component(self.agent_id)
+
+
+@dataclass(frozen=True, slots=True)
 class WaitingRunsForDependencyQuery:
     identity: RawIdentity
     limit: int = 100

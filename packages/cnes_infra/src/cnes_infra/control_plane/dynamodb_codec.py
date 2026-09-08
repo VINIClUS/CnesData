@@ -300,7 +300,7 @@ def _repair_descendants(
     visited = 0
     while pending:
         parent, chain = pending.pop()
-        children = _waiting_children(client, table_name, parent, 92 - visited)
+        children = _waiting_children(client, table_name, parent, 90 - visited)
         visited += len(children)
         if not children:
             endpoints.append((parent, chain))
@@ -430,6 +430,15 @@ def check_action(table_name: str, item: Item) -> Action:
             "ExpressionAttributeValues": {":expected": item["payload"]},
         }
     }
+
+
+def absent_check_action(table_name: str, key: tuple[str, str]) -> Action:
+    """Cria uma ação ConditionCheck de ausência."""
+    return {"ConditionCheck": {
+        "TableName": table_name,
+        "Key": {"pk": {"S": key[0]}, "sk": {"S": key[1]}},
+        "ConditionExpression": "attribute_not_exists(pk)",
+    }}
 
 
 def _action_key(action: Action) -> tuple[str, str]:
