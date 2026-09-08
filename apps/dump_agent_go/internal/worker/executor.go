@@ -81,10 +81,10 @@ func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (int64, error) {
 	cycle.request.SizeBytes, cycle.request.ObjectSHA256 = spool.SizeBytes, spool.SHA256
 	raw, err := manifest.Build(cycle.request)
 	if err != nil {
-		return 0, err
+		return 0, removeUnpersistedRawSpool(e.RawSpoolDirectory, spool.Name, err)
 	}
 	if err := e.enqueueRaw(cycle, raw); err != nil {
-		return 0, err
+		return 0, removeUnpersistedRawSpool(e.RawSpoolDirectory, spool.Name, err)
 	}
 	size, err := upload.UploadRawSpool(ctx, e.RawUploader, upload.RawSpoolUpload{
 		Directory: e.RawSpoolDirectory, Name: spool.Name, URL: job.UploadURL,
@@ -94,6 +94,10 @@ func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (int64, error) {
 	}
 	job.Sha256, job.MinioKey, job.RowCount = spool.SHA256, raw.ObjectKey, int(raw.RowCount)
 	return size, nil
+}
+
+func removeUnpersistedRawSpool(directory, name string, cause error) error {
+	return errors.Join(cause, upload.RemoveRawSpool(directory, name))
 }
 
 func streamParquet(ctx context.Context, write func(io.Writer) error,

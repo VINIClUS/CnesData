@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math/rand"
 	"time"
@@ -26,6 +27,10 @@ type JobAPIClient interface {
 type JobExecutorIface interface {
 	Run(ctx context.Context, job *Job) (int64, error)
 	EmitCommitted(job Job, size int64)
+}
+
+type rawTerminalWaiter interface {
+	WaitRawTerminal(context.Context, *Job) error
 }
 
 // JobSpecSource produz o próximo JobSpec a ser registrado, ou nil/err.
@@ -109,6 +114,9 @@ func (c *Consumer) processJob(ctx context.Context, job Job) {
 	}, "heartbeat")
 
 	size, execErr := c.executor.Run(jobCtx, &job)
+	if waiter, ok := c.executor.(rawTerminalWaiter); ok && job.RawRequest != nil {
+		execErr = errors.Join(execErr, waiter.WaitRawTerminal(jobCtx, &job))
+	}
 	jobCancel()
 	<-hbCh
 

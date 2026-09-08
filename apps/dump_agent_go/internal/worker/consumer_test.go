@@ -59,6 +59,23 @@ type execStub struct {
 	committedCalls int32
 }
 
+type rawWaitExecStub struct {
+	*execStub
+	waitFn func(context.Context, *worker.Job) error
+}
+
+type appendFailOutbox struct {
+	*queue.Outbox
+}
+
+func (o appendFailOutbox) Append(queue.Envelope) error {
+	return errors.New("outbox=unavailable")
+}
+
+func (e *rawWaitExecStub) WaitRawTerminal(ctx context.Context, job *worker.Job) error {
+	return e.waitFn(ctx, job)
+}
+
 func (e *execStub) Run(ctx context.Context, job *worker.Job) (int64, error) {
 	return e.runFn(ctx, job)
 }
@@ -207,6 +224,75 @@ func TestConsumerRawAguardaDrainerSemRegistrarOuFalharJobLegado(t *testing.T) {
 		require.NoError(t, consumer.Loop(ctx))
 		require.Zero(t, api.registerCalls)
 		require.Zero(t, executor.committedCalls)
+	}
+}
+
+func TestConsumerRawMantemHeartbeatAteEnvelopeTerminal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var heartbeats atomic.Int32
+	api := &apiStub{mintFn: func(context.Context, worker.JobSpec) (*worker.Job, error) {
+		return &worker.Job{ID: "raw-job", RawRequest: &manifest.BuildRequest{}}, nil
+	}, hbFn: func(context.Context, string) error {
+		heartbeats.Add(1)
+		return nil
+	}}
+	waiting, terminal := make(chan struct{}), make(chan struct{})
+	executor := &rawWaitExecStub{execStub: &execStub{
+		runFn: func(context.Context, *worker.Job) (int64, error) { return 10, nil },
+	}, waitFn: func(ctx context.Context, _ *worker.Job) error {
+		close(waiting)
+		select {
+		case <-terminal:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}}
+	source := &sourceStub{nextFn: func(context.Context) (*worker.JobSpec, error) {
+		return &worker.JobSpec{}, nil
+	}}
+	consumer := worker.NewConsumer(api, source, executor, worker.ConsumerConfig{
+		PollInterval: time.Millisecond, HeartbeatInterval: time.Millisecond})
+	done := make(chan error, 1)
+	go func() { done <- consumer.Loop(ctx) }()
+	<-waiting
+	require.Eventually(t, func() bool { return heartbeats.Load() > 0 }, time.Second, time.Millisecond)
+	close(terminal)
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestExecutorRawRemoveSpoolQuandoEnvelopeNaoPersiste(t *testing.T) {
+	executor, job := newRawExecutor(t), rawJob()
+	executor.RawOutbox = appendFailOutbox{Outbox: executor.RawOutbox.(*queue.Outbox)}
+
+	_, err := executor.RunRaw(context.Background(), &job)
+	require.ErrorContains(t, err, "outbox=unavailable")
+	entries, readErr := os.ReadDir(executor.RawSpoolDirectory)
+	require.NoError(t, readErr)
+	require.Empty(t, entries)
+}
+
+func TestExecutorRawAguardaEnvelopeTerminal(t *testing.T) {
+	executor, job := newRawExecutor(t), rawJob()
+	_, err := executor.RunRaw(context.Background(), &job)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- executor.WaitRawTerminal(context.Background(), &job) }()
+	select {
+	case err := <-done:
+		t.Fatalf("espera terminou antes do recibo: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	items, err := executor.RawOutbox.Peek(10)
+	require.NoError(t, err)
+	require.NoError(t, executor.RawOutbox.MarkRawTerminal(items[0].Key))
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("espera nao terminou apos recibo")
 	}
 }
 

@@ -37,6 +37,36 @@ type rawCycle struct {
 	uploadURL string
 }
 
+const rawTerminalPollInterval = 10 * time.Millisecond
+
+// WaitRawTerminal mantém a lease até o ack remoto estar durável ou o envelope sumir.
+func (e *JobExecutor) WaitRawTerminal(ctx context.Context, job *Job) error {
+	if job == nil || e.RawOutbox == nil {
+		return errors.New("raw_executor=unconfigured")
+	}
+	ref := delta.PendingRef{JobID: job.ID, FencingToken: job.FencingToken}
+	ticker := time.NewTicker(rawTerminalPollInterval)
+	defer ticker.Stop()
+	for {
+		item, exists, err := findRawItem(e.RawOutbox, ref)
+		if err != nil || !exists {
+			return err
+		}
+		terminal, err := e.RawOutbox.RawTerminal(item.Key)
+		if err != nil {
+			return err
+		}
+		if terminal {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func (e *JobExecutor) prepareRaw(ctx context.Context, job *Job) (rawCycle, error) {
 	cycle, err := e.rawRequest(job)
 	if err != nil {
@@ -334,19 +364,24 @@ func (e *JobExecutor) enqueueRaw(cycle rawCycle, raw manifest.Raw) error {
 }
 
 func findRawEnvelope(out EnvelopeOutbox, ref delta.PendingRef) (queue.Envelope, bool, error) {
+	item, exists, err := findRawItem(out, ref)
+	return item.Envelope, exists, err
+}
+
+func findRawItem(out EnvelopeOutbox, ref delta.PendingRef) (queue.Item, bool, error) {
 	for limit := drainBatchSize; ; limit *= 2 {
 		items, err := out.Peek(limit)
 		if err != nil {
-			return queue.Envelope{}, false, err
+			return queue.Item{}, false, err
 		}
 		for _, item := range items {
 			if item.Envelope.Type == queue.TypeRawManifest &&
 				item.Envelope.JobID == ref.JobID && item.Envelope.FencingToken == ref.FencingToken {
-				return item.Envelope, true, nil
+				return item, true, nil
 			}
 		}
 		if len(items) < limit {
-			return queue.Envelope{}, false, nil
+			return queue.Item{}, false, nil
 		}
 	}
 }
