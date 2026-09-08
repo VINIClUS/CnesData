@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
 from ftplib import FTP, error_perm
 from ftplib import Error as FtpError
@@ -218,8 +219,9 @@ class DatasusCnesFtpTransport:
     def _iterate(
         self, request: DatasusCnesRequest, remote_path: str
     ) -> Iterator[Mapping[str, object]]:
-        with TemporaryDirectory(prefix="datasus-cnes-") as temporary:
-            dbc_path = Path(temporary) / Path(remote_path).name
+        temporary = TemporaryDirectory(prefix="datasus-cnes-")
+        try:
+            dbc_path = Path(temporary.name) / Path(remote_path).name
             dbf_path = dbc_path.with_suffix(".dbf")
             self._download_protected(remote_path, dbc_path)
             self._decompress(dbc_path, dbf_path)
@@ -228,6 +230,9 @@ class DatasusCnesFtpTransport:
             self._validate_layout(table)
             self._validate_competencia(table, request.competencia.replace("-", ""))
             yield from self._municipal_rows(table, request.tenant_id)
+        finally:
+            with suppress(Exception):
+                temporary.cleanup()
 
     def _download_protected(self, remote_path: str, destination: Path) -> None:
         try:
