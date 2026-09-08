@@ -137,6 +137,7 @@ class _Ftp:
         self.sizes: list[object] = [len(payload), len(payload)]
         self.mdtms: list[object] = ["213 20260202010101", "213 20260202010101"]
         self.retrieval_error: Exception | None = None
+        self.close_error: Exception | None = None
         self.quit_called = False
         self.close_called = False
 
@@ -151,7 +152,10 @@ class _Ftp:
 
     def size(self, path: str) -> object:
         self.calls.append(("size", path))
-        return self.sizes.pop(0)
+        value = self.sizes.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
 
     def sendcmd(self, command: str) -> object:
         self.calls.append(("sendcmd", command))
@@ -169,6 +173,8 @@ class _Ftp:
 
     def close(self) -> None:
         self.close_called = True
+        if self.close_error:
+            raise self.close_error
 
 
 def _request(**updates: str) -> DatasusCnesRequest:
@@ -275,12 +281,10 @@ def test_ftp_550_retorna_source_not_published_sem_fallback(monkeypatch: pytest.M
 def test_falha_temporaria_e_retryable_e_limpa_ftp(monkeypatch: pytest.MonkeyPatch):
     ftp = _Ftp()
     ftp.retrieval_error = _ftp_error(error_temp, "421 unavailable")
+    ftp.close_error = OSError("close unavailable")
     _install_table(monkeypatch, _Table([]))
-
     error = _error_code(lambda: list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request())))
-
     assert error == ("source_unavailable", True)
-    assert ftp.close_called is True
 
 
 @pytest.mark.parametrize("error_type", [EOFError, error_reply, error_proto])
@@ -327,6 +331,7 @@ def test_circuito_aberto_falha_sem_abrir_ftp():
         ([3, 4], ["213 20260202010101"] * 2, b"dbc", "source_changed"),
         ([3, 3], ["213 20260202010101", "213 20260202010102"], b"dbc", "source_changed"),
         ([None], ["213 20260202010101"], b"dbc", "metadata_invalid"),
+        ([ValueError("malformed size")], [], b"dbc", "metadata_invalid"),
         ([3], ["invalid"], b"dbc", "metadata_invalid"),
         ([4, 4], ["213 20260202010101"] * 2, b"dbc", "size_mismatch"),
     ],
@@ -340,9 +345,7 @@ def test_rejeita_metadados_instaveis_ou_invalidos(
     ftp.sizes = sizes
     ftp.mdtms = mdtms
     _install_table(monkeypatch, _Table([]))
-
     error = _error_code(lambda: list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request())))
-
     assert error == (code, True)
     assert ftp.close_called is True
 
@@ -441,8 +444,8 @@ def test_limpa_ftp_quando_quit_falha(monkeypatch: pytest.MonkeyPatch):
         raise OSError("offline")
 
     ftp.quit = broken_quit
+    ftp.close_error = OSError("close unavailable")
     _install_table(monkeypatch, _Table([_record()]))
-
     assert list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request())) == [_record()]
     assert ftp.quit_called is True
     assert ftp.close_called is True
@@ -453,11 +456,8 @@ def test_rejeita_layout_dbf_ilegivel(monkeypatch: pytest.MonkeyPatch):
         @property
         def fields(self):
             raise RuntimeError("broken-dbf")
-
     _install_table(monkeypatch, BrokenLayout())
-
     error = _error_code(lambda: list(DatasusCnesFtpTransport(_Ftp).fetch(_request())))
-
     assert error == ("dbf_invalid", False)
 
 

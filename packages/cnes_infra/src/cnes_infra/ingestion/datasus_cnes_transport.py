@@ -254,7 +254,10 @@ class DatasusCnesFtpTransport:
 
     @staticmethod
     def _metadata(ftp: FTP, remote_path: str) -> _Metadata:
-        size = ftp.size(remote_path)
+        try:
+            size = ftp.size(remote_path)
+        except ValueError:
+            _raise("metadata_invalid", True)
         modified = ftp.sendcmd(f"MDTM {remote_path}")
         if isinstance(size, bool) or not isinstance(size, int) or size < 0:
             _raise("metadata_invalid", True)
@@ -285,8 +288,10 @@ class DatasusCnesFtpTransport:
             ftp.quit()
         except Exception:
             pass
-        finally:
+        try:
             _close(ftp)
+        except Exception:
+            pass
 
     @staticmethod
     def _decompress(dbc_path: Path, dbf_path: Path) -> None:
