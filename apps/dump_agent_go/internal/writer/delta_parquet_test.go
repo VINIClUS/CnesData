@@ -14,11 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+//nolint:misspell // NOME_PROFISSIONAL is a frozen CNES field name.
 var frozenColumns = []string{
 	"CPF", "CNS", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "CBO", "CNES",
 	"TIPO_VINCULO", "SUS", "CH_TOTAL", "CH_AMBULATORIAL", "CH_OUTRAS", "CH_HOSPITALAR", "FONTE",
 }
 
+//nolint:misspell // NOME_PROFISSIONAL is a frozen CNES field name.
 func frozenRow() delta.Row {
 	return delta.Row{
 		"CPF": "00000000001", "CNS": "000000000000001", "NOME_PROFISSIONAL": "Fixture",
@@ -93,6 +95,7 @@ func TestFullUsaParquetCongeladoSemOp(t *testing.T) {
 	require.NotContains(t, readDeltaRows(t, buf.Bytes())[0], "_op")
 }
 
+//nolint:misspell // NOME_PROFISSIONAL is asserted as part of the frozen schema.
 func TestDeltaUsaParquetCongeladoComIUD(t *testing.T) {
 	ds := delta.Set{
 		Inserts: []delta.Row{frozenRow()}, Updates: []delta.Row{frozenRow()},
