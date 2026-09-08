@@ -1,13 +1,13 @@
 package worker
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"runtime/debug"
 	"strings"
 
@@ -17,6 +17,9 @@ import (
 	"github.com/cnesdata/dumpagent/internal/delta"
 	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/integrity"
+	"github.com/cnesdata/dumpagent/internal/manifest"
+	"github.com/cnesdata/dumpagent/internal/obs"
+	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/writer"
 	"golang.org/x/sync/errgroup"
@@ -28,22 +31,24 @@ var ErrUnknownIntent = errors.New("unknown_intent")
 // JobSpec descreve o que o agent quer registrar em /jobs/register.
 // IDs são locais ao agent; extraction_id é retornado pelo central.
 type JobSpec struct {
-	JobID         string
-	FonteSistema  string
-	TipoExtracao  string
-	Competencia   int
-	Intent        string
+	JobID        string
+	FonteSistema string
+	TipoExtracao string
+	Competencia  int
+	Intent       string
 }
 
 // Job payload executado pelo executor.
 type Job struct {
-	ID        string
-	TenantID  string
-	UploadURL string
-	MinioKey  string
-	Params    extractor.ExtractionParams
-	Sha256    string
-	RowCount  int
+	ID           string
+	TenantID     string
+	UploadURL    string
+	MinioKey     string
+	Params       extractor.ExtractionParams
+	Sha256       string
+	RowCount     int
+	FencingToken uint64
+	RawRequest   *manifest.BuildRequest
 }
 
 // JobExecutor executa 1 job end-to-end: DB conn → pipeline → upload.
@@ -51,10 +56,137 @@ type Job struct {
 // snapshot legado. AuditLogger != nil emite eventos lifecycle
 // (Extracted/Uploaded/Committed/Aborted); nil → no-op.
 type JobExecutor struct {
-	DB          *sql.DB
-	Uploader    upload.Uploader
-	DeltaStore  *delta.Store
-	AuditLogger *audit.Logger
+	DB                *sql.DB
+	Uploader          upload.Uploader
+	DeltaStore        *delta.Store
+	AuditLogger       *audit.Logger
+	RawExtract        func(context.Context, Job) ([]delta.Row, error)
+	RawUploader       upload.RawUploader
+	RawOutbox         EnvelopeOutbox
+	RawSpoolDirectory string
+}
+
+// RunRaw prepara o manifesto durável e envia o Parquet sem confirmar estado.
+func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (sizeBytes int64, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			sizeBytes = 0
+			err = fmt.Errorf("panic in RunRaw: %v\n%s", recovered, debug.Stack())
+		}
+	}()
+	if size, replay, err := e.replayRaw(job); replay || err != nil {
+		return size, err
+	}
+	ref := delta.PendingRef{SourceKey: deltaKeyFromParams(job.Params),
+		JobID: job.ID, FencingToken: job.FencingToken}
+	if err := e.reconcileRawState(ref); err != nil {
+		return 0, err
+	}
+	cycle, err := e.prepareRaw(ctx, job)
+	if err != nil {
+		return 0, err
+	}
+	spool, err := upload.PrepareRawSpool(ctx, e.RawSpoolDirectory, cycle.write)
+	if err != nil {
+		return 0, err
+	}
+	cycle.spoolName, cycle.uploadURL = spool.Name, job.UploadURL
+	cycle.request.SizeBytes, cycle.request.ObjectSHA256 = spool.SizeBytes, spool.SHA256
+	raw, err := manifest.Build(cycle.request)
+	if err != nil {
+		return 0, removeUnpersistedRawSpool(e.RawSpoolDirectory, spool.Name, err)
+	}
+	if err := e.enqueueRaw(cycle, raw); err != nil {
+		return 0, removeUnpersistedRawSpool(e.RawSpoolDirectory, spool.Name, err)
+	}
+	size, err := upload.PutRawSpool(ctx, e.RawUploader, upload.RawSpoolUpload{
+		Directory: e.RawSpoolDirectory, Name: spool.Name, URL: job.UploadURL,
+		FencingToken: job.FencingToken, Manifest: raw})
+	if err != nil {
+		return 0, err
+	}
+	job.Sha256, job.MinioKey, job.RowCount = spool.SHA256, raw.ObjectKey, int(raw.RowCount)
+	return size, nil
+}
+
+func removeUnpersistedRawSpool(directory, name string, cause error) error {
+	return errors.Join(cause, upload.RemoveRawSpool(directory, name))
+}
+
+func (e *JobExecutor) reconcileRawState(current delta.PendingRef) error {
+	if e.RawOutbox == nil || e.DeltaStore == nil || e.RawSpoolDirectory == "" {
+		return errors.New("raw_executor=unconfigured")
+	}
+	items, err := allEnvelopeItems(e.RawOutbox)
+	if err != nil {
+		return err
+	}
+	refs, retained := retainedRawState(current, items)
+	if _, err := e.DeltaStore.ReconcileRawPending(refs); err != nil {
+		return err
+	}
+	return reconcileRawSpoolFiles(e.RawSpoolDirectory, retained)
+}
+
+func retainedRawState(current delta.PendingRef,
+	items []queue.Item,
+) ([]delta.PendingRef, map[string]bool) {
+	refs := []delta.PendingRef{current}
+	spools := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item.Envelope.Type == queue.TypeRawManifest {
+			spools[item.Envelope.SpoolName] = true
+			refs = append(refs, pendingRef(item.Envelope))
+		}
+	}
+	return refs, spools
+}
+
+func reconcileRawSpoolFiles(directory string, retained map[string]bool) error {
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "raw-") ||
+			!strings.HasSuffix(name, ".parquet") || retained[name] {
+			continue
+		}
+		if err := upload.RemoveRawSpool(directory, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func streamParquet(ctx context.Context, write func(io.Writer) error,
+	consume func(io.Reader) (int64, error),
+) (int64, string, error) {
+	reader, pipe := io.Pipe()
+	stop := context.AfterFunc(ctx, func() {
+		_ = reader.CloseWithError(ctx.Err())
+		_ = pipe.CloseWithError(ctx.Err())
+	})
+	defer stop()
+	producer := obs.SafeGo(func() error {
+		defer pipe.Close()
+		err := write(pipe)
+		_ = pipe.CloseWithError(err)
+		return err
+	}, "parquet_stream")
+	teed, hasher := integrity.SHA256TeeReader(reader)
+	var size int64
+	err := obs.SafeRun(func() error {
+		var err error
+		size, err = consume(teed)
+		return err
+	}, "parquet_consume")
+	_ = reader.CloseWithError(err)
+	return size, hasher.SumHex(), errors.Join(err, <-producer, ctx.Err())
 }
 
 // Run executa job. Retorna tamanho total uploadado em bytes. Se DeltaStore
@@ -62,6 +194,9 @@ type JobExecutor struct {
 // caso contrário usa o pipeline snapshot streaming. job.Sha256 é
 // preenchido no caminho delta (após o tee de integrity sobre o upload).
 func (e *JobExecutor) Run(ctx context.Context, job *Job) (sizeBytes int64, err error) {
+	if job.RawRequest != nil {
+		return e.RunRaw(ctx, job)
+	}
 	if e.DeltaStore != nil {
 		return e.runDeltaWithCommit(ctx, job)
 	}
@@ -166,7 +301,7 @@ func (e *JobExecutor) RunDelta(
 	extractionID := uuid.NewString()
 	e.appendAudit(audit.Event{
 		Source: key.Source, Intent: key.Intent,
-		Competencia: key.Competencia,
+		Competencia:  key.Competencia,
 		ExtractionID: extractionID, JobID: job.ID,
 		Lifecycle: audit.LifecycleExtracted,
 	})
@@ -201,24 +336,20 @@ func (e *JobExecutor) writeAndUploadDelta(
 	ctx context.Context, job *Job, ds delta.Set, uc uploadCtx,
 ) (int64, error) {
 	cols := delta.ProfileFor(uc.Key.Source, uc.Key.Intent).FingerprintColumns
-	var buf bytes.Buffer
-	if err := writer.WriteDeltaParquet(&buf, ds, cols); err != nil {
-		uc.Pending.Abort()
-		e.emitAborted(uc, job.ID)
-		return 0, fmt.Errorf("write_delta_parquet: %w", err)
-	}
-	teed, hasher := integrity.SHA256TeeReader(&buf)
-	size, err := e.Uploader.Put(ctx, job.UploadURL, teed,
-		"application/octet-stream")
+	size, digest, err := streamParquet(ctx, func(dst io.Writer) error {
+		return writer.WriteDeltaParquet(dst, ds, cols)
+	}, func(body io.Reader) (int64, error) {
+		return e.Uploader.Put(ctx, job.UploadURL, body, "application/octet-stream")
+	})
 	if err != nil {
 		uc.Pending.Abort()
 		e.emitAborted(uc, job.ID)
 		return 0, fmt.Errorf("upload: %w", err)
 	}
-	job.Sha256 = hasher.SumHex()
+	job.Sha256 = digest
 	e.appendAudit(audit.Event{
 		Source: uc.Key.Source, Intent: uc.Key.Intent,
-		Competencia: uc.Key.Competencia,
+		Competencia:  uc.Key.Competencia,
 		ExtractionID: uc.ExtractionID, JobID: job.ID,
 		SHA256: job.Sha256, SizeBytes: size,
 		Lifecycle: audit.LifecycleUploaded,
@@ -229,7 +360,7 @@ func (e *JobExecutor) writeAndUploadDelta(
 func (e *JobExecutor) emitAborted(uc uploadCtx, jobID string) {
 	e.appendAudit(audit.Event{
 		Source: uc.Key.Source, Intent: uc.Key.Intent,
-		Competencia: uc.Key.Competencia,
+		Competencia:  uc.Key.Competencia,
 		ExtractionID: uc.ExtractionID, JobID: jobID,
 		Lifecycle: audit.LifecycleAborted,
 	})

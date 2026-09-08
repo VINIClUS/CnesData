@@ -1,11 +1,213 @@
 package queue
 
 import (
+	"encoding/json"
+	"fmt"
+	"github.com/stretchr/testify/require"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"go.etcd.io/bbolt"
 )
+
+func rawEnvelope(t *testing.T, job string, fence uint64) Envelope {
+	t.Helper()
+	payload := fmt.Sprintf(`{"type":"raw_manifest","job_id":%q,"fencing_token":%d,
+		"source_key":{"Source":"CNES","Intent":"VINCULO","Competencia":"2026-01"},
+		"manifest_json":"e30=","manifest_sha256":"abc"}`, job, fence)
+	var env Envelope
+	if err := json.Unmarshal([]byte(payload), &env); err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
+func TestReciboTerminalSobreviveReinicioEDeletaJuntoDoEnvelope(t *testing.T) {
+	out, path := newTestOutbox(t)
+	require.NoError(t, out.Append(rawEnvelope(t, "job", 1)))
+	items, err := out.Peek(10)
+	require.NoError(t, err)
+	require.NoError(t, out.MarkRawTerminal(items[0].Key))
+	require.NoError(t, out.Close())
+	out, err = Open(path)
+	require.NoError(t, err)
+	defer out.Close()
+	terminal, err := out.RawTerminal(items[0].Key)
+	require.NoError(t, err)
+	require.True(t, terminal)
+	require.NoError(t, out.Delete(items[0].Key))
+	terminal, err = out.RawTerminal(items[0].Key)
+	require.NoError(t, err)
+	require.False(t, terminal)
+	require.Error(t, out.MarkRawTerminal(items[0].Key))
+}
+
+func TestEnvelopeRawNaoExpiraPorTTLOuLimite(t *testing.T) {
+	ob, _ := newTestOutbox(t)
+	now := time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
+	ob.nowFunc = func() time.Time { return now }
+	old := rawEnvelope(t, "old", 1)
+	old.EnqueuedAt = now.Add(-100 * 24 * time.Hour)
+	for _, env := range []Envelope{
+		old, rawEnvelope(t, "new", 2),
+		{Type: TypeComplete, JobUUID: "expired", EnqueuedAt: old.EnqueuedAt},
+		{Type: TypeComplete, JobUUID: "cap"}, {Type: TypeComplete, JobUUID: "kept"},
+	} {
+		if err := ob.Append(env); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleted, err := ob.Evict(90*24*time.Hour, 1)
+	if err != nil || deleted != 2 {
+		t.Fatalf("deleted=%d error=%v want=2", deleted, err)
+	}
+	items, err := ob.Peek(10)
+	if err != nil || len(items) != 3 {
+		t.Fatalf("remaining=%d error=%v want=3", len(items), err)
+	}
+	if items[2].Envelope.JobUUID != "kept" {
+		t.Fatal("legacy_fifo_changed=true")
+	}
+}
+
+func TestNovoFenceCriaEnvelopeImutavel(t *testing.T) {
+	ob, path := newTestOutbox(t)
+	env := rawEnvelope(t, "job", 1)
+	if err := ob.Append(env); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := ob.Peek(10)
+	if err := ob.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ob, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ob.Close()
+	env.Attempts = 3
+	if err := ob.Append(env); err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.Append(rawEnvelope(t, "job", 2)); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := ob.Peek(10)
+	if len(after) != 2 || !reflect.DeepEqual(before[0], after[0]) {
+		t.Fatalf("immutable_replay_failed=true count=%d", len(after))
+	}
+}
+
+func TestRawItemConsultaIndicePorJobEFence(t *testing.T) {
+	ob, _ := newTestOutbox(t)
+	require.NoError(t, ob.Append(rawEnvelope(t, "job", 7)))
+	item, ok, err := ob.RawItem("job", 7)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(7), item.Envelope.FencingToken)
+	_, ok, err = ob.RawItem("job", 8)
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestRejeitaReplayRawComIdentidadeDivergente(t *testing.T) {
+	for _, field := range []string{"source_key", "manifest_json", "manifest_sha256"} {
+		t.Run(field, func(t *testing.T) {
+			ob, _ := newTestOutbox(t)
+			env := rawEnvelope(t, "job", 1)
+			if err := ob.Append(env); err != nil {
+				t.Fatal(err)
+			}
+			payload, _ := json.Marshal(env)
+			fields := map[string]json.RawMessage{}
+			_ = json.Unmarshal(payload, &fields)
+			fields[field] = json.RawMessage(`"different"`)
+			if field == "source_key" {
+				fields[field] = json.RawMessage(`{"Source":"SIHD"}`)
+			}
+			if field == "manifest_json" {
+				fields[field] = json.RawMessage(`"eyJ4IjoxfQ=="`)
+			}
+			payload, _ = json.Marshal(fields)
+			_ = json.Unmarshal(payload, &env)
+			if err := ob.Append(env); err == nil {
+				t.Fatal("conflicting_replay_accepted=true")
+			}
+		})
+	}
+}
+
+func TestApagarEnvelopeRawLiberaIndice(t *testing.T) {
+	ob, _ := newTestOutbox(t)
+	env := rawEnvelope(t, "job", 1)
+	if err := ob.Append(env); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := ob.Peek(10)
+	if err := ob.Delete(items[0].Key); err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.Append(env); err != nil {
+		t.Fatal(err)
+	}
+	items, _ = ob.Peek(10)
+	if len(items) != 1 {
+		t.Fatalf("remaining=%d want=1", len(items))
+	}
+}
+
+func TestAppendLegadoNaoSobrescreveRawAposReinicio(t *testing.T) {
+	ob, path := newTestOutbox(t)
+	now := time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
+	env := rawEnvelope(t, "job", 1)
+	env.EnqueuedAt = now
+	if err := ob.Append(env); err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ob, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ob.Close()
+	for i := 0; i < 3; i++ {
+		if err := ob.Append(Envelope{Type: TypeComplete, JobUUID: id(i), EnqueuedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := ob.Peek(10)
+	if err != nil || len(items) != 4 {
+		t.Fatalf("remaining=%d error=%v want=4", len(items), err)
+	}
+	if !reflect.DeepEqual(env, items[0].Envelope) {
+		t.Fatal("raw_overwritten=true")
+	}
+}
+
+func TestRejeitaEnvelopeRawSemIdentidadeCompleta(t *testing.T) {
+	for _, field := range []string{
+		"job_id", "fencing_token", "source_key", "manifest_json", "manifest_sha256",
+	} {
+		ob, _ := newTestOutbox(t)
+		payload, _ := json.Marshal(rawEnvelope(t, "job", 1))
+		fields := map[string]json.RawMessage{}
+		_ = json.Unmarshal(payload, &fields)
+		delete(fields, field)
+		payload, _ = json.Marshal(fields)
+		var env Envelope
+		if err := json.Unmarshal(payload, &env); err != nil {
+			t.Fatal(err)
+		}
+		if err := ob.Append(env); err == nil {
+			t.Errorf("missing_identity_accepted=%s", field)
+		}
+	}
+}
 
 func newTestOutbox(t *testing.T) (*Outbox, string) {
 	t.Helper()
@@ -167,5 +369,20 @@ func TestOutbox_CloseIdempotent(t *testing.T) {
 	}
 }
 
-func id(i int) string             { return string(rune('a' + i)) }
-func idDeep(worker, j int) string { return string([]rune{rune('a' + worker), rune('0' + (j % 10))}) }
+func TestOutbox_RejeitaOverflowDaSequencia(t *testing.T) {
+	ob, _ := newTestOutbox(t)
+	err := ob.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket([]byte(bucketName)).SetSequence(uint64(^uint32(0)))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.Append(Envelope{JobUUID: "overflow"}); err == nil {
+		t.Fatal("expected sequence overflow")
+	}
+}
+
+func id(i int) string { return string(rune('a' + i)) }
+func idDeep(worker, j int) string {
+	return string([]rune{rune('a' + worker), rune('0' + (j % 10))})
+}

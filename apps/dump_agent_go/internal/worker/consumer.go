@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math/rand"
 	"time"
@@ -28,6 +29,10 @@ type JobExecutorIface interface {
 	EmitCommitted(job Job, size int64)
 }
 
+type rawTerminalWaiter interface {
+	WaitRawTerminal(context.Context, *Job) error
+}
+
 // JobSpecSource produz o próximo JobSpec a ser registrado, ou nil/err.
 // Retornar (nil,nil) significa "sem trabalho agora" — consumer aguarda PollInterval.
 type JobSpecSource interface {
@@ -50,7 +55,9 @@ type Consumer struct {
 }
 
 // NewConsumer construtor.
-func NewConsumer(api JobAPIClient, source JobSpecSource, executor JobExecutorIface, cfg ConsumerConfig) *Consumer {
+func NewConsumer(api JobAPIClient, source JobSpecSource,
+	executor JobExecutorIface, cfg ConsumerConfig,
+) *Consumer {
 	return &Consumer{api: api, source: source, executor: executor, config: cfg}
 }
 
@@ -107,9 +114,18 @@ func (c *Consumer) processJob(ctx context.Context, job Job) {
 	}, "heartbeat")
 
 	size, execErr := c.executor.Run(jobCtx, &job)
+	if waiter, ok := c.executor.(rawTerminalWaiter); ok && job.RawRequest != nil {
+		execErr = errors.Join(execErr, waiter.WaitRawTerminal(jobCtx, &job))
+	}
 	jobCancel()
 	<-hbCh
 
+	if job.RawRequest != nil {
+		if execErr != nil {
+			slog.Warn("raw_execution_failed", "job_id", job.ID)
+		}
+		return
+	}
 	if execErr != nil {
 		if err := c.api.FailJob(ctx, job, execErr); err != nil {
 			slog.Error("fail_job_api_error", "job_id", job.ID, "err", err.Error())
