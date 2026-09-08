@@ -28,13 +28,11 @@ var ErrPendingExists = errors.New("pending_exists")
 var ErrPendingNotFound = errors.New("pending_missing")
 
 type Store struct{ db *bbolt.DB }
-
 type PendingRef struct {
 	SourceKey    SourceKey
 	JobID        string
 	FencingToken uint64
 }
-
 type chainState struct {
 	SnapshotID        string
 	Sequence          uint32
@@ -43,7 +41,6 @@ type chainState struct {
 	ConfirmedRef      PendingRef
 	ConfirmedManifest manifest.Raw
 }
-
 type PendingTx struct {
 	store  *Store
 	key    SourceKey
@@ -77,9 +74,7 @@ func Open(path string) (*Store, error) {
 	}
 	return &Store{db: db}, nil
 }
-
 func (s *Store) Close() error { return s.db.Close() }
-
 func (s *Store) GetCommitted(key SourceKey) (map[string][32]byte, error) {
 	out := map[string][32]byte{}
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -96,7 +91,6 @@ func (s *Store) GetCommitted(key SourceKey) (map[string][32]byte, error) {
 	})
 	return out, err
 }
-
 func (s *Store) BeginPending(key SourceKey, jobID string) (*PendingTx, error) {
 	p := &PendingTx{store: s, key: key, path: key.BucketPath() + "/" + jobID, root: pendingBucket}
 	p.puts = map[string][32]byte{}
@@ -117,7 +111,6 @@ func (s *Store) BeginPending(key SourceKey, jobID string) (*PendingTx, error) {
 	}
 	return p, nil
 }
-
 func (s *Store) BeginPendingRef(ref PendingRef) (*PendingTx, error) {
 	if err := ref.validate(); err != nil {
 		return nil, err
@@ -135,7 +128,6 @@ func (s *Store) BeginPendingRef(ref PendingRef) (*PendingTx, error) {
 	}
 	return &PendingTx{store: s, key: ref.SourceKey, path: ref.path(), root: rawPendingBucket}, nil
 }
-
 func (s *Store) ResumePendingRef(ref PendingRef) (*PendingTx, error) {
 	if err := ref.validate(); err != nil {
 		return nil, err
@@ -151,11 +143,9 @@ func (s *Store) ResumePendingRef(ref PendingRef) (*PendingTx, error) {
 	}
 	return &PendingTx{store: s, key: ref.SourceKey, path: ref.path(), root: rawPendingBucket}, nil
 }
-
 func (r PendingRef) path() string {
 	return fmt.Sprintf("%s/%s/%d", r.SourceKey.BucketPath(), r.JobID, r.FencingToken)
 }
-
 func (r PendingRef) validate() error {
 	for _, segment := range []string{
 		r.SourceKey.Source, r.SourceKey.Intent, r.SourceKey.Competencia, r.JobID,
@@ -166,7 +156,6 @@ func (r PendingRef) validate() error {
 	}
 	return nil
 }
-
 func (p *PendingTx) Put(pk string, h [32]byte) error {
 	if p.closed {
 		return errors.New("pending_closed")
@@ -183,7 +172,6 @@ func (p *PendingTx) Put(pk string, h [32]byte) error {
 		return b.Put([]byte(pk), h[:])
 	})
 }
-
 func (p *PendingTx) Replace(hashes map[string][32]byte) error {
 	if p.closed || p.root != rawPendingBucket {
 		return errors.New("pending=not_raw_or_closed")
@@ -234,7 +222,6 @@ func (p *PendingTx) Commit() error {
 	}
 	return err
 }
-
 func (p *PendingTx) Abort() {
 	if p.closed {
 		return
@@ -244,7 +231,6 @@ func (p *PendingTx) Abort() {
 		return deleteNestedPrune(tx.Bucket([]byte(p.root)), p.path)
 	})
 }
-
 func (s *Store) ChainHead(key SourceKey) (string, uint32, string, time.Time, bool, error) {
 	var head chainState
 	var ok bool
@@ -255,7 +241,6 @@ func (s *Store) ChainHead(key SourceKey) (string, uint32, string, time.Time, boo
 	})
 	return head.SnapshotID, head.Sequence, head.ManifestSHA256, head.CreatedAt, ok, err
 }
-
 func readHead(tx *bbolt.Tx, key SourceKey) (chainState, bool, error) {
 	var head chainState
 	data := tx.Bucket([]byte(headBucket)).Get([]byte(key.BucketPath()))
@@ -402,31 +387,47 @@ func (s *Store) RequireFull(ref PendingRef, reason string) error {
 }
 
 func (s *Store) GarbageCollectStalePending(maxAge time.Duration) (int, error) {
-	var stale []string
+	cutoff := time.Now().UTC().Add(-maxAge)
+	return s.deletePendingWhere(pendingBucket, func(_ string, b *bbolt.Bucket) bool {
+		created, err := time.Parse(time.RFC3339Nano, string(b.Get([]byte(createdAtKey))))
+		return err != nil || created.Before(cutoff)
+	})
+}
+
+func (s *Store) ReconcileRawPending(retained []PendingRef) (int, error) {
+	keep := make(map[string]bool, len(retained))
+	for _, ref := range retained {
+		if err := ref.validate(); err != nil {
+			return 0, err
+		}
+		keep[ref.path()] = true
+	}
+	return s.deletePendingWhere(rawPendingBucket,
+		func(path string, _ *bbolt.Bucket) bool { return !keep[path] })
+}
+
+func (s *Store) deletePendingWhere(rootName string,
+	remove func(string, *bbolt.Bucket) bool,
+) (int, error) {
+	var paths []string
 	err := s.db.Update(func(tx *bbolt.Tx) error {
-		root := tx.Bucket([]byte(pendingBucket))
-		cutoff := time.Now().UTC().Add(-maxAge)
-		err := walkLeafBuckets(root, "", func(path string, b *bbolt.Bucket) error {
-			created, err := time.Parse(time.RFC3339Nano, string(b.Get([]byte(createdAtKey))))
-			if err != nil || created.Before(cutoff) {
-				stale = append(stale, path)
+		root := tx.Bucket([]byte(rootName))
+		if err := walkLeafBuckets(root, "", func(path string, b *bbolt.Bucket) error {
+			if remove(path, b) {
+				paths = append(paths, path)
 			}
 			return nil
-		})
-		if err != nil {
+		}); err != nil {
 			return err
 		}
-		for _, path := range stale {
+		for _, path := range paths {
 			if err := deleteNestedPrune(root, path); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	if err != nil {
-		return 0, err
-	}
-	return len(stale), nil
+	return len(paths), err
 }
 
 func navigate(start *bbolt.Bucket, path string) *bbolt.Bucket {

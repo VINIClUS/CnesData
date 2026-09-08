@@ -41,9 +41,24 @@ type rawCycle struct {
 
 const rawTerminalPollInterval = 10 * time.Millisecond
 
-func (e *JobExecutor) reconcileRawSpools() error {
-	if e.RawOutbox == nil || e.RawSpoolDirectory == "" {
+func (e *JobExecutor) reconcileRawState(current delta.PendingRef) error {
+	if e.RawOutbox == nil || e.DeltaStore == nil || e.RawSpoolDirectory == "" {
 		return errors.New("raw_executor=unconfigured")
+	}
+	items, err := allEnvelopeItems(e.RawOutbox)
+	if err != nil {
+		return err
+	}
+	refs := []delta.PendingRef{current}
+	retained := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item.Envelope.Type == queue.TypeRawManifest {
+			retained[item.Envelope.SpoolName] = true
+			refs = append(refs, pendingRef(item.Envelope))
+		}
+	}
+	if _, err := e.DeltaStore.ReconcileRawPending(refs); err != nil {
+		return err
 	}
 	entries, err := os.ReadDir(e.RawSpoolDirectory)
 	if errors.Is(err, os.ErrNotExist) {
@@ -51,16 +66,6 @@ func (e *JobExecutor) reconcileRawSpools() error {
 	}
 	if err != nil {
 		return err
-	}
-	items, err := allEnvelopeItems(e.RawOutbox)
-	if err != nil {
-		return err
-	}
-	retained := make(map[string]bool, len(items))
-	for _, item := range items {
-		if item.Envelope.Type == queue.TypeRawManifest {
-			retained[item.Envelope.SpoolName] = true
-		}
 	}
 	for _, entry := range entries {
 		name := entry.Name()

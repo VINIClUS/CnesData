@@ -265,13 +265,21 @@ func TestConsumerRawMantemHeartbeatAteEnvelopeTerminal(t *testing.T) {
 
 func TestExecutorRawRemoveSpoolQuandoEnvelopeNaoPersiste(t *testing.T) {
 	executor, job := newRawExecutor(t), rawJob()
-	executor.RawOutbox = appendFailOutbox{Outbox: executor.RawOutbox.(*queue.Outbox)}
+	out := executor.RawOutbox.(*queue.Outbox)
+	oldRef := rawPendingRef(job)
+	executor.RawOutbox = appendFailOutbox{Outbox: out}
 
 	_, err := executor.RunRaw(context.Background(), &job)
 	require.ErrorContains(t, err, "outbox=unavailable")
 	entries, readErr := os.ReadDir(executor.RawSpoolDirectory)
 	require.NoError(t, readErr)
 	require.Empty(t, entries)
+	executor.RawOutbox = out
+	job.FencingToken++
+	_, err = executor.RunRaw(context.Background(), &job)
+	require.NoError(t, err)
+	_, err = executor.DeltaStore.ResumePendingRef(oldRef)
+	require.ErrorIs(t, err, delta.ErrPendingNotFound)
 }
 
 func TestExecutorRawAguardaEnvelopeTerminal(t *testing.T) {

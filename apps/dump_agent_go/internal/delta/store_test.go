@@ -438,3 +438,24 @@ func TestStore_GarbageCollectStalePending(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, count2, "second call has nothing left to GC")
 }
+
+func TestReconcileRawPendingRemoveSomenteRefsSemEnvelope(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "delta.db"))
+	require.NoError(t, err)
+	defer store.Close()
+	orphan := referenciaPendente("orphan", 1)
+	retained := referenciaPendente("retained", 2)
+	for _, ref := range []PendingRef{orphan, retained} {
+		pending, err := store.BeginPendingRef(ref)
+		require.NoError(t, err)
+		require.NoError(t, pending.Replace(map[string][32]byte{"row": {1}}))
+	}
+
+	removed, err := store.ReconcileRawPending([]PendingRef{retained})
+	require.NoError(t, err)
+	require.Equal(t, 1, removed)
+	_, err = store.ResumePendingRef(orphan)
+	require.ErrorIs(t, err, ErrPendingNotFound)
+	_, err = store.ResumePendingRef(retained)
+	require.NoError(t, err)
+}
