@@ -101,6 +101,18 @@ func TestNovoFenceCriaEnvelopeImutavel(t *testing.T) {
 	}
 }
 
+func TestRawItemConsultaIndicePorJobEFence(t *testing.T) {
+	ob, _ := newTestOutbox(t)
+	require.NoError(t, ob.Append(rawEnvelope(t, "job", 7)))
+	item, ok, err := ob.RawItem("job", 7)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(7), item.Envelope.FencingToken)
+	_, ok, err = ob.RawItem("job", 8)
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
 func TestRejeitaReplayRawComIdentidadeDivergente(t *testing.T) {
 	for _, field := range []string{"source_key", "manifest_json", "manifest_sha256"} {
 		t.Run(field, func(t *testing.T) {

@@ -67,7 +67,13 @@ type JobExecutor struct {
 }
 
 // RunRaw prepara o manifesto durável e envia o Parquet sem confirmar estado.
-func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (int64, error) {
+func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (sizeBytes int64, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			sizeBytes = 0
+			err = fmt.Errorf("panic in RunRaw: %v\n%s", recovered, debug.Stack())
+		}
+	}()
 	if size, replay, err := e.replayRaw(job); replay || err != nil {
 		return size, err
 	}

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/delta"
+	"github.com/cnesdata/dumpagent/internal/extractor"
+	"github.com/cnesdata/dumpagent/internal/manifest"
 	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/writer"
@@ -193,6 +195,23 @@ func TestCrashAntesDoEnvelopeRetomaPendenteDuravel(t *testing.T) {
 	got, err := f.store.GetCommitted(ref.SourceKey)
 	require.NoError(t, err)
 	require.Equal(t, map[string][32]byte{"complete": {8}}, got)
+}
+
+func TestRunRawConvertePanicDaExtracaoEmErroDoJob(t *testing.T) {
+	f := newRawDrainFixture(t)
+	job := Job{ID: "panic-job", TenantID: f.raw.TenantID, FencingToken: 9,
+		UploadURL: "https://object.invalid", Params: extractor.ExtractionParams{
+			Intent: extractor.IntentCnesProfissionais, Competencia: "202601"},
+		RawRequest: &manifest.BuildRequest{SourceType: f.raw.SourceType,
+			FileSubtype: f.raw.FileSubtype, Competencia: f.raw.Competencia,
+			AgentID: f.raw.AgentID, AgentVersion: f.raw.AgentVersion,
+			SchemaVersion: f.raw.SchemaVersion, SnapshotMode: manifest.SnapshotModeFull,
+			CreatedAt: f.raw.CreatedAt}}
+	executor := &JobExecutor{DeltaStore: f.store, RawOutbox: f.out,
+		RawSpoolDirectory: f.spoolDirectory, RawUploader: fixtureRawUploader{},
+		RawExtract: func(context.Context, Job) ([]delta.Row, error) { panic("extract") }}
+	_, err := executor.RunRaw(context.Background(), &job)
+	require.ErrorContains(t, err, "panic in RunRaw")
 }
 
 func TestRetryComEnvelopeNaoSobrescreveFingerprintsPendentes(t *testing.T) {

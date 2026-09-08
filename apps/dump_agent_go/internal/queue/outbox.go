@@ -120,7 +120,31 @@ func persistEnvelope(b *bbolt.Bucket, env Envelope, payload []byte) ([]byte, err
 }
 
 func rawIdentity(env Envelope) []byte {
-	return binary.BigEndian.AppendUint64(append([]byte(env.JobID), 0), env.FencingToken)
+	return rawIdentityFor(env.JobID, env.FencingToken)
+}
+
+func rawIdentityFor(jobID string, fencingToken uint64) []byte {
+	return binary.BigEndian.AppendUint64(append([]byte(jobID), 0), fencingToken)
+}
+
+// RawItem consulta um envelope raw pelo índice durável de job e fence.
+func (o *Outbox) RawItem(jobID string, fencingToken uint64) (Item, bool, error) {
+	var item Item
+	var found bool
+	err := o.db.View(func(tx *bbolt.Tx) error {
+		key := tx.Bucket([]byte(rawIndexBucket)).Get(rawIdentityFor(jobID, fencingToken))
+		if key == nil {
+			return nil
+		}
+		payload := tx.Bucket([]byte(bucketName)).Get(key)
+		if err := json.Unmarshal(payload, &item.Envelope); err != nil {
+			return fmt.Errorf("raw_envelope_index_invalid=%w", err)
+		}
+		item.Key = append([]byte(nil), key...)
+		found = true
+		return nil
+	})
+	return item, found, err
 }
 
 // Peek returns up to n oldest items in FIFO order.

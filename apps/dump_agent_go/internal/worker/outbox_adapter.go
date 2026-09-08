@@ -379,6 +379,11 @@ func findRawEnvelope(out EnvelopeOutbox, ref delta.PendingRef) (queue.Envelope, 
 }
 
 func findRawItem(out EnvelopeOutbox, ref delta.PendingRef) (queue.Item, bool, error) {
+	if indexed, ok := out.(interface {
+		RawItem(string, uint64) (queue.Item, bool, error)
+	}); ok {
+		return indexed.RawItem(ref.JobID, ref.FencingToken)
+	}
 	for limit := drainBatchSize; ; limit *= 2 {
 		items, err := out.Peek(limit)
 		if err != nil {
