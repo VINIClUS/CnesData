@@ -369,6 +369,25 @@ def test_fecha_iterador_do_transport_quando_projecao_falha():
     assert closed is True
 
 
+def test_preserva_erro_de_projecao_quando_fechamento_do_iterador_falha():
+    def rows(prof_sus: str):
+        try:
+            yield _row(PROF_SUS=prof_sus)
+        finally:
+            raise OSError("cleanup-sensitive")
+
+    transport = _Transport([])
+    transport.fetch = lambda request: rows("invalid")
+
+    with pytest.raises(Exception) as captured:
+        DatasusCnesRawAdapter(transport, _Store(), lambda: _CREATED_AT).extract(_request())
+
+    assert (captured.value.code, captured.value.retryable) == ("field_invalid", False)
+    transport.fetch = lambda request: rows("1")
+    with pytest.raises(OSError, match="cleanup-sensitive"):
+        DatasusCnesRawAdapter(transport, _Store(), lambda: _CREATED_AT).extract(_request())
+
+
 def test_aceita_iterador_do_transport_sem_close():
     transport = _Transport([])
     transport.fetch = lambda request: iter([_row()])

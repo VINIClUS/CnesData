@@ -83,12 +83,19 @@ class DatasusCnesRawAdapter:
 
     def _project_rows(self, request: DatasusCnesRequest) -> list[dict[str, object]]:
         iterator = iter(self._transport.fetch(request))
+        failed = True
         try:
-            return [self._project(row, request) for row in iterator]
+            projected = [self._project(row, request) for row in iterator]
+            failed = False
+            return projected
         finally:
             close = getattr(iterator, "close", None)
             if callable(close):
-                close()
+                try:
+                    close()
+                except Exception:
+                    if not failed:
+                        raise
 
     @staticmethod
     def _project(
