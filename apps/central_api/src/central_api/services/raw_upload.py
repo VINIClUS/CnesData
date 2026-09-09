@@ -146,7 +146,7 @@ class RawUploadService:
             if size > RAW_UPLOAD_MAX_BYTES:
                 raise RawUploadTooLarge("payload_too_large")
             digest.update(chunk)
-            spool.write(chunk)
+            await to_thread(spool.write, chunk)
         return digest.hexdigest(), size
 
     @staticmethod

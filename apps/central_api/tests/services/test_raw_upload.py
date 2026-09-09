@@ -104,6 +104,7 @@ async def chunks(*values: bytes):
 @pytest.mark.anyio
 async def test_upload_faz_stream_sem_carregar_payload_inteiro(monkeypatch) -> None:
     writes: list[bytes] = []
+    write_threads: list[int] = []
     thresholds: list[int] = []
 
     class SpoolSpy(BytesIO):
@@ -115,6 +116,7 @@ async def test_upload_faz_stream_sem_carregar_payload_inteiro(monkeypatch) -> No
 
         def write(self, value: bytes) -> int:
             writes.append(value)
+            write_threads.append(get_ident())
             return super().write(value)
 
     def spool(*, max_size: int, mode: str):
@@ -129,6 +131,7 @@ async def test_upload_faz_stream_sem_carregar_payload_inteiro(monkeypatch) -> No
     result = await service.upload(request(), chunks(b"abc", b"def"))
 
     assert writes == [b"abc", b"def"]
+    assert all(thread_id != get_ident() for thread_id in write_threads)
     assert thresholds == [8 * 1024**2]
     assert result == ObjectStat(KEY, 6, sha256(b"abcdef").hexdigest())
 
