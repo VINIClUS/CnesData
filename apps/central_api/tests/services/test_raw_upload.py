@@ -178,6 +178,25 @@ async def test_upload_publica_objeto_fora_da_thread_do_event_loop() -> None:
 
 
 @pytest.mark.anyio
+async def test_upload_consulta_control_plane_fora_da_thread_do_event_loop() -> None:
+    class ThreadRecordingControlPlane(ControlPlane):
+        def __init__(self, jobs: list[Job | None]) -> None:
+            super().__init__(jobs)
+            self.thread_ids: list[int] = []
+
+        def get_job(self, tenant_id: str, job_id: str) -> Job | None:
+            self.thread_ids.append(get_ident())
+            return super().get_job(tenant_id, job_id)
+
+    control = ThreadRecordingControlPlane([job()])
+    service = RawUploadService(control, ObjectStore(), lambda: NOW)
+
+    await service.upload(request(), chunks(b"payload"))
+
+    assert all(thread_id != get_ident() for thread_id in control.thread_ids)
+
+
+@pytest.mark.anyio
 async def test_upload_revalida_fence_antes_de_publicar() -> None:
     changed = job(fencing_token=8)
     store = ObjectStore()
