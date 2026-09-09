@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
+from threading import get_ident
 
 import pytest
 
@@ -8,6 +9,7 @@ from central_api.services import raw_upload
 from central_api.services.raw_upload import (
     RAW_UPLOAD_MAX_BYTES,
     RawUploadConflict,
+    RawUploadEmpty,
     RawUploadFenceRejected,
     RawUploadIdentityRejected,
     RawUploadKeyRejected,
@@ -145,6 +147,34 @@ async def test_upload_rejeita_mais_de_um_gibibyte(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_upload_rejeita_corpo_vazio_sem_publicar() -> None:
+    store = ObjectStore()
+    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+
+    with pytest.raises(RawUploadEmpty, match="payload_empty"):
+        await service.upload(request(), chunks())
+
+    assert store.put_calls == 0
+
+
+@pytest.mark.anyio
+async def test_upload_publica_objeto_fora_da_thread_do_event_loop() -> None:
+    class ThreadRecordingStore(ObjectStore):
+        thread_id: int | None = None
+
+        def put(self, key: str, body, expected_sha256: str) -> ObjectStat:
+            self.thread_id = get_ident()
+            return super().put(key, body, expected_sha256)
+
+    store = ThreadRecordingStore()
+    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+
+    await service.upload(request(), chunks(b"payload"))
+
+    assert store.thread_id != get_ident()
+
+
+@pytest.mark.anyio
 async def test_upload_revalida_fence_antes_de_publicar() -> None:
     changed = job(fencing_token=8)
     store = ObjectStore()
@@ -213,6 +243,67 @@ async def test_replay_identico_retorna_stat_sem_nova_escrita() -> None:
 
     assert result.sha256 == sha256(body).hexdigest()
     assert store.put_calls == 0
+
+
+@pytest.mark.anyio
+async def test_replay_terminal_identico_retorna_stat_sem_nova_escrita() -> None:
+    body = b"payload"
+    terminal = job(
+        state=JobState.SUCCEEDED,
+        lease_owner=None,
+        lease_until=None,
+        result_manifest_id="manifest-1",
+        result_manifest_key="raw/354130/CNES_LOCAL/2026-07/snapshot-1/manifest.json",
+    )
+    store = ObjectStore({KEY: body})
+    service = RawUploadService(ControlPlane([terminal]), store, lambda: NOW)
+
+    result = await service.upload(request(), chunks(body))
+
+    assert result.sha256 == sha256(body).hexdigest()
+    assert store.put_calls == 0
+
+
+@pytest.mark.anyio
+async def test_replay_resync_terminal_identico_retorna_stat() -> None:
+    body = b"payload"
+    terminal = job(
+        state=JobState.FAILED_FINAL,
+        lease_owner=None,
+        lease_until=None,
+        error_code="RAW_RESYNC_BASELINE_MISSING",
+        rejected_manifest_sha256="a" * 64,
+    )
+    store = ObjectStore({KEY: body})
+    service = RawUploadService(ControlPlane([terminal]), store, lambda: NOW)
+
+    result = await service.upload(request(), chunks(body))
+
+    assert result.sha256 == sha256(body).hexdigest()
+    assert store.put_calls == 0
+
+
+@pytest.mark.anyio
+async def test_job_terminal_sem_objeto_rejeita_antes_do_primeiro_byte() -> None:
+    consumed = False
+    terminal = job(
+        state=JobState.SUCCEEDED,
+        lease_owner=None,
+        lease_until=None,
+        result_manifest_id="manifest-1",
+        result_manifest_key="raw/354130/CNES_LOCAL/2026-07/snapshot-1/manifest.json",
+    )
+
+    async def body():
+        nonlocal consumed
+        consumed = True
+        yield b"payload"
+
+    service = RawUploadService(ControlPlane([terminal]), ObjectStore(), lambda: NOW)
+    with pytest.raises(RawUploadLeaseRejected, match="job_not_leased"):
+        await service.upload(request(), body())
+
+    assert not consumed
 
 
 @pytest.mark.anyio

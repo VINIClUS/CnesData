@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from asyncio import to_thread
 from dataclasses import dataclass
 from hashlib import sha256
 from tempfile import SpooledTemporaryFile
@@ -56,6 +57,10 @@ class RawUploadTooLarge(RawUploadError):
     """Payload maior que o limite raw."""
 
 
+class RawUploadEmpty(RawUploadError):
+    """Payload raw vazio."""
+
+
 class RawUploadConflict(RawUploadError):
     """Replay divergente de objeto imutável."""
 
@@ -89,37 +94,48 @@ class RawUploadService:
     ) -> ObjectStat:
         """Publica o stream após validar identidade, lease, fence e chave."""
 
-        self._validate(request)
+        job = self._validate_request(request)
+        existing = await to_thread(self._object_store.stat, request.object_key)
+        self._validate_state(job, existing is not None)
         with SpooledTemporaryFile(max_size=RAW_UPLOAD_SPOOL_BYTES, mode="w+b") as spool:
             digest, size = await self._spool(stream, spool)
-            existing = self._object_store.stat(request.object_key)
+            if size == 0:
+                raise RawUploadEmpty("payload_empty")
+            existing = existing or await to_thread(self._object_store.stat, request.object_key)
             if existing is not None:
-                self._validate(request)
+                self._validate_state(self._validate_request(request), True)
                 return self._validate_replay(existing, digest, size)
             spool.seek(0)
-            self._validate(request)
+            self._validate_state(self._validate_request(request), False)
             try:
-                return self._object_store.put(request.object_key, spool, digest)
+                return await to_thread(self._object_store.put, request.object_key, spool, digest)
             except Conflict:
-                return self._resolve_publish_race(request, digest, size)
+                return await self._resolve_publish_race(request, digest, size)
 
-    def _validate(self, request: RawUploadRequest) -> Job:
+    def _validate_request(self, request: RawUploadRequest) -> Job:
         job = self._control_plane.get_job(request.tenant_id, request.job_id)
         if job is None:
             raise RawUploadNotFound("job_missing")
         if (job.tenant_id, job.agent_id) != (request.tenant_id, request.agent_id):
             raise RawUploadIdentityRejected("job_identity_mismatch")
-        if job.state is not JobState.LEASED:
-            raise RawUploadLeaseRejected("job_not_leased")
-        if job.lease_owner != request.agent_id:
-            raise RawUploadLeaseRejected("job_owner_lost")
-        if job.lease_until is None or job.lease_until <= self._clock():
-            raise RawUploadLeaseRejected("job_lease_expired")
         if job.fencing_token != request.fencing_token:
             raise RawUploadFenceRejected("job_fence_rejected")
         if not _valid_object_key(request.object_key, job):
             raise RawUploadKeyRejected("object_key_invalid")
         return job
+
+    def _validate_state(self, job: Job, terminal_replay: bool) -> None:
+        is_resync = job.state is JobState.FAILED_FINAL and bool(
+            job.error_code and job.error_code.startswith("RAW_RESYNC_")
+        )
+        if terminal_replay and (job.state is JobState.SUCCEEDED or is_resync):
+            return
+        if job.state is not JobState.LEASED:
+            raise RawUploadLeaseRejected("job_not_leased")
+        if job.lease_owner != job.agent_id:
+            raise RawUploadLeaseRejected("job_owner_lost")
+        if job.lease_until is None or job.lease_until <= self._clock():
+            raise RawUploadLeaseRejected("job_lease_expired")
 
     @staticmethod
     async def _spool(stream: AsyncIterable[bytes], spool) -> tuple[str, int]:
@@ -139,10 +155,10 @@ class RawUploadService:
             raise RawUploadConflict("object_conflict")
         return existing
 
-    def _resolve_publish_race(
+    async def _resolve_publish_race(
         self, request: RawUploadRequest, digest: str, size: int
     ) -> ObjectStat:
-        existing = self._object_store.stat(request.object_key)
+        existing = await to_thread(self._object_store.stat, request.object_key)
         if existing is None:
             raise RawUploadConflict("object_conflict")
         return self._validate_replay(existing, digest, size)

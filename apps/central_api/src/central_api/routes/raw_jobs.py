@@ -19,6 +19,7 @@ from central_api.schemas.raw_api import (
 from central_api.services.raw_ingestion import RawIngestionService  # noqa: TC001
 from central_api.services.raw_upload import (
     RawUploadConflict,
+    RawUploadEmpty,
     RawUploadError,
     RawUploadIdentityRejected,
     RawUploadKeyRejected,
@@ -228,6 +229,8 @@ def _job_response(job: Job, identity: EdgeIdentity) -> EdgeJobResponse:
 def _upload_status(error: RawUploadError) -> int:
     if isinstance(error, RawUploadTooLarge):
         return 413
+    if isinstance(error, RawUploadEmpty):
+        return 422
     if isinstance(error, RawUploadConflict):
         return 409
     if isinstance(error, RawUploadNotFound):

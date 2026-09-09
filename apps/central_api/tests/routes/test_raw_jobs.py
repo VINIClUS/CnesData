@@ -417,8 +417,13 @@ def test_upload_mapeia_falhas_do_servico(jobs, key: str, status: int, detail: st
     assert response.json() == {"detail": detail}
 
 
-def test_upload_mapeia_tamanho_excedido(monkeypatch) -> None:
-    monkeypatch.setattr("central_api.services.raw_upload.RAW_UPLOAD_MAX_BYTES", 2)
+@pytest.mark.parametrize(
+    "case",
+    [(2, b"abc", 413, "payload_too_large"), (1024**3, b"", 422, "payload_empty")],
+)
+def test_upload_mapeia_tamanho_invalido(monkeypatch, case) -> None:
+    limit, body, status, detail = case
+    monkeypatch.setattr("central_api.services.raw_upload.RAW_UPLOAD_MAX_BYTES", limit)
     leased = job(
         state=JobState.LEASED,
         fencing_token=7,
@@ -430,7 +435,7 @@ def test_upload_mapeia_tamanho_excedido(monkeypatch) -> None:
 
     response = client(control, upload=upload).put(
         "/api/v1/edge/jobs/job-1/raw-object",
-        content=b"abc",
+        content=body,
         headers={
             "X-Fencing-Token": "7",
             "X-Object-Key": KEY,
@@ -438,8 +443,8 @@ def test_upload_mapeia_tamanho_excedido(monkeypatch) -> None:
         },
     )
 
-    assert response.status_code == 413
-    assert response.json() == {"detail": "payload_too_large"}
+    assert response.status_code == status
+    assert response.json() == {"detail": detail}
 
 
 @pytest.mark.parametrize("headers", [{}, {"X-Fencing-Token": "x"}, {"X-Fencing-Token": "7"}])
