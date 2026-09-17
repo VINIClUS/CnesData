@@ -26,4 +26,4 @@ COPY apps/web_dashboard/nginx/security-headers.conf /etc/nginx/templates/securit
 COPY apps/web_dashboard/nginx/entrypoint.sh /docker-entrypoint.d/40-render-config.sh
 RUN chmod +x /docker-entrypoint.d/40-render-config.sh
 EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=3s CMD wget --quiet --spider http://localhost/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=3s CMD wget --quiet --spider http://127.0.0.1/healthz || exit 1

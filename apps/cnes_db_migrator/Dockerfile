@@ -4,7 +4,8 @@ WORKDIR /app
 COPY pyproject.toml pyproject.toml
 COPY packages/ packages/
 COPY apps/cnes_db_migrator/ apps/cnes_db_migrator/
-RUN uv build --wheel --out-dir /wheels packages/cnes_domain && \
+RUN uv build --wheel --out-dir /wheels packages/cnes_contracts && \
+    uv build --wheel --out-dir /wheels packages/cnes_domain && \
     uv build --wheel --out-dir /wheels packages/cnes_infra && \
     uv build --wheel --out-dir /wheels apps/cnes_db_migrator && \
     uv pip install --system /wheels/*.whl
