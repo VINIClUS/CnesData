@@ -3,16 +3,18 @@
 # Run as root on the target host:
 #
 #   CI_PUBLIC_KEY="ssh-ed25519 AAAA... cnesdata-dev-ci" \
-#   GHCR_USER="viniclus" \
-#   GHCR_PAT="ghp_xxx" \
 #     bash bootstrap.sh
+#
+# GHCR_USER/GHCR_PAT are optional: only needed if the ghcr.io/viniclus/cnesdata/*
+# packages are private. Prefer making them public after the first push instead
+# of retaining a PAT on the VPS.
 #
 # Safe to re-run: every step checks current state before mutating it.
 set -euo pipefail
 
 : "${CI_PUBLIC_KEY:?set CI_PUBLIC_KEY to the deploy CI public SSH key}"
-: "${GHCR_USER:?set GHCR_USER to the GitHub account for ghcr.io read:packages}"
-: "${GHCR_PAT:?set GHCR_PAT to a fine-grained PAT with read:packages}"
+GHCR_USER="${GHCR_USER:-}"
+GHCR_PAT="${GHCR_PAT:-}"
 
 STACK_DIR=/opt/cnesdata-dev
 DEPLOY_USER=cnesdeploy
@@ -119,7 +121,12 @@ else
   echo "    WARNING: $REPO_REALM not found, keycloak/realm.json not written"
 fi
 
-echo "==> GHCR login (read-only pull, as $DEPLOY_USER)"
-su - "$DEPLOY_USER" -c "echo '$GHCR_PAT' | docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+if [ -n "$GHCR_PAT" ] && [ -n "$GHCR_USER" ]; then
+  echo "==> GHCR login (read-only pull, as $DEPLOY_USER)"
+  su - "$DEPLOY_USER" -c "echo '$GHCR_PAT' | docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+else
+  echo "==> GHCR login skipped (GHCR_USER/GHCR_PAT not set)"
+  echo "    packages must be public, or run 'docker login ghcr.io' manually as $DEPLOY_USER"
+fi
 
 echo "==> done. First deploy: ssh -i <ci-key> $DEPLOY_USER@<host> develop-<sha>"

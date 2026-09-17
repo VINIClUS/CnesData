@@ -24,19 +24,17 @@ compose em `deploy/dev/docker-compose.dev.yml`.
 # 1. Gerar a chave SSH da CI (uma vez, localmente)
 ssh-keygen -t ed25519 -f ~/.ssh/cnesdata_dev_ci -C cnesdata-dev-ci -N ""
 
-# 2. PAT fine-grained (read:packages, só para o pacote cnesdata) em
-#    github.com/settings/tokens?type=beta
-
-# 3. Copiar deploy/dev/*.sh para a VPS e rodar como root
+# 2. Copiar deploy/dev/*.sh para a VPS e rodar como root
+#    GHCR_USER/GHCR_PAT são opcionais — só necessários se os packages
+#    ghcr.io/viniclus/cnesdata/* forem privados. Preferimos torná-los
+#    públicos após o primeiro push a reter um PAT novo na VPS.
 scp deploy/dev/{bootstrap.sh,deploy.sh,docker-compose.dev.yml} root@103.199.184.166:/root/deploy-dev/
 ssh root@103.199.184.166 '
   CI_PUBLIC_KEY="'"$(cat ~/.ssh/cnesdata_dev_ci.pub)"'" \
-  GHCR_USER=viniclus \
-  GHCR_PAT=<pat> \
     bash /root/deploy-dev/bootstrap.sh
 '
 
-# 4. Environment "develop" no GitHub (secrets + variables)
+# 3. Environment "develop" no GitHub (secrets + variables)
 gh api -X PUT repos/VINIClUS/CnesData/environments/develop
 gh secret set DEV_SSH_KEY --env develop < ~/.ssh/cnesdata_dev_ci
 gh secret set DEV_SSH_KNOWN_HOSTS --env develop < <(ssh-keyscan -t ed25519 103.199.184.166)
