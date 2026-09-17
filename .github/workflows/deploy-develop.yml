@@ -1,0 +1,116 @@
+name: Deploy develop
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'deploy/**'
+      - 'docs/contracts/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/deploy-develop.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag de imagem a implantar (ex.: develop-abc1234). Vazio = build do commit atual.'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ghcr.io/${{ github.repository_owner }}/cnesdata
+
+jobs:
+  gate:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tag == '' }}
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tag == '' }}
+    needs: gate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app:
+          - central_api
+          - data_processor
+          - cnes_db_migrator
+          - web_dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.app }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:develop-${{ github.sha }}
+            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:develop
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  deploy:
+    needs: [build]
+    if: ${{ always() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment:
+      name: develop
+      url: https://dev.cnesdata.vinisantana.com
+    steps:
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=develop-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEV_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.DEV_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy via forced-command SSH
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "${{ vars.DEV_SSH_USER }}@${{ vars.DEV_SSH_HOST }}" \
+            "${{ steps.tag.outputs.value }}"
+
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Web dashboard smoke test
+        run: bash apps/web_dashboard/scripts/smoke.sh https://dev.cnesdata.vinisantana.com
+
+      - name: Central API health check
+        run: |
+          curl -fsS https://dev.cnesdata.vinisantana.com/api/v1/system/health | tee /tmp/health.json
+          jq -e '.db_connected == true' /tmp/health.json
