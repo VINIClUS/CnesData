@@ -28,7 +28,9 @@ fi
 echo "==> stack directory"
 mkdir -p "$STACK_DIR"/{secrets,keycloak}
 chown -R "$DEPLOY_USER:$DEPLOY_USER" "$STACK_DIR"
-chmod 700 "$STACK_DIR/secrets"
+# 755: containers run as their own non-root UID and need to traverse this
+# dir and read the dev CA below (bind mount does not remap ownership).
+chmod 755 "$STACK_DIR/secrets"
 
 echo "==> forced-command SSH key"
 install -d -m 700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "/home/$DEPLOY_USER/.ssh"
@@ -104,7 +106,7 @@ if [ ! -f "$CA_CRT" ] || [ ! -f "$CA_KEY" ]; then
   openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
     -keyout "$CA_KEY" -out "$CA_CRT" \
     -subj "/O=CnesData Dev/CN=cnesdata-dev-ca"
-  chmod 600 "$CA_KEY" "$CA_CRT"
+  chmod 644 "$CA_KEY" "$CA_CRT"
   chown "$DEPLOY_USER:$DEPLOY_USER" "$CA_KEY" "$CA_CRT"
   echo "    generated new dev CA"
 else
