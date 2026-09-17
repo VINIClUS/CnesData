@@ -1,7 +1,9 @@
 package apiclient
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/obs"
+	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/worker"
 )
 
@@ -159,7 +162,7 @@ func (a *Adapter) RegisterBPASIAJob(
 		AgentVersion: &a.AgentVersion,
 		MachineId:    &a.MachineID,
 	}
-	resp, err := a.Inner.PostJobsRegisterWithResponse(ctx, body)
+	resp, err := a.Inner.RegisterJobApiV1JobsRegisterPostWithResponse(ctx, body)
 	if err != nil {
 		return err
 	}
@@ -231,4 +234,66 @@ func competenciaToDate(yyyymm int) openapi_types.Date {
 	year := yyyymm / 100
 	month := yyyymm % 100
 	return openapi_types.Date{Time: time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)}
+}
+
+// rawSubmission espelha RawManifestSubmission preservando os bytes canônicos
+// persistidos no envelope: reserializar o manifesto poderia divergir do digest
+// que o servidor recalcula.
+type rawSubmission struct {
+	JobId        string          `json:"job_id"`
+	FencingToken uint64          `json:"fencing_token"`
+	Manifest     json.RawMessage `json:"manifest"`
+}
+
+// SendRawManifest implementa worker.RawManifestClient sobre a rota Edge gerada.
+// Usa exclusivamente a identidade durável do envelope — nunca rederiva job,
+// fence ou manifesto a partir do estado mutável do processo durante um retry.
+func (a *Adapter) SendRawManifest(
+	ctx context.Context, env queue.Envelope,
+) (worker.RawManifestResponse, error) {
+	body, err := json.Marshal(rawSubmission{
+		JobId:        env.JobID,
+		FencingToken: env.FencingToken,
+		Manifest:     json.RawMessage(env.ManifestJSON),
+	})
+	if err != nil {
+		return worker.RawManifestResponse{}, err
+	}
+	resp, err := a.Inner.RegisterRawManifestApiV1EdgeRawManifestsPostWithBodyWithResponse(
+		ctx, "application/json", bytes.NewReader(body),
+	)
+	if err != nil {
+		return worker.RawManifestResponse{}, err
+	}
+	return rawManifestAck(resp), nil
+}
+
+func rawManifestAck(
+	resp *RegisterRawManifestApiV1EdgeRawManifestsPostResponse,
+) worker.RawManifestResponse {
+	ack := worker.RawManifestResponse{StatusCode: resp.StatusCode()}
+	if resp.JSON200 != nil {
+		ack.ManifestSHA256 = resp.JSON200.ManifestSha256
+		ack.ForceFull = resp.JSON200.FullResyncRequired
+		ack.Reason = derefString(resp.JSON200.Reason)
+		return ack
+	}
+	if resp.JSON409 == nil {
+		return ack
+	}
+	conflict, err := resp.JSON409.AsRawManifestResponse()
+	if err != nil || conflict.ManifestSha256 == "" {
+		return ack
+	}
+	ack.ManifestSHA256 = conflict.ManifestSha256
+	ack.ForceFull = conflict.FullResyncRequired
+	ack.Reason = derefString(conflict.Reason)
+	return ack
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

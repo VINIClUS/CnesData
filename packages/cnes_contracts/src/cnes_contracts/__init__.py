@@ -15,7 +15,13 @@ from cnes_contracts.fatos import (
     VinculoCNES,
 )
 from cnes_contracts.jobs import JobStatus, JobTransitionEvent
-from cnes_contracts.landing import Extraction, ExtractionRegisterPayload, FileManifest
+from cnes_contracts.landing import (
+    Extraction,
+    ExtractionRegisterPayload,
+    FileManifest,
+    UploadUrlRequest,
+    UploadUrlResponse,
+)
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest, ServingDocument
 from cnes_contracts.manifests.processing import (
     MaterializeRequest,
@@ -56,6 +62,8 @@ __all__ = [
     "ServingDocument",
     "SnapshotMode",
     "SourceType",
+    "UploadUrlRequest",
+    "UploadUrlResponse",
     "VinculoCNES",
     "manifest_sha256",
     "validate_object_key",

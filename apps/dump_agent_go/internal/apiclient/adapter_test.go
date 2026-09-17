@@ -16,6 +16,7 @@ import (
 	"github.com/cnesdata/dumpagent/internal/apiclient"
 	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/obs"
+	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/worker"
 )
 
@@ -260,4 +261,111 @@ func TestMintUploadURL_4xx(t *testing.T) {
 	var httpErr *obs.HTTPError
 	require.True(t, errors.As(err, &httpErr))
 	require.Equal(t, http.StatusConflict, httpErr.StatusCode)
+}
+
+var _ worker.RawManifestClient = (*apiclient.Adapter)(nil)
+
+const rawManifestJSON = `{"manifest_version":1,"manifest_id":"job-1","tenant_id":"354130"}`
+
+func rawEnvelope() queue.Envelope {
+	return queue.Envelope{
+		Type:           queue.TypeRawManifest,
+		JobID:          "job-1",
+		FencingToken:   7,
+		ManifestJSON:   []byte(rawManifestJSON),
+		ManifestSHA256: strings.Repeat("a", 64),
+	}
+}
+
+func rawManifestHandler(
+	t *testing.T, status int, payload string, captured *map[string]json.RawMessage,
+) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/edge/raw-manifests", r.URL.Path)
+		require.Equal(t, http.MethodPost, r.Method)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(captured))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(payload))
+	}
+}
+
+func TestSendRawManifest_EnviaIdentidadeDuravelDoEnvelope(t *testing.T) {
+	var got map[string]json.RawMessage
+	body := `{"accepted":true,"manifest_id":"job-1","manifest_sha256":"` +
+		strings.Repeat("a", 64) + `","full_resync_required":false,"reason":null}`
+	a := newTestAdapter(t, rawManifestHandler(t, http.StatusOK, body, &got))
+
+	ack, err := a.SendRawManifest(context.Background(), rawEnvelope())
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, ack.StatusCode)
+	require.Equal(t, strings.Repeat("a", 64), ack.ManifestSHA256)
+	require.False(t, ack.ForceFull)
+	require.Empty(t, ack.Reason)
+	require.JSONEq(t, `"job-1"`, string(got["job_id"]))
+	require.JSONEq(t, `7`, string(got["fencing_token"]))
+	require.Equal(t, rawManifestJSON, string(got["manifest"]))
+}
+
+func TestSendRawManifest_PropagaResyncTipado409(t *testing.T) {
+	var got map[string]json.RawMessage
+	body := `{"accepted":false,"manifest_id":"job-1","manifest_sha256":"` +
+		strings.Repeat("a", 64) + `","full_resync_required":true,"reason":"BASE_UNKNOWN"}`
+	a := newTestAdapter(t, rawManifestHandler(t, http.StatusConflict, body, &got))
+
+	ack, err := a.SendRawManifest(context.Background(), rawEnvelope())
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, ack.StatusCode)
+	require.True(t, ack.ForceFull)
+	require.Equal(t, "BASE_UNKNOWN", ack.Reason)
+	require.Equal(t, strings.Repeat("a", 64), ack.ManifestSHA256)
+}
+
+func TestSendRawManifest_ConflitoDetalhadoNaoViraResync(t *testing.T) {
+	var got map[string]json.RawMessage
+	a := newTestAdapter(
+		t,
+		rawManifestHandler(t, http.StatusConflict, `{"detail":"job_fence_rejected"}`, &got),
+	)
+
+	ack, err := a.SendRawManifest(context.Background(), rawEnvelope())
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, ack.StatusCode)
+	require.False(t, ack.ForceFull)
+	require.Empty(t, ack.Reason)
+	require.Empty(t, ack.ManifestSHA256)
+}
+
+func TestSendRawManifest_RetentaComOsMesmosBytesPersistidos(t *testing.T) {
+	var got map[string]json.RawMessage
+	seen := make([]string, 0, 2)
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		seen = append(seen, string(got["manifest"])+"|"+string(got["fencing_token"]))
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	env := rawEnvelope()
+
+	_, first := a.SendRawManifest(context.Background(), env)
+	_, second := a.SendRawManifest(context.Background(), env)
+
+	require.NoError(t, first)
+	require.NoError(t, second)
+	require.Len(t, seen, 2)
+	require.Equal(t, seen[0], seen[1])
+	require.Equal(t, rawManifestJSON+"|7", seen[0])
+}
+
+func TestSendRawManifest_ErroDeTransporteRetornaErro(t *testing.T) {
+	a, err := apiclient.NewAdapter("http://127.0.0.1:1", "tenant-1", "machine-1", nil)
+	require.NoError(t, err)
+
+	ack, sendErr := a.SendRawManifest(context.Background(), rawEnvelope())
+
+	require.Error(t, sendErr)
+	require.Zero(t, ack.StatusCode)
 }
