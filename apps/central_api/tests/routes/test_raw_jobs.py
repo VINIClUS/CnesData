@@ -493,7 +493,12 @@ def test_replay_pela_rota_preserva_imutabilidade(existing: bytes, body: bytes, s
         assert response.json() == {"detail": "object_conflict"}
 
 
-def test_create_app_continua_sem_rotas_edge() -> None:
-    paths = {route.path for route in create_app().routes}
+def test_create_app_monta_as_quatro_rotas_edge() -> None:
+    paths = set(create_app().openapi()["paths"])
 
-    assert all(not path.startswith("/api/v1/edge") for path in paths)
+    assert {
+        "/api/v1/edge/jobs/next",
+        "/api/v1/edge/jobs/{job_id}/heartbeat",
+        "/api/v1/edge/jobs/{job_id}/raw-object",
+        "/api/v1/edge/raw-manifests",
+    } <= paths

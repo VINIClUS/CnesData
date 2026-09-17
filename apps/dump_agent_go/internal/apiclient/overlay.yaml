@@ -1,143 +1,335 @@
+# Gerado para oapi-codegen v2.8.0 (aplica overlay antes do unmarshal 3.0).
+# Blocos: downgrade 3.1->3.0 (exclusiveMinimum numerico e anyOf com null) e
+# tipagem dos bodies de /api/v1/jobs/{register,upload-url}, que o FastAPI
+# declara como dict[str, Any]. Nenhuma rota inexistente e injetada aqui.
 overlay: 1.0.0
 info:
   title: OpenAPI 3.1 to 3.0 downgrade for oapi-codegen
   version: 1.0.0
 actions:
-  - target: $.openapi
-    update: "3.0.3"
-  - target: $.components.schemas.AgentStatusResponse.properties.agent_version
-    remove: true
-  - target: $.components.schemas.AgentStatusResponse.properties.last_seen
-    remove: true
-  - target: $.components.schemas.AgentStatusResponse.properties.machine_id
-    remove: true
-  - target: $.components.schemas.AgentStatusResponse.properties
-    update:
-      agent_version:
-        type: string
-        nullable: true
-        title: Agent Version
-      last_seen:
-        type: string
-        nullable: true
-        title: Last Seen
-      machine_id:
-        type: string
-        nullable: true
-        title: Machine Id
-  - target: $.components.schemas
-    update:
-      FileManifest:
-        type: object
-        required: [minio_key, fato_subtype, size_bytes, sha256]
-        properties:
-          minio_key:
-            type: string
-            pattern: "^[\\w\\-./]+\\.parquet\\.gz$"
-          fato_subtype:
-            type: string
-            enum:
-              - CNES_VINCULO
-              - SIHD_INTERNACAO
-              - SIHD_PROC_AIH
-              - BPA_C
-              - BPA_I
-              - SIA_APA
-              - SIA_BPI
-              - SIA_BPIHST
-              - DIM_SIGTAP
-              - DIM_MUNICIPIO
-          size_bytes:
-            type: integer
-            minimum: 1
-          sha256:
-            type: string
-            pattern: "^[0-9a-f]{64}$"
-      JobRegisterRequest:
-        type: object
-        required: [job_id, files]
-        properties:
-          job_id:
-            type: string
-            format: uuid
-          files:
-            type: array
-            minItems: 1
-            items:
-              $ref: '#/components/schemas/FileManifest'
-          agent_version:
-            type: string
-            nullable: true
-            maxLength: 64
-          machine_id:
-            type: string
-            nullable: true
-            maxLength: 128
-          sha256:
-            type: string
-            nullable: true
-            pattern: "^[0-9a-f]{64}$"
-      UploadUrlRequest:
-        type: object
-        required: [job_id, tenant_id, source_type, tipo_extracao, competencia, intent]
-        properties:
-          job_id:
-            type: string
-            format: uuid
-          tenant_id:
-            type: string
-            maxLength: 64
-          source_type:
-            type: string
-            enum: [CNES_LOCAL, CNES_NACIONAL, SIHD, BPA_MAG, SIA_LOCAL]
-          tipo_extracao:
-            type: string
-            maxLength: 32
-          competencia:
-            type: string
-            format: date
-          intent:
-            type: string
-            maxLength: 64
-          agent_version:
-            type: string
-            nullable: true
-            maxLength: 64
-          machine_id:
-            type: string
-            nullable: true
-            maxLength: 128
-      UploadUrlResponse:
-        type: object
-        required: [extraction_id, upload_url, minio_key]
-        properties:
-          extraction_id:
-            type: string
-            format: uuid
-          upload_url:
-            type: string
-          minio_key:
-            type: string
-            pattern: "^[\\w\\-./]+\\.parquet\\.gz$"
-  - target: $.paths
-    update:
-      /api/v1/jobs/upload-url:
-        post:
-          operationId: mint_upload_url_api_v1_jobs_upload_url_post
-          requestBody:
-            required: true
-            content:
-              application/json:
-                schema:
-                  $ref: '#/components/schemas/UploadUrlRequest'
-          responses:
-            '201':
-              description: Created
-              content:
-                application/json:
-                  schema:
-                    $ref: '#/components/schemas/UploadUrlResponse'
-            '409':
-              description: Conflict
-            '422':
-              description: Validation Error
+- target: $.openapi
+  update: 3.0.3
+- target: $.components.schemas.DeviceAuthorizationResponse.properties.expires_in
+  remove: true
+- target: $.components.schemas.DeviceAuthorizationResponse.properties
+  update:
+    expires_in:
+      maximum: 3600.0
+      title: Expires In
+      type: integer
+      minimum: 0.0
+      exclusiveMinimum: true
+- target: $.components.schemas.RawManifest.properties.sequence
+  remove: true
+- target: $.components.schemas.RawManifest.properties
+  update:
+    sequence:
+      title: Sequence
+      type: integer
+      minimum: 0.0
+      exclusiveMinimum: true
+- target: $.components.schemas.RawManifest.properties.size_bytes
+  remove: true
+- target: $.components.schemas.RawManifest.properties
+  update:
+    size_bytes:
+      title: Size Bytes
+      type: integer
+      minimum: 0.0
+      exclusiveMinimum: true
+- target: $.components.schemas.AccessRequestOut.properties.review_notes
+  remove: true
+- target: $.components.schemas.AccessRequestOut.properties
+  update:
+    review_notes:
+      title: Review Notes
+      type: string
+      nullable: true
+- target: $.components.schemas.AccessRequestOut.properties.reviewed_at
+  remove: true
+- target: $.components.schemas.AccessRequestOut.properties
+  update:
+    reviewed_at:
+      title: Reviewed At
+      format: date-time
+      type: string
+      nullable: true
+- target: $.components.schemas.AccessRequestOut.properties.tenant_nome
+  remove: true
+- target: $.components.schemas.AccessRequestOut.properties
+  update:
+    tenant_nome:
+      title: Tenant Nome
+      type: string
+      nullable: true
+- target: $.components.schemas.MeResponse.properties.display_name
+  remove: true
+- target: $.components.schemas.MeResponse.properties
+  update:
+    display_name:
+      title: Display Name
+      type: string
+      nullable: true
+- target: $.components.schemas.RawManifest.properties.base_snapshot_id
+  remove: true
+- target: $.components.schemas.RawManifest.properties
+  update:
+    base_snapshot_id:
+      title: Base Snapshot Id
+      type: string
+      nullable: true
+- target: $.components.schemas.RawManifest.properties.previous_manifest_sha256
+  remove: true
+- target: $.components.schemas.RawManifest.properties
+  update:
+    previous_manifest_sha256:
+      title: Previous Manifest Sha256
+      pattern: ^[0-9a-f]{64}$
+      type: string
+      nullable: true
+- target: $.components.schemas.RawManifestResponse.properties.reason
+  remove: true
+- target: $.components.schemas.RawManifestResponse.properties
+  update:
+    reason:
+      title: Reason
+      type: string
+      nullable: true
+- target: $.components.schemas.RunOut.properties.machine_id
+  remove: true
+- target: $.components.schemas.RunOut.properties
+  update:
+    machine_id:
+      title: Machine Id
+      type: string
+      nullable: true
+- target: $.components.schemas.SourceStatusOut.properties.lag_months
+  remove: true
+- target: $.components.schemas.SourceStatusOut.properties
+  update:
+    lag_months:
+      title: Lag Months
+      type: integer
+      nullable: true
+- target: $.components.schemas.SourceStatusOut.properties.last_competencia
+  remove: true
+- target: $.components.schemas.SourceStatusOut.properties
+  update:
+    last_competencia:
+      title: Last Competencia
+      type: integer
+      nullable: true
+- target: $.components.schemas.SourceStatusOut.properties.last_extracao_ts
+  remove: true
+- target: $.components.schemas.SourceStatusOut.properties
+  update:
+    last_extracao_ts:
+      title: Last Extracao Ts
+      format: date-time
+      type: string
+      nullable: true
+- target: $.components.schemas.SourceStatusOut.properties.last_machine_id
+  remove: true
+- target: $.components.schemas.SourceStatusOut.properties
+  update:
+    last_machine_id:
+      title: Last Machine Id
+      type: string
+      nullable: true
+- target: $.components.schemas.SourceStatusOut.properties.row_count
+  remove: true
+- target: $.components.schemas.SourceStatusOut.properties
+  update:
+    row_count:
+      title: Row Count
+      type: integer
+      nullable: true
+- target: $.components.schemas.TokenResponse.properties.refresh_token
+  remove: true
+- target: $.components.schemas.TokenResponse.properties
+  update:
+    refresh_token:
+      title: Refresh Token
+      type: string
+      nullable: true
+- target: $.components.schemas.central_api__routes__agents__AgentStatusResponse.properties.agent_version
+  remove: true
+- target: $.components.schemas.central_api__routes__agents__AgentStatusResponse.properties
+  update:
+    agent_version:
+      title: Agent Version
+      type: string
+      nullable: true
+- target: $.components.schemas.central_api__routes__agents__AgentStatusResponse.properties.last_seen
+  remove: true
+- target: $.components.schemas.central_api__routes__agents__AgentStatusResponse.properties
+  update:
+    last_seen:
+      title: Last Seen
+      type: string
+      nullable: true
+- target: $.components.schemas.central_api__routes__agents__AgentStatusResponse.properties.machine_id
+  remove: true
+- target: $.components.schemas.central_api__routes__agents__AgentStatusResponse.properties
+  update:
+    machine_id:
+      title: Machine Id
+      type: string
+      nullable: true
+- target: $.paths['/api/v1/extractions/enqueue'].post.parameters[0].schema
+  remove: true
+- target: $.paths['/api/v1/extractions/enqueue'].post.parameters[0]
+  update:
+    schema:
+      title: X-Admin-Token
+      type: string
+      nullable: true
+- target: $.components.schemas
+  update:
+    FileManifest:
+      type: object
+      required:
+      - minio_key
+      - fato_subtype
+      - size_bytes
+      - sha256
+      properties:
+        minio_key:
+          type: string
+          pattern: ^[\w\-./]+\.parquet\.gz$
+        fato_subtype:
+          type: string
+          enum:
+          - CNES_VINCULO
+          - SIHD_INTERNACAO
+          - SIHD_PROC_AIH
+          - BPA_C
+          - BPA_I
+          - SIA_APA
+          - SIA_BPI
+          - SIA_BPIHST
+          - DIM_SIGTAP
+          - DIM_MUNICIPIO
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+        sha256:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+    JobRegisterRequest:
+      type: object
+      required:
+      - job_id
+      - files
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FileManifest'
+        agent_version:
+          type: string
+          nullable: true
+          maxLength: 64
+        machine_id:
+          type: string
+          nullable: true
+          maxLength: 128
+        sha256:
+          type: string
+          nullable: true
+          pattern: ^[0-9a-f]{64}$
+    UploadUrlRequest:
+      type: object
+      required:
+      - job_id
+      - tenant_id
+      - source_type
+      - tipo_extracao
+      - competencia
+      - intent
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          maxLength: 64
+        source_type:
+          type: string
+          enum:
+          - CNES_LOCAL
+          - CNES_NACIONAL
+          - SIHD
+          - BPA_MAG
+          - SIA_LOCAL
+        tipo_extracao:
+          type: string
+          maxLength: 32
+        competencia:
+          type: string
+          format: date
+        intent:
+          type: string
+          maxLength: 64
+        agent_version:
+          type: string
+          nullable: true
+          maxLength: 64
+        machine_id:
+          type: string
+          nullable: true
+          maxLength: 128
+    UploadUrlResponse:
+      type: object
+      required:
+      - extraction_id
+      - upload_url
+      - minio_key
+      properties:
+        extraction_id:
+          type: string
+          format: uuid
+        upload_url:
+          type: string
+        minio_key:
+          type: string
+          pattern: ^[\w\-./]+\.parquet\.gz$
+- target: $.paths['/api/v1/jobs/upload-url'].post
+  update:
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UploadUrlRequest'
+    responses:
+      '201':
+        description: Created
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadUrlResponse'
+      '409':
+        description: Conflict
+      '422':
+        description: Validation Error
+- target: $.paths['/api/v1/jobs/register'].post
+  update:
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JobRegisterRequest'
+    responses:
+      '200':
+        description: Registered
+      '404':
+        description: Not Found
+      '422':
+        description: Validation Error
