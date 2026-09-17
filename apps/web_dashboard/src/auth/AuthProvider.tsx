@@ -27,23 +27,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null>(null);
 
   const refresh = useCallback(async () => {
-    const token = await getAccessToken();
-    if (!token) {
-      setUser(null);
-      setStatus("anonymous");
-      return;
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setUser(null);
+        setStatus("anonymous");
+        return;
+      }
+      const r = await fetch("/api/v1/dashboard/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const body = (await r.json()) as Me;
+        setUser(body);
+        setStatus("authenticated");
+        return;
+      }
+    } catch {
+      /* network failure treated as anonymous */
     }
-    const r = await fetch("/api/v1/dashboard/auth/me", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (r.ok) {
-      const body = (await r.json()) as Me;
-      setUser(body);
-      setStatus("authenticated");
-    } else {
-      setUser(null);
-      setStatus("anonymous");
-    }
+    setUser(null);
+    setStatus("anonymous");
   }, []);
 
   useEffect(() => {
