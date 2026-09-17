@@ -28,7 +28,8 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: ghcr.io/${{ github.repository_owner }}/cnesdata
+  # github.repository_owner is "VINIClUS" (mixed case); Docker tags require lowercase.
+  IMAGE_NAMESPACE: ghcr.io/viniclus/cnesdata
 
 jobs:
   gate:
