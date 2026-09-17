@@ -28,8 +28,11 @@ function _manager(): UserManager {
   return _userManager;
 }
 
-export async function startLogin(): Promise<void> {
-  await _manager().signinRedirect();
+export type StartLoginOptions = { loginHint?: string };
+
+export async function startLogin(opts: StartLoginOptions = {}): Promise<void> {
+  const args = opts.loginHint ? { login_hint: opts.loginHint } : {};
+  await _manager().signinRedirect(args);
 }
 
 export async function completeLogin(): Promise<void> {

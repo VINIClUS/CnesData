@@ -24,6 +24,12 @@
     --input: 220 13% 91%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
+    --navy: 220 47% 8%;
+    --navy-deep: 224 60% 4%;
+    --navy-card: 219 38% 13%;
+    --navy-border: 218 28% 24%;
+    --brand: 221 83% 53%;
+    --brand-bright: 217 91% 60%;
   }
   .dark {
     --background: 224 71.4% 4.1%;
@@ -55,5 +61,17 @@
     font-family: theme(fontFamily.sans);
     -webkit-font-smoothing: antialiased;
     margin: 0;
+  }
+}
+
+@layer components {
+  .bg-hero-navy {
+    background:
+      radial-gradient(60% 80% at 18% 8%, hsl(var(--brand) / 0.22), transparent 60%),
+      radial-gradient(45% 55% at 92% 95%, hsl(var(--brand) / 0.16), transparent 60%),
+      linear-gradient(135deg, hsl(var(--navy-deep)), hsl(var(--navy)));
+  }
+  .bg-cta-blue {
+    background: linear-gradient(90deg, hsl(var(--brand)), hsl(221 83% 38%));
   }
 }

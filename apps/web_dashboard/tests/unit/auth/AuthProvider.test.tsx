@@ -118,4 +118,14 @@ describe("AuthProvider", () => {
     });
     expect(called).toBe(false);
   });
+
+  test("retorna_anonymous_quando_fetch_lanca_erro", async () => {
+    server.use(http.get("/api/v1/dashboard/auth/me", () => HttpResponse.error()));
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("anonymous|anon"));
+  });
 });
