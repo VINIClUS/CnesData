@@ -10,7 +10,7 @@ SEED_DIR="${1:-docs/fixtures/shadow-seed}"
 CONTAINER="cnesdata_fb_shadow"
 DB_PATH="/firebird/data/shadow.fdb"
 
-if [ ! -d "$SEED_DIR" ]; then
+if [[ ! -d "$SEED_DIR" ]]; then
     echo "seed_dir_not_found=$SEED_DIR" >&2
     exit 1
 fi
@@ -26,7 +26,7 @@ fi
 ISQL=$(docker exec "$CONTAINER" bash -c \
     "command -v isql || command -v isql-fb || ls /usr/local/firebird/bin/isql 2>/dev/null" \
     | tr -d '\r' | head -n1)
-if [ -z "$ISQL" ]; then
+if [[ -z "$ISQL" ]]; then
     echo "isql_binary_not_found_in_container" >&2
     exit 1
 fi
@@ -45,7 +45,7 @@ for i in $(seq 1 60); do
     fi
     sleep 1
 done
-if [ "$ready" -ne 1 ]; then
+if [[ "$ready" -ne 1 ]]; then
     echo "firebird_not_ready_after_60s" >&2
     docker logs "$CONTAINER" | tail -30 >&2
     exit 1

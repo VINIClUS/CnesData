@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,9 +45,11 @@ _FB_TYPE_MAP = {
 
 def _connect(gdb: Path, dll: Path):
     import fdb
+    # Firebird 1.5/2.5 default SYSDBA credential; local .GDB nao expoe rede.
+    senha = os.environ.get("FIREBIRD_PASSWORD", "masterkey")
     fdb.load_api(str(dll))
     return fdb.connect(
-        dsn=str(gdb), user="SYSDBA", password="masterkey",
+        dsn=str(gdb), user="SYSDBA", password=senha,
         charset="WIN1252",
     )
 

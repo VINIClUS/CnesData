@@ -1,7 +1,6 @@
 """Adapter: BigQuery (basedosdados) para schema canonico."""
 
 import logging
-import pickle
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -63,7 +62,7 @@ class CnesNacionalAdapter:
     ) -> pl.DataFrame:
         if self._cache_dir is None:
             return buscar()
-        caminho = self._cache_dir / f"{chave}.pkl"
+        caminho = self._cache_dir / f"{chave}.parquet"
         if (
             caminho.exists()
             and time.time() - caminho.stat().st_mtime < self._ttl
@@ -74,13 +73,13 @@ class CnesNacionalAdapter:
                 return cached
         df = buscar()
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        caminho.write_bytes(pickle.dumps(df))
+        df.write_parquet(caminho)
         logger.info("cache_gravado chave=%s rows=%d", chave, len(df))
         return df
 
     def _ler_cache(self, caminho: Path) -> pl.DataFrame | None:
         try:
-            return pickle.loads(caminho.read_bytes())
+            return pl.read_parquet(caminho)
         except Exception:
             logger.warning(
                 "cache_corrompido chave=%s removendo", caminho.stem,

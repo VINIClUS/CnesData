@@ -2,7 +2,7 @@ FROM python:3.13-slim AS builder
 RUN apt-get update && \
     apt-get install --no-install-recommends -y cargo gcc rustc && \
     rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir --only-binary :all: uv==0.9.26
 WORKDIR /app
 COPY pyproject.toml pyproject.toml
 COPY packages/ packages/
