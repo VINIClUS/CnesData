@@ -378,12 +378,22 @@ Branch protection rules (`main` + `develop`, verified via
   hard-fail both branches because `main` carried an unaddressed
   Reliability/Security baseline (69 open issues, all counted as new code
   under a 30-day New Code Definition on a new repo). That baseline is fixed
-  or suppressed in-repo (see "Baseline de segurança" below), pending
-  confirmation on the first PR-level Sonar analysis that `new_reliability_rating`
-  and `new_security_rating` come back at `1` — promoting `sonar` (and
+  or suppressed in-repo (see "Baseline de segurança" below); PR #194
+  confirmed `new_reliability_rating` and `new_security_rating` come back at
+  `1` on PR-level analysis. Promoting `sonar` (and
   `dependencies`/`config`/`lint-test-coverage`, which already fail loudly
   without blocking anyone) to required checks is a separate, not-yet-applied
   ruleset change.
+- `sonar.yml`'s `push` trigger only runs on `main`, not `develop`: `develop`
+  is a `short`-type branch in SonarCloud (not the project's main/long-lived
+  branch), which has no quality gate to compute. `sonar.qualitygate.wait=true`
+  polling a `short` branch's status fails with a misleading "Not authorized
+  or project not found" error — a branch-type mismatch, not a token problem
+  (confirmed by comparing `main`'s `push` run, type `long`, which
+  authenticates and reports a real gate verdict, against `develop`'s, type
+  `short`, run `35372745045`). PR-triggered analysis on `develop` (the
+  actual enforcement path, before and after this becomes a required check)
+  is unaffected — it authenticates and evaluates normally on both branches.
 - Quality-gate labels (`needs-quality-review`, `needs-chaos-review`,
   `needs-security-review`, applied by `scripts/flag_quality_violation.py`)
   are informational — not enforced as a merge block by any ruleset rule.

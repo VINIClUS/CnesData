@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main, develop]
+  # develop e' branch "short" no SonarCloud (nao e' o branch principal), entao
+  # nao tem quality gate computado - sonar.qualitygate.wait=true falha com
+  # "Not authorized or project not found" ao tentar consultar um status que
+  # nao existe. main e' "long" e o push aqui reporta o gate real.
   push:
-    branches: [main, develop]
+    branches: [main]
 
 concurrency:
   group: sonar-${{ github.ref }}
