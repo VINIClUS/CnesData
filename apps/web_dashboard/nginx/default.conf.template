@@ -1,6 +1,6 @@
 map $request_uri $marketing_robots {
     default "";
-    ~^/precos/?(?:\?|$) "noindex";
+    ~^/precos/?(?:\?|$) "${ROBOTS_PRECOS}";
 }
 
 server {

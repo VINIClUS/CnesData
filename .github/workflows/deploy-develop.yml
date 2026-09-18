@@ -75,6 +75,7 @@ jobs:
             ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:develop
           build-args: |
             OS_PATCH_LEVEL=${{ steps.patch.outputs.level }}
+            VITE_API_BASE_URL=${{ matrix.app == 'web_dashboard' && 'https://api.dev.vinisantana.com/api/v1' || '/api/v1' }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
@@ -115,7 +116,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Web dashboard smoke test
-        run: bash apps/web_dashboard/scripts/smoke.sh https://dev.cnesdata.vinisantana.com
+        run: bash apps/web_dashboard/scripts/smoke.sh https://dev.cnesdata.vinisantana.com https://api.dev.vinisantana.com
 
       - name: Central API health check
         run: |

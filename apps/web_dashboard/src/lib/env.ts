@@ -5,6 +5,10 @@ const schema = z.object({
   VITE_OIDC_AUTHORITY: z.string().url().optional(),
   VITE_OIDC_CLIENT_ID: z.string().min(1).optional(),
   VITE_OIDC_REDIRECT_URI: z.string().url().optional(),
+  VITE_PRECOS_NOINDEX: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
 });
 
 export type Env = z.infer<typeof schema>;

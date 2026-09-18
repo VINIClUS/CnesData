@@ -155,3 +155,26 @@ só ficam sem HTTPS/roteamento até o Caddy voltar.
 - Conta AWS opera com chaves de **root**; recomendo criar um IAM user
   dedicado e remover as chaves de root pelo console (a CLI não remove
   chaves da própria conta root).
+
+## Host da API (`api.dev.vinisantana.com`)
+
+Desde a entrega das páginas públicas o dashboard de dev é compilado com
+`VITE_API_BASE_URL=https://api.dev.vinisantana.com/api/v1` (build-arg em
+`deploy-develop.yml`), portanto o navegador fala com a API cross-origin. Três peças
+precisam estar alinhadas, todas versionadas em `deploy/`:
+
+1. **DNS**: registro A de `api.dev.vinisantana.com` apontando para o VPS (Hostinger DNS,
+   fora do repo). Caddy emite o certificado automaticamente na primeira requisição.
+2. **Caddy** (`deploy/prod/caddy/Caddyfile`, copiado manualmente para
+   `/opt/cnesdata/caddy/Caddyfile`): bloco `api.dev.vinisantana.com` → `dev-central-api:8000`,
+   só `/api/*`; o resto responde 404. Aplicar com
+   `docker compose -f docker-compose.prod.yml up -d caddy` em `/opt/cnesdata`.
+3. **Compose dev** (`deploy/dev/docker-compose.dev.yml`, copiado para `/opt/cnesdata-dev`):
+   `central-api` entra na rede `cnesdata_edge` com alias `dev-central-api` e recebe
+   `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.vinisantana.com`; `dashboard` recebe
+   `API_ORIGIN=https://api.dev.vinisantana.com` (CSP `connect-src`) e `ROBOTS_PRECOS`.
+
+Validação (também no job `smoke`): `apps/web_dashboard/scripts/smoke.sh
+https://dev.cnesdata.vinisantana.com https://api.dev.vinisantana.com` confere health no host
+da API, `connect-src` na CSP, preflight CORS aceito só para a origem do dashboard e `/docs`
+inacessível pelo host público.
