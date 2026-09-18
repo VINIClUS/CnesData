@@ -1,11 +1,18 @@
 # Staging stack for the `develop` branch, deployed on the same Hostinger VPS
 # as production but fully isolated: own project name, own volumes, own
-# loopback ports, own network. Only web-dashboard and keycloak join the
+# loopback ports, own network. Only `dashboard` and `idp` join the
 # shared `cnesdata_edge` network so the production Caddy can reverse-proxy
 # to them under dev.cnesdata.vinisantana.com.
 #
 # Images are pulled from GHCR (built by .github/workflows/deploy-develop.yml),
 # never built on the VPS. IMAGE_TAG is written by deploy.sh before each run.
+#
+# These two services are named `dashboard`/`idp`, not `web-dashboard`/`keycloak`,
+# because Compose auto-registers a network alias equal to the service's own name
+# on every network it joins. Prod's compose uses `web-dashboard`/`keycloak` as
+# service names too; if this file used the same names, whichever stack's
+# container came up last would silently steal that alias on cnesdata_edge,
+# rerouting the other stack's public traffic to it.
 
 name: cnesdata-dev
 
@@ -148,7 +155,7 @@ services:
         limits:
           memory: 768M
 
-  web-dashboard:
+  dashboard:
     image: ghcr.io/viniclus/cnesdata/web_dashboard:${IMAGE_TAG}
     restart: unless-stopped
     depends_on:
@@ -168,7 +175,7 @@ services:
         limits:
           memory: 64M
 
-  keycloak:
+  idp:
     image: quay.io/keycloak/keycloak:25.0
     restart: unless-stopped
     command: ["start-dev", "--import-realm"]
