@@ -5,20 +5,6 @@ on:
   workflow_call:
   pull_request:
     branches: [main, develop]
-    paths:
-      - 'packages/**'
-      - 'tests/**'
-      - 'apps/central_api/**'
-      - 'apps/data_processor/**'
-      - 'apps/cnes_db_migrator/**'
-      - 'pyproject.toml'
-      - '.coveragerc'
-      - 'docs/contracts/openapi.json'
-      - 'docs/contracts/schemas/**'
-      - '.github/workflows/ci.yml'
-      - 'docker-compose.yml'
-      - 'scripts/ci_python_gate.sh'
-      - 'scripts/ci_phase2_adapters.sh'
   push:
     branches: [main, develop]
     paths:
