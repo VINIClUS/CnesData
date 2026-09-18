@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: trivy-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -72,9 +72,9 @@ jobs:
           category: 'trivy-config'
 
   image:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         app:
           - central_api
@@ -112,7 +112,7 @@ jobs:
           limit-severities-for-sarif: true
 
       - name: Upload SARIF
-        if: always()
+        if: always() && hashFiles(format('trivy-image-{0}.sarif', matrix.app)) != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: 'trivy-image-${{ matrix.app }}.sarif'
