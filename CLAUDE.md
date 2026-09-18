@@ -194,6 +194,10 @@ ver `apps/<app>/CLAUDE.md`.
   Violações aplicam label `needs-*-review` (bloqueia merge via ruleset).
 - Go agent coverage gate: 65% on filtered set (see
   `apps/dump_agent_go/test/README.md` for filter regex + CI label vocab).
+- Self-hosted runners (`deploy-dev`, `deploy-prod`, homelab Proxmox) only run
+  jobs triggered by `push`/`workflow_dispatch` on `develop`/`main`. Never add a
+  `self-hosted` `runs-on:` to a job reachable from `pull_request` — untrusted
+  PR code must stay on GitHub-hosted runners with no SSH/deploy credential.
 
 > Para comandos RTK (Rust Token Killer), ver `~/.claude/CLAUDE.md` global.
 

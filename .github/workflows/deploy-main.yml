@@ -1,25 +1,15 @@
-name: Deploy develop
+name: Deploy main
 
 on:
-  push:
-    branches: [develop]
-    paths:
-      - 'apps/**'
-      - 'packages/**'
-      - 'deploy/**'
-      - 'docs/contracts/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/deploy-develop.yml'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag de imagem a implantar (ex.: develop-abc1234). Vazio = build do commit atual.'
+        description: 'Tag de imagem a implantar (ex.: main-abc1234). Vazio = build do commit atual.'
         required: false
         type: string
 
 concurrency:
-  group: deploy-develop
+  group: deploy-main
   cancel-in-progress: false
 
 permissions:
@@ -33,11 +23,11 @@ env:
 
 jobs:
   gate:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tag == '' }}
+    if: ${{ inputs.tag == '' }}
     uses: ./.github/workflows/ci.yml
 
   build:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tag == '' }}
+    if: ${{ inputs.tag == '' }}
     needs: gate
     runs-on: ubuntu-latest
     strategy:
@@ -66,19 +56,19 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:develop-${{ github.sha }}
-            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:develop
+            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:main-${{ github.sha }}
+            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:main
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
   deploy:
     needs: [build]
     if: ${{ always() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
-    runs-on: [self-hosted, cnesdata, deploy-dev]
+    runs-on: [self-hosted, cnesdata, deploy-prod]
     timeout-minutes: 15
     environment:
-      name: develop
-      url: https://dev.cnesdata.vinisantana.com
+      name: production
+      url: https://cnesdata.vinisantana.com
     steps:
       - name: Resolve image tag
         id: tag
@@ -86,16 +76,16 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
           SHA: ${{ github.sha }}
         run: |
-          TAG="${INPUT_TAG:-develop-$SHA}"
+          TAG="${INPUT_TAG:-main-$SHA}"
           echo "value=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Deploy via forced-command SSH
         env:
           TAG: ${{ steps.tag.outputs.value }}
-          SSH_USER: ${{ vars.DEV_SSH_USER }}
-          SSH_HOST: ${{ vars.DEV_SSH_HOST }}
+          SSH_USER: ${{ vars.PROD_SSH_USER }}
+          SSH_HOST: ${{ vars.PROD_SSH_HOST }}
         run: |
-          ssh -i /etc/cnesdata/deploy-dev.key \
+          ssh -i /etc/cnesdata/deploy-prod.key \
             -o UserKnownHostsFile=/etc/cnesdata/known_hosts \
             -o IdentitiesOnly=yes \
             "$SSH_USER@$SSH_HOST" "$TAG"
@@ -107,9 +97,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Web dashboard smoke test
-        run: bash apps/web_dashboard/scripts/smoke.sh https://dev.cnesdata.vinisantana.com
+        run: bash apps/web_dashboard/scripts/smoke.sh https://cnesdata.vinisantana.com
 
       - name: Central API health check
         run: |
-          curl -fsS https://dev.cnesdata.vinisantana.com/api/v1/system/health | tee /tmp/health.json
+          curl -fsS https://cnesdata.vinisantana.com/api/v1/system/health | tee /tmp/health.json
           jq -e '.db_connected == true' /tmp/health.json

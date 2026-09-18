@@ -367,3 +367,14 @@ Branch protection rule (`main`):
 - CODEOWNERS approval required for paths listed in `.github/CODEOWNERS`
 
 Configure via GitHub ruleset UI.
+
+### Self-hosted runners
+
+`deploy-develop.yml` and `deploy-main.yml` run their `deploy` job on
+self-hosted runners (`runner-cnes-dev` / `runner-cnes-prod`, homelab Proxmox,
+labels `cnesdata` + `deploy-dev`/`deploy-prod`) holding the SSH key to the
+Hostinger VPS. Both jobs trigger only on `push`/`workflow_dispatch` for
+`develop`/`main` respectively — never `pull_request` — so untrusted PR code
+never reaches a self-hosted runner or the deploy credential. All other jobs
+(CI, quality gates, Sonar, Trivy) stay on GitHub-hosted `ubuntu-latest`/
+`windows-latest`, which is free and unlimited for this public repo.
