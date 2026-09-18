@@ -5,31 +5,34 @@
     "version": "1.0.0"
   },
   "paths": {
-    "/api/v1/jobs/{job_id}": {
-      "get": {
+    "/api/v1/jobs/upload-url": {
+      "post": {
         "tags": [
           "jobs"
         ],
-        "summary": "Get Job Status",
-        "operationId": "get_job_status_api_v1_jobs__job_id__get",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
+        "summary": "Mint Upload Url",
+        "operationId": "mint_upload_url_api_v1_jobs_upload_url_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Body"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JobStatusResponse"
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mint Upload Url Api V1 Jobs Upload Url Post"
                 }
               }
             }
@@ -47,18 +50,20 @@
         }
       }
     },
-    "/api/v1/jobs/acquire": {
+    "/api/v1/jobs/register": {
       "post": {
         "tags": [
           "jobs"
         ],
-        "summary": "Acquire Job",
-        "operationId": "acquire_job_api_v1_jobs_acquire_post",
+        "summary": "Register Job",
+        "operationId": "register_job_api_v1_jobs_register_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AcquireJobRequest"
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Body"
               }
             }
           },
@@ -69,162 +74,11 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Register Job Api V1 Jobs Register Post"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/jobs/{job_id}/heartbeat": {
-      "post": {
-        "tags": [
-          "jobs"
-        ],
-        "summary": "Heartbeat",
-        "operationId": "heartbeat_api_v1_jobs__job_id__heartbeat_post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HeartbeatRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HeartbeatResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/jobs/{job_id}/streaming": {
-      "post": {
-        "tags": [
-          "jobs"
-        ],
-        "summary": "Start Streaming",
-        "operationId": "start_streaming_api_v1_jobs__job_id__streaming_post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HeartbeatRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/jobs/{job_id}/complete-upload": {
-      "post": {
-        "tags": [
-          "jobs"
-        ],
-        "summary": "Complete Upload Route",
-        "operationId": "complete_upload_route_api_v1_jobs__job_id__complete_upload_post",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Job Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CompleteUploadRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           },
@@ -284,19 +138,858 @@
           }
         }
       }
+    },
+    "/api/v1/agents/status": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Get Agent Status",
+        "description": "Retorna status agregado do agent do tenant.",
+        "operationId": "get_agent_status_api_v1_agents_status_get",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{6}$",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/central_api__routes__agents__AgentStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/extractions/enqueue": {
+      "post": {
+        "tags": [
+          "extractions"
+        ],
+        "summary": "Enqueue",
+        "operationId": "enqueue_api_v1_extractions_enqueue_post",
+        "parameters": [
+          {
+            "name": "x-admin-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnqueueRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnqueueResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/auth/me": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Auth Me",
+        "operationId": "auth_me_api_v1_dashboard_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/tenants": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "List Tenants",
+        "operationId": "list_tenants_api_v1_dashboard_tenants_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TenantResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Tenants Api V1 Dashboard Tenants Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/agents/status": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Agents Status",
+        "operationId": "agents_status_api_v1_dashboard_agents_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/central_api__routes__dashboard__AgentStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/agents/runs": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Agents Runs",
+        "operationId": "agents_runs_api_v1_dashboard_agents_runs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/overview": {
+      "get": {
+        "tags": [
+          "overview"
+        ],
+        "summary": "Get Overview",
+        "operationId": "get_overview_api_v1_dashboard_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/faturamento/by-establishment": {
+      "get": {
+        "tags": [
+          "overview"
+        ],
+        "summary": "Get Faturamento Chart",
+        "operationId": "get_faturamento_chart_api_v1_dashboard_faturamento_by_establishment_get",
+        "parameters": [
+          {
+            "name": "months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 24,
+              "minimum": 1,
+              "default": 12,
+              "title": "Months"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaturamentoResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/access-requests/mine": {
+      "get": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "List Mine",
+        "operationId": "list_mine_api_v1_dashboard_access_requests_mine_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccessRequestOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Mine Api V1 Dashboard Access Requests Mine Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/access-requests": {
+      "post": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "Create Request",
+        "operationId": "create_request_api_v1_dashboard_access_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessRequestCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessRequestCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/access-requests/available-tenants": {
+      "get": {
+        "tags": [
+          "access-requests"
+        ],
+        "summary": "List Available Tenants",
+        "operationId": "list_available_tenants_api_v1_dashboard_access_requests_available_tenants_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TenantOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Available Tenants Api V1 Dashboard Access Requests Available Tenants Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/device_authorization": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Device Authorization",
+        "operationId": "device_authorization_oauth_device_authorization_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceAuthorizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceAuthorizationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/token": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Token",
+        "operationId": "token_oauth_token_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_token_oauth_token_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/activate/confirm": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Activate Confirm",
+        "operationId": "activate_confirm_activate_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivateConfirmResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/provision/cert": {
+      "post": {
+        "tags": [
+          "provision"
+        ],
+        "summary": "Provision Cert",
+        "operationId": "provision_cert_provision_cert_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionCertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertProvisionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/provision/cert/rotate": {
+      "post": {
+        "tags": [
+          "provision"
+        ],
+        "summary": "Provision Cert Rotate",
+        "operationId": "provision_cert_rotate_provision_cert_rotate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertRotateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertRotateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/edge/jobs/next": {
+      "get": {
+        "tags": [
+          "edge-raw"
+        ],
+        "summary": "Next Job",
+        "description": "Adquire por CAS o primeiro entre até dez jobs elegíveis.",
+        "operationId": "next_job_api_v1_edge_jobs_next_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdgeJobResponse"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/edge/jobs/{job_id}/heartbeat": {
+      "post": {
+        "tags": [
+          "edge-raw"
+        ],
+        "summary": "Heartbeat",
+        "description": "Renova por 300 segundos o owner e fence apresentados.",
+        "operationId": "heartbeat_api_v1_edge_jobs__job_id__heartbeat_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/edge/jobs/{job_id}/raw-object": {
+      "put": {
+        "tags": [
+          "edge-raw"
+        ],
+        "summary": "Upload Raw Object",
+        "description": "Transmite um objeto raw sem carregar o payload inteiro em memória.",
+        "operationId": "upload_raw_object_api_v1_edge_jobs__job_id__raw_object_put",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Fencing-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Fencing-Token"
+            }
+          },
+          {
+            "name": "X-Object-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Object-Key"
+            }
+          },
+          {
+            "name": "Content-Type",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Content-Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RawUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/edge/raw-manifests": {
+      "post": {
+        "tags": [
+          "edge-raw"
+        ],
+        "summary": "Register Raw Manifest",
+        "description": "Registra o manifesto usando somente a identidade autenticada.",
+        "operationId": "register_raw_manifest_api_v1_edge_raw_manifests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RawManifestSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RawManifestResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RawManifestResponse"
+                    },
+                    {
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "detail"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
-      "AcquireJobRequest": {
+      "AccessRequestCreate": {
         "properties": {
-          "machine_id": {
+          "tenant_id": {
             "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Machine Id"
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Tenant Id"
           },
-          "source_system": {
+          "motivation": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Motivation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "motivation"
+        ],
+        "title": "AccessRequestCreate"
+      },
+      "AccessRequestCreated": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "AccessRequestCreated"
+      },
+      "AccessRequestOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "tenant_nome": {
             "anyOf": [
               {
                 "type": "string"
@@ -305,35 +998,400 @@
                 "type": "null"
               }
             ],
-            "title": "Source System"
-          }
-        },
-        "type": "object",
-        "required": [
-          "machine_id"
-        ],
-        "title": "AcquireJobRequest"
-      },
-      "CompleteUploadRequest": {
-        "properties": {
-          "machine_id": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Machine Id"
+            "title": "Tenant Nome"
           },
-          "object_key": {
+          "motivation": {
             "type": "string",
-            "minLength": 1,
-            "title": "Object Key"
+            "title": "Motivation"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested At"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "review_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notes"
           }
         },
         "type": "object",
         "required": [
-          "machine_id",
-          "object_key"
+          "id",
+          "tenant_id",
+          "tenant_nome",
+          "motivation",
+          "status",
+          "requested_at",
+          "reviewed_at",
+          "review_notes"
         ],
-        "title": "CompleteUploadRequest"
+        "title": "AccessRequestOut"
+      },
+      "ActivateConfirmRequest": {
+        "properties": {
+          "user_code": {
+            "type": "string",
+            "maxLength": 10,
+            "minLength": 8,
+            "pattern": "^[A-Z0-9-]{8,10}$",
+            "title": "User Code"
+          },
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Tenant Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_code",
+          "tenant_id"
+        ],
+        "title": "ActivateConfirmRequest"
+      },
+      "ActivateConfirmResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "title": "Expires In Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "expires_in_seconds"
+        ],
+        "title": "ActivateConfirmResponse"
+      },
+      "AgentRunsResponse": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunOut"
+            },
+            "type": "array",
+            "title": "Runs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runs"
+        ],
+        "title": "AgentRunsResponse"
+      },
+      "Body_token_oauth_token_post": {
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "title": "Grant Type"
+          },
+          "device_code": {
+            "type": "string",
+            "title": "Device Code"
+          },
+          "client_id": {
+            "type": "string",
+            "title": "Client Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grant_type",
+          "device_code",
+          "client_id"
+        ],
+        "title": "Body_token_oauth_token_post"
+      },
+      "CertProvisionResponse": {
+        "properties": {
+          "cert_pem": {
+            "type": "string",
+            "title": "Cert Pem"
+          },
+          "ca_chain_pem": {
+            "type": "string",
+            "title": "Ca Chain Pem"
+          },
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cert_pem",
+          "ca_chain_pem",
+          "refresh_token",
+          "expires_at"
+        ],
+        "title": "CertProvisionResponse"
+      },
+      "CertRotateRequest": {
+        "properties": {
+          "csr_pem": {
+            "type": "string",
+            "title": "Csr Pem"
+          }
+        },
+        "type": "object",
+        "required": [
+          "csr_pem"
+        ],
+        "title": "CertRotateRequest"
+      },
+      "CertRotateResponse": {
+        "properties": {
+          "cert_pem": {
+            "type": "string",
+            "title": "Cert Pem"
+          },
+          "ca_chain_pem": {
+            "type": "string",
+            "title": "Ca Chain Pem"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cert_pem",
+          "ca_chain_pem",
+          "expires_at"
+        ],
+        "title": "CertRotateResponse",
+        "description": "Response for /provision/cert/rotate. No refresh_token (persists)."
+      },
+      "DeviceAuthorizationRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "const": "agent",
+            "title": "Client Id"
+          },
+          "scope": {
+            "type": "string",
+            "const": "agent.provision",
+            "title": "Scope"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "scope"
+        ],
+        "title": "DeviceAuthorizationRequest",
+        "description": "Request body for POST /oauth/device_authorization (RFC 8628 §3.1)."
+      },
+      "DeviceAuthorizationResponse": {
+        "properties": {
+          "device_code": {
+            "type": "string",
+            "title": "Device Code"
+          },
+          "user_code": {
+            "type": "string",
+            "title": "User Code"
+          },
+          "verification_uri": {
+            "type": "string",
+            "title": "Verification Uri"
+          },
+          "verification_uri_complete": {
+            "type": "string",
+            "title": "Verification Uri Complete"
+          },
+          "expires_in": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expires In"
+          },
+          "interval": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Interval",
+            "default": 5
+          }
+        },
+        "type": "object",
+        "required": [
+          "device_code",
+          "user_code",
+          "verification_uri",
+          "verification_uri_complete",
+          "expires_in"
+        ],
+        "title": "DeviceAuthorizationResponse"
+      },
+      "EdgeJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "source_type": {
+            "type": "string",
+            "title": "Source Type"
+          },
+          "file_subtype": {
+            "type": "string",
+            "title": "File Subtype"
+          },
+          "competencia": {
+            "type": "string",
+            "title": "Competencia"
+          },
+          "requested_snapshot_mode": {
+            "type": "string",
+            "title": "Requested Snapshot Mode"
+          },
+          "fencing_token": {
+            "type": "integer",
+            "title": "Fencing Token"
+          },
+          "lease_until": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Lease Until"
+          },
+          "raw_upload_path": {
+            "type": "string",
+            "title": "Raw Upload Path"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "source_type",
+          "file_subtype",
+          "competencia",
+          "requested_snapshot_mode",
+          "fencing_token",
+          "lease_until",
+          "raw_upload_path"
+        ],
+        "title": "EdgeJobResponse",
+        "description": "Job adquirido pelo Edge Agent."
+      },
+      "EnqueueRequest": {
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "CNES_LOCAL",
+              "CNES_NACIONAL",
+              "SIHD",
+              "BPA_MAG",
+              "SIA_LOCAL"
+            ],
+            "title": "Source Type"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "competencia": {
+            "type": "string",
+            "format": "date",
+            "title": "Competencia"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_type",
+          "tenant_id",
+          "competencia"
+        ],
+        "title": "EnqueueRequest"
+      },
+      "EnqueueResponse": {
+        "properties": {
+          "job_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Job Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_ids"
+        ],
+        "title": "EnqueueResponse"
+      },
+      "FaturamentoResponse": {
+        "properties": {
+          "series": {
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Series"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "series",
+          "categories"
+        ],
+        "title": "FaturamentoResponse"
       },
       "HTTPValidationError": {
         "properties": {
@@ -374,26 +1432,465 @@
       },
       "HeartbeatRequest": {
         "properties": {
-          "machine_id": {
+          "fencing_token": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Fencing Token"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "fencing_token"
+        ],
+        "title": "HeartbeatRequest",
+        "description": "Fence apresentado para renovação do lease."
+      },
+      "HeartbeatResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "fencing_token": {
+            "type": "integer",
+            "title": "Fencing Token"
+          },
+          "lease_until": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Lease Until"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "fencing_token",
+          "lease_until"
+        ],
+        "title": "HeartbeatResponse",
+        "description": "Lease renovado do job."
+      },
+      "MeResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "tenant_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tenant Ids"
+          },
+          "has_pending_request": {
+            "type": "boolean",
+            "title": "Has Pending Request"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "email",
+          "display_name",
+          "role",
+          "tenant_ids",
+          "has_pending_request"
+        ],
+        "title": "MeResponse"
+      },
+      "OverviewResponse": {
+        "properties": {
+          "competencia_atual": {
+            "type": "integer",
+            "title": "Competencia Atual"
+          },
+          "faturamento_atual_cents": {
+            "type": "integer",
+            "title": "Faturamento Atual Cents"
+          },
+          "faturamento_anterior_cents": {
+            "type": "integer",
+            "title": "Faturamento Anterior Cents"
+          },
+          "aih_atual": {
+            "type": "integer",
+            "title": "Aih Atual"
+          },
+          "aih_anterior": {
+            "type": "integer",
+            "title": "Aih Anterior"
+          },
+          "profissionais_ativos": {
+            "type": "integer",
+            "title": "Profissionais Ativos"
+          },
+          "profissionais_anterior": {
+            "type": "integer",
+            "title": "Profissionais Anterior"
+          },
+          "estabs_sem_producao": {
+            "type": "integer",
+            "title": "Estabs Sem Producao"
+          },
+          "estabs_total": {
+            "type": "integer",
+            "title": "Estabs Total"
+          },
+          "estabs_sem_producao_anterior": {
+            "type": "integer",
+            "title": "Estabs Sem Producao Anterior"
+          }
+        },
+        "type": "object",
+        "required": [
+          "competencia_atual",
+          "faturamento_atual_cents",
+          "faturamento_anterior_cents",
+          "aih_atual",
+          "aih_anterior",
+          "profissionais_ativos",
+          "profissionais_anterior",
+          "estabs_sem_producao",
+          "estabs_total",
+          "estabs_sem_producao_anterior"
+        ],
+        "title": "OverviewResponse"
+      },
+      "ProvisionCertRequest": {
+        "properties": {
+          "csr_pem": {
+            "type": "string",
+            "minLength": 10,
+            "title": "Csr Pem"
+          },
+          "machine_fingerprint": {
             "type": "string",
             "maxLength": 128,
+            "minLength": 8,
+            "title": "Machine Fingerprint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "csr_pem",
+          "machine_fingerprint"
+        ],
+        "title": "ProvisionCertRequest"
+      },
+      "RawManifest": {
+        "properties": {
+          "manifest_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Manifest Version"
+          },
+          "manifest_id": {
+            "type": "string",
             "minLength": 1,
+            "title": "Manifest Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "file_subtype": {
+            "type": "string",
+            "minLength": 1,
+            "title": "File Subtype"
+          },
+          "competencia": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+            "title": "Competencia"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Agent Id"
+          },
+          "agent_version": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Agent Version"
+          },
+          "schema_version": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Schema Version"
+          },
+          "snapshot_mode": {
+            "$ref": "#/components/schemas/SnapshotMode"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Snapshot Id"
+          },
+          "base_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Snapshot Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Sequence"
+          },
+          "previous_manifest_sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Manifest Sha256"
+          },
+          "object_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Object Sha256"
+          },
+          "row_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Row Count"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Size Bytes"
+          },
+          "object_key": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Object Key"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "manifest_version",
+          "manifest_id",
+          "tenant_id",
+          "source_type",
+          "file_subtype",
+          "competencia",
+          "agent_id",
+          "agent_version",
+          "schema_version",
+          "snapshot_mode",
+          "snapshot_id",
+          "base_snapshot_id",
+          "sequence",
+          "previous_manifest_sha256",
+          "object_sha256",
+          "row_count",
+          "size_bytes",
+          "object_key",
+          "created_at"
+        ],
+        "title": "RawManifest"
+      },
+      "RawManifestResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          },
+          "manifest_id": {
+            "type": "string",
+            "title": "Manifest Id"
+          },
+          "manifest_sha256": {
+            "type": "string",
+            "title": "Manifest Sha256"
+          },
+          "full_resync_required": {
+            "type": "boolean",
+            "title": "Full Resync Required"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "accepted",
+          "manifest_id",
+          "manifest_sha256",
+          "full_resync_required",
+          "reason"
+        ],
+        "title": "RawManifestResponse",
+        "description": "Resultado canônico do registro do manifesto raw."
+      },
+      "RawManifestSubmission": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Job Id"
+          },
+          "fencing_token": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Fencing Token"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/RawManifest"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "fencing_token",
+          "manifest"
+        ],
+        "title": "RawManifestSubmission",
+        "description": "Envelope autenticado de submissão do manifesto raw."
+      },
+      "RawUploadResponse": {
+        "properties": {
+          "object_key": {
+            "type": "string",
+            "title": "Object Key"
+          },
+          "object_sha256": {
+            "type": "string",
+            "title": "Object Sha256"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "object_key",
+          "object_sha256",
+          "size_bytes"
+        ],
+        "title": "RawUploadResponse",
+        "description": "Recibo do objeto raw persistido."
+      },
+      "RunOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "extracao_ts": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Extracao Ts"
+          },
+          "fonte_sistema": {
+            "type": "string",
+            "title": "Fonte Sistema"
+          },
+          "competencia": {
+            "type": "integer",
+            "title": "Competencia"
+          },
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "machine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Machine Id"
           }
         },
         "type": "object",
         "required": [
+          "id",
+          "extracao_ts",
+          "fonte_sistema",
+          "competencia",
+          "row_count",
+          "sha256",
           "machine_id"
         ],
-        "title": "HeartbeatRequest"
+        "title": "RunOut"
       },
-      "HeartbeatResponse": {
+      "SnapshotMode": {
+        "type": "string",
+        "enum": [
+          "FULL",
+          "DELTA"
+        ],
+        "title": "SnapshotMode"
+      },
+      "SourceStatusOut": {
         "properties": {
-          "renewed": {
-            "type": "boolean",
-            "title": "Renewed"
+          "fonte_sistema": {
+            "type": "string",
+            "title": "Fonte Sistema"
           },
-          "lease_expires_at": {
+          "last_extracao_ts": {
             "anyOf": [
               {
                 "type": "string",
@@ -403,34 +1900,46 @@
                 "type": "null"
               }
             ],
-            "title": "Lease Expires At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "renewed"
-        ],
-        "title": "HeartbeatResponse"
-      },
-      "JobStatusResponse": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "title": "Job Id"
+            "title": "Last Extracao Ts"
+          },
+          "last_competencia": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Competencia"
+          },
+          "lag_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lag Months"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
           },
           "status": {
             "type": "string",
             "title": "Status"
           },
-          "source_system": {
-            "type": "string",
-            "title": "Source System"
-          },
-          "tenant_id": {
-            "type": "string",
-            "title": "Tenant Id"
-          },
-          "created_at": {
+          "last_machine_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -439,50 +1948,134 @@
                 "type": "null"
               }
             ],
-            "title": "Created At"
-          },
-          "started_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Started At"
-          },
-          "completed_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Completed At"
-          },
-          "error_detail": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Detail"
+            "title": "Last Machine Id"
           }
         },
         "type": "object",
         "required": [
-          "job_id",
+          "fonte_sistema",
+          "last_extracao_ts",
+          "last_competencia",
+          "lag_months",
+          "row_count",
           "status",
-          "source_system",
-          "tenant_id"
+          "last_machine_id"
         ],
-        "title": "JobStatusResponse"
+        "title": "SourceStatusOut"
+      },
+      "SourceType": {
+        "type": "string",
+        "enum": [
+          "CNES_LOCAL",
+          "CNES_NACIONAL",
+          "SIHD",
+          "BPA_MAG",
+          "SIA_LOCAL"
+        ],
+        "title": "SourceType"
+      },
+      "TenantOut": {
+        "properties": {
+          "ibge6": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Ibge6"
+          },
+          "ibge7": {
+            "type": "string",
+            "maxLength": 7,
+            "minLength": 7,
+            "title": "Ibge7"
+          },
+          "nome": {
+            "type": "string",
+            "title": "Nome"
+          },
+          "uf": {
+            "type": "string",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Uf"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ibge6",
+          "ibge7",
+          "nome",
+          "uf"
+        ],
+        "title": "TenantOut"
+      },
+      "TenantResponse": {
+        "properties": {
+          "ibge6": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Ibge6"
+          },
+          "ibge7": {
+            "type": "string",
+            "maxLength": 7,
+            "minLength": 7,
+            "title": "Ibge7"
+          },
+          "nome": {
+            "type": "string",
+            "title": "Nome"
+          },
+          "uf": {
+            "type": "string",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Uf"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ibge6",
+          "ibge7",
+          "nome",
+          "uf"
+        ],
+        "title": "TenantResponse"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "Bearer",
+            "title": "Token Type",
+            "default": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in"
+        ],
+        "title": "TokenResponse"
       },
       "ValidationError": {
         "properties": {
@@ -523,6 +2116,87 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "central_api__routes__agents__AgentStatusResponse": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "agent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Version"
+          },
+          "machine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine Id"
+          },
+          "jobs_completed_7d": {
+            "type": "integer",
+            "title": "Jobs Completed 7D"
+          },
+          "jobs_failed_7d": {
+            "type": "integer",
+            "title": "Jobs Failed 7D"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "last_seen",
+          "agent_version",
+          "machine_id",
+          "jobs_completed_7d",
+          "jobs_failed_7d"
+        ],
+        "title": "AgentStatusResponse"
+      },
+      "central_api__routes__dashboard__AgentStatusResponse": {
+        "properties": {
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatusOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fetched_at",
+          "sources"
+        ],
+        "title": "AgentStatusResponse"
       }
     }
   }

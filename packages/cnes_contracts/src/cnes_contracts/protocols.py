@@ -7,12 +7,10 @@ if TYPE_CHECKING:
     from datetime import date
     from uuid import UUID
 
+    from sqlalchemy.engine import Engine
+
     from cnes_contracts.fatos import VinculoCNES
-    from cnes_contracts.landing import (
-        Extraction,
-        ExtractionRegisterPayload,
-        FileManifest,
-    )
+    from cnes_contracts.landing import ClaimedExtraction, FileManifest
 
 
 class DimLookupPort(Protocol):
@@ -30,21 +28,29 @@ class RowMapperPort(Protocol):
 
 class ExtractionRepoPort(Protocol):
 
-    def register(
-        self, payload: ExtractionRegisterPayload,
-    ) -> tuple[UUID, str]: ...
+    def enqueue(
+        self, engine: Engine, *, tenant_id: str, source_type: str,
+        competencia: date, files: list[dict],
+        depends_on: list[UUID] | None = None,
+    ) -> UUID: ...
+
     def claim_next(
-        self, processor_id: str, lease_secs: int,
-    ) -> Extraction | None: ...
-    def complete(self, extraction_id: UUID) -> None: ...
-    def fail(self, extraction_id: UUID, error: str) -> None: ...
-    def heartbeat(
-        self, extraction_id: UUID, processor_id: str,
+        self, engine: Engine, *, lease_seconds: int = 300,
+    ) -> ClaimedExtraction | None: ...
+
+    def register(
+        self, engine: Engine, *, job_id: UUID, files: list[dict],
+        agent_version: str | None = None,
+        machine_id: str | None = None,
+    ) -> UUID | None: ...
+
+    def mark_completed(self, engine: Engine, *, job_id: UUID) -> None: ...
+
+    def mark_failed(
+        self, engine: Engine, *, job_id: UUID, reason: str,
     ) -> None: ...
-    def reap_expired(self) -> int: ...
-    def mark_uploaded(
-        self, extraction_id: UUID, sha256: str, row_count: int,
-    ) -> None: ...
+
+    def reap_expired(self, engine: Engine) -> int: ...
 
 
 @runtime_checkable

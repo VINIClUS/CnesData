@@ -6,17 +6,14 @@
 ## Visão macro
 
 Plataforma distribuída edge/central para reconciliação de dados de saúde
-pública. Edge Agents (`apps/dump_agent_go`) rodam próximo às fontes
-municipais (Firebird CNES, SIHD hospitalar, BPA-Mag, SIA DBF), extraem
-Parquet raw e registram manifests N-arquivos. O `central_api` (FastAPI)
-orquestra cadastro/enfileiramento de extrações, dashboard, ativação de
-agentes e provisionamento de certificados. O Postgres guarda schemas
-`landing`, `gold`, `dashboard` e `auth` com isolamento por tenant (RLS).
-
-Estado atual: contratos, migrations, edge agent, API e dashboard estão
-ativos. O `data_processor` ainda é um esqueleto de polling/download; a
-ligação completa Parquet -> Gold está pendente. Regras de auditoria são
-aplicadas por serviço externo via SQL JOINs contra Gold/landing.
+pública. Edge Agents (`dump_agent_go`) rodam próximo às fontes municipais
+(CNES Firebird, SIHD, BPA-Mag Firebird 1.5 e SIA DBF), extraem Parquet e
+registram manifests no `central_api`. O `central_api` (FastAPI) orquestra
+`landing.extractions`, dashboard, device flow e provisionamento mTLS. O
+`data_processor` (worker) consome a fila Gold v2, aplica rotas de delta e
+integridade quando recebe artefatos e persiste no Postgres com isolamento por
+tenant (RLS). Regras de auditoria são aplicadas por serviço externo via SQL
+JOINs contra o Gold.
 
 ## Data flow
 
@@ -24,25 +21,26 @@ aplicadas por serviço externo via SQL JOINs contra Gold/landing.
 ┌───────────────────────────────────────────────────────────────┐
 │ EDGE (município)                                              │
 │                                                               │
-│  [Firebird CNES.GDB]        [SIHD DB]                         │
-│         │                      │                              │
-│         └──────┬───────────────┘                              │
+│  [CNES.GDB] [SIHD DB] [BPAMAG.GDB] [SIA DBF]                 │
+│         │        │          │           │                    │
+│         └────────┴──────────┴───────────┘                    │
 │                ▼                                              │
 │          dump_agent_go (daemon)                               │
-│          - 3-query extraction + merge (CNES)                  │
-│          - streaming Parquet gzip                             │
-│          - single-instance lock                               │
+│          - discovery + per-source secrets                     │
+│          - row-fingerprint delta (CNES/SIHD/BPA)              │
+│          - full extract SIA DBF                               │
+│          - outbox + circuit breaker                           │
 │                │                                              │
-│                │ HTTPS + manifest register                    │
+│                │ HTTPS API                                    │
 └────────────────┼──────────────────────────────────────────────┘
                  │
 ┌────────────────┼──────────────────────────────────────────────┐
 │ CENTRAL        ▼                                              │
 │         central_api (FastAPI)                                 │
-│          - /api/v1/extractions/enqueue                        │
-│          - /api/v1/jobs/register                              │
-│          - /oauth/device_authorization                        │
-│          - /provision/cert                                    │
+│          - /extractions/enqueue                               │
+│          - /jobs/register                                     │
+│          - /oauth/device_authorization + /oauth/token         │
+│          - /provision/cert + /provision/cert/rotate           │
 │          - TenantMiddleware (X-Tenant-Id)                     │
 │          - lease reaper (background task)                     │
 │                │                                              │
@@ -53,9 +51,10 @@ aplicadas por serviço externo via SQL JOINs contra Gold/landing.
 │       │                 │                                     │
 │       ▼                 │                                     │
 │   data_processor ───────┘                                     │
-│   - polling/download skeleton                                 │
-│   - adapters + repos existem                                  │
-│   - Parquet -> Gold wiring pendente                           │
+│   - claim landing.extractions                                 │
+│   - verify SHA-256 when provided                              │
+│   - route _op delta rows                                      │
+│   - mark completed/failed                                     │
 │                │                                              │
 │                ▼                                              │
 │       [Postgres Gold]                                         │
@@ -81,15 +80,32 @@ aplicadas por serviço externo via SQL JOINs contra Gold/landing.
 - **SIA:** reads `.DBF` files (S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN) via
   `LindsayBradford/go-dbf` with cp1252 sanitize.
 
-Both emit **N-file manifests**: one `ClaimedJob` per
-`(source_type, competencia)` → N Parquets uploaded to MinIO via N presigned
-PUTs → single `POST /api/v1/jobs/register` with the manifest list.
-`data_processor` has BPA + SIA mapping helpers downstream, but the current
-worker loop does not yet execute the full ingestion path.
+All sources emit **N-file manifests**: one extraction per
+`(source_type, competencia)` → N Parquets uploaded to MinIO → single
+`POST /api/v1/jobs/register` with the manifest list and optional SHA-256.
+`data_processor` has BPA + SIA adapters downstream (see
+`apps/data_processor/CLAUDE.md`).
 
-**Spike status:** FB 1.5 runtime parity is validated in CI through synthetic
-schema coverage. Production nullability introspection against a real
-`BPAMAG.GDB` remains an operational follow-up.
+**Spike status:** FB 1.5 compatibility is covered by schema-parity CI using a
+synthetic FB 2.5 ODS-11 GDB. Production nullability still needs manual
+`RDB$RELATION_FIELDS` introspection against a real `BPAMAG.GDB`; capture the
+result in `docs/data-dictionary-bpa.md`.
+
+## Edge agent reliability
+
+Current `dump_agent_go` production path includes:
+
+- mTLS registration via `dumpagent register` and cert rotation via
+  `/provision/cert/rotate`.
+- Persistent bbolt outbox for `CompleteJob`/`FailJob` envelopes.
+- Circuit breaker and jittered backoff around `central_api` drain.
+- `dumpagent diagnose` for cert, auth dir, outbox, log dir and optional live
+  probes.
+- Source discovery into `%PROGRAMDATA%\dumpagent\config.yaml` with DPAPI-wrapped
+  per-source Firebird secrets.
+- Delta store at `%PROGRAMDATA%\dumpagent\state\delta.db`; SIA remains
+  full-extract.
+- HMAC-signed audit JSONL and SHA-256 integrity metadata per upload.
 
 ## Contratos entre apps
 
@@ -97,43 +113,40 @@ schema coverage. Production nullability introspection against a real
 
 | Verb + Path | Consumidor | Descrição |
 |---|---|---|
-| `GET /api/v1/system/health` | ops / smoke | Health da API + Postgres |
-| `POST /api/v1/extractions/enqueue` | admin/dev | Cria jobs `landing.extractions` por `source_type` |
-| `POST /api/v1/jobs/register` | edge agent | Registra manifest N-arquivos extraído pelo agente |
-| `GET /api/v1/dashboard/auth/me` | dashboard | Identidade/tenant do usuário |
-| `GET /api/v1/dashboard/tenants` | dashboard | Tenants disponíveis |
-| `GET /api/v1/dashboard/agents/status` | dashboard | Status agregado de agentes |
-| `GET /api/v1/dashboard/agents/runs` | dashboard | Execuções recentes |
-| `GET /api/v1/dashboard/overview` | dashboard | KPIs do tenant |
-| `GET /api/v1/dashboard/overview/faturamento` | dashboard | Série de faturamento |
-| `GET /api/v1/dashboard/access-requests/mine` | dashboard | Solicitações do usuário |
-| `POST /api/v1/dashboard/access-requests` | dashboard | Cria solicitação de acesso |
-| `GET /api/v1/dashboard/access-requests/available-tenants` | dashboard | Tenants solicitáveis |
-| `POST /oauth/device_authorization` | edge agent | Inicia OAuth device flow |
-| `POST /oauth/token` | edge agent | Troca device code/refresh por token |
-| `POST /activate/confirm` | dashboard | Aprova device flow |
-| `POST /provision/cert` | edge agent | Emite certificado cliente |
-| `POST /provision/cert/rotate` | edge agent | Rotaciona certificado cliente |
-
-O fluxo antigo `/jobs/next`, `/jobs/{id}/artifact`, heartbeat e complete
-por rota HTTP não é a superfície atual do código. A forma ativa é
-`landing.extractions` + manifest via `/api/v1/jobs/register`.
+| `POST /oauth/device_authorization` | device flow init | `{device_code, user_code, verification_uri}` |
+| `POST /oauth/token` | device code grant | access token ou pending/denied |
+| `POST /activate/confirm` | Bearer JWT + user code | activation confirmation |
+| `POST /provision/cert` | CSR + registration token | client certificate |
+| `POST /provision/cert/rotate` | mTLS + CSR | renewed client certificate |
+| `POST /api/v1/jobs/register` | manifest with files + optional `sha256` | `{job_id, status}` |
 
 ### Central → MinIO
 
-- Fluxo alvo: URLs pré-assinadas para PUT/GET de Parquet
-- Código atual: manifests registram `minio_key`, `fato_subtype`, `size_bytes`
-  e `sha256`; emissão de presigned URLs não está exposta na API atual
 - Bucket único: `cnesdata-landing` (configurável via `MINIO_BUCKET`)
-- Convenção recomendada de key:
-  `<tenant_id>/<source_type>/<competencia>/<job_id>.parquet.gz`
+- Artefatos Parquet ficam referenciados em `landing.extractions.files`
+- Hash SHA-256 opcional fica em `landing.extractions.sha256`
 
-### Processor
+### Dashboard → Central
 
-O processor atual não chama o `central_api` para polling. Ele acessa
-`landing.extractions` via `cnes_infra.storage.extractions_repo` e ainda
-possui funções finais (`complete`, `fail`, `heartbeat`, `mark_uploaded`,
-`reap_expired`) pendentes.
+| Verb + Path | Purpose |
+|---|---|
+| `GET /api/v1/dashboard/auth/me` | usuário autenticado + tenants |
+| `GET /api/v1/dashboard/tenants` | tenants disponíveis |
+| `GET /api/v1/dashboard/agents/status` | status dos edge agents |
+| `GET /api/v1/dashboard/agents/runs` | execuções recentes |
+| `GET /api/v1/dashboard/overview` | KPIs do tenant |
+| `GET /api/v1/dashboard/faturamento/by-establishment` | série 12m por estabelecimento |
+| `POST /api/v1/dashboard/access-requests` | solicitação JIT de acesso |
+| `GET /api/v1/dashboard/access-requests/mine` | solicitações do usuário |
+| `GET /api/v1/dashboard/access-requests/available-tenants` | tenants solicitáveis |
+
+### Processor → Postgres
+
+O loop atual consome `landing.extractions` diretamente por
+`cnes_infra.storage.extractions_repo.claim_next`, define `tenant_id` com
+`set_tenant_id()` e marca `completed` ou `failed`. Rotas auxiliares de
+`data_processor.processor` validam SHA-256 e roteiam deltas `_op` para
+callbacks/upserts quando usadas por ingestões específicas.
 
 ## Modelo de dados Gold
 
@@ -198,7 +211,8 @@ POST /api/v1/jobs/register
 
 data_processor.poll
   -> claim_next tenta mover PENDING para CLAIMED
-  -> complete/fail ainda pendentes em extractions_repo
+  -> mark_completed/mark_failed implementados
+  -> download, heartbeat e transição UPLOADED pendentes
 ```
 
 Fluxo alvo: `REGISTERED`/`UPLOADED` -> `PROCESSING` -> `INGESTED` ou
@@ -253,7 +267,7 @@ Namespace: cnesdata
     └── cnes-db-migrator (initContainer em pre-sync)
 
 Edge (on-prem):
-└── dump_agent como Windows Service (municípios) ou systemd (servidores Linux)
+└── dump_agent_go como Windows Service (municípios) ou systemd (servidores Linux)
 ```
 
 Ainda não está em produção. Dockerfiles existem em cada `apps/*/Dockerfile`.
@@ -278,7 +292,9 @@ python scripts/fb156_setup.py   # extract FB 1.5.6 client to .cache/
 
 Single `docker-compose.yml` com 3 profiles:
 
-- **`dev`** — postgres, minio, migrator, central-api, data-processor, pg-seed, minio-init, web_dashboard, keycloak. Portas 5433/9000/9001/8000/5173/8080.
+- **`dev`** — postgres, minio, migrator, central-api, data-processor,
+  web_dashboard, keycloak, pg-seed, minio-init. Portas
+  5433/9000/9001/8000/5173/8080.
 - **`perf`** — postgres_perf (tuned), firebird_perf. Portas 5434/3051.
 - **`shadow`** — firebird-shadow (FB 2.5-ss), minio-shadow. Portas 3052/9100. Usado por `.github/workflows/shadow-e2e.yml`.
 
@@ -289,8 +305,8 @@ docker compose --profile perf up -d
 docker compose --profile shadow up -d
 ```
 
-Nota: na branch atual, `data-processor` pode logar erros das funções
-pendentes em `extractions_repo` se houver jobs a processar.
+Nota: o worker atual marca jobs reclamados como `COMPLETED` sem baixar artefatos;
+download, roteamento, heartbeat e transição `UPLOADED` permanecem pendentes.
 
 ## web_dashboard (2026-04 — v1.0 + v1.1)
 
@@ -352,14 +368,26 @@ Branch protection rule (`main`):
 
 Configure via GitHub ruleset UI.
 
+### Trivy image scans — OS patch cache busting
+
+`trivy.yml`, `deploy-develop.yml` and `deploy-main.yml` all build the four app
+images with `cache-from/cache-to: type=gha,scope=<app>`. Because Docker keys a
+`RUN` layer on its command string, the `apt-get upgrade`/`apk upgrade` layer in
+each runtime `Dockerfile` would cache-hit forever and freeze at whatever OS
+packages were available on first build. All three workflows pass a
+`OS_PATCH_LEVEL` build-arg (`date -u +%Y-%m-%d`) into that layer's `RUN`, which
+busts just that layer once per day — the expensive builder stages (`uv build`,
+`bun run build`) stay cached. Same-day builds across workflows produce
+byte-identical runtime layers, so the image Trivy scans matches what gets
+pushed to GHCR.
+
 ### Self-hosted runners
 
-`deploy-develop.yml` e `deploy-main.yml` rodam o job `deploy` em runners
-self-hosted (`runner-cnes-dev` / `runner-cnes-prod`, homelab Proxmox,
-labels `cnesdata` + `deploy-dev`/`deploy-prod`) que guardam a chave SSH para
-a VPS Hostinger. Ambos os jobs só disparam via `push`/`workflow_dispatch` em
-`develop`/`main` respectivamente — nunca por `pull_request` — então código
-não confiável de PR nunca alcança um runner self-hosted nem a credencial de
-deploy. Todos os outros jobs (CI, quality gates, Sonar, Trivy) continuam em
-runners hospedados pelo GitHub (`ubuntu-latest`/`windows-latest`), que são
-gratuitos e ilimitados para este repositório público.
+`deploy-develop.yml` and `deploy-main.yml` run their `deploy` job on
+self-hosted runners (`runner-cnes-dev` / `runner-cnes-prod`, homelab Proxmox,
+labels `cnesdata` + `deploy-dev`/`deploy-prod`) holding the SSH key to the
+Hostinger VPS. Both jobs trigger only on `push`/`workflow_dispatch` for
+`develop`/`main` respectively — never `pull_request` — so untrusted PR code
+never reaches a self-hosted runner or the deploy credential. All other jobs
+(CI, quality gates, Sonar, Trivy) stay on GitHub-hosted `ubuntu-latest`/
+`windows-latest`, which is free and unlimited for this public repo.

@@ -14,7 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
+	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/obs"
+	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/worker"
 )
 
@@ -75,77 +77,53 @@ func newTestAdapter(t *testing.T, handler http.HandlerFunc) *apiclient.Adapter {
 	return a
 }
 
-func TestRegisterJob_Created(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"extraction_id": "11111111-1111-1111-1111-111111111111",
-			"upload_url":    "https://minio.example/put",
-		})
+func TestRegisterJob_PostUploadWithSha(t *testing.T) {
+	var got apiclient.RegisterRequest
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &got)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(
+			`{"job_id":"11111111-2222-3333-4444-555555555555","status":"REGISTERED"}`,
+		))
 	})
-	job, err := a.RegisterJob(context.Background(), worker.JobSpec{
-		JobID:        "22222222-2222-2222-2222-222222222222",
-		Competencia:  202601,
-		FonteSistema: "CNES",
-		TipoExtracao: "FULL",
-		Intent:       "cnes_profissionais",
-	})
+	job := worker.Job{
+		ID:       "11111111-2222-3333-4444-555555555555",
+		Sha256:   "a" + strings.Repeat("0", 63),
+		MinioKey: "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+		Params: extractor.ExtractionParams{
+			Intent:      "cnes_profissionais",
+			Competencia: "202601",
+		},
+	}
+	err := a.RegisterJob(context.Background(), job, 4096)
 	require.NoError(t, err)
-	require.Equal(t, "11111111-1111-1111-1111-111111111111", job.ID)
-	require.Equal(t, "https://minio.example/put", job.UploadURL)
-	require.Equal(t, "tenant-1", job.TenantID)
-	require.Equal(t, "202601", job.Params.Competencia)
-}
-
-func TestRegisterJob_InvalidJobID(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-	})
-	_, err := a.RegisterJob(context.Background(), worker.JobSpec{
-		JobID:        "not-a-uuid",
-		Competencia:  202601,
-		FonteSistema: "CNES",
-		TipoExtracao: "FULL",
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid_job_uuid")
+	require.NotNil(t, got.Sha256)
+	require.Equal(t, "a"+strings.Repeat("0", 63), *got.Sha256)
 }
 
 func TestRegisterJob_5xxReturnsHTTPError(t *testing.T) {
 	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("kaboom"))
 	})
-	_, err := a.RegisterJob(context.Background(), worker.JobSpec{
-		JobID:        "33333333-3333-3333-3333-333333333333",
-		Competencia:  202601,
-		FonteSistema: "CNES",
-		TipoExtracao: "FULL",
-	})
+	err := a.RegisterJob(
+		context.Background(),
+		worker.Job{ID: "11111111-2222-3333-4444-555555555555"},
+		100,
+	)
 	require.Error(t, err)
 	var httpErr *obs.HTTPError
 	require.True(t, errors.As(err, &httpErr))
 	require.Equal(t, http.StatusInternalServerError, httpErr.StatusCode)
 }
 
-func TestCompleteJob_InvalidID(t *testing.T) {
+func TestRegisterJob_InvalidJobID(t *testing.T) {
 	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusOK)
 	})
-	err := a.CompleteJob(context.Background(), worker.Job{ID: "garbage"}, 100)
+	err := a.RegisterJob(context.Background(), worker.Job{ID: "not-a-uuid"}, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid_job_uuid")
-}
-
-func TestCompleteJob_Success(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	err := a.CompleteJob(context.Background(), worker.Job{
-		ID: "44444444-4444-4444-4444-444444444444", Sha256: "abc", RowCount: 10,
-	}, 100)
-	require.NoError(t, err)
 }
 
 func TestFailJob_NilCauseUsesDefault(t *testing.T) {
@@ -241,4 +219,153 @@ func TestSendHeartbeat_5xx(t *testing.T) {
 	var httpErr *obs.HTTPError
 	require.True(t, errors.As(err, &httpErr))
 	require.Equal(t, http.StatusServiceUnavailable, httpErr.StatusCode)
+}
+
+func TestMintUploadURL_Created(t *testing.T) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs/upload-url" {
+			t.Fatalf("path = %s want /api/v1/jobs/upload-url", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{
+			"extraction_id": "11111111-2222-3333-4444-555555555555",
+			"upload_url": "https://minio/sig",
+			"minio_key": "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz"
+		}`))
+	})
+	job, err := a.MintUploadURL(context.Background(), worker.JobSpec{
+		JobID:        "11111111-2222-3333-4444-555555555555",
+		FonteSistema: "CNES_LOCAL",
+		TipoExtracao: "profissionais",
+		Competencia:  202601,
+		Intent:       "cnes_profissionais",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://minio/sig", job.UploadURL)
+	require.Equal(t, "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz", job.MinioKey)
+}
+
+func TestMintUploadURL_4xx(t *testing.T) {
+	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	})
+	_, err := a.MintUploadURL(context.Background(), worker.JobSpec{
+		JobID:        "11111111-2222-3333-4444-555555555555",
+		FonteSistema: "CNES_LOCAL",
+		TipoExtracao: "profissionais",
+		Competencia:  202601,
+		Intent:       "cnes_profissionais",
+	})
+	require.Error(t, err)
+	var httpErr *obs.HTTPError
+	require.True(t, errors.As(err, &httpErr))
+	require.Equal(t, http.StatusConflict, httpErr.StatusCode)
+}
+
+var _ worker.RawManifestClient = (*apiclient.Adapter)(nil)
+
+const rawManifestJSON = `{"manifest_version":1,"manifest_id":"job-1","tenant_id":"354130"}`
+
+func rawEnvelope() queue.Envelope {
+	return queue.Envelope{
+		Type:           queue.TypeRawManifest,
+		JobID:          "job-1",
+		FencingToken:   7,
+		ManifestJSON:   []byte(rawManifestJSON),
+		ManifestSHA256: strings.Repeat("a", 64),
+	}
+}
+
+func rawManifestHandler(
+	t *testing.T, status int, payload string, captured *map[string]json.RawMessage,
+) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/edge/raw-manifests", r.URL.Path)
+		require.Equal(t, http.MethodPost, r.Method)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(captured))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(payload))
+	}
+}
+
+func TestSendRawManifest_EnviaIdentidadeDuravelDoEnvelope(t *testing.T) {
+	var got map[string]json.RawMessage
+	body := `{"accepted":true,"manifest_id":"job-1","manifest_sha256":"` +
+		strings.Repeat("a", 64) + `","full_resync_required":false,"reason":null}`
+	a := newTestAdapter(t, rawManifestHandler(t, http.StatusOK, body, &got))
+
+	ack, err := a.SendRawManifest(context.Background(), rawEnvelope())
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, ack.StatusCode)
+	require.Equal(t, strings.Repeat("a", 64), ack.ManifestSHA256)
+	require.False(t, ack.ForceFull)
+	require.Empty(t, ack.Reason)
+	require.JSONEq(t, `"job-1"`, string(got["job_id"]))
+	require.JSONEq(t, `7`, string(got["fencing_token"]))
+	require.Equal(t, rawManifestJSON, string(got["manifest"]))
+}
+
+func TestSendRawManifest_PropagaResyncTipado409(t *testing.T) {
+	var got map[string]json.RawMessage
+	body := `{"accepted":false,"manifest_id":"job-1","manifest_sha256":"` +
+		strings.Repeat("a", 64) + `","full_resync_required":true,"reason":"BASE_UNKNOWN"}`
+	a := newTestAdapter(t, rawManifestHandler(t, http.StatusConflict, body, &got))
+
+	ack, err := a.SendRawManifest(context.Background(), rawEnvelope())
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, ack.StatusCode)
+	require.True(t, ack.ForceFull)
+	require.Equal(t, "BASE_UNKNOWN", ack.Reason)
+	require.Equal(t, strings.Repeat("a", 64), ack.ManifestSHA256)
+}
+
+func TestSendRawManifest_ConflitoDetalhadoNaoViraResync(t *testing.T) {
+	var got map[string]json.RawMessage
+	a := newTestAdapter(
+		t,
+		rawManifestHandler(t, http.StatusConflict, `{"detail":"job_fence_rejected"}`, &got),
+	)
+
+	ack, err := a.SendRawManifest(context.Background(), rawEnvelope())
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, ack.StatusCode)
+	require.False(t, ack.ForceFull)
+	require.Empty(t, ack.Reason)
+	require.Empty(t, ack.ManifestSHA256)
+}
+
+func TestSendRawManifest_RetentaComOsMesmosBytesPersistidos(t *testing.T) {
+	var got map[string]json.RawMessage
+	seen := make([]string, 0, 2)
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		seen = append(seen, string(got["manifest"])+"|"+string(got["fencing_token"]))
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	env := rawEnvelope()
+
+	_, first := a.SendRawManifest(context.Background(), env)
+	_, second := a.SendRawManifest(context.Background(), env)
+
+	require.NoError(t, first)
+	require.NoError(t, second)
+	require.Len(t, seen, 2)
+	require.Equal(t, seen[0], seen[1])
+	require.Equal(t, rawManifestJSON+"|7", seen[0])
+}
+
+func TestSendRawManifest_ErroDeTransporteRetornaErro(t *testing.T) {
+	a, err := apiclient.NewAdapter("http://127.0.0.1:1", "tenant-1", "machine-1", nil)
+	require.NoError(t, err)
+
+	ack, sendErr := a.SendRawManifest(context.Background(), rawEnvelope())
+
+	require.Error(t, sendErr)
+	require.Zero(t, ack.StatusCode)
 }

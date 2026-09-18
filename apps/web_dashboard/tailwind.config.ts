@@ -7,7 +7,7 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}", "./node_modules/@tremor/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
-      fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
+      fontFamily: { sans: ["Inter Variable", "Inter", "system-ui", "sans-serif"] },
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
@@ -28,6 +28,16 @@ export default {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        navy: {
+          DEFAULT: "hsl(var(--navy))",
+          deep: "hsl(var(--navy-deep))",
+          card: "hsl(var(--navy-card))",
+          border: "hsl(var(--navy-border))",
+        },
+        brand: {
+          DEFAULT: "hsl(var(--brand))",
+          bright: "hsl(var(--brand-bright))",
+        },
         tremor: {
           brand: {
             faint: "#eff6ff",

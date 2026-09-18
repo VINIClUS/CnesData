@@ -131,3 +131,37 @@ driver pure-Go).
 - 8-phase zero-trust migration COMPLETE. Agent runs mTLS by default;
   unregistered agents must `dumpagent register` first OR set
   `AGENT_ALLOW_INSECURE=true` for fleet rollout escape hatch.
+
+## Phase 5: hardening (2026-05-01/02)
+
+- **5.1 Windows Event Log sink** — WARN+ slog fan-out under source `DumpAgent` via `obs.MultiHandler`; build-tag no-op on Linux/Mac. `agent.exe install/uninstall` registers idempotently. Banded event IDs (`internal/obs/events.go`: 1xxx auth, 2xxx queue, 3xxx extract, 4xxx upload, 5xxx diagnose, 8xxx breaker, 9xxx generic). `obs.FormatCompact` single-line UTF-8-safe truncated at 8KB. Rollback: `AGENT_EVENTLOG_DISABLED=true`. Locale-independent unregister via `errors.Is(syscall.ERROR_FILE_NOT_FOUND)`.
+- **5.2 Outbox + Circuit Breaker** — `internal/queue/` bbolt persistent queue at `%PROGRAMDATA%\dumpagent\queue\outbox.db` for `CompleteJob`/`FailJob`; uint64 time-ordered keys, fsync per Append, 10k cap, 90-day TTL. `internal/breaker/` CLOSED/OPEN/HALF_OPEN (threshold 5, reset 60s) gates drain + RegisterJob. `Drainer.Run` 30s tick, peek 20, classify 2xx delete / 4xx drop / 5xx retry / 429 Retry-After. `startDrainWithWatcher` re-spawns under `SafeGo`; outbox open fail = exit 1.
+- **5.3 Backoff + Jitter** — `internal/obs/jitter.go` `JitterAround` + `DecorrelatedJitter`. Drain tick [24s,36s], breaker reset [40s,80s], rotate retries decorrelated 1s→30s. `math/rand/v2.Float64` default; `SetRand`/`SetClock` for tests. Filtered cov ≥ 81.5%.
+- **5.4 Diagnose CLI** — `dumpagent diagnose [--probe] [--json]` read-only health: static (cert/auth_dir/outbox/log_dir) + probe (central_api mTLS / FB SELECT 1 / MinIO TCP). PASS/WARN/FAIL severity, exit 0 or 1. Outbox check via `bbolt.Open(ReadOnly: true)`; missing = PASS. Disk-free via `golang.org/x/sys`.
+
+## Phase 9 — Path discovery + per-source secrets (2026-05-03)
+
+`dumpagent discover` auto-detects 4 sources (cnes/sihd/bpa FB DSNs + sia DBF dir); writes `%PROGRAMDATA%\dumpagent\config.yaml` with top pick uncommented + alternates as comments. `dumpagent set-secret <cnes|sihd|bpa>` stores DPAPI-wrapped FB password (Linux: 0600 plaintext fallback). `dumpagent run` precedence: CLI > env > YAML > default; password chain env > DPAPI > `masterkey` (SYSDBA only) → WARN `password_default_active`. `AGENT_DISABLE_DISCOVER=true` bypasses YAML for legacy env-only deploys. Strategies: pure-Go Windows registry (FB Project + Datasus vendor + Uninstall keys WOW64) + drive-walk filesystem templates per-profile. New diagnose check `discover_yaml` reports `sources_ready=N/4`.
+
+## Phase 10 — Delta detection (2026-05-03)
+
+Delta is the only execution path (no flag, no legacy snapshot). SHA-256 row-fingerprint delta for cnes/sihd/bpa. State store at `%PROGRAMDATA%\dumpagent\state\delta.db` (bbolt). Per (source, intent, competencia): `committed/<path>` sub-bucket holds last-cycle hashes; `pending/<path>/<job_id>` holds in-flight; atomic tx-swap on CompleteJob ack via P5.2 outbox. Delta Parquet emits `_op ∈ {I,U,D}` column; D rows carry PK-only. SIA stays full-extract. 24h GC of stale pending on Open. `internal/delta/` package (types/profiles/fingerprint/compute/store/writer); `JobExecutor.RunDelta` runs the production path. data_processor `cdc_merger.merge_delta` applies D inline + I/U via apply_iu_fn callback. Cold-start emits all-I + WARN. New diagnose check `delta_store`.
+
+## Phase 11 — Integrity + Audit (P2, 2026-05-04)
+
+`RunDelta` tees Parquet upload through `integrity.SHA256TeeReader`; sha256 hex flows in CompletePayload + landing.extractions.sha256. data_processor `verify_and_route_delta` recomputes on download; mismatch raises IntegrityError. Edge writes 4-state HMAC-signed JSONL audit at `%PROGRAMDATA%\dumpagent\audit\events-YYYY-MM-DD.jsonl`. Lifecycle: extracted → uploaded → committed (or aborted). HMAC-SHA256 over CanonicalJSON-without-hmac (sorted keys via Go stdlib map sort). Key 32B random, DPAPI-wrapped at `secrets/audit_hmac.dpapi` (P1 secrets store reused). CLI `dumpagent audit verify <path>` exit 0/1/2. Boot HMAC fail → audit no-op + WARN; cycle continues.
+
+## Phase 12 — Post-upload register normalization (FU1, 2026-05-04)
+
+Cnes/sihd path normalized to BPA/SIA's post-upload register pattern.
+`Adapter.MintUploadURL` calls new `POST /api/v1/jobs/upload-url` to create
+landing.extractions PENDING + presigned PUT URL. Edge uploads Parquet,
+captures sha256 via `integrity.SHA256TeeReader`, then calls existing
+`POST /api/v1/jobs/register` with `RegisterRequest.Sha256` set. `CompleteJob`
+removed entirely from edge code (dead /complete route never existed).
+`audit.LifecycleCommitted` emitted by Consumer.processJob after RegisterJob
+ack via new `JobExecutorIface.EmitCommitted` method. `Job.MinioKey` field
+added (returned from upload-url mint). Outbox now queues `RegisterJob`
+envelopes (sha256 + minio_key + size_bytes); `MintUploadURL` is direct
+(caller needs returned values). No DB migration. landing.extractions.sha256
+column populated on every cycle (not NULL like P2).

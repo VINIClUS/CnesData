@@ -35,11 +35,11 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 	}))
 	defer minioSrv.Close()
 
-	var registered, completed, heartbeats int32
+	var minted, registered, heartbeats int32
 	central := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/api/v1/jobs/register":
-			if atomic.AddInt32(&registered, 1) > 1 {
+		case r.URL.Path == "/api/v1/jobs/upload-url":
+			if atomic.AddInt32(&minted, 1) > 1 {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
@@ -48,10 +48,16 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"extraction_id": testExtractionUUID,
 				"upload_url":    minioSrv.URL,
+				"minio_key":     "354130/CNES_VINCULO/2026-01/abc.parquet.gz",
 			})
-		case strings.HasSuffix(r.URL.Path, "/complete"):
-			atomic.AddInt32(&completed, 1)
+		case r.URL.Path == "/api/v1/jobs/register":
+			atomic.AddInt32(&registered, 1)
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"job_id": testExtractionUUID,
+				"status": "REGISTERED",
+			})
 		case strings.HasSuffix(r.URL.Path, "/heartbeat"):
 			atomic.AddInt32(&heartbeats, 1)
 			w.WriteHeader(http.StatusOK)
@@ -90,7 +96,7 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 	defer cancel()
 	require.NoError(t, cons.Loop(ctx))
 
+	require.GreaterOrEqual(t, atomic.LoadInt32(&minted), int32(1))
 	require.GreaterOrEqual(t, atomic.LoadInt32(&registered), int32(1))
-	require.Equal(t, int32(1), atomic.LoadInt32(&completed))
 	require.Greater(t, atomic.LoadInt64(&uploadedBytes), int64(0))
 }

@@ -1,0 +1,160 @@
+{
+  "fixture_version": 1,
+  "tenant_id": "354130",
+  "competencia": "2026-01",
+  "natural_key": {
+    "identity": {
+      "primary": "CNS",
+      "fallback": "CPF"
+    },
+    "dimensions": [
+      "CNES",
+      "CBO",
+      "COMPETENCIA"
+    ]
+  },
+  "precedence": {
+    "order": [
+      "LOCAL",
+      "NACIONAL"
+    ],
+    "rule": "LOCAL_NON_NULL_THEN_NACIONAL"
+  },
+  "volatile_fields": [
+    "run_id",
+    "generated_at"
+  ],
+  "parquet_options": {
+    "compression": "zstd",
+    "compression_level": 3,
+    "statistics": true,
+    "row_group_size": 5
+  },
+  "files": {
+    "cnes-local-v1.parquet": {
+      "manifest_id": "fixture-cnes-local-v1",
+      "sha256": "4bf011da987e2b6d0666a10c97cdd37626ca9b123050c9ce77e155e7197237fb",
+      "row_count": 5,
+      "schema_version": "cnes-profissional-v1",
+      "schema": [
+        {"name": "CPF", "dtype": "String"},
+        {"name": "CNS", "dtype": "String"},
+        {"name": "NOME_PROFISSIONAL", "dtype": "String"},
+        {"name": "NOME_SOCIAL", "dtype": "String"},
+        {"name": "SEXO", "dtype": "String"},
+        {"name": "CBO", "dtype": "String"},
+        {"name": "CNES", "dtype": "String"},
+        {"name": "TIPO_VINCULO", "dtype": "String"},
+        {"name": "SUS", "dtype": "String"},
+        {"name": "CH_TOTAL", "dtype": "Int64"},
+        {"name": "CH_AMBULATORIAL", "dtype": "Int64"},
+        {"name": "CH_OUTRAS", "dtype": "Int64"},
+        {"name": "CH_HOSPITALAR", "dtype": "Int64"},
+        {"name": "FONTE", "dtype": "String"}
+      ]
+    },
+    "cnes-nacional-v1.parquet": {
+      "manifest_id": "fixture-cnes-nacional-v1",
+      "sha256": "30a60a84af9b06c568fe6170ce72365ee33cb1a706f130cc5bc7e197aef348ec",
+      "row_count": 5,
+      "schema_version": "cnes-profissional-v1",
+      "schema": [
+        {"name": "CPF", "dtype": "String"},
+        {"name": "CNS", "dtype": "String"},
+        {"name": "NOME_PROFISSIONAL", "dtype": "String"},
+        {"name": "NOME_SOCIAL", "dtype": "String"},
+        {"name": "SEXO", "dtype": "String"},
+        {"name": "CBO", "dtype": "String"},
+        {"name": "CNES", "dtype": "String"},
+        {"name": "TIPO_VINCULO", "dtype": "String"},
+        {"name": "SUS", "dtype": "String"},
+        {"name": "CH_TOTAL", "dtype": "Int64"},
+        {"name": "CH_AMBULATORIAL", "dtype": "Int64"},
+        {"name": "CH_OUTRAS", "dtype": "Int64"},
+        {"name": "CH_HOSPITALAR", "dtype": "Int64"},
+        {"name": "FONTE", "dtype": "String"}
+      ]
+    },
+    "cnes-gold-v2.parquet": {
+      "sha256": "4eeaf4d62ae7132f9980e7e0e7f3372c6b97308b2aef9c21a7721a51171c07a8",
+      "row_count": 7,
+      "schema_version": "cnes-gold-v2",
+      "schema": [
+        {"name": "CPF", "dtype": "String"},
+        {"name": "CNS", "dtype": "String"},
+        {"name": "NOME_PROFISSIONAL", "dtype": "String"},
+        {"name": "NOME_SOCIAL", "dtype": "String"},
+        {"name": "SEXO", "dtype": "String"},
+        {"name": "CBO", "dtype": "String"},
+        {"name": "CNES", "dtype": "String"},
+        {"name": "TIPO_VINCULO", "dtype": "String"},
+        {"name": "SUS", "dtype": "String"},
+        {"name": "CH_TOTAL", "dtype": "Int64"},
+        {"name": "CH_AMBULATORIAL", "dtype": "Int64"},
+        {"name": "CH_OUTRAS", "dtype": "Int64"},
+        {"name": "CH_HOSPITALAR", "dtype": "Int64"},
+        {"name": "COMPETENCIA", "dtype": "String"},
+        {"name": "_source_manifest_ids", "dtype": "List(String)"}
+      ]
+    },
+    "cnes-serving-v1.json": {
+      "sha256": "694dc2555d4f662640be26868c4104cc2c4dbd4e3d2f8a365a8ebbad1161053c",
+      "row_count": 1,
+      "schema_version": "cnes-serving-v1",
+      "schema": [
+        {"name": "schema_version", "dtype": "String"},
+        {"name": "tenant_id", "dtype": "String"},
+        {"name": "run_id", "dtype": "String"},
+        {"name": "generated_at", "dtype": "String"},
+        {"name": "competencia", "dtype": "String"},
+        {"name": "kpis", "dtype": "Object"},
+        {"name": "divergence_counts", "dtype": "Object"},
+        {"name": "missing_sources", "dtype": "Array"}
+      ]
+    }
+  },
+  "kpis": {
+    "match_count": 3,
+    "local_only_count": 2,
+    "national_only_count": 2,
+    "conflict_count": 1,
+    "reconciled_row_count": 7,
+    "active_professional_count": 6
+  },
+  "divergences": [
+    {
+      "natural_key": {
+        "identity": "999000000000002",
+        "CNES": "1234567",
+        "CBO": "225125",
+        "COMPETENCIA": "2026-01"
+      },
+      "field": "NOME_PROFISSIONAL",
+      "local_value": "PROFISSIONAL TESTE 002",
+      "national_value": "PROFISSIONAL TESTE 102",
+      "selected_value": "PROFISSIONAL TESTE 002",
+      "selected_source": "LOCAL",
+      "source_manifest_ids": [
+        "fixture-cnes-local-v1",
+        "fixture-cnes-nacional-v1"
+      ]
+    },
+    {
+      "natural_key": {
+        "identity": "999000000000002",
+        "CNES": "1234567",
+        "CBO": "225125",
+        "COMPETENCIA": "2026-01"
+      },
+      "field": "CH_TOTAL",
+      "local_value": 40,
+      "national_value": 30,
+      "selected_value": 40,
+      "selected_source": "LOCAL",
+      "source_manifest_ids": [
+        "fixture-cnes-local-v1",
+        "fixture-cnes-nacional-v1"
+      ]
+    }
+  ]
+}

@@ -1,15 +1,19 @@
 package apiclient
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/obs"
+	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/worker"
 )
 
@@ -55,22 +59,54 @@ func combineEditors(eds []RequestEditorFn) RequestEditorFn {
 	}
 }
 
-// RegisterJob cria extraction via /jobs/register e devolve Job com extraction_id + upload_url.
-func (a *Adapter) RegisterJob(ctx context.Context, spec worker.JobSpec) (*worker.Job, error) {
+// RegisterJob confirma upload completo via POST /api/v1/jobs/register.
+// Threadea sha256 (computado pós-upload via SHA256TeeReader) para que
+// landing.extractions.sha256 seja persistido.
+func (a *Adapter) RegisterJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
+	jobUUID, err := parseJobUUID(job.ID)
+	if err != nil {
+		return err
+	}
+	sha := job.Sha256
+	body := RegisterExtractionApiV1JobsRegisterPostJSONRequestBody{
+		AgentVersion: a.AgentVersion,
+		Competencia:  job.Params.CompetenciaInt(),
+		FonteSistema: RegisterRequestFonteSistema(job.Params.SourceType()),
+		JobId:        jobUUID,
+		MachineId:    a.MachineID,
+		Sha256:       &sha,
+		TenantId:     a.TenantID,
+		TipoExtracao: job.Params.Intent,
+	}
+	_ = sizeBytes
+	resp, err := a.Inner.RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx, body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return &obs.HTTPError{StatusCode: resp.StatusCode(), Body: string(resp.Body)}
+	}
+	return nil
+}
+
+// MintUploadURL chama POST /api/v1/jobs/upload-url para criar
+// landing.extractions PENDING + obter presigned PUT URL.
+func (a *Adapter) MintUploadURL(ctx context.Context, spec worker.JobSpec) (*worker.Job, error) {
 	jobUUID, err := parseJobUUID(spec.JobID)
 	if err != nil {
 		return nil, err
 	}
-	body := RegisterExtractionApiV1JobsRegisterPostJSONRequestBody{
-		AgentVersion: a.AgentVersion,
-		Competencia:  spec.Competencia,
-		FonteSistema: RegisterRequestFonteSistema(spec.FonteSistema),
+	body := MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody{
+		AgentVersion: &a.AgentVersion,
+		Competencia:  competenciaToDate(spec.Competencia),
+		Intent:       spec.Intent,
 		JobId:        jobUUID,
-		MachineId:    a.MachineID,
+		MachineId:    &a.MachineID,
+		SourceType:   UploadUrlRequestSourceType(spec.FonteSistema),
 		TenantId:     a.TenantID,
 		TipoExtracao: spec.TipoExtracao,
 	}
-	resp, err := a.Inner.RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx, body)
+	resp, err := a.Inner.MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -82,31 +118,13 @@ func (a *Adapter) RegisterJob(ctx context.Context, spec worker.JobSpec) (*worker
 		ID:        extID,
 		TenantID:  a.TenantID,
 		UploadURL: resp.JSON201.UploadUrl,
+		MinioKey:  resp.JSON201.MinioKey,
 		Params: extractor.ExtractionParams{
 			Intent:      spec.Intent,
 			Competencia: competenciaString(spec.Competencia),
 			CodMunGest:  envOr("COD_MUN_IBGE", a.TenantID),
 		},
 	}, nil
-}
-
-// CompleteJob sinaliza sucesso ao central com sha256 + row_count.
-func (a *Adapter) CompleteJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
-	id, err := parseJobUUID(job.ID)
-	if err != nil {
-		return err
-	}
-	_ = sizeBytes
-	resp, err := a.Inner.CompleteExtractionApiV1JobsExtractionIdCompletePostWithResponse(
-		ctx, id, CompleteExtractionApiV1JobsExtractionIdCompletePostJSONRequestBody{
-			Sha256:   job.Sha256,
-			RowCount: job.RowCount,
-		},
-	)
-	if err != nil {
-		return err
-	}
-	return statusError(resp.StatusCode(), resp.Body)
 }
 
 // FailJob marca extraction como FAILED via /jobs/{id}/fail.
@@ -144,7 +162,7 @@ func (a *Adapter) RegisterBPASIAJob(
 		AgentVersion: &a.AgentVersion,
 		MachineId:    &a.MachineID,
 	}
-	resp, err := a.Inner.PostJobsRegisterWithResponse(ctx, body)
+	resp, err := a.Inner.RegisterJobApiV1JobsRegisterPostWithResponse(ctx, body)
 	if err != nil {
 		return err
 	}
@@ -210,4 +228,72 @@ func competenciaString(c int) string {
 		return ""
 	}
 	return fmt.Sprintf("%06d", c)
+}
+
+func competenciaToDate(yyyymm int) openapi_types.Date {
+	year := yyyymm / 100
+	month := yyyymm % 100
+	return openapi_types.Date{Time: time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)}
+}
+
+// rawSubmission espelha RawManifestSubmission preservando os bytes canônicos
+// persistidos no envelope: reserializar o manifesto poderia divergir do digest
+// que o servidor recalcula.
+type rawSubmission struct {
+	JobId        string          `json:"job_id"`
+	FencingToken uint64          `json:"fencing_token"`
+	Manifest     json.RawMessage `json:"manifest"`
+}
+
+// SendRawManifest implementa worker.RawManifestClient sobre a rota Edge gerada.
+// Usa exclusivamente a identidade durável do envelope — nunca rederiva job,
+// fence ou manifesto a partir do estado mutável do processo durante um retry.
+func (a *Adapter) SendRawManifest(
+	ctx context.Context, env queue.Envelope,
+) (worker.RawManifestResponse, error) {
+	body, err := json.Marshal(rawSubmission{
+		JobId:        env.JobID,
+		FencingToken: env.FencingToken,
+		Manifest:     json.RawMessage(env.ManifestJSON),
+	})
+	if err != nil {
+		return worker.RawManifestResponse{}, err
+	}
+	resp, err := a.Inner.RegisterRawManifestApiV1EdgeRawManifestsPostWithBodyWithResponse(
+		ctx, "application/json", bytes.NewReader(body),
+	)
+	if err != nil {
+		return worker.RawManifestResponse{}, err
+	}
+	return rawManifestAck(resp), nil
+}
+
+func rawManifestAck(
+	resp *RegisterRawManifestApiV1EdgeRawManifestsPostResponse,
+) worker.RawManifestResponse {
+	ack := worker.RawManifestResponse{StatusCode: resp.StatusCode()}
+	if resp.JSON200 != nil {
+		ack.ManifestSHA256 = resp.JSON200.ManifestSha256
+		ack.ForceFull = resp.JSON200.FullResyncRequired
+		ack.Reason = derefString(resp.JSON200.Reason)
+		return ack
+	}
+	if resp.JSON409 == nil {
+		return ack
+	}
+	conflict, err := resp.JSON409.AsRawManifestResponse()
+	if err != nil || conflict.ManifestSha256 == "" {
+		return ack
+	}
+	ack.ManifestSHA256 = conflict.ManifestSha256
+	ack.ForceFull = conflict.FullResyncRequired
+	ack.Reason = derefString(conflict.Reason)
+	return ack
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

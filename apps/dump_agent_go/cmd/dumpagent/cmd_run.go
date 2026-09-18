@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -14,10 +15,15 @@ import (
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/apiclient"
+	"github.com/cnesdata/dumpagent/internal/audit"
 	"github.com/cnesdata/dumpagent/internal/auth"
+	"github.com/cnesdata/dumpagent/internal/delta"
+	"github.com/cnesdata/dumpagent/internal/discover"
 	"github.com/cnesdata/dumpagent/internal/fbdriver"
 	"github.com/cnesdata/dumpagent/internal/obs"
 	"github.com/cnesdata/dumpagent/internal/platform"
+	"github.com/cnesdata/dumpagent/internal/secrets"
+	"github.com/cnesdata/dumpagent/internal/service"
 	"github.com/cnesdata/dumpagent/internal/transport"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/worker"
@@ -51,7 +57,10 @@ func parseRunFlags(args []string) RunFlags {
 	return RunFlags{BPAGDBPath: *bpaGdb, SIADir: *siaDir, FBClientPath: *fbClient}
 }
 
-func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
+// setupBootLogger resolves logs dir + builds the rotating/eventlog handler
+// and installs it as slog default. Returns (closer, true) on success;
+// (nil, false) on logs_dir_init failure (caller should exit 1).
+func setupBootLogger(verbose bool) (func(), bool) {
 	level := slog.LevelInfo
 	if verbose {
 		level = slog.LevelDebug
@@ -59,11 +68,92 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	logsDir, err := platform.LogsDir()
 	if err != nil {
 		slog.Error("logs_dir_init", "err", err.Error())
+		return nil, false
+	}
+	handler, closer := buildLoggerHandler(
+		filepath.Join(logsDir, "dumpagent.log"), level)
+	slog.SetDefault(slog.New(handler))
+	return closer, true
+}
+
+// loadDiscoverYAML loads %PROGRAMDATA%\dumpagent\config.yaml unless the
+// AGENT_DISABLE_DISCOVER bypass env is set. Missing file is not an error
+// (returns empty Config); only parse errors propagate.
+func loadDiscoverYAML(path string) (discover.Config, error) {
+	if os.Getenv("AGENT_DISABLE_DISCOVER") == "true" {
+		return discover.Config{}, nil
+	}
+	cfg, err := discover.LoadYAML(path)
+	if err != nil {
+		if errors.Is(err, discover.ErrNoYAML) {
+			return discover.Config{}, nil
+		}
+		return discover.Config{}, err
+	}
+	return cfg, nil
+}
+
+func logOverrides(logger *slog.Logger, overrides []OverrideRecord) {
+	for _, o := range overrides {
+		logger.Warn("config_override",
+			"layer", o.Layer.String(),
+			"source", o.Source,
+			"field", o.Field)
+	}
+}
+
+func logPasswordSource(logger *slog.Logger, source string, ps PasswordSource) {
+	if ps == PasswordSourceMasterkey {
+		logger.Warn("password_default_active",
+			"source", source,
+			"hint", "run dumpagent set-secret "+source)
+		return
+	}
+	logger.Info("password_source",
+		"source", source,
+		"value", ps.String())
+}
+
+// runFlagsToCLIFlags adapts RunFlags to the per-source FBDSNFlags.
+// Today RunFlags carries BPA + SIA only; CNES + SIHD ride env-only at
+// the legacy code path.
+func runFlagsToCLIFlags(rf RunFlags) RunCLIFlags {
+	return RunCLIFlags{
+		BPA: FBDSNFlags{DatabasePath: rf.BPAGDBPath},
+		SIA: rf.SIADir,
+	}
+}
+
+// resolveBootConfig loads YAML, applies CLI/env/YAML resolution chain,
+// resolves CNES password, and emits override/source WARN logs. Returns
+// (PathConfig, cnesPassword, true) on success; (zero, "", false) on any
+// fatal step (caller should exit 1).
+func resolveBootConfig(appData string, flags RunFlags) (PathConfig, string, bool) {
+	yamlPath := filepath.Join(appData, "config.yaml")
+	cfg, err := loadDiscoverYAML(yamlPath)
+	if err != nil {
+		slog.Error("yaml_invalid", "path", yamlPath, "err", err.Error())
+		return PathConfig{}, "", false
+	}
+	resolved := ResolvePathConfig(cfg, os.Getenv, runFlagsToCLIFlags(flags))
+	logOverrides(slog.Default(), resolved.Overrides)
+	store := secrets.NewStore(filepath.Join(appData, "secrets"))
+	pw, src, err := ResolvePassword("cnes", resolved.CNES.User,
+		os.Getenv, store.Load)
+	if err != nil {
+		slog.Error("password_resolve", "source", "cnes", "err", err.Error())
+		return PathConfig{}, "", false
+	}
+	logPasswordSource(slog.Default(), "cnes", src)
+	return resolved, pw, true
+}
+
+func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
+	closer, ok := setupBootLogger(verbose)
+	if !ok {
 		return 1
 	}
-	handler, closer := obs.NewRotatingHandler(filepath.Join(logsDir, "dumpagent.log"), level)
 	defer closer()
-	slog.SetDefault(slog.New(handler))
 
 	slog.Info("boot", "version", Version, "mode", "run")
 
@@ -122,20 +212,31 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 0
 	}
 
-	db, err := openFirebird()
+	resolvedPaths, cnesPw, ok := resolveBootConfig(appData, flags)
+	if !ok {
+		return 1
+	}
+
+	db, err := openFirebird(resolvedPaths.CNES, cnesPw)
 	if err != nil {
 		slog.Error("firebird_open", "err", err.Error())
 		return 1
 	}
 	defer db.Close()
 
-	apiClient, err := buildAPIClient(machineID, httpClientFor(mtlsClient))
+	innerAPIClient, err := buildAPIClient(machineID, httpClientFor(mtlsClient))
 	if err != nil {
 		slog.Error("api_client_init", "err", err.Error())
 		return 1
 	}
 
-	_ = buildDispatchConfig(flags, apiClient)
+	outbox, apiClient, ok := openOutboxAndStartDrain(ctx, appData, innerAPIClient)
+	if !ok {
+		return 1
+	}
+	defer func() { _ = outbox.Close() }()
+
+	_ = buildDispatchConfig(flags, innerAPIClient)
 
 	source, err := buildJobSource()
 	if err != nil {
@@ -143,14 +244,12 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 1
 	}
 
-	var exe worker.JobExecutorIface
-	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
-		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
-		slog.Info("shadow_mode_enabled", "output_dir", shadowDir)
-		exe = &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
-	} else {
-		exe = &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}
-	}
+	deltaStore, deltaCloser := wireDeltaStore(appData)
+	defer deltaCloser()
+
+	auditLogger := wireAuditLogger(appData, machineID, os.Getenv("TENANT_ID"))
+
+	exe := buildExecutor(appData, db, deltaStore, auditLogger)
 	cons := worker.NewConsumer(apiClient, source, exe, worker.ConsumerConfig{
 		PollInterval:      5 * time.Second,
 		InterJobJitterMax: 5 * time.Second,
@@ -256,14 +355,14 @@ func maxJitter() time.Duration {
 	return time.Duration(secs) * time.Second
 }
 
-func openFirebird() (*sql.DB, error) {
+func openFirebird(p discover.FBDSN, password string) (*sql.DB, error) {
 	cfg := fbdriver.ConnConfig{
-		Host:     os.Getenv("DB_HOST"),
-		Port:     fbPort(),
-		Path:     os.Getenv("DB_PATH"),
-		User:     envOr("DB_USER", "SYSDBA"),
-		Password: os.Getenv("DB_PASSWORD"),
-		Charset:  envOr("DB_CHARSET", "WIN1252"),
+		Host:     p.Host,
+		Port:     p.Port,
+		Path:     p.DatabasePath,
+		User:     p.User,
+		Password: password,
+		Charset:  p.Charset,
 	}
 	if cfg.Host == "" {
 		cfg.Host = "localhost"
@@ -324,30 +423,83 @@ type stubErr struct{ msg string }
 
 func (s *stubErr) Error() string { return s.msg }
 
-// buildDispatchConfig constrói worker.DispatchConfig para BPA_MAG/SIA_LOCAL
-// a partir dos flags da CLI + adapter (para RegisterFunc).
-// O dispatcher BPA/SIA é acionado em fluxo distinto do JobExecutor clássico
-// (CNES/SIHD seguem por intentPipelines).
-func buildDispatchConfig(flags RunFlags, adapter *apiclient.Adapter) worker.DispatchConfig {
-	var register worker.RegisterFunc
-	if adapter != nil {
-		register = adapter.RegisterBPASIAJob
-	}
-	return worker.DispatchConfig{
-		BPA: worker.BPAPipelineConfig{
-			GDBPath:      flags.BPAGDBPath,
-			FBHost:       envOr("DB_HOST", "localhost"),
-			FBPort:       fbPort(),
-			FBUser:       envOr("DB_USER", "SYSDBA"),
-			FBPassword:   os.Getenv("DB_PASSWORD"),
-			FBClientPath: flags.FBClientPath,
-			Uploader:     upload.NewHTTP(nil),
-			Register:     register,
-		},
-		SIA: worker.SIAPipelineConfig{
-			SIADir:   flags.SIADir,
-			Uploader: upload.NewHTTP(nil),
-			Register: register,
-		},
+// buildLoggerHandler composes the rotating-file handler with the Windows
+// Event Log handler under a MultiHandler. EventLogHandler is a no-op
+// on non-Windows. Both Close functions are tied to the returned closer.
+func buildLoggerHandler(logPath string, level slog.Level) (slog.Handler, func()) {
+	rotating, rotatingCloser := obs.NewRotatingHandler(logPath, level)
+	eventlog, _ := obs.NewEventLogHandler(service.EventSourceName)
+	multi := obs.NewMultiHandler(rotating, eventlog)
+	return multi, func() {
+		rotatingCloser()
+		_ = eventlog.Close()
 	}
 }
+
+// buildExecutor returns a ShadowExecutor when DUMP_SHADOW_MODE=true,
+// otherwise a live JobExecutor wired with deltaStore + auditLogger.
+func buildExecutor(
+	appData string, db *sql.DB, deltaStore *delta.Store,
+	auditLogger *audit.Logger,
+) worker.JobExecutorIface {
+	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
+		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
+		slog.Info("shadow_mode_enabled", "output_dir", shadowDir)
+		return &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
+	}
+	return &worker.JobExecutor{
+		DB:          db,
+		Uploader:    upload.NewHTTP(nil),
+		DeltaStore:  deltaStore,
+		AuditLogger: auditLogger,
+	}
+}
+
+// wireAuditLogger initializes the HMAC-signed audit log writer.
+// Returns nil + WARN if HMAC key load/generate fails (cycle continues
+// without audit emission; boot does not abort).
+func wireAuditLogger(appData, machineID, tenantID string) *audit.Logger {
+	store := secrets.NewStore(filepath.Join(appData, "secrets"))
+	key, err := audit.LoadOrCreate(store)
+	if err != nil {
+		slog.Warn("audit_hmac_init_failed", "err", err.Error())
+		return nil
+	}
+	logger := audit.New(filepath.Join(appData, "audit"),
+		machineID, tenantID, key)
+	slog.Info("audit_logger_ready",
+		"dir", filepath.Join(appData, "audit"))
+	return logger
+}
+
+// wireDeltaStore opens the delta state DB and returns the store + a closer.
+// Delta mode is the only execution path; failure to open is fatal at boot.
+func wireDeltaStore(appData string) (*delta.Store, func()) {
+	store := openDeltaStore(appData)
+	if store == nil {
+		return nil, func() {}
+	}
+	slog.Info("delta_mode_enabled")
+	return store, func() { _ = store.Close() }
+}
+
+// openDeltaStore opens the delta state DB at <appData>/state/delta.db and
+// runs a 24h GC of stale pending sub-buckets. Returns nil on open error
+// (caller boots without delta wiring; cycle-level errors surface separately).
+func openDeltaStore(appData string) *delta.Store {
+	path := filepath.Join(appData, "state", "delta.db")
+	store, err := delta.Open(path)
+	if err != nil {
+		slog.Error("delta_store_open_failed",
+			"path", path, "err", err.Error())
+		return nil
+	}
+	count, gcErr := store.GarbageCollectStalePending(24 * time.Hour)
+	if gcErr != nil {
+		slog.Warn("delta_pending_gc_failed", "err", gcErr.Error())
+	} else if count > 0 {
+		slog.Info("delta_pending_gc", "count", count)
+	}
+	return store
+}
+

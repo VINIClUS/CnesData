@@ -2,26 +2,17 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from cnes_contracts.landing import ClaimedExtraction
+
 if TYPE_CHECKING:
     from datetime import date
 
     from sqlalchemy.engine import Engine
-
-
-@dataclass(frozen=True, slots=True)
-class ClaimedExtraction:
-    job_id: UUID
-    tenant_id: str
-    source_type: str
-    competencia: date
-    files: list[dict]
-    depends_on: list[UUID]
 
 
 def enqueue(
@@ -66,7 +57,6 @@ def _uuid_array(ids: list[str]) -> str:
 def claim_next(
     engine: Engine,
     *,
-    tenant_id: str,
     lease_seconds: int = 300,
 ) -> ClaimedExtraction | None:
     sql = text("""
@@ -75,8 +65,7 @@ def claim_next(
             lease_until = NOW() + make_interval(secs => :lease)
         WHERE job_id = (
             SELECT e.job_id FROM landing.extractions e
-            WHERE e.tenant_id = :t
-              AND e.status = 'PENDING'
+            WHERE e.status = 'PENDING'
               AND NOT EXISTS (
                   SELECT 1 FROM unnest(e.depends_on) AS d(dep)
                   JOIN landing.extractions pe ON pe.job_id = d.dep
@@ -90,9 +79,9 @@ def claim_next(
                   files, depends_on
     """)
     with engine.begin() as conn:
-        row = conn.execute(
-            sql, {"t": tenant_id, "lease": lease_seconds},
-        ).one_or_none()
+        # RLS bypass: global worker scans every tenant's PENDING rows
+        conn.execute(text("SET LOCAL row_security = off"))
+        row = conn.execute(sql, {"lease": lease_seconds}).one_or_none()
     if row is None:
         return None
     return ClaimedExtraction(
@@ -136,6 +125,7 @@ def register(
     files: list[dict],
     agent_version: str | None = None,
     machine_id: str | None = None,
+    sha256: str | None = None,
 ) -> UUID | None:
     sql = text("""
         UPDATE landing.extractions
@@ -143,7 +133,8 @@ def register(
             status         = 'REGISTERED',
             registered_at  = NOW(),
             agent_version  = COALESCE(:av, agent_version),
-            machine_id     = COALESCE(:mid, machine_id)
+            machine_id     = COALESCE(:mid, machine_id),
+            sha256         = COALESCE(:sha, sha256)
         WHERE job_id = :j AND status IN ('PENDING', 'CLAIMED')
         RETURNING job_id
     """)
@@ -155,28 +146,68 @@ def register(
                 "files": json.dumps(files),
                 "av": agent_version,
                 "mid": machine_id,
+                "sha": sha256,
             },
         ).one_or_none()
     return result.job_id if result else None
 
 
-def mark_uploaded(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError(
-        "extractions_repo.mark_uploaded: pending Task 7",
-    )
+def mint_upload_url(
+    engine: Engine,
+    *,
+    job_id: UUID,
+    tenant_id: str,
+    source_type: str,
+    competencia: date,
+    fato_subtype: str,
+    minio_key: str,
+    agent_version: str | None = None,
+    machine_id: str | None = None,
+) -> UUID | None:
+    placeholder = [{
+        "minio_key": minio_key,
+        "fato_subtype": fato_subtype,
+        "size_bytes": 1,
+        "sha256": "0" * 64,
+    }]
+    sql = text("""
+        INSERT INTO landing.extractions (
+            job_id, tenant_id, source_type, competencia,
+            files, depends_on, status,
+            agent_version, machine_id, created_at
+        ) VALUES (
+            :j, :t, :s, :c, CAST(:f AS jsonb),
+            CAST(:d AS uuid[]), 'PENDING',
+            :av, :mid, NOW()
+        )
+        ON CONFLICT (job_id) DO NOTHING
+        RETURNING job_id
+    """)
+    with engine.begin() as conn:
+        result = conn.execute(
+            sql,
+            {
+                "j": str(job_id),
+                "t": tenant_id,
+                "s": source_type,
+                "c": competencia,
+                "f": json.dumps(placeholder),
+                "d": "{}",
+                "av": agent_version,
+                "mid": machine_id,
+            },
+        ).one_or_none()
+    return result.job_id if result else None
 
 
-def complete(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("extractions_repo.complete: pending Task 7")
-
-
-def fail(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("extractions_repo.fail: pending Task 7")
-
-
-def heartbeat(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("extractions_repo.heartbeat: pending Task 7")
-
-
-def reap_expired(*args: object, **kwargs: object) -> None:
-    raise NotImplementedError("extractions_repo.reap_expired: pending Task 7")
+def reap_expired(engine: Engine) -> int:
+    sql = text("""
+        UPDATE landing.extractions
+        SET status = 'PENDING', lease_until = NULL
+        WHERE status = 'CLAIMED' AND lease_until < NOW()
+    """)
+    with engine.begin() as conn:
+        # RLS bypass: reaper scans every tenant's expired leases
+        conn.execute(text("SET LOCAL row_security = off"))
+        result = conn.execute(sql)
+    return result.rowcount or 0

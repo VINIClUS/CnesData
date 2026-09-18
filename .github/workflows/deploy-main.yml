@@ -48,6 +48,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: OS patch level
+        id: patch
+        run: echo "level=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push ${{ matrix.app }}
         uses: docker/build-push-action@v6
         with:
@@ -55,9 +59,12 @@ jobs:
           file: apps/${{ matrix.app }}/Dockerfile
           platforms: linux/amd64
           push: true
+          pull: true
           tags: |
             ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:main-${{ github.sha }}
             ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:main
+          build-args: |
+            OS_PATCH_LEVEL=${{ steps.patch.outputs.level }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 

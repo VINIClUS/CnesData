@@ -1,0 +1,184 @@
+{
+  "$defs": {
+    "OutputManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "exclusiveMinimum": 0,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "competencia": {
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+          "title": "Competencia",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "layer": {
+          "enum": [
+            "normalized",
+            "reconciliation",
+            "serving"
+          ],
+          "title": "Layer",
+          "type": "string"
+        },
+        "manifest_id": {
+          "minLength": 1,
+          "title": "Manifest Id",
+          "type": "string"
+        },
+        "manifest_version": {
+          "const": 1,
+          "title": "Manifest Version",
+          "type": "integer"
+        },
+        "object_key": {
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "object_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Object Sha256",
+          "type": "string"
+        },
+        "row_count": {
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "minLength": 1,
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tenant_id": {
+          "minLength": 1,
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "unit_id": {
+          "minLength": 1,
+          "title": "Unit Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest_version",
+        "manifest_id",
+        "tenant_id",
+        "layer",
+        "source_type",
+        "competencia",
+        "run_id",
+        "unit_id",
+        "attempt",
+        "schema_version",
+        "object_key",
+        "object_sha256",
+        "row_count",
+        "created_at"
+      ],
+      "title": "OutputManifest",
+      "type": "object"
+    },
+    "SourceType": {
+      "enum": [
+        "CNES_LOCAL",
+        "CNES_NACIONAL",
+        "SIHD",
+        "BPA_MAG",
+        "SIA_LOCAL"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "attempt": {
+      "exclusiveMinimum": 0,
+      "title": "Attempt",
+      "type": "integer"
+    },
+    "competencia": {
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+      "title": "Competencia",
+      "type": "string"
+    },
+    "divergence_manifest": {
+      "$ref": "#/$defs/OutputManifest"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "missing_sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Sources",
+      "type": "array"
+    },
+    "reconciliation_manifest": {
+      "$ref": "#/$defs/OutputManifest"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "target_keys": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Target Keys",
+      "type": "array"
+    },
+    "tenant_id": {
+      "minLength": 1,
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "unit_id": {
+      "minLength": 1,
+      "title": "Unit Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tenant_id",
+    "competencia",
+    "run_id",
+    "unit_id",
+    "attempt",
+    "reconciliation_manifest",
+    "divergence_manifest",
+    "missing_sources",
+    "target_keys",
+    "generated_at"
+  ],
+  "title": "MaterializeRequest",
+  "type": "object"
+}

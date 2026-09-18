@@ -2,13 +2,10 @@
 
 ## Executive Summary
 
-Worker assíncrono que consome jobs da fila do `central_api`, baixa Parquet
-gzip do MinIO, aplica transformações canônicas (CPF zero-pad + strip
-pontuação, dedup, flags de carga horária) via
-`cnes_domain.processing.transformer`, e persiste no schema Gold Postgres
-(`dim_estabelecimento`, `dim_profissional`, `fato_vinculo`) com upsert
-idempotente e merge JSONB de `fontes` para suportar múltiplas origens
-sobre a mesma chave (LOCAL, NACIONAL, WEB).
+Worker assíncrono Gold v2 que consome `landing.extractions` diretamente no
+Postgres, define o tenant do job reclamado e marca conclusão/falha. Mantém
+rotas auxiliares para validar SHA-256, ler Parquet delta (`_op`) e delegar
+I/U para callbacks/upserts específicos quando uma ingestão usa esse caminho.
 
 ## Role
 
@@ -18,24 +15,22 @@ colisão (lease-based).
 
 ## Functionalities
 
-- Poll de jobs via HTTP ao `central_api` (mesmo endpoint do `dump_agent`,
-  filtro por status `ready_to_process`)
-- Download streaming de Parquet gzip do MinIO via presigned GET
-- Roteamento por source (CNES / SIHD) via `adapters/*_adapter.py`
-- Aplicação de `transformar()` (clean CPF, pad, RQ-002 filter, `ALERTA_CH` flag)
-- Mapeamento raw → canonical via `row_mapper.mapear_*`
-- Upsert idempotente (`ON CONFLICT DO UPDATE` com merge JSONB `fontes || EXCLUDED.fontes`)
-- `CircuitBreaker` em chamadas MinIO e `central_api` (backoff exp capado)
+- Claim global de `landing.extractions` via `extractions_repo.claim_next`
+- `set_tenant_id(claimed.tenant_id)` antes de mutar estado do job
+- `mark_completed` / `mark_failed` no mesmo storage repository
+- `integrity_check.verify_parquet` para SHA-256 quando esperado
+- `cdc_merger.merge_delta` para linhas `_op ∈ {I,U,D}`
+- Adapters CNES/SIHD/BPA/SIA preservados para rotas de ingestão específicas
 
 ## Objectives
 
-- Throughput ≥ 10k rows/s no upsert (gate do stress test)
-- Idempotência total: N execuções do mesmo job = mesmo resultado no Gold
-- Zero perda de dados via DLQ (`job_queue` tabelas `public.job_retries`)
+- Claim idempotente e seguro entre réplicas horizontais
+- Zero cross-tenant leak em marcação de jobs
+- Integridade verificável quando `sha256` vem do edge agent
 
 ## Limitations
 
-- **Não faz extract** — só consome Parquet pronto
+- **Não faz extract** — só consome metadata/artefatos já produzidos
 - **Não aplica regras de auditoria** — persiste dados canônicos; regras
   rodam em serviço externo que consome Gold via SQL JOINs
 - **Não tem UI** — é daemon puro, monitorado via logs + OTel
@@ -57,7 +52,6 @@ colisão (lease-based).
 | `MINIO_ACCESS_KEY` | sim | Credencial MinIO |
 | `MINIO_SECRET_KEY` | sim | Credencial MinIO |
 | `MINIO_BUCKET` | opcional | Default `cnesdata-landing` |
-| `TENANT_ID` | sim | Tenant do worker (1 worker = 1 tenant por enquanto) |
 | `WORKER_POLL_INTERVAL` | opcional | Default `5s` |
 
 ## Module Map
@@ -65,8 +59,9 @@ colisão (lease-based).
 | Arquivo | Responsabilidade |
 |---|---|
 | `src/data_processor/main.py` | Entrypoint async + `_setup_logging` + `_create_storage` + run_processor |
-| `src/data_processor/consumer.py` | Loop de pull de jobs do `central_api` |
-| `src/data_processor/processor.py` | Pipeline download → transform → upsert (`_persist_profissionais`, etc) |
+| `src/data_processor/consumer.py` | Compat wrapper para `poll.loop` |
+| `src/data_processor/poll.py` | Claim `landing.extractions` + mark completed/failed |
+| `src/data_processor/processor.py` | SHA-256 + delta route helpers |
 | `src/data_processor/config.py` | Config do worker (bucket, intervalos) |
 | `src/data_processor/adapters/cnes_local_adapter.py` | Parquet CNES raw → DataFrame canônico |
 | `src/data_processor/adapters/cnes_nacional_adapter.py` | Parquet BigQuery nacional → canônico |
@@ -86,9 +81,12 @@ colisão (lease-based).
 - **Column names do BigQuery nacional** (confirmados empiricamente):
   `cbo_2002` (não `id_cbo`), `indicador_atende_sus` inteiro 1/0 (não
   `indicador_sus` string "S"/"N"). Ver `docs/data-dictionary-firebird-bigquery.md`.
-- **`set_tenant_id` obrigatório antes de qualquer query Postgres:** worker
-  chama `set_tenant_id(config.TENANT_ID)` no start de cada job. Sem isso,
-  RLS bloqueia e job falha com 0 rows.
+- **Worker é global (multi-tenant):** poll varre `landing.extractions`
+  de todos os tenants via `SET LOCAL row_security = off` scoped à
+  transação do `claim_next`. A cada job reclamado, `process_one` chama
+  `set_tenant_id(claimed.tenant_id)` antes de qualquer
+  `mark_completed`/`mark_failed`/escrita Gold subsequente. Sem env
+  `TENANT_ID`; o tenant vem do row reclamado.
 - **Streaming download gzip:** parquet baixado chunk a chunk via httpx
   stream para evitar OOM em arquivos grandes. Marcado `# pragma: no cover`
   nos fallbacks de tempfile.
@@ -101,3 +99,14 @@ colisão (lease-based).
 - `producao_ambulatorial_repo.gravar` upserts idempotent; `fontes_reportadas` JSONB merged via `||`.
 - Migration 012 added natural-key unique index on `fato_producao_ambulatorial` to support ON CONFLICT upsert.
 - Migration 013 extended `chk_fonte_amb` CHECK to allow SIA_BPIHST.
+
+## CDC delta mode (P3, 2026-05-03)
+
+- Delta is the only inbound shape (no flag, no legacy snapshot path).
+- `cdc_merger.merge_delta(df, conn, source, intent, apply_iu_fn=None)` branches Parquet rows on `_op ∈ {I,U,D}`. D applied inline via `text("DELETE FROM gold.X WHERE pk = :pk")` per (source, intent) PK template aligned with edge agent's `delta/profiles.go`. I/U applied via `apply_iu_fn(df_iu) -> int` callback (existing upsert path).
+- `processor.route_delta(df, conn, source, intent, apply_iu_fn=None)` raises `ValueError("missing_op_column")` if `_op` absent.
+- DELETE idempotency: `delete_no_op` INFO log when rowcount=0 (already-deleted row).
+
+## P2 integrity (2026-05-04)
+
+`integrity_check.verify_parquet(path, expected_sha256)` recomputes SHA-256 over downloaded Parquet (1MB chunks); raises `IntegrityError` on mismatch; skips when `expected_sha256 None`. `processor.verify_and_route_delta(parquet_path, expected_sha256, conn, source, intent, apply_iu_fn=None)` calls verify_parquet → pl.read_parquet → route_delta. Mismatch propagates `IntegrityError` to caller (caller fails the job). landing.extractions gains nullable `sha256 char(64)` column (Alembic 018).

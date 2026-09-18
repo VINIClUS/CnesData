@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"log/slog"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/auth"
+	"github.com/cnesdata/dumpagent/internal/obs"
 )
 
 // mtlsCA is a self-signed CA used to sign leaf certs in mtls-init tests.
@@ -207,5 +209,18 @@ func TestHTTPClientFor_NonNil_ReturnsHTTPClient(t *testing.T) {
 	}
 	if got != mtls.HTTPClient() {
 		t.Fatal("expected got == mtls.HTTPClient() (same pointer)")
+	}
+}
+
+func TestRunForegroundLogger_MultiHandlerComposition(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "test.log")
+	h, closer := buildLoggerHandler(logPath, slog.LevelInfo)
+	defer closer()
+	if h == nil {
+		t.Fatal("expected non-nil handler")
+	}
+	if _, ok := h.(*obs.MultiHandler); !ok {
+		t.Fatalf("expected *obs.MultiHandler, got %T", h)
 	}
 }

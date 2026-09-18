@@ -1,0 +1,60 @@
+name: Tarefa de implementação CnesData
+description: Planeje uma tarefa atômica com ownership e verificações explícitas.
+body:
+  - type: input
+    id: logical_id
+    attributes:
+      label: ID lógico
+      description: Informe o identificador estável da tarefa, como CND-003.
+      placeholder: CND-000
+    validations:
+      required: true
+  - type: textarea
+    id: depends_on
+    attributes:
+      label: Dependências
+      description: Liste as tarefas que devem estar integradas ao develop antes do início.
+      placeholder: CND-000
+    validations:
+      required: true
+  - type: textarea
+    id: allowed_paths
+    attributes:
+      label: Caminhos permitidos
+      description: Liste os únicos arquivos ou diretórios que esta tarefa pode alterar.
+      placeholder: Um path por linha
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden_shared_paths
+    attributes:
+      label: Caminhos compartilhados proibidos
+      description: Liste superfícies compartilhadas reservadas à faixa de controle.
+      placeholder: Um path ou superfície por linha
+    validations:
+      required: true
+  - type: textarea
+    id: interfaces_consumed
+    attributes:
+      label: Interfaces consumidas
+      description: Informe nomes e assinaturas exatas das interfaces consumidas.
+      placeholder: Uma interface por linha
+    validations:
+      required: true
+  - type: textarea
+    id: interfaces_produced
+    attributes:
+      label: Interfaces produzidas
+      description: Informe nomes e assinaturas exatas das interfaces produzidas.
+      placeholder: Uma interface por linha
+    validations:
+      required: true
+  - type: textarea
+    id: verification_commands
+    attributes:
+      label: Comandos de verificação
+      description: Liste os comandos de teste, lint, tipos, race e cobertura aplicáveis.
+      placeholder: uv run pytest caminho/do/teste.py -q
+      render: shell
+    validations:
+      required: true

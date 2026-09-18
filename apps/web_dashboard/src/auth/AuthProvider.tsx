@@ -1,5 +1,7 @@
 import { type ReactNode, createContext, useCallback, useEffect, useState } from "react";
 
+import { getAccessToken } from "@/auth/oidc";
+
 export type Me = {
   user_id: string;
   email: string;
@@ -25,15 +27,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null>(null);
 
   const refresh = useCallback(async () => {
-    const r = await fetch("/api/v1/dashboard/auth/me", { credentials: "include" });
-    if (r.ok) {
-      const body = (await r.json()) as Me;
-      setUser(body);
-      setStatus("authenticated");
-    } else {
-      setUser(null);
-      setStatus("anonymous");
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setUser(null);
+        setStatus("anonymous");
+        return;
+      }
+      const r = await fetch("/api/v1/dashboard/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const body = (await r.json()) as Me;
+        setUser(body);
+        setStatus("authenticated");
+        return;
+      }
+    } catch {
+      /* network failure treated as anonymous */
     }
+    setUser(null);
+    setStatus("anonymous");
   }, []);
 
   useEffect(() => {

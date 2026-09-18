@@ -1,0 +1,54 @@
+{
+  "commit_sha": "8a2d3a4cbce85e87e31dc4769aab2a7a2b4bf7b2",
+  "recorded_at": "2026-08-26T13:53:23.153595+00:00",
+  "suites": [
+    {
+      "name": "python-fast",
+      "command": "uv run pytest -m 'not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only' -q",
+      "exit_code": 2,
+      "duration_seconds": 7.495,
+      "waiver": {
+        "failure": "ModuleNotFoundError: No module named 'cnes_infra.storage.repositories.estabelecimento_repo' during collection of tests/perf/{macro,micro,soak,spike,stress}",
+        "expected_exit_code": 2,
+        "approved_by": "VINIClUS",
+        "approved_at": "2026-08-26"
+      }
+    },
+    {
+      "name": "python-packages-coverage",
+      "command": "uv run pytest packages/cnes_domain packages/cnes_infra -m 'not bigquery and not e2e and not stress and not soak and not spike' --cov --cov-config=pyproject.toml --cov-report=term-missing",
+      "exit_code": 0,
+      "duration_seconds": 21.168
+    },
+    {
+      "name": "python-apps-coverage",
+      "command": "uv run pytest apps/ -m 'not integration and not bigquery and not e2e and not stress and not soak and not spike and not windows_only' --cov --cov-config=.coveragerc --cov-report=term-missing",
+      "exit_code": 0,
+      "duration_seconds": 8.558
+    },
+    {
+      "name": "go-race-coverage",
+      "command": "sh -c 'cd apps/dump_agent_go &&\ngo test -race -count=1 -coverprofile=coverage.out ./... &&\ngrep -v -E '\"'\"'internal/apiclient/generated\\.go|cmd/|internal/service/|_windows\\.go:'\"'\"' coverage.out > coverage.filtered.out &&\ntotal=$(go tool cover -func=coverage.filtered.out | tail -1 | awk '\"'\"'{print $3}'\"'\"' | tr -d '\"'\"'%'\"'\"') &&\ngo tool cover -func=coverage.filtered.out | tail -1 &&\nawk -v total=\"$total\" '\"'\"'BEGIN { exit !(total >= 65) }'\"'\"''",
+      "exit_code": 0,
+      "duration_seconds": 18.556
+    },
+    {
+      "name": "dashboard",
+      "command": "sh -c 'cd apps/web_dashboard &&\nbun run codegen &&\nbun run lint &&\nbun run typecheck &&\nbun run test --coverage &&\nbun run build'",
+      "exit_code": 0,
+      "duration_seconds": 33.194
+    },
+    {
+      "name": "python-integration-docker",
+      "command": "sh -c 'docker compose -p cnesdata up -d --wait postgres && uv run pytest -m postgres -q'",
+      "exit_code": 2,
+      "duration_seconds": 4.09,
+      "waiver": {
+        "failure": "ModuleNotFoundError: No module named 'cnes_infra.storage.repositories.estabelecimento_repo' during collection of tests/perf/{macro,micro,soak,spike,stress}",
+        "expected_exit_code": 2,
+        "approved_by": "VINIClUS",
+        "approved_at": "2026-08-26"
+      }
+    }
+  ]
+}

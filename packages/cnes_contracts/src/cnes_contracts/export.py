@@ -24,7 +24,19 @@ from cnes_contracts.landing import (
     Extraction,
     ExtractionRegisterPayload,
     FileManifest,
+    UploadUrlRequest,
+    UploadUrlResponse,
 )
+from cnes_contracts.manifests.outputs import OutputManifest, RunManifest, ServingDocument
+from cnes_contracts.manifests.processing import (
+    MaterializeRequest,
+    MaterializeResult,
+    NormalizeRequest,
+    NormalizeResult,
+    ReconcileRequest,
+    ReconcileResult,
+)
+from cnes_contracts.manifests.raw import RawManifest
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,6 +58,18 @@ MODELS: list[tuple[type, str]] = [
     (ExtractionRegisterPayload, "extractionregisterpayload.json"),
     (FileManifest, "file_manifest.json"),
     (JobTransitionEvent, "jobtransitionevent.json"),
+    (UploadUrlRequest, "uploadurlrequest.json"),
+    (UploadUrlResponse, "uploadurlresponse.json"),
+    (RawManifest, "raw_manifest.json"),
+    (OutputManifest, "output_manifest.json"),
+    (RunManifest, "run_manifest.json"),
+    (ServingDocument, "serving_document.json"),
+    (NormalizeRequest, "normalize_request.json"),
+    (NormalizeResult, "normalize_result.json"),
+    (ReconcileRequest, "reconcile_request.json"),
+    (ReconcileResult, "reconcile_result.json"),
+    (MaterializeRequest, "materialize_request.json"),
+    (MaterializeResult, "materialize_result.json"),
 ]
 
 

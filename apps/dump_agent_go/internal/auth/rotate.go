@@ -24,6 +24,17 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/cnesdata/dumpagent/internal/obs"
+)
+
+// timeAfter is package-level for test injection of the sleep channel.
+var timeAfter = time.After
+
+const (
+	rotateBackoffBase = 1 * time.Second
+	rotateBackoffCap  = 30 * time.Second
+	rotateMaxAttempts = 3
 )
 
 var (
@@ -47,15 +58,14 @@ type Rotator struct {
 	machineID string
 	interval  time.Duration
 	fraction  float64
-	backoff   []time.Duration
 	clock     func() time.Time
 	rand      func() float64
 	logger    *slog.Logger
 }
 
 // NewRotator builds a Rotator with sane defaults: 6h interval, 1/3 TTL
-// fraction, [1s, 2s, 4s] backoff, time.Now clock, math/rand v2 jitter,
-// slog.Default() logger.
+// fraction, decorrelated retry [base=1s cap=30s 3 attempts], time.Now clock,
+// math/rand v2 jitter, slog.Default() logger.
 func NewRotator(client RotateClient, authDir, baseURL, machineID string) *Rotator {
 	return &Rotator{
 		client:    client,
@@ -64,7 +74,6 @@ func NewRotator(client RotateClient, authDir, baseURL, machineID string) *Rotato
 		machineID: machineID,
 		interval:  6 * time.Hour,
 		fraction:  1.0 / 3.0,
-		backoff:   []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second},
 		clock:     time.Now,
 		rand:      rand.Float64,
 		logger:    slog.Default(),
@@ -148,7 +157,7 @@ func (r *Rotator) RotateOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("rotate: pkcs8: %w", err)
 	}
-	resp, err := postRotate(ctx, r.client.HTTPClient(), r.baseURL, string(csrPEM), r.backoff)
+	resp, err := postRotate(ctx, r.client.HTTPClient(), r.baseURL, string(csrPEM))
 	if err != nil {
 		return err
 	}
@@ -169,21 +178,30 @@ func (r *Rotator) nextSleep() time.Duration {
 
 func postRotate(
 	ctx context.Context, httpClient *http.Client, baseURL, csrPEM string,
-	backoff []time.Duration,
+) (*rotateResp, error) {
+	return postRotateWithRand(ctx, httpClient, baseURL, csrPEM, rand.Float64)
+}
+
+func postRotateWithRand(
+	ctx context.Context, httpClient *http.Client, baseURL, csrPEM string,
+	randSrc func() float64,
 ) (*rotateResp, error) {
 	body, err := json.Marshal(map[string]string{"csr_pem": csrPEM})
 	if err != nil {
 		return nil, fmt.Errorf("%w: marshal: %v", ErrRotateRetriesExhausted, err)
 	}
 	url := strings.TrimRight(baseURL, "/") + "/provision/cert/rotate"
+	prev := rotateBackoffBase
 	var lastErr error
-	for attempt := 0; attempt < len(backoff); attempt++ {
+	for attempt := 0; attempt < rotateMaxAttempts; attempt++ {
 		if attempt > 0 {
+			sleep := obs.DecorrelatedJitter(prev, rotateBackoffBase, rotateBackoffCap, randSrc)
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("%w: %v", ErrRotateRetriesExhausted, ctx.Err())
-			case <-time.After(backoff[attempt-1]):
+			case <-timeAfter(sleep):
 			}
+			prev = sleep
 		}
 		raw, parsed, status, err := doRotateRequest(ctx, httpClient, url, body)
 		if err != nil {

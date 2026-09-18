@@ -12,11 +12,11 @@ import (
 )
 
 func BenchmarkRegisterJob(b *testing.B) {
-	body := []byte(`{"extraction_id":"00000000-0000-0000-0000-000000000001",` +
-		`"upload_url":"https://example.invalid/upload"}`)
+	body := []byte(`{"job_id":"11111111-1111-1111-1111-111111111111",` +
+		`"status":"REGISTERED"}`)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(body)
 	}))
 	defer srv.Close()
@@ -26,17 +26,18 @@ func BenchmarkRegisterJob(b *testing.B) {
 		b.Fatal(err)
 	}
 	ctx := context.Background()
-	spec := worker.JobSpec{
-		JobID:        "11111111-1111-1111-1111-111111111111",
-		FonteSistema: "CNES_LOCAL",
-		TipoExtracao: "estabelecimentos",
-		Competencia:  202601,
-		Intent:       extractor.IntentCnesEstabelecimentos,
+	job := worker.Job{
+		ID:     "11111111-1111-1111-1111-111111111111",
+		Sha256: "deadbeef",
+		Params: extractor.ExtractionParams{
+			Intent:      extractor.IntentCnesEstabelecimentos,
+			Competencia: "202601",
+		},
 	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if _, err := adapter.RegisterJob(ctx, spec); err != nil {
+		if err := adapter.RegisterJob(ctx, job, 4096); err != nil {
 			b.Fatal(err)
 		}
 	}

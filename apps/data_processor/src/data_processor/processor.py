@@ -17,6 +17,12 @@ import httpx
 import polars as pl
 
 from cnes_domain.observability import tracer
+from data_processor.cdc_merger import (
+    ApplyIU,
+    has_op_column,
+    merge_delta,
+)
+from data_processor.integrity_check import IntegrityError, verify_parquet
 
 if TYPE_CHECKING:
     from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
@@ -54,3 +60,46 @@ def _download_parquet(url: str, breaker: CircuitBreaker) -> pl.DataFrame:
         return pl.read_parquet(tmp_path)
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+def route_delta(
+    df: pl.DataFrame,
+    conn: object,
+    source: str,
+    intent: str,
+    apply_iu_fn: ApplyIU | None = None,
+) -> dict[str, int]:
+    """Apply CDC delta merge for Parquet rows.
+
+    Edge agent emits parquet with `_op` ∈ {I,U,D}. Deletes applied inline;
+    I/U applied via apply_iu_fn when supplied (else counted only).
+    Raises ValueError if `_op` column absent (legacy snapshot path removed).
+    """
+    if not has_op_column(df):
+        raise ValueError("missing_op_column: delta-mode parquet required")
+    return merge_delta(df, conn, source, intent, apply_iu_fn)
+
+
+def verify_and_route_delta(
+    parquet_path: str,
+    expected_sha256: str | None,
+    conn: object,
+    source: str,
+    intent: str,
+    apply_iu_fn: ApplyIU | None = None,
+) -> dict[str, int]:
+    """Verify parquet sha256 (if expected) then route to merge_delta.
+
+    Raises IntegrityError on sha256 mismatch (caller fails the job).
+    Raises ValueError if `_op` column absent.
+    """
+    verify_parquet(parquet_path, expected_sha256)
+    df = pl.read_parquet(parquet_path)
+    return route_delta(df, conn, source, intent, apply_iu_fn)
+
+
+__all__ = [
+    "IntegrityError",
+    "route_delta",
+    "verify_and_route_delta",
+]

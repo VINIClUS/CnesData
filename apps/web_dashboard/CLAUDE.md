@@ -16,7 +16,9 @@ Persona secundária: técnico hospitalar redimindo `user_code` na rota
 
 ## Functionalities
 
-- `/login` — OIDC Auth Code + PKCE
+- `/` — landing pública (hero + recursos + benefícios + CTA)
+- `/precos` — planos, trust strip e FAQ (público)
+- `/login` — OIDC Auth Code + PKCE; formulário visual, e-mail vira `login_hint`
 - `/auth/callback` — redirect handler
 - `/agentes` — status edge agents do tenant + últimas 20 execuções (Task 24)
 - `/activate` — RFC 8628 device code redemption (Task 20)
@@ -74,11 +76,16 @@ manager) — SPA carrega mas login falha controladamente.
 | `src/theme/useTheme.ts`         | hook export                                                                                                                    |
 | `src/components/ui/`            | shadcn primitives                                                                                                              |
 | `src/components/layout/`        | Shell + Sidebar + TenantPill + ThemeToggle                                                                                     |
+| `src/components/brand/`         | Logo / LogoMark (SVG inline)                                                                                                   |
+| `src/components/marketing/`     | Navbar, Footer, HeroSurface (dark forçado), CtaBand, FeatureItem, DashboardPreview estático                                    |
+| `src/components/landing/`       | LandingPage (`/`)                                                                                                              |
+| `src/components/pricing/`       | PricingPage (`/precos`) + PricingCard + FaqList                                                                                |
+| `src/components/login/`         | LoginPage + LoginForm (senha renderizada, nunca enviada)                                                                       |
 | `src/components/signup/`        | AccessRequestForm + PendingRequestsList (v1.1)                                                                                 |
 | `src/components/overview/`      | KpiCard + KpiGrid + FaturamentoAreaChart (Tremor lazy) (v1.1)                                                                  |
 | `src/lib/env.ts`                | Zod-validated env                                                                                                              |
 | `src/lib/format.ts`             | BRL, datas pt-BR, lag                                                                                                          |
-| `src/i18n/pt-BR.ts`             | strings                                                                                                                        |
+| `src/i18n/pt-BR.ts`             | strings do painel; `marketing.ts`, `landing.ts`, `pricing.ts`, `login.ts` para páginas públicas                                |
 | `tests/unit/`                   | Vitest                                                                                                                         |
 | `tests/e2e/`                    | Playwright                                                                                                                     |
 | `tests/mocks/`                  | msw setup                                                                                                                      |
@@ -136,6 +143,11 @@ bun run typecheck
 - **`@tremor/react` lazy-loaded**: importar via `lazy(() => import(...))`
   apenas em rotas que usam charts (hoje só /overview). Tremor entra em chunk
   próprio no `manualChunks` do `vite.config.ts`; bundle main fica fora.
+- **Páginas públicas (`/`, `/precos`, `/login`) usam `HeroSurface`** com classe `dark`
+  literal: hero/footer/CTA ficam navy em qualquer tema; seções claras seguem o toggle.
+  Cores de marca via `--navy*`/`--brand*` em `styles.css` (aliases `bg-navy`, `text-brand`).
+- **Fonte Inter self-hosted** (`@fontsource-variable/inter` em `main.tsx`) — CSP não permite
+  Google Fonts.
 - **Dark mode FOUC script** inline em `index.html` `<head>` aplica classe
   `.dark` antes do React montar — evita flash branco em system/dark.
   Mantém em sync com a chave `localStorage["cnesdata-theme"]`.

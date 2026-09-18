@@ -18,12 +18,16 @@ ENV OPENAPI_PATH=/openapi/openapi.json
 RUN bun run codegen && bun run build && bun run bundle:check
 
 # ---------- Stage 2: nginx ----------
-FROM nginx:1.27-alpine
-RUN apk add --no-cache gettext
+FROM nginx:1.29-alpine
+# OS_PATCH_LEVEL is referenced in the RUN so its value is part of the layer
+# cache key: without it the upgrade freezes at first-build package versions.
+ARG OS_PATCH_LEVEL=base
+RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
+    apk upgrade --no-cache && apk add --no-cache gettext
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY apps/web_dashboard/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY apps/web_dashboard/nginx/security-headers.conf /etc/nginx/templates/security-headers.conf
 COPY apps/web_dashboard/nginx/entrypoint.sh /docker-entrypoint.d/40-render-config.sh
 RUN chmod +x /docker-entrypoint.d/40-render-config.sh
 EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=3s CMD wget --quiet --spider http://localhost/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=3s CMD wget --quiet --spider http://127.0.0.1/healthz || exit 1

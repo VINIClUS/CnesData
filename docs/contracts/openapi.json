@@ -319,6 +319,57 @@
         "title": "DeviceAuthorizationResponse",
         "type": "object"
       },
+      "EdgeJobResponse": {
+        "additionalProperties": false,
+        "description": "Job adquirido pelo Edge Agent.",
+        "properties": {
+          "competencia": {
+            "title": "Competencia",
+            "type": "string"
+          },
+          "fencing_token": {
+            "title": "Fencing Token",
+            "type": "integer"
+          },
+          "file_subtype": {
+            "title": "File Subtype",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "lease_until": {
+            "format": "date-time",
+            "title": "Lease Until",
+            "type": "string"
+          },
+          "raw_upload_path": {
+            "title": "Raw Upload Path",
+            "type": "string"
+          },
+          "requested_snapshot_mode": {
+            "title": "Requested Snapshot Mode",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "source_type",
+          "file_subtype",
+          "competencia",
+          "requested_snapshot_mode",
+          "fencing_token",
+          "lease_until",
+          "raw_upload_path"
+        ],
+        "title": "EdgeJobResponse",
+        "type": "object"
+      },
       "EnqueueRequest": {
         "properties": {
           "competencia": {
@@ -436,6 +487,48 @@
           "timestamp"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "HeartbeatRequest": {
+        "additionalProperties": false,
+        "description": "Fence apresentado para renovação do lease.",
+        "properties": {
+          "fencing_token": {
+            "minimum": 0.0,
+            "title": "Fencing Token",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fencing_token"
+        ],
+        "title": "HeartbeatRequest",
+        "type": "object"
+      },
+      "HeartbeatResponse": {
+        "additionalProperties": false,
+        "description": "Lease renovado do job.",
+        "properties": {
+          "fencing_token": {
+            "title": "Fencing Token",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "lease_until": {
+            "format": "date-time",
+            "title": "Lease Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "fencing_token",
+          "lease_until"
+        ],
+        "title": "HeartbeatResponse",
         "type": "object"
       },
       "MeResponse": {
@@ -566,6 +659,231 @@
         "title": "ProvisionCertRequest",
         "type": "object"
       },
+      "RawManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "minLength": 1,
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_version": {
+            "minLength": 1,
+            "title": "Agent Version",
+            "type": "string"
+          },
+          "base_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Snapshot Id"
+          },
+          "competencia": {
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+            "title": "Competencia",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_subtype": {
+            "minLength": 1,
+            "title": "File Subtype",
+            "type": "string"
+          },
+          "manifest_id": {
+            "minLength": 1,
+            "title": "Manifest Id",
+            "type": "string"
+          },
+          "manifest_version": {
+            "const": 1,
+            "title": "Manifest Version",
+            "type": "integer"
+          },
+          "object_key": {
+            "minLength": 1,
+            "title": "Object Key",
+            "type": "string"
+          },
+          "object_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Object Sha256",
+            "type": "string"
+          },
+          "previous_manifest_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Manifest Sha256"
+          },
+          "row_count": {
+            "minimum": 0.0,
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "schema_version": {
+            "minLength": 1,
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "sequence": {
+            "exclusiveMinimum": 0.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "size_bytes": {
+            "exclusiveMinimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "snapshot_id": {
+            "minLength": 1,
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "snapshot_mode": {
+            "$ref": "#/components/schemas/SnapshotMode"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_version",
+          "manifest_id",
+          "tenant_id",
+          "source_type",
+          "file_subtype",
+          "competencia",
+          "agent_id",
+          "agent_version",
+          "schema_version",
+          "snapshot_mode",
+          "snapshot_id",
+          "base_snapshot_id",
+          "sequence",
+          "previous_manifest_sha256",
+          "object_sha256",
+          "row_count",
+          "size_bytes",
+          "object_key",
+          "created_at"
+        ],
+        "title": "RawManifest",
+        "type": "object"
+      },
+      "RawManifestResponse": {
+        "additionalProperties": false,
+        "description": "Resultado canônico do registro do manifesto raw.",
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "full_resync_required": {
+            "title": "Full Resync Required",
+            "type": "boolean"
+          },
+          "manifest_id": {
+            "title": "Manifest Id",
+            "type": "string"
+          },
+          "manifest_sha256": {
+            "title": "Manifest Sha256",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "accepted",
+          "manifest_id",
+          "manifest_sha256",
+          "full_resync_required",
+          "reason"
+        ],
+        "title": "RawManifestResponse",
+        "type": "object"
+      },
+      "RawManifestSubmission": {
+        "additionalProperties": false,
+        "description": "Envelope autenticado de submissão do manifesto raw.",
+        "properties": {
+          "fencing_token": {
+            "minimum": 0.0,
+            "title": "Fencing Token",
+            "type": "integer"
+          },
+          "job_id": {
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/RawManifest"
+          }
+        },
+        "required": [
+          "job_id",
+          "fencing_token",
+          "manifest"
+        ],
+        "title": "RawManifestSubmission",
+        "type": "object"
+      },
+      "RawUploadResponse": {
+        "additionalProperties": false,
+        "description": "Recibo do objeto raw persistido.",
+        "properties": {
+          "object_key": {
+            "title": "Object Key",
+            "type": "string"
+          },
+          "object_sha256": {
+            "title": "Object Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "object_key",
+          "object_sha256",
+          "size_bytes"
+        ],
+        "title": "RawUploadResponse",
+        "type": "object"
+      },
       "RunOut": {
         "properties": {
           "competencia": {
@@ -616,6 +934,14 @@
         ],
         "title": "RunOut",
         "type": "object"
+      },
+      "SnapshotMode": {
+        "enum": [
+          "FULL",
+          "DELTA"
+        ],
+        "title": "SnapshotMode",
+        "type": "string"
       },
       "SourceStatusOut": {
         "properties": {
@@ -695,6 +1021,17 @@
         ],
         "title": "SourceStatusOut",
         "type": "object"
+      },
+      "SourceType": {
+        "enum": [
+          "CNES_LOCAL",
+          "CNES_NACIONAL",
+          "SIHD",
+          "BPA_MAG",
+          "SIA_LOCAL"
+        ],
+        "title": "SourceType",
+        "type": "string"
       },
       "TenantOut": {
         "properties": {
@@ -1312,6 +1649,222 @@
         ]
       }
     },
+    "/api/v1/edge/jobs/next": {
+      "get": {
+        "description": "Adquire por CAS o primeiro entre até dez jobs elegíveis.",
+        "operationId": "next_job_api_v1_edge_jobs_next_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EdgeJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "Next Job",
+        "tags": [
+          "edge-raw"
+        ]
+      }
+    },
+    "/api/v1/edge/jobs/{job_id}/heartbeat": {
+      "post": {
+        "description": "Renova por 300 segundos o owner e fence apresentados.",
+        "operationId": "heartbeat_api_v1_edge_jobs__job_id__heartbeat_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Heartbeat",
+        "tags": [
+          "edge-raw"
+        ]
+      }
+    },
+    "/api/v1/edge/jobs/{job_id}/raw-object": {
+      "put": {
+        "description": "Transmite um objeto raw sem carregar o payload inteiro em memória.",
+        "operationId": "upload_raw_object_api_v1_edge_jobs__job_id__raw_object_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Fencing-Token",
+            "required": true,
+            "schema": {
+              "title": "X-Fencing-Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Object-Key",
+            "required": true,
+            "schema": {
+              "title": "X-Object-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Content-Type",
+            "required": true,
+            "schema": {
+              "title": "Content-Type",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RawUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Raw Object",
+        "tags": [
+          "edge-raw"
+        ]
+      }
+    },
+    "/api/v1/edge/raw-manifests": {
+      "post": {
+        "description": "Registra o manifesto usando somente a identidade autenticada.",
+        "operationId": "register_raw_manifest_api_v1_edge_raw_manifests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RawManifestSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RawManifestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RawManifestResponse"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "detail": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Raw Manifest",
+        "tags": [
+          "edge-raw"
+        ]
+      }
+    },
     "/api/v1/extractions/enqueue": {
       "post": {
         "operationId": "enqueue_api_v1_extractions_enqueue_post",
@@ -1411,6 +1964,51 @@
           }
         },
         "summary": "Register Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/jobs/upload-url": {
+      "post": {
+        "operationId": "mint_upload_url_api_v1_jobs_upload_url_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Mint Upload Url Api V1 Jobs Upload Url Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mint Upload Url",
         "tags": [
           "jobs"
         ]

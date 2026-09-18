@@ -2,14 +2,10 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from cnes_contracts.fatos import VinculoCNES
-from cnes_contracts.landing import (
-    Extraction,
-    ExtractionRegisterPayload,
-    FileManifest,
-)
+from cnes_contracts.landing import FileManifest
 from cnes_contracts.protocols import (
     DimLookupPort,
     ExtractionRepoPort,
@@ -46,34 +42,31 @@ class _FakeMapper:
 
 
 class _FakeRepo:
-    def register(
-        self, payload: ExtractionRegisterPayload,
-    ) -> tuple[UUID, str]:
-        return uuid4(), "url"
+    def enqueue(
+        self, engine, *, tenant_id, source_type, competencia,
+        files, depends_on=None,
+    ):
+        return uuid4()
 
     def claim_next(
-        self, processor_id: str, lease_secs: int,
-    ) -> Extraction | None:
+        self, engine, *, lease_seconds=300,
+    ):
         return None
 
-    def complete(self, extraction_id: UUID) -> None:
-        pass
+    def register(
+        self, engine, *, job_id, files,
+        agent_version=None, machine_id=None,
+    ):
+        return job_id
 
-    def fail(self, extraction_id: UUID, error: str) -> None:
-        pass
+    def mark_completed(self, engine, *, job_id):
+        return None
 
-    def heartbeat(
-        self, extraction_id: UUID, processor_id: str,
-    ) -> None:
-        pass
+    def mark_failed(self, engine, *, job_id, reason):
+        return None
 
-    def reap_expired(self) -> int:
+    def reap_expired(self, engine):
         return 0
-
-    def mark_uploaded(
-        self, extraction_id: UUID, sha256: str, row_count: int,
-    ) -> None:
-        pass
 
 
 class _FakeExtractor:
@@ -104,24 +97,20 @@ def test_row_mapper_protocol_satisfeito():
 
 def test_extraction_repo_protocol_satisfeito():
     repo: ExtractionRepoPort = _FakeRepo()
-    payload = ExtractionRegisterPayload(
-        job_id=uuid4(),
-        files=[
-            FileManifest(
-                minio_key="x.parquet.gz", fato_subtype="BPA_C",
-                size_bytes=1, sha256="a" * 64,
-            ),
-        ],
-    )
-    job_id, url = repo.register(payload)
-    assert isinstance(job_id, UUID)
-    assert url == "url"
-    assert repo.claim_next("p", 30) is None
-    repo.complete(uuid4())
-    repo.fail(uuid4(), "err")
-    repo.heartbeat(uuid4(), "p")
-    repo.mark_uploaded(uuid4(), "a" * 64, 10)
-    assert repo.reap_expired() == 0
+    engine = object()  # placeholder; Protocol is structural, runtime value irrelevant
+    job_id = uuid4()
+    assert repo.enqueue(
+        engine, tenant_id="354130", source_type="BPA_MAG",
+        competencia=date(2026, 1, 1),
+        files=[{"minio_key": "x.parquet.gz"}],
+    ) is not None
+    assert repo.claim_next(engine) is None
+    assert repo.register(
+        engine, job_id=job_id, files=[],
+    ) == job_id
+    assert repo.mark_completed(engine, job_id=job_id) is None
+    assert repo.mark_failed(engine, job_id=job_id, reason="x") is None
+    assert repo.reap_expired(engine) == 0
 
 
 def test_extractor_port_satisfeito():
@@ -140,22 +129,23 @@ def test_protocol_stubs_invocados_direto():
     mapper = _FakeMapper()
     assert RowMapperPort.map_vinculo(mapper, {}) is None
     repo = _FakeRepo()
-    payload = ExtractionRegisterPayload(
-        job_id=uuid4(),
-        files=[
-            FileManifest(
-                minio_key="x.parquet.gz", fato_subtype="BPA_C",
-                size_bytes=1, sha256="a" * 64,
-            ),
-        ],
-    )
-    assert ExtractionRepoPort.register(repo, payload) is None
-    assert ExtractionRepoPort.claim_next(repo, "p", 30) is None
-    assert ExtractionRepoPort.complete(repo, uuid4()) is None
-    assert ExtractionRepoPort.fail(repo, uuid4(), "e") is None
-    assert ExtractionRepoPort.heartbeat(repo, uuid4(), "p") is None
-    assert ExtractionRepoPort.reap_expired(repo) is None
-    assert ExtractionRepoPort.mark_uploaded(repo, uuid4(), "a" * 64, 1) is None
+    engine = object()
+    assert ExtractionRepoPort.enqueue(
+        repo, engine, tenant_id="354130", source_type="BPA_MAG",
+        competencia=date(2026, 1, 1),
+        files=[{"minio_key": "x.parquet.gz"}],
+    ) is None
+    assert ExtractionRepoPort.claim_next(repo, engine) is None
+    assert ExtractionRepoPort.register(
+        repo, engine, job_id=uuid4(), files=[],
+    ) is None
+    assert ExtractionRepoPort.mark_completed(
+        repo, engine, job_id=uuid4(),
+    ) is None
+    assert ExtractionRepoPort.mark_failed(
+        repo, engine, job_id=uuid4(), reason="e",
+    ) is None
+    assert ExtractionRepoPort.reap_expired(repo, engine) is None
     extractor = _FakeExtractor()
     assert ExtractorPort.extract(
         extractor, "S", date(2026, 1, 1), "t",

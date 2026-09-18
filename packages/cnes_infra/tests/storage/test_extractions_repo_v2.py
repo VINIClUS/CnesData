@@ -103,9 +103,7 @@ class TestExtractionsRepoV2:
     def test_claim_next_retorna_none_quando_sem_pending(
         self, pg_engine,
     ) -> None:
-        claimed = extractions_repo.claim_next(
-            pg_engine, tenant_id=_TENANT,
-        )
+        claimed = extractions_repo.claim_next(pg_engine)
         assert claimed is None
 
     def test_mark_completed_muda_status(self, pg_engine) -> None:
@@ -186,9 +184,7 @@ class TestExtractionsRepoV2:
             }],
             depends_on=[dep],
         )
-        claimed = extractions_repo.claim_next(
-            pg_engine, tenant_id=_TENANT,
-        )
+        claimed = extractions_repo.claim_next(pg_engine)
         assert claimed is not None
         assert claimed.job_id == dep
         assert claimed.job_id != blocked
@@ -316,3 +312,182 @@ class TestExtractionsRepoV2:
             ).one()
         assert row.agent_version == "0.9.0"
         assert row.machine_id == "old-edge"
+
+    def test_claim_next_atravessa_tenants(self, pg_engine) -> None:
+        from datetime import date as _date
+        # Two tenants, one PENDING row each, distinct created_at
+        t1 = "354130"
+        t2 = "550017"
+        j1 = extractions_repo.enqueue(
+            pg_engine, tenant_id=t1, source_type="BPA_MAG",
+            competencia=_date(2026, 4, 1),
+            files=[{
+                "minio_key": "t1/bpa_c.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "1" * 64,
+            }],
+        )
+        j2 = extractions_repo.enqueue(
+            pg_engine, tenant_id=t2, source_type="BPA_MAG",
+            competencia=_date(2026, 4, 1),
+            files=[{
+                "minio_key": "t2/bpa_c.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "2" * 64,
+            }],
+        )
+        # First claim: oldest by created_at (j1 enqueued first)
+        first = extractions_repo.claim_next(pg_engine)
+        assert first is not None
+        assert first.job_id == j1
+        assert first.tenant_id == t1
+        # Second claim: the other tenant's row
+        second = extractions_repo.claim_next(pg_engine)
+        assert second is not None
+        assert second.job_id == j2
+        assert second.tenant_id == t2
+        # Third claim: nothing PENDING anywhere
+        assert extractions_repo.claim_next(pg_engine) is None
+
+    def test_reap_expired_zero_em_tabela_vazia(self, pg_engine) -> None:
+        assert extractions_repo.reap_expired(pg_engine) == 0
+
+    def test_reap_expired_libera_claimed_com_lease_vencido(
+        self, pg_engine,
+    ) -> None:
+        from datetime import date as _date
+        job_id = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=_date(2026, 5, 1),
+            files=[{
+                "minio_key": "r/exp.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "9" * 64,
+            }],
+        )
+        # Claim it (becomes CLAIMED with lease_until = NOW() + 300s)
+        claimed = extractions_repo.claim_next(pg_engine)
+        assert claimed is not None
+        assert claimed.job_id == job_id
+        # Force lease_until into the past
+        with pg_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE landing.extractions "
+                    "SET lease_until = NOW() - INTERVAL '1 minute' "
+                    "WHERE job_id = :j",
+                ),
+                {"j": str(job_id)},
+            )
+        reaped = extractions_repo.reap_expired(pg_engine)
+        assert reaped == 1
+        with pg_engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT status, lease_until FROM landing.extractions "
+                    "WHERE job_id = :j",
+                ),
+                {"j": str(job_id)},
+            ).one()
+        assert row.status == "PENDING"
+        assert row.lease_until is None
+
+    def test_reap_expired_ignora_claimed_com_lease_valido(
+        self, pg_engine,
+    ) -> None:
+        from datetime import date as _date
+        extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=_date(2026, 5, 2),
+            files=[{
+                "minio_key": "r/fresh.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "8" * 64,
+            }],
+        )
+        claimed = extractions_repo.claim_next(pg_engine)
+        assert claimed is not None
+        assert extractions_repo.reap_expired(pg_engine) == 0
+        with pg_engine.begin() as conn:
+            status = conn.execute(
+                text(
+                    "SELECT status FROM landing.extractions "
+                    "WHERE job_id = :j",
+                ),
+                {"j": str(claimed.job_id)},
+            ).scalar_one()
+        assert status == "CLAIMED"
+
+    def test_reap_expired_ignora_status_nao_claimed(
+        self, pg_engine,
+    ) -> None:
+        from datetime import date as _date
+        # PENDING row (untouched)
+        extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=_date(2026, 5, 3),
+            files=[{
+                "minio_key": "r/p.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "7" * 64,
+            }],
+        )
+        # COMPLETED row
+        c = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=_date(2026, 5, 3),
+            files=[{
+                "minio_key": "r/c.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "6" * 64,
+            }],
+        )
+        extractions_repo.mark_completed(pg_engine, job_id=c)
+        # FAILED row
+        f = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=_date(2026, 5, 3),
+            files=[{
+                "minio_key": "r/f.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "5" * 64,
+            }],
+        )
+        extractions_repo.mark_failed(pg_engine, job_id=f, reason="x")
+        assert extractions_repo.reap_expired(pg_engine) == 0
+
+    def test_reap_expired_atravessa_tenants(self, pg_engine) -> None:
+        from datetime import date as _date
+        t1 = "354130"
+        t2 = "550017"
+        j1 = extractions_repo.enqueue(
+            pg_engine, tenant_id=t1, source_type="BPA_MAG",
+            competencia=_date(2026, 5, 4),
+            files=[{
+                "minio_key": "rt/t1.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "4" * 64,
+            }],
+        )
+        j2 = extractions_repo.enqueue(
+            pg_engine, tenant_id=t2, source_type="BPA_MAG",
+            competencia=_date(2026, 5, 4),
+            files=[{
+                "minio_key": "rt/t2.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100, "sha256": "3" * 64,
+            }],
+        )
+        # Claim both (cross-tenant), then expire both leases
+        assert extractions_repo.claim_next(pg_engine) is not None
+        assert extractions_repo.claim_next(pg_engine) is not None
+        with pg_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE landing.extractions "
+                    "SET lease_until = NOW() - INTERVAL '1 minute' "
+                    "WHERE job_id IN (:a, :b)",
+                ),
+                {"a": str(j1), "b": str(j2)},
+            )
+        assert extractions_repo.reap_expired(pg_engine) == 2

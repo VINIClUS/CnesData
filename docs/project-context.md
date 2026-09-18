@@ -23,7 +23,7 @@ Current repository scope:
 - Canonical contracts and storage/adapters (`packages/cnes_contracts`,
   `packages/cnes_domain`, `packages/cnes_infra`)
 - Migration runner (`apps/cnes_db_migrator`)
-- Data processor skeleton plus source adapters/repositories
+- Data processor worker loop plus source adapters/repositories
 
 Out of scope for this repo: the rules/audit service that consumes the central
 Gold or landing schemas through SQL.
@@ -60,7 +60,7 @@ Municipal edge sources
   - extracts raw rows
   - writes parquet.gz files
   - registers N-file manifests with object-storage keys
-  - registers N-file manifests with central_api
+  - registers manifests with central_api
         |
         v
   central_api
@@ -75,8 +75,9 @@ Municipal edge sources
         |
         v
   data_processor
-  - polling skeleton exists
-  - full Parquet-to-Gold ingestion wiring is still pending
+  - claims landing.extractions
+  - marks work completed or failed without downloading artifacts
+  - full Parquet-to-Gold routing is not wired into the worker loop
 ```
 
 See `docs/architecture.md` for the more detailed system model, route map, job
@@ -146,17 +147,17 @@ Implemented and useful now:
 - Go edge extractors and Parquet writers for the active source families.
 - Central API route surface for health, dashboard, activation, provisioning,
   extraction enqueue, and job registration.
-- Postgres migrations through `017_agent_metadata`.
+- Postgres migrations through `018_add_sha256_landing`.
 - Dashboard v1.1 for tenant overview, agent status, activation, dark mode, and
   access-request flow.
 - Quality suites for Python, Go and frontend paths.
 
 Known boundaries:
 
-- `data_processor` has polling/download utilities and adapters, but the full
-  ingestion path from landing files to Gold tables is not fully wired.
-- `extractions_repo.complete`, `fail`, `heartbeat`, `mark_uploaded`, and
-  `reap_expired` are still deferred.
+- `data_processor` claims landing work and marks it completed without downloading
+  artifacts or invoking the available SHA-256, delta, and source-specific routes.
+- `extractions_repo` implements claim, completion, failure, and expired-lease
+  reaping; heartbeat and uploaded transitions are still deferred.
 - Rules/audit output is intentionally external to this repository.
 - Production Kubernetes manifests are incomplete outside the dashboard chart.
 

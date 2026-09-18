@@ -20,7 +20,7 @@ type ShadowExecutor struct {
 
 // Run executa pipeline mas redireciona para arquivo. Retorna tamanho
 // do arquivo gerado.
-func (s *ShadowExecutor) Run(ctx context.Context, job Job) (sizeBytes int64, err error) {
+func (s *ShadowExecutor) Run(ctx context.Context, job *Job) (sizeBytes int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in ShadowRun: %v\n%s", r, debug.Stack())
@@ -58,6 +58,10 @@ func (s *ShadowExecutor) Run(ctx context.Context, job Job) (sizeBytes int64, err
 	}
 	return info.Size(), nil
 }
+
+// EmitCommitted é no-op no ShadowExecutor — modo shadow não emite
+// audit lifecycle (sem AuditLogger configurado nesse caminho).
+func (s *ShadowExecutor) EmitCommitted(_ Job, _ int64) {}
 
 // ErrShadowDirMissing sinaliza config inválida.
 var ErrShadowDirMissing = errors.New("shadow_output_dir_missing")

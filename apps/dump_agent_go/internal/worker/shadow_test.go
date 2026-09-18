@@ -28,7 +28,7 @@ func TestShadowExecutor_WritesLocalFile(t *testing.T) {
 		ID:     "job-shadow-1",
 		Params: extractor.ExtractionParams{Intent: extractor.IntentCnesEstabelecimentos, CodMunGest: "354130"},
 	}
-	size, err := exe.Run(context.Background(), job)
+	size, err := exe.Run(context.Background(), &job)
 	require.NoError(t, err)
 	require.Greater(t, size, int64(0))
 
@@ -43,7 +43,7 @@ func TestShadowExecutor_UnknownIntent(t *testing.T) {
 	defer db.Close()
 
 	exe := &worker.ShadowExecutor{DB: db, OutputDir: t.TempDir()}
-	_, err := exe.Run(context.Background(), worker.Job{
+	_, err := exe.Run(context.Background(), &worker.Job{
 		Params: extractor.ExtractionParams{Intent: "unknown"},
 	})
 	require.ErrorIs(t, err, worker.ErrUnknownIntent)

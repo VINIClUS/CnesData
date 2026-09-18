@@ -6,7 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from fastapi import Depends, HTTPException
@@ -92,8 +92,7 @@ async def _lease_reaper_loop(engine: Engine) -> None:
 
 
 def _reap_expired_sync(engine: Engine) -> int:
-    with engine.begin() as conn:
-        return extractions_repo.reap_expired(conn)
+    return extractions_repo.reap_expired(engine)
 
 
 def require_auth(request: Request) -> AuthenticatedUser:
@@ -115,9 +114,72 @@ def require_tenant_header(
     return tid
 
 
+def _local_profile_requested() -> bool:
+    return os.environ.get("PROFILE", "").strip().lower() == "local"
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _build_local_state(app: object) -> None:
+    """Compõe uma única vez o grafo SQLite/filesystem do profile local."""
+
+    from central_api.services.delta_policy import DeltaPolicy
+    from central_api.services.national_ingestion import NationalIngestionService
+    from central_api.services.raw_ingestion import RawIngestionService
+    from central_api.services.raw_upload import RawUploadService
+    from cnes_domain.profiles import parse_profile
+    from cnes_infra.control_plane import SQLiteControlPlane
+    from cnes_infra.ingestion import DatasusCnesFtpTransport, DatasusCnesRawAdapter
+    from cnes_infra.object_store import FilesystemObjectStore
+
+    settings = parse_profile(os.environ)
+    objects_root = settings.data_dir / "objects"
+    objects_root.mkdir(parents=True, exist_ok=True)
+    control_plane = SQLiteControlPlane(settings.data_dir / "control-plane.sqlite3", _utc_now)
+    control_plane.initialize()
+    object_store = FilesystemObjectStore(objects_root)
+    raw_ingestion = RawIngestionService(control_plane, object_store, DeltaPolicy())
+    app.state.settings = settings
+    app.state.control_plane = control_plane
+    app.state.raw_query = control_plane
+    app.state.object_store = object_store
+    app.state.raw_ingestion = raw_ingestion
+    app.state.raw_upload = RawUploadService(control_plane, object_store, _utc_now)
+    app.state.national_ingestion = NationalIngestionService(
+        control_plane,
+        DatasusCnesRawAdapter(DatasusCnesFtpTransport(), object_store, _utc_now),
+        raw_ingestion,
+        _utc_now,
+    )
+    _install_edge_overrides(app)
+    logger.info(
+        "local_profile_composed tenant_id=%s data_dir=%s",
+        settings.tenant_id,
+        settings.data_dir,
+    )
+
+
+def _install_edge_overrides(app: object) -> None:
+    from central_api.routes.raw_jobs import (
+        get_control_plane,
+        get_raw_ingestion_service,
+        get_raw_upload_service,
+    )
+
+    app.dependency_overrides[get_control_plane] = lambda: app.state.control_plane
+    app.dependency_overrides[get_raw_upload_service] = lambda: app.state.raw_upload
+    app.dependency_overrides[get_raw_ingestion_service] = lambda: app.state.raw_ingestion
+
+
 @asynccontextmanager
 async def lifespan(app: object) -> AsyncGenerator[None]:
     global _engine
+    if _local_profile_requested():
+        _build_local_state(app)
+        yield
+        return
     _db_url = os.environ.get("DB_URL") or config.DB_URL
     _engine = create_engine(_db_url)
     install_rls_listener(_engine)

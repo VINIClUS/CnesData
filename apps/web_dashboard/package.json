@@ -31,6 +31,7 @@
     "*.{json,css,md,html}": "prettier --write"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
@@ -46,6 +47,9 @@
     "react-dom": "^18.3.1",
     "tailwind-merge": "^3.5.0",
     "zod": "^4.3.6"
+  },
+  "overrides": {
+    "seroval": "^1.6.7"
   },
   "devDependencies": {
     "@headlessui/tailwindcss": "^0.2.2",
