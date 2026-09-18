@@ -42,8 +42,8 @@ class AuditSinkCase:
     _runner: _Runner = field(repr=False, compare=False)
 
     def run(self, probe: AuditSinkProbe) -> None:
+        assert isinstance(probe.sink, AuditSinkPort), f"case={self.name}"
         try:
-            assert isinstance(probe.sink, AuditSinkPort)
             self._runner(probe)
         except Exception as error:
             raise AssertionError(f"case={self.name}") from error

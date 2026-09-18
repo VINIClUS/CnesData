@@ -112,7 +112,6 @@ ignore = [
     "RUF005",  # collection-literal-concatenation
     "PLR2004", # magic-value-comparison (HTTP codes, month numbers)
     "S110",    # try-except-pass (intentional in specific patterns)
-    "S301",    # existing serialization code
 ]
 
 [tool.ruff.lint.per-file-ignores]

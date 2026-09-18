@@ -149,6 +149,7 @@ def overview_kpis_query(
 def faturamento_by_establishment_query(
     engine: Engine, *, tenant_id: str, months: int, current_competencia: int,
 ) -> FaturamentoChart:
+    months = max(1, min(months, 24))
     comps: list[int] = []
     c = current_competencia
     for _ in range(months):

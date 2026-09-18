@@ -272,7 +272,7 @@ class SQLiteControlPlane(SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
             "(event_id, tenant_id, created_at, delivered_at, data) VALUES (?, ?, ?, ?, ?)",
             (
                 event.event_id, event.tenant_id, event.created_at.isoformat(),
-                None if event.delivered_at is None else event.delivered_at.isoformat(),
+                None,  # delivered_at eh sempre None aqui (guard acima rejeita o contrario)
                 serialize_model(event),
             ),
         )

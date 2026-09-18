@@ -126,8 +126,8 @@ class TestCnesNacionalAdapterEstabelecimentos:
             ttl_cache_segundos=3600,
         )
         chave = "estab_354130_2026_03"
-        cache_path = tmp_path / f"{chave}.pkl"
-        cache_path.write_bytes(b"not_valid_pickle")
+        cache_path = tmp_path / f"{chave}.parquet"
+        cache_path.write_bytes(b"not_valid_parquet")
 
         mock_client = MagicMock()
         mock_client.fetch_estabelecimentos.return_value = _make_estab_df()

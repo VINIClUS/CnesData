@@ -65,9 +65,9 @@ class ControlPlaneCase:
 
     def run(self, adapter: Any, clock: MutableClock) -> None:
         """Executa o caso e identifica qualquer falha pelo nome."""
+        assert isinstance(adapter, ControlPlanePort), f"case={self.name}"
+        assert isinstance(adapter, TypedRawQueryPort), f"case={self.name}"
         try:
-            assert isinstance(adapter, ControlPlanePort)
-            assert isinstance(adapter, TypedRawQueryPort)
             self._runner(adapter, clock)
         except Exception as error:
             raise AssertionError(f"case={self.name}") from error
