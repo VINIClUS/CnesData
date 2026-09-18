@@ -28,8 +28,10 @@ def test_app_registra_auth_middleware() -> None:
     assert AuthMiddleware.__name__ in cls_names
 
 
-def test_app_ordem_middleware_auth_runs_first() -> None:
-    """Auth must wrap Tenant must wrap QueryCounter (runtime outer-to-inner)."""
+def test_app_ordem_middleware_cors_depois_auth() -> None:
+    """CORS answers preflight first; Auth wraps Tenant wraps QueryCounter."""
+    from fastapi.middleware.cors import CORSMiddleware
+
     from central_api.middleware import (
         AuthMiddleware,
         QueryCounterMiddleware,
@@ -37,9 +39,16 @@ def test_app_ordem_middleware_auth_runs_first() -> None:
     )
     app = _make_app()
     classes = [m.cls for m in app.user_middleware]
-    assert classes[0] is AuthMiddleware
-    assert classes[1] is TenantMiddleware
-    assert classes[2] is QueryCounterMiddleware
+    assert classes[0] is CORSMiddleware
+    assert classes[1] is AuthMiddleware
+    assert classes[2] is TenantMiddleware
+    assert classes[3] is QueryCounterMiddleware
+
+
+def test_app_inclui_public_leads_router() -> None:
+    app = _make_app()
+    paths = {r.path for r in app.routes}
+    assert "/api/v1/public/leads" in paths
 
 
 def test_app_inclui_access_requests_router() -> None:

@@ -30,6 +30,13 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - /oauth/device_authorization, /oauth/token — device flow
 - /provision/cert, /provision/cert/rotate — cert enrollment + rotation
 
+- `POST /api/v1/public/leads` — captação pública do formulário de contato (sem auth).
+  Persiste em `marketing.leads` (migração 019), responde `202 {"status":"received"}`,
+  `422` payload inválido, `429` + `Retry-After` acima de `LEADS_RATE_LIMIT` (slowapi, chave =
+  último hop de `X-Forwarded-For`), `503 leads_unavailable` se o banco falhar.
+- CORS explícito: `CORS_ALLOWED_ORIGINS` (lista separada por vírgula; `*` é ignorado).
+  `CORSMiddleware` é o middleware mais externo para responder preflight antes do Auth.
+
 ## Objectives
 
 - p99 de rotas Postgres-only < 200ms
@@ -90,6 +97,11 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `repositories/dashboard_repo.py` | DashboardRepo (user/tenant/audit + agents/status + recent_runs) |
 
 ## Gotchas
+
+- **Rota pública `/api/v1/public/*`** é isenta em `AuthMiddleware`; nunca use `Depends(require_auth)`
+  nela nem exponha dados de tenant. O limiter compartilhado vive em `central_api/ratelimit.py`.
+- **CORS nunca com `*`**: `cors_origins()` em `app.py` descarta wildcard; cada ambiente define
+  só a origem do dashboard (`deploy/{dev,prod}` compose). Preflight de origem desconhecida → 400.
 
 - **TenantMiddleware obrigatório:** toda request precisa de header
   `X-Tenant-Id`. Sem ele, `set_tenant_id()` não é chamado e queries quebram

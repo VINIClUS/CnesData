@@ -531,6 +531,99 @@
         "title": "HeartbeatResponse",
         "type": "object"
       },
+      "LeadCreate": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "interest": {
+            "enum": [
+              "early_access",
+              "pilot",
+              "contact"
+            ],
+            "title": "Interest",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Message",
+            "type": "string"
+          },
+          "municipality": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Municipality",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "newsletter_opt_in": {
+            "default": false,
+            "title": "Newsletter Opt In",
+            "type": "boolean"
+          },
+          "organization": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Organization",
+            "type": "string"
+          },
+          "privacy_notice_version": {
+            "maxLength": 10,
+            "minLength": 1,
+            "title": "Privacy Notice Version",
+            "type": "string"
+          },
+          "role": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Role",
+            "type": "string"
+          },
+          "source_cta": {
+            "default": "",
+            "maxLength": 50,
+            "title": "Source Cta",
+            "type": "string"
+          },
+          "source_path": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Source Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "interest",
+          "privacy_notice_version"
+        ],
+        "title": "LeadCreate",
+        "type": "object"
+      },
+      "LeadReceived": {
+        "properties": {
+          "status": {
+            "const": "received",
+            "default": "received",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "LeadReceived",
+        "type": "object"
+      },
       "MeResponse": {
         "properties": {
           "display_name": {
@@ -2011,6 +2104,47 @@
         "summary": "Mint Upload Url",
         "tags": [
           "jobs"
+        ]
+      }
+    },
+    "/api/v1/public/leads": {
+      "post": {
+        "operationId": "create_lead_api_v1_public_leads_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadReceived"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Lead",
+        "tags": [
+          "public"
         ]
       }
     },

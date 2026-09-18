@@ -1,11 +1,10 @@
 """OAuth routes — device authorization + token + activate confirmation."""
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel, Field
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from central_api.deps import require_auth
 from central_api.middleware import AuthenticatedUser
+from central_api.ratelimit import limiter
 from cnes_infra.auth import (
     DeviceAuthorizationRequest,
     DeviceAuthorizationResponse,
@@ -14,8 +13,6 @@ from cnes_infra.auth import (
 from cnes_infra.auth.errors import OAuthError
 
 router = APIRouter(tags=["oauth"])
-
-limiter = Limiter(key_func=get_remote_address)
 
 _DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
