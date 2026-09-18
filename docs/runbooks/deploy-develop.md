@@ -8,10 +8,17 @@ Todo push em `develop` que toca `apps/**`, `packages/**` ou `deploy/**` dispara
 1. `gate` — reexecuta `ci.yml` (lint + testes + coverage) via `workflow_call`.
 2. `build` — builda as 4 imagens Python/nginx em matriz e publica em
    `ghcr.io/viniclus/cnesdata/<app>:develop-<sha>` (+ tag móvel `develop`).
-3. `deploy` — SSH com forced-command até a VPS; roda `docker compose pull`,
-   `migrator`, `up -d`, aguarda o healthcheck do `central-api`. Falhou?
-   restaura a tag anterior automaticamente.
-4. `smoke` — `apps/web_dashboard/scripts/smoke.sh` + `GET /api/v1/system/health`.
+3. `deploy` — roda no runner self-hosted `runner-cnes-dev` (homelab Proxmox,
+   labels `self-hosted, cnesdata, deploy-dev`); dali dispara SSH com
+   forced-command até a VPS, que roda `docker compose pull`, `migrator`,
+   `up -d`, aguarda o healthcheck do `central-api`. Falhou? restaura a tag
+   anterior automaticamente.
+4. `smoke` — `apps/web_dashboard/scripts/smoke.sh` + `GET /api/v1/system/health`
+   (permanece em `ubuntu-latest`: precisa validar a URL pública de fora da rede).
+
+`gate`, `build` e `smoke` continuam em runners hospedados do GitHub — só
+`deploy` usa o self-hosted, e só é alcançado por `push`/`workflow_dispatch`
+em `develop`, nunca por `pull_request`.
 
 O ambiente roda ao lado do stack de produção (`main`) na mesma VPS
 (`103.199.184.166`), em `/opt/cnesdata-dev`, com Postgres/MinIO/Keycloak
@@ -34,10 +41,19 @@ ssh root@103.199.184.166 '
     bash /root/deploy-dev/bootstrap.sh
 '
 
-# 3. Environment "develop" no GitHub (secrets + variables)
+# 3. Instalar a chave privada no runner self-hosted (homelab Proxmox), NÃO
+#    em secrets do GitHub — o job `deploy` roda nesse runner, não numa VM
+#    hospedada descartável.
+ssh <runner-cnes-dev-host> '
+  install -d -m 700 /etc/cnesdata
+  install -m 600 /dev/stdin /etc/cnesdata/deploy-dev.key < ~/.ssh/cnesdata_dev_ci
+  ssh-keyscan -t ed25519 103.199.184.166 > /etc/cnesdata/known_hosts
+  chmod 600 /etc/cnesdata/known_hosts
+'
+
+# 4. Environment "develop" no GitHub — só variáveis (não-segredo); a chave
+#    não passa mais por secrets do GitHub.
 gh api -X PUT repos/VINIClUS/CnesData/environments/develop
-gh secret set DEV_SSH_KEY --env develop < ~/.ssh/cnesdata_dev_ci
-gh secret set DEV_SSH_KNOWN_HOSTS --env develop < <(ssh-keyscan -t ed25519 103.199.184.166)
 gh variable set DEV_SSH_HOST --env develop --body 103.199.184.166
 gh variable set DEV_SSH_USER --env develop --body cnesdeploy
 ```
@@ -94,6 +110,14 @@ curl -I https://cnesdata.vinisantana.com   # deve continuar 200
 
 ```bash
 gh workflow run deploy-develop.yml -f tag=develop-<sha7>
+```
+
+O job `deploy` só executa quando `runner-cnes-dev` (Proxmox) está online; se
+ficar offline, o job fica `queued` e falha após `timeout-minutes: 15` em vez
+de travar. Saída de emergência sem o runner (chave local de operador):
+
+```bash
+ssh -i ~/.ssh/cnesdata_dev_ci cnesdeploy@103.199.184.166 develop-<sha7>
 ```
 
 ### Rollback
