@@ -12,7 +12,7 @@ diff -ru docs/contracts/schemas/ "$gate_contracts/"
 uv run --no-build ruff check .
 (
   cd packages/cnes_infra
-  uv run --no-build alembic -c alembic.ini upgrade head
+  uv run alembic -c alembic.ini upgrade head
 )
 uv run --no-build pytest packages/cnes_domain packages/cnes_infra \
   -m "not bigquery and not e2e and not stress and not soak and not spike" \
