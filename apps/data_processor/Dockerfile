@@ -4,13 +4,15 @@ WORKDIR /app
 COPY pyproject.toml pyproject.toml
 COPY packages/ packages/
 COPY apps/data_processor/ apps/data_processor/
-RUN uv build --wheel --out-dir /wheels packages/cnes_domain && \
+RUN uv build --wheel --out-dir /wheels packages/cnes_contracts && \
+    uv build --wheel --out-dir /wheels packages/cnes_domain && \
     uv build --wheel --out-dir /wheels packages/cnes_infra && \
     uv build --wheel --out-dir /wheels apps/data_processor && \
     uv pip install --system /wheels/*.whl
 
 FROM python:3.13-slim
 RUN groupadd -r app && useradd -r -g app app
+RUN mkdir -p /logs /data && chown -R app:app /logs /data
 COPY --from=builder /usr/local/lib/python3.13/site-packages \
      /usr/local/lib/python3.13/site-packages
 USER app
