@@ -27,7 +27,7 @@ export AWS_DEFAULT_REGION=us-east-1
 export DYNAMODB_ENDPOINT=http://127.0.0.1:18000
 export S3_ENDPOINT=http://127.0.0.1:4566
 
-uv run python - <<'PY'
+uv run --no-build python - <<'PY'
 import os
 
 import boto3
@@ -99,6 +99,6 @@ create_control_plane_table(dynamodb_client())
 create_buckets(s3_client())
 PY
 
-uv run pytest -q tests/integration/test_local_adapter_matrix.py -m local_profile
-uv run pytest -q tests/integration/test_aws_adapter_matrix.py \
+uv run --no-build pytest -q tests/integration/test_local_adapter_matrix.py -m local_profile
+uv run --no-build pytest -q tests/integration/test_aws_adapter_matrix.py \
   -m "dynamodb_local and s3_integration"
