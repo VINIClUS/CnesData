@@ -1,18 +1,22 @@
 export const marketing = {
-  contactEmail: "admin@cnesdata.gov.br",
+  contactEmail: "me@vinisantana.com",
   social: {
     linkedin: "https://www.linkedin.com/company/cnesdata",
     github: "https://github.com/VINIClUS/CnesData",
   },
   language: "Português (Brasil)",
+  meta: {
+    defaultTitle: "CnesData — Painel municipal",
+  },
   nav: {
     inicio: "Início",
     recursos: "Recursos",
-    precos: "Preços",
     sobre: "Sobre",
     contato: "Contato",
     entrar: "Entrar",
-    criarConta: "Criar conta",
+    solicitarAcesso: "Solicitar acesso",
+    menu: "Menu",
+    menuMobile: "Menu de navegação",
   },
   footer: {
     tagline: "Dados hoje. Melhor saúde amanhã.",
@@ -21,10 +25,19 @@ export const marketing = {
     ajuda: "Ajuda",
     developedFor: "Desenvolvido para a saúde pública brasileira.",
   },
+  stage: {
+    desenvolvimento: "Em desenvolvimento",
+    piloto: "Disponível no piloto",
+    planejado: "Planejado",
+  },
+  preview: {
+    caption: "Prévia ilustrativa da interface",
+  },
   cta: {
     subtitle:
-      "Junte-se a centenas de municípios que já utilizam o CnesData para uma gestão mais eficiente.",
-    button: "Criar minha conta gratuitamente",
-    note: "Rápido, seguro e sem burocracia.",
+      "O CnesData está em desenvolvimento. Conte como você utiliza os dados do CNES e o que gostaria de melhorar na sua rotina.",
+    button: "Solicitar acesso antecipado",
+    buttonPiloto: "Quero participar dos testes",
+    note: "Não cria conta nem garante participação no piloto.",
   },
 } as const;
