@@ -91,6 +91,7 @@ select = [
 ignore = [
     "S101",    # assert in tests
     "PLR0913", # too many arguments (domain models)
+    "PLR0917", # too many positional arguments (same rationale as PLR0913)
     "ARG001",  # unused function argument (FastAPI Depends)
     "ARG002",  # unused method argument (Protocol impls)
     "RET504",  # unnecessary assignment before return
