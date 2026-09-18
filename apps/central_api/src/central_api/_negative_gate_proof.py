@@ -1,2 +1,1 @@
-def run_expression(expr: str) -> object:
-    return eval(expr)
+INTERNAL_METRICS_HOST = "192.168.56.101"
