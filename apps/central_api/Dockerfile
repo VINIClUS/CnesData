@@ -14,10 +14,18 @@ RUN uv build --wheel --out-dir /wheels packages/cnes_contracts && \
     uv pip install --system /wheels/*.whl
 
 FROM python:3.13-slim
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 RUN groupadd -r app && useradd -r -g app app
 COPY --from=builder /usr/local/lib/python3.13/site-packages \
      /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
+RUN rm -rf /usr/local/lib/python3.13/site-packages/pip \
+           /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+           /usr/local/lib/python3.13/site-packages/uv \
+           /usr/local/lib/python3.13/site-packages/uv-*.dist-info \
+           /usr/local/lib/python3.13/ensurepip
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \

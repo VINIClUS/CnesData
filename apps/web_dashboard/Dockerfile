@@ -18,8 +18,8 @@ ENV OPENAPI_PATH=/openapi/openapi.json
 RUN bun run codegen && bun run build && bun run bundle:check
 
 # ---------- Stage 2: nginx ----------
-FROM nginx:1.27-alpine
-RUN apk add --no-cache gettext
+FROM nginx:1.29-alpine
+RUN apk upgrade --no-cache && apk add --no-cache gettext
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY apps/web_dashboard/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY apps/web_dashboard/nginx/security-headers.conf /etc/nginx/templates/security-headers.conf
