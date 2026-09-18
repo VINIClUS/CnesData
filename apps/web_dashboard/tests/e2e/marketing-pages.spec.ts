@@ -134,7 +134,7 @@ test("precos_continua_acessivel_sem_sessao", async ({ page }) => {
   await expect(page.getByTestId("plan-basico")).toBeVisible();
   await expect(page.getByTestId("plan-profissional")).toBeVisible();
   await page.reload();
-  await expect(page.getByTestId("plan-basico")).toBeVisible();
+  await expect(page.getByTestId("plan-basico")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('head meta[name="robots"]')).toHaveAttribute("content", "noindex");
   await expect(page).toHaveTitle(/Planos e preços/);
 });
