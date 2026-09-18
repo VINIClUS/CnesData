@@ -19,7 +19,11 @@ RUN bun run codegen && bun run build && bun run bundle:check
 
 # ---------- Stage 2: nginx ----------
 FROM nginx:1.29-alpine
-RUN apk upgrade --no-cache && apk add --no-cache gettext
+# OS_PATCH_LEVEL is referenced in the RUN so its value is part of the layer
+# cache key: without it the upgrade freezes at first-build package versions.
+ARG OS_PATCH_LEVEL=base
+RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
+    apk upgrade --no-cache && apk add --no-cache gettext
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY apps/web_dashboard/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY apps/web_dashboard/nginx/security-headers.conf /etc/nginx/templates/security-headers.conf

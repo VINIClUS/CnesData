@@ -86,6 +86,10 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: OS patch level
+        id: patch
+        run: echo "level=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Build ${{ matrix.app }} image (local, not pushed)
         uses: docker/build-push-action@v6
         with:
@@ -94,7 +98,10 @@ jobs:
           platforms: linux/amd64
           push: false
           load: true
+          pull: true
           tags: cnesdata/${{ matrix.app }}:trivy-scan
+          build-args: |
+            OS_PATCH_LEVEL=${{ steps.patch.outputs.level }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 

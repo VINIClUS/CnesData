@@ -368,6 +368,19 @@ Branch protection rule (`main`):
 
 Configure via GitHub ruleset UI.
 
+### Trivy image scans — OS patch cache busting
+
+`trivy.yml`, `deploy-develop.yml` and `deploy-main.yml` all build the four app
+images with `cache-from/cache-to: type=gha,scope=<app>`. Because Docker keys a
+`RUN` layer on its command string, the `apt-get upgrade`/`apk upgrade` layer in
+each runtime `Dockerfile` would cache-hit forever and freeze at whatever OS
+packages were available on first build. All three workflows pass a
+`OS_PATCH_LEVEL` build-arg (`date -u +%Y-%m-%d`) into that layer's `RUN`, which
+busts just that layer once per day — the expensive builder stages (`uv build`,
+`bun run build`) stay cached. Same-day builds across workflows produce
+byte-identical runtime layers, so the image Trivy scans matches what gets
+pushed to GHCR.
+
 ### Self-hosted runners
 
 `deploy-develop.yml` and `deploy-main.yml` run their `deploy` job on
