@@ -361,12 +361,29 @@ Violations auto-apply PR labels via `scripts/flag_quality_violation.py`:
 - `needs-chaos-review` — chaos test failure (design bug)
 - `needs-security-review` — negative-test failure (input handling bug)
 
-Branch protection rule (`main`):
-- CI status green
-- No labels: `needs-quality-review`, `needs-chaos-review`, `needs-security-review`
-- CODEOWNERS approval required for paths listed in `.github/CODEOWNERS`
+Branch protection rules (`main` + `develop`, verified via
+`gh api repos/.../rules/branches/<branch>`):
+- Required status checks (ruleset `required-checks-long-lived`, both
+  branches): `image (central_api)`, `image (data_processor)`,
+  `image (cnes_db_migrator)`, `image (web_dashboard)` — the four Trivy
+  image-scan matrix legs from `trivy.yml`. Not strict (branches don't need
+  to be up to date before merge). A flaky leg blocks all PRs into either
+  branch; the repo owner's `RepositoryRole` bypass actor can override.
+- `required_linear_history`, `non_fast_forward` (no direct force-pushes)
+- PR required before merge, but with `required_approving_review_count: 0`
+  and `require_code_owner_review: false` — no reviewer/CODEOWNERS approval
+  is actually enforced by the ruleset today, despite `.github/CODEOWNERS`
+  existing. `sonar` is deliberately excluded from required checks: it fails
+  on both branches for unrelated reasons (a pre-existing SonarCloud
+  Reliability/Security baseline on `main`, and a broken
+  branch-analysis/`SONAR_TOKEN` config on `develop`'s push-triggered runs)
+  and would hard-block all merges if required.
+- Quality-gate labels (`needs-quality-review`, `needs-chaos-review`,
+  `needs-security-review`, applied by `scripts/flag_quality_violation.py`)
+  are informational — not enforced as a merge block by any ruleset rule.
 
-Configure via GitHub ruleset UI.
+Configured via GitHub rulesets (`gh api repos/.../rulesets`), not classic
+branch protection.
 
 ### Trivy image scans — OS patch cache busting
 
