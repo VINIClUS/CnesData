@@ -191,7 +191,8 @@ ver `apps/<app>/CLAUDE.md`.
 - Tenant: sempre `cnes_domain.tenant.set_tenant_id()` antes de query Postgres.
 - Quality gates: 4 suites em `tests/{property,memory,chaos,negative}/` + N+1 middleware.
   Markers: `race`, `memleak`, `chaos`, `chaos_infra`, `negative`, `n_plus_1_debt`.
-  Violações aplicam label `needs-*-review` (bloqueia merge via ruleset).
+  Violações aplicam label `needs-*-review` (informativo — nenhuma regra de
+  ruleset bloqueia merge por causa dele; ver `docs/architecture.md`).
 - Go agent coverage gate: 65% on filtered set (see
   `apps/dump_agent_go/test/README.md` for filter regex + CI label vocab).
 - Self-hosted runners (`deploy-dev`, `deploy-prod`, homelab Proxmox) only run

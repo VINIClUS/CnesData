@@ -373,17 +373,41 @@ Branch protection rules (`main` + `develop`, verified via
 - PR required before merge, but with `required_approving_review_count: 0`
   and `require_code_owner_review: false` — no reviewer/CODEOWNERS approval
   is actually enforced by the ruleset today, despite `.github/CODEOWNERS`
-  existing. `sonar` is deliberately excluded from required checks: it fails
-  on both branches for unrelated reasons (a pre-existing SonarCloud
-  Reliability/Security baseline on `main`, and a broken
-  branch-analysis/`SONAR_TOKEN` config on `develop`'s push-triggered runs)
-  and would hard-block all merges if required.
+  existing. `sonar`, `dependencies` (Trivy), `config` (Trivy) and
+  `lint-test-coverage` are not currently required checks: `sonar` used to
+  hard-fail both branches because `main` carried an unaddressed
+  Reliability/Security baseline (69 open issues, all counted as new code
+  under a 30-day New Code Definition on a new repo). That baseline is fixed
+  or suppressed in-repo (see "Baseline de segurança" below), pending
+  confirmation on the first PR-level Sonar analysis that `new_reliability_rating`
+  and `new_security_rating` come back at `1` — promoting `sonar` (and
+  `dependencies`/`config`/`lint-test-coverage`, which already fail loudly
+  without blocking anyone) to required checks is a separate, not-yet-applied
+  ruleset change.
 - Quality-gate labels (`needs-quality-review`, `needs-chaos-review`,
   `needs-security-review`, applied by `scripts/flag_quality_violation.py`)
   are informational — not enforced as a merge block by any ruleset rule.
 
 Configured via GitHub rulesets (`gh api repos/.../rulesets`), not classic
 branch protection.
+
+### Baseline de segurança
+
+Achados residuais de SonarCloud e Trivy que são falso positivo ou restrição
+externa documentada (não bug real) ficam registrados como baseline
+versionado, nunca silenciados por exclusão de diretório inteiro:
+
+- **SonarCloud**: `sonar.issue.ignore.multicriteria` em
+  `sonar-project.properties`, escopado por `ruleKey` + `resourceKey` (nunca
+  um diretório inteiro sem regra específica). Cada entrada carrega
+  justificativa + data de revisão em comentário.
+- **Trivy**: `.trivyignore`, uma linha por CVE/AVD-ID com `# reason + review
+  date (YYYY-MM-DD)`.
+
+Ambos os arquivos são revisados na cadência atual (2026-12-17). Alargar
+qualquer um dos dois — adicionar uma entrada nova ou ampliar o escopo de uma
+existente — é mudança revisável em PR, visível em code review; não há
+mecanismo para suprimir achados fora desses dois arquivos versionados.
 
 ### Trivy image scans — OS patch cache busting
 
