@@ -1,0 +1,106 @@
+name: Deploy main
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag de imagem a implantar (ex.: main-abc1234). Vazio = build do commit atual.'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  # github.repository_owner is "VINIClUS" (mixed case); Docker tags require lowercase.
+  IMAGE_NAMESPACE: ghcr.io/viniclus/cnesdata
+
+jobs:
+  gate:
+    if: ${{ inputs.tag == '' }}
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    if: ${{ inputs.tag == '' }}
+    needs: gate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app:
+          - central_api
+          - data_processor
+          - cnes_db_migrator
+          - web_dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.app }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:main-${{ github.sha }}
+            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:main
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  deploy:
+    needs: [build]
+    if: ${{ always() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: [self-hosted, cnesdata, deploy-prod]
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://cnesdata.vinisantana.com
+    steps:
+      - name: Resolve image tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          TAG="${INPUT_TAG:-main-$SHA}"
+          echo "value=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy via forced-command SSH
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+          SSH_USER: ${{ vars.PROD_SSH_USER }}
+          SSH_HOST: ${{ vars.PROD_SSH_HOST }}
+        run: |
+          ssh -i /etc/cnesdata/deploy-prod.key \
+            -o UserKnownHostsFile=/etc/cnesdata/known_hosts \
+            -o IdentitiesOnly=yes \
+            "$SSH_USER@$SSH_HOST" "$TAG"
+
+  smoke:
+    needs: deploy
+    if: ${{ always() && needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Web dashboard smoke test
+        run: bash apps/web_dashboard/scripts/smoke.sh https://cnesdata.vinisantana.com
+
+      - name: Central API health check
+        run: |
+          curl -fsS https://cnesdata.vinisantana.com/api/v1/system/health | tee /tmp/health.json
+          jq -e '.db_connected == true' /tmp/health.json
