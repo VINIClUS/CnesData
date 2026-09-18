@@ -17,7 +17,10 @@ Persona secundária: técnico hospitalar redimindo `user_code` na rota
 ## Functionalities
 
 - `/` — landing pública (hero + recursos + benefícios + CTA)
-- `/precos` — planos, trust strip e FAQ (público)
+- `/recursos` — capacidades com estágio explícito ("Em desenvolvimento") + fluxo coleta → processamento → consulta
+- `/sobre` — página editorial: motivação, público, abordagem, estágio atual
+- `/contato?interesse=acesso-antecipado|piloto|contato` — formulário de interesse (`LeadForm`); valor desconhecido cai em `contato`
+- `/precos` — planos, trust strip e FAQ. Sem divulgação interna (fora de menu, rodapé e CTAs); acessível por URL direta; `noindex` via `head()` + `X-Robots-Tag` (nginx)
 - `/login` — OIDC Auth Code + PKCE; formulário visual, e-mail vira `login_hint`
 - `/auth/callback` — redirect handler
 - `/agentes` — status edge agents do tenant + últimas 20 execuções (Task 24)
@@ -80,6 +83,9 @@ manager) — SPA carrega mas login falha controladamente.
 | `src/components/marketing/`     | Navbar, Footer, HeroSurface (dark forçado), CtaBand, FeatureItem, DashboardPreview estático                                    |
 | `src/components/landing/`       | LandingPage (`/`)                                                                                                              |
 | `src/components/pricing/`       | PricingPage (`/precos`) + PricingCard + FaqList                                                                                |
+| `src/components/resources/`     | ResourcesPage (`/recursos`) — blocos alternados + fluxo, visuais ilustrativos reaproveitando `preview/*`                        |
+| `src/components/about/`         | AboutPage (`/sobre`) — corpo editorial `max-w-[720px]`                                                                        |
+| `src/components/contact/`       | ContactPage (`/contato`) + LeadForm/useLeadForm/leadSchema; `contactInterest.ts` valida `?interesse`                          |
 | `src/components/login/`         | LoginPage + LoginForm (senha renderizada, nunca enviada)                                                                       |
 | `src/components/signup/`        | AccessRequestForm + PendingRequestsList (v1.1)                                                                                 |
 | `src/components/overview/`      | KpiCard + KpiGrid + FaturamentoAreaChart (Tremor lazy) (v1.1)                                                                  |
@@ -143,9 +149,17 @@ bun run typecheck
 - **`@tremor/react` lazy-loaded**: importar via `lazy(() => import(...))`
   apenas em rotas que usam charts (hoje só /overview). Tremor entra em chunk
   próprio no `manualChunks` do `vite.config.ts`; bundle main fica fora.
-- **Páginas públicas (`/`, `/precos`, `/login`) usam `HeroSurface`** com classe `dark`
+- **Páginas públicas (`/`, `/recursos`, `/sobre`, `/contato`, `/precos`, `/login`) usam `HeroSurface`** com classe `dark`
   literal: hero/footer/CTA ficam navy em qualquer tema; seções claras seguem o toggle.
   Cores de marca via `--navy*`/`--brand*` em `styles.css` (aliases `bg-navy`, `text-brand`).
+- **`HeadContent` vai para `document.head` via `createPortal` em `__root.tsx`**: React 18 não hoista
+  `<title>`/`<meta>`. `index.html` não tem `<title>` estático; o root route define o fallback e cada
+  rota pública define o seu em `head()`. Só `/precos` emite `robots: noindex`.
+- **Navegação pública é a lista estática `marketingNavigation.ts`** (Início, Recursos, Sobre, Contato).
+  Não derivar do route tree; não reintroduzir `/precos` em header, rodapé ou CTAs.
+- **Leads: `POST ${VITE_API_BASE_URL}/public/leads`** (`src/api/marketingLeads.ts`). Endpoint ainda não
+  existe em `central_api`: o formulário mostra falha real (404/5xx/rede) com retry e fallback
+  "Enviar e-mail". Nunca simular sucesso. Hosts de API vêm só de `VITE_API_BASE_URL`.
 - **Fonte Inter self-hosted** (`@fontsource-variable/inter` em `main.tsx`) — CSP não permite
   Google Fonts.
 - **Dark mode FOUC script** inline em `index.html` `<head>` aplica classe
