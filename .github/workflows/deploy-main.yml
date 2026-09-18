@@ -92,6 +92,7 @@ jobs:
 
   smoke:
     needs: deploy
+    if: ${{ always() && needs.deploy.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
