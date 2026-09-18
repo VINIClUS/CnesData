@@ -1,0 +1,6 @@
+# CVE/misconfig exceptions for Trivy gates in .github/workflows/trivy.yml.
+# Format: <CVE-ID or AVD-ID>  # reason + review date (YYYY-MM-DD)
+# Do not silence findings without a documented reason — this file is reviewed in PRs.
+
+DS-0002  # apps/web_dashboard/Dockerfile nginx runs as root; non-root nginx needs port >1024 rearchitecture, tracked as follow-up, review 2026-12-17
+KSV-0014  # charts/web-dashboard readOnlyRootFilesystem needs emptyDir mounts for nginx cache/pid, tracked as follow-up, review 2026-12-17

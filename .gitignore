@@ -102,6 +102,11 @@ apps/dump_agent_go/dumpagent.exe
 .cache/firebird-1.5.6/
 Firebird-*.exe
 
+# --- SonarQube / Trivy ---
+coverage-packages.xml
+coverage-apps.xml
+.scannerwork/
+
 secrets/
 secrets/**
 secrets/*
