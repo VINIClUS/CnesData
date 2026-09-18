@@ -1,9 +1,18 @@
+import os
+
 import fdb
 
 
 def run():
-    fdb.load_api(r'C:\Users\CPD\Projetos\CnesData\fb_64\fbembed.dll')
-    con = fdb.connect(dsn=r'localhost:C:\Datasus\CNES\CNES.GDB', user='SYSDBA', password='masterkey')
+    dll = os.environ.get("FIREBIRD_DLL")
+    dsn = os.environ.get("FIREBIRD_DSN")
+    senha = os.environ.get("FIREBIRD_PASSWORD")
+    if not dll or not dsn or not senha:
+        raise RuntimeError(
+            "defina FIREBIRD_DLL, FIREBIRD_DSN e FIREBIRD_PASSWORD (ex.: via .env)",
+        )
+    fdb.load_api(dll)
+    con = fdb.connect(dsn=dsn, user="SYSDBA", password=senha)
     cur = con.cursor()
 
     tables = [

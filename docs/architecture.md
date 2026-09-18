@@ -361,12 +361,72 @@ Violations auto-apply PR labels via `scripts/flag_quality_violation.py`:
 - `needs-chaos-review` — chaos test failure (design bug)
 - `needs-security-review` — negative-test failure (input handling bug)
 
-Branch protection rule (`main`):
-- CI status green
-- No labels: `needs-quality-review`, `needs-chaos-review`, `needs-security-review`
-- CODEOWNERS approval required for paths listed in `.github/CODEOWNERS`
+Branch protection rules (`main` + `develop`, verified via
+`gh api repos/.../rules/branches/<branch>`):
+- Required status checks (ruleset `required-checks-long-lived`, both
+  branches): `image (central_api)`, `image (data_processor)`,
+  `image (cnes_db_migrator)`, `image (web_dashboard)` (the four Trivy
+  image-scan matrix legs from `trivy.yml`), plus `sonar`, `dependencies`
+  (Trivy), `config` (Trivy) and `lint-test-coverage`. Not strict (branches
+  don't need to be up to date before merge). A flaky leg blocks all PRs into
+  either branch; the repo owner's `RepositoryRole` bypass actor can override.
+- `required_linear_history`, `non_fast_forward` (no direct force-pushes)
+- PR required before merge, but with `required_approving_review_count: 0`
+  and `require_code_owner_review: false` — no reviewer/CODEOWNERS approval
+  is actually enforced by the ruleset today, despite `.github/CODEOWNERS`
+  existing.
+- `sonar`, `dependencies` and `config` used to be excluded from required
+  checks because `main` carried an unaddressed Reliability/Security baseline
+  (69 open issues, all counted as new code under a 30-day New Code Definition
+  on a new repo). That baseline is now fixed or suppressed in-repo (see
+  "Baseline de segurança" below); PR #194 confirmed `new_reliability_rating`
+  and `new_security_rating` come back at `1` on PR-level analysis, and a
+  throwaway negative-gate proof (PRs #197/#198, closed unmerged) confirmed a
+  real regression on either rating fails the gate. `ci.yml`'s `pull_request`
+  trigger had its `paths:` filter removed so `lint-test-coverage` runs
+  unconditionally (a required check gated by a filter that doesn't always
+  fire would leave matching PRs permanently pending) — `push` keeps the
+  filter. `sonar.yml` and `trivy.yml` have no `paths:` filter on either
+  trigger, so they needed no change.
+- The ruleset's `conditions.ref_name.include` covers `main` and `develop`
+  under one rule with no per-branch check scoping. A PR opened against `main`
+  from a branch cut before the `paths:` filter was removed on `develop`
+  would still hang on `lint-test-coverage`; recoverable via the owner bypass,
+  closed by the next `develop` → `main` promotion.
+- `sonar.yml`'s `push` trigger only runs on `main`, not `develop`: `develop`
+  is a `short`-type branch in SonarCloud (not the project's main/long-lived
+  branch), which has no quality gate to compute. `sonar.qualitygate.wait=true`
+  polling a `short` branch's status fails with a misleading "Not authorized
+  or project not found" error — a branch-type mismatch, not a token problem
+  (confirmed by comparing `main`'s `push` run, type `long`, which
+  authenticates and reports a real gate verdict, against `develop`'s, type
+  `short`, run `35372745045`). PR-triggered analysis on `develop` (the
+  actual enforcement path, before and after this becomes a required check)
+  is unaffected — it authenticates and evaluates normally on both branches.
+- Quality-gate labels (`needs-quality-review`, `needs-chaos-review`,
+  `needs-security-review`, applied by `scripts/flag_quality_violation.py`)
+  are informational — not enforced as a merge block by any ruleset rule.
 
-Configure via GitHub ruleset UI.
+Configured via GitHub rulesets (`gh api repos/.../rulesets`), not classic
+branch protection.
+
+### Baseline de segurança
+
+Achados residuais de SonarCloud e Trivy que são falso positivo ou restrição
+externa documentada (não bug real) ficam registrados como baseline
+versionado, nunca silenciados por exclusão de diretório inteiro:
+
+- **SonarCloud**: `sonar.issue.ignore.multicriteria` em
+  `sonar-project.properties`, escopado por `ruleKey` + `resourceKey` (nunca
+  um diretório inteiro sem regra específica). Cada entrada carrega
+  justificativa + data de revisão em comentário.
+- **Trivy**: `.trivyignore`, uma linha por CVE/AVD-ID com `# reason + review
+  date (YYYY-MM-DD)`.
+
+Ambos os arquivos são revisados na cadência atual (2026-12-17). Alargar
+qualquer um dos dois — adicionar uma entrada nova ou ampliar o escopo de uma
+existente — é mudança revisável em PR, visível em code review; não há
+mecanismo para suprimir achados fora desses dois arquivos versionados.
 
 ### Trivy image scans — OS patch cache busting
 

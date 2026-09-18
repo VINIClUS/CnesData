@@ -1,6 +1,7 @@
 """Popula Postgres perf com volumes grandes sintéticos."""
 import argparse
 import logging
+import os
 import random
 import sys
 
@@ -14,12 +15,14 @@ logger = logging.getLogger(__name__)
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--url",
-        default="postgresql+psycopg://cnesdata:cnesdata_perf@localhost:5434/cnesdata_perf",
-    )
+    parser.add_argument("--url", default=os.environ.get("PERF_DB_URL"))
     parser.add_argument("--n", type=int, default=100_000)
     args = parser.parse_args()
+    if not args.url:
+        raise SystemExit(
+            "defina PERF_DB_URL ou passe --url "
+            "(ex.: postgres do docker-compose --profile perf)",
+        )
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     random.seed(42)
