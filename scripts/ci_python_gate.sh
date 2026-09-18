@@ -16,8 +16,10 @@ uv run ruff check .
 )
 uv run pytest packages/cnes_domain packages/cnes_infra \
   -m "not bigquery and not e2e and not stress and not soak and not spike" \
-  --cov --cov-config=pyproject.toml --cov-report=term-missing
+  --cov --cov-config=pyproject.toml --cov-report=term-missing \
+  --cov-report=xml:coverage-packages.xml
 uv run pytest apps/ \
   -m "not integration and not bigquery and not e2e and not stress and not soak and not spike \
 and not windows_only" \
-  --cov --cov-config=.coveragerc --cov-report=term-missing
+  --cov --cov-config=.coveragerc --cov-report=term-missing \
+  --cov-report=xml:coverage-apps.xml
