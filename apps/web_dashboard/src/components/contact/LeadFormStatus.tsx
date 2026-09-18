@@ -4,6 +4,7 @@ import type { ApiInterest } from "./contactInterest";
 import type { LeadStatus } from "./useLeadForm";
 
 import type { LeadFailure } from "@/api/marketingLeads";
+import { RETRYABLE_FAILURES } from "@/api/marketingLeads";
 import { Button } from "@/components/ui/button";
 import { contact } from "@/i18n/contact";
 import { marketing } from "@/i18n/marketing";
@@ -36,9 +37,11 @@ export function LeadFormStatus({ status, failure, interest, onRetry }: Props) {
             <p>{contact.status.failed[failure]}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-              {contact.status.retry}
-            </Button>
+            {RETRYABLE_FAILURES.includes(failure) && (
+              <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+                {contact.status.retry}
+              </Button>
+            )}
             <Button type="button" variant="ghost" size="sm" asChild>
               <a href={mailHref(interest)}>{contact.status.sendEmail}</a>
             </Button>

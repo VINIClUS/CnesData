@@ -104,11 +104,11 @@ describe("LeadForm", () => {
   });
 
   test.each([
-    [422, /Alguns campos não foram aceitos/],
-    [429, /Muitas tentativas/],
-    [404, /serviço está indisponível/],
-    [503, /serviço está indisponível/],
-  ])("mostra_falha_em_%i_sem_sucesso", async (status, message) => {
+    [422, /Alguns campos não foram aceitos/, false],
+    [429, /Muitas tentativas/, false],
+    [404, /serviço está indisponível/, true],
+    [503, /serviço está indisponível/, true],
+  ])("mostra_falha_em_%i_sem_sucesso", async (status, message, retryable) => {
     const user = userEvent.setup();
     server.use(respond(status));
     render(<LeadForm interesse="contato" />);
@@ -116,7 +116,8 @@ describe("LeadForm", () => {
     await user.click(screen.getByRole("button", { name: "Enviar interesse" }));
     expect(await screen.findByRole("status")).toHaveTextContent(message);
     expect(screen.queryByText(/Recebemos seu interesse/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tentar novamente" }) !== null).toBe(retryable);
+    expect(screen.getByRole("link", { name: "Enviar e-mail" })).toBeInTheDocument();
   });
 
   test("falha_de_rede_preserva_campos_e_oferece_email", async () => {

@@ -74,8 +74,10 @@ export const contact = {
     received:
       "Recebemos seu interesse no CnesData. Isso não cria uma conta nem garante participação no piloto.",
     failed: {
-      validation: "Alguns campos não foram aceitos. Revise as informações e tente novamente.",
-      rate_limited: "Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.",
+      validation:
+        "Alguns campos não foram aceitos pelo servidor. Revise as informações e envie de novo.",
+      rate_limited:
+        "Muitas tentativas em pouco tempo a partir da sua conexão. Aguarde alguns minutos antes de enviar de novo, ou use o e-mail.",
       unavailable:
         "Não foi possível registrar seu interesse agora: o serviço está indisponível. Tente novamente ou envie um e-mail.",
       network:

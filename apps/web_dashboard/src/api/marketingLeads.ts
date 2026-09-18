@@ -14,6 +14,7 @@ export type LeadPayload = Lead & {
 
 export type LeadFailure = "validation" | "rate_limited" | "unavailable" | "network";
 export type LeadResult = { ok: true } | { ok: false; reason: LeadFailure };
+export const RETRYABLE_FAILURES: readonly LeadFailure[] = ["unavailable", "network"];
 
 function reasonFor(status: number): LeadFailure {
   if (status === 422) return "validation";

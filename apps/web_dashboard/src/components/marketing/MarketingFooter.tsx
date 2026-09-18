@@ -6,20 +6,23 @@ import { PUBLIC_NAV } from "./marketingNavigation";
 import { Logo } from "@/components/brand/Logo";
 import { marketing } from "@/i18n/marketing";
 
-const _MAIL = `mailto:${marketing.contactEmail}`;
 const _LINK = "text-xs text-muted-foreground transition-colors hover:text-foreground";
 
-type ExternalLink = { label: string; href: string };
+type FooterRoute = {
+  label: string;
+  to: "/" | "/recursos" | "/sobre" | "/contato" | "/termos" | "/privacidade" | "/ajuda";
+};
 
-const _FULL_EXTERNAL: ExternalLink[] = [
-  { label: marketing.footer.termos, href: `${_MAIL}?subject=Termos` },
-  { label: marketing.footer.privacidade, href: `${_MAIL}?subject=Privacidade` },
+const _LEGAL: FooterRoute[] = [
+  { label: marketing.footer.termos, to: "/termos" },
+  { label: marketing.footer.privacidade, to: "/privacidade" },
 ];
 
-const _COMPACT: ExternalLink[] = [
-  { label: marketing.footer.ajuda, href: `${_MAIL}?subject=Ajuda` },
-  { label: marketing.footer.privacidade, href: `${_MAIL}?subject=Privacidade` },
-  { label: marketing.footer.termos, href: `${_MAIL}?subject=Termos` },
+const _COMPACT: FooterRoute[] = [
+  { label: marketing.footer.ajuda, to: "/ajuda" },
+  { label: marketing.footer.privacidade, to: "/privacidade" },
+  { label: marketing.footer.termos, to: "/termos" },
+  { label: marketing.nav.contato, to: "/contato" },
 ];
 
 function FooterBrand() {
@@ -31,13 +34,13 @@ function FooterBrand() {
   );
 }
 
-function FooterLinks({ items }: { items: ExternalLink[] }) {
+function FooterLinks({ items }: { items: readonly FooterRoute[] }) {
   return (
     <>
       {items.map((l) => (
-        <a key={l.label} href={l.href} className={_LINK}>
+        <Link key={l.to} to={l.to} className={_LINK}>
           {l.label}
-        </a>
+        </Link>
       ))}
     </>
   );
@@ -51,9 +54,6 @@ export function MarketingFooter({ variant = "full" }: { variant?: "full" | "comp
         <div className="flex items-center gap-8">
           <nav aria-label="Rodapé" className="flex items-center gap-6">
             <FooterLinks items={_COMPACT} />
-            <Link to="/contato" className={_LINK}>
-              {marketing.nav.contato}
-            </Link>
           </nav>
           <SocialLinks />
         </div>
@@ -65,12 +65,8 @@ export function MarketingFooter({ variant = "full" }: { variant?: "full" | "comp
       <div className="mx-auto flex w-full max-w-[1320px] flex-wrap items-center justify-between gap-4 px-6 py-5">
         <FooterBrand />
         <nav aria-label="Rodapé" className="hidden items-center gap-6 lg:flex">
-          {PUBLIC_NAV.map((l) => (
-            <Link key={l.to} to={l.to} className={_LINK}>
-              {l.label}
-            </Link>
-          ))}
-          <FooterLinks items={_FULL_EXTERNAL} />
+          <FooterLinks items={PUBLIC_NAV} />
+          <FooterLinks items={_LEGAL} />
         </nav>
         <div className="flex flex-wrap items-center gap-4">
           <SocialLinks />

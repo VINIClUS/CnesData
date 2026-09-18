@@ -20,6 +20,7 @@ Persona secundária: técnico hospitalar redimindo `user_code` na rota
 - `/recursos` — capacidades com estágio explícito ("Em desenvolvimento") + fluxo coleta → processamento → consulta
 - `/sobre` — página editorial: motivação, público, abordagem, estágio atual
 - `/contato?interesse=acesso-antecipado|piloto|contato` — formulário de interesse (`LeadForm`); valor desconhecido cai em `contato`
+- `/privacidade`, `/termos`, `/ajuda` — páginas legais/ajuda (`LegalPage`), conteúdo em `i18n/legal.ts`
 - `/precos` — planos, trust strip e FAQ. Sem divulgação interna (fora de menu, rodapé e CTAs); acessível por URL direta; `noindex` via `head()` + `X-Robots-Tag` (nginx)
 - `/login` — OIDC Auth Code + PKCE; formulário visual, e-mail vira `login_hint`
 - `/auth/callback` — redirect handler
@@ -157,9 +158,18 @@ bun run typecheck
   rota pública define o seu em `head()`. Só `/precos` emite `robots: noindex`.
 - **Navegação pública é a lista estática `marketingNavigation.ts`** (Início, Recursos, Sobre, Contato).
   Não derivar do route tree; não reintroduzir `/precos` em header, rodapé ou CTAs.
-- **Leads: `POST ${VITE_API_BASE_URL}/public/leads`** (`src/api/marketingLeads.ts`). Endpoint ainda não
-  existe em `central_api`: o formulário mostra falha real (404/5xx/rede) com retry e fallback
-  "Enviar e-mail". Nunca simular sucesso. Hosts de API vêm só de `VITE_API_BASE_URL`.
+- **Leads: `POST ${VITE_API_BASE_URL}/public/leads`** (`src/api/marketingLeads.ts`) → `central_api`
+  `routes/public_leads.py`. Falha real (422/429/5xx/rede) sem simular sucesso; "Tentar novamente"
+  só para indisponibilidade/rede; "Enviar e-mail" sempre. Hosts de API vêm só de
+  `VITE_API_BASE_URL` (build-arg do Dockerfile; dev = `https://api.dev.vinisantana.com/api/v1`,
+  prod = `https://api.vinisantana.com/api/v1`, local = `/api/v1` via proxy do Vite/nginx).
+- **CSP `connect-src`** recebe `${API_ORIGIN}` em runtime (`nginx/entrypoint.sh`); o compose de
+  cada ambiente define `API_ORIGIN`. Sem ele, chamadas cross-origin à API são bloqueadas.
+- **`noindex` de `/precos` é pré-lançamento e configurável**: meta via build-arg
+  `VITE_PRECOS_NOINDEX` (default `true`), header via env de runtime `ROBOTS_PRECOS` (default
+  `noindex`, vazio desliga). Não é mecanismo de segurança.
+- **Termos/Privacidade/Ajuda são rotas** (`/termos`, `/privacidade`, `/ajuda`, `components/legal/`).
+  Seções com `pending: true` em `i18n/legal.ts` marcam pontos de negócio ainda não definidos.
 - **Fonte Inter self-hosted** (`@fontsource-variable/inter` em `main.tsx`) — CSP não permite
   Google Fonts.
 - **Dark mode FOUC script** inline em `index.html` `<head>` aplica classe

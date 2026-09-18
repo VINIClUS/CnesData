@@ -7,6 +7,7 @@ import { Route as rootRoute } from "@/routes/__root";
 import { Route as contatoRoute } from "@/routes/contato";
 import { Route as indexRoute } from "@/routes/index";
 import { Route as precosRoute } from "@/routes/precos";
+import { Route as privacidadeRoute } from "@/routes/privacidade";
 import { Route as recursosRoute } from "@/routes/recursos";
 import { Route as sobreRoute } from "@/routes/sobre";
 import { ThemeProvider } from "@/theme/ThemeProvider";
@@ -27,6 +28,7 @@ const routeTree = rootRoute.addChildren([
   attach("/sobre", sobreRoute),
   attach("/contato", contatoRoute),
   attach("/precos", precosRoute),
+  attach("/privacidade", privacidadeRoute),
 ]);
 
 function robotsMeta() {
@@ -53,6 +55,8 @@ describe("head das páginas públicas", () => {
     await router.navigate({ to: "/recursos" });
     await waitFor(() => expect(document.title).toBe("Recursos | CnesData"));
     expect(robotsMeta()).toBeNull();
+    await router.navigate({ to: "/privacidade" });
+    await waitFor(() => expect(document.title).toBe("Política de privacidade | CnesData"));
   });
 
   test("contato_com_interesse_desconhecido_cai_no_padrao", async () => {

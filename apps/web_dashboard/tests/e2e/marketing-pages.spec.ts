@@ -152,3 +152,24 @@ for (const path of PUBLIC_PATHS) {
     await expect(page.locator('a[href^="/precos"]')).toHaveCount(0);
   });
 }
+
+for (const [path, h1] of [
+  ["/privacidade", "Política de privacidade"],
+  ["/termos", "Termos de uso do site"],
+  ["/ajuda", "Precisa de ajuda?"],
+] as const) {
+  test(`pagina_legal_${path}_e_publica`, async ({ page }) => {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { level: 1, name: h1 })).toBeVisible();
+    await page.reload();
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+  });
+}
+
+test("rodape_leva_para_privacidade_sem_mailto", async ({ page }) => {
+  await page.goto("/");
+  const footer = page.getByRole("navigation", { name: "Rodapé" });
+  await expect(footer.locator('a[href^="mailto:"]')).toHaveCount(0);
+  await footer.getByRole("link", { name: "Privacidade" }).click();
+  await expect(page).toHaveURL(/\/privacidade$/);
+});
