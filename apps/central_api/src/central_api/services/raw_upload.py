@@ -97,7 +97,8 @@ class RawUploadService:
         job = await to_thread(self._validate_request, request)
         existing = await to_thread(self._object_store.stat, request.object_key)
         self._validate_state(job, existing is not None)
-        with SpooledTemporaryFile(max_size=RAW_UPLOAD_SPOOL_BYTES, mode="w+b") as spool:
+        spool = await to_thread(SpooledTemporaryFile, max_size=RAW_UPLOAD_SPOOL_BYTES, mode="w+b")
+        try:
             digest, size = await self._spool(stream, spool)
             if size == 0:
                 raise RawUploadEmpty("payload_empty")
@@ -106,13 +107,15 @@ class RawUploadService:
                 current = await to_thread(self._validate_request, request)
                 self._validate_state(current, True)
                 return self._validate_replay(existing, digest, size)
-            spool.seek(0)
+            await to_thread(spool.seek, 0)
             current = await to_thread(self._validate_request, request)
             self._validate_state(current, False)
             try:
                 return await to_thread(self._object_store.put, request.object_key, spool, digest)
             except Conflict:
                 return await self._resolve_publish_race(request, digest, size)
+        finally:
+            await to_thread(spool.close)
 
     def _validate_request(self, request: RawUploadRequest) -> Job:
         job = self._control_plane.get_job(request.tenant_id, request.job_id)

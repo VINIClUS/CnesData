@@ -70,9 +70,14 @@ def test_ids_sao_deterministicos_e_separam_componentes() -> None:
     shifted = JobIdentity("ab", "c", "d", "e", "2026-07", "x")
     unit = RunUnitIdentity("run-1", RunStage.RECONCILE)
 
-    assert job_id(first) == job_id(first)
+    job_id_first_call = job_id(first)
+    job_id_second_call = job_id(first)
+    unit_id_first_call = unit_id(unit)
+    unit_id_second_call = unit_id(unit)
+
+    assert job_id_first_call == job_id_second_call
     assert job_id(first) != job_id(shifted)
-    assert unit_id(unit) == unit_id(unit)
+    assert unit_id_first_call == unit_id_second_call
 
 
 def test_run_dependency_key_e_codec_canonico() -> None:

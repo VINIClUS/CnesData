@@ -32,12 +32,23 @@ def _canonical_event(event: OutboxEvent) -> bytes:
 class S3ObjectLockAuditSink:
     """Entrega ao menos uma vez por ``event_id`` estável, sem validar WORM."""
 
-    def __init__(self, client: BaseClient, bucket: str, retention_days: int) -> None:
+    def __init__(
+        self,
+        client: BaseClient,
+        bucket: str,
+        retention_days: int,
+        *,
+        expected_bucket_owner: str | None = None,
+    ) -> None:
         if not bucket or "/" in bucket or "\\" in bucket:
             raise ValueError("bucket=invalid")
         if retention_days <= 0:
             raise ValueError("retention_days=invalid")
-        response = client.get_object_lock_configuration(Bucket=bucket)
+        owner_kwargs = (
+            {} if expected_bucket_owner is None
+            else {"ExpectedBucketOwner": expected_bucket_owner}
+        )
+        response = client.get_object_lock_configuration(Bucket=bucket, **owner_kwargs)
         configuration = response.get("ObjectLockConfiguration", {})
         if configuration.get("ObjectLockEnabled") != "Enabled":
             raise ValueError("object_lock=disabled")
