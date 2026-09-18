@@ -1,0 +1,23 @@
+# Runs in the `caddy` service of docker-compose.prod.yml. This is the only
+# public entrypoint on the VPS (ports 80/443) — it also proxies
+# dev.cnesdata.vinisantana.com via the shared `cnesdata_edge` network, so the
+# `develop` block below must never be dropped when redeploying prod.
+# See docs/runbooks/deploy-develop.md for how that block was added.
+
+cnesdata.vinisantana.com {
+    handle /idp/* {
+        reverse_proxy keycloak:8080
+    }
+    handle {
+        reverse_proxy web-dashboard:80
+    }
+}
+
+dev.cnesdata.vinisantana.com {
+    handle /idp/* {
+        reverse_proxy dev-keycloak:8080
+    }
+    handle {
+        reverse_proxy dev-web-dashboard:80
+    }
+}
