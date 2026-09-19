@@ -250,6 +250,25 @@ def test_login_com_rate_limit_excedido() -> None:
     assert response.json()["detail"] == "rate_limited"
 
 
+def test_login_rate_limit_separa_clientes_atras_de_proxy() -> None:
+    client = _build(_FakeService())
+
+    for _ in range(5):
+        client.post(
+            "/api/v1/auth/local/login",
+            json={"email": "g@x.com", "password": _PASSWORD},
+            headers={"X-Forwarded-For": "203.0.113.1, 172.20.0.2"},
+        )
+
+    response = client.post(
+        "/api/v1/auth/local/login",
+        json={"email": "g@x.com", "password": _PASSWORD},
+        headers={"X-Forwarded-For": "203.0.113.2, 172.20.0.2"},
+    )
+
+    assert response.status_code == 200
+
+
 def test_cookie_de_sessao_secure_com_x_forwarded_proto_https(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

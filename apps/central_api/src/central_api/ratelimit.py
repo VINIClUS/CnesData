@@ -7,10 +7,10 @@ from slowapi.util import get_remote_address
 
 
 def client_ip(request: Request) -> str:
-    """Return the last X-Forwarded-For hop (appended by Caddy/nginx) or the socket address."""
+    """Return the originating X-Forwarded-For hop or the socket address."""
     forwarded = request.headers.get("X-Forwarded-For", "")
     if forwarded:
-        return forwarded.rsplit(",", 1)[-1].strip() or get_remote_address(request)
+        return forwarded.split(",", 1)[0].strip() or get_remote_address(request)
     return get_remote_address(request)
 
 
