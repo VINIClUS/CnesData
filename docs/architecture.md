@@ -389,10 +389,10 @@ Branch protection rules (`main` + `develop`, verified via
   filter. `sonar.yml` and `trivy.yml` have no `paths:` filter on either
   trigger, so they needed no change.
 - The ruleset's `conditions.ref_name.include` covers `main` and `develop`
-  under one rule with no per-branch check scoping. A PR opened against `main`
-  from a branch cut before the `paths:` filter was removed on `develop`
-  would still hang on `lint-test-coverage`; recoverable via the owner bypass,
-  closed by the next `develop` → `main` promotion.
+  under one rule with no per-branch check scoping. `main`'s `ci.yml` now
+  also lacks the `pull_request` `paths:` filter (carried over by the
+  `develop` → `main` promotion, PR #200), so `lint-test-coverage` runs
+  unconditionally on PRs against either branch.
 - `sonar.yml`'s `push` trigger only runs on `main`, not `develop`: `develop`
   is a `short`-type branch in SonarCloud (not the project's main/long-lived
   branch), which has no quality gate to compute. `sonar.qualitygate.wait=true`

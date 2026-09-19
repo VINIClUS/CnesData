@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import { renderWithRouter } from "../../helpers/renderWithRouter";
@@ -18,6 +18,7 @@ describe("PricingPage", () => {
     renderWithRouter(<PricingPage />, "/precos");
     expect(await screen.findByText("Pagamento seguro")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Suporte especializado" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(6);
+    const faq = within(document.querySelector("#faq") as HTMLElement);
+    expect(faq.getAllByRole("button", { expanded: false })).toHaveLength(6);
   });
 });

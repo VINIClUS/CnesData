@@ -33,3 +33,19 @@ test("preferencia_persiste_em_localStorage", async ({ page }) => {
   const stored = await page.evaluate(() => localStorage.getItem("cnesdata-theme"));
   expect(stored).toBe("dark");
 });
+
+test("tema_dark_aplicado_pelo_script_externo_antes_da_hidratacao", async ({ context, page }) => {
+  await context.addInitScript(() => localStorage.setItem("cnesdata-theme", "dark"));
+  const themeScript = page.waitForResponse((r) => r.url().endsWith("/theme-init.js"));
+  await page.goto("/");
+  expect((await themeScript).status()).toBe(200);
+  expect(await page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(true);
+});
+
+test("tema_light_salvo_nao_aplica_classe_dark", async ({ context, page }) => {
+  await context.addInitScript(() => localStorage.setItem("cnesdata-theme", "light"));
+  await page.goto("/");
+  expect(await page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(
+    false,
+  );
+});

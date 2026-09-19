@@ -1,8 +1,8 @@
 # Staging stack for the `develop` branch, deployed on the same Hostinger VPS
 # as production but fully isolated: own project name, own volumes, own
-# loopback ports, own network. Only `dashboard` and `idp` join the
-# shared `cnesdata_edge` network so the production Caddy can reverse-proxy
-# to them under dev.cnesdata.vinisantana.com.
+# loopback ports, own network. Only `dashboard`, `idp` and `central-api` join
+# the shared `cnesdata_edge` network so the production Caddy can reverse-proxy
+# to them under dev.cnesdata.vinisantana.com and api.dev.vinisantana.com.
 #
 # Images are pulled from GHCR (built by .github/workflows/deploy-develop.yml),
 # never built on the VPS. IMAGE_TAG is written by deploy.sh before each run.
@@ -109,10 +109,17 @@ services:
       CNPJ_MANTENEDORA: ${CNPJ_MANTENEDORA}
       COMPETENCIA_ANO: ${COMPETENCIA_ANO}
       COMPETENCIA_MES: ${COMPETENCIA_MES}
+      CORS_ALLOWED_ORIGINS: https://dev.cnesdata.vinisantana.com
+      LEADS_RATE_LIMIT: ${LEADS_RATE_LIMIT:-5/minute}
       TZ: America/Sao_Paulo
     volumes:
       - ./secrets/ca.crt:/secrets/ca.crt:ro
       - ./secrets/ca.key:/secrets/ca.key:ro
+    networks:
+      default:
+      edge:
+        aliases:
+          - dev-central-api
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"]
       interval: 15s
@@ -164,6 +171,8 @@ services:
     environment:
       UPSTREAM_API: central-api:8000
       OIDC_AUTHORITY: ${DASHBOARD_OIDC_ISSUER}
+      API_ORIGIN: https://api.dev.vinisantana.com
+      PRECOS_NOINDEX: ${PRECOS_NOINDEX:-true}
       TZ: America/Sao_Paulo
     networks:
       default:

@@ -10,18 +10,29 @@ test("landing_e_publica_sem_sessao", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: /Transforme dados/ })).toBeVisible();
 });
 
-test("home_navega_para_precos_pela_navbar", async ({ page }) => {
+test("home_navega_para_recursos_pela_navbar", async ({ page }) => {
   await page.goto("/");
   await page
-    .getByRole("navigation", { name: "Principal" })
-    .getByRole("link", { name: "Preços" })
+    .getByRole("navigation", { name: "Principal", exact: true })
+    .getByRole("link", { name: "Recursos" })
     .click();
-  await expect(page).toHaveURL(/\/precos$/);
-  await expect(page.getByText("R$ 299")).toBeVisible();
+  await expect(page).toHaveURL(/\/recursos$/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Conheça os recursos do CnesData" }),
+  ).toBeVisible();
 });
 
-test("criar_conta_leva_para_login", async ({ page }) => {
+test("solicitar_acesso_leva_para_contato_com_interesse", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("link", { name: "Criar conta" }).click();
+  await page.getByRole("link", { name: "Solicitar acesso", exact: true }).click();
+  await expect(page).toHaveURL(/\/contato\?interesse=acesso-antecipado$/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Participe do acesso antecipado" }),
+  ).toBeVisible();
+});
+
+test("entrar_leva_para_login", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Entrar" }).click();
   await expect(page).toHaveURL(/\/login$/);
 });

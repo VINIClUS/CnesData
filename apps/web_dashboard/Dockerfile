@@ -15,6 +15,13 @@ COPY docs/contracts/openapi.json /openapi/openapi.json
 # Override the codegen script's path resolution at build time
 ENV OPENAPI_PATH=/openapi/openapi.json
 
+# Build-time frontend config (Vite inlines VITE_* at build). Defaults keep the
+# same-origin nginx proxy; deploy workflows pass the per-environment API base.
+ARG VITE_API_BASE_URL=/api/v1
+ARG VITE_PRECOS_NOINDEX=true
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_PRECOS_NOINDEX=$VITE_PRECOS_NOINDEX
+
 RUN bun run codegen && bun run build && bun run bundle:check
 
 # ---------- Stage 2: nginx ----------

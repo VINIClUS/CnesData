@@ -187,6 +187,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     instrument_engine(_engine)
 
     from central_api.repositories.dashboard_repo import DashboardRepo
+    from central_api.repositories.leads_repo import LeadsRepo
     from cnes_infra.auth import (
         AccessTokenStore,
         CertAuthority,
@@ -204,6 +205,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     else:
         app.state.jwt_validator = None  # type: ignore[attr-defined]
     app.state.dashboard_repo = DashboardRepo(_engine)  # type: ignore[attr-defined]
+    app.state.leads_repo = LeadsRepo(_engine)  # type: ignore[attr-defined]
     app.state.device_code_store = DeviceCodeStore()  # type: ignore[attr-defined]
     app.state.access_token_store = AccessTokenStore()  # type: ignore[attr-defined]
     app.state.refresh_token_store = RefreshTokenStore(_engine)  # type: ignore[attr-defined]

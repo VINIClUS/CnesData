@@ -1,3 +1,5 @@
+import { marketing } from "@/i18n/marketing";
+
 export type Plan = {
   id: "basico" | "profissional" | "enterprise";
   name: string;
@@ -9,7 +11,7 @@ export type Plan = {
   cta: { label: string; href: string };
 };
 
-const _SALES = "mailto:admin@cnesdata.gov.br?subject=Plano%20Enterprise";
+const _SALES = `mailto:${marketing.contactEmail}?subject=Plano%20Enterprise`;
 
 export const pricing = {
   hero: {

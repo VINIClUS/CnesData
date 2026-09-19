@@ -17,7 +17,7 @@ export function BenefitsSection() {
         <div className="space-y-6">
           <SectionHeading eyebrow={b.eyebrow} title={b.title} description={b.description} />
           <Button variant="outline" className="text-primary" asChild>
-            <Link to="/precos">
+            <Link to="/recursos">
               {b.button}
               <ArrowRight aria-hidden="true" />
             </Link>
