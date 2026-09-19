@@ -158,7 +158,7 @@ class OidcMembershipResolver:
 
     def resolve(self, claims: Mapping[str, Any]) -> AuthenticatedPrincipal:
         subject = str(claims.get("sub") or "").strip()
-        email = str(claims.get("email") or "").strip()
+        email = normalize_email(str(claims.get("email") or ""))
         if not subject or not email:
             raise AuthenticationRejected(AuthRejectionCode.INVALID_CLAIMS)
         claimed_tenant = claims.get("tenant_id") or claims.get("tid")

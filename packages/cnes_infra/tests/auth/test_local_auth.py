@@ -389,10 +389,11 @@ def test_resolve_oidc_retorna_principal_com_tenant_do_profile(control_plane, set
     control_plane.add_membership(settings.tenant_id, "oidc-subject-1", role="gestor")
     resolver = OidcMembershipResolver(control_plane=control_plane, settings=settings)
 
-    principal = resolver.resolve({"sub": "oidc-subject-1", "email": "a@b.com"})
+    principal = resolver.resolve({"sub": "oidc-subject-1", "email": "  A@B.COM  "})
 
     assert principal.tenant_id == settings.tenant_id
     assert principal.user_id == "oidc-subject-1"
+    assert principal.email == "a@b.com"
 
 
 def test_resolve_oidc_ignora_claim_de_tenant_coincidente(control_plane, settings) -> None:
@@ -439,5 +440,4 @@ def test_resolve_oidc_rejeita_sem_membership(control_plane, settings) -> None:
 
 
 # --- LocalCredentialStore: schema compartilhado com o control plane ---
-
 
