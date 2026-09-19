@@ -232,12 +232,13 @@ def test_sessao_emitida_persiste_apenas_o_hash(auth_context: _AuthContext) -> No
 
     connection = sqlite3.connect(auth_context.database_path)
     rows = connection.execute(
-        "SELECT session_hash, user_id, expires_at FROM local_sessions"
+        "SELECT session_hash, user_id, expires_at, tenant_id FROM local_sessions"
     ).fetchall()
     connection.close()
     assert len(rows) == 1
-    session_hash, stored_user_id, _ = rows[0]
+    session_hash, stored_user_id, _, stored_tenant_id = rows[0]
     assert stored_user_id == user_id
+    assert stored_tenant_id == _TENANT
     assert session_hash != token
     assert token not in session_hash
 
@@ -267,6 +268,31 @@ def test_sessao_valida_resolve_principal_com_membership(auth_context: _AuthConte
     resolved = auth_context.service.resolve_session(token)
 
     assert resolved == principal
+
+
+def test_sessao_rejeitada_quando_profile_muda_de_tenant(auth_context: _AuthContext) -> None:
+    user_id = _seed_user(auth_context)
+    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
+    token = auth_context.service.issue_session(principal)
+
+    other_tenant = "999999"
+    auth_context.control_plane.add_membership(other_tenant, user_id)
+    other_settings = ProfileSettings(tenant_id=other_tenant)
+    other_service = LocalAuthService(
+        LocalAuthDependencies(
+            credentials=auth_context.credentials,
+            control_plane=auth_context.control_plane,
+            settings=other_settings,
+            hasher=auth_context.hasher,
+        ),
+        auth_context.clock.now,
+    )
+
+    with pytest.raises(AuthenticationRejected) as exc:
+        other_service.resolve_session(token)
+
+    assert exc.value.code == AuthRejectionCode.SESSION_INVALID
 
 
 def test_sessao_expirada_e_rejeitada(auth_context: _AuthContext) -> None:

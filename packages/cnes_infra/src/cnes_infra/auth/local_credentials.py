@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS local_users (
 CREATE TABLE IF NOT EXISTS local_sessions (
     session_hash TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
     expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_local_sessions_expires_at ON local_sessions (expires_at);
@@ -86,6 +87,7 @@ class LocalUserRecord:
 class SessionRecord:
     session_hash: str
     user_id: str
+    tenant_id: str
     expires_at: datetime
 
 
@@ -138,6 +140,13 @@ class LocalCredentialStore:
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._open() as connection:
             connection.executescript(_SCHEMA)
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(local_sessions)")
+            }
+            if "tenant_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE local_sessions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''"
+                )
 
     @contextmanager
     def _open(self) -> Iterator[sqlite3.Connection]:
@@ -190,23 +199,30 @@ class LocalCredentialStore:
                 "DELETE FROM local_sessions WHERE expires_at <= ?", (now.isoformat(),)
             )
             connection.execute(
-                "INSERT INTO local_sessions (session_hash, user_id, expires_at) VALUES (?, ?, ?)",
-                (record.session_hash, record.user_id, record.expires_at.isoformat()),
+                "INSERT INTO local_sessions "
+                "(session_hash, user_id, tenant_id, expires_at) VALUES (?, ?, ?, ?)",
+                (
+                    record.session_hash,
+                    record.user_id,
+                    record.tenant_id,
+                    record.expires_at.isoformat(),
+                ),
             )
 
     def find_session(self, session_hash: str) -> SessionRecord | None:
         with self._open() as connection:
             row = connection.execute(
-                "SELECT session_hash, user_id, expires_at FROM local_sessions "
+                "SELECT session_hash, user_id, tenant_id, expires_at FROM local_sessions "
                 "WHERE session_hash = ?",
                 (session_hash,),
             ).fetchone()
         if row is None:
             return None
-        session_hash_value, user_id, expires_at = row
+        session_hash_value, user_id, tenant_id, expires_at = row
         return SessionRecord(
             session_hash=session_hash_value,
             user_id=user_id,
+            tenant_id=tenant_id,
             expires_at=datetime.fromisoformat(expires_at),
         )
 

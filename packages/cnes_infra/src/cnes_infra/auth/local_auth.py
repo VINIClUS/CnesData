@@ -127,6 +127,7 @@ class LocalAuthService:
         session = SessionRecord(
             session_hash=hash_session_token(token),
             user_id=principal.user_id,
+            tenant_id=self._deps.settings.tenant_id,
             expires_at=expires_at,
         )
         self._deps.credentials.put_session(session, now)
@@ -135,6 +136,9 @@ class LocalAuthService:
     def resolve_session(self, token: str) -> AuthenticatedPrincipal:
         session = self._deps.credentials.find_session(hash_session_token(token))
         if session is None:
+            raise AuthenticationRejected(AuthRejectionCode.SESSION_INVALID)
+        if session.tenant_id != self._deps.settings.tenant_id:
+            self._deps.credentials.delete_session(session.session_hash)
             raise AuthenticationRejected(AuthRejectionCode.SESSION_INVALID)
         if session.expires_at <= self._clock():
             self._deps.credentials.delete_session(session.session_hash)
