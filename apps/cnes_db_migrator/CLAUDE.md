@@ -53,12 +53,8 @@ container image minimalista.
 
 ## Gotchas
 
-- **`env.py._resolver_db_url`:** prefere `sqlalchemy.url` do Config (setado
-  por fixtures de teste via `cfg.set_main_option`) e cai em `DB_URL` env
-  var senão. Isso destrava testes sem precisar setar env global.
-- **Migration paths:** `script_location = src/cnes_infra/alembic` (relativo
-  a `packages/cnes_infra/` onde fica o `alembic.ini`). CLI precisa rodar
-  a partir de `packages/cnes_infra/` OU passar `-c packages/cnes_infra/alembic.ini`.
+- **`_resolver_db_url` e `script_location`:** ver `packages/cnes_infra/CLAUDE.md`
+  (Gotchas) — regras únicas, não duplicar aqui.
 - **Init-container em k8s:** configurar `restartPolicy: OnFailure` e
   `backoffLimit: 3`. Timeout de 60s recomendado (primeiro boot após criar
-  DB pode levar até 20s com 6 migrations).
+  DB pode levar até 20s com 19 migrations).

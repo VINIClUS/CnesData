@@ -61,6 +61,12 @@ os apps deployáveis.
 - **Transformer CPF ordem:** `strip_chars → replace_all(r"\D", "") →
   pad_start(11, "0") → _aplicar_rq002`. Pontuação é removida ANTES de pad.
   Entrada `".-./"` vira `""` (filtrada por RQ-002 via sentinela).
+- **`.str.*` falha em coluna `Null`-typed:** cast para `pl.Utf8` antes de
+  `strip_chars`/`pad_start`. Sem cast, Polars lança erro de tipo em coluna
+  totalmente nula.
+- **`replace_strict(..., default=None)` falha se a coluna não tiver nulos:**
+  usar `pl.when().then().otherwise()` para mapeamentos SUS em vez de
+  `replace_strict`.
 - **Tenant ContextVar:** herdada por tasks async via
   `contextvars.copy_context()`. Se criar threads manuais, repassar o contexto
   explicitamente.

@@ -77,6 +77,12 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `AUTH_ACCESS_TOKEN_TTL` | não | seconds; access_token TTL (default 300) |
 | `AUTH_CERT_TTL_DAYS` | não | leaf cert validity (default 90) |
 
+**Local run:**
+```bash
+docker compose up -d postgres minio
+uv run uvicorn central_api.app:create_app --factory --reload
+```
+
 ## Module Map
 
 | Arquivo | Responsabilidade |
@@ -117,9 +123,6 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   Sem isso, queries via SQLAlchemy não setam `app.tenant_id` e RLS bloqueia
   tudo. Teste de regressão: qualquer query em integration test deve passar
   (se bloquear, listener não foi instalado).
-- **`/jobs/{id}/complete` and `/jobs/{id}/fail` routes do not exist** —
-  edge no longer calls /complete (FU1 dropped). /fail is documented as
-  follow-up gap; today extract/upload failures leave PENDING orphan rows.
 - **`/jobs/{id}/complete` and `/jobs/{id}/fail` routes do not exist** —
   edge no longer calls /complete (FU1 dropped). /fail is documented as
   follow-up gap; today extract/upload failures leave PENDING orphan rows.

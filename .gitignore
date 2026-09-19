@@ -65,6 +65,7 @@ output.txt
 .ruff_cache/
 .streamlit/
 docs/superpowers/
+docs/wip/
 excalidraw.log
 .streamlit/
 .coverage.xml.gz
@@ -107,11 +108,19 @@ coverage-packages.xml
 coverage-apps.xml
 .scannerwork/
 
+# --- Local tooling caches (not context routing) ---
+.tokensave/
+
 secrets/
 secrets/**
 secrets/*
 
-.claude/
+# .claude/ is ignored by default (session-local state: scheduled_tasks.lock,
+# .headroom_wrap_marker.json, agent-memory/), but skills/ and commands/ are
+# shareable project context and stay trackable.
+.claude/*
+!.claude/skills/
+!.claude/commands/
 .claudeignore
 .claudeignore.json
 .claudeignore.json.bak
@@ -153,7 +162,5 @@ secrets/*
 .agentsignore.json.bak.8
 .agentsignore.json.bak.9
 
-AGENTS.md
-CLAUDE.md
 CODEX.md
 bainstorming_edge_agent.md
