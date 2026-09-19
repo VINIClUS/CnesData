@@ -125,32 +125,28 @@ def _utc_now() -> datetime:
 def _build_local_state(app: object) -> None:
     """Compõe uma única vez o grafo SQLite/filesystem do profile local."""
 
-    from central_api.services.delta_policy import DeltaPolicy
+    from central_api.composition import build_local_runtime
     from central_api.services.national_ingestion import NationalIngestionService
-    from central_api.services.raw_ingestion import RawIngestionService
     from central_api.services.raw_upload import RawUploadService
     from cnes_domain.profiles import parse_profile
-    from cnes_infra.control_plane import SQLiteControlPlane
     from cnes_infra.ingestion import DatasusCnesFtpTransport, DatasusCnesRawAdapter
-    from cnes_infra.object_store import FilesystemObjectStore
 
     settings = parse_profile(os.environ)
-    objects_root = settings.data_dir / "objects"
-    objects_root.mkdir(parents=True, exist_ok=True)
-    control_plane = SQLiteControlPlane(settings.data_dir / "control-plane.sqlite3", _utc_now)
-    control_plane.initialize()
-    object_store = FilesystemObjectStore(objects_root)
-    raw_ingestion = RawIngestionService(control_plane, object_store, DeltaPolicy())
+    runtime = build_local_runtime(settings, _utc_now)
     app.state.settings = settings
-    app.state.control_plane = control_plane
-    app.state.raw_query = control_plane
-    app.state.object_store = object_store
-    app.state.raw_ingestion = raw_ingestion
-    app.state.raw_upload = RawUploadService(control_plane, object_store, _utc_now)
+    app.state.control_plane = runtime.control_plane
+    app.state.raw_query = runtime.control_plane
+    app.state.object_store = runtime.object_store
+    app.state.raw_ingestion = runtime.raw_ingestion
+    app.state.run_planning = runtime.run_planning
+    app.state.source_catalog = runtime.source_catalog
+    app.state.audit_sink = runtime.audit_sink
+    app.state.executor = runtime.executor
+    app.state.raw_upload = RawUploadService(runtime.control_plane, runtime.object_store, _utc_now)
     app.state.national_ingestion = NationalIngestionService(
-        control_plane,
-        DatasusCnesRawAdapter(DatasusCnesFtpTransport(), object_store, _utc_now),
-        raw_ingestion,
+        runtime.control_plane,
+        DatasusCnesRawAdapter(DatasusCnesFtpTransport(), runtime.object_store, _utc_now),
+        runtime.raw_ingestion,
         _utc_now,
     )
     _install_edge_overrides(app)

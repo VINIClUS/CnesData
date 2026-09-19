@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from cnes_domain.profiles import (
     AuthMode,
     BillingMode,
+    ProfileNotImplemented,
     ProfileSettings,
     RuntimeProfile,
     parse_profile,
@@ -103,3 +104,8 @@ def test_ignora_variaveis_ambientais_nao_relacionadas() -> None:
     )
 
     assert settings == ProfileSettings(tenant_id="354130")
+
+
+def test_profile_not_implemented_e_not_implemented_error() -> None:
+    with pytest.raises(ProfileNotImplemented, match="aws_runtime_plan_required"):
+        raise ProfileNotImplemented("aws_runtime_plan_required")
