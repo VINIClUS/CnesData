@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { expect, test } from "vitest";
+
 const TEMPLATE = readFileSync(
   resolve(__dirname, "../../../nginx/default.conf.template"),
   "utf8",
