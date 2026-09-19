@@ -241,6 +241,12 @@ def test_rejeita_colisao_de_normalized_filename_na_mesma_definicao() -> None:
         SourceCatalog((definition,))
 
 
+def test_definitions_expoe_a_tupla_congelada() -> None:
+    definition = _definition()
+    catalog = SourceCatalog((definition,))
+    assert catalog.definitions == (definition,)
+
+
 def test_for_source_desconhecido_levanta_key_error() -> None:
     catalog = SourceCatalog((_definition(),))
     with pytest.raises(KeyError):

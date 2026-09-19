@@ -140,6 +140,10 @@ class SourceCatalog:
     def for_pipeline(self, pipeline_id: str) -> PipelineDefinition:
         return self._by_pipeline[pipeline_id]
 
+    @property
+    def definitions(self) -> tuple[PipelineDefinition, ...]:
+        return self._definitions
+
 
 def build_source_catalog() -> SourceCatalog:
     from cnes_domain.control_plane.entities import RunDependency
