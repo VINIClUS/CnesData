@@ -13,6 +13,10 @@ class RuntimeProfile(StrEnum):
     AWS = "aws"
 
 
+class ProfileNotImplemented(NotImplementedError):
+    pass
+
+
 class AuthMode(StrEnum):
     LOCAL = "local"
     OIDC = "oidc"
@@ -64,6 +68,7 @@ def parse_profile(env: Mapping[str, str]) -> ProfileSettings:
 __all__ = [
     "AuthMode",
     "BillingMode",
+    "ProfileNotImplemented",
     "ProfileSettings",
     "RuntimeProfile",
     "parse_profile",

@@ -74,6 +74,7 @@ class TestMain:
         import sys
 
         from cnes_infra import config as infra_config
+        monkeypatch.delenv("PROFILE", raising=False)
         monkeypatch.setattr(infra_config, "LOGS_DIR", tmp_path)
         monkeypatch.setattr(
             infra_config, "LOG_FILE", tmp_path / "test.log",
@@ -99,3 +100,29 @@ class TestMain:
 
         assert rc == 0
         mock_run.assert_called_once()
+
+
+class TestMainProfileLocal:
+    @pytest.mark.asyncio
+    async def test_main_profile_local_compoe_runtime_sem_run_processor(
+        self, tmp_path, monkeypatch
+    ):
+        from unittest.mock import patch
+
+        from cnes_infra import config as infra_config
+        monkeypatch.setenv("PROFILE", "local")
+        monkeypatch.setenv("TENANT_ID", "354130")
+        monkeypatch.setenv("DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(infra_config, "LOGS_DIR", tmp_path)
+        monkeypatch.setattr(infra_config, "LOG_FILE", tmp_path / "test.log")
+
+        with (
+            patch("data_processor.main._setup_logging"),
+            patch("data_processor.main.init_telemetry"),
+            patch("data_processor.main.run_processor") as mock_run,
+        ):
+            from data_processor.main import main
+            rc = await main()
+
+        assert rc == 0
+        mock_run.assert_not_called()
