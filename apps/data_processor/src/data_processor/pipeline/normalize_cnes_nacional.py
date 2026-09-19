@@ -15,7 +15,7 @@ from cnes_contracts.manifests.raw import SnapshotMode, SourceType
 if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import NormalizeRequest
     from cnes_contracts.manifests.raw import RawManifest
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
 
 _SOURCE_COLUMNS = (
     "CPF", "CNS", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "CBO", "CNES",
@@ -91,6 +91,16 @@ def _serialize(frame: pl.DataFrame) -> bytes:
     return output.getvalue()
 
 
+def _persist(store: ObjectStorePort, target_key: str, frame: pl.DataFrame) -> ObjectStat:
+    payload = _serialize(frame)
+    digest = sha256(payload).hexdigest()
+    store.put(target_key, BytesIO(payload), digest)
+    stat = store.stat(target_key)
+    if stat is None:
+        raise ValueError(f"output_not_found key={target_key}")
+    return stat
+
+
 def _write_and_build_manifest(
     frame: pl.DataFrame,
     request: NormalizeRequest,
@@ -98,12 +108,7 @@ def _write_and_build_manifest(
     store: ObjectStorePort,
 ) -> OutputManifest:
     target_key = request.target_keys[0]
-    payload = _serialize(frame)
-    digest = sha256(payload).hexdigest()
-    store.put(target_key, BytesIO(payload), digest)
-    stat = store.stat(target_key)
-    if stat is None:
-        raise ValueError(f"output_not_found key={target_key}")
+    stat = _persist(store, target_key, frame)
     return OutputManifest(
         manifest_version=1,
         manifest_id=f"normalized-{request.run_id}-{request.unit_id}-{request.attempt}",
