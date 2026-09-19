@@ -17,6 +17,7 @@ from cnes_contracts.manifests.processing import (
 from cnes_domain.ports.object_store import ObjectStorePort
 
 if TYPE_CHECKING:
+    from cnes_contracts.manifests.raw import SourceType
     from cnes_domain.control_plane.entities import RunDependency
     from cnes_domain.orchestration.source_catalog import (
         PipelineDefinition,
@@ -80,7 +81,7 @@ class SourceRegistry:
             for source_type in bundle.source_types
         }
 
-    def for_source(self, source_type: str) -> SourcePipeline:
+    def for_source(self, source_type: SourceType) -> SourcePipeline:
         return self._by_source[source_type]
 
     def for_pipeline(self, pipeline_id: str) -> SourcePipeline:
