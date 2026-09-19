@@ -23,6 +23,11 @@ export default tseslint.config(
   },
   js.configs.recommended,
   {
+    // Pre-hydration bootstrap served from public/: classic script, browser globals.
+    files: ["public/**/*.js"],
+    languageOptions: { sourceType: "script", globals: { ...globals.browser } },
+  },
+  {
     files: ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
