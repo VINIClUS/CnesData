@@ -19,19 +19,16 @@ export const PRIVACY_EMAIL = "privacidade@vinisantana.com";
 export const LEADS_RETENTION_MONTHS = 12;
 
 /**
- * Nome ou razão social do controlador. Vazio enquanto a entidade definitiva não
- * for informada; nesse caso a seção correspondente é marcada como pendente.
+ * Nome ou razão social do responsável pelo tratamento. Quando vazio, a página
+ * usa apenas o canal formal de atendimento como ponto de contato.
  */
-const _CONTROLLER_NAME: string = "";
+const _CONTROLLER_NAME: string = "Vinicius A. de Santana";
 
 function _controllerParagraph(): string {
-  if (_CONTROLLER_NAME) {
-    return `Controlador dos dados: ${_CONTROLLER_NAME}. Pedidos sobre seus dados: ${PRIVACY_EMAIL}.`;
-  }
-  return (
-    "Controlador dos dados: o nome ou razão social definitivo ainda não foi informado e será " +
-    `publicado nesta página. Pedidos sobre seus dados: ${PRIVACY_EMAIL}.`
-  );
+  const quem = _CONTROLLER_NAME
+    ? `O responsável pelo tratamento é ${_CONTROLLER_NAME}.`
+    : "O tratamento é feito pela pessoa responsável pelo projeto.";
+  return `${quem} Canal formal de atendimento para assuntos de privacidade: ${PRIVACY_EMAIL}.`;
 }
 
 export const legal = {
@@ -58,7 +55,6 @@ export const legal = {
           "O CnesData é um projeto independente, em desenvolvimento, mantido pela pessoa responsável indicada na página Sobre. Não há vínculo com Ministério da Saúde, DATASUS ou prefeituras.",
           _controllerParagraph(),
         ],
-        pending: !_CONTROLLER_NAME,
       },
       {
         title: "Quais dados o formulário de contato coleta",
@@ -92,9 +88,9 @@ export const legal = {
       {
         title: "Seus direitos",
         paragraphs: [
-          `Você pode pedir a qualquer momento para ver, corrigir ou apagar os dados que enviou. O canal de privacidade é ${PRIVACY_EMAIL}.`,
+          `Você pode pedir a qualquer momento para ver, corrigir ou apagar os dados que enviou. O canal formal de atendimento é ${PRIVACY_EMAIL}.`,
           "Escreva a partir do mesmo endereço usado no formulário: é por ele que localizamos o seu registro, já que não guardamos nenhum outro identificador.",
-          "Os pedidos são atendidos manualmente pela pessoa responsável pelo projeto. Nesta fase não há encarregado designado nem prazo de resposta definido.",
+          "Os pedidos são atendidos manualmente pela pessoa responsável pelo projeto.",
         ],
       },
       {
