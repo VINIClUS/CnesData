@@ -141,14 +141,16 @@ export const legal = {
       {
         title: "Planos, preços e contratação",
         paragraphs: [
-          "Condições comerciais, contratação e termos do produto não estão definidos nesta fase e não fazem parte destes termos.",
+          "O site público não comercializa nada. Enquanto o CnesData estiver em desenvolvimento não há cobrança, assinatura ou contratação por aqui.",
+          "Se houver oferta comercial no futuro, as condições serão apresentadas por escrito e aceitas separadamente antes de qualquer cobrança. Valores eventualmente exibidos em páginas de planos são informativos e não constituem proposta.",
         ],
-        pending: true,
       },
       {
         title: "Foro e legislação",
-        paragraphs: ["Legislação aplicável e foro ainda não foram definidos."],
-        pending: true,
+        paragraphs: [
+          "Estes termos são regidos pela legislação brasileira.",
+          "Questões sobre o uso do site devem ser tratadas primeiro pelos canais indicados na página Ajuda. Não havendo solução, aplica-se o foro previsto em lei, que nas relações de consumo é o do domicílio do usuário.",
+        ],
       },
     ],
   },

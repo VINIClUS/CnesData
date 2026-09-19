@@ -62,6 +62,31 @@ describe("LegalPage", () => {
     expect(sections.filter((s) => s.pending)).toHaveLength(0);
   });
 
+  test("termos_respondem_condicoes_comerciais_e_foro", async () => {
+    renderWithRouter(<LegalPage doc={legal.termos} />, "/termos");
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.getByText(/não há cobrança, assinatura ou contratação/)).toBeInTheDocument();
+    expect(screen.getByText(/regidos pela legislação brasileira/)).toBeInTheDocument();
+  });
+
+  test("nenhuma_pagina_legal_tem_secao_pendente", () => {
+    for (const slug of ["privacidade", "termos", "ajuda"] as const) {
+      const sections: readonly LegalSection[] = legal[slug].sections;
+      expect(sections.filter((s) => s.pending)).toHaveLength(0);
+    }
+  });
+
+  test("selo_de_pendencia_renderiza_quando_a_secao_pede", async () => {
+    const doc = {
+      ...legal.termos,
+      sections: [{ title: "Seção futura", paragraphs: ["Texto."], pending: true }],
+    };
+    renderWithRouter(<LegalPage doc={doc} />, "/termos");
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.getByText("A definir")).toBeInTheDocument();
+    expect(screen.getByText(legal.pendingNote)).toBeInTheDocument();
+  });
+
   test("oferece_email_e_link_para_contato", async () => {
     renderWithRouter(<LegalPage doc={legal.ajuda} />, "/ajuda");
     await screen.findByRole("heading", { level: 1 });
