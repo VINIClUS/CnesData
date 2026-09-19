@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from central_api.ratelimit import limiter
 from cnes_infra.auth.local_auth import (
     SESSION_TTL_SECONDS,
     AuthenticatedPrincipal,
@@ -50,13 +51,21 @@ def _to_response(principal: AuthenticatedPrincipal) -> PrincipalResponse:
     )
 
 
+def _is_secure_transport(request: Request) -> bool:
+    """Detect HTTPS from direct TLS or X-Forwarded-Proto behind a proxy."""
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    if forwarded_proto:
+        return forwarded_proto == "https"
+    return request.url.scheme == "https"
+
+
 def _set_session_cookie(response: Response, request: Request, token: str) -> None:
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
         httponly=True,
         samesite=_COOKIE_SAMESITE,
-        secure=request.url.scheme == "https",
+        secure=_is_secure_transport(request),
         path=_COOKIE_PATH,
         max_age=SESSION_TTL_SECONDS,
     )
@@ -70,6 +79,7 @@ def _require_session_token(request: Request) -> str:
 
 
 @router.post("/local/login", response_model=PrincipalResponse)
+@limiter.limit("5/minute")
 def login(
     body: LoginRequest,
     request: Request,

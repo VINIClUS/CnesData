@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from slowapi.errors import RateLimitExceeded
 
+from central_api.ratelimit import limiter, rate_limit_handler
 from central_api.routes import local_auth
 from cnes_infra.auth.local_auth import (
     AuthenticatedPrincipal,
@@ -58,10 +61,17 @@ class _FakeService:
 
 def _build(service: _FakeService | None) -> TestClient:
     app = FastAPI()
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
     app.include_router(local_auth.router)
     if service is not None:
         app.dependency_overrides[local_auth.get_local_auth_service] = lambda: service
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _reset_limiter() -> None:
+    limiter.reset()
 
 
 def test_login_valido_retorna_principal_e_cookie_de_sessao() -> None:
@@ -216,6 +226,8 @@ def test_me_falha_fechada_sem_composicao_com_cookie_presente() -> None:
 
 def test_cookie_de_sessao_e_secure_sob_https() -> None:
     app = FastAPI()
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
     app.include_router(local_auth.router)
     app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
     client = TestClient(app, base_url="https://testserver")
@@ -225,3 +237,53 @@ def test_cookie_de_sessao_e_secure_sob_https() -> None:
     )
 
     assert "Secure" in response.headers["set-cookie"]
+
+
+def test_login_com_rate_limit_excedido() -> None:
+    client = _build(_FakeService())
+
+    for _ in range(5):
+        client.post(
+            "/api/v1/auth/local/login", json={"email": "g@x.com", "password": _PASSWORD}
+        )
+
+    response = client.post(
+        "/api/v1/auth/local/login", json={"email": "g@x.com", "password": _PASSWORD}
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "rate_limited"
+
+
+def test_cookie_de_sessao_secure_com_x_forwarded_proto_https() -> None:
+    app = FastAPI()
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+    app.include_router(local_auth.router)
+    app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
+    client = TestClient(app, base_url="http://testserver")
+
+    response = client.post(
+        "/api/v1/auth/local/login",
+        json={"email": "g@x.com", "password": _PASSWORD},
+        headers={"X-Forwarded-Proto": "https"},
+    )
+
+    assert "Secure" in response.headers["set-cookie"]
+
+
+def test_cookie_sem_secure_com_x_forwarded_proto_http() -> None:
+    app = FastAPI()
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+    app.include_router(local_auth.router)
+    app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
+    client = TestClient(app, base_url="http://testserver")
+
+    response = client.post(
+        "/api/v1/auth/local/login",
+        json={"email": "g@x.com", "password": _PASSWORD},
+        headers={"X-Forwarded-Proto": "http"},
+    )
+
+    assert "Secure" not in response.headers["set-cookie"]
