@@ -59,14 +59,14 @@ class _FakeService:
         self._sessions.pop(token, None)
 
 
-def _build(service: _FakeService | None) -> TestClient:
+def _build(service: _FakeService | None, *, base_url: str = "http://testserver") -> TestClient:
     app = FastAPI()
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
     app.include_router(local_auth.router)
     if service is not None:
         app.dependency_overrides[local_auth.get_local_auth_service] = lambda: service
-    return TestClient(app)
+    return TestClient(app, base_url=base_url)
 
 
 @pytest.fixture(autouse=True)
@@ -225,12 +225,7 @@ def test_me_falha_fechada_sem_composicao_com_cookie_presente() -> None:
 
 
 def test_cookie_de_sessao_e_secure_sob_https() -> None:
-    app = FastAPI()
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
-    app.include_router(local_auth.router)
-    app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
-    client = TestClient(app, base_url="https://testserver")
+    client = _build(_FakeService(), base_url="https://testserver")
 
     response = client.post(
         "/api/v1/auth/local/login", json={"email": "g@x.com", "password": _PASSWORD}
@@ -255,68 +250,47 @@ def test_login_com_rate_limit_excedido() -> None:
     assert response.json()["detail"] == "rate_limited"
 
 
-def test_cookie_de_sessao_secure_com_x_forwarded_proto_https() -> None:
-    import os
-    os.environ["TRUST_X_FORWARDED_PROTO"] = "true"
-    try:
-        app = FastAPI()
-        app.state.limiter = limiter
-        app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
-        app.include_router(local_auth.router)
-        app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
-        client = TestClient(app, base_url="http://testserver")
+def test_cookie_de_sessao_secure_com_x_forwarded_proto_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRUST_X_FORWARDED_PROTO", "true")
+    client = _build(_FakeService())
 
-        response = client.post(
-            "/api/v1/auth/local/login",
-            json={"email": "g@x.com", "password": _PASSWORD},
-            headers={"X-Forwarded-Proto": "https"},
-        )
-
-        assert "Secure" in response.headers["set-cookie"]
-    finally:
-        os.environ.pop("TRUST_X_FORWARDED_PROTO", None)
-
-
-def test_cookie_sem_secure_com_x_forwarded_proto_http() -> None:
-    import os
-    os.environ["TRUST_X_FORWARDED_PROTO"] = "true"
-    try:
-        app = FastAPI()
-        app.state.limiter = limiter
-        app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
-        app.include_router(local_auth.router)
-        app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
-        client = TestClient(app, base_url="http://testserver")
-
-        response = client.post(
-            "/api/v1/auth/local/login",
-            json={"email": "g@x.com", "password": _PASSWORD},
-            headers={"X-Forwarded-Proto": "http"},
-        )
-
-        assert "Secure" not in response.headers["set-cookie"]
-    finally:
-        os.environ.pop("TRUST_X_FORWARDED_PROTO", None)
-
-
-def test_cookie_seguro_nao_confia_x_forwarded_proto_por_padrao() -> None:
-    """Cookie não deve ter Secure por padrão mesmo com X-Forwarded-Proto: https sem configuração."""
-    import os
-    # Ensure TRUST_X_FORWARDED_PROTO is NOT set
-    os.environ.pop("TRUST_X_FORWARDED_PROTO", None)
-    
-    app = FastAPI()
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
-    app.include_router(local_auth.router)
-    app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
-    client = TestClient(app)
-    
     response = client.post(
         "/api/v1/auth/local/login",
         json={"email": "g@x.com", "password": _PASSWORD},
         headers={"X-Forwarded-Proto": "https"},
     )
-    
-    # Sem TRUST_X_FORWARDED_PROTO, não deve respeitar o header X-Forwarded-Proto
-    assert "Secure" not in response.headers.get("set-cookie", "")
+
+    assert "Secure" in response.headers["set-cookie"]
+
+
+def test_cookie_sem_secure_com_x_forwarded_proto_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRUST_X_FORWARDED_PROTO", "true")
+    client = _build(_FakeService())
+
+    response = client.post(
+        "/api/v1/auth/local/login",
+        json={"email": "g@x.com", "password": _PASSWORD},
+        headers={"X-Forwarded-Proto": "http"},
+    )
+
+    assert "Secure" not in response.headers["set-cookie"]
+
+
+def test_cookie_seguro_nao_confia_x_forwarded_proto_por_padrao(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cookie não deve ter Secure por padrão mesmo com X-Forwarded-Proto: https sem configuração."""
+    monkeypatch.delenv("TRUST_X_FORWARDED_PROTO", raising=False)
+    client = _build(_FakeService())
+
+    response = client.post(
+        "/api/v1/auth/local/login",
+        json={"email": "g@x.com", "password": _PASSWORD},
+        headers={"X-Forwarded-Proto": "https"},
+    )
+
+    assert "Secure" not in response.headers["set-cookie"]
