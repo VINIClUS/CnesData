@@ -13,6 +13,27 @@ export type LegalDoc = {
 
 const _PENDING = "Ponto a definir pelo responsável do projeto antes do lançamento público.";
 
+export const PRIVACY_EMAIL = "privacidade@vinisantana.com";
+
+/** Retenção definida para os registros do formulário público. */
+export const LEADS_RETENTION_MONTHS = 12;
+
+/**
+ * Nome ou razão social do controlador. Vazio enquanto a entidade definitiva não
+ * for informada; nesse caso a seção correspondente é marcada como pendente.
+ */
+const _CONTROLLER_NAME: string = "";
+
+function _controllerParagraph(): string {
+  if (_CONTROLLER_NAME) {
+    return `Controlador dos dados: ${_CONTROLLER_NAME}. Pedidos sobre seus dados: ${PRIVACY_EMAIL}.`;
+  }
+  return (
+    "Controlador dos dados: o nome ou razão social definitivo ainda não foi informado e será " +
+    `publicado nesta página. Pedidos sobre seus dados: ${PRIVACY_EMAIL}.`
+  );
+}
+
 export const legal = {
   pendingLabel: "A definir",
   pendingNote: _PENDING,
@@ -35,9 +56,9 @@ export const legal = {
         title: "Quem é o responsável",
         paragraphs: [
           "O CnesData é um projeto independente, em desenvolvimento, mantido pela pessoa responsável indicada na página Sobre. Não há vínculo com Ministério da Saúde, DATASUS ou prefeituras.",
-          "Identificação formal do controlador (nome completo, CNPJ ou CPF e endereço) ainda não foi publicada.",
+          _controllerParagraph(),
         ],
-        pending: true,
+        pending: !_CONTROLLER_NAME,
       },
       {
         title: "Quais dados o formulário de contato coleta",
@@ -45,6 +66,7 @@ export const legal = {
           "Obrigatórios: nome e e-mail. Opcionais, apenas se você preencher: instituição ou município, função e a mensagem livre.",
           "Também registramos o tipo de interesse selecionado (acesso antecipado, piloto ou contato geral), a página de origem dentro do site, a versão desta política e a data e hora do envio.",
           "Não coletamos CPF, CNPJ, telefone, dados de pacientes, anexos ou credenciais de sistemas. Pedimos que você não inclua esses dados no campo de mensagem.",
+          "Para conter envios automatizados, o servidor usa o endereço IP apenas em memória, para limitar a quantidade de envios por conexão. O IP não é gravado no banco de dados junto com o seu contato.",
         ],
       },
       {
@@ -62,17 +84,18 @@ export const legal = {
       {
         title: "Por quanto tempo guardamos",
         paragraphs: [
-          "Ainda não há prazo de retenção automático implementado: os registros permanecem até exclusão manual. Um prazo definido e a rotina de exclusão serão publicados antes do lançamento.",
+          `O prazo definido é de ${LEADS_RETENTION_MONTHS} meses após a última interação sobre o seu contato.`,
+          "O que o sistema registra é a data do envio do formulário. Conversas posteriores acontecem por e-mail, fora do banco de dados, por isso a contagem parte dessa data e é ajustada manualmente quando houver troca de mensagens depois.",
+          "A exclusão é feita manualmente pela pessoa responsável: não existe hoje rotina automática de expurgo no sistema.",
         ],
-        pending: true,
       },
       {
         title: "Seus direitos",
         paragraphs: [
-          "Você pode pedir a qualquer momento para ver, corrigir ou apagar os dados que enviou. Basta escrever para o e-mail indicado na página Ajuda, a partir do mesmo endereço usado no formulário.",
-          "O canal formal de atendimento a pedidos da LGPD (encarregado, prazo de resposta) ainda não foi definido.",
+          `Você pode pedir a qualquer momento para ver, corrigir ou apagar os dados que enviou. O canal de privacidade é ${PRIVACY_EMAIL}.`,
+          "Escreva a partir do mesmo endereço usado no formulário: é por ele que localizamos o seu registro, já que não guardamos nenhum outro identificador.",
+          "Os pedidos são atendidos manualmente pela pessoa responsável pelo projeto. Nesta fase não há encarregado designado nem prazo de resposta definido.",
         ],
-        pending: true,
       },
       {
         title: "Cookies e rastreamento",
@@ -156,6 +179,12 @@ export const legal = {
         title: "E-mail direto",
         paragraphs: [
           "Se o formulário estiver indisponível ou você preferir e-mail, escreva para o endereço abaixo. Não envie dados de pacientes, senhas ou documentos.",
+        ],
+      },
+      {
+        title: "Pedidos sobre seus dados",
+        paragraphs: [
+          `Para ver, corrigir ou apagar o que você enviou pelo formulário, escreva para ${PRIVACY_EMAIL} usando o mesmo endereço do envio. Os detalhes estão na política de privacidade.`,
         ],
       },
       {
