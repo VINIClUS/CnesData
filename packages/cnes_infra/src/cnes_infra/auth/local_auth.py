@@ -91,6 +91,18 @@ def _require_membership(
     return membership
 
 
+def _require_oidc_membership(
+    control_plane: ControlPlanePort,
+    settings: ProfileSettings,
+    user_id: str,
+    issuer: str,
+) -> Membership:
+    membership = _require_membership(control_plane, settings, user_id)
+    if membership.oidc_issuer != issuer:
+        raise AuthenticationRejected(AuthRejectionCode.MEMBERSHIP_MISSING)
+    return membership
+
+
 class LocalAuthService:
     """Autentica por senha e emite/resolve sessões opacas com tenant fixo pelo profile."""
 
@@ -162,13 +174,16 @@ class OidcMembershipResolver:
 
     def resolve(self, claims: Mapping[str, Any]) -> AuthenticatedPrincipal:
         subject = str(claims.get("sub") or "").strip()
+        issuer = str(claims.get("iss") or "").strip()
         email = normalize_email(str(claims.get("email") or ""))
-        if not subject or not email:
+        if not subject or not issuer or not email:
             raise AuthenticationRejected(AuthRejectionCode.INVALID_CLAIMS)
         claimed_tenant = claims.get("tenant_id") or claims.get("tid")
         if claimed_tenant is not None and str(claimed_tenant) != self.settings.tenant_id:
             raise AuthenticationRejected(AuthRejectionCode.TENANT_CLAIM_REJECTED)
-        membership = _require_membership(self.control_plane, self.settings, subject)
+        membership = _require_oidc_membership(
+            self.control_plane, self.settings, subject, issuer
+        )
         return _principal_for(subject, email, self.settings, membership)
 
 

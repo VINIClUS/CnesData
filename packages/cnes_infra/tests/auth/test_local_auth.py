@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _TENANT = "354130"
+_OIDC_ISSUER = "https://issuer.example"
 _PASSWORD = "correct-horse-battery"  # noqa: S105
 
 
@@ -36,12 +37,19 @@ class _FakeControlPlane:
     def __init__(self) -> None:
         self._memberships: dict[tuple[str, str], Membership] = {}
 
-    def add_membership(self, tenant_id: str, user_id: str, role: str = "gestor") -> None:
+    def add_membership(
+        self,
+        tenant_id: str,
+        user_id: str,
+        role: str = "gestor",
+        oidc_issuer: str | None = None,
+    ) -> None:
         self._memberships[(tenant_id, user_id)] = Membership(
             tenant_id=tenant_id,
             user_id=user_id,
             role=role,
             created_at=datetime(2026, 7, 1, tzinfo=UTC),
+            oidc_issuer=oidc_issuer,
         )
 
     def get_membership(self, tenant_id: str, user_id: str) -> Membership | None:
@@ -98,6 +106,12 @@ def _seed_user(
     user = build_user("user-1", email, _PASSWORD, context.clock.now())
     context.credentials.put_user(user)
     return user.user_id
+
+
+def _add_oidc_membership(context: _AuthContext, issuer: str = _OIDC_ISSUER) -> None:
+    context.control_plane.add_membership(
+        context.settings.tenant_id, "oidc-subject-1", oidc_issuer=issuer
+    )
 
 
 def test_dependencias_usam_hash_password_real_por_padrao(auth_context: _AuthContext) -> None:
@@ -388,14 +402,14 @@ def test_logout_revoga_a_sessao_de_forma_idempotente(auth_context: _AuthContext)
 def test_resolve_oidc_retorna_principal_com_tenant_do_profile(
     auth_context: _AuthContext,
 ) -> None:
-    auth_context.control_plane.add_membership(
-        auth_context.settings.tenant_id, "oidc-subject-1", role="gestor"
-    )
+    _add_oidc_membership(auth_context)
     resolver = OidcMembershipResolver(
         control_plane=auth_context.control_plane, settings=auth_context.settings
     )
 
-    principal = resolver.resolve({"sub": "oidc-subject-1", "email": "  A@B.COM  "})
+    principal = resolver.resolve(
+        {"iss": _OIDC_ISSUER, "sub": "oidc-subject-1", "email": "  A@B.COM  "}
+    )
 
     assert principal.tenant_id == auth_context.settings.tenant_id
     assert principal.user_id == "oidc-subject-1"
@@ -403,13 +417,14 @@ def test_resolve_oidc_retorna_principal_com_tenant_do_profile(
 
 
 def test_resolve_oidc_ignora_claim_de_tenant_coincidente(auth_context: _AuthContext) -> None:
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, "oidc-subject-1")
+    _add_oidc_membership(auth_context)
     resolver = OidcMembershipResolver(
         control_plane=auth_context.control_plane, settings=auth_context.settings
     )
 
     principal = resolver.resolve(
         {
+            "iss": _OIDC_ISSUER,
             "sub": "oidc-subject-1",
             "email": "a@b.com",
             "tenant_id": auth_context.settings.tenant_id,
@@ -427,7 +442,14 @@ def test_resolve_oidc_rejeita_tenant_divergente_nas_claims(
     )
 
     with pytest.raises(AuthenticationRejected) as exc:
-        resolver.resolve({"sub": "oidc-subject-1", "email": "a@b.com", "tenant_id": "999999"})
+        resolver.resolve(
+            {
+                "iss": _OIDC_ISSUER,
+                "sub": "oidc-subject-1",
+                "email": "a@b.com",
+                "tenant_id": "999999",
+            }
+        )
 
     assert exc.value.code == AuthRejectionCode.TENANT_CLAIM_REJECTED
 
@@ -456,6 +478,23 @@ def test_resolve_oidc_rejeita_sem_membership(auth_context: _AuthContext) -> None
     )
 
     with pytest.raises(AuthenticationRejected) as exc:
-        resolver.resolve({"sub": "oidc-subject-1", "email": "a@b.com"})
+        resolver.resolve(
+            {"iss": _OIDC_ISSUER, "sub": "oidc-subject-1", "email": "a@b.com"}
+        )
+    assert exc.value.code == AuthRejectionCode.MEMBERSHIP_MISSING
+
+
+def test_resolve_oidc_rejeita_membership_de_outro_issuer(
+    auth_context: _AuthContext,
+) -> None:
+    _add_oidc_membership(auth_context, issuer="https://old-issuer.example")
+    resolver = OidcMembershipResolver(
+        control_plane=auth_context.control_plane, settings=auth_context.settings
+    )
+
+    with pytest.raises(AuthenticationRejected) as exc:
+        resolver.resolve(
+            {"iss": _OIDC_ISSUER, "sub": "oidc-subject-1", "email": "a@b.com"}
+        )
 
     assert exc.value.code == AuthRejectionCode.MEMBERSHIP_MISSING
