@@ -29,6 +29,10 @@ Start all local development services:
 docker compose --profile dev up -d
 ```
 
+For direct/local HTTP access, keep `TRUST_X_FORWARDED_PROTO=false`. Only enable
+it when the API is behind the trusted TLS-terminating Caddy proxy used by the
+dev and production deployment stacks.
+
 Useful endpoints:
 
 | Service | URL |

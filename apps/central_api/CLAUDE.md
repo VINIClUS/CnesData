@@ -33,7 +33,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `POST /api/v1/public/leads` — captação pública do formulário de contato (sem auth).
   Persiste em `marketing.leads` (migração 019), responde `202 {"status":"received"}`,
   `422` payload inválido, `429` + `Retry-After` acima de `LEADS_RATE_LIMIT` (slowapi, chave =
-  último hop de `X-Forwarded-For`), `503 leads_unavailable` se o banco falhar.
+  primeiro hop de `X-Forwarded-For`, que deve ser preservado pela cadeia Caddy → nginx),
+  `503 leads_unavailable` se o banco falhar.
 - CORS explícito: `CORS_ALLOWED_ORIGINS` (lista separada por vírgula; `*` é ignorado).
   `CORSMiddleware` é o middleware mais externo para responder preflight antes do Auth.
 

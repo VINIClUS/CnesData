@@ -11,8 +11,8 @@ def _request(xff: str | None, host: str = "10.0.0.9") -> MagicMock:
     return req
 
 
-def test_usa_ultimo_hop_do_x_forwarded_for() -> None:
-    assert client_ip(_request("1.1.1.1, 203.0.113.7")) == "203.0.113.7"
+def test_usa_primeiro_hop_do_x_forwarded_for() -> None:
+    assert client_ip(_request("1.1.1.1, 203.0.113.7")) == "1.1.1.1"
 
 
 def test_usa_endereco_do_socket_sem_header() -> None:

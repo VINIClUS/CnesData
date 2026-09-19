@@ -74,7 +74,12 @@ class ControlPlaneCase:
 
 def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     membership = Membership(
-        tenant_id=_TENANT, user_id="user-a", role="admin", created_at=clock.now())
+        tenant_id=_TENANT,
+        user_id="user-a",
+        role="admin",
+        created_at=clock.now(),
+        oidc_issuer="https://issuer.example",
+    )
     adapter.put_membership(membership)
     assert adapter.get_membership(_TENANT, "user-a") == membership
     assert adapter.get_membership("other", "user-a") is None
