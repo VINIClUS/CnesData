@@ -1,7 +1,7 @@
 {
   "mode": "golden",
-  "commit_sha": "4a747abab38ef8024d57b86e123a0a8ac8d92abf",
-  "recorded_at": "2026-09-19T16:25:22.992115+00:00",
+  "commit_sha": "6d37d649abc888a660cf1f622ea80ea075062b00",
+  "recorded_at": "2026-09-19T16:41:10.539947+00:00",
   "fixture_sha256": {
     "cnes-local-v1.parquet": "4bf011da987e2b6d0666a10c97cdd37626ca9b123050c9ce77e155e7197237fb",
     "cnes-nacional-v1.parquet": "30a60a84af9b06c568fe6170ce72365ee33cb1a706f130cc5bc7e197aef348ec",
