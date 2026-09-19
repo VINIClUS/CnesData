@@ -122,9 +122,8 @@ bun run typecheck
   Sempre rode `bun run codegen` após mudar openapi.json.
 - **TanStack Router pathless layout:** `_app.tsx` é pathless; rotas filhas
   ficam em `/agentes`, `/activate`, etc. (não `/_app/agentes`).
-- **Test names em pt-BR:** convenção do projeto.
-- **Função ≤ 50 linhas, file ≤ 500 linhas.**
-- **Coverage 80%/70%** (Vitest).
+- **Hard limits e convenção pt-BR de test names:** ver `CLAUDE.md` raiz —
+  não duplicar aqui.
 - **Bundle ≤ 200KB main gzipped** (CI gate em Task 17).
 - **Tremor lazy:** carregar só em rotas v1.1+ via `lazy()` import.
 - **ESLint/Prettier/OxLint ignoram `routeTree.gen.ts` e `src/api/generated.ts`**

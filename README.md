@@ -128,29 +128,12 @@ bun run build
 
 ## Documentacao
 
-| Documento | Conteudo |
-|---|---|
-| `docs/architecture.md` | Arquitetura, fluxos, deploy e contratos |
-| `docs/development.md` | Setup local, verificacoes e comandos equivalentes ao CI |
-| `docs/roadmap.md` | Escopo ativo, proximo e removido |
-| `docs/data-dictionary-cnes.md` | Schema canonico Gold CNES |
-| `docs/data-dictionary-gold-v2.md` | Landing e Gold v2 |
-| `docs/data-dictionary-bpa.md` | BPA-Mag |
-| `docs/data-dictionary-sia.md` | SIA |
-| `docs/data-dictionary-sihd-hospital.md` | SIHD |
-| `docs/perf-testing.md` | Tiers de performance |
-| `docs/runbooks/` | Runbooks operacionais |
+Tabela de roteamento de docs (arquitetura, dicionarios de dados, perf,
+runbooks): secao `<resources>` em `CLAUDE.md`. Nao duplicada aqui para as
+duas nao ficarem dessincronizadas.
 
 ## Variaveis Minimas
 
-```ini
-DB_URL=postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test
-COD_MUN_IBGE=354130
-ID_MUNICIPIO_IBGE7=3541307
-CNPJ_MANTENEDORA=55293427000117
-COMPETENCIA_ANO=2026
-COMPETENCIA_MES=1
-```
-
-Credenciais de Firebird, MinIO, OIDC e certificados ficam nos apps ou no
-ambiente de deploy. Nao hardcode caminhos ou segredos no codigo.
+Ver `.env.example` (fonte unica — nao duplicar valores aqui nem em
+`CLAUDE.md`). Credenciais de Firebird, MinIO, OIDC e certificados ficam nos
+apps ou no ambiente de deploy. Nao hardcode caminhos ou segredos no codigo.
