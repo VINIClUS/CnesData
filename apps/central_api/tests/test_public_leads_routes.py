@@ -129,3 +129,30 @@ def test_limite_e_por_ip_do_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.post(_URL, json=_payload(), headers=h1).status_code == 202
     assert client.post(_URL, json=_payload(), headers=h1).status_code == 429
     assert client.post(_URL, json=_payload(), headers=h2).status_code == 202
+
+
+def test_log_nao_inclui_campos_da_requisicao(caplog: pytest.LogCaptureFixture) -> None:
+    """Request fields must never reach the log line (S5145: forged log entries)."""
+    repo = MagicMock()
+    repo.create.return_value = uuid4()
+    client = _build(repo)
+    injected = "contato\nWARNING falso-alerta"
+    with caplog.at_level("INFO", logger="central_api.routes.public_leads"):
+        r = client.post(_URL, json=_payload(source_cta=injected, name="Fulano\nINFO forjado"))
+    assert r.status_code == 202
+    logged = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert "falso-alerta" not in logged
+    assert "forjado" not in logged
+    assert "lead_received" in logged
+
+
+def test_log_de_falha_nao_inclui_campos_da_requisicao(caplog: pytest.LogCaptureFixture) -> None:
+    repo = MagicMock()
+    repo.create.side_effect = OperationalError("insert", {}, Exception("down"))
+    client = _build(repo)
+    with caplog.at_level("ERROR", logger="central_api.routes.public_leads"):
+        r = client.post(_URL, json=_payload(source_cta="piloto\nERROR forjado"))
+    assert r.status_code == 503
+    logged = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert "forjado" not in logged
+    assert "lead_persist_failed" in logged

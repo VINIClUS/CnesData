@@ -48,9 +48,9 @@ def create_lead(body: LeadCreate, request: Request) -> LeadReceived:
     try:
         lead_id = repo.create(record)
     except SQLAlchemyError as e:
-        logger.error("lead_persist_failed interest=%s error=%s", body.interest, type(e).__name__)
+        logger.error("lead_persist_failed error=%s", type(e).__name__)
         raise HTTPException(status_code=503, detail="leads_unavailable") from e
-    logger.info(
-        "lead_received id=%s interest=%s source=%s", lead_id, body.interest, body.source_cta,
-    )
+    # Only server-side values are logged: request fields would allow forged log
+    # entries via newlines/control characters. The row itself holds the details.
+    logger.info("lead_received id=%s", lead_id)
     return LeadReceived()
