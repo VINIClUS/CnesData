@@ -1,8 +1,8 @@
 """Factory da aplicação FastAPI."""
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from central_api.deps import lifespan
@@ -11,6 +11,7 @@ from central_api.middleware import (
     QueryCounterMiddleware,
     TenantMiddleware,
 )
+from central_api.ratelimit import limiter, rate_limit_handler
 from central_api.routes import (
     access_requests,
     admin,
@@ -23,9 +24,11 @@ from central_api.routes import (
     overview,
     provision,
     provision_rotate,
+    public_leads,
     raw_jobs,
     raw_manifests,
 )
+from cnes_infra import config
 from cnes_infra.auth.errors import OAuthError
 from cnes_infra.telemetry import init_telemetry
 
@@ -42,6 +45,12 @@ async def _oauth_error_handler(
     return JSONResponse(status_code=exc.status_code, content=body)
 
 
+def cors_origins() -> list[str]:
+    """Explicit allow-list from CORS_ALLOWED_ORIGINS (comma-separated); never a wildcard."""
+    origins = (o.strip() for o in config.CORS_ALLOWED_ORIGINS.split(","))
+    return [o for o in origins if o and o != "*"]
+
+
 def create_app() -> FastAPI:
     """Cria e configura a aplicação FastAPI."""
     app = FastAPI(
@@ -52,8 +61,15 @@ def create_app() -> FastAPI:
     app.add_middleware(QueryCounterMiddleware)
     app.add_middleware(TenantMiddleware)
     app.add_middleware(AuthMiddleware)
-    app.state.limiter = oauth.limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins(),
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Tenant-Id"],
+        max_age=600,
+    )
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
     app.add_exception_handler(OAuthError, _oauth_error_handler)
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(health.router, prefix="/api/v1")
@@ -66,6 +82,7 @@ def create_app() -> FastAPI:
         access_requests.router,
         prefix="/api/v1/dashboard/access-requests",
     )
+    app.include_router(public_leads.router, prefix="/api/v1/public")
     app.include_router(oauth.router)
     app.include_router(provision.router)
     app.include_router(provision_rotate.router)

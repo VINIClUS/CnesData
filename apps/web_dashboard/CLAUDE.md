@@ -17,7 +17,11 @@ Persona secundária: técnico hospitalar redimindo `user_code` na rota
 ## Functionalities
 
 - `/` — landing pública (hero + recursos + benefícios + CTA)
-- `/precos` — planos, trust strip e FAQ (público)
+- `/recursos` — capacidades com estágio explícito ("Em desenvolvimento") + fluxo coleta → processamento → consulta
+- `/sobre` — página editorial: motivação, público, abordagem, estágio atual
+- `/contato?interesse=acesso-antecipado|piloto|contato` — formulário de interesse (`LeadForm`); valor desconhecido cai em `contato`
+- `/privacidade`, `/termos`, `/ajuda` — páginas legais/ajuda (`LegalPage`), conteúdo em `i18n/legal.ts`
+- `/precos` — planos, trust strip e FAQ. Sem divulgação interna (fora de menu, rodapé e CTAs); acessível por URL direta; `noindex` via `head()` + `X-Robots-Tag` (nginx)
 - `/login` — OIDC Auth Code + PKCE; formulário visual, e-mail vira `login_hint`
 - `/auth/callback` — redirect handler
 - `/agentes` — status edge agents do tenant + últimas 20 execuções (Task 24)
@@ -80,6 +84,9 @@ manager) — SPA carrega mas login falha controladamente.
 | `src/components/marketing/`     | Navbar, Footer, HeroSurface (dark forçado), CtaBand, FeatureItem, DashboardPreview estático                                    |
 | `src/components/landing/`       | LandingPage (`/`)                                                                                                              |
 | `src/components/pricing/`       | PricingPage (`/precos`) + PricingCard + FaqList                                                                                |
+| `src/components/resources/`     | ResourcesPage (`/recursos`) — blocos alternados + fluxo, visuais ilustrativos reaproveitando `preview/*`                        |
+| `src/components/about/`         | AboutPage (`/sobre`) — corpo editorial `max-w-[720px]`                                                                        |
+| `src/components/contact/`       | ContactPage (`/contato`) + LeadForm/useLeadForm/leadSchema; `contactInterest.ts` valida `?interesse`                          |
 | `src/components/login/`         | LoginPage + LoginForm (senha renderizada, nunca enviada)                                                                       |
 | `src/components/signup/`        | AccessRequestForm + PendingRequestsList (v1.1)                                                                                 |
 | `src/components/overview/`      | KpiCard + KpiGrid + FaturamentoAreaChart (Tremor lazy) (v1.1)                                                                  |
@@ -143,9 +150,26 @@ bun run typecheck
 - **`@tremor/react` lazy-loaded**: importar via `lazy(() => import(...))`
   apenas em rotas que usam charts (hoje só /overview). Tremor entra em chunk
   próprio no `manualChunks` do `vite.config.ts`; bundle main fica fora.
-- **Páginas públicas (`/`, `/precos`, `/login`) usam `HeroSurface`** com classe `dark`
+- **Páginas públicas (`/`, `/recursos`, `/sobre`, `/contato`, `/precos`, `/login`) usam `HeroSurface`** com classe `dark`
   literal: hero/footer/CTA ficam navy em qualquer tema; seções claras seguem o toggle.
   Cores de marca via `--navy*`/`--brand*` em `styles.css` (aliases `bg-navy`, `text-brand`).
+- **`HeadContent` vai para `document.head` via `createPortal` em `__root.tsx`**: React 18 não hoista
+  `<title>`/`<meta>`. `index.html` não tem `<title>` estático; o root route define o fallback e cada
+  rota pública define o seu em `head()`. Só `/precos` emite `robots: noindex`.
+- **Navegação pública é a lista estática `marketingNavigation.ts`** (Início, Recursos, Sobre, Contato).
+  Não derivar do route tree; não reintroduzir `/precos` em header, rodapé ou CTAs.
+- **Leads: `POST ${VITE_API_BASE_URL}/public/leads`** (`src/api/marketingLeads.ts`) → `central_api`
+  `routes/public_leads.py`. Falha real (422/429/5xx/rede) sem simular sucesso; "Tentar novamente"
+  só para indisponibilidade/rede; "Enviar e-mail" sempre. Hosts de API vêm só de
+  `VITE_API_BASE_URL` (build-arg do Dockerfile; dev = `https://api.dev.vinisantana.com/api/v1`,
+  prod = `https://api.vinisantana.com/api/v1`, local = `/api/v1` via proxy do Vite/nginx).
+- **CSP `connect-src`** recebe `${API_ORIGIN}` em runtime (`nginx/entrypoint.sh`); o compose de
+  cada ambiente define `API_ORIGIN`. Sem ele, chamadas cross-origin à API são bloqueadas.
+- **`noindex` de `/precos` é pré-lançamento e configurável**: meta via build-arg
+  `VITE_PRECOS_NOINDEX` (default `true`), header via env de runtime `PRECOS_NOINDEX` (default
+  `true`; `false` remove o header). Não é mecanismo de segurança.
+- **Termos/Privacidade/Ajuda são rotas** (`/termos`, `/privacidade`, `/ajuda`, `components/legal/`).
+  Seções com `pending: true` em `i18n/legal.ts` marcam pontos de negócio ainda não definidos.
 - **Fonte Inter self-hosted** (`@fontsource-variable/inter` em `main.tsx`) — CSP não permite
   Google Fonts.
 - **Dark mode FOUC script** inline em `index.html` `<head>` aplica classe

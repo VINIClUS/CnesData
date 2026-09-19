@@ -1,55 +1,53 @@
 import { Link } from "@tanstack/react-router";
 
+import { MobileMenuButton, MobileMenuPanel } from "./MarketingMobileNav";
 import { ThemeIconButton } from "./ThemeIconButton";
+import { ACCESS_SEARCH, NAV_LINK_CLASS, PUBLIC_NAV } from "./marketingNavigation";
+import { useMobileMenu } from "./useMobileMenu";
 
 import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
 import { marketing } from "@/i18n/marketing";
 
-const _LINKS: { label: string; to: "/" | "/precos"; hash?: string }[] = [
-  { label: marketing.nav.inicio, to: "/" },
-  { label: marketing.nav.recursos, to: "/", hash: "recursos" },
-  { label: marketing.nav.precos, to: "/precos" },
-  { label: marketing.nav.sobre, to: "/", hash: "sobre" },
-];
-
-const _LINK =
-  "relative py-1 text-sm text-foreground/80 transition-colors hover:text-foreground after:absolute after:inset-x-0 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary after:opacity-0 after:transition-opacity";
-
 export function MarketingNavbar() {
+  const menu = useMobileMenu();
   return (
-    <header className="mx-auto flex w-full max-w-[1320px] items-center justify-between px-6 py-5">
+    <header className="mx-auto flex w-full max-w-[1320px] flex-wrap items-center justify-between px-6 py-5">
       <div className="flex items-center gap-12">
         <Link to="/" aria-label="CnesData">
           <Logo />
         </Link>
         <nav aria-label="Principal" className="hidden items-center gap-8 md:flex">
-          {_LINKS.map((l) => (
+          {PUBLIC_NAV.map((l) => (
             <Link
-              key={l.label}
+              key={l.to}
               to={l.to}
-              hash={l.hash}
-              activeOptions={{ exact: true, includeHash: true }}
+              activeOptions={{ exact: true, includeSearch: false }}
               activeProps={{ className: "text-foreground after:opacity-100" }}
-              className={_LINK}
+              className={NAV_LINK_CLASS}
             >
               {l.label}
             </Link>
           ))}
-          <a href={`mailto:${marketing.contactEmail}`} className={_LINK}>
-            {marketing.nav.contato}
-          </a>
         </nav>
       </div>
       <div className="flex items-center gap-3">
         <ThemeIconButton />
-        <Button variant="outline" className="border-white/15 bg-transparent" asChild>
+        <Button
+          variant="outline"
+          className="hidden border-white/15 bg-transparent md:inline-flex"
+          asChild
+        >
           <Link to="/login">{marketing.nav.entrar}</Link>
         </Button>
-        <Button asChild>
-          <Link to="/login">{marketing.nav.criarConta}</Link>
+        <Button className="hidden md:inline-flex" asChild>
+          <Link to="/contato" search={ACCESS_SEARCH}>
+            {marketing.nav.solicitarAcesso}
+          </Link>
         </Button>
+        <MobileMenuButton {...menu} />
       </div>
+      <MobileMenuPanel {...menu} />
     </header>
   );
 }

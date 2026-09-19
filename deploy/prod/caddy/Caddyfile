@@ -21,3 +21,22 @@ dev.cnesdata.vinisantana.com {
         reverse_proxy dev-web-dashboard:80
     }
 }
+
+# API hosts: only the versioned API surface is exposed; docs/openapi stay internal.
+api.vinisantana.com {
+    handle /api/* {
+        reverse_proxy central-api:8000
+    }
+    handle {
+        respond 404
+    }
+}
+
+api.dev.vinisantana.com {
+    handle /api/* {
+        reverse_proxy dev-central-api:8000
+    }
+    handle {
+        respond 404
+    }
+}

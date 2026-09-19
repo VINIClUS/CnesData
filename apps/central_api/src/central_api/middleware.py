@@ -44,7 +44,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: object,
     ) -> Response:
         path = request.url.path
-        if path.startswith(("/oauth/", "/provision/")):
+        if path.startswith(("/oauth/", "/provision/", "/api/v1/public/")):
             return await call_next(request)
         header = request.headers.get("Authorization", "")
         if not header.lower().startswith("bearer "):

@@ -131,3 +131,14 @@ ssh root@103.199.184.166 'cd /opt/cnesdata && docker compose -f docker-compose.p
 - Variável `GESTOR_PASSWORD` existe em `/opt/cnesdata/.env` mas não é
   referenciada por `docker-compose.prod.yml` — origem não identificada
   nesta migração; investigar antes de removê-la.
+
+## Host da API (`api.vinisantana.com`)
+
+Mesma estrutura do dev (ver `deploy-develop.md`, seção "Host da API"): DNS A para o VPS,
+bloco `api.vinisantana.com` no Caddyfile apontando para `central-api:8000` (só `/api/*`),
+`CORS_ALLOWED_ORIGINS=https://${PUBLIC_DOMAIN}` no `central-api` e `API_ORIGIN=https://${API_DOMAIN}`
+no `web-dashboard` (definir `API_DOMAIN` e `PRECOS_NOINDEX` em `/opt/cnesdata/.env`, ver
+`deploy/prod/.env.example`). A imagem do dashboard de `main` é compilada com
+`VITE_API_BASE_URL=https://api.vinisantana.com/api/v1`. Antes do primeiro deploy de `main` com
+essa mudança, copiar o compose e o Caddyfile atualizados e conferir
+`smoke.sh https://cnesdata.vinisantana.com https://api.vinisantana.com`.

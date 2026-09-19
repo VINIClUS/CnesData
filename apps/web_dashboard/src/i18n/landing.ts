@@ -1,26 +1,35 @@
 export const landing = {
+  meta: {
+    title: "CnesData — Dados do CNES para a gestão municipal",
+    description:
+      "Projeto em desenvolvimento para organizar, conferir e apresentar dados do CNES por competência.",
+  },
   hero: {
     eyebrow: "Dados do CNES, decisões mais inteligentes",
     lead: "Transforme dados do CNES em",
     highlight: "informação estratégica",
     description:
-      "O CnesData centraliza, valida e apresenta os dados do CNES de forma simples e visual, ajudando municípios, consórcios e gestores da saúde pública a planejar, monitorar e tomar decisões com mais confiança.",
-    primary: "Comece agora",
-    secondary: "Ver demonstração",
-    bullets: ["Dados confiáveis", "Atualização automática", "Foco na gestão pública"],
+      "O CnesData está sendo desenvolvido para organizar, conferir e apresentar os dados do CNES de forma simples e visual, ajudando quem planeja, monitora e presta contas na saúde pública municipal.",
+    primary: "Solicitar acesso antecipado",
+    secondary: "Conhecer os recursos",
+    bullets: [
+      "Dados por competência",
+      "Conferências apoiadas pela interface",
+      "Foco na gestão pública",
+    ],
   },
   features: [
     {
       title: "Dados centralizados",
-      description: "Integra e organiza informações do CNES em um só lugar.",
+      description: "Organiza informações do CNES por fonte e competência em um só lugar.",
     },
     {
       title: "Dashboards intuitivos",
-      description: "Visualize indicadores e tendências de forma clara e objetiva.",
+      description: "Indicadores e tendências apresentados de forma clara e objetiva.",
     },
     {
       title: "Validação e confiabilidade",
-      description: "Regras de consistência e auditoria para dados confiáveis.",
+      description: "Conferências de consistência para apoiar a revisão dos dados.",
     },
     {
       title: "Feito para a gestão pública",
@@ -31,7 +40,7 @@ export const landing = {
     eyebrow: "Para municípios e consórcios",
     title: "Mais eficiência para uma saúde pública mais forte",
     description:
-      "O CnesData transforma a complexidade dos dados do CNES em informações claras, acessíveis e acionáveis, apoiando a gestão municipal no planejamento, na transparência e na melhoria contínua dos serviços de saúde.",
+      "O CnesData está sendo desenvolvido para transformar a complexidade dos dados do CNES em informações claras e acessíveis, apoiando a gestão municipal no planejamento, na transparência e na melhoria contínua dos serviços de saúde.",
     button: "Conheça todos os recursos",
     cards: [
       {
@@ -46,11 +55,12 @@ export const landing = {
       },
       {
         title: "Transparência e prestação de contas",
-        description: "Relatórios completos para atender órgãos de controle e a sociedade.",
+        description:
+          "Informações organizadas para prestar contas a órgãos de controle e à sociedade.",
       },
     ],
   },
-  cta: "Pronto para transformar os dados do CNES em resultados?",
+  cta: "Trabalha com CNES? Participe dos primeiros testes.",
   preview: {
     title: "Visão geral",
     subtitle: "Panorama dos dados do CNES",
