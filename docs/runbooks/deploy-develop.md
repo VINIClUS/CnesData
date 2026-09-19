@@ -172,7 +172,7 @@ precisam estar alinhadas, todas versionadas em `deploy/`:
 3. **Compose dev** (`deploy/dev/docker-compose.dev.yml`, copiado para `/opt/cnesdata-dev`):
    `central-api` entra na rede `cnesdata_edge` com alias `dev-central-api` e recebe
    `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.vinisantana.com`; `dashboard` recebe
-   `API_ORIGIN=https://api.dev.vinisantana.com` (CSP `connect-src`) e `ROBOTS_PRECOS`.
+   `API_ORIGIN=https://api.dev.vinisantana.com` (CSP `connect-src`) e `PRECOS_NOINDEX`.
 
 Validação (também no job `smoke`): `apps/web_dashboard/scripts/smoke.sh
 https://dev.cnesdata.vinisantana.com https://api.dev.vinisantana.com` confere health no host

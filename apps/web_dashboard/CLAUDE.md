@@ -166,8 +166,8 @@ bun run typecheck
 - **CSP `connect-src`** recebe `${API_ORIGIN}` em runtime (`nginx/entrypoint.sh`); o compose de
   cada ambiente define `API_ORIGIN`. Sem ele, chamadas cross-origin à API são bloqueadas.
 - **`noindex` de `/precos` é pré-lançamento e configurável**: meta via build-arg
-  `VITE_PRECOS_NOINDEX` (default `true`), header via env de runtime `ROBOTS_PRECOS` (default
-  `noindex`, vazio desliga). Não é mecanismo de segurança.
+  `VITE_PRECOS_NOINDEX` (default `true`), header via env de runtime `PRECOS_NOINDEX` (default
+  `true`; `false` remove o header). Não é mecanismo de segurança.
 - **Termos/Privacidade/Ajuda são rotas** (`/termos`, `/privacidade`, `/ajuda`, `components/legal/`).
   Seções com `pending: true` em `i18n/legal.ts` marcam pontos de negócio ainda não definidos.
 - **Fonte Inter self-hosted** (`@fontsource-variable/inter` em `main.tsx`) — CSP não permite

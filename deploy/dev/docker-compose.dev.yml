@@ -172,7 +172,7 @@ services:
       UPSTREAM_API: central-api:8000
       OIDC_AUTHORITY: ${DASHBOARD_OIDC_ISSUER}
       API_ORIGIN: https://api.dev.vinisantana.com
-      ROBOTS_PRECOS: ${ROBOTS_PRECOS:-noindex}
+      PRECOS_NOINDEX: ${PRECOS_NOINDEX:-true}
       TZ: America/Sao_Paulo
     networks:
       default:
