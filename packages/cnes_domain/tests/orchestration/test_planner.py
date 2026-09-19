@@ -481,9 +481,13 @@ def test_modulos_de_orchestration_nao_importam_infra_ou_frameworks() -> None:
 
 
 def test_planner_nao_hardcoda_nomes_de_dataset_cnes() -> None:
+    # source_catalog.py e frozen por design (CND-060) para conter a definicao
+    # CNES; a genericidade protegida aqui e a do DAG em planner.py/fan_in.py.
     root = Path(__file__).parents[2] / "src/cnes_domain/orchestration"
     forbidden = ("CNES_LOCAL", "CNES_NACIONAL", "SIHD", "BPA", "SIA")
     for path in root.glob("*.py"):
+        if path.name == "source_catalog.py":
+            continue
         content = path.read_text(encoding="utf-8")
         for name in forbidden:
             assert name not in content
