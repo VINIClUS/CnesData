@@ -71,6 +71,11 @@ colisão (lease-based).
 | `src/data_processor/adapters/sia_dim_sync.py` | `sync_dim_procedimento`, `sync_dim_municipio` |
 | `src/data_processor/cdc_merger.py` | `merge_delta` — roteia `_op ∈ {I,U,D}` |
 | `src/data_processor/integrity_check.py` | `verify_parquet` — SHA-256 sobre Parquet baixado |
+| `src/data_processor/pipeline/normalize_cnes_local.py` | `normalize_cnes_local` — reconstrói FULL+DELTA |
+| `src/data_processor/pipeline/normalize_cnes_nacional.py` | `normalize_cnes_nacional` — raw FULL único |
+| `src/data_processor/pipeline/reconcile_cnes.py` | `reconcile_cnes` — precedência LOCAL/NACIONAL |
+| `src/data_processor/pipeline/materialize_cnes.py` | `materialize_cnes` — serving JSON agregado |
+| `src/data_processor/pipeline/delta_reconstruction.py` | `reconstruct_from_deltas` — CDC por natural key |
 
 ## Gotchas
 
