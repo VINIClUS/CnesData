@@ -1,9 +1,16 @@
 """central_api survives Postgres container restart (testcontainers chaos_infra)."""
 from __future__ import annotations
 
+import socket
 import time
 
 import pytest
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
 
 
 @pytest.mark.chaos_infra
@@ -13,18 +20,19 @@ def test_central_api_sobrevive_pg_restart():
     from sqlalchemy import create_engine, text
     from testcontainers.postgres import PostgresContainer
 
-    with PostgresContainer("postgres:16-alpine") as pg:
+    pg = PostgresContainer("postgres:16-alpine").with_bind_ports(5432, _free_port())
+    with pg:
         engine = create_engine(pg.get_connection_url())
 
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
 
-        pg.stop()
+        pg.get_wrapped_container().stop()
         time.sleep(1)
         with pytest.raises(Exception):
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-        pg.start()
+        pg.get_wrapped_container().start()
 
         for _ in range(30):
             try:
