@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PYTHONUNBUFFERED=1
 
 gate_openapi="$(mktemp)"
 gate_contracts="$(mktemp -d)"
@@ -14,11 +15,11 @@ uv run --no-build ruff check .
   cd packages/cnes_infra
   uv run alembic -c alembic.ini upgrade head
 )
-uv run --no-build pytest packages/cnes_domain packages/cnes_infra \
+timeout --signal=INT 480 uv run --no-build pytest packages/cnes_domain packages/cnes_infra \
   -m "not bigquery and not e2e and not stress and not soak and not spike" \
   --cov --cov-config=pyproject.toml --cov-report=term-missing \
   --cov-report=xml:coverage-packages.xml
-uv run --no-build pytest apps/ \
+timeout --signal=INT 300 uv run --no-build pytest apps/ \
   -m "not integration and not bigquery and not e2e and not stress and not soak and not spike \
 and not windows_only" \
   --cov --cov-config=.coveragerc --cov-report=term-missing \
