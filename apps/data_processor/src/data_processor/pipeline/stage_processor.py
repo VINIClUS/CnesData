@@ -206,10 +206,10 @@ class StageProcessor:
             reconciled_at=self._clock(),
         )
         result = pipeline.reconcile(request, scoped_store)
-        actual = frozenset(
-            (result.reconciliation_manifest.object_key, result.divergence_manifest.object_key)
-        )
-        if not _result_keys_match(actual, (reconciliation_key, divergence_key)):
+        if (
+            result.reconciliation_manifest.object_key != reconciliation_key
+            or result.divergence_manifest.object_key != divergence_key
+        ):
             raise ValueError("result_target_mismatch")
         return result.reconciliation_manifest, result.divergence_manifest
 
