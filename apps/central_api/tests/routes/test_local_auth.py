@@ -256,34 +256,67 @@ def test_login_com_rate_limit_excedido() -> None:
 
 
 def test_cookie_de_sessao_secure_com_x_forwarded_proto_https() -> None:
+    import os
+    os.environ["TRUST_X_FORWARDED_PROTO"] = "true"
+    try:
+        app = FastAPI()
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+        app.include_router(local_auth.router)
+        app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
+        client = TestClient(app, base_url="http://testserver")
+
+        response = client.post(
+            "/api/v1/auth/local/login",
+            json={"email": "g@x.com", "password": _PASSWORD},
+            headers={"X-Forwarded-Proto": "https"},
+        )
+
+        assert "Secure" in response.headers["set-cookie"]
+    finally:
+        os.environ.pop("TRUST_X_FORWARDED_PROTO", None)
+
+
+def test_cookie_sem_secure_com_x_forwarded_proto_http() -> None:
+    import os
+    os.environ["TRUST_X_FORWARDED_PROTO"] = "true"
+    try:
+        app = FastAPI()
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+        app.include_router(local_auth.router)
+        app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
+        client = TestClient(app, base_url="http://testserver")
+
+        response = client.post(
+            "/api/v1/auth/local/login",
+            json={"email": "g@x.com", "password": _PASSWORD},
+            headers={"X-Forwarded-Proto": "http"},
+        )
+
+        assert "Secure" not in response.headers["set-cookie"]
+    finally:
+        os.environ.pop("TRUST_X_FORWARDED_PROTO", None)
+
+
+def test_cookie_seguro_nao_confia_x_forwarded_proto_por_padrao() -> None:
+    """Cookie não deve ter Secure por padrão mesmo com X-Forwarded-Proto: https sem configuração."""
+    import os
+    # Ensure TRUST_X_FORWARDED_PROTO is NOT set
+    os.environ.pop("TRUST_X_FORWARDED_PROTO", None)
+    
     app = FastAPI()
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
     app.include_router(local_auth.router)
     app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
-    client = TestClient(app, base_url="http://testserver")
-
+    client = TestClient(app)
+    
     response = client.post(
         "/api/v1/auth/local/login",
         json={"email": "g@x.com", "password": _PASSWORD},
         headers={"X-Forwarded-Proto": "https"},
     )
-
-    assert "Secure" in response.headers["set-cookie"]
-
-
-def test_cookie_sem_secure_com_x_forwarded_proto_http() -> None:
-    app = FastAPI()
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
-    app.include_router(local_auth.router)
-    app.dependency_overrides[local_auth.get_local_auth_service] = lambda: _FakeService()
-    client = TestClient(app, base_url="http://testserver")
-
-    response = client.post(
-        "/api/v1/auth/local/login",
-        json={"email": "g@x.com", "password": _PASSWORD},
-        headers={"X-Forwarded-Proto": "http"},
-    )
-
-    assert "Secure" not in response.headers["set-cookie"]
+    
+    # Sem TRUST_X_FORWARDED_PROTO, não deve respeitar o header X-Forwarded-Proto
+    assert "Secure" not in response.headers.get("set-cookie", "")

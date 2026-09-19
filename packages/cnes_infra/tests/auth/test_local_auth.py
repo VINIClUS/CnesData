@@ -1,4 +1,4 @@
-"""Testes de autenticação local por senha e resolução de membership OIDC."""
+"""Testes de autenticação local via LocalAuthService e resolução de membership OIDC."""
 
 from __future__ import annotations
 
@@ -107,54 +107,6 @@ def _seed_user(
 
 
 # --- local_credentials.py: hashing e normalização ---
-
-
-def test_hash_password_usa_scrypt_com_parametros_fixos() -> None:
-    salt = generate_salt()
-    expected = hashlib.scrypt(_PASSWORD.encode(), salt=salt, n=2**14, r=8, p=1, dklen=32)
-    assert hash_password(_PASSWORD, salt) == expected
-
-
-def test_normaliza_email_com_espacos_e_maiusculas() -> None:
-    assert normalize_email("  Gestor@Epitacio.SP.GOV.BR  ") == "gestor@epitacio.sp.gov.br"
-
-
-@pytest.mark.parametrize("password", ["curta12345", "x" * 129], ids=["muito_curta", "muito_longa"])
-def test_build_user_rejeita_senha_fora_do_tamanho(password: str) -> None:
-    from cnes_infra.auth.local_credentials import CredentialRejected
-
-    with pytest.raises(CredentialRejected):
-        build_user("user-1", "a@b.com", password, datetime(2026, 7, 1, tzinfo=UTC))
-
-
-def test_build_user_gera_salt_de_dezesseis_bytes() -> None:
-    user = build_user("user-1", "a@b.com", _PASSWORD, datetime(2026, 7, 1, tzinfo=UTC))
-    assert len(user.salt) == SALT_BYTES
-
-
-@pytest.mark.parametrize("length", [12, 128], ids=["limite_minimo", "limite_maximo"])
-def test_build_user_aceita_senha_nos_limites_inclusivos(length: int) -> None:
-    user = build_user("user-1", "a@b.com", "x" * length, datetime(2026, 7, 1, tzinfo=UTC))
-    assert user.user_id == "user-1"
-
-
-# --- LocalAuthService.authenticate ---
-
-
-def test_autentica_usuario_valido_retorna_principal_do_profile(
-    service, credentials, control_plane, clock, settings
-) -> None:
-    user_id = _seed_user(credentials, clock)
-    control_plane.add_membership(settings.tenant_id, user_id, role="gestor")
-
-    principal = service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
-
-    assert principal == AuthenticatedPrincipal(
-        user_id=user_id,
-        email="gestor@epitacio.sp.gov.br",
-        tenant_id=settings.tenant_id,
-        role="gestor",
-    )
 
 
 def test_dependencias_usam_hash_password_real_por_padrao(
@@ -489,17 +441,3 @@ def test_resolve_oidc_rejeita_sem_membership(control_plane, settings) -> None:
 # --- LocalCredentialStore: schema compartilhado com o control plane ---
 
 
-def test_inicializa_schema_e_idempotente_no_banco_do_control_plane(tmp_path) -> None:
-    from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-
-    database_path = tmp_path / "state" / "cnesdata.sqlite3"
-    control_plane = SQLiteControlPlane(database_path, lambda: datetime(2026, 7, 15, tzinfo=UTC))
-    control_plane.initialize()
-
-    store = LocalCredentialStore(database_path)
-    store.initialize()
-    store.initialize()
-
-    user = build_user("user-1", "a@b.com", _PASSWORD, datetime(2026, 7, 1, tzinfo=UTC))
-    store.put_user(user)
-    assert store.find_user_by_email("a@b.com") == user

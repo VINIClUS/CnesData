@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from central_api.ratelimit import limiter
+
 from cnes_infra.auth.local_auth import (
     SESSION_TTL_SECONDS,
     AuthenticatedPrincipal,
@@ -13,6 +14,7 @@ from cnes_infra.auth.local_auth import (
     LocalAuthService,
 )
 from cnes_infra.auth.local_credentials import MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH
+
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth-local"])
 SESSION_COOKIE_NAME = "cnesdata_session"
@@ -52,10 +54,13 @@ def _to_response(principal: AuthenticatedPrincipal) -> PrincipalResponse:
 
 
 def _is_secure_transport(request: Request) -> bool:
-    """Detect HTTPS from direct TLS or X-Forwarded-Proto behind a proxy."""
-    forwarded_proto = request.headers.get("x-forwarded-proto", "")
-    if forwarded_proto:
-        return forwarded_proto == "https"
+    """Detect HTTPS from direct TLS or X-Forwarded-Proto behind a trusted proxy."""
+    import os
+    trust_proxy = os.getenv("TRUST_X_FORWARDED_PROTO", "false").lower() == "true"
+    if trust_proxy:
+        forwarded_proto = request.headers.get("x-forwarded-proto", "")
+        if forwarded_proto:
+            return forwarded_proto == "https"
     return request.url.scheme == "https"
 
 
