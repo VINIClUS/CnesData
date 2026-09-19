@@ -25,7 +25,8 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 
 ## Conventions
 
-- Todo repositório aceita `Connection` no construtor (UoW injection)
+- Toda função de repositório recebe `Connection` por parâmetro (sem classe
+  UoW concreta — `cnes_domain.ports.storage.UnitOfWork` é só o Protocol)
 - Dims usam `ON CONFLICT DO UPDATE` + merge JSONB em `fontes`; fatos Gold v2
   usam **plain INSERT** (N rows por tupla, sem merge — agregação em query time)
 - Migrations são numeradas e **imutáveis após merge** — novo schema muda
@@ -43,7 +44,6 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `storage/dim_lookup.py` | `PostgresDimLookup` (surrogate key cache) + `upsert_dim_*` (merge `fontes`) |
 | `storage/rls.py` | Policies RLS + `install_rls_listener(engine)` (event hook SQLAlchemy) |
 | `storage/object_storage.py` | `MinioObjectStorage` implementa `ObjectStoragePort` |
-| `storage/repositories/unit_of_work.py` | `PostgresUnitOfWork` wrap SQLAlchemy Session |
 | `storage/repositories/vinculo_repo_v2.py` | `gravar(fato_vinculo_cnes)` — **plain INSERT**, sem ON CONFLICT |
 | `storage/repositories/producao_ambulatorial_repo.py` | Upsert `fato_producao_ambulatorial` (BPA/SIA), merge `fontes_reportadas` |
 | `storage/repositories/internacao_repo.py` | Grava `fato_internacao` (SIHD) |
