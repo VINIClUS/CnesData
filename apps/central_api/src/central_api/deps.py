@@ -21,9 +21,14 @@ from cnes_infra.storage.rls import install_rls_listener
 from cnes_infra.telemetry import instrument_engine
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Iterator
+    from collections.abc import AsyncGenerator, Callable, Iterator
 
     from sqlalchemy.engine import Connection, Engine
+
+    from central_api.composition import LocalRuntime
+    from central_api.routes.serving import ServingPrincipal
+    from cnes_domain.profiles import ProfileSettings
+    from cnes_infra.auth.local_auth import LocalAuthService
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,12 @@ def get_engine() -> Engine:
     if _engine is None:
         _engine = create_engine(config.DB_URL)
     return _engine
+
+
+def get_health_engine() -> Engine | None:
+    if _local_profile_requested():
+        return None
+    return get_engine()
 
 
 def get_conn() -> Iterator[Connection]:
@@ -125,35 +136,32 @@ def _utc_now() -> datetime:
 def _build_local_state(app: object) -> None:
     """Compõe uma única vez o grafo SQLite/filesystem do profile local."""
 
-    from central_api.services.delta_policy import DeltaPolicy
+    from central_api.composition import build_local_runtime
     from central_api.services.national_ingestion import NationalIngestionService
-    from central_api.services.raw_ingestion import RawIngestionService
     from central_api.services.raw_upload import RawUploadService
     from cnes_domain.profiles import parse_profile
-    from cnes_infra.control_plane import SQLiteControlPlane
     from cnes_infra.ingestion import DatasusCnesFtpTransport, DatasusCnesRawAdapter
-    from cnes_infra.object_store import FilesystemObjectStore
 
     settings = parse_profile(os.environ)
-    objects_root = settings.data_dir / "objects"
-    objects_root.mkdir(parents=True, exist_ok=True)
-    control_plane = SQLiteControlPlane(settings.data_dir / "control-plane.sqlite3", _utc_now)
-    control_plane.initialize()
-    object_store = FilesystemObjectStore(objects_root)
-    raw_ingestion = RawIngestionService(control_plane, object_store, DeltaPolicy())
+    runtime = build_local_runtime(settings, _utc_now)
     app.state.settings = settings
-    app.state.control_plane = control_plane
-    app.state.raw_query = control_plane
-    app.state.object_store = object_store
-    app.state.raw_ingestion = raw_ingestion
-    app.state.raw_upload = RawUploadService(control_plane, object_store, _utc_now)
+    app.state.control_plane = runtime.control_plane
+    app.state.raw_query = runtime.control_plane
+    app.state.object_store = runtime.object_store
+    app.state.raw_ingestion = runtime.raw_ingestion
+    app.state.run_planning = runtime.run_planning
+    app.state.source_catalog = runtime.source_catalog
+    app.state.audit_sink = runtime.audit_sink
+    app.state.executor = runtime.executor
+    app.state.raw_upload = RawUploadService(runtime.control_plane, runtime.object_store, _utc_now)
     app.state.national_ingestion = NationalIngestionService(
-        control_plane,
-        DatasusCnesRawAdapter(DatasusCnesFtpTransport(), object_store, _utc_now),
-        raw_ingestion,
+        runtime.control_plane,
+        DatasusCnesRawAdapter(DatasusCnesFtpTransport(), runtime.object_store, _utc_now),
+        runtime.raw_ingestion,
         _utc_now,
     )
     _install_edge_overrides(app)
+    _install_local_auth_and_serving(app, runtime, settings)
     logger.info(
         "local_profile_composed tenant_id=%s data_dir=%s",
         settings.tenant_id,
@@ -171,6 +179,50 @@ def _install_edge_overrides(app: object) -> None:
     app.dependency_overrides[get_control_plane] = lambda: app.state.control_plane
     app.dependency_overrides[get_raw_upload_service] = lambda: app.state.raw_upload
     app.dependency_overrides[get_raw_ingestion_service] = lambda: app.state.raw_ingestion
+
+
+def _serving_principal_resolver(
+    auth_service: LocalAuthService,
+) -> Callable[[Request], ServingPrincipal]:
+    from central_api.routes.local_auth import SESSION_COOKIE_NAME
+    from central_api.routes.serving import ServingPrincipal
+    from cnes_infra.auth.local_auth import AuthenticationRejected
+
+    def _resolve(request: Request) -> ServingPrincipal:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        if token is None:
+            raise HTTPException(status_code=401, detail="session_required")
+        try:
+            principal = auth_service.resolve_session(token)
+        except AuthenticationRejected as error:
+            raise HTTPException(status_code=401, detail="session_invalid") from error
+        return ServingPrincipal(tenant_id=principal.tenant_id, user_id=principal.user_id)
+
+    return _resolve
+
+
+def _install_local_auth_and_serving(
+    app: object, runtime: LocalRuntime, settings: ProfileSettings
+) -> None:
+    from central_api.routes import local_auth, serving
+    from central_api.services.serving_access import LocalServingAccess
+    from cnes_infra.auth.local_auth import LocalAuthDependencies, LocalAuthService
+    from cnes_infra.auth.local_credentials import LocalCredentialStore
+
+    credentials = LocalCredentialStore(settings.state_db)
+    credentials.initialize()
+    auth_service = LocalAuthService(
+        LocalAuthDependencies(credentials, runtime.control_plane, settings), _utc_now
+    )
+    serving_access = LocalServingAccess(runtime.control_plane, runtime.object_store)
+    app.state.local_auth_service = auth_service
+    app.state.serving_access = serving_access
+    app.dependency_overrides[local_auth.get_local_auth_service] = lambda: auth_service
+    app.dependency_overrides[serving.get_serving_access] = lambda: serving_access
+    app.dependency_overrides[serving.get_serving_object_store] = lambda: runtime.object_store
+    app.dependency_overrides[serving.get_serving_principal] = _serving_principal_resolver(
+        auth_service
+    )
 
 
 @asynccontextmanager

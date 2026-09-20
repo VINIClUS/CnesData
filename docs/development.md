@@ -29,6 +29,10 @@ Start all local development services:
 docker compose --profile dev up -d
 ```
 
+For direct/local HTTP access, keep `TRUST_X_FORWARDED_PROTO=false`. Only enable
+it when the API is behind the trusted TLS-terminating Caddy proxy used by the
+dev and production deployment stacks.
+
 Useful endpoints:
 
 | Service | URL |
@@ -40,6 +44,9 @@ Useful endpoints:
 | Keycloak | http://localhost:8080 |
 | MinIO console | http://localhost:9001 |
 | Postgres | `localhost:5433` |
+
+Sem Postgres/MinIO/Keycloak (SQLite + filesystem, `--profile local`): ver
+`docs/runbooks/local-profile.md`.
 
 Run only the API from the workspace:
 
@@ -140,6 +147,16 @@ Integration test labels in GitHub:
 |---|---|
 | `run-windows-integration` | Runs Windows Firebird integration |
 | `run-integration` | Runs Linux SIA integration |
+
+Release workflow (`.github/workflows/dump-agent-go-release.yml`): cut a release, dry-run,
+channels, rollback documented in `docs/runbooks/dumpagent-release.md`. Lint the workflow
+locally before pushing (no dedicated CI job for this — 14 other workflows already lint
+each other's blast radius):
+
+```bash
+go install github.com/rhysd/actionlint/cmd/actionlint@latest
+actionlint .github/workflows/dump-agent-go-release.yml .github/workflows/dump-agent-go.yml
+```
 
 ## Web Dashboard
 

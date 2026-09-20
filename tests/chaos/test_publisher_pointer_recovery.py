@@ -32,6 +32,7 @@ class _CrashOnceInjector:
 
 
 @pytest.mark.chaos
+@pytest.mark.local_profile
 def test_crash_durante_promocao_nao_avanca_pointer(tmp_path):
     """Invariant: a crash mid-promotion never advances the dataset pointer; retrying
     after the fault clears republishes cleanly because promote is content-addressed
@@ -113,6 +114,7 @@ def test_crash_durante_promocao_nao_avanca_pointer(tmp_path):
 
 
 @pytest.mark.chaos
+@pytest.mark.local_profile
 def test_crash_apos_cas_permite_replay_sem_republicar(tmp_path):
     """Invariant: retrying an identical publish request after the caller lost the
     response (e.g. crash right after CAS committed) replays the stored pointer

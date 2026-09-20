@@ -6,8 +6,12 @@ from pydantic import ValidationError
 from cnes_domain.profiles import (
     AuthMode,
     BillingMode,
+    ProfileNotImplemented,
     ProfileSettings,
     RuntimeProfile,
+    local_objects_dir,
+    local_state_db,
+    local_state_db_arcname,
     parse_profile,
 )
 
@@ -103,3 +107,29 @@ def test_ignora_variaveis_ambientais_nao_relacionadas() -> None:
     )
 
     assert settings == ProfileSettings(tenant_id="354130")
+
+
+def test_profile_not_implemented_e_not_implemented_error() -> None:
+    with pytest.raises(ProfileNotImplemented, match="aws_runtime_plan_required"):
+        raise ProfileNotImplemented("aws_runtime_plan_required")
+
+
+def test_state_db_deriva_de_data_dir() -> None:
+    settings = parse_profile({"TENANT_ID": "354130", "DATA_DIR": "tenant-data"})
+
+    assert settings.state_db == Path("tenant-data/state/cnesdata.sqlite3")
+    assert settings.state_db == local_state_db(Path("tenant-data"))
+
+
+def test_objects_dir_deriva_de_data_dir() -> None:
+    settings = parse_profile({"TENANT_ID": "354130", "DATA_DIR": "tenant-data"})
+
+    assert settings.objects_dir == Path("tenant-data/objects")
+    assert settings.objects_dir == local_objects_dir(Path("tenant-data"))
+
+
+def test_state_db_arcname_e_relativo_e_consistente_com_state_db() -> None:
+    data_dir = Path("tenant-data")
+
+    assert local_state_db_arcname() == "state/cnesdata.sqlite3"
+    assert local_state_db(data_dir) == data_dir / local_state_db_arcname()

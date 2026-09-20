@@ -15,7 +15,18 @@ describe("parseEnv", () => {
 
   test("aceita_apenas_api_base_url_em_dev", () => {
     const env = parseEnv({ VITE_API_BASE_URL: "/api/v1" });
+    expect(env.VITE_AUTH_MODE).toBe("oidc");
     expect(env.VITE_OIDC_AUTHORITY).toBeUndefined();
+  });
+
+  test("aceita_modo_de_autenticacao_local", () => {
+    const env = parseEnv({ VITE_API_BASE_URL: "/api/v1", VITE_AUTH_MODE: "local" });
+
+    expect(env.VITE_AUTH_MODE).toBe("local");
+  });
+
+  test("rejeita_modo_de_autenticacao_desconhecido", () => {
+    expect(() => parseEnv({ VITE_AUTH_MODE: "unknown" })).toThrow();
   });
 
   test("rejeita_authority_sem_url_valida", () => {

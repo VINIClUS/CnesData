@@ -66,15 +66,21 @@ colisão (lease-based).
 | `src/data_processor/adapters/cnes_local_adapter.py` | Parquet CNES raw → DataFrame canônico |
 | `src/data_processor/adapters/cnes_nacional_adapter.py` | Parquet BigQuery nacional → canônico |
 | `src/data_processor/adapters/sihd_local_adapter.py` | Parquet SIHD/AIH → canônico |
+| `src/data_processor/adapters/bpa_adapter.py` | `map_bpa_c_to_fato` / `map_bpa_i_to_fato` |
+| `src/data_processor/adapters/sia_adapter.py` | `map_apa_to_fato` / `map_bpi_to_fato` |
+| `src/data_processor/adapters/sia_dim_sync.py` | `sync_dim_procedimento`, `sync_dim_municipio` |
+| `src/data_processor/cdc_merger.py` | `merge_delta` — roteia `_op ∈ {I,U,D}` |
+| `src/data_processor/integrity_check.py` | `verify_parquet` — SHA-256 sobre Parquet baixado |
+| `src/data_processor/pipeline/normalize_cnes_local.py` | `normalize_cnes_local` — reconstrói FULL+DELTA |
+| `src/data_processor/pipeline/normalize_cnes_nacional.py` | `normalize_cnes_nacional` — raw FULL único |
+| `src/data_processor/pipeline/reconcile_cnes.py` | `reconcile_cnes` — precedência LOCAL/NACIONAL |
+| `src/data_processor/pipeline/materialize_cnes.py` | `materialize_cnes` — serving JSON agregado |
+| `src/data_processor/pipeline/delta_reconstruction.py` | `reconstruct_from_deltas` — CDC por natural key |
 
 ## Gotchas
 
-- **`fontes` JSONB merge:** upsert usa `||` (idempotente para object).
-  Contrato fixo: `dict[str, bool]` ex.: `{"LOCAL": true, "WEB": true}`.
-  Se virar array, regressão `test_fontes_idempotency_integration` falha.
-- **`vinculo_repo` usa upsert, não plain INSERT** — fix aplicado em Fase 2.
-  Múltiplas fontes (LOCAL, NACIONAL) podem upsertar a mesma
-  `(tenant, cnes, cpf, competencia)` sem violar FK/PK.
+- **`fontes` JSONB merge + `vinculo_repo` upsert:** ver
+  `packages/cnes_infra/CLAUDE.md` (Gotchas) — regras únicas, não duplicar aqui.
 - **CircuitBreaker é sync + async, APIs separadas:** use `.call()` para
   função síncrona, `.call_async()` para coroutine. Misturar dispara
   `TypeError` explícito (evita falha silenciosa que motivou o fix original).
@@ -90,23 +96,17 @@ colisão (lease-based).
 - **Streaming download gzip:** parquet baixado chunk a chunk via httpx
   stream para evitar OOM em arquivos grandes. Marcado `# pragma: no cover`
   nos fallbacks de tempfile.
+- **Delta é o único formato de entrada** (sem flag, sem snapshot legado):
+  `cdc_merger.merge_delta` roteia por `_op ∈ {I,U,D}`; D vira `DELETE` inline
+  por template PK `(source, intent)` alinhado com `delta/profiles.go` do
+  edge agent; I/U passam por `apply_iu_fn` (upsert existente). `_op` ausente
+  → `ValueError("missing_op_column")`.
+- **`verify_and_route_delta`** encadeia `verify_parquet` (SHA-256, pula se
+  `expected_sha256 None`) → `pl.read_parquet` → `route_delta`; mismatch
+  propaga `IntegrityError` e falha o job. `landing.extractions.sha256` é
+  nullable (Alembic 018).
+- **`bpa_adapter`:** BPA_C usa sentinel `_SK_PROFISSIONAL_AGREGADO=1` — exige
+  seed da row 1 em `dim_profissional`. `producao_ambulatorial_repo.gravar`
+  faz upsert idempotente; `fontes_reportadas` JSONB merge via `||`.
 
-## BPA + SIA adapters (T12/T13, 2026-04-23)
-
-- `adapters/bpa_adapter.py` — `map_bpa_c_to_fato`, `map_bpa_i_to_fato`. BPA_C uses sentinel `_SK_PROFISSIONAL_AGREGADO=1` (seed dim_profissional row 1 required).
-- `adapters/sia_adapter.py` — `map_apa_to_fato`, `map_bpi_to_fato` (historico flag toggles SIA_BPI vs SIA_BPIHST).
-- `adapters/sia_dim_sync.py` — `sync_dim_procedimento` (S_CDN), `sync_dim_municipio` (CADMUN with ibge7 check-digit).
-- `producao_ambulatorial_repo.gravar` upserts idempotent; `fontes_reportadas` JSONB merged via `||`.
-- Migration 012 added natural-key unique index on `fato_producao_ambulatorial` to support ON CONFLICT upsert.
-- Migration 013 extended `chk_fonte_amb` CHECK to allow SIA_BPIHST.
-
-## CDC delta mode (P3, 2026-05-03)
-
-- Delta is the only inbound shape (no flag, no legacy snapshot path).
-- `cdc_merger.merge_delta(df, conn, source, intent, apply_iu_fn=None)` branches Parquet rows on `_op ∈ {I,U,D}`. D applied inline via `text("DELETE FROM gold.X WHERE pk = :pk")` per (source, intent) PK template aligned with edge agent's `delta/profiles.go`. I/U applied via `apply_iu_fn(df_iu) -> int` callback (existing upsert path).
-- `processor.route_delta(df, conn, source, intent, apply_iu_fn=None)` raises `ValueError("missing_op_column")` if `_op` absent.
-- DELETE idempotency: `delete_no_op` INFO log when rowcount=0 (already-deleted row).
-
-## P2 integrity (2026-05-04)
-
-`integrity_check.verify_parquet(path, expected_sha256)` recomputes SHA-256 over downloaded Parquet (1MB chunks); raises `IntegrityError` on mismatch; skips when `expected_sha256 None`. `processor.verify_and_route_delta(parquet_path, expected_sha256, conn, source, intent, apply_iu_fn=None)` calls verify_parquet → pl.read_parquet → route_delta. Mismatch propagates `IntegrityError` to caller (caller fails the job). landing.extractions gains nullable `sha256 char(64)` column (Alembic 018).
+Histórico de fases (T12/T13, P2, P3): `CHANGELOG.md`.

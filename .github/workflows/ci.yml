@@ -21,6 +21,8 @@ on:
       - 'docker-compose.yml'
       - 'scripts/ci_python_gate.sh'
       - 'scripts/ci_phase2_adapters.sh'
+      - 'scripts/local_backup.py'
+      - 'scripts/local_backup_test.py'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -69,3 +71,10 @@ jobs:
 
       - name: Run Phase 2 adapter conformance
         run: bash scripts/ci_phase2_adapters.sh
+
+      - name: Run local profile acceptance matrix
+        run: |
+          uv run --no-build pytest -q -m local_profile tests/integration tests/chaos
+
+      - name: Run backup script unit tests
+        run: uv run --no-build pytest -q scripts/local_backup_test.py

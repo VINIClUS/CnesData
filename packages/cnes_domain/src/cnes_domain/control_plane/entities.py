@@ -106,7 +106,9 @@ class Membership(_ControlPlaneModel):
     user_id: str
     role: str
     created_at: datetime
+    oidc_issuer: str | None = None
     _strings = field_validator("tenant_id", "user_id", "role")(_require_non_blank)
+    _oidc_issuer = field_validator("oidc_issuer")(_optional_non_blank)
     _created_utc = field_validator("created_at")(_require_utc)
 
 

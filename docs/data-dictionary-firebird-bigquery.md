@@ -95,6 +95,10 @@
 | `DS_AREA` | VARYING | 60 | ❌ | Nome da equipe (ex: "ESF ILHA DE SANTANA I") |
 | `INE` | VARYING | 10 | ❌ | Identificador Nacional de Equipe |
 
+**Gotcha de query:** `CD_SEGMENT`/`DS_SEGMENT` retornam erro `-206` quando
+referenciados por alias dentro de um LEFT JOIN aninhado. Recuperar em
+subquery separada, não inline.
+
 ### `NFCES026` — Domínio CBO (Classificação Brasileira de Ocupações)
 
 | Coluna | Tipo | Descrição |

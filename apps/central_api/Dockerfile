@@ -15,6 +15,7 @@ RUN uv build --wheel --out-dir /wheels packages/cnes_contracts && \
 
 FROM python:3.13-slim
 RUN groupadd -r app && useradd -r -g app app
+RUN mkdir -p /data && chown app:app /data
 COPY --from=builder /usr/local/lib/python3.13/site-packages \
      /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
@@ -32,7 +33,9 @@ RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
     rm -rf /var/lib/apt/lists/*
 USER app
 EXPOSE 8000
-HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \
+# timeout/start_period alargados: cold-start do interpretador Python medido em
+# até 16s sob carga/hardware modesto (profile local via docker compose).
+HEALTHCHECK --interval=15s --timeout=15s --retries=3 --start-period=60s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"
 ENTRYPOINT ["uvicorn", "central_api.app:create_app", "--factory", \
             "--host", "0.0.0.0", "--port", "8000"]

@@ -33,7 +33,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `POST /api/v1/public/leads` — captação pública do formulário de contato (sem auth).
   Persiste em `marketing.leads` (migração 019), responde `202 {"status":"received"}`,
   `422` payload inválido, `429` + `Retry-After` acima de `LEADS_RATE_LIMIT` (slowapi, chave =
-  último hop de `X-Forwarded-For`), `503 leads_unavailable` se o banco falhar.
+  primeiro hop de `X-Forwarded-For`, que deve ser preservado pela cadeia Caddy → nginx),
+  `503 leads_unavailable` se o banco falhar.
 - CORS explícito: `CORS_ALLOWED_ORIGINS` (lista separada por vírgula; `*` é ignorado).
   `CORSMiddleware` é o middleware mais externo para responder preflight antes do Auth.
 
@@ -77,6 +78,12 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `AUTH_ACCESS_TOKEN_TTL` | não | seconds; access_token TTL (default 300) |
 | `AUTH_CERT_TTL_DAYS` | não | leaf cert validity (default 90) |
 
+**Local run:**
+```bash
+docker compose up -d postgres minio
+uv run uvicorn central_api.app:create_app --factory --reload
+```
+
 ## Module Map
 
 | Arquivo | Responsabilidade |
@@ -95,6 +102,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `src/central_api/routes/provision.py` | cert enrollment |
 | `src/central_api/routes/provision_rotate.py` | cert rotation |
 | `repositories/dashboard_repo.py` | DashboardRepo (user/tenant/audit + agents/status + recent_runs) |
+| `src/central_api/bootstrap.py` | `python -m central_api.bootstrap` — primeiro usuário do profile local |
+| `src/central_api/local_backup.py` | `python -m central_api.local_backup {create,restore}` — backup/restore do profile local |
 
 ## Gotchas
 
@@ -117,9 +126,6 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   Sem isso, queries via SQLAlchemy não setam `app.tenant_id` e RLS bloqueia
   tudo. Teste de regressão: qualquer query em integration test deve passar
   (se bloquear, listener não foi instalado).
-- **`/jobs/{id}/complete` and `/jobs/{id}/fail` routes do not exist** —
-  edge no longer calls /complete (FU1 dropped). /fail is documented as
-  follow-up gap; today extract/upload failures leave PENDING orphan rows.
 - **`/jobs/{id}/complete` and `/jobs/{id}/fail` routes do not exist** —
   edge no longer calls /complete (FU1 dropped). /fail is documented as
   follow-up gap; today extract/upload failures leave PENDING orphan rows.

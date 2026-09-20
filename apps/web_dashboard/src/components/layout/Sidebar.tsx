@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Activity, Building2, FileBarChart, Home, KeyRound, type LucideIcon } from "lucide-react";
 
 import { t } from "@/i18n/pt-BR";
+import { env } from "@/lib/env";
 
 type Item = {
   label: string;
@@ -19,13 +20,18 @@ const _ITEMS: Item[] = [
 ];
 
 export function Sidebar({ activePath }: { activePath: string }) {
+  const items =
+    env.VITE_AUTH_MODE === "local"
+      ? _ITEMS.filter((item) => item.to !== "/agentes" && item.to !== "/activate")
+      : _ITEMS;
+
   return (
     <nav
       className="flex w-56 flex-col gap-1 border-r bg-muted/30 p-4"
       aria-label="navegação principal"
     >
       <div className="mb-3 text-sm font-semibold">{t.app.name}</div>
-      {_ITEMS.map((item) =>
+      {items.map((item) =>
         item.future ? (
           <span
             key={item.label}

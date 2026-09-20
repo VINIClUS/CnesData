@@ -1,0 +1,20 @@
+{
+  "mode": "golden",
+  "commit_sha": "6d37d649abc888a660cf1f622ea80ea075062b00",
+  "recorded_at": "2026-09-19T16:41:10.539947+00:00",
+  "fixture_sha256": {
+    "cnes-local-v1.parquet": "4bf011da987e2b6d0666a10c97cdd37626ca9b123050c9ce77e155e7197237fb",
+    "cnes-nacional-v1.parquet": "30a60a84af9b06c568fe6170ce72365ee33cb1a706f130cc5bc7e197aef348ec",
+    "cnes-gold-v2.parquet": "4eeaf4d62ae7132f9980e7e0e7f3372c6b97308b2aef9c21a7721a51171c07a8",
+    "cnes-serving-v1.json": "694dc2555d4f662640be26868c4104cc2c4dbd4e3d2f8a365a8ebbad1161053c"
+  },
+  "difference_count": 12,
+  "differences_by_layer": {
+    "divergences": 5,
+    "gold": 7
+  },
+  "approved_rules_used": [
+    "divergence_values_are_strings",
+    "manifest_ids_are_normalized_layer"
+  ]
+}

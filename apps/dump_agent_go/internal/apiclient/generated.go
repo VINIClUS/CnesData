@@ -87,6 +87,27 @@ func (e FileManifestFatoSubtype) Valid() bool {
 	}
 }
 
+// Defines values for LeadCreateInterest.
+const (
+	Contact     LeadCreateInterest = "contact"
+	EarlyAccess LeadCreateInterest = "early_access"
+	Pilot       LeadCreateInterest = "pilot"
+)
+
+// Valid indicates whether the value is a known member of the LeadCreateInterest enum.
+func (e LeadCreateInterest) Valid() bool {
+	switch e {
+	case Contact:
+		return true
+	case EarlyAccess:
+		return true
+	case Pilot:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SnapshotMode.
 const (
 	DELTA SnapshotMode = "DELTA"
@@ -330,6 +351,35 @@ type JobRegisterRequest struct {
 	Sha256       *string            `json:"sha256,omitempty"`
 }
 
+// LeadCreate defines model for LeadCreate.
+type LeadCreate struct {
+	Email                string             `json:"email"`
+	Interest             LeadCreateInterest `json:"interest"`
+	Message              *string            `json:"message,omitempty"`
+	Municipality         *string            `json:"municipality,omitempty"`
+	Name                 string             `json:"name"`
+	NewsletterOptIn      *bool              `json:"newsletter_opt_in,omitempty"`
+	Organization         *string            `json:"organization,omitempty"`
+	PrivacyNoticeVersion string             `json:"privacy_notice_version"`
+	Role                 *string            `json:"role,omitempty"`
+	SourceCta            *string            `json:"source_cta,omitempty"`
+	SourcePath           *string            `json:"source_path,omitempty"`
+}
+
+// LeadCreateInterest defines model for LeadCreate.Interest.
+type LeadCreateInterest string
+
+// LeadReceived defines model for LeadReceived.
+type LeadReceived struct {
+	Status *string `json:"status,omitempty"`
+}
+
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
 	DisplayName       *string            `json:"display_name"`
@@ -352,6 +402,14 @@ type OverviewResponse struct {
 	FaturamentoAtualCents     int `json:"faturamento_atual_cents"`
 	ProfissionaisAnterior     int `json:"profissionais_anterior"`
 	ProfissionaisAtivos       int `json:"profissionais_ativos"`
+}
+
+// PrincipalResponse defines model for PrincipalResponse.
+type PrincipalResponse struct {
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	TenantId string `json:"tenant_id"`
+	UserId   string `json:"user_id"`
 }
 
 // ProvisionCertRequest defines model for ProvisionCertRequest.
@@ -557,6 +615,9 @@ type EnqueueApiV1ExtractionsEnqueuePostParams struct {
 // ActivateConfirmActivateConfirmPostJSONRequestBody defines body for ActivateConfirmActivateConfirmPost for application/json ContentType.
 type ActivateConfirmActivateConfirmPostJSONRequestBody = ActivateConfirmRequest
 
+// LoginApiV1AuthLocalLoginPostJSONRequestBody defines body for LoginApiV1AuthLocalLoginPost for application/json ContentType.
+type LoginApiV1AuthLocalLoginPostJSONRequestBody = LoginRequest
+
 // CreateRequestApiV1DashboardAccessRequestsPostJSONRequestBody defines body for CreateRequestApiV1DashboardAccessRequestsPost for application/json ContentType.
 type CreateRequestApiV1DashboardAccessRequestsPostJSONRequestBody = AccessRequestCreate
 
@@ -574,6 +635,9 @@ type RegisterJobApiV1JobsRegisterPostJSONRequestBody = JobRegisterRequest
 
 // MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody defines body for MintUploadUrlApiV1JobsUploadUrlPost for application/json ContentType.
 type MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody = UploadUrlRequest
+
+// CreateLeadApiV1PublicLeadsPostJSONRequestBody defines body for CreateLeadApiV1PublicLeadsPost for application/json ContentType.
+type CreateLeadApiV1PublicLeadsPostJSONRequestBody = LeadCreate
 
 // DeviceAuthorizationOauthDeviceAuthorizationPostJSONRequestBody defines body for DeviceAuthorizationOauthDeviceAuthorizationPost for application/json ContentType.
 type DeviceAuthorizationOauthDeviceAuthorizationPostJSONRequestBody = DeviceAuthorizationRequest
@@ -873,6 +937,30 @@ type ClientInterface interface {
 	// Corresponds with GET /api/v1/agents/status (the `GetAgentStatusApiV1AgentsStatusGet` operationId).
 	GetAgentStatusApiV1AgentsStatusGet(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// LoginApiV1AuthLocalLoginPostWithBody Login
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/auth/local/login (the `LoginApiV1AuthLocalLoginPost` operationId).
+	LoginApiV1AuthLocalLoginPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LoginApiV1AuthLocalLoginPost Login
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/auth/local/login (the `LoginApiV1AuthLocalLoginPost` operationId).
+	LoginApiV1AuthLocalLoginPost(ctx context.Context, body LoginApiV1AuthLocalLoginPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LogoutApiV1AuthLogoutPost Logout
+	//
+	// Corresponds with POST /api/v1/auth/logout (the `LogoutApiV1AuthLogoutPost` operationId).
+	LogoutApiV1AuthLogoutPost(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MeApiV1AuthMeGet Me
+	//
+	// Corresponds with GET /api/v1/auth/me (the `MeApiV1AuthMeGet` operationId).
+	MeApiV1AuthMeGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CreateRequestApiV1DashboardAccessRequestsPostWithBody Create Request
 	//
 	// Takes any type of body and a specified content type.
@@ -921,6 +1009,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
 	GetOverviewApiV1DashboardOverviewGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet Read Serving Document
+	//
+	// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+	//
+	// Corresponds with GET /api/v1/dashboard/serving/{dataset_name}/{document_name} (the `ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet` operationId).
+	ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet(ctx context.Context, datasetName string, documentName string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListTenantsApiV1DashboardTenantsGet List Tenants
 	//
@@ -1018,6 +1113,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/jobs/upload-url (the `MintUploadUrlApiV1JobsUploadUrlPost` operationId).
 	MintUploadUrlApiV1JobsUploadUrlPost(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateLeadApiV1PublicLeadsPostWithBody Create Lead
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/public/leads (the `CreateLeadApiV1PublicLeadsPost` operationId).
+	CreateLeadApiV1PublicLeadsPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateLeadApiV1PublicLeadsPost Create Lead
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/public/leads (the `CreateLeadApiV1PublicLeadsPost` operationId).
+	CreateLeadApiV1PublicLeadsPost(ctx context.Context, body CreateLeadApiV1PublicLeadsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// HealthCheckApiV1SystemHealthGet Health Check
 	//
@@ -1137,6 +1246,70 @@ func (c *Client) ReapLeasesApiV1AdminReapLeasesPost(ctx context.Context, reqEdit
 // Corresponds with GET /api/v1/agents/status (the `GetAgentStatusApiV1AgentsStatusGet` operationId).
 func (c *Client) GetAgentStatusApiV1AgentsStatusGet(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetAgentStatusApiV1AgentsStatusGetRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LoginApiV1AuthLocalLoginPostWithBody Login
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/auth/local/login (the `LoginApiV1AuthLocalLoginPost` operationId).
+func (c *Client) LoginApiV1AuthLocalLoginPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLoginApiV1AuthLocalLoginPostRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LoginApiV1AuthLocalLoginPost Login
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/auth/local/login (the `LoginApiV1AuthLocalLoginPost` operationId).
+func (c *Client) LoginApiV1AuthLocalLoginPost(ctx context.Context, body LoginApiV1AuthLocalLoginPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLoginApiV1AuthLocalLoginPostRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LogoutApiV1AuthLogoutPost Logout
+//
+// Corresponds with POST /api/v1/auth/logout (the `LogoutApiV1AuthLogoutPost` operationId).
+func (c *Client) LogoutApiV1AuthLogoutPost(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLogoutApiV1AuthLogoutPostRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MeApiV1AuthMeGet Me
+//
+// Corresponds with GET /api/v1/auth/me (the `MeApiV1AuthMeGet` operationId).
+func (c *Client) MeApiV1AuthMeGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMeApiV1AuthMeGetRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1276,6 +1449,23 @@ func (c *Client) GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet(
 // Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
 func (c *Client) GetOverviewApiV1DashboardOverviewGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetOverviewApiV1DashboardOverviewGetRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet Read Serving Document
+//
+// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+//
+// Corresponds with GET /api/v1/dashboard/serving/{dataset_name}/{document_name} (the `ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet` operationId).
+func (c *Client) ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet(ctx context.Context, datasetName string, documentName string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetRequest(c.Server, datasetName, documentName)
 	if err != nil {
 		return nil, err
 	}
@@ -1503,6 +1693,40 @@ func (c *Client) MintUploadUrlApiV1JobsUploadUrlPostWithBody(ctx context.Context
 // Corresponds with POST /api/v1/jobs/upload-url (the `MintUploadUrlApiV1JobsUploadUrlPost` operationId).
 func (c *Client) MintUploadUrlApiV1JobsUploadUrlPost(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewMintUploadUrlApiV1JobsUploadUrlPostRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateLeadApiV1PublicLeadsPostWithBody Create Lead
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/public/leads (the `CreateLeadApiV1PublicLeadsPost` operationId).
+func (c *Client) CreateLeadApiV1PublicLeadsPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateLeadApiV1PublicLeadsPostRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateLeadApiV1PublicLeadsPost Create Lead
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/public/leads (the `CreateLeadApiV1PublicLeadsPost` operationId).
+func (c *Client) CreateLeadApiV1PublicLeadsPost(ctx context.Context, body CreateLeadApiV1PublicLeadsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateLeadApiV1PublicLeadsPostRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1794,6 +2018,100 @@ func NewGetAgentStatusApiV1AgentsStatusGetRequest(server string, params *GetAgen
 	return req, nil
 }
 
+// NewLoginApiV1AuthLocalLoginPostRequest calls the generic LoginApiV1AuthLocalLoginPost builder with application/json body
+func NewLoginApiV1AuthLocalLoginPostRequest(server string, body LoginApiV1AuthLocalLoginPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewLoginApiV1AuthLocalLoginPostRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewLoginApiV1AuthLocalLoginPostRequestWithBody constructs an http.Request for the LoginApiV1AuthLocalLoginPost method, with any body, and a specified content type
+func NewLoginApiV1AuthLocalLoginPostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/local/login")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewLogoutApiV1AuthLogoutPostRequest constructs an http.Request for the LogoutApiV1AuthLogoutPost method
+func NewLogoutApiV1AuthLogoutPostRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/logout")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewMeApiV1AuthMeGetRequest constructs an http.Request for the MeApiV1AuthMeGet method
+func NewMeApiV1AuthMeGetRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/me")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewCreateRequestApiV1DashboardAccessRequestsPostRequest calls the generic CreateRequestApiV1DashboardAccessRequestsPost builder with application/json body
 func NewCreateRequestApiV1DashboardAccessRequestsPostRequest(server string, body CreateRequestApiV1DashboardAccessRequestsPostJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2060,6 +2378,47 @@ func NewGetOverviewApiV1DashboardOverviewGetRequest(server string) (*http.Reques
 	}
 
 	operationPath := fmt.Sprintf("/api/v1/dashboard/overview")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetRequest constructs an http.Request for the ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet method
+func NewReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetRequest(server string, datasetName string, documentName string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "dataset_name", datasetName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "document_name", documentName, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/dashboard/serving/%s/%s", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -2418,6 +2777,46 @@ func NewMintUploadUrlApiV1JobsUploadUrlPostRequestWithBody(server string, conten
 	return req, nil
 }
 
+// NewCreateLeadApiV1PublicLeadsPostRequest calls the generic CreateLeadApiV1PublicLeadsPost builder with application/json body
+func NewCreateLeadApiV1PublicLeadsPostRequest(server string, body CreateLeadApiV1PublicLeadsPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateLeadApiV1PublicLeadsPostRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateLeadApiV1PublicLeadsPostRequestWithBody constructs an http.Request for the CreateLeadApiV1PublicLeadsPost method, with any body, and a specified content type
+func NewCreateLeadApiV1PublicLeadsPostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/public/leads")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewHealthCheckApiV1SystemHealthGetRequest constructs an http.Request for the HealthCheckApiV1SystemHealthGet method
 func NewHealthCheckApiV1SystemHealthGetRequest(server string) (*http.Request, error) {
 	var err error
@@ -2679,6 +3078,34 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/agents/status (the `GetAgentStatusApiV1AgentsStatusGet` operationId).
 	GetAgentStatusApiV1AgentsStatusGetWithResponse(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*GetAgentStatusApiV1AgentsStatusGetResponse, error)
 
+	// LoginApiV1AuthLocalLoginPostWithBodyWithResponse Login
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/local/login (the `LoginApiV1AuthLocalLoginPost` operationId).
+	LoginApiV1AuthLocalLoginPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginApiV1AuthLocalLoginPostResponse, error)
+
+	// LoginApiV1AuthLocalLoginPostWithResponse Login
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/local/login (the `LoginApiV1AuthLocalLoginPost` operationId).
+	LoginApiV1AuthLocalLoginPostWithResponse(ctx context.Context, body LoginApiV1AuthLocalLoginPostJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginApiV1AuthLocalLoginPostResponse, error)
+
+	// LogoutApiV1AuthLogoutPostWithResponse Logout
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/logout (the `LogoutApiV1AuthLogoutPost` operationId).
+	LogoutApiV1AuthLogoutPostWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutApiV1AuthLogoutPostResponse, error)
+
+	// MeApiV1AuthMeGetWithResponse Me
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/auth/me (the `MeApiV1AuthMeGet` operationId).
+	MeApiV1AuthMeGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MeApiV1AuthMeGetResponse, error)
+
 	// CreateRequestApiV1DashboardAccessRequestsPostWithBodyWithResponse Create Request
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -2741,6 +3168,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
 	GetOverviewApiV1DashboardOverviewGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetOverviewApiV1DashboardOverviewGetResponse, error)
+
+	// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse Read Serving Document
+	//
+	// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/dashboard/serving/{dataset_name}/{document_name} (the `ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet` operationId).
+	ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse(ctx context.Context, datasetName string, documentName string, reqEditors ...RequestEditorFn) (*ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse, error)
 
 	// ListTenantsApiV1DashboardTenantsGetWithResponse List Tenants
 	//
@@ -2844,6 +3280,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/v1/jobs/upload-url (the `MintUploadUrlApiV1JobsUploadUrlPost` operationId).
 	MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*MintUploadUrlApiV1JobsUploadUrlPostResponse, error)
+
+	// CreateLeadApiV1PublicLeadsPostWithBodyWithResponse Create Lead
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/public/leads (the `CreateLeadApiV1PublicLeadsPost` operationId).
+	CreateLeadApiV1PublicLeadsPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateLeadApiV1PublicLeadsPostResponse, error)
+
+	// CreateLeadApiV1PublicLeadsPostWithResponse Create Lead
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/public/leads (the `CreateLeadApiV1PublicLeadsPost` operationId).
+	CreateLeadApiV1PublicLeadsPostWithResponse(ctx context.Context, body CreateLeadApiV1PublicLeadsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateLeadApiV1PublicLeadsPostResponse, error)
 
 	// HealthCheckApiV1SystemHealthGetWithResponse Health Check
 	//
@@ -3040,6 +3490,129 @@ func (r GetAgentStatusApiV1AgentsStatusGetResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetAgentStatusApiV1AgentsStatusGetResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type LoginApiV1AuthLocalLoginPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PrincipalResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r LoginApiV1AuthLocalLoginPostResponse) GetJSON200() *PrincipalResponse {
+	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r LoginApiV1AuthLocalLoginPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r LoginApiV1AuthLocalLoginPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r LoginApiV1AuthLocalLoginPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LoginApiV1AuthLocalLoginPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r LoginApiV1AuthLocalLoginPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type LogoutApiV1AuthLogoutPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r LogoutApiV1AuthLogoutPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r LogoutApiV1AuthLogoutPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LogoutApiV1AuthLogoutPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r LogoutApiV1AuthLogoutPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MeApiV1AuthMeGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PrincipalResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MeApiV1AuthMeGetResponse) GetJSON200() *PrincipalResponse {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r MeApiV1AuthMeGetResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MeApiV1AuthMeGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MeApiV1AuthMeGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MeApiV1AuthMeGetResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3389,6 +3962,54 @@ func (r GetOverviewApiV1DashboardOverviewGetResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetOverviewApiV1DashboardOverviewGetResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *interface{}
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse) GetJSON200() *interface{} {
+	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3772,6 +4393,54 @@ func (r MintUploadUrlApiV1JobsUploadUrlPostResponse) ContentType() string {
 	return ""
 }
 
+type CreateLeadApiV1PublicLeadsPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON202 the response for an HTTP 202 `application/json` response
+	JSON202 *LeadReceived
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON202 returns the response for an HTTP 202 `application/json` response
+func (r CreateLeadApiV1PublicLeadsPostResponse) GetJSON202() *LeadReceived {
+	return r.JSON202
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateLeadApiV1PublicLeadsPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateLeadApiV1PublicLeadsPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateLeadApiV1PublicLeadsPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateLeadApiV1PublicLeadsPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateLeadApiV1PublicLeadsPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type HealthCheckApiV1SystemHealthGetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4059,6 +4728,58 @@ func (c *ClientWithResponses) GetAgentStatusApiV1AgentsStatusGetWithResponse(ctx
 	return ParseGetAgentStatusApiV1AgentsStatusGetResponse(rsp)
 }
 
+// LoginApiV1AuthLocalLoginPostWithBodyWithResponse Login
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/local/login (the `LoginApiV1AuthLocalLoginPost` operationId).
+func (c *ClientWithResponses) LoginApiV1AuthLocalLoginPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LoginApiV1AuthLocalLoginPostResponse, error) {
+	rsp, err := c.LoginApiV1AuthLocalLoginPostWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLoginApiV1AuthLocalLoginPostResponse(rsp)
+}
+
+// LoginApiV1AuthLocalLoginPostWithResponse Login
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/local/login (the `LoginApiV1AuthLocalLoginPost` operationId).
+func (c *ClientWithResponses) LoginApiV1AuthLocalLoginPostWithResponse(ctx context.Context, body LoginApiV1AuthLocalLoginPostJSONRequestBody, reqEditors ...RequestEditorFn) (*LoginApiV1AuthLocalLoginPostResponse, error) {
+	rsp, err := c.LoginApiV1AuthLocalLoginPost(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLoginApiV1AuthLocalLoginPostResponse(rsp)
+}
+
+// LogoutApiV1AuthLogoutPostWithResponse Logout
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/logout (the `LogoutApiV1AuthLogoutPost` operationId).
+func (c *ClientWithResponses) LogoutApiV1AuthLogoutPostWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutApiV1AuthLogoutPostResponse, error) {
+	rsp, err := c.LogoutApiV1AuthLogoutPost(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLogoutApiV1AuthLogoutPostResponse(rsp)
+}
+
+// MeApiV1AuthMeGetWithResponse Me
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/auth/me (the `MeApiV1AuthMeGet` operationId).
+func (c *ClientWithResponses) MeApiV1AuthMeGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MeApiV1AuthMeGetResponse, error) {
+	rsp, err := c.MeApiV1AuthMeGet(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMeApiV1AuthMeGetResponse(rsp)
+}
+
 // CreateRequestApiV1DashboardAccessRequestsPostWithBodyWithResponse Create Request
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -4174,6 +4895,21 @@ func (c *ClientWithResponses) GetOverviewApiV1DashboardOverviewGetWithResponse(c
 		return nil, err
 	}
 	return ParseGetOverviewApiV1DashboardOverviewGetResponse(rsp)
+}
+
+// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse Read Serving Document
+//
+// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/dashboard/serving/{dataset_name}/{document_name} (the `ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet` operationId).
+func (c *ClientWithResponses) ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse(ctx context.Context, datasetName string, documentName string, reqEditors ...RequestEditorFn) (*ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse, error) {
+	rsp, err := c.ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet(ctx, datasetName, documentName, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse(rsp)
 }
 
 // ListTenantsApiV1DashboardTenantsGetWithResponse List Tenants
@@ -4355,6 +5091,32 @@ func (c *ClientWithResponses) MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ct
 		return nil, err
 	}
 	return ParseMintUploadUrlApiV1JobsUploadUrlPostResponse(rsp)
+}
+
+// CreateLeadApiV1PublicLeadsPostWithBodyWithResponse Create Lead
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/public/leads (the `CreateLeadApiV1PublicLeadsPost` operationId).
+func (c *ClientWithResponses) CreateLeadApiV1PublicLeadsPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateLeadApiV1PublicLeadsPostResponse, error) {
+	rsp, err := c.CreateLeadApiV1PublicLeadsPostWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateLeadApiV1PublicLeadsPostResponse(rsp)
+}
+
+// CreateLeadApiV1PublicLeadsPostWithResponse Create Lead
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/public/leads (the `CreateLeadApiV1PublicLeadsPost` operationId).
+func (c *ClientWithResponses) CreateLeadApiV1PublicLeadsPostWithResponse(ctx context.Context, body CreateLeadApiV1PublicLeadsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateLeadApiV1PublicLeadsPostResponse, error) {
+	rsp, err := c.CreateLeadApiV1PublicLeadsPost(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateLeadApiV1PublicLeadsPostResponse(rsp)
 }
 
 // HealthCheckApiV1SystemHealthGetWithResponse Health Check
@@ -4560,6 +5322,81 @@ func ParseGetAgentStatusApiV1AgentsStatusGetResponse(rsp *http.Response) (*GetAg
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLoginApiV1AuthLocalLoginPostResponse parses an HTTP response from a LoginApiV1AuthLocalLoginPostWithResponse call
+func ParseLoginApiV1AuthLocalLoginPostResponse(rsp *http.Response) (*LoginApiV1AuthLocalLoginPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LoginApiV1AuthLocalLoginPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PrincipalResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLogoutApiV1AuthLogoutPostResponse parses an HTTP response from a LogoutApiV1AuthLogoutPostWithResponse call
+func ParseLogoutApiV1AuthLogoutPostResponse(rsp *http.Response) (*LogoutApiV1AuthLogoutPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LogoutApiV1AuthLogoutPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseMeApiV1AuthMeGetResponse parses an HTTP response from a MeApiV1AuthMeGetWithResponse call
+func ParseMeApiV1AuthMeGetResponse(rsp *http.Response) (*MeApiV1AuthMeGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MeApiV1AuthMeGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PrincipalResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 
@@ -4789,6 +5626,39 @@ func ParseGetOverviewApiV1DashboardOverviewGetResponse(rsp *http.Response) (*Get
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse parses an HTTP response from a ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse call
+func ParseReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse(rsp *http.Response) (*ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	}
 
@@ -5048,6 +5918,39 @@ func ParseMintUploadUrlApiV1JobsUploadUrlPostResponse(rsp *http.Response) (*Mint
 
 	case rsp.StatusCode == 409:
 		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateLeadApiV1PublicLeadsPostResponse parses an HTTP response from a CreateLeadApiV1PublicLeadsPostWithResponse call
+func ParseCreateLeadApiV1PublicLeadsPostResponse(rsp *http.Response) (*CreateLeadApiV1PublicLeadsPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateLeadApiV1PublicLeadsPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest LeadReceived
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
 		var dest HTTPValidationError

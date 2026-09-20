@@ -15,14 +15,18 @@ export class ApiError extends Error {
 
 export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {}): Promise<T> {
   const headers = new Headers(opts.headers);
-  const token = await getAccessToken();
+  const token = env.VITE_AUTH_MODE === "oidc" ? await getAccessToken() : null;
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (opts.tenantId) headers.set("X-Tenant-Id", opts.tenantId);
   if (opts.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const url = `${env.VITE_API_BASE_URL}${path}`;
-  const res = await fetch(url, { ...opts, headers });
+  const res = await fetch(url, {
+    ...opts,
+    credentials: opts.credentials ?? "include",
+    headers,
+  });
   const text = await res.text();
   const body: unknown = text ? JSON.parse(text) : null;
   if (!res.ok) {

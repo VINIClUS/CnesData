@@ -53,6 +53,7 @@ def test_preflight_aceito_para_origin_permitida(monkeypatch: pytest.MonkeyPatch)
     r = _preflight(_make_app(), "https://dev.cnesdata.example")
     assert r.status_code == 200
     assert r.headers["access-control-allow-origin"] == "https://dev.cnesdata.example"
+    assert r.headers["access-control-allow-credentials"] == "true"
     assert "POST" in r.headers["access-control-allow-methods"]
 
 

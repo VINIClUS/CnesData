@@ -10,4 +10,23 @@ export const handlers = [
       tenant_ids: ["354130"],
     }),
   ),
+  http.get("/api/v1/dashboard/serving/cnes/overview", () =>
+    HttpResponse.json({
+      schema_version: "cnes-serving-v1",
+      tenant_id: "354130",
+      run_id: "fixture-cnes-run-v1",
+      generated_at: "2026-01-31T23:59:59Z",
+      competencia: "2026-01",
+      kpis: {
+        match_count: 3,
+        local_only_count: 2,
+        national_only_count: 2,
+        conflict_count: 1,
+        reconciled_row_count: 7,
+        active_professional_count: 6,
+      },
+      divergence_counts: { NOME_PROFISSIONAL: 1, CH_TOTAL: 1 },
+      missing_sources: [],
+    }),
+  ),
 ];

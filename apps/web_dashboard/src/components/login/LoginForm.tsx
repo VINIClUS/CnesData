@@ -4,19 +4,30 @@ import { type FormEvent, useState } from "react";
 import { LoginField } from "./LoginField";
 import { PasswordField } from "./PasswordField";
 
+import { loginLocal } from "@/auth/local";
 import { startLogin } from "@/auth/oidc";
+import { useAuth } from "@/auth/useAuth";
 import { Button } from "@/components/ui/button";
 import { login } from "@/i18n/login";
+import { env } from "@/lib/env";
 
 export function LoginForm() {
   const f = login.form;
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const { refresh } = useAuth();
+  const localMode = env.VITE_AUTH_MODE === "local";
 
   const begin = (withHint: boolean) => {
     setError(null);
     const hint = identifier.trim();
+    if (localMode) {
+      loginLocal(hint, password)
+        .then(refresh)
+        .catch(() => setError(f.error));
+      return;
+    }
     startLogin(withHint && hint ? { loginHint: hint } : {}).catch(() => setError(f.error));
   };
 
@@ -43,11 +54,13 @@ export function LoginForm() {
         value={password}
         onChange={setPassword}
       />
-      <div className="flex justify-end">
-        <button type="button" onClick={() => begin(true)} className="text-sm text-primary">
-          {f.forgot}
-        </button>
-      </div>
+      {!localMode && (
+        <div className="flex justify-end">
+          <button type="button" onClick={() => begin(true)} className="text-sm text-primary">
+            {f.forgot}
+          </button>
+        </div>
+      )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -57,20 +70,24 @@ export function LoginForm() {
         {f.submit}
         <ArrowRight aria-hidden="true" />
       </Button>
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span className="h-px flex-1 bg-border" />
-        {f.or}
-        <span className="h-px flex-1 bg-border" />
-      </div>
-      <Button
-        type="button"
-        size="lg"
-        variant="outline"
-        className="w-full border-primary/50 bg-transparent text-primary"
-        onClick={() => begin(false)}
-      >
-        {f.register}
-      </Button>
+      {!localMode && (
+        <>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            {f.or}
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <Button
+            type="button"
+            size="lg"
+            variant="outline"
+            className="w-full border-primary/50 bg-transparent text-primary"
+            onClick={() => begin(false)}
+          >
+            {f.register}
+          </Button>
+        </>
+      )}
     </form>
   );
 }

@@ -15,6 +15,7 @@ on:
   schedule:
     - cron: "30 2 * * *"
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: dump-agent-go-${{ github.ref }}
@@ -45,6 +46,11 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
+
+      - name: OpenAPI client drift gate
+        run: |
+          go generate ./...
+          git diff --exit-code internal/apiclient/generated.go
 
       - name: Lint
         run: golangci-lint run --timeout=5m
