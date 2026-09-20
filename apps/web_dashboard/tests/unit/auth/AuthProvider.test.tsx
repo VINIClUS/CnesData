@@ -135,7 +135,7 @@ describe("AuthProvider", () => {
   test("popula_user_com_sessao_local", async () => {
     env.VITE_AUTH_MODE = "local";
     server.use(
-      http.get("/api/v1/auth/local/me", () =>
+      http.get("/api/v1/auth/me", () =>
         HttpResponse.json({
           user_id: "user-1",
           email: "g@m",

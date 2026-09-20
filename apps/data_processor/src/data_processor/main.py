@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import create_engine
 
+from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_domain.ports.object_storage import (
     NullObjectStoragePort,
     ObjectStoragePort,
@@ -22,6 +23,10 @@ from cnes_infra.telemetry import init_telemetry
 from data_processor.consumer import run_processor
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from cnes_domain.ports.audit import AuditSinkPort
+    from cnes_domain.ports.control_plane import ControlPlanePort
     from data_processor.orchestration.coordinator import PipelineCoordinator
 
 fmt = logging.Formatter(
@@ -92,11 +97,29 @@ async def _recover_tick(coordinator: PipelineCoordinator) -> None:
         logging.getLogger(__name__).info("local_profile_recover_tick runs=%d", len(results))
 
 
+def _audit_tick(control_plane: ControlPlanePort, audit_sink: AuditSinkPort) -> None:
+    result = dispatch_once(control_plane, audit_sink, _utc_now())
+    if result.delivered or result.failed:
+        logging.getLogger(__name__).info(
+            "local_profile_audit_tick delivered=%d failed=%d",
+            result.delivered,
+            result.failed,
+        )
+
+
 async def _poll_until_shutdown(
-    coordinator: PipelineCoordinator, shutdown: asyncio.Event, interval: float
+    coordinator: PipelineCoordinator,
+    shutdown: asyncio.Event,
+    interval: float,
+    audit_tick: Callable[[], None] | None = None,
 ) -> None:
     while not shutdown.is_set():
         await _recover_tick(coordinator)
+        if audit_tick is not None:
+            try:
+                audit_tick()
+            except Exception:
+                logging.getLogger(__name__).exception("local_profile_audit_tick_error")
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(shutdown.wait(), timeout=interval)
 
@@ -116,7 +139,12 @@ async def _run_local_profile() -> None:
     shutdown = asyncio.Event()
     _install_shutdown_handler(shutdown)
     try:
-        await _poll_until_shutdown(runtime.coordinator, shutdown, POLL_INTERVAL)
+        await _poll_until_shutdown(
+            runtime.coordinator,
+            shutdown,
+            POLL_INTERVAL,
+            audit_tick=lambda: _audit_tick(runtime.control_plane, runtime.audit_sink),
+        )
     finally:
         runtime.executor.close()
 

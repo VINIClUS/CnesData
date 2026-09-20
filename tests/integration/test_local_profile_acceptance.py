@@ -114,6 +114,24 @@ def _login(client: TestClient) -> None:
     assert response.status_code == 200, response.text
 
 
+def test_health_local_nao_toca_postgres(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _local_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "central_api.deps.create_engine",
+        lambda *args, **kwargs: pytest.fail("local health must not create a SQL engine"),
+    )
+    from central_api.app import create_app
+
+    with TestClient(create_app()) as client:
+        response = client.get("/api/v1/system/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["db_connected"] is True
+
+
 class _SpyStore:
     """Encaminha para o store real, registrando a sequência (op, chave) das chamadas."""
 

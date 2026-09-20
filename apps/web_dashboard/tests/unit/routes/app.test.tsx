@@ -40,7 +40,7 @@ describe("guardião das rotas autenticadas", () => {
   test("sessao_local_ausente_redireciona_para_login", async () => {
     env.VITE_AUTH_MODE = "local";
     server.use(
-      http.get("/api/v1/auth/local/me", () =>
+      http.get("/api/v1/auth/me", () =>
         HttpResponse.json({ detail: "not authenticated" }, { status: 401 }),
       ),
     );
@@ -63,7 +63,7 @@ describe("guardião das rotas autenticadas", () => {
   test("sessao_local_valida_permite_rota_autenticada", async () => {
     env.VITE_AUTH_MODE = "local";
     server.use(
-      http.get("/api/v1/auth/local/me", () => HttpResponse.json(LOCAL_PRINCIPAL)),
+      http.get("/api/v1/auth/me", () => HttpResponse.json(LOCAL_PRINCIPAL)),
       http.get("/api/v1/dashboard/tenants", () =>
         HttpResponse.json([{ ibge6: "354130", ibge7: "3541300", nome: "Epitácio", uf: "SP" }]),
       ),
@@ -93,7 +93,7 @@ describe("guardião das rotas autenticadas", () => {
 
   test("perfil_local_nao_expoe_status_de_agentes", async () => {
     env.VITE_AUTH_MODE = "local";
-    server.use(http.get("/api/v1/auth/local/me", () => HttpResponse.json(LOCAL_PRINCIPAL)));
+    server.use(http.get("/api/v1/auth/me", () => HttpResponse.json(LOCAL_PRINCIPAL)));
     const router = createRouter({
       routeTree,
       history: createMemoryHistory({ initialEntries: ["/agentes"] }),
@@ -117,7 +117,7 @@ describe("guardião das rotas autenticadas", () => {
 
   test("perfil_local_nao_expoe_ativacao_de_agentes", async () => {
     env.VITE_AUTH_MODE = "local";
-    server.use(http.get("/api/v1/auth/local/me", () => HttpResponse.json(LOCAL_PRINCIPAL)));
+    server.use(http.get("/api/v1/auth/me", () => HttpResponse.json(LOCAL_PRINCIPAL)));
     const router = createRouter({
       routeTree,
       history: createMemoryHistory({ initialEntries: ["/activate"] }),

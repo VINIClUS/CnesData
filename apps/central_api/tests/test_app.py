@@ -35,8 +35,8 @@ def mock_engine():
 
 @pytest.fixture
 def client_with_engine(app, mock_engine):
-    from central_api.deps import get_engine
-    app.dependency_overrides[get_engine] = lambda: mock_engine
+    from central_api.deps import get_health_engine
+    app.dependency_overrides[get_health_engine] = lambda: mock_engine
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.clear()
@@ -63,8 +63,8 @@ class TestHealthEndpoint:
     def test_health_retorna_degraded_quando_db_falha(
         self, app, failing_engine,
     ):
-        from central_api.deps import get_engine
-        app.dependency_overrides[get_engine] = lambda: failing_engine
+        from central_api.deps import get_health_engine
+        app.dependency_overrides[get_health_engine] = lambda: failing_engine
         with TestClient(app, raise_server_exceptions=True) as c:
             resp = c.get("/api/v1/system/health")
         app.dependency_overrides.clear()
@@ -72,6 +72,14 @@ class TestHealthEndpoint:
         body = resp.json()
         assert body["status"] == "degraded"
         assert body["db_connected"] is False
+
+    def test_health_local_nao_constroi_engine_sql(self, monkeypatch):
+        from central_api.deps import get_health_engine
+
+        monkeypatch.setenv("PROFILE", "local")
+        with patch("central_api.deps.create_engine") as create_engine:
+            assert get_health_engine() is None
+        create_engine.assert_not_called()
 
     def test_health_contem_timestamp(self, client_with_engine):
         resp = client_with_engine.get("/api/v1/system/health")

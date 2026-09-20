@@ -14,6 +14,7 @@ from cnes_domain.orchestration.source_catalog import (
     build_source_catalog,
 )
 from cnes_domain.profiles import ProfileNotImplemented, parse_profile
+from cnes_infra.audit.local_sink import LocalAuditSink
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.object_store import FilesystemObjectStore
 from data_processor.composition import (
@@ -54,6 +55,7 @@ def test_runtime_local_compoe_grafo_completo(tmp_path):
 
     assert isinstance(runtime.source_registry, SourceRegistry)
     assert isinstance(runtime.stage_processor, StageProcessor)
+    assert isinstance(runtime.audit_sink, LocalAuditSink)
     assert isinstance(runtime.coordinator, PipelineCoordinator)
     assert isinstance(runtime.unit_worker, UnitWorker)
     assert isinstance(runtime.unit_handler, RunUnitCommandHandler)

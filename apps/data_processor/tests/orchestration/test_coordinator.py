@@ -39,6 +39,7 @@ from cnes_domain.ports.processing import (
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
+    CoordinatorResult,
     PipelineCoordinator,
     allow_execution,
     noop_execution_started,
@@ -121,6 +122,12 @@ class _FakeExecutor:
 
     def set_status(self, execution_ref: str, status: ExecutionStatus) -> None:
         self.statuses[execution_ref] = status
+
+
+@dataclass
+class _RestartedExecutor(_FakeExecutor):
+    def status(self, execution_ref: str) -> ExecutionStatus:
+        raise ValueError(f"execution_ref=unknown ref={execution_ref}")
 
 
 @pytest.fixture
@@ -535,6 +542,51 @@ def test_recover_nao_deixa_waiting_runs_bloquearem_runs_do_processor(
     results = coordinator.recover(limit=1)
 
     assert [result.state for result in results] == [RunState.PROCESSING]
+
+
+def test_recover_isola_falha_de_um_run_e_continua_com_os_demais(
+    adapter, executor, store, clock, monkeypatch, caplog
+):
+    failed = _run().model_copy(update={"run_id": "a-failed"})
+    healthy = _run().model_copy(update={"run_id": "b-healthy"})
+    adapter.put_run(failed)
+    adapter.put_run(healthy)
+    coordinator = PipelineCoordinator(_dependencies(adapter, executor, store, clock), _execution())
+    expected = CoordinatorResult(
+        state=RunState.PROCESSING, execution_ref=None, published=False
+    )
+
+    def resume(tenant_id: str, run_id: str) -> CoordinatorResult:
+        if run_id == failed.run_id:
+            raise ValueError("missing_output")
+        return expected
+
+    monkeypatch.setattr(coordinator, "resume", resume)
+
+    with caplog.at_level("ERROR"):
+        results = coordinator.recover(limit=2)
+
+    assert results == (expected,)
+    assert "recover_run_error tenant_id=354130 run_id=a-failed" in caplog.text
+
+
+def test_recover_reinicia_dispatch_sem_referencia_do_pool_anterior(
+    adapter, executor, store, clock
+):
+    _seed(adapter, manifests=_full_manifests())
+    first_coordinator = PipelineCoordinator(
+        _dependencies(adapter, executor, store, clock), _execution()
+    )
+    first_coordinator.resume(_TENANT, _RUN_ID)
+    restarted_executor = _RestartedExecutor()
+    restarted_coordinator = PipelineCoordinator(
+        _dependencies(adapter, restarted_executor, store, clock), _execution()
+    )
+
+    results = restarted_coordinator.recover(limit=1)
+
+    assert [result.state for result in results] == [RunState.PROCESSING]
+    assert len(restarted_executor.started) == 1
 
 
 def test_resume_publishing_retoma_cas_sem_re_transicionar(adapter, executor, store, clock):

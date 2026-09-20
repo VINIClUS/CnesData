@@ -43,6 +43,12 @@ def get_engine() -> Engine:
     return _engine
 
 
+def get_health_engine() -> Engine | None:
+    if _local_profile_requested():
+        return None
+    return get_engine()
+
+
 def get_conn() -> Iterator[Connection]:
     engine = get_engine()
     with engine.begin() as conn:

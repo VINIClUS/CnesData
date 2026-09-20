@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import os
 import sqlite3
+import stat
 import tarfile
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -82,6 +83,24 @@ def test_create_backup_so_produz_arquivo_alvo_completo(tmp_path: Path) -> None:
     assert list(tmp_path.glob(".backup.tar*")) == []
     with tarfile.open(target, "r") as tar:
         assert "state/cnesdata.sqlite3" in tar.getnames()
+
+
+def test_create_backup_fsync_arquivo_antes_de_publicar(tmp_path: Path, monkeypatch) -> None:
+    state_db, data_dir = _prepared_dirs(tmp_path)
+    target = tmp_path / "backup.tar"
+    real_fsync = os.fsync
+    regular_file_fsyncs = []
+
+    def record_fsync(descriptor: int) -> None:
+        if stat.S_ISREG(os.fstat(descriptor).st_mode):
+            regular_file_fsyncs.append(descriptor)
+        real_fsync(descriptor)
+
+    monkeypatch.setattr("scripts.local_backup.os.fsync", record_fsync)
+
+    create_backup(state_db, data_dir, target, _NOW)
+
+    assert regular_file_fsyncs
 
 
 def test_create_backup_rejeita_state_db_sem_tenant(tmp_path: Path) -> None:

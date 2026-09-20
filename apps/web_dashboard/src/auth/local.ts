@@ -1,7 +1,7 @@
 import { apiFetch } from "@/api/client";
 import type { LocalPrincipal } from "@/auth/types";
 
-export const LOCAL_AUTH_ME_PATH = "/auth/local/me";
+export const LOCAL_AUTH_ME_PATH = "/auth/me";
 
 export function loginLocal(email: string, password: string): Promise<LocalPrincipal> {
   return apiFetch<LocalPrincipal>("/auth/local/login", {

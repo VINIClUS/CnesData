@@ -64,6 +64,14 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _fsync_file(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _backup_sqlite(state_db: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     source = sqlite3.connect(state_db)
@@ -116,6 +124,7 @@ def _finalize_archive(staging: Path, target: Path) -> None:
         for item in sorted(staging.rglob("*")):
             if item.is_file():
                 archive.add(item, arcname=item.relative_to(staging).as_posix())
+    _fsync_file(temporary)
     os.replace(temporary, target)
     _fsync_directory(target.parent)
 

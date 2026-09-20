@@ -9,6 +9,7 @@ from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.orchestration.source_catalog import build_source_catalog
 from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig
 from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile
+from cnes_infra.audit.local_sink import LocalAuditSink
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.executor.local_pool import LocalWorkerPool
 from cnes_infra.object_store import FilesystemObjectStore
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import NormalizeRequest, NormalizeResult
     from cnes_domain.control_plane.entities import RunUnit
     from cnes_domain.orchestration.source_catalog import SourceCatalog
+    from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.processing import ProcessorExecutorPort
@@ -74,6 +76,7 @@ def build_source_registry(catalog: SourceCatalog | None = None) -> SourceRegistr
 class LocalProcessorRuntime:
     control_plane: ControlPlanePort
     object_store: ObjectStorePort
+    audit_sink: AuditSinkPort
     executor: ProcessorExecutorPort
     publisher: DatasetPublisher
     source_registry: SourceRegistry
@@ -104,6 +107,7 @@ def build_local_processor_runtime(
     objects_root = settings.data_dir / "objects"
     objects_root.mkdir(parents=True, exist_ok=True)
     object_store = FilesystemObjectStore(objects_root)
+    audit_sink = LocalAuditSink(settings.data_dir)
 
     source_registry = build_source_registry()
     stage_processor = StageProcessor(control_plane, object_store, source_registry, clock)
@@ -113,10 +117,10 @@ def build_local_processor_runtime(
         ExecutionCallbacks(allow_execution, noop_execution_started),
     )
 
-    # LocalWorkerPool exige o handler no construtor, mas o handler so existe depois do
-    # UnitWorker (que depende do coordinator para after_persist). O lambda fecha sobre
-    # `unit_handler`, resolvido em atribuicao posterior no mesmo escopo: seguro porque
-    # LocalWorkerPool so invoca o handler em `.start()`, chamado bem depois deste retorno.
+    # LocalWorkerPool requires the handler in its constructor, but the handler exists only
+    # after UnitWorker (which depends on the coordinator for after_persist). The lambda
+    # closes over `unit_handler`, assigned later in this scope; LocalWorkerPool invokes
+    # it only from `.start()`, which runs after this function returns.
     executor = LocalWorkerPool(
         handler=lambda message: unit_handler.handle(message),
         owner=_WORKER_OWNER, clock=clock, lease_seconds=_DISPATCH_LEASE_SECONDS,
@@ -141,7 +145,8 @@ def build_local_processor_runtime(
     unit_handler = RunUnitCommandHandler(unit_worker)
 
     return LocalProcessorRuntime(
-        control_plane=control_plane, object_store=object_store, executor=executor,
+        control_plane=control_plane, object_store=object_store, audit_sink=audit_sink,
+        executor=executor,
         publisher=publisher, source_registry=source_registry, stage_processor=stage_processor,
         coordinator=coordinator, unit_worker=unit_worker, unit_handler=unit_handler,
     )

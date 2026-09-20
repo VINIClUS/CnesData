@@ -131,6 +131,59 @@ class TestMainProfileLocal:
 
 class TestPollUntilShutdown:
     @pytest.mark.asyncio
+    async def test_poll_until_shutdown_executa_tick_de_auditoria(self):
+        import asyncio
+
+        from data_processor.main import _poll_until_shutdown
+
+        audit_ticks = []
+
+        class _Coordinator:
+            def recover(self):
+                shutdown.set()
+                return ()
+
+        def audit_tick():
+            audit_ticks.append(1)
+
+        shutdown = asyncio.Event()
+        await _poll_until_shutdown(
+            _Coordinator(), shutdown, interval=0.001, audit_tick=audit_tick
+        )
+
+        assert audit_ticks == [1]
+
+    @pytest.mark.asyncio
+    async def test_poll_until_shutdown_isola_falha_do_tick_de_auditoria(self, caplog):
+        import asyncio
+
+        from data_processor.main import _poll_until_shutdown
+
+        audit_ticks = []
+
+        class _Coordinator:
+            def recover(self):
+                return ()
+
+        def audit_tick():
+            audit_ticks.append(1)
+            if len(audit_ticks) == 1:
+                raise RuntimeError("sink_down")
+            shutdown.set()
+
+        shutdown = asyncio.Event()
+        with caplog.at_level("ERROR", logger="data_processor.main"):
+            await asyncio.wait_for(
+                _poll_until_shutdown(
+                    _Coordinator(), shutdown, interval=0.001, audit_tick=audit_tick
+                ),
+                timeout=2,
+            )
+
+        assert audit_ticks == [1, 1]
+        assert "local_profile_audit_tick_error" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_recover_tick_loga_quantidade_de_runs_recuperados(self, caplog):
         from data_processor.main import _recover_tick
 

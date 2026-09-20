@@ -44,7 +44,7 @@ describe("LoginPage", () => {
   test("local_redireciona_para_overview_apos_autenticacao", async () => {
     env.VITE_AUTH_MODE = "local";
     server.use(
-      http.get("/api/v1/auth/local/me", () =>
+      http.get("/api/v1/auth/me", () =>
         HttpResponse.json({
           user_id: "user-1",
           email: "g@m",
