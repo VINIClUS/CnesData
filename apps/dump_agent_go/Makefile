@@ -1,4 +1,11 @@
-.PHONY: lint test build gen install-tools tidy
+.PHONY: lint test build gen install-tools tidy build-linux build-windows
+
+GIT_VERSION := $(shell git describe --tags --match 'dumpagent-go-v*' --dirty 2>/dev/null \
+                 | sed 's/^dumpagent-go-//')
+ifeq ($(strip $(GIT_VERSION)),)
+GIT_VERSION := dev
+endif
+VERSION ?= $(GIT_VERSION)
 
 install-tools:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
@@ -23,8 +30,9 @@ test-e2e:
 	go test -tags=e2e -race ./test/e2e/...
 
 build-linux:
-	go build -o dist/dumpagent ./cmd/dumpagent
+	go build -trimpath -ldflags="-s -w -X main.Version=$(VERSION)" \
+	  -o dist/dumpagent ./cmd/dumpagent
 
 build-windows:
-	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" \
+	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.Version=$(VERSION)" \
 	  -o dist/dumpagent.exe ./cmd/dumpagent
