@@ -53,9 +53,9 @@ def _local_execution_started(
 
 
 def _unit_execution_forbidden(message: object) -> None:
-    # central_api nunca executa units: um handler que retorna None/RunUnit fabricado
-    # marcaria trabalho como CANCELED/SUCCEEDED silenciosamente (LocalWorkerPool.status).
-    # Levantar torna o dispatch FAILED, honesto ate CND-064 injetar o handler real.
+    # central_api never executes units: a fabricated None/RunUnit handler would silently
+    # mark work as CANCELED/SUCCEEDED through LocalWorkerPool.status. Raising keeps the
+    # dispatch FAILED until CND-064 injects the real handler.
     del message
     raise NotImplementedError("processor_owns_unit_execution")
 
@@ -105,7 +105,7 @@ def build_local_runtime(settings: ProfileSettings, clock: Callable[[], datetime]
             control_plane=control_plane, object_store=object_store, executor=executor,
             source_catalog=source_catalog,
         ),
-        execution, clock,
+        execution, clock, dispatch_enabled=False,
     )
     raw_ingestion = RawIngestionService(
         control_plane, object_store, DeltaPolicy(),

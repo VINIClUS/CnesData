@@ -77,3 +77,9 @@ def test_executor_local_rejeita_execucao_de_unit_no_processo_da_api(tmp_path):
 
     with pytest.raises(NotImplementedError, match="processor_owns_unit_execution"):
         runtime.executor._handler(object())
+
+
+def test_local_runtime_deixa_dispatch_para_o_processor(tmp_path):
+    runtime = build_local_runtime(_settings(tmp_path), _utc_now)
+
+    assert runtime.run_planning._dispatch_enabled is False

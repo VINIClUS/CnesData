@@ -35,8 +35,8 @@ def mock_engine():
 
 @pytest.fixture
 def client_with_engine(app, mock_engine):
-    from central_api.deps import get_engine
-    app.dependency_overrides[get_engine] = lambda: mock_engine
+    from central_api.deps import get_health_engine
+    app.dependency_overrides[get_health_engine] = lambda: mock_engine
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.clear()
@@ -63,8 +63,8 @@ class TestHealthEndpoint:
     def test_health_retorna_degraded_quando_db_falha(
         self, app, failing_engine,
     ):
-        from central_api.deps import get_engine
-        app.dependency_overrides[get_engine] = lambda: failing_engine
+        from central_api.deps import get_health_engine
+        app.dependency_overrides[get_health_engine] = lambda: failing_engine
         with TestClient(app, raise_server_exceptions=True) as c:
             resp = c.get("/api/v1/system/health")
         app.dependency_overrides.clear()
@@ -73,9 +73,98 @@ class TestHealthEndpoint:
         assert body["status"] == "degraded"
         assert body["db_connected"] is False
 
+    def test_health_local_nao_constroi_engine_sql(self, monkeypatch):
+        from central_api.deps import get_health_engine
+
+        monkeypatch.setenv("PROFILE", "local")
+        with patch("central_api.deps.create_engine") as create_engine:
+            assert get_health_engine() is None
+        create_engine.assert_not_called()
+
+    def test_health_fora_do_profile_local_retorna_engine(self, monkeypatch):
+        from central_api.deps import get_health_engine
+
+        monkeypatch.delenv("PROFILE", raising=False)
+        engine = MagicMock(spec=Engine)
+        with patch("central_api.deps.get_engine", return_value=engine):
+            assert get_health_engine() is engine
+
     def test_health_contem_timestamp(self, client_with_engine):
         resp = client_with_engine.get("/api/v1/system/health")
         assert "timestamp" in resp.json()
+
+
+class TestLocalCompositionDependencies:
+    def test_lifespan_local_instala_auth_e_serving(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("PROFILE", "local")
+        monkeypatch.setenv("TENANT_ID", "354130")
+        monkeypatch.setenv("DATA_DIR", str(tmp_path))
+        from central_api.routes.local_auth import get_local_auth_service
+        from central_api.routes.serving import (
+            get_serving_access,
+            get_serving_object_store,
+            get_serving_principal,
+        )
+
+        with TestClient(_make_app()) as client:
+            app = client.app
+
+            assert app.state.local_auth_service is not None
+            assert app.state.serving_access is not None
+            assert get_local_auth_service in app.dependency_overrides
+            assert get_serving_access in app.dependency_overrides
+            assert get_serving_object_store in app.dependency_overrides
+            assert get_serving_principal in app.dependency_overrides
+
+    def test_resolver_de_principal_rejeita_cookie_ausente(self):
+        from fastapi import HTTPException
+        from starlette.requests import Request
+
+        from central_api.deps import _serving_principal_resolver
+
+        request = Request({"type": "http", "headers": []})
+        resolver = _serving_principal_resolver(MagicMock())
+
+        with pytest.raises(HTTPException, match="session_required"):
+            resolver(request)
+
+    def test_resolver_de_principal_retorna_sessao_valida(self):
+        from starlette.requests import Request
+
+        from central_api.deps import _serving_principal_resolver
+        from central_api.routes.serving import ServingPrincipal
+
+        auth_service = MagicMock()
+        auth_service.resolve_session.return_value = MagicMock(
+            tenant_id="354130", user_id="user-1"
+        )
+        request = Request({
+            "type": "http",
+            "headers": [(b"cookie", b"cnesdata_session=session-token")],
+        })
+
+        principal = _serving_principal_resolver(auth_service)(request)
+
+        assert principal == ServingPrincipal(tenant_id="354130", user_id="user-1")
+
+    def test_resolver_de_principal_rejeita_sessao_invalida(self):
+        from fastapi import HTTPException
+        from starlette.requests import Request
+
+        from central_api.deps import _serving_principal_resolver
+        from cnes_infra.auth.local_auth import AuthenticationRejected, AuthRejectionCode
+
+        auth_service = MagicMock()
+        auth_service.resolve_session.side_effect = AuthenticationRejected(
+            AuthRejectionCode.SESSION_INVALID
+        )
+        request = Request({
+            "type": "http",
+            "headers": [(b"cookie", b"cnesdata_session=session-token")],
+        })
+
+        with pytest.raises(HTTPException, match="session_invalid"):
+            _serving_principal_resolver(auth_service)(request)
 
 
 class TestAdminEndpoint:

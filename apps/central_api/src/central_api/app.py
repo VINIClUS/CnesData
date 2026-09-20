@@ -20,6 +20,7 @@ from central_api.routes import (
     extractions,
     health,
     jobs,
+    local_auth,
     oauth,
     overview,
     provision,
@@ -27,6 +28,7 @@ from central_api.routes import (
     public_leads,
     raw_jobs,
     raw_manifests,
+    serving,
 )
 from cnes_infra import config
 from cnes_infra.auth.errors import OAuthError
@@ -64,6 +66,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins(),
+        allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Tenant-Id"],
         max_age=600,
@@ -88,4 +91,6 @@ def create_app() -> FastAPI:
     app.include_router(provision_rotate.router)
     app.include_router(raw_jobs.router)
     app.include_router(raw_manifests.router)
+    app.include_router(local_auth.router)
+    app.include_router(serving.router)
     return app

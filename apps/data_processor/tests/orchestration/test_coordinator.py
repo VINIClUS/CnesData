@@ -39,7 +39,9 @@ from cnes_domain.ports.processing import (
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
+    CoordinatorResult,
     PipelineCoordinator,
+    _processor_recoverable_runs,
     allow_execution,
     noop_execution_started,
 )
@@ -121,6 +123,12 @@ class _FakeExecutor:
 
     def set_status(self, execution_ref: str, status: ExecutionStatus) -> None:
         self.statuses[execution_ref] = status
+
+
+@dataclass
+class _RestartedExecutor(_FakeExecutor):
+    def status(self, execution_ref: str) -> ExecutionStatus:
+        raise ValueError(f"execution_ref=unknown ref={execution_ref}")
 
 
 @pytest.fixture
@@ -513,6 +521,122 @@ def test_recover_reanima_apenas_estados_do_processor(adapter, executor, store, c
 
     assert len(results) == 1
     assert results[0].state is RunState.PROCESSING
+
+
+def test_recover_nao_deixa_waiting_runs_bloquearem_runs_do_processor(
+    adapter, executor, store, clock
+):
+    run = _run().model_copy(update={"run_id": "z-processing"})
+    adapter.put_run(run)
+    plan = plan_run(PlanRequest(run=run, manifests=_full_manifests(), deployment_limit=2))
+    adapter.put_run_units(PutRunUnits(
+        tenant_id=_TENANT, run_id=run.run_id, expected_run_state=RunState.PROCESSING,
+        units=plan.units,
+    ))
+    for index in range(100):
+        waiting = _run(state=RunState.WAITING_INPUTS).model_copy(
+            update={"run_id": f"waiting-{index:03d}"}
+        )
+        adapter.put_run(waiting)
+    coordinator = PipelineCoordinator(_dependencies(adapter, executor, store, clock), _execution())
+
+    results = coordinator.recover(limit=1)
+
+    assert [result.state for result in results] == [RunState.PROCESSING]
+
+
+def test_recover_com_limite_zero_retorna_vazio(adapter, clock):
+    assert _processor_recoverable_runs(adapter, clock.now(), 0, set()) == ()
+
+
+def test_recover_isola_falha_de_um_run_e_continua_com_os_demais(
+    adapter, executor, store, clock, monkeypatch, caplog
+):
+    failed = _run().model_copy(update={"run_id": "a-failed"})
+    healthy = _run().model_copy(update={"run_id": "b-healthy"})
+    adapter.put_run(failed)
+    adapter.put_run(healthy)
+    coordinator = PipelineCoordinator(_dependencies(adapter, executor, store, clock), _execution())
+    expected = CoordinatorResult(
+        state=RunState.PROCESSING, execution_ref=None, published=False
+    )
+
+    def resume(tenant_id: str, run_id: str) -> CoordinatorResult:
+        if run_id == failed.run_id:
+            raise ValueError("missing_output")
+        return expected
+
+    monkeypatch.setattr(coordinator, "resume", resume)
+
+    with caplog.at_level("ERROR"):
+        results = coordinator.recover(limit=2)
+
+    assert results == (expected,)
+    assert "recover_run_error tenant_id=354130 run_id=a-failed" in caplog.text
+
+
+def test_recover_avanca_alem_de_candidatos_com_falha_persistente(
+    adapter, executor, store, clock, monkeypatch
+):
+    failed_runs = tuple(
+        _run().model_copy(update={"run_id": f"a-failed-{index:03d}"})
+        for index in range(100)
+    )
+    healthy = _run().model_copy(update={"run_id": "z-healthy"})
+    for run in (*failed_runs, healthy):
+        adapter.put_run(run)
+    coordinator = PipelineCoordinator(_dependencies(adapter, executor, store, clock), _execution())
+    expected = CoordinatorResult(
+        state=RunState.PROCESSING, execution_ref=None, published=False
+    )
+    resumed: list[str] = []
+
+    def resume(tenant_id: str, run_id: str) -> CoordinatorResult:
+        del tenant_id
+        resumed.append(run_id)
+        if run_id.startswith("a-failed-"):
+            raise ValueError("missing_output")
+        return expected
+
+    monkeypatch.setattr(coordinator, "resume", resume)
+
+    results = coordinator.recover(limit=100)
+
+    assert results == (expected,)
+    assert resumed[-1] == "z-healthy"
+
+
+def test_resume_propaga_erro_de_status_desconhecido(adapter, executor, store, clock, monkeypatch):
+    _seed(adapter, manifests=_full_manifests())
+    coordinator = PipelineCoordinator(_dependencies(adapter, executor, store, clock), _execution())
+    coordinator.resume(_TENANT, _RUN_ID)
+
+    def status(_execution_ref: str) -> ExecutionStatus:
+        raise ValueError("executor_broken")
+
+    monkeypatch.setattr(executor, "status", status)
+
+    with pytest.raises(ValueError, match="executor_broken"):
+        coordinator.resume(_TENANT, _RUN_ID)
+
+
+def test_recover_reinicia_dispatch_sem_referencia_do_pool_anterior(
+    adapter, executor, store, clock
+):
+    _seed(adapter, manifests=_full_manifests())
+    first_coordinator = PipelineCoordinator(
+        _dependencies(adapter, executor, store, clock), _execution()
+    )
+    first_coordinator.resume(_TENANT, _RUN_ID)
+    restarted_executor = _RestartedExecutor()
+    restarted_coordinator = PipelineCoordinator(
+        _dependencies(adapter, restarted_executor, store, clock), _execution()
+    )
+
+    results = restarted_coordinator.recover(limit=1)
+
+    assert [result.state for result in results] == [RunState.PROCESSING]
+    assert len(restarted_executor.started) == 1
 
 
 def test_resume_publishing_retoma_cas_sem_re_transicionar(adapter, executor, store, clock):

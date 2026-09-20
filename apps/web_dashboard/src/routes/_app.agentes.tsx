@@ -5,12 +5,20 @@ import { useAgentStatus } from "@/api/hooks/useAgentStatus";
 import { useTenants } from "@/api/hooks/useTenants";
 import { AgentRunsTable } from "@/components/agentes/AgentRunsTable";
 import { AgentStatusCard } from "@/components/agentes/AgentStatusCard";
+import { env } from "@/lib/env";
 
 export const Route = createFileRoute("/_app/agentes")({
   component: AgentesPage,
 });
 
 function AgentesPage() {
+  if (env.VITE_AUTH_MODE === "local") {
+    return <p>O status dos agentes está disponível no perfil OIDC.</p>;
+  }
+  return <OidcAgentesPage />;
+}
+
+function OidcAgentesPage() {
   const tenants = useTenants();
   const tenantId = tenants.data?.[0]?.ibge6;
 

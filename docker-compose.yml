@@ -260,7 +260,66 @@ services:
       start_period: 5s
     profiles:
     - aws-test
+  central-api-local:
+    build:
+      context: .
+      dockerfile: apps/central_api/Dockerfile
+    container_name: cnesdata_central_api_local
+    ports:
+    - 8000:8000
+    environment:
+      PROFILE: local
+      TENANT_ID: '354130'
+      DATA_DIR: /data
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      # cnes_infra.config exige DB_URL no import do módulo; nunca conectado no profile local.
+      DB_URL: postgresql+psycopg://unused:unused@unused/unused
+    volumes:
+    - local_data:/data
+    healthcheck:
+      test: python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    profiles:
+    - local
+  data-processor-local:
+    build:
+      context: .
+      dockerfile: apps/data_processor/Dockerfile
+    container_name: cnesdata_data_processor_local
+    depends_on:
+      central-api-local:
+        condition: service_healthy
+    environment:
+      PROFILE: local
+      TENANT_ID: '354130'
+      DATA_DIR: /data
+      PROCESSOR_POLL_INTERVAL: '5.0'
+      DB_URL: postgresql+psycopg://unused:unused@unused/unused
+    volumes:
+    - local_data:/data
+    profiles:
+    - local
+    restart: on-failure
+  web-dashboard-local:
+    image: oven/bun:1.3-alpine
+    container_name: cnesdata_web_dashboard_local
+    working_dir: /app
+    volumes:
+    - ./apps/web_dashboard:/app
+    - ./docs/contracts:/contracts:ro
+    ports:
+    - 5173:5173
+    command: sh -c "bun install && bun run dev --host 0.0.0.0"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+      VITE_AUTH_MODE: local
+    profiles:
+    - local
 volumes:
+  local_data: null
   pgdata_test: null
   minio_data: null
   pgdata_perf: null

@@ -60,6 +60,7 @@ class _FakeObjectStore:
 
 
 @pytest.mark.chaos
+@pytest.mark.local_profile
 def test_worker_atrasado_nao_sobrescreve_output_apos_supersede(tmp_path):
     """Invariant: a stale worker whose dispatch is superseded mid-flight never
     commits into RunUnit.output_manifests — its writes stay confined to tmp/."""

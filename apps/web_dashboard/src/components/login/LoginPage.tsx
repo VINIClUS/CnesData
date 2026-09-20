@@ -10,13 +10,17 @@ import { HeroSurface } from "@/components/marketing/HeroSurface";
 import { LanguageSelector } from "@/components/marketing/LanguageSelector";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { ThemeIconButton } from "@/components/marketing/ThemeIconButton";
+import { env } from "@/lib/env";
 
 export function LoginPage() {
   const { status } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (status === "authenticated") void navigate({ to: "/agentes" });
+    if (status === "authenticated") {
+      const destination = env.VITE_AUTH_MODE === "local" ? "/overview" : "/agentes";
+      void navigate({ to: destination });
+    }
   }, [status, navigate]);
 
   return (

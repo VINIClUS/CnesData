@@ -1,6 +1,7 @@
 """Reserve -> start -> bind dispatch protocol; fan-in driven Run state machine."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -47,6 +48,28 @@ _STATUS_OUTCOME = {
     ExecutionStatus.FAILED: DispatchOutcome.FAILED,
     ExecutionStatus.CANCELED: DispatchOutcome.CANCELED,
 }
+logger = logging.getLogger(__name__)
+
+
+def _processor_recoverable_runs(
+    control_plane: ControlPlanePort,
+    now: datetime,
+    limit: int,
+    skipped: set[tuple[str, str]],
+) -> tuple[Run, ...]:
+    if limit <= 0:
+        return ()
+    query_limit = limit
+    while True:
+        candidates = control_plane.list_recoverable_runs(now, query_limit)
+        selected = tuple(
+            run for run in candidates
+            if run.state in _RECOVERABLE_RUN_STATES
+            and (run.tenant_id, run.run_id) not in skipped
+        )
+        if len(selected) >= limit or len(candidates) < query_limit:
+            return selected[:limit]
+        query_limit *= 2
 
 
 def allow_execution(run: Run, dispatch: RunDispatch, requested_limit: int) -> ExecutionPermit:
@@ -104,7 +127,18 @@ def _settle_started(
     control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
     plan: RunPlan, dispatch: RunDispatch, now: datetime,
 ) -> RunDispatch | None:
-    status = executor.status(dispatch.execution_ref)
+    try:
+        status = executor.status(dispatch.execution_ref)
+    except ValueError as error:
+        if "execution_ref=unknown" not in str(error):
+            raise
+        logger.warning(
+            "execution_lost tenant_id=%s run_id=%s execution_ref=%s",
+            plan.run.tenant_id,
+            plan.run.run_id,
+            dispatch.execution_ref,
+        )
+        status = ExecutionStatus.FAILED
     if status is ExecutionStatus.RUNNING:
         return dispatch
     control_plane.finish_run_dispatch(FinishRunDispatch(
@@ -182,9 +216,9 @@ def _publish_now(
 
 
 def _cancel(dependencies: CoordinatorDependencies, run: Run, now: datetime) -> CoordinatorResult:
-    # get_active_run_dispatch e claim_run_unit sao ambos escopados a Run PROCESSING;
-    # uma vez CANCEL_REQUESTED nenhum dispatch e visivel/reivindicavel, entao o cancel
-    # e sempre best-effort e sem execution_ref (RunUnitState.CANCELED cobre o resto).
+    # get_active_run_dispatch and claim_run_unit are both scoped to PROCESSING runs;
+    # once CANCEL_REQUESTED, no dispatch is visible or claimable. Cancellation is
+    # therefore best-effort and has no execution_ref (RunUnitState.CANCELED covers the rest).
     dependencies.executor.cancel(CancelRunExecution(
         tenant_id=run.tenant_id, run_id=run.run_id, execution_ref=None,
     ))
@@ -246,12 +280,24 @@ class PipelineCoordinator:
     def recover(self, limit: int = 100) -> tuple[CoordinatorResult, ...]:
         control_plane = self._dependencies.control_plane
         now = self._dependencies.clock()
-        candidates = control_plane.list_recoverable_runs(now, limit)
-        results = [
-            self.resume(run.tenant_id, run.run_id)
-            for run in candidates
-            if run.state in _RECOVERABLE_RUN_STATES
-        ]
+        skipped: set[tuple[str, str]] = set()
+        results: list[CoordinatorResult] = []
+        while len(results) < limit:
+            candidates = _processor_recoverable_runs(
+                control_plane, now, limit - len(results), skipped
+            )
+            if not candidates:
+                break
+            for run in candidates:
+                skipped.add((run.tenant_id, run.run_id))
+                try:
+                    results.append(self.resume(run.tenant_id, run.run_id))
+                except Exception:
+                    logger.exception(
+                        "recover_run_error tenant_id=%s run_id=%s",
+                        run.tenant_id,
+                        run.run_id,
+                    )
         return tuple(results)
 
 

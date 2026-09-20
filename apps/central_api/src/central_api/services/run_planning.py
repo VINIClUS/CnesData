@@ -176,11 +176,12 @@ def _dispatch_protocol(
 class RunPlanningService:
     def __init__(
         self, dependencies: RunPlanningDependencies, execution: ExecutionPolicyConfig,
-        clock: Callable[[], datetime],
+        clock: Callable[[], datetime], dispatch_enabled: bool = True,
     ) -> None:
         self._dependencies = dependencies
         self._execution = execution
         self._clock = clock
+        self._dispatch_enabled = dispatch_enabled
 
     def launch(self, tenant_id: str, run_id: str) -> RunLaunchResult:
         control_plane = self._dependencies.control_plane
@@ -236,8 +237,8 @@ class RunPlanningService:
             missing_optional=plan.missing_optional,
             deployment_limit=self._execution.deployment_limit,
         )
-        execution_ref = _dispatch_protocol(
-            control_plane, self._dependencies.executor, self._execution, full_plan, now
+        execution_ref = self._dispatch(
+            control_plane, full_plan, now,
         )
         return RunLaunchResult(run=processing, plan=full_plan, execution_ref=execution_ref)
 
@@ -248,17 +249,25 @@ class RunPlanningService:
             run=run, units=units, missing_required=(), missing_optional=run.missing_sources,
             deployment_limit=self._execution.deployment_limit,
         )
-        execution_ref = _dispatch_protocol(
+        execution_ref = self._dispatch(control_plane, plan, now)
+        return RunLaunchResult(run=run, plan=plan, execution_ref=execution_ref)
+
+    def _dispatch(
+        self, control_plane: _ControlPlane, plan: RunPlan, now: datetime
+    ) -> str | None:
+        if not self._dispatch_enabled:
+            return None
+        return _dispatch_protocol(
             control_plane, self._dependencies.executor, self._execution, plan, now
         )
-        return RunLaunchResult(run=run, plan=plan, execution_ref=execution_ref)
 
     def _cancel(self, run: Run, now: datetime) -> RunLaunchResult:
         # get_active_run_dispatch/claim_run_unit sao escopados a Run PROCESSING; uma vez
         # CANCEL_REQUESTED nenhum dispatch e visivel, entao o cancel e sempre best-effort.
-        self._dependencies.executor.cancel(CancelRunExecution(
-            tenant_id=run.tenant_id, run_id=run.run_id, execution_ref=None,
-        ))
+        if self._dispatch_enabled:
+            self._dependencies.executor.cancel(CancelRunExecution(
+                tenant_id=run.tenant_id, run_id=run.run_id, execution_ref=None,
+            ))
         event = _build_event(run, "run.canceled", now)
         canceled = self._dependencies.control_plane.finalize_run_cancellation(
             FinalizeRunCancellation(
