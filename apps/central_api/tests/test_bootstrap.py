@@ -75,13 +75,12 @@ def test_resolve_password_cai_para_prompt_quando_variavel_ausente(monkeypatch) -
     assert _resolve_password({}) == "from-prompt"
 
 
-def test_main_cria_usuario_via_env_e_argv(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(
-        "os.environ",
-        {"TENANT_ID": _TENANT, "DATA_DIR": str(tmp_path), "LOCAL_BOOTSTRAP_PASSWORD": _PASSWORD},
-    )
+def test_main_cria_usuario_via_env_e_argv(tmp_path: Path) -> None:
+    env = {
+        "TENANT_ID": _TENANT, "DATA_DIR": str(tmp_path), "LOCAL_BOOTSTRAP_PASSWORD": _PASSWORD,
+    }
 
-    exit_code = main(["--email", _EMAIL])
+    exit_code = main(["--email", _EMAIL], env=env)
 
     assert exit_code == 0
     settings = _settings(tmp_path)
@@ -89,8 +88,8 @@ def test_main_cria_usuario_via_env_e_argv(tmp_path: Path, monkeypatch) -> None:
     assert credentials.find_user_by_email(_EMAIL) is not None
 
 
-def test_main_exige_email(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("os.environ", {"TENANT_ID": _TENANT, "DATA_DIR": str(tmp_path)})
+def test_main_exige_email(tmp_path: Path) -> None:
+    env = {"TENANT_ID": _TENANT, "DATA_DIR": str(tmp_path)}
 
     with pytest.raises(SystemExit):
-        main([])
+        main([], env=env)

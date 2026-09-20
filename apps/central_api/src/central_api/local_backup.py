@@ -6,6 +6,7 @@ CLI: `python -m central_api.local_backup {create,restore}` — roda dentro do co
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 import os
 import shutil
@@ -16,10 +17,14 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from secrets import token_hex
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
 from cnes_domain.profiles import local_state_db, local_state_db_arcname, parse_profile
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +231,8 @@ def _publish_restore_tree(staging: Path, data_dir: Path) -> None:
             published.append(target)
     except Exception:
         for target in reversed(published):
-            os.replace(target, staging / target.name)
+            with contextlib.suppress(Exception):
+                os.replace(target, staging / target.name)
         raise
     _fsync_directory(data_dir)
 
@@ -279,9 +285,9 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    settings = parse_profile(dict(os.environ))
+    settings = parse_profile(dict(env if env is not None else os.environ))
     logging.basicConfig(level=logging.INFO)
     if args.command == "create":
         return _cli_create(settings.data_dir, Path(args.target))

@@ -29,36 +29,31 @@ def _seed_state_db(data_dir: Path) -> None:
     connection.close()
 
 
-def test_main_create_grava_backup_no_target(tmp_path: Path, monkeypatch) -> None:
+def test_main_create_grava_backup_no_target(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     _seed_state_db(data_dir)
-    monkeypatch.setattr("os.environ", _env(data_dir))
     target = tmp_path / "b1.tar"
 
-    exit_code = main(["create", "--target", str(target)])
+    exit_code = main(["create", "--target", str(target)], env=_env(data_dir))
 
     assert exit_code == 0
     assert target.exists()
 
 
-def test_main_restore_recompoe_state_db(tmp_path: Path, monkeypatch) -> None:
+def test_main_restore_recompoe_state_db(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     _seed_state_db(data_dir)
-    monkeypatch.setattr("os.environ", _env(data_dir))
     target = tmp_path / "b1.tar"
-    main(["create", "--target", str(target)])
+    main(["create", "--target", str(target)], env=_env(data_dir))
 
     restore_data_dir = tmp_path / "restored"
-    monkeypatch.setattr("os.environ", _env(restore_data_dir))
-    exit_code = main(["restore", "--archive", str(target)])
+    exit_code = main(["restore", "--archive", str(target)], env=_env(restore_data_dir))
 
     assert exit_code == 0
     settings = parse_profile(_env(restore_data_dir))
     assert settings.state_db.exists()
 
 
-def test_main_exige_subcomando(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("os.environ", _env(tmp_path / "data"))
-
+def test_main_exige_subcomando(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
-        main([])
+        main([], env=_env(tmp_path / "data"))

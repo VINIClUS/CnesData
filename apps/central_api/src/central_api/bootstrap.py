@@ -16,18 +16,22 @@ import os
 import sys
 from datetime import UTC, datetime
 from getpass import getpass
+from typing import TYPE_CHECKING
 
 from cnes_domain.control_plane.entities import Membership
 from cnes_domain.profiles import ProfileSettings, parse_profile
 from cnes_infra.auth.local_credentials import LocalCredentialStore, build_user
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_ROLE = "gestor"
 
 
-def _resolve_password(env: dict[str, str]) -> str:
+def _resolve_password(env: Mapping[str, str]) -> str:
     password = env.get("LOCAL_BOOTSTRAP_PASSWORD")
     if password:
         return password
@@ -64,11 +68,12 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO)
-    settings = parse_profile(dict(os.environ))
-    password = _resolve_password(dict(os.environ))
+    resolved_env = env if env is not None else os.environ
+    settings = parse_profile(dict(resolved_env))
+    password = _resolve_password(resolved_env)
     bootstrap_user(settings, args.email, args.user_id, args.role, password)
     return 0
 
