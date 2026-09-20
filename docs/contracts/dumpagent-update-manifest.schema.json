@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cnesdata.vinisantana.com/contracts/dumpagent-update-manifest/v1",
+  "title": "DumpagentUpdateManifest",
+  "description": "Update manifest consumed by the dumpagent edge agent update check / self-update client. Published per-channel to Cloudflare R2 (dumpagent/<channel>/latest.json) and as an immutable per-version copy (dumpagent/<version>/release.json). manifest.version is the release version (e.g. v0.1.0), distinct from the git tag (dumpagent-go-v0.1.0), which is the tag minus the dumpagent-go- prefix.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "channel",
+    "version",
+    "released_at",
+    "min_supported_version",
+    "release_notes_url",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Manifest schema major version. Clients must refuse a value they do not recognize rather than attempt to parse it.",
+      "type": "integer",
+      "const": 1
+    },
+    "channel": {
+      "description": "Release channel this manifest was published under. Self-identifying so a manifest copied to the wrong R2 key is detectable.",
+      "type": "string",
+      "enum": ["stable", "rc"]
+    },
+    "version": {
+      "description": "Release version, e.g. v0.1.0 or v0.1.0-rc.1. Must be byte-identical to main.Version in the built binary.",
+      "$ref": "#/$defs/semver"
+    },
+    "released_at": {
+      "description": "RFC3339 UTC timestamp of publication. Used for forensics and to detect a stale or stuck manifest.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "min_supported_version": {
+      "description": "Lowest agent version allowed to auto-update from. Agents below this version have a breaking config or protocol change and must follow the manual install runbook instead of self-updating.",
+      "$ref": "#/$defs/semver"
+    },
+    "release_notes_url": {
+      "description": "URL to the GitHub Release notes for this version, surfaced in agent logs.",
+      "type": "string",
+      "format": "uri"
+    },
+    "artifacts": {
+      "description": "Per-platform download artifacts. A map (not a flat field) so adding a new os-arch is additive.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^(windows|linux|darwin)-(amd64|386|arm64)$"
+      },
+      "patternProperties": {
+        "^(windows|linux|darwin)-(amd64|386|arm64)$": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^v\\d+\\.\\d+\\.\\d+(-(rc|beta|alpha)\\.?\\d+)?$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "fallback_url", "sha256", "size"],
+      "properties": {
+        "url": {
+          "description": "Primary download URL, served from the public R2 distribution domain.",
+          "type": "string",
+          "format": "uri"
+        },
+        "fallback_url": {
+          "description": "Fallback download URL, the GitHub Release asset. Used if the R2 primary is unreachable.",
+          "type": "string",
+          "format": "uri"
+        },
+        "sha256": {
+          "description": "Lowercase hex SHA-256 of the artifact, verified before install/self-update.",
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "size": {
+          "description": "Artifact size in bytes. Used to pre-allocate and detect a truncated download.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
