@@ -13,9 +13,12 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: dump-agent-go-release
-  cancel-in-progress: false
+# No workflow-level concurrency group: GitHub Actions keeps at most one queued
+# run per group regardless of cancel-in-progress, so a single shared group
+# across the whole ~15-20min gate would silently drop a third release queued
+# behind two others. The only step with a real cross-release race is
+# `promote` (last-write-wins on the shared channel manifest) -- that job
+# alone carries a concurrency group, scoped per channel, below.
 
 env:
   AWS_REQUEST_CHECKSUM_CALCULATION: when_required
@@ -323,6 +326,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: dump-agent-go-release-promote-${{ needs.resolve.outputs.channel }}
+      cancel-in-progress: false
     steps:
       - name: Publish GitHub Release (undraft)
         env:
