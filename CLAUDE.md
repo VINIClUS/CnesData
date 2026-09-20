@@ -31,7 +31,8 @@ Monorepo uv workspace. 3 shared packages + 5 apps.
   via SSH forced-command) ou AWS (alvo, EPIC #94: Step Functions/ECS
   Fargate/DynamoDB/Cognito) — ver `docs/architecture.md#deploy-target`.
   On-prem edge agents (Windows Service / systemd) em ambos os perfis. Local
-  dev via `docker-compose.yml` (profiles: dev, perf, shadow).
+  dev via `docker-compose.yml` (profiles: aws-test, dev, local, perf,
+  shadow) — bring-up do profile `local`: `docs/runbooks/local-profile.md`.
 </project_architecture>
 
 <resources>
