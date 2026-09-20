@@ -185,3 +185,52 @@ Not fixed in this branch (documented, out of scope):
   (used by `data_processor`, not the edge-agent-facing route) has the same
   internal-vs-public endpoint conflation as H9, but wasn't empirically exercised by this
   audit and is a different code path — flagged for a future pass, not fixed here.
+
+## Re-run: field verification of the fixed binary on siha (2026-09-20, later same day)
+
+The original audit's residue-zero result came from *manual* cleanup, not from the fixed
+`uninstall` — none of the `//go:build windows` code (`scmConnector`, `writeServiceEnvironment`,
+the ProgramData move) had actually executed on real Windows. Per the plan's own Verification
+step 4, re-ran the install → running → uninstall cycle on siha with a binary cross-compiled
+from this branch's HEAD (`4bd91df`, `-X main.Version=audit-rerun-4bd91df`) to close that gap.
+
+Baseline: fresh `snapshot.ps1` T0a/T0b ~5min apart (zero filesystem delta between them),
+cross-checked against the *previous* session's T2 — also zero delta across a 41-minute gap,
+confirming nothing from the first session left a slow-acting trace.
+
+Evidence, in sequence:
+
+1. **H4 (`--config` reaches the service, secrets rejected):** `install --config ... --start-type
+   manual` printed `warn: rejected secret-like keys from --config ...: [CNES_DB_PASSWORD]` and
+   exited 0. `Get-ItemProperty HKLM:\...\Services\CnesDumpAgent -Name Environment` showed all
+   10 non-secret keys present, `CNES_DB_PASSWORD` absent.
+2. **H5 (ProgramData state root):** after `Start-Service`, `C:\ProgramData\CnesAgent` existed;
+   both `%LOCALAPPDATA%` variants (interactive admin and `systemprofile`) did not.
+3. **H1 (stop-before-delete, Case A — the defect that motivated this fix):** ran `uninstall`
+   while the service was `Running`. Exit 0, `uninstalled service=CnesDumpAgent`. A **fresh**
+   PowerShell invocation (not the same session) confirmed `Test-Path HKLM:\SYSTEM\
+   CurrentControlSet\Services\CnesDumpAgent` → `False` — no reboot needed, no deletion-pending
+   residue. `Get-Service CnesDumpAgent` errored (service truly gone). The eventlog source
+   registry entry was removed (`False`), while a historical Application-log entry from this
+   same run remained readable — correct: source *registration* is cleaned up, log *entries*
+   are not, by design. State root `C:\ProgramData\CnesAgent` survived (state-preserving
+   default, per H3).
+4. **H2 (idempotency, Case B):** ran `uninstall` again immediately. Exit 0,
+   `uninstall: service=CnesDumpAgent already absent (ok)`.
+5. **H3 (`--purge`):** ran `uninstall --purge` against the already-absent service. Exit 0,
+   `purged state dir=C:\ProgramData\CnesAgent`; `Test-Path` on that dir then returned `False`.
+6. Removed `C:\Program Files\CnesAgent` and the `C:\CnesDataTest\` GDB copy scratch root.
+   Re-confirmed original `CNES.GDB`: `702947328` bytes, `18/09/2026 16:08:04` — byte-for-byte
+   and mtime-identical to the pre-audit baseline. Firebird services unchanged
+   (`FirebirdServerDefaultInstance`/`FirebirdGuardianDefaultInstance` Stopped/Manual,
+   `FirebirdServerFB50` Stopped/Disabled).
+7. Final `snapshot.ps1` (T2) diffed against T0a: **zero delta** across every tracked surface
+   (filesystem, services, scheduled tasks, local users, firewall rules, all registry subkey
+   sets including `Services`, `Uninstall` x2, `EventLog\Application` sources, `Run`/`RunOnce`).
+
+Conclusion: H1, H2, H3, H4, H5 and H7 are now field-verified on real Windows against this
+branch's HEAD, not just unit-tested against a fake SCM. No new findings surfaced during the
+re-run. The e2e upload leg (control-plane mint vs. actual object landing in the bucket) was
+intentionally **not** re-exercised on this pass — it's orthogonal to the install/uninstall
+defects this re-run targets, and the placeholder-mint mystery documented above remains open
+and unrelated to this verification.
