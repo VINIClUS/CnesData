@@ -22,6 +22,7 @@
 | Edge agent zero-trust | Ativo | `dumpagent register`, mTLS default, `/provision/cert/rotate`, DPAPI secrets |
 | Edge agent resiliência | Ativo | bbolt outbox, circuit breaker, jittered backoff, `dumpagent diagnose` |
 | Delta + integridade | Ativo | `_op` delta Parquet, `delta.db`, SHA-256 em `landing.extractions.sha256`, HMAC audit JSONL |
+| Distribuição do edge agent (GitHub Releases + R2) | Ativo | `.github/workflows/dump-agent-go-release.yml`, `docs/contracts/dumpagent-update-manifest.schema.json`, `docs/runbooks/dumpagent-release.md` |
 
 ## Next (planejado, sem código ainda)
 
@@ -37,6 +38,7 @@
 | Perfil de produção AWS (EPIC #94) | Média | Step Functions/ECS Fargate/DynamoDB/Cognito; gate AWS-010…014 sem código, atrás de CND-064; planos em docs/superpowers/plans/2026-08-31-cnesdata-production-*.md |
 | PII em logs (CPF/nome/PIS em WARNING) | Média | `transformer.py`, `hr_client.py`, `hr_pre_processor.py` logam CPF/nome/PIS crus — mascarar antes de logar |
 | BPA produção: nullability real não introspectada | Baixa | fixture sintética relaxa 6 colunas; rodar `RDB$RELATION_FIELDS` contra `BPAMAG.GDB` real e capturar em `docs/data-dictionary-bpa.md` |
+| Update check + self-update no edge agent | Média | Contrato de manifesto já publicado (distribuição acima); falta `internal/updater` no dumpagent, fix do bug `AGENT_VERSION` sempre `dev` (`internal/apiclient/adapter.go`), e assinatura de código para AV estrito |
 | Rebase de `.worktrees/*` na reestruturação de context routing (2026-09-19) | Alta | 4 worktrees (`cnd-050-normalize-cnes-local`, `cnd-052-reconcile-cnes`, `marketing-public-pages`, `minio-quay-digest`) ainda servem o `CLAUDE.md` raiz pré-reestruturação (335 L) até serem rebaseados no commit desta mudança |
 
 ## Later (conceitual)

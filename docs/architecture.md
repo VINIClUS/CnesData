@@ -278,6 +278,16 @@ Edge (on-prem, ambos os perfis): `dump_agent_go` como Windows Service
 (municípios) ou systemd (servidores Linux) — não muda com o perfil de
 produção central.
 
+Distribuição do binário do edge agent é independente dos dois perfis acima: GitHub
+Releases é o registro canônico de versões (tag `dumpagent-go-v*`, notas, checksums) e
+Cloudflare R2 (`releases.cnesdata.vinisantana.com`, leitura pública) é a camada primária
+de download, com o GitHub Release como fallback. Workflow
+`.github/workflows/dump-agent-go-release.yml`; contrato do manifesto de update em
+`docs/contracts/dumpagent-update-manifest.schema.json`; corte de release, canais
+(`stable`/`rc`) e rollback em `docs/runbooks/dumpagent-release.md`. O cliente de update
+check / self-update no agente ainda não existe — hoje a instalação/atualização é manual
+(`docs/runbooks/dumpagent-install-windows.md`).
+
 Dockerfiles existem em cada `apps/*/Dockerfile`. `charts/web-dashboard/` é um
 Helm chart legado do frontend, não usado pelo caminho de deploy ativo.
 

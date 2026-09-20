@@ -148,6 +148,16 @@ Integration test labels in GitHub:
 | `run-windows-integration` | Runs Windows Firebird integration |
 | `run-integration` | Runs Linux SIA integration |
 
+Release workflow (`.github/workflows/dump-agent-go-release.yml`): cut a release, dry-run,
+channels, rollback documented in `docs/runbooks/dumpagent-release.md`. Lint the workflow
+locally before pushing (no dedicated CI job for this — 14 other workflows already lint
+each other's blast radius):
+
+```bash
+go install github.com/rhysd/actionlint/cmd/actionlint@latest
+actionlint .github/workflows/dump-agent-go-release.yml .github/workflows/dump-agent-go.yml
+```
+
 ## Web Dashboard
 
 ```bash

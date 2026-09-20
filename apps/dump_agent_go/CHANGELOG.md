@@ -4,6 +4,11 @@ Histórico de fases da migração Python → Go e evoluções pós-cutover. Não
 autoritativo para o estado atual — isso vive em `CLAUDE.md`. Não carregado
 automaticamente pelo agente.
 
+Notas de release a partir de `dumpagent-go-v0.1.0` são geradas automaticamente
+por `gh release create --generate-notes` a partir dos títulos de PR (ver
+`docs/runbooks/dumpagent-release.md`). Este arquivo continua sendo a narrativa
+histórica manual, não o changelog de release.
+
 ## BPA + SIA extractors (T9/T10, 2026-04-23)
 
 - `internal/extractor/bpa.go` — FB 1.5 via nakagami/firebirdsql. Reads BPA_C_LINHAS + BPA_I_LINHAS. GDB path via `--bpa-gdb` or `BPA_GDB_PATH`. Windows x86 FB 1.5 server required at runtime.

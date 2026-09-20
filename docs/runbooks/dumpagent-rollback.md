@@ -1,5 +1,11 @@
 # dumpagent Rollback — Go → Python
 
+> Se o problema é uma versão ruim do binário Go (não uma falha estrutural do runtime Go
+> em si), o rollback mais rápido é reescrever o manifesto de update para a versão
+> anterior — sem rebuild, propaga em até 60s. Ver "Rollback — kill switch operacional"
+> em `dumpagent-release.md`. Este runbook cobre o caso mais grave: downgrade completo
+> para o agente Python.
+
 ## Quando executar
 
 - Taxa de `FailJob(retryable=false)` Go > 20% em janela 1h após cutover
