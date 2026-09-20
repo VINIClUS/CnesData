@@ -104,16 +104,19 @@ every develop commit gets its own verify-production.yml run Task 2 can look up b
 **Interfaces:**
 - Required jobs: CND/AWS, dashboard, API image, processor image, OCI/SBOM/scan, OpenTofu/policy/cost
   and manifest/secret scan.
-- Triggers: pull_request (both directions, no secrets/id-token/packages-write), push on develop and
-  workflow_dispatch (produces the SHA-keyed run Task 2 requires).
-- Root permissions contents:read; no self-hosted runner or credential on any trigger.
+- Triggers: pull_request and workflow_dispatch, plus push on develop with no path filter (produces
+  the SHA-keyed run Task 2 requires).
+- "Credential-free" applies to pull_request only: hosted runner, no self-hosted runner, no secrets,
+  no id-token, no packages-write, root permissions contents:read. The push-on-develop trigger is the
+  one exception: it adds packages:write scoped only to the OCI job, only to push, so this workflow
+  can push the image it already built -- no other trigger and no other job gains a credential.
 - Build once, promote by digest: the image bytes Task 2 promotes to a candidate must be the exact
-  bytes this workflow built and scanned for that SHA, not a fresh build. A PR-triggered run builds
-  without push (no packages-write available); a push-on-develop run builds the identical image and
-  pushes it to GHCR keyed by digest under packages:write scoped to this job only. Task 2 must never
-  invoke docker build again for a SHA this workflow already built -- a second build against a
-  mutable base tag (python:3.13-slim) or apt-get update/upgrade can silently produce different bytes
-  than the ones SBOM'd and scanned, making the scan evidence describe an image nobody ships.
+  bytes this workflow built and scanned for that SHA, not a fresh build. On pull_request there is no
+  packages-write, so the OCI job builds without pushing. On push to develop the same job builds the
+  identical image and pushes it to GHCR keyed by digest. Task 2 must never invoke docker build again
+  for a SHA this workflow already built on push -- a second build against a mutable base tag
+  (python:3.13-slim) or apt-get update/upgrade can silently produce different bytes than the ones
+  SBOM'd and scanned, making the scan evidence describe an image nobody ships.
 
 - [ ] **Step 1: Write workflow contract tests**
 
@@ -147,27 +150,19 @@ tofu/provider lock, OPA cost/secret/ownership.
 
 ### Task 2: Define the Candidate Release Manifest
 
-The repository's required-checks-long-lived ruleset (github.com repo settings, not a workflow file)
-enforces only lint-test-coverage, sonar, dependencies, config and the four image jobs. It does not
-and cannot include verify-production.yml (Task 1) automatically -- that workflow is not part of the
-default branch protection contract and a ruleset can only be widened by an out-of-band repo-admin
-action, not by adding a workflow file. "Verify required checks" must therefore name
-verify-production.yml explicitly as a second, separate check this workflow queries by API for the
-exact source SHA; relying on the ruleset alone lets a candidate publish while
-OpenTofu/OPA/production image gates failed or never ran for that commit.
+Two of develop's existing required checks are not reliably keyed to an arbitrary develop merge
+SHA: sonar.yml push-triggers only on main (develop is a SonarCloud short branch), and ci.yml's push
+trigger is path-filtered, so a merge touching only infra/ produces no lint-test-coverage run. Rather
+than special-case each check's trigger shape, candidate verification uses two rules:
 
-sonar.yml push-triggers only on main, by design (its own comment: develop is a SonarCloud "short"
-branch with no computed quality gate, so a push-triggered run on develop would fail with "Not
-authorized or project not found"). It never produces a run keyed to a develop merge commit's exact
-SHA, so the Checks API cannot return a green sonar check for that SHA no matter how long the builder
-waits. Candidate verification must therefore split the required-checks-long-lived set: it polls the
-Checks API for lint-test-coverage, dependencies, config and image x4 against the exact candidate SHA
-(all push-trigger on develop and do key to that SHA -- trivy.yml unconditionally, ci.yml when the
-merge touches its path filters), and separately confirms sonar by looking up the merged pull
-request for that commit (GitHub's "list pull requests associated with a commit" API) and requiring
-its sonar check to have been green on the PR head/merge SHA before merge. This is a documented
-design assumption, not a workaround: it trusts branch-protection to have already blocked the merge
-of a red-sonar PR, rather than re-deriving sonar's result for a SHA sonar was never going to check.
+1. Exact-SHA gate: verify-production.yml (Task 1) alone, via the Checks API for the candidate SHA.
+   It is this plan's own workflow, push-triggers on develop with no path filter, and is the only
+   check guaranteed to have run against that exact commit.
+2. Pre-existing required-checks-long-lived set (lint-test-coverage, sonar, dependencies, config,
+   image x4): looked up via the commit's associated merged pull request (GitHub "list pull requests
+   associated with a commit" API), requiring each to have been green on that PR before merge. Branch
+   protection already enforced this at merge time; the candidate builder is reading that evidence,
+   not re-deriving it against a SHA some of these checks were never going to run against.
 
 **Branch:** feat/prod-delivery-002-candidate-manifest
 
@@ -182,11 +177,9 @@ of a red-sonar PR, rather than re-deriving sonar's result for a SHA sonar was ne
 - Candidate records source SHA/run IDs, release ID, API GHCR digest, processor GHCR digest+expected
   ECR repo, dashboard checksum, Compose/config checksum, OpenTofu/provider lock and SBOM checksums.
 - No task-definition ARN or promoted ECR digest.
-- Candidate build queries the GitHub Checks API for the exact source SHA and requires
-  lint-test-coverage, dependencies, config, image x4 and a successful verify-production.yml run to
-  be present and green for that SHA; missing or non-green on any fails the build before any GHCR
-  push. sonar is verified separately, against the merged PR's head/merge SHA (see above), because
-  sonar.yml never runs against a develop merge commit.
+- Candidate build requires a green verify-production.yml run for the exact source SHA (Checks
+  API) and a green required-checks-long-lived set on that SHA's merged pull request (Pulls API, see
+  above); missing or non-green on either fails the build before any GHCR push.
 
 - [ ] **Step 1: Write schema and forbidden-field tests**
 
@@ -200,11 +193,12 @@ run/SHA.
 
 - [ ] **Step 3: Implement candidate workflow**
 
-Trigger manually from a green develop commit contained in develop; verify both the ruleset's
-required checks and a successful verify-production.yml run for that exact SHA via the Checks API;
-read the API+processor GHCR digest verify-production.yml already pushed for that SHA (Task 1) and
-record it in the manifest -- do not invoke docker build again, the manifest's digest must name the
-exact bytes Task 1 scanned. upload bounded artifact. packages:write only for its own images.
+Trigger manually from a green develop commit contained in develop; verify a successful
+verify-production.yml run for that exact SHA (Checks API) and the required-checks-long-lived set on
+its merged PR (Pulls API); read the API+processor GHCR digest verify-production.yml already pushed
+for that SHA (Task 1) and record it in the manifest -- do not invoke docker build again, the
+manifest's digest must name the exact bytes Task 1 scanned. Upload bounded artifact. No
+packages-write: this workflow only reads and records a digest Task 1 already pushed.
 
 - [ ] **Step 4: Run tests/actionlint and commit**
 
