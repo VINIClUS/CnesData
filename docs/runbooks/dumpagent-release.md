@@ -115,8 +115,12 @@ Não requer rebuild. Reescrever o manifesto do canal para apontar para a versão
 ```bash
 BUCKET=cnesdata-releases
 ENDPOINT=https://<account>.r2.cloudflarestorage.com
+# --metadata-directive REPLACE is required: aws s3 cp defaults to COPY for an
+# S3-to-S3 copy, which would silently keep the source's 1-year immutable
+# header and defeat the 60s propagation this rollback depends on.
 aws s3 cp "s3://$BUCKET/dumpagent/v0.1.0/release.json" \
   "s3://$BUCKET/dumpagent/stable/latest.json" \
+  --metadata-directive REPLACE \
   --cache-control 'public, max-age=60, must-revalidate' \
   --content-type application/json \
   --endpoint-url "$ENDPOINT"
