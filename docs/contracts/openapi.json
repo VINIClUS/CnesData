@@ -624,6 +624,29 @@
         "title": "LeadReceived",
         "type": "object"
       },
+      "LoginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
       "MeResponse": {
         "properties": {
           "display_name": {
@@ -729,6 +752,35 @@
           "estabs_sem_producao_anterior"
         ],
         "title": "OverviewResponse",
+        "type": "object"
+      },
+      "PrincipalResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "tenant_id",
+          "role"
+        ],
+        "title": "PrincipalResponse",
         "type": "object"
       },
       "ProvisionCertRequest": {
@@ -1475,6 +1527,82 @@
         ]
       }
     },
+    "/api/v1/auth/local/login": {
+      "post": {
+        "operationId": "login_api_v1_auth_local_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrincipalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth-local"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout_api_v1_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth-local"
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrincipalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "auth-local"
+        ]
+      }
+    },
     "/api/v1/dashboard/access-requests": {
       "post": {
         "operationId": "create_request_api_v1_dashboard_access_requests_post",
@@ -1714,6 +1842,56 @@
         "summary": "Get Overview",
         "tags": [
           "overview"
+        ]
+      }
+    },
+    "/api/v1/dashboard/serving/{dataset_name}/{document_name}": {
+      "get": {
+        "description": "Transmite o documento serving concedido, sem fallback e sem URL assinada.",
+        "operationId": "read_serving_document_api_v1_dashboard_serving__dataset_name___document_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_name",
+            "required": true,
+            "schema": {
+              "title": "Dataset Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_name",
+            "required": true,
+            "schema": {
+              "title": "Document Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Serving Document",
+        "tags": [
+          "dashboard-serving"
         ]
       }
     },

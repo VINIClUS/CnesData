@@ -21,9 +21,14 @@ from cnes_infra.storage.rls import install_rls_listener
 from cnes_infra.telemetry import instrument_engine
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Iterator
+    from collections.abc import AsyncGenerator, Callable, Iterator
 
     from sqlalchemy.engine import Connection, Engine
+
+    from central_api.composition import LocalRuntime
+    from central_api.routes.serving import ServingPrincipal
+    from cnes_domain.profiles import ProfileSettings
+    from cnes_infra.auth.local_auth import LocalAuthService
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +155,7 @@ def _build_local_state(app: object) -> None:
         _utc_now,
     )
     _install_edge_overrides(app)
+    _install_local_auth_and_serving(app, runtime, settings)
     logger.info(
         "local_profile_composed tenant_id=%s data_dir=%s",
         settings.tenant_id,
@@ -167,6 +173,51 @@ def _install_edge_overrides(app: object) -> None:
     app.dependency_overrides[get_control_plane] = lambda: app.state.control_plane
     app.dependency_overrides[get_raw_upload_service] = lambda: app.state.raw_upload
     app.dependency_overrides[get_raw_ingestion_service] = lambda: app.state.raw_ingestion
+
+
+def _serving_principal_resolver(
+    auth_service: LocalAuthService,
+) -> Callable[[Request], ServingPrincipal]:
+    from central_api.routes.local_auth import SESSION_COOKIE_NAME
+    from central_api.routes.serving import ServingPrincipal
+    from cnes_infra.auth.local_auth import AuthenticationRejected
+
+    def _resolve(request: Request) -> ServingPrincipal:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        if token is None:
+            raise HTTPException(status_code=401, detail="session_required")
+        try:
+            principal = auth_service.resolve_session(token)
+        except AuthenticationRejected as error:
+            raise HTTPException(status_code=401, detail="session_invalid") from error
+        return ServingPrincipal(tenant_id=principal.tenant_id, user_id=principal.user_id)
+
+    return _resolve
+
+
+def _install_local_auth_and_serving(
+    app: object, runtime: LocalRuntime, settings: ProfileSettings
+) -> None:
+    from central_api.routes import local_auth, serving
+    from central_api.services.serving_access import LocalServingAccess
+    from cnes_infra.auth.local_auth import LocalAuthDependencies, LocalAuthService
+    from cnes_infra.auth.local_credentials import LocalCredentialStore
+
+    state_db = settings.data_dir / "state" / "cnesdata.sqlite3"
+    credentials = LocalCredentialStore(state_db)
+    credentials.initialize()
+    auth_service = LocalAuthService(
+        LocalAuthDependencies(credentials, runtime.control_plane, settings), _utc_now
+    )
+    serving_access = LocalServingAccess(runtime.control_plane, runtime.object_store)
+    app.state.local_auth_service = auth_service
+    app.state.serving_access = serving_access
+    app.dependency_overrides[local_auth.get_local_auth_service] = lambda: auth_service
+    app.dependency_overrides[serving.get_serving_access] = lambda: serving_access
+    app.dependency_overrides[serving.get_serving_object_store] = lambda: runtime.object_store
+    app.dependency_overrides[serving.get_serving_principal] = _serving_principal_resolver(
+        auth_service
+    )
 
 
 @asynccontextmanager
