@@ -515,18 +515,36 @@ liveness proof adapter result; never time alone.
 
 - [ ] **Step 5: Wire the permit into both dispatch call sites**
 
-In run_planning.py and coordinator.py, acquire the unit permit immediately before executor.start()
-inside _dispatch_protocol and bind it to the execution reference on success; release only on a
-provably failed dispatch attempt, never on an ambiguous one. A timeout or connection error from
-executor.start() does not prove the StartExecution call was not accepted server-side; releasing the
-permit on an ambiguous error can let a second run acquire it and start concurrently, violating the
-one-execution invariant. On an ambiguous error, derive the deterministic execution reference (Step
-Functions StartExecution accepts a client-supplied idempotency name) and probe for its existence
-before releasing; release only after proving no execution exists. Write a test per call site proving
-a closed fence or held permit blocks executor.start() from being called at all (no Step Functions
-call on rejection), and a separate test proving an ambiguous-error path probes before releasing.
+In run_planning.py and coordinator.py, acquire the unit permit and persist the deterministic
+execution reference (the client-supplied StartExecution idempotency name) into the permit record
+itself, before calling executor.start() -- not only after a successful bind. The process can die
+between StartExecution being accepted and BindUnitPermit running; if the deterministic reference
+lives only in local memory at that point, the crash loses it and the next recovery attempt finds a
+held-but-unbound permit with no way to tell whether it belongs to a real in-flight execution or an
+orphan. With the reference persisted at acquisition, recovery can always reconcile: probe Step
+Functions by that name and bind if found, or release if not, regardless of when the process died.
+Release the dispatch-time record only on a provably failed dispatch attempt, never on an ambiguous
+one -- a timeout or connection error from executor.start() does not prove StartExecution was not
+accepted server-side; on an ambiguous error, probe by the persisted deterministic reference before
+releasing. Write a test per call site proving a closed fence or held permit blocks executor.start()
+from being called at all (no Step Functions call on rejection), and a separate test proving an
+ambiguous-error path probes before releasing.
 
-- [ ] **Step 6: Release the permit on every terminal transition, not only settlement**
+- [ ] **Step 6: Reconcile held-but-unbound permits at acquisition, not only on dispatch**
+
+TTL is explicitly non-authoritative, so a held-but-unbound permit must never simply be rejected --
+that would block all later starts and promotion drain indefinitely, since nothing else ever clears
+it, and recover() reaches this same acquire call through _dispatch_protocol (see this task's opening
+note), so a crash between StartExecution and BindUnitPermit is exactly what the next recover() call
+encounters. Before AcquireUnitPermit rejects on an already-held permit, check whether that permit
+carries a persisted deterministic execution reference (Step 5) with no bound execution: if so, probe
+Step Functions by that reference the same way Step 5's ambiguous-error path does, then bind on found
+or release on proven-absent, before falling back to the ordinary reject-on-held behavior. Write a
+test proving this reconciliation recovers a permit orphaned by a process death between
+StartExecution and BindUnitPermit, and a test proving a permit that is both held and bound (a
+genuinely live execution) is left untouched and still rejects a second acquire.
+
+- [ ] **Step 7: Release the permit on every terminal transition, not only settlement**
 
 In both _settle_started implementations, release the bound permit as soon as an execution's status
 transitions to succeeded, failed or cancelled. Then grep both modules for every function that can
@@ -538,7 +556,7 @@ a fixed list. Write a test per non-settlement terminal path proving the permit i
 next AcquireUnitPermit succeeds; an execution left running or in an unrecognized status must not
 release.
 
-- [ ] **Step 7: Run package 100% branch gates and commit**
+- [ ] **Step 8: Run package 100% branch gates and commit**
 
     uv run pytest packages/cnes_domain/tests/ports/test_environment_gate.py --cov --cov-branch
     uv run pytest -q packages/cnes_infra/tests/control_plane/test_environment_gate.py apps/central_api/tests apps/data_processor/tests

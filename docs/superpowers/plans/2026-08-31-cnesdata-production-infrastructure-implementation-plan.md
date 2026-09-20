@@ -546,17 +546,26 @@ of this task, not a follow-up.
 - Create: tests/production/infra/test_athena_observability_cost.py
 
 **Interfaces:**
-- Operator workgroup enforces 5 GB/query and monthly monitoring 100 GB.
+- Operator workgroup enforces 5 GB/query natively (bytes_scanned_cutoff_per_query); the 100 GB/month
+  aggregate is not natively enforceable by an Athena workgroup setting, so it is enforced by the
+  cutoff alarm's action, not by monitoring alone -- an alarm without an action only notifies while
+  queries keep running past the promised boundary.
+- Athena cutoff alarm action disables new query execution: on breach it invokes the automation role
+  to set the workgroup's state to DISABLED (Athena StartQueryExecution rejects on a disabled
+  workgroup); re-enabling is a manual operator action once next month's period resets the metric.
 - Alarms cover API/tunnel reference, DynamoDB, Step Functions, ECS, S3 denial, audit backlog, Athena
   cutoff, 100 task-hours and 200 attempts.
-- Product outputs exact automation role ARNs eligible for shared freeze policy.
+- Product outputs exact automation role ARNs eligible for shared freeze policy and for the Athena
+  cutoff alarm action.
 - module "athena" and module "observability" are instantiated exactly once at root; a tofu plan
   test confirms both are actually scheduled for creation, not just that the module source compiles.
 
 - [ ] **Step 1: Write Athena non-API and cutoff tests**
 
-No API task role action. Workgroup enforce_work_group_configuration=true, bytes cutoff and private
-result location/lifecycle.
+No API task role action. Workgroup enforce_work_group_configuration=true, per-query bytes cutoff and
+private result location/lifecycle. A test proving the monthly cutoff alarm's action sets the
+workgroup to DISABLED, not only that the alarm exists -- an alarm with no disabling action does not
+satisfy the 100 GB/month cutoff promise.
 
 - [ ] **Step 2: Write cost manifest and forbidden-resource policy**
 
