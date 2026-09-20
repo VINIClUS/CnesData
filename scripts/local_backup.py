@@ -88,17 +88,6 @@ def _copy_tree(source: Path, destination: Path, *, skip_names: frozenset[str]) -
         shutil.copy2(item, target)
 
 
-def _move_tree(source: Path, destination: Path) -> None:
-    if not source.exists():
-        return
-    for item in sorted(source.rglob("*")):
-        if item.is_dir():
-            continue
-        target = destination / item.relative_to(source)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(item), str(target))
-
-
 def _read_single_tenant(database_path: Path) -> str:
     connection = sqlite3.connect(database_path)
     try:
@@ -155,12 +144,10 @@ def create_backup(state_db: Path, data_dir: Path, target: Path, now: datetime) -
 
 
 def _reject_if_nonempty(state_db: Path, data_dir: Path) -> None:
-    if state_db.exists():
+    if state_db.exists() or (data_dir.exists() and not data_dir.is_dir()):
         raise RestoreRejected("target_not_empty")
-    for subdir in ("objects", "audit"):
-        candidate = data_dir / subdir
-        if candidate.exists() and any(candidate.iterdir()):
-            raise RestoreRejected("target_not_empty")
+    if data_dir.exists() and any(data_dir.iterdir()):
+        raise RestoreRejected("target_not_empty")
 
 
 def _load_manifest(staging: Path) -> BackupManifest:
@@ -196,27 +183,39 @@ def _widen_permissions(root: Path) -> None:
     permissao 'other' e a unica garantia robusta de acesso cross-UID no profile local."""
     if not root.exists():
         return
-    for item in root.rglob("*"):
+    for item in (root, *root.rglob("*")):
         item.chmod(_RESTORED_DIR_MODE if item.is_dir() else _RESTORED_FILE_MODE)
 
 
-def _move_into_place(staging: Path, state_db: Path, data_dir: Path) -> None:
-    state_db.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(staging / _STATE_ARCNAME), str(state_db))
-    _move_tree(staging / "objects", data_dir / "objects")
-    _move_tree(staging / "audit", data_dir / "audit")
-    state_db.chmod(_RESTORED_FILE_MODE)
-    state_db.parent.chmod(_RESTORED_DIR_MODE)
-    _widen_permissions(data_dir / "objects")
-    _widen_permissions(data_dir / "audit")
+def _validate_state_db_path(state_db: Path, data_dir: Path) -> None:
+    if state_db != data_dir / _STATE_ARCNAME:
+        raise RestoreRejected("state_db_path_invalid")
+
+
+def _publish_restore_tree(staging: Path, data_dir: Path) -> None:
+    displaced = data_dir.parent / f".{data_dir.name}.{token_hex(8)}.old"
+    had_target = data_dir.exists()
+    if had_target:
+        os.replace(data_dir, displaced)
+    try:
+        os.replace(staging, data_dir)
+    except Exception:
+        if had_target:
+            os.replace(displaced, data_dir)
+        raise
+    if had_target:
+        displaced.rmdir()
+    _fsync_directory(data_dir.parent)
 
 
 def restore_backup(archive: Path, state_db: Path, data_dir: Path) -> None:
     """Args: archive, state_db, data_dir.
     Raises: RestoreRejected: alvo não vazio, hash divergente ou tenant divergente.
     """
+    _validate_state_db_path(state_db, data_dir)
     _reject_if_nonempty(state_db, data_dir)
-    staging = archive.parent / f".{archive.name}.{token_hex(8)}.restore"
+    data_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging = data_dir.parent / f".{data_dir.name}.{token_hex(8)}.restore"
     staging.mkdir(parents=True)
     try:
         with tarfile.open(archive, "r") as tar:
@@ -224,7 +223,9 @@ def restore_backup(archive: Path, state_db: Path, data_dir: Path) -> None:
         manifest = _load_manifest(staging)
         _verify_files(staging, manifest)
         _verify_tenant(staging, manifest)
-        _move_into_place(staging, state_db, data_dir)
+        (staging / _MANIFEST_NAME).unlink()
+        _widen_permissions(staging)
+        _publish_restore_tree(staging, data_dir)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 

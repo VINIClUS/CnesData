@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import os
 import sqlite3
 import tarfile
 from datetime import UTC, datetime
@@ -183,3 +184,42 @@ def test_restore_backup_recusa_tenant_divergente(tmp_path: Path) -> None:
         restore_backup(tampered, restore_state_db, restore_data_dir)
 
     assert not restore_state_db.exists()
+
+
+def test_restore_backup_falha_no_publish_sem_deixar_arvore_parcial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_db, data_dir = _prepared_dirs(tmp_path)
+    archive = tmp_path / "backup.tar"
+    create_backup(state_db, data_dir, archive, _NOW)
+    restore_data_dir = tmp_path / "restored"
+    restore_data_dir.mkdir()
+    restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
+    real_replace = os.replace
+    calls = 0
+
+    def fail_install(source: str, destination: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("disk_full")
+        real_replace(source, destination)
+
+    monkeypatch.setattr("scripts.local_backup.os.replace", fail_install)
+    with pytest.raises(OSError, match="disk_full"):
+        restore_backup(archive, restore_state_db, restore_data_dir)
+
+    assert list(restore_data_dir.iterdir()) == []
+
+
+def test_restore_backup_rejeita_state_db_fora_da_arvore(tmp_path: Path) -> None:
+    state_db, data_dir = _prepared_dirs(tmp_path)
+    archive = tmp_path / "backup.tar"
+    create_backup(state_db, data_dir, archive, _NOW)
+    restore_data_dir = tmp_path / "restored"
+    restore_state_db = tmp_path / "custom" / "state.sqlite3"
+
+    with pytest.raises(RestoreRejected, match="state_db_path_invalid"):
+        restore_backup(archive, restore_state_db, restore_data_dir)
+
+    assert not restore_data_dir.exists()
