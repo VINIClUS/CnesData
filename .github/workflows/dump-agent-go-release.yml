@@ -86,16 +86,22 @@ jobs:
           BUCKET: ${{ secrets.RELEASES_S3_BUCKET }}
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
-          set -uo pipefail
+          set -u
           key="dumpagent/${VERSION}/windows-amd64/dumpagent-${VERSION}-windows-amd64.zip"
           # HeadObject reports both a missing key and an auth/permission problem as a
           # generic error with no response body, so the exit code alone cannot tell
           # "safe to publish" apart from "R2 is unreachable/misconfigured". Fail closed:
           # only a confirmed 404/Not Found/NoSuchKey means the version is unpublished;
           # any other error (403, throttling, network) blocks the release.
+          # set +e is required, not just the absence of set -e: GitHub Actions' default
+          # bash step shell already runs with -e active before this script starts, so
+          # a failing command inside the $(...) substitution would otherwise abort the
+          # step immediately -- including on the expected 404 -- before head_status is
+          # ever captured.
+          set +e
           stderr=$(aws s3api head-object --bucket "$BUCKET" --key "$key" 2>&1 >/dev/null)
           head_status=$?
-          set -e
+          set -eo pipefail
           if [ "$head_status" -eq 0 ]; then
             echo "version_already_published value=$VERSION" >&2
             exit 1
@@ -356,7 +362,7 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
           CHANNEL: ${{ needs.resolve.outputs.channel }}
         run: |
-          set -uo pipefail
+          set -u
           current_json=$(mktemp)
           current_version=""
           # Same fail-closed rule as preflight's HeadObject check: a missing channel
@@ -364,10 +370,14 @@ jobs:
           # treat as "no current version". Any other read failure (403, throttling,
           # network) must block promotion instead of silently skipping the guard it
           # exists to enforce.
+          # set +e is required (see preflight): the default step shell already runs
+          # with -e, so the substitution below would otherwise abort the step on the
+          # expected first-release 404 before cp_status is ever captured.
+          set +e
           cp_stderr=$(aws s3 cp "s3://${BUCKET}/dumpagent/${CHANNEL}/latest.json" \
             "$current_json" 2>&1 >/dev/null)
           cp_status=$?
-          set -e
+          set -eo pipefail
           if [ "$cp_status" -eq 0 ]; then
             current_version=$(jq -r '.version // empty' "$current_json")
           elif ! echo "$cp_stderr" | grep -qE '\(404\)|Not Found|NoSuchKey'; then
