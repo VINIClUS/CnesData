@@ -83,10 +83,23 @@ jobs:
           BUCKET: ${{ secrets.RELEASES_S3_BUCKET }}
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           key="dumpagent/${VERSION}/windows-amd64/dumpagent-${VERSION}-windows-amd64.zip"
-          if aws s3api head-object --bucket "$BUCKET" --key "$key" >/dev/null 2>&1; then
+          # HeadObject reports both a missing key and an auth/permission problem as a
+          # generic error with no response body, so the exit code alone cannot tell
+          # "safe to publish" apart from "R2 is unreachable/misconfigured". Fail closed:
+          # only a confirmed 404/Not Found/NoSuchKey means the version is unpublished;
+          # any other error (403, throttling, network) blocks the release.
+          stderr=$(aws s3api head-object --bucket "$BUCKET" --key "$key" 2>&1 >/dev/null)
+          head_status=$?
+          set -e
+          if [ "$head_status" -eq 0 ]; then
             echo "version_already_published value=$VERSION" >&2
+            exit 1
+          fi
+          if ! echo "$stderr" | grep -qE '\(404\)|Not Found|NoSuchKey'; then
+            echo "preflight_head_object_error value=$VERSION status=$head_status" >&2
+            echo "$stderr" >&2
             exit 1
           fi
 
