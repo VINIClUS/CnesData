@@ -291,6 +291,13 @@ authorization logic.
 
 ### Task 4: Move Activation and Install Exact FastAPI CORS
 
+On the inspected baseline, oauth.router also serves /oauth/device_authorization and /oauth/token
+(RFC 8628 device flow) from the same APIRouter as /activate/confirm, mounted with no prefix. The Go
+edge agent hardcodes both device-flow paths at root (dumpagent register), so a naive prefix change
+on the whole router would move them under /api/v1 too and break agent registration. Split
+/activate/confirm into its own router, or mount oauth.router twice with route-level excludes; the
+two device-flow paths must stay exactly where they are.
+
 **Branch:** feat/prod-004-api-cors
 
 **Files:**
@@ -299,16 +306,21 @@ authorization logic.
 - Modify: apps/central_api/tests/test_oauth_activate_confirm.py
 - Create: apps/central_api/tests/test_production_cors.py
 - Modify: apps/central_api/tests/test_app.py
+- Create/Modify: a Go registration test asserting /oauth/device_authorization and /oauth/token stay
+  root-level (apps/dump_agent_go/cmd/dumpagent/cmd_register_test.go already exercises these paths)
 
 **Interfaces:**
 - POST /api/v1/activate/confirm is the only activation route.
+- POST /oauth/device_authorization and POST /oauth/token remain root-level, unprefixed and
+  unchanged; only /activate/confirm moves.
 - CORS exact origin/method/header contract and allow_credentials=false applies only to the
   production AWS profile.
 
 - [ ] **Step 1: Write route absence/presence tests**
 
-Assert /activate/confirm not in OpenAPI, /api/v1/activate/confirm present and bearer+tenant
-authorization behavior unchanged.
+Assert /activate/confirm not in OpenAPI, /api/v1/activate/confirm present, bearer+tenant
+authorization behavior unchanged, and /oauth/device_authorization plus /oauth/token still resolve
+at root with no prefix.
 
 - [ ] **Step 2: Write complete preflight matrix**
 
@@ -317,8 +329,10 @@ another origin, PUT/PATCH/DELETE, cookie credentials, wildcard and any additiona
 
 - [ ] **Step 3: Implement versioned router mount**
 
-Keep route function/service unchanged; change only prefix ownership. Do not create a redirect
-compatibility route.
+Keep route function/service unchanged. Split /activate/confirm into its own router (or an
+equivalent route-level mount) so only that path gets the /api/v1 prefix; /oauth/device_authorization
+and /oauth/token keep mounting at root exactly as today. Do not create a redirect compatibility
+route.
 
 - [ ] **Step 4: Install CORSMiddleware as sole authority**
 
@@ -433,6 +447,13 @@ non-distributed and no service/desired count is introduced.
 
 ### Task 7: Add Typed Environment Fence and Semaphore Operations
 
+Both PipelineCoordinator.recover
+(apps/data_processor/src/data_processor/orchestration/coordinator.py) and RunPlanningService
+(apps/central_api/src/central_api/services/run_planning.py) reach executor.start() through their own
+_dispatch_protocol. Adding the permit type without wiring it into those two call sites means closing
+the promotion fence would not stop API or recovery starts, and the one-execution semaphore this task
+promises would not be enforced. This task must wire both call sites, not just add the primitive.
+
 **Branch:** feat/prod-007-environment-gate
 
 **Files:**
@@ -442,12 +463,21 @@ non-distributed and no service/desired count is introduced.
 - Modify: packages/cnes_domain/src/cnes_domain/ports/control_plane.py
 - Modify: packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py
 - Create: packages/cnes_infra/tests/control_plane/test_environment_gate.py
+- Modify: apps/central_api/src/central_api/services/run_planning.py (wire acquire/bind around
+  _dispatch_protocol)
+- Modify: apps/data_processor/src/data_processor/orchestration/coordinator.py (wire acquire/bind
+  around _dispatch_protocol)
+- Modify: apps/central_api/tests/services/test_run_planning.py
+- Modify: apps/data_processor/tests/test_coordinator.py (or the coordinator's current test module)
 
 **Interfaces:**
 - observe_environment_gate() is strongly consistent.
 - Typed commands: AcquireUnitPermit, BindUnitPermit, RenewUnitPermit, ReleaseUnitPermit,
   ClosePromotionFence and ReopenPromotionFence.
 - Fence and semaphore are separate items; acquire transaction requires open fence.
+- Both dispatch call sites (run_planning and coordinator) acquire a permit before executor.start()
+  and bind it to the returned execution reference immediately after; a closed fence or a held permit
+  rejects the dispatch before any Step Functions call.
 
 - [ ] **Step 1: Write pure transition tests**
 
@@ -468,11 +498,18 @@ No AWS imports in cnes_domain. Use aware UTC datetimes and explicit version/fenc
 Use consistent reads and TransactWriteItems conditions. Expired takeover requires a supplied
 liveness proof adapter result; never time alone.
 
-- [ ] **Step 5: Run package 100% branch gates and commit**
+- [ ] **Step 5: Wire the permit into both dispatch call sites**
+
+In run_planning.py and coordinator.py, acquire the unit permit immediately before executor.start()
+inside _dispatch_protocol and bind it to the execution reference on success; release on a rejected
+or failed dispatch. Write a test per call site proving a closed fence or held permit blocks
+executor.start() from being called at all (no Step Functions call on rejection).
+
+- [ ] **Step 6: Run package 100% branch gates and commit**
 
     uv run pytest packages/cnes_domain/tests/ports/test_environment_gate.py --cov --cov-branch
-    uv run pytest -q packages/cnes_infra/tests/control_plane/test_environment_gate.py
-    git add packages/cnes_domain packages/cnes_infra
+    uv run pytest -q packages/cnes_infra/tests/control_plane/test_environment_gate.py apps/central_api/tests apps/data_processor/tests
+    git add packages/cnes_domain packages/cnes_infra apps/central_api apps/data_processor
     git commit -m "feat(control-plane): add promotion fence and unit semaphore"
 
 ### Task 8: Add the Shared Monthly Execution-Attempt Counter
@@ -486,7 +523,8 @@ liveness proof adapter result; never time alone.
 - Modify: packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py
 - Create: packages/cnes_infra/tests/control_plane/test_execution_quota.py
 - Modify: apps/central_api/src/central_api/services/run_planning.py
-- Modify: apps/data_processor/src/data_processor/recovery.py
+- Modify: apps/data_processor/src/data_processor/orchestration/coordinator.py (recover path; the
+  plan-doc name recovery.py does not exist on develop)
 
 **Interfaces:**
 - consume_execution_attempt(environment, period, now, limit=200) atomically increments before each
@@ -516,6 +554,13 @@ UTC month key; atomic ADD/condition; no read-then-write race.
 
 ### Task 9: Extend Outbox Delivery with Cursor Paging
 
+pending_outbox(limit) lives on the shared ControlPlanePort and is implemented by both
+dynamodb_publication.py and sqlite_adapter.py; the SQLite adapter backs PROFILE=local and its
+replay/chaos integration suites. Replacing the port method without an equivalent SQLite
+implementation breaks the local profile the moment this port change merges, well before any AWS
+profile exists. sqlite_adapter.py must gain read_outbox_page/advance_outbox_cursor in the same
+task, not later.
+
 **Branch:** feat/prod-009-outbox-cursor
 
 **Files:**
@@ -523,24 +568,31 @@ UTC month key; atomic ADD/condition; no read-then-write race.
 - Modify: packages/cnes_domain/src/cnes_domain/outbox_dispatcher.py
 - Modify: packages/cnes_domain/tests/test_outbox_dispatcher.py
 - Modify: packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py
+- Modify: packages/cnes_infra/src/cnes_infra/control_plane/sqlite_adapter.py
+- Modify: packages/cnes_infra/tests/control_plane/test_sqlite_adapter.py
+- Modify: packages/cnes_infra/tests/contracts/control_plane_contract.py (shared cursor contract
+  exercised by both adapters)
 - Create: packages/cnes_infra/tests/control_plane/test_outbox_cursor.py
 
 **Interfaces:**
 - Replaces pending_outbox(limit) with read_outbox_page(cursor, limit) and
-  advance_outbox_cursor(expected, next).
+  advance_outbox_cursor(expected, next) on the shared port; both DynamoDB and SQLite adapters
+  implement it.
 - A pass advances after evaluating each page, wraps, and retries poison without starving later
-  pages.
-- Delivery marker changes only after S3 COMPLIANCE append succeeds.
+  pages, on either backend.
+- Delivery marker changes only after S3 COMPLIANCE append succeeds (DynamoDB/AWS profile) or after
+  the equivalent local audit sink append succeeds (SQLite/local profile).
 
 - [ ] **Step 1: Write 100-poison plus second-page test**
 
 First page remains pending/retrying; second page still delivers in the same/bounded subsequent pass;
-cursor wraps and replay is idempotent.
+cursor wraps and replay is idempotent. Run against both adapters via the shared contract suite.
 
 - [ ] **Step 2: Write CAS conflict and crash tests**
 
-Concurrent cursor advancement has one winner. Crash after S3 append/before marker replays the same
-object idempotently and then marks.
+Concurrent cursor advancement has one winner. Crash after append/before marker replays the same
+object idempotently and then marks. Cover both DynamoDB conditional writes and SQLite's transaction
+boundary.
 
 - [ ] **Step 3: Change the port and all fake implementations serially**
 
@@ -550,9 +602,15 @@ This is a shared interface hotspot; no parallel task edits control_plane.py.
 
 No Scan, DeleteItem or PutItem for the dispatch role path. Strongly revalidate each event.
 
-- [ ] **Step 5: Run full contract harness and commit**
+- [ ] **Step 5: Implement the SQLite cursor equivalent**
 
-    uv run pytest -q packages/cnes_domain/tests/test_outbox_dispatcher.py packages/cnes_infra/tests/control_plane/test_outbox_cursor.py packages/cnes_infra/tests/contracts
+Same read_outbox_page/advance_outbox_cursor contract, backed by SQLite's own transaction/CAS
+primitives instead of DynamoDB conditionals. The local profile must keep passing every outbox test
+that passed before this task.
+
+- [ ] **Step 6: Run full contract harness and commit**
+
+    uv run pytest -q packages/cnes_domain/tests/test_outbox_dispatcher.py packages/cnes_infra/tests/control_plane/test_outbox_cursor.py packages/cnes_infra/tests/control_plane/test_sqlite_adapter.py packages/cnes_infra/tests/contracts
     git add packages/cnes_domain packages/cnes_infra
     git commit -m "feat(audit): page outbox without poison starvation"
 
