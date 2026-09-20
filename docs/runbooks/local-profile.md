@@ -79,8 +79,8 @@ interrompido no meio deixa um diretório `.<token>.restore` dentro de
   (`RunPlanningService`), nunca executa units — quem executa é o
   `PipelineCoordinator` do `data_processor`. Não é um bug a corrigir.
 - **`restore_backup` alarga permissões para `0o666`/`0o777`
-  (`_widen_permissions`).** Necessário porque o restore pode rodar como
-  root do host contra o mountpoint do volume nomeado, enquanto o processo
-  do container roda como `app` — permissão `other` é a única garantia de
-  acesso cross-UID nesse cenário de operador único, sem outro principal na
-  máquina para proteger.
+  (`_widen_permissions`).** Defensivo: o fluxo documentado acima já roda
+  dentro do container, como `app`, e não depende disso. Mantido para
+  qualquer restore executado por um principal com UID diferente do `app`
+  — permissão `other` é a única garantia robusta de acesso cross-UID
+  nesse cenário.

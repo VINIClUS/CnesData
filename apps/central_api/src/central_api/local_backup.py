@@ -205,9 +205,10 @@ _RESTORED_DIR_MODE = 0o777
 
 
 def _widen_permissions(root: Path) -> None:
-    """Restore pode rodar como host root contra o mountpoint do named volume, e o
-    processo do container roda como `app`; permissao 'other' e a unica garantia
-    robusta de acesso cross-UID no profile local."""
+    """Defensivo: se o restore for executado por um principal com UID diferente
+    do `app` do container (o fluxo documentado roda dentro do container, como
+    `app`, e não precisa disto), permissao 'other' e a unica garantia robusta
+    de acesso cross-UID no profile local."""
     if not root.exists():
         return
     for item in (root, *root.rglob("*")):
