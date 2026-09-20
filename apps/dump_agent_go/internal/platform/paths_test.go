@@ -40,3 +40,23 @@ func TestResolveMachineID_PersistsGenerated(t *testing.T) {
 	_, err = os.Stat(filepath.Join(dir, "machine_id"))
 	require.NoError(t, err)
 }
+
+func TestWindowsAppDataDir_UsaProgramDataDoAmbiente(t *testing.T) {
+	got := platform.Export.WindowsAppDataDir(`D:\CustomProgramData`)
+	require.Equal(t, `D:\CustomProgramData\CnesAgent`, got)
+}
+
+func TestWindowsAppDataDir_FallbackQuandoProgramDataVazio(t *testing.T) {
+	got := platform.Export.WindowsAppDataDir("")
+	require.Equal(t, `C:\ProgramData\CnesAgent`, got)
+}
+
+// Regression for H5: an interactive admin session and the LocalSystem
+// service identity have different %LOCALAPPDATA% values but the SAME
+// %ProgramData% value — so both must resolve to the identical state root.
+func TestWindowsAppDataDir_IdenticoParaAdminInterativoELocalSystem(t *testing.T) {
+	const sharedProgramData = `C:\ProgramData`
+	adminSession := platform.Export.WindowsAppDataDir(sharedProgramData)
+	localSystemService := platform.Export.WindowsAppDataDir(sharedProgramData)
+	require.Equal(t, adminSession, localSystemService)
+}

@@ -14,13 +14,28 @@ type posixLock struct {
 	fd *os.File
 }
 
+// Release unlocks, closes, and best-effort unlinks the lock file. Removing
+// the path is safe here: flock is bound to the open file description, not
+// the directory entry, so deleting the name doesn't affect this (already
+// released) handle. Absence of the file (os.IsNotExist) is not an error —
+// idempotent Release matches the rest of this package's uninstall/cleanup
+// conventions. See H8 in docs/edge-agent-audit-2026-09-20.md — previously the
+// lock file survived every uninstall as unexplained residue.
 func (p *posixLock) Release() error {
-	err := unix.Flock(int(p.fd.Fd()), unix.LOCK_UN)
+	unlockErr := unix.Flock(int(p.fd.Fd()), unix.LOCK_UN)
+	path := p.fd.Name()
 	closeErr := p.fd.Close()
-	if err != nil {
-		return err
+	removeErr := os.Remove(path)
+	if unlockErr != nil {
+		return unlockErr
 	}
-	return closeErr
+	if closeErr != nil {
+		return closeErr
+	}
+	if removeErr != nil && !os.IsNotExist(removeErr) {
+		return removeErr
+	}
+	return nil
 }
 
 // AcquireSingleInstanceLock obtém flock exclusivo em dir/name.lock.

@@ -401,8 +401,18 @@ func buildAPIClient(machineID string, httpClient *http.Client) (*apiclient.Adapt
 
 func buildJobSource() (worker.JobSpecSource, error) {
 	fonte := envOr("FONTE_SISTEMA", "CNES_LOCAL")
-	tipo := envOr("TIPO_EXTRACAO", "estabelecimentos")
-	intent := envOr("INTENT", "estabelecimentos")
+	tipo := envOr("TIPO_EXTRACAO", "cnes_estabelecimentos")
+	// Default must match a key central_api's _FATO_SUBTYPE_FOR actually maps
+	// (apps/central_api/src/central_api/routes/jobs.py): "estabelecimentos"
+	// (unprefixed) 422s on every upload-url mint attempt. Confirmed
+	// empirically (H10, docs/edge-agent-audit-2026-09-20.md) — this was the
+	// out-of-the-box failure mode for a fresh install. Note: this is a
+	// SEPARATE vocabulary from outbox_adapter.go's validateRawScope, which
+	// expects the bare form ("profissionais") — that path is unreachable
+	// today (job.RawRequest is never assigned in production wiring), so the
+	// two don't collide yet, but whoever wires up the raw path needs to
+	// reconcile them.
+	intent := envOr("INTENT", "cnes_estabelecimentos")
 	compRaw := os.Getenv("COMPETENCIA_YYYYMM")
 	if compRaw == "" {
 		return nil, &stubErr{msg: "env_required var=COMPETENCIA_YYYYMM"}
