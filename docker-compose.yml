@@ -279,9 +279,12 @@ services:
     healthcheck:
       test: python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"
       interval: 15s
-      timeout: 5s
+      timeout: 15s
       retries: 5
-      start_period: 10s
+      # Cold-start do interpretador Python observado em até 16s sob carga/hardware
+      # modesto; data-processor-local bloqueia indefinidamente em service_healthy
+      # se o primeiro check falhar por timeout antes disso.
+      start_period: 60s
     profiles:
     - local
   data-processor-local:
