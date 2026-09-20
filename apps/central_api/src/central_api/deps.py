@@ -209,8 +209,7 @@ def _install_local_auth_and_serving(
     from cnes_infra.auth.local_auth import LocalAuthDependencies, LocalAuthService
     from cnes_infra.auth.local_credentials import LocalCredentialStore
 
-    state_db = settings.data_dir / "state" / "cnesdata.sqlite3"
-    credentials = LocalCredentialStore(state_db)
+    credentials = LocalCredentialStore(settings.state_db)
     credentials.initialize()
     auth_service = LocalAuthService(
         LocalAuthDependencies(credentials, runtime.control_plane, settings), _utc_now

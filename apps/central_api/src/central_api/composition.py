@@ -82,14 +82,12 @@ def build_local_runtime(settings: ProfileSettings, clock: Callable[[], datetime]
     if settings.profile is RuntimeProfile.AWS:
         raise ProfileNotImplemented("aws_runtime_plan_required")
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    state_dir = settings.data_dir / "state"
-    state_dir.mkdir(parents=True, exist_ok=True)
-    control_plane = SQLiteControlPlane(state_dir / "cnesdata.sqlite3", clock)
+    settings.state_db.parent.mkdir(parents=True, exist_ok=True)
+    control_plane = SQLiteControlPlane(settings.state_db, clock)
     control_plane.initialize()
     _seed_tenant(control_plane, settings, clock())
-    objects_root = settings.data_dir / "objects"
-    objects_root.mkdir(parents=True, exist_ok=True)
-    object_store = FilesystemObjectStore(objects_root)
+    settings.objects_dir.mkdir(parents=True, exist_ok=True)
+    object_store = FilesystemObjectStore(settings.objects_dir)
     audit_sink = LocalAuditSink(settings.data_dir)
     executor = LocalWorkerPool(
         handler=_unit_execution_forbidden, owner=_WORKER_OWNER, clock=clock,
