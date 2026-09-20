@@ -107,6 +107,13 @@ every develop commit gets its own verify-production.yml run Task 2 can look up b
 - Triggers: pull_request (both directions, no secrets/id-token/packages-write), push on develop and
   workflow_dispatch (produces the SHA-keyed run Task 2 requires).
 - Root permissions contents:read; no self-hosted runner or credential on any trigger.
+- Build once, promote by digest: the image bytes Task 2 promotes to a candidate must be the exact
+  bytes this workflow built and scanned for that SHA, not a fresh build. A PR-triggered run builds
+  without push (no packages-write available); a push-on-develop run builds the identical image and
+  pushes it to GHCR keyed by digest under packages:write scoped to this job only. Task 2 must never
+  invoke docker build again for a SHA this workflow already built -- a second build against a
+  mutable base tag (python:3.13-slim) or apt-get update/upgrade can silently produce different bytes
+  than the ones SBOM'd and scanned, making the scan evidence describe an image nobody ships.
 
 - [ ] **Step 1: Write workflow contract tests**
 
@@ -121,8 +128,10 @@ origin, tenant header scope and no relative /api.
 
 - [ ] **Step 3: Add OCI and OpenTofu gates**
 
-Build without push, generate SBOM/checksum, scan reviewed severity, validate Compose, tofu/provider
-lock, OPA cost/secret/ownership.
+On pull_request, build without push, generate SBOM/checksum, scan reviewed severity. On push to
+develop, build the same image and push it to GHCR keyed by digest (packages:write scoped to this
+job only) so Task 2 can promote it by digest instead of rebuilding. Both triggers validate Compose,
+tofu/provider lock, OPA cost/secret/ownership.
 
 - [ ] **Step 4: Run local equivalents and actionlint**
 
@@ -147,6 +156,19 @@ verify-production.yml explicitly as a second, separate check this workflow queri
 exact source SHA; relying on the ruleset alone lets a candidate publish while
 OpenTofu/OPA/production image gates failed or never ran for that commit.
 
+sonar.yml push-triggers only on main, by design (its own comment: develop is a SonarCloud "short"
+branch with no computed quality gate, so a push-triggered run on develop would fail with "Not
+authorized or project not found"). It never produces a run keyed to a develop merge commit's exact
+SHA, so the Checks API cannot return a green sonar check for that SHA no matter how long the builder
+waits. Candidate verification must therefore split the required-checks-long-lived set: it polls the
+Checks API for lint-test-coverage, dependencies, config and image x4 against the exact candidate SHA
+(all push-trigger on develop and do key to that SHA -- trivy.yml unconditionally, ci.yml when the
+merge touches its path filters), and separately confirms sonar by looking up the merged pull
+request for that commit (GitHub's "list pull requests associated with a commit" API) and requiring
+its sonar check to have been green on the PR head/merge SHA before merge. This is a documented
+design assumption, not a workaround: it trusts branch-protection to have already blocked the merge
+of a red-sonar PR, rather than re-deriving sonar's result for a SHA sonar was never going to check.
+
 **Branch:** feat/prod-delivery-002-candidate-manifest
 
 **Files:**
@@ -160,10 +182,11 @@ OpenTofu/OPA/production image gates failed or never ran for that commit.
 - Candidate records source SHA/run IDs, release ID, API GHCR digest, processor GHCR digest+expected
   ECR repo, dashboard checksum, Compose/config checksum, OpenTofu/provider lock and SBOM checksums.
 - No task-definition ARN or promoted ECR digest.
-- Candidate build queries the GitHub Checks API for the exact source SHA and requires both the
-  required-checks-long-lived set (lint-test-coverage, sonar, dependencies, config, image x4) and a
-  successful verify-production.yml run to be present and green; missing or non-green on either
-  fails the build before any GHCR push.
+- Candidate build queries the GitHub Checks API for the exact source SHA and requires
+  lint-test-coverage, dependencies, config, image x4 and a successful verify-production.yml run to
+  be present and green for that SHA; missing or non-green on any fails the build before any GHCR
+  push. sonar is verified separately, against the merged PR's head/merge SHA (see above), because
+  sonar.yml never runs against a develop merge commit.
 
 - [ ] **Step 1: Write schema and forbidden-field tests**
 
@@ -179,7 +202,9 @@ run/SHA.
 
 Trigger manually from a green develop commit contained in develop; verify both the ruleset's
 required checks and a successful verify-production.yml run for that exact SHA via the Checks API;
-build/push API+processor GHCR once; upload bounded artifact. packages:write only for its own images.
+read the API+processor GHCR digest verify-production.yml already pushed for that SHA (Task 1) and
+record it in the manifest -- do not invoke docker build again, the manifest's digest must name the
+exact bytes Task 1 scanned. upload bounded artifact. packages:write only for its own images.
 
 - [ ] **Step 4: Run tests/actionlint and commit**
 
@@ -649,7 +674,7 @@ API and one synthetic pointer/serving object without modifying production.
     uv run ruff check .
     uv run pytest -q tests/production
     uv run pytest -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only" -q
-    cd apps/web_dashboard && bun run lint && bun run typecheck && bun run test --run && bun run build
+    (cd apps/web_dashboard && bun run lint && bun run typecheck && bun run test --run && bun run build)
     tofu -chdir=infra/opentofu fmt -check -recursive
     tofu -chdir=infra/opentofu init -backend=false -input=false
     tofu -chdir=infra/opentofu validate -no-color

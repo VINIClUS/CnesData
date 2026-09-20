@@ -516,9 +516,15 @@ liveness proof adapter result; never time alone.
 - [ ] **Step 5: Wire the permit into both dispatch call sites**
 
 In run_planning.py and coordinator.py, acquire the unit permit immediately before executor.start()
-inside _dispatch_protocol and bind it to the execution reference on success; release on a rejected
-or failed dispatch attempt. Write a test per call site proving a closed fence or held permit blocks
-executor.start() from being called at all (no Step Functions call on rejection).
+inside _dispatch_protocol and bind it to the execution reference on success; release only on a
+provably failed dispatch attempt, never on an ambiguous one. A timeout or connection error from
+executor.start() does not prove the StartExecution call was not accepted server-side; releasing the
+permit on an ambiguous error can let a second run acquire it and start concurrently, violating the
+one-execution invariant. On an ambiguous error, derive the deterministic execution reference (Step
+Functions StartExecution accepts a client-supplied idempotency name) and probe for its existence
+before releasing; release only after proving no execution exists. Write a test per call site proving
+a closed fence or held permit blocks executor.start() from being called at all (no Step Functions
+call on rejection), and a separate test proving an ambiguous-error path probes before releasing.
 
 - [ ] **Step 6: Release the permit on every terminal transition, not only settlement**
 
@@ -784,7 +790,7 @@ permissions contents:read and no secrets/id-token.
     uv run ruff check .
     uv run pytest -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only" -q
     uv run pytest -q tests/production
-    cd apps/web_dashboard && bun run lint && bun run typecheck && bun run test --run && bun run build
+    (cd apps/web_dashboard && bun run lint && bun run typecheck && bun run test --run && bun run build)
     git diff --check
 
 - [ ] **Step 5: Commit**
