@@ -282,7 +282,7 @@ authorization logic.
 - [ ] **Step 4: Run Python/dashboard tests**
 
     uv run pytest -q packages/cnes_infra/tests/aws/test_settings.py
-    cd apps/web_dashboard && bun run test --run tests/unit/auth/oidc-production.test.ts
+    (cd apps/web_dashboard && bun run test --run tests/unit/auth/oidc-production.test.ts)
 
 - [ ] **Step 5: Commit**
 
@@ -402,7 +402,7 @@ contract.
 - [ ] **Step 5: Run backend/frontend/integration tests**
 
     uv run pytest -q apps/central_api/tests/serving apps/central_api/tests/routes/test_production_serving.py tests/integration/aws/test_signed_serving.py
-    cd apps/web_dashboard && bun run test --run tests/unit/api/hooks/useServingOverview.test.tsx
+    (cd apps/web_dashboard && bun run test --run tests/unit/api/hooks/useServingOverview.test.tsx)
 
 - [ ] **Step 6: Commit**
 
@@ -560,15 +560,19 @@ release.
   plan-doc name recovery.py does not exist on develop)
 
 **Interfaces:**
-- consume_execution_attempt(environment, period, now, limit=200) atomically increments before each
-  initial/recovery StartExecution.
+- consume_execution_attempt(environment, period, now, limit=200) atomically increments after Task
+  7's unit permit is acquired and before StartExecution, never before acquisition -- checking quota
+  first would spend a scarce monthly attempt on a request a closed fence or an already-held permit
+  was always going to reject.
 - Same monthly item/limit is used by both callers.
-- Quota rejection performs no Step Functions call and maps to the documented 429/quota result.
+- Quota rejection performs no Step Functions call, releases the just-acquired unit permit (Task 7)
+  so it does not sit occupied indefinitely, and maps to the documented 429/quota result.
 
 - [ ] **Step 1: Write boundary and race tests**
 
 199->200 succeeds; 200->201 rejects. Initial/recovery races total exactly 200. Failed StartExecution
-still counts as an attempt. TTL deletion is irrelevant.
+still counts as an attempt. TTL deletion is irrelevant. Add a test proving quota rejection releases
+the caller's unit permit (Task 7) instead of leaving it held.
 
 - [ ] **Step 2: Add service-level no-call tests**
 
@@ -577,7 +581,11 @@ decision path.
 
 - [ ] **Step 3: Implement conditional counter and wire both callers**
 
-UTC month key; atomic ADD/condition; no read-then-write race.
+UTC month key; atomic ADD/condition; no read-then-write race. In both run_planning.py and
+coordinator.py the call order is: acquire Task 7's unit permit, consume the monthly attempt, then
+StartExecution. If quota consumption rejects, release the permit before returning the 429/quota
+result -- the permit must never remain held after this function returns without a call to
+StartExecution having been attempted.
 
 - [ ] **Step 4: Run and commit**
 

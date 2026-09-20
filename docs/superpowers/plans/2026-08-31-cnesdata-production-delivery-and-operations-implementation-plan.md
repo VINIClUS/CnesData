@@ -670,8 +670,8 @@ API and one synthetic pointer/serving object without modifying production.
     uv run pytest -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only" -q
     (cd apps/web_dashboard && bun run lint && bun run typecheck && bun run test --run && bun run build)
     tofu -chdir=infra/opentofu fmt -check -recursive
-    tofu -chdir=infra/opentofu init -backend=false -input=false
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod init -backend=false -input=false
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     tofu -chdir=infra/opentofu test
     conftest test tests/fixtures/plans --policy policies
     actionlint .github/workflows

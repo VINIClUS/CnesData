@@ -87,14 +87,20 @@ the repo — this is greenfield, not an extension of existing IaC.
 **Branch:** feat/prod-infra-001-composition
 
 **Files:**
-- Create: infra/opentofu/versions.tf
-- Create: infra/opentofu/providers.tf
+- Create: infra/opentofu/env/prod/versions.tf
+- Create: infra/opentofu/env/prod/providers.tf
 - Create: infra/opentofu/env/prod/main.tf
 - Create: infra/opentofu/env/prod/variables.tf
 - Create: infra/opentofu/env/prod/outputs.tf
 - Create: infra/opentofu/env/prod/backend.hcl.example
 - Create: infra/opentofu/env/prod/shared-outputs.schema.json
 - Create: tests/production/infra/test_composition.py
+
+env/prod is the actual OpenTofu root: it holds the module calls, so the provider/version pins and
+backend config must live there too, not in the infra/opentofu parent directory -- OpenTofu only
+loads .tf files from the exact directory it is invoked against, and every init/validate in this plan
+targets env/prod (fmt -recursive is the only command that still runs from the infra/opentofu parent,
+to cover modules/ as well).
 
 **Interfaces:**
 - Inputs from shared: account_id, shared KMS ARN, Roles Anywhere API role/profile/trust-anchor/CRL
@@ -123,9 +129,9 @@ Project=cnesdata, Environment=prod, ManagedBy=opentofu, Owner=vinisantana.
 
 - [ ] **Step 5: Validate and commit**
 
-    tofu -chdir=infra/opentofu init -backend=false -input=false
+    tofu -chdir=infra/opentofu/env/prod init -backend=false -input=false
     tofu -chdir=infra/opentofu fmt -check -recursive
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     uv run pytest -q tests/production/infra/test_composition.py
     git add infra/opentofu tests/production/infra
     git commit -m "feat(infra): define cnesdata production ownership"
@@ -165,7 +171,7 @@ document the selected choice in the PR.
 - [ ] **Step 4: Validate and commit**
 
     uv run pytest -q tests/production/infra/test_control_plane.py packages/cnes_infra/tests/control_plane
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/control-plane infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(infra): provision bounded control plane"
 
@@ -207,7 +213,7 @@ Expose exact bucket/prefix ARNs needed by IAM, not broad bucket data sources.
 - [ ] **Step 5: Validate and commit**
 
     uv run pytest -q tests/production/infra/test_data_buckets.py
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/data-buckets infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(storage): add private data and locked audit buckets"
 
@@ -250,7 +256,7 @@ Compare outputs to AwsRuntimeSettings/dashboard public-env schema from the runti
 - [ ] **Step 5: Commit**
 
     uv run pytest -q tests/production/infra/test_cognito.py packages/cnes_infra/tests/aws/test_settings.py
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/cognito infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(auth): provision cnesdata cognito audience"
 
@@ -289,7 +295,7 @@ Retain current/prior units; expire unreferenced noncurrent only after rollback w
 
     node --test tests/production/infra/test_spa_rewrite.js
     uv run pytest -q tests/production/infra/test_static_web.py
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/static-web infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(web-infra): add private cnesdata distribution"
 
@@ -331,7 +337,7 @@ Plan output exact subnet/SG tuple must pass the runtime production-network test.
 - [ ] **Step 5: Commit**
 
     uv run pytest -q tests/production/infra/test_network.py packages/cnes_infra/tests/executor/test_production_network.py
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/network infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(network): add zero-ingress fargate egress"
 
@@ -371,7 +377,7 @@ revision; phase A outputs exact revision ARNs.
 - [ ] **Step 4: Validate and commit**
 
     uv run pytest -q tests/production/infra/test_ecr_ecs.py
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/processor-registry infra/opentofu/modules/processing infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(processing-infra): register immutable task families"
 
@@ -435,7 +441,7 @@ the module source compiles in isolation.
 - [ ] **Step 5: Run runtime validator against rendered ASL**
 
     uv run pytest -q tests/production/infra/test_step_functions_iam.py packages/cnes_infra/tests/executor
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
 
 - [ ] **Step 6: Commit**
 
@@ -475,7 +481,7 @@ Failed/missed/timed-out invocation and outbox backlog. Audit remains allowed und
 - [ ] **Step 4: Validate and commit**
 
     uv run pytest -q tests/production/infra/test_schedulers.py
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/schedulers infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(ops-infra): schedule recovery and audit passes"
 
@@ -514,7 +520,7 @@ input.
 - [ ] **Step 4: Validate and commit**
 
     uv run pytest -q tests/production/infra/test_canary_fence_iam.py
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/processing infra/opentofu/modules/runtime-iam tests/production/infra
     git commit -m "feat(promotion): add canary and fence boundaries"
 
@@ -572,7 +578,7 @@ asserting tofu plan actually schedules the workgroup, alarms and freeze-eligible
 
     conftest test tests/fixtures/plans --policy policies
     uv run pytest -q tests/production/infra/test_athena_observability_cost.py
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     git add infra/opentofu/modules/athena infra/opentofu/modules/observability infra/opentofu/env/prod policies schemas tests/production/infra
     git commit -m "feat(cost): bound analytics processing and freeze targets"
 
@@ -611,8 +617,8 @@ aggregate >15, wrong region, mutable image, ignore_changes on routing and secret
 - [ ] **Step 4: Run the complete non-mutating gate**
 
     tofu -chdir=infra/opentofu fmt -check -recursive
-    tofu -chdir=infra/opentofu init -backend=false -input=false
-    tofu -chdir=infra/opentofu validate -no-color
+    tofu -chdir=infra/opentofu/env/prod init -backend=false -input=false
+    tofu -chdir=infra/opentofu/env/prod validate -no-color
     tofu -chdir=infra/opentofu test
     conftest test tests/fixtures/plans --policy policies
     uv run pytest -q tests/production/infra
