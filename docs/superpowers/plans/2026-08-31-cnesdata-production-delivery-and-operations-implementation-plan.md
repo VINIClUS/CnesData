@@ -86,6 +86,13 @@ contracts from docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-
 
 ### Task 1: Extend Credential-Free Production CI
 
+Task 2 of this plan requires a successful verify-production.yml run for the exact develop SHA
+selected as a candidate. A pull_request-only trigger does not produce that: PR runs attach to the
+PR head/merge SHA, not to the resulting commit on develop after merge, so Task 2's candidate builder
+would reject an otherwise-green develop commit for lack of a matching run. This workflow needs a
+push trigger on develop (mirroring ci.yml's own pull_request+push+workflow_dispatch pattern) so
+every develop commit gets its own verify-production.yml run Task 2 can look up by SHA.
+
 **Branch:** ci/prod-delivery-001-validation
 
 **Files:**
@@ -97,12 +104,15 @@ contracts from docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-
 **Interfaces:**
 - Required jobs: CND/AWS, dashboard, API image, processor image, OCI/SBOM/scan, OpenTofu/policy/cost
   and manifest/secret scan.
-- Root permissions contents:read; no self-hosted runner or credential.
+- Triggers: pull_request (both directions, no secrets/id-token/packages-write), push on develop and
+  workflow_dispatch (produces the SHA-keyed run Task 2 requires).
+- Root permissions contents:read; no self-hosted runner or credential on any trigger.
 
 - [ ] **Step 1: Write workflow contract tests**
 
 Require full-SHA pinned actions, hosted runners, locked dependencies, exact dashboard production
-env, emulator teardown and no secrets/id-token/packages-write on pull_request.
+env, emulator teardown, no secrets/id-token/packages-write on pull_request, and a push trigger on
+develop producing a run keyed to that exact commit SHA.
 
 - [ ] **Step 2: Add dashboard route/build gates**
 
@@ -429,6 +439,12 @@ not reopen or switch schedulers yet.
 
 ### Task 9: Implement Separate Phase C Recovery and Audit Acceptance
 
+The runtime-amendments plan's API container task explicitly defers VPS data-processor retirement to
+this task: it is the first point where unit, recovery and audit routing are all verified accepted on
+AWS, making it safe to stop the VPS service that used to do that work. Retirement is a
+runbook-driven operational step, gated on full acceptance, not an automated part of route acceptance
+itself.
+
 **Branch:** feat/prod-delivery-009-phase-c
 
 **Files:**
@@ -437,12 +453,17 @@ not reopen or switch schedulers yet.
 - Create: scripts/promotion/accept_routing.py
 - Create: tests/production/delivery/test_phase_c.py
 - Modify: .github/workflows/promote-production.yml
+- Create: docs/runbooks/vps-processor-retirement.md (only after unit+recovery+audit acceptance:
+  confirm no in-flight VPS-claimed landing rows, stop and remove the data-processor service from
+  deploy/prod/docker-compose.prod.yml, redeploy the VPS stack without it)
 
 **Interfaces:**
 - First reviewed apply changes only recovery Scheduler revision.
 - After recovery canary, second reviewed apply changes only audit Scheduler revision.
 - Reopen fence only when unit+recovery+audit exact activation revisions are accepted and state is
   clean.
+- VPS data-processor retirement runs only after fence reopens on full acceptance; a partial or
+  rolled-back acceptance leaves the VPS service running.
 
 - [ ] **Step 1: Write phase-specific plan-delta tests**
 
@@ -469,11 +490,18 @@ reopen.
 Watchdog stops new phase activity before cutoff and initiates prior-route convergence while fence
 stays closed.
 
-- [ ] **Step 6: Run and commit**
+- [ ] **Step 6: Document VPS processor retirement**
+
+Write the runbook as a manual, reviewed procedure gated on full route acceptance: verify no
+in-flight VPS-claimed landing rows, stop the data-processor service, remove it from
+deploy/prod/docker-compose.prod.yml, redeploy the VPS stack. This is documentation for an operator
+action, not code this task automates.
+
+- [ ] **Step 7: Run and commit**
 
     uv run pytest -q tests/production/delivery/test_phase_c.py
     actionlint .github/workflows/promote-production.yml
-    git add scripts/promotion .github/workflows/promote-production.yml tests/production/delivery/test_phase_c.py
+    git add scripts/promotion .github/workflows/promote-production.yml tests/production/delivery/test_phase_c.py docs/runbooks/vps-processor-retirement.md
     git commit -m "feat(promotion): accept recovery and audit routes separately"
 
 ### Task 10: Implement Rollback, Drain and Revision Pruning

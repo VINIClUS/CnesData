@@ -258,13 +258,14 @@ no bootstrap do engine (em `central_api.deps` e `data_processor.main`).
 
 Não é Kubernetes. Dois perfis, sem sobreposição:
 
-- **VPS (produção atual):** Hostinger VPS via Docker Compose
+- **VPS (perfil ativo):** Hostinger VPS via Docker Compose
   (`deploy/prod/docker-compose.prod.yml` — postgres, minio, migrator,
   central-api, data-processor, web-dashboard, keycloak, caddy). Deploy via
   `deploy-main.yml`/`deploy-develop.yml` em self-hosted runners (homelab
   Proxmox) que fazem SSH forced-command para o VPS; ver `### Self-hosted
-  runners` abaixo. Em produção desde 2026-09 em `cnesdata.vinisantana.com` /
-  `api.vinisantana.com`.
+  runners` abaixo. Pipeline aponta para `cnesdata.vinisantana.com` /
+  `api.vinisantana.com`; status do piloto (produção real vs. infra pronta)
+  segue `CLAUDE.md` ("Not yet in production").
 - **AWS (alvo, EPIC #94):** S3+CloudFront (frontend), FastAPI seguindo no
   mesmo VPS, Step Functions Standard + ECS Fargate (processamento
   on-demand), DynamoDB (control plane), Cognito (OIDC). Ver

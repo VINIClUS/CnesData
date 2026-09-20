@@ -681,16 +681,14 @@ do not StartExecution and same-run dispatch CAS remains stable.
 ### Task 11: Add the Production API Container Credential Contract
 
 deploy/ already exists on develop (deploy/dev/ and deploy/prod/, both
-Compose+Caddy driven by shell scripts). The two production profiles are
-mutually exclusive for data_processor: the AWS profile moves all processing
-to Step Functions/ECS Fargate, and this task's own interface below already
-states "no CnesData processor runs on the VPS". Coexistence with the VPS
-data-processor service would violate that invariant. Retiring
-deploy/prod/docker-compose.prod.yml's data-processor service is therefore
-part of this task's promotion contract, not a later decision; central-api
-itself stays on the VPS in both profiles (only its credential source
-changes), so only the data-processor service is retired, not the whole
-Compose stack.
+Compose+Caddy driven by shell scripts). This task's branch (feat/prod-011-api-container) can merge
+to develop right after Tasks 1 and 3, long before any AWS resource exists (infrastructure plan Tasks
+1-12) and long before the delivery/operations plan's actual promotion cutover (Phase C, Task 9).
+Removing deploy/prod/docker-compose.prod.yml's data-processor service here would take down live VPS
+processing with no AWS replacement running yet. This task therefore only builds the new AWS-profile
+container and credential contract; it does not touch the VPS Compose file. Actual retirement of the
+VPS data-processor service belongs to the delivery/operations plan's promotion cutover, after AWS
+unit/recovery/audit tasks are verified green and routing is accepted -- see that plan's Task 9.
 
 **Branch:** feat/prod-011-api-container
 
@@ -699,11 +697,6 @@ Compose stack.
 - Create: apps/central_api/docker/production-entrypoint.sh
 - Create: deploy/compose.production.yaml
 - Create: deploy/aws/config
-- Modify: deploy/prod/docker-compose.prod.yml (remove the data-processor service; central-api,
-  postgres, minio, migrator, web-dashboard, keycloak, caddy stay)
-- Create: docs/runbooks/vps-processor-retirement.md (cutover order: confirm AWS unit/recovery/
-  audit tasks green, stop and remove the VPS data-processor service, verify no orphaned landing
-  claims)
 - Create: tests/production/test_api_container.py
 - Create: tests/production/test_compose_contract.py
 - Create: tests/production/test_credential_process.py
@@ -713,14 +706,16 @@ Compose stack.
   credential_process calls aws_signing_helper credential-process --session-duration 3600.
 - Container sees only required helper/config/leaf key material, key readable by fixed UID; no shared
   static credentials.
-- API binds one loopback port and no CnesData processor runs on the VPS: retiring the VPS
-  data-processor service is required by this task, not optional coexistence.
+- API binds one loopback port. The new deploy/compose.production.yaml never defines a
+  data-processor service; the existing VPS data-processor service is retired later, during
+  promotion cutover, not by this task.
 
 - [ ] **Step 1: Write static-image/Compose tests**
 
 Require non-root/read-only/cap-drop/no-new-privileges/limits/health. Reject docker.sock, host
 network, public port, LimnoPulse path/network, AWS_ACCESS_KEY_ID/SECRET/SESSION and a data-processor
-service definition anywhere in the production Compose files.
+service definition in the new deploy/compose.production.yaml (the existing VPS
+docker-compose.prod.yml keeps its data-processor service until cutover retires it).
 
 - [ ] **Step 2: Write botocore advisory-refresh test**
 
