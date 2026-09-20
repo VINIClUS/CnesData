@@ -228,9 +228,13 @@ Evidence, in sequence:
    (filesystem, services, scheduled tasks, local users, firewall rules, all registry subkey
    sets including `Services`, `Uninstall` x2, `EventLog\Application` sources, `Run`/`RunOnce`).
 
-Conclusion: H1, H2, H3, H4, H5 and H7 are now field-verified on real Windows against this
-branch's HEAD, not just unit-tested against a fake SCM. No new findings surfaced during the
-re-run. The e2e upload leg (control-plane mint vs. actual object landing in the bucket) was
-intentionally **not** re-exercised on this pass — it's orthogonal to the install/uninstall
+Conclusion: H1, H2, H3, H4 and H5 are now field-verified on real Windows against this
+branch's HEAD, not just unit-tested against a fake SCM. H7's ordering (event source removed
+only after a successful stop+delete) held on the success path exercised here; the failure
+branch it was written for -- a stop that fails, which must NOT delete the service or remove
+the event source -- was not (and can't safely be) provoked on a real device, and remains
+covered only by `TestUninstall_FalhaAoParar_NaoExcluiENaoRemoveEventSource` against the fake
+SCM. No new findings surfaced during the re-run. The e2e upload leg (control-plane mint
+vs. actual object landing in the bucket) was intentionally **not** re-exercised on this pass — it's orthogonal to the install/uninstall
 defects this re-run targets, and the placeholder-mint mystery documented above remains open
 and unrelated to this verification.
