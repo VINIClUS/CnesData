@@ -105,7 +105,7 @@ def build_local_runtime(settings: ProfileSettings, clock: Callable[[], datetime]
             control_plane=control_plane, object_store=object_store, executor=executor,
             source_catalog=source_catalog,
         ),
-        execution, clock,
+        execution, clock, dispatch_enabled=False,
     )
     raw_ingestion = RawIngestionService(
         control_plane, object_store, DeltaPolicy(),

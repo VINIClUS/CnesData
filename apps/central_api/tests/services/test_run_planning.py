@@ -182,9 +182,26 @@ def _execution(
 
 
 def _service(adapter, executor, store, clock, **execution_kwargs) -> RunPlanningService:
+    dispatch_enabled = execution_kwargs.pop("dispatch_enabled", True)
     return RunPlanningService(
         _dependencies(adapter, executor, store), _execution(**execution_kwargs), clock.now,
+        dispatch_enabled=dispatch_enabled,
     )
+
+
+def test_plan_only_nao_cria_dispatch_para_o_processor_retomar(
+    adapter, executor, store, clock
+):
+    adapter.put_run(_run())
+    _seed_full_chain(adapter, store)
+    service = _service(adapter, executor, store, clock, dispatch_enabled=False)
+
+    result = service.launch(_TENANT, _RUN_ID)
+
+    assert result.run.state is RunState.PROCESSING
+    assert result.execution_ref is None
+    assert adapter.get_active_run_dispatch(_TENANT, _RUN_ID) is None
+    assert executor.started == []
 
 
 def test_launch_sem_input_necessario_fica_waiting_inputs(adapter, executor, store, clock):
