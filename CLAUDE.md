@@ -27,9 +27,11 @@ Monorepo uv workspace. 3 shared packages + 5 apps.
   central_api (queue) → data_processor (transform + upsert) →
   Postgres Gold (dim_*, fato_*, RLS) → [External audit — out of scope]`
 
-- **Deploy target:** Kubernetes. Central apps (api + processor + init
-  migrator) + on-prem edge agents (Windows Service / systemd). Local dev
-  via `docker-compose.yml` (profiles: dev, perf, shadow).
+- **Deploy target:** não é Kubernetes. VPS (produção atual, Docker Compose
+  via SSH forced-command) ou AWS (alvo, EPIC #94: Step Functions/ECS
+  Fargate/DynamoDB/Cognito) — ver `docs/architecture.md#deploy-target`.
+  On-prem edge agents (Windows Service / systemd) em ambos os perfis. Local
+  dev via `docker-compose.yml` (profiles: dev, perf, shadow).
 </project_architecture>
 
 <resources>
@@ -52,8 +54,9 @@ don't fork it. Load on demand, never eagerly.
 - **Perf tests:** `docs/perf-testing.md` — 5 tiers (micro/macro/stress/soak/spike).
 - **Runbooks operacionais:** `docs/runbooks/`
 - **Narrativa histórica:** `docs/project-context.md`
-- **Planos e specs em elaboração, gitignored (local-only, nunca
-  autoritativos, podem não existir no seu clone):** `docs/wip/`,
+- **Planos e specs (força-adicionados apesar do .gitignore; docs/wip/ é
+  local-only, docs/superpowers/ é versionado e pode ser autoritativo — ex.:
+  Phase 3 contract se declara autoridade para CND-030…034):** `docs/wip/`,
   `docs/superpowers/`
 </resources>
 

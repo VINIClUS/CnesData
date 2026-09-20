@@ -520,6 +520,12 @@ input.
 
 ### Task 11: Add Athena, Alarms and Cost/Freeze Contracts
 
+Same gap class as Task 8: this task creates the athena and observability modules but, unlike every
+other resource-provisioning task in this plan, has no Modify entry for env/prod/main.tf. Without
+root instantiation, tofu apply never provisions the Athena workgroup, alarms or freeze-policy
+outputs even though the module-level tests pass in isolation. Wiring both modules at root is part
+of this task, not a follow-up.
+
 **Branch:** feat/prod-infra-011-athena-cost
 
 **Files:**
@@ -527,6 +533,10 @@ input.
 - Create: infra/opentofu/modules/observability/**
 - Create: policies/cnesdata.rego
 - Create: schemas/cost-manifest.schema.json
+- Modify: infra/opentofu/env/prod/main.tf (instantiate module "athena" and module "observability",
+  wired to the data-buckets, control-plane, processing and runtime-iam module outputs)
+- Modify: infra/opentofu/env/prod/outputs.tf (expose the automation role ARNs the shared freeze
+  policy consumes)
 - Create: tests/production/infra/test_athena_observability_cost.py
 
 **Interfaces:**
@@ -534,6 +544,8 @@ input.
 - Alarms cover API/tunnel reference, DynamoDB, Step Functions, ECS, S3 denial, audit backlog, Athena
   cutoff, 100 task-hours and 200 attempts.
 - Product outputs exact automation role ARNs eligible for shared freeze policy.
+- module "athena" and module "observability" are instantiated exactly once at root; a tofu plan
+  test confirms both are actually scheduled for creation, not just that the module source compiles.
 
 - [ ] **Step 1: Write Athena non-API and cutoff tests**
 
@@ -550,12 +562,18 @@ aggregate <=15.
 Freeze targets promotion/API/recovery/Step Functions/Athena new-cost actions; audit delivery,
 health/readback and backup writes remain. Shared Budget action remains external ownership.
 
-- [ ] **Step 4: Validate and commit**
+- [ ] **Step 4: Wire both modules into env/prod/main.tf**
+
+Add the module "athena" and module "observability" blocks with their required inputs from earlier
+tasks' outputs, and export the automation role ARNs from env/prod/outputs.tf. Write a plan test
+asserting tofu plan actually schedules the workgroup, alarms and freeze-eligible outputs.
+
+- [ ] **Step 5: Validate and commit**
 
     conftest test tests/fixtures/plans --policy policies
     uv run pytest -q tests/production/infra/test_athena_observability_cost.py
     tofu -chdir=infra/opentofu validate -no-color
-    git add infra/opentofu/modules/athena infra/opentofu/modules/observability policies schemas tests/production/infra
+    git add infra/opentofu/modules/athena infra/opentofu/modules/observability infra/opentofu/env/prod policies schemas tests/production/infra
     git commit -m "feat(cost): bound analytics processing and freeze targets"
 
 ### Task 12: Build the Infrastructure Acceptance Gate

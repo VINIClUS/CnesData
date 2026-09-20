@@ -676,12 +676,16 @@ do not StartExecution and same-run dispatch CAS remains stable.
 ### Task 11: Add the Production API Container Credential Contract
 
 deploy/ already exists on develop (deploy/dev/ and deploy/prod/, both
-Compose+Caddy driven by shell scripts). deploy/compose.production.yaml below is
-a new file for the AWS-profile API container and does not replace
-deploy/prod/docker-compose.prod.yml; Step 1 must state explicitly whether the
-two coexist (VPS API today, AWS-profile API as the target) or whether this task
-retires the VPS Compose file as part of promotion. Do not let both apply to the
-same host silently.
+Compose+Caddy driven by shell scripts). The two production profiles are
+mutually exclusive for data_processor: the AWS profile moves all processing
+to Step Functions/ECS Fargate, and this task's own interface below already
+states "no CnesData processor runs on the VPS". Coexistence with the VPS
+data-processor service would violate that invariant. Retiring
+deploy/prod/docker-compose.prod.yml's data-processor service is therefore
+part of this task's promotion contract, not a later decision; central-api
+itself stays on the VPS in both profiles (only its credential source
+changes), so only the data-processor service is retired, not the whole
+Compose stack.
 
 **Branch:** feat/prod-011-api-container
 
@@ -690,6 +694,11 @@ same host silently.
 - Create: apps/central_api/docker/production-entrypoint.sh
 - Create: deploy/compose.production.yaml
 - Create: deploy/aws/config
+- Modify: deploy/prod/docker-compose.prod.yml (remove the data-processor service; central-api,
+  postgres, minio, migrator, web-dashboard, keycloak, caddy stay)
+- Create: docs/runbooks/vps-processor-retirement.md (cutover order: confirm AWS unit/recovery/
+  audit tasks green, stop and remove the VPS data-processor service, verify no orphaned landing
+  claims)
 - Create: tests/production/test_api_container.py
 - Create: tests/production/test_compose_contract.py
 - Create: tests/production/test_credential_process.py
@@ -699,12 +708,14 @@ same host silently.
   credential_process calls aws_signing_helper credential-process --session-duration 3600.
 - Container sees only required helper/config/leaf key material, key readable by fixed UID; no shared
   static credentials.
-- API binds one loopback port and no CnesData processor runs on the VPS.
+- API binds one loopback port and no CnesData processor runs on the VPS: retiring the VPS
+  data-processor service is required by this task, not optional coexistence.
 
 - [ ] **Step 1: Write static-image/Compose tests**
 
 Require non-root/read-only/cap-drop/no-new-privileges/limits/health. Reject docker.sock, host
-network, public port, LimnoPulse path/network and AWS_ACCESS_KEY_ID/SECRET/SESSION.
+network, public port, LimnoPulse path/network, AWS_ACCESS_KEY_ID/SECRET/SESSION and a data-processor
+service definition anywhere in the production Compose files.
 
 - [ ] **Step 2: Write botocore advisory-refresh test**
 
