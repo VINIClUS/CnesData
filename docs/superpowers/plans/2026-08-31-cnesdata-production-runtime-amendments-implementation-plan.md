@@ -1,73 +1,163 @@
 # CnesData Production Runtime Amendments Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
+                           (recommended) or superpowers:executing-plans to implement this plan
+                           task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Amend the completed CND/AWS runtime with the exact production browser, OIDC, CORS, signed-serving, public-subnet Fargate, environment-gate, recovery and audit-dispatch contracts required before CnesData can be provisioned or promoted.
+**Goal:** Amend the completed CND/AWS runtime with the exact production browser, OIDC, CORS,
+signed-serving, public-subnet Fargate, environment-gate, recovery and audit-dispatch contracts
+required before CnesData can be provisioned or promoted.
 
-**Architecture:** Extend stable ports/adapters instead of introducing deployment convenience shortcuts. The dashboard uses one absolute authenticated API client and a second header-free signed S3 fetch. The API remains provider-neutral, uses Cognito only through OIDC configuration, and coordinates starts through a durable fence/semaphore/monthly counter. Processor entrypoints remain one-shot and reuse the canonical coordinator/outbox services.
+**Architecture:** Extend stable ports/adapters instead of introducing deployment convenience
+shortcuts. The dashboard uses one absolute authenticated API client and a second header-free signed
+S3 fetch. The API remains provider-neutral, uses Cognito only through OIDC configuration, and
+coordinates starts through a durable fence/semaphore/monthly counter. Processor entrypoints remain
+one-shot and reuse the canonical coordinator/outbox services.
 
-**Tech Stack:** Python 3.13, FastAPI, boto3/botocore, DynamoDB, S3, Step Functions Standard, ECS Fargate, React 18, TypeScript, Vite, oidc-client-ts, Bun, pytest, Hypothesis, Vitest, Playwright, Docker Compose emulators.
+**Tech Stack:** Python 3.13, FastAPI, boto3/botocore, DynamoDB, S3, Step Functions Standard, ECS
+Fargate, React 18, TypeScript, Vite, oidc-client-ts, Bun, pytest, Hypothesis, Vitest, Playwright,
+Docker Compose emulators.
 
-**Spec:** docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-design.md and docs/superpowers/specs/2026-08-29-cnesdata-production-operations-design.md
+**Spec:** docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-design.md and
+docs/superpowers/specs/2026-08-29-cnesdata-production-operations-design.md
 
 ## Global Constraints
 
-- This plan starts only after CND-020 through CND-025 and AWS-010 through AWS-014 are merged into a green develop. CND-020…025 are satisfied (#122-#127, closed 2026-09-01..2026-09-06). AWS-010…014 remain entirely unimplemented and are gated behind EPIC #94's controller Task 8, which itself queues behind CND-064 (#222 / PR #227, in flight); no task may bypass the dependency gate.
-- The inspected planning baseline is develop@f8160577f54aa17ba236f3d3f694a01ce80e3436 (2026-09-19, CND-063). Re-read the head and record the dependency-complete execution SHA before Task 1.
-- The existing docs/superpowers/plans/2026-08-23-cnesdata-aws-runtime-profile-implementation-plan.md remains authoritative. This plan modifies its produced files in place and never recreates a parallel AWS adapter/composition.
+- This plan starts only after CND-020 through CND-025 and AWS-010 through AWS-014 are merged into a
+  green develop. CND-020…025 are satisfied (#122-#127, closed 2026-09-01..2026-09-06). AWS-010…014
+  remain entirely unimplemented and are gated behind EPIC #94's controller Task 8, which itself
+  queues behind CND-064 (#222 / PR #227, in flight); no task may bypass the dependency gate.
+- The inspected planning baseline is develop@f8160577f54aa17ba236f3d3f694a01ce80e3436 (2026-09-19,
+  CND-063). Re-read the head and record the dependency-complete execution SHA before Task 1.
+- The existing docs/superpowers/plans/2026-08-23-cnesdata-aws-runtime-profile-implementation-plan.md
+  remains authoritative. This plan modifies its produced files in place and never recreates a
+  parallel AWS adapter/composition.
 - Integration base is develop. Never commit directly to main or develop.
-- Production defaults AWS_REGION=us-east-2. Application examples/tests that intentionally emulate another region must be clearly fixture-local.
-- PROFILE=aws and AUTH_MODE=oidc are mandatory. PostgreSQL, MinIO, Keycloak and BigQuery have no production fallback/import.
-- Dashboard production API base is exactly https://api.cnesdata.vinisantana.com/api/v1. Relative /api is forbidden.
-- Bearer is sent only to https://api.cnesdata.vinisantana.com. X-Tenant-Id is sent only after tenant selection and only for tenant-scoped calls.
+- Production defaults AWS_REGION=us-east-2. Application examples/tests that intentionally emulate
+  another region must be clearly fixture-local.
+- PROFILE=aws and AUTH_MODE=oidc are mandatory. PostgreSQL, MinIO, Keycloak and BigQuery have no
+  production fallback/import.
+- Dashboard production API base is exactly https://api.cnesdata.vinisantana.com/api/v1. Relative
+  /api is forbidden.
+- Bearer is sent only to https://api.cnesdata.vinisantana.com. X-Tenant-Id is sent only after tenant
+  selection and only for tenant-scoped calls.
 - Activation exists only at /api/v1/activate/confirm. The origin-level legacy route is absent.
 - FastAPI is the sole CORS authority; Nginx forwards OPTIONS unchanged and adds no CORS header.
-- Signed serving returns 200 private/no-store with only url, version_id and expires_in=300. Browser fetch to S3 sends no credentials, cookies, Authorization, X-Tenant-Id or custom header.
-- SigV4 URLs and object keys are bearer-sensitive and absent from logs, telemetry, evidence and persistence.
-- Production AWS-012 requires AssignPublicIp=ENABLED, exact public subnets/security group, zero ingress, FARGATE, max concurrency one, no NAT and no ALB.
-- Environment fence, semaphore and monthly execution counter are canonical durable control-plane items. TTL is garbage collection only.
-- Every initial and recovery StartExecution attempt consumes the shared atomic monthly maximum of 200. The 100 combined Fargate task-hour target is monitoring, not a start gate.
-- Recovery and audit-dispatch entrypoints are separate modes with separate compositions and deadlines.
-- Function body <=50 lines, complexity <=10, line width <=100, file <=500 lines, parameters <=4 and nesting <=3.
-- Package coverage and application coverage gates remain unchanged; Portuguese behavior-oriented test names remain the convention.
+- Signed serving returns 200 private/no-store with only url, version_id and expires_in=300. Browser
+  fetch to S3 sends no credentials, cookies, Authorization, X-Tenant-Id or custom header.
+- SigV4 URLs and object keys are bearer-sensitive and absent from logs, telemetry, evidence and
+  persistence.
+- Production AWS-012 requires AssignPublicIp=ENABLED, exact public subnets/security group, zero
+  ingress, FARGATE, max concurrency one, no NAT and no ALB.
+- Environment fence, semaphore and monthly execution counter are canonical durable control-plane
+  items. TTL is garbage collection only.
+- Every initial and recovery StartExecution attempt consumes the shared atomic monthly maximum of
+  200. The 100 combined Fargate task-hour target is monitoring, not a start gate.
+- Recovery and audit-dispatch entrypoints are separate modes with separate compositions and
+  deadlines.
+- Function body <=50 lines, complexity <=10, line width <=100, file <=500 lines, parameters <=4 and
+  nesting <=3.
+- Package coverage and application coverage gates remain unchanged; Portuguese behavior-oriented
+  test names remain the convention.
 
 ## Dependency Interface Gate
 
-Before Task 1 can pass, the exact symbols in the existing AWS runtime plan must exist and its serial AWS-014 acceptance must be green. Additionally verify:
+Before Task 1 can pass, the exact symbols in the existing AWS runtime plan must exist and its serial
+AWS-014 acceptance must be green. Additionally verify:
 
-| Symbol | Required behavior | State on the inspected baseline |
-|---|---|---|
-| AwsRuntimeSettings | Existing immutable AWS/profile settings, no static credentials | Does not exist. Delivered by AWS-010; nearest analogue today is cnes_domain.profiles.ProfileSettings, whose RuntimeProfile.AWS branch raises ProfileNotImplemented("aws_runtime_plan_required"). |
-| StepFunctionsExecutor | Canonical start/cancel/status transport only | Exists — cnes_infra.executor.step_functions (delivered by CND-042). |
-| DynamoDBControlPlane | Existing strongly consistent/conditional adapter base | Exists — cnes_infra.control_plane.dynamodb_adapter. |
-| LocalServingAccess | Canonical membership/pointer authorization before signing | Exists — central_api.services.serving_access. Its router is not yet registered in central_api.app; wiring lands with CND-064 (#222 / PR #227). |
-| S3ObjectLockAuditSink | Existing COMPLIANCE append behavior | Exists — cnes_infra.audit.s3_object_lock_sink. |
-| PipelineCoordinator.recover | Canonical bounded recovery semantics | Exists — data_processor.orchestration.coordinator.PipelineCoordinator.recover. |
-| dispatch_once | Existing outbox delivery behavior before cursor extension | Exists — cnes_domain.outbox_dispatcher. |
+| Symbol | Required behavior |
+|---|---|
+| AwsRuntimeSettings | Existing immutable AWS/profile settings, no static credentials |
+| StepFunctionsExecutor | Canonical start/cancel/status transport only |
+| DynamoDBControlPlane | Existing strongly consistent/conditional adapter base |
+| LocalServingAccess | Canonical membership/pointer authorization before signing |
+| S3ObjectLockAuditSink | Existing COMPLIANCE append behavior |
+| PipelineCoordinator.recover | Canonical bounded recovery semantics |
+| dispatch_once | Existing outbox delivery behavior before cursor extension |
 
-If any import/signature differs, integration first reconciles this plan against the merged implementation in a focused docs-only PR. Do not rename the merged contract inside a production feature branch.
+Baseline state (inspected on develop@f816057, see Global Constraints):
+
+- AwsRuntimeSettings: Does not exist. Delivered by AWS-010; nearest analogue today is
+                      cnes_domain.profiles.ProfileSettings, whose RuntimeProfile.AWS branch raises
+                      ProfileNotImplemented("aws_runtime_plan_required").
+- StepFunctionsExecutor: Exists — cnes_infra.executor.step_functions (delivered by CND-042).
+- DynamoDBControlPlane: Exists — cnes_infra.control_plane.dynamodb_adapter.
+- LocalServingAccess: Exists — central_api.services.serving_access. Its router is not yet registered
+                      in central_api.app; wiring lands with CND-064 (#222 / PR #227).
+- S3ObjectLockAuditSink: Exists — cnes_infra.audit.s3_object_lock_sink.
+- PipelineCoordinator.recover: Exists —
+                               data_processor.orchestration.coordinator.PipelineCoordinator.recover.
+- dispatch_once: Exists — cnes_domain.outbox_dispatcher.
+
+If any import/signature differs, integration first reconciles this plan against the merged
+implementation in a focused docs-only PR. Do not rename the merged contract inside a production
+feature branch.
 
 ## File Map
 
 Paths marked "does not exist" are created by this plan or by the AWS-010…014
 tasks it depends on; they are not renames of something already on develop.
 
-| Path | Responsibility | State on the inspected baseline |
-|---|---|---|
-| apps/web_dashboard/src/api/client.ts | sole absolute authenticated API transport | Exists (apiFetch/ApiError). |
-| apps/web_dashboard/src/auth/oidc.ts | resource/audience/scope request | Exists (oidc-client-ts UserManager wrapper). |
-| apps/web_dashboard/src/api/hooks/useServingOverview.ts | header-free signed S3 second fetch | Exists as a TanStack Query hook (CND-063), not as api/serving.ts. This plan extends that hook rather than creating a parallel module. |
-| apps/central_api/src/central_api/app.py | exact production CORS | Exists. |
-| apps/central_api/src/central_api/routes/oauth.py | versioned activation path only | Exists. POST /activate/confirm is mounted via include_router(oauth.router) with no prefix, so the origin-level route this task removes is real. |
-| apps/central_api/src/central_api/routes/serving.py | 200 signed-serving envelope | Exists but returns 200 StreamingResponse of raw JSON bytes (CND-062), not an envelope, and its router is not yet registered in app.py. AWS-013 adds the signed-URL envelope as the PROFILE=aws response mode; PROFILE=local keeps streaming. |
-| apps/central_api/src/central_api/serving/aws_signed.py | production signed-URL issuance | Does not exist; the central_api/serving/ package itself is absent. Created by AWS-013. |
-| packages/cnes_infra/src/cnes_infra/aws/settings.py | production OIDC/network/credential constraints | Does not exist; the cnes_infra/aws/ directory is absent. Created by AWS-010. |
-| packages/cnes_infra/src/cnes_infra/executor/step_functions.py | exact production network validator | Exists (delivered by CND-042); this plan extends it. |
-| packages/cnes_domain/src/cnes_domain/ports/environment_gate.py | typed fence/semaphore interface | Does not exist. Created by this plan (Task 7). |
-| packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py | conditional gate/counter/cursor operations | Exists; this plan extends it. |
-| apps/data_processor/src/data_processor/aws_entrypoint.py | unit/recover/dispatch allowlist | Does not exist. Current entrypoint is data_processor.main + parse_profile. Created by EPIC #94 controller Task 8. |
-| apps/data_processor/src/data_processor/recovery.py | deadline-bounded recovery | Recovery already lives in data_processor.orchestration.coordinator.PipelineCoordinator.recover and central_api.services.run_planning.RunPlanningService.recover; this plan adapts those instead of creating a new module. |
-| apps/data_processor/src/data_processor/audit_dispatch.py | cursor-aware outbox pass | dispatch_once already lives in cnes_domain.outbox_dispatcher (domain, not app); this plan extends that instead of creating an app-level module. |
+| Path | Responsibility |
+|---|---|
+| apps/web_dashboard/src/api/client.ts | sole absolute authenticated API transport |
+| apps/web_dashboard/src/auth/oidc.ts | resource/audience/scope request |
+| apps/web_dashboard/src/api/hooks/useServingOverview.ts | header-free signed S3 second fetch |
+| apps/central_api/src/central_api/app.py | exact production CORS |
+| apps/central_api/src/central_api/routes/oauth.py | versioned activation path only |
+| apps/central_api/src/central_api/routes/serving.py | 200 signed-serving envelope |
+| apps/central_api/src/central_api/serving/aws_signed.py | production signed-URL issuance |
+| packages/cnes_infra/src/cnes_infra/aws/settings.py | production OIDC/network/credential contract |
+| packages/cnes_infra/src/cnes_infra/executor/step_functions.py | production network validator |
+| packages/cnes_domain/src/cnes_domain/ports/environment_gate.py | typed fence/semaphore interface |
+| packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py | gate/counter/cursor ops |
+| apps/data_processor/src/data_processor/aws_entrypoint.py | unit/recover/dispatch allowlist |
+| apps/data_processor/src/data_processor/recovery.py | deadline-bounded recovery |
+| apps/data_processor/src/data_processor/audit_dispatch.py | cursor-aware outbox pass |
+
+State on the inspected baseline (develop@f816057, see Global Constraints):
+
+- apps/web_dashboard/src/api/client.ts: Exists (apiFetch/ApiError).
+- apps/web_dashboard/src/auth/oidc.ts: Exists (oidc-client-ts UserManager wrapper).
+- apps/web_dashboard/src/api/hooks/useServingOverview.ts: Exists as a TanStack Query hook (CND-063),
+                                                          not as api/serving.ts. This plan extends
+                                                          that hook rather than creating a parallel
+                                                          module.
+- apps/central_api/src/central_api/app.py: Exists.
+- apps/central_api/src/central_api/routes/oauth.py: Exists. POST /activate/confirm is mounted via
+                                                    include_router(oauth.router) with no prefix, so
+                                                    the origin-level route this task removes is
+                                                    real.
+- apps/central_api/src/central_api/routes/serving.py: Exists but returns 200 StreamingResponse of
+                                                      raw JSON bytes (CND-062), not an envelope, and
+                                                      its router is not yet registered in app.py.
+                                                      AWS-013 adds the signed-URL envelope as the
+                                                      PROFILE=aws response mode; PROFILE=local keeps
+                                                      streaming.
+- apps/central_api/src/central_api/serving/aws_signed.py: Does not exist; the central_api/serving/
+                                                          package itself is absent. Created by
+                                                          AWS-013.
+- packages/cnes_infra/src/cnes_infra/aws/settings.py: Does not exist; the cnes_infra/aws/ directory
+                                                      is absent. Created by AWS-010.
+- packages/cnes_infra/src/cnes_infra/executor/step_functions.py: Exists (delivered by CND-042); this
+                                                                 plan extends it.
+- packages/cnes_domain/src/cnes_domain/ports/environment_gate.py: Does not exist. Created by this
+                                                                  plan (Task 7).
+- packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py: Exists; this plan extends
+                                                                        it.
+- apps/data_processor/src/data_processor/aws_entrypoint.py: Does not exist. Current entrypoint is
+                                                            data_processor.main + parse_profile.
+                                                            Created by EPIC #94 controller Task 8.
+- apps/data_processor/src/data_processor/recovery.py: Recovery already lives in
+                                                      data_processor.orchestration.coordinator.PipelineCoordinator.recover
+                                                      and
+                                                      central_api.services.run_planning.RunPlanningService.recover;
+                                                      this plan adapts those instead of creating a
+                                                      new module.
+- apps/data_processor/src/data_processor/audit_dispatch.py: dispatch_once already lives in
+                                                            cnes_domain.outbox_dispatcher (domain,
+                                                            not app); this plan extends that instead
+                                                            of creating an app-level module.
 
 ---
 
@@ -85,17 +175,20 @@ tasks it depends on; they are not renames of something already on develop.
 
 - [ ] **Step 1: Write import/signature tests from the table above**
 
-Use inspect.signature plus focused behavior fakes. Also run the existing CND-025 and AWS-014 test entrypoints by exact path.
+Use inspect.signature plus focused behavior fakes. Also run the existing CND-025 and AWS-014 test
+entrypoints by exact path.
 
 - [ ] **Step 2: Run on the current baseline**
 
     uv run pytest -q tests/production/test_dependency_gate.py
 
-Expected on the inspected baseline: FAIL because Phase 2/AWS materialization is incomplete. Stop Tasks 2-12.
+Expected on the inspected baseline: FAIL because Phase 2/AWS materialization is incomplete. Stop
+Tasks 2-12.
 
 - [ ] **Step 3: After dependencies merge, record exact develop SHA and green commands**
 
-Document CND issue/PR completion, AWS plan task completion and test run IDs. This is evidence, not a skip marker.
+Document CND issue/PR completion, AWS plan task completion and test run IDs. This is evidence, not a
+skip marker.
 
 - [ ] **Step 4: Commit only on a genuinely green dependency head**
 
@@ -122,7 +215,8 @@ Document CND issue/PR completion, AWS plan task completion and test run IDs. Thi
 
 - [ ] **Step 1: Write failing environment/client tests**
 
-Reject /api/v1, https://wrong.example/api/v1, missing /api/v1 and credentials=include. Assert auth/me and activation use one mocked client and never call global fetch directly.
+Reject /api/v1, https://wrong.example/api/v1, missing /api/v1 and credentials=include. Assert
+auth/me and activation use one mocked client and never call global fetch directly.
 
 - [ ] **Step 2: Add origin-token tests**
 
@@ -135,7 +229,9 @@ Reject /api/v1, https://wrong.example/api/v1, missing /api/v1 and credentials=in
 
 - [ ] **Step 3: Implement strict URL joining**
 
-Normalize one trailing slash, reject absolute endpoint arguments, query-bearing base and path traversal. Set bearer only after URL.origin equals the configured API origin. Add X-Tenant-Id only when tenant is explicitly required.
+Normalize one trailing slash, reject absolute endpoint arguments, query-bearing base and path
+traversal. Set bearer only after URL.origin equals the configured API origin. Add X-Tenant-Id only
+when tenant is explicitly required.
 
 - [ ] **Step 4: Move activation to the versioned client**
 
@@ -165,19 +261,23 @@ Remove any origin-level /activate/confirm or relative /api use.
 **Interfaces:**
 - Dashboard requests openid/profile/email plus https://api.cnesdata.vinisantana.com/api.access.
 - Authorization extraQueryParams.resource is https://api.cnesdata.vinisantana.com.
-- Production settings expose Cognito domain, authorize/token/logout URLs and require OIDC_AUDIENCE equal to the API origin.
+- Production settings expose Cognito domain, authorize/token/logout URLs and require OIDC_AUDIENCE
+  equal to the API origin.
 
 - [ ] **Step 1: Write exact OIDC config tests**
 
-Require authorization URL /oauth2/authorize, token URL /oauth2/token, logout /logout, resource parameter and API scope. Reject managed-login-v2/custom-domain assumptions.
+Require authorization URL /oauth2/authorize, token URL /oauth2/token, logout /logout, resource
+parameter and API scope. Reject managed-login-v2/custom-domain assumptions.
 
 - [ ] **Step 2: Write AWS settings consistency tests**
 
-Issuer/user-pool region is us-east-2; audience and resource server identifier are the API origin. Static key fields remain absent.
+Issuer/user-pool region is us-east-2; audience and resource server identifier are the API origin.
+Static key fields remain absent.
 
 - [ ] **Step 3: Implement provider-neutral OIDC fields**
 
-The verifier still consumes issuer/audience/JWKS; no Cognito-specific claim enters domain or authorization logic.
+The verifier still consumes issuer/audience/JWKS; no Cognito-specific claim enters domain or
+authorization logic.
 
 - [ ] **Step 4: Run Python/dashboard tests**
 
@@ -202,23 +302,28 @@ The verifier still consumes issuer/audience/JWKS; no Cognito-specific claim ente
 
 **Interfaces:**
 - POST /api/v1/activate/confirm is the only activation route.
-- CORS exact origin/method/header contract and allow_credentials=false applies only to the production AWS profile.
+- CORS exact origin/method/header contract and allow_credentials=false applies only to the
+  production AWS profile.
 
 - [ ] **Step 1: Write route absence/presence tests**
 
-Assert /activate/confirm not in OpenAPI, /api/v1/activate/confirm present and bearer+tenant authorization behavior unchanged.
+Assert /activate/confirm not in OpenAPI, /api/v1/activate/confirm present and bearer+tenant
+authorization behavior unchanged.
 
 - [ ] **Step 2: Write complete preflight matrix**
 
-Allowed: origin cnesdata, methods GET/POST, headers Authorization/Content-Type/X-Tenant-Id. Denied: another origin, PUT/PATCH/DELETE, cookie credentials, wildcard and any additional header.
+Allowed: origin cnesdata, methods GET/POST, headers Authorization/Content-Type/X-Tenant-Id. Denied:
+another origin, PUT/PATCH/DELETE, cookie credentials, wildcard and any additional header.
 
 - [ ] **Step 3: Implement versioned router mount**
 
-Keep route function/service unchanged; change only prefix ownership. Do not create a redirect compatibility route.
+Keep route function/service unchanged; change only prefix ownership. Do not create a redirect
+compatibility route.
 
 - [ ] **Step 4: Install CORSMiddleware as sole authority**
 
-No Nginx header or OPTIONS short-circuit is application code. Error responses still follow the exact origin policy.
+No Nginx header or OPTIONS short-circuit is application code. Error responses still follow the exact
+origin policy.
 
 - [ ] **Step 5: Run and commit**
 
@@ -243,7 +348,8 @@ envelope below is the PROFILE=aws response mode only.
 - Modify: apps/central_api/src/central_api/routes/serving.py
 - Create: apps/central_api/tests/serving/test_aws_signed.py
 - Create: apps/central_api/tests/routes/test_production_serving.py
-- Modify: apps/web_dashboard/src/api/hooks/useServingOverview.ts (extends the existing CND-063 hook; do not create a parallel src/api/serving.ts)
+- Modify: apps/web_dashboard/src/api/hooks/useServingOverview.ts (extends the existing CND-063 hook;
+  do not create a parallel src/api/serving.ts)
 - Modify: apps/web_dashboard/tests/unit/api/hooks/useServingOverview.test.tsx
 - Modify: tests/integration/aws/test_signed_serving.py
 
@@ -254,19 +360,24 @@ envelope below is the PROFILE=aws response mode only.
 
 - [ ] **Step 1: Write API response-schema tests**
 
-Assert exact keys only, status/cache header, 300 TTL, prior authorization/stat and denial of raw/normalized/reconciliation/tmp/audit prefixes.
+Assert exact keys only, status/cache header, 300 TTL, prior authorization/stat and denial of
+raw/normalized/reconciliation/tmp/audit prefixes.
 
 - [ ] **Step 2: Write logging/redaction tests**
 
-Exercise success/error and assert signed query/key never appears in caplog, tracing attributes or exception repr.
+Exercise success/error and assert signed query/key never appears in caplog, tracing attributes or
+exception repr.
 
 - [ ] **Step 3: Implement the 200 envelope**
 
-Preserve canonical LocalServingAccess authorization. Generate GET only for the single authorized serving key/version; attach ResponseCacheControl private,no-store where supported.
+Preserve canonical LocalServingAccess authorization. Generate GET only for the single authorized
+serving key/version; attach ResponseCacheControl private,no-store where supported.
 
 - [ ] **Step 4: Implement the browser second fetch**
 
-Do not reuse apiRequest. Build fetch(url, {method:"GET", credentials:"omit", redirect:"error", headers:{}}). Reject non-HTTPS or non-S3 signed URL origin patterns configured by the runtime contract.
+Do not reuse apiRequest. Build fetch(url, {method:"GET", credentials:"omit", redirect:"error",
+headers:{}}). Reject non-HTTPS or non-S3 signed URL origin patterns configured by the runtime
+contract.
 
 - [ ] **Step 5: Run backend/frontend/integration tests**
 
@@ -290,20 +401,26 @@ Do not reuse apiRequest. Build fetch(url, {method:"GET", credentials:"omit", red
 - Modify: tests/integration/aws/test_step_functions_ecs.py
 
 **Interfaces:**
-- Production settings contain exact tuple public_subnet_ids and security_group_id, max_concurrency=1.
-- validate_state_machine compares the generated ASL ECS Parameters against those exact values and an inspected zero-ingress network contract.
+- Production settings contain exact tuple public_subnet_ids and security_group_id,
+  max_concurrency=1.
+- validate_state_machine compares the generated ASL ECS Parameters against those exact values and an
+  inspected zero-ingress network contract.
 
 - [ ] **Step 1: Write the acceptance/rejection matrix**
 
-Accept only ENABLED+exact subnets+exact SG+FARGATE+1+no NAT/ALB. Reject DISABLED, missing/extra/reordered normalized subnet set, SG drift, ingress, EC2 launch, concurrency >1 and forbidden resource markers.
+Accept only ENABLED+exact subnets+exact SG+FARGATE+1+no NAT/ALB. Reject DISABLED,
+missing/extra/reordered normalized subnet set, SG drift, ingress, EC2 launch, concurrency >1 and
+forbidden resource markers.
 
 - [ ] **Step 2: Preserve emulator/generic fixture behavior explicitly**
 
-Use a profile/network policy argument; do not weaken the production validator to accept both modes silently.
+Use a profile/network policy argument; do not weaken the production validator to accept both modes
+silently.
 
 - [ ] **Step 3: Implement exact comparison**
 
-Normalize subnet tuple deterministically, but do not accept a superset. Validate Inline Map remains non-distributed and no service/desired count is introduced.
+Normalize subnet tuple deterministically, but do not accept a superset. Validate Inline Map remains
+non-distributed and no service/desired count is introduced.
 
 - [ ] **Step 4: Run AWS-012/AWS-014 focused suites**
 
@@ -328,16 +445,19 @@ Normalize subnet tuple deterministically, but do not accept a superset. Validate
 
 **Interfaces:**
 - observe_environment_gate() is strongly consistent.
-- Typed commands: AcquireUnitPermit, BindUnitPermit, RenewUnitPermit, ReleaseUnitPermit, ClosePromotionFence and ReopenPromotionFence.
+- Typed commands: AcquireUnitPermit, BindUnitPermit, RenewUnitPermit, ReleaseUnitPermit,
+  ClosePromotionFence and ReopenPromotionFence.
 - Fence and semaphore are separate items; acquire transaction requires open fence.
 
 - [ ] **Step 1: Write pure transition tests**
 
-Cover close-first, acquire/bind/renew/release, only bound canary while fenced, token mismatch, stale generation, TTL non-authority and reopen only matching promotion.
+Cover close-first, acquire/bind/renew/release, only bound canary while fenced, token mismatch, stale
+generation, TTL non-authority and reopen only matching promotion.
 
 - [ ] **Step 2: Write adapter race tests**
 
-Concurrent acquire winners <=1. A fence close racing acquire either closes before and rejects, or observes the live permit and drain waits; never both closed+new unbound start.
+Concurrent acquire winners <=1. A fence close racing acquire either closes before and rejects, or
+observes the live permit and drain waits; never both closed+new unbound start.
 
 - [ ] **Step 3: Implement immutable entities/commands first**
 
@@ -345,7 +465,8 @@ No AWS imports in cnes_domain. Use aware UTC datetimes and explicit version/fenc
 
 - [ ] **Step 4: Implement conditional DynamoDB transactions**
 
-Use consistent reads and TransactWriteItems conditions. Expired takeover requires a supplied liveness proof adapter result; never time alone.
+Use consistent reads and TransactWriteItems conditions. Expired takeover requires a supplied
+liveness proof adapter result; never time alone.
 
 - [ ] **Step 5: Run package 100% branch gates and commit**
 
@@ -368,17 +489,20 @@ Use consistent reads and TransactWriteItems conditions. Expired takeover require
 - Modify: apps/data_processor/src/data_processor/recovery.py
 
 **Interfaces:**
-- consume_execution_attempt(environment, period, now, limit=200) atomically increments before each initial/recovery StartExecution.
+- consume_execution_attempt(environment, period, now, limit=200) atomically increments before each
+  initial/recovery StartExecution.
 - Same monthly item/limit is used by both callers.
 - Quota rejection performs no Step Functions call and maps to the documented 429/quota result.
 
 - [ ] **Step 1: Write boundary and race tests**
 
-199->200 succeeds; 200->201 rejects. Initial/recovery races total exactly 200. Failed StartExecution still counts as an attempt. TTL deletion is irrelevant.
+199->200 succeeds; 200->201 rejects. Initial/recovery races total exactly 200. Failed StartExecution
+still counts as an attempt. TTL deletion is irrelevant.
 
 - [ ] **Step 2: Add service-level no-call tests**
 
-Fake executor records zero calls when quota rejects. The 100 task-hour metric is absent from the decision path.
+Fake executor records zero calls when quota rejects. The 100 task-hour metric is absent from the
+decision path.
 
 - [ ] **Step 3: Implement conditional counter and wire both callers**
 
@@ -402,17 +526,21 @@ UTC month key; atomic ADD/condition; no read-then-write race.
 - Create: packages/cnes_infra/tests/control_plane/test_outbox_cursor.py
 
 **Interfaces:**
-- Replaces pending_outbox(limit) with read_outbox_page(cursor, limit) and advance_outbox_cursor(expected, next).
-- A pass advances after evaluating each page, wraps, and retries poison without starving later pages.
+- Replaces pending_outbox(limit) with read_outbox_page(cursor, limit) and
+  advance_outbox_cursor(expected, next).
+- A pass advances after evaluating each page, wraps, and retries poison without starving later
+  pages.
 - Delivery marker changes only after S3 COMPLIANCE append succeeds.
 
 - [ ] **Step 1: Write 100-poison plus second-page test**
 
-First page remains pending/retrying; second page still delivers in the same/bounded subsequent pass; cursor wraps and replay is idempotent.
+First page remains pending/retrying; second page still delivers in the same/bounded subsequent pass;
+cursor wraps and replay is idempotent.
 
 - [ ] **Step 2: Write CAS conflict and crash tests**
 
-Concurrent cursor advancement has one winner. Crash after S3 append/before marker replays the same object idempotently and then marks.
+Concurrent cursor advancement has one winner. Crash after S3 append/before marker replays the same
+object idempotently and then marks.
 
 - [ ] **Step 3: Change the port and all fake implementations serially**
 
@@ -445,23 +573,28 @@ No Scan, DeleteItem or PutItem for the dispatch role path. Strongly revalidate e
 **Interfaces:**
 - Allowed modes: run-unit, recover-once, dispatch-outbox-once.
 - recover-once builds coordinator only, batch 100, lease/deadline 3600, no unit env or audit sink.
-- dispatch-outbox-once builds control plane+audit sink+UTC clock, limit 100, deadline 60, no unit env.
+- dispatch-outbox-once builds control plane+audit sink+UTC clock, limit 100, deadline 60, no unit
+  env.
 
 - [ ] **Step 1: Write mode/env isolation tests**
 
-Each mode rejects another mode's required/forbidden variables and dependency construction. Unknown mode exits terminal configuration code.
+Each mode rejects another mode's required/forbidden variables and dependency construction. Unknown
+mode exits terminal configuration code.
 
 - [ ] **Step 2: Write deadline behavior**
 
-PID 1 deadline cancels work, logs bounded event, exits nonzero and never continues past lease. Audit deadline is 60 seconds.
+PID 1 deadline cancels work, logs bounded event, exits nonzero and never continues past lease. Audit
+deadline is 60 seconds.
 
 - [ ] **Step 3: Implement small composition factories**
 
-Reuse canonical AwsRuntime client/adapters. Do not instantiate API runtime, normal unit registry in recover, or audit sink in recover.
+Reuse canonical AwsRuntime client/adapters. Do not instantiate API runtime, normal unit registry in
+recover, or audit sink in recover.
 
 - [ ] **Step 4: Test overlapping recovery passes**
 
-No global recovery lock, but environment semaphore ensures at most one unit task; losing recoveries do not StartExecution and same-run dispatch CAS remains stable.
+No global recovery lock, but environment semaphore ensures at most one unit task; losing recoveries
+do not StartExecution and same-run dispatch CAS remains stable.
 
 - [ ] **Step 5: Run and commit**
 
@@ -491,21 +624,27 @@ same host silently.
 - Create: tests/production/test_credential_process.py
 
 **Interfaces:**
-- AWS_PROFILE=cnesdata-production and AWS_CONFIG_FILE point to a read-only config whose credential_process calls aws_signing_helper credential-process --session-duration 3600.
-- Container sees only required helper/config/leaf key material, key readable by fixed UID; no shared static credentials.
+- AWS_PROFILE=cnesdata-production and AWS_CONFIG_FILE point to a read-only config whose
+  credential_process calls aws_signing_helper credential-process --session-duration 3600.
+- Container sees only required helper/config/leaf key material, key readable by fixed UID; no shared
+  static credentials.
 - API binds one loopback port and no CnesData processor runs on the VPS.
 
 - [ ] **Step 1: Write static-image/Compose tests**
 
-Require non-root/read-only/cap-drop/no-new-privileges/limits/health. Reject docker.sock, host network, public port, LimnoPulse path/network and AWS_ACCESS_KEY_ID/SECRET/SESSION.
+Require non-root/read-only/cap-drop/no-new-privileges/limits/health. Reject docker.sock, host
+network, public port, LimnoPulse path/network and AWS_ACCESS_KEY_ID/SECRET/SESSION.
 
 - [ ] **Step 2: Write botocore advisory-refresh test**
 
-First AWS call invokes helper, calls before advisory window do not, first call inside 15-minute window refreshes once; helper failure fails closed. Use fake clock/process provider, no real certificate.
+First AWS call invokes helper, calls before advisory window do not, first call inside 15-minute
+window refreshes once; helper failure fails closed. Use fake clock/process provider, no real
+certificate.
 
 - [ ] **Step 3: Implement credential_process config**
 
-Exact helper path, certificate/private-key/trust-anchor/profile/role ARNs from mounted public/root-owned files; session duration 3600. No shell interpolation.
+Exact helper path, certificate/private-key/trust-anchor/profile/role ARNs from mounted
+public/root-owned files; session duration 3600. No shell interpolation.
 
 - [ ] **Step 4: Build and smoke**
 
@@ -534,15 +673,19 @@ Exact helper path, certificate/private-key/trust-anchor/profile/role ARNs from m
 
 - [ ] **Step 1: Aggregate all production deltas**
 
-Dependency gate, dashboard absolute client, OIDC resource, route/CORS, 200 serving, AWS-012 override, fence/semaphore, quota, cursor outbox, processor modes and credential process.
+Dependency gate, dashboard absolute client, OIDC resource, route/CORS, 200 serving, AWS-012
+override, fence/semaphore, quota, cursor outbox, processor modes and credential process.
 
 - [ ] **Step 2: Add negative source checks**
 
-Reject relative production /api, origin-level activation, API log formatting of url, 307 serving response, AssignPublicIp DISABLED, NAT/ALB, static AWS key fields, Scan in new adapters and task-hour start gate.
+Reject relative production /api, origin-level activation, API log formatting of url, 307 serving
+response, AssignPublicIp DISABLED, NAT/ALB, static AWS key fields, Scan in new adapters and
+task-hour start gate.
 
 - [ ] **Step 3: Extend existing hosted-runner jobs**
 
-Run focused suites and emulator-backed integration with unconditional teardown. Keep root permissions contents:read and no secrets/id-token.
+Run focused suites and emulator-backed integration with unconditional teardown. Keep root
+permissions contents:read and no secrets/id-token.
 
 - [ ] **Step 4: Run complete quality gates**
 
@@ -559,18 +702,28 @@ Run focused suites and emulator-backed integration with unconditional teardown. 
 
 ## Execution Order
 
-Task 1 is a hard gate. Tasks 2 and 6 may start after it. Task 3 waits for Task 2; Tasks 4 and 5 wait for Tasks 2-3. Task 7 is the serial control-plane foundation. Task 8 waits for Task 7. Task 9 is another serial control-plane hotspot and starts after Task 8 merges. Task 10 waits for Tasks 8-9. Task 11 can proceed after Tasks 1 and 3. Task 12 waits for all prior tasks.
+Task 1 is a hard gate. Tasks 2 and 6 may start after it. Task 3 waits for Task 2; Tasks 4 and 5 wait
+for Tasks 2-3. Task 7 is the serial control-plane foundation. Task 8 waits for Task 7. Task 9 is
+another serial control-plane hotspot and starts after Task 8 merges. Task 10 waits for Tasks 8-9.
+Task 11 can proceed after Tasks 1 and 3. Task 12 waits for all prior tasks.
 
 ## Plan Self-Review Record
 
-- Existing-plan boundary: AWS-010…014 files are extended in place; no duplicate adapter/composition exists.
-- Browser contract: exact API origin, versioned activation, bearer/tenant scoping and header-free S3 fetch align across dashboard/API tests.
+- Existing-plan boundary: AWS-010…014 files are extended in place; no duplicate
+  adapter/composition exists.
+- Browser contract: exact API origin, versioned activation, bearer/tenant scoping and header-free S3
+  fetch align across dashboard/API tests.
 - Processing contract: public-IP Fargate is explicit and does not loosen the generic test profile.
-- Correctness: fence, semaphore, counter and outbox cursor are typed domain operations with conditional adapters.
+- Correctness: fence, semaphore, counter and outbox cursor are typed domain operations with
+  conditional adapters.
 - Operations: recovery and audit share the image but not configuration/composition/deadline.
-- Credentials: production uses credential_process; no static keys or shared credential file assumption.
+- Credentials: production uses credential_process; no static keys or shared credential file
+  assumption.
 - Completeness scan: no unresolved marker, skipped dependency or undefined mode.
 
 ## Execution Handoff
 
-Do not dispatch any implementation task until the dependency gate can pass on develop. After this plan is merged and green, the production infrastructure plan may consume these exact settings, IAM and task-mode contracts.
+Do not dispatch any implementation task until the dependency gate can pass on develop. After this
+plan is merged and green, the production infrastructure plan may consume these exact settings, IAM
+and task-mode contracts.
+
