@@ -102,21 +102,25 @@ every develop commit gets its own verify-production.yml run Task 2 can look up b
 - Create: tests/production/delivery/test_ci_workflows.py
 
 **Interfaces:**
-- Required jobs: CND/AWS, dashboard, API image, processor image, OCI/SBOM/scan, OpenTofu/policy/cost
-  and manifest/secret scan.
+- Required jobs: CND/AWS, dashboard, API image, processor image, oci-build, oci-publish,
+  OpenTofu/policy/cost and manifest/secret scan.
 - Triggers: pull_request and workflow_dispatch, plus push on develop with no path filter (produces
   the SHA-keyed run Task 2 requires).
 - "Credential-free" applies to pull_request only: hosted runner, no self-hosted runner, no secrets,
-  no id-token, no packages-write, root permissions contents:read. The push-on-develop trigger is the
-  one exception: it adds packages:write scoped only to the OCI job, only to push, so this workflow
-  can push the image it already built -- no other trigger and no other job gains a credential.
+  no id-token, no packages-write, root permissions contents:read. GitHub Actions permissions are
+  fixed per job for the whole job regardless of triggering event, so a single OCI job cannot be
+  packages-write on push and not on pull_request -- that split needs two jobs, not one conditional
+  permission. oci-publish is the one exception: job-level packages:write, gated to run only on push
+  (if: github.event_name == 'push') -- no other job and no other trigger gains a credential.
 - Build once, promote by digest: the image bytes Task 2 promotes to a candidate must be the exact
-  bytes this workflow built and scanned for that SHA, not a fresh build. On pull_request there is no
-  packages-write, so the OCI job builds without pushing. On push to develop the same job builds the
-  identical image and pushes it to GHCR keyed by digest. Task 2 must never invoke docker build again
-  for a SHA this workflow already built on push -- a second build against a mutable base tag
-  (python:3.13-slim) or apt-get update/upgrade can silently produce different bytes than the ones
-  SBOM'd and scanned, making the scan evidence describe an image nobody ships.
+  bytes oci-build built and scanned for that SHA, not a fresh build. oci-build always builds without
+  push (no packages-write in that job on any trigger), generates SBOM/checksum, scans, and uploads
+  the built image as a workflow artifact (docker save). On push to develop only, oci-publish
+  downloads that same artifact, docker load's it and pushes it to GHCR keyed by digest -- it never
+  invokes docker build itself. Task 2 must never invoke docker build again either -- a second build
+  against a mutable base tag (python:3.13-slim) or apt-get update/upgrade can silently produce
+  different bytes than the ones SBOM'd and scanned, making the scan evidence describe an image
+  nobody ships.
 
 - [ ] **Step 1: Write workflow contract tests**
 
@@ -131,10 +135,11 @@ origin, tenant header scope and no relative /api.
 
 - [ ] **Step 3: Add OCI and OpenTofu gates**
 
-On pull_request, build without push, generate SBOM/checksum, scan reviewed severity. On push to
-develop, build the same image and push it to GHCR keyed by digest (packages:write scoped to this
-job only) so Task 2 can promote it by digest instead of rebuilding. Both triggers validate Compose,
-tofu/provider lock, OPA cost/secret/ownership.
+oci-build (no packages-write, runs on every trigger): build without push, generate SBOM/checksum,
+scan reviewed severity, upload the built image as a docker save artifact. oci-publish
+(packages:write, if: github.event_name == 'push', depends on oci-build): download that artifact,
+docker load, push to GHCR keyed by digest -- no rebuild, so Task 2 can promote the exact scanned
+bytes. Every trigger validates Compose, tofu/provider lock, OPA cost/secret/ownership.
 
 - [ ] **Step 4: Run local equivalents and actionlint**
 

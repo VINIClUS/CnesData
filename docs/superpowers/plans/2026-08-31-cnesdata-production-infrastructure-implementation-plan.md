@@ -411,29 +411,47 @@ task/execution roles and ECS task families; this task extends both module blocks
 Step Functions role and state machine, it does not create the module blocks themselves. Task 10
 (which adds more files to the same runtime-iam module) inherits this same extend-not-recreate rule.
 
+The Step Functions role and its ecs:RunTask policy cannot both live in runtime_iam: the state
+machine (processing) needs the role's ARN, and the role's ecs:RunTask policy needs processing's own
+exact task revision ARNs -- if both directions cross the same two module blocks, OpenTofu cannot
+resolve the cycle. This task splits them: runtime-iam/step-functions.tf creates only the role and
+its trust policy plus the non-revision-dependent permissions (EventBridge managed-rule actions,
+iam:PassRole, Logs delivery) and outputs the role id/arn; processing/step_functions.tf takes that
+role id as an input and creates the state machine (role_arn = var.step_functions_role_id's arn) and
+a separate aws_iam_role_policy resource attaching ecs:RunTask, scoped to processing's own task
+revision ARNs, to that same role. The dependency is one-directional: processing depends on
+runtime_iam's role output; runtime_iam never depends on processing.
+
 **Branch:** feat/prod-infra-008-step-functions
 
 **Files:**
 - Create: infra/opentofu/modules/processing/state_machine.asl.json
-- Create: infra/opentofu/modules/processing/step_functions.tf
+- Create: infra/opentofu/modules/processing/step_functions.tf (state machine plus the
+  ecs:RunTask aws_iam_role_policy attached to the role id passed in from runtime_iam)
 - Modify: infra/opentofu/modules/processing/variables.tf (Task 7 already creates this for the ECS
-  task families; add Step Functions inputs without touching the existing ECS contract)
+  task families; add Step Functions inputs, including the runtime_iam step-functions role id,
+  without touching the existing ECS contract)
 - Modify: infra/opentofu/modules/processing/outputs.tf (same file as Task 7; extend, do not
   recreate)
-- Create: infra/opentofu/modules/runtime-iam/step-functions.tf
+- Create: infra/opentofu/modules/runtime-iam/step-functions.tf (role and trust policy only --
+  EventBridge, PassRole and Logs permissions; no ecs:RunTask, no dependency on processing outputs)
 - Modify: infra/opentofu/modules/runtime-iam/variables.tf (Task 7 already creates this for the base
   task/execution roles; add Step Functions inputs without touching the existing contract)
 - Modify: infra/opentofu/modules/runtime-iam/outputs.tf (same file as Task 7; extend, do not
-  recreate)
+  recreate; add the Step Functions role id/arn output processing consumes)
 - Modify: infra/opentofu/env/prod/main.tf (extend the module "runtime_iam" and module "processing"
   blocks Task 7 already instantiated with the new Step Functions inputs, wired to the network,
-  control-plane, data-buckets and processor-registry module outputs from earlier tasks)
+  control-plane, data-buckets and processor-registry module outputs from earlier tasks; pass
+  module.runtime_iam's step-functions role id into module "processing")
 - Create: tests/production/infra/test_step_functions_iam.py
 
 **Interfaces:**
 - Standard state machine, Inline Map, canonical three waves, MaxConcurrency=1 and exact task
   revision ARN input.
-- Step Functions role trusts states.amazonaws.com with exact SourceAccount/SourceArn.
+- Step Functions role trusts states.amazonaws.com with exact SourceAccount/SourceArn; the role
+  itself is defined in runtime_iam with no dependency on processing.
+- ecs:RunTask exact current/candidate revisions is a policy attached to that role from inside the
+  processing module, not from runtime_iam -- this is the one-directional edge that avoids the cycle.
 - module "runtime_iam" and module "processing" keep the single root instantiation Task 7 created;
   this task only extends the inputs each already consumes (no broad module.network or
   module.control_plane object passed through wholesale).
@@ -445,9 +463,10 @@ Distributed Map, no execution data logging and exact ECS network parameters.
 
 - [ ] **Step 2: Write IAM positive/negative matrix**
 
-ecs:RunTask exact current/candidate revisions; Describe/Stop Resource:* only where AWS requires;
-EventBridge managed-rule actions exact; iam:PassRole exact roles and PassedToService; required Logs
-delivery wildcard action set exact.
+ecs:RunTask exact current/candidate revisions attached from processing to the runtime_iam role id;
+Describe/Stop Resource:* only where AWS requires; EventBridge managed-rule actions exact (defined in
+runtime_iam); iam:PassRole exact roles and PassedToService; required Logs delivery wildcard action
+set exact. A plan test proving no cycle: runtime_iam's plan never references a processing output.
 
 - [ ] **Step 3: Implement API/runtime task policies**
 
@@ -458,8 +477,10 @@ GetObject/stat. Processor prefix actions follow the Spec; deny delete/list/raw/a
 
 Add the Step Functions inputs to the existing module "runtime_iam" and module "processing" blocks
 Task 7 instantiated, wired to the network, control-plane, data-buckets and processor-registry module
-outputs. Write a plan test asserting tofu plan actually schedules the state machine and the new IAM
-policy attachments for creation, not just that the module source compiles in isolation.
+outputs, passing module.runtime_iam's step-functions role id into module "processing" so the
+ecs:RunTask policy attaches inside processing rather than closing the cycle at root. Write a plan
+test asserting tofu plan actually schedules the state machine and the new IAM policy attachments for
+creation, not just that the module source compiles in isolation.
 
 - [ ] **Step 5: Run runtime validator against rendered ASL**
 
@@ -559,6 +580,8 @@ of this task, not a follow-up.
 
 **Files:**
 - Create: infra/opentofu/modules/athena/**
+- Create: infra/opentofu/modules/athena/cutoff_handler.py (Lambda source: calls Athena
+  UpdateWorkGroup to set State=DISABLED for the exact workgroup name)
 - Create: infra/opentofu/modules/observability/**
 - Create: policies/cnesdata.rego
 - Create: schemas/cost-manifest.schema.json
@@ -573,9 +596,12 @@ of this task, not a follow-up.
   aggregate is not natively enforceable by an Athena workgroup setting, so it is enforced by the
   cutoff alarm's action, not by monitoring alone -- an alarm without an action only notifies while
   queries keep running past the promised boundary.
-- Athena cutoff alarm action disables new query execution: on breach it invokes the automation role
-  to set the workgroup's state to DISABLED (Athena StartQueryExecution rejects on a disabled
-  workgroup); re-enabling is a manual operator action once next month's period resets the metric.
+- Athena cutoff alarm action disables new query execution: a CloudWatch metric alarm cannot itself
+  assume a role or call an AWS API, so the alarm's action targets an SNS topic subscribed by a small
+  Lambda (cutoff_handler.py) whose execution role is the automation role, scoped only to
+  athena:UpdateWorkGroup on this exact workgroup; the Lambda sets State=DISABLED (Athena
+  StartQueryExecution rejects on a disabled workgroup). Re-enabling is a manual operator action once
+  next month's period resets the metric.
 - Alarms cover API/tunnel reference, DynamoDB, Step Functions, ECS, S3 denial, audit backlog, Athena
   cutoff, 100 task-hours and 200 attempts.
 - Product outputs exact automation role ARNs eligible for shared freeze policy and for the Athena
@@ -586,9 +612,10 @@ of this task, not a follow-up.
 - [ ] **Step 1: Write Athena non-API and cutoff tests**
 
 No API task role action. Workgroup enforce_work_group_configuration=true, per-query bytes cutoff and
-private result location/lifecycle. A test proving the monthly cutoff alarm's action sets the
-workgroup to DISABLED, not only that the alarm exists -- an alarm with no disabling action does not
-satisfy the 100 GB/month cutoff promise.
+private result location/lifecycle. A test proving the cutoff alarm's action is the SNS topic wired
+to cutoff_handler.py, and the Lambda's own test proving it calls UpdateWorkGroup(State=DISABLED) for
+the exact workgroup name -- an alarm with no executable handler behind it does not satisfy the
+100 GB/month cutoff promise.
 
 - [ ] **Step 2: Write cost manifest and forbidden-resource policy**
 
