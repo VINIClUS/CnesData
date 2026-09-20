@@ -220,6 +220,28 @@ def test_restore_backup_recusa_tenant_configurado_diferente(tmp_path: Path) -> N
     assert not restore_state_db.exists()
 
 
+def test_restore_backup_recusa_versao_de_manifesto_incompativel(tmp_path: Path) -> None:
+    state_db, data_dir = _prepared_dirs(tmp_path)
+    archive = tmp_path / "backup.tar"
+    manifest = create_backup(state_db, data_dir, archive, _NOW)
+    incompatible_manifest = manifest.model_copy(update={"backup_version": 999})
+    tampered = tmp_path / "incompatible.tar"
+    with tarfile.open(archive, "r") as source_tar, tarfile.open(tampered, "w") as dest_tar:
+        for member in source_tar.getmembers():
+            body = source_tar.extractfile(member).read()
+            if member.name == "manifest.json":
+                body = incompatible_manifest.model_dump_json().encode()
+                member.size = len(body)
+            dest_tar.addfile(member, io.BytesIO(body))
+    restore_data_dir = tmp_path / "restored"
+    restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
+
+    with pytest.raises(RestoreRejected, match="backup_version_unsupported"):
+        restore_backup(tampered, restore_state_db, restore_data_dir, "354130")
+
+    assert not restore_state_db.exists()
+
+
 def test_restore_backup_falha_no_publish_sem_deixar_arvore_parcial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

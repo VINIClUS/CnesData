@@ -52,14 +52,21 @@ logger = logging.getLogger(__name__)
 
 
 def _processor_recoverable_runs(
-    control_plane: ControlPlanePort, now: datetime, limit: int
+    control_plane: ControlPlanePort,
+    now: datetime,
+    limit: int,
+    skipped: set[tuple[str, str]],
 ) -> tuple[Run, ...]:
     if limit <= 0:
         return ()
     query_limit = limit
     while True:
         candidates = control_plane.list_recoverable_runs(now, query_limit)
-        selected = tuple(run for run in candidates if run.state in _RECOVERABLE_RUN_STATES)
+        selected = tuple(
+            run for run in candidates
+            if run.state in _RECOVERABLE_RUN_STATES
+            and (run.tenant_id, run.run_id) not in skipped
+        )
         if len(selected) >= limit or len(candidates) < query_limit:
             return selected[:limit]
         query_limit *= 2
@@ -273,19 +280,24 @@ class PipelineCoordinator:
     def recover(self, limit: int = 100) -> tuple[CoordinatorResult, ...]:
         control_plane = self._dependencies.control_plane
         now = self._dependencies.clock()
-        candidates = _processor_recoverable_runs(control_plane, now, limit)
+        skipped: set[tuple[str, str]] = set()
         results: list[CoordinatorResult] = []
-        for run in candidates:
-            if run.state not in _RECOVERABLE_RUN_STATES:
-                continue
-            try:
-                results.append(self.resume(run.tenant_id, run.run_id))
-            except Exception:
-                logger.exception(
-                    "recover_run_error tenant_id=%s run_id=%s",
-                    run.tenant_id,
-                    run.run_id,
-                )
+        while len(results) < limit:
+            candidates = _processor_recoverable_runs(
+                control_plane, now, limit - len(results), skipped
+            )
+            if not candidates:
+                break
+            for run in candidates:
+                skipped.add((run.tenant_id, run.run_id))
+                try:
+                    results.append(self.resume(run.tenant_id, run.run_id))
+                except Exception:
+                    logger.exception(
+                        "recover_run_error tenant_id=%s run_id=%s",
+                        run.tenant_id,
+                        run.run_id,
+                    )
         return tuple(results)
 
 

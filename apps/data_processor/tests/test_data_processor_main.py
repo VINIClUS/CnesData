@@ -130,6 +130,21 @@ class TestMainProfileLocal:
 
 
 class TestPollUntilShutdown:
+    def test_audit_tick_registra_eventos_entregues(self, caplog):
+        from types import SimpleNamespace
+
+        from data_processor.main import _audit_tick
+
+        with patch(
+            "data_processor.main.dispatch_once",
+            return_value=SimpleNamespace(delivered=1, failed=0),
+        ) as dispatch:
+            with caplog.at_level("INFO", logger="data_processor.main"):
+                _audit_tick(object(), object())
+
+        dispatch.assert_called_once()
+        assert "local_profile_audit_tick delivered=1 failed=0" in caplog.text
+
     @pytest.mark.asyncio
     async def test_poll_until_shutdown_executa_tick_de_auditoria(self):
         import asyncio

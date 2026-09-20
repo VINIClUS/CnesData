@@ -41,6 +41,7 @@ from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     CoordinatorResult,
     PipelineCoordinator,
+    _processor_recoverable_runs,
     allow_execution,
     noop_execution_started,
 )
@@ -544,6 +545,10 @@ def test_recover_nao_deixa_waiting_runs_bloquearem_runs_do_processor(
     assert [result.state for result in results] == [RunState.PROCESSING]
 
 
+def test_recover_com_limite_zero_retorna_vazio(adapter, clock):
+    assert _processor_recoverable_runs(adapter, clock.now(), 0, set()) == ()
+
+
 def test_recover_isola_falha_de_um_run_e_continua_com_os_demais(
     adapter, executor, store, clock, monkeypatch, caplog
 ):
@@ -568,6 +573,51 @@ def test_recover_isola_falha_de_um_run_e_continua_com_os_demais(
 
     assert results == (expected,)
     assert "recover_run_error tenant_id=354130 run_id=a-failed" in caplog.text
+
+
+def test_recover_avanca_alem_de_candidatos_com_falha_persistente(
+    adapter, executor, store, clock, monkeypatch
+):
+    failed_runs = tuple(
+        _run().model_copy(update={"run_id": f"a-failed-{index:03d}"})
+        for index in range(100)
+    )
+    healthy = _run().model_copy(update={"run_id": "z-healthy"})
+    for run in (*failed_runs, healthy):
+        adapter.put_run(run)
+    coordinator = PipelineCoordinator(_dependencies(adapter, executor, store, clock), _execution())
+    expected = CoordinatorResult(
+        state=RunState.PROCESSING, execution_ref=None, published=False
+    )
+    resumed: list[str] = []
+
+    def resume(tenant_id: str, run_id: str) -> CoordinatorResult:
+        del tenant_id
+        resumed.append(run_id)
+        if run_id.startswith("a-failed-"):
+            raise ValueError("missing_output")
+        return expected
+
+    monkeypatch.setattr(coordinator, "resume", resume)
+
+    results = coordinator.recover(limit=100)
+
+    assert results == (expected,)
+    assert resumed[-1] == "z-healthy"
+
+
+def test_resume_propaga_erro_de_status_desconhecido(adapter, executor, store, clock, monkeypatch):
+    _seed(adapter, manifests=_full_manifests())
+    coordinator = PipelineCoordinator(_dependencies(adapter, executor, store, clock), _execution())
+    coordinator.resume(_TENANT, _RUN_ID)
+
+    def status(_execution_ref: str) -> ExecutionStatus:
+        raise ValueError("executor_broken")
+
+    monkeypatch.setattr(executor, "status", status)
+
+    with pytest.raises(ValueError, match="executor_broken"):
+        coordinator.resume(_TENANT, _RUN_ID)
 
 
 def test_recover_reinicia_dispatch_sem_referencia_do_pool_anterior(

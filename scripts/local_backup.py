@@ -161,7 +161,10 @@ def _reject_if_nonempty(state_db: Path, data_dir: Path) -> None:
 
 def _load_manifest(staging: Path) -> BackupManifest:
     payload = (staging / _MANIFEST_NAME).read_bytes()
-    return BackupManifest.model_validate_json(payload)
+    manifest = BackupManifest.model_validate_json(payload)
+    if manifest.backup_version != _BACKUP_VERSION:
+        raise RestoreRejected("backup_version_unsupported")
+    return manifest
 
 
 def _verify_files(staging: Path, manifest: BackupManifest) -> None:
