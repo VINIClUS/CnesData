@@ -2,7 +2,7 @@
 
 install-tools:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
-	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1
+	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
 	go install go.uber.org/mock/mockgen@v0.5.0
 
 gen:
