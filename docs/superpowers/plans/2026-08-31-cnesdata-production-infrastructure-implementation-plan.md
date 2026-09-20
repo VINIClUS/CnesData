@@ -341,7 +341,14 @@ Plan output exact subnet/SG tuple must pass the runtime production-network test.
     git add infra/opentofu/modules/network infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(network): add zero-ingress fargate egress"
 
-### Task 7: Provision Processor ECR and Immutable ECS Task Families
+### Task 7: Provision Processor ECR, Base Runtime IAM and Immutable ECS Task Families
+
+An aws_ecs_task_definition requires execution_role_arn and task_role_arn at creation, so the base
+runtime-iam roles cannot be deferred to Task 8 -- that would leave this task nothing to pass into
+the task definitions it claims to register. This task creates that minimal role slice itself
+(task/execution roles only, no Step Functions role) and instantiates both modules at root; Task 8
+extends the same runtime-iam module with the Step Functions role afterward, since only then do the
+task revision ARNs this role's PassRole policy needs actually exist.
 
 **Branch:** feat/prod-infra-007-ecs
 
@@ -350,7 +357,11 @@ Plan output exact subnet/SG tuple must pass the runtime production-network test.
 - Create: infra/opentofu/modules/processing/ecs.tf
 - Create: infra/opentofu/modules/processing/variables.tf
 - Create: infra/opentofu/modules/processing/outputs.tf
-- Modify: infra/opentofu/env/prod/main.tf
+- Create: infra/opentofu/modules/runtime-iam/task-roles.tf
+- Create: infra/opentofu/modules/runtime-iam/variables.tf
+- Create: infra/opentofu/modules/runtime-iam/outputs.tf
+- Modify: infra/opentofu/env/prod/main.tf (instantiate module "runtime_iam" for the base
+  task/execution roles and module "processing" for ECR+ECS, wired to those role outputs)
 - Create: tests/production/infra/test_ecr_ecs.py
 
 **Interfaces:**
@@ -358,36 +369,47 @@ Plan output exact subnet/SG tuple must pass the runtime production-network test.
 - Module registers exact unit, recovery and audit task definitions from a verified image_digest
   input.
 - Task roles and execution roles are separate; log payloads disabled/redacted.
+- module "runtime_iam" and module "processing" are instantiated exactly once at root here; Task 8
+  extends both module blocks' inputs for Step Functions, it does not re-instantiate them.
 
 - [ ] **Step 1: Write ECR lifecycle/scan tests**
 
 Scan on push; untagged seven days; at most five prod/30 days while retaining explicitly declared
 current/prior digests.
 
-- [ ] **Step 2: Write task-definition tests**
+- [ ] **Step 2: Write task-definition and base-role tests**
 
 Linux/x86_64, FARGATE, 0.25 vCPU, bounded memory, 20 GiB, read-only/non-root/no privilege, awslogs
-seven days, mode-specific command/deadline/env and no secret values.
+seven days, mode-specific command/deadline/env and no secret values. Execution role trusts
+ecs-tasks.amazonaws.com and allows only ECR pull/log-create actions on this product's own
+repository/log group; task role starts with no policy attached (Task 8 will need to extend it later
+for control-plane/serving access, but that extension is out of this task's scope).
 
 - [ ] **Step 3: Implement revision inputs for promotion phases**
 
 No mutable tag. image_uri must match ECR_URI@sha256. Candidate manifest does not contain task
 revision; phase A outputs exact revision ARNs.
 
-- [ ] **Step 4: Validate and commit**
+- [ ] **Step 4: Wire both modules into env/prod/main.tf**
+
+Add the module "runtime_iam" and module "processing" blocks with their required inputs from the
+network, control-plane and processor-registry module outputs from earlier tasks. Write a plan test
+asserting tofu plan actually schedules the task/execution roles and task definitions for creation,
+not just that the module source compiles in isolation.
+
+- [ ] **Step 5: Validate and commit**
 
     uv run pytest -q tests/production/infra/test_ecr_ecs.py
     tofu -chdir=infra/opentofu/env/prod validate -no-color
-    git add infra/opentofu/modules/processor-registry infra/opentofu/modules/processing infra/opentofu/env/prod tests/production/infra
-    git commit -m "feat(processing-infra): register immutable task families"
+    git add infra/opentofu/modules/processor-registry infra/opentofu/modules/processing infra/opentofu/modules/runtime-iam infra/opentofu/env/prod tests/production/infra
+    git commit -m "feat(processing-infra): register base runtime iam and immutable task families"
 
-### Task 8: Provision Step Functions and Exact Service IAM
+### Task 8: Provision Step Functions and Extend Service IAM
 
-This is where the processing and runtime-iam modules are first created; unlike every other task in
-this plan, nothing earlier can predeclare their root wiring because the modules do not exist yet.
-Without a module block in env/prod/main.tf, tofu apply never provisions the state machine or its
-roles, and Task 10 (which adds more files to the same runtime-iam module) inherits the same gap.
-This task must both create the modules and instantiate them at the root.
+Task 7 already instantiates module "runtime_iam" and module "processing" at root for the base
+task/execution roles and ECS task families; this task extends both module blocks' inputs for the
+Step Functions role and state machine, it does not create the module blocks themselves. Task 10
+(which adds more files to the same runtime-iam module) inherits this same extend-not-recreate rule.
 
 **Branch:** feat/prod-infra-008-step-functions
 
@@ -399,21 +421,22 @@ This task must both create the modules and instantiate them at the root.
 - Modify: infra/opentofu/modules/processing/outputs.tf (same file as Task 7; extend, do not
   recreate)
 - Create: infra/opentofu/modules/runtime-iam/step-functions.tf
-- Create: infra/opentofu/modules/runtime-iam/task-roles.tf
-- Create: infra/opentofu/modules/runtime-iam/variables.tf
-- Create: infra/opentofu/modules/runtime-iam/outputs.tf
-- Modify: infra/opentofu/env/prod/main.tf (instantiate module "runtime_iam" and module
-  "processing", wired to the network, control-plane, data-buckets and processor-registry module
-  outputs from earlier tasks)
+- Modify: infra/opentofu/modules/runtime-iam/variables.tf (Task 7 already creates this for the base
+  task/execution roles; add Step Functions inputs without touching the existing contract)
+- Modify: infra/opentofu/modules/runtime-iam/outputs.tf (same file as Task 7; extend, do not
+  recreate)
+- Modify: infra/opentofu/env/prod/main.tf (extend the module "runtime_iam" and module "processing"
+  blocks Task 7 already instantiated with the new Step Functions inputs, wired to the network,
+  control-plane, data-buckets and processor-registry module outputs from earlier tasks)
 - Create: tests/production/infra/test_step_functions_iam.py
 
 **Interfaces:**
 - Standard state machine, Inline Map, canonical three waves, MaxConcurrency=1 and exact task
   revision ARN input.
 - Step Functions role trusts states.amazonaws.com with exact SourceAccount/SourceArn.
-- module "runtime_iam" and module "processing" are instantiated exactly once at root, each
-  consuming only the specific outputs it needs (no broad module.network or module.control_plane
-  object passed through wholesale).
+- module "runtime_iam" and module "processing" keep the single root instantiation Task 7 created;
+  this task only extends the inputs each already consumes (no broad module.network or
+  module.control_plane object passed through wholesale).
 
 - [ ] **Step 1: Write ASL contract tests**
 
@@ -431,12 +454,12 @@ delivery wildcard action set exact.
 API exact machine start/describe, execution describe/stop, control-plane keys and serving
 GetObject/stat. Processor prefix actions follow the Spec; deny delete/list/raw/audit cross-access.
 
-- [ ] **Step 4: Wire both modules into env/prod/main.tf**
+- [ ] **Step 4: Extend both module blocks in env/prod/main.tf**
 
-Add the module "runtime_iam" and module "processing" blocks with their required inputs from the
-network, control-plane, data-buckets and processor-registry module outputs. Write a plan test
-asserting tofu plan actually schedules the state machine and IAM roles for creation, not just that
-the module source compiles in isolation.
+Add the Step Functions inputs to the existing module "runtime_iam" and module "processing" blocks
+Task 7 instantiated, wired to the network, control-plane, data-buckets and processor-registry module
+outputs. Write a plan test asserting tofu plan actually schedules the state machine and the new IAM
+policy attachments for creation, not just that the module source compiles in isolation.
 
 - [ ] **Step 5: Run runtime validator against rendered ASL**
 

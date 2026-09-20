@@ -473,8 +473,11 @@ itself.
 - Create: tests/production/delivery/test_phase_c.py
 - Modify: .github/workflows/promote-production.yml
 - Create: docs/runbooks/vps-processor-retirement.md (only after unit+recovery+audit acceptance:
-  confirm no in-flight VPS-claimed landing rows, stop and remove the data-processor service from
-  deploy/prod/docker-compose.prod.yml, redeploy the VPS stack without it)
+  quiesce new uploads, confirm the legacy landing queue has zero PENDING/CLAIMED/retry-eligible rows
+  -- not only CLAIMED, since claim_next() only ever consumes PENDING rows and a queued or
+  dependency-blocked row is never CLAIMED, so checking CLAIMED alone misses it -- stop and remove
+  the data-processor service from deploy/prod/docker-compose.prod.yml, redeploy the VPS stack
+  without it)
 
 **Interfaces:**
 - First reviewed apply changes only recovery Scheduler revision.
@@ -483,6 +486,9 @@ itself.
   clean.
 - VPS data-processor retirement runs only after fence reopens on full acceptance; a partial or
   rolled-back acceptance leaves the VPS service running.
+- Retirement requires the legacy landing queue empty of all claimable/retryable work (PENDING,
+  CLAIMED and any retry-eligible status), not only rows currently CLAIMED, with new uploads quiesced
+  first so nothing lands after the check passes.
 
 - [ ] **Step 1: Write phase-specific plan-delta tests**
 
@@ -511,10 +517,13 @@ stays closed.
 
 - [ ] **Step 6: Document VPS processor retirement**
 
-Write the runbook as a manual, reviewed procedure gated on full route acceptance: verify no
-in-flight VPS-claimed landing rows, stop the data-processor service, remove it from
-deploy/prod/docker-compose.prod.yml, redeploy the VPS stack. This is documentation for an operator
-action, not code this task automates.
+Write the runbook as a manual, reviewed procedure gated on full route acceptance: quiesce new
+uploads first, then verify the legacy landing queue has zero rows in PENDING, CLAIMED or any
+retry-eligible status -- checking CLAIMED alone is not sufficient, since claim_next() only consumes
+PENDING rows and a queued or dependency-blocked row never reaches CLAIMED, so it would pass this
+check and then strand once the service that claims it is gone. Only then stop the data-processor
+service, remove it from deploy/prod/docker-compose.prod.yml, redeploy the VPS stack. This is
+documentation for an operator action, not code this task automates.
 
 - [ ] **Step 7: Run and commit**
 
