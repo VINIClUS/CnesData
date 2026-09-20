@@ -47,19 +47,18 @@ def _seed_data_dir(data_dir: Path) -> None:
     (data_dir / "audit" / ".sink.lock").write_bytes(b"")
 
 
-def _prepared_dirs(tmp_path: Path) -> tuple[Path, Path]:
+def _prepared_dirs(tmp_path: Path) -> Path:
     data_dir = tmp_path / "data"
-    state_db = data_dir / "state" / "cnesdata.sqlite3"
-    _seed_state_db(state_db)
+    _seed_state_db(data_dir / "state" / "cnesdata.sqlite3")
     _seed_data_dir(data_dir)
-    return state_db, data_dir
+    return data_dir
 
 
 def test_create_backup_grava_manifest_com_hash_e_tamanho_por_arquivo(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     target = tmp_path / "backup.tar"
 
-    manifest = create_backup(state_db, data_dir, target, _NOW)
+    manifest = create_backup(data_dir, target, _NOW)
 
     assert manifest.tenant_id == "354130"
     assert manifest.created_at == _NOW
@@ -74,10 +73,10 @@ def test_create_backup_grava_manifest_com_hash_e_tamanho_por_arquivo(tmp_path: P
 
 
 def test_create_backup_so_produz_arquivo_alvo_completo(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     target = tmp_path / "backup.tar"
 
-    create_backup(state_db, data_dir, target, _NOW)
+    create_backup(data_dir, target, _NOW)
 
     assert target.exists()
     assert list(tmp_path.glob(".backup.tar*")) == []
@@ -86,7 +85,7 @@ def test_create_backup_so_produz_arquivo_alvo_completo(tmp_path: Path) -> None:
 
 
 def test_create_backup_fsync_arquivo_antes_de_publicar(tmp_path: Path, monkeypatch) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     target = tmp_path / "backup.tar"
     real_fsync = os.fsync
     regular_file_fsyncs = []
@@ -96,9 +95,9 @@ def test_create_backup_fsync_arquivo_antes_de_publicar(tmp_path: Path, monkeypat
             regular_file_fsyncs.append(descriptor)
         real_fsync(descriptor)
 
-    monkeypatch.setattr("scripts.local_backup.os.fsync", record_fsync)
+    monkeypatch.setattr("central_api.local_backup.os.fsync", record_fsync)
 
-    create_backup(state_db, data_dir, target, _NOW)
+    create_backup(data_dir, target, _NOW)
 
     assert regular_file_fsyncs
 
@@ -114,17 +113,17 @@ def test_create_backup_rejeita_state_db_sem_tenant(tmp_path: Path) -> None:
     _seed_data_dir(data_dir)
 
     with pytest.raises(BackupRejected, match="tenant_count_invalid"):
-        create_backup(state_db, data_dir, tmp_path / "backup.tar", _NOW)
+        create_backup(data_dir, tmp_path / "backup.tar", _NOW)
 
 
 def test_restore_backup_recompoe_state_db_e_objetos(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     target = tmp_path / "backup.tar"
-    create_backup(state_db, data_dir, target, _NOW)
-    restore_state_db = tmp_path / "restored" / "state" / "cnesdata.sqlite3"
+    create_backup(data_dir, target, _NOW)
     restore_data_dir = tmp_path / "restored"
+    restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
 
-    restore_backup(target, restore_state_db, restore_data_dir, "354130")
+    restore_backup(target, restore_data_dir, "354130")
 
     assert restore_state_db.exists()
     connection = sqlite3.connect(restore_state_db)
@@ -139,34 +138,32 @@ def test_restore_backup_recompoe_state_db_e_objetos(tmp_path: Path) -> None:
 
 
 def test_restore_backup_recusa_alvo_state_db_existente(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     target = tmp_path / "backup.tar"
-    create_backup(state_db, data_dir, target, _NOW)
-    existing_state_db = tmp_path / "restored" / "state" / "cnesdata.sqlite3"
-    _seed_state_db(existing_state_db)
+    create_backup(data_dir, target, _NOW)
+    restore_data_dir = tmp_path / "restored"
+    _seed_state_db(restore_data_dir / "state" / "cnesdata.sqlite3")
 
     with pytest.raises(RestoreRejected, match="target_not_empty"):
-        restore_backup(target, existing_state_db, tmp_path / "restored", "354130")
+        restore_backup(target, restore_data_dir, "354130")
 
 
 def test_restore_backup_recusa_objects_dir_nao_vazio(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     target = tmp_path / "backup.tar"
-    create_backup(state_db, data_dir, target, _NOW)
+    create_backup(data_dir, target, _NOW)
     restore_data_dir = tmp_path / "restored"
     (restore_data_dir / "objects").mkdir(parents=True)
     (restore_data_dir / "objects" / "leftover.txt").write_bytes(b"x")
 
     with pytest.raises(RestoreRejected, match="target_not_empty"):
-        restore_backup(
-            target, restore_data_dir / "state" / "cnesdata.sqlite3", restore_data_dir, "354130"
-        )
+        restore_backup(target, restore_data_dir, "354130")
 
 
 def test_restore_backup_recusa_hash_corrompido_sem_escrever_nada(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     target = tmp_path / "backup.tar"
-    create_backup(state_db, data_dir, target, _NOW)
+    create_backup(data_dir, target, _NOW)
     corrupted = tmp_path / "corrupted.tar"
     with tarfile.open(target, "r") as source_tar, tarfile.open(corrupted, "w") as dest_tar:
         for member in source_tar.getmembers():
@@ -179,16 +176,16 @@ def test_restore_backup_recusa_hash_corrompido_sem_escrever_nada(tmp_path: Path)
     restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
 
     with pytest.raises(RestoreRejected, match="hash_mismatch"):
-        restore_backup(corrupted, restore_state_db, restore_data_dir, "354130")
+        restore_backup(corrupted, restore_data_dir, "354130")
 
     assert not restore_state_db.exists()
     assert not (restore_data_dir / "objects").exists()
 
 
 def test_restore_backup_recusa_tenant_divergente(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     target = tmp_path / "backup.tar"
-    manifest = create_backup(state_db, data_dir, target, _NOW)
+    manifest = create_backup(data_dir, target, _NOW)
     tampered_manifest = manifest.model_copy(update={"tenant_id": "999999"})
     tampered = tmp_path / "tampered.tar"
     with tarfile.open(target, "r") as source_tar, tarfile.open(tampered, "w") as dest_tar:
@@ -202,28 +199,28 @@ def test_restore_backup_recusa_tenant_divergente(tmp_path: Path) -> None:
     restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
 
     with pytest.raises(RestoreRejected, match="tenant_mismatch"):
-        restore_backup(tampered, restore_state_db, restore_data_dir, "354130")
+        restore_backup(tampered, restore_data_dir, "354130")
 
     assert not restore_state_db.exists()
 
 
 def test_restore_backup_recusa_tenant_configurado_diferente(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     archive = tmp_path / "backup.tar"
-    create_backup(state_db, data_dir, archive, _NOW)
+    create_backup(data_dir, archive, _NOW)
     restore_data_dir = tmp_path / "restored"
     restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
 
     with pytest.raises(RestoreRejected, match="tenant_mismatch"):
-        restore_backup(archive, restore_state_db, restore_data_dir, "999999")
+        restore_backup(archive, restore_data_dir, "999999")
 
     assert not restore_state_db.exists()
 
 
 def test_restore_backup_recusa_versao_de_manifesto_incompativel(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     archive = tmp_path / "backup.tar"
-    manifest = create_backup(state_db, data_dir, archive, _NOW)
+    manifest = create_backup(data_dir, archive, _NOW)
     incompatible_manifest = manifest.model_copy(update={"backup_version": 999})
     tampered = tmp_path / "incompatible.tar"
     with tarfile.open(archive, "r") as source_tar, tarfile.open(tampered, "w") as dest_tar:
@@ -237,7 +234,7 @@ def test_restore_backup_recusa_versao_de_manifesto_incompativel(tmp_path: Path) 
     restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
 
     with pytest.raises(RestoreRejected, match="backup_version_unsupported"):
-        restore_backup(tampered, restore_state_db, restore_data_dir, "354130")
+        restore_backup(tampered, restore_data_dir, "354130")
 
     assert not restore_state_db.exists()
 
@@ -245,12 +242,11 @@ def test_restore_backup_recusa_versao_de_manifesto_incompativel(tmp_path: Path) 
 def test_restore_backup_falha_no_publish_sem_deixar_arvore_parcial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+    data_dir = _prepared_dirs(tmp_path)
     archive = tmp_path / "backup.tar"
-    create_backup(state_db, data_dir, archive, _NOW)
+    create_backup(data_dir, archive, _NOW)
     restore_data_dir = tmp_path / "restored"
     restore_data_dir.mkdir()
-    restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
     real_replace = os.replace
     calls = 0
 
@@ -261,21 +257,32 @@ def test_restore_backup_falha_no_publish_sem_deixar_arvore_parcial(
             raise OSError("disk_full")
         real_replace(source, destination)
 
-    monkeypatch.setattr("scripts.local_backup.os.replace", fail_install)
+    monkeypatch.setattr("central_api.local_backup.os.replace", fail_install)
     with pytest.raises(OSError, match="disk_full"):
-        restore_backup(archive, restore_state_db, restore_data_dir, "354130")
+        restore_backup(archive, restore_data_dir, "354130")
 
     assert list(restore_data_dir.iterdir()) == []
 
 
-def test_restore_backup_rejeita_state_db_fora_da_arvore(tmp_path: Path) -> None:
-    state_db, data_dir = _prepared_dirs(tmp_path)
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignora permissões de diretório")
+def test_restore_backup_funciona_com_parent_do_data_dir_somente_leitura(
+    tmp_path: Path,
+) -> None:
+    """`DATA_DIR=/data` em produção é o mountpoint de um volume nomeado, separado
+    do filesystem de `/`: staging não pode ser criado como irmão de `data_dir`
+    (permissão + cross-device rename), só dentro dele."""
+    data_dir = _prepared_dirs(tmp_path)
     archive = tmp_path / "backup.tar"
-    create_backup(state_db, data_dir, archive, _NOW)
-    restore_data_dir = tmp_path / "restored"
-    restore_state_db = tmp_path / "custom" / "state.sqlite3"
+    create_backup(data_dir, archive, _NOW)
+    mount = tmp_path / "mount"
+    mount.mkdir()
+    restore_data_dir = mount / "data"
+    restore_data_dir.mkdir()
+    mount.chmod(0o555)
+    try:
+        restore_backup(archive, restore_data_dir, "354130")
+    finally:
+        mount.chmod(0o755)
 
-    with pytest.raises(RestoreRejected, match="state_db_path_invalid"):
-        restore_backup(archive, restore_state_db, restore_data_dir, "354130")
-
-    assert not restore_data_dir.exists()
+    assert (restore_data_dir / "state" / "cnesdata.sqlite3").exists()
+    assert (restore_data_dir / "objects" / "raw" / "a.parquet").read_bytes() == b"payload-a"

@@ -46,6 +46,11 @@ jobs:
           go mod tidy
           git diff --exit-code go.mod go.sum
 
+      - name: OpenAPI client drift gate
+        run: |
+          go generate ./...
+          git diff --exit-code internal/apiclient/generated.go
+
       - name: Lint
         run: golangci-lint run --timeout=5m
 

@@ -102,6 +102,8 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `src/central_api/routes/provision.py` | cert enrollment |
 | `src/central_api/routes/provision_rotate.py` | cert rotation |
 | `repositories/dashboard_repo.py` | DashboardRepo (user/tenant/audit + agents/status + recent_runs) |
+| `src/central_api/bootstrap.py` | `python -m central_api.bootstrap` — primeiro usuário do profile local |
+| `src/central_api/local_backup.py` | `python -m central_api.local_backup {create,restore}` — backup/restore do profile local |
 
 ## Gotchas
 

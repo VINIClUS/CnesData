@@ -265,3 +265,15 @@ def test_compose_profile_local_usa_volume_nomeado_para_dados_gravaveis() -> None
     assert compose["volumes"]["local_data"] is None
     for service in ("central-api-local", "data-processor-local"):
         assert compose["services"][service]["volumes"] == ["local_data:/data"]
+
+
+def test_healthcheck_local_tolera_cold_start_de_interpretador() -> None:
+    compose = yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+
+    healthcheck = compose["services"]["central-api-local"]["healthcheck"]
+
+    assert healthcheck["timeout"] == "15s"
+    assert healthcheck["start_period"] == "60s"
+    assert compose["services"]["data-processor-local"]["depends_on"] == {
+        "central-api-local": {"condition": "service_healthy"}
+    }

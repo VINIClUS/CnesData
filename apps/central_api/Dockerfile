@@ -33,7 +33,9 @@ RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
     rm -rf /var/lib/apt/lists/*
 USER app
 EXPOSE 8000
-HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \
+# timeout/start_period alargados: cold-start do interpretador Python medido em
+# até 16s sob carga/hardware modesto (profile local via docker compose).
+HEALTHCHECK --interval=15s --timeout=15s --retries=3 --start-period=60s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"
 ENTRYPOINT ["uvicorn", "central_api.app:create_app", "--factory", \
             "--host", "0.0.0.0", "--port", "8000"]

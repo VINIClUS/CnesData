@@ -299,19 +299,26 @@ python scripts/fb156_setup.py   # extract FB 1.5.6 client to .cache/
 
 ## Docker Compose (local)
 
-Single `docker-compose.yml` com 3 profiles:
+Single `docker-compose.yml` com 5 profiles:
 
 - **`dev`** — postgres, minio, migrator, central-api, data-processor,
   web_dashboard, keycloak, pg-seed, minio-init. Portas
   5433/9000/9001/8000/5173/8080.
+- **`local`** — central-api-local, data-processor-local, web-dashboard-local.
+  SQLite + filesystem, sem Postgres/MinIO/Keycloak/AWS. Volume nomeado
+  `local_data`. Bring-up e operação: `docs/runbooks/local-profile.md`.
 - **`perf`** — postgres_perf (tuned), firebird_perf. Portas 5434/3051.
 - **`shadow`** — firebird-shadow (FB 2.5-ss), minio-shadow. Portas 3052/9100. Usado por `.github/workflows/shadow-e2e.yml`.
+- **`aws-test`** — dynamodb-local, localstack. Usado pela matriz de adapters AWS
+  (`tests/integration/test_aws_adapter_matrix.py`).
 
 Uso:
 ```bash
 docker compose --profile dev up -d
+docker compose --profile local up -d
 docker compose --profile perf up -d
 docker compose --profile shadow up -d
+docker compose --profile aws-test up -d
 ```
 
 Nota: o worker atual marca jobs reclamados como `COMPLETED` sem baixar artefatos;

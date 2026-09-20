@@ -38,8 +38,8 @@ linters-settings:
       - persistente
 
 issues:
-  exclude-dirs:
-    - internal/apiclient/generated
+  exclude-files:
+    - internal/apiclient/generated\.go
   exclude-rules:
     - path: _test\.go
       linters:

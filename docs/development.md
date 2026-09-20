@@ -45,6 +45,9 @@ Useful endpoints:
 | MinIO console | http://localhost:9001 |
 | Postgres | `localhost:5433` |
 
+Sem Postgres/MinIO/Keycloak (SQLite + filesystem, `--profile local`): ver
+`docs/runbooks/local-profile.md`.
+
 Run only the API from the workspace:
 
 ```bash
