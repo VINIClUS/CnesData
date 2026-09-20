@@ -128,6 +128,15 @@ lock, OPA cost/secret/ownership.
 
 ### Task 2: Define the Candidate Release Manifest
 
+The repository's required-checks-long-lived ruleset (github.com repo settings, not a workflow file)
+enforces only lint-test-coverage, sonar, dependencies, config and the four image jobs. It does not
+and cannot include verify-production.yml (Task 1) automatically -- that workflow is not part of the
+default branch protection contract and a ruleset can only be widened by an out-of-band repo-admin
+action, not by adding a workflow file. "Verify required checks" must therefore name
+verify-production.yml explicitly as a second, separate check this workflow queries by API for the
+exact source SHA; relying on the ruleset alone lets a candidate publish while
+OpenTofu/OPA/production image gates failed or never ran for that commit.
+
 **Branch:** feat/prod-delivery-002-candidate-manifest
 
 **Files:**
@@ -141,6 +150,10 @@ lock, OPA cost/secret/ownership.
 - Candidate records source SHA/run IDs, release ID, API GHCR digest, processor GHCR digest+expected
   ECR repo, dashboard checksum, Compose/config checksum, OpenTofu/provider lock and SBOM checksums.
 - No task-definition ARN or promoted ECR digest.
+- Candidate build queries the GitHub Checks API for the exact source SHA and requires both the
+  required-checks-long-lived set (lint-test-coverage, sonar, dependencies, config, image x4) and a
+  successful verify-production.yml run to be present and green; missing or non-green on either
+  fails the build before any GHCR push.
 
 - [ ] **Step 1: Write schema and forbidden-field tests**
 
@@ -154,7 +167,8 @@ run/SHA.
 
 - [ ] **Step 3: Implement candidate workflow**
 
-Trigger manually from a green develop commit contained in develop; verify required checks;
+Trigger manually from a green develop commit contained in develop; verify both the ruleset's
+required checks and a successful verify-production.yml run for that exact SHA via the Checks API;
 build/push API+processor GHCR once; upload bounded artifact. packages:write only for its own images.
 
 - [ ] **Step 4: Run tests/actionlint and commit**

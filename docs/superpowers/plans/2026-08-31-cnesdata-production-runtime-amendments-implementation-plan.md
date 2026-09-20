@@ -342,7 +342,8 @@ origin policy.
 - [ ] **Step 5: Run and commit**
 
     uv run pytest -q apps/central_api/tests/test_oauth_activate_confirm.py apps/central_api/tests/test_production_cors.py apps/central_api/tests/test_app.py
-    git add apps/central_api
+    cd apps/dump_agent_go && go test ./cmd/dumpagent/... -run TestRegister
+    git add apps/central_api apps/dump_agent_go
     git commit -m "feat(api): version activation and enforce exact cors"
 
 ### Task 5: Replace Signed-Serving Redirect with a 200 Envelope
@@ -464,9 +465,9 @@ promises would not be enforced. This task must wire both call sites, not just ad
 - Modify: packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_adapter.py
 - Create: packages/cnes_infra/tests/control_plane/test_environment_gate.py
 - Modify: apps/central_api/src/central_api/services/run_planning.py (wire acquire/bind around
-  _dispatch_protocol)
+  _dispatch_protocol and release around _settle_started)
 - Modify: apps/data_processor/src/data_processor/orchestration/coordinator.py (wire acquire/bind
-  around _dispatch_protocol)
+  around _dispatch_protocol and release around _settle_started)
 - Modify: apps/central_api/tests/services/test_run_planning.py
 - Modify: apps/data_processor/tests/test_coordinator.py (or the coordinator's current test module)
 
@@ -478,6 +479,10 @@ promises would not be enforced. This task must wire both call sites, not just ad
 - Both dispatch call sites (run_planning and coordinator) acquire a permit before executor.start()
   and bind it to the returned execution reference immediately after; a closed fence or a held permit
   rejects the dispatch before any Step Functions call.
+- Both settlement call sites (_settle_started in run_planning.py and coordinator.py) release the
+  bound permit the moment an execution reaches a terminal status (succeeded, failed or cancelled),
+  not only on a rejected/failed dispatch attempt; a successful wave must free the semaphore for the
+  next start.
 
 - [ ] **Step 1: Write pure transition tests**
 
@@ -502,10 +507,17 @@ liveness proof adapter result; never time alone.
 
 In run_planning.py and coordinator.py, acquire the unit permit immediately before executor.start()
 inside _dispatch_protocol and bind it to the execution reference on success; release on a rejected
-or failed dispatch. Write a test per call site proving a closed fence or held permit blocks
+or failed dispatch attempt. Write a test per call site proving a closed fence or held permit blocks
 executor.start() from being called at all (no Step Functions call on rejection).
 
-- [ ] **Step 6: Run package 100% branch gates and commit**
+- [ ] **Step 6: Release the permit on terminal settlement**
+
+In both _settle_started implementations, release the bound permit as soon as an execution's status
+transitions to succeeded, failed or cancelled. Write a test proving a successful wave frees the
+semaphore for the next AcquireUnitPermit call, not just a rejected/failed dispatch attempt; an
+execution left running or in an unrecognized status must not release.
+
+- [ ] **Step 7: Run package 100% branch gates and commit**
 
     uv run pytest packages/cnes_domain/tests/ports/test_environment_gate.py --cov --cov-branch
     uv run pytest -q packages/cnes_infra/tests/control_plane/test_environment_gate.py apps/central_api/tests apps/data_processor/tests

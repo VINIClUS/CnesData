@@ -377,19 +377,35 @@ revision; phase A outputs exact revision ARNs.
 
 ### Task 8: Provision Step Functions and Exact Service IAM
 
+This is where the processing and runtime-iam modules are first created; unlike every other task in
+this plan, nothing earlier can predeclare their root wiring because the modules do not exist yet.
+Without a module block in env/prod/main.tf, tofu apply never provisions the state machine or its
+roles, and Task 10 (which adds more files to the same runtime-iam module) inherits the same gap.
+This task must both create the modules and instantiate them at the root.
+
 **Branch:** feat/prod-infra-008-step-functions
 
 **Files:**
 - Create: infra/opentofu/modules/processing/state_machine.asl.json
 - Create: infra/opentofu/modules/processing/step_functions.tf
+- Create: infra/opentofu/modules/processing/variables.tf
+- Create: infra/opentofu/modules/processing/outputs.tf
 - Create: infra/opentofu/modules/runtime-iam/step-functions.tf
 - Create: infra/opentofu/modules/runtime-iam/task-roles.tf
+- Create: infra/opentofu/modules/runtime-iam/variables.tf
+- Create: infra/opentofu/modules/runtime-iam/outputs.tf
+- Modify: infra/opentofu/env/prod/main.tf (instantiate module "runtime_iam" and module
+  "processing", wired to the network, control-plane, data-buckets and processor-registry module
+  outputs from earlier tasks)
 - Create: tests/production/infra/test_step_functions_iam.py
 
 **Interfaces:**
 - Standard state machine, Inline Map, canonical three waves, MaxConcurrency=1 and exact task
   revision ARN input.
 - Step Functions role trusts states.amazonaws.com with exact SourceAccount/SourceArn.
+- module "runtime_iam" and module "processing" are instantiated exactly once at root, each
+  consuming only the specific outputs it needs (no broad module.network or module.control_plane
+  object passed through wholesale).
 
 - [ ] **Step 1: Write ASL contract tests**
 
@@ -407,13 +423,21 @@ delivery wildcard action set exact.
 API exact machine start/describe, execution describe/stop, control-plane keys and serving
 GetObject/stat. Processor prefix actions follow the Spec; deny delete/list/raw/audit cross-access.
 
-- [ ] **Step 4: Run runtime validator against rendered ASL**
+- [ ] **Step 4: Wire both modules into env/prod/main.tf**
+
+Add the module "runtime_iam" and module "processing" blocks with their required inputs from the
+network, control-plane, data-buckets and processor-registry module outputs. Write a plan test
+asserting tofu plan actually schedules the state machine and IAM roles for creation, not just that
+the module source compiles in isolation.
+
+- [ ] **Step 5: Run runtime validator against rendered ASL**
 
     uv run pytest -q tests/production/infra/test_step_functions_iam.py packages/cnes_infra/tests/executor
+    tofu -chdir=infra/opentofu validate -no-color
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
-    git add infra/opentofu/modules/processing infra/opentofu/modules/runtime-iam tests/production/infra
+    git add infra/opentofu/modules/processing infra/opentofu/modules/runtime-iam infra/opentofu/env/prod tests/production/infra
     git commit -m "feat(processing-infra): add exact step-functions iam"
 
 ### Task 9: Provision Recovery and Audit Schedulers
