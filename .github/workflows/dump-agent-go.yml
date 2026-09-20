@@ -15,6 +15,7 @@ on:
   schedule:
     - cron: "30 2 * * *"
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: dump-agent-go-${{ github.ref }}

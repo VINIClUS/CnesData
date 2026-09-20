@@ -35,8 +35,24 @@ Edge Agent. Binário estático Windows amd64 (alvo primário) + Linux amd64
 
 ## Build
 
-`make build-windows` → `dist/dumpagent.exe` (cross-compile de Linux se
-driver pure-Go).
+`make build-windows VERSION=v0.1.0` → `dist/dumpagent.exe` (cross-compile de
+Linux se driver pure-Go). `VERSION` fica em `main.Version` via `-X`; default
+é `git describe --tags --match 'dumpagent-go-v*'` (cai para `dev` sem tag
+correspondente — nunca string vazia). Sem `VERSION`, todo build local
+reporta `dev`.
+
+## Release
+
+GitHub Releases é o registro de versões; Cloudflare R2 é a distribuição
+primária (fallback: asset do Release). Tag `dumpagent-go-v<versão>` dispara
+`.github/workflows/dump-agent-go-release.yml`. Contrato do manifesto de
+update: `docs/contracts/dumpagent-update-manifest.schema.json`. Corte de
+release, canais `stable`/`rc`, dry-run e rollback:
+`docs/runbooks/dumpagent-release.md`. `min_supported_version` do manifesto
+vem de `MIN_SUPPORTED_VERSION` (arquivo versionado, bump manual em PR).
+Notas de release são geradas por `gh release create --generate-notes`
+(títulos de PR); `CHANGELOG.md` continua não-autoritativo. Cliente de update
+check / self-update no agente ainda não existe (roadmap `Next`).
 
 ## Test
 

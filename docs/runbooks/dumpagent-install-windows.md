@@ -12,26 +12,33 @@
 
 - `dumpagent-v<versão>-windows-amd64.zip` — contém `dumpagent.exe`
 
-Download via link presigned enviado pelo operador central ou direto do bucket:
+Distribuição pelo domínio público do R2 (`releases.cnesdata.vinisantana.com`) — sem
+credencial. A versão corrente do canal `stable` está em `dumpagent/stable/latest.json`;
+para uma versão específica, usar `dumpagent/<versão>/`. Ver `dumpagent-release.md` para o
+contrato do manifesto.
 
 ```powershell
-# Operador com credencial válida para o bucket:
-aws s3 cp s3://cnesdata-releases/dumpagent/v0.1.0/windows-amd64/dumpagent-v0.1.0-windows-amd64.zip . `
-  --endpoint-url https://<account>.r2.cloudflarestorage.com
+$base = "https://releases.cnesdata.vinisantana.com/dumpagent"
+$manifest = Invoke-RestMethod "$base/stable/latest.json"
+$art = $manifest.artifacts.'windows-amd64'
+Invoke-WebRequest -Uri $art.url -OutFile "dumpagent-$($manifest.version)-windows-amd64.zip"
 ```
 
 ## Verificação de integridade
 
 ```powershell
-# baixar .sha256 do mesmo bucket
-(Get-FileHash .\dumpagent-v0.1.0-windows-amd64.zip -Algorithm SHA256).Hash
-# comparar com conteúdo do .sha256
+$hash = (Get-FileHash ".\dumpagent-$($manifest.version)-windows-amd64.zip" -Algorithm SHA256).Hash
+if ($hash.ToLower() -ne $art.sha256) { throw "sha256_mismatch expected=$($art.sha256) got=$hash" }
 ```
+
+Se o R2 estiver inacessível, `$art.fallback_url` aponta para o mesmo `.zip` como asset do
+GitHub Release — mesmo SHA256, verificação idêntica.
 
 ## Extração + posicionamento
 
 ```powershell
-Expand-Archive -Path .\dumpagent-v0.1.0-windows-amd64.zip -DestinationPath "C:\Program Files\CnesAgent"
+Expand-Archive -Path ".\dumpagent-$($manifest.version)-windows-amd64.zip" `
+  -DestinationPath "C:\Program Files\CnesAgent"
 ```
 
 ## Configuração
@@ -111,4 +118,5 @@ Remove-Item "C:\Program Files\CnesAgent" -Recurse -Force
 
 Alguns antivírus municipais tratam executáveis Go não-assinados como suspeitos.
 Whitelist path `C:\Program Files\CnesAgent\dumpagent.exe` no AV do município.
-Binary signing será adicionado em release futura (OTA spec).
+Binary signing fica para uma release futura — ver "Fora de escopo" em
+`dumpagent-release.md`.
