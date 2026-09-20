@@ -49,7 +49,7 @@ jobs:
             dry=false
           fi
           stable='^v[0-9]+\.[0-9]+\.[0-9]+$'
-          pre='^v[0-9]+\.[0-9]+\.[0-9]+-(rc|beta|alpha)\.?[0-9]+$'
+          pre='^v[0-9]+\.[0-9]+\.[0-9]+-(rc|beta|alpha)\.[0-9]+$'
           if [[ "$ver" =~ $stable ]]; then
             ch=stable
           elif [[ "$ver" =~ $pre ]]; then
@@ -356,12 +356,24 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
           CHANNEL: ${{ needs.resolve.outputs.channel }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           current_json=$(mktemp)
           current_version=""
-          if aws s3 cp "s3://${BUCKET}/dumpagent/${CHANNEL}/latest.json" \
-              "$current_json" >/dev/null 2>&1; then
+          # Same fail-closed rule as preflight's HeadObject check: a missing channel
+          # manifest (first release on this channel) is the ONLY case that's safe to
+          # treat as "no current version". Any other read failure (403, throttling,
+          # network) must block promotion instead of silently skipping the guard it
+          # exists to enforce.
+          cp_stderr=$(aws s3 cp "s3://${BUCKET}/dumpagent/${CHANNEL}/latest.json" \
+            "$current_json" 2>&1 >/dev/null)
+          cp_status=$?
+          set -e
+          if [ "$cp_status" -eq 0 ]; then
             current_version=$(jq -r '.version // empty' "$current_json")
+          elif ! echo "$cp_stderr" | grep -qE '\(404\)|Not Found|NoSuchKey'; then
+            echo "channel_manifest_read_error channel=${CHANNEL} status=$cp_status" >&2
+            echo "$cp_stderr" >&2
+            exit 1
           fi
           if [ -n "$current_version" ]; then
             highest=$(printf '%s\n%s\n' "$current_version" "$VERSION" | sort -V | tail -1)

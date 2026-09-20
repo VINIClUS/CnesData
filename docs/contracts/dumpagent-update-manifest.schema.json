@@ -61,7 +61,7 @@
   "$defs": {
     "semver": {
       "type": "string",
-      "pattern": "^v\\d+\\.\\d+\\.\\d+(-(rc|beta|alpha)\\.?\\d+)?$"
+      "pattern": "^v\\d+\\.\\d+\\.\\d+(-(rc|beta|alpha)\\.\\d+)?$"
     },
     "artifact": {
       "type": "object",
