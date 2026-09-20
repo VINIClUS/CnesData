@@ -522,6 +522,11 @@ Readback twice around decision; any uncertainty keeps resources.
 
 ### Task 11: Add CloudFront Free, Demo Seed and Real-AWS Smoke Tooling
 
+This plan starts only after all infrastructure Tasks 1-11 are complete, and infrastructure Task 12
+already creates docs/runbooks/cloudfront-free.md as part of its real-AWS capability procedures. By
+the time this task runs, that runbook exists; extend it with the reconciliation/smoke procedure
+instead of recreating it.
+
 **Branch:** feat/prod-delivery-011-cutover-smoke
 
 **Files:**
@@ -531,7 +536,8 @@ Readback twice around decision; any uncertainty keeps resources.
 - Create: tests/production/delivery/test_cloudfront_free.py
 - Create: tests/production/delivery/test_demo_seed.py
 - Create: tests/production/delivery/test_smoke_redaction.py
-- Create: docs/runbooks/cloudfront-free.md
+- Modify: docs/runbooks/cloudfront-free.md (created by infrastructure Task 12; add the
+  reconciliation/smoke procedure, preserve its capability-acceptance content)
 - Create: docs/runbooks/demo-seed.md
 
 **Interfaces:**

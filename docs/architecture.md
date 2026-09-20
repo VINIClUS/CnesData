@@ -341,8 +341,10 @@ download, roteamento, heartbeat e transição `UPLOADED` permanecem pendentes.
 - Per-chunk bundle budget gated em CI: main ≤ 200KB, tremor ≤ 100KB,
   recharts ≤ 100KB, qualquer rota ≤ 100KB
 
-Servida por Nginx em pod separado, reverse-proxy para `central-api`.
-Single-origin TLS terminado em ingress-nginx + cert-manager. JWT validado
+Servida por container Nginx próprio (build estático, `apps/web_dashboard/Dockerfile`)
+atrás de Caddy — único entrypoint público na VPS (`deploy/prod/caddy/Caddyfile`),
+que termina TLS e roteia `cnesdata.vinisantana.com` para `web-dashboard` e
+`api.vinisantana.com` para `central-api`. JWT validado
 em `central_api.middleware.AuthMiddleware` via
 `cnes_infra.auth.jwt.JWKSValidator`. Mapping user→tenant via
 `dashboard.user_tenants`. Audit em `dashboard.audit_log` (RLS por

@@ -354,12 +354,17 @@ the AWS runtime plan and the merged production deployment design, which states
 promotion"). It does not replace anything live: on the inspected baseline
 routes/serving.py returns 200 StreamingResponse of raw JSON bytes for
 PROFILE=local (CND-062), and that streaming behavior is unaffected. The 200
-envelope below is the PROFILE=aws response mode only.
+envelope below is the PROFILE=aws response mode only. aws_signed.py itself is
+created by AWS-013, a dependency this plan requires merged before Task 1; by
+the time this task runs it already exists. Preserve its canonical
+authorization/signing behavior (LocalServingAccess check, single authorized
+key/version) and change only the response envelope it returns.
 
 **Branch:** feat/prod-005-serving-envelope
 
 **Files:**
-- Create: apps/central_api/src/central_api/serving/aws_signed.py (package does not exist yet)
+- Modify: apps/central_api/src/central_api/serving/aws_signed.py (created by AWS-013; change the
+  response envelope only, keep its authorization/signing behavior)
 - Modify: apps/central_api/src/central_api/routes/serving.py
 - Create: apps/central_api/tests/serving/test_aws_signed.py
 - Create: apps/central_api/tests/routes/test_production_serving.py
@@ -730,7 +735,7 @@ public/root-owned files; session duration 3600. No shell interpolation.
 
 - [ ] **Step 4: Build and smoke**
 
-    docker build --tag cnesdata-api:prod-test apps/central_api
+    docker build --tag cnesdata-api:prod-test -f apps/central_api/Dockerfile .
     docker compose -f deploy/compose.production.yaml config --quiet
     uv run pytest -q tests/production/test_api_container.py tests/production/test_compose_contract.py tests/production/test_credential_process.py
 
