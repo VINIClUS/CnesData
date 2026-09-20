@@ -1,15 +1,12 @@
 import { type ReactNode, createContext, useCallback, useEffect, useState } from "react";
 
+import { apiFetch } from "@/api/client";
+import { getLocalPrincipal } from "@/auth/local";
 import { getAccessToken } from "@/auth/oidc";
+import type { Me } from "@/auth/types";
+import { env } from "@/lib/env";
 
-export type Me = {
-  user_id: string;
-  email: string;
-  display_name: string | null;
-  role: "gestor" | "admin";
-  tenant_ids: string[];
-  has_pending_request: boolean;
-};
+export type { Me } from "@/auth/types";
 
 export type AuthStatus = "loading" | "authenticated" | "anonymous";
 
@@ -28,21 +25,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
+      if (env.VITE_AUTH_MODE === "local") {
+        const principal = await getLocalPrincipal();
+        setUser({
+          user_id: principal.user_id,
+          email: principal.email,
+          display_name: null,
+          role: principal.role,
+          tenant_ids: [principal.tenant_id],
+          has_pending_request: false,
+        });
+        setStatus("authenticated");
+        return;
+      }
       const token = await getAccessToken();
       if (!token) {
         setUser(null);
         setStatus("anonymous");
         return;
       }
-      const r = await fetch("/api/v1/dashboard/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (r.ok) {
-        const body = (await r.json()) as Me;
-        setUser(body);
-        setStatus("authenticated");
-        return;
-      }
+      const body = await apiFetch<Me>("/dashboard/auth/me");
+      setUser(body);
+      setStatus("authenticated");
+      return;
     } catch {
       /* network failure treated as anonymous */
     }

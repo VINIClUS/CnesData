@@ -7,6 +7,7 @@ import { renderWithRouter } from "../../helpers/renderWithRouter";
 
 import { AuthProvider } from "@/auth/AuthProvider";
 import { LoginPage } from "@/components/login/LoginPage";
+import { env } from "@/lib/env";
 
 vi.mock("@/auth/oidc", () => ({
   startLogin: vi.fn(() => Promise.resolve()),
@@ -38,5 +39,27 @@ describe("LoginPage", () => {
     expect(screen.getByLabelText("Usuário ou e-mail")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Entrar/ })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/login");
+  });
+
+  test("local_redireciona_para_overview_apos_autenticacao", async () => {
+    env.VITE_AUTH_MODE = "local";
+    server.use(
+      http.get("/api/v1/auth/local/me", () =>
+        HttpResponse.json({
+          user_id: "user-1",
+          email: "g@m",
+          tenant_id: "354130",
+          role: "gestor",
+        }),
+      ),
+    );
+    const { router } = renderWithRouter(
+      <AuthProvider>
+        <LoginPage />
+      </AuthProvider>,
+      "/login",
+    );
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/overview"));
   });
 });

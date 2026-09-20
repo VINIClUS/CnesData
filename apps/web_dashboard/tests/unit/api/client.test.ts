@@ -78,4 +78,18 @@ describe("apiFetch", () => {
     await apiFetch("/dashboard/auth/me");
     expect(captured).toBeNull();
   });
+
+  test("envia_credenciais_para_preservar_sessao_cookie", async () => {
+    let credentials: RequestCredentials | null = null;
+    server.use(
+      http.get("/api/v1/dashboard/auth/me", ({ request }) => {
+        credentials = request.credentials;
+        return HttpResponse.json({});
+      }),
+    );
+
+    await apiFetch("/dashboard/auth/me");
+
+    expect(credentials).toBe("include");
+  });
 });

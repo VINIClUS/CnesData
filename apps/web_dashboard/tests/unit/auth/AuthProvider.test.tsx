@@ -7,6 +7,7 @@ import { server } from "../../mocks/server";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { getAccessToken } from "@/auth/oidc";
 import { useAuth } from "@/auth/useAuth";
+import { env } from "@/lib/env";
 
 vi.mock("@/auth/oidc", () => ({
   getAccessToken: vi.fn().mockResolvedValue("tok-1"),
@@ -15,6 +16,8 @@ vi.mock("@/auth/oidc", () => ({
 const mockGetAccessToken = vi.mocked(getAccessToken);
 
 beforeEach(() => {
+  env.VITE_AUTH_MODE = "oidc";
+  mockGetAccessToken.mockClear();
   mockGetAccessToken.mockResolvedValue("tok-1");
 });
 
@@ -127,5 +130,30 @@ describe("AuthProvider", () => {
       </AuthProvider>,
     );
     await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("anonymous|anon"));
+  });
+
+  test("popula_user_com_sessao_local", async () => {
+    env.VITE_AUTH_MODE = "local";
+    server.use(
+      http.get("/api/v1/auth/local/me", () =>
+        HttpResponse.json({
+          user_id: "user-1",
+          email: "g@m",
+          tenant_id: "354130",
+          role: "gestor",
+        }),
+      ),
+    );
+
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("probe").textContent).toBe("authenticated|g@m");
+    });
+    expect(mockGetAccessToken).not.toHaveBeenCalled();
   });
 });
