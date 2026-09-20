@@ -94,3 +94,9 @@ class TestExtractionsEnqueue:
                      "X-Tenant-Id": _TENANT},
         )
         assert resp.status_code == 422
+        # Regression for H11 (docs/edge-agent-audit-2026-09-20.md): detail must
+        # follow FastAPI's HTTPValidationError schema (list), never a bare
+        # string — a bare string previously crashed the generated Go client.
+        detail = resp.json()["detail"]
+        assert isinstance(detail, list)
+        assert all({"loc", "msg", "type"} <= set(item) for item in detail)

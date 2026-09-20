@@ -83,6 +83,15 @@ API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
 API_PORT: int = _exigir_inteiro("API_PORT", 8000)
 
 MINIO_ENDPOINT: str = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+# Host:port embedded in presigned URLs handed to edge agents. Defaults to
+# MINIO_ENDPOINT (unchanged behavior) but must be overridable separately:
+# in compose, central_api reaches MinIO via the Docker network alias
+# ("minio:9000"), which is unresolvable off-host. An edge agent that gets
+# a presigned URL built from that internal alias can never complete the
+# upload leg (H9, docs/edge-agent-audit-2026-09-20.md — confirmed empirically:
+# every edge/central_api-in-different-network topology needs this set to
+# something the edge can actually reach).
+MINIO_PUBLIC_ENDPOINT: str = os.getenv("MINIO_PUBLIC_ENDPOINT", MINIO_ENDPOINT)
 MINIO_SECURE: bool = os.getenv("MINIO_SECURE", "false").lower() == "true"
 MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "cnesdata-landing")
 MAX_JITTER_SECONDS: float = float(

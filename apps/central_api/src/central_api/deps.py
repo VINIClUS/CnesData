@@ -51,11 +51,16 @@ class MinioWrapper:
     access_key: str
     secret_key: str
     secure: bool
+    # Host:port embedded in the presigned URL itself — may differ from
+    # `endpoint` (used for any direct server->MinIO calls this wrapper
+    # grows later). Defaults to `endpoint` for backward compatibility.
+    # See H9, docs/edge-agent-audit-2026-09-20.md.
+    public_endpoint: str | None = None
 
     def presigned_put(self, key: str, expires: int = 3600) -> str:
         from minio import Minio
         client = Minio(
-            self.endpoint,
+            self.public_endpoint or self.endpoint,
             access_key=self.access_key,
             secret_key=self.secret_key,
             secure=self.secure,
@@ -74,6 +79,7 @@ def get_minio() -> MinioWrapper:
         access_key=config.MINIO_ACCESS_KEY,
         secret_key=config.MINIO_SECRET_KEY,
         secure=config.MINIO_SECURE,
+        public_endpoint=config.MINIO_PUBLIC_ENDPOINT,
     )
 
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import ValidationError
 
 from central_api.deps import get_engine, get_minio
+from central_api.validation_errors import validation_error
 from cnes_contracts.landing import (
     ExtractionRegisterPayload,
     UploadUrlRequest,
@@ -41,9 +42,9 @@ def _object_storage():
 def _resolve_fato_subtype(source_type: str, intent: str) -> str:
     subtype = _FATO_SUBTYPE_FOR.get((source_type, intent))
     if subtype is None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"unsupported_source_intent={source_type}/{intent}",
+        raise validation_error(
+            f"unsupported_source_intent={source_type}/{intent}",
+            loc=["body", "intent"],
         )
     return subtype
 

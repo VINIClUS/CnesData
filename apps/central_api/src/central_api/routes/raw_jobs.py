@@ -28,6 +28,7 @@ from central_api.services.raw_upload import (
     RawUploadService,
     RawUploadTooLarge,
 )
+from central_api.validation_errors import validation_error
 from cnes_domain.control_plane.commands import ClaimJob, RenewJobLease
 from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
@@ -64,9 +65,13 @@ def _raw_upload_body(
     try:
         token = int(x_fencing_token)
     except ValueError as error:
-        raise HTTPException(status_code=422, detail="fencing_token_required") from error
+        raise validation_error(
+            "fencing_token_required", loc=["header", "X-Fencing-Token"],
+        ) from error
     if token < 0:
-        raise HTTPException(status_code=422, detail="fencing_token_required")
+        raise validation_error(
+            "fencing_token_required", loc=["header", "X-Fencing-Token"],
+        )
     return _RawUploadBody(request, token, x_object_key)
 
 

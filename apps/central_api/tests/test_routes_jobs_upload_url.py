@@ -105,3 +105,39 @@ def test_rejeita_source_intent_desconhecido(client, monkeypatch):
     )
     assert resp.status_code == 422
     assert "unsupported_source_intent" in resp.text
+
+
+def test_erro_422_de_intent_desconhecido_segue_schema_httpvalidationerror(client):
+    """Regression for H11 (docs/edge-agent-audit-2026-09-20.md).
+
+    Every route's OpenAPI schema documents 422 as HTTPValidationError
+    (detail: list[ValidationError]) because FastAPI auto-adds that response
+    for any route. Before the fix, `_resolve_fato_subtype` raised a bare
+    string `detail`, which the generated Go client crashed trying to
+    unmarshal as that list — discarding the real error message under an
+    opaque secondary parse-failure log line. `detail` must always be a list
+    of {loc, msg, type} objects, never a string, for any 422 this route can
+    emit.
+    """
+    resp = client.post(
+        "/api/v1/jobs/upload-url",
+        headers={"X-Tenant-Id": "354130"},
+        json={
+            "job_id": str(uuid4()),
+            "tenant_id": "354130",
+            "source_type": "CNES_LOCAL",
+            "tipo_extracao": "profissionais",
+            "competencia": "2026-01-01",
+            "intent": "cnes_unknown",
+        },
+    )
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert isinstance(detail, list), f"detail must be a list, got {type(detail)}: {detail!r}"
+    assert detail, "detail list must not be empty"
+    for item in detail:
+        assert set(item) >= {"loc", "msg", "type"}
+        assert isinstance(item["loc"], list)
+        assert isinstance(item["msg"], str)
+        assert isinstance(item["type"], str)
+    assert "unsupported_source_intent" in detail[0]["msg"]
