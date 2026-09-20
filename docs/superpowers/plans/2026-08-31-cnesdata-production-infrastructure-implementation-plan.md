@@ -388,8 +388,10 @@ This task must both create the modules and instantiate them at the root.
 **Files:**
 - Create: infra/opentofu/modules/processing/state_machine.asl.json
 - Create: infra/opentofu/modules/processing/step_functions.tf
-- Create: infra/opentofu/modules/processing/variables.tf
-- Create: infra/opentofu/modules/processing/outputs.tf
+- Modify: infra/opentofu/modules/processing/variables.tf (Task 7 already creates this for the ECS
+  task families; add Step Functions inputs without touching the existing ECS contract)
+- Modify: infra/opentofu/modules/processing/outputs.tf (same file as Task 7; extend, do not
+  recreate)
 - Create: infra/opentofu/modules/runtime-iam/step-functions.tf
 - Create: infra/opentofu/modules/runtime-iam/task-roles.tf
 - Create: infra/opentofu/modules/runtime-iam/variables.tf

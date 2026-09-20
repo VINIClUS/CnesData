@@ -632,7 +632,8 @@ that passed before this task.
 
 **Files:**
 - Modify: apps/data_processor/src/data_processor/aws_entrypoint.py
-- Modify: apps/data_processor/src/data_processor/recovery.py
+- Modify: apps/data_processor/src/data_processor/orchestration/coordinator.py (recover path;
+  recovery.py does not exist on develop, see File Map)
 - Create: apps/data_processor/src/data_processor/audit_dispatch.py
 - Create: apps/data_processor/src/data_processor/deadline.py
 - Modify: apps/data_processor/tests/test_aws_entrypoint.py
