@@ -34,7 +34,7 @@
 | Esus PEC | Alta | Acesso ao DB municipal varia; negociação política |
 | Automated DATASUS submission check | Baixa | Alertar quando competência local > nacional por mais de 2 meses |
 | Web dashboard v1.2 | Média | Faturamento+regressão, drill estabelecimento, admin UI approve/reject |
-| Kubernetes central stack | Média | Completar manifests/charts para API, processor, migrator, Postgres/MinIO ou serviços gerenciados |
+| Perfil de produção AWS (EPIC #94) | Média | Step Functions/ECS Fargate/DynamoDB/Cognito; gate AWS-010…014 sem código, atrás de CND-064; planos em docs/superpowers/plans/2026-08-31-cnesdata-production-*.md |
 | PII em logs (CPF/nome/PIS em WARNING) | Média | `transformer.py`, `hr_client.py`, `hr_pre_processor.py` logam CPF/nome/PIS crus — mascarar antes de logar |
 | BPA produção: nullability real não introspectada | Baixa | fixture sintética relaxa 6 colunas; rodar `RDB$RELATION_FIELDS` contra `BPAMAG.GDB` real e capturar em `docs/data-dictionary-bpa.md` |
 | Rebase de `.worktrees/*` na reestruturação de context routing (2026-09-19) | Alta | 4 worktrees (`cnd-050-normalize-cnes-local`, `cnd-052-reconcile-cnes`, `marketing-public-pages`, `minio-quay-digest`) ainda servem o `CLAUDE.md` raiz pré-reestruturação (335 L) até serem rebaseados no commit desta mudança |

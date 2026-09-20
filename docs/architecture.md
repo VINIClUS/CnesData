@@ -245,32 +245,41 @@ no bootstrap do engine (em `central_api.deps` e `data_processor.main`).
 ## Observabilidade
 
 - **Logs:** structured `key=value` via `logging` stdlib (sem prose). Root
-  handler escreve em stdout (k8s) e `logs/` (local).
+  handler escreve em stdout (container) e `logs/` (local).
 - **Tracing:** OTel opcional — se `OTEL_EXPORTER_OTLP_ENDPOINT` setado,
   `cnes_infra.telemetry.init_telemetry("<service>")` exporta spans.
   Sem a env var, `tracer` é no-op (pragma no cover).
-- **Métricas:** via OTel quando ativo; senão, nenhuma coleta própria (k8s/prom
-  pode scrapar métricas do FastAPI via middleware se configurado).
+- **Métricas:** via OTel quando ativo; senão, nenhuma coleta própria
+  (CloudWatch no perfil AWS pode scrapar métricas do FastAPI via middleware
+  se configurado).
 - **Health:** `GET /api/v1/system/health` retorna `{status: ok, db_connected: bool}`.
 
 ## Deploy target
 
-Kubernetes. Layout planejado:
+Não é Kubernetes. Dois perfis, sem sobreposição:
 
-```
-Namespace: cnesdata
-├── Deployment: central-api    (2+ réplicas, only 1 com ENABLE_REAPER=true)
-├── Deployment: data-processor (N réplicas, escala horizontal)
-├── StatefulSet: (ou Deployment) minio  (ou managed S3)
-├── StatefulSet: postgres     (managed preferencial)
-└── Jobs transitórios:
-    └── cnes-db-migrator (initContainer em pre-sync)
+- **VPS (perfil ativo):** Hostinger VPS via Docker Compose
+  (`deploy/prod/docker-compose.prod.yml` — postgres, minio, migrator,
+  central-api, data-processor, web-dashboard, keycloak, caddy). Deploy via
+  `deploy-main.yml`/`deploy-develop.yml` em self-hosted runners (homelab
+  Proxmox) que fazem SSH forced-command para o VPS; ver `### Self-hosted
+  runners` abaixo. Pipeline aponta para `cnesdata.vinisantana.com` /
+  `api.vinisantana.com`; status do piloto (produção real vs. infra pronta)
+  segue `CLAUDE.md` ("Not yet in production").
+- **AWS (alvo, EPIC #94):** S3+CloudFront (frontend), FastAPI seguindo no
+  mesmo VPS, Step Functions Standard + ECS Fargate (processamento
+  on-demand), DynamoDB (control plane), Cognito (OIDC). Ver
+  `docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-design.md`
+  e `docs/superpowers/plans/2026-08-31-cnesdata-production-*.md`. Gate de
+  entrada: `AWS-010…014` (EPIC #94), atualmente sem código, atrás de
+  `CND-064`.
 
-Edge (on-prem):
-└── dump_agent_go como Windows Service (municípios) ou systemd (servidores Linux)
-```
+Edge (on-prem, ambos os perfis): `dump_agent_go` como Windows Service
+(municípios) ou systemd (servidores Linux) — não muda com o perfil de
+produção central.
 
-Ainda não está em produção. Dockerfiles existem em cada `apps/*/Dockerfile`.
+Dockerfiles existem em cada `apps/*/Dockerfile`. `charts/web-dashboard/` é um
+Helm chart legado do frontend, não usado pelo caminho de deploy ativo.
 
 ## Fixtures (git-lfs)
 
@@ -333,8 +342,10 @@ download, roteamento, heartbeat e transição `UPLOADED` permanecem pendentes.
 - Per-chunk bundle budget gated em CI: main ≤ 200KB, tremor ≤ 100KB,
   recharts ≤ 100KB, qualquer rota ≤ 100KB
 
-Servida por Nginx em pod separado, reverse-proxy para `central-api`.
-Single-origin TLS terminado em ingress-nginx + cert-manager. JWT validado
+Servida por container Nginx próprio (build estático, `apps/web_dashboard/Dockerfile`)
+atrás de Caddy — único entrypoint público na VPS (`deploy/prod/caddy/Caddyfile`),
+que termina TLS e roteia `cnesdata.vinisantana.com` para `web-dashboard` e
+`api.vinisantana.com` para `central-api`. JWT validado
 em `central_api.middleware.AuthMiddleware` via
 `cnes_infra.auth.jwt.JWKSValidator`. Mapping user→tenant via
 `dashboard.user_tenants`. Audit em `dashboard.audit_log` (RLS por
