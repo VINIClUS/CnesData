@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { server } from "../../../mocks/server";
 
 import { LoginForm } from "@/components/login/LoginForm";
+import { login } from "@/i18n/login";
 import { env } from "@/lib/env";
 
 const startLogin = vi.hoisted(() => vi.fn<() => Promise<void>>());
@@ -95,5 +96,22 @@ describe("LoginForm", () => {
     });
     expect(authorization).toBeNull();
     expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  test("login_local_mostra_erro_quando_api_rejeita", async () => {
+    env.VITE_AUTH_MODE = "local";
+    server.use(
+      http.post("/api/v1/auth/local/login", () =>
+        HttpResponse.json({ detail: "invalid_credentials" }, { status: 401 }),
+      ),
+    );
+
+    render(<LoginForm />);
+    await userEvent.type(screen.getByLabelText("Usuário ou e-mail"), "g@m");
+    await userEvent.type(screen.getByLabelText("Senha"), "wrong-password");
+    await userEvent.click(screen.getByRole("button", { name: /Entrar/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(login.form.error);
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
