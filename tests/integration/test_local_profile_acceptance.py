@@ -239,3 +239,11 @@ def test_compose_profile_local_contem_apenas_api_processor_dashboard() -> None:
     assert local_services == {"central-api-local", "data-processor-local", "web-dashboard-local"}
     infra_names = {"postgres", "minio", "keycloak", "dynamodb-local", "localstack"}
     assert local_services.isdisjoint(infra_names)
+
+
+def test_compose_profile_local_usa_volume_nomeado_para_dados_gravaveis() -> None:
+    compose = yaml.safe_load((_REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+
+    assert compose["volumes"]["local_data"] is None
+    for service in ("central-api-local", "data-processor-local"):
+        assert compose["services"][service]["volumes"] == ["local_data:/data"]

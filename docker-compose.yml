@@ -275,7 +275,7 @@ services:
       # cnes_infra.config exige DB_URL no import do módulo; nunca conectado no profile local.
       DB_URL: postgresql+psycopg://unused:unused@unused/unused
     volumes:
-    - ./data:/data
+    - local_data:/data
     healthcheck:
       test: python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"
       interval: 15s
@@ -299,7 +299,7 @@ services:
       PROCESSOR_POLL_INTERVAL: '5.0'
       DB_URL: postgresql+psycopg://unused:unused@unused/unused
     volumes:
-    - ./data:/data
+    - local_data:/data
     profiles:
     - local
     restart: on-failure
@@ -319,6 +319,7 @@ services:
     profiles:
     - local
 volumes:
+  local_data: null
   pgdata_test: null
   minio_data: null
   pgdata_perf: null

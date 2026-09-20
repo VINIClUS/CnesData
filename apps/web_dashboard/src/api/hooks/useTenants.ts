@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "@/api/client";
+import { env } from "@/lib/env";
 
 export type Tenant = {
   ibge6: string;
@@ -13,6 +14,7 @@ export function useTenants() {
   return useQuery({
     queryKey: ["tenants"],
     queryFn: () => apiFetch<Tenant[]>("/dashboard/tenants"),
+    enabled: env.VITE_AUTH_MODE !== "local",
     staleTime: 5 * 60_000,
   });
 }

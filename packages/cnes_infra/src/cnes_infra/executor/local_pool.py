@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 
 type RunUnitHandler = Callable[[RunUnitMessage], "RunUnit"]
 type Clock = Callable[[], "datetime"]
+
+_COMPLETED_STATUS_LIMIT = 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,13 +46,14 @@ class LocalWorkerPool:
         self._lease_seconds = lease_seconds
         self._lock = threading.Lock()
         self._batches: dict[str, _Batch] = {}
+        self._completed: OrderedDict[str, ExecutionStatus] = OrderedDict()
         self._cancel_events: dict[str, threading.Event] = {}
 
     def start(self, request: StartRunExecution) -> str:
         """Inicia (ou reencontra, se já iniciado) um dispatch. Idempotente."""
         ref = f"local:{request.run_id}:{request.dispatch_id}"
         with self._lock:
-            if ref in self._batches:
+            if ref in self._batches or ref in self._completed:
                 return ref
             cancel = self._cancel_events.setdefault(request.run_id, threading.Event())
             pool = ThreadPoolExecutor(max_workers=request.max_concurrency)
@@ -67,9 +71,39 @@ class LocalWorkerPool:
 
     def status(self, execution_ref: str) -> ExecutionStatus:
         """Reporta o estado agregado do dispatch a partir das futures registradas."""
-        batch = self._batches.get(execution_ref)
+        with self._lock:
+            completed = self._completed.get(execution_ref)
+            batch = self._batches.get(execution_ref)
+        if completed is not None:
+            return completed
         if batch is None:
             raise ValueError(f"execution_ref=unknown ref={execution_ref}")
+        status = self._batch_status(batch)
+        if status is ExecutionStatus.RUNNING:
+            return status
+        batch.pool.shutdown(wait=True)
+        self._remember_completed(execution_ref, status)
+        return status
+
+    def close(self) -> None:
+        """Encerra todos os pools criados, aguardando as threads em curso."""
+        with self._lock:
+            batches = tuple(self._batches.items())
+            self._batches.clear()
+        for ref, batch in batches:
+            batch.pool.shutdown(wait=True)
+            self._remember_completed(ref, self._batch_status(batch))
+
+    def _remember_completed(self, execution_ref: str, status: ExecutionStatus) -> None:
+        with self._lock:
+            self._batches.pop(execution_ref, None)
+            self._completed[execution_ref] = status
+            self._completed.move_to_end(execution_ref)
+            while len(self._completed) > _COMPLETED_STATUS_LIMIT:
+                self._completed.popitem(last=False)
+
+    @staticmethod
+    def _batch_status(batch: _Batch) -> ExecutionStatus:
         if any(not future.done() for future in batch.futures):
             return ExecutionStatus.RUNNING
         if any(future.exception() is not None for future in batch.futures):
@@ -77,13 +111,6 @@ class LocalWorkerPool:
         if any(future.result() is None for future in batch.futures):
             return ExecutionStatus.CANCELED
         return ExecutionStatus.SUCCEEDED
-
-    def close(self) -> None:
-        """Encerra todos os pools criados, aguardando as threads em curso."""
-        with self._lock:
-            batches = tuple(self._batches.values())
-        for batch in batches:
-            batch.pool.shutdown(wait=True)
 
     def _ordered_messages(self, request: StartRunExecution) -> tuple[RunUnitMessage, ...]:
         now = self._clock()

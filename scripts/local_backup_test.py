@@ -105,7 +105,7 @@ def test_restore_backup_recompoe_state_db_e_objetos(tmp_path: Path) -> None:
     restore_state_db = tmp_path / "restored" / "state" / "cnesdata.sqlite3"
     restore_data_dir = tmp_path / "restored"
 
-    restore_backup(target, restore_state_db, restore_data_dir)
+    restore_backup(target, restore_state_db, restore_data_dir, "354130")
 
     assert restore_state_db.exists()
     connection = sqlite3.connect(restore_state_db)
@@ -127,7 +127,7 @@ def test_restore_backup_recusa_alvo_state_db_existente(tmp_path: Path) -> None:
     _seed_state_db(existing_state_db)
 
     with pytest.raises(RestoreRejected, match="target_not_empty"):
-        restore_backup(target, existing_state_db, tmp_path / "restored")
+        restore_backup(target, existing_state_db, tmp_path / "restored", "354130")
 
 
 def test_restore_backup_recusa_objects_dir_nao_vazio(tmp_path: Path) -> None:
@@ -139,7 +139,9 @@ def test_restore_backup_recusa_objects_dir_nao_vazio(tmp_path: Path) -> None:
     (restore_data_dir / "objects" / "leftover.txt").write_bytes(b"x")
 
     with pytest.raises(RestoreRejected, match="target_not_empty"):
-        restore_backup(target, restore_data_dir / "state" / "cnesdata.sqlite3", restore_data_dir)
+        restore_backup(
+            target, restore_data_dir / "state" / "cnesdata.sqlite3", restore_data_dir, "354130"
+        )
 
 
 def test_restore_backup_recusa_hash_corrompido_sem_escrever_nada(tmp_path: Path) -> None:
@@ -158,7 +160,7 @@ def test_restore_backup_recusa_hash_corrompido_sem_escrever_nada(tmp_path: Path)
     restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
 
     with pytest.raises(RestoreRejected, match="hash_mismatch"):
-        restore_backup(corrupted, restore_state_db, restore_data_dir)
+        restore_backup(corrupted, restore_state_db, restore_data_dir, "354130")
 
     assert not restore_state_db.exists()
     assert not (restore_data_dir / "objects").exists()
@@ -181,7 +183,20 @@ def test_restore_backup_recusa_tenant_divergente(tmp_path: Path) -> None:
     restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
 
     with pytest.raises(RestoreRejected, match="tenant_mismatch"):
-        restore_backup(tampered, restore_state_db, restore_data_dir)
+        restore_backup(tampered, restore_state_db, restore_data_dir, "354130")
+
+    assert not restore_state_db.exists()
+
+
+def test_restore_backup_recusa_tenant_configurado_diferente(tmp_path: Path) -> None:
+    state_db, data_dir = _prepared_dirs(tmp_path)
+    archive = tmp_path / "backup.tar"
+    create_backup(state_db, data_dir, archive, _NOW)
+    restore_data_dir = tmp_path / "restored"
+    restore_state_db = restore_data_dir / "state" / "cnesdata.sqlite3"
+
+    with pytest.raises(RestoreRejected, match="tenant_mismatch"):
+        restore_backup(archive, restore_state_db, restore_data_dir, "999999")
 
     assert not restore_state_db.exists()
 
@@ -207,7 +222,7 @@ def test_restore_backup_falha_no_publish_sem_deixar_arvore_parcial(
 
     monkeypatch.setattr("scripts.local_backup.os.replace", fail_install)
     with pytest.raises(OSError, match="disk_full"):
-        restore_backup(archive, restore_state_db, restore_data_dir)
+        restore_backup(archive, restore_state_db, restore_data_dir, "354130")
 
     assert list(restore_data_dir.iterdir()) == []
 
@@ -220,6 +235,6 @@ def test_restore_backup_rejeita_state_db_fora_da_arvore(tmp_path: Path) -> None:
     restore_state_db = tmp_path / "custom" / "state.sqlite3"
 
     with pytest.raises(RestoreRejected, match="state_db_path_invalid"):
-        restore_backup(archive, restore_state_db, restore_data_dir)
+        restore_backup(archive, restore_state_db, restore_data_dir, "354130")
 
     assert not restore_data_dir.exists()

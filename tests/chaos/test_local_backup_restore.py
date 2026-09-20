@@ -110,7 +110,7 @@ def test_backup_restaura_usuarios_memberships_agents_e_access_decisions(tmp_path
 
     restored_data_dir = tmp_path / "restored"
     restored_state_db = restored_data_dir / "state" / "cnesdata.sqlite3"
-    restore_backup(target, restored_state_db, restored_data_dir)
+    restore_backup(target, restored_state_db, restored_data_dir, _TENANT)
 
     restored_settings = parse_profile({"TENANT_ID": _TENANT, "DATA_DIR": str(restored_data_dir)})
     restored_runtime = build_local_runtime(restored_settings, _utc_now)

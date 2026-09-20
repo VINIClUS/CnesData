@@ -515,6 +515,28 @@ def test_recover_reanima_apenas_estados_do_processor(adapter, executor, store, c
     assert results[0].state is RunState.PROCESSING
 
 
+def test_recover_nao_deixa_waiting_runs_bloquearem_runs_do_processor(
+    adapter, executor, store, clock
+):
+    run = _run().model_copy(update={"run_id": "z-processing"})
+    adapter.put_run(run)
+    plan = plan_run(PlanRequest(run=run, manifests=_full_manifests(), deployment_limit=2))
+    adapter.put_run_units(PutRunUnits(
+        tenant_id=_TENANT, run_id=run.run_id, expected_run_state=RunState.PROCESSING,
+        units=plan.units,
+    ))
+    for index in range(100):
+        waiting = _run(state=RunState.WAITING_INPUTS).model_copy(
+            update={"run_id": f"waiting-{index:03d}"}
+        )
+        adapter.put_run(waiting)
+    coordinator = PipelineCoordinator(_dependencies(adapter, executor, store, clock), _execution())
+
+    results = coordinator.recover(limit=1)
+
+    assert [result.state for result in results] == [RunState.PROCESSING]
+
+
 def test_resume_publishing_retoma_cas_sem_re_transicionar(adapter, executor, store, clock):
     run = _seed(adapter, manifests=_full_manifests())
     for _ in range(3):

@@ -49,6 +49,20 @@ _STATUS_OUTCOME = {
 }
 
 
+def _processor_recoverable_runs(
+    control_plane: ControlPlanePort, now: datetime, limit: int
+) -> tuple[Run, ...]:
+    if limit <= 0:
+        return ()
+    query_limit = limit
+    while True:
+        candidates = control_plane.list_recoverable_runs(now, query_limit)
+        selected = tuple(run for run in candidates if run.state in _RECOVERABLE_RUN_STATES)
+        if len(selected) >= limit or len(candidates) < query_limit:
+            return selected[:limit]
+        query_limit *= 2
+
+
 def allow_execution(run: Run, dispatch: RunDispatch, requested_limit: int) -> ExecutionPermit:
     del dispatch
     return ExecutionPermit(
@@ -246,7 +260,7 @@ class PipelineCoordinator:
     def recover(self, limit: int = 100) -> tuple[CoordinatorResult, ...]:
         control_plane = self._dependencies.control_plane
         now = self._dependencies.clock()
-        candidates = control_plane.list_recoverable_runs(now, limit)
+        candidates = _processor_recoverable_runs(control_plane, now, limit)
         results = [
             self.resume(run.tenant_id, run.run_id)
             for run in candidates

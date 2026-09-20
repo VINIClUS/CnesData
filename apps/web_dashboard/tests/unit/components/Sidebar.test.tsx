@@ -5,9 +5,10 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { Sidebar } from "@/components/layout/Sidebar";
+import { env } from "@/lib/env";
 
 function renderSidebar(path: string) {
   const root = createRootRoute({ component: () => <Sidebar activePath={path} /> });
@@ -19,6 +20,14 @@ function renderSidebar(path: string) {
 }
 
 describe("Sidebar", () => {
+  beforeEach(() => {
+    env.VITE_AUTH_MODE = "oidc";
+  });
+
+  afterEach(() => {
+    env.VITE_AUTH_MODE = "oidc";
+  });
+
   test("renderiza_itens_v1_e_marca_v1_1_em_breve", async () => {
     renderSidebar("/agentes");
     expect(await screen.findByText("Visão geral")).toBeInTheDocument();
@@ -32,5 +41,14 @@ describe("Sidebar", () => {
     renderSidebar("/agentes");
     const link = await screen.findByRole("link", { name: /Status agentes/ });
     expect(link).toHaveAttribute("aria-current", "page");
+  });
+
+  test("local_oculta_rotas_dependentes_do_backend_postgres", async () => {
+    env.VITE_AUTH_MODE = "local";
+    renderSidebar("/overview");
+
+    expect(await screen.findByRole("link", { name: "Visão geral" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Status agentes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ativar agente" })).not.toBeInTheDocument();
   });
 });

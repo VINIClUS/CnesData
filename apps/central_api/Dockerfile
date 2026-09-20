@@ -15,6 +15,7 @@ RUN uv build --wheel --out-dir /wheels packages/cnes_contracts && \
 
 FROM python:3.13-slim
 RUN groupadd -r app && useradd -r -g app app
+RUN mkdir -p /data && chown app:app /data
 COPY --from=builder /usr/local/lib/python3.13/site-packages \
      /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn

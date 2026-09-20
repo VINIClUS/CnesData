@@ -194,6 +194,19 @@ def test_status_reporta_failed_quando_handler_levanta() -> None:
     assert pool.status(ref) is ExecutionStatus.FAILED
 
 
+def test_status_recolhe_pool_apos_estado_terminal() -> None:
+    pool = LocalWorkerPool(
+        lambda message: _reconcile_unit(message.unit_id, message.run_id),
+        "local-worker",
+        _utc_now,
+        lease_seconds=300,
+    )
+    ref = pool.start(_request())
+
+    assert pool.status(ref) is ExecutionStatus.SUCCEEDED
+    assert pool._batches == {}
+
+
 def test_cancel_interrompe_batch_em_andamento() -> None:
     started = threading.Event()
     release = threading.Event()

@@ -168,9 +168,9 @@ def _verify_files(staging: Path, manifest: BackupManifest) -> None:
             raise RestoreRejected("hash_mismatch")
 
 
-def _verify_tenant(staging: Path, manifest: BackupManifest) -> None:
+def _verify_tenant(staging: Path, manifest: BackupManifest, expected_tenant_id: str) -> None:
     tenant_id = _read_single_tenant(staging / _STATE_ARCNAME)
-    if tenant_id != manifest.tenant_id:
+    if tenant_id != manifest.tenant_id or tenant_id != expected_tenant_id:
         raise RestoreRejected("tenant_mismatch")
 
 
@@ -208,8 +208,10 @@ def _publish_restore_tree(staging: Path, data_dir: Path) -> None:
     _fsync_directory(data_dir.parent)
 
 
-def restore_backup(archive: Path, state_db: Path, data_dir: Path) -> None:
-    """Args: archive, state_db, data_dir.
+def restore_backup(
+    archive: Path, state_db: Path, data_dir: Path, expected_tenant_id: str
+) -> None:
+    """Args: archive, state_db, data_dir, expected_tenant_id.
     Raises: RestoreRejected: alvo não vazio, hash divergente ou tenant divergente.
     """
     _validate_state_db_path(state_db, data_dir)
@@ -222,7 +224,7 @@ def restore_backup(archive: Path, state_db: Path, data_dir: Path) -> None:
             tar.extractall(staging, filter="data")
         manifest = _load_manifest(staging)
         _verify_files(staging, manifest)
-        _verify_tenant(staging, manifest)
+        _verify_tenant(staging, manifest, expected_tenant_id)
         (staging / _MANIFEST_NAME).unlink()
         _widen_permissions(staging)
         _publish_restore_tree(staging, data_dir)

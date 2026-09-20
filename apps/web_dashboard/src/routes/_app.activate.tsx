@@ -2,12 +2,20 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { useTenants } from "@/api/hooks/useTenants";
 import { ActivateForm } from "@/components/activate/ActivateForm";
+import { env } from "@/lib/env";
 
 export const Route = createFileRoute("/_app/activate")({
   component: ActivatePage,
 });
 
 function ActivatePage() {
+  if (env.VITE_AUTH_MODE === "local") {
+    return <p>A ativação de agentes está disponível no perfil OIDC.</p>;
+  }
+  return <OidcActivatePage />;
+}
+
+function OidcActivatePage() {
   const tenants = useTenants();
 
   if (tenants.isLoading) {
