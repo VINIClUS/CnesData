@@ -333,7 +333,12 @@ jobs:
           CHANNEL: ${{ needs.resolve.outputs.channel }}
         run: |
           set -euo pipefail
+          # aws s3 cp defaults --metadata-directive to COPY for an S3-to-S3 copy, which
+          # means --cache-control/--content-type below would be silently ignored and the
+          # channel manifest would inherit the source's 1-year immutable header -- the
+          # 60s rollback-propagation guarantee in dumpagent-release.md would be false.
           aws s3 cp "s3://${BUCKET}/dumpagent/${VERSION}/release.json" \
             "s3://${BUCKET}/dumpagent/${CHANNEL}/latest.json" \
+            --metadata-directive REPLACE \
             --cache-control 'public, max-age=60, must-revalidate' \
             --content-type application/json
