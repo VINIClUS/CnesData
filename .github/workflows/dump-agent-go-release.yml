@@ -320,15 +320,24 @@ jobs:
 
   # Channel manifest is the last write in the pipeline: every URL it
   # references (R2 primary and GitHub fallback) is already live.
+  # No concurrency group here on purpose: GitHub Actions keeps at most one
+  # pending run per group and silently evicts anything queued behind it, so
+  # grouping this job -- even scoped per channel -- can still drop a
+  # promotion that already uploaded its R2 objects and drafted its Release.
+  # Correctness instead comes from the version guard below: concurrent runs
+  # may interleave freely, but only one whose version is actually newer than
+  # what's currently published is allowed to write the channel manifest.
+  # Residual risk (accepted, not solved): two racing writes that are BOTH
+  # newer than the version each of them read can still land out of order if
+  # the older of the two completes its write last -- R2 has no compare-and-
+  # swap this workflow uses to close that gap. Acceptable for a manually
+  # tagged, low-frequency release process; revisit if release cadence grows.
   promote:
     needs: [resolve, build, publish-r2]
     if: needs.resolve.outputs.dry_run == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    concurrency:
-      group: dump-agent-go-release-promote-${{ needs.resolve.outputs.channel }}
-      cancel-in-progress: false
     steps:
       - name: Publish GitHub Release (undraft)
         env:
@@ -348,6 +357,19 @@ jobs:
           CHANNEL: ${{ needs.resolve.outputs.channel }}
         run: |
           set -euo pipefail
+          current_json=$(mktemp)
+          current_version=""
+          if aws s3 cp "s3://${BUCKET}/dumpagent/${CHANNEL}/latest.json" \
+              "$current_json" >/dev/null 2>&1; then
+            current_version=$(jq -r '.version // empty' "$current_json")
+          fi
+          if [ -n "$current_version" ]; then
+            highest=$(printf '%s\n%s\n' "$current_version" "$VERSION" | sort -V | tail -1)
+            if [ "$highest" != "$VERSION" ]; then
+              echo "promotion_skipped_not_newer current=$current_version candidate=$VERSION" >&2
+              exit 0
+            fi
+          fi
           # aws s3 cp defaults --metadata-directive to COPY for an S3-to-S3 copy, which
           # means --cache-control/--content-type below would be silently ignored and the
           # channel manifest would inherit the source's 1-year immutable header -- the
