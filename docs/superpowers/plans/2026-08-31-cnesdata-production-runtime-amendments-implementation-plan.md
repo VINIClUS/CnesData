@@ -342,7 +342,7 @@ origin policy.
 - [ ] **Step 5: Run and commit**
 
     uv run pytest -q apps/central_api/tests/test_oauth_activate_confirm.py apps/central_api/tests/test_production_cors.py apps/central_api/tests/test_app.py
-    cd apps/dump_agent_go && go test ./cmd/dumpagent/... -run TestRegister
+    (cd apps/dump_agent_go && go test ./cmd/dumpagent/... -run TestRegister)
     git add apps/central_api apps/dump_agent_go
     git commit -m "feat(api): version activation and enforce exact cors"
 
@@ -488,6 +488,11 @@ promises would not be enforced. This task must wire both call sites, not just ad
   bound permit the moment an execution reaches a terminal status (succeeded, failed or cancelled),
   not only on a rejected/failed dispatch attempt; a successful wave must free the semaphore for the
   next start.
+- Every terminal transition of a bound run releases the permit, not only the ones reached through
+  _settle_started. On the inspected baseline, coordinator.py's resume()/_resume_processing() reach
+  _cancel() and _publish_now() (both directly and via a FAILED fan-in decision) without going
+  through _settle_started; TTL is explicitly non-authoritative, so a permit left bound on any of
+  these paths blocks subsequent starts and promotion drain indefinitely.
 
 - [ ] **Step 1: Write pure transition tests**
 
@@ -515,12 +520,17 @@ inside _dispatch_protocol and bind it to the execution reference on success; rel
 or failed dispatch attempt. Write a test per call site proving a closed fence or held permit blocks
 executor.start() from being called at all (no Step Functions call on rejection).
 
-- [ ] **Step 6: Release the permit on terminal settlement**
+- [ ] **Step 6: Release the permit on every terminal transition, not only settlement**
 
 In both _settle_started implementations, release the bound permit as soon as an execution's status
-transitions to succeeded, failed or cancelled. Write a test proving a successful wave frees the
-semaphore for the next AcquireUnitPermit call, not just a rejected/failed dispatch attempt; an
-execution left running or in an unrecognized status must not release.
+transitions to succeeded, failed or cancelled. Then grep both modules for every function that can
+return a terminal CoordinatorResult/RunLaunchResult for a bound run -- on the inspected baseline
+this includes _cancel(), _publish_now() and the FAILED branch inside _resume_processing() in
+coordinator.py, reached through resume() without ever calling _settle_started -- and release there
+too. Do not assume _settle_started is the only terminal path; treat this as an exhaustive audit, not
+a fixed list. Write a test per non-settlement terminal path proving the permit is released and the
+next AcquireUnitPermit succeeds; an execution left running or in an unrecognized status must not
+release.
 
 - [ ] **Step 7: Run package 100% branch gates and commit**
 
