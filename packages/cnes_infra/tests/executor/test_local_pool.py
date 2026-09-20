@@ -207,6 +207,24 @@ def test_status_recolhe_pool_apos_estado_terminal() -> None:
     assert pool._batches == {}
 
 
+def test_status_limita_cache_de_estados_terminais(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("cnes_infra.executor.local_pool._COMPLETED_STATUS_LIMIT", 1)
+    pool = LocalWorkerPool(
+        lambda message: _reconcile_unit(message.unit_id, message.run_id),
+        "local-worker",
+        _utc_now,
+        lease_seconds=300,
+    )
+    first = pool.start(_request().model_copy(update={"dispatch_id": "0000000000000001"}))
+    second = pool.start(_request().model_copy(update={"dispatch_id": "0000000000000002"}))
+
+    pool.status(first)
+    pool.status(second)
+
+    with pytest.raises(ValueError, match="execution_ref=unknown"):
+        pool.status(first)
+
+
 def test_cancel_interrompe_batch_em_andamento() -> None:
     started = threading.Event()
     release = threading.Event()
