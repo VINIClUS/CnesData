@@ -41,15 +41,15 @@ class TestSetupLogging:
 
 
 class TestCreateStorage:
-    def test_retorna_minio_quando_disponivel(self):
+    def test_retorna_s3_presigned_storage(self):
         mock_instance = MagicMock()
         with (
-            patch("cnes_infra.config.MINIO_ENDPOINT", "http://minio:9000"),
-            patch("cnes_infra.config.MINIO_ACCESS_KEY", "user"),
-            patch("cnes_infra.config.MINIO_SECRET_KEY", "pass"),
-            patch("cnes_infra.config.MINIO_SECURE", False),
+            patch("cnes_infra.config.S3_REGION", "sa-east-1"),
+            patch("cnes_infra.config.S3_ENDPOINT_URL", "http://minio:9000"),
+            patch("cnes_infra.config.S3_ADDRESSING_STYLE", "path"),
+            patch("data_processor.main.build_s3_client", return_value=MagicMock()),
             patch(
-                "cnes_infra.storage.object_storage.MinioObjectStorage",
+                "data_processor.main.S3PresignedStorage",
                 return_value=mock_instance,
             ),
         ):
@@ -57,15 +57,16 @@ class TestCreateStorage:
             storage = _create_storage()
         assert storage is mock_instance
 
-    def test_retorna_null_quando_minio_indisponivel(self):
-        from cnes_domain.ports.object_storage import NullObjectStoragePort
+    def test_propaga_erro_de_construcao_do_client_em_vez_de_engolir(self):
+        """Falha ao construir o client de storage tem que subir alto — em S3,
+        engolir e cair para um storage nulo vira perda silenciosa de dado."""
         with patch(
-            "cnes_infra.storage.object_storage.MinioObjectStorage",
-            side_effect=Exception("minio_down"),
+            "data_processor.main.build_s3_client",
+            side_effect=RuntimeError("s3_client_unavailable"),
         ):
             from data_processor.main import _create_storage
-            storage = _create_storage()
-        assert isinstance(storage, NullObjectStoragePort)
+            with pytest.raises(RuntimeError, match="s3_client_unavailable"):
+                _create_storage()
 
 
 class TestMain:

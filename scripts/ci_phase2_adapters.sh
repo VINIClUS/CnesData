@@ -89,6 +89,7 @@ def create_control_plane_table(client):
 
 def create_buckets(client):
     client.create_bucket(Bucket="cnesdata-test")
+    client.create_bucket(Bucket="cnesdata-landing-test")
     client.create_bucket(
         Bucket="cnesdata-audit-test",
         ObjectLockEnabledForBucket=True,
@@ -102,3 +103,4 @@ PY
 uv run --no-build pytest -q tests/integration/test_local_adapter_matrix.py -m local_profile
 uv run --no-build pytest -q tests/integration/test_aws_adapter_matrix.py \
   -m "dynamodb_local and s3_integration"
+uv run --no-build pytest -q tests/integration/test_s3_presign_matrix.py -m s3_integration

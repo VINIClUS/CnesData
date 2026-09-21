@@ -42,24 +42,26 @@ LOGGER = logging.getLogger(__name__)
 
 
 def _shadow_store() -> ObjectStorePort:
-    import boto3
     from botocore.exceptions import ClientError
 
     from cnes_infra.object_store.s3 import S3ObjectStore
+    from cnes_infra.storage.s3_presigned import build_s3_client
 
-    scheme = "https" if config.MINIO_SECURE else "http"
-    client = boto3.client(
-        "s3", endpoint_url=f"{scheme}://{config.MINIO_ENDPOINT}",
-        aws_access_key_id=config.MINIO_ACCESS_KEY, aws_secret_access_key=config.MINIO_SECRET_KEY,
+    # Este gate roda sempre contra um MinIO/LocalStack local (nunca AWS real),
+    # por isso a região é fixa aqui, não herdada de config.S3_REGION
+    # (sa-east-1 — o default de produção).
+    client = build_s3_client(
         region_name="us-east-1",
+        endpoint_url=config.S3_ENDPOINT_URL or None,
+        addressing_style="path",
     )
     try:
-        client.create_bucket(Bucket=config.MINIO_BUCKET)
+        client.create_bucket(Bucket=config.S3_BUCKET)
     except ClientError as error:
         code = error.response.get("Error", {}).get("Code", "")
         if code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
             raise
-    return S3ObjectStore(client, config.MINIO_BUCKET, prefix="compare-cnes-data-plane")
+    return S3ObjectStore(client, config.S3_BUCKET, prefix="compare-cnes-data-plane")
 
 
 def _build_store(mode: str, tmp_dir: Path) -> ObjectStorePort:

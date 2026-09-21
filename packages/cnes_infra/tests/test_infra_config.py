@@ -54,16 +54,6 @@ class TestSanitizarDbUrl:
 
 class TestLazyAttrs:
 
-    def test_minio_access_key_default(self, monkeypatch):
-        monkeypatch.delenv("MINIO_ACCESS_KEY", raising=False)
-        import cnes_infra.config as cfg
-        assert cfg.MINIO_ACCESS_KEY == "minioadmin"
-
-    def test_minio_secret_key_default(self, monkeypatch):
-        monkeypatch.delenv("MINIO_SECRET_KEY", raising=False)
-        import cnes_infra.config as cfg
-        assert cfg.MINIO_SECRET_KEY == "minioadmin"  # noqa: S105
-
     def test_atributo_inexistente_levanta_attribute_error(self):
         import cnes_infra.config as cfg
         with pytest.raises(AttributeError, match="nao_existe"):

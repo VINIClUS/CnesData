@@ -13,10 +13,7 @@ logger = logging.getLogger(__name__)
 
 def _bootstrap_env() -> None:
     os.environ.setdefault("DB_URL", "postgresql+psycopg://user:pw@localhost/placeholder")
-    os.environ.setdefault("MINIO_ENDPOINT", "localhost:9000")
-    os.environ.setdefault("MINIO_ACCESS_KEY", "placeholder")
-    os.environ.setdefault("MINIO_SECRET_KEY", "placeholder")
-    os.environ.setdefault("MINIO_BUCKET", "placeholder")
+    os.environ.setdefault("S3_BUCKET", "placeholder")
 
 
 def generate(output_path: Path) -> int:
