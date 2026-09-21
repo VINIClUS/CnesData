@@ -360,6 +360,15 @@ def test_upload_rejeita_media_type_incorreto() -> None:
     assert response.json() == {"detail": "media_type_unsupported"}
 
 
+@pytest.mark.parametrize("token", ["not-a-number", "-1"])
+def test_raw_upload_body_rejeita_fencing_token_invalido(token: str) -> None:
+    with pytest.raises(HTTPException) as captured:
+        raw_jobs._raw_upload_body(None, token, KEY, "application/octet-stream")
+
+    assert captured.value.status_code == 422
+    assert captured.value.detail[0]["loc"] == ["header", "X-Fencing-Token"]
+
+
 def test_fingerprint_divergente_rejeita_antes_do_objeto() -> None:
     control = ControlPlane(agent(certificate_fingerprint="b" * 64), (job(),))
     store = ObjectStore()

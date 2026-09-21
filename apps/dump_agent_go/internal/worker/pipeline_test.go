@@ -56,11 +56,17 @@ func TestIntentPipeline_ProduzParquetValido(t *testing.T) {
 }
 
 func TestIntentPipeline_AceitaIntentPrefixadoPelaAPI(t *testing.T) {
-	fn, ok := worker.PipelineFor("cnes_estabelecimentos")
-	require.True(t, ok)
-	require.NotNil(t, fn)
+	for _, intent := range []string{
+		"cnes_profissionais",
+		"cnes_estabelecimentos",
+		"cnes_equipes",
+	} {
+		fn, ok := worker.PipelineFor(intent)
+		require.True(t, ok, intent)
+		require.NotNil(t, fn, intent)
 
-	deltaFn, ok := worker.DeltaPipelineFor("cnes_estabelecimentos")
-	require.True(t, ok)
-	require.NotNil(t, deltaFn)
+		deltaFn, ok := worker.DeltaPipelineFor(intent)
+		require.True(t, ok, intent)
+		require.NotNil(t, deltaFn, intent)
+	}
 }

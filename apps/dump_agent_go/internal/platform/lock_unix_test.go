@@ -63,3 +63,27 @@ func TestAcquireLock_ReleaseEhIdempotenteMesmoSeArquivoJaSumiu(t *testing.T) {
 
 	require.NoError(t, lock.Release(), "Release must not fail when file was already removed")
 }
+
+func TestAcquireLock_FalhaQuandoDiretorioInexistente(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+
+	_, err := platform.AcquireSingleInstanceLock(dir, "test")
+	require.ErrorContains(t, err, "open_lock_dir")
+}
+
+func TestAcquireLock_FalhaAoCriarArquivoEmSubdiretorioInexistente(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := platform.AcquireSingleInstanceLock(dir, filepath.Join("missing", "test"))
+	require.ErrorContains(t, err, "open_lock=")
+}
+
+func TestRelease_RetornaErroQuandoDiretorioFoiRemovido(t *testing.T) {
+	dir := t.TempDir()
+	lock, err := platform.AcquireSingleInstanceLock(dir, "test")
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(filepath.Join(dir, "test.lock")))
+	require.NoError(t, os.Remove(dir))
+
+	require.ErrorContains(t, lock.Release(), "open_lock_dir")
+}

@@ -18,6 +18,40 @@ func TestLogsDir_HonorsOverride(t *testing.T) {
 	require.Equal(t, dir, got)
 }
 
+func TestAppDataDir_HonorsOverride(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	t.Setenv("AGENT_APPDATA_DIR", dir)
+
+	got, err := platform.AppDataDir()
+	require.NoError(t, err)
+	require.Equal(t, dir, got)
+}
+
+func TestAppDataDir_UsaXDGStateHome(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("AGENT_APPDATA_DIR", "")
+	t.Setenv("XDG_STATE_HOME", base)
+
+	got, err := platform.AppDataDir()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(base, "cnes-agent"), got)
+}
+
+func TestAppDataDir_UsaHomeQuandoXDGStateHomeVazio(t *testing.T) {
+	t.Setenv("AGENT_APPDATA_DIR", "")
+	t.Setenv("XDG_STATE_HOME", "")
+
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	got, err := platform.AppDataDir()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(home, ".local", "state", "cnes-agent"), got)
+}
+
+func TestRestrictStateTree_POSIXNaoRetornaErro(t *testing.T) {
+	require.NoError(t, platform.RestrictStateTree(t.TempDir()))
+}
+
 func TestResolveMachineID_Envar(t *testing.T) {
 	t.Setenv("MACHINE_ID", "abc12345")
 	got, err := platform.ResolveMachineID(t.TempDir())
