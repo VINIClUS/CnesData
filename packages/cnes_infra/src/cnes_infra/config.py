@@ -95,7 +95,7 @@ S3_ENDPOINT_URL: str = os.getenv("S3_ENDPOINT_URL", "")
 # anterior, sem split). Porta MINIO_PUBLIC_ENDPOINT (PR #230, H9 —
 # confirmado empiricamente: todo agente fora da rede Docker do VPS precisa
 # disso setado para um host que ele alcança).
-S3_PUBLIC_ENDPOINT_URL: str = os.getenv("S3_PUBLIC_ENDPOINT_URL", S3_ENDPOINT_URL)
+S3_PUBLIC_ENDPOINT_URL: str = os.getenv("S3_PUBLIC_ENDPOINT_URL") or S3_ENDPOINT_URL
 S3_ADDRESSING_STYLE: str = os.getenv("S3_ADDRESSING_STYLE", "auto")
 MAX_JITTER_SECONDS: float = float(
     os.getenv("MAX_JITTER_SECONDS", "1800"),
