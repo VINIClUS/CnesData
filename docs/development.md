@@ -24,7 +24,9 @@ uv run python scripts/fb156_setup.py
 ## Local Stack
 
 MinIO AIStor (the `minio` service, profile `dev`) needs a Free-tier license
-before it will serve S3 requests — see [Object storage
+before `mc ready local` passes — without one, `central-api` and
+`data-processor` (both `depends_on: minio: condition: service_healthy`)
+never start at all, not just their S3 calls. See [Object storage
 license](#object-storage-license) below.
 
 Start all local development services:
@@ -61,7 +63,11 @@ https://min.io/pricing and place it at `./minio.license` (repo root,
 gitignored, never commit it). Without one the container starts and its
 `/minio/health/live` endpoint reports healthy, but every S3 operation is
 denied — the compose healthcheck runs `mc ready local` instead, which
-correctly fails in that state.
+correctly fails in that state. If `./minio.license` doesn't exist on the
+host, Docker's bind mount silently creates a directory at that path instead
+of failing — `docker compose --profile dev up` then hangs on the same
+health check with no obvious cause; check `ls -la minio.license` if that
+happens.
 
 `--profile aws-test` (LocalStack, used by `scripts/ci_phase2_adapters.sh`)
 and `--profile shadow` (`minio-shadow`, now also LocalStack — see

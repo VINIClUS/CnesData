@@ -25,6 +25,8 @@ export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_DEFAULT_REGION=us-east-1
 export DYNAMODB_ENDPOINT=http://127.0.0.1:18000
+# S3_ENDPOINT (read below by the inline script), not app-config's S3_ENDPOINT_URL —
+# setting the wrong one here silently points boto3 at real AWS instead of LocalStack.
 export S3_ENDPOINT=http://127.0.0.1:4566
 
 uv run --no-build python - <<'PY'
