@@ -31,6 +31,17 @@ def _signed_client() -> Any:
     )
 
 
+def _signed_client_at(endpoint_url: str) -> Any:
+    return boto3.client(
+        "s3",
+        region_name="sa-east-1",
+        endpoint_url=endpoint_url,
+        aws_access_key_id="key",
+        aws_secret_access_key="secret",  # noqa: S106
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+
+
 class TestGeneratePresignedUploadUrl:
 
     def test_usa_sigv4(self):
@@ -133,3 +144,40 @@ class TestBuildS3Client:
         with pytest.raises(ValueError, match="aws_credentials=missing"):
             build_s3_client("sa-east-1", endpoint_url="http://localhost:4566")
 
+
+class TestPublicEndpointOverride:
+    """generate_presigned_url não faz I/O de rede — é assinatura local — por
+    isso o client "público" só precisa apontar para o host certo, nunca
+    precisar de conectividade real. object_exists sempre precisa do client
+    interno (head_object é uma chamada de rede de verdade). Porta o mesmo
+    split endpoint/public_endpoint do MinioWrapper (PR #230, H9)."""
+
+    def test_presigned_upload_usa_client_publico_quando_definido(self):
+        internal = _signed_client_at("http://minio:9000")
+        public = _signed_client_at("https://storage.dev.example.com")
+        adapter = S3PresignedStorage(internal, public_client=public)
+        url = adapter.generate_presigned_upload_url("bucket", "key")
+        assert url.startswith("https://storage.dev.example.com/")
+
+    def test_presigned_download_usa_client_publico_quando_definido(self):
+        internal = _signed_client_at("http://minio:9000")
+        public = _signed_client_at("https://storage.dev.example.com")
+        adapter = S3PresignedStorage(internal, public_client=public)
+        url = adapter.get_presigned_download_url("bucket", "key")
+        assert url.startswith("https://storage.dev.example.com/")
+
+    def test_presign_usa_client_interno_quando_publico_nao_definido(self):
+        internal = _signed_client_at("http://minio:9000")
+        adapter = S3PresignedStorage(internal)
+        url = adapter.generate_presigned_upload_url("bucket", "key")
+        assert url.startswith("http://minio:9000/")
+
+    def test_object_exists_sempre_usa_client_interno(self):
+        internal = _client()
+        public = _signed_client_at("https://storage.dev.example.com")
+        with Stubber(internal) as stubber:
+            stubber.add_response(
+                "head_object", {}, {"Bucket": "bucket", "Key": "key"},
+            )
+            adapter = S3PresignedStorage(internal, public_client=public)
+            assert adapter.object_exists("bucket", "key") is True

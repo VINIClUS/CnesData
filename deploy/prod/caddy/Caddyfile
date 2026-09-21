@@ -40,3 +40,10 @@ api.dev.vinisantana.com {
         respond 404
     }
 }
+
+# Edge agent upload target for dev (self-hosted AIStor/MinIO). Prod has no
+# equivalent block: prod's compose removes the minio service entirely and
+# presigned URLs point straight at real S3, which is already public.
+storage.dev.cnesdata.vinisantana.com {
+    reverse_proxy dev-minio:9000
+}

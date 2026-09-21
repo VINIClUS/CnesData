@@ -65,6 +65,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `AWS_ACCESS_KEY_ID` | sim (endpoint não-AWS) | Cadeia padrão do boto3; obrigatório se `S3_ENDPOINT_URL` setado |
 | `AWS_SECRET_ACCESS_KEY` | sim (endpoint não-AWS) | Idem |
 | `S3_ENDPOINT_URL` | opcional | Vazio = S3 real; `http://minio:9000` em dev, LocalStack em CI |
+| `S3_PUBLIC_ENDPOINT_URL` | opcional | Host usado nas URLs presigned entregues ao edge agent; default = `S3_ENDPOINT_URL`. Só relevante em dev (self-hosted); S3 real já é público, prod não seta |
 | `S3_REGION` | opcional | Default `sa-east-1` |
 | `S3_BUCKET` | opcional | Default `cnesdata-landing` |
 | `S3_ADDRESSING_STYLE` | opcional | `auto`\|`path`\|`virtual`, default `auto` |

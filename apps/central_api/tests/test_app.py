@@ -253,6 +253,43 @@ class TestGetObjectStorage:
         assert first is second
         deps_mod._object_storage_instance = None
 
+    def test_get_object_storage_usa_client_publico_quando_diverge_do_interno(
+        self, monkeypatch,
+    ):
+        """Porta o split endpoint/public_endpoint do antigo MinioWrapper
+        (PR #230, H9): a URL presigned entregue ao edge agent precisa de um
+        host diferente do usado internamente (alias Docker "minio:9000",
+        inalcançável fora do host)."""
+        from central_api import deps as deps_mod
+        from cnes_infra import config as config_mod
+
+        monkeypatch.setattr(config_mod, "S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.setattr(
+            config_mod, "S3_PUBLIC_ENDPOINT_URL", "https://storage.dev.example.com",
+        )
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+        deps_mod._object_storage_instance = None
+        storage = deps_mod.get_object_storage()
+        url = storage.generate_presigned_upload_url("bucket", "key")
+        assert url.startswith("https://storage.dev.example.com/")
+        deps_mod._object_storage_instance = None
+
+    def test_get_object_storage_sem_client_publico_quando_igual_ao_interno(
+        self, monkeypatch,
+    ):
+        from central_api import deps as deps_mod
+        from cnes_infra import config as config_mod
+
+        monkeypatch.setattr(config_mod, "S3_ENDPOINT_URL", "")
+        monkeypatch.setattr(config_mod, "S3_PUBLIC_ENDPOINT_URL", "")
+        deps_mod._object_storage_instance = None
+        with patch("central_api.deps.build_s3_client") as fake_build:
+            fake_build.return_value = MagicMock()
+            deps_mod.get_object_storage()
+        fake_build.assert_called_once()
+        deps_mod._object_storage_instance = None
+
 
 class TestLeaseReaperLoop:
     @pytest.mark.asyncio

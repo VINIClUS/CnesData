@@ -89,6 +89,13 @@ S3_BUCKET: str = os.getenv("S3_BUCKET", "cnesdata-landing")
 # tentaria assinar contra um host vazio, por isso consumidores devem
 # normalizar com `S3_ENDPOINT_URL or None`.
 S3_ENDPOINT_URL: str = os.getenv("S3_ENDPOINT_URL", "")
+# Host embutido nas URLs presigned entregues ao edge agent — pode divergir
+# do endpoint interno (ex.: alias de rede Docker "minio:9000", inalcançável
+# fora do host). Default: mesmo valor de S3_ENDPOINT_URL (comportamento
+# anterior, sem split). Porta MINIO_PUBLIC_ENDPOINT (PR #230, H9 —
+# confirmado empiricamente: todo agente fora da rede Docker do VPS precisa
+# disso setado para um host que ele alcança).
+S3_PUBLIC_ENDPOINT_URL: str = os.getenv("S3_PUBLIC_ENDPOINT_URL", S3_ENDPOINT_URL)
 S3_ADDRESSING_STYLE: str = os.getenv("S3_ADDRESSING_STYLE", "auto")
 MAX_JITTER_SECONDS: float = float(
     os.getenv("MAX_JITTER_SECONDS", "1800"),
