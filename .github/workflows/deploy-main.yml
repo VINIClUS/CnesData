@@ -66,6 +66,9 @@ jobs:
           build-args: |
             OS_PATCH_LEVEL=${{ steps.patch.outputs.level }}
             VITE_API_BASE_URL=${{ matrix.app == 'web_dashboard' && 'https://api.vinisantana.com/api/v1' || '/api/v1' }}
+            VITE_OIDC_AUTHORITY=${{ matrix.app == 'web_dashboard' && 'https://cnesdata.vinisantana.com/idp/realms/cnesdata' || '' }}
+            VITE_OIDC_CLIENT_ID=${{ matrix.app == 'web_dashboard' && 'cnesdata-dashboard' || '' }}
+            VITE_OIDC_REDIRECT_URI=${{ matrix.app == 'web_dashboard' && 'https://cnesdata.vinisantana.com/auth/callback' || '' }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
