@@ -7,8 +7,8 @@
 //	refresh.bin   DPAPI envelope (Windows) OR raw token + 0600 (Unix)
 //
 // `.bin` extension is OS-agnostic; content varies by OS. On Windows,
-// wrapBytes uses DPAPI per-user (no LOCAL_MACHINE flag). User profile
-// rebuild → ErrUnwrapFailed → caller triggers re-registration.
+// wrapBytes uses machine-scoped DPAPI so the service and administrator share
+// the same credentials. On Unix, filesystem permissions protect the files.
 package auth
 
 import (
@@ -41,6 +41,9 @@ func AuthDir() (string, error) { //nolint:revive // stutter is intentional: pack
 		if err := os.MkdirAll(override, 0o700); err != nil {
 			return "", fmt.Errorf("auth: mkdir override: %w", err)
 		}
+		if err := platform.RestrictStateTree(override); err != nil {
+			return "", fmt.Errorf("auth_restrict_override=%w", err)
+		}
 		_ = os.Chmod(override, 0o700)
 		return override, nil
 	}
@@ -51,6 +54,9 @@ func AuthDir() (string, error) { //nolint:revive // stutter is intentional: pack
 	dir := filepath.Join(base, "auth")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("auth: mkdir auth: %w", err)
+	}
+	if err := platform.RestrictStateTree(dir); err != nil {
+		return "", fmt.Errorf("auth_restrict_dir=%w", err)
 	}
 	_ = os.Chmod(dir, 0o700)
 	return dir, nil

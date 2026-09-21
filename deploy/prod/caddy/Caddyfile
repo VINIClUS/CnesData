@@ -40,3 +40,11 @@ api.dev.vinisantana.com {
         respond 404
     }
 }
+
+storage.cnesdata.vinisantana.com {
+    reverse_proxy minio:9000
+}
+
+storage.dev.cnesdata.vinisantana.com {
+    reverse_proxy dev-minio:9000
+}

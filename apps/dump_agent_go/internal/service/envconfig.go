@@ -21,7 +21,7 @@ var secretKeyMarkers = []string{"PASSWORD", "SECRET", "TOKEN", "_PW", "APIKEY", 
 func parseEnvFile(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open_config: %w", err)
+		return nil, fmt.Errorf("open_config=%w", err)
 	}
 	defer f.Close()
 
@@ -35,7 +35,7 @@ func parseEnvFile(path string) ([]string, error) {
 		lines = append(lines, line)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read_config: %w", err)
+		return nil, fmt.Errorf("read_config=%w", err)
 	}
 	return lines, nil
 }

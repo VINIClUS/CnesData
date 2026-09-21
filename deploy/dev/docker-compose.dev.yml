@@ -57,6 +57,11 @@ services:
       retries: 5
     volumes:
       - minio_data_dev:/data
+    networks:
+      default:
+      edge:
+        aliases:
+          - dev-minio
     deploy:
       resources:
         limits:
@@ -94,9 +99,11 @@ services:
     environment:
       DB_URL: ${DB_URL}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_SECURE: ${MINIO_SECURE}
+      MINIO_PUBLIC_SECURE: ${MINIO_PUBLIC_SECURE}
       MINIO_BUCKET: ${MINIO_BUCKET}
       AUTH_REQUIRED: ${AUTH_REQUIRED}
       DASHBOARD_OIDC_ISSUER: ${DASHBOARD_OIDC_ISSUER}

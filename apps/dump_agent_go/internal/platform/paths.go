@@ -31,6 +31,9 @@ func AppDataDir() (string, error) {
 		if err := os.MkdirAll(override, 0o755); err != nil {
 			return "", fmt.Errorf("app_data_dir_override: %w", err)
 		}
+		if err := RestrictStateTree(override); err != nil {
+			return "", fmt.Errorf("app_data_dir_override_acl=%w", err)
+		}
 		return override, nil
 	}
 	var base string
@@ -49,6 +52,9 @@ func AppDataDir() (string, error) {
 	}
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		return "", fmt.Errorf("app_data_dir_mkdir: %w", err)
+	}
+	if err := RestrictStateTree(base); err != nil {
+		return "", fmt.Errorf("app_data_dir_acl=%w", err)
 	}
 	return base, nil
 }
@@ -70,6 +76,9 @@ func LogsDir() (string, error) {
 	if override := os.Getenv("DUMP_LOGS_DIR"); override != "" {
 		if err := os.MkdirAll(override, 0o755); err != nil {
 			return "", err
+		}
+		if err := RestrictStateTree(override); err != nil {
+			return "", fmt.Errorf("logs_dir_acl=%w", err)
 		}
 		return override, nil
 	}

@@ -62,6 +62,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 |---|---|---|
 | `DB_URL` | sim | Postgres URL (`postgresql+psycopg://...`) |
 | `MINIO_ENDPOINT` | sim | `host:port` MinIO (ex.: `minio:9000`) |
+| `MINIO_PUBLIC_ENDPOINT` | opcional | `host:port` usado nas URLs presigned entregues ao edge |
+| `MINIO_PUBLIC_SECURE` | opcional | `true` para URLs presigned HTTPS; default acompanha `MINIO_SECURE` |
 | `MINIO_ACCESS_KEY` | sim | Credencial MinIO |
 | `MINIO_SECRET_KEY` | sim | Credencial MinIO |
 | `MINIO_BUCKET` | opcional | Default `cnesdata-landing` |

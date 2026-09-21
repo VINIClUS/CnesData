@@ -57,25 +57,28 @@ var (
 func uninstallService(connector scmConnector, removeEventSource func(string) error) int {
 	svcHandle, err := connector.Open(ServiceName)
 	if errors.Is(err, ErrServiceNotFound) {
-		fmt.Printf("uninstall: service=%s already absent (ok)\n", ServiceName)
+		if cleanupErr := removeEventSource(EventSourceName); cleanupErr != nil {
+			fmt.Fprintf(os.Stderr, "warn=eventlog_source_cleanup err=%v\n", cleanupErr)
+		}
+		fmt.Printf("uninstall=service_absent service=%s\n", ServiceName)
 		return 0
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "open_service: %v\n", err)
+		fmt.Fprintf(os.Stderr, "open_service=%v\n", err)
 		return 1
 	}
 	defer svcHandle.Close()
 
 	if err := stopIfRunning(svcHandle); err != nil {
-		fmt.Fprintf(os.Stderr, "stop_service: %v\n", err)
+		fmt.Fprintf(os.Stderr, "stop_service=%v\n", err)
 		return 1
 	}
 	if err := svcHandle.Delete(); err != nil {
-		fmt.Fprintf(os.Stderr, "delete_service: %v\n", err)
+		fmt.Fprintf(os.Stderr, "delete_service=%v\n", err)
 		return 1
 	}
 	if err := removeEventSource(EventSourceName); err != nil {
-		fmt.Fprintf(os.Stderr, "warn: eventlog source removal failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warn=eventlog_source_removal err=%v\n", err)
 	}
 	fmt.Printf("uninstalled service=%s\n", ServiceName)
 	return 0
@@ -86,24 +89,30 @@ func uninstallService(connector scmConnector, removeEventSource func(string) err
 func stopIfRunning(s scmService) error {
 	state, err := s.State()
 	if err != nil {
-		return fmt.Errorf("query_state: %w", err)
+		return fmt.Errorf("query_state=%w", err)
 	}
-	if state != StateRunning && state != StateStartPending {
+	if state == StateStopped {
 		return nil
 	}
-	if err := s.Stop(); err != nil {
-		return fmt.Errorf("control_stop: %w", err)
+	if state != StateStopPending {
+		if err := s.Stop(); err != nil {
+			return fmt.Errorf("control_stop=%w", err)
+		}
 	}
+	return waitForStopped(s)
+}
+
+func waitForStopped(s scmService) error {
 	deadline := time.Now().Add(stopWaitTimeout)
 	for time.Now().Before(deadline) {
 		state, err := s.State()
 		if err != nil {
-			return fmt.Errorf("query_state: %w", err)
+			return fmt.Errorf("query_state=%w", err)
 		}
 		if state == StateStopped {
 			return nil
 		}
 		time.Sleep(stopPollInterval)
 	}
-	return fmt.Errorf("stop_timeout after %s", stopWaitTimeout)
+	return fmt.Errorf("stop_timeout=%s", stopWaitTimeout)
 }

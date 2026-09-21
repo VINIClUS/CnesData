@@ -19,7 +19,9 @@ import (
 // --purge opts in to removing the state root too.
 func cmdUninstall(args []string) int {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-	purge := fs.Bool("purge", false, "also remove agent state (certs, secrets, queue, logs)")
+	purge := fs.Bool(
+		"purge", false, "remove também o estado do agente (certificados, segredos, fila e logs)",
+	)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -37,13 +39,13 @@ func cmdUninstall(args []string) int {
 func purgeState() int {
 	dir, err := platform.AppDataDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "purge: resolve_app_data_dir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "purge_resolve_app_data_dir=%v\n", err)
 		return 1
 	}
 	if err := os.RemoveAll(dir); err != nil {
-		fmt.Fprintf(os.Stderr, "purge: remove_state_dir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "purge_remove_state_dir=%v\n", err)
 		return 1
 	}
-	fmt.Printf("purged state dir=%s\n", dir)
+	fmt.Printf("purge=state_removed dir=%s\n", dir)
 	return 0
 }

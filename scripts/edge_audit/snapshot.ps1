@@ -41,7 +41,8 @@ function Get-FsIndexShallow($paths) {
 
 function Get-RegSubkeys($path) {
     if (-not (Test-Path $path)) { return @() }
-    return (Get-ChildItem -Path $path -ErrorAction SilentlyContinue | Select-Object -ExpandProperty PSChildName)
+    return (Get-ChildItem -Path $path -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty PSChildName)
 }
 
 # Broad roots: shallow only (these can contain 10k+ unrelated files - browser
@@ -82,8 +83,12 @@ $snapshot = [ordered]@{
     RegSoftwareSubkeys = Get-RegSubkeys 'HKLM:\SOFTWARE'
     RegSoftwareWow6432Subkeys = Get-RegSubkeys 'HKLM:\SOFTWARE\WOW6432Node'
     RegUninstall64 = Get-RegSubkeys 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
-    RegUninstall32 = Get-RegSubkeys 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
-    RegEventLogApplicationSources = Get-RegSubkeys 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application'
+    RegUninstall32 = Get-RegSubkeys (
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\' + 'Uninstall'
+    )
+    RegEventLogApplicationSources = Get-RegSubkeys (
+        'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\' + 'Application'
+    )
     RegRunHKLM = Get-RegSubkeys 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
     RegRunOnceHKLM = Get-RegSubkeys 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
     RegRunHKCU = Get-RegSubkeys 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'

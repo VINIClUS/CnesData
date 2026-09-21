@@ -7,19 +7,30 @@ import (
 )
 
 type fakeService struct {
-	state       State
-	stopCalls   int
-	deleteCalls int
-	closeCalls  int
-	stopErr     error
-	deleteErr   error
+	state                  State
+	states                 []State
+	queried                []State
+	stopCalls              int
+	deleteCalls            int
+	closeCalls             int
+	stopErr                error
+	deleteErr              error
+	requireStoppedOnDelete bool
 	// stopSetsState, if true, simulates a Stop() call transitioning the
 	// service to Stopped immediately (as a fake SCM would after the
 	// controlled process exits).
 	stopSetsState bool
 }
 
-func (f *fakeService) State() (State, error) { return f.state, nil }
+func (f *fakeService) State() (State, error) {
+	state := f.state
+	if len(f.states) > 0 {
+		state = f.states[0]
+		f.states = f.states[1:]
+	}
+	f.queried = append(f.queried, state)
+	return state, nil
+}
 
 func (f *fakeService) Stop() error {
 	f.stopCalls++
@@ -34,6 +45,9 @@ func (f *fakeService) Stop() error {
 
 func (f *fakeService) Delete() error {
 	f.deleteCalls++
+	if f.requireStoppedOnDelete && f.queried[len(f.queried)-1] != StateStopped {
+		return errors.New("deleted_before_stopped")
+	}
 	return f.deleteErr
 }
 
@@ -78,6 +92,24 @@ func TestUninstall_ServicoRodando_ParaAntesDeExcluir(t *testing.T) {
 	}
 }
 
+func TestUninstall_ServicoParando_AguardaAntesDeExcluir(t *testing.T) {
+	withFastStopTimeout(t)
+	svc := &fakeService{
+		states:                 []State{StateStopPending, StateStopPending, StateStopped},
+		requireStoppedOnDelete: true,
+	}
+	rc := uninstallService(&fakeConnector{svc: svc}, noopRemoveEventSource)
+	if rc != 0 {
+		t.Fatalf("rc = %d, want 0 (must wait for a pending stop)", rc)
+	}
+	if svc.stopCalls != 0 {
+		t.Fatalf("stopCalls = %d, want 0 (stop already in progress)", svc.stopCalls)
+	}
+	if svc.deleteCalls != 1 {
+		t.Fatalf("deleteCalls = %d, want 1 after stopped", svc.deleteCalls)
+	}
+}
+
 func TestUninstall_ServicoParado_NaoChamaStop(t *testing.T) {
 	svc := &fakeService{state: StateStopped}
 	rc := uninstallService(&fakeConnector{svc: svc}, noopRemoveEventSource)
@@ -96,6 +128,20 @@ func TestUninstall_ServicoAusente_EhIdempotente(t *testing.T) {
 	rc := uninstallService(&fakeConnector{err: ErrServiceNotFound}, noopRemoveEventSource)
 	if rc != 0 {
 		t.Fatalf("rc = %d, want 0 (absent service = success)", rc)
+	}
+}
+
+func TestUninstall_ServicoAusente_TentaRemoverEventSource(t *testing.T) {
+	removed := false
+	rc := uninstallService(&fakeConnector{err: ErrServiceNotFound}, func(name string) error {
+		removed = name == EventSourceName
+		return nil
+	})
+	if rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	if !removed {
+		t.Fatal("absent service must still trigger event-source cleanup")
 	}
 }
 

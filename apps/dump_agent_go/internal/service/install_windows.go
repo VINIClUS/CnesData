@@ -18,8 +18,9 @@ import (
 )
 
 // Install registra CnesDumpAgent no SCM. Aceita flags:
-//   --config <path>    (opcional) caminho para arquivo .env da service
-//   --start-type auto  (default) auto | manual | disabled
+//
+//	--config <path>    (opcional) caminho para arquivo .env da service
+//	--start-type auto  (default) auto | manual | disabled
 func Install(args []string) int {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	configPath := fs.String("config", "", "path to .env file")
@@ -27,46 +28,69 @@ func Install(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-
-	exe, err := os.Executable()
+	absExe, err := executablePath()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "executable path: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 1
 	}
-	absExe, err := filepath.Abs(exe)
+	m, s, err := createService(absExe, *startType)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "abs path: %v\n", err)
-		return 1
-	}
-
-	m, err := mgr.Connect()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "scm_connect: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 1
 	}
 	defer m.Disconnect()
-
-	existing, err := m.OpenService(ServiceName)
-	if err == nil {
-		existing.Close()
-		fmt.Fprintln(os.Stderr, "service_already_exists: run `dumpagent uninstall` first")
-		return 1
-	}
-
-	cfg := mgr.Config{
-		DisplayName:  DisplayName,
-		StartType:    mapStartType(*startType),
-		ErrorControl: mgr.ErrorNormal,
-		ServiceType:  0x10, // SERVICE_WIN32_OWN_PROCESS
-	}
-
-	s, err := m.CreateService(ServiceName, absExe, cfg, "service")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "create_service: %v\n", err)
-		return 1
-	}
 	defer s.Close()
 
+	configureRecovery(s)
+
+	if *configPath != "" {
+		if err := writeServiceEnvironment(*configPath); err != nil {
+			return rollbackInstall(s, err)
+		}
+	}
+
+	fmt.Printf("installed service=%s exe=%s\n", ServiceName, absExe)
+	return 0
+}
+
+func executablePath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("executable_path=%w", err)
+	}
+	absExe, err := filepath.Abs(exe)
+	if err != nil {
+		return "", fmt.Errorf("absolute_executable_path=%w", err)
+	}
+	return absExe, nil
+}
+
+func createService(exe, startType string) (*mgr.Mgr, *mgr.Service, error) {
+	m, err := mgr.Connect()
+	if err != nil {
+		return nil, nil, fmt.Errorf("scm_connect=%w", err)
+	}
+	existing, err := m.OpenService(ServiceName)
+	if err == nil {
+		_ = existing.Close()
+		_ = m.Disconnect()
+		return nil, nil, errors.New("service=already_exists")
+	}
+	cfg := mgr.Config{
+		DisplayName:  DisplayName,
+		StartType:    mapStartType(startType),
+		ErrorControl: mgr.ErrorNormal,
+		ServiceType:  0x10,
+	}
+	s, err := m.CreateService(ServiceName, exe, cfg, "service")
+	if err != nil {
+		_ = m.Disconnect()
+		return nil, nil, fmt.Errorf("create_service=%w", err)
+	}
+	return m, s, nil
+}
+
+func configureRecovery(s *mgr.Service) {
 	if err := s.SetRecoveryActions([]mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: 60 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 120 * time.Second},
@@ -74,17 +98,14 @@ func Install(args []string) int {
 	}, 86400); err != nil {
 		slog.Warn("set_recovery_actions_failed", "err", err.Error())
 	}
+}
 
-	if *configPath != "" {
-		if err := writeServiceEnvironment(*configPath); err != nil {
-			fmt.Fprintf(os.Stderr, "warn: config not applied to service environment: %v\n", err)
-			fmt.Fprintln(os.Stderr, "warn: service will fail to boot until `dumpagent set-secret` "+
-				"and a non-secret env config are provided; see docs/runbooks/dumpagent-install-windows.md")
-		}
+func rollbackInstall(s *mgr.Service, configErr error) int {
+	fmt.Fprintf(os.Stderr, "config_apply_failed=%v\n", configErr)
+	if err := s.Delete(); err != nil {
+		fmt.Fprintf(os.Stderr, "rollback_service_delete_failed=%v\n", err)
 	}
-
-	fmt.Printf("installed service=%s exe=%s\n", ServiceName, absExe)
-	return 0
+	return 1
 }
 
 // Uninstall stops (if running), removes CnesDumpAgent from the SCM, then
@@ -107,17 +128,16 @@ func writeServiceEnvironment(configPath string) error {
 	}
 	safe, rejected := splitSecretLines(lines)
 	if len(rejected) > 0 {
-		fmt.Fprintf(os.Stderr, "warn: rejected secret-like keys from --config (use "+
-			"`dumpagent set-secret` instead, never plain env): %v\n", rejected)
+		fmt.Fprintf(os.Stderr, "warn=secret_keys_rejected keys=%v action=set-secret\n", rejected)
 	}
 	key, _, err := registry.CreateKey(registry.LOCAL_MACHINE,
 		`SYSTEM\CurrentControlSet\Services\`+ServiceName, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("open_service_key: %w", err)
+		return fmt.Errorf("open_service_key=%w", err)
 	}
 	defer key.Close()
 	if err := key.SetStringsValue("Environment", safe); err != nil {
-		return fmt.Errorf("set_environment: %w", err)
+		return fmt.Errorf("set_environment=%w", err)
 	}
 	return nil
 }
@@ -188,7 +208,7 @@ var _ scmConnector = defaultSCMConnector{}
 func (defaultSCMConnector) Open(name string) (scmService, error) {
 	m, err := mgr.Connect()
 	if err != nil {
-		return nil, fmt.Errorf("scm_connect: %w", err)
+		return nil, fmt.Errorf("scm_connect=%w", err)
 	}
 	s, err := m.OpenService(name)
 	if err != nil {
@@ -196,7 +216,7 @@ func (defaultSCMConnector) Open(name string) (scmService, error) {
 		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 			return nil, ErrServiceNotFound
 		}
-		return nil, fmt.Errorf("open_service: %w", err)
+		return nil, fmt.Errorf("open_service=%w", err)
 	}
 	return &windowsService{svc: s, mgr: m}, nil
 }

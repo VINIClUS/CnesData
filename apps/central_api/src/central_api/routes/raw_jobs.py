@@ -206,6 +206,8 @@ async def upload_raw_object(
     try:
         stat = await service.upload(upload, body.request.stream())
     except RawUploadError as error:
+        if isinstance(error, RawUploadEmpty):
+            raise validation_error(error.code, loc=["body"]) from error
         raise HTTPException(status_code=_upload_status(error), detail=error.code) from error
     return RawUploadResponse(
         object_key=stat.key,

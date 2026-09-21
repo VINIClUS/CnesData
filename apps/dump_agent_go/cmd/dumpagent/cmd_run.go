@@ -50,7 +50,9 @@ func parseRunFlags(args []string) RunFlags {
 	fs.SetOutput(os.Stderr)
 	bpaGdb := fs.String("bpa-gdb", os.Getenv("BPA_GDB_PATH"), "BPAMAG.GDB absolute path")
 	siaDir := fs.String("sia-dir", os.Getenv("SIA_DIR"), "SIA DBF directory")
-	fbClient := fs.String("fbclient-path", os.Getenv("FBCLIENT_PATH"), "fbclient.dll path (Windows x86)")
+	fbClient := fs.String(
+		"fbclient-path", os.Getenv("FBCLIENT_PATH"), "fbclient.dll path (Windows x86)",
+	)
 	fs.Bool("verbose", false, "enable DEBUG logging")
 	fs.Bool("v", false, "enable DEBUG logging (short)")
 	_ = fs.Parse(args)
@@ -155,51 +157,18 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	}
 	defer closer()
 
-	slog.Info("boot", "version", Version, "mode", "run")
-
-	appData, err := platform.AppDataDir()
-	if err != nil {
-		slog.Error("app_data_dir", "err", err.Error())
+	boot, ok := initializeRun(ctx, flags)
+	if !ok {
 		return 1
 	}
-
-	machineID, err := platform.ResolveMachineID(appData)
-	if err != nil {
-		slog.Error("machine_id", "err", err.Error())
-		return 1
-	}
-	slog.Info("machine_id_resolved", "machine_id", machineID)
-
-	authDir, err := auth.AuthDir()
-	if err != nil {
-		slog.Error("auth_dir_init", "err", err.Error())
-		return 1
-	}
-
-	mtlsClient, err := initMTLSClient(authDir)
-	if err != nil {
-		slog.Error("mtls_init_fatal",
-			"err", err.Error(),
-			"hint", "run 'dumpagent register' or set AGENT_ALLOW_INSECURE=true")
-		return 1
-	}
-
-	startRotatorIfPossible(ctx, mtlsClient, authDir, machineID)
-
-	slog.Info("run_flags",
-		"bpa_gdb", flags.BPAGDBPath,
-		"sia_dir", flags.SIADir,
-		"fbclient_path", flags.FBClientPath,
-	)
-
 	if err := preFlightClockCheck(ctx); err != nil {
 		slog.Error("clock_fatal", "err", err.Error())
-		_ = os.WriteFile(filepath.Join(appData, "CLOCK_FATAL.txt"),
+		_ = os.WriteFile(filepath.Join(boot.appData, "CLOCK_FATAL.txt"),
 			[]byte(err.Error()+"\nRun: w32tm /resync or configure NTP\n"), 0o644)
 		return 1
 	}
 
-	lock, err := platform.AcquireSingleInstanceLock(appData, "dumpagent")
+	lock, err := platform.AcquireSingleInstanceLock(boot.appData, "dumpagent")
 	if err != nil {
 		slog.Error("lock_failed", "err", err.Error())
 		return 1
@@ -212,56 +181,15 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 0
 	}
 
-	resolvedPaths, cnesPw, ok := resolveBootConfig(appData, flags)
+	resources, ok := openRunResources(ctx, boot)
 	if !ok {
 		return 1
 	}
-
-	db, err := openFirebird(resolvedPaths.CNES, cnesPw)
-	if err != nil {
-		slog.Error("firebird_open", "err", err.Error())
-		return 1
-	}
-	defer db.Close()
-
-	innerAPIClient, err := buildAPIClient(machineID, httpClientFor(mtlsClient))
-	if err != nil {
-		slog.Error("api_client_init", "err", err.Error())
-		return 1
-	}
-
-	outbox, apiClient, ok := openOutboxAndStartDrain(ctx, appData, innerAPIClient)
-	if !ok {
-		return 1
-	}
-	defer func() { _ = outbox.Close() }()
-
-	_ = buildDispatchConfig(flags, innerAPIClient)
-
-	source, err := buildJobSource()
-	if err != nil {
-		slog.Error("source_init", "err", err.Error())
-		return 1
-	}
-
-	deltaStore, deltaCloser := wireDeltaStore(appData)
-	defer deltaCloser()
-
-	auditLogger := wireAuditLogger(appData, machineID, os.Getenv("TENANT_ID"))
-
-	exe := buildExecutor(appData, db, deltaStore, auditLogger)
-	cons := worker.NewConsumer(apiClient, source, exe, worker.ConsumerConfig{
-		PollInterval:      5 * time.Second,
-		InterJobJitterMax: 5 * time.Second,
-		HeartbeatInterval: 5 * time.Minute,
-	})
-
-	if err := cons.Loop(ctx); err != nil {
-		slog.Error("loop_error", "err", err.Error())
-		return 1
-	}
-	slog.Info("shutdown_clean")
-	return 0
+	defer resources.close()
+	_ = buildDispatchConfig(flags, resources.innerAPIClient)
+	return runWorker(ctx, workerRunConfig{
+		appData: boot.appData, db: resources.db, machineID: boot.machineID,
+	}, resources.apiClient)
 }
 
 func startRotatorIfPossible(
@@ -451,18 +379,24 @@ func buildLoggerHandler(logPath string, level slog.Level) (slog.Handler, func())
 func buildExecutor(
 	appData string, db *sql.DB, deltaStore *delta.Store,
 	auditLogger *audit.Logger,
-) worker.JobExecutorIface {
+) (worker.JobExecutorIface, error) {
 	if os.Getenv("DUMP_SHADOW_MODE") == "true" {
 		shadowDir := envOr("DUMP_SHADOW_DIR", filepath.Join(appData, "shadow"))
+		if err := os.MkdirAll(shadowDir, 0o700); err != nil {
+			return nil, fmt.Errorf("shadow_dir_mkdir=%w", err)
+		}
+		if err := platform.RestrictStateTree(shadowDir); err != nil {
+			return nil, fmt.Errorf("shadow_dir_acl=%w", err)
+		}
 		slog.Info("shadow_mode_enabled", "output_dir", shadowDir)
-		return &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}
+		return &worker.ShadowExecutor{DB: db, OutputDir: shadowDir}, nil
 	}
 	return &worker.JobExecutor{
 		DB:          db,
 		Uploader:    upload.NewHTTP(nil),
 		DeltaStore:  deltaStore,
 		AuditLogger: auditLogger,
-	}
+	}, nil
 }
 
 // wireAuditLogger initializes the HMAC-signed audit log writer.
@@ -512,4 +446,3 @@ func openDeltaStore(appData string) *delta.Store {
 	}
 	return store
 }
-

@@ -419,10 +419,22 @@ def test_upload_mapeia_falhas_do_servico(jobs, key: str, status: int, detail: st
 
 @pytest.mark.parametrize(
     "case",
-    [(2, b"abc", 413, "payload_too_large"), (1024**3, b"", 422, "payload_empty")],
+    [
+        (2, b"abc", 413, {"detail": "payload_too_large"}),
+        (
+            1024**3,
+            b"",
+            422,
+            {
+                "detail": [
+                    {"loc": ["body"], "msg": "payload_empty", "type": "value_error"},
+                ],
+            },
+        ),
+    ],
 )
 def test_upload_mapeia_tamanho_invalido(monkeypatch, case) -> None:
-    limit, body, status, detail = case
+    limit, body, status, expected = case
     monkeypatch.setattr("central_api.services.raw_upload.RAW_UPLOAD_MAX_BYTES", limit)
     leased = job(
         state=JobState.LEASED,
@@ -444,7 +456,7 @@ def test_upload_mapeia_tamanho_invalido(monkeypatch, case) -> None:
     )
 
     assert response.status_code == status
-    assert response.json() == {"detail": detail}
+    assert response.json() == expected
 
 
 @pytest.mark.parametrize("headers", [{}, {"X-Fencing-Token": "x"}, {"X-Fencing-Token": "7"}])

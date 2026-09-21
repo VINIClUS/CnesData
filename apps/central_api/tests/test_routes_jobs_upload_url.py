@@ -108,17 +108,7 @@ def test_rejeita_source_intent_desconhecido(client, monkeypatch):
 
 
 def test_erro_422_de_intent_desconhecido_segue_schema_httpvalidationerror(client):
-    """Regression for H11 (docs/edge-agent-audit-2026-09-20.md).
-
-    Every route's OpenAPI schema documents 422 as HTTPValidationError
-    (detail: list[ValidationError]) because FastAPI auto-adds that response
-    for any route. Before the fix, `_resolve_fato_subtype` raised a bare
-    string `detail`, which the generated Go client crashed trying to
-    unmarshal as that list — discarding the real error message under an
-    opaque secondary parse-failure log line. `detail` must always be a list
-    of {loc, msg, type} objects, never a string, for any 422 this route can
-    emit.
-    """
+    """Garante que erros 422 usem o schema HTTPValidationError documentado."""
     resp = client.post(
         "/api/v1/jobs/upload-url",
         headers={"X-Tenant-Id": "354130"},

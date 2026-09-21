@@ -4,6 +4,7 @@ package upload
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/cnesdata/dumpagent/internal/integrity"
 	"github.com/cnesdata/dumpagent/internal/manifest"
 	"github.com/cnesdata/dumpagent/internal/obs"
+	"github.com/cnesdata/dumpagent/internal/platform"
 )
 
 // RawSpool referencia um Parquet sincronizado em disco.
@@ -42,6 +44,9 @@ func PrepareRawSpool(ctx context.Context, directory string,
 	}
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return result, err
+	}
+	if err := platform.RestrictStateTree(directory); err != nil {
+		return result, fmt.Errorf("raw_spool_acl=%w", err)
 	}
 	file, err := os.CreateTemp(directory, "raw-*.parquet")
 	if err != nil {

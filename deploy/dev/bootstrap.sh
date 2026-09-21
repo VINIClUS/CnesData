@@ -72,6 +72,8 @@ MINIO_ENDPOINT=minio:9000
 MINIO_ACCESS_KEY=cnesdata-dev
 MINIO_SECRET_KEY=$MINIO_PASS
 MINIO_SECURE=false
+MINIO_PUBLIC_ENDPOINT=storage.dev.cnesdata.vinisantana.com
+MINIO_PUBLIC_SECURE=true
 MINIO_BUCKET=cnesdata-landing-dev
 
 KEYCLOAK_ADMIN=admin

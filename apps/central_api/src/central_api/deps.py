@@ -56,6 +56,7 @@ class MinioWrapper:
     # grows later). Defaults to `endpoint` for backward compatibility.
     # See H9, docs/edge-agent-audit-2026-09-20.md.
     public_endpoint: str | None = None
+    public_secure: bool | None = None
 
     def presigned_put(self, key: str, expires: int = 3600) -> str:
         from minio import Minio
@@ -63,7 +64,7 @@ class MinioWrapper:
             self.public_endpoint or self.endpoint,
             access_key=self.access_key,
             secret_key=self.secret_key,
-            secure=self.secure,
+            secure=self.public_secure if self.public_secure is not None else self.secure,
         )
         return client.presigned_put_object(
             bucket_name=self.bucket,
@@ -80,6 +81,7 @@ def get_minio() -> MinioWrapper:
         secret_key=config.MINIO_SECRET_KEY,
         secure=config.MINIO_SECURE,
         public_endpoint=config.MINIO_PUBLIC_ENDPOINT,
+        public_secure=config.MINIO_PUBLIC_SECURE,
     )
 
 
