@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cnesdata/dumpagent/internal/manifest"
+	"github.com/cnesdata/dumpagent/internal/platform"
 	"go.etcd.io/bbolt"
 )
 
@@ -54,9 +55,13 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("ensure_dir: %w", err)
 	}
-	db, err := bbolt.Open(path, 0o644, &bbolt.Options{Timeout: 5 * time.Second})
+	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return nil, fmt.Errorf("bbolt_open: %w", err)
+	}
+	if err := platform.RestrictStatePath(path); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("restrict_state=%w", err)
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
 		for _, name := range []string{

@@ -163,3 +163,7 @@ no `web-dashboard` (definir `API_DOMAIN` e `PRECOS_NOINDEX` em `/opt/cnesdata/.e
 `VITE_API_BASE_URL=https://api.vinisantana.com/api/v1`. Antes do primeiro deploy de `main` com
 essa mudança, copiar o compose e o Caddyfile atualizados e conferir
 `smoke.sh https://cnesdata.vinisantana.com https://api.vinisantana.com`.
+
+O endpoint público de upload do MinIO também usa HTTPS em
+`storage.cnesdata.vinisantana.com`; crie o DNS A para o VPS e mantenha
+`MINIO_PUBLIC_ENDPOINT`/`MINIO_PUBLIC_SECURE=true` no `.env`.
