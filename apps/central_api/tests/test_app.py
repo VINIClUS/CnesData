@@ -233,12 +233,25 @@ class TestGetEngine:
         deps_mod._engine = None
 
 
-class TestGetMinio:
-    def test_get_minio_retorna_wrapper_com_bucket(self):
-        from central_api.deps import get_minio
-        wrapper = get_minio()
-        assert wrapper.bucket
-        assert hasattr(wrapper, "presigned_put")
+class TestGetObjectStorage:
+    def test_get_object_storage_expoe_object_storage_port(self):
+        from central_api import deps as deps_mod
+        deps_mod._object_storage_instance = None
+        storage = deps_mod.get_object_storage()
+        assert hasattr(storage, "generate_presigned_upload_url")
+        assert hasattr(storage, "object_exists")
+        assert hasattr(storage, "get_presigned_download_url")
+        deps_mod._object_storage_instance = None
+
+    def test_get_object_storage_e_singleton(self):
+        """Regressão: o antigo MinioWrapper construía um client novo a cada
+        chamada de presigned_put. O factory tem que reusar o mesmo client."""
+        from central_api import deps as deps_mod
+        deps_mod._object_storage_instance = None
+        first = deps_mod.get_object_storage()
+        second = deps_mod.get_object_storage()
+        assert first is second
+        deps_mod._object_storage_instance = None
 
 
 class TestLeaseReaperLoop:

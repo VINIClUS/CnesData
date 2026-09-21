@@ -148,6 +148,35 @@ suba-o normalmente (`docker compose -f /opt/cnesdata/docker-compose.prod.yml
 up -d caddy`); isso não afeta os containers de dev, que continuam rodando —
 só ficam sem HTTPS/roteamento até o Caddy voltar.
 
+## Pré-requisito manual: migração MinIO OSS → AIStor/S3 (PR storage)
+
+`deploy-develop.yml` dispara em push a `deploy/**`/`apps/**`/`packages/**`, mas o forced-command
+`deploy.sh` só troca a tag de imagem e roda `up -d` — **não copia `docker-compose.dev.yml`
+nem escreve `.env`** (isso é `bootstrap.sh`, que só roda uma vez; seu guard
+`if [ ! -f "$ENV_FILE" ]` não sobrescreve um `.env` já existente). Um merge desta PR sem
+ação manual sobe a imagem nova contra o compose/`.env` antigos: `S3_ENDPOINT_URL` fica vazio
+(`None` → S3 real), o guard de credencial em `build_s3_client` não dispara porque
+`endpoint_url is None` é o caso de produção, e `/api/v1/system/health` não toca storage — o
+deploy reporta sucesso e `POST /jobs/upload-url` só falha depois, em uso.
+
+Antes (ou junto) do merge para `develop`:
+
+```bash
+# 1. reinstala o compose novo (bootstrap.sh é idempotente, não mexe em .env já existente)
+scp deploy/dev/docker-compose.dev.yml root@103.199.184.166:/opt/cnesdata-dev/docker-compose.dev.yml
+
+# 2. S3_BUCKET não existe no .env já provisionado (só heredocs novos de bootstrap.sh
+#    escrevem essa chave) — adicionar à mão:
+ssh root@103.199.184.166 \
+  "grep -q '^S3_BUCKET=' /opt/cnesdata-dev/.env || echo 'S3_BUCKET=cnesdata-landing-dev' >> /opt/cnesdata-dev/.env"
+```
+
+`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` já existem em `/opt/cnesdata-dev/.env` e alimentam
+`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` via `docker-compose.dev.yml` — nenhuma chave nova
+ali. Sem a licença AIStor (`secrets/minio.license`), `central-api`/`data-processor` não
+sobem de jeito nenhum (ver `docs/development.md#object-storage-license`) — o deploy falha
+alto no healthcheck de 120s do `deploy.sh`, não silenciosamente.
+
 ## Pendências conhecidas (fora do escopo desta entrega)
 
 - Firewall Hostinger (grupo `358236`) tem uma regra `TCP any/any` liberada —

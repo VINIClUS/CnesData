@@ -7,12 +7,13 @@ from typing import TYPE_CHECKING, Annotated, Any
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import ValidationError
 
-from central_api.deps import get_engine, get_minio
+from central_api.deps import get_engine, get_object_storage
 from cnes_contracts.landing import (
     ExtractionRegisterPayload,
     UploadUrlRequest,
     UploadUrlResponse,
 )
+from cnes_infra import config
 from cnes_infra.storage import extractions_repo
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ _UPLOAD_URL_TTL_SECONDS: int = 3600
 
 
 def _object_storage():
-    return get_minio()
+    return get_object_storage()
 
 
 def _resolve_fato_subtype(source_type: str, intent: str) -> str:
@@ -81,7 +82,9 @@ def mint_upload_url(
     if inserted is None:
         raise HTTPException(status_code=409, detail="duplicate_job_id")
 
-    upload_url = _object_storage().presigned_put(minio_key, expires=_UPLOAD_URL_TTL_SECONDS)
+    upload_url = _object_storage().generate_presigned_upload_url(
+        config.S3_BUCKET, minio_key, expires_secs=_UPLOAD_URL_TTL_SECONDS,
+    )
     response = UploadUrlResponse(
         extraction_id=payload.job_id,
         upload_url=upload_url,

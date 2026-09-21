@@ -66,13 +66,13 @@ POSTGRES_PASSWORD=$PG_PASS
 POSTGRES_DB=cnesdata
 DB_URL=postgresql+psycopg://cnesdata:$PG_PASS@postgres:5432/cnesdata
 
+# App services reuse these as their S3 credentials (S3_ENDPOINT_URL is
+# hardcoded to http://minio:9000 in docker-compose.dev.yml). AIStor Free
+# also needs a license file at secrets/minio.license — this script does NOT
+# create it; place one manually (see docs/development.md#object-storage-license).
 MINIO_ROOT_USER=cnesdata-dev
 MINIO_ROOT_PASSWORD=$MINIO_PASS
-MINIO_ENDPOINT=minio:9000
-MINIO_ACCESS_KEY=cnesdata-dev
-MINIO_SECRET_KEY=$MINIO_PASS
-MINIO_SECURE=false
-MINIO_BUCKET=cnesdata-landing-dev
+S3_BUCKET=cnesdata-landing-dev
 
 KEYCLOAK_ADMIN=admin
 KEYCLOAK_ADMIN_PASSWORD=$KC_PASS

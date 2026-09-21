@@ -39,10 +39,16 @@ services:
       \ &&\n  python fixtures/seed_postgres.py\n\"\n"
     profiles:
     - dev
+  # minio/minio was archived and pulled from Docker Hub; AIStor is the
+  # successor. Free tier requires a mounted license file (never committed —
+  # see .gitignore) — an unlicensed server starts and reports healthy on
+  # /minio/health/live while denying every S3 operation, so the healthcheck
+  # below exercises mc instead of that endpoint. Get a license at
+  # https://min.io/pricing (Free tier) and place it at ./minio.license.
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: quay.io/minio/aistor/minio:RELEASE.2026-09-19T17-05-25Z@sha256:107cf2014a9583c74c11e3cdbd6903d89c2244355886b89ce532f4ecae9c23f3
     container_name: cnesdata_minio
-    command: server /data --console-address ":9001"
+    command: server /data --console-address ":9001" --license /minio.license
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -50,18 +56,17 @@ services:
     - 9000:9000
     - 9001:9001
     healthcheck:
-      test:
-      - CMD-SHELL
-      - curl -sf http://localhost:9000/minio/health/live || exit 1
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
     volumes:
     - minio_data:/data
+    - ./minio.license:/minio.license:ro
     profiles:
     - dev
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    image: quay.io/minio/aistor/mc:latest@sha256:23511e340cbabf07e6a8b53f9c434975708f22f3c047d6beeddc17bf1a5aed88
     container_name: cnesdata_minio_init
     depends_on:
       minio:
@@ -97,11 +102,11 @@ services:
     - 8000:8000
     environment:
       DB_URL: postgresql+psycopg://cnesdata:cnesdata_test@postgres:5432/cnesdata_test
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_SECURE: 'false'
-      MINIO_BUCKET: cnesdata-landing
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: cnesdata-landing
+      S3_ADDRESSING_STYLE: path
       API_HOST: 0.0.0.0
       API_PORT: '8000'
     healthcheck:
@@ -124,11 +129,11 @@ services:
         condition: service_healthy
     environment:
       DB_URL: postgresql+psycopg://cnesdata:cnesdata_test@postgres:5432/cnesdata_test
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_SECURE: 'false'
-      MINIO_BUCKET: cnesdata-landing
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: cnesdata-landing
+      S3_ADDRESSING_STYLE: path
       PROCESSOR_ID: docker-processor-01
       PROCESSOR_POLL_INTERVAL: '5.0'
     profiles:
@@ -186,18 +191,22 @@ services:
     - "3052:3050"
     profiles:
     - shadow
+  # Not AIStor: this runs unattended on schedule/push (shadow-e2e.yml) with
+  # no license file plumbed through CI, and an unlicensed AIStor denies every
+  # S3 operation (see the `minio` service comment above). LocalStack needs no
+  # license for its free/community S3 support, same image already pinned for
+  # the aws-test profile.
   minio-shadow:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: localstack/localstack:4.11.1@sha256:3071c9c72a1e9dbc23ad33540617ad7825ffeba80a8f421eff798b97850f9de5
     container_name: cnesdata_minio_shadow
-    command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      AWS_DEFAULT_REGION: us-east-1
+      SERVICES: s3
+      S3_SKIP_SIGNATURE_VALIDATION: '0'
     ports:
-    - "9100:9000"
-    - "9101:9001"
+    - "9100:4566"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
       interval: 5s
       retries: 20
     profiles:
@@ -245,11 +254,18 @@ services:
       start_period: 5s
     profiles:
     - aws-test
+  # Pin is structural, not incidental: localstack/localstack:latest requires
+  # LOCALSTACK_AUTH_TOKEN since the Community edition ended 2026-03-23, and the
+  # Hobby plan prohibits commercial use. Bumping this digest is a licensing
+  # decision, not a routine update.
   localstack:
     image: localstack/localstack:4.11.1@sha256:3071c9c72a1e9dbc23ad33540617ad7825ffeba80a8f421eff798b97850f9de5
     environment:
       AWS_DEFAULT_REGION: us-east-1
       SERVICES: s3
+      # Off by default upstream: an unsigned/expired presigned URL would be
+      # accepted silently, masking real signing bugs in CI.
+      S3_SKIP_SIGNATURE_VALIDATION: '0'
     ports:
     - "127.0.0.1:4566:4566"
     healthcheck:

@@ -123,6 +123,27 @@ O mesmo container `caddy` serve produção **e** o vhost de dev
 ssh root@103.199.184.166 'cd /opt/cnesdata && docker compose -f docker-compose.prod.yml up -d caddy'
 ```
 
+## Pré-requisito manual: migração MinIO → S3 real (PR storage)
+
+`docker-compose.prod.yml` desta PR remove os serviços `minio`/`minio-init` inteiramente.
+Como `deploy.sh` roda `up -d --remove-orphans`, o **primeiro** deploy pós-merge remove o
+container `minio` em produção. O volume `minio_data` sobrevive à remoção do container
+(orphan removal não apaga volumes) e fica órfão, mas persiste com os dados intactos até
+alguém rodar `down -v` — a migração dos objetos não é destrutiva por si só, mas deve
+acontecer antes do deploy de qualquer forma: depois do `up -d`, nenhum container fala mais
+com o MinIO para servir os dados de lá.
+
+Antes do primeiro `gh workflow run deploy-main.yml` com esta mudança:
+
+1. Copiar objetos do bucket `cnesdata-landing` (MinIO atual) para o bucket S3 real via
+   `mc mirror` ou `aws s3 sync` — **antes** do deploy, não como follow-up.
+2. Adicionar em `/opt/cnesdata/.env` (chaves que não existem hoje, `docker-compose.prod.yml`
+   passa a lê-las diretamente, sem indireção via `MINIO_ROOT_USER`/`PASSWORD` como em dev):
+   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_REGION` (`sa-east-1`), `S3_BUCKET`. Ver
+   `deploy/prod/.env.example`. **Não** setar `S3_ENDPOINT_URL` em prod — vazio = S3 real.
+3. `scp docker-compose.prod.yml` (passo já supervisionado — ver "Provisionamento único"
+   acima) antes de disparar o workflow; ele não se autoatualiza no VPS.
+
 ## Pendências conhecidas (fora do escopo desta entrega)
 
 - `src/` antigo em `/opt/cnesdata` (código copiado manualmente, usado pelo

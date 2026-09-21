@@ -12,7 +12,7 @@ the CI workflows where practical.
 | Go | 1.26 |
 | Frontend runtime | Bun 1.3 |
 | Database | PostgreSQL 16 via Docker Compose |
-| Object storage | MinIO via Docker Compose |
+| Object storage | MinIO AIStor via Docker Compose (S3 API) |
 
 For Firebird fixture archives, run:
 
@@ -22,6 +22,12 @@ uv run python scripts/fb156_setup.py
 ```
 
 ## Local Stack
+
+MinIO AIStor (the `minio` service, profile `dev`) needs a Free-tier license
+before `mc ready local` passes — without one, `central-api` and
+`data-processor` (both `depends_on: minio: condition: service_healthy`)
+never start at all, not just their S3 calls. See [Object storage
+license](#object-storage-license) below.
 
 Start all local development services:
 
@@ -47,6 +53,25 @@ Useful endpoints:
 
 Sem Postgres/MinIO/Keycloak (SQLite + filesystem, `--profile local`): ver
 `docs/runbooks/local-profile.md`.
+
+### Object storage license
+
+`minio/minio` was archived and removed from Docker Hub; the `dev`/`shadow`
+profiles run `quay.io/minio/aistor/minio`. Free tier permits commercial use
+in standalone mode but requires a license file — get one at
+https://min.io/pricing and place it at `./minio.license` (repo root,
+gitignored, never commit it). Without one the container starts and its
+`/minio/health/live` endpoint reports healthy, but every S3 operation is
+denied — the compose healthcheck runs `mc ready local` instead, which
+correctly fails in that state. If `./minio.license` doesn't exist on the
+host, Docker's bind mount silently creates a directory at that path instead
+of failing — `docker compose --profile dev up` then hangs on the same
+health check with no obvious cause; check `ls -la minio.license` if that
+happens.
+
+`--profile aws-test` (LocalStack, used by `scripts/ci_phase2_adapters.sh`)
+and `--profile shadow` (`minio-shadow`, now also LocalStack — see
+`docker-compose.yml`) need no license.
 
 Run only the API from the workspace:
 

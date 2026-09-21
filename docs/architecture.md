@@ -120,9 +120,10 @@ Current `dump_agent_go` production path includes:
 | `POST /provision/cert/rotate` | mTLS + CSR | renewed client certificate |
 | `POST /api/v1/jobs/register` | manifest with files + optional `sha256` | `{job_id, status}` |
 
-### Central → MinIO
+### Central → S3 (MinIO AIStor em dev, LocalStack em CI, S3 real em prod)
 
-- Bucket único: `cnesdata-landing` (configurável via `MINIO_BUCKET`)
+- Bucket único: `cnesdata-landing` (configurável via `S3_BUCKET`), prefixo por
+  tenant. Endpoint via `S3_ENDPOINT_URL` (vazio = S3 real).
 - Artefatos Parquet ficam referenciados em `landing.extractions.files`
 - Hash SHA-256 opcional fica em `landing.extractions.sha256`
 

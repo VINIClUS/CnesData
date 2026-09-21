@@ -25,7 +25,7 @@ def _settings(tmp_path):
 
 
 def test_local_runtime_nao_constroi_postgres_minio_aws(tmp_path, monkeypatch):
-    for name in ("sqlalchemy.create_engine", "minio.Minio", "boto3.client"):
+    for name in ("sqlalchemy.create_engine", "boto3.client"):
         monkeypatch.setattr(name, lambda *a, name=name, **k: pytest.fail(name), raising=False)
 
     runtime = build_local_runtime(_settings(tmp_path), _utc_now)
