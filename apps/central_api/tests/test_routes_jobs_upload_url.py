@@ -105,3 +105,29 @@ def test_rejeita_source_intent_desconhecido(client, monkeypatch):
     )
     assert resp.status_code == 422
     assert "unsupported_source_intent" in resp.text
+
+
+def test_erro_422_de_intent_desconhecido_segue_schema_httpvalidationerror(client):
+    """Garante que erros 422 usem o schema HTTPValidationError documentado."""
+    resp = client.post(
+        "/api/v1/jobs/upload-url",
+        headers={"X-Tenant-Id": "354130"},
+        json={
+            "job_id": str(uuid4()),
+            "tenant_id": "354130",
+            "source_type": "CNES_LOCAL",
+            "tipo_extracao": "profissionais",
+            "competencia": "2026-01-01",
+            "intent": "cnes_unknown",
+        },
+    )
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert isinstance(detail, list), f"detail must be a list, got {type(detail)}: {detail!r}"
+    assert detail, "detail list must not be empty"
+    for item in detail:
+        assert set(item) >= {"loc", "msg", "type"}
+        assert isinstance(item["loc"], list)
+        assert isinstance(item["msg"], str)
+        assert isinstance(item["type"], str)
+    assert "unsupported_source_intent" in detail[0]["msg"]

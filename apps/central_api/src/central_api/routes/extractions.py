@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 
 from central_api.deps import get_engine
+from central_api.validation_errors import validation_error
 from cnes_contracts.landing import SOURCE_TYPE  # noqa: TC001
 from cnes_infra.storage import extractions_repo
 
@@ -66,9 +67,8 @@ def enqueue(
 ) -> EnqueueResponse:
     manifest = _SOURCE_MANIFEST.get(req.source_type)
     if manifest is None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"unsupported_source_type={req.source_type}",
+        raise validation_error(
+            f"unsupported_source_type={req.source_type}", loc=["body", "source_type"],
         )
 
     dim_ids: list[UUID] = []

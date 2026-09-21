@@ -54,3 +54,19 @@ func TestIntentPipeline_ProduzParquetValido(t *testing.T) {
 	require.Equal(t, 1, n)
 	require.Equal(t, "UBS", dst[0].NomeFanta)
 }
+
+func TestIntentPipeline_AceitaIntentPrefixadoPelaAPI(t *testing.T) {
+	for _, intent := range []string{
+		"cnes_profissionais",
+		"cnes_estabelecimentos",
+		"cnes_equipes",
+	} {
+		fn, ok := worker.PipelineFor(intent)
+		require.True(t, ok, intent)
+		require.NotNil(t, fn, intent)
+
+		deltaFn, ok := worker.DeltaPipelineFor(intent)
+		require.True(t, ok, intent)
+		require.NotNil(t, deltaFn, intent)
+	}
+}

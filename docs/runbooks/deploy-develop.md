@@ -174,6 +174,10 @@ precisam estar alinhadas, todas versionadas em `deploy/`:
    `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.vinisantana.com`; `dashboard` recebe
    `API_ORIGIN=https://api.dev.vinisantana.com` (CSP `connect-src`) e `PRECOS_NOINDEX`.
 
+O upload do edge usa `storage.dev.cnesdata.vinisantana.com`: crie o DNS A para o VPS e
+configure `MINIO_PUBLIC_ENDPOINT=storage.dev.cnesdata.vinisantana.com` e
+`MINIO_PUBLIC_SECURE=true` no `.env` do stack dev.
+
 Validação (também no job `smoke`): `apps/web_dashboard/scripts/smoke.sh
 https://dev.cnesdata.vinisantana.com https://api.dev.vinisantana.com` confere health no host
 da API, `connect-src` na CSP, preflight CORS aceito só para a origem do dashboard e `/docs`

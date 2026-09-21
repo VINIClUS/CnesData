@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cnesdata/dumpagent/internal/platform"
 )
 
 // ErrNotSet signals the secret file does not exist for a source.
@@ -50,6 +52,9 @@ func (s *Store) Save(source, password string) error {
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir_secrets_dir: %w", err)
 	}
+	if err := platform.RestrictStateTree(s.dir); err != nil {
+		return fmt.Errorf("restrict_secrets_dir=%w", err)
+	}
 	wrapped, err := wrapForStorage([]byte(password))
 	if err != nil {
 		return fmt.Errorf("wrap_secret: %w", err)
@@ -62,6 +67,9 @@ func (s *Store) Save(source, password string) error {
 	if err := os.Rename(tmp, final); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("rename: %w", err)
+	}
+	if err := platform.RestrictStatePath(final); err != nil {
+		return fmt.Errorf("restrict_secret_file=%w", err)
 	}
 	return nil
 }
