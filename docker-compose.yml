@@ -245,11 +245,18 @@ services:
       start_period: 5s
     profiles:
     - aws-test
+  # Pin is structural, not incidental: localstack/localstack:latest requires
+  # LOCALSTACK_AUTH_TOKEN since the Community edition ended 2026-03-23, and the
+  # Hobby plan prohibits commercial use. Bumping this digest is a licensing
+  # decision, not a routine update.
   localstack:
     image: localstack/localstack:4.11.1@sha256:3071c9c72a1e9dbc23ad33540617ad7825ffeba80a8f421eff798b97850f9de5
     environment:
       AWS_DEFAULT_REGION: us-east-1
       SERVICES: s3
+      # Off by default upstream: an unsigned/expired presigned URL would be
+      # accepted silently, masking real signing bugs in CI.
+      S3_SKIP_SIGNATURE_VALIDATION: '0'
     ports:
     - "127.0.0.1:4566:4566"
     healthcheck:
