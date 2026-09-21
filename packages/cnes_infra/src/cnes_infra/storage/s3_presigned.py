@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 from botocore.exceptions import ClientError
@@ -20,14 +21,33 @@ def build_s3_client(
 ) -> Any:
     """Client boto3 pronto para presign — SigV4 fixo (obrigatório para
     endpoints customizados: LocalStack/AIStor caem em SigV2 sem isso).
+
+    Raises:
+        ValueError: endpoint_url definido (LocalStack/AIStor) sem
+            AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY explícitos. Sem essa
+            checagem, o boto3 cai silenciosamente para ~/.aws/credentials
+            (ou IMDS) e assina contra o endpoint local com uma credencial
+            AWS real de quem estiver rodando — reproduzido manualmente:
+            403 assinado com uma access key alheia em vez de falhar alto.
     """
     import boto3
     from botocore.config import Config
+
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if endpoint_url is not None and not (access_key and secret_key):
+        raise ValueError(
+            "s3_endpoint_url=set aws_credentials=missing — "
+            "defina AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY explicitamente "
+            "para endpoints não-AWS; nunca herde de ~/.aws/credentials",
+        )
 
     return boto3.client(
         "s3",
         region_name=region_name,
         endpoint_url=endpoint_url,
+        aws_access_key_id=access_key if endpoint_url is not None else None,
+        aws_secret_access_key=secret_key if endpoint_url is not None else None,
         config=Config(
             signature_version="s3v4",
             s3={"addressing_style": addressing_style},

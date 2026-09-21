@@ -50,7 +50,7 @@ jobs:
           docker compose -f docker-compose.yml --profile shadow up -d
           for i in $(seq 1 30); do
               if docker inspect --format='{{.State.Health.Status}}' cnesdata_minio_shadow 2>/dev/null | grep -q healthy; then
-                  echo "minio_ready"
+                  echo "s3_shadow_ready"
                   break
               fi
               sleep 2
@@ -102,11 +102,10 @@ jobs:
 
       - name: Compare CNES shadow gate via minio-shadow (CND-054)
         env:
-          MINIO_ENDPOINT: localhost:9100
-          MINIO_SECURE: "false"
-          MINIO_ACCESS_KEY: minioadmin
-          MINIO_SECRET_KEY: minioadmin
-          MINIO_BUCKET: cnesdata-shadow-gate
+          S3_ENDPOINT_URL: http://localhost:9100
+          S3_BUCKET: cnesdata-shadow-gate
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
         run: |
           python scripts/compare_cnes_data_plane_cli.py \
             --fixtures docs/fixtures/data-plane \

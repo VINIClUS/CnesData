@@ -66,25 +66,30 @@ def test_presign_usa_sigv4() -> None:
 
 @pytest.mark.s3_integration
 def test_presign_expirado_e_rejeitado() -> None:
+    import time
+
     adapter = S3PresignedStorage(_client())
     url = adapter.generate_presigned_upload_url(_BUCKET, "exp/key", expires_secs=1)
-    query = parse_qs(urlparse(url).query)
-    assert query["X-Amz-Expires"] == ["1"]
+    time.sleep(2)
+    resp = httpx.put(url, content=b"too-late", timeout=30.0)
+    assert resp.status_code == 403
 
 
 @pytest.mark.s3_integration
-def test_presign_path_style_funciona() -> None:
+def test_presign_virtual_style_funciona() -> None:
+    """path style já é coberto por _client(); virtual é o outro caso da
+    matriz addressing_style verificado nos probes manuais contra AIStor."""
     client = boto3.client(
         "s3",
         endpoint_url=os.getenv("S3_ENDPOINT", "http://127.0.0.1:4566"),
         region_name="us-east-1",
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "test"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "test"),
-        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
     )
     adapter = S3PresignedStorage(client)
-    url = adapter.generate_presigned_upload_url(_BUCKET, "path-style/key")
-    resp = httpx.put(url, content=b"path-style-body", timeout=30.0)
+    url = adapter.generate_presigned_upload_url(_BUCKET, "virtual-style/key")
+    resp = httpx.put(url, content=b"virtual-style-body", timeout=30.0)
     resp.raise_for_status()
 
 

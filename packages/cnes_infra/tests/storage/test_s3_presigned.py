@@ -108,14 +108,28 @@ class TestObjectExists:
 
 class TestBuildS3Client:
 
-    def test_fixa_sigv4_e_addressing_style(self):
+    def test_fixa_sigv4_e_addressing_style(self, monkeypatch):
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
         client = build_s3_client(
             "sa-east-1", endpoint_url="http://localhost:4566", addressing_style="path",
         )
         assert client.meta.region_name == "sa-east-1"
         assert client.meta.endpoint_url == "http://localhost:4566"
 
-    def test_endpoint_url_none_usa_resolvedor_padrao(self):
+    def test_endpoint_url_none_usa_resolvedor_padrao(self, monkeypatch):
+        monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+        monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
         client = build_s3_client("sa-east-1")
         assert client.meta.region_name == "sa-east-1"
+
+    def test_recusa_endpoint_customizado_sem_credenciais_explicitas(self, monkeypatch):
+        """Sem isso, boto3 cai silenciosamente para ~/.aws/credentials (ou
+        IMDS) e assina o presign com a credencial AWS real de quem estiver
+        rodando — reproduzido manualmente contra AIStor: 403 assinado com
+        uma access key alheia em vez de uma falha alta e óbvia."""
+        monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+        monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+        with pytest.raises(ValueError, match="aws_credentials=missing"):
+            build_s3_client("sa-east-1", endpoint_url="http://localhost:4566")
 

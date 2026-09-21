@@ -39,10 +39,16 @@ services:
         limits:
           memory: 512M
 
+  # minio/minio was archived and pulled from Docker Hub; AIStor is the
+  # successor. Free tier requires a mounted license (get one at
+  # https://min.io/pricing) placed at ./secrets/minio.license on this host —
+  # see docs/runbooks/local-profile.md. Healthcheck uses `mc ready local`,
+  # not /minio/health/live: an unlicensed server returns 200 there while
+  # denying every S3 operation.
   minio:
-    image: quay.io/minio/minio:latest
+    image: quay.io/minio/aistor/minio:latest
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    command: server /data --console-address ":9001" --license /minio.license
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -51,19 +57,20 @@ services:
       - "127.0.0.1:9002:9000"
       - "127.0.0.1:9003:9001"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
     volumes:
       - minio_data_dev:/data
+      - ./secrets/minio.license:/minio.license:ro
     deploy:
       resources:
         limits:
           memory: 512M
 
   minio-init:
-    image: quay.io/minio/mc:latest
+    image: quay.io/minio/aistor/mc:latest
     restart: "no"
     depends_on:
       minio:
@@ -71,7 +78,7 @@ services:
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
-      mc mb --ignore-existing local/${MINIO_BUCKET} &&
+      mc mb --ignore-existing local/${S3_BUCKET} &&
       echo bucket ready"
 
   migrator:
@@ -93,11 +100,11 @@ services:
         condition: service_healthy
     environment:
       DB_URL: ${DB_URL}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      MINIO_SECURE: ${MINIO_SECURE}
-      MINIO_BUCKET: ${MINIO_BUCKET}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ADDRESSING_STYLE: path
       AUTH_REQUIRED: ${AUTH_REQUIRED}
       TRUST_X_FORWARDED_PROTO: ${TRUST_X_FORWARDED_PROTO:-true}
       DASHBOARD_OIDC_ISSUER: ${DASHBOARD_OIDC_ISSUER}
@@ -143,11 +150,11 @@ services:
         condition: service_healthy
     environment:
       DB_URL: ${DB_URL}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      MINIO_SECURE: ${MINIO_SECURE}
-      MINIO_BUCKET: ${MINIO_BUCKET}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ADDRESSING_STYLE: path
       PROCESSOR_ID: dev-processor-01
       PROCESSOR_POLL_INTERVAL: ${PROCESSOR_POLL_INTERVAL}
       PROCESSOR_IDLE_POLL_INTERVAL: ${PROCESSOR_IDLE_POLL_INTERVAL}
