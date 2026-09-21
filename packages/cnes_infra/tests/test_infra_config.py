@@ -1,5 +1,7 @@
 """Testes do módulo config — helpers de leitura de variáveis de ambiente."""
 
+import importlib
+
 import pytest
 
 
@@ -86,3 +88,38 @@ class TestLazyAttrs:
         monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
         with pytest.raises(OSError):
             _ = cfg.GCP_PROJECT_ID
+
+
+class TestS3PublicEndpointUrl:
+    """S3_PUBLIC_ENDPOINT_URL precisa cair para S3_ENDPOINT_URL tanto quando
+    a env var está ausente quanto quando está presente mas vazia — o segundo
+    caso é o que docker-compose produz (`${S3_PUBLIC_ENDPOINT_URL}` sem
+    default no compose, variável ausente do .env) e `os.getenv(key, default)`
+    só cobre o primeiro (default só vale quando a env var está ausente)."""
+
+    def test_cai_para_endpoint_interno_quando_ausente(self, monkeypatch):
+        monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.delenv("S3_PUBLIC_ENDPOINT_URL", raising=False)
+        from cnes_infra import config
+        importlib.reload(config)
+        assert config.S3_PUBLIC_ENDPOINT_URL == "http://minio:9000"
+        importlib.reload(config)
+
+    def test_cai_para_endpoint_interno_quando_vazia(self, monkeypatch):
+        """Regressão: docker-compose substitui variável ausente do .env por
+        string vazia, não por variável ausente — S3_PUBLIC_ENDPOINT_URL=""
+        no ambiente do container, não unset."""
+        monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.setenv("S3_PUBLIC_ENDPOINT_URL", "")
+        from cnes_infra import config
+        importlib.reload(config)
+        assert config.S3_PUBLIC_ENDPOINT_URL == "http://minio:9000"
+        importlib.reload(config)
+
+    def test_respeita_override_explicito(self, monkeypatch):
+        monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.setenv("S3_PUBLIC_ENDPOINT_URL", "https://storage.dev.example.com")
+        from cnes_infra import config
+        importlib.reload(config)
+        assert config.S3_PUBLIC_ENDPOINT_URL == "https://storage.dev.example.com"
+        importlib.reload(config)

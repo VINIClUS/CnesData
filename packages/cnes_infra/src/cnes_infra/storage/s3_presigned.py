@@ -71,16 +71,26 @@ class S3PresignedStorage:
     O client deve ser construído com ``Config(signature_version="s3v4")`` —
     sem isso o boto3 gera presign em SigV2 contra endpoints customizados
     (LocalStack/AIStor), que rejeitam com SignatureDoesNotMatch.
+
+    ``public_client`` assina as URLs presigned entregues ao edge agent com
+    um host diferente do usado nas chamadas internas (head_object). Sem
+    conectividade de rede — generate_presigned_url é assinatura local —
+    então o client público só precisa do endpoint_url certo, nunca de
+    alcançar o servidor de fato. Default: mesmo client (comportamento
+    anterior). Porta o split endpoint/public_endpoint do MinioWrapper
+    (PR #230, H9): o hostname Docker-interno do MinIO/AIStor nunca é
+    alcançável por um agente numa rede municipal.
     """
 
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, public_client: Any | None = None) -> None:
         self._client = client
+        self._public_client = public_client or client
 
     def generate_presigned_upload_url(
         self, bucket: str, object_key: str,
         expires_secs: int = 3600,
     ) -> str:
-        return self._client.generate_presigned_url(
+        return self._public_client.generate_presigned_url(
             "put_object",
             Params={"Bucket": bucket, "Key": object_key},
             ExpiresIn=expires_secs,
@@ -101,7 +111,7 @@ class S3PresignedStorage:
         self, bucket: str, object_key: str,
         expires_secs: int = 3600,
     ) -> str:
-        return self._client.generate_presigned_url(
+        return self._public_client.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket, "Key": object_key},
             ExpiresIn=expires_secs,

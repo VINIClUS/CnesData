@@ -73,6 +73,7 @@ DB_URL=postgresql+psycopg://cnesdata:$PG_PASS@postgres:5432/cnesdata
 MINIO_ROOT_USER=cnesdata-dev
 MINIO_ROOT_PASSWORD=$MINIO_PASS
 S3_BUCKET=cnesdata-landing-dev
+S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.vinisantana.com
 
 KEYCLOAK_ADMIN=admin
 KEYCLOAK_ADMIN_PASSWORD=$KC_PASS

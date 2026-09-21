@@ -65,7 +65,14 @@ def get_object_storage() -> ObjectStoragePort:
         client = build_s3_client(
             config.S3_REGION, config.S3_ENDPOINT_URL or None, config.S3_ADDRESSING_STYLE,
         )
-        _object_storage_instance = S3PresignedStorage(client)
+        public_client = None
+        if config.S3_PUBLIC_ENDPOINT_URL != config.S3_ENDPOINT_URL:
+            public_client = build_s3_client(
+                config.S3_REGION,
+                config.S3_PUBLIC_ENDPOINT_URL or None,
+                config.S3_ADDRESSING_STYLE,
+            )
+        _object_storage_instance = S3PresignedStorage(client, public_client=public_client)
     return _object_storage_instance
 
 

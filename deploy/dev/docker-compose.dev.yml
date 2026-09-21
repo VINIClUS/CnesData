@@ -64,6 +64,11 @@ services:
     volumes:
       - minio_data_dev:/data
       - ./secrets/minio.license:/minio.license:ro
+    networks:
+      default:
+      edge:
+        aliases:
+          - dev-minio
     deploy:
       resources:
         limits:
@@ -103,6 +108,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       S3_ENDPOINT_URL: http://minio:9000
+      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL}
       S3_BUCKET: ${S3_BUCKET}
       S3_ADDRESSING_STYLE: path
       AUTH_REQUIRED: ${AUTH_REQUIRED}

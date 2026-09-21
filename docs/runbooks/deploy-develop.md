@@ -203,6 +203,12 @@ precisam estar alinhadas, todas versionadas em `deploy/`:
    `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.vinisantana.com`; `dashboard` recebe
    `API_ORIGIN=https://api.dev.vinisantana.com` (CSP `connect-src`) e `PRECOS_NOINDEX`.
 
+O upload do edge agent usa `storage.dev.cnesdata.vinisantana.com` (o `minio` do dev entra na
+mesma rede `cnesdata_edge` com alias `dev-minio`, ver `deploy/dev/docker-compose.dev.yml`):
+crie o DNS A para o VPS e configure `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.vinisantana.com`
+no `.env` do stack dev. Prod não tem equivalente — o compose de prod não roda `minio`, e URLs
+presigned de S3 real já são públicas por construção.
+
 Validação (também no job `smoke`): `apps/web_dashboard/scripts/smoke.sh
 https://dev.cnesdata.vinisantana.com https://api.dev.vinisantana.com` confere health no host
 da API, `connect-src` na CSP, preflight CORS aceito só para a origem do dashboard e `/docs`
