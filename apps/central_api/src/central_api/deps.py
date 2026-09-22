@@ -213,6 +213,23 @@ def _install_local_auth_and_serving(
     )
 
 
+def _install_cert_authority(app: object) -> None:
+    ca_cert_path = os.environ.get("AUTH_CA_CERT_PATH", "")
+    ca_key_path = os.environ.get("AUTH_CA_KEY_PATH", "")
+    if ca_cert_path and ca_key_path:
+        from pathlib import Path
+
+        from cnes_infra.auth import CertAuthority
+        app.state.cert_authority = CertAuthority(  # type: ignore[attr-defined]
+            root_cert_pem=Path(ca_cert_path).read_bytes(),
+            root_key_pem=Path(ca_key_path).read_bytes(),
+        )
+    else:
+        app.state.cert_authority = None  # type: ignore[attr-defined]
+    if not config.AGENT_MTLS_REQUIRED:
+        logger.warning("agent_mtls required=false jobs_routes=unauthenticated")
+
+
 @asynccontextmanager
 async def lifespan(app: object) -> AsyncGenerator[None]:
     global _engine
@@ -230,7 +247,6 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     from central_api.repositories.leads_repo import LeadsRepo
     from cnes_infra.auth import (
         AccessTokenStore,
-        CertAuthority,
         DeviceCodeStore,
         JWKSValidator,
         ProvisionedCertsRepo,
@@ -250,16 +266,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     app.state.access_token_store = AccessTokenStore()  # type: ignore[attr-defined]
     app.state.refresh_token_store = RefreshTokenStore(_engine)  # type: ignore[attr-defined]
     app.state.provisioned_certs = ProvisionedCertsRepo(_engine)  # type: ignore[attr-defined]
-    _ca_cert_path = os.environ.get("AUTH_CA_CERT_PATH", "")
-    _ca_key_path = os.environ.get("AUTH_CA_KEY_PATH", "")
-    if _ca_cert_path and _ca_key_path:
-        from pathlib import Path
-        app.state.cert_authority = CertAuthority(  # type: ignore[attr-defined]
-            root_cert_pem=Path(_ca_cert_path).read_bytes(),
-            root_key_pem=Path(_ca_key_path).read_bytes(),
-        )
-    else:
-        app.state.cert_authority = None  # type: ignore[attr-defined]
+    _install_cert_authority(app)
     app.state.verification_uri = os.environ.get("AUTH_DEVICE_VERIFICATION_URI", "")  # type: ignore[attr-defined]
     app.state.access_token_ttl = config.AUTH_ACCESS_TOKEN_TTL  # type: ignore[attr-defined]
     app.state.device_code_ttl = config.AUTH_DEVICE_CODE_TTL  # type: ignore[attr-defined]

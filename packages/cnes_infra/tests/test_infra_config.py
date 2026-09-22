@@ -130,3 +130,26 @@ class TestS3PublicEndpointUrl:
         from cnes_infra import config
         importlib.reload(config)
         assert config.S3_PUBLIC_ENDPOINT_URL == "https://storage.dev.example.com"
+
+
+class TestAgentMtlsRequired:
+    @pytest.mark.parametrize("raw", [None, "", "true", "TRUE", "garbage"])
+    def test_exige_mtls_por_padrao_e_para_valor_desconhecido(
+        self, monkeypatch, reload_config, raw,
+    ):
+        if raw is None:
+            monkeypatch.delenv("AGENT_MTLS_REQUIRED", raising=False)
+        else:
+            monkeypatch.setenv("AGENT_MTLS_REQUIRED", raw)
+        from cnes_infra import config
+        importlib.reload(config)
+        assert config.AGENT_MTLS_REQUIRED is True
+
+    @pytest.mark.parametrize("raw", ["false", "False", " FALSE "])
+    def test_desliga_mtls_somente_com_false_explicito(
+        self, monkeypatch, reload_config, raw,
+    ):
+        monkeypatch.setenv("AGENT_MTLS_REQUIRED", raw)
+        from cnes_infra import config
+        importlib.reload(config)
+        assert config.AGENT_MTLS_REQUIRED is False

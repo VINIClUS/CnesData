@@ -1,12 +1,11 @@
 """ProvisionedCertsRepo: append-only audit log + active-cert lookup.
 
 Writes one row per /provision/cert call. RLS-isolated by tenant_id.
-Append-only on write; SELECT helper for /provision/cert/rotate.
+Append-only on write; serial lookup gates agent mTLS (rotation overlap allowed).
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sqlalchemy import text
@@ -17,17 +16,6 @@ if TYPE_CHECKING:
     from sqlalchemy import Engine
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class ProvisionedCertRow:
-    agent_id: str
-    tenant_id: str
-    subject_cn: str
-    ca_serial: str
-    issued_at: dt.datetime
-    expires_at: dt.datetime
-    revoked_at: dt.datetime | None
 
 
 class ProvisionedCertsRepo:
@@ -62,26 +50,16 @@ class ProvisionedCertsRepo:
             agent_id, tenant_id, ca_serial,
         )
 
-    def find_active_by_agent_id(
-        self, agent_id: str,
-    ) -> ProvisionedCertRow | None:
+    def is_serial_active(self, agent_id: str, ca_serial: str) -> bool:
+        """Returns: True se o serial do agente não foi revogado nem expirou."""
         with self._engine.connect() as conn:
             row = conn.execute(
                 text(
-                    "SELECT agent_id, tenant_id, subject_cn, ca_serial, "
-                    "issued_at, expires_at, revoked_at "
-                    "FROM auth_provisioned_certs "
-                    "WHERE agent_id = :a AND revoked_at IS NULL "
-                    "AND expires_at > now() "
-                    "ORDER BY issued_at DESC LIMIT 1",
+                    "SELECT 1 FROM auth_provisioned_certs "
+                    "WHERE agent_id = :a AND ca_serial = :s "
+                    "AND revoked_at IS NULL AND expires_at > now() "
+                    "LIMIT 1",
                 ),
-                {"a": agent_id},
+                {"a": agent_id, "s": ca_serial},
             ).one_or_none()
-        if row is None:
-            return None
-        return ProvisionedCertRow(
-            agent_id=row.agent_id, tenant_id=row.tenant_id,
-            subject_cn=row.subject_cn, ca_serial=row.ca_serial,
-            issued_at=row.issued_at, expires_at=row.expires_at,
-            revoked_at=row.revoked_at,
-        )
+        return row is not None

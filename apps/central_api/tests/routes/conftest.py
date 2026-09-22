@@ -37,6 +37,7 @@ def pg_engine():
 
 @pytest.fixture
 def api_client(pg_engine):
+    from central_api.agent_auth import agent_identity_if_required
     from central_api.deps import get_conn, get_engine
 
     with (
@@ -55,6 +56,7 @@ def api_client(pg_engine):
 
     app.dependency_overrides[get_engine] = lambda: pg_engine
     app.dependency_overrides[get_conn] = _override_conn
+    app.dependency_overrides[agent_identity_if_required] = lambda: None
     with TestClient(app, raise_server_exceptions=True) as client:
         yield client
     app.dependency_overrides.clear()

@@ -1,4 +1,5 @@
 """Tests for require_auth + require_tenant_header dependencies."""
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Request
@@ -83,3 +84,25 @@ def test_require_tenant_header_passa_quando_pertence() -> None:
     r = TestClient(app).get("/scoped", headers={"X-Tenant-Id": "354130"})
     assert r.status_code == 200
     assert r.json() == {"tenant": "354130"}
+
+
+def test_install_cert_authority_avisa_quando_mtls_desligado(monkeypatch, caplog):
+    from central_api.deps import _install_cert_authority
+
+    monkeypatch.delenv("AUTH_CA_CERT_PATH", raising=False)
+    monkeypatch.setattr("cnes_infra.config.AGENT_MTLS_REQUIRED", False)
+    app = MagicMock()
+    with caplog.at_level("WARNING", logger="central_api.deps"):
+        _install_cert_authority(app)
+    assert app.state.cert_authority is None
+    assert "agent_mtls required=false" in caplog.text
+
+
+def test_install_cert_authority_nao_avisa_quando_mtls_obrigatorio(monkeypatch, caplog):
+    from central_api.deps import _install_cert_authority
+
+    monkeypatch.delenv("AUTH_CA_CERT_PATH", raising=False)
+    monkeypatch.setattr("cnes_infra.config.AGENT_MTLS_REQUIRED", True)
+    with caplog.at_level("WARNING", logger="central_api.deps"):
+        _install_cert_authority(MagicMock())
+    assert "agent_mtls" not in caplog.text

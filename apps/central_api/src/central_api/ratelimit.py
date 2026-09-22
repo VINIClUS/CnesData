@@ -35,10 +35,19 @@ def _is_trusted(addr: str, networks: tuple[_IpNetwork, ...]) -> bool:
     return any(ip in network for network in networks)
 
 
+def _trusted_networks() -> tuple[_IpNetwork, ...]:
+    return _parse_networks(os.getenv("TRUSTED_PROXY_CIDRS", ""))
+
+
+def is_trusted_proxy_peer(request: Request) -> bool:
+    """Returns: True se o peer do socket está em TRUSTED_PROXY_CIDRS."""
+    return _is_trusted(get_remote_address(request), _trusted_networks())
+
+
 def client_ip(request: Request) -> str:
     """Return the client IP, trusting X-Forwarded-For only from an allowlisted proxy peer."""
     peer = get_remote_address(request)
-    networks = _parse_networks(os.getenv("TRUSTED_PROXY_CIDRS", ""))
+    networks = _trusted_networks()
     if not networks or not _is_trusted(peer, networks):
         return peer
     forwarded = request.headers.get("X-Forwarded-For", "")
