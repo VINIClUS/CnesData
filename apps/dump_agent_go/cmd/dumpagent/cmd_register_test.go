@@ -98,6 +98,18 @@ func TestLoadCAPin_FlagPathReadsFile(t *testing.T) {
 	}
 }
 
+func TestLoadCAPin_FlagPathEmptyFile_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	pemPath := dir + "/empty_ca.pem"
+	if err := os.WriteFile(pemPath, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadCAPin(pemPath)
+	if err == nil {
+		t.Fatal("loadCAPin: want error for explicit but empty --ca-pin file")
+	}
+}
+
 func TestLoadCAPin_FlagPathMissingReturnsError(t *testing.T) {
 	_, err := loadCAPin("/definitely/does/not/exist.pem")
 	if err == nil {

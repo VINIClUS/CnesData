@@ -196,7 +196,11 @@ func parseRegisterFlags(args []string) (registerFlags, error) {
 
 // loadCAPin returns PEM bytes from --ca-pin path if non-empty, else
 // auth.CAPinPEM (nil by default — see newBootstrapClient). Wraps file-read
-// errors with errPersistFailed (exit 5).
+// errors with errPersistFailed (exit 5). An explicit but empty file is
+// rejected rather than silently treated as "no --ca-pin given": omitting
+// the flag and passing a truncated file are different intents, and only
+// the former should fall back to the system trust store / remove a stale
+// pin.
 func loadCAPin(path string) ([]byte, error) {
 	if path == "" {
 		return auth.CAPinPEM, nil
@@ -204,6 +208,9 @@ func loadCAPin(path string) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: read --ca-pin: %v", errPersistFailed, err)
+	}
+	if len(b) == 0 {
+		return nil, fmt.Errorf("%w: --ca-pin file %q is empty", errPersistFailed, path)
 	}
 	return b, nil
 }
