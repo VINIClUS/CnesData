@@ -17,8 +17,16 @@ credencial. A versão corrente do canal `stable` está em `dumpagent/stable/late
 para uma versão específica, usar `dumpagent/<versão>/`. Ver `dumpagent-release.md` para o
 contrato do manifesto.
 
+> **Ainda não ativo (2026-09-22):** o custom domain do R2 continua apontando para
+> `releases.cnesdata.vinisantana.com` — a migração (`dumpagent-bucket-setup.md`, seção
+> "Acesso público") e a atualização da variável de repo `RELEASES_PUBLIC_BASE_URL` são
+> passos externos (Cloudflare R2 Connect Domain + `gh variable set`), não cobertos por
+> nenhuma PR de código. Até isso acontecer, use `releases.cnesdata.vinisantana.com` abaixo.
+
 ```powershell
-$base = "https://releases.cnesdata.com.br/dumpagent"
+$base = "https://releases.cnesdata.vinisantana.com/dumpagent"  # trocar para
+                                                                 # releases.cnesdata.com.br
+                                                                 # quando o R2 migrar
 $manifest = Invoke-RestMethod "$base/stable/latest.json"
 $art = $manifest.artifacts.'windows-amd64'
 Invoke-WebRequest -Uri $art.url -OutFile "dumpagent-$($manifest.version)-windows-amd64.zip"

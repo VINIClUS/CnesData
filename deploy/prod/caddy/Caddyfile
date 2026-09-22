@@ -4,15 +4,27 @@
 # `develop` block below must never be dropped when redeploying prod.
 # See docs/runbooks/deploy-develop.md for how that block was added.
 #
-# Each block below serves BOTH the new (cnesdata.com.br) and legacy
-# (vinisantana.com) hostnames from the same backend during the domain
-# migration transition. Do not drop the vinisantana.com names until prod's
-# .env, deployed image and DNS have all been cut over too (see
-# docs/runbooks/deploy-main.md, "Pré-requisito manual: migração de
-# domínio") — replacing instead of adding caused a live prod outage on
-# 2026-09-22 when this Caddyfile was renamed in place before prod's own
-# cutover: Caddy had no block left for cnesdata.vinisantana.com /
-# api.vinisantana.com and every request TLS-handshake-failed.
+# The two prod blocks below serve BOTH the new (cnesdata.com.br) and legacy
+# (vinisantana.com) hostnames from the same backend, because prod's own
+# cutover (.env, deployed image, DNS) hasn't happened yet — dropping the
+# legacy names before that caused a live ~30min outage on 2026-09-22 (this
+# file was renamed in place, Caddy lost its only block for
+# cnesdata.vinisantana.com/api.vinisantana.com, every request
+# TLS-handshake-failed). Do not drop them until prod's cutover completes
+# (docs/runbooks/deploy-main.md, "Pré-requisito manual: migração de
+# domínio") — and even then, redirect (don't keep proxying) the legacy
+# names: once prod's dashboard image is rebuilt with the new domain's
+# VITE_OIDC_REDIRECT_URI baked in, a login started on the legacy origin
+# stores its OIDC state there but gets redirected to the new origin's
+# callback, which can't read state from a different origin. A permanent
+# redirect avoids ever serving a build that can't complete login for the
+# origin it was requested on.
+#
+# The dev blocks are NOT dual-hostname: dev's own cutover (.env, image,
+# DNS, Keycloak client) already happened, so dev.cnesdata.vinisantana.com
+# would hit this same login-state mismatch immediately once the dashboard
+# rebuilds with the new domain baked in. No reason to carry that risk for
+# a completed cutover.
 
 cnesdata.com.br, cnesdata.vinisantana.com {
     handle /idp/* {
@@ -23,7 +35,7 @@ cnesdata.com.br, cnesdata.vinisantana.com {
     }
 }
 
-dev.cnesdata.com.br, dev.cnesdata.vinisantana.com {
+dev.cnesdata.com.br {
     handle /idp/* {
         reverse_proxy dev-keycloak:8080
     }
@@ -42,7 +54,7 @@ api.cnesdata.com.br, api.vinisantana.com {
     }
 }
 
-api.dev.cnesdata.com.br, api.dev.vinisantana.com {
+api.dev.cnesdata.com.br {
     handle /api/* {
         reverse_proxy dev-central-api:8000
     }

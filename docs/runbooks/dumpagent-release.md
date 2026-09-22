@@ -49,7 +49,9 @@ Verifica: credenciais R2, comportamento de checksum do AWS CLI contra o endpoint
 geração e validação do manifesto contra o schema — com raio de impacto zero.
 
 ```bash
-BASE=https://releases.cnesdata.com.br
+BASE=https://releases.cnesdata.vinisantana.com  # RELEASES_PUBLIC_BASE_URL ainda
+                                                 # não migrado (R2 custom domain
+                                                 # pendente) — ver dumpagent-bucket-setup.md
 Z=dumpagent-v0.0.1-rc.1-windows-amd64.zip
 curl -sI "$BASE/dumpagent/_dryrun/<run_id>/v0.0.1-rc.1/windows-amd64/$Z"
 ```
@@ -70,7 +72,9 @@ manifesto do canal — **último passo do pipeline**: nada é descobrível antes
 ### 3. Verificação pós-release
 
 ```bash
-BASE=https://releases.cnesdata.com.br
+BASE=https://releases.cnesdata.vinisantana.com  # RELEASES_PUBLIC_BASE_URL ainda
+                                                 # não migrado (R2 custom domain
+                                                 # pendente) — ver dumpagent-bucket-setup.md
 CH=stable   # ou rc
 
 curl -sI "$BASE/dumpagent/v0.1.0/windows-amd64/dumpagent-v0.1.0-windows-amd64.zip" \
