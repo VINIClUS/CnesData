@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
 	"net"
@@ -69,8 +70,8 @@ func TestRegister_ParseFlags_DefaultScope(t *testing.T) {
 	flags, _ := parseRegisterFlags([]string{
 		"--tenant-id", "T", "--base-url", "https://x.example",
 	})
-	if flags.Scope != "agent" {
-		t.Errorf("Scope default = %q, want %q", flags.Scope, "agent")
+	if flags.Scope != "agent.provision" {
+		t.Errorf("Scope default = %q, want %q", flags.Scope, "agent.provision")
 	}
 }
 
@@ -94,6 +95,18 @@ func TestLoadCAPin_FlagPathReadsFile(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "BEGIN CERTIFICATE") {
 		t.Errorf("got = %q, want PEM", got)
+	}
+}
+
+func TestLoadCAPin_FlagPathEmptyFile_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	pemPath := dir + "/empty_ca.pem"
+	if err := os.WriteFile(pemPath, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadCAPin(pemPath)
+	if err == nil {
+		t.Fatal("loadCAPin: want error for explicit but empty --ca-pin file")
 	}
 }
 
@@ -751,5 +764,39 @@ func TestRegister_NoSmokeFlag_SkipsHealthProbe(t *testing.T) {
 	}
 	if got := healthCount.Load(); got != 0 {
 		t.Errorf("health request count = %d, want 0 (--no-smoke)", got)
+	}
+}
+
+func TestPersistAll_ExplicitCAPin_PersistsForRunToLoad(t *testing.T) {
+	dir := t.TempDir()
+	resp := &provisionResp{CertPEM: "cert", RefreshToken: "refresh", ExpiresAt: "2099-01-01T00:00:00Z"}
+	caPEM := []byte("-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----\n")
+
+	if err := persistAll(dir, resp, []byte("key"), caPEM); err != nil {
+		t.Fatalf("persistAll: %v", err)
+	}
+
+	got, err := auth.LoadCAPin(dir)
+	if err != nil {
+		t.Fatalf("LoadCAPin: %v", err)
+	}
+	if string(got) != string(caPEM) {
+		t.Errorf("persisted pin mismatch want=%q got=%q", caPEM, got)
+	}
+}
+
+func TestPersistAll_NoCAPin_RemovesStalePin(t *testing.T) {
+	dir := t.TempDir()
+	if err := auth.SaveCAPin(dir, []byte("stale-pin-from-prior-register")); err != nil {
+		t.Fatalf("seed stale pin: %v", err)
+	}
+	resp := &provisionResp{CertPEM: "cert", RefreshToken: "refresh", ExpiresAt: "2099-01-01T00:00:00Z"}
+
+	if err := persistAll(dir, resp, []byte("key"), nil); err != nil {
+		t.Fatalf("persistAll: %v", err)
+	}
+
+	if _, err := auth.LoadCAPin(dir); !errors.Is(err, auth.ErrNotFound) {
+		t.Errorf("want stale pin removed (ErrNotFound), got %v", err)
 	}
 }

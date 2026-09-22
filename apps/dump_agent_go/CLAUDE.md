@@ -94,7 +94,11 @@ check / self-update no agente ainda não existe (roadmap `Next`).
 - **mTLS por padrão:** `dumpagent register` provisiona o cert; sem cert
   registrado, `AGENT_ALLOW_INSECURE=true` é o único fallback (fail-closed
   por padrão). `internal/auth/rotate.go` renova em background quando resta
-  menos de 1/3 da validade.
+  menos de 1/3 da validade. Verificação do cert do *servidor* usa o trust
+  store da plataforma por padrão; `register --ca-pin <arquivo>` (CA privada,
+  dev/staging) persiste o pin em `authDir/ca_pin.pem`, e `run` o lê de volta
+  — `--force` sem `--ca-pin` remove um pin persistido de um registro
+  anterior.
 - **BPA (`--bpa-gdb`/`BPA_GDB_PATH`) requer FB 1.5 x86 no runtime** — driver
   nakagami/firebirdsql. Nullability real de produção ainda não introspectada;
   ver `docs/roadmap.md`.

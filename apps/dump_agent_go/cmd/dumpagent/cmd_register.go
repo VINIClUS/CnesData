@@ -154,7 +154,7 @@ func finishProvisioning(
 		fmt.Fprintln(os.Stderr, "register:", err)
 		return errExitCode(err)
 	}
-	if err := persistAll(authDir, resp, pkcs8); err != nil {
+	if err := persistAll(authDir, resp, pkcs8, caPEM); err != nil {
 		fmt.Fprintln(os.Stderr, "register:", err)
 		return errExitCode(err)
 	}
@@ -172,7 +172,7 @@ func parseRegisterFlags(args []string) (registerFlags, error) {
 	tenantID := fs.String("tenant-id", "", "tenant UUID for X-Tenant-Id (required)")
 	baseURL := fs.String("base-url", "", "central_api root URL (required)")
 	caPin := fs.String("ca-pin", "", "pin server CA (PEM file); default: system trust store")
-	scope := fs.String("scope", "agent", "OAuth scope")
+	scope := fs.String("scope", "agent.provision", "OAuth scope")
 	force := fs.Bool("force", false, "overwrite existing cert+key+refresh")
 	noSmoke := fs.Bool("no-smoke", false, "skip post-register mTLS health probe")
 	if err := fs.Parse(args); err != nil {
@@ -196,7 +196,11 @@ func parseRegisterFlags(args []string) (registerFlags, error) {
 
 // loadCAPin returns PEM bytes from --ca-pin path if non-empty, else
 // auth.CAPinPEM (nil by default — see newBootstrapClient). Wraps file-read
-// errors with errPersistFailed (exit 5).
+// errors with errPersistFailed (exit 5). An explicit but empty file is
+// rejected rather than silently treated as "no --ca-pin given": omitting
+// the flag and passing a truncated file are different intents, and only
+// the former should fall back to the system trust store / remove a stale
+// pin.
 func loadCAPin(path string) ([]byte, error) {
 	if path == "" {
 		return auth.CAPinPEM, nil
@@ -204,6 +208,9 @@ func loadCAPin(path string) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: read --ca-pin: %v", errPersistFailed, err)
+	}
+	if len(b) == 0 {
+		return nil, fmt.Errorf("%w: --ca-pin file %q is empty", errPersistFailed, path)
 	}
 	return b, nil
 }
@@ -344,9 +351,12 @@ func doProvisionRequest(
 	return rawBody, &p, resp.StatusCode, nil
 }
 
-// persistAll writes key → cert → refresh in that order. Returns
-// errPersistFailed-wrapped error on any step.
-func persistAll(authDir string, resp *provisionResp, pkcs8DER []byte) error {
+// persistAll writes key → cert → refresh → CA pin, in that order. caPEM is
+// the resolved --ca-pin bytes (empty when no override was given): non-empty
+// persists it for `run` to load later; empty removes any pin persisted by a
+// prior --force registration, so the new intent (system trust store) wins.
+// Returns errPersistFailed-wrapped error on any step.
+func persistAll(authDir string, resp *provisionResp, pkcs8DER []byte, caPEM []byte) error {
 	if err := auth.SaveKey(authDir, pkcs8DER); err != nil {
 		return fmt.Errorf("%w: SaveKey: %v", errPersistFailed, err)
 	}
@@ -355,6 +365,23 @@ func persistAll(authDir string, resp *provisionResp, pkcs8DER []byte) error {
 	}
 	if err := auth.SaveRefreshToken(authDir, resp.RefreshToken); err != nil {
 		return fmt.Errorf("%w: SaveRefreshToken: %v", errPersistFailed, err)
+	}
+	if err := persistCAPin(authDir, caPEM); err != nil {
+		return fmt.Errorf("%w: %v", errPersistFailed, err)
+	}
+	return nil
+}
+
+// persistCAPin saves caPEM if non-empty, else removes any stale pin.
+func persistCAPin(authDir string, caPEM []byte) error {
+	if len(caPEM) > 0 {
+		if err := auth.SaveCAPin(authDir, caPEM); err != nil {
+			return fmt.Errorf("SaveCAPin: %w", err)
+		}
+		return nil
+	}
+	if err := auth.RemoveCAPin(authDir); err != nil {
+		return fmt.Errorf("RemoveCAPin: %w", err)
 	}
 	return nil
 }

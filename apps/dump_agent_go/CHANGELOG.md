@@ -120,3 +120,19 @@ added (returned from upload-url mint). Outbox now queues `RegisterJob`
 envelopes (sha256 + minio_key + size_bytes); `MintUploadURL` is direct
 (caller needs returned values). No DB migration. landing.extractions.sha256
 column populated on every cycle (not NULL like P2).
+
+## Persist `register --ca-pin` for `run` to reuse (2026-09-22, #255)
+
+`register --ca-pin <file>` only trusted that CA for the bootstrap/enrollment
+session; `dumpagent run` always built its long-running mTLS client from
+`auth.CAPinPEM` directly (nil by default since #251), ignoring whatever CA
+was pinned at register time. For a dev/staging server whose CA isn't in the
+OS trust store, `register` (and its smoke probe) succeeded, then the next
+`run` failed TLS verification. Pre-existing gap, surfaced by Codex review on
+#254. Fixed: `persistAll` now writes the resolved `--ca-pin` bytes to
+`authDir/ca_pin.pem` (public PEM, mode 0644, same as `cert.pem`) when
+non-empty, and removes any stale pin when empty (so a `--force` re-register
+without `--ca-pin` reverts to the system trust store rather than keeping an
+old private CA pinned). `run`'s `initMTLSClient` loads that file via
+`auth.LoadCAPin`: absent → nil (system trust store); present-but-corrupt →
+fails closed via `ErrCAPinInvalid`, same as any other init error.
