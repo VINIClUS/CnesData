@@ -27,6 +27,9 @@ class _Lookup:
     def cid10_sk(self, c: str) -> int | None:
         return self._m.get(("CID", c))
 
+    def competencia_sk(self, yyyymm: str) -> int | None:
+        return self._m.get(("COMP", yyyymm))
+
 
 class TestSIAAPA:
     def test_mapeia_apa(self) -> None:
@@ -46,6 +49,7 @@ class TestSIAAPA:
             ("E", "2269481"): 200,
             ("PROF", "700987654321098"): 500,
             ("CID", "J00"): 1000,
+            ("COMP", "202601"): 73,
         })
         fatos = map_apa_to_fato(
             df, lookup, job_id=uuid4(), extracao_ts=datetime.now(UTC),
@@ -53,6 +57,30 @@ class TestSIAAPA:
         assert len(fatos) == 1
         assert fatos[0].fonte_sistema == "SIA_APA"
         assert fatos[0].valor_aprov_cents == 1000
+        assert fatos[0].sk_competencia == 73
+
+    def test_competencia_dim_miss_retorna_vazio_linha(self) -> None:
+        df = pl.DataFrame({
+            "apa_cmp": ["999999"],
+            "apa_cnes": ["2269481"],
+            "apa_cnsexe": ["700987654321098"],
+            "apa_proc": ["0301010056"],
+            "apa_cbo": ["225125"],
+            "apa_cid": ["J00"],
+            "apa_dtfin": [date(2026, 1, 31)],
+            "apa_qtapr": [5],
+            "apa_vlapr": [1000],
+        })
+        lookup = _Lookup({
+            ("P", "0301010056"): 100,
+            ("E", "2269481"): 200,
+            ("PROF", "700987654321098"): 500,
+            ("CID", "J00"): 1000,
+        })
+        fatos = map_apa_to_fato(
+            df, lookup, job_id=uuid4(), extracao_ts=datetime.now(UTC),
+        )
+        assert fatos == []
 
 
 class TestSIABPI:
@@ -72,12 +100,14 @@ class TestSIABPI:
             ("E", "2269481"): 200,
             ("PROF", "700987654321098"): 500,
             ("CID", "K02"): 1001,
+            ("COMP", "202601"): 73,
         })
         fatos = map_bpi_to_fato(
             df, lookup,
             job_id=uuid4(), extracao_ts=datetime.now(UTC), historico=False,
         )
         assert fatos[0].fonte_sistema == "SIA_BPI"
+        assert fatos[0].sk_competencia == 73
 
     def test_historico_marca_fonte_sia_bpihst(self) -> None:
         df = pl.DataFrame({
@@ -95,9 +125,11 @@ class TestSIABPI:
             ("E", "2269481"): 200,
             ("PROF", "7001"): 500,
             ("CID", "K02"): 1001,
+            ("COMP", "202512"): 72,
         })
         fatos = map_bpi_to_fato(
             df, lookup,
             job_id=uuid4(), extracao_ts=datetime.now(UTC), historico=True,
         )
         assert fatos[0].fonte_sistema == "SIA_BPIHST"
+        assert fatos[0].sk_competencia == 72
