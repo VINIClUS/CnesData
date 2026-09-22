@@ -1,10 +1,10 @@
 # Runs in the `caddy` service of docker-compose.prod.yml. This is the only
 # public entrypoint on the VPS (ports 80/443) — it also proxies
-# dev.cnesdata.vinisantana.com via the shared `cnesdata_edge` network, so the
+# dev.cnesdata.com.br via the shared `cnesdata_edge` network, so the
 # `develop` block below must never be dropped when redeploying prod.
 # See docs/runbooks/deploy-develop.md for how that block was added.
 
-cnesdata.vinisantana.com {
+cnesdata.com.br {
     handle /idp/* {
         reverse_proxy keycloak:8080
     }
@@ -13,7 +13,7 @@ cnesdata.vinisantana.com {
     }
 }
 
-dev.cnesdata.vinisantana.com {
+dev.cnesdata.com.br {
     handle /idp/* {
         reverse_proxy dev-keycloak:8080
     }
@@ -23,7 +23,7 @@ dev.cnesdata.vinisantana.com {
 }
 
 # API hosts: only the versioned API surface is exposed; docs/openapi stay internal.
-api.vinisantana.com {
+api.cnesdata.com.br {
     handle /api/* {
         reverse_proxy central-api:8000
     }
@@ -32,7 +32,7 @@ api.vinisantana.com {
     }
 }
 
-api.dev.vinisantana.com {
+api.dev.cnesdata.com.br {
     handle /api/* {
         reverse_proxy dev-central-api:8000
     }
@@ -44,10 +44,10 @@ api.dev.vinisantana.com {
 # Edge agent upload target for dev (self-hosted AIStor/MinIO). Prod has no
 # equivalent block: prod's compose removes the minio service entirely and
 # presigned URLs point straight at real S3, which is already public. An
-# earlier prod-side storage.cnesdata.vinisantana.com vhost (reverse_proxy
+# earlier prod-side storage.cnesdata.com.br vhost (reverse_proxy
 # minio:9000) was dropped here — that minio service no longer exists on
 # prod, so the vhost was dead config. If Caddy already issued a Let's
 # Encrypt cert for it, the cert sits unused in caddy_data; harmless.
-storage.dev.cnesdata.vinisantana.com {
+storage.dev.cnesdata.com.br {
     reverse_proxy dev-minio:9000
 }

@@ -1,7 +1,7 @@
 # Production stack for the `main` branch, on the Hostinger VPS
 # (103.199.184.166), sharing the host with the `develop` staging stack in
 # deploy/dev/. Only `caddy` is exposed on 80/443; it also proxies
-# dev.cnesdata.vinisantana.com via the shared cnesdata_edge network.
+# dev.cnesdata.com.br via the shared cnesdata_edge network.
 #
 # Images are pulled from GHCR (built by .github/workflows/deploy-main.yml),
 # never built on the VPS. IMAGE_TAG is written by deploy.sh before each run.

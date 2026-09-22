@@ -73,15 +73,15 @@ DB_URL=postgresql+psycopg://cnesdata:$PG_PASS@postgres:5432/cnesdata
 MINIO_ROOT_USER=cnesdata-dev
 MINIO_ROOT_PASSWORD=$MINIO_PASS
 S3_BUCKET=cnesdata-landing-dev
-S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.vinisantana.com
+S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br
 
 KEYCLOAK_ADMIN=admin
 KEYCLOAK_ADMIN_PASSWORD=$KC_PASS
 
-PUBLIC_DOMAIN=dev.cnesdata.vinisantana.com
-DASHBOARD_OIDC_ISSUER=https://dev.cnesdata.vinisantana.com/idp/realms/cnesdata
+PUBLIC_DOMAIN=dev.cnesdata.com.br
+DASHBOARD_OIDC_ISSUER=https://dev.cnesdata.com.br/idp/realms/cnesdata
 DASHBOARD_OIDC_AUDIENCE=cnesdata-dashboard
-AUTH_DEVICE_VERIFICATION_URI=https://dev.cnesdata.vinisantana.com/activate
+AUTH_DEVICE_VERIFICATION_URI=https://dev.cnesdata.com.br/activate
 AUTH_REQUIRED=required
 
 COD_MUN_IBGE=354130
@@ -117,7 +117,7 @@ fi
 echo "==> Keycloak dev realm (redirect URIs rewritten for dev.* host)"
 REPO_REALM="$(cd "$SCRIPT_DIR/../.." && pwd)/docker-compose.keycloak/realm.json"
 if [ -f "$REPO_REALM" ]; then
-  sed 's#http://localhost:5173#https://dev.cnesdata.vinisantana.com#g' \
+  sed 's#http://localhost:5173#https://dev.cnesdata.com.br#g' \
     "$REPO_REALM" > "$STACK_DIR/keycloak/realm.json"
   chown "$DEPLOY_USER:$DEPLOY_USER" "$STACK_DIR/keycloak/realm.json"
 else
