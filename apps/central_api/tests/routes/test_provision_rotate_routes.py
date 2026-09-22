@@ -1,6 +1,6 @@
 """Tests for /provision/cert/rotate."""
+import base64
 import datetime as dt
-import urllib.parse
 
 import pytest
 from cryptography import x509
@@ -12,6 +12,8 @@ from sqlalchemy import text
 
 _AGENT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2")
 _TENANT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1")
+
+_PROXY_PEER = ("172.20.0.2", 50000)
 
 _TEST_AGENT_IDS = (
     "agent-rot-401a", "agent-rot-401b-orphan", "agent-rot-401c", "agent-rot-401d",
@@ -48,6 +50,7 @@ def _make_app(session_root_ca, monkeypatch):
     monkeypatch.setenv("MINIO_ACCESS_KEY", "x")
     monkeypatch.setenv("MINIO_SECRET_KEY", "x")
     monkeypatch.setenv("MINIO_BUCKET", "x")
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "172.16.0.0/12")
     from central_api.app import create_app
     return create_app()
 
@@ -88,15 +91,15 @@ def _sign_leaf(session_root_ca, *, agent_id="agent-rot-001",
 
 
 def _mtls_headers(pem_bytes):
-    return {
-        "X-SSL-Client-Verify": "SUCCESS",
-        "X-SSL-Client-Cert": urllib.parse.quote(pem_bytes.decode()),
-    }
+    der = x509.load_pem_x509_certificate(pem_bytes).public_bytes(
+        serialization.Encoding.DER,
+    )
+    return {"X-SSL-Client-Cert": base64.b64encode(der).decode()}
 
 
 def test_rotate_sem_headers_de_mtls_retorna_401(session_root_ca, monkeypatch, make_csr_pem):
     app = _make_app(session_root_ca, monkeypatch)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         r = client.post(
             "/provision/cert/rotate",
             json={"csr_pem": make_csr_pem().decode()},
@@ -105,14 +108,14 @@ def test_rotate_sem_headers_de_mtls_retorna_401(session_root_ca, monkeypatch, ma
     assert r.json() == {"error": "invalid_token"}
 
 
-def test_rotate_com_verify_failed_retorna_401(session_root_ca, monkeypatch, make_csr_pem):
+def test_rotate_rejeita_header_forjado_de_peer_fora_da_allowlist(
+    session_root_ca, monkeypatch, make_csr_pem,
+):
     app = _make_app(session_root_ca, monkeypatch)
     pem_bytes, _ = _sign_leaf(session_root_ca)
-    headers = _mtls_headers(pem_bytes)
-    headers["X-SSL-Client-Verify"] = "FAILED:expired"
-    with TestClient(app) as client:
+    with TestClient(app, client=("203.0.113.7", 50000)) as client:
         r = client.post(
-            "/provision/cert/rotate", headers=headers,
+            "/provision/cert/rotate", headers=_mtls_headers(pem_bytes),
             json={"csr_pem": make_csr_pem().decode()},
         )
     assert r.status_code == 401
@@ -124,7 +127,7 @@ def test_rotate_com_cert_sem_agent_id_oid_retorna_401(
 ):
     app = _make_app(session_root_ca, monkeypatch)
     pem_bytes, _ = _sign_leaf(session_root_ca, include_oids=False)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         r = client.post(
             "/provision/cert/rotate", headers=_mtls_headers(pem_bytes),
             json={"csr_pem": make_csr_pem().decode()},
@@ -142,7 +145,7 @@ def test_rotate_com_serial_diferente_do_audit_retorna_cert_revoked(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, _ = _sign_leaf(session_root_ca, agent_id="agent-rot-401a")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-401a", tenant_id="354130",
             subject_cn="cn", ca_serial="serial-different",
@@ -168,7 +171,7 @@ def test_rotate_quando_agent_sem_audit_retorna_cert_revoked(
     app = _make_app(session_root_ca, monkeypatch)
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, _ = _sign_leaf(session_root_ca, agent_id="agent-rot-401b-orphan")
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         r = client.post(
             "/provision/cert/rotate", headers=_mtls_headers(pem_bytes),
             json={"csr_pem": make_csr_pem().decode()},
@@ -186,7 +189,7 @@ def test_rotate_quando_agent_sem_refresh_token_retorna_agent_revoked(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, hex_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-401c")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-401c", tenant_id="354130",
             subject_cn="cn", ca_serial=hex_serial, expires_at=expires,
@@ -208,7 +211,7 @@ def test_rotate_quando_refresh_token_revogado_retorna_agent_revoked(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, hex_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-401d")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-401d", tenant_id="354130",
             subject_cn="cn", ca_serial=hex_serial, expires_at=expires,
@@ -235,7 +238,7 @@ def test_rotate_com_csr_invalido_retorna_invalid_request(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, hex_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-400a")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-400a", tenant_id="354130",
             subject_cn="cn", ca_serial=hex_serial, expires_at=expires,
@@ -261,7 +264,7 @@ def test_rotate_com_chain_valida_emite_novo_cert_de_90_dias(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, hex_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-200a")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-200a", tenant_id="354130",
             subject_cn="cn", ca_serial=hex_serial, expires_at=expires,
@@ -292,7 +295,7 @@ def test_rotate_grava_nova_linha_em_auth_provisioned_certs(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, hex_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-200b")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-200b", tenant_id="354130",
             subject_cn="cn-old", ca_serial=hex_serial, expires_at=expires,
@@ -324,7 +327,7 @@ def test_rotate_nao_revoga_linha_anterior_overlap_periodo(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, hex_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-200c")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-200c", tenant_id="354130",
             subject_cn="cn-old", ca_serial=hex_serial, expires_at=expires,
@@ -357,7 +360,7 @@ def test_rotate_preserva_refresh_token_existente(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, hex_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-200d")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-200d", tenant_id="354130",
             subject_cn="cn", ca_serial=hex_serial, expires_at=expires,
@@ -402,7 +405,7 @@ def test_rotate_com_ca_nao_configurada_retorna_500(
     monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
     pem_bytes, hex_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-500a")
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
-    with TestClient(app) as client:
+    with TestClient(app, client=_PROXY_PEER) as client:
         app.state.provisioned_certs.record(
             agent_id="agent-rot-500a", tenant_id="354130",
             subject_cn="cn", ca_serial=hex_serial, expires_at=expires,

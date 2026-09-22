@@ -18,7 +18,13 @@ from cnes_infra.auth.models import (
     TokenError,
     TokenResponse,
 )
-from cnes_infra.auth.peer_cert import extract_peer_cert, read_agent_id, read_tenant_id
+from cnes_infra.auth.peer_cert import (
+    extract_peer_cert,
+    read_agent_id,
+    read_machine_id,
+    read_tenant_id,
+    verify_peer_cert,
+)
 from cnes_infra.auth.provisioned_certs import (
     ProvisionedCertRow,
     ProvisionedCertsRepo,
@@ -49,5 +55,7 @@ __all__ = [
     "TokenResponse",
     "extract_peer_cert",
     "read_agent_id",
+    "read_machine_id",
     "read_tenant_id",
+    "verify_peer_cert",
 ]

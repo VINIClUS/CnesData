@@ -142,6 +142,11 @@ services:
       - "443:443"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Agent CAs for `client_auth` on the api.* vhosts (#253). Dev's CA lives
+      # in the sibling dev stack dir; both files must exist before
+      # recreating caddy, or Docker mounts an empty dir and Caddy won't start.
+      - ./secrets/ca.crt:/etc/caddy/ca/prod-ca.crt:ro
+      - /opt/cnesdata-dev/secrets/ca.crt:/etc/caddy/ca/dev-ca.crt:ro
       - caddy_data:/data
       - caddy_config:/config
     networks: [default, cnesdata_edge]

@@ -126,6 +126,7 @@ def register(
     agent_version: str | None = None,
     machine_id: str | None = None,
     sha256: str | None = None,
+    tenant_id: str | None = None,
 ) -> UUID | None:
     sql = text("""
         UPDATE landing.extractions
@@ -136,6 +137,7 @@ def register(
             machine_id     = COALESCE(:mid, machine_id),
             sha256         = COALESCE(:sha, sha256)
         WHERE job_id = :j AND status IN ('PENDING', 'CLAIMED')
+          AND (CAST(:t AS text) IS NULL OR tenant_id = CAST(:t AS text))
         RETURNING job_id
     """)
     with engine.begin() as conn:
@@ -143,6 +145,7 @@ def register(
             sql,
             {
                 "j": str(job_id),
+                "t": tenant_id,
                 "files": json.dumps(files),
                 "av": agent_version,
                 "mid": machine_id,

@@ -306,6 +306,28 @@ infra HTTP funcionando. Sequência usada, para uma migração de domínio equiva
    variable) e os manifestos publicados em R2 que tiverem URL absoluta para o host
    antigo (ver `docs/runbooks/dumpagent-release.md`).
 
+## mTLS dos agentes no Caddy (#253)
+
+O `central_api` passa a exigir o cert do agente em `/api/v1/jobs/*` (padrão
+`AGENT_MTLS_REQUIRED=true`). **Ordem obrigatória: Caddy primeiro, imagem depois** —
+imagem nova atrás do Caddy antigo devolve 401 a todo agente. Como o Caddyfile não se
+autoaplica, siga o procedimento de edição in-place de "Migração de domínio", ponto 1:
+
+1. Pré-checar que as duas CAs existem como **arquivo** (senão o Docker monta diretório
+   vazio e o Caddy não sobe): `test -f /opt/cnesdata/secrets/ca.crt && test -f
+   /opt/cnesdata-dev/secrets/ca.crt`.
+2. `scp deploy/prod/docker-compose.prod.yml` (novos mounts `/etc/caddy/ca/*.crt`).
+3. Editar `/opt/cnesdata/caddy/Caddyfile` in-place: snippets `(agent_mtls)` e
+   `(agent_upstream)` + os dois vhosts `api.*` do repo; `diff` contra o repo (só o
+   apêndice de outro site pode divergir).
+4. Validar num container descartável **com as CAs montadas** nos mesmos paths
+   (`-v .../ca.crt:/etc/caddy/ca/prod-ca.crt:ro` e o de dev) — sem elas o `validate` falha.
+5. `up -d --force-recreate caddy` (mounts novos exigem recriar; ~1-2s de queda para
+   prod/dev/outro site). Conferir `curl -sI https://api.cnesdata.com.br/api/v1/system/health`
+   e `https://cnesdata.com.br` (dashboard sem cert continua 200).
+6. Só então deployar a imagem. Os agentes precisam ter `cert.pem` válido
+   (`dumpagent register`); `AGENT_ALLOW_INSECURE=true` passa a receber 401.
+
 ## Pendências conhecidas (fora do escopo desta entrega)
 
 - `src/` antigo em `/opt/cnesdata` (código copiado manualmente, usado pelo

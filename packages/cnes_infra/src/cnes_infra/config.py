@@ -117,6 +117,10 @@ AUTH_DEVICE_VERIFICATION_URI: str = os.environ.get(
 AUTH_DEVICE_CODE_TTL: int = _exigir_inteiro("AUTH_DEVICE_CODE_TTL", 600)
 AUTH_ACCESS_TOKEN_TTL: int = _exigir_inteiro("AUTH_ACCESS_TOKEN_TTL", 300)
 AUTH_CERT_TTL_DAYS: int = _exigir_inteiro("AUTH_CERT_TTL_DAYS", 90)
+# Fail-closed: only an explicit "false" (local stack without Caddy) disables it.
+AGENT_MTLS_REQUIRED: bool = (
+    os.environ.get("AGENT_MTLS_REQUIRED", "true").strip().lower() != "false"
+)
 
 
 @lru_cache(maxsize=1)

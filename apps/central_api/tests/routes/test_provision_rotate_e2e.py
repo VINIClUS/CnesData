@@ -1,8 +1,9 @@
 """End-to-end Phase 2b: full Phase 2 flow then rotate via mTLS."""
-import urllib.parse
+import base64
 
 import pytest
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 from fastapi.testclient import TestClient
 
 
@@ -20,9 +21,10 @@ async def test_e2e_provision_seguido_de_rotate(
     monkeypatch.setenv("MINIO_ACCESS_KEY", "x")
     monkeypatch.setenv("MINIO_SECRET_KEY", "x")
     monkeypatch.setenv("MINIO_BUCKET", "x")
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "172.16.0.0/12")
     from central_api.app import create_app
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, client=("172.20.0.2", 50000)) as client:
         auth = client.post(
             "/oauth/device_authorization",
             json={"client_id": "agent", "scope": "agent.provision"},
@@ -48,12 +50,12 @@ async def test_e2e_provision_seguido_de_rotate(
         ).json()
 
         first_cert_pem = first_cert["cert_pem"]
+        first_der = x509.load_pem_x509_certificate(first_cert_pem.encode()).public_bytes(
+            serialization.Encoding.DER,
+        )
         rotate_resp = client.post(
             "/provision/cert/rotate",
-            headers={
-                "X-SSL-Client-Verify": "SUCCESS",
-                "X-SSL-Client-Cert": urllib.parse.quote(first_cert_pem),
-            },
+            headers={"X-SSL-Client-Cert": base64.b64encode(first_der).decode()},
             json={"csr_pem": make_csr_pem("agent-host-e2e-rot2").decode()},
         )
     assert rotate_resp.status_code == 200

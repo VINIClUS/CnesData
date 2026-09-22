@@ -8,6 +8,7 @@ from uuid import UUID  # noqa: TC003
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import ValidationError
 
+from central_api.agent_auth import AgentCertIdentity, agent_identity_if_required
 from central_api.deps import get_engine, get_object_storage
 from central_api.validation_errors import validation_error
 from cnes_contracts.landing import (
@@ -16,6 +17,7 @@ from cnes_contracts.landing import (
     UploadUrlRequest,
     UploadUrlResponse,
 )
+from cnes_domain.tenant import set_tenant_id
 from cnes_infra import config
 from cnes_infra.storage import extractions_repo
 
@@ -25,6 +27,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["jobs"])
+
+_AgentIdentity = Annotated[AgentCertIdentity | None, Depends(agent_identity_if_required)]
 
 
 _FATO_SUBTYPE_FOR: dict[tuple[str, str], str] = {
@@ -52,6 +56,22 @@ def _resolve_fato_subtype(source_type: str, intent: str) -> str:
     return subtype
 
 
+def _bind_identity(
+    identity: AgentCertIdentity | None,
+    *,
+    tenant_id: str | None,
+    machine_id: str | None,
+) -> str | None:
+    if identity is None:
+        return machine_id
+    set_tenant_id(identity.tenant_id)
+    if tenant_id is not None and tenant_id != identity.tenant_id:
+        raise HTTPException(status_code=403, detail="agent_identity_mismatch")
+    if machine_id is not None and machine_id != identity.machine_id:
+        raise HTTPException(status_code=403, detail="agent_identity_mismatch")
+    return identity.machine_id
+
+
 def _build_minio_key(payload: UploadUrlRequest, fato_subtype: str) -> str:
     return (
         f"{payload.tenant_id}/{fato_subtype}/{payload.competencia}/"
@@ -62,12 +82,16 @@ def _build_minio_key(payload: UploadUrlRequest, fato_subtype: str) -> str:
 @router.post("/jobs/upload-url", status_code=201)
 def mint_upload_url(
     body: Annotated[dict[str, Any], Body()],
+    identity: _AgentIdentity,
     engine: Engine = Depends(get_engine),
 ) -> dict:
     try:
         payload = UploadUrlRequest.model_validate(body, strict=False)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    machine_id = _bind_identity(
+        identity, tenant_id=payload.tenant_id, machine_id=payload.machine_id,
+    )
 
     fato_subtype = _resolve_fato_subtype(payload.source_type, payload.intent)
     minio_key = _build_minio_key(payload, fato_subtype)
@@ -80,7 +104,7 @@ def mint_upload_url(
         fato_subtype=fato_subtype,
         minio_key=minio_key,
         agent_version=payload.agent_version,
-        machine_id=payload.machine_id,
+        machine_id=machine_id,
     )
     if inserted is None:
         raise HTTPException(status_code=409, detail="duplicate_job_id")
@@ -100,6 +124,7 @@ def mint_upload_url(
 @router.post("/jobs/register")
 def register_job(
     body: Annotated[dict[str, Any], Body()],
+    identity: _AgentIdentity,
     engine: Engine = Depends(get_engine),
 ) -> dict:
     try:
@@ -108,13 +133,17 @@ def register_job(
         )
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    machine_id = _bind_identity(
+        identity, tenant_id=None, machine_id=payload.machine_id,
+    )
     result = extractions_repo.register(
         engine,
         job_id=payload.job_id,
         files=[f.model_dump() for f in payload.files],
         agent_version=payload.agent_version,
-        machine_id=payload.machine_id,
+        machine_id=machine_id,
         sha256=payload.sha256,
+        tenant_id=identity.tenant_id if identity else None,
     )
     if result is None:
         raise HTTPException(

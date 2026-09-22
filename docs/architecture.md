@@ -118,7 +118,13 @@ Current `dump_agent_go` production path includes:
 | `POST /activate/confirm` | Bearer JWT + user code | activation confirmation |
 | `POST /provision/cert` | CSR + registration token | client certificate |
 | `POST /provision/cert/rotate` | mTLS + CSR | renewed client certificate |
-| `POST /api/v1/jobs/register` | manifest with files + optional `sha256` | `{job_id, status}` |
+| `POST /api/v1/jobs/upload-url` | mTLS; `tenant_id`/`machine_id` devem bater com o cert | presigned PUT URL |
+| `POST /api/v1/jobs/register` | mTLS; manifest with files + optional `sha256` | `{job_id, status}` |
+
+mTLS: o Caddy (`client_auth verify_if_given`) prova a posse da chave e sobrescreve
+`X-SSL-Client-Cert`; o `central_api` só confia no header vindo de
+`TRUSTED_PROXY_CIDRS` e revalida cadeia, serial ativo e refresh token
+(`apps/central_api/src/central_api/agent_auth.py`).
 
 ### Central → S3 (MinIO AIStor em dev, LocalStack em CI, S3 real em prod)
 

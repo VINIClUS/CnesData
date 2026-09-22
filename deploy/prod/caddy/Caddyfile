@@ -41,22 +41,37 @@ dev.cnesdata.com.br {
     }
 }
 
+# Edge-agent mTLS (#253). `verify_if_given` keeps the dashboard (browser, OIDC
+# Bearer) and the device-flow enrollment working without a client cert, while
+# a presented cert must chain to the agent CA or the handshake fails. The
+# verified cert is forwarded as DER base64 and ALWAYS overwrites any
+# client-supplied X-SSL-Client-Cert — central_api only trusts that header
+# from TRUSTED_PROXY_CIDRS (see apps/central_api/src/central_api/agent_auth.py).
+(agent_mtls) {
+    tls {
+        client_auth {
+            mode verify_if_given
+            trust_pool file {args[0]}
+        }
+    }
+}
+
+(agent_upstream) {
+    reverse_proxy {args[0]} {
+        header_up X-SSL-Client-Cert "{http.request.tls.client.certificate_der_base64}"
+        header_up -X-SSL-Client-Verify
+    }
+}
+
 # API hosts: only the versioned API surface, plus the unversioned edge-agent
 # enrollment surface (oauth/activate/provision — central_api mounts these
 # routers without an /api/v1 prefix, see apps/central_api/src/central_api/app.py),
 # is exposed; docs/openapi stay internal.
 api.cnesdata.com.br {
-    handle /api/* {
-        reverse_proxy central-api:8000
-    }
-    handle /oauth/* {
-        reverse_proxy central-api:8000
-    }
-    handle /activate/* {
-        reverse_proxy central-api:8000
-    }
-    handle /provision/* {
-        reverse_proxy central-api:8000
+    import agent_mtls /etc/caddy/ca/prod-ca.crt
+    @central path /api/* /oauth/* /activate/* /provision/*
+    handle @central {
+        import agent_upstream central-api:8000
     }
     handle {
         respond 404
@@ -64,17 +79,10 @@ api.cnesdata.com.br {
 }
 
 api.dev.cnesdata.com.br {
-    handle /api/* {
-        reverse_proxy dev-central-api:8000
-    }
-    handle /oauth/* {
-        reverse_proxy dev-central-api:8000
-    }
-    handle /activate/* {
-        reverse_proxy dev-central-api:8000
-    }
-    handle /provision/* {
-        reverse_proxy dev-central-api:8000
+    import agent_mtls /etc/caddy/ca/dev-ca.crt
+    @central path /api/* /oauth/* /activate/* /provision/*
+    handle @central {
+        import agent_upstream dev-central-api:8000
     }
     handle {
         respond 404

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from central_api.ratelimit import client_ip
+from central_api.ratelimit import client_ip, is_trusted_proxy_peer
 
 
 def _request(xff: str | None, host: str = "10.0.0.9") -> MagicMock:
@@ -69,3 +69,20 @@ def test_handler_429_inclui_retry_after_da_janela() -> None:
     resp = rate_limit_handler(_request(None), exc)
     assert resp.status_code == 429
     assert resp.headers["Retry-After"] == "60"
+
+
+def test_is_trusted_proxy_peer_aceita_peer_na_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "172.16.0.0/12")
+    assert is_trusted_proxy_peer(_request(None, host="172.20.0.2")) is True
+
+
+def test_is_trusted_proxy_peer_rejeita_peer_fora_da_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "172.16.0.0/12")
+    assert is_trusted_proxy_peer(_request(None, host="203.0.113.7")) is False
+
+
+def test_is_trusted_proxy_peer_rejeita_tudo_sem_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TRUSTED_PROXY_CIDRS", raising=False)
+    assert is_trusted_proxy_peer(_request(None, host="172.20.0.2")) is False

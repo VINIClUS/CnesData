@@ -54,6 +54,11 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - **Não processa Parquet** — manifests apontam para artefatos; processamento fica no worker
 - **Auth dividido por superfície** — dashboard usa Bearer JWT; agentes usam
   device flow + mTLS; rotas admin dev ainda usam token simples onde indicado
+- **mTLS termina no Caddy** — `client_auth verify_if_given` nos vhosts `api.*`
+  repassa o cert em `X-SSL-Client-Cert` (DER base64); `agent_auth.py` só aceita
+  o header de `TRUSTED_PROXY_CIDRS`, revalida cadeia/serial/refresh e vincula
+  tenant/machine em `/api/v1/jobs/*` e `/provision/cert/rotate`.
+  `AGENT_MTLS_REQUIRED=false` só no stack local sem Caddy.
 
 ## Requirements
 
