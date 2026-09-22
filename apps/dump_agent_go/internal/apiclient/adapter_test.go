@@ -147,6 +147,9 @@ func TestRegisterJob_PostUploadWithSha(t *testing.T) {
 	require.Equal(t, int64(4096), got.Files[0].SizeBytes)
 	require.Equal(t, "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz", got.Files[0].MinioKey)
 	require.Equal(t, apiclient.FileManifestFatoSubtypeCNESVINCULO, got.Files[0].FatoSubtype)
+	require.NotNil(t, got.Sha256,
+		"top-level sha256 required for extractions_repo.register's COALESCE(:sha, sha256)")
+	require.Equal(t, "a"+strings.Repeat("0", 63), *got.Sha256)
 }
 
 func TestRegisterJob_5xxReturnsHTTPError(t *testing.T) {

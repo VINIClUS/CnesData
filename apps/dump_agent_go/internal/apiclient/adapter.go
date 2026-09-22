@@ -90,11 +90,13 @@ func (a *Adapter) RegisterJob(ctx context.Context, job worker.Job, sizeBytes int
 		SizeBytes:   sizeBytes,
 		Sha256:      job.Sha256,
 	}})
+	sha := job.Sha256
 	body := JobRegisterRequest{
 		JobId:        jobUUID,
 		Files:        files,
 		AgentVersion: &a.AgentVersion,
 		MachineId:    &a.MachineID,
+		Sha256:       &sha,
 	}
 	resp, err := a.Inner.RegisterJobApiV1JobsRegisterPostWithResponse(ctx, body)
 	if err != nil {
