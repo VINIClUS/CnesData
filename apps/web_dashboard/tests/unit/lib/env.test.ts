@@ -48,4 +48,21 @@ describe("parseEnv", () => {
     const env = parseEnv({});
     expect(env.VITE_API_BASE_URL).toBe("/api/v1");
   });
+
+  test("trata_variaveis_oidc_vazias_como_ausentes", () => {
+    // Regressão: Docker ARG sem valor passado no build vira ENV="" (string vazia),
+    // não variável ausente — mesma armadilha do os.getenv(key, default) em #238.
+    // z.string().url().optional() rejeita "" (não é URL nem undefined), então um
+    // build sem os 3 build-args OIDC crashava o app inteiro em vez de degradar
+    // para "OIDC não configurado".
+    const env = parseEnv({
+      VITE_API_BASE_URL: "/api/v1",
+      VITE_OIDC_AUTHORITY: "",
+      VITE_OIDC_CLIENT_ID: "",
+      VITE_OIDC_REDIRECT_URI: "",
+    });
+    expect(env.VITE_OIDC_AUTHORITY).toBeUndefined();
+    expect(env.VITE_OIDC_CLIENT_ID).toBeUndefined();
+    expect(env.VITE_OIDC_REDIRECT_URI).toBeUndefined();
+  });
 });
