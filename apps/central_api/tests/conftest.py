@@ -11,6 +11,14 @@ def docker_compose_file(pytestconfig):
 
 
 @pytest.fixture(scope="session")
+def docker_compose_command():
+    # Every service in docker-compose.yml sits behind a `profiles:` key;
+    # without --profile pytest-docker's default "up --build --wait" matches
+    # zero services ("no service selected").
+    return "docker compose --profile dev"
+
+
+@pytest.fixture(scope="session")
 def api_url(docker_services):
     port = docker_services.port_for("central-api", 8000)
     url = f"http://localhost:{port}"

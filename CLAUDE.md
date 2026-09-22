@@ -122,7 +122,9 @@ Before code: wrap analysis in `<thinking>`. Tests first, implementation second.
 .venv/Scripts/ruff.exe check .
 
 # Tests — rápidos (sem docker)
-.venv/Scripts/python.exe -m pytest -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only" -q
+.venv/Scripts/python.exe -m pytest \
+  -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak \
+  and not spike and not windows_only and not s3_integration and not dynamodb_local" -q
 
 # Tests — single package/app
 .venv/Scripts/python.exe -m pytest packages/cnes_domain -q

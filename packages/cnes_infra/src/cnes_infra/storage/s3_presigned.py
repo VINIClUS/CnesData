@@ -42,6 +42,21 @@ def build_s3_client(
             "para endpoints não-AWS; nunca herde de ~/.aws/credentials",
         )
 
+    # S3 real (endpoint_url=None) com addressing_style="auto" (o default de
+    # config.S3_ADDRESSING_STYLE) faz o botocore assinar o presign contra o
+    # endpoint global (s3.amazonaws.com) em vez do regional — S3 devolve 307
+    # TemporaryRedirect em todo PUT para bucket fora de us-east-1. Reproduzido
+    # contra o bucket real sa-east-1 em prod (22/09/2026). Só reescreve o
+    # "auto" quebrado para "virtual" — nunca sobrescreve um addressing_style
+    # explícito do chamador: um bucket com ponto no nome (nome válido de S3)
+    # sob virtual-hosted vira um host tipo bucket.with.dots.s3....amazonaws.com
+    # que o certificado wildcard da AWS não cobre, falhando TLS; quem pedir
+    # "path" para esse caso continua recebendo path. LocalStack/AIStor não são
+    # afetados — só chegam com endpoint_url setado.
+    resolved_addressing_style = addressing_style
+    if endpoint_url is None and addressing_style == "auto":
+        resolved_addressing_style = "virtual"
+
     return boto3.client(
         "s3",
         region_name=region_name,
@@ -50,7 +65,7 @@ def build_s3_client(
         aws_secret_access_key=secret_key if endpoint_url is not None else None,
         config=Config(
             signature_version="s3v4",
-            s3={"addressing_style": addressing_style},
+            s3={"addressing_style": resolved_addressing_style},
         ),
     )
 

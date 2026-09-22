@@ -90,6 +90,16 @@ class TestLazyAttrs:
             _ = cfg.GCP_PROJECT_ID
 
 
+@pytest.fixture
+def reload_config(monkeypatch):
+    # monkeypatch é dependência: seu teardown roda depois do undo() abaixo,
+    # então a ordem de finalizers não importa e o reload nunca vê env vazada.
+    yield
+    monkeypatch.undo()
+    from cnes_infra import config
+    importlib.reload(config)
+
+
 class TestS3PublicEndpointUrl:
     """S3_PUBLIC_ENDPOINT_URL precisa cair para S3_ENDPOINT_URL tanto quando
     a env var está ausente quanto quando está presente mas vazia — o segundo
@@ -97,15 +107,14 @@ class TestS3PublicEndpointUrl:
     default no compose, variável ausente do .env) e `os.getenv(key, default)`
     só cobre o primeiro (default só vale quando a env var está ausente)."""
 
-    def test_cai_para_endpoint_interno_quando_ausente(self, monkeypatch):
+    def test_cai_para_endpoint_interno_quando_ausente(self, monkeypatch, reload_config):
         monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
         monkeypatch.delenv("S3_PUBLIC_ENDPOINT_URL", raising=False)
         from cnes_infra import config
         importlib.reload(config)
         assert config.S3_PUBLIC_ENDPOINT_URL == "http://minio:9000"
-        importlib.reload(config)
 
-    def test_cai_para_endpoint_interno_quando_vazia(self, monkeypatch):
+    def test_cai_para_endpoint_interno_quando_vazia(self, monkeypatch, reload_config):
         """Regressão: docker-compose substitui variável ausente do .env por
         string vazia, não por variável ausente — S3_PUBLIC_ENDPOINT_URL=""
         no ambiente do container, não unset."""
@@ -114,12 +123,10 @@ class TestS3PublicEndpointUrl:
         from cnes_infra import config
         importlib.reload(config)
         assert config.S3_PUBLIC_ENDPOINT_URL == "http://minio:9000"
-        importlib.reload(config)
 
-    def test_respeita_override_explicito(self, monkeypatch):
+    def test_respeita_override_explicito(self, monkeypatch, reload_config):
         monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
         monkeypatch.setenv("S3_PUBLIC_ENDPOINT_URL", "https://storage.dev.example.com")
         from cnes_infra import config
         importlib.reload(config)
         assert config.S3_PUBLIC_ENDPOINT_URL == "https://storage.dev.example.com"
-        importlib.reload(config)
