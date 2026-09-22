@@ -426,11 +426,12 @@ func (a *OutboxAdapter) MintUploadURL(ctx context.Context, spec JobSpec) (*Job, 
 // after agent restart can reconstruct the full Job payload.
 func (a *OutboxAdapter) RegisterJob(_ context.Context, job Job, sizeBytes int64) error {
 	return a.out.Append(queue.Envelope{
-		Type:      queue.TypeComplete,
-		JobUUID:   job.ID,
-		SizeBytes: sizeBytes,
-		SHA256:    job.Sha256,
-		MinioKey:  job.MinioKey,
+		Type:        queue.TypeComplete,
+		JobUUID:     job.ID,
+		SizeBytes:   sizeBytes,
+		SHA256:      job.Sha256,
+		MinioKey:    job.MinioKey,
+		FatoSubtype: job.FatoSubtype,
 	})
 }
 
