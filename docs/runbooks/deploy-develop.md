@@ -1,4 +1,4 @@
-# Deploy contínuo de `develop` — dev.cnesdata.vinisantana.com
+# Deploy contínuo de `develop` — dev.cnesdata.com.br
 
 ## Visão geral
 
@@ -87,7 +87,7 @@ networks:
 Em `caddy/Caddyfile`, acrescentar um bloco novo sem tocar no existente:
 
 ```
-dev.cnesdata.vinisantana.com {
+dev.cnesdata.com.br {
     handle /idp/* {
         reverse_proxy dev-keycloak:8080
     }
@@ -101,7 +101,7 @@ Aplicar e validar produção:
 
 ```bash
 ssh root@103.199.184.166 'cd /opt/cnesdata && docker compose -f docker-compose.prod.yml up -d caddy'
-curl -I https://cnesdata.vinisantana.com   # deve continuar 200
+curl -I https://cnesdata.com.br   # deve continuar 200
 ```
 
 ## Operação
@@ -185,31 +185,31 @@ alto no healthcheck de 120s do `deploy.sh`, não silenciosamente.
   dedicado e remover as chaves de root pelo console (a CLI não remove
   chaves da própria conta root).
 
-## Host da API (`api.dev.vinisantana.com`)
+## Host da API (`api.dev.cnesdata.com.br`)
 
 Desde a entrega das páginas públicas o dashboard de dev é compilado com
-`VITE_API_BASE_URL=https://api.dev.vinisantana.com/api/v1` (build-arg em
+`VITE_API_BASE_URL=https://api.dev.cnesdata.com.br/api/v1` (build-arg em
 `deploy-develop.yml`), portanto o navegador fala com a API cross-origin. Três peças
 precisam estar alinhadas, todas versionadas em `deploy/`:
 
-1. **DNS**: registro A de `api.dev.vinisantana.com` apontando para o VPS (Hostinger DNS,
+1. **DNS**: registro A de `api.dev.cnesdata.com.br` apontando para o VPS (Hostinger DNS,
    fora do repo). Caddy emite o certificado automaticamente na primeira requisição.
 2. **Caddy** (`deploy/prod/caddy/Caddyfile`, copiado manualmente para
-   `/opt/cnesdata/caddy/Caddyfile`): bloco `api.dev.vinisantana.com` → `dev-central-api:8000`,
+   `/opt/cnesdata/caddy/Caddyfile`): bloco `api.dev.cnesdata.com.br` → `dev-central-api:8000`,
    só `/api/*`; o resto responde 404. Aplicar com
    `docker compose -f docker-compose.prod.yml up -d caddy` em `/opt/cnesdata`.
 3. **Compose dev** (`deploy/dev/docker-compose.dev.yml`, copiado para `/opt/cnesdata-dev`):
    `central-api` entra na rede `cnesdata_edge` com alias `dev-central-api` e recebe
-   `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.vinisantana.com`; `dashboard` recebe
-   `API_ORIGIN=https://api.dev.vinisantana.com` (CSP `connect-src`) e `PRECOS_NOINDEX`.
+   `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.com.br`; `dashboard` recebe
+   `API_ORIGIN=https://api.dev.cnesdata.com.br` (CSP `connect-src`) e `PRECOS_NOINDEX`.
 
-O upload do edge agent usa `storage.dev.cnesdata.vinisantana.com` (o `minio` do dev entra na
+O upload do edge agent usa `storage.dev.cnesdata.com.br` (o `minio` do dev entra na
 mesma rede `cnesdata_edge` com alias `dev-minio`, ver `deploy/dev/docker-compose.dev.yml`):
-crie o DNS A para o VPS e configure `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.vinisantana.com`
+crie o DNS A para o VPS e configure `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`
 no `.env` do stack dev. Prod não tem equivalente — o compose de prod não roda `minio`, e URLs
 presigned de S3 real já são públicas por construção.
 
 Validação (também no job `smoke`): `apps/web_dashboard/scripts/smoke.sh
-https://dev.cnesdata.vinisantana.com https://api.dev.vinisantana.com` confere health no host
+https://dev.cnesdata.com.br https://api.dev.cnesdata.com.br` confere health no host
 da API, `connect-src` na CSP, preflight CORS aceito só para a origem do dashboard e `/docs`
 inacessível pelo host público.

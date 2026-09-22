@@ -1,4 +1,4 @@
-# Deploy de `main` — cnesdata.vinisantana.com
+# Deploy de `main` — cnesdata.com.br
 
 ## Visão geral
 
@@ -24,7 +24,7 @@ automaticamente após um merge.
 O stack roda em `/opt/cnesdata`, na mesma VPS do staging
 (`103.199.184.166`), com Postgres/MinIO/Keycloak próprios. Só o Caddy é
 compartilhado — o mesmo container que serve produção também serve
-`dev.cnesdata.vinisantana.com` (ver `deploy/prod/caddy/Caddyfile` e
+`dev.cnesdata.com.br` (ver `deploy/prod/caddy/Caddyfile` e
 `docs/runbooks/deploy-develop.md`).
 
 ## Migração do modelo antigo (contexto histórico)
@@ -117,7 +117,7 @@ ssh root@103.199.184.166 'cd /opt/cnesdata && docker compose -f docker-compose.p
 ### Se o Caddy cair
 
 O mesmo container `caddy` serve produção **e** o vhost de dev
-(`dev.cnesdata.vinisantana.com`). Subir de novo com:
+(`dev.cnesdata.com.br`). Subir de novo com:
 
 ```bash
 ssh root@103.199.184.166 'cd /opt/cnesdata && docker compose -f docker-compose.prod.yml up -d caddy'
@@ -153,14 +153,14 @@ Antes do primeiro `gh workflow run deploy-main.yml` com esta mudança:
   referenciada por `docker-compose.prod.yml` — origem não identificada
   nesta migração; investigar antes de removê-la.
 
-## Host da API (`api.vinisantana.com`)
+## Host da API (`api.cnesdata.com.br`)
 
 Mesma estrutura do dev (ver `deploy-develop.md`, seção "Host da API"): DNS A para o VPS,
-bloco `api.vinisantana.com` no Caddyfile apontando para `central-api:8000` (só `/api/*`),
+bloco `api.cnesdata.com.br` no Caddyfile apontando para `central-api:8000` (só `/api/*`),
 `CORS_ALLOWED_ORIGINS=https://${PUBLIC_DOMAIN}` no `central-api` e `API_ORIGIN=https://${API_DOMAIN}`
 no `web-dashboard` (definir `API_DOMAIN` e `PRECOS_NOINDEX` em `/opt/cnesdata/.env`, ver
 `deploy/prod/.env.example`). A imagem do dashboard de `main` é compilada com
-`VITE_API_BASE_URL=https://api.vinisantana.com/api/v1`. Antes do primeiro deploy de `main` com
+`VITE_API_BASE_URL=https://api.cnesdata.com.br/api/v1`. Antes do primeiro deploy de `main` com
 essa mudança, copiar o compose e o Caddyfile atualizados e conferir
-`smoke.sh https://cnesdata.vinisantana.com https://api.vinisantana.com`.
+`smoke.sh https://cnesdata.com.br https://api.cnesdata.com.br`.
 

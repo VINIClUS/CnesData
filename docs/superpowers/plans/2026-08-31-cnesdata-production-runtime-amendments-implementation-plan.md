@@ -37,9 +37,9 @@ docs/superpowers/specs/2026-08-29-cnesdata-production-operations-design.md
   another region must be clearly fixture-local.
 - PROFILE=aws and AUTH_MODE=oidc are mandatory. PostgreSQL, MinIO, Keycloak and BigQuery have no
   production fallback/import.
-- Dashboard production API base is exactly https://api.cnesdata.vinisantana.com/api/v1. Relative
+- Dashboard production API base is exactly https://api.cnesdata.com.br/api/v1. Relative
   /api is forbidden.
-- Bearer is sent only to https://api.cnesdata.vinisantana.com. X-Tenant-Id is sent only after tenant
+- Bearer is sent only to https://api.cnesdata.com.br. X-Tenant-Id is sent only after tenant
   selection and only for tenant-scoped calls.
 - Activation exists only at /api/v1/activate/confirm. The origin-level legacy route is absent.
 - FastAPI is the sole CORS authority; Nginx forwards OPTIONS unchanged and adds no CORS header.
@@ -259,8 +259,8 @@ Remove any origin-level /activate/confirm or relative /api use.
 - Modify: packages/cnes_infra/tests/aws/test_settings.py
 
 **Interfaces:**
-- Dashboard requests openid/profile/email plus https://api.cnesdata.vinisantana.com/api.access.
-- Authorization extraQueryParams.resource is https://api.cnesdata.vinisantana.com.
+- Dashboard requests openid/profile/email plus https://api.cnesdata.com.br/api.access.
+- Authorization extraQueryParams.resource is https://api.cnesdata.com.br.
 - Production settings expose Cognito domain, authorize/token/logout URLs and require OIDC_AUDIENCE
   equal to the API origin.
 

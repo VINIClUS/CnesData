@@ -12,13 +12,13 @@
 
 - `dumpagent-v<versão>-windows-amd64.zip` — contém `dumpagent.exe`
 
-Distribuição pelo domínio público do R2 (`releases.cnesdata.vinisantana.com`) — sem
+Distribuição pelo domínio público do R2 (`releases.cnesdata.com.br`) — sem
 credencial. A versão corrente do canal `stable` está em `dumpagent/stable/latest.json`;
 para uma versão específica, usar `dumpagent/<versão>/`. Ver `dumpagent-release.md` para o
 contrato do manifesto.
 
 ```powershell
-$base = "https://releases.cnesdata.vinisantana.com/dumpagent"
+$base = "https://releases.cnesdata.com.br/dumpagent"
 $manifest = Invoke-RestMethod "$base/stable/latest.json"
 $art = $manifest.artifacts.'windows-amd64'
 Invoke-WebRequest -Uri $art.url -OutFile "dumpagent-$($manifest.version)-windows-amd64.zip"

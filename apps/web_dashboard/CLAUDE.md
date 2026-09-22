@@ -160,8 +160,8 @@ bun run typecheck
 - **Leads: `POST ${VITE_API_BASE_URL}/public/leads`** (`src/api/marketingLeads.ts`) → `central_api`
   `routes/public_leads.py`. Falha real (422/429/5xx/rede) sem simular sucesso; "Tentar novamente"
   só para indisponibilidade/rede; "Enviar e-mail" sempre. Hosts de API vêm só de
-  `VITE_API_BASE_URL` (build-arg do Dockerfile; dev = `https://api.dev.vinisantana.com/api/v1`,
-  prod = `https://api.vinisantana.com/api/v1`, local = `/api/v1` via proxy do Vite/nginx).
+  `VITE_API_BASE_URL` (build-arg do Dockerfile; dev = `https://api.dev.cnesdata.com.br/api/v1`,
+  prod = `https://api.cnesdata.com.br/api/v1`, local = `/api/v1` via proxy do Vite/nginx).
 - **CSP `connect-src`** recebe `${API_ORIGIN}` em runtime (`nginx/entrypoint.sh`); o compose de
   cada ambiente define `API_ORIGIN`. Sem ele, chamadas cross-origin à API são bloqueadas.
 - **`noindex` de `/precos` é pré-lançamento e configurável**: meta via build-arg

@@ -264,8 +264,8 @@ Não é Kubernetes. Dois perfis, sem sobreposição:
   central-api, data-processor, web-dashboard, keycloak, caddy). Deploy via
   `deploy-main.yml`/`deploy-develop.yml` em self-hosted runners (homelab
   Proxmox) que fazem SSH forced-command para o VPS; ver `### Self-hosted
-  runners` abaixo. Pipeline aponta para `cnesdata.vinisantana.com` /
-  `api.vinisantana.com`; status do piloto (produção real vs. infra pronta)
+  runners` abaixo. Pipeline aponta para `cnesdata.com.br` /
+  `api.cnesdata.com.br`; status do piloto (produção real vs. infra pronta)
   segue `CLAUDE.md` ("Not yet in production").
 - **AWS (alvo, EPIC #94):** S3+CloudFront (frontend), FastAPI seguindo no
   mesmo VPS, Step Functions Standard + ECS Fargate (processamento
@@ -281,7 +281,7 @@ produção central.
 
 Distribuição do binário do edge agent é independente dos dois perfis acima: GitHub
 Releases é o registro canônico de versões (tag `dumpagent-go-v*`, notas, checksums) e
-Cloudflare R2 (`releases.cnesdata.vinisantana.com`, leitura pública) é a camada primária
+Cloudflare R2 (`releases.cnesdata.com.br`, leitura pública) é a camada primária
 de download, com o GitHub Release como fallback. Workflow
 `.github/workflows/dump-agent-go-release.yml`; contrato do manifesto de update em
 `docs/contracts/dumpagent-update-manifest.schema.json`; corte de release, canais
@@ -362,8 +362,8 @@ download, roteamento, heartbeat e transição `UPLOADED` permanecem pendentes.
 
 Servida por container Nginx próprio (build estático, `apps/web_dashboard/Dockerfile`)
 atrás de Caddy — único entrypoint público na VPS (`deploy/prod/caddy/Caddyfile`),
-que termina TLS e roteia `cnesdata.vinisantana.com` para `web-dashboard` e
-`api.vinisantana.com` para `central-api`. JWT validado
+que termina TLS e roteia `cnesdata.com.br` para `web-dashboard` e
+`api.cnesdata.com.br` para `central-api`. JWT validado
 em `central_api.middleware.AuthMiddleware` via
 `cnes_infra.auth.jwt.JWKSValidator`. Mapping user→tenant via
 `dashboard.user_tenants`. Audit em `dashboard.audit_log` (RLS por

@@ -4,8 +4,8 @@
 **Status:** Draft for repository review; architecture approved in design discussion  
 **Repository:** `VINIClUS/CnesData`  
 **Integration base:** `develop`  
-**Production domains:** `cnesdata.vinisantana.com`,
-`api.cnesdata.vinisantana.com`  
+**Production domains:** `cnesdata.com.br`,
+`api.cnesdata.com.br`  
 **Primary AWS region:** `us-east-2`; global edge control plane (ACM,
 CloudFront-scoped WAF and Pricing Plan Manager endpoint): `us-east-1`
 
@@ -144,7 +144,7 @@ validation values to the shared edge change.
 - one dedicated, CloudFront-scoped AWS WAF web ACL in `us-east-1`, required by
   that plan and not shared with LimnoPulse;
 - ACM certificate in `us-east-1`, validated through Cloudflare DNS;
-- `cnesdata.vinisantana.com` as a DNS-only Cloudflare CNAME to CloudFront;
+- `cnesdata.com.br` as a DNS-only Cloudflare CNAME to CloudFront;
 - TLS redirect and a modern security policy;
 - compression enabled;
 - no S3 website endpoint and no public object ACL.
@@ -161,15 +161,15 @@ it never selects pay-as-you-go or a paid tier implicitly.
 
 The dashboard build is deterministic and contains no secret. It receives only
 public configuration such as
-`VITE_API_BASE_URL=https://api.cnesdata.vinisantana.com/api/v1`, Cognito
+`VITE_API_BASE_URL=https://api.cnesdata.com.br/api/v1`, Cognito
 issuer/client ID and release ID. The OpenTofu output maps that exact value to
 the dashboard build variable `VITE_API_BASE_URL`.
 
 Every dashboard call, including `auth/me` and activation, uses one authenticated
-client bound to `https://api.cnesdata.vinisantana.com/api/v1`. FastAPI mounts
+client bound to `https://api.cnesdata.com.br/api/v1`. FastAPI mounts
 activation at `/api/v1/activate/confirm`; origin-level `/activate/confirm` is
 removed. Production forbids relative `/api`. The client sends bearer only to
-`https://api.cnesdata.vinisantana.com` and `X-Tenant-Id` only for tenant calls.
+`https://api.cnesdata.com.br` and `X-Tenant-Id` only for tenant calls.
 
 Deployment order:
 
@@ -225,13 +225,13 @@ The container:
 - reports liveness separately from readiness;
 - emits redacted JSON stdout and optional loopback metrics.
 
-Nginx exposes it only through `api.cnesdata.vinisantana.com` on the shared
+Nginx exposes it only through `api.cnesdata.com.br` on the shared
 Tunnel. It restores the Cloudflare client address only from the local tunnel
 and adds request IDs. It forwards `OPTIONS` requests to FastAPI and neither
 terminates preflight requests nor adds CORS headers.
 
 FastAPI is the sole CORS authority. Its CORS policy permits exactly the origin
-`https://cnesdata.vinisantana.com`, methods `GET` and `POST`, and request
+`https://cnesdata.com.br`, methods `GET` and `POST`, and request
 headers `Authorization`, `Content-Type` and `X-Tenant-Id`. It permits no
 credentials and contains no wildcard origin, method or header.
 
@@ -254,9 +254,9 @@ The deployment creates:
 - one User Pool;
 - one public SPA client using Authorization Code + PKCE and no client secret,
   with `AllowedOAuthScopes` containing
-  `https://api.cnesdata.vinisantana.com/api.access` alongside existing OIDC
+  `https://api.cnesdata.com.br/api.access` alongside existing OIDC
   scopes;
-- one resource server with identifier `https://api.cnesdata.vinisantana.com`
+- one resource server with identifier `https://api.cnesdata.com.br`
   and one custom `api.access` scope;
 - one collision-safe AWS-managed prefix domain for the User Pool, generated
   from the production environment and a unique suffix, with no custom Cognito
@@ -265,12 +265,12 @@ The deployment creates:
 - email-based development/demo accounts created out of band;
 - no SMS MFA, paid SMS, social IdP or machine-to-machine client.
 
-The dashboard requests `https://api.cnesdata.vinisantana.com/api.access`
+The dashboard requests `https://api.cnesdata.com.br/api.access`
 alongside existing OIDC scopes and passes
-`resource=https://api.cnesdata.vinisantana.com` in its authorization request.
+`resource=https://api.cnesdata.com.br` in its authorization request.
 The resulting access token contains
-`aud=https://api.cnesdata.vinisantana.com`. Production config sets
-`OIDC_AUDIENCE=https://api.cnesdata.vinisantana.com`. The dashboard continues
+`aud=https://api.cnesdata.com.br`. Production config sets
+`OIDC_AUDIENCE=https://api.cnesdata.com.br`. The dashboard continues
 to send the `access_token`; the verifier remains provider-neutral.
 
 Authorization Code + PKCE requires the AWS-managed prefix domain. Its public
@@ -346,7 +346,7 @@ metadata `private, no-store`, which the second response exposes. This production
 handoff replaces the AWS-014 `307` route contract before promotion.
 
 The data bucket CORS configuration permits exactly
-`https://cnesdata.vinisantana.com`, methods `GET` and `HEAD`, no custom request
+`https://cnesdata.com.br`, methods `GET` and `HEAD`, no custom request
 headers, no credentials, and `MaxAgeSeconds=300`. Browser-readable objects are
 limited to signed URLs under `serving/`; no other prefix is browser-readable.
 
