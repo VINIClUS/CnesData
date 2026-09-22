@@ -54,8 +54,10 @@ def test_aceita_response_valido():
         extraction_id=extraction_id,
         upload_url="https://minio.example/bucket/key?sig=abc",
         minio_key="354130/CNES_VINCULO/2026-01-01/foo.parquet.gz",
+        fato_subtype="CNES_VINCULO",
     )
     assert resp.extraction_id == extraction_id
+    assert resp.fato_subtype == "CNES_VINCULO"
 
 
 def test_rejeita_minio_key_sem_extensao_parquet_gz():
@@ -64,6 +66,17 @@ def test_rejeita_minio_key_sem_extensao_parquet_gz():
             extraction_id=uuid4(),
             upload_url="https://minio.example/key",
             minio_key="not_a_parquet",
+            fato_subtype="CNES_VINCULO",
+        )
+
+
+def test_rejeita_fato_subtype_desconhecido():
+    with pytest.raises(ValidationError):
+        UploadUrlResponse(
+            extraction_id=uuid4(),
+            upload_url="https://minio.example/key?sig=abc",
+            minio_key="354130/CNES_VINCULO/2026-01-01/foo.parquet.gz",
+            fato_subtype="UNKNOWN_SUBTYPE",
         )
 
 
@@ -85,6 +98,7 @@ def test_response_frozen_rejeita_mutacao():
         extraction_id=uuid4(),
         upload_url="https://minio.example/key?sig=abc",
         minio_key="354130/CNES_VINCULO/2026-01-01/foo.parquet.gz",
+        fato_subtype="CNES_VINCULO",
     )
     with pytest.raises(ValidationError):
         resp.minio_key = "other.parquet.gz"

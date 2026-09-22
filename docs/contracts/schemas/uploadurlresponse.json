@@ -5,6 +5,22 @@
       "title": "Extraction Id",
       "type": "string"
     },
+    "fato_subtype": {
+      "enum": [
+        "CNES_VINCULO",
+        "SIHD_INTERNACAO",
+        "SIHD_PROC_AIH",
+        "BPA_C",
+        "BPA_I",
+        "SIA_APA",
+        "SIA_BPI",
+        "SIA_BPIHST",
+        "DIM_SIGTAP",
+        "DIM_MUNICIPIO"
+      ],
+      "title": "Fato Subtype",
+      "type": "string"
+    },
     "minio_key": {
       "pattern": "^[\\w\\-./]+\\.parquet\\.gz$",
       "title": "Minio Key",
@@ -19,7 +35,8 @@
   "required": [
     "extraction_id",
     "upload_url",
-    "minio_key"
+    "minio_key",
+    "fato_subtype"
   ],
   "title": "UploadUrlResponse",
   "type": "object"
