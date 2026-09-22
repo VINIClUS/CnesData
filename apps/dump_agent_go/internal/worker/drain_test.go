@@ -101,6 +101,39 @@ func TestDrain_ReplaysSha256AndMinioKey(t *testing.T) {
 	}
 }
 
+func TestDrain_RecoversFatoSubtypeFromMinioKeyForLegacyEnvelope(t *testing.T) {
+	d, ob, stub := newDrainFixture(t, nil)
+	_ = ob.Append(queue.Envelope{
+		Type:      queue.TypeComplete,
+		JobUUID:   "uuid-legacy",
+		SizeBytes: 1024,
+		SHA256:    "deadbeef",
+		MinioKey:  "354130/SIHD_INTERNACAO/2026-01-01/x.parquet.gz",
+		// FatoSubtype intentionally empty: envelope persisted before A2.
+	})
+	d.tick(context.Background())
+	if stub.registerN != 1 {
+		t.Fatalf("RegisterJob calls=%d want 1", stub.registerN)
+	}
+	if stub.lastJob.FatoSubtype != "SIHD_INTERNACAO" {
+		t.Errorf("Job.FatoSubtype=%q want SIHD_INTERNACAO recovered from minio_key",
+			stub.lastJob.FatoSubtype)
+	}
+}
+
+func TestDrain_UnrecoverableFatoSubtypeSendsEmpty(t *testing.T) {
+	d, ob, stub := newDrainFixture(t, nil)
+	_ = ob.Append(queue.Envelope{
+		Type:     queue.TypeComplete,
+		JobUUID:  "uuid-malformed",
+		MinioKey: "not-a-well-formed-key",
+	})
+	d.tick(context.Background())
+	if stub.lastJob.FatoSubtype != "" {
+		t.Errorf("Job.FatoSubtype=%q want empty for malformed minio_key", stub.lastJob.FatoSubtype)
+	}
+}
+
 func TestDrain_TerminalDropDeletes(t *testing.T) {
 	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 404})
 	_ = ob.Append(queue.Envelope{Type: queue.TypeComplete, JobUUID: "uuid-2"})

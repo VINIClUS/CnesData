@@ -160,6 +160,32 @@ func decodeRawEnvelope(env queue.Envelope) (manifest.Raw, error) {
 	return raw, validateRawScope(env.SourceKey, raw)
 }
 
+// knownFatoSubtypes mirrors cnes_contracts.landing.FATO_SUBTYPE. Used only to
+// validate a value recovered from a legacy envelope's persisted minio_key.
+var knownFatoSubtypes = map[string]bool{
+	"CNES_VINCULO": true, "SIHD_INTERNACAO": true, "SIHD_PROC_AIH": true,
+	"BPA_C": true, "BPA_I": true,
+	"SIA_APA": true, "SIA_BPI": true, "SIA_BPIHST": true,
+	"DIM_SIGTAP": true, "DIM_MUNICIPIO": true,
+}
+
+// fatoSubtypeFromMinioKey recovers FatoSubtype for TypeComplete envelopes
+// persisted by an agent version older than the one that added the field to
+// queue.Envelope (fato_subtype/{tenant}/{fato_subtype}/{competencia}/{job}.
+// parquet.gz — see central_api's _build_minio_key). Returns "" if the key
+// doesn't have the expected shape or the segment isn't a known subtype.
+func fatoSubtypeFromMinioKey(minioKey string) string {
+	parts := strings.Split(minioKey, "/")
+	if len(parts) < 4 {
+		return ""
+	}
+	subtype := parts[1]
+	if !knownFatoSubtypes[subtype] {
+		return ""
+	}
+	return subtype
+}
+
 func pendingRef(env queue.Envelope) delta.PendingRef {
 	return delta.PendingRef{SourceKey: env.SourceKey, JobID: env.JobID, FencingToken: env.FencingToken}
 }
@@ -348,11 +374,18 @@ func (d *Drainer) callInner(ctx context.Context, env queue.Envelope) (*http.Resp
 	var apiErr error
 	switch env.Type {
 	case queue.TypeComplete:
+		fatoSubtype := env.FatoSubtype
+		if fatoSubtype == "" {
+			fatoSubtype = fatoSubtypeFromMinioKey(env.MinioKey)
+			slog.Warn("envelope_fato_subtype_recovered",
+				"job_uuid", env.JobUUID, "minio_key", env.MinioKey,
+				"recovered", fatoSubtype)
+		}
 		job := Job{
 			ID:          env.JobUUID,
 			Sha256:      env.SHA256,
 			MinioKey:    env.MinioKey,
-			FatoSubtype: env.FatoSubtype,
+			FatoSubtype: fatoSubtype,
 		}
 		apiErr = d.inner.RegisterJob(ctx, job, env.SizeBytes)
 	case queue.TypeFail:
