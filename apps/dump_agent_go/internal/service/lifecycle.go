@@ -86,10 +86,24 @@ func uninstallService(connector scmConnector, removeEventSource func(string) err
 
 // stopIfRunning issues Stop and polls until the service reports Stopped or
 // stopWaitTimeout elapses. No-op if the service is already stopped.
+//
+// A service caught in StateStartPending must not receive Stop: Windows
+// rejects control codes during start-pending with
+// ERROR_SERVICE_CANNOT_ACCEPT_CTRL (#240), so it is drained out of that
+// state first. Both waits share one deadline computed up front — a second,
+// independent timeout for the start-pending wait would double the worst
+// case to 2*stopWaitTimeout.
 func stopIfRunning(s scmService) error {
+	deadline := time.Now().Add(stopWaitTimeout)
 	state, err := s.State()
 	if err != nil {
 		return fmt.Errorf("query_state=%w", err)
+	}
+	if state == StateStartPending {
+		state, err = pollUntil(s, deadline, func(st State) bool { return st != StateStartPending })
+		if err != nil {
+			return err
+		}
 	}
 	if state == StateStopped {
 		return nil
@@ -99,20 +113,25 @@ func stopIfRunning(s scmService) error {
 			return fmt.Errorf("control_stop=%w", err)
 		}
 	}
-	return waitForStopped(s)
+	_, err = pollUntil(s, deadline, func(st State) bool { return st == StateStopped })
+	return err
 }
 
-func waitForStopped(s scmService) error {
-	deadline := time.Now().Add(stopWaitTimeout)
-	for time.Now().Before(deadline) {
+// pollUntil polls s.State() every stopPollInterval until done reports true
+// or deadline elapses. Returns the last observed state; a timeout surfaces
+// as a non-nil error.
+func pollUntil(s scmService, deadline time.Time, done func(State) bool) (State, error) {
+	for {
 		state, err := s.State()
 		if err != nil {
-			return fmt.Errorf("query_state=%w", err)
+			return StateUnknown, fmt.Errorf("query_state=%w", err)
 		}
-		if state == StateStopped {
-			return nil
+		if done(state) {
+			return state, nil
+		}
+		if !time.Now().Before(deadline) {
+			return state, fmt.Errorf("stop_timeout=%s", stopWaitTimeout)
 		}
 		time.Sleep(stopPollInterval)
 	}
-	return fmt.Errorf("stop_timeout=%s", stopWaitTimeout)
 }

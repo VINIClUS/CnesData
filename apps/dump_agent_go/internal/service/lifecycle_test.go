@@ -37,6 +37,12 @@ func (f *fakeService) Stop() error {
 	if f.stopErr != nil {
 		return f.stopErr
 	}
+	// Mirrors real Windows SCM behavior: a control code sent while the
+	// service is StateStartPending fails with ERROR_SERVICE_CANNOT_ACCEPT_CTRL
+	// (#240). Lets tests prove stopIfRunning never issues Stop in that state.
+	if len(f.queried) > 0 && f.queried[len(f.queried)-1] == StateStartPending {
+		return errors.New("ERROR_SERVICE_CANNOT_ACCEPT_CTRL")
+	}
 	if f.stopSetsState {
 		f.state = StateStopped
 	}
@@ -199,6 +205,41 @@ func TestUninstall_RemoveEventSourceApenasAposDeleteComSucesso(t *testing.T) {
 	if svc.deleteCalls != 1 || len(order) != 1 {
 		t.Fatalf("expected exactly one delete and one event-source removal, got delete=%d order=%v",
 			svc.deleteCalls, order)
+	}
+}
+
+func TestUninstall_ServicoIniciando_AguardaAntesDeParar(t *testing.T) {
+	withFastStopTimeout(t)
+	svc := &fakeService{
+		states:        []State{StateStartPending, StateStartPending, StateRunning},
+		stopSetsState: true,
+	}
+	rc := uninstallService(&fakeConnector{svc: svc}, noopRemoveEventSource)
+	if rc != 0 {
+		t.Fatalf("rc = %d, want 0", rc)
+	}
+	if svc.stopCalls != 1 {
+		t.Fatalf("stopCalls = %d, want 1 (must issue Stop exactly once, after leaving StartPending)",
+			svc.stopCalls)
+	}
+	if svc.deleteCalls != 1 {
+		t.Fatalf("deleteCalls = %d, want 1", svc.deleteCalls)
+	}
+}
+
+func TestUninstall_ServicoNuncaSaiDeIniciando_RetornaFalhaAoTimeout(t *testing.T) {
+	withFastStopTimeout(t)
+	svc := &fakeService{state: StateStartPending}
+	rc := uninstallService(&fakeConnector{svc: svc}, noopRemoveEventSource)
+	if rc != 1 {
+		t.Fatalf("rc = %d, want 1 (must not hang forever waiting to leave StartPending)", rc)
+	}
+	if svc.stopCalls != 0 {
+		t.Fatalf("stopCalls = %d, want 0 (must never issue Stop while stuck StartPending)",
+			svc.stopCalls)
+	}
+	if svc.deleteCalls != 0 {
+		t.Fatal("must not delete a service that never left StartPending")
 	}
 }
 
