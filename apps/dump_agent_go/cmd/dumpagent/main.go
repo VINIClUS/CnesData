@@ -39,7 +39,7 @@ func dispatch(args []string) int {
 	case "install":
 		return cmdInstall(rest)
 	case "uninstall":
-		return cmdUninstall()
+		return cmdUninstall(rest)
 	case "diagnose":
 		return cmdDiagnose(rest)
 	case "discover":

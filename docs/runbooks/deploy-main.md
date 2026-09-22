@@ -163,3 +163,4 @@ no `web-dashboard` (definir `API_DOMAIN` e `PRECOS_NOINDEX` em `/opt/cnesdata/.e
 `VITE_API_BASE_URL=https://api.vinisantana.com/api/v1`. Antes do primeiro deploy de `main` com
 essa mudança, copiar o compose e o Caddyfile atualizados e conferir
 `smoke.sh https://cnesdata.vinisantana.com https://api.vinisantana.com`.
+

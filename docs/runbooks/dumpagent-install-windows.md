@@ -43,27 +43,41 @@ Expand-Archive -Path ".\dumpagent-$($manifest.version)-windows-amd64.zip" `
 
 ## Configuração
 
-Criar `C:\Program Files\CnesAgent\config.env`:
+Criar `C:\Program Files\CnesAgent\config.env`. **As chaves de banco usam o
+prefixo da fonte** (`CNES_`/`SIHD_`/`BPA_`) — `resolveFB` em
+`cmd/dumpagent/path_config.go` não lê `DB_HOST`/`DB_USER`/etc sem prefixo; um
+agente configurado com os nomes sem prefixo sobe com `DB_PATH` vazio e senha
+`masterkey` padrão (achado H6, ver `docs/edge-agent-audit-2026-09-20.md`).
+**Nunca coloque a senha aqui** — `config.env` vira uma chave de registro
+(`Environment` do serviço), legível por qualquer usuário autenticado na
+máquina (ACL padrão de `HKLM\SYSTEM\...\Services`). Use
+`dumpagent set-secret cnes` para a senha (armazenamento DPAPI):
 
 ```env
 CENTRAL_API_URL=https://api.cnesdata.gov.br
 TENANT_ID=354130
-DB_HOST=localhost
-DB_PORT=3050
-DB_PATH=C:\Programa CNES\database\CNES.GDB
-DB_USER=SYSDBA
-DB_PASSWORD=<senha Firebird>
-DB_CHARSET=WIN1252
+COMPETENCIA_YYYYMM=202601
+CNES_DB_HOST=localhost
+CNES_DB_PORT=3050
+CNES_DB_PATH=C:\Programa CNES\database\CNES.GDB
+CNES_DB_USER=SYSDBA
+CNES_DB_CHARSET=WIN1252
 DUMP_MAX_JITTER_SECONDS=1800
 FIREBIRD_DLL=C:\Programa CNES\fbclient.dll
 ```
 
-**Segurança:** proteger o arquivo (ACL apenas Administrators + SYSTEM):
+## Senha do Firebird
+
+Antes ou depois do install, como Administrator:
 
 ```powershell
-icacls "C:\Program Files\CnesAgent\config.env" `
-  /inheritance:r /grant:r "Administrators:(R,W)" "SYSTEM:(R,W)"
+cd "C:\Program Files\CnesAgent"
+.\dumpagent.exe set-secret cnes
 ```
+
+Prompt interativo (não ecoa); armazena `secrets/cnes.dpapi` sob a raiz de
+estado do agente (`%ProgramData%\CnesAgent`, machine-wide — ver H5 no
+findings).
 
 ## Instalação como Serviço
 
@@ -73,6 +87,12 @@ Abrir PowerShell como Administrator:
 cd "C:\Program Files\CnesAgent"
 .\dumpagent.exe install --config "C:\Program Files\CnesAgent\config.env"
 ```
+
+`--config` escreve as chaves não-secretas do arquivo no valor de registro
+`Environment` do próprio serviço (`HKLM\SYSTEM\CurrentControlSet\Services\
+CnesDumpAgent`), que o SCM injeta no processo ao iniciar. Chaves com nome
+sugerindo segredo (`PASSWORD`, `SECRET`, `TOKEN`, `APIKEY`) são rejeitadas
+com um aviso — use `set-secret` para essas.
 
 Output esperado: `installed service=CnesDumpAgent exe=C:\...\dumpagent.exe`
 
@@ -88,21 +108,58 @@ Get-Service CnesDumpAgent
 Start-Service CnesDumpAgent
 ```
 
-Aguardar 30s e verificar logs:
+Aguardar 30s e verificar logs (raiz de estado é **machine-wide**, não
+`%LOCALAPPDATA%` — mesma para o serviço e para qualquer sessão admin):
 
 ```powershell
-Get-Content "$env:LOCALAPPDATA\CnesAgent\logs\dumpagent.log" -Tail 30
+Get-Content "$env:ProgramData\CnesAgent\logs\dumpagent.log" -Tail 30
 ```
 
 Procurar por: `boot version=v0.1.0 mode=run` + `machine_id_resolved` + `worker_started`.
 
 ## Desinstalação
 
+`dumpagent.exe uninstall` para o serviço se estiver rodando, remove o
+registro do SCM e desregistra a fonte de eventlog — nessa ordem. É
+idempotente (rodar duas vezes não é erro). **Por padrão preserva o estado**
+(certs, secrets, fila, delta store, audit log) — mesmo comportamento que o
+runbook de rollback espera ao copiar `logs/*` depois do uninstall
+(`docs/runbooks/dumpagent-rollback.md`, passo 8).
+
 ```powershell
-Stop-Service CnesDumpAgent
 .\dumpagent.exe uninstall
 Remove-Item "C:\Program Files\CnesAgent" -Recurse -Force
 ```
+
+Não é necessário `Stop-Service` manual antes — o comando já para o serviço
+se necessário.
+
+### Descomissionamento completo (residual zero)
+
+Para remover também o estado do agente (ex.: trocando de município/tenant,
+ou desativando o posto), use `--purge`:
+
+```powershell
+.\dumpagent.exe uninstall --purge
+Remove-Item "C:\Program Files\CnesAgent" -Recurse -Force
+```
+
+`--purge` remove a raiz de estado inteira (`%ProgramData%\CnesAgent`):
+certs, secrets DPAPI, fila (`queue/outbox.db`), delta store, audit log,
+`machine_id`, `config.yaml`, `CLOCK_FATAL.txt` se presente.
+
+### Checklist de verificação pós-desinstalação
+
+```powershell
+Get-Service CnesDumpAgent -ErrorAction SilentlyContinue   # espera: erro/ausente
+Test-Path "HKLM:\SYSTEM\CurrentControlSet\Services\CnesDumpAgent"  # espera: False
+Get-Process dumpagent -ErrorAction SilentlyContinue        # espera: nada
+Test-Path "$env:ProgramData\CnesAgent"                      # False só após --purge
+```
+
+Se `Get-Service` ainda retornar o serviço com `Status=Running` mesmo após
+`uninstall` reportar sucesso, o processo não foi parado a tempo — pare-o
+manualmente (`Stop-Process`) e reexecute `uninstall` (idempotente).
 
 ## Troubleshooting
 
@@ -110,7 +167,7 @@ Remove-Item "C:\Program Files\CnesAgent" -Recurse -Force
 |---|---|---|
 | `already_running lock=dumpagent` | Outra instância rodando | `Get-Process dumpagent*` + kill |
 | `CLOCK_FATAL.txt` aparece | Skew > 60min | `w32tm /resync` + restart service |
-| `firebird_open` erro | DB_PATH errado ou fbclient.dll ausente | Verificar config.env + `Test-Path` |
+| `firebird_open` erro | `CNES_DB_PATH` errado (nome sem prefixo é ignorado) ou fbclient.dll ausente | Verificar config.env usa `CNES_DB_*` + `Test-Path` |
 | Logs vazios, service parado | Config.env malformado | Executar `dumpagent.exe run` em foreground para ver erro |
 | AV bloqueia exe | Whitelist necessária | Ver seção "AV whitelist" abaixo |
 

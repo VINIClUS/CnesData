@@ -5,7 +5,15 @@ package auth
 import (
 	"bytes"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
+
+func TestDPAPI_UsaEscopoDaMaquina(t *testing.T) {
+	if dpapiFlags != windows.CRYPTPROTECT_LOCAL_MACHINE {
+		t.Fatalf("dpapiFlags = %#x, want machine scope", dpapiFlags)
+	}
+}
 
 func TestWrapBytes_OutputIsNotIdentity(t *testing.T) {
 	plain := []byte("secret-pkcs8-bytes-here")

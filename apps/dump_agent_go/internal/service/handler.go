@@ -9,12 +9,6 @@ import (
 	"golang.org/x/sys/windows/svc"
 )
 
-// ServiceName nome registrado no SCM.
-const ServiceName = "CnesDumpAgent"
-
-// DisplayName nome exibido no Services.msc.
-const DisplayName = "CnesData Edge Agent"
-
 type handler struct {
 	version string
 }

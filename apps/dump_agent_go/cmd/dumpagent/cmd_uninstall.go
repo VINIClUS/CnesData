@@ -1,15 +1,51 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
+	"github.com/cnesdata/dumpagent/internal/platform"
 	"github.com/cnesdata/dumpagent/internal/service"
 )
 
-func cmdUninstall() int {
-	if err := service.RemoveEventSource(service.EventSourceName); err != nil {
-		fmt.Fprintf(os.Stderr, "warn: eventlog source removal failed: %v\n", err)
+// cmdUninstall stops (if running), removes the service from the SCM, and
+// deregisters its eventlog source, in that order — see
+// internal/service/lifecycle.go. State (certs, secrets, queue, delta,
+// audit log, machine_id) is preserved by default, matching
+// docs/runbooks/dumpagent-rollback.md, which reads the state root *after*
+// this same uninstall step (H3 in docs/edge-agent-audit-2026-09-20.md — a
+// default purge would silently break that documented rollback procedure).
+// --purge opts in to removing the state root too.
+func cmdUninstall(args []string) int {
+	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	purge := fs.Bool(
+		"purge", false, "remove também o estado do agente (certificados, segredos, fila e logs)",
+	)
+	if err := fs.Parse(args); err != nil {
+		return 2
 	}
-	return service.Uninstall()
+
+	rc := service.Uninstall()
+	if rc != 0 {
+		return rc
+	}
+	if !*purge {
+		return 0
+	}
+	return purgeState()
+}
+
+func purgeState() int {
+	dir, err := platform.AppDataDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "purge_resolve_app_data_dir=%v\n", err)
+		return 1
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		fmt.Fprintf(os.Stderr, "purge_remove_state_dir=%v\n", err)
+		return 1
+	}
+	fmt.Printf("purge=state_removed dir=%s\n", dir)
+	return 0
 }

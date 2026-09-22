@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+
+	"github.com/cnesdata/dumpagent/internal/platform"
 )
 
 // ShadowExecutor substitui JobExecutor quando DUMP_SHADOW_MODE=true.
@@ -34,6 +36,9 @@ func (s *ShadowExecutor) Run(ctx context.Context, job *Job) (sizeBytes int64, er
 
 	if err := os.MkdirAll(s.OutputDir, 0o755); err != nil {
 		return 0, fmt.Errorf("mkdir_shadow: %w", err)
+	}
+	if err := platform.RestrictStateTree(s.OutputDir); err != nil {
+		return 0, fmt.Errorf("shadow_acl=%w", err)
 	}
 	path := filepath.Join(s.OutputDir, job.ID+".parquet.gz")
 	f, err := os.Create(path)

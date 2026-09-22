@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cnesdata/dumpagent/internal/platform"
 	"go.etcd.io/bbolt"
 )
 
@@ -35,6 +36,9 @@ type Item struct {
 func Open(path string) (*Outbox, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("outbox: mkdir: %w", err)
+	}
+	if err := platform.RestrictStateTree(filepath.Dir(path)); err != nil {
+		return nil, fmt.Errorf("outbox_restrict_dir=%w", err)
 	}
 	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: 5 * time.Second})
 	if err != nil {

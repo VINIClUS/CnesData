@@ -43,7 +43,11 @@ api.dev.vinisantana.com {
 
 # Edge agent upload target for dev (self-hosted AIStor/MinIO). Prod has no
 # equivalent block: prod's compose removes the minio service entirely and
-# presigned URLs point straight at real S3, which is already public.
+# presigned URLs point straight at real S3, which is already public. An
+# earlier prod-side storage.cnesdata.vinisantana.com vhost (reverse_proxy
+# minio:9000) was dropped here — that minio service no longer exists on
+# prod, so the vhost was dead config. If Caddy already issued a Let's
+# Encrypt cert for it, the cert sits unused in caddy_data; harmless.
 storage.dev.cnesdata.vinisantana.com {
     reverse_proxy dev-minio:9000
 }

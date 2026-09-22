@@ -63,7 +63,7 @@ var intentPipelines = map[string]PipelineFn{
 
 // PipelineFor lookup por intent.
 func PipelineFor(intent string) (PipelineFn, bool) {
-	fn, ok := intentPipelines[intent]
+	fn, ok := intentPipelines[canonicalIntent(intent)]
 	return fn, ok
 }
 
@@ -112,6 +112,19 @@ var deltaIntentPipelines = map[string]DeltaPipelineFn{
 
 // DeltaPipelineFor lookup do pipeline delta por intent.
 func DeltaPipelineFor(intent string) (DeltaPipelineFn, bool) {
-	fn, ok := deltaIntentPipelines[intent]
+	fn, ok := deltaIntentPipelines[canonicalIntent(intent)]
 	return fn, ok
+}
+
+func canonicalIntent(intent string) string {
+	switch intent {
+	case "cnes_profissionais":
+		return extractor.IntentCnesProfissionais
+	case "cnes_estabelecimentos":
+		return extractor.IntentCnesEstabelecimentos
+	case "cnes_equipes":
+		return extractor.IntentCnesEquipes
+	default:
+		return intent
+	}
 }

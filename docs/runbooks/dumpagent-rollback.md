@@ -85,8 +85,13 @@ documentação do instalador original.
 
 ```powershell
 Start-Service CnesDumpAgent
-Get-Content "$env:LOCALAPPDATA\CnesAgent\logs\dump_agent.log" -Tail 30
+Get-Content "$env:ProgramData\CnesAgent\logs\dump_agent.log" -Tail 30
 ```
+
+Nota: a raiz de estado do agente Go é `%ProgramData%\CnesAgent`
+(machine-wide, não por-usuário — ver H5 em `docs/edge-agent-audit-2026-09-20.md`).
+Se o agente Python usa outra convenção de path, ajustar o passo 8 abaixo
+para a raiz correta de cada um antes de copiar.
 
 Procurar por boot Python esperado (formato `YYYY-MM-DD HH:MM:SS INFO ...`).
 
@@ -103,9 +108,12 @@ Via e-mail / Telegram para operador central:
 ```powershell
 $backup = "C:\CnesAgent_Backup\rollback-$(Get-Date -Format 'yyyyMMdd-HHmm')"
 New-Item -ItemType Directory $backup -Force
-Copy-Item "$env:LOCALAPPDATA\CnesAgent\logs\*" $backup -Recurse
-Copy-Item "$env:LOCALAPPDATA\CnesAgent\CLOCK_FATAL.txt" $backup -ErrorAction SilentlyContinue
+Copy-Item "$env:ProgramData\CnesAgent\logs\*" $backup -Recurse
+Copy-Item "$env:ProgramData\CnesAgent\CLOCK_FATAL.txt" $backup -ErrorAction SilentlyContinue
 ```
+
+Passo 2 (`dumpagent.exe uninstall`) preserva este estado por padrão — não
+usar `--purge` aqui, ou não haverá nada para copiar neste passo.
 
 Upload para central para análise.
 
