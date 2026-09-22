@@ -61,10 +61,14 @@ agente configurado com os nomes sem prefixo sobe com `DB_PATH` vazio e senha
 máquina (ACL padrão de `HKLM\SYSTEM\...\Services`). Use
 `dumpagent set-secret cnes` para a senha (armazenamento DPAPI).
 
-`INTENT` seleciona o tipo de extração CNES enviado ao `central_api` — default
-`cnes_estabelecimentos`, o único valor que `_FATO_SUBTYPE_FOR`
-(`central_api/routes/jobs.py`) mapeia sem erro 422 (H10, ver findings). Omitir
-é seguro; só sobrescreva para `cnes_profissionais`/`cnes_equipes`.
+`INTENT` e `TIPO_EXTRACAO` selecionam juntos o tipo de extração CNES — ambos
+default `cnes_estabelecimentos`. `INTENT` é o que `_FATO_SUBTYPE_FOR`
+(`central_api/routes/jobs.py`) casa para resolver o `fato_subtype`; o valor
+errado aqui 422a a mint (H10, ver findings). `TIPO_EXTRACAO` viaja no mesmo
+payload mas hoje `central_api` só valida que não é vazio, sem consumir o
+valor — **mesmo assim, sobrescreva os dois juntos** (mesmo valor) para não
+divergirem quando esse campo passar a ser lido. Omitir ambos é seguro; só
+sobrescreva para `cnes_profissionais`/`cnes_equipes`.
 `COD_MUN_IBGE` é o código IBGE de 6 dígitos anexado ao manifest de upload —
 default `TENANT_ID` quando omitido, só precisa divergir onde o tenant não for
 o próprio código IBGE:
@@ -74,6 +78,7 @@ CENTRAL_API_URL=https://api.cnesdata.gov.br
 TENANT_ID=354130
 COMPETENCIA_YYYYMM=202601
 INTENT=cnes_estabelecimentos
+TIPO_EXTRACAO=cnes_estabelecimentos
 COD_MUN_IBGE=354130
 CNES_DB_HOST=localhost
 CNES_DB_PORT=3050
