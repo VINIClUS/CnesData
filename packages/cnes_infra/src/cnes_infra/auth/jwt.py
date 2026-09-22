@@ -25,6 +25,7 @@ class JWKSValidator:
     http_timeout: float = 5.0
     _jwks: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False)
     _fetched_at: float = field(default=0.0, init=False, repr=False)
+    _jwks_uri: str = field(default="", init=False, repr=False)
 
     def verify(self, token: str) -> dict[str, Any]:
         try:
@@ -66,7 +67,7 @@ class JWKSValidator:
         now = time.time()
         if self._jwks and now - self._fetched_at < self.jwks_ttl_seconds:
             return self._jwks
-        url = f"{self.issuer}/.well-known/jwks.json"
+        url = self._resolve_jwks_uri()
         try:
             resp = httpx.get(url, timeout=self.http_timeout)
             resp.raise_for_status()
@@ -77,3 +78,18 @@ class JWKSValidator:
         self._jwks = resp.json().get("keys", [])
         self._fetched_at = now
         return self._jwks
+
+    def _resolve_jwks_uri(self) -> str:
+        if self._jwks_uri:
+            return self._jwks_uri
+        url = f"{self.issuer.rstrip('/')}/.well-known/openid-configuration"
+        try:
+            resp = httpx.get(url, timeout=self.http_timeout)
+            resp.raise_for_status()
+            jwks_uri = resp.json().get("jwks_uri")
+        except httpx.HTTPError as e:
+            raise TokenInvalid(f"oidc_discovery_failed: {e}") from e
+        if not jwks_uri:
+            raise TokenInvalid("oidc_discovery_no_jwks_uri")
+        self._jwks_uri = jwks_uri
+        return self._jwks_uri
