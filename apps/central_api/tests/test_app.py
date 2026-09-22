@@ -234,8 +234,12 @@ class TestGetEngine:
 
 
 class TestGetObjectStorage:
-    def test_get_object_storage_expoe_object_storage_port(self):
+    def test_get_object_storage_expoe_object_storage_port(self, monkeypatch):
         from central_api import deps as deps_mod
+        from cnes_infra import config as config_mod
+
+        monkeypatch.setattr(config_mod, "S3_ENDPOINT_URL", "")
+        monkeypatch.setattr(config_mod, "S3_PUBLIC_ENDPOINT_URL", "")
         deps_mod._object_storage_instance = None
         storage = deps_mod.get_object_storage()
         assert hasattr(storage, "generate_presigned_upload_url")
@@ -243,10 +247,14 @@ class TestGetObjectStorage:
         assert hasattr(storage, "get_presigned_download_url")
         deps_mod._object_storage_instance = None
 
-    def test_get_object_storage_e_singleton(self):
+    def test_get_object_storage_e_singleton(self, monkeypatch):
         """Regressão: o antigo MinioWrapper construía um client novo a cada
         chamada de presigned_put. O factory tem que reusar o mesmo client."""
         from central_api import deps as deps_mod
+        from cnes_infra import config as config_mod
+
+        monkeypatch.setattr(config_mod, "S3_ENDPOINT_URL", "")
+        monkeypatch.setattr(config_mod, "S3_PUBLIC_ENDPOINT_URL", "")
         deps_mod._object_storage_instance = None
         first = deps_mod.get_object_storage()
         second = deps_mod.get_object_storage()
