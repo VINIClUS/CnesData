@@ -6,6 +6,7 @@ inline SQL DELETE per (source, intent) PK.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -28,9 +29,7 @@ class FatalError(RuntimeError):
 _PK_COLUMNS: dict[tuple[str, str], tuple[str, ...]] = {
     ("cnes", "estabelecimentos"): ("CNES",),
     ("cnes", "profissionais"): ("CPF_PROF", "CNES", "COD_CBO"),
-    ("cnes", "equipes"): ("SEQ_EQUIPE",),
     ("sihd", "aih"): ("NUM_AIH",),
-    ("bpa", "linhas"): ("CPF", "COMPETEN", "COD_PROC"),
 }
 
 
@@ -42,24 +41,28 @@ _DELETE_SQL: dict[tuple[str, str], str] = {
         "DELETE FROM gold.fato_vinculo_cnes "
         "WHERE sk_profissional = ("
         " SELECT sk_profissional FROM gold.dim_profissional "
-        " WHERE cpf = :CPF_PROF) "
+        " WHERE cpf_hash = :CPF_PROF) "
         "AND sk_estabelecimento = ("
         " SELECT sk_estabelecimento FROM gold.dim_estabelecimento "
         " WHERE cnes = :CNES) "
-        "AND sk_cbo = :COD_CBO"
-    ),
-    ("cnes", "equipes"): (
-        "DELETE FROM gold.dim_equipe WHERE seq_equipe = :SEQ_EQUIPE"
+        "AND sk_cbo = ("
+        " SELECT sk_cbo FROM gold.dim_cbo WHERE cod_cbo = :COD_CBO)"
     ),
     ("sihd", "aih"): (
         "DELETE FROM gold.fato_internacao WHERE num_aih = :NUM_AIH"
     ),
-    ("bpa", "linhas"): (
-        "DELETE FROM gold.fato_producao_ambulatorial "
-        "WHERE cpf = :CPF AND competencia = :COMPETEN "
-        "AND cod_procedimento = :COD_PROC"
-    ),
 }
+
+# ("cnes", "equipes") and ("bpa", "linhas") were removed: gold.dim_equipe is
+# never created by any migration, and fato_producao_ambulatorial's only
+# natural key (012_fato_producao_unique) includes job_id, which merge_delta
+# never receives - routing either intent raised UndefinedTable/UndefinedColumn
+# on first execution. Both now hit the unknown_source_intent FatalError below.
+
+
+def _cpf_hash(cpf: str) -> str:
+    """SHA256 truncado em 11 chars — docs/data-dictionary-gold-v2.md#3.1."""
+    return hashlib.sha256(cpf.encode()).hexdigest()[:11]
 
 
 def has_op_column(df: pl.DataFrame) -> bool:
@@ -153,6 +156,8 @@ def _apply_deletes(
     deleted = 0
     for row in deletes:
         pk = {c: row.get(c) for c in pk_cols}
+        if key == ("cnes", "profissionais"):
+            pk["CPF_PROF"] = _cpf_hash(pk["CPF_PROF"])
         result = conn.execute(text(sql), pk)
         if result.rowcount == 0:
             logger.info(
