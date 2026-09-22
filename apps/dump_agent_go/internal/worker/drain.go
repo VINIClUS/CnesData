@@ -325,16 +325,18 @@ func (d *Drainer) applyResponse(ctx context.Context, item queue.Item,
 // *obs.HTTPError so Classify can read the status code.
 //
 // FU1: TypeComplete envelopes dispatch via RegisterJob (post-upload
-// confirmation) and rebuild Job{ID, Sha256, MinioKey} from the persisted
-// envelope so replays after agent restart preserve sha256/minio_key.
+// confirmation) and rebuild Job{ID, Sha256, MinioKey, FatoSubtype} from
+// the persisted envelope so replays after agent restart preserve every
+// field FileManifest requires server-side.
 func (d *Drainer) callInner(ctx context.Context, env queue.Envelope) (*http.Response, error) {
 	var apiErr error
 	switch env.Type {
 	case queue.TypeComplete:
 		job := Job{
-			ID:       env.JobUUID,
-			Sha256:   env.SHA256,
-			MinioKey: env.MinioKey,
+			ID:          env.JobUUID,
+			Sha256:      env.SHA256,
+			MinioKey:    env.MinioKey,
+			FatoSubtype: env.FatoSubtype,
 		}
 		apiErr = d.inner.RegisterJob(ctx, job, env.SizeBytes)
 	case queue.TypeFail:

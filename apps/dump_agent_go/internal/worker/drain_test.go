@@ -70,11 +70,12 @@ func TestDrain_HappyPathDeletesEnvelope(t *testing.T) {
 func TestDrain_ReplaysSha256AndMinioKey(t *testing.T) {
 	d, ob, stub := newDrainFixture(t, nil)
 	_ = ob.Append(queue.Envelope{
-		Type:      queue.TypeComplete,
-		JobUUID:   "uuid-replay",
-		SizeBytes: 2048,
-		SHA256:    "deadbeef",
-		MinioKey:  "354130/CNES_VINCULO/2026-01-01/x.parquet.gz",
+		Type:        queue.TypeComplete,
+		JobUUID:     "uuid-replay",
+		SizeBytes:   2048,
+		SHA256:      "deadbeef",
+		MinioKey:    "354130/CNES_VINCULO/2026-01-01/x.parquet.gz",
+		FatoSubtype: "CNES_VINCULO",
 	})
 	d.tick(context.Background())
 	if stub.registerN != 1 {
@@ -88,6 +89,10 @@ func TestDrain_ReplaysSha256AndMinioKey(t *testing.T) {
 	}
 	if stub.lastJob.MinioKey != "354130/CNES_VINCULO/2026-01-01/x.parquet.gz" {
 		t.Errorf("Job.MinioKey=%q lost on replay", stub.lastJob.MinioKey)
+	}
+	if stub.lastJob.FatoSubtype != "CNES_VINCULO" {
+		t.Errorf("Job.FatoSubtype=%q lost on replay; server 422s FileManifest without it",
+			stub.lastJob.FatoSubtype)
 	}
 	if stub.lastSize != 2048 {
 		t.Errorf("sizeBytes=%d want 2048", stub.lastSize)

@@ -278,7 +278,8 @@ func TestMintUploadURL_Created(t *testing.T) {
 		_, _ = w.Write([]byte(`{
 			"extraction_id": "11111111-2222-3333-4444-555555555555",
 			"upload_url": "https://minio/sig",
-			"minio_key": "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz"
+			"minio_key": "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+			"fato_subtype": "CNES_VINCULO"
 		}`))
 	})
 	job, err := a.MintUploadURL(context.Background(), worker.JobSpec{
@@ -291,6 +292,7 @@ func TestMintUploadURL_Created(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "https://minio/sig", job.UploadURL)
 	require.Equal(t, "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz", job.MinioKey)
+	require.Equal(t, "CNES_VINCULO", job.FatoSubtype)
 }
 
 func TestMintUploadURL_4xx(t *testing.T) {

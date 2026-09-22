@@ -48,9 +48,19 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 				"extraction_id": testExtractionUUID,
 				"upload_url":    minioSrv.URL,
 				"minio_key":     "354130/CNES_VINCULO/2026-01/abc.parquet.gz",
+				"fato_subtype":  "CNES_VINCULO",
 			})
 		case r.URL.Path == "/api/v1/jobs/register":
 			atomic.AddInt32(&registered, 1)
+			var body struct {
+				Files []struct {
+					FatoSubtype string `json:"fato_subtype"`
+				} `json:"files"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if len(body.Files) != 1 || body.Files[0].FatoSubtype == "" {
+				t.Errorf("register body missing fato_subtype: %+v", body)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{

@@ -105,3 +105,24 @@ class TestExtractionRegisterPayloadAgentMetadata:
             ExtractionRegisterPayload.model_validate(
                 {**self._BASE, "machine_id": "y" * 129},
             )
+
+    def test_aceita_body_literal_enviado_pelo_agente_go(self) -> None:
+        """RegisterJob (adapter.go) builds JobRegisterRequest from
+        overlay.yaml's schema; this pins its JSON shape against the real
+        server-side validator, the only cross-check available since
+        routes/jobs.py's FastAPI route is untyped (A2)."""
+        from cnes_contracts.landing import ExtractionRegisterPayload
+        body = {
+            "job_id": "00000000-0000-0000-0000-000000000001",
+            "files": [{
+                "minio_key": "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+                "fato_subtype": "CNES_VINCULO",
+                "size_bytes": 4096,
+                "sha256": "a" * 64,
+            }],
+            "agent_version": "1.2.3",
+            "machine_id": "edge-01",
+        }
+        payload = ExtractionRegisterPayload.model_validate(body, strict=False)
+        assert len(payload.files) == 1
+        assert payload.files[0].fato_subtype == "CNES_VINCULO"
