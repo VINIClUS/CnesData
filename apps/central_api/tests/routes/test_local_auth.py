@@ -59,14 +59,19 @@ class _FakeService:
         self._sessions.pop(token, None)
 
 
-def _build(service: _FakeService | None, *, base_url: str = "http://testserver") -> TestClient:
+def _build(
+    service: _FakeService | None,
+    *,
+    base_url: str = "http://testserver",
+    peer: str = "testclient",
+) -> TestClient:
     app = FastAPI()
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
     app.include_router(local_auth.router)
     if service is not None:
         app.dependency_overrides[local_auth.get_local_auth_service] = lambda: service
-    return TestClient(app, base_url=base_url)
+    return TestClient(app, base_url=base_url, client=(peer, 50000))
 
 
 @pytest.fixture(autouse=True)
@@ -250,8 +255,11 @@ def test_login_com_rate_limit_excedido() -> None:
     assert response.json()["detail"] == "rate_limited"
 
 
-def test_login_rate_limit_separa_clientes_atras_de_proxy() -> None:
-    client = _build(_FakeService())
+def test_login_rate_limit_separa_clientes_atras_de_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "172.16.0.0/12")
+    client = _build(_FakeService(), peer="172.20.0.2")
 
     for _ in range(5):
         client.post(
@@ -267,6 +275,26 @@ def test_login_rate_limit_separa_clientes_atras_de_proxy() -> None:
     )
 
     assert response.status_code == 200
+
+
+def test_login_rate_limit_nao_separa_clientes_sem_proxy_confiavel() -> None:
+    """Sem TRUSTED_PROXY_CIDRS, XFF é ignorado — os dois IPs forjados compartilham o limite."""
+    client = _build(_FakeService(), peer="172.20.0.2")
+
+    for _ in range(5):
+        client.post(
+            "/api/v1/auth/local/login",
+            json={"email": "g@x.com", "password": _PASSWORD},
+            headers={"X-Forwarded-For": "203.0.113.1, 172.20.0.2"},
+        )
+
+    response = client.post(
+        "/api/v1/auth/local/login",
+        json={"email": "g@x.com", "password": _PASSWORD},
+        headers={"X-Forwarded-For": "203.0.113.2, 172.20.0.2"},
+    )
+
+    assert response.status_code == 429
 
 
 def test_cookie_de_sessao_secure_com_x_forwarded_proto_https(
