@@ -167,7 +167,9 @@ jobs:
 
   chaos-infra:
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-chaos')
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-chaos')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
