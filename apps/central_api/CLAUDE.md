@@ -123,7 +123,10 @@ uv run uvicorn central_api.app:create_app --factory --reload
   reaper — o padrão recomendado é flag `ENABLE_REAPER=true` em uma só
   (atualmente todas rodam; limitação conhecida do single-replica dev).
 - **`test_smoke.py`** requer docker-compose completo (API + MinIO + DB) —
-  marcado `[e2e, postgres]` e pulado no filtro padrão de CI.
+  marcado `[e2e, postgres]` e pulado no filtro padrão de CI. `conftest.py`
+  sobe o profile `dev` (`docker compose --profile dev`); sem licença AIStor
+  em `./minio.license`, `minio` nunca fica `healthy` e o compose aborta —
+  ver comentário do serviço `minio` em `docker-compose.yml`.
 - **RLS install:** `install_rls_listener(engine)` é chamado no lifespan.
   Sem isso, queries via SQLAlchemy não setam `app.tenant_id` e RLS bloqueia
   tudo. Teste de regressão: qualquer query em integration test deve passar
