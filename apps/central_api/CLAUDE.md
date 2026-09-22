@@ -18,6 +18,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `GET /api/v1/system/health` — healthcheck + ping Postgres
 - `POST /api/v1/jobs/upload-url` — cria row PENDING + URL presigned PUT
 - `POST /api/v1/jobs/register` — registra manifest N-file em `landing.extractions`
+- `POST /api/v1/jobs/{job_id}/fail` — marca FAILED + persiste `error_detail`
+  (status-guarded, `PENDING`/`CLAIMED` apenas — idempotente em retry)
 - `POST /api/v1/extractions/enqueue` — cria extractions por fonte/competência
 - `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (admin)
 - `TenantMiddleware` — extrai `X-Tenant-Id` header e chama `set_tenant_id()`
@@ -94,7 +96,7 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `src/central_api/deps.py` | `get_engine()`, `lifespan`, `_lease_reaper_loop`, RLS listener install |
 | `src/central_api/middleware.py` | `TenantMiddleware` — extrai `X-Tenant-Id` header |
 | `src/central_api/routes/health.py` | `/api/v1/system/health` — ping DB |
-| `src/central_api/routes/jobs.py` | `/api/v1/jobs/upload-url` + `/api/v1/jobs/register` |
+| `src/central_api/routes/jobs.py` | `/api/v1/jobs/upload-url` + `/api/v1/jobs/register` + `/api/v1/jobs/{id}/fail` |
 | `src/central_api/routes/extractions.py` | `/api/v1/extractions/enqueue` — enqueue admin |
 | `src/central_api/routes/admin.py` | `/api/v1/admin/*` — reap-leases, ops |
 | `src/central_api/routes/dashboard.py` | `/api/v1/dashboard/auth/me`, tenants, agents |
@@ -131,6 +133,8 @@ uv run uvicorn central_api.app:create_app --factory --reload
   Sem isso, queries via SQLAlchemy não setam `app.tenant_id` e RLS bloqueia
   tudo. Teste de regressão: qualquer query em integration test deve passar
   (se bloquear, listener não foi instalado).
-- **`/jobs/{id}/complete` and `/jobs/{id}/fail` routes do not exist** —
-  edge no longer calls /complete (FU1 dropped). /fail is documented as
-  follow-up gap; today extract/upload failures leave PENDING orphan rows.
+- **`/jobs/{id}/complete` does not exist** — edge no longer calls it (FU1
+  dropped). `/jobs/{id}/fail` now exists (A1,
+  `docs/edge-agent-audit-2026-09-20.md`) — before it did, every agent-side
+  extraction failure 404'd, the outbox terminal-dropped the envelope, and
+  the row orphaned at `PENDING` with the real error lost.
