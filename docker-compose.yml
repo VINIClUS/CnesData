@@ -167,12 +167,11 @@ services:
     profiles:
     - perf
   firebird_perf:
-    image: jacobalberty/firebird:v4.0.5
+    image: jacobalberty/firebird:v4.0.2
     container_name: cnesdata_fb_perf
     environment:
       ISC_PASSWORD: masterkey
       FIREBIRD_DATABASE: CNES.FDB
-      FIREBIRD_USER: SYSDBA
     ports:
     - 3051:3050
     volumes:
