@@ -173,18 +173,23 @@ aws iam put-user-policy --user-name cnesdata-prod --policy-name cnesdata-landing
 aws iam create-access-key --user-name cnesdata-prod
 ```
 
-Policy mínima — só `Get`/`Put`/`Delete` em `cnesdata-landing/*`, sem `s3:ListBucket`.
-Acesso é sempre por URL presignada; a role da aplicação nunca lista/cria buckets, e
-`object_exists` (`s3_presigned.py`) já trata o 403 que `head_object` devolve para uma
-chave ausente sem `s3:ListBucket` na raiz — conceder list além do necessário deixaria
-uma credencial comprometida enumerar chaves de todos os tenants:
+Policy mínima — só `Get`/`Put` em `cnesdata-landing/*`, sem `s3:ListBucket` nem
+`s3:DeleteObject`. Acesso é sempre por URL presignada; a role da aplicação nunca
+lista/cria buckets, e `object_exists` (`s3_presigned.py`) já trata o 403 que
+`head_object` devolve para uma chave ausente sem `s3:ListBucket` na raiz. O único
+adapter S3 conectado a essa credencial em prod é `S3PresignedStorage`
+(`central_api/deps.py:get_object_storage`), que não expõe delete — o `.delete()` de
+`ObjectStorePort`/`S3ObjectStore` é de um port separado, hoje ligado a
+`FilesystemObjectStore`, não a esse bucket. Conceder list/delete além do necessário só
+aumenta o raio de dano de uma credencial comprometida (enumerar ou apagar objetos de
+qualquer tenant):
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {"Sid": "ObjectRW", "Effect": "Allow",
-     "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+     "Action": ["s3:GetObject", "s3:PutObject"],
      "Resource": "arn:aws:s3:::cnesdata-landing/*"}
   ]
 }
@@ -246,12 +251,17 @@ infra HTTP funcionando. Sequência usada, para uma migração de domínio equiva
    `smoke.sh https://cnesdata.com.br https://api.cnesdata.com.br` logo depois, e conferir
    o header `content-security-policy` da resposta — `connect-src` só deve citar os hosts
    novos; enquanto citar os antigos, a imagem no ar ainda é a pré-cutover.
-7. Assim que o smoke passar (ver ponto 2): remover DNS legado primeiro (para o hostname
-   parar de resolver), Caddy depois (`caddy validate` + `caddy reload`), Keycloak por
-   último. Nessa ordem — Caddy antes do DNS reproduz o incidente de 2026-09-22 (bloco
-   removido, nome ainda resolvendo). Atualizar também `RELEASES_PUBLIC_BASE_URL` (GitHub
-   Actions variable) e os manifestos publicados em R2 que tiverem URL absoluta para o
-   host antigo (ver `docs/runbooks/dumpagent-release.md`).
+7. Assim que o smoke passar (ver ponto 2): remover DNS legado primeiro. Nessa ordem —
+   Caddy antes do DNS reproduz o incidente de 2026-09-22 (bloco removido, nome ainda
+   resolvendo). Mas apagar o registro **não** faz resolvers recursivos/clientes pararem
+   de resolver o hostname na hora — eles podem reter a resposta em cache até o TTL
+   anterior do registro expirar. Só remover o bloco do Caddy depois de esperar pelo
+   menos esse TTL **e** confirmar via um resolvedor público
+   (`dig @1.1.1.1 <host-legado>` sem retornar nada) — removê-lo antes disso reproduz o
+   mesmo TLS handshake failure para os clientes com cache ainda válido. Keycloak por
+   último, depois de Caddy. Atualizar também `RELEASES_PUBLIC_BASE_URL` (GitHub Actions
+   variable) e os manifestos publicados em R2 que tiverem URL absoluta para o host
+   antigo (ver `docs/runbooks/dumpagent-release.md`).
 
 ## Pendências conhecidas (fora do escopo desta entrega)
 
