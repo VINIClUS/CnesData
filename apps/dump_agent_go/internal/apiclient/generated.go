@@ -47,40 +47,40 @@ func (e EnqueueRequestSourceType) Valid() bool {
 
 // Defines values for FileManifestFatoSubtype.
 const (
-	BPAC           FileManifestFatoSubtype = "BPA_C"
-	BPAI           FileManifestFatoSubtype = "BPA_I"
-	CNESVINCULO    FileManifestFatoSubtype = "CNES_VINCULO"
-	DIMMUNICIPIO   FileManifestFatoSubtype = "DIM_MUNICIPIO"
-	DIMSIGTAP      FileManifestFatoSubtype = "DIM_SIGTAP"
-	SIAAPA         FileManifestFatoSubtype = "SIA_APA"
-	SIABPI         FileManifestFatoSubtype = "SIA_BPI"
-	SIABPIHST      FileManifestFatoSubtype = "SIA_BPIHST"
-	SIHDINTERNACAO FileManifestFatoSubtype = "SIHD_INTERNACAO"
-	SIHDPROCAIH    FileManifestFatoSubtype = "SIHD_PROC_AIH"
+	FileManifestFatoSubtypeBPAC           FileManifestFatoSubtype = "BPA_C"
+	FileManifestFatoSubtypeBPAI           FileManifestFatoSubtype = "BPA_I"
+	FileManifestFatoSubtypeCNESVINCULO    FileManifestFatoSubtype = "CNES_VINCULO"
+	FileManifestFatoSubtypeDIMMUNICIPIO   FileManifestFatoSubtype = "DIM_MUNICIPIO"
+	FileManifestFatoSubtypeDIMSIGTAP      FileManifestFatoSubtype = "DIM_SIGTAP"
+	FileManifestFatoSubtypeSIAAPA         FileManifestFatoSubtype = "SIA_APA"
+	FileManifestFatoSubtypeSIABPI         FileManifestFatoSubtype = "SIA_BPI"
+	FileManifestFatoSubtypeSIABPIHST      FileManifestFatoSubtype = "SIA_BPIHST"
+	FileManifestFatoSubtypeSIHDINTERNACAO FileManifestFatoSubtype = "SIHD_INTERNACAO"
+	FileManifestFatoSubtypeSIHDPROCAIH    FileManifestFatoSubtype = "SIHD_PROC_AIH"
 )
 
 // Valid indicates whether the value is a known member of the FileManifestFatoSubtype enum.
 func (e FileManifestFatoSubtype) Valid() bool {
 	switch e {
-	case BPAC:
+	case FileManifestFatoSubtypeBPAC:
 		return true
-	case BPAI:
+	case FileManifestFatoSubtypeBPAI:
 		return true
-	case CNESVINCULO:
+	case FileManifestFatoSubtypeCNESVINCULO:
 		return true
-	case DIMMUNICIPIO:
+	case FileManifestFatoSubtypeDIMMUNICIPIO:
 		return true
-	case DIMSIGTAP:
+	case FileManifestFatoSubtypeDIMSIGTAP:
 		return true
-	case SIAAPA:
+	case FileManifestFatoSubtypeSIAAPA:
 		return true
-	case SIABPI:
+	case FileManifestFatoSubtypeSIABPI:
 		return true
-	case SIABPIHST:
+	case FileManifestFatoSubtypeSIABPIHST:
 		return true
-	case SIHDINTERNACAO:
+	case FileManifestFatoSubtypeSIHDINTERNACAO:
 		return true
-	case SIHDPROCAIH:
+	case FileManifestFatoSubtypeSIHDPROCAIH:
 		return true
 	default:
 		return false
@@ -174,6 +174,48 @@ func (e UploadUrlRequestSourceType) Valid() bool {
 	case UploadUrlRequestSourceTypeSIALOCAL:
 		return true
 	case UploadUrlRequestSourceTypeSIHD:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UploadUrlResponseFatoSubtype.
+const (
+	UploadUrlResponseFatoSubtypeBPAC           UploadUrlResponseFatoSubtype = "BPA_C"
+	UploadUrlResponseFatoSubtypeBPAI           UploadUrlResponseFatoSubtype = "BPA_I"
+	UploadUrlResponseFatoSubtypeCNESVINCULO    UploadUrlResponseFatoSubtype = "CNES_VINCULO"
+	UploadUrlResponseFatoSubtypeDIMMUNICIPIO   UploadUrlResponseFatoSubtype = "DIM_MUNICIPIO"
+	UploadUrlResponseFatoSubtypeDIMSIGTAP      UploadUrlResponseFatoSubtype = "DIM_SIGTAP"
+	UploadUrlResponseFatoSubtypeSIAAPA         UploadUrlResponseFatoSubtype = "SIA_APA"
+	UploadUrlResponseFatoSubtypeSIABPI         UploadUrlResponseFatoSubtype = "SIA_BPI"
+	UploadUrlResponseFatoSubtypeSIABPIHST      UploadUrlResponseFatoSubtype = "SIA_BPIHST"
+	UploadUrlResponseFatoSubtypeSIHDINTERNACAO UploadUrlResponseFatoSubtype = "SIHD_INTERNACAO"
+	UploadUrlResponseFatoSubtypeSIHDPROCAIH    UploadUrlResponseFatoSubtype = "SIHD_PROC_AIH"
+)
+
+// Valid indicates whether the value is a known member of the UploadUrlResponseFatoSubtype enum.
+func (e UploadUrlResponseFatoSubtype) Valid() bool {
+	switch e {
+	case UploadUrlResponseFatoSubtypeBPAC:
+		return true
+	case UploadUrlResponseFatoSubtypeBPAI:
+		return true
+	case UploadUrlResponseFatoSubtypeCNESVINCULO:
+		return true
+	case UploadUrlResponseFatoSubtypeDIMMUNICIPIO:
+		return true
+	case UploadUrlResponseFatoSubtypeDIMSIGTAP:
+		return true
+	case UploadUrlResponseFatoSubtypeSIAAPA:
+		return true
+	case UploadUrlResponseFatoSubtypeSIABPI:
+		return true
+	case UploadUrlResponseFatoSubtypeSIABPIHST:
+		return true
+	case UploadUrlResponseFatoSubtypeSIHDINTERNACAO:
+		return true
+	case UploadUrlResponseFatoSubtypeSIHDPROCAIH:
 		return true
 	default:
 		return false
@@ -533,10 +575,14 @@ type UploadUrlRequestSourceType string
 
 // UploadUrlResponse defines model for UploadUrlResponse.
 type UploadUrlResponse struct {
-	ExtractionId openapi_types.UUID `json:"extraction_id"`
-	MinioKey     string             `json:"minio_key"`
-	UploadUrl    string             `json:"upload_url"`
+	ExtractionId openapi_types.UUID           `json:"extraction_id"`
+	FatoSubtype  UploadUrlResponseFatoSubtype `json:"fato_subtype"`
+	MinioKey     string                       `json:"minio_key"`
+	UploadUrl    string                       `json:"upload_url"`
 }
+
+// UploadUrlResponseFatoSubtype defines model for UploadUrlResponse.FatoSubtype.
+type UploadUrlResponseFatoSubtype string
 
 // ValidationError defines model for ValidationError.
 type ValidationError struct {
@@ -612,6 +658,9 @@ type EnqueueApiV1ExtractionsEnqueuePostParams struct {
 	XAdminToken *string `json:"x-admin-token,omitempty"`
 }
 
+// FailJobApiV1JobsJobIdFailPostJSONBody defines parameters for FailJobApiV1JobsJobIdFailPost.
+type FailJobApiV1JobsJobIdFailPostJSONBody map[string]interface{}
+
 // ActivateConfirmActivateConfirmPostJSONRequestBody defines body for ActivateConfirmActivateConfirmPost for application/json ContentType.
 type ActivateConfirmActivateConfirmPostJSONRequestBody = ActivateConfirmRequest
 
@@ -635,6 +684,9 @@ type RegisterJobApiV1JobsRegisterPostJSONRequestBody = JobRegisterRequest
 
 // MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody defines body for MintUploadUrlApiV1JobsUploadUrlPost for application/json ContentType.
 type MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody = UploadUrlRequest
+
+// FailJobApiV1JobsJobIdFailPostJSONRequestBody defines body for FailJobApiV1JobsJobIdFailPost for application/json ContentType.
+type FailJobApiV1JobsJobIdFailPostJSONRequestBody FailJobApiV1JobsJobIdFailPostJSONBody
 
 // CreateLeadApiV1PublicLeadsPostJSONRequestBody defines body for CreateLeadApiV1PublicLeadsPost for application/json ContentType.
 type CreateLeadApiV1PublicLeadsPostJSONRequestBody = LeadCreate
@@ -1113,6 +1165,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/jobs/upload-url (the `MintUploadUrlApiV1JobsUploadUrlPost` operationId).
 	MintUploadUrlApiV1JobsUploadUrlPost(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FailJobApiV1JobsJobIdFailPostWithBody Fail Job
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/jobs/{job_id}/fail (the `FailJobApiV1JobsJobIdFailPost` operationId).
+	FailJobApiV1JobsJobIdFailPostWithBody(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FailJobApiV1JobsJobIdFailPost Fail Job
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/jobs/{job_id}/fail (the `FailJobApiV1JobsJobIdFailPost` operationId).
+	FailJobApiV1JobsJobIdFailPost(ctx context.Context, jobId openapi_types.UUID, body FailJobApiV1JobsJobIdFailPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateLeadApiV1PublicLeadsPostWithBody Create Lead
 	//
@@ -1693,6 +1759,40 @@ func (c *Client) MintUploadUrlApiV1JobsUploadUrlPostWithBody(ctx context.Context
 // Corresponds with POST /api/v1/jobs/upload-url (the `MintUploadUrlApiV1JobsUploadUrlPost` operationId).
 func (c *Client) MintUploadUrlApiV1JobsUploadUrlPost(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewMintUploadUrlApiV1JobsUploadUrlPostRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// FailJobApiV1JobsJobIdFailPostWithBody Fail Job
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/jobs/{job_id}/fail (the `FailJobApiV1JobsJobIdFailPost` operationId).
+func (c *Client) FailJobApiV1JobsJobIdFailPostWithBody(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFailJobApiV1JobsJobIdFailPostRequestWithBody(c.Server, jobId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// FailJobApiV1JobsJobIdFailPost Fail Job
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/jobs/{job_id}/fail (the `FailJobApiV1JobsJobIdFailPost` operationId).
+func (c *Client) FailJobApiV1JobsJobIdFailPost(ctx context.Context, jobId openapi_types.UUID, body FailJobApiV1JobsJobIdFailPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFailJobApiV1JobsJobIdFailPostRequest(c.Server, jobId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2777,6 +2877,53 @@ func NewMintUploadUrlApiV1JobsUploadUrlPostRequestWithBody(server string, conten
 	return req, nil
 }
 
+// NewFailJobApiV1JobsJobIdFailPostRequest calls the generic FailJobApiV1JobsJobIdFailPost builder with application/json body
+func NewFailJobApiV1JobsJobIdFailPostRequest(server string, jobId openapi_types.UUID, body FailJobApiV1JobsJobIdFailPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewFailJobApiV1JobsJobIdFailPostRequestWithBody(server, jobId, "application/json", bodyReader)
+}
+
+// NewFailJobApiV1JobsJobIdFailPostRequestWithBody constructs an http.Request for the FailJobApiV1JobsJobIdFailPost method, with any body, and a specified content type
+func NewFailJobApiV1JobsJobIdFailPostRequestWithBody(server string, jobId openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "job_id", jobId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/jobs/%s/fail", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewCreateLeadApiV1PublicLeadsPostRequest calls the generic CreateLeadApiV1PublicLeadsPost builder with application/json body
 func NewCreateLeadApiV1PublicLeadsPostRequest(server string, body CreateLeadApiV1PublicLeadsPostJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -3280,6 +3427,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/v1/jobs/upload-url (the `MintUploadUrlApiV1JobsUploadUrlPost` operationId).
 	MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ctx context.Context, body MintUploadUrlApiV1JobsUploadUrlPostJSONRequestBody, reqEditors ...RequestEditorFn) (*MintUploadUrlApiV1JobsUploadUrlPostResponse, error)
+
+	// FailJobApiV1JobsJobIdFailPostWithBodyWithResponse Fail Job
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/jobs/{job_id}/fail (the `FailJobApiV1JobsJobIdFailPost` operationId).
+	FailJobApiV1JobsJobIdFailPostWithBodyWithResponse(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FailJobApiV1JobsJobIdFailPostResponse, error)
+
+	// FailJobApiV1JobsJobIdFailPostWithResponse Fail Job
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/jobs/{job_id}/fail (the `FailJobApiV1JobsJobIdFailPost` operationId).
+	FailJobApiV1JobsJobIdFailPostWithResponse(ctx context.Context, jobId openapi_types.UUID, body FailJobApiV1JobsJobIdFailPostJSONRequestBody, reqEditors ...RequestEditorFn) (*FailJobApiV1JobsJobIdFailPostResponse, error)
 
 	// CreateLeadApiV1PublicLeadsPostWithBodyWithResponse Create Lead
 	//
@@ -4393,6 +4554,54 @@ func (r MintUploadUrlApiV1JobsUploadUrlPostResponse) ContentType() string {
 	return ""
 }
 
+type FailJobApiV1JobsJobIdFailPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *map[string]interface{}
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r FailJobApiV1JobsJobIdFailPostResponse) GetJSON200() *map[string]interface{} {
+	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r FailJobApiV1JobsJobIdFailPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r FailJobApiV1JobsJobIdFailPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r FailJobApiV1JobsJobIdFailPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r FailJobApiV1JobsJobIdFailPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r FailJobApiV1JobsJobIdFailPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type CreateLeadApiV1PublicLeadsPostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5091,6 +5300,32 @@ func (c *ClientWithResponses) MintUploadUrlApiV1JobsUploadUrlPostWithResponse(ct
 		return nil, err
 	}
 	return ParseMintUploadUrlApiV1JobsUploadUrlPostResponse(rsp)
+}
+
+// FailJobApiV1JobsJobIdFailPostWithBodyWithResponse Fail Job
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/jobs/{job_id}/fail (the `FailJobApiV1JobsJobIdFailPost` operationId).
+func (c *ClientWithResponses) FailJobApiV1JobsJobIdFailPostWithBodyWithResponse(ctx context.Context, jobId openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FailJobApiV1JobsJobIdFailPostResponse, error) {
+	rsp, err := c.FailJobApiV1JobsJobIdFailPostWithBody(ctx, jobId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFailJobApiV1JobsJobIdFailPostResponse(rsp)
+}
+
+// FailJobApiV1JobsJobIdFailPostWithResponse Fail Job
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/jobs/{job_id}/fail (the `FailJobApiV1JobsJobIdFailPost` operationId).
+func (c *ClientWithResponses) FailJobApiV1JobsJobIdFailPostWithResponse(ctx context.Context, jobId openapi_types.UUID, body FailJobApiV1JobsJobIdFailPostJSONRequestBody, reqEditors ...RequestEditorFn) (*FailJobApiV1JobsJobIdFailPostResponse, error) {
+	rsp, err := c.FailJobApiV1JobsJobIdFailPost(ctx, jobId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFailJobApiV1JobsJobIdFailPostResponse(rsp)
 }
 
 // CreateLeadApiV1PublicLeadsPostWithBodyWithResponse Create Lead
@@ -5918,6 +6153,39 @@ func ParseMintUploadUrlApiV1JobsUploadUrlPostResponse(rsp *http.Response) (*Mint
 
 	case rsp.StatusCode == 409:
 		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseFailJobApiV1JobsJobIdFailPostResponse parses an HTTP response from a FailJobApiV1JobsJobIdFailPostWithResponse call
+func ParseFailJobApiV1JobsJobIdFailPostResponse(rsp *http.Response) (*FailJobApiV1JobsJobIdFailPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &FailJobApiV1JobsJobIdFailPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
 		var dest HTTPValidationError

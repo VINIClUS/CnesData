@@ -77,33 +77,30 @@ func combineEditors(eds []RequestEditorFn) RequestEditorFn {
 }
 
 // RegisterJob confirma upload completo via POST /api/v1/jobs/register.
-// Threadea sha256 (computado pós-upload via SHA256TeeReader) para que
-// landing.extractions.sha256 seja persistido.
+// Threadea sha256 (computado pós-upload via SHA256TeeReader) e sizeBytes
+// para que o FileManifest do manifesto N-file seja válido.
 func (a *Adapter) RegisterJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
 	jobUUID, err := parseJobUUID(job.ID)
 	if err != nil {
 		return err
 	}
-	sha := job.Sha256
-	body := RegisterExtractionApiV1JobsRegisterPostJSONRequestBody{
-		AgentVersion: a.AgentVersion,
-		Competencia:  job.Params.CompetenciaInt(),
-		FonteSistema: RegisterRequestFonteSistema(job.Params.SourceType()),
+	files := toFileManifests([]worker.ManifestEntry{{
+		MinioKey:    job.MinioKey,
+		FatoSubtype: job.FatoSubtype,
+		SizeBytes:   sizeBytes,
+		Sha256:      job.Sha256,
+	}})
+	body := JobRegisterRequest{
 		JobId:        jobUUID,
-		MachineId:    a.MachineID,
-		Sha256:       &sha,
-		TenantId:     a.TenantID,
-		TipoExtracao: job.Params.Intent,
+		Files:        files,
+		AgentVersion: &a.AgentVersion,
+		MachineId:    &a.MachineID,
 	}
-	_ = sizeBytes
-	resp, err := a.Inner.RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx, body)
+	resp, err := a.Inner.RegisterJobApiV1JobsRegisterPostWithResponse(ctx, body)
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode() != http.StatusOK {
-		return &obs.HTTPError{StatusCode: resp.StatusCode(), Body: string(resp.Body)}
-	}
-	return nil
+	return statusError(resp.StatusCode(), resp.Body)
 }
 
 // MintUploadURL chama POST /api/v1/jobs/upload-url para criar
@@ -132,10 +129,11 @@ func (a *Adapter) MintUploadURL(ctx context.Context, spec worker.JobSpec) (*work
 	}
 	extID := resp.JSON201.ExtractionId.String()
 	return &worker.Job{
-		ID:        extID,
-		TenantID:  a.TenantID,
-		UploadURL: resp.JSON201.UploadUrl,
-		MinioKey:  resp.JSON201.MinioKey,
+		ID:          extID,
+		TenantID:    a.TenantID,
+		UploadURL:   resp.JSON201.UploadUrl,
+		MinioKey:    resp.JSON201.MinioKey,
+		FatoSubtype: string(resp.JSON201.FatoSubtype),
 		Params: extractor.ExtractionParams{
 			Intent:      spec.Intent,
 			Competencia: competenciaString(spec.Competencia),

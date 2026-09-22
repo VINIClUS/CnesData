@@ -43,6 +43,7 @@ type Job struct {
 	TenantID     string
 	UploadURL    string
 	MinioKey     string
+	FatoSubtype  string
 	Params       extractor.ExtractionParams
 	Sha256       string
 	RowCount     int
