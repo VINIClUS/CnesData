@@ -43,4 +43,6 @@ COPY apps/web_dashboard/nginx/security-headers.conf /etc/nginx/templates/securit
 COPY apps/web_dashboard/nginx/entrypoint.sh /docker-entrypoint.d/40-render-config.sh
 RUN chmod +x /docker-entrypoint.d/40-render-config.sh
 EXPOSE 80
+# 127.0.0.1, not localhost: BusyBox wget only tries the first getaddrinfo result
+# (::1 here), unlike central_api's urllib.request which falls back to IPv4.
 HEALTHCHECK --interval=30s --timeout=3s CMD wget --quiet --spider http://127.0.0.1/healthz || exit 1
