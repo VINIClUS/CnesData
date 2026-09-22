@@ -20,10 +20,7 @@ class _BPADimLookup(Protocol):
     def profissional_sk(self, cns: str) -> int | None: ...
     def estabelecimento_sk(self, cnes: str) -> int | None: ...
     def cid10_sk(self, code: str) -> int | None: ...
-
-
-def _competencia_sk(yyyymm: str) -> int:
-    return int(yyyymm)
+    def competencia_sk(self, yyyymm: str) -> int | None: ...
 
 
 def map_bpa_c_to_fato(
@@ -37,14 +34,15 @@ def map_bpa_c_to_fato(
     for row in df.iter_rows(named=True):
         sk_proc = lookup.procedimento_sk(row["co_procedimento"])
         sk_estab = lookup.estabelecimento_sk(row["co_cnes"])
-        if sk_proc is None or sk_estab is None:
+        sk_comp = lookup.competencia_sk(row["nu_competencia"])
+        if sk_proc is None or sk_estab is None or sk_comp is None:
             continue
         qtd = int(row["qt_aprovada"])
         fatos.append(ProducaoAmbulatorial(
             sk_profissional=_SK_PROFISSIONAL_AGREGADO,
             sk_estabelecimento=sk_estab,
             sk_procedimento=sk_proc,
-            sk_competencia=_competencia_sk(row["nu_competencia"]),
+            sk_competencia=sk_comp,
             sk_cid_principal=None,
             qtd=qtd,
             valor_aprov_cents=0,
@@ -69,7 +67,8 @@ def map_bpa_i_to_fato(
         sk_proc = lookup.procedimento_sk(row["co_procedimento"])
         sk_estab = lookup.estabelecimento_sk(row["co_cnes"])
         sk_prof = lookup.profissional_sk(row["nu_cns_prof"])
-        if sk_proc is None or sk_estab is None or sk_prof is None:
+        sk_comp = lookup.competencia_sk(row["nu_competencia"])
+        if sk_proc is None or sk_estab is None or sk_prof is None or sk_comp is None:
             continue
         sk_cid = lookup.cid10_sk(row.get("co_cid10") or "")
         qtd = int(row["qt_aprovada"])
@@ -77,7 +76,7 @@ def map_bpa_i_to_fato(
             sk_profissional=sk_prof,
             sk_estabelecimento=sk_estab,
             sk_procedimento=sk_proc,
-            sk_competencia=_competencia_sk(row["nu_competencia"]),
+            sk_competencia=sk_comp,
             sk_cid_principal=sk_cid,
             qtd=qtd,
             valor_aprov_cents=0,
