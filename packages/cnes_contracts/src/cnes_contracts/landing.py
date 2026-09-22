@@ -77,6 +77,12 @@ class UploadUrlResponse(BaseModel):
     minio_key: str = Field(pattern=r"^[\w\-./]+\.parquet\.gz$")
 
 
+class ExtractionFailPayload(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    error: str = Field(min_length=1, max_length=2000)
+
+
 @dataclass(frozen=True, slots=True)
 class ClaimedExtraction:
     job_id: UUID
