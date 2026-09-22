@@ -1,8 +1,9 @@
 // Package transport — mtls: mTLS-enabled http.Client for agent → central_api.
 //
 // Loads cert + key from Phase 4 storage (internal/auth), verifies server's
-// cert against pinned root CA, supports lock-free hot-reload of the client
-// cert via atomic.Pointer[tls.Certificate] exposed through
+// cert against a pinned root CA (or, if none given, the platform trust
+// store), supports lock-free hot-reload of the client cert via
+// atomic.Pointer[tls.Certificate] exposed through
 // tls.Config.GetClientCertificate.
 package transport
 
@@ -36,13 +37,17 @@ type Client struct {
 	cert       atomic.Pointer[tls.Certificate]
 }
 
+// NewMTLSClient builds the client used for mTLS calls to central_api. A nil
+// or empty caPinPEM leaves tls.Config.RootCAs nil, which falls back to the
+// platform trust store (nil, not an empty pool — an empty pool trusts
+// nothing).
 func NewMTLSClient(authDir string, caPinPEM []byte) (*Client, error) {
-	if len(caPinPEM) == 0 {
-		return nil, ErrCAPinInvalid
-	}
-	caPool := x509.NewCertPool()
-	if !caPool.AppendCertsFromPEM(caPinPEM) {
-		return nil, ErrCAPinInvalid
+	var caPool *x509.CertPool
+	if len(caPinPEM) > 0 {
+		caPool = x509.NewCertPool()
+		if !caPool.AppendCertsFromPEM(caPinPEM) {
+			return nil, ErrCAPinInvalid
+		}
 	}
 
 	c := &Client{authDir: authDir}

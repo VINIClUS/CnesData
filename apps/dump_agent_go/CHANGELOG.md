@@ -30,15 +30,14 @@ histórica manual, não o changelog de release.
 - `cmd/dumpagent/cmd_register.go` — `dumpagent register --tenant-id <T> --base-url <URL>`
   runs Device Flow + CSR + `/provision/cert` + DPAPI persist + mTLS smoke probe.
 - Exit codes: 0=ok, 1=local I/O, 2=usage, 3=net, 4=provision, 5=persist, 6=expired, 7=denied.
-- `internal/auth/ca_pin.go` embeds `internal/auth/root_ca.pem` as `auth.CAPinPEM`.
-  Repo holds a self-signed test placeholder. **Production binaries must
-  overlay the real CA before `go build`:**
-
-      cp /secure/ops/cnesdata-prod-ca.pem apps/dump_agent_go/internal/auth/root_ca.pem
-      make build-windows
-      git checkout -- apps/dump_agent_go/internal/auth/root_ca.pem
-
-  Override at runtime with `--ca-pin /path/to/ca.pem` for staging/dev.
+- `internal/auth/ca_pin.go` declared `auth.CAPinPEM` via `//go:embed
+  root_ca.pem`, with the stated plan that release builds would overlay the
+  real CA before `go build`. **That overlay step never shipped** (#251) and
+  the placeholder pin (`CN=cnesdata-test-ca-placeholder`) broke `register`'s
+  TLS handshake against any real deploy. Fixed: `auth.CAPinPEM` is now nil by
+  default, falling back to the platform trust store (central_api's cert is
+  Let's Encrypt, already trusted). `--ca-pin /path/to/ca.pem` remains the
+  override for a private CA in staging/dev.
 - Re-register: refused with exit 2 unless `--force` (overwrites all
   three files: cert.pem + key.bin + refresh.bin).
 - Smoke probe is warn-only: a failed `/api/v1/system/health` does not

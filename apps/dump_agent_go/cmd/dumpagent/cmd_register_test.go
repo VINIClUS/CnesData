@@ -104,19 +104,23 @@ func TestLoadCAPin_FlagPathMissingReturnsError(t *testing.T) {
 	}
 }
 
-func TestLoadCAPin_EmptyPathFallsBackToEmbedded(t *testing.T) {
+func TestLoadCAPin_EmptyPathFallsBackToNilEmbedded(t *testing.T) {
+	prev := auth.CAPinPEM
+	auth.CAPinPEM = nil
+	t.Cleanup(func() { auth.CAPinPEM = prev })
+
 	got, err := loadCAPin("")
 	if err != nil {
 		t.Fatalf("loadCAPin: %v", err)
 	}
-	if len(got) == 0 {
-		t.Fatal("loadCAPin returned empty for embedded fallback")
+	if len(got) != 0 {
+		t.Fatalf("loadCAPin = %d bytes, want nil (system trust store default)", len(got))
 	}
 }
 
 func TestNewBootstrapClient_PinValid_ReturnsClient(t *testing.T) {
-	pem := mustReadEmbeddedPin(t)
-	c, err := newBootstrapClient(pem)
+	ca := seedTestCA(t)
+	c, err := newBootstrapClient(ca.CertPEM)
 	if err != nil {
 		t.Fatalf("newBootstrapClient: %v", err)
 	}
@@ -135,19 +139,25 @@ func TestNewBootstrapClient_PinValid_ReturnsClient(t *testing.T) {
 	}
 }
 
+func TestNewBootstrapClient_PinEmpty_FallsBackToSystemTrustStore(t *testing.T) {
+	c, err := newBootstrapClient(nil)
+	if err != nil {
+		t.Fatalf("newBootstrapClient: %v", err)
+	}
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport type = %T, want *http.Transport", c.Transport)
+	}
+	if tr.TLSClientConfig.RootCAs != nil {
+		t.Error("RootCAs != nil, want nil (system trust store)")
+	}
+}
+
 func TestNewBootstrapClient_PinGarbage_ReturnsError(t *testing.T) {
 	_, err := newBootstrapClient([]byte("definitely not pem"))
 	if err == nil {
 		t.Fatal("newBootstrapClient: want error for garbage")
 	}
-}
-
-func mustReadEmbeddedPin(t *testing.T) []byte {
-	t.Helper()
-	if len(auth.CAPinPEM) == 0 {
-		t.Fatal("auth.CAPinPEM is empty (embed broken)")
-	}
-	return auth.CAPinPEM
 }
 
 func TestCertExists_NoFile_ReturnsFalse(t *testing.T) {
