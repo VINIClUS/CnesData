@@ -153,6 +153,19 @@ class TestBuildS3Client:
         download_url = adapter.get_presigned_download_url("cnesdata-landing", "key.parquet.gz")
         assert "cnesdata-landing.s3.sa-east-1.amazonaws.com" in download_url
 
+    def test_endpoint_url_none_respeita_path_explicito(self, monkeypatch):
+        """Um bucket com ponto no nome (nome válido de S3) sob virtual-hosted vira
+        um host tipo bucket.with.dots.s3....amazonaws.com que o certificado
+        wildcard da AWS não cobre — TLS falha. O fix do "auto" quebrado nunca pode
+        sobrescrever um addressing_style="path" pedido explicitamente pelo
+        chamador, mesmo sem endpoint_url customizado."""
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+        client = build_s3_client("sa-east-1", endpoint_url=None, addressing_style="path")
+        adapter = S3PresignedStorage(client)
+        url = adapter.generate_presigned_upload_url("bucket.with.dots", "key.parquet.gz")
+        assert url.startswith("https://s3.sa-east-1.amazonaws.com/bucket.with.dots/")
+
     def test_recusa_endpoint_customizado_sem_credenciais_explicitas(self, monkeypatch):
         """Sem isso, boto3 cai silenciosamente para ~/.aws/credentials (ou
         IMDS) e assina o presign com a credencial AWS real de quem estiver

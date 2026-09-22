@@ -195,9 +195,12 @@ qualquer tenant):
 }
 ```
 
-Antes de colocar a access key em `/opt/cnesdata/.env`, validar o par put→presign→GET→delete
-localmente (round-trip completo, sem depender do container) — pega erro de policy/região
-antes do deploy, não no healthcheck.
+Antes de colocar a access key em `/opt/cnesdata/.env`, validar put→presign→GET
+localmente (sem depender do container) — pega erro de policy/região antes do deploy,
+não no healthcheck. **Não** inclua delete nessa validação: a policy acima
+deliberadamente não concede `s3:DeleteObject`, então um `delete_object` com essa
+credencial falha por design, não por policy errada. Limpar o objeto de teste com uma
+credencial administrativa separada (ex.: a sua própria, via `aws s3api delete-object`).
 
 ## Migração de domínio (vinisantana.com → cnesdata.com.br, concluída em 2026-09-22)
 
