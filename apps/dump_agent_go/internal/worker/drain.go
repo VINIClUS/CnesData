@@ -171,7 +171,12 @@ const (
 	drainEvictAge       = 90 * 24 * time.Hour
 	drainEvictMaxCount  = 10000
 	dispatchTimeout     = 30 * time.Second
-	drainMaxAttempts    = 20
+	// drainAttemptsAlertThreshold logs an escalated warning; it never caps
+	// retries. Dropping an envelope after repeated transient failures
+	// leaves landing.extractions stuck PENDING with no way to recover it,
+	// and for delta jobs the local fingerprint state is already committed
+	// (runDeltaWithCommit), so losing the envelope corrupts the next diff.
+	drainAttemptsAlertThreshold = 20
 )
 
 // Drainer ships persisted envelopes to the central_api in FIFO order,
@@ -317,15 +322,14 @@ func (d *Drainer) applyResponse(ctx context.Context, item queue.Item,
 		if dispErr != nil {
 			item.Envelope.LastError = dispErr.Error()
 		}
-		_ = d.out.Delete(item.Key)
-		if item.Envelope.Attempts >= drainMaxAttempts {
+		if item.Envelope.Attempts >= drainAttemptsAlertThreshold {
 			slog.Error("envelope_attempts_exhausted",
 				"job_uuid", item.Envelope.JobUUID,
 				"type", string(item.Envelope.Type),
 				"attempts", item.Envelope.Attempts,
 				"last_error", item.Envelope.LastError)
-			return false
 		}
+		_ = d.out.Delete(item.Key)
 		_ = d.out.Append(item.Envelope)
 		return false
 	}
