@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import gzip
 import io
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import polars as pl
@@ -67,3 +68,31 @@ class TestDownloadParquet:
             "http://minio:9000/bucket/test.parquet", breaker,
         )
         assert len(df) == 1
+
+    @patch("data_processor.processor.httpx")
+    def test_nao_vaza_arquivo_temporario_quando_stream_falha(self, mock_httpx, breaker):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = RuntimeError("boom")
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_httpx.stream.return_value = mock_resp
+
+        created: list[Path] = []
+        import tempfile as tempfile_module
+        real_named_temp = tempfile_module.NamedTemporaryFile
+
+        def _tracking_named_temp(*args, **kwargs):
+            fd = real_named_temp(*args, **kwargs)
+            created.append(Path(fd.name))
+            return fd
+
+        with patch(
+            "data_processor.processor.tempfile.NamedTemporaryFile",
+            side_effect=_tracking_named_temp,
+        ), pytest.raises(RuntimeError, match="boom"):
+            _download_parquet("http://minio:9000/bucket/test.parquet", breaker)
+
+        assert created, "no temp file was created to track"
+        assert not created[0].exists(), (
+            f"temp file leaked after stream failure: {created[0]}"
+        )

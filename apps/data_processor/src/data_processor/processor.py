@@ -7,7 +7,6 @@ is tracked separately as future work.
 from __future__ import annotations
 
 import gzip
-import io
 import logging
 import tempfile
 from pathlib import Path
@@ -37,23 +36,25 @@ def _download_parquet(url: str, breaker: CircuitBreaker) -> pl.DataFrame:
         raise ValueError("null_storage url_not_downloadable")
 
     def _fetch() -> Path:
-        with tracer.start_as_current_span(
-            "download_parquet", attributes={"url": url},
-        ):
-            with tempfile.NamedTemporaryFile(
-                suffix=".parquet", delete=False,
-            ) as fd:
-                tmp = Path(fd.name)
-            with httpx.stream("GET", url, timeout=30.0) as resp:
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as fd:
+            tmp = Path(fd.name)
+        try:
+            with tracer.start_as_current_span(
+                "download_parquet", attributes={"url": url},
+            ), httpx.stream("GET", url, timeout=30.0) as resp:
                 resp.raise_for_status()
-                buf = io.BytesIO()
-                for chunk in resp.iter_bytes(_DOWNLOAD_CHUNK):
-                    buf.write(chunk)
-            data = buf.getvalue()
-            if data[:2] == b"\x1f\x8b":
-                data = gzip.decompress(data)
-            tmp.write_bytes(data)
+                first = b""
+                with tmp.open("wb") as out:
+                    for chunk in resp.iter_bytes(_DOWNLOAD_CHUNK):
+                        if not first:
+                            first = chunk
+                        out.write(chunk)
+            if first[:2] == b"\x1f\x8b":
+                tmp.write_bytes(gzip.decompress(tmp.read_bytes()))
             return tmp
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
     tmp_path = breaker.call(_fetch)
     try:
