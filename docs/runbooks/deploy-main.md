@@ -55,11 +55,14 @@ ssh root@103.199.184.166 '
 # 3. Trocar docker-compose.prod.yml (build local → pull GHCR) — passo
 #    supervisionado, não automatizado. Ver "Migração" acima.
 scp deploy/prod/docker-compose.prod.yml root@103.199.184.166:/opt/cnesdata/
-scp deploy/prod/caddy/Caddyfile root@103.199.184.166:/opt/cnesdata/caddy/Caddyfile
-# ^ destino explícito: `docker-compose.prod.yml` monta /opt/cnesdata/caddy/Caddyfile no
-# container caddy — um scp para /opt/cnesdata/ sozinho copiaria para
-# /opt/cnesdata/Caddyfile (sem o caddy/), fora do mount, e o reload seguinte não
-# aplicaria nada (Codex P1, PR #243).
+# NÃO faça `scp deploy/prod/caddy/Caddyfile` — o arquivo vivo em
+# /opt/cnesdata/caddy/Caddyfile carrega vhosts de um site de produção não
+# relacionado que compartilha o mesmo container Caddy; um scp sobrescreve e
+# derruba esse outro site. Editar in-place + diff + `caddy validate` +
+# `caddy reload` — ver "Migração de domínio" abaixo para o procedimento
+# completo (mesmo destino explícito .../caddy/Caddyfile importa lá: um scp
+# para /opt/cnesdata/ sozinho copiaria para /opt/cnesdata/Caddyfile, fora do
+# mount, e o reload seguinte não aplicaria nada — Codex P1, PR #243).
 
 # 4. Instalar a chave privada no runner self-hosted (homelab Proxmox), NÃO
 #    em secrets do GitHub.
@@ -170,15 +173,16 @@ aws iam put-user-policy --user-name cnesdata-prod --policy-name cnesdata-landing
 aws iam create-access-key --user-name cnesdata-prod
 ```
 
-Policy mínima (`s3:ListBucket` só no bucket, `Get`/`Put`/`Delete` só em `cnesdata-landing/*` —
-acesso é sempre por URL presignada, a role da aplicação nunca lista/cria buckets):
+Policy mínima — só `Get`/`Put`/`Delete` em `cnesdata-landing/*`, sem `s3:ListBucket`.
+Acesso é sempre por URL presignada; a role da aplicação nunca lista/cria buckets, e
+`object_exists` (`s3_presigned.py`) já trata o 403 que `head_object` devolve para uma
+chave ausente sem `s3:ListBucket` na raiz — conceder list além do necessário deixaria
+uma credencial comprometida enumerar chaves de todos os tenants:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
-    {"Sid": "ListBucket", "Effect": "Allow", "Action": "s3:ListBucket",
-     "Resource": "arn:aws:s3:::cnesdata-landing"},
     {"Sid": "ObjectRW", "Effect": "Allow",
      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
      "Resource": "arn:aws:s3:::cnesdata-landing/*"}
@@ -266,6 +270,7 @@ bloco `api.cnesdata.com.br` no Caddyfile apontando para `central-api:8000` (só 
 no `web-dashboard` (definir `API_DOMAIN` e `PRECOS_NOINDEX` em `/opt/cnesdata/.env`, ver
 `deploy/prod/.env.example`). A imagem do dashboard de `main` é compilada com
 `VITE_API_BASE_URL=https://api.cnesdata.com.br/api/v1`. Antes do primeiro deploy de `main` com
-essa mudança, copiar o compose e o Caddyfile atualizados e conferir
+essa mudança, `scp` o compose atualizado e aplicar o Caddyfile atualizado (edição in-place
+na VPS, nunca `scp` — ver "Migração de domínio" acima) e conferir
 `smoke.sh https://cnesdata.com.br https://api.cnesdata.com.br`.
 
