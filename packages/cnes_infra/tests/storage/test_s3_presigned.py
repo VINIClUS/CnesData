@@ -146,8 +146,12 @@ class TestBuildS3Client:
         monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
         client = build_s3_client("sa-east-1", endpoint_url=None, addressing_style="auto")
         adapter = S3PresignedStorage(client)
-        url = adapter.generate_presigned_upload_url("cnesdata-landing", "key.parquet.gz")
-        assert "cnesdata-landing.s3.sa-east-1.amazonaws.com" in url
+
+        upload_url = adapter.generate_presigned_upload_url("cnesdata-landing", "key.parquet.gz")
+        assert "cnesdata-landing.s3.sa-east-1.amazonaws.com" in upload_url
+
+        download_url = adapter.get_presigned_download_url("cnesdata-landing", "key.parquet.gz")
+        assert "cnesdata-landing.s3.sa-east-1.amazonaws.com" in download_url
 
     def test_recusa_endpoint_customizado_sem_credenciais_explicitas(self, monkeypatch):
         """Sem isso, boto3 cai silenciosamente para ~/.aws/credentials (ou
