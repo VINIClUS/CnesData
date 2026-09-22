@@ -35,9 +35,13 @@ Start all local development services:
 docker compose --profile dev up -d
 ```
 
-For direct/local HTTP access, keep `TRUST_X_FORWARDED_PROTO=false`. Only enable
-it when the API is behind the trusted TLS-terminating Caddy proxy used by the
-dev and production deployment stacks.
+For direct/local HTTP access, keep `TRUST_X_FORWARDED_PROTO=false` and
+`TRUSTED_PROXY_CIDRS` empty. Only enable them when the API is behind the
+trusted TLS-terminating Caddy proxy used by the dev and production deployment
+stacks — an empty `TRUSTED_PROXY_CIDRS` makes the rate limiter ignore
+`X-Forwarded-For` entirely and key on the socket address instead, which is
+correct for the `local`/`dev` compose profiles that publish port 8000
+directly with no proxy in front.
 
 Useful endpoints:
 

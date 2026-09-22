@@ -33,7 +33,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `POST /api/v1/public/leads` — captação pública do formulário de contato (sem auth).
   Persiste em `marketing.leads` (migração 019), responde `202 {"status":"received"}`,
   `422` payload inválido, `429` + `Retry-After` acima de `LEADS_RATE_LIMIT` (slowapi, chave =
-  primeiro hop de `X-Forwarded-For`, que deve ser preservado pela cadeia Caddy → nginx),
+  `client_ip()` em `ratelimit.py`: só confia em `X-Forwarded-For` quando o peer do socket
+  está em `TRUSTED_PROXY_CIDRS`; caso contrário usa sempre o IP do socket — ver Gotchas),
   `503 leads_unavailable` se o banco falhar.
 - CORS explícito: `CORS_ALLOWED_ORIGINS` (lista separada por vírgula; `*` é ignorado).
   `CORSMiddleware` é o middleware mais externo para responder preflight antes do Auth.
@@ -79,6 +80,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `AUTH_DEVICE_CODE_TTL` | não | seconds; device_code TTL (default 600) |
 | `AUTH_ACCESS_TOKEN_TTL` | não | seconds; access_token TTL (default 300) |
 | `AUTH_CERT_TTL_DAYS` | não | leaf cert validity (default 90) |
+| `TRUST_X_FORWARDED_PROTO` | não | `true` atrás de proxy TLS-terminating confiável; default `false` |
+| `TRUSTED_PROXY_CIDRS` | não | CIDRs separados por vírgula confiáveis para `X-Forwarded-For` no rate limiter; default vazio = nunca confia em XFF |
 
 **Local run:**
 ```bash
@@ -111,6 +114,10 @@ uv run uvicorn central_api.app:create_app --factory --reload
 
 - **Rota pública `/api/v1/public/*`** é isenta em `AuthMiddleware`; nunca use `Depends(require_auth)`
   nela nem exponha dados de tenant. O limiter compartilhado vive em `central_api/ratelimit.py`.
+- **`TRUSTED_PROXY_CIDRS` vazio (default) faz o rate limiter ignorar `X-Forwarded-For` por
+  completo** e usar sempre o IP do socket. Só popule com os CIDRs reais do proxy (Caddy/nginx)
+  — nunca com `0.0.0.0/0` ou similar, senão qualquer chamador pode forjar XFF e contornar o
+  limite (issue #235).
 - **CORS nunca com `*`**: `cors_origins()` em `app.py` descarta wildcard; cada ambiente define
   só a origem do dashboard (`deploy/{dev,prod}` compose). Preflight de origem desconhecida → 400.
 
