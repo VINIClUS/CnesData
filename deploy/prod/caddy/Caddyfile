@@ -41,9 +41,21 @@ dev.cnesdata.com.br {
     }
 }
 
-# API hosts: only the versioned API surface is exposed; docs/openapi stay internal.
+# API hosts: only the versioned API surface, plus the unversioned edge-agent
+# enrollment surface (oauth/activate/provision — central_api mounts these
+# routers without an /api/v1 prefix, see apps/central_api/src/central_api/app.py),
+# is exposed; docs/openapi stay internal.
 api.cnesdata.com.br {
     handle /api/* {
+        reverse_proxy central-api:8000
+    }
+    handle /oauth/* {
+        reverse_proxy central-api:8000
+    }
+    handle /activate/* {
+        reverse_proxy central-api:8000
+    }
+    handle /provision/* {
         reverse_proxy central-api:8000
     }
     handle {
@@ -53,6 +65,15 @@ api.cnesdata.com.br {
 
 api.dev.cnesdata.com.br {
     handle /api/* {
+        reverse_proxy dev-central-api:8000
+    }
+    handle /oauth/* {
+        reverse_proxy dev-central-api:8000
+    }
+    handle /activate/* {
+        reverse_proxy dev-central-api:8000
+    }
+    handle /provision/* {
         reverse_proxy dev-central-api:8000
     }
     handle {

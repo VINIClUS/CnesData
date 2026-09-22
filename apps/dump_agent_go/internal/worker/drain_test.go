@@ -1,9 +1,11 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -70,11 +72,12 @@ func TestDrain_HappyPathDeletesEnvelope(t *testing.T) {
 func TestDrain_ReplaysSha256AndMinioKey(t *testing.T) {
 	d, ob, stub := newDrainFixture(t, nil)
 	_ = ob.Append(queue.Envelope{
-		Type:      queue.TypeComplete,
-		JobUUID:   "uuid-replay",
-		SizeBytes: 2048,
-		SHA256:    "deadbeef",
-		MinioKey:  "354130/CNES_VINCULO/2026-01-01/x.parquet.gz",
+		Type:        queue.TypeComplete,
+		JobUUID:     "uuid-replay",
+		SizeBytes:   2048,
+		SHA256:      "deadbeef",
+		MinioKey:    "354130/CNES_VINCULO/2026-01-01/x.parquet.gz",
+		FatoSubtype: "CNES_VINCULO",
 	})
 	d.tick(context.Background())
 	if stub.registerN != 1 {
@@ -89,8 +92,45 @@ func TestDrain_ReplaysSha256AndMinioKey(t *testing.T) {
 	if stub.lastJob.MinioKey != "354130/CNES_VINCULO/2026-01-01/x.parquet.gz" {
 		t.Errorf("Job.MinioKey=%q lost on replay", stub.lastJob.MinioKey)
 	}
+	if stub.lastJob.FatoSubtype != "CNES_VINCULO" {
+		t.Errorf("Job.FatoSubtype=%q lost on replay; server 422s FileManifest without it",
+			stub.lastJob.FatoSubtype)
+	}
 	if stub.lastSize != 2048 {
 		t.Errorf("sizeBytes=%d want 2048", stub.lastSize)
+	}
+}
+
+func TestDrain_RecoversFatoSubtypeFromMinioKeyForLegacyEnvelope(t *testing.T) {
+	d, ob, stub := newDrainFixture(t, nil)
+	_ = ob.Append(queue.Envelope{
+		Type:      queue.TypeComplete,
+		JobUUID:   "uuid-legacy",
+		SizeBytes: 1024,
+		SHA256:    "deadbeef",
+		MinioKey:  "354130/SIHD_INTERNACAO/2026-01-01/x.parquet.gz",
+		// FatoSubtype intentionally empty: envelope persisted before A2.
+	})
+	d.tick(context.Background())
+	if stub.registerN != 1 {
+		t.Fatalf("RegisterJob calls=%d want 1", stub.registerN)
+	}
+	if stub.lastJob.FatoSubtype != "SIHD_INTERNACAO" {
+		t.Errorf("Job.FatoSubtype=%q want SIHD_INTERNACAO recovered from minio_key",
+			stub.lastJob.FatoSubtype)
+	}
+}
+
+func TestDrain_UnrecoverableFatoSubtypeSendsEmpty(t *testing.T) {
+	d, ob, stub := newDrainFixture(t, nil)
+	_ = ob.Append(queue.Envelope{
+		Type:     queue.TypeComplete,
+		JobUUID:  "uuid-malformed",
+		MinioKey: "not-a-well-formed-key",
+	})
+	d.tick(context.Background())
+	if stub.lastJob.FatoSubtype != "" {
+		t.Errorf("Job.FatoSubtype=%q want empty for malformed minio_key", stub.lastJob.FatoSubtype)
 	}
 }
 
@@ -130,6 +170,35 @@ func TestDrain_BreakerTripsAfterThreshold(t *testing.T) {
 	}
 }
 
+func TestDrain_BreakerOpenLogsWarn(t *testing.T) {
+	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
+	for i := 0; i < 10; i++ {
+		_ = ob.Append(queue.Envelope{Type: queue.TypeComplete, JobUUID: "uuid-x"})
+	}
+	// dispatchOne processes at most one item per tick on ClassTransient
+	// (applyResponse returns false to back off); drive enough ticks to
+	// cross the breaker's threshold=5 consecutive failures.
+	for i := 0; i < 5; i++ {
+		d.tick(context.Background())
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	_ = ob.Append(queue.Envelope{Type: queue.TypeComplete, JobUUID: "uuid-while-open"})
+	d.tick(context.Background())
+
+	logged := buf.String()
+	if !strings.Contains(logged, "level=WARN") {
+		t.Errorf("breaker-open tick did not log at WARN: %q", logged)
+	}
+	if !strings.Contains(logged, "job_uuid") {
+		t.Errorf("breaker-open tick did not log a job_uuid: %q", logged)
+	}
+}
+
 func TestDrain_FailEnvelopeDispatched(t *testing.T) {
 	d, ob, stub := newDrainFixture(t, nil)
 	_ = ob.Append(queue.Envelope{
@@ -142,6 +211,60 @@ func TestDrain_FailEnvelopeDispatched(t *testing.T) {
 	items, _ := ob.Peek(10)
 	if len(items) != 0 {
 		t.Errorf("Fail envelope retained: %+v", items)
+	}
+}
+
+func TestDrain_ExhaustedAttemptsRetainsEnvelopeAndLogsError(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
+	_ = ob.Append(queue.Envelope{
+		Type: queue.TypeComplete, JobUUID: "uuid-exhausted", Attempts: drainAttemptsAlertThreshold - 1,
+	})
+	d.tick(context.Background())
+
+	items, _ := ob.Peek(10)
+	if len(items) != 1 {
+		t.Fatalf("envelope dropped at drainAttemptsAlertThreshold, data loss: %+v", items)
+	}
+	if items[0].Envelope.Attempts != drainAttemptsAlertThreshold {
+		t.Errorf("Attempts = %d want %d", items[0].Envelope.Attempts, drainAttemptsAlertThreshold)
+	}
+	logged := buf.String()
+	if !strings.Contains(logged, "level=ERROR") || !strings.Contains(logged, "uuid-exhausted") {
+		t.Errorf("attempts_exhausted not logged at ERROR: %q", logged)
+	}
+}
+
+func TestDrain_BelowAttemptsThresholdRetainsEnvelope(t *testing.T) {
+	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
+	_ = ob.Append(queue.Envelope{
+		Type: queue.TypeComplete, JobUUID: "uuid-retry", Attempts: drainAttemptsAlertThreshold - 2,
+	})
+	d.tick(context.Background())
+
+	items, _ := ob.Peek(10)
+	if len(items) != 1 {
+		t.Fatalf("envelope dropped before drainAttemptsAlertThreshold: %+v", items)
+	}
+	if items[0].Envelope.Attempts != drainAttemptsAlertThreshold-1 {
+		t.Errorf("Attempts = %d want %d", items[0].Envelope.Attempts, drainAttemptsAlertThreshold-1)
+	}
+}
+
+func TestDrain_FarPastThresholdKeepsRetryingWithoutDrop(t *testing.T) {
+	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
+	_ = ob.Append(queue.Envelope{
+		Type: queue.TypeComplete, JobUUID: "uuid-stuck", Attempts: drainAttemptsAlertThreshold * 3,
+	})
+	d.tick(context.Background())
+
+	items, _ := ob.Peek(10)
+	if len(items) != 1 {
+		t.Fatalf("envelope dropped after prolonged outage, data loss: %+v", items)
 	}
 }
 

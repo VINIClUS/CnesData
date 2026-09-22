@@ -25,26 +25,43 @@ type Adapter struct {
 	AgentVersion string
 }
 
+// AdapterConfig agrupa os parâmetros de construção do Adapter. Existe para
+// caber AgentVersion (main.Version, via -X ldflags) sem estourar o limite
+// de 4 parâmetros de NewAdapter.
+type AdapterConfig struct {
+	BaseURL      string
+	TenantID     string
+	MachineID    string
+	AgentVersion string
+	HTTPClient   *http.Client
+}
+
 // NewAdapter cria Adapter com editors X-Tenant-Id / X-Machine-Id.
-func NewAdapter(baseURL, tenantID, machineID string, httpClient *http.Client) (*Adapter, error) {
-	if tenantID == "" {
+// AgentVersion resolve, em ordem: env AGENT_VERSION > cfg.AgentVersion > "dev"
+// — a env var continua vencendo para permitir override manual em campo.
+func NewAdapter(cfg AdapterConfig) (*Adapter, error) {
+	if cfg.TenantID == "" {
 		return nil, fmt.Errorf("tenant_id_required")
 	}
-	if machineID == "" {
+	if cfg.MachineID == "" {
 		return nil, fmt.Errorf("machine_id_required")
 	}
-	editors := []RequestEditorFn{WithTenantID(tenantID), WithMachineID(machineID)}
+	editors := []RequestEditorFn{WithTenantID(cfg.TenantID), WithMachineID(cfg.MachineID)}
 	opts := []ClientOption{WithRequestEditorFn(combineEditors(editors))}
-	if httpClient != nil {
-		opts = append([]ClientOption{WithHTTPClient(httpClient)}, opts...)
+	if cfg.HTTPClient != nil {
+		opts = append([]ClientOption{WithHTTPClient(cfg.HTTPClient)}, opts...)
 	}
-	inner, err := NewClientWithResponses(baseURL, opts...)
+	inner, err := NewClientWithResponses(cfg.BaseURL, opts...)
 	if err != nil {
 		return nil, err
 	}
+	configuredVersion := cfg.AgentVersion
+	if configuredVersion == "" {
+		configuredVersion = "dev"
+	}
 	return &Adapter{
-		Inner: inner, TenantID: tenantID, MachineID: machineID,
-		AgentVersion: envOr("AGENT_VERSION", "dev"),
+		Inner: inner, TenantID: cfg.TenantID, MachineID: cfg.MachineID,
+		AgentVersion: envOr("AGENT_VERSION", configuredVersion),
 	}, nil
 }
 
@@ -60,33 +77,32 @@ func combineEditors(eds []RequestEditorFn) RequestEditorFn {
 }
 
 // RegisterJob confirma upload completo via POST /api/v1/jobs/register.
-// Threadea sha256 (computado pós-upload via SHA256TeeReader) para que
-// landing.extractions.sha256 seja persistido.
+// Threadea sha256 (computado pós-upload via SHA256TeeReader) e sizeBytes
+// para que o FileManifest do manifesto N-file seja válido.
 func (a *Adapter) RegisterJob(ctx context.Context, job worker.Job, sizeBytes int64) error {
 	jobUUID, err := parseJobUUID(job.ID)
 	if err != nil {
 		return err
 	}
+	files := toFileManifests([]worker.ManifestEntry{{
+		MinioKey:    job.MinioKey,
+		FatoSubtype: job.FatoSubtype,
+		SizeBytes:   sizeBytes,
+		Sha256:      job.Sha256,
+	}})
 	sha := job.Sha256
-	body := RegisterExtractionApiV1JobsRegisterPostJSONRequestBody{
-		AgentVersion: a.AgentVersion,
-		Competencia:  job.Params.CompetenciaInt(),
-		FonteSistema: RegisterRequestFonteSistema(job.Params.SourceType()),
+	body := JobRegisterRequest{
 		JobId:        jobUUID,
-		MachineId:    a.MachineID,
+		Files:        files,
+		AgentVersion: &a.AgentVersion,
+		MachineId:    &a.MachineID,
 		Sha256:       &sha,
-		TenantId:     a.TenantID,
-		TipoExtracao: job.Params.Intent,
 	}
-	_ = sizeBytes
-	resp, err := a.Inner.RegisterExtractionApiV1JobsRegisterPostWithResponse(ctx, body)
+	resp, err := a.Inner.RegisterJobApiV1JobsRegisterPostWithResponse(ctx, body)
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode() != http.StatusOK {
-		return &obs.HTTPError{StatusCode: resp.StatusCode(), Body: string(resp.Body)}
-	}
-	return nil
+	return statusError(resp.StatusCode(), resp.Body)
 }
 
 // MintUploadURL chama POST /api/v1/jobs/upload-url para criar
@@ -115,16 +131,33 @@ func (a *Adapter) MintUploadURL(ctx context.Context, spec worker.JobSpec) (*work
 	}
 	extID := resp.JSON201.ExtractionId.String()
 	return &worker.Job{
-		ID:        extID,
-		TenantID:  a.TenantID,
-		UploadURL: resp.JSON201.UploadUrl,
-		MinioKey:  resp.JSON201.MinioKey,
+		ID:          extID,
+		TenantID:    a.TenantID,
+		UploadURL:   resp.JSON201.UploadUrl,
+		MinioKey:    resp.JSON201.MinioKey,
+		FatoSubtype: string(resp.JSON201.FatoSubtype),
 		Params: extractor.ExtractionParams{
 			Intent:      spec.Intent,
 			Competencia: competenciaString(spec.Competencia),
 			CodMunGest:  envOr("COD_MUN_IBGE", a.TenantID),
 		},
 	}, nil
+}
+
+// maxFailErrorLen mirrors ExtractionFailPayload.error's server-side
+// max_length (packages/cnes_contracts/src/cnes_contracts/landing.py). Panic
+// causes include debug.Stack() and can exceed it, which would otherwise
+// 422 and terminal-drop the only failure record for a real extraction error.
+const maxFailErrorLen = 2000
+
+const failErrorTruncatedSuffix = "...[truncated]"
+
+func truncateFailError(msg string) string {
+	if len(msg) <= maxFailErrorLen {
+		return msg
+	}
+	cut := maxFailErrorLen - len(failErrorTruncatedSuffix)
+	return msg[:cut] + failErrorTruncatedSuffix
 }
 
 // FailJob marca extraction como FAILED via /jobs/{id}/fail.
@@ -137,6 +170,7 @@ func (a *Adapter) FailJob(ctx context.Context, job worker.Job, cause error) erro
 	if cause != nil {
 		msg = cause.Error()
 	}
+	msg = truncateFailError(msg)
 	resp, err := a.Inner.FailExtractionApiV1JobsExtractionIdFailPostWithResponse(
 		ctx, id, FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody{Error: msg},
 	)
@@ -182,8 +216,13 @@ func toFileManifests(in []worker.ManifestEntry) []FileManifest {
 	return out
 }
 
-// SendHeartbeat estende lease via /jobs/{id}/heartbeat.
-// processor_id é query param — agent reutiliza MachineID.
+// SendHeartbeat estende lease via /jobs/{id}/heartbeat. Esta rota legada
+// não corresponde a nenhum endpoint real: o único heartbeat server-side
+// existente é /api/v1/edge/jobs/{job_id}/heartbeat, exclusivo do caminho
+// raw (ControlPlanePort + fencing token), que cmd/dumpagent nunca wireia
+// em produção. Toda extração via landing.extractions (CNES/SIHD/BPA/SIA)
+// não tem renovação de lease; reap_expired por timeout é o único
+// mecanismo. HeartbeatLoop trata falhas aqui como não-fatais por design.
 func (a *Adapter) SendHeartbeat(ctx context.Context, jobID string) error {
 	id, err := parseJobUUID(jobID)
 	if err != nil {

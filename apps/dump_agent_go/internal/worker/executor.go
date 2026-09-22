@@ -22,7 +22,6 @@ import (
 	"github.com/cnesdata/dumpagent/internal/queue"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/writer"
-	"golang.org/x/sync/errgroup"
 )
 
 // ErrUnknownIntent indica intent sem pipeline registrada.
@@ -44,6 +43,7 @@ type Job struct {
 	TenantID     string
 	UploadURL    string
 	MinioKey     string
+	FatoSubtype  string
 	Params       extractor.ExtractionParams
 	Sha256       string
 	RowCount     int
@@ -192,7 +192,8 @@ func streamParquet(ctx context.Context, write func(io.Writer) error,
 // Run executa job. Retorna tamanho total uploadado em bytes. Se DeltaStore
 // configurado, despacha para o caminho delta (RunDelta + Commit/Abort);
 // caso contrário usa o pipeline snapshot streaming. job.Sha256 é
-// preenchido no caminho delta (após o tee de integrity sobre o upload).
+// preenchido em ambos os caminhos (via streamParquet's integrity tee),
+// necessário para o FileManifest.sha256 que RegisterJob envia.
 func (e *JobExecutor) Run(ctx context.Context, job *Job) (sizeBytes int64, err error) {
 	if job.RawRequest != nil {
 		return e.RunRaw(ctx, job)
@@ -200,10 +201,10 @@ func (e *JobExecutor) Run(ctx context.Context, job *Job) (sizeBytes int64, err e
 	if e.DeltaStore != nil {
 		return e.runDeltaWithCommit(ctx, job)
 	}
-	return e.runSnapshot(ctx, *job)
+	return e.runSnapshot(ctx, job)
 }
 
-func (e *JobExecutor) runSnapshot(ctx context.Context, job Job) (sizeBytes int64, err error) {
+func (e *JobExecutor) runSnapshot(ctx context.Context, job *Job) (sizeBytes int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in Run: %v\n%s", r, debug.Stack())
@@ -221,22 +222,16 @@ func (e *JobExecutor) runSnapshot(ctx context.Context, job Job) (sizeBytes int64
 	}
 	defer conn.Close()
 
-	pr, pw := io.Pipe()
-
-	eg, egCtx := errgroup.WithContext(ctx)
-
-	eg.Go(func() error {
-		defer pw.Close()
-		return pipeline(egCtx, conn, job.Params, pw)
+	size, digest, err := streamParquet(ctx, func(w io.Writer) error {
+		return pipeline(ctx, conn, job.Params, w)
+	}, func(body io.Reader) (int64, error) {
+		return e.Uploader.Put(ctx, job.UploadURL, body, "application/octet-stream")
 	})
-
-	eg.Go(func() error {
-		n, err := e.Uploader.Put(egCtx, job.UploadURL, pr, "application/octet-stream")
-		sizeBytes = n
-		return err
-	})
-
-	return sizeBytes, eg.Wait()
+	if err != nil {
+		return 0, err
+	}
+	job.Sha256 = digest
+	return size, nil
 }
 
 // runDeltaWithCommit invoca RunDelta e gerencia o ciclo Commit/Abort do
@@ -387,11 +382,16 @@ func deltaKeyFromParams(p extractor.ExtractionParams) delta.SourceKey {
 	}
 }
 
-// splitIntent reparte o intent do agent (terminado em snake_case) no par
-// (source, intent) usado pelos profiles delta. Mantém uma tabela explícita
-// para evitar surpresas — adicionar entrada ao introduzir novo intent.
+// splitIntent reparte o intent do agent no par (source, intent) esperado
+// pelos profiles delta (internal/delta/profiles.go). job.Params.Intent
+// carrega tanto a forma prefixada por fonte que MintUploadURL emite hoje
+// ("cnes_estabelecimentos", H10) quanto a forma bare que outros call sites
+// (testes, construção direta de Job) ainda usam — por isso normaliza via
+// canonicalIntent antes de casar contra a tabela, em vez de assumir um
+// único formato de entrada. sihd_producao é a única irregularidade real: o
+// profile SIHD chama o intent "aih", não "producao".
 func splitIntent(intent string) (source, base string) {
-	switch intent {
+	switch canonicalIntent(intent) {
 	case extractor.IntentCnesProfissionais:
 		return "cnes", "profissionais"
 	case extractor.IntentCnesEstabelecimentos:

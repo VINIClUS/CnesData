@@ -106,16 +106,16 @@ def mark_completed(engine: Engine, *, job_id: UUID) -> None:
         )
 
 
-def mark_failed(engine: Engine, *, job_id: UUID, reason: str) -> None:
+def mark_failed(engine: Engine, *, job_id: UUID, reason: str) -> UUID | None:
+    sql = text("""
+        UPDATE landing.extractions
+        SET status = 'FAILED', lease_until = NULL, error_detail = :reason
+        WHERE job_id = :j AND status IN ('PENDING', 'CLAIMED')
+        RETURNING job_id
+    """)
     with engine.begin() as conn:
-        conn.execute(
-            text("""
-                UPDATE landing.extractions
-                SET status = 'FAILED', lease_until = NULL
-                WHERE job_id = :j
-            """),
-            {"j": str(job_id)},
-        )
+        result = conn.execute(sql, {"j": str(job_id), "reason": reason}).one_or_none()
+    return result.job_id if result else None
 
 
 def register(

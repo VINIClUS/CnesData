@@ -5,6 +5,7 @@ map $request_uri $marketing_robots {
 
 server {
     listen 80;
+    listen [::]:80;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;

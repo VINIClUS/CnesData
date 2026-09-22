@@ -68,6 +68,10 @@ Prefer the server-side fix (contract discipline) + client fallback as defense in
   deleted). (b) is the more likely explanation: exactly 6 mint attempts recur across restarts
   (6x 422 in the pre-fix runs, 6x 201 in the post-fix run) — consistent with a persisted
   cycle count surviving process restart, not a fresh per-boot count.
+  **Resolved 2026-09-22:** neither (a) nor (b) — see "Explained 2026-09-22" under
+  "Not fixed in this branch" below. The placeholder is written server-side at mint
+  time, unconditionally, before any upload occurs; every agent path produces it,
+  every time, by construction. Six is poll-loop iterations, not replay.
 - **Not yet established whether Firebird is reachable from the agent at all.** Something
   (PID 9880, identity unconfirmed) has been listening on 127.0.0.1:3050 continuously since
   before this session started (present in the very first T0 baseline), independent of the
@@ -133,6 +137,13 @@ install/uninstall/residue task, which had zero coverage at this point in the ses
   default to `cnes_estabelecimentos` (matches `_FATO_SUBTYPE_FOR`). File the bare-vs-
   prefixed divergence in `validateRawScope` as a **latent** collision for whenever the raw
   path gets wired up, not an active bug.
+  **Retracted 2026-09-22:** this "latent collision" claim doesn't hold up. Both
+  `validateRawScope` call sites (`validateRawIdentity` and `decodeRawEnvelope`) receive
+  their intent already run through `splitIntent`, which strips the `cnes_` prefix before
+  any comparison happens — there's one vocabulary at the wire (prefixed) and one internal
+  form (bare) they normalize into, not two vocabularies that could collide. Nothing to
+  reconcile when the raw path gets wired up. See `cmd_run.go`'s `buildJobSource` comment
+  for the corrected note.
 - **H4 fix shape, corrected:** registry `Environment` (`REG_MULTI_SZ` under the service's
   own `HKLM\SYSTEM\CurrentControlSet\Services\CnesDumpAgent` key) is confirmed **empirically
   functional** (real service booted and ran using it) but is NOT safe for secrets —
@@ -177,14 +188,31 @@ since the snap-installed Go 1.27.1 trips an export-data version mismatch in that
 golangci-lint release), 84.9% filtered coverage (gate: 65%), `ruff check` clean on all
 touched Python, and the full relevant `pytest` suites green.
 
+**Explained 2026-09-22 (fix-agents-dataprocessor-bugs pass):** the
+`size_bytes=1`/sha-zeros placeholder mint-loop mechanism above is not agent-side
+replay — it's server-side by design. `extractions_repo.mint_upload_url`
+(`packages/cnes_infra/.../storage/extractions_repo.py`) writes that exact
+placeholder (`size_bytes=1`, `sha256="0"*64`) into the initial `files` JSONB at
+mint time, before any upload happens — size/sha are structurally unknowable at
+that point. `UploadUrlRequest` (`cnes_contracts/landing.py`) has no size/sha
+fields at all, so the agent could not have produced this signature even by
+accident. Replay from a stale queue is also structurally impossible:
+`MintUploadURL` is never persisted to the outbox (`outbox_adapter.go`, FU1 mint
+is synchronous, not queued) and `source.go` mints a fresh UUID per call — the
+six *distinct* job_ids observed in this audit confirm six real mint calls, not
+one replayed state. "Six" is just poll-loop iterations at the configured
+interval, nothing more. The real defect behind these rows staying `PENDING`
+forever was A1 (`POST /jobs/{id}/fail` didn't exist) and A2 (`RegisterJob` sent
+a body the server always 422'd) — both fixed in that pass; see the PR for
+commits.
+
 Not fixed in this branch (documented, out of scope):
-- The `size_bytes=1`/sha-zeros placeholder mint-loop mechanism (see "Open/unresolved"
-  above) — root cause still unexplained; deprioritized in favor of the named
-  install/uninstall/residue task.
-- `packages/cnes_infra/src/cnes_infra/storage/object_storage.py`'s `MinioObjectStorage`
-  (used by `data_processor`, not the edge-agent-facing route) has the same
-  internal-vs-public endpoint conflation as H9, but wasn't empirically exercised by this
-  audit and is a different code path — flagged for a future pass, not fixed here.
+- `packages/cnes_infra/src/cnes_infra/storage/s3_presigned.py`'s
+  `S3PresignedStorage` (successor to `object_storage.py`'s `MinioObjectStorage`,
+  deleted in `ba49a34`) had the same internal-vs-public endpoint conflation as
+  H9 on the `data_processor` side specifically — fixed 2026-09-22 (B4,
+  `apps/data_processor/src/data_processor/main.py::_create_storage`), mirroring
+  `central_api/deps.py`'s existing split.
 
 ## Re-run: field verification of the fixed binary on siha (2026-09-20, later same day)
 

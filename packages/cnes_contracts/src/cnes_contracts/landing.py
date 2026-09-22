@@ -75,6 +75,13 @@ class UploadUrlResponse(BaseModel):
     extraction_id: UUID
     upload_url: str = Field(min_length=1)
     minio_key: str = Field(pattern=r"^[\w\-./]+\.parquet\.gz$")
+    fato_subtype: FATO_SUBTYPE
+
+
+class ExtractionFailPayload(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    error: str = Field(min_length=1, max_length=2000)
 
 
 @dataclass(frozen=True, slots=True)

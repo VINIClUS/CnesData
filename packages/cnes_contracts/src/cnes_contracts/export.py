@@ -22,6 +22,7 @@ from cnes_contracts.fatos import (
 from cnes_contracts.jobs import JobTransitionEvent
 from cnes_contracts.landing import (
     Extraction,
+    ExtractionFailPayload,
     ExtractionRegisterPayload,
     FileManifest,
     UploadUrlRequest,
@@ -56,6 +57,7 @@ MODELS: list[tuple[type, str]] = [
     (ProcedimentoAIH, "procedimentoaih.json"),
     (Extraction, "extraction.json"),
     (ExtractionRegisterPayload, "extractionregisterpayload.json"),
+    (ExtractionFailPayload, "extractionfailpayload.json"),
     (FileManifest, "file_manifest.json"),
     (JobTransitionEvent, "jobtransitionevent.json"),
     (UploadUrlRequest, "uploadurlrequest.json"),

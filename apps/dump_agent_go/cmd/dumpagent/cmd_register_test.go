@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
 	"net"
@@ -69,8 +70,8 @@ func TestRegister_ParseFlags_DefaultScope(t *testing.T) {
 	flags, _ := parseRegisterFlags([]string{
 		"--tenant-id", "T", "--base-url", "https://x.example",
 	})
-	if flags.Scope != "agent" {
-		t.Errorf("Scope default = %q, want %q", flags.Scope, "agent")
+	if flags.Scope != "agent.provision" {
+		t.Errorf("Scope default = %q, want %q", flags.Scope, "agent.provision")
 	}
 }
 
@@ -97,6 +98,18 @@ func TestLoadCAPin_FlagPathReadsFile(t *testing.T) {
 	}
 }
 
+func TestLoadCAPin_FlagPathEmptyFile_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	pemPath := dir + "/empty_ca.pem"
+	if err := os.WriteFile(pemPath, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadCAPin(pemPath)
+	if err == nil {
+		t.Fatal("loadCAPin: want error for explicit but empty --ca-pin file")
+	}
+}
+
 func TestLoadCAPin_FlagPathMissingReturnsError(t *testing.T) {
 	_, err := loadCAPin("/definitely/does/not/exist.pem")
 	if err == nil {
@@ -104,19 +117,23 @@ func TestLoadCAPin_FlagPathMissingReturnsError(t *testing.T) {
 	}
 }
 
-func TestLoadCAPin_EmptyPathFallsBackToEmbedded(t *testing.T) {
+func TestLoadCAPin_EmptyPathFallsBackToNilEmbedded(t *testing.T) {
+	prev := auth.CAPinPEM
+	auth.CAPinPEM = nil
+	t.Cleanup(func() { auth.CAPinPEM = prev })
+
 	got, err := loadCAPin("")
 	if err != nil {
 		t.Fatalf("loadCAPin: %v", err)
 	}
-	if len(got) == 0 {
-		t.Fatal("loadCAPin returned empty for embedded fallback")
+	if len(got) != 0 {
+		t.Fatalf("loadCAPin = %d bytes, want nil (system trust store default)", len(got))
 	}
 }
 
 func TestNewBootstrapClient_PinValid_ReturnsClient(t *testing.T) {
-	pem := mustReadEmbeddedPin(t)
-	c, err := newBootstrapClient(pem)
+	ca := seedTestCA(t)
+	c, err := newBootstrapClient(ca.CertPEM)
 	if err != nil {
 		t.Fatalf("newBootstrapClient: %v", err)
 	}
@@ -135,19 +152,25 @@ func TestNewBootstrapClient_PinValid_ReturnsClient(t *testing.T) {
 	}
 }
 
+func TestNewBootstrapClient_PinEmpty_FallsBackToSystemTrustStore(t *testing.T) {
+	c, err := newBootstrapClient(nil)
+	if err != nil {
+		t.Fatalf("newBootstrapClient: %v", err)
+	}
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport type = %T, want *http.Transport", c.Transport)
+	}
+	if tr.TLSClientConfig.RootCAs != nil {
+		t.Error("RootCAs != nil, want nil (system trust store)")
+	}
+}
+
 func TestNewBootstrapClient_PinGarbage_ReturnsError(t *testing.T) {
 	_, err := newBootstrapClient([]byte("definitely not pem"))
 	if err == nil {
 		t.Fatal("newBootstrapClient: want error for garbage")
 	}
-}
-
-func mustReadEmbeddedPin(t *testing.T) []byte {
-	t.Helper()
-	if len(auth.CAPinPEM) == 0 {
-		t.Fatal("auth.CAPinPEM is empty (embed broken)")
-	}
-	return auth.CAPinPEM
 }
 
 func TestCertExists_NoFile_ReturnsFalse(t *testing.T) {
@@ -741,5 +764,39 @@ func TestRegister_NoSmokeFlag_SkipsHealthProbe(t *testing.T) {
 	}
 	if got := healthCount.Load(); got != 0 {
 		t.Errorf("health request count = %d, want 0 (--no-smoke)", got)
+	}
+}
+
+func TestPersistAll_ExplicitCAPin_PersistsForRunToLoad(t *testing.T) {
+	dir := t.TempDir()
+	resp := &provisionResp{CertPEM: "cert", RefreshToken: "refresh", ExpiresAt: "2099-01-01T00:00:00Z"}
+	caPEM := []byte("-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----\n")
+
+	if err := persistAll(dir, resp, []byte("key"), caPEM); err != nil {
+		t.Fatalf("persistAll: %v", err)
+	}
+
+	got, err := auth.LoadCAPin(dir)
+	if err != nil {
+		t.Fatalf("LoadCAPin: %v", err)
+	}
+	if string(got) != string(caPEM) {
+		t.Errorf("persisted pin mismatch want=%q got=%q", caPEM, got)
+	}
+}
+
+func TestPersistAll_NoCAPin_RemovesStalePin(t *testing.T) {
+	dir := t.TempDir()
+	if err := auth.SaveCAPin(dir, []byte("stale-pin-from-prior-register")); err != nil {
+		t.Fatalf("seed stale pin: %v", err)
+	}
+	resp := &provisionResp{CertPEM: "cert", RefreshToken: "refresh", ExpiresAt: "2099-01-01T00:00:00Z"}
+
+	if err := persistAll(dir, resp, []byte("key"), nil); err != nil {
+		t.Fatalf("persistAll: %v", err)
+	}
+
+	if _, err := auth.LoadCAPin(dir); !errors.Is(err, auth.ErrNotFound) {
+		t.Errorf("want stale pin removed (ErrNotFound), got %v", err)
 	}
 }

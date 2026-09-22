@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Annotated, Any
+from uuid import UUID  # noqa: TC003
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import ValidationError
@@ -10,6 +11,7 @@ from pydantic import ValidationError
 from central_api.deps import get_engine, get_object_storage
 from central_api.validation_errors import validation_error
 from cnes_contracts.landing import (
+    ExtractionFailPayload,
     ExtractionRegisterPayload,
     UploadUrlRequest,
     UploadUrlResponse,
@@ -90,6 +92,7 @@ def mint_upload_url(
         extraction_id=payload.job_id,
         upload_url=upload_url,
         minio_key=minio_key,
+        fato_subtype=fato_subtype,
     )
     return response.model_dump(mode="json")
 
@@ -118,3 +121,23 @@ def register_job(
             status_code=404, detail="job_not_found_or_invalid_state",
         )
     return {"job_id": str(result), "status": "REGISTERED"}
+
+
+@router.post("/jobs/{job_id}/fail")
+def fail_job(
+    job_id: UUID,
+    body: Annotated[dict[str, Any], Body()],
+    engine: Engine = Depends(get_engine),
+) -> dict:
+    try:
+        payload = ExtractionFailPayload.model_validate(body, strict=False)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    result = extractions_repo.mark_failed(
+        engine, job_id=job_id, reason=payload.error,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404, detail="job_not_found_or_invalid_state",
+        )
+    return {"job_id": str(result), "status": "FAILED"}

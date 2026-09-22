@@ -216,7 +216,7 @@ func startRotatorIfPossible(
 // to fall back to plain HTTP during fleet rollout. Logs the outcome
 // once at boot; callers do NOT re-log.
 func initMTLSClient(authDir string) (*transport.Client, error) {
-	mtls, err := transport.NewMTLSClient(authDir, auth.CAPinPEM)
+	mtls, err := buildMTLSClient(authDir)
 	if err == nil {
 		slog.Info("mtls_init_ok")
 		return mtls, nil
@@ -228,6 +228,38 @@ func initMTLSClient(authDir string) (*transport.Client, error) {
 		return nil, nil
 	}
 	return nil, err
+}
+
+// buildMTLSClient loads the CA pin persisted at register time (if any) and
+// constructs the client. A missing pin falls back to the platform trust
+// store; a present-but-corrupt pin fails closed via ErrCAPinInvalid instead
+// of silently trusting the system roots.
+func buildMTLSClient(authDir string) (*transport.Client, error) {
+	caPin, err := loadPersistedCAPin(authDir)
+	if err != nil {
+		return nil, err
+	}
+	return transport.NewMTLSClient(authDir, caPin)
+}
+
+// loadPersistedCAPin reads authDir's ca_pin.pem (written by `register
+// --ca-pin`). Absent file → nil, empty pin (system trust store); any other
+// read error propagates so a corrupted pin fails closed rather than
+// silently falling back. A present-but-empty file is treated as corrupt,
+// not as "no pin" — system trust is represented by an absent file only, so
+// a truncated ca_pin.pem must not silently bypass the configured pin.
+func loadPersistedCAPin(authDir string) ([]byte, error) {
+	pin, err := auth.LoadCAPin(authDir)
+	if errors.Is(err, auth.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(pin) == 0 {
+		return nil, fmt.Errorf("%w: ca_pin.pem present but empty", transport.ErrCAPinInvalid)
+	}
+	return pin, nil
 }
 
 // httpClientFor returns mtls.HTTPClient() or nil. nil-handling lets
@@ -324,7 +356,13 @@ func buildAPIClient(machineID string, httpClient *http.Client) (*apiclient.Adapt
 	if tenantID == "" {
 		return nil, &stubErr{msg: "env_required var=TENANT_ID"}
 	}
-	return apiclient.NewAdapter(baseURL, tenantID, machineID, httpClient)
+	return apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL:      baseURL,
+		TenantID:     tenantID,
+		MachineID:    machineID,
+		AgentVersion: Version,
+		HTTPClient:   httpClient,
+	})
 }
 
 func buildJobSource() (worker.JobSpecSource, error) {
@@ -334,12 +372,15 @@ func buildJobSource() (worker.JobSpecSource, error) {
 	// (apps/central_api/src/central_api/routes/jobs.py): "estabelecimentos"
 	// (unprefixed) 422s on every upload-url mint attempt. Confirmed
 	// empirically (H10, docs/edge-agent-audit-2026-09-20.md) — this was the
-	// out-of-the-box failure mode for a fresh install. Note: this is a
-	// SEPARATE vocabulary from outbox_adapter.go's validateRawScope, which
-	// expects the bare form ("profissionais") — that path is unreachable
-	// today (job.RawRequest is never assigned in production wiring), so the
-	// two don't collide yet, but whoever wires up the raw path needs to
-	// reconcile them.
+	// out-of-the-box failure mode for a fresh install.
+	//
+	// outbox_adapter.go's validateRawScope compares against the bare form
+	// ("profissionais") — that is NOT a second, colliding vocabulary: it
+	// receives its input pre-split via splitIntent, which always strips the
+	// "cnes_" prefix before the comparison runs. There is one vocabulary at
+	// the wire (prefixed) and one internal form (bare); they don't need
+	// reconciling. (Retracts a prior note in
+	// docs/edge-agent-audit-2026-09-20.md claiming a latent collision here.)
 	intent := envOr("INTENT", "cnes_estabelecimentos")
 	compRaw := os.Getenv("COMPETENCIA_YYYYMM")
 	if compRaw == "" {

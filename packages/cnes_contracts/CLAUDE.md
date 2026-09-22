@@ -14,7 +14,7 @@ Protocols for storage/mapper ports. JSON Schema exported to
 |---|---|
 | `dims.py` | `Profissional`, `Estabelecimento`, `ProcedimentoSUS`, `CBO`, `CID10`, `Municipio`, `Competencia` |
 | `fatos.py` | `VinculoCNES`, `ProducaoAmbulatorial`, `Internacao`, `ProcedimentoAIH` |
-| `landing.py` | `Extraction`, `ExtractionRegisterPayload`, `FileManifest` |
+| `landing.py` | `Extraction`, `ExtractionRegisterPayload`, `FileManifest`, `UploadUrlRequest`, `UploadUrlResponse`, `ExtractionFailPayload` |
 | `jobs.py` | `JobStatus` enum, `JobTransitionEvent` |
 | `protocols.py` | `DimLookupPort`, `RowMapperPort`, `ExtractionRepoPort`, `ExtractorPort` |
 | `export.py` | `export_all(target_dir)` JSON Schema generator |

@@ -1,0 +1,15 @@
+{
+  "properties": {
+    "error": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Error",
+      "type": "string"
+    }
+  },
+  "required": [
+    "error"
+  ],
+  "title": "ExtractionFailPayload",
+  "type": "object"
+}

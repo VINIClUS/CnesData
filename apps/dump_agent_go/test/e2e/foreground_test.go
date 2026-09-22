@@ -15,7 +15,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/cnesdata/dumpagent/internal/apiclient"
-	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/worker"
 	"github.com/stretchr/testify/require"
@@ -49,9 +48,19 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 				"extraction_id": testExtractionUUID,
 				"upload_url":    minioSrv.URL,
 				"minio_key":     "354130/CNES_VINCULO/2026-01/abc.parquet.gz",
+				"fato_subtype":  "CNES_VINCULO",
 			})
 		case r.URL.Path == "/api/v1/jobs/register":
 			atomic.AddInt32(&registered, 1)
+			var body struct {
+				Files []struct {
+					FatoSubtype string `json:"fato_subtype"`
+				} `json:"files"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if len(body.Files) != 1 || body.Files[0].FatoSubtype == "" {
+				t.Errorf("register body missing fato_subtype: %+v", body)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -75,14 +84,21 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 		WithArgs("354130").
 		WillReturnRows(sqlmock.NewRows(cols).AddRow("0001", "UBS", "05", "354130", "12345"))
 
-	adapter, err := apiclient.NewAdapter(central.URL, "354130", "abc12345", nil)
+	adapter, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: central.URL, TenantID: "354130", MachineID: "abc12345",
+	})
 	require.NoError(t, err)
 
+	// cnes_estabelecimentos (prefixed), matching the agent's shipped default
+	// (cmd_run.go) and central_api's _FATO_SUBTYPE_FOR — see A7,
+	// docs/edge-agent-audit-2026-09-20.md H10. The bare form used here
+	// previously passed only because this httptest stub never validates the
+	// intent, unlike the real central_api, which would 422 it.
 	src := worker.NewStaticSource(worker.StaticSpec{
 		FonteSistema: "CNES_LOCAL",
-		TipoExtracao: "estabelecimentos",
+		TipoExtracao: "cnes_estabelecimentos",
 		Competencia:  202601,
-		Intent:       extractor.IntentCnesEstabelecimentos,
+		Intent:       "cnes_estabelecimentos",
 	})
 
 	exe := &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}

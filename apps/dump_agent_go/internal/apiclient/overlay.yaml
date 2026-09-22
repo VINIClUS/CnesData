@@ -290,6 +290,7 @@ actions:
       - extraction_id
       - upload_url
       - minio_key
+      - fato_subtype
       properties:
         extraction_id:
           type: string
@@ -299,6 +300,19 @@ actions:
         minio_key:
           type: string
           pattern: ^[\w\-./]+\.parquet\.gz$
+        fato_subtype:
+          type: string
+          enum:
+          - CNES_VINCULO
+          - SIHD_INTERNACAO
+          - SIHD_PROC_AIH
+          - BPA_C
+          - BPA_I
+          - SIA_APA
+          - SIA_BPI
+          - SIA_BPIHST
+          - DIM_SIGTAP
+          - DIM_MUNICIPIO
 - target: $.paths['/api/v1/jobs/upload-url'].post
   update:
     requestBody:

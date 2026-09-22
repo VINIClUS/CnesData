@@ -87,11 +87,22 @@ func seedAuthDir(t *testing.T, dir string, leafPEM, keyDER []byte) {
 	}
 }
 
-func TestNewMTLSClient_NilCAPin_ReturnsErrCAPinInvalid(t *testing.T) {
+func TestNewMTLSClient_NilCAPin_FallsBackToSystemTrustStore(t *testing.T) {
+	caCert, caKey, _ := makeTestCA(t)
+	leafPEM, keyDER := makeLeafCert(t, caCert, caKey, "agent-001")
 	authDir := t.TempDir()
-	_, err := NewMTLSClient(authDir, nil)
-	if !errors.Is(err, ErrCAPinInvalid) {
-		t.Errorf("want ErrCAPinInvalid got %v", err)
+	seedAuthDir(t, authDir, leafPEM, keyDER)
+
+	c, err := NewMTLSClient(authDir, nil)
+	if err != nil {
+		t.Fatalf("NewMTLSClient: %v", err)
+	}
+	tr, ok := c.HTTPClient().Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport type = %T, want *http.Transport", c.HTTPClient().Transport)
+	}
+	if tr.TLSClientConfig.RootCAs != nil {
+		t.Error("RootCAs != nil, want nil (system trust store)")
 	}
 }
 
@@ -260,6 +271,29 @@ func TestHTTPClient_HandshakeFails_WhenServerCertNotPinned(t *testing.T) {
 	_, err = c.HTTPClient().Get(srv.URL + "/x")
 	if err == nil {
 		t.Fatal("expected handshake error got nil")
+	}
+	if !strings.Contains(err.Error(), "certificate") && !strings.Contains(err.Error(), "x509") {
+		t.Errorf("expected cert verification error, got: %v", err)
+	}
+}
+
+func TestHTTPClient_EmptyCAPin_RejectsServerNotInSystemTrust(t *testing.T) {
+	caCert, caKey, _ := makeTestCA(t)
+	leafPEM, keyDER := makeLeafCert(t, caCert, caKey, "agent-001")
+	authDir := t.TempDir()
+	seedAuthDir(t, authDir, leafPEM, keyDER)
+
+	srv := startMTLSServer(t, caCert, caKey, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	c, err := NewMTLSClient(authDir, nil)
+	if err != nil {
+		t.Fatalf("NewMTLSClient: %v", err)
+	}
+	_, err = c.HTTPClient().Get(srv.URL + "/x")
+	if err == nil {
+		t.Fatal("expected handshake error against a CA outside the system trust store, got nil")
 	}
 	if !strings.Contains(err.Error(), "certificate") && !strings.Contains(err.Error(), "x509") {
 		t.Errorf("expected cert verification error, got: %v", err)

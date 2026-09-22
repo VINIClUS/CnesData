@@ -160,6 +160,32 @@ func decodeRawEnvelope(env queue.Envelope) (manifest.Raw, error) {
 	return raw, validateRawScope(env.SourceKey, raw)
 }
 
+// knownFatoSubtypes mirrors cnes_contracts.landing.FATO_SUBTYPE. Used only to
+// validate a value recovered from a legacy envelope's persisted minio_key.
+var knownFatoSubtypes = map[string]bool{
+	"CNES_VINCULO": true, "SIHD_INTERNACAO": true, "SIHD_PROC_AIH": true,
+	"BPA_C": true, "BPA_I": true,
+	"SIA_APA": true, "SIA_BPI": true, "SIA_BPIHST": true,
+	"DIM_SIGTAP": true, "DIM_MUNICIPIO": true,
+}
+
+// fatoSubtypeFromMinioKey recovers FatoSubtype for TypeComplete envelopes
+// persisted by an agent version older than the one that added the field to
+// queue.Envelope (fato_subtype/{tenant}/{fato_subtype}/{competencia}/{job}.
+// parquet.gz — see central_api's _build_minio_key). Returns "" if the key
+// doesn't have the expected shape or the segment isn't a known subtype.
+func fatoSubtypeFromMinioKey(minioKey string) string {
+	parts := strings.Split(minioKey, "/")
+	if len(parts) < 4 {
+		return ""
+	}
+	subtype := parts[1]
+	if !knownFatoSubtypes[subtype] {
+		return ""
+	}
+	return subtype
+}
+
 func pendingRef(env queue.Envelope) delta.PendingRef {
 	return delta.PendingRef{SourceKey: env.SourceKey, JobID: env.JobID, FencingToken: env.FencingToken}
 }
@@ -171,6 +197,12 @@ const (
 	drainEvictAge       = 90 * 24 * time.Hour
 	drainEvictMaxCount  = 10000
 	dispatchTimeout     = 30 * time.Second
+	// drainAttemptsAlertThreshold logs an escalated warning; it never caps
+	// retries. Dropping an envelope after repeated transient failures
+	// leaves landing.extractions stuck PENDING with no way to recover it,
+	// and for delta jobs the local fingerprint state is already committed
+	// (runDeltaWithCommit), so losing the envelope corrupts the next diff.
+	drainAttemptsAlertThreshold = 20
 )
 
 // Drainer ships persisted envelopes to the central_api in FIFO order,
@@ -270,6 +302,9 @@ func (d *Drainer) dispatchOne(ctx context.Context, item queue.Item) bool {
 	})
 
 	if errors.Is(callErr, breaker.ErrOpen) {
+		slog.Warn("drain_breaker_open",
+			"job_uuid", item.Envelope.JobUUID,
+			"type", string(item.Envelope.Type))
 		return false
 	}
 	return d.applyResponse(ctx, item, resp, dispErr)
@@ -313,6 +348,13 @@ func (d *Drainer) applyResponse(ctx context.Context, item queue.Item,
 		if dispErr != nil {
 			item.Envelope.LastError = dispErr.Error()
 		}
+		if item.Envelope.Attempts >= drainAttemptsAlertThreshold {
+			slog.Error("envelope_attempts_exhausted",
+				"job_uuid", item.Envelope.JobUUID,
+				"type", string(item.Envelope.Type),
+				"attempts", item.Envelope.Attempts,
+				"last_error", item.Envelope.LastError)
+		}
 		_ = d.out.Delete(item.Key)
 		_ = d.out.Append(item.Envelope)
 		return false
@@ -325,16 +367,25 @@ func (d *Drainer) applyResponse(ctx context.Context, item queue.Item,
 // *obs.HTTPError so Classify can read the status code.
 //
 // FU1: TypeComplete envelopes dispatch via RegisterJob (post-upload
-// confirmation) and rebuild Job{ID, Sha256, MinioKey} from the persisted
-// envelope so replays after agent restart preserve sha256/minio_key.
+// confirmation) and rebuild Job{ID, Sha256, MinioKey, FatoSubtype} from
+// the persisted envelope so replays after agent restart preserve every
+// field FileManifest requires server-side.
 func (d *Drainer) callInner(ctx context.Context, env queue.Envelope) (*http.Response, error) {
 	var apiErr error
 	switch env.Type {
 	case queue.TypeComplete:
+		fatoSubtype := env.FatoSubtype
+		if fatoSubtype == "" {
+			fatoSubtype = fatoSubtypeFromMinioKey(env.MinioKey)
+			slog.Warn("envelope_fato_subtype_recovered",
+				"job_uuid", env.JobUUID, "minio_key", env.MinioKey,
+				"recovered", fatoSubtype)
+		}
 		job := Job{
-			ID:       env.JobUUID,
-			Sha256:   env.SHA256,
-			MinioKey: env.MinioKey,
+			ID:          env.JobUUID,
+			Sha256:      env.SHA256,
+			MinioKey:    env.MinioKey,
+			FatoSubtype: fatoSubtype,
 		}
 		apiErr = d.inner.RegisterJob(ctx, job, env.SizeBytes)
 	case queue.TypeFail:

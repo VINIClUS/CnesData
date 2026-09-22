@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
@@ -130,7 +130,9 @@ class TestExtractionsRepoV2:
             ).scalar_one()
         assert status == "COMPLETED"
 
-    def test_mark_failed_muda_status(self, pg_engine) -> None:
+    def test_mark_failed_muda_status_e_persiste_error_detail(
+        self, pg_engine,
+    ) -> None:
         job_id = extractions_repo.enqueue(
             pg_engine,
             tenant_id=_TENANT,
@@ -143,18 +145,93 @@ class TestExtractionsRepoV2:
                 "sha256": "2" * 64,
             }],
         )
-        extractions_repo.mark_failed(
+        result = extractions_repo.mark_failed(
             pg_engine, job_id=job_id, reason="test boom",
         )
+        assert result == job_id
         with pg_engine.begin() as conn:
-            status = conn.execute(
+            row = conn.execute(
                 text(
-                    "SELECT status FROM landing.extractions "
+                    "SELECT status, error_detail FROM landing.extractions "
+                    "WHERE job_id = :j",
+                ),
+                {"j": job_id},
+            ).one()
+        assert row.status == "FAILED"
+        assert row.error_detail == "test boom"
+
+    def test_mark_failed_retorna_none_quando_job_ausente(
+        self, pg_engine,
+    ) -> None:
+        result = extractions_repo.mark_failed(
+            pg_engine, job_id=uuid4(), reason="whatever",
+        )
+        assert result is None
+
+    def test_mark_failed_nao_reescreve_job_ja_completed(
+        self, pg_engine,
+    ) -> None:
+        job_id = extractions_repo.enqueue(
+            pg_engine,
+            tenant_id=_TENANT,
+            source_type="BPA_MAG",
+            competencia=date(2026, 3, 1),
+            files=[{
+                "minio_key": "bpa/done.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100,
+                "sha256": "3" * 64,
+            }],
+        )
+        extractions_repo.mark_completed(pg_engine, job_id=job_id)
+
+        result = extractions_repo.mark_failed(
+            pg_engine, job_id=job_id, reason="too late",
+        )
+        assert result is None
+        with pg_engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT status, error_detail FROM landing.extractions "
+                    "WHERE job_id = :j",
+                ),
+                {"j": job_id},
+            ).one()
+        assert row.status == "COMPLETED"
+        assert row.error_detail is None
+
+    def test_mark_failed_e_idempotente_preserva_motivo_original(
+        self, pg_engine,
+    ) -> None:
+        job_id = extractions_repo.enqueue(
+            pg_engine,
+            tenant_id=_TENANT,
+            source_type="BPA_MAG",
+            competencia=date(2026, 3, 1),
+            files=[{
+                "minio_key": "bpa/retry.parquet.gz",
+                "fato_subtype": "BPA_C",
+                "size_bytes": 100,
+                "sha256": "4" * 64,
+            }],
+        )
+        first = extractions_repo.mark_failed(
+            pg_engine, job_id=job_id, reason="original_cause",
+        )
+        second = extractions_repo.mark_failed(
+            pg_engine, job_id=job_id, reason="retry_cause",
+        )
+        assert first == job_id
+        assert second is None
+        with pg_engine.begin() as conn:
+            error_detail = conn.execute(
+                text(
+                    "SELECT error_detail FROM landing.extractions "
                     "WHERE job_id = :j",
                 ),
                 {"j": job_id},
             ).scalar_one()
-        assert status == "FAILED"
+        assert error_detail == "original_cause"
 
     def test_claim_pula_job_com_depends_on_pendente(
         self, pg_engine,

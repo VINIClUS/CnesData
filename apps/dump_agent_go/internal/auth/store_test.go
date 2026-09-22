@@ -72,6 +72,49 @@ func TestLoadCert_NotFound_ReturnsErrNotFound(t *testing.T) {
 	}
 }
 
+func TestSaveCAPin_LoadCAPin_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	want := []byte("-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----\n")
+	if err := SaveCAPin(dir, want); err != nil {
+		t.Fatalf("SaveCAPin: %v", err)
+	}
+	got, err := LoadCAPin(dir)
+	if err != nil {
+		t.Fatalf("LoadCAPin: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("round-trip mismatch want=%q got=%q", want, got)
+	}
+}
+
+func TestLoadCAPin_NotFound_ReturnsErrNotFound(t *testing.T) {
+	dir := t.TempDir()
+	_, err := LoadCAPin(dir)
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("want ErrNotFound got %v", err)
+	}
+}
+
+func TestRemoveCAPin_Present_DeletesFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := SaveCAPin(dir, []byte("pin")); err != nil {
+		t.Fatalf("SaveCAPin: %v", err)
+	}
+	if err := RemoveCAPin(dir); err != nil {
+		t.Fatalf("RemoveCAPin: %v", err)
+	}
+	if _, err := LoadCAPin(dir); !errors.Is(err, ErrNotFound) {
+		t.Errorf("want ErrNotFound after remove, got %v", err)
+	}
+}
+
+func TestRemoveCAPin_Absent_NoError(t *testing.T) {
+	dir := t.TempDir()
+	if err := RemoveCAPin(dir); err != nil {
+		t.Errorf("RemoveCAPin on absent file: want nil, got %v", err)
+	}
+}
+
 func TestSaveKey_LoadKey_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	want := []byte("PKCS8 DER bytes go here")
@@ -159,7 +202,6 @@ func TestLoadKey_CorruptedDPAPI_ReturnsErrUnwrapFailed(t *testing.T) {
 		t.Errorf("want ErrUnwrapFailed got %v", err)
 	}
 }
-
 
 func TestWriteAtomic_RenameFailure_RemovesTmp(t *testing.T) {
 	if runtime.GOOS == "windows" {

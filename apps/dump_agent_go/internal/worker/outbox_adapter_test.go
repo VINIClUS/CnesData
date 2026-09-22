@@ -425,9 +425,10 @@ func TestOutboxAdapter_RegisterJob_PersistsSha256AndMinioKey(t *testing.T) {
 	ob := newOutbox(t)
 	a := NewOutboxAdapter(mock, ob)
 	job := Job{
-		ID:       "11111111-2222-3333-4444-555555555555",
-		Sha256:   "a" + strings.Repeat("0", 63),
-		MinioKey: "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+		ID:          "11111111-2222-3333-4444-555555555555",
+		Sha256:      "a" + strings.Repeat("0", 63),
+		MinioKey:    "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+		FatoSubtype: "CNES_VINCULO",
 	}
 	if err := a.RegisterJob(context.Background(), job, 4096); err != nil {
 		t.Fatalf("RegisterJob: %v", err)
@@ -442,6 +443,9 @@ func TestOutboxAdapter_RegisterJob_PersistsSha256AndMinioKey(t *testing.T) {
 	}
 	if env.MinioKey != job.MinioKey {
 		t.Errorf("MinioKey = %q want %q", env.MinioKey, job.MinioKey)
+	}
+	if env.FatoSubtype != job.FatoSubtype {
+		t.Errorf("FatoSubtype = %q want %q", env.FatoSubtype, job.FatoSubtype)
 	}
 	if env.SizeBytes != 4096 {
 		t.Errorf("SizeBytes = %d want 4096", env.SizeBytes)

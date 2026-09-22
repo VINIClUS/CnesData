@@ -2285,6 +2285,63 @@
         ]
       }
     },
+    "/api/v1/jobs/{job_id}/fail": {
+      "post": {
+        "operationId": "fail_job_api_v1_jobs__job_id__fail_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Fail Job Api V1 Jobs  Job Id  Fail Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fail Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
     "/api/v1/public/leads": {
       "post": {
         "operationId": "create_lead_api_v1_public_leads_post",

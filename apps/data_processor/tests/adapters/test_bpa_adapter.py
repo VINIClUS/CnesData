@@ -27,6 +27,9 @@ class _DimLookup:
     def cid10_sk(self, code: str) -> int | None:
         return self._m.get(("CID", code))
 
+    def competencia_sk(self, yyyymm: str) -> int | None:
+        return self._m.get(("COMP", yyyymm))
+
 
 class TestMapBPAC:
     def test_mapeia_linha_completa(self) -> None:
@@ -40,6 +43,7 @@ class TestMapBPAC:
         lookup = _DimLookup({
             ("PROC", "0301010056"): 100,
             ("ESTAB", "2269481"): 200,
+            ("COMP", "202601"): 73,
         })
         job = uuid4()
         ts = datetime.now(UTC)
@@ -49,6 +53,7 @@ class TestMapBPAC:
         f = fatos[0]
         assert f.sk_procedimento == 100
         assert f.sk_estabelecimento == 200
+        assert f.sk_competencia == 73
         assert f.qtd == 10
         assert f.fonte_sistema == "BPA_C"
 
@@ -61,6 +66,22 @@ class TestMapBPAC:
             "co_cbo": ["225125"],
         })
         lookup = _DimLookup({})
+        fatos = map_bpa_c_to_fato(df, lookup, job_id=uuid4(),
+                                   extracao_ts=datetime.now(UTC))
+        assert fatos == []
+
+    def test_competencia_dim_miss_retorna_vazio_linha(self) -> None:
+        df = pl.DataFrame({
+            "nu_competencia": ["999999"],
+            "co_cnes": ["2269481"],
+            "co_procedimento": ["0301010056"],
+            "qt_aprovada": [10],
+            "co_cbo": ["225125"],
+        })
+        lookup = _DimLookup({
+            ("PROC", "0301010056"): 100,
+            ("ESTAB", "2269481"): 200,
+        })
         fatos = map_bpa_c_to_fato(df, lookup, job_id=uuid4(),
                                    extracao_ts=datetime.now(UTC))
         assert fatos == []
@@ -84,6 +105,7 @@ class TestMapBPAI:
             ("ESTAB", "2269481"): 200,
             ("PROC", "0301010064"): 101,
             ("CID", "J00"): 1000,
+            ("COMP", "202601"): 73,
         })
         fatos = map_bpa_i_to_fato(df, lookup, job_id=uuid4(),
                                    extracao_ts=datetime.now(UTC))
@@ -91,4 +113,5 @@ class TestMapBPAI:
         f = fatos[0]
         assert f.sk_profissional == 500
         assert f.sk_cid_principal == 1000
+        assert f.sk_competencia == 73
         assert f.fonte_sistema == "BPA_I"

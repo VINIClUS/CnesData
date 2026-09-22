@@ -34,13 +34,13 @@ def _payload(**overrides: object) -> dict[str, object]:
     return base
 
 
-def _build(repo: MagicMock) -> TestClient:
+def _build(repo: MagicMock, *, peer: str = "testclient") -> TestClient:
     app = FastAPI()
     app.state.leads_repo = repo
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
     app.include_router(public_leads.router, prefix="/api/v1/public")
-    return TestClient(app)
+    return TestClient(app, client=(peer, 50000))
 
 
 @pytest.fixture(autouse=True)
@@ -121,9 +121,10 @@ def test_post_responde_429_apos_limite_com_retry_after(monkeypatch: pytest.Monke
 
 def test_limite_e_por_ip_do_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "LEADS_RATE_LIMIT", "1/minute")
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "172.16.0.0/12")
     repo = MagicMock()
     repo.create.return_value = uuid4()
-    client = _build(repo)
+    client = _build(repo, peer="172.20.0.2")
     h1 = {"X-Forwarded-For": "203.0.113.1"}
     h2 = {"X-Forwarded-For": "203.0.113.2"}
     assert client.post(_URL, json=_payload(), headers=h1).status_code == 202

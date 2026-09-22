@@ -68,6 +68,43 @@ class TestCreateStorage:
             with pytest.raises(RuntimeError, match="s3_client_unavailable"):
                 _create_storage()
 
+    def test_usa_client_publico_quando_diverge_do_interno(self, monkeypatch):
+        """Mesmo split de central_api/deps.py (H9): a URL presigned
+        entregue ao worker precisa de um host diferente do usado
+        internamente quando S3_PUBLIC_ENDPOINT_URL diverge."""
+        from cnes_infra import config as infra_config
+        monkeypatch.setattr(infra_config, "S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.setattr(
+            infra_config, "S3_PUBLIC_ENDPOINT_URL", "https://storage.dev.example.com",
+        )
+        with (
+            patch(
+                "data_processor.main.build_s3_client", return_value=MagicMock(),
+            ) as fake_build,
+            patch("data_processor.main.S3PresignedStorage") as fake_storage_cls,
+        ):
+            from data_processor.main import _create_storage
+            _create_storage()
+        assert fake_build.call_count == 2
+        _, kwargs = fake_storage_cls.call_args
+        assert kwargs["public_client"] is not None
+
+    def test_sem_client_publico_quando_igual_ao_interno(self, monkeypatch):
+        from cnes_infra import config as infra_config
+        monkeypatch.setattr(infra_config, "S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.setattr(infra_config, "S3_PUBLIC_ENDPOINT_URL", "http://minio:9000")
+        with (
+            patch(
+                "data_processor.main.build_s3_client", return_value=MagicMock(),
+            ) as fake_build,
+            patch("data_processor.main.S3PresignedStorage") as fake_storage_cls,
+        ):
+            from data_processor.main import _create_storage
+            _create_storage()
+        assert fake_build.call_count == 1
+        _, kwargs = fake_storage_cls.call_args
+        assert kwargs["public_client"] is None
+
 
 class TestMain:
     @pytest.mark.asyncio
@@ -82,11 +119,13 @@ class TestMain:
         )
         monkeypatch.setattr(sys, "argv", ["data_processor"])
 
+        mock_engine = MagicMock()
         with (
             patch("data_processor.main._setup_logging"),
             patch("data_processor.main.init_telemetry"),
-            patch("data_processor.main.create_engine"),
+            patch("data_processor.main.create_engine", return_value=mock_engine),
             patch("data_processor.main._create_storage"),
+            patch("data_processor.main.install_rls_listener") as mock_rls,
             patch("data_processor.main.run_processor") as mock_run,
         ):
             mock_run.return_value = None
@@ -101,6 +140,46 @@ class TestMain:
 
         assert rc == 0
         mock_run.assert_called_once()
+        mock_rls.assert_called_once_with(mock_engine)
+
+    @pytest.mark.asyncio
+    async def test_main_instala_rls_listener_antes_de_rodar_o_processor(
+        self, tmp_path, monkeypatch,
+    ):
+        """B1: sem o listener, set_tenant_id() vira no-op e RLS bloqueia/vaza
+        entre tenants. install_rls_listener() precisa rodar antes de
+        run_processor() usar o engine."""
+        import sys
+
+        from cnes_infra import config as infra_config
+        monkeypatch.delenv("PROFILE", raising=False)
+        monkeypatch.setattr(infra_config, "LOGS_DIR", tmp_path)
+        monkeypatch.setattr(
+            infra_config, "LOG_FILE", tmp_path / "test.log",
+        )
+        monkeypatch.setattr(sys, "argv", ["data_processor"])
+
+        calls = []
+        mock_engine = MagicMock()
+
+        async def _fake_run(*a, **kw):
+            calls.append("run_processor")
+
+        with (
+            patch("data_processor.main._setup_logging"),
+            patch("data_processor.main.init_telemetry"),
+            patch("data_processor.main.create_engine", return_value=mock_engine),
+            patch("data_processor.main._create_storage"),
+            patch(
+                "data_processor.main.install_rls_listener",
+                side_effect=lambda _e: calls.append("install_rls_listener"),
+            ),
+            patch("data_processor.main.run_processor", side_effect=_fake_run),
+        ):
+            from data_processor.main import main
+            await main()
+
+        assert calls == ["install_rls_listener", "run_processor"]
 
 
 class TestMainProfileLocal:

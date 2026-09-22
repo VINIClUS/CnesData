@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -167,6 +168,74 @@ func TestConsumerLoop_FailsJobOnError(t *testing.T) {
 	defer cancel()
 	require.NoError(t, cons.Loop(ctx))
 	require.GreaterOrEqual(t, atomic.LoadInt32(&failCalls), int32(1))
+}
+
+func TestConsumerLoop_LogsMintFailureAtError(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	api := &apiStub{
+		mintFn: func(_ context.Context, _ worker.JobSpec) (*worker.Job, error) {
+			return nil, errors.New("upload_url_conflict")
+		},
+	}
+	spec := &worker.JobSpec{JobID: "22222222-2222-2222-2222-222222222222",
+		Intent: extractor.IntentCnesEstabelecimentos}
+	src := &sourceStub{nextFn: func(_ context.Context) (*worker.JobSpec, error) {
+		return spec, nil
+	}}
+	cons := worker.NewConsumer(api, src, &execStub{}, worker.ConsumerConfig{
+		PollInterval:      time.Millisecond,
+		InterJobJitterMax: time.Millisecond,
+		HeartbeatInterval: time.Second,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	require.NoError(t, cons.Loop(ctx))
+
+	logged := buf.String()
+	require.Contains(t, logged, "upload_url_conflict")
+	require.Contains(t, logged, "level=ERROR",
+		"mint failures are silent extraction-halts and must not stay at WARN")
+}
+
+func TestConsumerLoop_LogsExecErrAtErrorBeforeFailJob(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	job := &worker.Job{ID: "11111111-1111-1111-1111-111111111111",
+		Params: extractor.ExtractionParams{Intent: extractor.IntentCnesEstabelecimentos}}
+	api := &apiStub{
+		mintFn: func(_ context.Context, _ worker.JobSpec) (*worker.Job, error) {
+			return job, nil
+		},
+		failFn: func(_ context.Context, _ worker.Job, _ error) error { return nil },
+	}
+	spec := &worker.JobSpec{JobID: "22222222-2222-2222-2222-222222222222",
+		Intent: extractor.IntentCnesEstabelecimentos}
+	src := &sourceStub{nextFn: func(_ context.Context) (*worker.JobSpec, error) {
+		return spec, nil
+	}}
+	exec := &execStub{runFn: func(_ context.Context, _ *worker.Job) (int64, error) {
+		return 0, errors.New("firebird_unreachable")
+	}}
+	cons := worker.NewConsumer(api, src, exec, worker.ConsumerConfig{
+		PollInterval:      time.Millisecond,
+		InterJobJitterMax: time.Millisecond,
+		HeartbeatInterval: time.Second,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	require.NoError(t, cons.Loop(ctx))
+
+	logged := buf.String()
+	require.Contains(t, logged, "firebird_unreachable",
+		"execErr must be logged before FailJob - it's the only place the real cause is visible")
+	require.Contains(t, logged, "level=ERROR")
 }
 
 func TestLoop_SequenceMintRunRegister(t *testing.T) {
