@@ -15,6 +15,7 @@ from sqlalchemy import create_engine
 
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_infra import config
+from cnes_infra.storage.rls import install_rls_listener
 from cnes_infra.storage.s3_presigned import S3PresignedStorage, build_s3_client
 from cnes_infra.telemetry import init_telemetry
 from data_processor.consumer import run_processor
@@ -146,6 +147,7 @@ async def main() -> int:
         return 0
 
     engine = create_engine(config.DB_URL)
+    install_rls_listener(engine)
     storage = _create_storage()
 
     await run_processor(engine, storage)
