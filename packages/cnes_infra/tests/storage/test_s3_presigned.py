@@ -134,6 +134,21 @@ class TestBuildS3Client:
         client = build_s3_client("sa-east-1")
         assert client.meta.region_name == "sa-east-1"
 
+    def test_endpoint_url_none_forca_virtual_mesmo_com_style_auto(self, monkeypatch):
+        """S3 real (endpoint_url=None) com addressing_style="auto" (o default de
+        config.S3_ADDRESSING_STYLE) faz o botocore assinar o presign contra o
+        endpoint global (s3.amazonaws.com) em vez do regional — S3 devolve 307
+        TemporaryRedirect em todo PUT para um bucket fora de us-east-1.
+        Reproduzido contra o bucket real sa-east-1 em prod (22/09/2026).
+        generate_presigned_url é assinatura local, sem rede — só precisa de
+        credenciais explícitas para o resolvedor padrão do boto3 assinar."""
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+        client = build_s3_client("sa-east-1", endpoint_url=None, addressing_style="auto")
+        adapter = S3PresignedStorage(client)
+        url = adapter.generate_presigned_upload_url("cnesdata-landing", "key.parquet.gz")
+        assert "cnesdata-landing.s3.sa-east-1.amazonaws.com" in url
+
     def test_recusa_endpoint_customizado_sem_credenciais_explicitas(self, monkeypatch):
         """Sem isso, boto3 cai silenciosamente para ~/.aws/credentials (ou
         IMDS) e assina o presign com a credencial AWS real de quem estiver
