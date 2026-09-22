@@ -121,7 +121,7 @@ func newTestAdapter(t *testing.T, handler http.HandlerFunc) *apiclient.Adapter {
 }
 
 func TestRegisterJob_PostUploadWithSha(t *testing.T) {
-	var got apiclient.RegisterRequest
+	var got apiclient.JobRegisterRequest
 	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &got)
@@ -131,9 +131,10 @@ func TestRegisterJob_PostUploadWithSha(t *testing.T) {
 		))
 	})
 	job := worker.Job{
-		ID:       "11111111-2222-3333-4444-555555555555",
-		Sha256:   "a" + strings.Repeat("0", 63),
-		MinioKey: "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+		ID:          "11111111-2222-3333-4444-555555555555",
+		Sha256:      "a" + strings.Repeat("0", 63),
+		MinioKey:    "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz",
+		FatoSubtype: "CNES_VINCULO",
 		Params: extractor.ExtractionParams{
 			Intent:      "cnes_profissionais",
 			Competencia: "202601",
@@ -141,8 +142,11 @@ func TestRegisterJob_PostUploadWithSha(t *testing.T) {
 	}
 	err := a.RegisterJob(context.Background(), job, 4096)
 	require.NoError(t, err)
-	require.NotNil(t, got.Sha256)
-	require.Equal(t, "a"+strings.Repeat("0", 63), *got.Sha256)
+	require.Len(t, got.Files, 1)
+	require.Equal(t, "a"+strings.Repeat("0", 63), got.Files[0].Sha256)
+	require.Equal(t, int64(4096), got.Files[0].SizeBytes)
+	require.Equal(t, "354130/CNES_VINCULO/2026-01-01/abc.parquet.gz", got.Files[0].MinioKey)
+	require.Equal(t, apiclient.FileManifestFatoSubtypeCNESVINCULO, got.Files[0].FatoSubtype)
 }
 
 func TestRegisterJob_5xxReturnsHTTPError(t *testing.T) {

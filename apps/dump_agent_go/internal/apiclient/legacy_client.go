@@ -1,10 +1,11 @@
 package apiclient
 
 // Operações legadas do modo de migração que não podem ser geradas a partir de
-// docs/contracts/openapi.json: /api/v1/jobs/register aceita apenas um corpo por
-// caminho (o N-file gerado) e /api/v1/jobs/{extraction_id}/{fail,heartbeat} não
-// possuem rota no servidor atual. Mantidas aqui, fora de generated.go, para que
-// `go generate` permaneça reproduzível e o gate de drift continue real.
+// docs/contracts/openapi.json: /api/v1/jobs/{extraction_id}/{fail,heartbeat} usam
+// caminhos com segmento "extraction_id" que o servidor atual não expõe tipado
+// (fail: dict[str, Any]; heartbeat: rota /api/v1/edge/... nem mapeada aqui ainda).
+// Mantidas aqui, fora de generated.go, para que `go generate` permaneça
+// reproduzível e o gate de drift continue real.
 
 import (
 	"bytes"
@@ -23,28 +24,10 @@ import (
 // ErrLegacyClientUnavailable sinaliza um ClientWithResponses sem *Client concreto.
 var ErrLegacyClientUnavailable = errors.New("legacy_client_unavailable")
 
-// RegisterRequest é o manifesto single-file legado de /api/v1/jobs/register.
-type RegisterRequest struct {
-	AgentVersion string                      `json:"agent_version"`
-	Competencia  int                         `json:"competencia"`
-	FonteSistema RegisterRequestFonteSistema `json:"fonte_sistema"`
-	JobId        openapi_types.UUID          `json:"job_id"`
-	MachineId    string                      `json:"machine_id"`
-	Sha256       *string                     `json:"sha256,omitempty"`
-	TenantId     string                      `json:"tenant_id"`
-	TipoExtracao string                      `json:"tipo_extracao"`
-}
-
-// RegisterRequestFonteSistema defines model for RegisterRequest.FonteSistema.
-type RegisterRequestFonteSistema string
-
 // FailPayload é o corpo legado de /api/v1/jobs/{extraction_id}/fail.
 type FailPayload struct {
 	Error string `json:"error"`
 }
-
-// RegisterExtractionApiV1JobsRegisterPostJSONRequestBody defines body for RegisterExtractionApiV1JobsRegisterPost.
-type RegisterExtractionApiV1JobsRegisterPostJSONRequestBody = RegisterRequest
 
 // FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody defines body for FailExtractionApiV1JobsExtractionIdFailPost.
 type FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody = FailPayload
@@ -66,15 +49,6 @@ func (r LegacyResponse) StatusCode() int {
 		return 0
 	}
 	return r.HTTPResponse.StatusCode
-}
-
-// RegisterExtractionApiV1JobsRegisterPostWithResponse envia o manifesto single-file legado.
-func (c *ClientWithResponses) RegisterExtractionApiV1JobsRegisterPostWithResponse(
-	ctx context.Context,
-	body RegisterExtractionApiV1JobsRegisterPostJSONRequestBody,
-	reqEditors ...RequestEditorFn,
-) (*LegacyResponse, error) {
-	return c.legacyJSON(ctx, http.MethodPost, "/api/v1/jobs/register", nil, body, reqEditors)
 }
 
 // FailExtractionApiV1JobsExtractionIdFailPostWithResponse marca a extração como falha.
