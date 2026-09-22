@@ -75,7 +75,9 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 		WithArgs("354130").
 		WillReturnRows(sqlmock.NewRows(cols).AddRow("0001", "UBS", "05", "354130", "12345"))
 
-	adapter, err := apiclient.NewAdapter(central.URL, "354130", "abc12345", nil)
+	adapter, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: central.URL, TenantID: "354130", MachineID: "abc12345",
+	})
 	require.NoError(t, err)
 
 	src := worker.NewStaticSource(worker.StaticSpec{

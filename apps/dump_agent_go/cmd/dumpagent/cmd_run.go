@@ -324,7 +324,13 @@ func buildAPIClient(machineID string, httpClient *http.Client) (*apiclient.Adapt
 	if tenantID == "" {
 		return nil, &stubErr{msg: "env_required var=TENANT_ID"}
 	}
-	return apiclient.NewAdapter(baseURL, tenantID, machineID, httpClient)
+	return apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL:      baseURL,
+		TenantID:     tenantID,
+		MachineID:    machineID,
+		AgentVersion: Version,
+		HTTPClient:   httpClient,
+	})
 }
 
 func buildJobSource() (worker.JobSpecSource, error) {

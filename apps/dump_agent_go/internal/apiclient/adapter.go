@@ -25,26 +25,43 @@ type Adapter struct {
 	AgentVersion string
 }
 
+// AdapterConfig agrupa os parâmetros de construção do Adapter. Existe para
+// caber AgentVersion (main.Version, via -X ldflags) sem estourar o limite
+// de 4 parâmetros de NewAdapter.
+type AdapterConfig struct {
+	BaseURL      string
+	TenantID     string
+	MachineID    string
+	AgentVersion string
+	HTTPClient   *http.Client
+}
+
 // NewAdapter cria Adapter com editors X-Tenant-Id / X-Machine-Id.
-func NewAdapter(baseURL, tenantID, machineID string, httpClient *http.Client) (*Adapter, error) {
-	if tenantID == "" {
+// AgentVersion resolve, em ordem: env AGENT_VERSION > cfg.AgentVersion > "dev"
+// — a env var continua vencendo para permitir override manual em campo.
+func NewAdapter(cfg AdapterConfig) (*Adapter, error) {
+	if cfg.TenantID == "" {
 		return nil, fmt.Errorf("tenant_id_required")
 	}
-	if machineID == "" {
+	if cfg.MachineID == "" {
 		return nil, fmt.Errorf("machine_id_required")
 	}
-	editors := []RequestEditorFn{WithTenantID(tenantID), WithMachineID(machineID)}
+	editors := []RequestEditorFn{WithTenantID(cfg.TenantID), WithMachineID(cfg.MachineID)}
 	opts := []ClientOption{WithRequestEditorFn(combineEditors(editors))}
-	if httpClient != nil {
-		opts = append([]ClientOption{WithHTTPClient(httpClient)}, opts...)
+	if cfg.HTTPClient != nil {
+		opts = append([]ClientOption{WithHTTPClient(cfg.HTTPClient)}, opts...)
 	}
-	inner, err := NewClientWithResponses(baseURL, opts...)
+	inner, err := NewClientWithResponses(cfg.BaseURL, opts...)
 	if err != nil {
 		return nil, err
 	}
+	configuredVersion := cfg.AgentVersion
+	if configuredVersion == "" {
+		configuredVersion = "dev"
+	}
 	return &Adapter{
-		Inner: inner, TenantID: tenantID, MachineID: machineID,
-		AgentVersion: envOr("AGENT_VERSION", "dev"),
+		Inner: inner, TenantID: cfg.TenantID, MachineID: cfg.MachineID,
+		AgentVersion: envOr("AGENT_VERSION", configuredVersion),
 	}, nil
 }
 
