@@ -45,7 +45,7 @@ Adicionar em `Settings → Secrets and variables → Actions`:
 
 ### GitHub Variables (repo)
 
-- `RELEASES_PUBLIC_BASE_URL` = `https://releases.cnesdata.vinisantana.com` — usada pelo
+- `RELEASES_PUBLIC_BASE_URL` = `https://releases.cnesdata.com.br` — usada pelo
   workflow de release para compor as URLs do manifesto e pelos agentes/operadores para
   baixar artefatos. É `vars.*`, não secret: aparece em todo manifesto servido
   publicamente, e mascarar o valor tornaria os logs do workflow ilegíveis.
@@ -59,7 +59,7 @@ uma credencial R2, e o binário + checksum são públicos por natureza (repo pú
 possível na ponta.
 
 1. R2 → `cnesdata-releases` → Settings → Public access → **Connect Domain** →
-   `releases.cnesdata.vinisantana.com` (a zona `vinisantana.com` já precisa estar na
+   `releases.cnesdata.com.br` (a zona `cnesdata.com.br` já precisa estar na
    Cloudflare). O CNAME proxied é criado automaticamente pelo R2.
 2. **Não habilitar a URL `r2.dev`** em produção — é rate-limited e não-cacheável por
    design. Só serve como smoke test temporário se o DNS do domínio custom não estiver
@@ -112,7 +112,7 @@ kill switch de rollback: `dumpagent-release.md`.
 Após um release publicado (ver `dumpagent-release.md` para o fluxo completo):
 
 ```bash
-curl -s https://releases.cnesdata.vinisantana.com/dumpagent/stable/latest.json | jq .
+curl -s https://releases.cnesdata.com.br/dumpagent/stable/latest.json | jq .
 ```
 
 Expected: manifesto válido, `artifacts."windows-amd64".url` respondendo 200.

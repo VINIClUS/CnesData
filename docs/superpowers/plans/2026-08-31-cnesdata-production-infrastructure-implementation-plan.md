@@ -48,7 +48,7 @@ docs/superpowers/specs/2026-08-29-cnesdata-production-operations-design.md
   attempts is enforced by runtime counter.
 - Processor ECR retains at most five production rollback digests/30 days, untagged seven days and
   current/prior protections.
-- Cognito creates resource server identifier https://api.cnesdata.vinisantana.com and scope
+- Cognito creates resource server identifier https://api.cnesdata.com.br and scope
   api.access; public PKCE SPA client; collision-safe managed prefix domain; no SMS/social/M2M/custom
   domain.
 - Athena is operator-only with 5 GB/query and 100 GB/month cutoff; never an API dependency.
@@ -275,8 +275,8 @@ Compare outputs to AwsRuntimeSettings/dashboard public-env schema from the runti
 
 **Interfaces:**
 - Private us-east-2 versioned bucket, OAC, CloudFront, dedicated global WAF and ACM.
-- Public name cnesdata.vinisantana.com; Cloudflare DNS is external ownership.
-- Runtime output maps VITE_API_BASE_URL exactly to https://api.cnesdata.vinisantana.com/api/v1.
+- Public name cnesdata.com.br; Cloudflare DNS is external ownership.
+- Runtime output maps VITE_API_BASE_URL exactly to https://api.cnesdata.com.br/api/v1.
 
 - [ ] **Step 1: Write OAC/public policy tests**
 

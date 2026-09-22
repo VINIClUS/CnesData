@@ -1,10 +1,32 @@
 # Runs in the `caddy` service of docker-compose.prod.yml. This is the only
 # public entrypoint on the VPS (ports 80/443) — it also proxies
-# dev.cnesdata.vinisantana.com via the shared `cnesdata_edge` network, so the
+# dev.cnesdata.com.br via the shared `cnesdata_edge` network, so the
 # `develop` block below must never be dropped when redeploying prod.
 # See docs/runbooks/deploy-develop.md for how that block was added.
+#
+# The two prod blocks below serve BOTH the new (cnesdata.com.br) and legacy
+# (vinisantana.com) hostnames from the same backend, because prod's own
+# cutover (.env, deployed image, DNS) hasn't happened yet — dropping the
+# legacy names before that caused a live ~30min outage on 2026-09-22 (this
+# file was renamed in place, Caddy lost its only block for
+# cnesdata.vinisantana.com/api.vinisantana.com, every request
+# TLS-handshake-failed). Do not drop them until prod's cutover completes
+# (docs/runbooks/deploy-main.md, "Pré-requisito manual: migração de
+# domínio") — and even then, redirect (don't keep proxying) the legacy
+# names: once prod's dashboard image is rebuilt with the new domain's
+# VITE_OIDC_REDIRECT_URI baked in, a login started on the legacy origin
+# stores its OIDC state there but gets redirected to the new origin's
+# callback, which can't read state from a different origin. A permanent
+# redirect avoids ever serving a build that can't complete login for the
+# origin it was requested on.
+#
+# The dev blocks are NOT dual-hostname: dev's own cutover (.env, image,
+# DNS, Keycloak client) already happened, so dev.cnesdata.vinisantana.com
+# would hit this same login-state mismatch immediately once the dashboard
+# rebuilds with the new domain baked in. No reason to carry that risk for
+# a completed cutover.
 
-cnesdata.vinisantana.com {
+cnesdata.com.br, cnesdata.vinisantana.com {
     handle /idp/* {
         reverse_proxy keycloak:8080
     }
@@ -13,7 +35,7 @@ cnesdata.vinisantana.com {
     }
 }
 
-dev.cnesdata.vinisantana.com {
+dev.cnesdata.com.br {
     handle /idp/* {
         reverse_proxy dev-keycloak:8080
     }
@@ -23,7 +45,7 @@ dev.cnesdata.vinisantana.com {
 }
 
 # API hosts: only the versioned API surface is exposed; docs/openapi stay internal.
-api.vinisantana.com {
+api.cnesdata.com.br, api.vinisantana.com {
     handle /api/* {
         reverse_proxy central-api:8000
     }
@@ -32,7 +54,7 @@ api.vinisantana.com {
     }
 }
 
-api.dev.vinisantana.com {
+api.dev.cnesdata.com.br {
     handle /api/* {
         reverse_proxy dev-central-api:8000
     }
@@ -44,10 +66,10 @@ api.dev.vinisantana.com {
 # Edge agent upload target for dev (self-hosted AIStor/MinIO). Prod has no
 # equivalent block: prod's compose removes the minio service entirely and
 # presigned URLs point straight at real S3, which is already public. An
-# earlier prod-side storage.cnesdata.vinisantana.com vhost (reverse_proxy
+# earlier prod-side storage.cnesdata.com.br vhost (reverse_proxy
 # minio:9000) was dropped here — that minio service no longer exists on
 # prod, so the vhost was dead config. If Caddy already issued a Let's
 # Encrypt cert for it, the cert sits unused in caddy_data; harmless.
-storage.dev.cnesdata.vinisantana.com {
+storage.dev.cnesdata.com.br {
     reverse_proxy dev-minio:9000
 }

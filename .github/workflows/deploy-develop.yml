@@ -75,7 +75,10 @@ jobs:
             ${{ env.IMAGE_NAMESPACE }}/${{ matrix.app }}:develop
           build-args: |
             OS_PATCH_LEVEL=${{ steps.patch.outputs.level }}
-            VITE_API_BASE_URL=${{ matrix.app == 'web_dashboard' && 'https://api.dev.vinisantana.com/api/v1' || '/api/v1' }}
+            VITE_API_BASE_URL=${{ matrix.app == 'web_dashboard' && 'https://api.dev.cnesdata.com.br/api/v1' || '/api/v1' }}
+            VITE_OIDC_AUTHORITY=${{ matrix.app == 'web_dashboard' && 'https://dev.cnesdata.com.br/idp/realms/cnesdata' || '' }}
+            VITE_OIDC_CLIENT_ID=${{ matrix.app == 'web_dashboard' && 'cnesdata-dashboard' || '' }}
+            VITE_OIDC_REDIRECT_URI=${{ matrix.app == 'web_dashboard' && 'https://dev.cnesdata.com.br/auth/callback' || '' }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
@@ -86,7 +89,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: develop
-      url: https://dev.cnesdata.vinisantana.com
+      url: https://dev.cnesdata.com.br
     steps:
       - name: Resolve image tag
         id: tag
@@ -116,9 +119,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Web dashboard smoke test
-        run: bash apps/web_dashboard/scripts/smoke.sh https://dev.cnesdata.vinisantana.com https://api.dev.vinisantana.com
+        run: bash apps/web_dashboard/scripts/smoke.sh https://dev.cnesdata.com.br https://api.dev.cnesdata.com.br
 
       - name: Central API health check
         run: |
-          curl -fsS https://dev.cnesdata.vinisantana.com/api/v1/system/health | tee /tmp/health.json
+          curl -fsS https://dev.cnesdata.com.br/api/v1/system/health | tee /tmp/health.json
           jq -e '.db_connected == true' /tmp/health.json
