@@ -245,13 +245,21 @@ func buildMTLSClient(authDir string) (*transport.Client, error) {
 // loadPersistedCAPin reads authDir's ca_pin.pem (written by `register
 // --ca-pin`). Absent file → nil, empty pin (system trust store); any other
 // read error propagates so a corrupted pin fails closed rather than
-// silently falling back.
+// silently falling back. A present-but-empty file is treated as corrupt,
+// not as "no pin" — system trust is represented by an absent file only, so
+// a truncated ca_pin.pem must not silently bypass the configured pin.
 func loadPersistedCAPin(authDir string) ([]byte, error) {
 	pin, err := auth.LoadCAPin(authDir)
 	if errors.Is(err, auth.ErrNotFound) {
 		return nil, nil
 	}
-	return pin, err
+	if err != nil {
+		return nil, err
+	}
+	if len(pin) == 0 {
+		return nil, fmt.Errorf("%w: ca_pin.pem present but empty", transport.ErrCAPinInvalid)
+	}
+	return pin, nil
 }
 
 // httpClientFor returns mtls.HTTPClient() or nil. nil-handling lets

@@ -226,6 +226,23 @@ func TestInitMTLS_CorruptedPersistedPin_FailsClosed(t *testing.T) {
 	}
 }
 
+func TestInitMTLS_EmptyPersistedPinFile_FailsClosed(t *testing.T) {
+	ca := seedMTLSCA(t)
+	dir := seedMTLSAuthDir(t, ca)
+	t.Setenv("AGENT_ALLOW_INSECURE", "")
+	if err := auth.SaveCAPin(dir, []byte{}); err != nil {
+		t.Fatalf("SaveCAPin: %v", err)
+	}
+
+	mtls, err := initMTLSClient(dir)
+	if err == nil {
+		t.Fatal("expected error for present-but-empty ca_pin.pem, got nil")
+	}
+	if mtls != nil {
+		t.Fatal("expected nil mtls for present-but-empty ca_pin.pem")
+	}
+}
+
 func TestInitMTLS_CorruptedPersistedPin_FallbackHonored(t *testing.T) {
 	ca := seedMTLSCA(t)
 	dir := seedMTLSAuthDir(t, ca)

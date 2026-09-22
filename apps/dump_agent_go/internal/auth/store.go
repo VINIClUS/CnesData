@@ -100,7 +100,8 @@ func LoadCAPin(dir string) ([]byte, error) {
 
 // RemoveCAPin deletes <dir>/ca_pin.pem if present; no-op if already absent.
 func RemoveCAPin(dir string) error {
-	if err := os.Remove(filepath.Join(dir, caPinFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	err := os.Remove(filepath.Join(dir, caPinFileName))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("auth: remove ca_pin: %w", err)
 	}
 	return nil
