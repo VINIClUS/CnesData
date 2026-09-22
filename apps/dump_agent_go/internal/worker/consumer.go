@@ -91,7 +91,7 @@ func (c *Consumer) Loop(ctx context.Context) (err error) {
 
 		job, mintErr := c.api.MintUploadURL(ctx, *spec)
 		if mintErr != nil {
-			slog.Warn("mint_upload_url_failed", "err", mintErr.Error())
+			slog.Error("mint_upload_url_failed", "err", mintErr.Error())
 			c.sleep(ctx, c.config.PollInterval)
 			continue
 		}
@@ -127,6 +127,7 @@ func (c *Consumer) processJob(ctx context.Context, job Job) {
 		return
 	}
 	if execErr != nil {
+		slog.Error("job_execution_failed", "job_id", job.ID, "err", execErr.Error())
 		if err := c.api.FailJob(ctx, job, execErr); err != nil {
 			slog.Error("fail_job_api_error", "job_id", job.ID, "err", err.Error())
 		}
