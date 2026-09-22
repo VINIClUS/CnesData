@@ -57,7 +57,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - **mTLS termina no Caddy** — `client_auth verify_if_given` nos vhosts `api.*`
   repassa o cert em `X-SSL-Client-Cert` (DER base64); `agent_auth.py` só aceita
   o header de `TRUSTED_PROXY_CIDRS`, revalida cadeia/serial/refresh e vincula
-  tenant/machine em `/api/v1/jobs/*` e `/provision/cert/rotate`.
+  o tenant (e grava o CN como machine_id) em `/api/v1/jobs/*`; rotação idem.
   `AGENT_MTLS_REQUIRED=false` só no stack local sem Caddy.
 
 ## Requirements

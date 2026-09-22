@@ -118,7 +118,7 @@ Current `dump_agent_go` production path includes:
 | `POST /activate/confirm` | Bearer JWT + user code | activation confirmation |
 | `POST /provision/cert` | CSR + registration token | client certificate |
 | `POST /provision/cert/rotate` | mTLS + CSR | renewed client certificate |
-| `POST /api/v1/jobs/upload-url` | mTLS; `tenant_id`/`machine_id` devem bater com o cert | presigned PUT URL |
+| `POST /api/v1/jobs/upload-url` | mTLS; `tenant_id` deve bater com o cert (`machine_id` gravado = CN do cert) | presigned PUT URL |
 | `POST /api/v1/jobs/register` | mTLS; manifest with files + optional `sha256` | `{job_id, status}` |
 
 mTLS: o Caddy (`client_auth verify_if_given`) prova a posse da chave e sobrescreve

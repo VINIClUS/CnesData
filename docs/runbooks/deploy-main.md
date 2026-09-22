@@ -326,7 +326,11 @@ autoaplica, siga o procedimento de edição in-place de "Migração de domínio"
    prod/dev/outro site). Conferir `curl -sI https://api.cnesdata.com.br/api/v1/system/health`
    e `https://cnesdata.com.br` (dashboard sem cert continua 200).
 6. Só então deployar a imagem. Os agentes precisam ter `cert.pem` válido
-   (`dumpagent register`); `AGENT_ALLOW_INSECURE=true` passa a receber 401.
+   (`dumpagent register`); `AGENT_ALLOW_INSECURE=true` passa a receber 401, e um cert
+   já expirado (ou de outra CA) falha no próprio handshake TLS — re-registrar.
+7. Provar a allowlist na rede real: uma chamada autenticada de um agente registrado
+   (`/api/v1/jobs/*` sem 401) e uma página do dashboard com dados da API no browser
+   (o vhost compartilhado agora envia CertificateRequest).
 
 ## Pendências conhecidas (fora do escopo desta entrega)
 

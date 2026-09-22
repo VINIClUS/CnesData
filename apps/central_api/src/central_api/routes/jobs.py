@@ -67,8 +67,13 @@ def _bind_identity(
     set_tenant_id(identity.tenant_id)
     if tenant_id is not None and tenant_id != identity.tenant_id:
         raise HTTPException(status_code=403, detail="agent_identity_mismatch")
+    # Not a 403: on Linux machine_id is per-user state, so `register` (CN) and
+    # the service can legitimately disagree. The cert CN is what gets recorded.
     if machine_id is not None and machine_id != identity.machine_id:
-        raise HTTPException(status_code=403, detail="agent_identity_mismatch")
+        logger.warning(
+            "agent_machine_id_mismatch agent_id=%s body=%s cert=%s",
+            identity.agent_id, machine_id, identity.machine_id,
+        )
     return identity.machine_id
 
 

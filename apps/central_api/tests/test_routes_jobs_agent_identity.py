@@ -97,11 +97,12 @@ def test_upload_url_rejeita_tenant_diferente_do_certificado(repo):
     repo.mint_upload_url.assert_not_called()
 
 
-def test_upload_url_rejeita_machine_id_diferente_do_certificado(repo):
-    with _client() as client:
+def test_upload_url_grava_machine_id_do_certificado_quando_corpo_diverge(repo, caplog):
+    with _client() as client, caplog.at_level("WARNING", logger="central_api.routes.jobs"):
         resp = client.post("/api/v1/jobs/upload-url", json=_upload_body(machine_id="ffffffff"))
-    assert resp.status_code == 403
-    repo.mint_upload_url.assert_not_called()
+    assert resp.status_code == 201
+    assert repo.mint_upload_url.call_args.kwargs["machine_id"] == "a1b2c3d4"
+    assert "agent_machine_id_mismatch" in caplog.text
 
 
 def test_upload_url_sem_machine_id_usa_o_do_certificado(repo):
@@ -120,11 +121,11 @@ def test_register_restringe_ao_tenant_do_certificado(repo):
     assert repo.register.call_args.kwargs["tenant_id"] == "354130"
 
 
-def test_register_rejeita_machine_id_diferente_do_certificado(repo):
+def test_register_grava_machine_id_do_certificado_quando_corpo_diverge(repo):
     with _client() as client:
         resp = client.post("/api/v1/jobs/register", json=_register_body(machine_id="ffffffff"))
-    assert resp.status_code == 403
-    repo.register.assert_not_called()
+    assert resp.status_code == 200
+    assert repo.register.call_args.kwargs["machine_id"] == "a1b2c3d4"
 
 
 def test_register_sem_identidade_mantem_comportamento_legado(repo):
