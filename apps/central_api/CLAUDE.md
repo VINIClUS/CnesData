@@ -68,7 +68,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `S3_PUBLIC_ENDPOINT_URL` | opcional | Host usado nas URLs presigned entregues ao edge agent; default = `S3_ENDPOINT_URL`. Só relevante em dev (self-hosted); S3 real já é público, prod não seta |
 | `S3_REGION` | opcional | Default `sa-east-1` |
 | `S3_BUCKET` | opcional | Default `cnesdata-landing` |
-| `S3_ADDRESSING_STYLE` | opcional | `auto`\|`path`\|`virtual`, default `auto` |
+| `S3_ADDRESSING_STYLE` | opcional | `auto`\|`path`\|`virtual`, default `auto`. Sem `S3_ENDPOINT_URL`, só o default `auto` é normalizado para `virtual` (`auto` quebra presign com 307 fora de `us-east-1` — ver `s3_presigned.py`); um `path`/`virtual` explícito passa direto — necessário setar `path` se `S3_BUCKET` tiver ponto no nome, senão virtual-hosted falha TLS |
 | `API_HOST` | opcional | Default `0.0.0.0` |
 | `API_PORT` | opcional | Default `8000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | opcional | Tracing (se OTel SDK instalado) |
