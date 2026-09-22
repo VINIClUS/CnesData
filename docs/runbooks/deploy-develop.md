@@ -177,6 +177,32 @@ ali. Sem a licença AIStor (`secrets/minio.license`), `central-api`/`data-proces
 sobem de jeito nenhum (ver `docs/development.md#object-storage-license`) — o deploy falha
 alto no healthcheck de 120s do `deploy.sh`, não silenciosamente.
 
+## Pré-requisito manual: migração de domínio (vinisantana.com → cnesdata.com.br)
+
+Diferente de `deploy-main.yml`, **`deploy-develop.yml` dispara automaticamente em todo
+`push` para `develop`** que toca `apps/**`, `packages/**` ou `deploy/**` — sem gate manual.
+Isso significa que o merge da PR de rename de domínio **dispara o deploy imediatamente**,
+antes de qualquer cutover manual na VPS. `deploy.sh` só troca `IMAGE_TAG`; nunca copia
+Caddyfile, compose ou `.env`. O resultado esperado nesse primeiro push, sem os passos
+abaixo feitos antes: a imagem builda com `VITE_OIDC_AUTHORITY=https://dev.cnesdata.com.br/...`,
+o `smoke.sh` roda contra `https://dev.cnesdata.com.br` (não resolve TLS até o Caddy ser
+atualizado), o `deploy` job falha e `deploy.sh` restaura automaticamente a tag anterior —
+não deixa o ambiente quebrado, mas reporta falha e não sobe o código novo até o cutover
+manual acontecer.
+
+**Fazer os passos abaixo ANTES do merge para develop**, não depois:
+
+1. `scp` o `Caddyfile` novo (bloco `dev.cnesdata.com.br`) para o VPS e
+   `docker compose -f docker-compose.prod.yml up -d caddy` (mesmo Caddy compartilhado do
+   `main` — reload afeta prod brevemente).
+2. Atualizar `/opt/cnesdata-dev/.env`: `PUBLIC_DOMAIN=dev.cnesdata.com.br`,
+   `DASHBOARD_OIDC_ISSUER=https://dev.cnesdata.com.br/idp/realms/cnesdata`,
+   `AUTH_DEVICE_VERIFICATION_URI=https://dev.cnesdata.com.br/activate`,
+   `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`.
+3. Migrar o client OIDC do realm Keycloak **dev** pelo console (mesma ressalva do
+   `deploy-main.md`: `--import-realm` não substitui um realm já importado no volume
+   `keycloak_data`) — redirect URI e web origin para `dev.cnesdata.com.br`.
+
 ## Pendências conhecidas (fora do escopo desta entrega)
 
 - Firewall Hostinger (grupo `358236`) tem uma regra `TCP any/any` liberada —

@@ -144,6 +144,38 @@ Antes do primeiro `gh workflow run deploy-main.yml` com esta mudança:
 3. `scp docker-compose.prod.yml` (passo já supervisionado — ver "Provisionamento único"
    acima) antes de disparar o workflow; ele não se autoatualiza no VPS.
 
+## Pré-requisito manual: migração de domínio (vinisantana.com → cnesdata.com.br)
+
+Esta PR troca hostnames hardcoded em `deploy/prod/caddy/Caddyfile`,
+`.github/workflows/deploy-main.yml` (build-args OIDC, URL de smoke) e
+`deploy/prod/.env.example` de `vinisantana.com` para `cnesdata.com.br`. **Nenhum desses
+arquivos se autoaplica na VPS** — `deploy.sh` só troca `IMAGE_TAG`, nunca copia Caddyfile,
+compose ou `.env`. Sem os passos abaixo, a imagem nova builda com
+`VITE_OIDC_AUTHORITY=https://cnesdata.com.br/idp/realms/cnesdata` mas roda atrás do Caddy
+antigo (ainda só serve `cnesdata.vinisantana.com`) e do Keycloak com client OIDC que só
+autoriza o redirect URI antigo — login quebra com invalid redirect URI mesmo com toda a
+infra HTTP funcionando.
+
+Antes do primeiro `gh workflow run deploy-main.yml` com esta mudança:
+
+1. `scp` o `Caddyfile` e o `docker-compose.prod.yml` novos para `/opt/cnesdata/` (mesmo
+   passo supervisionado de "Provisionamento único").
+2. Atualizar `/opt/cnesdata/.env`: `PUBLIC_DOMAIN=cnesdata.com.br`,
+   `API_DOMAIN=api.cnesdata.com.br`,
+   `DASHBOARD_OIDC_ISSUER=https://cnesdata.com.br/idp/realms/cnesdata`,
+   `AUTH_DEVICE_VERIFICATION_URI=https://cnesdata.com.br/activate`.
+3. **Migrar o client OIDC no realm do Keycloak prod pelo console** — o estado do realm
+   vive no volume persistente `keycloak_data`; reiniciar o Keycloak com `--import-realm`
+   **não substitui** um realm já importado. Adicionar `https://cnesdata.com.br/auth/callback`
+   aos redirect URIs e `https://cnesdata.com.br` aos web origins do client
+   `cnesdata-dashboard` (manter as entradas antigas até confirmar login funcionando, depois
+   remover). Sem isso, o dashboard novo recebe `invalid redirect_uri` do Keycloak mesmo com
+   DNS/TLS/Caddy corretos.
+4. `docker compose -f docker-compose.prod.yml up -d caddy` para o Caddy emitir os certs LE
+   novos no primeiro request.
+5. Só então disparar `deploy-main.yml`. Rodar
+   `smoke.sh https://cnesdata.com.br https://api.cnesdata.com.br` logo depois.
+
 ## Pendências conhecidas (fora do escopo desta entrega)
 
 - `src/` antigo em `/opt/cnesdata` (código copiado manualmente, usado pelo
