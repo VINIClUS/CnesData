@@ -46,6 +46,7 @@ extractions_table = Table(
     ),
     Column("registered_at", DateTime(timezone=True), nullable=True),
     Column("sha256", CHAR(64), nullable=True),
+    Column("error_detail", Text, nullable=True),
     schema="landing",
 )
 
