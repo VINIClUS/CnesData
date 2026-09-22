@@ -202,6 +202,25 @@ func TestFailJob_ErrorMessagePropagated(t *testing.T) {
 	require.Contains(t, string(gotBody), "db_timeout")
 }
 
+func TestFailJob_TruncatesLongErrorToServerLimit(t *testing.T) {
+	const serverMaxLength = 2000 // packages/cnes_contracts ExtractionFailPayload.error max_length
+	var gotBody []byte
+	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	longCause := errors.New(strings.Repeat("x", serverMaxLength+500))
+	err := a.FailJob(context.Background(), worker.Job{
+		ID: "88888888-8888-8888-8888-888888888888",
+	}, longCause)
+	require.NoError(t, err)
+
+	var body apiclient.FailPayload
+	require.NoError(t, json.Unmarshal(gotBody, &body))
+	require.LessOrEqual(t, len(body.Error), serverMaxLength)
+	require.Contains(t, body.Error, "[truncated]")
+}
+
 func TestRegisterBPASIAJob_InvalidUUID(t *testing.T) {
 	a := newTestAdapter(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
