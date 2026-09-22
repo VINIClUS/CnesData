@@ -92,6 +92,7 @@ def mint_upload_url(
         extraction_id=payload.job_id,
         upload_url=upload_url,
         minio_key=minio_key,
+        fato_subtype=fato_subtype,
     )
     return response.model_dump(mode="json")
 
