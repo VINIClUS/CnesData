@@ -68,6 +68,43 @@ class TestCreateStorage:
             with pytest.raises(RuntimeError, match="s3_client_unavailable"):
                 _create_storage()
 
+    def test_usa_client_publico_quando_diverge_do_interno(self, monkeypatch):
+        """Mesmo split de central_api/deps.py (H9): a URL presigned
+        entregue ao worker precisa de um host diferente do usado
+        internamente quando S3_PUBLIC_ENDPOINT_URL diverge."""
+        from cnes_infra import config as infra_config
+        monkeypatch.setattr(infra_config, "S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.setattr(
+            infra_config, "S3_PUBLIC_ENDPOINT_URL", "https://storage.dev.example.com",
+        )
+        with (
+            patch(
+                "data_processor.main.build_s3_client", return_value=MagicMock(),
+            ) as fake_build,
+            patch("data_processor.main.S3PresignedStorage") as fake_storage_cls,
+        ):
+            from data_processor.main import _create_storage
+            _create_storage()
+        assert fake_build.call_count == 2
+        _, kwargs = fake_storage_cls.call_args
+        assert kwargs["public_client"] is not None
+
+    def test_sem_client_publico_quando_igual_ao_interno(self, monkeypatch):
+        from cnes_infra import config as infra_config
+        monkeypatch.setattr(infra_config, "S3_ENDPOINT_URL", "http://minio:9000")
+        monkeypatch.setattr(infra_config, "S3_PUBLIC_ENDPOINT_URL", "http://minio:9000")
+        with (
+            patch(
+                "data_processor.main.build_s3_client", return_value=MagicMock(),
+            ) as fake_build,
+            patch("data_processor.main.S3PresignedStorage") as fake_storage_cls,
+        ):
+            from data_processor.main import _create_storage
+            _create_storage()
+        assert fake_build.call_count == 1
+        _, kwargs = fake_storage_cls.call_args
+        assert kwargs["public_client"] is None
+
 
 class TestMain:
     @pytest.mark.asyncio
