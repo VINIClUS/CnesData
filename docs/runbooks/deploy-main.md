@@ -159,20 +159,31 @@ infra HTTP funcionando.
 Antes do primeiro `gh workflow run deploy-main.yml` com esta mudança:
 
 1. `scp` o `Caddyfile` e o `docker-compose.prod.yml` novos para `/opt/cnesdata/` (mesmo
-   passo supervisionado de "Provisionamento único").
+   passo supervisionado de "Provisionamento único"). **O Caddyfile já serve cada hostname
+   novo junto com o antigo no mesmo bloco** (`cnesdata.com.br, cnesdata.vinisantana.com
+   { ... }`) — nunca edite para substituir um pelo outro. Incidente real em 2026-09-22:
+   fazer isso derrubou prod por ~30min (TLS handshake failure em todo request para
+   `cnesdata.vinisantana.com`/`api.vinisantana.com`, sem bloco correspondente no Caddy).
+   Só remover os hostnames antigos depois que `.env`, imagem deployada e DNS de prod
+   também tiverem migrado.
 2. Atualizar `/opt/cnesdata/.env`: `PUBLIC_DOMAIN=cnesdata.com.br`,
    `API_DOMAIN=api.cnesdata.com.br`,
    `DASHBOARD_OIDC_ISSUER=https://cnesdata.com.br/idp/realms/cnesdata`,
    `AUTH_DEVICE_VERIFICATION_URI=https://cnesdata.com.br/activate`.
 3. **Migrar o client OIDC no realm do Keycloak prod pelo console** — o estado do realm
    vive no volume persistente `keycloak_data`; reiniciar o Keycloak com `--import-realm`
-   **não substitui** um realm já importado. Adicionar `https://cnesdata.com.br/auth/callback`
-   aos redirect URIs e `https://cnesdata.com.br` aos web origins do client
-   `cnesdata-dashboard` (manter as entradas antigas até confirmar login funcionando, depois
-   remover). Sem isso, o dashboard novo recebe `invalid redirect_uri` do Keycloak mesmo com
-   DNS/TLS/Caddy corretos.
-4. `docker compose -f docker-compose.prod.yml up -d caddy` para o Caddy emitir os certs LE
-   novos no primeiro request.
+   **não substitui** um realm já importado. Adicionar (não substituir)
+   `https://cnesdata.com.br/auth/callback` aos redirect URIs, `https://cnesdata.com.br`
+   aos web origins, **e** `https://cnesdata.com.br/*` a
+   `attributes["post.logout.redirect.uris"]` do client `cnesdata-dashboard` (Keycloak
+   guarda post-logout separado de redirect URI — sem isso o login funciona mas o logout é
+   rejeitado). Manter as entradas antigas até confirmar login **e logout** funcionando,
+   depois remover. Sem o redirect URI, o dashboard novo recebe `invalid redirect_uri` do
+   Keycloak mesmo com DNS/TLS/Caddy corretos.
+4. `docker compose -f docker-compose.prod.yml exec caddy caddy reload --config
+   /etc/caddy/Caddyfile` (não precisa recriar o container — `up -d caddy` só é necessário
+   se a imagem/volumes mudaram) para o Caddy emitir os certs LE novos no primeiro
+   request.
 5. Só então disparar `deploy-main.yml`. Rodar
    `smoke.sh https://cnesdata.com.br https://api.cnesdata.com.br` logo depois.
 

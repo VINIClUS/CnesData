@@ -3,8 +3,18 @@
 # dev.cnesdata.com.br via the shared `cnesdata_edge` network, so the
 # `develop` block below must never be dropped when redeploying prod.
 # See docs/runbooks/deploy-develop.md for how that block was added.
+#
+# Each block below serves BOTH the new (cnesdata.com.br) and legacy
+# (vinisantana.com) hostnames from the same backend during the domain
+# migration transition. Do not drop the vinisantana.com names until prod's
+# .env, deployed image and DNS have all been cut over too (see
+# docs/runbooks/deploy-main.md, "Pré-requisito manual: migração de
+# domínio") — replacing instead of adding caused a live prod outage on
+# 2026-09-22 when this Caddyfile was renamed in place before prod's own
+# cutover: Caddy had no block left for cnesdata.vinisantana.com /
+# api.vinisantana.com and every request TLS-handshake-failed.
 
-cnesdata.com.br {
+cnesdata.com.br, cnesdata.vinisantana.com {
     handle /idp/* {
         reverse_proxy keycloak:8080
     }
@@ -13,7 +23,7 @@ cnesdata.com.br {
     }
 }
 
-dev.cnesdata.com.br {
+dev.cnesdata.com.br, dev.cnesdata.vinisantana.com {
     handle /idp/* {
         reverse_proxy dev-keycloak:8080
     }
@@ -23,7 +33,7 @@ dev.cnesdata.com.br {
 }
 
 # API hosts: only the versioned API surface is exposed; docs/openapi stay internal.
-api.cnesdata.com.br {
+api.cnesdata.com.br, api.vinisantana.com {
     handle /api/* {
         reverse_proxy central-api:8000
     }
@@ -32,7 +42,7 @@ api.cnesdata.com.br {
     }
 }
 
-api.dev.cnesdata.com.br {
+api.dev.cnesdata.com.br, api.dev.vinisantana.com {
     handle /api/* {
         reverse_proxy dev-central-api:8000
     }

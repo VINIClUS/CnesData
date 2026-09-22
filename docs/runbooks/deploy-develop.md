@@ -192,16 +192,25 @@ manual acontecer.
 
 **Fazer os passos abaixo ANTES do merge para develop**, não depois:
 
-1. `scp` o `Caddyfile` novo (bloco `dev.cnesdata.com.br`) para o VPS e
-   `docker compose -f docker-compose.prod.yml up -d caddy` (mesmo Caddy compartilhado do
-   `main` — reload afeta prod brevemente).
+1. `scp` o `Caddyfile` novo para o VPS e `docker compose -f docker-compose.prod.yml
+   exec caddy caddy reload --config /etc/caddy/Caddyfile` (mesmo Caddy compartilhado do
+   `main`). **Cada bloco do Caddyfile serve o hostname novo E o antigo juntos**
+   (`cnesdata.com.br, cnesdata.vinisantana.com { ... }`) — nunca substitua um pelo outro.
+   Incidente real em 2026-09-22: renomear em vez de somar derrubou prod por ~30min
+   (Caddy ficou sem bloco para `cnesdata.vinisantana.com`/`api.vinisantana.com`, todo
+   request dava TLS handshake failure). `caddy reload` em si não derruba conexão
+   nenhuma — o problema é exclusivamente remover hostname de um bloco existente.
 2. Atualizar `/opt/cnesdata-dev/.env`: `PUBLIC_DOMAIN=dev.cnesdata.com.br`,
    `DASHBOARD_OIDC_ISSUER=https://dev.cnesdata.com.br/idp/realms/cnesdata`,
    `AUTH_DEVICE_VERIFICATION_URI=https://dev.cnesdata.com.br/activate`,
    `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`.
 3. Migrar o client OIDC do realm Keycloak **dev** pelo console (mesma ressalva do
    `deploy-main.md`: `--import-realm` não substitui um realm já importado no volume
-   `keycloak_data`) — redirect URI e web origin para `dev.cnesdata.com.br`.
+   `keycloak_data`) — adicionar (não substituir) `https://dev.cnesdata.com.br/*` aos
+   redirect URIs, `https://dev.cnesdata.com.br` aos web origins, **e**
+   `https://dev.cnesdata.com.br/*` a `attributes["post.logout.redirect.uris"]`
+   (Keycloak guarda post-logout separado de redirect URI — sem isso o login funciona
+   mas o logout é rejeitado).
 
 ## Pendências conhecidas (fora do escopo desta entrega)
 
