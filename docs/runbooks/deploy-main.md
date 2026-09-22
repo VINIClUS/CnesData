@@ -54,8 +54,12 @@ ssh root@103.199.184.166 '
 
 # 3. Trocar docker-compose.prod.yml (build local → pull GHCR) — passo
 #    supervisionado, não automatizado. Ver "Migração" acima.
-scp deploy/prod/docker-compose.prod.yml deploy/prod/caddy/Caddyfile \
-  root@103.199.184.166:/opt/cnesdata/  # caddy/Caddyfile mantém os 2 vhosts
+scp deploy/prod/docker-compose.prod.yml root@103.199.184.166:/opt/cnesdata/
+scp deploy/prod/caddy/Caddyfile root@103.199.184.166:/opt/cnesdata/caddy/Caddyfile
+# ^ destino explícito: `docker-compose.prod.yml` monta /opt/cnesdata/caddy/Caddyfile no
+# container caddy — um scp para /opt/cnesdata/ sozinho copiaria para
+# /opt/cnesdata/Caddyfile (sem o caddy/), fora do mount, e o reload seguinte não
+# aplicaria nada (Codex P1, PR #243).
 
 # 4. Instalar a chave privada no runner self-hosted (homelab Proxmox), NÃO
 #    em secrets do GitHub.
@@ -158,8 +162,10 @@ infra HTTP funcionando.
 
 Antes do primeiro `gh workflow run deploy-main.yml` com esta mudança:
 
-1. `scp` o `Caddyfile` e o `docker-compose.prod.yml` novos para `/opt/cnesdata/` (mesmo
-   passo supervisionado de "Provisionamento único"). **O Caddyfile já serve cada hostname
+1. `scp` o `docker-compose.prod.yml` para `/opt/cnesdata/` e o `Caddyfile` para
+   `/opt/cnesdata/caddy/Caddyfile` **explicitamente** (não só `/opt/cnesdata/` — ver
+   "Provisionamento único" acima, o mount é `/opt/cnesdata/caddy/Caddyfile`, um scp para
+   o diretório errado faz o reload seguinte não aplicar nada). **O Caddyfile já serve cada hostname
    novo junto com o antigo no mesmo bloco** (`cnesdata.com.br, cnesdata.vinisantana.com
    { ... }`) — nunca edite para substituir um pelo outro. Incidente real em 2026-09-22:
    fazer isso derrubou prod por ~30min (TLS handshake failure em todo request para

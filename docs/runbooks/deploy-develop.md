@@ -203,7 +203,11 @@ manual acontecer.
 2. Atualizar `/opt/cnesdata-dev/.env`: `PUBLIC_DOMAIN=dev.cnesdata.com.br`,
    `DASHBOARD_OIDC_ISSUER=https://dev.cnesdata.com.br/idp/realms/cnesdata`,
    `AUTH_DEVICE_VERIFICATION_URI=https://dev.cnesdata.com.br/activate`,
-   `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`.
+   `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`. **Fazer isso só depois do
+   passo 1** (Caddy já servindo `storage.dev.cnesdata.com.br`) — senão o `central-api`
+   passaria a assinar presigned URLs contra um host que o Caddy ainda não roteia, e
+   qualquer URL já emitida nesse intervalo pararia de funcionar assim que os containers
+   forem recriados com o `.env` novo (Codex P2, PR #243).
 3. Migrar o client OIDC do realm Keycloak **dev** pelo console (mesma ressalva do
    `deploy-main.md`: `--import-realm` não substitui um realm já importado no volume
    `keycloak_data`) — adicionar (não substituir) `https://dev.cnesdata.com.br/*` aos
