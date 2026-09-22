@@ -144,6 +144,22 @@ func (a *Adapter) MintUploadURL(ctx context.Context, spec worker.JobSpec) (*work
 	}, nil
 }
 
+// maxFailErrorLen mirrors ExtractionFailPayload.error's server-side
+// max_length (packages/cnes_contracts/src/cnes_contracts/landing.py). Panic
+// causes include debug.Stack() and can exceed it, which would otherwise
+// 422 and terminal-drop the only failure record for a real extraction error.
+const maxFailErrorLen = 2000
+
+const failErrorTruncatedSuffix = "...[truncated]"
+
+func truncateFailError(msg string) string {
+	if len(msg) <= maxFailErrorLen {
+		return msg
+	}
+	cut := maxFailErrorLen - len(failErrorTruncatedSuffix)
+	return msg[:cut] + failErrorTruncatedSuffix
+}
+
 // FailJob marca extraction como FAILED via /jobs/{id}/fail.
 func (a *Adapter) FailJob(ctx context.Context, job worker.Job, cause error) error {
 	id, err := parseJobUUID(job.ID)
@@ -154,6 +170,7 @@ func (a *Adapter) FailJob(ctx context.Context, job worker.Job, cause error) erro
 	if cause != nil {
 		msg = cause.Error()
 	}
+	msg = truncateFailError(msg)
 	resp, err := a.Inner.FailExtractionApiV1JobsExtractionIdFailPostWithResponse(
 		ctx, id, FailExtractionApiV1JobsExtractionIdFailPostJSONRequestBody{Error: msg},
 	)
