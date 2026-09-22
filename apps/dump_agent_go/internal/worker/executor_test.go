@@ -48,6 +48,8 @@ func TestJobExecutor_Run_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.Greater(t, size, int64(0))
 	require.Greater(t, uploaded, int64(0))
+	require.Regexp(t, "^[0-9a-f]{64}$", job.Sha256,
+		"snapshot path must populate job.Sha256 for RegisterJob's FileManifest")
 }
 
 func TestJobExecutor_Run_UnknownIntent(t *testing.T) {
