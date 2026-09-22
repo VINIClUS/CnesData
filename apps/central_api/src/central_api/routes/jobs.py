@@ -161,14 +161,17 @@ def register_job(
 def fail_job(
     job_id: UUID,
     body: Annotated[dict[str, Any], Body()],
+    identity: _AgentIdentity,
     engine: Engine = Depends(get_engine),
 ) -> dict:
     try:
         payload = ExtractionFailPayload.model_validate(body, strict=False)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    _bind_identity(identity, tenant_id=None, machine_id=None)
     result = extractions_repo.mark_failed(
         engine, job_id=job_id, reason=payload.error,
+        tenant_id=identity.tenant_id if identity else None,
     )
     if result is None:
         raise HTTPException(

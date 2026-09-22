@@ -52,6 +52,7 @@ def repo(monkeypatch):
     fake = MagicMock()
     fake.mint_upload_url.side_effect = lambda *a, **kw: kw["job_id"]
     fake.register.side_effect = lambda *a, **kw: kw["job_id"]
+    fake.mark_failed.side_effect = lambda *a, **kw: kw["job_id"]
     monkeypatch.setattr("central_api.routes.jobs.extractions_repo", fake)
     storage = MagicMock()
     storage.generate_presigned_upload_url.return_value = "https://s3/presigned"
@@ -70,7 +71,11 @@ def _client(identity: AgentCertIdentity | None = _IDENTITY, *, real_auth: bool =
 
 @pytest.mark.parametrize(
     ("path", "body"),
-    [("/api/v1/jobs/upload-url", _upload_body()), ("/api/v1/jobs/register", _register_body())],
+    [
+        ("/api/v1/jobs/upload-url", _upload_body()),
+        ("/api/v1/jobs/register", _register_body()),
+        (f"/api/v1/jobs/{uuid4()}/fail", {"error": "boom"}),
+    ],
 )
 def test_rejeita_jobs_sem_certificado_quando_mtls_obrigatorio(
     monkeypatch, repo, path, body,
@@ -81,6 +86,7 @@ def test_rejeita_jobs_sem_certificado_quando_mtls_obrigatorio(
     assert resp.status_code == 401
     repo.mint_upload_url.assert_not_called()
     repo.register.assert_not_called()
+    repo.mark_failed.assert_not_called()
 
 
 def test_upload_url_aceita_corpo_igual_ao_certificado(repo):
@@ -133,3 +139,17 @@ def test_register_sem_identidade_mantem_comportamento_legado(repo):
         resp = client.post("/api/v1/jobs/register", json=_register_body(machine_id="x"))
     assert resp.status_code == 200
     assert repo.register.call_args.kwargs["tenant_id"] is None
+
+
+def test_fail_restringe_ao_tenant_do_certificado(repo):
+    with _client() as client:
+        resp = client.post(f"/api/v1/jobs/{uuid4()}/fail", json={"error": "boom"})
+    assert resp.status_code == 200
+    assert repo.mark_failed.call_args.kwargs["tenant_id"] == "354130"
+
+
+def test_fail_sem_identidade_mantem_comportamento_legado(repo):
+    with _client(identity=None) as client:
+        resp = client.post(f"/api/v1/jobs/{uuid4()}/fail", json={"error": "boom"})
+    assert resp.status_code == 200
+    assert repo.mark_failed.call_args.kwargs["tenant_id"] is None
