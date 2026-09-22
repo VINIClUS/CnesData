@@ -199,8 +199,13 @@ func toFileManifests(in []worker.ManifestEntry) []FileManifest {
 	return out
 }
 
-// SendHeartbeat estende lease via /jobs/{id}/heartbeat.
-// processor_id é query param — agent reutiliza MachineID.
+// SendHeartbeat estende lease via /jobs/{id}/heartbeat. Esta rota legada
+// não corresponde a nenhum endpoint real: o único heartbeat server-side
+// existente é /api/v1/edge/jobs/{job_id}/heartbeat, exclusivo do caminho
+// raw (ControlPlanePort + fencing token), que cmd/dumpagent nunca wireia
+// em produção. Toda extração via landing.extractions (CNES/SIHD/BPA/SIA)
+// não tem renovação de lease; reap_expired por timeout é o único
+// mecanismo. HeartbeatLoop trata falhas aqui como não-fatais por design.
 func (a *Adapter) SendHeartbeat(ctx context.Context, jobID string) error {
 	id, err := parseJobUUID(jobID)
 	if err != nil {
