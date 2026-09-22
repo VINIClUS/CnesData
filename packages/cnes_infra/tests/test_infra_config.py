@@ -92,14 +92,8 @@ class TestLazyAttrs:
 
 @pytest.fixture
 def reload_config(monkeypatch):
-    """Restaura `cnes_infra.config` mesmo se a assertion do teste falhar.
-
-    `monkeypatch` é dependência desta fixture: seu teardown roda depois do
-    `undo()` explícito abaixo, então a ordem de finalizers não importa. Um
-    `importlib.reload(config)` solto no fim do corpo do teste rodaria com o
-    monkeypatch ainda ativo (teardown do pytest é posterior ao return) e
-    vazaria a env patchada para o resto da sessão.
-    """
+    # monkeypatch é dependência: seu teardown roda depois do undo() abaixo,
+    # então a ordem de finalizers não importa e o reload nunca vê env vazada.
     yield
     monkeypatch.undo()
     from cnes_infra import config
