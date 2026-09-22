@@ -51,6 +51,7 @@ colisão (lease-based).
 | `AWS_ACCESS_KEY_ID` | sim (endpoint não-AWS) | Cadeia padrão do boto3; obrigatório se `S3_ENDPOINT_URL` setado |
 | `AWS_SECRET_ACCESS_KEY` | sim (endpoint não-AWS) | Idem |
 | `S3_ENDPOINT_URL` | opcional | Vazio = S3 real; `http://minio:9000` em dev, LocalStack em CI |
+| `S3_PUBLIC_ENDPOINT_URL` | opcional | Host usado nas URLs presigned (B4); default = `S3_ENDPOINT_URL` |
 | `S3_REGION` | opcional | Default `sa-east-1` |
 | `S3_BUCKET` | opcional | Default `cnesdata-landing` |
 | `WORKER_POLL_INTERVAL` | opcional | Default `5s` |
