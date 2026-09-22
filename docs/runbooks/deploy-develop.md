@@ -200,7 +200,13 @@ manual acontecer.
    (Caddy ficou sem bloco para `cnesdata.vinisantana.com`/`api.vinisantana.com`, todo
    request dava TLS handshake failure). `caddy reload` em si não derruba conexão
    nenhuma — o problema é exclusivamente remover hostname de um bloco existente.
-2. Atualizar `/opt/cnesdata-dev/.env`: `PUBLIC_DOMAIN=dev.cnesdata.com.br`,
+2. `scp` o `docker-compose.dev.yml` novo para `/opt/cnesdata-dev/`. `deploy.sh` só troca
+   `IMAGE_TAG` — sem este passo, `CORS_ALLOWED_ORIGINS`, `API_ORIGIN` e `KC_HOSTNAME`
+   continuam com o hostname antigo mesmo depois do merge, então o dashboard novo chama a
+   API nova mas CORS/CSP só liberam o host antigo (Codex P1, PR #243). `deploy.sh` só
+   confere a saúde interna do `central-api` — não detecta isso, e a falha só aparece no
+   `smoke` job, tarde demais para o rollback automático agir.
+3. Atualizar `/opt/cnesdata-dev/.env`: `PUBLIC_DOMAIN=dev.cnesdata.com.br`,
    `DASHBOARD_OIDC_ISSUER=https://dev.cnesdata.com.br/idp/realms/cnesdata`,
    `AUTH_DEVICE_VERIFICATION_URI=https://dev.cnesdata.com.br/activate`,
    `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`. **Fazer isso só depois do
@@ -208,7 +214,7 @@ manual acontecer.
    passaria a assinar presigned URLs contra um host que o Caddy ainda não roteia, e
    qualquer URL já emitida nesse intervalo pararia de funcionar assim que os containers
    forem recriados com o `.env` novo (Codex P2, PR #243).
-3. Migrar o client OIDC do realm Keycloak **dev** pelo console (mesma ressalva do
+4. Migrar o client OIDC do realm Keycloak **dev** pelo console (mesma ressalva do
    `deploy-main.md`: `--import-realm` não substitui um realm já importado no volume
    `keycloak_data`) — adicionar (não substituir) `https://dev.cnesdata.com.br/*` aos
    redirect URIs, `https://dev.cnesdata.com.br` aos web origins, **e**
