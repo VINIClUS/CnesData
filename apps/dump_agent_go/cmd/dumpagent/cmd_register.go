@@ -171,7 +171,7 @@ func parseRegisterFlags(args []string) (registerFlags, error) {
 	fs.SetOutput(os.Stderr)
 	tenantID := fs.String("tenant-id", "", "tenant UUID for X-Tenant-Id (required)")
 	baseURL := fs.String("base-url", "", "central_api root URL (required)")
-	caPin := fs.String("ca-pin", "", "override embedded CA pin (file with PEM cert)")
+	caPin := fs.String("ca-pin", "", "pin server CA (PEM file); default: system trust store")
 	scope := fs.String("scope", "agent", "OAuth scope")
 	force := fs.Bool("force", false, "overwrite existing cert+key+refresh")
 	noSmoke := fs.Bool("no-smoke", false, "skip post-register mTLS health probe")
@@ -194,9 +194,9 @@ func parseRegisterFlags(args []string) (registerFlags, error) {
 	}, nil
 }
 
-// loadCAPin returns PEM bytes from --ca-pin path if non-empty, else the
-// embedded auth.CAPinPEM. Wraps file-read errors with errPersistFailed
-// (exit 5).
+// loadCAPin returns PEM bytes from --ca-pin path if non-empty, else
+// auth.CAPinPEM (nil by default — see newBootstrapClient). Wraps file-read
+// errors with errPersistFailed (exit 5).
 func loadCAPin(path string) ([]byte, error) {
 	if path == "" {
 		return auth.CAPinPEM, nil
@@ -208,13 +208,18 @@ func loadCAPin(path string) ([]byte, error) {
 	return b, nil
 }
 
-// newBootstrapClient builds an HTTPS-only http.Client that pins server certs
-// to caPEM. No client cert (mTLS) — used for /oauth/* and /provision/cert
-// during enrollment, before the agent has its own leaf cert.
+// newBootstrapClient builds an HTTPS-only http.Client. No client cert (mTLS)
+// — used for /oauth/* and /provision/cert during enrollment, before the
+// agent has its own leaf cert. A nil or empty caPEM leaves RootCAs nil,
+// falling back to the platform trust store (central_api's cert is a public
+// CA in production); --ca-pin overrides this for a private CA.
 func newBootstrapClient(caPEM []byte) (*http.Client, error) {
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(caPEM) {
-		return nil, errors.New("register: ca pin pem invalid")
+	var pool *x509.CertPool
+	if len(caPEM) > 0 {
+		pool = x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, errors.New("register: ca pin pem invalid")
+		}
 	}
 	tlsCfg := &tls.Config{
 		RootCAs:    pool,
