@@ -181,7 +181,7 @@ func TestDrain_FailEnvelopeDispatched(t *testing.T) {
 	}
 }
 
-func TestDrain_ExhaustedAttemptsDropsEnvelopeAndLogsError(t *testing.T) {
+func TestDrain_ExhaustedAttemptsRetainsEnvelopeAndLogsError(t *testing.T) {
 	var buf bytes.Buffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -189,33 +189,49 @@ func TestDrain_ExhaustedAttemptsDropsEnvelopeAndLogsError(t *testing.T) {
 
 	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
 	_ = ob.Append(queue.Envelope{
-		Type: queue.TypeComplete, JobUUID: "uuid-exhausted", Attempts: drainMaxAttempts - 1,
+		Type: queue.TypeComplete, JobUUID: "uuid-exhausted", Attempts: drainAttemptsAlertThreshold - 1,
 	})
 	d.tick(context.Background())
 
 	items, _ := ob.Peek(10)
-	if len(items) != 0 {
-		t.Errorf("envelope retained past drainMaxAttempts: %+v", items)
+	if len(items) != 1 {
+		t.Fatalf("envelope dropped at drainAttemptsAlertThreshold, data loss: %+v", items)
+	}
+	if items[0].Envelope.Attempts != drainAttemptsAlertThreshold {
+		t.Errorf("Attempts = %d want %d", items[0].Envelope.Attempts, drainAttemptsAlertThreshold)
 	}
 	logged := buf.String()
 	if !strings.Contains(logged, "level=ERROR") || !strings.Contains(logged, "uuid-exhausted") {
-		t.Errorf("exhausted envelope drop not logged at ERROR: %q", logged)
+		t.Errorf("attempts_exhausted not logged at ERROR: %q", logged)
 	}
 }
 
 func TestDrain_BelowAttemptsThresholdRetainsEnvelope(t *testing.T) {
 	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
 	_ = ob.Append(queue.Envelope{
-		Type: queue.TypeComplete, JobUUID: "uuid-retry", Attempts: drainMaxAttempts - 2,
+		Type: queue.TypeComplete, JobUUID: "uuid-retry", Attempts: drainAttemptsAlertThreshold - 2,
 	})
 	d.tick(context.Background())
 
 	items, _ := ob.Peek(10)
 	if len(items) != 1 {
-		t.Fatalf("envelope dropped before drainMaxAttempts: %+v", items)
+		t.Fatalf("envelope dropped before drainAttemptsAlertThreshold: %+v", items)
 	}
-	if items[0].Envelope.Attempts != drainMaxAttempts-1 {
-		t.Errorf("Attempts = %d want %d", items[0].Envelope.Attempts, drainMaxAttempts-1)
+	if items[0].Envelope.Attempts != drainAttemptsAlertThreshold-1 {
+		t.Errorf("Attempts = %d want %d", items[0].Envelope.Attempts, drainAttemptsAlertThreshold-1)
+	}
+}
+
+func TestDrain_FarPastThresholdKeepsRetryingWithoutDrop(t *testing.T) {
+	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
+	_ = ob.Append(queue.Envelope{
+		Type: queue.TypeComplete, JobUUID: "uuid-stuck", Attempts: drainAttemptsAlertThreshold * 3,
+	})
+	d.tick(context.Background())
+
+	items, _ := ob.Peek(10)
+	if len(items) != 1 {
+		t.Fatalf("envelope dropped after prolonged outage, data loss: %+v", items)
 	}
 }
 
