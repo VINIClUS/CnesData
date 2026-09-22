@@ -21,22 +21,60 @@ import (
 )
 
 func TestNewAdapter_RejectsMissingIDs(t *testing.T) {
-	_, err := apiclient.NewAdapter("http://x", "", "m", nil)
+	_, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: "http://x", TenantID: "", MachineID: "m",
+	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tenant_id_required")
 
-	_, err = apiclient.NewAdapter("http://x", "t", "", nil)
+	_, err = apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: "http://x", TenantID: "t", MachineID: "",
+	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "machine_id_required")
 }
 
 func TestNewAdapter_SetsFields(t *testing.T) {
-	a, err := apiclient.NewAdapter("http://localhost:1", "tenant-1", "machine-1", nil)
+	a, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: "http://localhost:1", TenantID: "tenant-1", MachineID: "machine-1",
+	})
 	require.NoError(t, err)
 	require.Equal(t, "tenant-1", a.TenantID)
 	require.Equal(t, "machine-1", a.MachineID)
 	require.NotEmpty(t, a.AgentVersion)
 	require.NotNil(t, a.Inner)
+}
+
+// A5: AGENT_VERSION reportava sempre "dev" porque NewAdapter nunca recebia
+// main.Version — cfg.AgentVersion é o elo que falta entre o build (-X
+// main.Version) e o que landing.extractions.agent_version grava.
+func TestNewAdapter_UsaAgentVersionDoConfigQuandoEnvVazia(t *testing.T) {
+	t.Setenv("AGENT_VERSION", "")
+	a, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: "http://localhost:1", TenantID: "tenant-1", MachineID: "machine-1",
+		AgentVersion: "v1.2.3",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "v1.2.3", a.AgentVersion)
+}
+
+func TestNewAdapter_EnvAgentVersionTemPrecedenciaSobreConfig(t *testing.T) {
+	t.Setenv("AGENT_VERSION", "env-override")
+	a, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: "http://localhost:1", TenantID: "tenant-1", MachineID: "machine-1",
+		AgentVersion: "v1.2.3",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "env-override", a.AgentVersion)
+}
+
+func TestNewAdapter_SemAgentVersionNemEnvCaiParaDev(t *testing.T) {
+	t.Setenv("AGENT_VERSION", "")
+	a, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: "http://localhost:1", TenantID: "tenant-1", MachineID: "machine-1",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "dev", a.AgentVersion)
 }
 
 // recordingTransport captures all RoundTrip calls for inspection.
@@ -58,7 +96,10 @@ func TestNewAdapter_UsesCustomHTTPClient(t *testing.T) {
 	rt := &recordingTransport{}
 	httpClient := &http.Client{Transport: rt}
 
-	a, err := apiclient.NewAdapter("http://test.invalid", "tenant-1", "machine-1", httpClient)
+	a, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: "http://test.invalid", TenantID: "tenant-1", MachineID: "machine-1",
+		HTTPClient: httpClient,
+	})
 	require.NoError(t, err)
 	require.NotNil(t, a)
 
@@ -72,7 +113,9 @@ func TestNewAdapter_UsesCustomHTTPClient(t *testing.T) {
 func newTestAdapter(t *testing.T, handler http.HandlerFunc) *apiclient.Adapter {
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	a, err := apiclient.NewAdapter(srv.URL, "tenant-1", "machine-1", nil)
+	a, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: srv.URL, TenantID: "tenant-1", MachineID: "machine-1",
+	})
 	require.NoError(t, err)
 	return a
 }
@@ -361,7 +404,9 @@ func TestSendRawManifest_RetentaComOsMesmosBytesPersistidos(t *testing.T) {
 }
 
 func TestSendRawManifest_ErroDeTransporteRetornaErro(t *testing.T) {
-	a, err := apiclient.NewAdapter("http://127.0.0.1:1", "tenant-1", "machine-1", nil)
+	a, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: "http://127.0.0.1:1", TenantID: "tenant-1", MachineID: "machine-1",
+	})
 	require.NoError(t, err)
 
 	ack, sendErr := a.SendRawManifest(context.Background(), rawEnvelope())

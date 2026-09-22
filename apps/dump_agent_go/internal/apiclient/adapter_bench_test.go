@@ -21,7 +21,9 @@ func BenchmarkRegisterJob(b *testing.B) {
 	}))
 	defer srv.Close()
 
-	adapter, err := apiclient.NewAdapter(srv.URL, "354130", "machine-1", nil)
+	adapter, err := apiclient.NewAdapter(apiclient.AdapterConfig{
+		BaseURL: srv.URL, TenantID: "354130", MachineID: "machine-1",
+	})
 	if err != nil {
 		b.Fatal(err)
 	}
