@@ -177,7 +177,7 @@ ali. Sem a licença AIStor (`secrets/minio.license`), `central-api`/`data-proces
 sobem de jeito nenhum (ver `docs/development.md#object-storage-license`) — o deploy falha
 alto no healthcheck de 120s do `deploy.sh`, não silenciosamente.
 
-## Pré-requisito manual: migração de domínio (vinisantana.com → cnesdata.com.br)
+## Migração de domínio (vinisantana.com → cnesdata.com.br, concluída — dev já migrado)
 
 Diferente de `deploy-main.yml`, **`deploy-develop.yml` dispara automaticamente em todo
 `push` para `develop`** que toca `apps/**`, `packages/**` ou `deploy/**` — sem gate manual.
@@ -192,14 +192,19 @@ manual acontecer.
 
 **Fazer os passos abaixo ANTES do merge para develop**, não depois:
 
-1. `scp` o `Caddyfile` novo para o VPS e `docker compose -f docker-compose.prod.yml
-   exec caddy caddy reload --config /etc/caddy/Caddyfile` (mesmo Caddy compartilhado do
-   `main`). **Cada bloco do Caddyfile serve o hostname novo E o antigo juntos**
-   (`cnesdata.com.br, cnesdata.vinisantana.com { ... }`) — nunca substitua um pelo outro.
-   Incidente real em 2026-09-22: renomear em vez de somar derrubou prod por ~30min
-   (Caddy ficou sem bloco para `cnesdata.vinisantana.com`/`api.vinisantana.com`, todo
-   request dava TLS handshake failure). `caddy reload` em si não derruba conexão
-   nenhuma — o problema é exclusivamente remover hostname de um bloco existente.
+1. **Nunca `scp` o `Caddyfile` para a VPS.** O arquivo vivo em
+   `/opt/cnesdata/caddy/Caddyfile` (mesmo Caddy compartilhado do `main`) tem, depois dos
+   blocos do CnesData, vhosts de um site de produção não relacionado que também roda
+   nesse container — um `scp` sobrescreve e derruba esse outro site. Editar in-place na
+   VPS (`sed`/edição manual) + `caddy validate` + `caddy reload --config
+   /etc/caddy/Caddyfile`, sempre conferindo com `diff` contra o arquivo do repo antes.
+   **Cada bloco do Caddyfile serve o hostname novo E o antigo juntos**
+   (`cnesdata.com.br, cnesdata.vinisantana.com { ... }`) — nunca substitua um pelo outro
+   enquanto a migração não terminar. Incidente real em 2026-09-22: renomear em vez de
+   somar derrubou prod por ~30min (Caddy ficou sem bloco para
+   `cnesdata.vinisantana.com`/`api.vinisantana.com`, todo request dava TLS handshake
+   failure). `caddy reload` em si não derruba conexão nenhuma — o problema é
+   exclusivamente remover hostname de um bloco existente antes da hora.
 2. `scp` o `docker-compose.dev.yml` novo para `/opt/cnesdata-dev/`. `deploy.sh` só troca
    `IMAGE_TAG` — sem este passo, `CORS_ALLOWED_ORIGINS`, `API_ORIGIN` e `KC_HOSTNAME`
    continuam com o hostname antigo mesmo depois do merge, então o dashboard novo chama a
