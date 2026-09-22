@@ -1,4 +1,4 @@
-# Deploy contínuo de `develop` — dev.cnesdata.vinisantana.com
+# Deploy contínuo de `develop` — dev.cnesdata.com.br
 
 ## Visão geral
 
@@ -87,7 +87,7 @@ networks:
 Em `caddy/Caddyfile`, acrescentar um bloco novo sem tocar no existente:
 
 ```
-dev.cnesdata.vinisantana.com {
+dev.cnesdata.com.br {
     handle /idp/* {
         reverse_proxy dev-keycloak:8080
     }
@@ -101,7 +101,7 @@ Aplicar e validar produção:
 
 ```bash
 ssh root@103.199.184.166 'cd /opt/cnesdata && docker compose -f docker-compose.prod.yml up -d caddy'
-curl -I https://cnesdata.vinisantana.com   # deve continuar 200
+curl -I https://cnesdata.com.br   # deve continuar 200
 ```
 
 ## Operação
@@ -177,6 +177,51 @@ ali. Sem a licença AIStor (`secrets/minio.license`), `central-api`/`data-proces
 sobem de jeito nenhum (ver `docs/development.md#object-storage-license`) — o deploy falha
 alto no healthcheck de 120s do `deploy.sh`, não silenciosamente.
 
+## Pré-requisito manual: migração de domínio (vinisantana.com → cnesdata.com.br)
+
+Diferente de `deploy-main.yml`, **`deploy-develop.yml` dispara automaticamente em todo
+`push` para `develop`** que toca `apps/**`, `packages/**` ou `deploy/**` — sem gate manual.
+Isso significa que o merge da PR de rename de domínio **dispara o deploy imediatamente**,
+antes de qualquer cutover manual na VPS. `deploy.sh` só troca `IMAGE_TAG`; nunca copia
+Caddyfile, compose ou `.env`. O resultado esperado nesse primeiro push, sem os passos
+abaixo feitos antes: a imagem builda com `VITE_OIDC_AUTHORITY=https://dev.cnesdata.com.br/...`,
+o `smoke.sh` roda contra `https://dev.cnesdata.com.br` (não resolve TLS até o Caddy ser
+atualizado), o `deploy` job falha e `deploy.sh` restaura automaticamente a tag anterior —
+não deixa o ambiente quebrado, mas reporta falha e não sobe o código novo até o cutover
+manual acontecer.
+
+**Fazer os passos abaixo ANTES do merge para develop**, não depois:
+
+1. `scp` o `Caddyfile` novo para o VPS e `docker compose -f docker-compose.prod.yml
+   exec caddy caddy reload --config /etc/caddy/Caddyfile` (mesmo Caddy compartilhado do
+   `main`). **Cada bloco do Caddyfile serve o hostname novo E o antigo juntos**
+   (`cnesdata.com.br, cnesdata.vinisantana.com { ... }`) — nunca substitua um pelo outro.
+   Incidente real em 2026-09-22: renomear em vez de somar derrubou prod por ~30min
+   (Caddy ficou sem bloco para `cnesdata.vinisantana.com`/`api.vinisantana.com`, todo
+   request dava TLS handshake failure). `caddy reload` em si não derruba conexão
+   nenhuma — o problema é exclusivamente remover hostname de um bloco existente.
+2. `scp` o `docker-compose.dev.yml` novo para `/opt/cnesdata-dev/`. `deploy.sh` só troca
+   `IMAGE_TAG` — sem este passo, `CORS_ALLOWED_ORIGINS`, `API_ORIGIN` e `KC_HOSTNAME`
+   continuam com o hostname antigo mesmo depois do merge, então o dashboard novo chama a
+   API nova mas CORS/CSP só liberam o host antigo (Codex P1, PR #243). `deploy.sh` só
+   confere a saúde interna do `central-api` — não detecta isso, e a falha só aparece no
+   `smoke` job, tarde demais para o rollback automático agir.
+3. Atualizar `/opt/cnesdata-dev/.env`: `PUBLIC_DOMAIN=dev.cnesdata.com.br`,
+   `DASHBOARD_OIDC_ISSUER=https://dev.cnesdata.com.br/idp/realms/cnesdata`,
+   `AUTH_DEVICE_VERIFICATION_URI=https://dev.cnesdata.com.br/activate`,
+   `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`. **Fazer isso só depois do
+   passo 1** (Caddy já servindo `storage.dev.cnesdata.com.br`) — senão o `central-api`
+   passaria a assinar presigned URLs contra um host que o Caddy ainda não roteia, e
+   qualquer URL já emitida nesse intervalo pararia de funcionar assim que os containers
+   forem recriados com o `.env` novo (Codex P2, PR #243).
+4. Migrar o client OIDC do realm Keycloak **dev** pelo console (mesma ressalva do
+   `deploy-main.md`: `--import-realm` não substitui um realm já importado no volume
+   `keycloak_data`) — adicionar (não substituir) `https://dev.cnesdata.com.br/*` aos
+   redirect URIs, `https://dev.cnesdata.com.br` aos web origins, **e**
+   `https://dev.cnesdata.com.br/*` a `attributes["post.logout.redirect.uris"]`
+   (Keycloak guarda post-logout separado de redirect URI — sem isso o login funciona
+   mas o logout é rejeitado).
+
 ## Pendências conhecidas (fora do escopo desta entrega)
 
 - Firewall Hostinger (grupo `358236`) tem uma regra `TCP any/any` liberada —
@@ -185,31 +230,31 @@ alto no healthcheck de 120s do `deploy.sh`, não silenciosamente.
   dedicado e remover as chaves de root pelo console (a CLI não remove
   chaves da própria conta root).
 
-## Host da API (`api.dev.vinisantana.com`)
+## Host da API (`api.dev.cnesdata.com.br`)
 
 Desde a entrega das páginas públicas o dashboard de dev é compilado com
-`VITE_API_BASE_URL=https://api.dev.vinisantana.com/api/v1` (build-arg em
+`VITE_API_BASE_URL=https://api.dev.cnesdata.com.br/api/v1` (build-arg em
 `deploy-develop.yml`), portanto o navegador fala com a API cross-origin. Três peças
 precisam estar alinhadas, todas versionadas em `deploy/`:
 
-1. **DNS**: registro A de `api.dev.vinisantana.com` apontando para o VPS (Hostinger DNS,
+1. **DNS**: registro A de `api.dev.cnesdata.com.br` apontando para o VPS (Hostinger DNS,
    fora do repo). Caddy emite o certificado automaticamente na primeira requisição.
 2. **Caddy** (`deploy/prod/caddy/Caddyfile`, copiado manualmente para
-   `/opt/cnesdata/caddy/Caddyfile`): bloco `api.dev.vinisantana.com` → `dev-central-api:8000`,
+   `/opt/cnesdata/caddy/Caddyfile`): bloco `api.dev.cnesdata.com.br` → `dev-central-api:8000`,
    só `/api/*`; o resto responde 404. Aplicar com
    `docker compose -f docker-compose.prod.yml up -d caddy` em `/opt/cnesdata`.
 3. **Compose dev** (`deploy/dev/docker-compose.dev.yml`, copiado para `/opt/cnesdata-dev`):
    `central-api` entra na rede `cnesdata_edge` com alias `dev-central-api` e recebe
-   `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.vinisantana.com`; `dashboard` recebe
-   `API_ORIGIN=https://api.dev.vinisantana.com` (CSP `connect-src`) e `PRECOS_NOINDEX`.
+   `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.com.br`; `dashboard` recebe
+   `API_ORIGIN=https://api.dev.cnesdata.com.br` (CSP `connect-src`) e `PRECOS_NOINDEX`.
 
-O upload do edge agent usa `storage.dev.cnesdata.vinisantana.com` (o `minio` do dev entra na
+O upload do edge agent usa `storage.dev.cnesdata.com.br` (o `minio` do dev entra na
 mesma rede `cnesdata_edge` com alias `dev-minio`, ver `deploy/dev/docker-compose.dev.yml`):
-crie o DNS A para o VPS e configure `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.vinisantana.com`
+crie o DNS A para o VPS e configure `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`
 no `.env` do stack dev. Prod não tem equivalente — o compose de prod não roda `minio`, e URLs
 presigned de S3 real já são públicas por construção.
 
 Validação (também no job `smoke`): `apps/web_dashboard/scripts/smoke.sh
-https://dev.cnesdata.vinisantana.com https://api.dev.vinisantana.com` confere health no host
+https://dev.cnesdata.com.br https://api.dev.cnesdata.com.br` confere health no host
 da API, `connect-src` na CSP, preflight CORS aceito só para a origem do dashboard e `/docs`
 inacessível pelo host público.

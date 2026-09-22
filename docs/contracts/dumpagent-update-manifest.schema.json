@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cnesdata.vinisantana.com/contracts/dumpagent-update-manifest/v1",
+  "$id": "https://cnesdata.com.br/contracts/dumpagent-update-manifest/v1",
   "title": "DumpagentUpdateManifest",
   "description": "Update manifest consumed by the dumpagent edge agent update check / self-update client. Published per-channel to Cloudflare R2 (dumpagent/<channel>/latest.json) and as an immutable per-version copy (dumpagent/<version>/release.json). manifest.version is the release version (e.g. v0.1.0), distinct from the git tag (dumpagent-go-v0.1.0), which is the tag minus the dumpagent-go- prefix.",
   "type": "object",

@@ -21,7 +21,7 @@ Pull requests to `develop` run the existing locked Python/CND/AWS gates plus:
 
 - dashboard lint, typecheck, tests and deterministic production build;
 - dashboard routing checks require
-  `VITE_API_BASE_URL=https://api.cnesdata.vinisantana.com/api/v1`, mapped from
+  `VITE_API_BASE_URL=https://api.cnesdata.com.br/api/v1`, mapped from
   the exact OpenTofu output into the dashboard build, one authenticated API
   client for `auth/me` and `/api/v1/activate/confirm`, no legacy origin-level
   activation or production relative `/api` request,
@@ -364,9 +364,9 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   Anywhere profile; a CRL-revoked leaf is denied, alerts and remains failed
   closed;
 - a Cognito bearer `access_token` with
-  `aud=https://api.cnesdata.vinisantana.com` is accepted in the real
+  `aud=https://api.cnesdata.com.br` is accepted in the real
   environment;
-- an API preflight from `https://cnesdata.vinisantana.com` for an allowed
+- an API preflight from `https://cnesdata.com.br` for an allowed
   method/header is accepted by FastAPI;
 - API preflights from another origin or for a disallowed method/header are
   denied by FastAPI;
@@ -453,7 +453,7 @@ Cost controls:
 - Synthetic portfolio data is clearly identified; municipal/local data paths
   are absent.
 - Deploy, rollback, rate-limit, cost-freeze and recovery drills pass.
-- `cnesdata.vinisantana.com` and `api.cnesdata.vinisantana.com` satisfy their
+- `cnesdata.com.br` and `api.cnesdata.com.br` satisfy their
   health, TLS and isolation contracts.
 - The deployment makes no claim that DATASUS ingestion or legacy cutover is
   complete before their governing gates pass.
