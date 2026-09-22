@@ -218,10 +218,39 @@ infra HTTP funcionando. Sequência usada, para uma migração de domínio equiva
    `/opt/cnesdata/caddy/Caddyfile` tem, depois do bloco `storage.dev.cnesdata.com.br`, três
    vhosts de um site de produção não relacionado (`limnopulse.com` e afins) que compartilha
    o mesmo container Caddy — um `scp` sobrescreve e derruba esse outro site. Editar
-   in-place na VPS via `sed`/edição manual + `caddy validate` + `caddy reload`, sempre
-   conferindo com `diff` contra o arquivo do repo antes (a única diferença esperada é esse
-   apêndice). `docker-compose.prod.yml` **é** seguro de `scp` — o limnopulse usa seu próprio
-   compose file.
+   in-place na VPS, sempre conferindo com `diff` contra o arquivo do repo antes (a única
+   diferença esperada é esse apêndice). `docker-compose.prod.yml` **é** seguro de `scp` —
+   o limnopulse usa seu próprio compose file.
+
+   **`caddy validate`/`caddy reload` reportando sucesso não prova que o container aplicou
+   o conteúdo novo.** `docker-compose.prod.yml` bind-monta o arquivo como
+   `./caddy/Caddyfile:/etc/caddy/Caddyfile:ro` — um bind mount de **arquivo único**. Se a
+   edição usa `sed -i` (comportamento GNU padrão) ou qualquer editor que salva por
+   write-temp+rename, o inode antigo fica órfão: o mount do container continua preso a
+   ele, `caddy validate`/`reload` seguem lendo e validando esse conteúdo velho (que
+   também é sintaticamente válido, então "sucesso" não distingue nada), e o container só
+   veria o arquivo novo numa recriação futura. Reproduzido ao vivo em 2026-09-22: o
+   container tinha 4 dias rodando (`docker inspect` mostrando `Created` de dias atrás),
+   `stat` dentro do container mostrava um inode diferente do arquivo no host mesmo depois
+   de reescrever com `cat old > Caddyfile` (truncate-in-place não ajudou — o mount já
+   estava desconectado do path havia dias, de uma edição anterior). Procedimento correto:
+   1. Editar o arquivo (qualquer método).
+   2. Conferir de **dentro do container**, não só no host:
+      `docker compose --env-file .env --env-file .env.image -f docker-compose.prod.yml
+      exec caddy stat -c "%i" /etc/caddy/Caddyfile` — comparar com `stat -c "%i"` do
+      arquivo no host. Inodes diferentes = mount desatualizado, `validate`/`reload`
+      não vão ajudar.
+   3. Se os inodes divergirem, recriar o container (única forma de recarregar um bind
+      mount de arquivo único): `docker compose --env-file .env --env-file .env.image
+      -f docker-compose.prod.yml up -d --force-recreate caddy` — os dois `--env-file`
+      são obrigatórios (`IMAGE_TAG` vive só em `.env.image`; sem eles o compose falha
+      resolvendo a imagem do `cnes_db_migrator`, não só do caddy). Recriar o container
+      derruba prod/dev/limnopulse por ~1-2s (mesmo container compartilhado) — aceitável,
+      já é o comando de recuperação documentado em "Se o Caddy cair" acima.
+   4. Só então `caddy validate` + `caddy reload`, e verificar o conteúdo servido de
+      dentro do container (`exec caddy grep ...`), não só via `curl` no domínio (DNS
+      pode já estar apontando para outro lugar ou já ter sido removido, mascarando se o
+      Caddy em si está correto).
 2. Durante a janela de transição, servir cada hostname novo junto com o antigo no mesmo
    bloco (`cnesdata.com.br, cnesdata.vinisantana.com { ... }`) — nunca editar para
    substituir um pelo outro nesse meio-tempo. Incidente real em 2026-09-22: fazer isso
