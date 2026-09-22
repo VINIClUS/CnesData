@@ -340,12 +340,15 @@ func buildJobSource() (worker.JobSpecSource, error) {
 	// (apps/central_api/src/central_api/routes/jobs.py): "estabelecimentos"
 	// (unprefixed) 422s on every upload-url mint attempt. Confirmed
 	// empirically (H10, docs/edge-agent-audit-2026-09-20.md) — this was the
-	// out-of-the-box failure mode for a fresh install. Note: this is a
-	// SEPARATE vocabulary from outbox_adapter.go's validateRawScope, which
-	// expects the bare form ("profissionais") — that path is unreachable
-	// today (job.RawRequest is never assigned in production wiring), so the
-	// two don't collide yet, but whoever wires up the raw path needs to
-	// reconcile them.
+	// out-of-the-box failure mode for a fresh install.
+	//
+	// outbox_adapter.go's validateRawScope compares against the bare form
+	// ("profissionais") — that is NOT a second, colliding vocabulary: it
+	// receives its input pre-split via splitIntent, which always strips the
+	// "cnes_" prefix before the comparison runs. There is one vocabulary at
+	// the wire (prefixed) and one internal form (bare); they don't need
+	// reconciling. (Retracts a prior note in
+	// docs/edge-agent-audit-2026-09-20.md claiming a latent collision here.)
 	intent := envOr("INTENT", "cnes_estabelecimentos")
 	compRaw := os.Getenv("COMPETENCIA_YYYYMM")
 	if compRaw == "" {

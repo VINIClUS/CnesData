@@ -133,6 +133,13 @@ install/uninstall/residue task, which had zero coverage at this point in the ses
   default to `cnes_estabelecimentos` (matches `_FATO_SUBTYPE_FOR`). File the bare-vs-
   prefixed divergence in `validateRawScope` as a **latent** collision for whenever the raw
   path gets wired up, not an active bug.
+  **Retracted 2026-09-22:** this "latent collision" claim doesn't hold up. Both
+  `validateRawScope` call sites (`validateRawIdentity` and `decodeRawEnvelope`) receive
+  their intent already run through `splitIntent`, which strips the `cnes_` prefix before
+  any comparison happens — there's one vocabulary at the wire (prefixed) and one internal
+  form (bare) they normalize into, not two vocabularies that could collide. Nothing to
+  reconcile when the raw path gets wired up. See `cmd_run.go`'s `buildJobSource` comment
+  for the corrected note.
 - **H4 fix shape, corrected:** registry `Environment` (`REG_MULTI_SZ` under the service's
   own `HKLM\SYSTEM\CurrentControlSet\Services\CnesDumpAgent` key) is confirmed **empirically
   functional** (real service booted and ran using it) but is NOT safe for secrets —

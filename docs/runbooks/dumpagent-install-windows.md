@@ -59,12 +59,22 @@ agente configurado com os nomes sem prefixo sobe com `DB_PATH` vazio e senha
 **Nunca coloque a senha aqui** — `config.env` vira uma chave de registro
 (`Environment` do serviço), legível por qualquer usuário autenticado na
 máquina (ACL padrão de `HKLM\SYSTEM\...\Services`). Use
-`dumpagent set-secret cnes` para a senha (armazenamento DPAPI):
+`dumpagent set-secret cnes` para a senha (armazenamento DPAPI).
+
+`INTENT` seleciona o tipo de extração CNES enviado ao `central_api` — default
+`cnes_estabelecimentos`, o único valor que `_FATO_SUBTYPE_FOR`
+(`central_api/routes/jobs.py`) mapeia sem erro 422 (H10, ver findings). Omitir
+é seguro; só sobrescreva para `cnes_profissionais`/`cnes_equipes`.
+`COD_MUN_IBGE` é o código IBGE de 6 dígitos anexado ao manifest de upload —
+default `TENANT_ID` quando omitido, só precisa divergir onde o tenant não for
+o próprio código IBGE:
 
 ```env
 CENTRAL_API_URL=https://api.cnesdata.gov.br
 TENANT_ID=354130
 COMPETENCIA_YYYYMM=202601
+INTENT=cnes_estabelecimentos
+COD_MUN_IBGE=354130
 CNES_DB_HOST=localhost
 CNES_DB_PORT=3050
 CNES_DB_PATH=C:\Programa CNES\database\CNES.GDB
