@@ -36,3 +36,9 @@ def test_vhosts_api_usam_ca_do_proprio_ambiente_e_upstream_com_header():
         assert f"import agent_mtls /etc/caddy/ca/{ca}" in block
         assert f"import agent_upstream {upstream}" in block
         assert "reverse_proxy" not in block
+
+
+def test_vhosts_do_dashboard_removem_header_de_certificado():
+    config = _CADDYFILE.read_text(encoding="utf-8")
+    for host in ("cnesdata.com.br", "dev.cnesdata.com.br"):
+        assert "request_header -X-SSL-Client-Cert" in _site_block(config, host)

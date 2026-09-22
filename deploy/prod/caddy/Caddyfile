@@ -24,6 +24,7 @@
 # dual-serve window short and remove the legacy name as soon as verified.
 
 cnesdata.com.br {
+    request_header -X-SSL-Client-Cert
     handle /idp/* {
         reverse_proxy keycloak:8080
     }
@@ -33,6 +34,7 @@ cnesdata.com.br {
 }
 
 dev.cnesdata.com.br {
+    request_header -X-SSL-Client-Cert
     handle /idp/* {
         reverse_proxy dev-keycloak:8080
     }

@@ -9,3 +9,7 @@ test("preserva o protocolo HTTPS recebido do proxy externo", () => {
   expect(TEMPLATE).toContain("proxy_set_header   X-Forwarded-Proto $http_x_forwarded_proto;");
   expect(TEMPLATE).not.toContain("proxy_set_header   X-Forwarded-Proto $scheme;");
 });
+
+test("descarta o header de certificado mTLS antes de repassar para a API", () => {
+  expect(TEMPLATE).toContain('proxy_set_header   X-SSL-Client-Cert "";');
+});

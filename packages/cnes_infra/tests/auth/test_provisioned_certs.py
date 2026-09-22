@@ -85,14 +85,25 @@ def test_record_persiste_expires_at(pg_engine):
     assert row.expires_at == expires
 
 
+def _revogar(pg_engine, agent_id: str) -> None:
+    with pg_engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE auth_provisioned_certs SET revoked_at = now() "
+                "WHERE agent_id = :a",
+            ),
+            {"a": agent_id},
+        )
+
+
 @pytest.mark.postgres
-def test_find_active_retorna_none_quando_agent_sem_linhas(pg_engine):
+def test_is_serial_active_falso_quando_agent_sem_linhas(pg_engine):
     repo = ProvisionedCertsRepo(pg_engine)
-    assert repo.find_active_by_agent_id("agent-201-sem-linhas") is None
+    assert repo.is_serial_active("agent-201-sem-linhas", "qualquer") is False
 
 
 @pytest.mark.postgres
-def test_find_active_retorna_mais_recente_quando_multiplas_linhas(pg_engine):
+def test_is_serial_active_aceita_serial_anterior_durante_overlap_de_rotacao(pg_engine):
     repo = ProvisionedCertsRepo(pg_engine)
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
     repo.record(
@@ -103,60 +114,46 @@ def test_find_active_retorna_mais_recente_quando_multiplas_linhas(pg_engine):
         agent_id="agent-202", tenant_id="t1",
         subject_cn="cn-new", ca_serial="serial-new", expires_at=expires,
     )
-    row = repo.find_active_by_agent_id("agent-202")
-    assert row is not None
-    assert row.ca_serial == "serial-new"
+    assert repo.is_serial_active("agent-202", "serial-old") is True
+    assert repo.is_serial_active("agent-202", "serial-new") is True
+    assert repo.is_serial_active("agent-202", "serial-desconhecido") is False
 
 
 @pytest.mark.postgres
-def test_find_active_ignora_linhas_revogadas(pg_engine):
+def test_is_serial_active_rejeita_serial_revogado(pg_engine):
     repo = ProvisionedCertsRepo(pg_engine)
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
     repo.record(
         agent_id="agent-203", tenant_id="t1",
         subject_cn="cn-rev", ca_serial="serial-rev", expires_at=expires,
     )
-    with pg_engine.begin() as conn:
-        conn.execute(
-            text(
-                "UPDATE auth_provisioned_certs SET revoked_at = now() "
-                "WHERE agent_id = 'agent-203'",
-            ),
-        )
+    _revogar(pg_engine, "agent-203")
     repo.record(
         agent_id="agent-203", tenant_id="t1",
         subject_cn="cn-active", ca_serial="serial-active", expires_at=expires,
     )
-    row = repo.find_active_by_agent_id("agent-203")
-    assert row is not None
-    assert row.ca_serial == "serial-active"
+    assert repo.is_serial_active("agent-203", "serial-rev") is False
+    assert repo.is_serial_active("agent-203", "serial-active") is True
 
 
 @pytest.mark.postgres
-def test_find_active_retorna_none_quando_todas_revogadas(pg_engine):
+def test_is_serial_active_rejeita_serial_de_outro_agente(pg_engine):
     repo = ProvisionedCertsRepo(pg_engine)
     expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
     repo.record(
         agent_id="agent-204", tenant_id="t1",
-        subject_cn="cn", ca_serial="serial-only", expires_at=expires,
+        subject_cn="cn", ca_serial="serial-204", expires_at=expires,
     )
-    with pg_engine.begin() as conn:
-        conn.execute(
-            text(
-                "UPDATE auth_provisioned_certs SET revoked_at = now() "
-                "WHERE agent_id = 'agent-204'",
-            ),
-        )
-    assert repo.find_active_by_agent_id("agent-204") is None
+    assert repo.is_serial_active("agent-202", "serial-204") is False
 
 
 @pytest.mark.postgres
-def test_find_active_ignora_linhas_expiradas(pg_engine):
-    """Critical regression: cert past expires_at MUST NOT be returned."""
+def test_is_serial_active_rejeita_serial_expirado(pg_engine):
+    """Critical regression: cert past expires_at MUST NOT be accepted."""
     repo = ProvisionedCertsRepo(pg_engine)
     expired = dt.datetime.now(dt.UTC) - dt.timedelta(days=1)
     repo.record(
         agent_id="agent-205-expirado", tenant_id="t1",
         subject_cn="cn-old", ca_serial="serial-expired", expires_at=expired,
     )
-    assert repo.find_active_by_agent_id("agent-205-expirado") is None
+    assert repo.is_serial_active("agent-205-expirado", "serial-expired") is False

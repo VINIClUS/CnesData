@@ -18,7 +18,7 @@ _PROXY_PEER = ("172.20.0.2", 50000)
 _TEST_AGENT_IDS = (
     "agent-rot-401a", "agent-rot-401b-orphan", "agent-rot-401c", "agent-rot-401d",
     "agent-rot-400a", "agent-rot-200a", "agent-rot-200b", "agent-rot-200c",
-    "agent-rot-200d", "agent-rot-500a",
+    "agent-rot-200d", "agent-rot-200e", "agent-rot-500a",
 )
 
 
@@ -421,3 +421,34 @@ def test_rotate_com_ca_nao_configurada_retorna_500(
         )
     assert r.status_code == 500
     assert r.json()["error"] == "server_error"
+
+
+@pytest.mark.postgres
+def test_rotate_aceita_cert_anterior_durante_overlap(
+    session_root_ca, monkeypatch, make_csr_pem, pg_engine,
+):
+    """Após rotacionar, conexões keep-alive ainda apresentam o cert antigo."""
+    monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
+    app = _make_app(session_root_ca, monkeypatch)
+    monkeypatch.setenv("DB_URL", pg_engine.url.render_as_string(hide_password=False))
+    old_pem, old_serial = _sign_leaf(session_root_ca, agent_id="agent-rot-200e")
+    expires = dt.datetime.now(dt.UTC) + dt.timedelta(days=90)
+    with TestClient(app, client=_PROXY_PEER) as client:
+        app.state.provisioned_certs.record(
+            agent_id="agent-rot-200e", tenant_id="354130",
+            subject_cn="cn", ca_serial=old_serial, expires_at=expires,
+        )
+        app.state.refresh_token_store.create(
+            agent_id="agent-rot-200e", tenant_id="354130",
+            machine_fingerprint="fp:200e",
+        )
+        first = client.post(
+            "/provision/cert/rotate", headers=_mtls_headers(old_pem),
+            json={"csr_pem": make_csr_pem().decode()},
+        )
+        again_with_old = client.post(
+            "/provision/cert/rotate", headers=_mtls_headers(old_pem),
+            json={"csr_pem": make_csr_pem().decode()},
+        )
+    assert first.status_code == 200
+    assert again_with_old.status_code == 200

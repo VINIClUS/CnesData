@@ -25,10 +25,7 @@ from cnes_infra.auth.peer_cert import (
     read_tenant_id,
     verify_peer_cert,
 )
-from cnes_infra.auth.provisioned_certs import (
-    ProvisionedCertRow,
-    ProvisionedCertsRepo,
-)
+from cnes_infra.auth.provisioned_certs import ProvisionedCertsRepo
 from cnes_infra.auth.refresh_tokens import RefreshTokenRow, RefreshTokenStore
 
 __all__ = [
@@ -46,7 +43,6 @@ __all__ = [
     "DeviceCodeStore",
     "JWKSValidator",
     "OAuthError",
-    "ProvisionedCertRow",
     "ProvisionedCertsRepo",
     "RefreshTokenRow",
     "RefreshTokenStore",

@@ -27,8 +27,7 @@ class AgentCertIdentity:
 
 
 def _require_active(request: Request, agent_id: str, serial: str) -> None:
-    active = request.app.state.provisioned_certs.find_active_by_agent_id(agent_id)
-    if active is None or active.ca_serial != serial:
+    if not request.app.state.provisioned_certs.is_serial_active(agent_id, serial):
         raise OAuthError("cert_revoked", status_code=401)
     if not request.app.state.refresh_token_store.has_active_for_agent(agent_id):
         raise OAuthError("agent_revoked", status_code=401)

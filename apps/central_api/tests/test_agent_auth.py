@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -68,19 +67,15 @@ def _request(
     cert: x509.Certificate | None,
     *,
     peer: str = _PROXY,
-    active_serial: str | None = None,
+    serial_active: bool = True,
     refresh_active: bool = True,
 ) -> MagicMock:
     headers = {}
     if cert is not None:
         der = cert.public_bytes(serialization.Encoding.DER)
         headers["X-SSL-Client-Cert"] = base64.b64encode(der).decode()
-        if active_serial is None:
-            active_serial = format(cert.serial_number, "x")
     audit = MagicMock()
-    audit.find_active_by_agent_id.return_value = (
-        None if active_serial is None else SimpleNamespace(ca_serial=active_serial)
-    )
+    audit.is_serial_active.return_value = serial_active
     refresh = MagicMock()
     refresh.has_active_for_agent.return_value = refresh_active
     req = MagicMock()
@@ -137,16 +132,14 @@ def test_retorna_500_quando_ca_nao_configurada():
     _assert_oauth(_request(None, cert), "server_error", status=500)
 
 
-def test_rejeita_cert_sem_registro_ativo():
+def test_rejeita_cert_com_serial_revogado_ou_desconhecido():
     ca = _authority()
-    req = _request(ca, _leaf(ca))
-    req.app.state.provisioned_certs.find_active_by_agent_id.return_value = None
+    leaf = _leaf(ca)
+    req = _request(ca, leaf, serial_active=False)
     _assert_oauth(req, "cert_revoked")
-
-
-def test_rejeita_cert_com_serial_substituido():
-    ca = _authority()
-    _assert_oauth(_request(ca, _leaf(ca), active_serial="abc123"), "cert_revoked")
+    req.app.state.provisioned_certs.is_serial_active.assert_called_once_with(
+        "agent-1", format(leaf.serial_number, "x"),
+    )
 
 
 def test_rejeita_agente_sem_refresh_token_ativo():
