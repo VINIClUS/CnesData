@@ -387,11 +387,16 @@ func deltaKeyFromParams(p extractor.ExtractionParams) delta.SourceKey {
 	}
 }
 
-// splitIntent reparte o intent do agent (terminado em snake_case) no par
-// (source, intent) usado pelos profiles delta. Mantém uma tabela explícita
-// para evitar surpresas — adicionar entrada ao introduzir novo intent.
+// splitIntent reparte o intent do agent no par (source, intent) esperado
+// pelos profiles delta (internal/delta/profiles.go). job.Params.Intent
+// carrega tanto a forma prefixada por fonte que MintUploadURL emite hoje
+// ("cnes_estabelecimentos", H10) quanto a forma bare que outros call sites
+// (testes, construção direta de Job) ainda usam — por isso normaliza via
+// canonicalIntent antes de casar contra a tabela, em vez de assumir um
+// único formato de entrada. sihd_producao é a única irregularidade real: o
+// profile SIHD chama o intent "aih", não "producao".
 func splitIntent(intent string) (source, base string) {
-	switch intent {
+	switch canonicalIntent(intent) {
 	case extractor.IntentCnesProfissionais:
 		return "cnes", "profissionais"
 	case extractor.IntentCnesEstabelecimentos:

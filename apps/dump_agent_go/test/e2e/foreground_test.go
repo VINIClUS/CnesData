@@ -15,7 +15,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/cnesdata/dumpagent/internal/apiclient"
-	"github.com/cnesdata/dumpagent/internal/extractor"
 	"github.com/cnesdata/dumpagent/internal/upload"
 	"github.com/cnesdata/dumpagent/internal/worker"
 	"github.com/stretchr/testify/require"
@@ -80,11 +79,16 @@ func TestForeground_SmokeEndToEnd(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// cnes_estabelecimentos (prefixed), matching the agent's shipped default
+	// (cmd_run.go) and central_api's _FATO_SUBTYPE_FOR — see A7,
+	// docs/edge-agent-audit-2026-09-20.md H10. The bare form used here
+	// previously passed only because this httptest stub never validates the
+	// intent, unlike the real central_api, which would 422 it.
 	src := worker.NewStaticSource(worker.StaticSpec{
 		FonteSistema: "CNES_LOCAL",
-		TipoExtracao: "estabelecimentos",
+		TipoExtracao: "cnes_estabelecimentos",
 		Competencia:  202601,
-		Intent:       extractor.IntentCnesEstabelecimentos,
+		Intent:       "cnes_estabelecimentos",
 	})
 
 	exe := &worker.JobExecutor{DB: db, Uploader: upload.NewHTTP(nil)}

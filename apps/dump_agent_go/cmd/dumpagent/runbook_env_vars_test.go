@@ -23,6 +23,8 @@ var nonDBEnvAllowlist = map[string]bool{
 	"CENTRAL_API_URL":         true,
 	"TENANT_ID":               true,
 	"COMPETENCIA_YYYYMM":      true,
+	"INTENT":                  true,
+	"COD_MUN_IBGE":            true,
 	"DUMP_MAX_JITTER_SECONDS": true,
 	"FIREBIRD_DLL":            true,
 }
