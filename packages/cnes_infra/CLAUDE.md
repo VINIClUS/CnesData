@@ -43,7 +43,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `storage/extractions_repo.py` | Claim/lease N-file manifest em `landing.extractions` |
 | `storage/dim_lookup.py` | `PostgresDimLookup` (surrogate key cache) + `upsert_dim_*` (merge `fontes`) |
 | `storage/rls.py` | Policies RLS + `install_rls_listener(engine)` (event hook SQLAlchemy) |
-| `storage/object_storage.py` | `MinioObjectStorage` implementa `ObjectStoragePort` |
+| `storage/s3_presigned.py` | `S3PresignedStorage` implementa `ObjectStoragePort` (boto3, SigV4) |
 | `storage/repositories/vinculo_repo_v2.py` | `gravar(fato_vinculo_cnes)` — **plain INSERT**, sem ON CONFLICT |
 | `storage/repositories/producao_ambulatorial_repo.py` | Upsert `fato_producao_ambulatorial` (BPA/SIA), merge `fontes_reportadas` |
 | `storage/repositories/internacao_repo.py` | Grava `fato_internacao` (SIHD) |
@@ -56,7 +56,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `alembic/env.py` | `_resolver_db_url` — config override → `DB_URL` fallback |
 | `alembic/versions/*.py` | Migrations numeradas (omitidas em coverage) |
 | `telemetry.py` | `init_telemetry(service)` + `instrument_engine(engine)` |
-| `config.py` | `DB_URL`, `MINIO_*`, `API_*`, `COMPETENCIA_*`, `_LAZY_ATTRS` |
+| `config.py` | `DB_URL`, `S3_*`, `API_*`, `COMPETENCIA_*`, `_LAZY_ATTRS` |
 | `auth/jwt.py` | JWKSValidator for OIDC JWT verification |
 | `storage/dashboard_models.py` | SQLAlchemy ORM for `dashboard.*` tables |
 

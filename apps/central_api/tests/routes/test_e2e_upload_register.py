@@ -18,8 +18,10 @@ _TENANT = "354130"
 
 
 class _FakeStorage:
-    def presigned_put(self, key: str, expires: int = 3600) -> str:
-        return f"https://minio/fake?key={key}&exp={expires}"
+    def generate_presigned_upload_url(
+        self, bucket: str, object_key: str, expires_secs: int = 3600,
+    ) -> str:
+        return f"https://s3.sa-east-1.amazonaws.com/fake?key={object_key}&exp={expires_secs}"
 
 
 @pytest.fixture

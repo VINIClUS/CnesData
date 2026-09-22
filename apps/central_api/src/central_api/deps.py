@@ -1,12 +1,11 @@
-"""Dependências compartilhadas da API (engine, minio wrapper, reaper)."""
+"""Dependências compartilhadas da API (engine, object storage, reaper)."""
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from fastapi import Depends, HTTPException
@@ -18,6 +17,7 @@ from cnes_infra import config
 from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.query_counter import install_query_counter
 from cnes_infra.storage.rls import install_rls_listener
+from cnes_infra.storage.s3_presigned import S3PresignedStorage, build_s3_client
 from cnes_infra.telemetry import instrument_engine
 
 if TYPE_CHECKING:
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
     from central_api.composition import LocalRuntime
     from central_api.routes.serving import ServingPrincipal
+    from cnes_domain.ports.object_storage import ObjectStoragePort
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.auth.local_auth import LocalAuthService
 
@@ -55,45 +56,24 @@ def get_conn() -> Iterator[Connection]:
         yield conn
 
 
-@dataclass
-class MinioWrapper:
-    bucket: str
-    endpoint: str
-    access_key: str
-    secret_key: str
-    secure: bool
-    # Host:port embedded in the presigned URL itself — may differ from
-    # `endpoint` (used for any direct server->MinIO calls this wrapper
-    # grows later). Defaults to `endpoint` for backward compatibility.
-    # See H9, docs/edge-agent-audit-2026-09-20.md.
-    public_endpoint: str | None = None
-    public_secure: bool | None = None
+_object_storage_instance: ObjectStoragePort | None = None
 
-    def presigned_put(self, key: str, expires: int = 3600) -> str:
-        from minio import Minio
-        client = Minio(
-            self.public_endpoint or self.endpoint,
-            access_key=self.access_key,
-            secret_key=self.secret_key,
-            secure=self.public_secure if self.public_secure is not None else self.secure,
+
+def get_object_storage() -> ObjectStoragePort:
+    global _object_storage_instance
+    if _object_storage_instance is None:
+        client = build_s3_client(
+            config.S3_REGION, config.S3_ENDPOINT_URL or None, config.S3_ADDRESSING_STYLE,
         )
-        return client.presigned_put_object(
-            bucket_name=self.bucket,
-            object_name=key,
-            expires=timedelta(seconds=expires),
-        )
-
-
-def get_minio() -> MinioWrapper:
-    return MinioWrapper(
-        bucket=config.MINIO_BUCKET,
-        endpoint=config.MINIO_ENDPOINT,
-        access_key=config.MINIO_ACCESS_KEY,
-        secret_key=config.MINIO_SECRET_KEY,
-        secure=config.MINIO_SECURE,
-        public_endpoint=config.MINIO_PUBLIC_ENDPOINT,
-        public_secure=config.MINIO_PUBLIC_SECURE,
-    )
+        public_client = None
+        if config.S3_PUBLIC_ENDPOINT_URL != config.S3_ENDPOINT_URL:
+            public_client = build_s3_client(
+                config.S3_REGION,
+                config.S3_PUBLIC_ENDPOINT_URL or None,
+                config.S3_ADDRESSING_STYLE,
+            )
+        _object_storage_instance = S3PresignedStorage(client, public_client=public_client)
+    return _object_storage_instance
 
 
 async def _lease_reaper_loop(engine: Engine) -> None:

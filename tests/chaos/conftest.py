@@ -43,21 +43,19 @@ def inject_db_failure(monkeypatch):
 
 
 @pytest.fixture
-def inject_minio_failure(monkeypatch):
+def inject_s3_failure(monkeypatch):
     @contextmanager
-    def injector(mode: Literal["put_timeout", "get_500", "auth_fail"]) -> Iterator[None]:
+    def injector(
+        client, mode: Literal["put_timeout", "get_500", "auth_fail"],
+    ) -> Iterator[None]:
         def failing_presign(*args, **kwargs):
             if mode == "put_timeout":
-                raise TimeoutError("minio_put_timeout")
+                raise TimeoutError("s3_put_timeout")
             if mode == "get_500":
-                raise RuntimeError("minio_500")
-            raise PermissionError("minio_auth_fail")
+                raise RuntimeError("s3_500")
+            raise PermissionError("s3_auth_fail")
 
-        try:
-            from minio import Minio
-            monkeypatch.setattr(Minio, "presigned_put_object", failing_presign)
-        except ImportError:
-            pytest.skip("minio not installed")
+        monkeypatch.setattr(client, "generate_presigned_url", failing_presign)
         yield
     return injector
 

@@ -312,7 +312,7 @@ def test_profile_local_nao_constroi_postgres_minio_ou_gcp(tmp_path: Path) -> Non
         raise AssertionError("local_profile_built_legacy_backend")
 
     with patch("central_api.deps.create_engine", explode), patch(
-        "central_api.deps.MinioWrapper", explode
+        "central_api.deps.S3PresignedStorage", explode
     ), local_stack(tmp_path) as stack:
         seed_agent(stack)
         deliver_full(stack, "job-full", "base", b"full-payload")

@@ -40,7 +40,7 @@ colisão (lease-based).
 ## Requirements
 
 **Runtime deps (apps/data_processor/pyproject.toml):** `sqlalchemy`, `psycopg`,
-`polars`, `httpx`, `minio`, `cnes_domain`, `cnes_infra`.
+`polars`, `httpx`, `boto3` (via `cnes_infra`), `cnes_domain`, `cnes_infra`.
 
 **Env vars:**
 
@@ -48,10 +48,11 @@ colisão (lease-based).
 |---|---|---|
 | `DB_URL` | sim | Postgres Gold (mesmo cluster do `central_api`) |
 | `CENTRAL_API_URL` | sim | Para polling da fila |
-| `MINIO_ENDPOINT` | sim | Host:port MinIO |
-| `MINIO_ACCESS_KEY` | sim | Credencial MinIO |
-| `MINIO_SECRET_KEY` | sim | Credencial MinIO |
-| `MINIO_BUCKET` | opcional | Default `cnesdata-landing` |
+| `AWS_ACCESS_KEY_ID` | sim (endpoint não-AWS) | Cadeia padrão do boto3; obrigatório se `S3_ENDPOINT_URL` setado |
+| `AWS_SECRET_ACCESS_KEY` | sim (endpoint não-AWS) | Idem |
+| `S3_ENDPOINT_URL` | opcional | Vazio = S3 real; `http://minio:9000` em dev, LocalStack em CI |
+| `S3_REGION` | opcional | Default `sa-east-1` |
+| `S3_BUCKET` | opcional | Default `cnesdata-landing` |
 | `WORKER_POLL_INTERVAL` | opcional | Default `5s` |
 
 ## Module Map

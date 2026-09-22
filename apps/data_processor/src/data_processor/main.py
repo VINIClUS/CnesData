@@ -14,11 +14,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import create_engine
 
 from cnes_domain.outbox_dispatcher import dispatch_once
-from cnes_domain.ports.object_storage import (
-    NullObjectStoragePort,
-    ObjectStoragePort,
-)
 from cnes_infra import config
+from cnes_infra.storage.s3_presigned import S3PresignedStorage, build_s3_client
 from cnes_infra.telemetry import init_telemetry
 from data_processor.consumer import run_processor
 
@@ -27,6 +24,7 @@ if TYPE_CHECKING:
 
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.object_storage import ObjectStoragePort
     from data_processor.orchestration.coordinator import PipelineCoordinator
 
 fmt = logging.Formatter(
@@ -55,21 +53,10 @@ def _setup_logging(verbose: bool = False) -> None:
 
 
 def _create_storage() -> ObjectStoragePort:
-    try:
-        from cnes_infra.storage.object_storage import (
-            MinioObjectStorage,
-        )
-        return MinioObjectStorage(
-            endpoint=config.MINIO_ENDPOINT,
-            access_key=config.MINIO_ACCESS_KEY,
-            secret_key=config.MINIO_SECRET_KEY,
-            secure=config.MINIO_SECURE,
-        )
-    except Exception:
-        logging.getLogger(__name__).warning(
-            "minio_unavailable using_null_storage"
-        )
-        return NullObjectStoragePort()
+    client = build_s3_client(
+        config.S3_REGION, config.S3_ENDPOINT_URL or None, config.S3_ADDRESSING_STYLE,
+    )
+    return S3PresignedStorage(client)
 
 
 def _profile_is_local() -> bool:

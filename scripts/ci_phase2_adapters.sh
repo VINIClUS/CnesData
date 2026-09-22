@@ -25,6 +25,8 @@ export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_DEFAULT_REGION=us-east-1
 export DYNAMODB_ENDPOINT=http://127.0.0.1:18000
+# S3_ENDPOINT (read below by the inline script), not app-config's S3_ENDPOINT_URL —
+# setting the wrong one here silently points boto3 at real AWS instead of LocalStack.
 export S3_ENDPOINT=http://127.0.0.1:4566
 
 uv run --no-build python - <<'PY'
@@ -89,6 +91,7 @@ def create_control_plane_table(client):
 
 def create_buckets(client):
     client.create_bucket(Bucket="cnesdata-test")
+    client.create_bucket(Bucket="cnesdata-landing-test")
     client.create_bucket(
         Bucket="cnesdata-audit-test",
         ObjectLockEnabledForBucket=True,
@@ -102,3 +105,4 @@ PY
 uv run --no-build pytest -q tests/integration/test_local_adapter_matrix.py -m local_profile
 uv run --no-build pytest -q tests/integration/test_aws_adapter_matrix.py \
   -m "dynamodb_local and s3_integration"
+uv run --no-build pytest -q tests/integration/test_s3_presign_matrix.py -m s3_integration

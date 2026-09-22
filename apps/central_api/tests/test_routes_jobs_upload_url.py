@@ -24,7 +24,9 @@ def _make_app():
 def client(monkeypatch):
     app = _make_app()
     fake_storage = MagicMock()
-    fake_storage.presigned_put.return_value = "https://minio/presigned?sig=x"
+    fake_storage.generate_presigned_upload_url.return_value = (
+        "https://s3.sa-east-1.amazonaws.com/presigned?sig=x"
+    )
     monkeypatch.setattr(
         "central_api.routes.jobs._object_storage",
         lambda: fake_storage,
@@ -57,7 +59,7 @@ def test_aceita_request_valido(client, monkeypatch):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["extraction_id"] == job_id
-    assert body["upload_url"].startswith("https://minio/presigned")
+    assert body["upload_url"].startswith("https://s3.sa-east-1.amazonaws.com/presigned")
     assert body["minio_key"].endswith(".parquet.gz")
 
 
@@ -108,7 +110,10 @@ def test_rejeita_source_intent_desconhecido(client, monkeypatch):
 
 
 def test_erro_422_de_intent_desconhecido_segue_schema_httpvalidationerror(client):
-    """Garante que erros 422 usem o schema HTTPValidationError documentado."""
+    """Garante que erros 422 usem o schema HTTPValidationError documentado —
+    sem isso o cliente Go (gerado do OpenAPI) falha ao decodificar o erro
+    real e reporta um erro de parsing no lugar (H11,
+    docs/edge-agent-audit-2026-09-20.md)."""
     resp = client.post(
         "/api/v1/jobs/upload-url",
         headers={"X-Tenant-Id": "354130"},

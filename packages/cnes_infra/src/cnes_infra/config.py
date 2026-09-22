@@ -82,21 +82,21 @@ DLQ_THRESHOLD: float = float(os.getenv("DLQ_THRESHOLD", "0.05"))
 API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
 API_PORT: int = _exigir_inteiro("API_PORT", 8000)
 
-MINIO_ENDPOINT: str = os.getenv("MINIO_ENDPOINT", "localhost:9000")
-MINIO_SECURE: bool = os.getenv("MINIO_SECURE", "false").lower() == "true"
-# Host:port embedded in presigned URLs handed to edge agents. Defaults to
-# MINIO_ENDPOINT (unchanged behavior) but must be overridable separately:
-# in compose, central_api reaches MinIO via the Docker network alias
-# ("minio:9000"), which is unresolvable off-host. An edge agent that gets
-# a presigned URL built from that internal alias can never complete the
-# upload leg (H9, docs/edge-agent-audit-2026-09-20.md — confirmed empirically:
-# every edge/central_api-in-different-network topology needs this set to
-# something the edge can actually reach).
-MINIO_PUBLIC_ENDPOINT: str = os.getenv("MINIO_PUBLIC_ENDPOINT", MINIO_ENDPOINT)
-MINIO_PUBLIC_SECURE: bool = os.getenv(
-    "MINIO_PUBLIC_SECURE", str(MINIO_SECURE),
-).lower() == "true"
-MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "cnesdata-landing")
+S3_REGION: str = os.getenv("S3_REGION", "sa-east-1")
+S3_BUCKET: str = os.getenv("S3_BUCKET", "cnesdata-landing")
+# Vazio = resolvedor padrão do boto3 (S3 real). Preenchido em dev/CI para
+# apontar para AIStor/LocalStack. "" != None: boto3.client(endpoint_url="")
+# tentaria assinar contra um host vazio, por isso consumidores devem
+# normalizar com `S3_ENDPOINT_URL or None`.
+S3_ENDPOINT_URL: str = os.getenv("S3_ENDPOINT_URL", "")
+# Host embutido nas URLs presigned entregues ao edge agent — pode divergir
+# do endpoint interno (ex.: alias de rede Docker "minio:9000", inalcançável
+# fora do host). Default: mesmo valor de S3_ENDPOINT_URL (comportamento
+# anterior, sem split). Porta MINIO_PUBLIC_ENDPOINT (PR #230, H9 —
+# confirmado empiricamente: todo agente fora da rede Docker do VPS precisa
+# disso setado para um host que ele alcança).
+S3_PUBLIC_ENDPOINT_URL: str = os.getenv("S3_PUBLIC_ENDPOINT_URL") or S3_ENDPOINT_URL
+S3_ADDRESSING_STYLE: str = os.getenv("S3_ADDRESSING_STYLE", "auto")
 MAX_JITTER_SECONDS: float = float(
     os.getenv("MAX_JITTER_SECONDS", "1800"),
 )
@@ -139,22 +139,12 @@ def _gcp_project_id() -> str:
     return _exigir("GCP_PROJECT_ID")
 
 
-def _minio_access_key() -> str:
-    return os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-
-
-def _minio_secret_key() -> str:
-    return os.getenv("MINIO_SECRET_KEY", "minioadmin")
-
-
 _LAZY_ATTRS: dict[str, object] = {
     "DB_PATH": _firebird_db_path,
     "DB_PASSWORD": _firebird_db_password,
     "DB_DSN": lambda: f"{DB_HOST}:{_firebird_db_path()}",
     "FIREBIRD_DLL": _firebird_dll,
     "GCP_PROJECT_ID": _gcp_project_id,
-    "MINIO_ACCESS_KEY": _minio_access_key,
-    "MINIO_SECRET_KEY": _minio_secret_key,
     "COD_MUN_IBGE": lambda: validar_formato(
         "COD_MUN_IBGE", _exigir("COD_MUN_IBGE"), _RE_COD_MUN_6,
     ),
