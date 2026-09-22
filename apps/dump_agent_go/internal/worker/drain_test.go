@@ -1,9 +1,11 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -135,6 +137,35 @@ func TestDrain_BreakerTripsAfterThreshold(t *testing.T) {
 	}
 }
 
+func TestDrain_BreakerOpenLogsWarn(t *testing.T) {
+	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
+	for i := 0; i < 10; i++ {
+		_ = ob.Append(queue.Envelope{Type: queue.TypeComplete, JobUUID: "uuid-x"})
+	}
+	// dispatchOne processes at most one item per tick on ClassTransient
+	// (applyResponse returns false to back off); drive enough ticks to
+	// cross the breaker's threshold=5 consecutive failures.
+	for i := 0; i < 5; i++ {
+		d.tick(context.Background())
+	}
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	_ = ob.Append(queue.Envelope{Type: queue.TypeComplete, JobUUID: "uuid-while-open"})
+	d.tick(context.Background())
+
+	logged := buf.String()
+	if !strings.Contains(logged, "level=WARN") {
+		t.Errorf("breaker-open tick did not log at WARN: %q", logged)
+	}
+	if !strings.Contains(logged, "job_uuid") {
+		t.Errorf("breaker-open tick did not log a job_uuid: %q", logged)
+	}
+}
+
 func TestDrain_FailEnvelopeDispatched(t *testing.T) {
 	d, ob, stub := newDrainFixture(t, nil)
 	_ = ob.Append(queue.Envelope{
@@ -147,6 +178,44 @@ func TestDrain_FailEnvelopeDispatched(t *testing.T) {
 	items, _ := ob.Peek(10)
 	if len(items) != 0 {
 		t.Errorf("Fail envelope retained: %+v", items)
+	}
+}
+
+func TestDrain_ExhaustedAttemptsDropsEnvelopeAndLogsError(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
+	_ = ob.Append(queue.Envelope{
+		Type: queue.TypeComplete, JobUUID: "uuid-exhausted", Attempts: drainMaxAttempts - 1,
+	})
+	d.tick(context.Background())
+
+	items, _ := ob.Peek(10)
+	if len(items) != 0 {
+		t.Errorf("envelope retained past drainMaxAttempts: %+v", items)
+	}
+	logged := buf.String()
+	if !strings.Contains(logged, "level=ERROR") || !strings.Contains(logged, "uuid-exhausted") {
+		t.Errorf("exhausted envelope drop not logged at ERROR: %q", logged)
+	}
+}
+
+func TestDrain_BelowAttemptsThresholdRetainsEnvelope(t *testing.T) {
+	d, ob, _ := newDrainFixture(t, &obs.HTTPError{StatusCode: 503})
+	_ = ob.Append(queue.Envelope{
+		Type: queue.TypeComplete, JobUUID: "uuid-retry", Attempts: drainMaxAttempts - 2,
+	})
+	d.tick(context.Background())
+
+	items, _ := ob.Peek(10)
+	if len(items) != 1 {
+		t.Fatalf("envelope dropped before drainMaxAttempts: %+v", items)
+	}
+	if items[0].Envelope.Attempts != drainMaxAttempts-1 {
+		t.Errorf("Attempts = %d want %d", items[0].Envelope.Attempts, drainMaxAttempts-1)
 	}
 }
 

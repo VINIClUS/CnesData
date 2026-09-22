@@ -171,6 +171,7 @@ const (
 	drainEvictAge       = 90 * 24 * time.Hour
 	drainEvictMaxCount  = 10000
 	dispatchTimeout     = 30 * time.Second
+	drainMaxAttempts    = 20
 )
 
 // Drainer ships persisted envelopes to the central_api in FIFO order,
@@ -270,6 +271,9 @@ func (d *Drainer) dispatchOne(ctx context.Context, item queue.Item) bool {
 	})
 
 	if errors.Is(callErr, breaker.ErrOpen) {
+		slog.Warn("drain_breaker_open",
+			"job_uuid", item.Envelope.JobUUID,
+			"type", string(item.Envelope.Type))
 		return false
 	}
 	return d.applyResponse(ctx, item, resp, dispErr)
@@ -314,6 +318,14 @@ func (d *Drainer) applyResponse(ctx context.Context, item queue.Item,
 			item.Envelope.LastError = dispErr.Error()
 		}
 		_ = d.out.Delete(item.Key)
+		if item.Envelope.Attempts >= drainMaxAttempts {
+			slog.Error("envelope_attempts_exhausted",
+				"job_uuid", item.Envelope.JobUUID,
+				"type", string(item.Envelope.Type),
+				"attempts", item.Envelope.Attempts,
+				"last_error", item.Envelope.LastError)
+			return false
+		}
 		_ = d.out.Append(item.Envelope)
 		return false
 	}
