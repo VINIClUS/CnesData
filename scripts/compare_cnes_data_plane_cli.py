@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 
-def _shadow_store() -> ObjectStorePort:
+def _shadow_store(run_id: str) -> ObjectStorePort:
     from botocore.exceptions import ClientError
 
     from cnes_infra.object_store.s3 import S3ObjectStore
@@ -61,13 +61,13 @@ def _shadow_store() -> ObjectStorePort:
         code = error.response.get("Error", {}).get("Code", "")
         if code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
             raise
-    return S3ObjectStore(client, config.S3_BUCKET, prefix="compare-cnes-data-plane")
+    return S3ObjectStore(client, config.S3_BUCKET, prefix=f"compare-cnes-data-plane/{run_id}")
 
 
-def _build_store(mode: str, tmp_dir: Path) -> ObjectStorePort:
+def _build_store(mode: str, tmp_dir: Path, run_id: str) -> ObjectStorePort:
     if mode == "golden":
         return FilesystemObjectStore(tmp_dir / "store")
-    return _shadow_store()
+    return _shadow_store(run_id)
 
 
 def _current_commit_sha() -> str:
@@ -112,8 +112,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     with TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
-        store = _build_store(args.mode, tmp_dir)
         run_id = f"compare-{args.mode}-{uuid4().hex[:8]}"
+        store = _build_store(args.mode, tmp_dir, run_id)
         artifacts = run_vertical_slice(args.fixtures, store, run_id)
         expected_dir, actual_dir = tmp_dir / "expected", tmp_dir / "actual"
         materialize_expected_directory(args.fixtures, expected_dir)
