@@ -1,11 +1,17 @@
 package apiclient
 
-// Operações legadas do modo de migração que não podem ser geradas a partir de
-// docs/contracts/openapi.json: /api/v1/jobs/{extraction_id}/{fail,heartbeat} usam
-// caminhos com segmento "extraction_id" que o servidor atual não expõe tipado
-// (fail: dict[str, Any]; heartbeat: rota /api/v1/edge/... nem mapeada aqui ainda).
-// Mantidas aqui, fora de generated.go, para que `go generate` permaneça
-// reproduzível e o gate de drift continue real.
+// FailExtractionApiV1JobsExtractionIdFailPostWithResponse é um shim legado
+// para POST /api/v1/jobs/{extraction_id}/fail: a rota real (A1) valida um
+// corpo dict[str, Any] não tipado em docs/contracts/openapi.json, então o
+// codegen não produz um método específico para ela. SendHeartbeat (adapter.go)
+// aponta hoje para essa mesma família de caminho, mas o alvo correto
+// (/api/v1/edge/jobs/{job_id}/heartbeat, ControlPlanePort + fencing token)
+// só se aplica ao caminho raw, que nenhum código de produção em cmd/dumpagent
+// wireia (RawOutbox/RawSpoolDirectory/RawUploader/RawExtract nunca são
+// setados) — corrigir a URL trocaria um 404 por um 403 sem nenhum job real
+// jamais alcançar essa rota. Deixado como está; falhas de heartbeat já são
+// só logadas (heartbeat.go), o reaper de lease (extractions_repo.reap_expired)
+// é o mecanismo real de recuperação para landing.extractions.
 
 import (
 	"bytes"
