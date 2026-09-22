@@ -172,7 +172,7 @@ func parseRegisterFlags(args []string) (registerFlags, error) {
 	tenantID := fs.String("tenant-id", "", "tenant UUID for X-Tenant-Id (required)")
 	baseURL := fs.String("base-url", "", "central_api root URL (required)")
 	caPin := fs.String("ca-pin", "", "pin server CA (PEM file); default: system trust store")
-	scope := fs.String("scope", "agent", "OAuth scope")
+	scope := fs.String("scope", "agent.provision", "OAuth scope")
 	force := fs.Bool("force", false, "overwrite existing cert+key+refresh")
 	noSmoke := fs.Bool("no-smoke", false, "skip post-register mTLS health probe")
 	if err := fs.Parse(args); err != nil {

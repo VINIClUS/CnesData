@@ -70,8 +70,8 @@ func TestRegister_ParseFlags_DefaultScope(t *testing.T) {
 	flags, _ := parseRegisterFlags([]string{
 		"--tenant-id", "T", "--base-url", "https://x.example",
 	})
-	if flags.Scope != "agent" {
-		t.Errorf("Scope default = %q, want %q", flags.Scope, "agent")
+	if flags.Scope != "agent.provision" {
+		t.Errorf("Scope default = %q, want %q", flags.Scope, "agent.provision")
 	}
 }
 
