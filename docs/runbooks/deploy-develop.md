@@ -213,8 +213,10 @@ manual acontecer.
    Reproduzido ao vivo em 2026-09-22 num container de 4 dias rodando. Sempre conferir o
    inode/conteúdo **de dentro do container** (`docker compose exec caddy stat -c "%i"
    /etc/caddy/Caddyfile` vs. o mesmo `stat` no host) antes de confiar num `reload`; se
-   divergir, só uma recriação do container (`up -d --force-recreate caddy`, com os
-   `--env-file` corretos) resolve.
+   divergir, validar o arquivo **antes** de recriar (container descartável — ver
+   `deploy-main.md`) e só então `up -d --force-recreate caddy` (com os `--env-file`
+   corretos) — recriar com um arquivo inválido derruba o Caddy compartilhado de vez, não
+   só por ~1-2s.
 2. `scp` o `docker-compose.dev.yml` novo para `/opt/cnesdata-dev/`. `deploy.sh` só troca
    `IMAGE_TAG` — sem este passo, `CORS_ALLOWED_ORIGINS`, `API_ORIGIN` e `KC_HOSTNAME`
    continuam com o hostname antigo mesmo depois do merge, então o dashboard novo chama a

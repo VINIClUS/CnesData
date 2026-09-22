@@ -235,22 +235,33 @@ infra HTTP funcionando. Sequência usada, para uma migração de domínio equiva
    de reescrever com `cat old > Caddyfile` (truncate-in-place não ajudou — o mount já
    estava desconectado do path havia dias, de uma edição anterior). Procedimento correto:
    1. Editar o arquivo (qualquer método).
-   2. Conferir de **dentro do container**, não só no host:
+   2. Conferir de **dentro do container em execução**, não só no host:
       `docker compose --env-file .env --env-file .env.image -f docker-compose.prod.yml
       exec caddy stat -c "%i" /etc/caddy/Caddyfile` — comparar com `stat -c "%i"` do
       arquivo no host. Inodes diferentes = mount desatualizado, `validate`/`reload`
-      não vão ajudar.
-   3. Se os inodes divergirem, recriar o container (única forma de recarregar um bind
-      mount de arquivo único): `docker compose --env-file .env --env-file .env.image
-      -f docker-compose.prod.yml up -d --force-recreate caddy` — os dois `--env-file`
-      são obrigatórios (`IMAGE_TAG` vive só em `.env.image`; sem eles o compose falha
-      resolvendo a imagem do `cnes_db_migrator`, não só do caddy). Recriar o container
-      derruba prod/dev/limnopulse por ~1-2s (mesmo container compartilhado) — aceitável,
-      já é o comando de recuperação documentado em "Se o Caddy cair" acima.
-   4. Só então `caddy validate` + `caddy reload`, e verificar o conteúdo servido de
-      dentro do container (`exec caddy grep ...`), não só via `curl` no domínio (DNS
-      pode já estar apontando para outro lugar ou já ter sido removido, mascarando se o
-      Caddy em si está correto).
+      contra o container atual não vão ajudar (leem o conteúdo velho, que também é
+      sintaticamente válido — "sucesso" não distingue nada).
+   3. **Validar o arquivo ANTES de recriar** — nunca recriar primeiro e validar depois:
+      se o arquivo tiver erro de sintaxe, `up -d --force-recreate` sobe o Caddy já
+      quebrado, derrubando prod/dev/limnopulse de vez (não os ~1-2s esperados de uma
+      recriação normal) até alguém corrigir e recriar de novo. Validar com um container
+      descartável, que sempre pega um mount fresco (nunca fica preso a inode velho por
+      ser recém-criado):
+      `docker run --rm -v /opt/cnesdata/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile`. Só prosseguir se
+      isso passar.
+   4. Se os inodes do passo 2 divergirem **e** a validação do passo 3 passou, recriar o
+      container real (única forma de recarregar um bind mount de arquivo único):
+      `docker compose --env-file .env --env-file .env.image -f docker-compose.prod.yml
+      up -d --force-recreate caddy` — os dois `--env-file` são obrigatórios (`IMAGE_TAG`
+      vive só em `.env.image`; sem eles o compose falha resolvendo a imagem do
+      `cnes_db_migrator`, não só do caddy). Recriar o container derruba
+      prod/dev/limnopulse por ~1-2s (mesmo container compartilhado, config já validada)
+      — aceitável, já é o comando de recuperação documentado em "Se o Caddy cair" acima.
+   5. Depois de recriado, verificar o conteúdo servido de dentro do container novo
+      (`exec caddy grep ...`), não só via `curl` no domínio (DNS pode já estar apontando
+      para outro lugar ou já ter sido removido, mascarando se o Caddy em si está
+      correto).
 2. Durante a janela de transição, servir cada hostname novo junto com o antigo no mesmo
    bloco (`cnesdata.com.br, cnesdata.vinisantana.com { ... }`) — nunca editar para
    substituir um pelo outro nesse meio-tempo. Incidente real em 2026-09-22: fazer isso
