@@ -248,7 +248,7 @@ infra HTTP funcionando. Sequência usada, para uma migração de domínio equiva
       descartável, que sempre pega um mount fresco (nunca fica preso a inode velho por
       ser recém-criado):
       `docker run --rm -v /opt/cnesdata/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      caddy:2-alpine validate --config /etc/caddy/Caddyfile`. Só prosseguir se
+      caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile`. Só prosseguir se
       isso passar.
    4. Se os inodes do passo 2 divergirem **e** a validação do passo 3 passou, recriar o
       container real (única forma de recarregar um bind mount de arquivo único):
