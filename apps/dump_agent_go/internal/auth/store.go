@@ -31,6 +31,7 @@ const (
 	certFileName    = "cert.pem"
 	keyFileName     = "key.bin"
 	refreshFileName = "refresh.bin"
+	caPinFileName   = "ca_pin.pem"
 )
 
 // AuthDir resolves the on-disk directory for agent auth artifacts.
@@ -77,6 +78,32 @@ func LoadCert(dir string) ([]byte, error) {
 		return nil, fmt.Errorf("auth: read cert: %w", err)
 	}
 	return data, nil
+}
+
+// SaveCAPin writes pemBytes to <dir>/ca_pin.pem (mode 0644). PEM is public
+// (the server CA used at --ca-pin registration time, not a secret).
+func SaveCAPin(dir string, pemBytes []byte) error {
+	return writeAtomic(filepath.Join(dir, caPinFileName), pemBytes, 0o644)
+}
+
+// LoadCAPin reads <dir>/ca_pin.pem. Returns ErrNotFound if missing.
+func LoadCAPin(dir string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(dir, caPinFileName))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("auth: read ca_pin: %w", err)
+	}
+	return data, nil
+}
+
+// RemoveCAPin deletes <dir>/ca_pin.pem if present; no-op if already absent.
+func RemoveCAPin(dir string) error {
+	if err := os.Remove(filepath.Join(dir, caPinFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("auth: remove ca_pin: %w", err)
+	}
+	return nil
 }
 
 // SaveKey wraps pkcs8DER (DPAPI on Windows; identity on Unix), writes 0600.

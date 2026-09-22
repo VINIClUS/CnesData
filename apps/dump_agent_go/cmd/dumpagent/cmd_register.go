@@ -154,7 +154,7 @@ func finishProvisioning(
 		fmt.Fprintln(os.Stderr, "register:", err)
 		return errExitCode(err)
 	}
-	if err := persistAll(authDir, resp, pkcs8); err != nil {
+	if err := persistAll(authDir, resp, pkcs8, caPEM); err != nil {
 		fmt.Fprintln(os.Stderr, "register:", err)
 		return errExitCode(err)
 	}
@@ -344,9 +344,12 @@ func doProvisionRequest(
 	return rawBody, &p, resp.StatusCode, nil
 }
 
-// persistAll writes key → cert → refresh in that order. Returns
-// errPersistFailed-wrapped error on any step.
-func persistAll(authDir string, resp *provisionResp, pkcs8DER []byte) error {
+// persistAll writes key → cert → refresh → CA pin, in that order. caPEM is
+// the resolved --ca-pin bytes (empty when no override was given): non-empty
+// persists it for `run` to load later; empty removes any pin persisted by a
+// prior --force registration, so the new intent (system trust store) wins.
+// Returns errPersistFailed-wrapped error on any step.
+func persistAll(authDir string, resp *provisionResp, pkcs8DER []byte, caPEM []byte) error {
 	if err := auth.SaveKey(authDir, pkcs8DER); err != nil {
 		return fmt.Errorf("%w: SaveKey: %v", errPersistFailed, err)
 	}
@@ -355,6 +358,23 @@ func persistAll(authDir string, resp *provisionResp, pkcs8DER []byte) error {
 	}
 	if err := auth.SaveRefreshToken(authDir, resp.RefreshToken); err != nil {
 		return fmt.Errorf("%w: SaveRefreshToken: %v", errPersistFailed, err)
+	}
+	if err := persistCAPin(authDir, caPEM); err != nil {
+		return fmt.Errorf("%w: %v", errPersistFailed, err)
+	}
+	return nil
+}
+
+// persistCAPin saves caPEM if non-empty, else removes any stale pin.
+func persistCAPin(authDir string, caPEM []byte) error {
+	if len(caPEM) > 0 {
+		if err := auth.SaveCAPin(authDir, caPEM); err != nil {
+			return fmt.Errorf("SaveCAPin: %w", err)
+		}
+		return nil
+	}
+	if err := auth.RemoveCAPin(authDir); err != nil {
+		return fmt.Errorf("RemoveCAPin: %w", err)
 	}
 	return nil
 }
