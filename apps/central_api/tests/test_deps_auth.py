@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from central_api.deps import require_auth, require_tenant_header
 from central_api.middleware import AuthenticatedUser
+from cnes_domain.tenant import get_tenant_id
 
 
 def _user(tenants: list[str]) -> AuthenticatedUser:
@@ -84,6 +85,19 @@ def test_require_tenant_header_passa_quando_pertence() -> None:
     r = TestClient(app).get("/scoped", headers={"X-Tenant-Id": "354130"})
     assert r.status_code == 200
     assert r.json() == {"tenant": "354130"}
+
+
+def test_require_tenant_header_define_tenant_visivel_no_endpoint_sync() -> None:
+    app = FastAPI()
+
+    @app.get("/ctx")
+    def ctx(tenant: str = Depends(require_tenant_header)) -> dict:
+        return {"ctx": get_tenant_id()}
+
+    _inject_user(app, _user(["354130"]))
+    r = TestClient(app).get("/ctx", headers={"X-Tenant-Id": "354130"})
+    assert r.status_code == 200
+    assert r.json() == {"ctx": "354130"}
 
 
 def test_install_cert_authority_avisa_quando_mtls_desligado(monkeypatch, caplog):

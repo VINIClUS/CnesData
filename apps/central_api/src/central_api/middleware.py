@@ -1,4 +1,4 @@
-"""Middlewares: TenantMiddleware, AuthMiddleware, QueryCounterMiddleware."""
+"""Middlewares: AuthMiddleware, QueryCounterMiddleware."""
 import logging
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -8,7 +8,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from cnes_domain.tenant import set_tenant_id
 from cnes_infra.auth import TokenInvalid
 
 logger = logging.getLogger(__name__)
@@ -25,17 +24,6 @@ class AuthenticatedUser:
     display_name: str | None
     role: str
     tenant_ids: list[str]
-
-
-class TenantMiddleware(BaseHTTPMiddleware):
-
-    async def dispatch(
-        self, request: Request, call_next: object,
-    ) -> Response:
-        tid = request.headers.get("X-Tenant-Id")
-        if tid:
-            set_tenant_id(tid)
-        return await call_next(request)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):

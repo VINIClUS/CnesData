@@ -41,7 +41,7 @@ JOINs contra o Gold.
 │          - /jobs/register                                     │
 │          - /oauth/device_authorization + /oauth/token         │
 │          - /provision/cert + /provision/cert/rotate           │
-│          - TenantMiddleware (X-Tenant-Id)                     │
+│          - tenant via Bearer ou cert mTLS (#260)              │
 │          - lease reaper (background task)                     │
 │                │                                              │
 │       ┌────────┴────────┐                                     │
@@ -230,11 +230,12 @@ Fluxo alvo: `REGISTERED`/`UPLOADED` -> `PROCESSING` -> `INGESTED` ou
 Fluxo do `tenant_id` em cada request:
 
 ```
-[Edge agent / client]
-    │  header: X-Tenant-Id: 354130
-    ▼
-[central_api.TenantMiddleware]
-    │  call: set_tenant_id("354130")   ← ContextVar
+[Dashboard (Bearer + X-Tenant-Id)]      [Edge agent (cert mTLS via Caddy)]
+    │                                        │
+    ▼                                        ▼
+[deps.require_tenant_header]            [agent_auth.require_agent_cert]
+    │  X-Tenant-Id ∈ user.tenant_ids        │  tenant = extensão do cert
+    │  call: set_tenant_id(...)  ← ContextVar
     ▼
 [route handler]
     │  usa cnes_domain.tenant.get_tenant_id() se precisa

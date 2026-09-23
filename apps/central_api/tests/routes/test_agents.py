@@ -2,11 +2,13 @@
 
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
 
+from central_api.middleware import AuthenticatedUser
 from central_api.repositories.agent_status_repo import AgentStatus
 
 
@@ -32,13 +34,27 @@ def mock_engine():
     return MagicMock(spec=Engine)
 
 
+def _user(tenants: list[str]) -> AuthenticatedUser:
+    return AuthenticatedUser(
+        user_id=uuid4(), email="g@m", display_name=None,
+        role="gestor", tenant_ids=tenants,
+    )
+
+
 @pytest.fixture
-def client(app, mock_engine):
+def anon_client(app, mock_engine):
     from central_api.deps import get_engine
     app.dependency_overrides[get_engine] = lambda: mock_engine
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(app, anon_client):
+    from central_api.deps import require_auth
+    app.dependency_overrides[require_auth] = lambda: _user(["354130"])
+    return anon_client
 
 
 def _status(tenant_id: str = "354130", **overrides) -> AgentStatus:
@@ -119,7 +135,7 @@ class TestAgentsStatusEndpoint:
         resp = client.get(
             "/api/v1/agents/status",
             params={"tenant_id": "abc"},
-            headers={"X-Tenant-Id": "abc"},
+            headers={"X-Tenant-Id": "354130"},
         )
         assert resp.status_code == 422
 
@@ -128,7 +144,35 @@ class TestAgentsStatusEndpoint:
             "/api/v1/agents/status",
             params={"tenant_id": "354130"},
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "tenant_header_required"
+
+    def test_rejeita_requisicao_sem_autenticacao(self, anon_client):
+        with patch(
+            "central_api.routes.agents.query_agent_status",
+            return_value=_status(tenant_id="354130"),
+        ) as mock_query:
+            resp = anon_client.get(
+                "/api/v1/agents/status",
+                params={"tenant_id": "354130"},
+                headers={"X-Tenant-Id": "354130"},
+            )
+        assert resp.status_code == 401
+        mock_query.assert_not_called()
+
+    def test_rejeita_tenant_fora_do_usuario(self, client):
+        with patch(
+            "central_api.routes.agents.query_agent_status",
+            return_value=_status(tenant_id="999999"),
+        ) as mock_query:
+            resp = client.get(
+                "/api/v1/agents/status",
+                params={"tenant_id": "999999"},
+                headers={"X-Tenant-Id": "999999"},
+            )
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "tenant_not_allowed"
+        mock_query.assert_not_called()
 
     def test_passa_tenant_id_para_repo(self, client):
         with patch(

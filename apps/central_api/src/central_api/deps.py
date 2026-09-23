@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from starlette.requests import Request  # noqa: TC002 - needed at runtime by FastAPI
 
 from central_api.middleware import AuthenticatedUser
+from cnes_domain.tenant import set_tenant_id
 from cnes_infra import config
 from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.query_counter import install_query_counter
@@ -101,15 +102,18 @@ def require_auth(request: Request) -> AuthenticatedUser:
     return user
 
 
-def require_tenant_header(
+async def require_tenant_header(
     request: Request,
     user: AuthenticatedUser = Depends(require_auth),
 ) -> str:
+    # async on purpose: a sync dependency runs in the threadpool, so the tenant
+    # ContextVar set here would not reach the endpoint.
     tid = request.headers.get("X-Tenant-Id")
     if not tid:
         raise HTTPException(status_code=400, detail="tenant_header_required")
     if tid not in user.tenant_ids:
         raise HTTPException(status_code=403, detail="tenant_not_allowed")
+    set_tenant_id(tid)
     return tid
 
 

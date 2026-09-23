@@ -622,8 +622,7 @@ type CentralApiRoutesDashboardAgentStatusResponse struct {
 
 // GetAgentStatusApiV1AgentsStatusGetParams defines parameters for GetAgentStatusApiV1AgentsStatusGet.
 type GetAgentStatusApiV1AgentsStatusGetParams struct {
-	TenantId  string `form:"tenant_id" json:"tenant_id"`
-	XTenantId string `json:"X-Tenant-Id"`
+	TenantId string `form:"tenant_id" json:"tenant_id"`
 }
 
 // AgentsRunsApiV1DashboardAgentsRunsGetParams defines parameters for AgentsRunsApiV1DashboardAgentsRunsGet.
@@ -2100,19 +2099,6 @@ func NewGetAgentStatusApiV1AgentsStatusGetRequest(server string, params *GetAgen
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
-	}
-
-	if params != nil {
-
-		var headerParam0 string
-
-		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-		if err != nil {
-			return nil, err
-		}
-
-		req.Header.Set("X-Tenant-Id", headerParam0)
-
 	}
 
 	return req, nil

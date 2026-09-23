@@ -6,11 +6,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 from central_api.deps import lifespan
-from central_api.middleware import (
-    AuthMiddleware,
-    QueryCounterMiddleware,
-    TenantMiddleware,
-)
+from central_api.middleware import AuthMiddleware, QueryCounterMiddleware
 from central_api.ratelimit import limiter, rate_limit_handler
 from central_api.routes import (
     access_requests,
@@ -61,7 +57,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(QueryCounterMiddleware)
-    app.add_middleware(TenantMiddleware)
     app.add_middleware(AuthMiddleware)
     app.add_middleware(
         CORSMiddleware,

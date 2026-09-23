@@ -1488,15 +1488,6 @@
               "title": "Tenant Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "X-Tenant-Id",
-            "required": true,
-            "schema": {
-              "title": "X-Tenant-Id",
-              "type": "string"
-            }
           }
         ],
         "responses": {

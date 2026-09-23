@@ -1,10 +1,10 @@
 """Rota de status agregado de agents por tenant."""
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
-from central_api.deps import get_engine
+from central_api.deps import get_engine, require_tenant_header
 from central_api.repositories.agent_status_repo import query_agent_status
 
 router = APIRouter(tags=["agents"])
@@ -22,7 +22,7 @@ class AgentStatusResponse(BaseModel):
 @router.get("/agents/status", response_model=AgentStatusResponse)
 def get_agent_status(
     tenant_id: str = Query(..., pattern=r"^\d{6}$"),
-    x_tenant_id: str = Header(..., alias="X-Tenant-Id"),
+    x_tenant_id: str = Depends(require_tenant_header),
     engine: Engine = Depends(get_engine),
 ) -> AgentStatusResponse:
     """Retorna status agregado do agent do tenant."""
