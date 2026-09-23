@@ -120,3 +120,13 @@ def test_install_cert_authority_nao_avisa_quando_mtls_obrigatorio(monkeypatch, c
     with caplog.at_level("WARNING", logger="central_api.deps"):
         _install_cert_authority(MagicMock())
     assert "agent_mtls" not in caplog.text
+
+
+def test_install_edge_identity_sobrescreve_get_edge_identity() -> None:
+    from central_api.agent_auth import edge_identity_from_cert
+    from central_api.deps import _install_edge_identity
+    from central_api.routes.raw_jobs import get_edge_identity
+
+    app = FastAPI()
+    _install_edge_identity(app)
+    assert app.dependency_overrides[get_edge_identity] is edge_identity_from_cert

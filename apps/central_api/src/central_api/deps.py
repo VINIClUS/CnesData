@@ -193,6 +193,13 @@ def _serving_principal_resolver(
     return _resolve
 
 
+def _install_edge_identity(app: object) -> None:
+    from central_api.agent_auth import edge_identity_from_cert
+    from central_api.routes.raw_jobs import get_edge_identity
+
+    app.dependency_overrides[get_edge_identity] = edge_identity_from_cert
+
+
 def _install_local_auth_and_serving(
     app: object, runtime: LocalRuntime, settings: ProfileSettings
 ) -> None:
@@ -271,6 +278,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     app.state.refresh_token_store = RefreshTokenStore(_engine)  # type: ignore[attr-defined]
     app.state.provisioned_certs = ProvisionedCertsRepo(_engine)  # type: ignore[attr-defined]
     _install_cert_authority(app)
+    _install_edge_identity(app)
     app.state.verification_uri = os.environ.get("AUTH_DEVICE_VERIFICATION_URI", "")  # type: ignore[attr-defined]
     app.state.access_token_ttl = config.AUTH_ACCESS_TOKEN_TTL  # type: ignore[attr-defined]
     app.state.device_code_ttl = config.AUTH_DEVICE_CODE_TTL  # type: ignore[attr-defined]
