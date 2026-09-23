@@ -18,11 +18,14 @@ from cnes_infra.auth.models import (
     TokenError,
     TokenResponse,
 )
-from cnes_infra.auth.peer_cert import extract_peer_cert, read_agent_id, read_tenant_id
-from cnes_infra.auth.provisioned_certs import (
-    ProvisionedCertRow,
-    ProvisionedCertsRepo,
+from cnes_infra.auth.peer_cert import (
+    extract_peer_cert,
+    read_agent_id,
+    read_machine_id,
+    read_tenant_id,
+    verify_peer_cert,
 )
+from cnes_infra.auth.provisioned_certs import ProvisionedCertsRepo
 from cnes_infra.auth.refresh_tokens import RefreshTokenRow, RefreshTokenStore
 
 __all__ = [
@@ -40,7 +43,6 @@ __all__ = [
     "DeviceCodeStore",
     "JWKSValidator",
     "OAuthError",
-    "ProvisionedCertRow",
     "ProvisionedCertsRepo",
     "RefreshTokenRow",
     "RefreshTokenStore",
@@ -49,5 +51,7 @@ __all__ = [
     "TokenResponse",
     "extract_peer_cert",
     "read_agent_id",
+    "read_machine_id",
     "read_tenant_id",
+    "verify_peer_cert",
 ]

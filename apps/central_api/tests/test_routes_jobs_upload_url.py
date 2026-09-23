@@ -31,8 +31,10 @@ def client(monkeypatch):
         "central_api.routes.jobs._object_storage",
         lambda: fake_storage,
     )
+    from central_api.agent_auth import agent_identity_if_required
     from central_api.deps import get_engine
     app.dependency_overrides[get_engine] = lambda: MagicMock()
+    app.dependency_overrides[agent_identity_if_required] = lambda: None
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.clear()

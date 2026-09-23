@@ -110,6 +110,8 @@ services:
       S3_ADDRESSING_STYLE: path
       API_HOST: 0.0.0.0
       API_PORT: '8000'
+      # Stack local sem Caddy: agentes falam HTTP puro, sem certificado cliente.
+      AGENT_MTLS_REQUIRED: 'false'
     healthcheck:
       test: python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"
       interval: 15s

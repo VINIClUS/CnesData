@@ -311,6 +311,60 @@ class TestExtractionsRepoV2:
         )
         assert result is None
 
+    def test_mark_failed_nao_falha_job_de_outro_tenant(
+        self, pg_engine,
+    ) -> None:
+        job_id = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=date(2026, 1, 1), files=[],
+        )
+        result = extractions_repo.mark_failed(
+            pg_engine, job_id=job_id, reason="x", tenant_id="999999",
+        )
+        assert result is None
+
+    def test_mark_failed_com_tenant_do_job_falha(
+        self, pg_engine,
+    ) -> None:
+        job_id = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=date(2026, 1, 1), files=[],
+        )
+        result = extractions_repo.mark_failed(
+            pg_engine, job_id=job_id, reason="x", tenant_id=_TENANT,
+        )
+        assert result == job_id
+
+    def test_register_nao_registra_job_de_outro_tenant(
+        self, pg_engine,
+    ) -> None:
+        job_id = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=date(2026, 1, 1), files=[],
+        )
+        result = extractions_repo.register(
+            pg_engine, job_id=job_id, files=[], tenant_id="999999",
+        )
+        assert result is None
+        with pg_engine.connect() as conn:
+            status = conn.execute(
+                text("SELECT status FROM landing.extractions WHERE job_id = :j"),
+                {"j": str(job_id)},
+            ).scalar_one()
+        assert status == "PENDING"
+
+    def test_register_com_tenant_do_job_registra(
+        self, pg_engine,
+    ) -> None:
+        job_id = extractions_repo.enqueue(
+            pg_engine, tenant_id=_TENANT, source_type="BPA_MAG",
+            competencia=date(2026, 1, 1), files=[],
+        )
+        result = extractions_repo.register(
+            pg_engine, job_id=job_id, files=[], tenant_id=_TENANT,
+        )
+        assert result == job_id
+
     def test_register_persiste_agent_version_e_machine_id(
         self, pg_engine,
     ) -> None:

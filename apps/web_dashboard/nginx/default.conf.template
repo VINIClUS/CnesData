@@ -38,6 +38,9 @@ server {
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $http_x_forwarded_proto;
+        # Agent mTLS identity is only valid via Caddy's api.* vhost (#253);
+        # an empty value makes nginx drop any client-supplied copy.
+        proxy_set_header   X-SSL-Client-Cert "";
         proxy_read_timeout 60s;
         include /etc/nginx/conf.d/security-headers.conf;
     }
