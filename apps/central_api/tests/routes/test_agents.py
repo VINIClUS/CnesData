@@ -186,3 +186,21 @@ class TestAgentsStatusEndpoint:
             )
         assert mock_query.call_count == 1
         assert mock_query.call_args.kwargs == {"tenant_id": "354130"}
+
+
+class TestAgentsWhoamiEndpoint:
+    def test_rejeita_requisicao_sem_certificado(self, anon_client):
+        resp = anon_client.get("/api/v1/agents/whoami")
+        assert resp.status_code == 401
+        assert resp.json()["error"] == "invalid_token"
+
+    def test_retorna_identidade_do_certificado(self, app, anon_client):
+        from central_api.agent_auth import AgentCertIdentity, require_agent_cert
+        app.dependency_overrides[require_agent_cert] = lambda: AgentCertIdentity(
+            tenant_id="354130", agent_id="agent-1", machine_id="a1b2c3d4",
+        )
+        resp = anon_client.get("/api/v1/agents/whoami")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "tenant_id": "354130", "agent_id": "agent-1", "machine_id": "a1b2c3d4",
+        }

@@ -262,6 +262,13 @@ type AgentRunsResponse struct {
 	Runs []RunOut `json:"runs"`
 }
 
+// AgentWhoamiResponse defines model for AgentWhoamiResponse.
+type AgentWhoamiResponse struct {
+	AgentId   string `json:"agent_id"`
+	MachineId string `json:"machine_id"`
+	TenantId  string `json:"tenant_id"`
+}
+
 // BodyTokenOauthTokenPost defines model for Body_token_oauth_token_post.
 type BodyTokenOauthTokenPost struct {
 	ClientId   string `json:"client_id"`
@@ -988,6 +995,13 @@ type ClientInterface interface {
 	// Corresponds with GET /api/v1/agents/status (the `GetAgentStatusApiV1AgentsStatusGet` operationId).
 	GetAgentStatusApiV1AgentsStatusGet(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetAgentWhoamiApiV1AgentsWhoamiGet Get Agent Whoami
+	//
+	// Retorna a identidade do cert mTLS; usado pelo smoke do `register`.
+	//
+	// Corresponds with GET /api/v1/agents/whoami (the `GetAgentWhoamiApiV1AgentsWhoamiGet` operationId).
+	GetAgentWhoamiApiV1AgentsWhoamiGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// LoginApiV1AuthLocalLoginPostWithBody Login
 	//
 	// Takes any type of body and a specified content type.
@@ -1311,6 +1325,23 @@ func (c *Client) ReapLeasesApiV1AdminReapLeasesPost(ctx context.Context, reqEdit
 // Corresponds with GET /api/v1/agents/status (the `GetAgentStatusApiV1AgentsStatusGet` operationId).
 func (c *Client) GetAgentStatusApiV1AgentsStatusGet(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetAgentStatusApiV1AgentsStatusGetRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetAgentWhoamiApiV1AgentsWhoamiGet Get Agent Whoami
+//
+// Retorna a identidade do cert mTLS; usado pelo smoke do `register`.
+//
+// Corresponds with GET /api/v1/agents/whoami (the `GetAgentWhoamiApiV1AgentsWhoamiGet` operationId).
+func (c *Client) GetAgentWhoamiApiV1AgentsWhoamiGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentWhoamiApiV1AgentsWhoamiGetRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -2094,6 +2125,33 @@ func NewGetAgentStatusApiV1AgentsStatusGetRequest(server string, params *GetAgen
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
 		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetAgentWhoamiApiV1AgentsWhoamiGetRequest constructs an http.Request for the GetAgentWhoamiApiV1AgentsWhoamiGet method
+func NewGetAgentWhoamiApiV1AgentsWhoamiGetRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/agents/whoami")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -3211,6 +3269,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/agents/status (the `GetAgentStatusApiV1AgentsStatusGet` operationId).
 	GetAgentStatusApiV1AgentsStatusGetWithResponse(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*GetAgentStatusApiV1AgentsStatusGetResponse, error)
 
+	// GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse Get Agent Whoami
+	//
+	// Retorna a identidade do cert mTLS; usado pelo smoke do `register`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/agents/whoami (the `GetAgentWhoamiApiV1AgentsWhoamiGet` operationId).
+	GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetAgentWhoamiApiV1AgentsWhoamiGetResponse, error)
+
 	// LoginApiV1AuthLocalLoginPostWithBodyWithResponse Login
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -3637,6 +3704,47 @@ func (r GetAgentStatusApiV1AgentsStatusGetResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetAgentStatusApiV1AgentsStatusGetResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetAgentWhoamiApiV1AgentsWhoamiGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AgentWhoamiResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) GetJSON200() *AgentWhoamiResponse {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4923,6 +5031,21 @@ func (c *ClientWithResponses) GetAgentStatusApiV1AgentsStatusGetWithResponse(ctx
 	return ParseGetAgentStatusApiV1AgentsStatusGetResponse(rsp)
 }
 
+// GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse Get Agent Whoami
+//
+// Retorna a identidade do cert mTLS; usado pelo smoke do `register`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/agents/whoami (the `GetAgentWhoamiApiV1AgentsWhoamiGet` operationId).
+func (c *ClientWithResponses) GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetAgentWhoamiApiV1AgentsWhoamiGetResponse, error) {
+	rsp, err := c.GetAgentWhoamiApiV1AgentsWhoamiGet(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAgentWhoamiApiV1AgentsWhoamiGetResponse(rsp)
+}
+
 // LoginApiV1AuthLocalLoginPostWithBodyWithResponse Login
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -5543,6 +5666,32 @@ func ParseGetAgentStatusApiV1AgentsStatusGetResponse(rsp *http.Response) (*GetAg
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetAgentWhoamiApiV1AgentsWhoamiGetResponse parses an HTTP response from a GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse call
+func ParseGetAgentWhoamiApiV1AgentsWhoamiGetResponse(rsp *http.Response) (*GetAgentWhoamiApiV1AgentsWhoamiGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetAgentWhoamiApiV1AgentsWhoamiGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AgentWhoamiResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

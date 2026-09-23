@@ -159,7 +159,7 @@ func finishProvisioning(
 		return errExitCode(err)
 	}
 	if !flags.NoSmoke {
-		smokeMTLS(authDir, flags.BaseURL, flags.TenantID, caPEM)
+		smokeMTLS(authDir, flags.BaseURL, caPEM)
 	}
 	fmt.Printf("registered cert_path=%s expires_at=%s\n",
 		filepath.Join(authDir, "cert.pem"), resp.ExpiresAt)
@@ -386,16 +386,17 @@ func persistCAPin(authDir string, caPEM []byte) error {
 	return nil
 }
 
-// smokeMTLS issues one mTLS GET /api/v1/system/health to verify the freshly
-// persisted cert handshakes correctly. Warn-only: any error is logged but
-// register still exits 0. caPEM is the same trust anchor used for bootstrap.
-func smokeMTLS(authDir, baseURL, tenantID string, caPEM []byte) {
+// smokeMTLS issues one mTLS GET /api/v1/agents/whoami, which requires a client
+// cert the server accepts (401 without one), to verify the freshly persisted
+// cert end to end. Warn-only: any error is logged but register still exits 0.
+// caPEM is the same trust anchor used for bootstrap.
+func smokeMTLS(authDir, baseURL string, caPEM []byte) {
 	client, err := transport.NewMTLSClient(authDir, caPEM)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mtls_check_failed err=", err)
 		return
 	}
-	url := strings.TrimRight(baseURL, "/") + "/api/v1/system/health"
+	url := strings.TrimRight(baseURL, "/") + "/api/v1/agents/whoami"
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -403,7 +404,6 @@ func smokeMTLS(authDir, baseURL, tenantID string, caPEM []byte) {
 		fmt.Fprintln(os.Stderr, "mtls_check_failed err=", err)
 		return
 	}
-	req.Header.Set("X-Tenant-Id", tenantID)
 	resp, err := client.HTTPClient().Do(req)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mtls_check_failed err=", err)

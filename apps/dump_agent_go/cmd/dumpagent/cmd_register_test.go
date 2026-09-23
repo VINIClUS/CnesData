@@ -293,31 +293,37 @@ type mockOpts struct {
 	DeviceTokenError   string        // "" = success, else error code (e.g. "access_denied", "expired_token")
 	ProvisionStatuses  []int         // sequential per-attempt statuses; 200 = success
 	ProvisionAttempts  *atomic.Int32 // optional counter exposed to tests
-	HealthStatus       int           // smoke probe response status (default 200)
-	HealthRequestCount *atomic.Int32 // optional counter
+	WhoamiStatus       int           // smoke probe status when a client cert is presented (default 200)
+	WhoamiCertCount    *atomic.Int32 // optional counter of whoami requests carrying a client cert
 	OnProvisionRequest func(body []byte)
 }
 
 // mockCentralAPI starts an httptest TLS server with the four endpoints the
 // register flow touches: /oauth/device_authorization, /oauth/token,
-// /provision/cert, /api/v1/system/health. Cleanup auto-registered.
+// /provision/cert, /api/v1/agents/whoami. Like Caddy's verify_if_given, the
+// server verifies a client cert when one is presented; whoami answers 401
+// without one. Cleanup auto-registered.
 //
 //nolint:unused // wired in Phase 6 steps 6-8 (register flow tests)
 func mockCentralAPI(t *testing.T, ca *testCA, opts mockOpts) *httptest.Server {
 	t.Helper()
-	if opts.HealthStatus == 0 {
-		opts.HealthStatus = 200
+	if opts.WhoamiStatus == 0 {
+		opts.WhoamiStatus = 200
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/device_authorization", handleDeviceAuth)
 	mux.HandleFunc("/oauth/token", handleToken(opts))
 	mux.HandleFunc("/provision/cert", handleProvision(t, ca, opts))
-	mux.HandleFunc("/api/v1/system/health", handleHealth(opts))
+	mux.HandleFunc("/api/v1/agents/whoami", handleWhoami(opts))
 
+	clientCAs := x509.NewCertPool()
+	clientCAs.AddCert(ca.cert)
 	srv := httptest.NewUnstartedServer(mux)
 	srv.TLS = &tls.Config{
 		Certificates: []tls.Certificate{ca.serverLeaf(t)},
 		MinVersion:   tls.VersionTLS13,
+		ClientAuth:   tls.VerifyClientCertIfGiven,
+		ClientCAs:    clientCAs,
 	}
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
@@ -399,12 +405,16 @@ func handleProvision(t *testing.T, ca *testCA, opts mockOpts) http.HandlerFunc {
 }
 
 //nolint:unused // wired in Phase 6 steps 6-8 (register flow tests)
-func handleHealth(opts mockOpts) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		if opts.HealthRequestCount != nil {
-			opts.HealthRequestCount.Add(1)
+func handleWhoami(opts mockOpts) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
 		}
-		w.WriteHeader(opts.HealthStatus)
+		if opts.WhoamiCertCount != nil {
+			opts.WhoamiCertCount.Add(1)
+		}
+		w.WriteHeader(opts.WhoamiStatus)
 	}
 }
 
@@ -717,12 +727,12 @@ func TestRegister_PersistFailure_ReturnsExit5(t *testing.T) {
 	}
 }
 
-func TestSmokeMTLS_HealthOK_LogsOK(t *testing.T) {
+func TestSmokeMTLS_WhoamiComCert_ProbeUsaEndpointProtegido(t *testing.T) {
 	fastBackoff(t)
 	ca := seedTestCA(t)
 	installTestPin(t, ca)
-	var healthCount atomic.Int32
-	srv := mockCentralAPI(t, ca, mockOpts{HealthRequestCount: &healthCount})
+	var whoamiCount atomic.Int32
+	srv := mockCentralAPI(t, ca, mockOpts{WhoamiCertCount: &whoamiCount})
 	_ = setRegisterEnv(t)
 	code := cmdRegister([]string{
 		"--tenant-id", "T", "--base-url", srv.URL,
@@ -730,16 +740,16 @@ func TestSmokeMTLS_HealthOK_LogsOK(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	if got := healthCount.Load(); got != 1 {
-		t.Errorf("health request count = %d, want 1", got)
+	if got := whoamiCount.Load(); got != 1 {
+		t.Errorf("whoami requests with client cert = %d, want 1", got)
 	}
 }
 
-func TestSmokeMTLS_HealthFails_StillExit0(t *testing.T) {
+func TestSmokeMTLS_WhoamiFails_StillExit0(t *testing.T) {
 	fastBackoff(t)
 	ca := seedTestCA(t)
 	installTestPin(t, ca)
-	srv := mockCentralAPI(t, ca, mockOpts{HealthStatus: 503})
+	srv := mockCentralAPI(t, ca, mockOpts{WhoamiStatus: 401})
 	_ = setRegisterEnv(t)
 	code := cmdRegister([]string{
 		"--tenant-id", "T", "--base-url", srv.URL,
@@ -749,12 +759,12 @@ func TestSmokeMTLS_HealthFails_StillExit0(t *testing.T) {
 	}
 }
 
-func TestRegister_NoSmokeFlag_SkipsHealthProbe(t *testing.T) {
+func TestRegister_NoSmokeFlag_SkipsWhoamiProbe(t *testing.T) {
 	fastBackoff(t)
 	ca := seedTestCA(t)
 	installTestPin(t, ca)
-	var healthCount atomic.Int32
-	srv := mockCentralAPI(t, ca, mockOpts{HealthRequestCount: &healthCount})
+	var whoamiCount atomic.Int32
+	srv := mockCentralAPI(t, ca, mockOpts{WhoamiCertCount: &whoamiCount})
 	_ = setRegisterEnv(t)
 	code := cmdRegister([]string{
 		"--tenant-id", "T", "--base-url", srv.URL, "--no-smoke",
@@ -762,8 +772,8 @@ func TestRegister_NoSmokeFlag_SkipsHealthProbe(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit = %d, want 0", code)
 	}
-	if got := healthCount.Load(); got != 0 {
-		t.Errorf("health request count = %d, want 0 (--no-smoke)", got)
+	if got := whoamiCount.Load(); got != 0 {
+		t.Errorf("whoami request count = %d, want 0 (--no-smoke)", got)
 	}
 }
 

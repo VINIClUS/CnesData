@@ -1,9 +1,10 @@
-"""Rota de status agregado de agents por tenant."""
+"""Rotas de status agregado e identidade mTLS dos agents."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
+from central_api.agent_auth import AgentCertIdentity, require_agent_cert
 from central_api.deps import get_engine, require_tenant_header
 from central_api.repositories.agent_status_repo import query_agent_status
 
@@ -36,4 +37,22 @@ def get_agent_status(
         machine_id=status.machine_id,
         jobs_completed_7d=status.jobs_completed_7d,
         jobs_failed_7d=status.jobs_failed_7d,
+    )
+
+
+class AgentWhoamiResponse(BaseModel):
+    tenant_id: str
+    agent_id: str
+    machine_id: str
+
+
+@router.get("/agents/whoami", response_model=AgentWhoamiResponse)
+def get_agent_whoami(
+    identity: AgentCertIdentity = Depends(require_agent_cert),
+) -> AgentWhoamiResponse:
+    """Retorna a identidade do cert mTLS; usado pelo smoke do `register`."""
+    return AgentWhoamiResponse(
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        machine_id=identity.machine_id,
     )

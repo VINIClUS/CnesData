@@ -23,6 +23,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `POST /api/v1/extractions/enqueue` — cria extractions por fonte/competência
 - `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (admin)
 - `GET /api/v1/agents/status` — status agregado do agent (Bearer + `require_tenant_header`)
+- `GET /api/v1/agents/whoami` — identidade do cert mTLS (`require_agent_cert`); smoke do `register`
 - Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
 - AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
 - /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs

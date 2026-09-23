@@ -166,6 +166,29 @@
         "title": "AgentRunsResponse",
         "type": "object"
       },
+      "AgentWhoamiResponse": {
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "machine_id": {
+            "title": "Machine Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "agent_id",
+          "machine_id"
+        ],
+        "title": "AgentWhoamiResponse",
+        "type": "object"
+      },
       "Body_token_oauth_token_post": {
         "properties": {
           "client_id": {
@@ -1513,6 +1536,28 @@
           }
         },
         "summary": "Get Agent Status",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/agents/whoami": {
+      "get": {
+        "description": "Retorna a identidade do cert mTLS; usado pelo smoke do `register`.",
+        "operationId": "get_agent_whoami_api_v1_agents_whoami_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentWhoamiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Agent Whoami",
         "tags": [
           "agents"
         ]
