@@ -90,3 +90,22 @@ def test_valida_formato_user_code() -> None:
         "user_code": "TOO-SHORT-12345", "tenant_id": "354130",
     })
     assert r.status_code == 422
+
+
+def test_vincula_tenant_do_corpo_antes_de_auditar() -> None:
+    from cnes_domain.tenant import tenant_id_ctx
+
+    store = MagicMock()
+    store.redeem_user_code = AsyncMock(return_value=True)
+    repo = MagicMock()
+    seen: list[str | None] = []
+    repo.log_action.side_effect = lambda **_kw: seen.append(tenant_id_ctx.get(None))
+    token = tenant_id_ctx.set("000000")
+    try:
+        r = _build(_user(["354130"]), store, repo).post("/activate/confirm", json={
+            "user_code": "WDJB-MJHT", "tenant_id": "354130",
+        })
+    finally:
+        tenant_id_ctx.reset(token)
+    assert r.status_code == 200
+    assert seen == ["354130"]

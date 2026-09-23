@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from central_api.deps import get_engine
 from central_api.validation_errors import validation_error
 from cnes_contracts.landing import SOURCE_TYPE  # noqa: TC001
+from cnes_domain.tenant import set_tenant_id
 from cnes_infra.storage import extractions_repo
 
 if TYPE_CHECKING:
@@ -70,6 +71,8 @@ def enqueue(
         raise validation_error(
             f"unsupported_source_type={req.source_type}", loc=["body", "source_type"],
         )
+    # Admin token is cross-tenant: the tenant is the validated body value.
+    set_tenant_id(req.tenant_id)
 
     dim_ids: list[UUID] = []
     fato_ids: list[UUID] = []

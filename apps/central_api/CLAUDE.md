@@ -22,7 +22,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   (status-guarded, `PENDING`/`CLAIMED` apenas — idempotente em retry)
 - `POST /api/v1/extractions/enqueue` — cria extractions por fonte/competência
 - `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (admin)
-- `TenantMiddleware` — extrai `X-Tenant-Id` header e chama `set_tenant_id()`
+- `GET /api/v1/agents/status` — status agregado do agent (Bearer + `require_tenant_header`)
+- `GET /api/v1/agents/whoami` — identidade do cert mTLS (`require_agent_cert`); smoke do `register`
 - Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
 - AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
 - /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
@@ -58,7 +59,9 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   repassa o cert em `X-SSL-Client-Cert` (DER base64); `agent_auth.py` só aceita
   o header de `TRUSTED_PROXY_CIDRS`, revalida cadeia/serial/refresh e vincula
   o tenant (e grava o CN como machine_id) em `/api/v1/jobs/*`; rotação idem.
-  `AGENT_MTLS_REQUIRED=false` só no stack local sem Caddy.
+  `AGENT_MTLS_REQUIRED=false` só no stack local sem Caddy. Fora do profile
+  local, o lifespan sobrescreve `raw_jobs.get_edge_identity` com
+  `edge_identity_from_cert` (fingerprint = SHA-256 do DER).
 
 ## Requirements
 
@@ -102,7 +105,7 @@ uv run uvicorn central_api.app:create_app --factory --reload
 |---|---|
 | `src/central_api/app.py` | `create_app()` factory — FastAPI + lifespan + middleware + routers |
 | `src/central_api/deps.py` | `get_engine()`, `lifespan`, `_lease_reaper_loop`, RLS listener install |
-| `src/central_api/middleware.py` | `TenantMiddleware` — extrai `X-Tenant-Id` header |
+| `src/central_api/middleware.py` | `AuthMiddleware` (Bearer JWT) + `QueryCounterMiddleware` |
 | `src/central_api/routes/health.py` | `/api/v1/system/health` — ping DB |
 | `src/central_api/routes/jobs.py` | `/api/v1/jobs/upload-url` + `/api/v1/jobs/register` + `/api/v1/jobs/{id}/fail` |
 | `src/central_api/routes/extractions.py` | `/api/v1/extractions/enqueue` — enqueue admin |
@@ -128,10 +131,11 @@ uv run uvicorn central_api.app:create_app --factory --reload
 - **CORS nunca com `*`**: `cors_origins()` em `app.py` descarta wildcard; cada ambiente define
   só a origem do dashboard (`deploy/{dev,prod}` compose). Preflight de origem desconhecida → 400.
 
-- **TenantMiddleware obrigatório:** toda request precisa de header
-  `X-Tenant-Id`. Sem ele, `set_tenant_id()` não é chamado e queries quebram
-  silenciosamente (RLS bloqueia). Exception: rotas de health podem ignorar
-  (mas hoje não fazem).
+- **Tenant vem só de credencial (#260):** `X-Tenant-Id` sozinho não define
+  tenant. `require_tenant_header` (async, Bearer + membership) ou o cert mTLS
+  (`require_agent_cert`) chamam `set_tenant_id()`. Dependência que define
+  tenant precisa ser `async` — dep sync roda no threadpool e o ContextVar não
+  chega ao endpoint (por isso `jobs.py` redefine no corpo da rota).
 - **Lease reaper é background task, não worker:** roda no mesmo processo do
   uvicorn via `lifespan`. Em deploy k8s com 2+ réplicas, só 1 deve rodar
   reaper — o padrão recomendado é flag `ENABLE_REAPER=true` em uma só

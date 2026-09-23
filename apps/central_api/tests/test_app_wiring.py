@@ -29,20 +29,13 @@ def test_app_registra_auth_middleware() -> None:
 
 
 def test_app_ordem_middleware_cors_depois_auth() -> None:
-    """CORS answers preflight first; Auth wraps Tenant wraps QueryCounter."""
+    """CORS answers preflight first; Auth wraps QueryCounter."""
     from fastapi.middleware.cors import CORSMiddleware
 
-    from central_api.middleware import (
-        AuthMiddleware,
-        QueryCounterMiddleware,
-        TenantMiddleware,
-    )
+    from central_api.middleware import AuthMiddleware, QueryCounterMiddleware
     app = _make_app()
     classes = [m.cls for m in app.user_middleware]
-    assert classes[0] is CORSMiddleware
-    assert classes[1] is AuthMiddleware
-    assert classes[2] is TenantMiddleware
-    assert classes[3] is QueryCounterMiddleware
+    assert classes == [CORSMiddleware, AuthMiddleware, QueryCounterMiddleware]
 
 
 def test_app_inclui_public_leads_router() -> None:

@@ -14,8 +14,10 @@ from cryptography.x509.oid import NameOID
 from central_api.agent_auth import (
     AgentCertIdentity,
     agent_identity_if_required,
+    edge_identity_from_cert,
     require_agent_cert,
 )
+from central_api.schemas.raw_api import EdgeIdentity
 from cnes_domain.tenant import get_tenant_id
 from cnes_infra.auth import CertAuthority
 from cnes_infra.auth.errors import OAuthError
@@ -160,3 +162,28 @@ def test_identidade_opcional_exige_cert_quando_mtls_ligado(
     monkeypatch.setattr("cnes_infra.config.AGENT_MTLS_REQUIRED", True)
     with pytest.raises(OAuthError):
         agent_identity_if_required(_request(_authority(), None))
+
+
+def test_edge_identity_usa_tenant_agent_e_sha256_do_der():
+    ca = _authority()
+    leaf = _leaf(ca)
+    identity = edge_identity_from_cert(_request(ca, leaf))
+    assert identity == EdgeIdentity(
+        tenant_id="354130",
+        agent_id="agent-1",
+        certificate_fingerprint=leaf.fingerprint(hashes.SHA256()).hex(),
+    )
+
+
+def test_edge_identity_rejeita_peer_fora_da_allowlist():
+    ca = _authority()
+    with pytest.raises(OAuthError) as exc:
+        edge_identity_from_cert(_request(ca, _leaf(ca), peer="203.0.113.7"))
+    assert exc.value.code == "invalid_token"
+
+
+def test_edge_identity_rejeita_cert_revogado():
+    ca = _authority()
+    with pytest.raises(OAuthError) as exc:
+        edge_identity_from_cert(_request(ca, _leaf(ca), serial_active=False))
+    assert exc.value.code == "cert_revoked"

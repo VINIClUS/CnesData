@@ -8,11 +8,12 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from sqlalchemy import create_engine
 from starlette.requests import Request  # noqa: TC002 - needed at runtime by FastAPI
 
 from central_api.middleware import AuthenticatedUser
+from cnes_domain.tenant import set_tenant_id
 from cnes_infra import config
 from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.query_counter import install_query_counter
@@ -101,15 +102,17 @@ def require_auth(request: Request) -> AuthenticatedUser:
     return user
 
 
-def require_tenant_header(
-    request: Request,
+async def require_tenant_header(
     user: AuthenticatedUser = Depends(require_auth),
+    tid: str | None = Header(None, alias="X-Tenant-Id"),
 ) -> str:
-    tid = request.headers.get("X-Tenant-Id")
+    # async on purpose: a sync dependency runs in the threadpool, so the tenant
+    # ContextVar set here would not reach the endpoint.
     if not tid:
         raise HTTPException(status_code=400, detail="tenant_header_required")
     if tid not in user.tenant_ids:
         raise HTTPException(status_code=403, detail="tenant_not_allowed")
+    set_tenant_id(tid)
     return tid
 
 
@@ -187,6 +190,13 @@ def _serving_principal_resolver(
         return ServingPrincipal(tenant_id=principal.tenant_id, user_id=principal.user_id)
 
     return _resolve
+
+
+def _install_edge_identity(app: object) -> None:
+    from central_api.agent_auth import edge_identity_from_cert
+    from central_api.routes.raw_jobs import get_edge_identity
+
+    app.dependency_overrides[get_edge_identity] = edge_identity_from_cert
 
 
 def _install_local_auth_and_serving(
@@ -267,6 +277,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     app.state.refresh_token_store = RefreshTokenStore(_engine)  # type: ignore[attr-defined]
     app.state.provisioned_certs = ProvisionedCertsRepo(_engine)  # type: ignore[attr-defined]
     _install_cert_authority(app)
+    _install_edge_identity(app)
     app.state.verification_uri = os.environ.get("AUTH_DEVICE_VERIFICATION_URI", "")  # type: ignore[attr-defined]
     app.state.access_token_ttl = config.AUTH_ACCESS_TOKEN_TTL  # type: ignore[attr-defined]
     app.state.device_code_ttl = config.AUTH_DEVICE_CODE_TTL  # type: ignore[attr-defined]

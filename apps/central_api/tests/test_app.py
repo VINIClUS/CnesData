@@ -201,23 +201,23 @@ class TestAdminEndpoint:
         assert resp.json() == {"reaped": 0}
 
 
-class TestTenantMiddleware:
-    def test_middleware_define_tenant_id_do_header(
-        self, client_with_engine,
-    ):
-        with patch("central_api.middleware.set_tenant_id") as mock_set:
-            client_with_engine.get(
-                "/api/v1/system/health",
-                headers={"X-Tenant-Id": "354130"},
-            )
-        mock_set.assert_called_with("354130")
+class TestTenantHeader:
+    def test_header_x_tenant_id_sozinho_nao_define_tenant(self, app):
+        from cnes_domain.tenant import tenant_id_ctx
 
-    def test_middleware_ignora_requisicao_sem_tenant(
-        self, client_with_engine,
-    ):
-        with patch("central_api.middleware.set_tenant_id") as mock_set:
-            client_with_engine.get("/api/v1/system/health")
-        mock_set.assert_not_called()
+        @app.get("/__tenant_probe")
+        def probe() -> dict:
+            return {"tenant": tenant_id_ctx.get(None)}
+
+        token = tenant_id_ctx.set("000000")
+        try:
+            resp = TestClient(app).get(
+                "/__tenant_probe", headers={"X-Tenant-Id": "354130"},
+            )
+        finally:
+            tenant_id_ctx.reset(token)
+        assert resp.status_code == 200
+        assert resp.json() == {"tenant": "000000"}
 
 
 class TestGetEngine:

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from central_api.deps import require_auth
 from central_api.middleware import AuthenticatedUser
 from central_api.ratelimit import limiter
+from cnes_domain.tenant import set_tenant_id
 from cnes_infra.auth import (
     DeviceAuthorizationRequest,
     DeviceAuthorizationResponse,
@@ -91,6 +92,7 @@ async def activate_confirm(
 ) -> ActivateConfirmResponse:
     if body.tenant_id not in user.tenant_ids:
         raise HTTPException(status_code=403, detail="tenant_not_allowed")
+    set_tenant_id(body.tenant_id)
     store = request.app.state.device_code_store
     ok = await store.redeem_user_code(body.user_code, tenant_id=body.tenant_id)
     if not ok:

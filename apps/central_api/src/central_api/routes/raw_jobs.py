@@ -80,7 +80,7 @@ def _utc_now() -> datetime:
 
 
 def get_edge_identity() -> EdgeIdentity:
-    """Falha fechado até o terminador mTLS fornecer a identidade."""
+    """Falha fechado; fora do profile local o lifespan sobrescreve com edge_identity_from_cert."""
 
     raise HTTPException(status_code=401, detail="mtls_required")
 

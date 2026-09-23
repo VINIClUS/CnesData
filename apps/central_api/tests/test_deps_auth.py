@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from central_api.deps import require_auth, require_tenant_header
 from central_api.middleware import AuthenticatedUser
+from cnes_domain.tenant import get_tenant_id
 
 
 def _user(tenants: list[str]) -> AuthenticatedUser:
@@ -86,6 +87,19 @@ def test_require_tenant_header_passa_quando_pertence() -> None:
     assert r.json() == {"tenant": "354130"}
 
 
+def test_require_tenant_header_define_tenant_visivel_no_endpoint_sync() -> None:
+    app = FastAPI()
+
+    @app.get("/ctx")
+    def ctx(tenant: str = Depends(require_tenant_header)) -> dict:
+        return {"ctx": get_tenant_id()}
+
+    _inject_user(app, _user(["354130"]))
+    r = TestClient(app).get("/ctx", headers={"X-Tenant-Id": "354130"})
+    assert r.status_code == 200
+    assert r.json() == {"ctx": "354130"}
+
+
 def test_install_cert_authority_avisa_quando_mtls_desligado(monkeypatch, caplog):
     from central_api.deps import _install_cert_authority
 
@@ -106,3 +120,13 @@ def test_install_cert_authority_nao_avisa_quando_mtls_obrigatorio(monkeypatch, c
     with caplog.at_level("WARNING", logger="central_api.deps"):
         _install_cert_authority(MagicMock())
     assert "agent_mtls" not in caplog.text
+
+
+def test_install_edge_identity_sobrescreve_get_edge_identity() -> None:
+    from central_api.agent_auth import edge_identity_from_cert
+    from central_api.deps import _install_edge_identity
+    from central_api.routes.raw_jobs import get_edge_identity
+
+    app = FastAPI()
+    _install_edge_identity(app)
+    assert app.dependency_overrides[get_edge_identity] is edge_identity_from_cert

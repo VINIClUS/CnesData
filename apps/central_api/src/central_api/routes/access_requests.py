@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from central_api.deps import require_auth
 from central_api.middleware import AuthenticatedUser
+from cnes_domain.tenant import set_tenant_id
 
 router = APIRouter(tags=["access-requests"])
 
@@ -63,6 +64,8 @@ def create_request(
     request: Request,
     user: AuthenticatedUser = Depends(require_auth),
 ) -> AccessRequestCreated:
+    # The user is not a member yet: the tenant is the one the rows are about.
+    set_tenant_id(body.tenant_id)
     repo = request.app.state.dashboard_repo
     try:
         req_id = repo.submit_access_request(

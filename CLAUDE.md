@@ -14,7 +14,7 @@ an external service — out of scope for this repo.
 
 Pilot: Presidente Epitácio/SP (IBGE 354130, CNPJ 55.293.427/0001-17).
 Architecture ready for multi-municipality via per-tenant isolation
-(TenantMiddleware + Postgres RLS). Not yet in production.
+(tenant from Bearer/mTLS credential + Postgres RLS). Not yet in production.
 
 Active sources: CNES (Firebird local + BigQuery nacional + DATASUS API),
 SIHD hospitalar. Roadmap: BPA, Esus PEC, HR PIS→CPF cross-walking.

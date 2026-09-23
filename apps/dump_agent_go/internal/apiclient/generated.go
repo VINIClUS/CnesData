@@ -262,6 +262,13 @@ type AgentRunsResponse struct {
 	Runs []RunOut `json:"runs"`
 }
 
+// AgentWhoamiResponse defines model for AgentWhoamiResponse.
+type AgentWhoamiResponse struct {
+	AgentId   string `json:"agent_id"`
+	MachineId string `json:"machine_id"`
+	TenantId  string `json:"tenant_id"`
+}
+
 // BodyTokenOauthTokenPost defines model for Body_token_oauth_token_post.
 type BodyTokenOauthTokenPost struct {
 	ClientId   string `json:"client_id"`
@@ -622,18 +629,30 @@ type CentralApiRoutesDashboardAgentStatusResponse struct {
 
 // GetAgentStatusApiV1AgentsStatusGetParams defines parameters for GetAgentStatusApiV1AgentsStatusGet.
 type GetAgentStatusApiV1AgentsStatusGetParams struct {
-	TenantId  string `form:"tenant_id" json:"tenant_id"`
-	XTenantId string `json:"X-Tenant-Id"`
+	TenantId  string  `form:"tenant_id" json:"tenant_id"`
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
 }
 
 // AgentsRunsApiV1DashboardAgentsRunsGetParams defines parameters for AgentsRunsApiV1DashboardAgentsRunsGet.
 type AgentsRunsApiV1DashboardAgentsRunsGetParams struct {
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Limit     *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
+}
+
+// AgentsStatusApiV1DashboardAgentsStatusGetParams defines parameters for AgentsStatusApiV1DashboardAgentsStatusGet.
+type AgentsStatusApiV1DashboardAgentsStatusGetParams struct {
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
 }
 
 // GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams defines parameters for GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet.
 type GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams struct {
-	Months *int `form:"months,omitempty" json:"months,omitempty"`
+	Months    *int    `form:"months,omitempty" json:"months,omitempty"`
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
+}
+
+// GetOverviewApiV1DashboardOverviewGetParams defines parameters for GetOverviewApiV1DashboardOverviewGet.
+type GetOverviewApiV1DashboardOverviewGetParams struct {
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
 }
 
 // UploadRawObjectApiV1EdgeJobsJobIdRawObjectPutParams defines parameters for UploadRawObjectApiV1EdgeJobsJobIdRawObjectPut.
@@ -989,6 +1008,13 @@ type ClientInterface interface {
 	// Corresponds with GET /api/v1/agents/status (the `GetAgentStatusApiV1AgentsStatusGet` operationId).
 	GetAgentStatusApiV1AgentsStatusGet(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetAgentWhoamiApiV1AgentsWhoamiGet Get Agent Whoami
+	//
+	// Retorna a identidade do cert mTLS; usado pelo smoke do `register`.
+	//
+	// Corresponds with GET /api/v1/agents/whoami (the `GetAgentWhoamiApiV1AgentsWhoamiGet` operationId).
+	GetAgentWhoamiApiV1AgentsWhoamiGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// LoginApiV1AuthLocalLoginPostWithBody Login
 	//
 	// Takes any type of body and a specified content type.
@@ -1045,7 +1071,7 @@ type ClientInterface interface {
 	// AgentsStatusApiV1DashboardAgentsStatusGet Agents Status
 	//
 	// Corresponds with GET /api/v1/dashboard/agents/status (the `AgentsStatusApiV1DashboardAgentsStatusGet` operationId).
-	AgentsStatusApiV1DashboardAgentsStatusGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	AgentsStatusApiV1DashboardAgentsStatusGet(ctx context.Context, params *AgentsStatusApiV1DashboardAgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AuthMeApiV1DashboardAuthMeGet Auth Me
 	//
@@ -1060,7 +1086,7 @@ type ClientInterface interface {
 	// GetOverviewApiV1DashboardOverviewGet Get Overview
 	//
 	// Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
-	GetOverviewApiV1DashboardOverviewGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetOverviewApiV1DashboardOverviewGet(ctx context.Context, params *GetOverviewApiV1DashboardOverviewGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet Read Serving Document
 	//
@@ -1322,6 +1348,23 @@ func (c *Client) GetAgentStatusApiV1AgentsStatusGet(ctx context.Context, params 
 	return c.Client.Do(req)
 }
 
+// GetAgentWhoamiApiV1AgentsWhoamiGet Get Agent Whoami
+//
+// Retorna a identidade do cert mTLS; usado pelo smoke do `register`.
+//
+// Corresponds with GET /api/v1/agents/whoami (the `GetAgentWhoamiApiV1AgentsWhoamiGet` operationId).
+func (c *Client) GetAgentWhoamiApiV1AgentsWhoamiGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAgentWhoamiApiV1AgentsWhoamiGetRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // LoginApiV1AuthLocalLoginPostWithBody Login
 //
 // Takes any type of body and a specified content type.
@@ -1468,8 +1511,8 @@ func (c *Client) AgentsRunsApiV1DashboardAgentsRunsGet(ctx context.Context, para
 // AgentsStatusApiV1DashboardAgentsStatusGet Agents Status
 //
 // Corresponds with GET /api/v1/dashboard/agents/status (the `AgentsStatusApiV1DashboardAgentsStatusGet` operationId).
-func (c *Client) AgentsStatusApiV1DashboardAgentsStatusGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAgentsStatusApiV1DashboardAgentsStatusGetRequest(c.Server)
+func (c *Client) AgentsStatusApiV1DashboardAgentsStatusGet(ctx context.Context, params *AgentsStatusApiV1DashboardAgentsStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAgentsStatusApiV1DashboardAgentsStatusGetRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1513,8 +1556,8 @@ func (c *Client) GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet(
 // GetOverviewApiV1DashboardOverviewGet Get Overview
 //
 // Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
-func (c *Client) GetOverviewApiV1DashboardOverviewGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetOverviewApiV1DashboardOverviewGetRequest(c.Server)
+func (c *Client) GetOverviewApiV1DashboardOverviewGet(ctx context.Context, params *GetOverviewApiV1DashboardOverviewGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetOverviewApiV1DashboardOverviewGetRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2104,15 +2147,44 @@ func NewGetAgentStatusApiV1AgentsStatusGetRequest(server string, params *GetAgen
 
 	if params != nil {
 
-		var headerParam0 string
+		if params.XTenantId != nil {
+			var headerParam0 string
 
-		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-		if err != nil {
-			return nil, err
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
 		}
 
-		req.Header.Set("X-Tenant-Id", headerParam0)
+	}
 
+	return req, nil
+}
+
+// NewGetAgentWhoamiApiV1AgentsWhoamiGetRequest constructs an http.Request for the GetAgentWhoamiApiV1AgentsWhoamiGet method
+func NewGetAgentWhoamiApiV1AgentsWhoamiGetRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/agents/whoami")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return req, nil
@@ -2357,11 +2429,26 @@ func NewAgentsRunsApiV1DashboardAgentsRunsGetRequest(server string, params *Agen
 		return nil, err
 	}
 
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
 	return req, nil
 }
 
 // NewAgentsStatusApiV1DashboardAgentsStatusGetRequest constructs an http.Request for the AgentsStatusApiV1DashboardAgentsStatusGet method
-func NewAgentsStatusApiV1DashboardAgentsStatusGetRequest(server string) (*http.Request, error) {
+func NewAgentsStatusApiV1DashboardAgentsStatusGetRequest(server string, params *AgentsStatusApiV1DashboardAgentsStatusGetParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -2382,6 +2469,21 @@ func NewAgentsStatusApiV1DashboardAgentsStatusGetRequest(server string) (*http.R
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
 	}
 
 	return req, nil
@@ -2465,11 +2567,26 @@ func NewGetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetRequest(se
 		return nil, err
 	}
 
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
 	return req, nil
 }
 
 // NewGetOverviewApiV1DashboardOverviewGetRequest constructs an http.Request for the GetOverviewApiV1DashboardOverviewGet method
-func NewGetOverviewApiV1DashboardOverviewGetRequest(server string) (*http.Request, error) {
+func NewGetOverviewApiV1DashboardOverviewGetRequest(server string, params *GetOverviewApiV1DashboardOverviewGetParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -2490,6 +2607,21 @@ func NewGetOverviewApiV1DashboardOverviewGetRequest(server string) (*http.Reques
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
 	}
 
 	return req, nil
@@ -3225,6 +3357,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/agents/status (the `GetAgentStatusApiV1AgentsStatusGet` operationId).
 	GetAgentStatusApiV1AgentsStatusGetWithResponse(ctx context.Context, params *GetAgentStatusApiV1AgentsStatusGetParams, reqEditors ...RequestEditorFn) (*GetAgentStatusApiV1AgentsStatusGetResponse, error)
 
+	// GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse Get Agent Whoami
+	//
+	// Retorna a identidade do cert mTLS; usado pelo smoke do `register`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/agents/whoami (the `GetAgentWhoamiApiV1AgentsWhoamiGet` operationId).
+	GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetAgentWhoamiApiV1AgentsWhoamiGetResponse, error)
+
 	// LoginApiV1AuthLocalLoginPostWithBodyWithResponse Login
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -3293,7 +3434,7 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /api/v1/dashboard/agents/status (the `AgentsStatusApiV1DashboardAgentsStatusGet` operationId).
-	AgentsStatusApiV1DashboardAgentsStatusGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AgentsStatusApiV1DashboardAgentsStatusGetResponse, error)
+	AgentsStatusApiV1DashboardAgentsStatusGetWithResponse(ctx context.Context, params *AgentsStatusApiV1DashboardAgentsStatusGetParams, reqEditors ...RequestEditorFn) (*AgentsStatusApiV1DashboardAgentsStatusGetResponse, error)
 
 	// AuthMeApiV1DashboardAuthMeGetWithResponse Auth Me
 	//
@@ -3314,7 +3455,7 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
-	GetOverviewApiV1DashboardOverviewGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetOverviewApiV1DashboardOverviewGetResponse, error)
+	GetOverviewApiV1DashboardOverviewGetWithResponse(ctx context.Context, params *GetOverviewApiV1DashboardOverviewGetParams, reqEditors ...RequestEditorFn) (*GetOverviewApiV1DashboardOverviewGetResponse, error)
 
 	// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse Read Serving Document
 	//
@@ -3657,6 +3798,47 @@ func (r GetAgentStatusApiV1AgentsStatusGetResponse) ContentType() string {
 	return ""
 }
 
+type GetAgentWhoamiApiV1AgentsWhoamiGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AgentWhoamiResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) GetJSON200() *AgentWhoamiResponse {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetAgentWhoamiApiV1AgentsWhoamiGetResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type LoginApiV1AuthLocalLoginPostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3963,11 +4145,18 @@ type AgentsStatusApiV1DashboardAgentsStatusGetResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *CentralApiRoutesDashboardAgentStatusResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
 func (r AgentsStatusApiV1DashboardAgentsStatusGetResponse) GetJSON200() *CentralApiRoutesDashboardAgentStatusResponse {
 	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r AgentsStatusApiV1DashboardAgentsStatusGetResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
 }
 
 // GetBody returns the raw response body bytes
@@ -4093,11 +4282,18 @@ type GetOverviewApiV1DashboardOverviewGetResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *OverviewResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
 func (r GetOverviewApiV1DashboardOverviewGetResponse) GetJSON200() *OverviewResponse {
 	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetOverviewApiV1DashboardOverviewGetResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
 }
 
 // GetBody returns the raw response body bytes
@@ -4937,6 +5133,21 @@ func (c *ClientWithResponses) GetAgentStatusApiV1AgentsStatusGetWithResponse(ctx
 	return ParseGetAgentStatusApiV1AgentsStatusGetResponse(rsp)
 }
 
+// GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse Get Agent Whoami
+//
+// Retorna a identidade do cert mTLS; usado pelo smoke do `register`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/agents/whoami (the `GetAgentWhoamiApiV1AgentsWhoamiGet` operationId).
+func (c *ClientWithResponses) GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetAgentWhoamiApiV1AgentsWhoamiGetResponse, error) {
+	rsp, err := c.GetAgentWhoamiApiV1AgentsWhoamiGet(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAgentWhoamiApiV1AgentsWhoamiGetResponse(rsp)
+}
+
 // LoginApiV1AuthLocalLoginPostWithBodyWithResponse Login
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -5059,8 +5270,8 @@ func (c *ClientWithResponses) AgentsRunsApiV1DashboardAgentsRunsGetWithResponse(
 // Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with GET /api/v1/dashboard/agents/status (the `AgentsStatusApiV1DashboardAgentsStatusGet` operationId).
-func (c *ClientWithResponses) AgentsStatusApiV1DashboardAgentsStatusGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AgentsStatusApiV1DashboardAgentsStatusGetResponse, error) {
-	rsp, err := c.AgentsStatusApiV1DashboardAgentsStatusGet(ctx, reqEditors...)
+func (c *ClientWithResponses) AgentsStatusApiV1DashboardAgentsStatusGetWithResponse(ctx context.Context, params *AgentsStatusApiV1DashboardAgentsStatusGetParams, reqEditors ...RequestEditorFn) (*AgentsStatusApiV1DashboardAgentsStatusGetResponse, error) {
+	rsp, err := c.AgentsStatusApiV1DashboardAgentsStatusGet(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -5098,8 +5309,8 @@ func (c *ClientWithResponses) GetFaturamentoChartApiV1DashboardFaturamentoByEsta
 // Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
-func (c *ClientWithResponses) GetOverviewApiV1DashboardOverviewGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetOverviewApiV1DashboardOverviewGetResponse, error) {
-	rsp, err := c.GetOverviewApiV1DashboardOverviewGet(ctx, reqEditors...)
+func (c *ClientWithResponses) GetOverviewApiV1DashboardOverviewGetWithResponse(ctx context.Context, params *GetOverviewApiV1DashboardOverviewGetParams, reqEditors ...RequestEditorFn) (*GetOverviewApiV1DashboardOverviewGetResponse, error) {
+	rsp, err := c.GetOverviewApiV1DashboardOverviewGet(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -5563,6 +5774,32 @@ func ParseGetAgentStatusApiV1AgentsStatusGetResponse(rsp *http.Response) (*GetAg
 	return response, nil
 }
 
+// ParseGetAgentWhoamiApiV1AgentsWhoamiGetResponse parses an HTTP response from a GetAgentWhoamiApiV1AgentsWhoamiGetWithResponse call
+func ParseGetAgentWhoamiApiV1AgentsWhoamiGetResponse(rsp *http.Response) (*GetAgentWhoamiApiV1AgentsWhoamiGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetAgentWhoamiApiV1AgentsWhoamiGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AgentWhoamiResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseLoginApiV1AuthLocalLoginPostResponse parses an HTTP response from a LoginApiV1AuthLocalLoginPostWithResponse call
 func ParseLoginApiV1AuthLocalLoginPostResponse(rsp *http.Response) (*LoginApiV1AuthLocalLoginPostResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -5777,6 +6014,13 @@ func ParseAgentsStatusApiV1DashboardAgentsStatusGetResponse(rsp *http.Response) 
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
 	}
 
 	return response, nil
@@ -5861,6 +6105,13 @@ func ParseGetOverviewApiV1DashboardOverviewGetResponse(rsp *http.Response) (*Get
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	}
 
