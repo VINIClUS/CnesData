@@ -6,6 +6,7 @@ from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from cnes_domain.tenant import set_tenant_id
 from cnes_infra.auth import CertProvisionResponse
 from cnes_infra.auth.errors import OAuthError
 
@@ -34,6 +35,7 @@ async def provision_cert(
     access = await access_store.consume(token_str)
     if access is None:
         raise OAuthError("invalid_token", status_code=401)
+    set_tenant_id(access.tenant_id)
 
     ca = request.app.state.cert_authority
     if ca is None:

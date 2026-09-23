@@ -4,9 +4,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from cryptography import x509  # noqa: TC002
+from cryptography.hazmat.primitives import hashes
 from fastapi import Request  # noqa: TC002
 
 from central_api.ratelimit import is_trusted_proxy_peer
+from central_api.schemas.raw_api import EdgeIdentity
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra import config
 from cnes_infra.auth import (
@@ -33,8 +36,7 @@ def _require_active(request: Request, agent_id: str, serial: str) -> None:
         raise OAuthError("agent_revoked", status_code=401)
 
 
-def require_agent_cert(request: Request) -> AgentCertIdentity:
-    """Raises: OAuthError 401 (cert ausente/inválido/revogado) ou 500 (CA ausente)."""
+def _verified_cert(request: Request) -> tuple[x509.Certificate, AgentCertIdentity]:
     if not is_trusted_proxy_peer(request):
         raise OAuthError("invalid_token", status_code=401)
     cert = extract_peer_cert(request)
@@ -51,7 +53,22 @@ def require_agent_cert(request: Request) -> AgentCertIdentity:
     )
     set_tenant_id(identity.tenant_id)
     _require_active(request, identity.agent_id, format(cert.serial_number, "x"))
-    return identity
+    return cert, identity
+
+
+def require_agent_cert(request: Request) -> AgentCertIdentity:
+    """Raises: OAuthError 401 (cert ausente/inválido/revogado) ou 500 (CA ausente)."""
+    return _verified_cert(request)[1]
+
+
+def edge_identity_from_cert(request: Request) -> EdgeIdentity:
+    """Returns: EdgeIdentity com fingerprint SHA-256 do DER. Raises: como require_agent_cert."""
+    cert, identity = _verified_cert(request)
+    return EdgeIdentity(
+        tenant_id=identity.tenant_id,
+        agent_id=identity.agent_id,
+        certificate_fingerprint=cert.fingerprint(hashes.SHA256()).hex(),
+    )
 
 
 def agent_identity_if_required(request: Request) -> AgentCertIdentity | None:

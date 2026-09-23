@@ -153,3 +153,30 @@ def test_fail_sem_identidade_mantem_comportamento_legado(repo):
         resp = client.post(f"/api/v1/jobs/{uuid4()}/fail", json={"error": "boom"})
     assert resp.status_code == 200
     assert repo.mark_failed.call_args.kwargs["tenant_id"] is None
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "repo_call"),
+    [
+        ("/api/v1/jobs/upload-url", _upload_body(), "mint_upload_url"),
+        ("/api/v1/jobs/register", _register_body(), "register"),
+        (f"/api/v1/jobs/{uuid4()}/fail", {"error": "boom"}, "mark_failed"),
+    ],
+)
+def test_sem_mtls_vincula_tenant_do_header_antes_de_gravar(repo, path, body, repo_call):
+    from cnes_domain.tenant import tenant_id_ctx
+
+    seen: list[str | None] = []
+    getattr(repo, repo_call).side_effect = (
+        lambda *a, **kw: seen.append(tenant_id_ctx.get(None)) or uuid4()
+    )
+    token = tenant_id_ctx.set("000000")
+    try:
+        with _client(identity=None) as client:
+            resp = client.post(path, json=body, headers={"X-Tenant-Id": "354130"})
+    finally:
+        tenant_id_ctx.reset(token)
+    assert resp.status_code in (200, 201), resp.text
+    assert seen == ["354130"]
+    if repo_call != "mint_upload_url":
+        assert getattr(repo, repo_call).call_args.kwargs["tenant_id"] == "354130"

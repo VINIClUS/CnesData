@@ -156,3 +156,34 @@ def test_provision_cert_csr_invalido_retorna_400(session_root_ca, monkeypatch):
         )
     assert r.status_code == 400
     assert r.json()["error"] == "invalid_request"
+
+
+@pytest.mark.asyncio
+async def test_provision_cert_vincula_tenant_do_token_antes_de_gravar(
+    session_root_ca, monkeypatch, make_csr_pem,
+):
+    from unittest.mock import MagicMock
+
+    from cnes_domain.tenant import tenant_id_ctx
+
+    app = _make_app(session_root_ca, monkeypatch)
+    seen: list[str | None] = []
+    with TestClient(app) as client:
+        refresh, audit = MagicMock(), MagicMock()
+        refresh.create.side_effect = lambda **_kw: seen.append(tenant_id_ctx.get(None)) or "rt"
+        audit.record.side_effect = lambda **_kw: seen.append(tenant_id_ctx.get(None))
+        app.state.refresh_token_store = refresh
+        app.state.provisioned_certs = audit
+        token = await app.state.access_token_store.issue(tenant_id="354130", ttl_seconds=300)
+        ctx_token = tenant_id_ctx.set("000000")
+        try:
+            r = client.post(
+                "/provision/cert",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"csr_pem": make_csr_pem().decode(),
+                      "machine_fingerprint": "fp:abcdef12"},
+            )
+        finally:
+            tenant_id_ctx.reset(ctx_token)
+    assert r.status_code == 200, r.text
+    assert seen == ["354130", "354130"]

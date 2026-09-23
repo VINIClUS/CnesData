@@ -111,7 +111,8 @@ Seguir `dumpagent-install-windows.md`.
 Operador central monitora diariamente via `/agents/status`:
 
 ```bash
-curl -H "X-Tenant-Id: 354130" "https://api.cnesdata.gov.br/api/v1/agents/status?tenant_id=354130"
+curl -H "Authorization: Bearer $TOKEN" -H "X-Tenant-Id: 354130" \
+  "https://api.cnesdata.gov.br/api/v1/agents/status?tenant_id=354130"
 ```
 
 Métricas-alvo:

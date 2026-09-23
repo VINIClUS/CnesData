@@ -116,3 +116,23 @@ def test_responde_401_sem_user() -> None:
     c = _build(None, MagicMock())
     r = c.get("/api/v1/dashboard/access-requests/mine")
     assert r.status_code == 401
+
+
+def test_post_vincula_tenant_do_corpo_antes_de_gravar() -> None:
+    from cnes_domain.tenant import tenant_id_ctx
+
+    repo = MagicMock()
+    seen: list[str | None] = []
+    repo.submit_access_request.side_effect = (
+        lambda **_kw: seen.append(tenant_id_ctx.get(None)) or uuid4()
+    )
+    repo.log_action.side_effect = lambda **_kw: seen.append(tenant_id_ctx.get(None))
+    token = tenant_id_ctx.set("000000")
+    try:
+        r = _build(_user(), repo).post("/api/v1/dashboard/access-requests", json={
+            "tenant_id": "354130", "motivation": "Sou gestor",
+        })
+    finally:
+        tenant_id_ctx.reset(token)
+    assert r.status_code == 201
+    assert seen == ["354130", "354130"]
