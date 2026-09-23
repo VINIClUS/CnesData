@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from sqlalchemy import create_engine
 from starlette.requests import Request  # noqa: TC002 - needed at runtime by FastAPI
 
@@ -103,12 +103,11 @@ def require_auth(request: Request) -> AuthenticatedUser:
 
 
 async def require_tenant_header(
-    request: Request,
     user: AuthenticatedUser = Depends(require_auth),
+    tid: str | None = Header(None, alias="X-Tenant-Id"),
 ) -> str:
     # async on purpose: a sync dependency runs in the threadpool, so the tenant
     # ContextVar set here would not reach the endpoint.
-    tid = request.headers.get("X-Tenant-Id")
     if not tid:
         raise HTTPException(status_code=400, detail="tenant_header_required")
     if tid not in user.tenant_ids:

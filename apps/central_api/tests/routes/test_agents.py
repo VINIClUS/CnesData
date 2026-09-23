@@ -204,3 +204,9 @@ class TestAgentsWhoamiEndpoint:
         assert resp.json() == {
             "tenant_id": "354130", "agent_id": "agent-1", "machine_id": "a1b2c3d4",
         }
+
+
+def test_openapi_documenta_header_x_tenant_id_em_agents_status(app):
+    params = app.openapi()["paths"]["/api/v1/agents/status"]["get"]["parameters"]
+    headers = {p["name"] for p in params if p["in"] == "header"}
+    assert "X-Tenant-Id" in headers
