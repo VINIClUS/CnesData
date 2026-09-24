@@ -627,6 +627,11 @@ type CentralApiRoutesDashboardAgentStatusResponse struct {
 	Sources   []SourceStatusOut `json:"sources"`
 }
 
+// ReapLeasesApiV1AdminReapLeasesPostParams defines parameters for ReapLeasesApiV1AdminReapLeasesPost.
+type ReapLeasesApiV1AdminReapLeasesPostParams struct {
+	XAdminToken *string `json:"x-admin-token,omitempty"`
+}
+
 // GetAgentStatusApiV1AgentsStatusGetParams defines parameters for GetAgentStatusApiV1AgentsStatusGet.
 type GetAgentStatusApiV1AgentsStatusGetParams struct {
 	TenantId  string  `form:"tenant_id" json:"tenant_id"`
@@ -999,7 +1004,7 @@ type ClientInterface interface {
 	// ReapLeasesApiV1AdminReapLeasesPost Reap Leases
 	//
 	// Corresponds with POST /api/v1/admin/reap-leases (the `ReapLeasesApiV1AdminReapLeasesPost` operationId).
-	ReapLeasesApiV1AdminReapLeasesPost(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ReapLeasesApiV1AdminReapLeasesPost(ctx context.Context, params *ReapLeasesApiV1AdminReapLeasesPostParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetAgentStatusApiV1AgentsStatusGet Get Agent Status
 	//
@@ -1319,8 +1324,8 @@ func (c *Client) ActivateConfirmActivateConfirmPost(ctx context.Context, body Ac
 // ReapLeasesApiV1AdminReapLeasesPost Reap Leases
 //
 // Corresponds with POST /api/v1/admin/reap-leases (the `ReapLeasesApiV1AdminReapLeasesPost` operationId).
-func (c *Client) ReapLeasesApiV1AdminReapLeasesPost(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReapLeasesApiV1AdminReapLeasesPostRequest(c.Server)
+func (c *Client) ReapLeasesApiV1AdminReapLeasesPost(ctx context.Context, params *ReapLeasesApiV1AdminReapLeasesPostParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReapLeasesApiV1AdminReapLeasesPostRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2072,7 +2077,7 @@ func NewActivateConfirmActivateConfirmPostRequestWithBody(server string, content
 }
 
 // NewReapLeasesApiV1AdminReapLeasesPostRequest constructs an http.Request for the ReapLeasesApiV1AdminReapLeasesPost method
-func NewReapLeasesApiV1AdminReapLeasesPostRequest(server string) (*http.Request, error) {
+func NewReapLeasesApiV1AdminReapLeasesPostRequest(server string, params *ReapLeasesApiV1AdminReapLeasesPostParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -2093,6 +2098,21 @@ func NewReapLeasesApiV1AdminReapLeasesPostRequest(server string) (*http.Request,
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XAdminToken != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "x-admin-token", *params.XAdminToken, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("x-admin-token", headerParam0)
+		}
+
 	}
 
 	return req, nil
@@ -3346,7 +3366,7 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/v1/admin/reap-leases (the `ReapLeasesApiV1AdminReapLeasesPost` operationId).
-	ReapLeasesApiV1AdminReapLeasesPostWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReapLeasesApiV1AdminReapLeasesPostResponse, error)
+	ReapLeasesApiV1AdminReapLeasesPostWithResponse(ctx context.Context, params *ReapLeasesApiV1AdminReapLeasesPostParams, reqEditors ...RequestEditorFn) (*ReapLeasesApiV1AdminReapLeasesPostResponse, error)
 
 	// GetAgentStatusApiV1AgentsStatusGetWithResponse Get Agent Status
 	//
@@ -3714,11 +3734,18 @@ type ReapLeasesApiV1AdminReapLeasesPostResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *map[string]interface{}
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
 func (r ReapLeasesApiV1AdminReapLeasesPostResponse) GetJSON200() *map[string]interface{} {
 	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ReapLeasesApiV1AdminReapLeasesPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
 }
 
 // GetBody returns the raw response body bytes
@@ -5110,8 +5137,8 @@ func (c *ClientWithResponses) ActivateConfirmActivateConfirmPostWithResponse(ctx
 // Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /api/v1/admin/reap-leases (the `ReapLeasesApiV1AdminReapLeasesPost` operationId).
-func (c *ClientWithResponses) ReapLeasesApiV1AdminReapLeasesPostWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReapLeasesApiV1AdminReapLeasesPostResponse, error) {
-	rsp, err := c.ReapLeasesApiV1AdminReapLeasesPost(ctx, reqEditors...)
+func (c *ClientWithResponses) ReapLeasesApiV1AdminReapLeasesPostWithResponse(ctx context.Context, params *ReapLeasesApiV1AdminReapLeasesPostParams, reqEditors ...RequestEditorFn) (*ReapLeasesApiV1AdminReapLeasesPostResponse, error) {
+	rsp, err := c.ReapLeasesApiV1AdminReapLeasesPost(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -5735,6 +5762,13 @@ func ParseReapLeasesApiV1AdminReapLeasesPostResponse(rsp *http.Response) (*ReapL
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	}
 

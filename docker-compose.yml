@@ -112,6 +112,7 @@ services:
       API_PORT: '8000'
       # Stack local sem Caddy: agentes falam HTTP puro, sem certificado cliente.
       AGENT_MTLS_REQUIRED: 'false'
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-local-admin}
     healthcheck:
       test: python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"
       interval: 15s
@@ -292,6 +293,7 @@ services:
       CORS_ALLOWED_ORIGINS: http://localhost:5173
       # cnes_infra.config exige DB_URL no import do módulo; nunca conectado no profile local.
       DB_URL: postgresql+psycopg://unused:unused@unused/unused
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-local-admin}
     volumes:
     - local_data:/data
     healthcheck:

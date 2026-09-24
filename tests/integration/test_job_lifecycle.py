@@ -135,10 +135,13 @@ def test_heartbeat_rejeita_machine_id_invalido(api_url, pg_engine):
 
 
 def test_reap_leases_retorna_contagem(api_url):
+    from cnes_infra import config
+
     req = urllib.request.Request(
         f"{api_url}/api/v1/admin/reap-leases",
         method="POST",
         data=b"",
+        headers={"X-Admin-Token": config.ADMIN_TOKEN or "local-admin"},
     )
     resp = urllib.request.urlopen(req)
     body = json.loads(resp.read())

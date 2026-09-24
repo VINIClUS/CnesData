@@ -102,6 +102,7 @@ MAX_JITTER_SECONDS: float = float(
 )
 
 AUTH_REQUIRED: str = os.environ.get("AUTH_REQUIRED", "required")
+ADMIN_TOKEN: str = os.environ.get("ADMIN_TOKEN", "").strip()
 CORS_ALLOWED_ORIGINS: str = os.environ.get("CORS_ALLOWED_ORIGINS", "")
 LEADS_RATE_LIMIT: str = os.environ.get("LEADS_RATE_LIMIT", "5/minute")
 DASHBOARD_OIDC_ISSUER: str = os.environ.get("DASHBOARD_OIDC_ISSUER", "")
