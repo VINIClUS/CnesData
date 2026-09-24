@@ -250,6 +250,7 @@ class TestAdminTokenGuard:
     @pytest.mark.parametrize("headers", [
         {},
         {"X-Admin-Token": "test-admin"},
+        {"X-Admin-Token": ""},
     ])
     def test_enqueue_rejeita_token_ausente_ou_invalido(
         self, app, admin_token, enqueue, headers,

@@ -14,12 +14,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["admin"])
+router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin_token)])
 
 
 @router.post("/admin/reap-leases")
 def reap_leases(
-    _: None = Depends(require_admin_token),
     engine: Engine = Depends(get_engine),
 ) -> dict:
     count = extractions_repo.reap_expired(engine)

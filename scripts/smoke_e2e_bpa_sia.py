@@ -72,7 +72,7 @@ def main() -> int:
     parser.add_argument("--api-url", required=True)
     parser.add_argument(
         "--admin-token", default=os.environ.get("ADMIN_TOKEN"),
-        required="ADMIN_TOKEN" not in os.environ,
+        required=not os.environ.get("ADMIN_TOKEN"),
     )
     parser.add_argument("--db-url", required=True)
     parser.add_argument("--tenant", default="354130")
