@@ -26,14 +26,16 @@ PROVENANCE_SCHEMA: Final[dict[str, type[pl.DataType]]] = {
     "_normalized_at": pl.String,
 }
 INTERNACAO_SOURCE_SCHEMA: Final[dict[str, type[pl.DataType]]] = {
-    "NUM_AIH": pl.String, "SEQ": pl.Int64, "CNES": pl.String, "COMPETENCIA": pl.String,
+    "NUM_AIH": pl.String, "OE_GESTOR": pl.String, "SEQ": pl.Int64, "CNES": pl.String,
+    "COMPETENCIA": pl.String,
     "PROC_SOLICITADO": pl.String, "PROC_REALIZADO": pl.String, "DIAG_PRI": pl.String,
     "DIAG_SEC": pl.String, "DT_INTERNACAO": pl.String, "DT_SAIDA": pl.String,
     "CAR_INTERNACAO": pl.String, "SITUACAO": pl.String, "IDENT": pl.String,
     "MODALIDADE": pl.String, "PACIENTE_SEXO": pl.String, "PACIENTE_MUN_ORIGEM": pl.String,
 }
 PROC_AIH_SOURCE_SCHEMA: Final[dict[str, type[pl.DataType]]] = {
-    "NUM_AIH": pl.String, "SEQ_PRINC": pl.Int64, "INDX": pl.Int64, "CNES": pl.String,
+    "NUM_AIH": pl.String, "OE_GESTOR": pl.String, "SEQ_PRINC": pl.Int64, "INDX": pl.Int64,
+    "CNES": pl.String,
     "COMPETENCIA": pl.String, "PROCEDIMENTO": pl.String, "QTD": pl.Int64,
     "VALOR": pl.String, "CBO_EXEC": pl.String,
 }

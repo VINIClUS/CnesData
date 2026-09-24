@@ -42,6 +42,7 @@ type Check = tuple[str, pl.Expr, str]
 
 _KEY = "SIHD_KEY"
 _CENT = Decimal("0.01")
+_CDC_OPS = ("I", "U", "D")
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,12 +65,15 @@ _SPECS: dict[str, _SubtypeSpec] = {
         source_schema=INTERNACAO_SOURCE_SCHEMA,
         output_schema=INTERNACAO_SCHEMA,
         schema_version=INTERNACAO_SCHEMA_VERSION,
-        delta_key=("COMPETENCIA", "SEQ"),
+        delta_key=("COMPETENCIA", "OE_GESTOR", "SEQ"),
         key_parts=(
             pl.col("NUM_AIH"), pl.col("PROC_REALIZADO"), pl.col("COMPETENCIA"),
-            pl.col("SEQ").cast(pl.String),
+            pl.concat_str(
+                [pl.col("OE_GESTOR").fill_null(""), pl.col("SEQ").cast(pl.String)],
+                separator=".",
+            ),
         ),
-        required=("NUM_AIH", "CNES"),
+        required=("NUM_AIH", "OE_GESTOR", "CNES"),
         domains=INTERNACAO_DOMAINS,
         procedure_fields=("PROC_SOLICITADO", "PROC_REALIZADO"),
         date_fields=("DT_INTERNACAO", "DT_SAIDA"),
@@ -79,15 +83,19 @@ _SPECS: dict[str, _SubtypeSpec] = {
         source_schema=PROC_AIH_SOURCE_SCHEMA,
         output_schema=PROC_AIH_SCHEMA,
         schema_version=PROC_AIH_SCHEMA_VERSION,
-        delta_key=("COMPETENCIA", "SEQ_PRINC", "INDX"),
+        delta_key=("COMPETENCIA", "OE_GESTOR", "SEQ_PRINC", "INDX"),
         key_parts=(
             pl.col("NUM_AIH"), pl.col("PROCEDIMENTO"), pl.col("COMPETENCIA"),
             pl.concat_str(
-                [pl.col("SEQ_PRINC").cast(pl.String), pl.col("INDX").cast(pl.String)],
+                [
+                    pl.col("OE_GESTOR").fill_null(""),
+                    pl.col("SEQ_PRINC").cast(pl.String),
+                    pl.col("INDX").cast(pl.String),
+                ],
                 separator=".",
             ),
         ),
-        required=("NUM_AIH", "CNES", "PROCEDIMENTO", "VALOR"),
+        required=("NUM_AIH", "OE_GESTOR", "CNES", "PROCEDIMENTO", "VALOR"),
         domains={},
         procedure_fields=("PROCEDIMENTO",),
         date_fields=(),
@@ -114,6 +122,7 @@ def normalize_sihd(request: NormalizeRequest, store: ObjectStorePort) -> Normali
     manifests = request.raw_manifests
     base = manifests[0]
     frames = [_canonicalize(_read_frame(store, item), spec) for item in manifests]
+    _check_ops(frames[1:])
     current = reconstruct_from_deltas(frames[0], frames[1:], spec.delta_key)
     _check_competencia(current, base.competencia)
     keyed = _with_key(current, spec)
@@ -212,6 +221,15 @@ def _canonicalize(frame: pl.DataFrame, spec: _SubtypeSpec) -> pl.DataFrame:
         pl.concat_str([competencia.str.slice(0, 4), competencia.str.slice(4, 2)], separator="-")
         .alias("COMPETENCIA"),
     )
+
+
+def _check_ops(deltas: list[pl.DataFrame]) -> None:
+    for delta in deltas:
+        if "_op" not in delta.columns:
+            raise ValueError("invalid_cdc_op op=missing")
+        invalid = delta.filter(~pl.col("_op").is_in(_CDC_OPS).fill_null(False))["_op"]
+        if invalid.len():
+            raise ValueError(f"invalid_cdc_op op={invalid[0]}")
 
 
 def _check_competencia(frame: pl.DataFrame, competencia: str) -> None:

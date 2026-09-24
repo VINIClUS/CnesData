@@ -21,9 +21,12 @@ if TYPE_CHECKING:
     from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
 
 _GROUP = ("CNES", "PROCEDIMENTO", "COMPETENCIA")
+_AIH_ID = "AIH_ID"
+_AIH_JOIN = ("COMPETENCIA", _AIH_ID)
+_SEQUENCE_COLUMNS = {"internacoes": "SEQ", "procedimentos": "SEQ_PRINC"}
 _RECONCILIATION_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "CNES": pl.String, "PROCEDIMENTO": pl.String, "COMPETENCIA": pl.String,
-    "NUM_AIHS": pl.List(pl.String), "aih_count": pl.Int64, "procedimento_qtd": pl.Int64,
+    "AIH_IDS": pl.List(pl.String), "aih_count": pl.Int64, "procedimento_qtd": pl.Int64,
     "valor_centavos": pl.Int64, "dt_internacao_min": pl.Date, "dt_saida_max": pl.Date,
     "_source_manifest_ids": pl.List(pl.String),
 }
@@ -53,7 +56,10 @@ def reconcile_sihd(request: ReconcileRequest, store: ObjectStorePort) -> Reconci
         ValueError: manifests fora do layout SIHD ou saida nao verificada apos put.
     """
     manifests = _split_manifests(request.normalized_manifests)
-    frames = {role: _read_frame(store, manifest) for role, manifest in manifests.items()}
+    frames = {
+        role: _with_aih_id(_read_frame(store, manifest), role)
+        for role, manifest in manifests.items()
+    }
     ids = {role: manifest.manifest_id for role, manifest in manifests.items()}
     totals = _totals(frames["procedimentos"], frames["internacoes"], ids)
     divergences = _divergences(frames, ids)
@@ -95,18 +101,26 @@ def _read_frame(store: ObjectStorePort, manifest: OutputManifest) -> pl.DataFram
         return pl.read_parquet(handle)
 
 
+def _with_aih_id(frame: pl.DataFrame, role: str) -> pl.DataFrame:
+    sequence = _SEQUENCE_COLUMNS.get(role)
+    if sequence is None:
+        return frame
+    parts = [pl.col("OE_GESTOR"), pl.col(sequence).cast(pl.String)]
+    return frame.with_columns(pl.concat_str(parts, separator=".").alias(_AIH_ID))
+
+
 def _totals(
     procedimentos: pl.DataFrame, internacoes: pl.DataFrame, ids: dict[str, str]
 ) -> pl.DataFrame:
-    periods = internacoes.group_by("NUM_AIH").agg(
+    periods = internacoes.group_by(list(_AIH_JOIN)).agg(
         pl.col("DT_INTERNACAO").min(), pl.col("DT_SAIDA").max()
     )
     grouped = (
-        procedimentos.join(periods, on="NUM_AIH", how="left")
+        procedimentos.join(periods, on=list(_AIH_JOIN), how="left")
         .group_by(list(_GROUP))
         .agg(
-            pl.col("NUM_AIH").drop_nulls().unique().sort().alias("NUM_AIHS"),
-            pl.col("NUM_AIH").drop_nulls().n_unique().alias("aih_count"),
+            pl.col(_AIH_ID).drop_nulls().unique().sort().alias("AIH_IDS"),
+            pl.col(_AIH_ID).drop_nulls().n_unique().alias("aih_count"),
             pl.col("QTD").sum().alias("procedimento_qtd"),
             pl.col("VALOR_CENTAVOS").sum().alias("valor_centavos"),
             pl.col("DT_INTERNACAO").min().alias("dt_internacao_min"),
@@ -131,19 +145,20 @@ def _divergence_select(kind: pl.Expr, field: pl.Expr, value: pl.Expr, source: st
 def _orphans(
     frame: pl.DataFrame, other: pl.DataFrame, kind: str, source: str
 ) -> pl.DataFrame:
-    missing = frame.join(other.select("NUM_AIH").unique(), on="NUM_AIH", how="anti")
+    keys = other.select(list(_AIH_JOIN)).unique()
+    missing = frame.join(keys, on=list(_AIH_JOIN), how="anti")
     return missing.select(
-        _divergence_select(pl.lit(kind), pl.lit("NUM_AIH"), pl.col("NUM_AIH"), source)
+        _divergence_select(pl.lit(kind), pl.lit(_AIH_ID), pl.col(_AIH_ID), source)
     )
 
 
 def _cnes_mismatches(
     procedimentos: pl.DataFrame, internacoes: pl.DataFrame, source: str
 ) -> pl.DataFrame:
-    aih_cnes = internacoes.group_by("NUM_AIH").agg(
+    aih_cnes = internacoes.group_by(list(_AIH_JOIN)).agg(
         pl.col("CNES").drop_nulls().sort().first().alias("_AIH_CNES")
     )
-    mismatched = procedimentos.join(aih_cnes, on="NUM_AIH", how="inner").filter(
+    mismatched = procedimentos.join(aih_cnes, on=list(_AIH_JOIN), how="inner").filter(
         pl.col("CNES").is_not_null()
         & pl.col("_AIH_CNES").is_not_null()
         & (pl.col("CNES") != pl.col("_AIH_CNES"))

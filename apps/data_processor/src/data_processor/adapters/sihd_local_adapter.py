@@ -35,6 +35,7 @@ _MAP_AIH_RAW: dict[str, str] = {
 
 _MAP_INTERNACAO_RAW: dict[str, str] = {
     **_MAP_AIH_RAW,
+    "AH_OE_GESTOR": "OE_GESTOR",
     "AH_SEQ": "SEQ",
     "AH_IDENT": "IDENT",
     "AH_MODALIDADE_INTERNACAO": "MODALIDADE",
@@ -42,6 +43,7 @@ _MAP_INTERNACAO_RAW: dict[str, str] = {
 
 _MAP_PROC_AIH_RAW: dict[str, str] = {
     "PA_NUM_AIH": "NUM_AIH",
+    "PA_OE_GESTOR": "OE_GESTOR",
     "PA_SEQ_PRINC": "SEQ_PRINC",
     "PA_INDX": "INDX",
     "PA_CNES": "CNES",

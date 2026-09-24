@@ -116,7 +116,7 @@ def _count(kinds: list[str]) -> dict[str, int]:
 
 
 def _bucket(rows: list[Row]) -> dict[str, int]:
-    aihs = {aih for row in rows for aih in row["NUM_AIHS"]}
+    aihs = {aih for row in rows for aih in row["AIH_IDS"]}
     return {
         "aih_count": len(aihs),
         "procedimento_qtd": sum(int(row["procedimento_qtd"]) for row in rows),

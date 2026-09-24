@@ -27,7 +27,7 @@ from apps.data_processor.tests.sources.sihd import (
     target_keys,
 )
 from cnes_contracts.manifests.processing import NormalizeRequest
-from cnes_contracts.manifests.raw import SnapshotMode, SourceType
+from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
 from cnes_contracts.manifests.validation import manifest_sha256
 from data_processor.sources.sihd.contract import (
     PII_DENY_LIST,
@@ -225,3 +225,48 @@ def test_aplica_cadeia_full_mais_delta_sem_ler_so_a_base() -> None:
     assert data["SEQ"].to_list() == [1, 2, 3]
     assert data["SITUACAO"].to_list() == ["0", "0", "0"]
     assert quality.height == 0
+
+
+def _delta_spec(full: RawManifest) -> dict[str, object]:
+    return raw_spec("SIHD_INTERNACAO") | {
+        "manifest_id": "raw-sihd-internacao-2",
+        "snapshot_mode": SnapshotMode.DELTA.value,
+        "snapshot_id": "snap-internacao-2",
+        "base_snapshot_id": full.snapshot_id,
+        "sequence": 2,
+        "previous_manifest_sha256": manifest_sha256(full),
+        "object_key": "raw/354130/SIHD/2026-01/snap-internacao-2/internacao.parquet",
+    }
+
+
+def test_delta_de_um_gestor_preserva_mesmo_seq_de_outro_gestor() -> None:
+    store = FakeObjectStore()
+    rows = raw_rows("SIHD_INTERNACAO")
+    other = rows[0] | {"AH_OE_GESTOR": "3541300009", "AH_NUM_AIH": "3526100000055"}
+    full = put_raw(store, raw_spec("SIHD_INTERNACAO"), pl.DataFrame([*rows, other]))
+    delta = put_raw(store, _delta_spec(full), pl.DataFrame([rows[0] | {"_op": "U"}]))
+    result = normalize_sihd(normalize_request((full, delta), "SIHD_INTERNACAO"), store)
+    data = read_parquet(store, result.manifests[0].object_key)
+    assert data.filter(pl.col("SEQ") == 1)["OE_GESTOR"].sort().to_list() == [
+        "3541300000", "3541300009",
+    ]
+
+
+@pytest.mark.parametrize("op", ["X", None])
+def test_rejeita_delta_com_operacao_cdc_invalida(op: str | None) -> None:
+    store = FakeObjectStore()
+    rows = raw_rows("SIHD_INTERNACAO")
+    full = put_raw(store, raw_spec("SIHD_INTERNACAO"), pl.DataFrame(rows))
+    delta_rows = [rows[0] | {"_op": "U"}, rows[1] | {"_op": op}]
+    delta = put_raw(store, _delta_spec(full), pl.DataFrame(delta_rows))
+    with pytest.raises(ValueError, match="invalid_cdc_op"):
+        normalize_sihd(normalize_request((full, delta), "SIHD_INTERNACAO"), store)
+
+
+def test_rejeita_delta_sem_coluna_de_operacao() -> None:
+    store = FakeObjectStore()
+    rows = raw_rows("SIHD_INTERNACAO")
+    full = put_raw(store, raw_spec("SIHD_INTERNACAO"), pl.DataFrame(rows))
+    delta = put_raw(store, _delta_spec(full), pl.DataFrame(rows[:1]))
+    with pytest.raises(ValueError, match="invalid_cdc_op op=missing"):
+        normalize_sihd(normalize_request((full, delta), "SIHD_INTERNACAO"), store)
