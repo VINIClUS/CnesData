@@ -164,14 +164,33 @@ def test_linha_de_outra_competencia_vira_qualidade_rejeitada(sia: SiaHarness) ->
     ]
 
 
-def test_normalizado_nao_carrega_cns_do_paciente(sia: SiaHarness) -> None:
-    data, quality = _outputs(sia, "SIA_BPI")
+@pytest.mark.parametrize(
+    ("subtype", "column"), [("SIA_APA", "apa_cnspct"), ("SIA_BPI", "bpi_cnspac")]
+)
+def test_normalizado_nao_carrega_cns_do_paciente(
+    sia: SiaHarness, subtype: str, column: str
+) -> None:
+    data, quality = _outputs(sia, subtype)
 
+    patients = {row[column] for row in sia.load_fixture("raw_rows.json")[subtype]}
     for frame in (data, quality):
         assert not any("pac" in name or "pct" in name for name in frame.columns)
-    assert "898000000000011" not in sia.store.objects[
-        next(key for key in sia.store.objects if key.endswith("/bpi.parquet"))
-    ].decode("latin-1")
+        values = {
+            value for name in frame.columns if frame.schema[name] == pl.String
+            for value in frame[name].to_list()
+        }
+        assert values.isdisjoint(patients)
+
+
+@pytest.mark.parametrize("subtype", _SUBTYPES)
+def test_grava_somente_as_duas_chaves_alvo(sia: SiaHarness, subtype: str) -> None:
+    raw = sia.put_raw(subtype, sia.raw_frame(subtype, []))
+    request = sia.normalize_request(raw)
+    before = set(sia.store.objects)
+
+    normalize_sia(request, sia.store)
+
+    assert set(sia.store.objects) - before == set(request.target_keys)
 
 
 def test_bytes_normalizados_sao_idempotentes(sia: SiaHarness) -> None:

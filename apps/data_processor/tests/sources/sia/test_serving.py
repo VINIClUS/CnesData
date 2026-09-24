@@ -56,6 +56,15 @@ def test_materializa_overview_e_by_establishment_iguais_ao_expected(sia: SiaHarn
         ]
 
 
+def test_grava_somente_os_dois_documentos_de_serving(sia: SiaHarness) -> None:
+    request = sia.materialize_request(sia.reconcile_all())
+
+    materialize_sia(request, sia.store)
+
+    serving = {key for key in sia.store.objects if key.startswith("serving/")}
+    assert serving == set(request.target_keys)
+
+
 def test_documentos_declaram_dataset_sia(sia: SiaHarness) -> None:
     result = _materialize(sia)
 
