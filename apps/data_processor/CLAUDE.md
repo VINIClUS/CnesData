@@ -68,7 +68,7 @@ colisão (lease-based).
 | `src/data_processor/adapters/cnes_local_adapter.py` | Parquet CNES raw → DataFrame canônico |
 | `src/data_processor/adapters/cnes_nacional_adapter.py` | Parquet BigQuery nacional → canônico |
 | `src/data_processor/adapters/sihd_local_adapter.py` | Parquet SIHD/AIH → canônico |
-| `src/data_processor/adapters/bpa_adapter.py` | `map_bpa_c_to_fato` / `map_bpa_i_to_fato` |
+| `src/data_processor/adapters/bpa_adapter.py` | Transformações Polars puras do raw `S_PRD` (sem lookup SQL) |
 | `src/data_processor/adapters/sia_adapter.py` | `canonicalize_apa` / `canonicalize_bpi` + `map_*_to_fato` legado |
 | `src/data_processor/adapters/sia_dim_sync.py` | `build_reference_sigtap` / `build_reference_municipio` (Polars puro, sem SQL) |
 | `src/data_processor/sources/sia/` | `normalize_sia` / `reconcile_sia` / `materialize_sia` — plugin Parquet SIA_LOCAL |
@@ -79,6 +79,7 @@ colisão (lease-based).
 | `src/data_processor/pipeline/reconcile_cnes.py` | `reconcile_cnes` — precedência LOCAL/NACIONAL |
 | `src/data_processor/pipeline/materialize_cnes.py` | `materialize_cnes` — serving JSON agregado |
 | `src/data_processor/pipeline/delta_reconstruction.py` | `reconstruct_from_deltas` — CDC por natural key |
+| `src/data_processor/sources/bpa/` | Plugin BPA: `normalize_bpa`, `reconcile_bpa`, `materialize_bpa` |
 
 ## Gotchas
 
@@ -108,8 +109,11 @@ colisão (lease-based).
   `expected_sha256 None`) → `pl.read_parquet` → `route_delta`; mismatch
   propaga `IntegrityError` e falha o job. `landing.extractions.sha256` é
   nullable (Alembic 018).
-- **`bpa_adapter`:** BPA_C usa sentinel `_SK_PROFISSIONAL_AGREGADO=1` — exige
-  seed da row 1 em `dim_profissional`. `producao_ambulatorial_repo.gravar`
-  faz upsert idempotente; `fontes_reportadas` JSONB merge via `||`.
+- **BPA raw é `S_PRD`, não `BPA_*_LINHAS`:** o GDB real tem uma tabela única
+  separada pelo Edge em `PRD_ORG='BPI'`→BPA_I e resto→BPA_C (origem ≠ `BPA`
+  vira `origem_divergente`); introspecção em
+  `apps/data_processor/tests/fixtures/bpa/fixture-manifest.json`. PII de
+  paciente é descartada em `prepare_raw`; `prd_cnsmed` só vira o booleano
+  `tem_cns_profissional` — nenhum CNS/CPF chega ao normalizado ou ao serving.
 
 Histórico de fases (T12/T13, P2, P3): `CHANGELOG.md`.
