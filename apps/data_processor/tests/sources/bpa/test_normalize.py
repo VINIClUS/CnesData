@@ -322,8 +322,12 @@ def test_aplica_delta_sobre_a_chave_de_linha() -> None:
     normalize_bpa(_request((full, delta), _target_keys("BPA_C")), store)
 
     rows = _read(store, _target_keys("BPA_C")[0])
-    assert len(rows) == 6
-    assert rows[0]["quantidade"] == 12
+    assert len(rows) == 7
+    updated = next(row for row in rows if row["quantidade"] == 12)
+    assert updated["_source_manifest_id"] == "fixture-bpa-c-d1"
+    assert updated["_source_snapshot_id"] == "fixture-bpa-c-d1"
+    untouched = [row for row in rows if row is not updated]
+    assert {row["_source_manifest_id"] for row in untouched} == {"fixture-bpa-c-v1"}
 
 
 def test_falha_quando_objeto_nao_aparece_apos_put() -> None:

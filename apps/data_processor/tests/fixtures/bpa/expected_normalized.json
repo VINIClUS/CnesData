@@ -2,6 +2,26 @@
   "BPA_C": {
     "rows": [
       {
+        "source_record_id": "c84c70b64485b8c68063ccbab2672b61dd49dee601a3b510a928450fd52791d7",
+        "file_subtype": "BPA_C",
+        "competencia": "2026-08",
+        "cnes": null,
+        "folha": "003",
+        "sequencia": "01",
+        "sigtap": "0301010056",
+        "cbo": "225125",
+        "cid": null,
+        "idade": 45,
+        "data_atendimento": null,
+        "quantidade": 7,
+        "tem_cns_profissional": false,
+        "valido": false,
+        "_source_manifest_id": "fixture-bpa-c-v1",
+        "_source_snapshot_id": "fixture-bpa-c-v1",
+        "_source_type": "BPA_MAG",
+        "_normalized_at": "2026-09-02T12:00:00+00:00"
+      },
+      {
         "source_record_id": "63c70efe4e01bb70474ae94ea8fb453d488cf7039b58f504955c00a2bd0e3f16",
         "file_subtype": "BPA_C",
         "competencia": "2026-08",
@@ -136,6 +156,13 @@
         "field": "sigtap",
         "code": "sigtap_invalido",
         "raw_value": "03010100"
+      },
+      {
+        "source_record_id": "c84c70b64485b8c68063ccbab2672b61dd49dee601a3b510a928450fd52791d7",
+        "file_subtype": "BPA_C",
+        "field": "cnes",
+        "code": "cnes_invalido",
+        "raw_value": "12345"
       },
       {
         "source_record_id": "e47e3bae15acaaf2900885a12a11941b9c4eeb8c75b72c95627b09c0353742fc",

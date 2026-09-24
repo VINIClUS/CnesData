@@ -112,14 +112,21 @@ def _by_establishment(
         .sort(["qtd_apresentada", "cnes"], descending=[True, False], nulls_last=True)
         .cast(dict.fromkeys((*_TOTALS, "procedimentos", "divergencias"), pl.Int64))
     )
+    valid = rows.filter(pl.col("cnes").is_not_null())
     return {
         "dataset": _DATASET,
         "competencia": request.competencia,
         "limite": _MAX_ESTABELECIMENTOS,
-        "total_estabelecimentos": rows.height,
-        "truncado": rows.height > _MAX_ESTABELECIMENTOS,
-        "estabelecimentos": rows.head(_MAX_ESTABELECIMENTOS).to_dicts(),
+        "total_estabelecimentos": valid.height,
+        "truncado": valid.height > _MAX_ESTABELECIMENTOS,
+        "estabelecimentos": valid.head(_MAX_ESTABELECIMENTOS).to_dicts(),
+        "sem_cnes_valido": _without_cnes(rows),
     }
+
+
+def _without_cnes(rows: pl.DataFrame) -> Payload:
+    missing = rows.filter(pl.col("cnes").is_null())
+    return {name: int(missing[name].sum()) for name in (*_TOTALS, "divergencias")}
 
 
 def _render(document: ServingDocument) -> bytes:

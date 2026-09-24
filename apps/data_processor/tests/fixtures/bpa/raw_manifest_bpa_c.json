@@ -13,7 +13,7 @@
   "base_snapshot_id": null,
   "sequence": 1,
   "previous_manifest_sha256": null,
-  "row_count": 6,
+  "row_count": 7,
   "object_key": "raw/354130/BPA_MAG/2026-08/fixture-bpa-c-v1/data.parquet",
   "created_at": "2026-09-01T00:00:00Z"
 }

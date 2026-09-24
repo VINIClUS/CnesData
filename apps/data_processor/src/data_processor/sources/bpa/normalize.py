@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 _DATA_SCHEMA_VERSION = "bpa-normalized-v1"
 _QUALITY_SCHEMA_VERSION = "bpa-quality-v1"
+_ROW_ORIGIN = ("_source_manifest_id", "_source_snapshot_id")
 
 
 def normalize_bpa(request: NormalizeRequest, store: ObjectStorePort) -> NormalizeResult:
@@ -53,12 +54,12 @@ def normalize_bpa(request: NormalizeRequest, store: ObjectStorePort) -> Normaliz
     layout = _subtype_layout(request)
     data_key, quality_key = _target_pair(request, layout)
     base = request.raw_manifests[0]
-    frames = [prepare_raw(read_parquet(store, item.object_key)) for item in request.raw_manifests]
+    frames = [_read_tagged(store, item) for item in request.raw_manifests]
     current = reconstruct_from_deltas(frames[0], frames[1:], RAW_ROW_KEY)
     keyed = with_record_ids(current, layout.file_subtype)
     issues = quality_issues(keyed, layout.file_subtype, base.competencia)
     rows = canonicalize(keyed, layout.file_subtype, base.competencia, issues["source_record_id"])
-    rows = _with_provenance(rows, request, base)
+    rows = _with_provenance(rows.hstack(keyed.select(_ROW_ORIGIN)), request)
     manifests = (
         _write(store, request, (data_key, "data", _DATA_SCHEMA_VERSION), rows),
         _write(store, request, (quality_key, "quality", _QUALITY_SCHEMA_VERSION), issues),
@@ -86,12 +87,16 @@ def _target_pair(request: NormalizeRequest, layout: SubtypeLayout) -> tuple[str,
     return by_leaf[data_name], by_leaf[quality_name]
 
 
-def _with_provenance(
-    frame: pl.DataFrame, request: NormalizeRequest, base: RawManifest
-) -> pl.DataFrame:
+def _read_tagged(store: ObjectStorePort, manifest: RawManifest) -> pl.DataFrame:
+    frame = prepare_raw(read_parquet(store, manifest.object_key))
     return frame.with_columns(
-        pl.lit(base.manifest_id).alias("_source_manifest_id"),
-        pl.lit(base.snapshot_id).alias("_source_snapshot_id"),
+        pl.lit(manifest.manifest_id, dtype=pl.String).alias("_source_manifest_id"),
+        pl.lit(manifest.snapshot_id, dtype=pl.String).alias("_source_snapshot_id"),
+    )
+
+
+def _with_provenance(frame: pl.DataFrame, request: NormalizeRequest) -> pl.DataFrame:
+    return frame.with_columns(
         pl.lit(request.source_type.value).alias("_source_type"),
         pl.lit(request.normalized_at.isoformat()).alias("_normalized_at"),
     ).cast(PROVENANCE_SCHEMA)

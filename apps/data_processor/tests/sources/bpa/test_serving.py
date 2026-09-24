@@ -212,3 +212,16 @@ def test_rejeita_target_keys_fora_do_layout() -> None:
 
     with pytest.raises(ValueError, match="bpa_serving_target_keys_invalidos"):
         materialize_bpa(request, store)
+
+
+def test_cnes_invalido_fica_fora_da_lista_e_e_reportado_a_parte() -> None:
+    store, _ = _materialize()
+
+    document = json.loads(store.objects[f"{_SERVING}/by-establishment.json"])
+
+    assert None not in [item["cnes"] for item in document["estabelecimentos"]]
+    assert document["total_estabelecimentos"] == 2
+    assert document["sem_cnes_valido"] == {
+        "linhas": 1, "linhas_aceitas": 0, "qtd_apresentada": 7, "qtd_aceita": 0,
+        "divergencias": 1,
+    }

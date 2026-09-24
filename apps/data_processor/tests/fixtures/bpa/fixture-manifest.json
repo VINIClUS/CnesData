@@ -23,15 +23,15 @@
   },
   "files": {
     "expected_normalized.json": {
-      "sha256": "4e22d173ad9a217b037efc70797551e0aa6ced0d0918cf818f124df5621e6c53",
-      "bytes": 9967
+      "sha256": "80db95b1423894a65b649b7b8a82eebc7e11f7969e61d8073eca52d7eeab14c2",
+      "bytes": 10866
     },
     "expected_serving.json": {
-      "sha256": "c1ca6d4ffa12188fea9a546dedcb896fc12b704a52e8208410522d320c3762ae",
-      "bytes": 1918
+      "sha256": "c5d951a87d2c631b879f3b20c53ed53c6f2195ab3b9f9eb087fe26118bf2b1e5",
+      "bytes": 2097
     },
     "raw_manifest_bpa_c.json": {
-      "sha256": "a6d0a6d3205752ccd71a6937af065db8224c99e592e4d84db7635338208e994f",
+      "sha256": "d8a465beb945aadb9a525fe5279ff1ce7f397a2824245bc60d23e29a4b59a0c2",
       "bytes": 551
     },
     "raw_manifest_bpa_i.json": {
@@ -39,12 +39,12 @@
       "bytes": 551
     },
     "raw_rows.json": {
-      "sha256": "95b5d800f089f030d5cf4327dd6d52000ca3056ed41a7f7308c99dcb0be66add",
-      "bytes": 3334
+      "sha256": "1ba1943f96925da12d51b862682fbf94792ceeb35df103dc8a09f95950a7fb92",
+      "bytes": 3544
     }
   },
   "row_counts": {
-    "BPA_C": 6,
+    "BPA_C": 7,
     "BPA_I": 5
   }
 }

@@ -28,7 +28,14 @@
         "procedimentos": 2,
         "divergencias": 9
       }
-    ]
+    ],
+    "sem_cnes_valido": {
+      "linhas": 1,
+      "linhas_aceitas": 0,
+      "qtd_apresentada": 7,
+      "qtd_aceita": 0,
+      "divergencias": 1
+    }
   },
   "overview": {
     "schema_version": "bpa-serving-v1",
@@ -39,21 +46,21 @@
     "competencia": "2026-08",
     "missing_sources": [],
     "kpis": {
-      "linhas": 11,
+      "linhas": 12,
       "linhas_aceitas": 5,
-      "qtd_apresentada": 30,
+      "qtd_apresentada": 37,
       "qtd_aceita": 20,
       "estabelecimentos": 2,
       "procedimentos": 3,
-      "divergencias": 10,
-      "registros_com_divergencia": 6
+      "divergencias": 11,
+      "registros_com_divergencia": 7
     },
     "por_subtipo": [
       {
         "file_subtype": "BPA_C",
-        "linhas": 6,
+        "linhas": 7,
         "linhas_aceitas": 3,
-        "qtd_apresentada": 24,
+        "qtd_apresentada": 31,
         "qtd_aceita": 18
       },
       {
@@ -67,6 +74,7 @@
     "divergence_counts": {
       "cbo_invalido": 1,
       "cid_invalido": 1,
+      "cnes_invalido": 1,
       "cns_profissional_ausente": 1,
       "competencia_divergente": 1,
       "data_atendimento_ausente": 1,

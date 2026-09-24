@@ -130,6 +130,7 @@ def test_agrupa_por_chave_natural_com_quantidade_apresentada_e_aceita() -> None:
         ("7654321", "0301010072", "2231F9", "BPA_I", 1, 0, 1, 0),
         ("7654321", "0301010072", None, "BPA_I", 1, 0, 2, 0),
         ("7654321", None, "225125", "BPA_C", 1, 0, 2, 0),
+        (None, "0301010056", "225125", "BPA_C", 1, 0, 7, 0),
     ]
     assert set(frame["tenant_id"]) == {_TENANT}
     assert set(frame["competencia"]) == {_COMPETENCIA}
@@ -155,11 +156,11 @@ def test_divergencias_vem_das_quality_issues_com_cnes() -> None:
 
     frame = pl.read_parquet(BytesIO(store.objects[_DIVERGENCE_KEY]))
 
-    assert frame.height == 10
+    assert frame.height == 11
     assert frame.group_by("code").len().sort("code").rows() == [
-        ("cbo_invalido", 1), ("cid_invalido", 1), ("cns_profissional_ausente", 1),
-        ("competencia_divergente", 1), ("data_atendimento_ausente", 1),
-        ("data_atendimento_invalida", 1), ("origem_divergente", 1),
+        ("cbo_invalido", 1), ("cid_invalido", 1), ("cnes_invalido", 1),
+        ("cns_profissional_ausente", 1), ("competencia_divergente", 1),
+        ("data_atendimento_ausente", 1), ("data_atendimento_invalida", 1), ("origem_divergente", 1),
         ("quantidade_invalida", 1), ("registro_duplicado", 1), ("sigtap_invalido", 1),
     ]
     assert frame.filter(pl.col("code") == "sigtap_invalido")["cnes"].to_list() == ["7654321"]
@@ -169,12 +170,12 @@ def test_kpis_de_reconciliacao_sao_exatos() -> None:
     _, result = _reconcile()
 
     assert result.kpis == {
-        "linhas_bpa_c": 6, "linhas_bpa_i": 5, "linhas_aceitas": 5,
-        "linhas_com_divergencia": 6, "divergencias": 10, "qtd_apresentada": 30,
-        "qtd_aceita": 20, "grupos_reconciliados": 7,
+        "linhas_bpa_c": 7, "linhas_bpa_i": 5, "linhas_aceitas": 5,
+        "linhas_com_divergencia": 7, "divergencias": 11, "qtd_apresentada": 37,
+        "qtd_aceita": 20, "grupos_reconciliados": 8,
     }
-    assert result.reconciliation_manifest.row_count == 7
-    assert result.divergence_manifest.row_count == 10
+    assert result.reconciliation_manifest.row_count == 8
+    assert result.divergence_manifest.row_count == 11
     assert result.reconciliation_manifest.schema_version == "bpa-reconciliation-v1"
     assert result.divergence_manifest.schema_version == "bpa-divergence-v1"
 
