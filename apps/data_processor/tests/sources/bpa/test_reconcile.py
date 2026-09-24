@@ -195,3 +195,12 @@ def test_exige_os_quatro_manifests_normalizados() -> None:
 
     with pytest.raises(ValueError, match="bpa_normalized_incompleto"):
         reconcile_bpa(_request(incomplete), store)
+
+
+def test_rejeita_normalizado_divergente_do_sha256_do_manifesto() -> None:
+    store = _FakeObjectStore()
+    manifests = _normalized_inputs(store)
+    store.objects[f"{_NORMALIZED}/bpa_c.parquet"] = store.objects[f"{_NORMALIZED}/bpa_i.parquet"]
+
+    with pytest.raises(ValueError, match="input_sha256_mismatch"):
+        reconcile_bpa(_request(manifests), store)

@@ -43,8 +43,8 @@ def materialize_bpa(request: MaterializeRequest, store: ObjectStorePort) -> Mate
         ValueError: target_keys fora do layout BPA ou artefato não verificado.
     """
     keys = _target_keys(request)
-    reconciled = read_parquet(store, request.reconciliation_manifest.object_key)
-    divergences = read_parquet(store, request.divergence_manifest.object_key)
+    reconciled = read_parquet(store, request.reconciliation_manifest)
+    divergences = read_parquet(store, request.divergence_manifest)
     payloads: dict[str, Payload] = {
         "by-establishment": _by_establishment(request, reconciled, divergences),
         "overview": _overview(request, reconciled, divergences),

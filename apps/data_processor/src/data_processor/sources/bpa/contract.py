@@ -15,6 +15,8 @@ from cnes_domain.orchestration.source_definitions.bpa import (
 )
 
 if TYPE_CHECKING:
+    from cnes_contracts.manifests.outputs import OutputManifest
+    from cnes_contracts.manifests.raw import RawManifest
     from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
 
 DATA_FILENAMES = tuple(item.normalized_filenames[0] for item in BPA_LAYOUT.normalized)
@@ -29,9 +31,24 @@ def leaf(key: str) -> str:
     return key.rsplit("/", 1)[-1]
 
 
-def read_parquet(store: ObjectStorePort, key: str) -> pl.DataFrame:
-    with store.open(key) as handle:
-        return pl.read_parquet(handle)
+def read_parquet(store: ObjectStorePort, manifest: RawManifest | OutputManifest) -> pl.DataFrame:
+    """Lê o Parquet do manifest só depois de conferir o SHA-256 dos bytes.
+
+    Args:
+        store: porta de objetos.
+        manifest: manifest com `object_key` e `object_sha256` esperados.
+
+    Returns:
+        DataFrame lido dos bytes verificados.
+
+    Raises:
+        ValueError: bytes divergentes do `object_sha256` do manifest.
+    """
+    with store.open(manifest.object_key) as handle:
+        payload = handle.read()
+    if sha256(payload).hexdigest() != manifest.object_sha256:
+        raise ValueError(f"input_sha256_mismatch key={manifest.object_key}")
+    return pl.read_parquet(BytesIO(payload))
 
 
 def serialize_parquet(frame: pl.DataFrame) -> bytes:

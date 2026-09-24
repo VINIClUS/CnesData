@@ -225,3 +225,13 @@ def test_cnes_invalido_fica_fora_da_lista_e_e_reportado_a_parte() -> None:
         "linhas": 1, "linhas_aceitas": 0, "qtd_apresentada": 7, "qtd_aceita": 0,
         "divergencias": 1,
     }
+
+
+def test_rejeita_reconciliacao_divergente_do_sha256_do_manifesto() -> None:
+    store = _FakeObjectStore()
+    reconciled = _reconcile(store)
+    key = reconciled.reconciliation_manifest.object_key
+    store.objects[key] = store.objects[reconciled.divergence_manifest.object_key]
+
+    with pytest.raises(ValueError, match="input_sha256_mismatch"):
+        materialize_bpa(_materialize_request(reconciled), store)

@@ -88,7 +88,7 @@ def _target_pair(request: NormalizeRequest, layout: SubtypeLayout) -> tuple[str,
 
 
 def _read_tagged(store: ObjectStorePort, manifest: RawManifest) -> pl.DataFrame:
-    frame = prepare_raw(read_parquet(store, manifest.object_key))
+    frame = prepare_raw(read_parquet(store, manifest))
     return frame.with_columns(
         pl.lit(manifest.manifest_id, dtype=pl.String).alias("_source_manifest_id"),
         pl.lit(manifest.snapshot_id, dtype=pl.String).alias("_source_snapshot_id"),

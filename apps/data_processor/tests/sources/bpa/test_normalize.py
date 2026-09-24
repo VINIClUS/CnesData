@@ -350,3 +350,12 @@ def _manifest_sha(manifest: RawManifest) -> str:
     from cnes_contracts.manifests.validation import manifest_sha256
 
     return manifest_sha256(manifest)
+
+
+def test_rejeita_objeto_raw_divergente_do_sha256_do_manifesto() -> None:
+    store = _FakeObjectStore()
+    raw = _put_raw(store, "BPA_C")
+    store.objects[raw.object_key] = _raw_payload(_load("raw_rows.json")["BPA_C"][:1])
+
+    with pytest.raises(ValueError, match="input_sha256_mismatch"):
+        normalize_bpa(_request((raw,), _target_keys("BPA_C")), store)

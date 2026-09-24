@@ -36,6 +36,7 @@ _FOLHA = r"^[0-9]{3}$"
 _SEQUENCIA = r"^[0-9]{2}$"
 _CNS = r"^[0-9]{15}$"
 _MAX_SEQUENCIA = {"BPA_C": 20, "BPA_I": 99}
+_MAX_QUANTIDADE = 999_999
 _DATE = r"^[0-9]{8}$"
 _ORDINAL = "_ordinal"
 
@@ -179,9 +180,8 @@ def _valid_sequence(file_subtype: str) -> pl.Expr:
 
 def _valid_quantity() -> pl.Expr:
     quantity = pl.col(RAW_QUANTITY_COLUMN)
-    return (quantity.is_not_null() & (quantity >= 1) & (quantity == quantity.floor())).fill_null(
-        False
-    )
+    in_range = (quantity >= 1) & (quantity <= _MAX_QUANTIDADE)
+    return (quantity.is_not_null() & in_range & (quantity == quantity.floor())).fill_null(False)
 
 
 def _parsed_date() -> pl.Expr:
@@ -208,7 +208,8 @@ def _rules(file_subtype: str, competencia: str) -> tuple[QualityRule, ...]:
         ("idade", "idade_invalida", "prd_idade",
          pl.col("prd_idade").is_not_null() & ~_valid_age()),
         ("quantidade", "quantidade_invalida", RAW_QUANTITY_COLUMN, ~_valid_quantity()),
-        ("folha", "folha_invalida", "prd_flh", ~_matches("prd_flh", _FOLHA)),
+        ("folha", "folha_invalida", "prd_flh",
+         ~_matches("prd_flh", _FOLHA) | (pl.col("prd_flh") == "000").fill_null(False)),
         ("sequencia", "sequencia_invalida", "prd_seq", ~_valid_sequence(file_subtype)),
         ("chave_registro", "registro_duplicado", None, pl.col(_ORDINAL) > 0),
     )

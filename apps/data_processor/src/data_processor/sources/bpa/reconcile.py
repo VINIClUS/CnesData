@@ -70,8 +70,8 @@ def reconcile_bpa(request: ReconcileRequest, store: ObjectStorePort) -> Reconcil
     )
 
 
-def _normalized_by_leaf(request: ReconcileRequest) -> dict[str, str]:
-    by_leaf = {leaf(item.object_key): item.object_key for item in request.normalized_manifests}
+def _normalized_by_leaf(request: ReconcileRequest) -> dict[str, OutputManifest]:
+    by_leaf = {leaf(item.object_key): item for item in request.normalized_manifests}
     expected = {*DATA_FILENAMES, *QUALITY_FILENAMES}
     if set(by_leaf) != expected or len(request.normalized_manifests) != len(expected):
         raise ValueError(f"bpa_normalized_incompleto leaves={','.join(sorted(by_leaf))}")

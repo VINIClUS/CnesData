@@ -178,3 +178,13 @@ def test_registra_cns_profissional_malformado_no_bpa_i() -> None:
     assert issues["code"].to_list() == ["cns_profissional_invalido"]
     assert issues["raw_value"].to_list() == [None]
     assert canonical["tem_cns_profissional"].to_list() == [False]
+
+
+def test_registra_folha_zero() -> None:
+    assert _codes([_raw(prd_flh="000")]) == ["folha_invalida"]
+
+
+def test_registra_quantidade_acima_de_seis_digitos() -> None:
+    rows = [_raw(prd_seq="01", prd_qt_p=999999.0), _raw(prd_seq="02", prd_qt_p=1000000.0)]
+
+    assert _codes(rows) == ["quantidade_invalida"]
