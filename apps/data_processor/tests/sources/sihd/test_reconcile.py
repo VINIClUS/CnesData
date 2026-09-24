@@ -169,3 +169,28 @@ def test_junta_procedimento_a_internacao_pela_chave_composta_sem_num_aih() -> No
     divergences = read_parquet(store, result.divergence_manifest.object_key)
     orphans = divergences.filter(pl.col("kind") == "proc_sem_internacao")
     assert orphans["value"].to_list() == [f"{_OE}.9"]
+
+
+def test_procedimento_sem_identidade_de_aih_fica_fora_dos_totais_e_e_reportado() -> None:
+    store = FakeObjectStore()
+    procs = raw_rows("SIHD_PROC_AIH")
+    procs[-1]["PA_SEQ_PRINC"] = None
+    manifests = [
+        *normalize_sihd(fixture_request(store, "SIHD_INTERNACAO"), store).manifests,
+        *normalize_sihd(
+            normalize_request(
+                (put_raw(store, raw_spec("SIHD_PROC_AIH"), pl.DataFrame(procs)),),
+                "SIHD_PROC_AIH",
+            ),
+            store,
+        ).manifests,
+    ]
+    result = reconcile_sihd(reconcile_request(tuple(manifests)), store)
+    totals = json_rows(read_parquet(store, result.reconciliation_manifest.object_key))
+    assert totals == _EXPECTED_ROWS[1:]
+    assert result.kpis["valor_total_centavos"] == sum(row["valor_centavos"] for row in totals)
+    divergences = read_parquet(store, result.divergence_manifest.object_key)
+    missing = divergences.filter(pl.col("kind") == "quality:campo_obrigatorio_ausente")
+    assert "SEQ_PRINC" in missing["field"].to_list()
+    orphans = divergences.filter(pl.col("kind") == "proc_sem_internacao")
+    assert orphans["value"].to_list() == [None]

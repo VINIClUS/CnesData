@@ -67,7 +67,7 @@ def reconcile_sihd(request: ReconcileRequest, store: ObjectStorePort) -> Reconci
     kpis = {
         "internacao_count": frames["internacoes"].height,
         "procedimento_count": frames["procedimentos"].height,
-        "valor_total_centavos": int(frames["procedimentos"]["VALOR_CENTAVOS"].sum()),
+        "valor_total_centavos": int(totals["valor_centavos"].sum()),
         "reconciled_row_count": totals.height,
         "divergence_count": divergences.height - quality_count,
         "quality_issue_count": quality_count,
@@ -115,8 +115,9 @@ def _totals(
     periods = internacoes.group_by(list(_AIH_JOIN)).agg(
         pl.col("DT_INTERNACAO").min(), pl.col("DT_SAIDA").max()
     )
+    identified = procedimentos.filter(pl.col(_AIH_ID).is_not_null())
     grouped = (
-        procedimentos.join(periods, on=list(_AIH_JOIN), how="left")
+        identified.join(periods, on=list(_AIH_JOIN), how="left")
         .group_by(list(_GROUP))
         .agg(
             pl.col(_AIH_ID).drop_nulls().unique().sort().alias("AIH_IDS"),
