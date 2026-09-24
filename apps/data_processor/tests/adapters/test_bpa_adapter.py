@@ -155,3 +155,26 @@ def test_registra_idade_fora_do_dominio_0_a_130() -> None:
     assert sorted(issues["raw_value"]) == ["131", "999"]
     assert set(issues["code"]) == {"idade_invalida"}
     assert canonical["idade"].to_list() == [130, None, None]
+
+
+def test_registra_folha_e_sequencia_malformadas() -> None:
+    rows = [_raw(prd_flh=None, prd_seq="01"), _raw(prd_flh="001", prd_seq="A1"),
+            _raw(prd_flh="001", prd_seq="00")]
+
+    assert sorted(_codes(rows)) == ["folha_invalida", "sequencia_invalida", "sequencia_invalida"]
+
+
+def test_sequencia_do_bpa_c_vai_ate_20_e_do_bpa_i_ate_99() -> None:
+    assert _codes([_raw(prd_org="BPA", prd_seq="21")], "BPA_C") == ["sequencia_invalida"]
+    assert _codes([_raw(prd_seq="99")]) == []
+
+
+def test_registra_cns_profissional_malformado_no_bpa_i() -> None:
+    keyed = _keyed([_raw(prd_cnsmed="12345")])
+    issues = quality_issues(keyed, "BPA_I", "2026-08")
+
+    canonical = canonicalize(keyed, "BPA_I", "2026-08", issues["source_record_id"])
+
+    assert issues["code"].to_list() == ["cns_profissional_invalido"]
+    assert issues["raw_value"].to_list() == [None]
+    assert canonical["tem_cns_profissional"].to_list() == [False]

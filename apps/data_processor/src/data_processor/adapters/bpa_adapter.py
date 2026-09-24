@@ -32,6 +32,10 @@ _CBO = r"^[0-9]{4}[0-9A-Z]{2}$"
 _CID = r"^[A-Z][0-9]{2}[0-9A-Z]?$"
 _IDADE = r"^[0-9]{1,3}$"
 _MAX_IDADE = 130
+_FOLHA = r"^[0-9]{3}$"
+_SEQUENCIA = r"^[0-9]{2}$"
+_CNS = r"^[0-9]{15}$"
+_MAX_SEQUENCIA = {"BPA_C": 20, "BPA_I": 99}
 _DATE = r"^[0-9]{8}$"
 _ORDINAL = "_ordinal"
 
@@ -141,7 +145,7 @@ def canonicalize(frame: pl.DataFrame, file_subtype: str, competencia: str,
         pl.when(_valid_age()).then(pl.col("prd_idade")).cast(pl.Int64).alias("idade"),
         (_parsed_date() if individual else pl.lit(None)).alias("data_atendimento"),
         pl.when(_valid_quantity()).then(pl.col(RAW_QUANTITY_COLUMN)).alias("quantidade"),
-        pl.col("prd_cnsmed").is_not_null().alias("tem_cns_profissional"),
+        _matches("prd_cnsmed", _CNS).alias("tem_cns_profissional"),
         (~pl.col("source_record_id").is_in(invalid_ids.implode())).alias("valido"),
     ).cast(NORMALIZED_SCHEMA)
 
@@ -165,6 +169,12 @@ def _valid_or_null(column: str, pattern: str) -> pl.Expr:
 def _valid_age() -> pl.Expr:
     age = pl.col("prd_idade").cast(pl.Int64, strict=False)
     return (_matches("prd_idade", _IDADE) & (age <= _MAX_IDADE)).fill_null(False)
+
+
+def _valid_sequence(file_subtype: str) -> pl.Expr:
+    sequence = pl.col("prd_seq").cast(pl.Int64, strict=False)
+    in_range = (sequence >= 1) & (sequence <= _MAX_SEQUENCIA[file_subtype])
+    return (_matches("prd_seq", _SEQUENCIA) & in_range).fill_null(False)
 
 
 def _valid_quantity() -> pl.Expr:
@@ -198,6 +208,8 @@ def _rules(file_subtype: str, competencia: str) -> tuple[QualityRule, ...]:
         ("idade", "idade_invalida", "prd_idade",
          pl.col("prd_idade").is_not_null() & ~_valid_age()),
         ("quantidade", "quantidade_invalida", RAW_QUANTITY_COLUMN, ~_valid_quantity()),
+        ("folha", "folha_invalida", "prd_flh", ~_matches("prd_flh", _FOLHA)),
+        ("sequencia", "sequencia_invalida", "prd_seq", ~_valid_sequence(file_subtype)),
         ("chave_registro", "registro_duplicado", None, pl.col(_ORDINAL) > 0),
     )
     if file_subtype != "BPA_I":
@@ -210,4 +222,6 @@ def _rules(file_subtype: str, competencia: str) -> tuple[QualityRule, ...]:
         ("data_atendimento", "data_atendimento_invalida", "prd_dtaten",
          pl.col("prd_dtaten").is_not_null() & _parsed_date().is_null()),
         ("cns_profissional", "cns_profissional_ausente", None, pl.col("prd_cnsmed").is_null()),
+        ("cns_profissional", "cns_profissional_invalido", None,
+         _present_and_invalid("prd_cnsmed", _CNS)),
     )
