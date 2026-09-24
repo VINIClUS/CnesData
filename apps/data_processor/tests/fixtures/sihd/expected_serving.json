@@ -1,0 +1,74 @@
+{
+  "schema_version": "sihd-serving-v1",
+  "tenant_id": "354130",
+  "run_id": "run-1",
+  "generated_at": "2026-01-15T12:00:00Z",
+  "dataset": "sihd",
+  "competencia": "2026-01",
+  "totais": {
+    "aih_com_procedimento": 4,
+    "procedimento_qtd": 10,
+    "valor_total_centavos": 76303,
+    "internacao_sem_procedimento": 1,
+    "linhas_qualidade": 4
+  },
+  "periodo": {
+    "dt_internacao_min": "2026-01-03",
+    "dt_saida_max": "2026-01-20"
+  },
+  "por_cnes": [
+    {
+      "cnes": "0765432",
+      "aih_count": 1,
+      "procedimento_qtd": 1,
+      "valor_centavos": 1000
+    },
+    {
+      "cnes": "1234567",
+      "aih_count": 3,
+      "procedimento_qtd": 9,
+      "valor_centavos": 75303
+    }
+  ],
+  "por_procedimento": [
+    {
+      "procedimento": "0303010037",
+      "aih_count": 2,
+      "procedimento_qtd": 2,
+      "valor_centavos": 16025
+    },
+    {
+      "procedimento": "0303140151",
+      "aih_count": 1,
+      "procedimento_qtd": 3,
+      "valor_centavos": 10000
+    },
+    {
+      "procedimento": "04110100",
+      "aih_count": 1,
+      "procedimento_qtd": 1,
+      "valor_centavos": 2010
+    },
+    {
+      "procedimento": "0411010034",
+      "aih_count": 1,
+      "procedimento_qtd": 1,
+      "valor_centavos": 48000
+    },
+    {
+      "procedimento": "0802010083",
+      "aih_count": 1,
+      "procedimento_qtd": 3,
+      "valor_centavos": 268
+    }
+  ],
+  "divergencias": {
+    "cnes_divergente": 2,
+    "internacao_sem_proc": 1,
+    "proc_sem_internacao": 1,
+    "quality:campo_obrigatorio_ausente": 1,
+    "quality:codigo_desconhecido": 2,
+    "quality:data_invalida": 1
+  },
+  "missing_sources": []
+}
