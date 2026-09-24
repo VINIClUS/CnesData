@@ -48,7 +48,7 @@
       }
     },
     "expected_serving.json": {
-      "sha256": "e82c7bf3a9808fd0ac5d70a2f03eb4ff57690d283fc413d110e0edb3864799c0",
+      "sha256": "1688b7ea35355d691392da79bda0033b8d7fe3aa6e45be8a9a6289863fa4c09a",
       "documents": [
         "by-establishment",
         "overview"

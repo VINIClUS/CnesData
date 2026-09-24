@@ -83,9 +83,20 @@ def test_kpis_fecham_contabilidade_de_todos_os_subtipos(sia: SiaHarness) -> None
     for subtype, entrada in raw_counts.items():
         slug = subtype.lower()
         assert result.kpis[f"linhas_{slug}"] + result.kpis[f"qualidade_{slug}"] == entrada
-    assert result.kpis["datas_invalidas"] == 1
+    assert result.kpis["datas_invalidas_normalizadas"] == 1
     assert result.kpis["quantidade_total"] == 2**31 - 1 + 5 + 4 + 5
     assert result.kpis["valor_aprovado_cents_total"] == 9_000_075_000
+
+
+def test_kpi_de_datas_invalidas_conta_somente_linhas_normalizadas(sia: SiaHarness) -> None:
+    apa = sia.load_fixture("raw_rows.json")["SIA_APA"]
+    rejected_with_bad_date = {**apa[6], "apa_cmp": "202512"}
+
+    result = sia.reconcile_all({"SIA_APA": [apa[0], rejected_with_bad_date]})
+
+    assert result.kpis["datas_invalidas_normalizadas"] == 0
+    assert result.kpis["linhas_sia_apa"] == 1
+    assert result.kpis["qualidade_sia_apa"] == 1
 
 
 def test_registra_hashes_de_todos_os_raw_manifests_contribuintes(sia: SiaHarness) -> None:

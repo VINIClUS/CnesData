@@ -108,7 +108,10 @@ def test_missing_sources_chegam_ao_overview(sia: SiaHarness) -> None:
 def test_bytes_de_serving_sao_idempotentes(sia: SiaHarness) -> None:
     request = sia.materialize_request(sia.reconcile_all())
 
-    assert materialize_sia(request, sia.store) == materialize_sia(request, sia.store)
+    first = materialize_sia(request, sia.store)
+    second = materialize_sia(request, sia.store)
+
+    assert first == second
 
 
 def test_rejeita_targets_fora_do_layout(sia: SiaHarness) -> None:

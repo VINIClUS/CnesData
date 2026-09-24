@@ -168,7 +168,7 @@ def _kpis(frames: Frames, reconciled: pl.DataFrame, divergences: pl.DataFrame) -
         slug = item.file_subtype.lower()
         kpis[f"linhas_{slug}"] = frames[data_leaf][0].height
         kpis[f"qualidade_{slug}"] = frames[quality_leaf][0].height
-    kpis["datas_invalidas"] = sum(
+    kpis["datas_invalidas_normalizadas"] = sum(
         int(frames[leaf][0].select(pl.any_horizontal(cs.ends_with("_invalida")).sum()).item())
         for leaf, _ in FONTES
     )

@@ -111,7 +111,7 @@
     },
     "kpis": {
       "candidato_duplicado_bpi_bpihst": 1,
-      "datas_invalidas": 1,
+      "datas_invalidas_normalizadas": 1,
       "linhas_dim_municipio": 3,
       "linhas_dim_sigtap": 2,
       "linhas_sia_apa": 4,
