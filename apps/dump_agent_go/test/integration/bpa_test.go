@@ -40,10 +40,18 @@ func TestBPA_SyntheticGDB(t *testing.T) {
 		t.Fatalf("extract: %v", err)
 	}
 
-	if len(result.BPA_C) == 0 {
-		t.Error("BPA_C empty")
+	if len(result.BPA_C) != 2 || len(result.BPA_I) != 2 {
+		t.Fatalf("counts C=%d I=%d want 2/2", len(result.BPA_C), len(result.BPA_I))
 	}
-	if len(result.BPA_I) == 0 {
-		t.Error("BPA_I empty")
+	for _, row := range result.BPA_C {
+		if row.Org != "BPA" || row.Quantidade == nil {
+			t.Errorf("bpa_c row=%+v", row)
+		}
+	}
+	if result.BPA_I[0].DtAtendimento != "20260115" {
+		t.Errorf("dt_atendimento=%q want 20260115", result.BPA_I[0].DtAtendimento)
+	}
+	if result.BPA_I[1].Quantidade != nil || result.BPA_I[1].CnsProfissional != "" {
+		t.Errorf("null row not preserved: %+v", result.BPA_I[1])
 	}
 }

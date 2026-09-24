@@ -1,8 +1,7 @@
 # Dicionário de Dados — BPA-Mag (BPAMAG.GDB)
 
-> **Status:** Preliminar — derivado de PDFs Datasus. Introspecção completa do
-> Firebird GDB está deferida (requer `fbclient.dll` 1.5.5, a ser extraído via
-> `Firebird-1.5.5.4926-3-Win32.exe` disponível em `http://sia.datasus.gov.br`).
+> **Status:** layout de export derivado de PDFs Datasus; schema real do GDB
+> (`S_PRD`) introspectado em 2026-09-24 — ver "Schema real do BPAMAG.GDB".
 
 Fontes consultadas:
 
@@ -182,25 +181,49 @@ Mapeamento alvo (multi-tenant, pilot Presidente Epitácio):
 - **Campo de controle `cbc-smt-vrf`** → validação de integridade pós-ingestão
   (recomputar e comparar); não persistir em Gold.
 
-## TODO: Introspecção completa do GDB
+## Schema real do BPAMAG.GDB
 
-Rodar quando `fbclient.dll` estiver disponível:
+Introspecção de 2026-09-24 no BPA-Mag do piloto (Firebird 1.5.6). Só
+`RDB$RELATIONS`/`RDB$RELATION_FIELDS`/`RDB$FIELDS`/`RDB$INDICES` e agregados;
+nenhuma linha lida.
 
-```bash
-python scripts/introspect_bpa_gdb.py \
-  --gdb "E:/BPA/BPAMAG.GDB" \
-  --dll "<path>/fbclient.dll" \
-  --output docs/data-dictionary-bpa.md
-```
+- Tabelas de usuário: `ACESSO, APLICAC, CADCNS, CADMED, CADMED_CBO_CNES,
+  CADMUN, SYSUAF, S_CDN, S_CEP, S_CID, S_CTR, S_EQESF, S_PA, S_PACBO,
+  S_PACID, S_PAPA, S_PAREGR, S_PASRV, S_PRD, S_PRD_TEMP`. **Não existem**
+  `BPA_C_LINHAS`/`BPA_I_LINHAS`.
+- Produção fica em **`S_PRD`** (52 colunas, todas nullable). BPA-C e BPA-I
+  compartilham a tabela; o subtipo é **`PRD_ORG`**: `'BPA'` = consolidado,
+  `'BPI'` = individualizado. Não há coluna `prd_ident`.
+- Brancos são preenchidos com espaço; em linhas `BPA`, `PRD_CNSPAC`,
+  `PRD_CNSMED`, `PRD_DTATEN` e `PRD_CID` são sempre brancos.
+- `(PRD_UID, PRD_CMP, PRD_FLH, PRD_SEQ)` é única por origem; `PRD_QT_P` é
+  DOUBLE com valores inteiros; `PRD_MVM = PRD_CMP` nas linhas observadas.
+- Índices não únicos: `S_PRD01 (PRD_ORG, PRD_UID, PRD_CMP, PRD_FLH, PRD_SEQ)`,
+  `S_PRD02 (PRD_ORG, PRD_UID, PRD_CMP, PRD_CNSMED, PRD_CBO, PRD_FLH, PRD_SEQ)`.
 
-Saídas esperadas da introspecção:
+| Coluna | Tipo | Coluna | Tipo |
+|---|---|---|---|
+| `PRD_UID` (CNES) | VARCHAR(7) | `PRD_FLPA`..`PRD_FLCID` (8 flags) | VARCHAR(1) |
+| `PRD_CMP` | VARCHAR(6) | `PRD_RACA` | VARCHAR(2) |
+| `PRD_CNSMED` (PII) | VARCHAR(15) | `PRD_SERVICO` / `PRD_CLASSIFICACAO` | VARCHAR(3) |
+| `PRD_CBO` | VARCHAR(6) | `PRD_EQUIPE` | VARCHAR(12) |
+| `PRD_FLH` | VARCHAR(3) | `PRD_ETNIA` | CHAR(4) |
+| `PRD_SEQ` | VARCHAR(2) | `PRD_NAC` | CHAR(3) |
+| `PRD_PA` (SIGTAP) | VARCHAR(10) | `PRD_ADVQT` | CHAR(2) |
+| `PRD_CNSPAC` (PII) | VARCHAR(15) | `PRD_CNPJ` | CHAR(14) |
+| `PRD_NMPAC` (PII) | VARCHAR(30) | `PRD_EQP_AREA` / `PRD_EQP_SEQ` | VARCHAR(4) / (8) |
+| `PRD_DTNASC` (PII) | VARCHAR(8) | `PRD_*_PCNTE` endereço/contato (PII) | CHAR |
+| `PRD_SEXO` | VARCHAR(1) | `PRD_INE` | VARCHAR(10) |
+| `PRD_IBGE` | VARCHAR(6) | `CHK_SUM` | VARCHAR(4) |
+| `PRD_DTATEN` | VARCHAR(8) | `PRD_CPF_PCNTE` (PII) | VARCHAR(11) |
+| `PRD_CID` | VARCHAR(4) | `PRD_SITUACAO_RUA` / `PRD_SEM_CPF` | VARCHAR(1) |
+| `PRD_IDADE` | VARCHAR(3) | `PRD_MVM` | VARCHAR(6) |
+| `PRD_QT_P` | DOUBLE PRECISION | `PRD_CATEN` / `PRD_NAUT` / `PRD_ORG` | VARCHAR(2/13/3) |
 
-- Lista completa de tabelas internas do BPA-Mag (cabeçalho, folhas, itens,
-  domínios, usuários, config).
-- Mapeamento campo ↔ atributo do layout TXT (muitas colunas GDB têm nomes
-  diferentes dos códigos do layout de export).
-- Constraints, domínios, triggers, stored procedures.
-- Contagens de linhas por tabela para dimensionamento de ingestão.
+Contrato raw do Edge (`internal/extractor/bpa.go`): colunas `prd_*`
+minúsculas `prd_uid, prd_cmp, prd_org, prd_flh, prd_seq, prd_pa, prd_cbo,
+prd_cid, prd_idade, prd_dtaten, prd_cnsmed, prd_qt_p` (um Parquet por
+subtipo). PII de paciente não sai do edge.
 
 ## Arquivos de extração de PDF (gerados por `scripts/parse_datasus_pdfs.py`)
 
