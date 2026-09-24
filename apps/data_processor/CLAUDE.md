@@ -69,8 +69,9 @@ colisão (lease-based).
 | `src/data_processor/adapters/cnes_nacional_adapter.py` | Parquet BigQuery nacional → canônico |
 | `src/data_processor/adapters/sihd_local_adapter.py` | Parquet SIHD/AIH → canônico |
 | `src/data_processor/adapters/bpa_adapter.py` | Transformações Polars puras do raw `S_PRD` (sem lookup SQL) |
-| `src/data_processor/adapters/sia_adapter.py` | `map_apa_to_fato` / `map_bpi_to_fato` |
-| `src/data_processor/adapters/sia_dim_sync.py` | `sync_dim_procedimento`, `sync_dim_municipio` |
+| `src/data_processor/adapters/sia_adapter.py` | `canonicalize_apa` / `canonicalize_bpi` + `map_*_to_fato` legado |
+| `src/data_processor/adapters/sia_dim_sync.py` | `build_reference_sigtap` / `build_reference_municipio` (Polars puro, sem SQL) |
+| `src/data_processor/sources/sia/` | `normalize_sia` / `reconcile_sia` / `materialize_sia` — plugin Parquet SIA_LOCAL |
 | `src/data_processor/cdc_merger.py` | `merge_delta` — roteia `_op ∈ {I,U,D}` |
 | `src/data_processor/integrity_check.py` | `verify_parquet` — SHA-256 sobre Parquet baixado |
 | `src/data_processor/pipeline/normalize_cnes_local.py` | `normalize_cnes_local` — reconstrói FULL+DELTA |
@@ -109,9 +110,10 @@ colisão (lease-based).
   propaga `IntegrityError` e falha o job. `landing.extractions.sha256` é
   nullable (Alembic 018).
 - **BPA raw é `S_PRD`, não `BPA_*_LINHAS`:** o GDB real tem uma tabela única
-  separada por `PRD_ORG` (`BPA`=BPA_C, `BPI`=BPA_I); introspecção em
-  `apps/data_processor/tests/fixtures/bpa/fixture-manifest.json`. PII
-  (`prd_cnsmed`, `prd_cnspac`, `prd_cpf_pcnte`, `prd_nmpac`) é descartada em
-  `prepare_raw` — nunca chega ao normalizado nem ao serving.
+  separada pelo Edge em `PRD_ORG='BPI'`→BPA_I e resto→BPA_C (origem ≠ `BPA`
+  vira `origem_divergente`); introspecção em
+  `apps/data_processor/tests/fixtures/bpa/fixture-manifest.json`. PII de
+  paciente é descartada em `prepare_raw`; `prd_cnsmed` só vira o booleano
+  `tem_cns_profissional` — nenhum CNS/CPF chega ao normalizado ou ao serving.
 
 Histórico de fases (T12/T13, P2, P3): `CHANGELOG.md`.

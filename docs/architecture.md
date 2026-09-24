@@ -250,6 +250,11 @@ Fluxo do `tenant_id` em cada request:
 Instalação do listener RLS: `cnes_infra.storage.rls.install_rls_listener(engine)`
 no bootstrap do engine (em `central_api.deps` e `data_processor.main`).
 
+**Estado atual (#266):** os apps conectam com `POSTGRES_USER`, que a imagem
+oficial do Postgres cria como superusuário, e superusuário ignora RLS mesmo com
+`FORCE ROW LEVEL SECURITY`. Na prática o isolamento vem dos `WHERE tenant_id = :t`
+explícitos dos repositórios. Não será endurecido antes do cutover (Postgres sai).
+
 ## Observabilidade
 
 - **Logs:** structured `key=value` via `logging` stdlib (sem prose). Root

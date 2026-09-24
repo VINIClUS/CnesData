@@ -13,6 +13,13 @@ pytestmark = pytest.mark.postgres
 
 
 _TENANT = "354130"
+_ADMIN_KEY = "chave-de-teste"
+
+
+@pytest.fixture(autouse=True)
+def _admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cnes_infra import config
+    monkeypatch.setattr(config, "ADMIN_TOKEN", _ADMIN_KEY)
 
 
 class TestExtractionsEnqueue:
@@ -24,7 +31,7 @@ class TestExtractionsEnqueue:
             json={"source_type": "BPA_MAG",
                   "tenant_id": _TENANT,
                   "competencia": "2026-02-01"},
-            headers={"X-Admin-Token": "test-admin",
+            headers={"X-Admin-Token": _ADMIN_KEY,
                      "X-Tenant-Id": _TENANT},
         )
         assert resp.status_code == 201
@@ -51,7 +58,7 @@ class TestExtractionsEnqueue:
             json={"source_type": "SIA_LOCAL",
                   "tenant_id": _TENANT,
                   "competencia": "2026-02-02"},
-            headers={"X-Admin-Token": "test-admin",
+            headers={"X-Admin-Token": _ADMIN_KEY,
                      "X-Tenant-Id": _TENANT},
         )
         assert resp.status_code == 201
@@ -90,7 +97,7 @@ class TestExtractionsEnqueue:
             json={"source_type": "UNKNOWN",
                   "tenant_id": _TENANT,
                   "competencia": "2026-01-04"},
-            headers={"X-Admin-Token": "test-admin",
+            headers={"X-Admin-Token": _ADMIN_KEY,
                      "X-Tenant-Id": _TENANT},
         )
         assert resp.status_code == 422

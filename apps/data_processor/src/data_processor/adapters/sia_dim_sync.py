@@ -1,86 +1,72 @@
-"""SIA dim sync: S_CDN -> dim_procedimento_sus; CADMUN -> dim_municipio."""
+"""SIA referências: SIGTAP tb_procedimento e CADMUN -> frames canônicos (sem SQL)."""
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING
-
 import polars as pl
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 
-if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+from data_processor.adapters.sia_adapter import clean_text, require_schema, text_schema
 
-logger = logging.getLogger(__name__)
-
-
-def _ibge7_check_digit(ibge6: str) -> int:
-    total = 0
-    for i, ch in enumerate(ibge6):
-        d = int(ch)
-        if (i + 1) % 2 == 0:
-            d *= 2
-            if d >= 10:
-                d = d // 10 + d % 10
-        total += d
-    return (10 - total % 10) % 10
+# SIGTAP Tabela Unificada tb_procedimento layout (DATASUS), lower-cased; S_CDN is a
+# generic 2-char/8-char code domain and carries no 10-digit SIGTAP procedure.
+_SIGTAP_SCHEMA = text_schema(
+    "co_procedimento", "no_procedimento", "tp_complexidade", "co_financiamento", "dt_competencia",
+)
+_CADMUN_SCHEMA = text_schema("coduf", "codmunic", "nome")
 
 
-def sync_dim_procedimento(engine: Engine, df: pl.DataFrame) -> int:
-    procs = df.filter(pl.col("cdn_tb") == "PROC")
-    n = 0
-    with engine.begin() as conn:
-        for row in procs.iter_rows(named=True):
-            # S_CDN.DBF (docs/data-dictionary-sia.md:23,530-533) carries only
-            # CDN_TB/IT/DSCR/CHKSM — complexidade/financiamento/modalidade/
-            # validity are not present in this source at all. NULL (not a
-            # fabricated guess) until a SIGTAP-aware writer populates them.
-            conn.execute(text("""
-                INSERT INTO gold.dim_procedimento_sus
-                    (cod_sigtap, descricao, complexidade,
-                     financiamento, modalidade,
-                     competencia_vigencia_ini, competencia_vigencia_fim)
-                VALUES (:cod, :desc, NULL, NULL, NULL, NULL, NULL)
-                ON CONFLICT (cod_sigtap) DO UPDATE SET
-                    descricao = EXCLUDED.descricao
-            """), {
-                "cod": row["cdn_it"].strip(),
-                "desc": row["cdn_dscr"].strip(),
-            })
-            n += 1
-    logger.info("sia_dim_sync_proc count=%d", n)
-    return n
+def _ibge7_check_digit(ibge6: pl.Expr) -> pl.Expr:
+    total = pl.lit(0, dtype=pl.Int64)
+    for position in range(6):
+        digit = ibge6.str.slice(position, 1).cast(pl.Int64)
+        if position % 2 == 1:
+            doubled = digit * 2
+            digit = doubled // 10 + doubled % 10
+        total = total + digit
+    return ((10 - total % 10) % 10).cast(pl.String)
 
 
-def sync_dim_municipio(engine: Engine, df: pl.DataFrame) -> int:
-    n = 0
-    with engine.begin() as conn:
-        for row in df.iter_rows(named=True):
-            ibge6 = row["codmunic"].strip().zfill(6)
-            ibge7 = ibge6 + str(_ibge7_check_digit(ibge6))
-            # ON CONFLICT (ibge6) only catches a matched ibge6; a fresh
-            # ibge6 whose computed ibge7 collides with a *different*
-            # existing row's ibge7 (its own UNIQUE constraint) raises
-            # IntegrityError, which would otherwise abort the whole
-            # engine.begin() and roll back every municipality synced so
-            # far in this call. A savepoint isolates that one row.
-            try:
-                with conn.begin_nested():
-                    conn.execute(text("""
-                        INSERT INTO gold.dim_municipio (ibge6, ibge7, nome, uf)
-                        VALUES (:i6, :i7, :no, :uf)
-                        ON CONFLICT (ibge6) DO UPDATE SET
-                            nome = EXCLUDED.nome,
-                            uf = EXCLUDED.uf
-                    """), {
-                        "i6": ibge6,
-                        "i7": ibge7,
-                        "no": row["nome"].strip(),
-                        "uf": row["coduf"].strip(),
-                    })
-            except IntegrityError:
-                logger.warning("sia_dim_sync_mun_ibge7_collision ibge6=%s", ibge6)
-                continue
-            n += 1
-    logger.info("sia_dim_sync_mun count=%d", n)
-    return n
+def build_reference_sigtap(frame: pl.DataFrame) -> pl.DataFrame:
+    """Mapeia tb_procedimento do SIGTAP; código fora de 10 dígitos vira null.
+
+    Raises:
+        ValueError: schema raw fora do contrato SIGTAP.
+    """
+    require_schema(frame, "DIM_SIGTAP", _SIGTAP_SCHEMA)
+    code = clean_text("co_procedimento")
+    competencia = clean_text("dt_competencia")
+    return frame.select(
+        pl.when(code.str.contains(r"^\d{10}$")).then(code).alias("cod_procedimento"),
+        clean_text("no_procedimento").alias("descricao"),
+        clean_text("tp_complexidade").alias("complexidade"),
+        clean_text("co_financiamento").alias("financiamento"),
+        pl.when(competencia.str.contains(r"^\d{6}$"))
+        .then(competencia.str.slice(0, 4) + "-" + competencia.str.slice(4, 2))
+        .alias("competencia_sigtap"),
+        code.alias("codigo_origem"),
+    )
+
+
+def build_reference_municipio(frame: pl.DataFrame) -> pl.DataFrame:
+    """Mapeia CADMUN para `ibge6, ibge7, uf, nome`; código inválido vira ibge6 null.
+
+    Raises:
+        ValueError: schema raw fora do contrato Edge.
+    """
+    require_schema(frame, "DIM_MUNICIPIO", _CADMUN_SCHEMA)
+    code = clean_text("codmunic")
+    uf = clean_text("coduf")
+    numeric = code.str.contains(r"^\d+$")
+    length = code.str.len_chars()
+    candidate = (
+        pl.when(numeric & (length == 4) & uf.str.contains(r"^\d{2}$")).then(uf + code)
+        .when(numeric & (length == 6)).then(code)
+        .when(numeric & (length == 7)).then(code.str.slice(0, 6))
+    )
+    ibge7 = candidate + _ibge7_check_digit(candidate)
+    valid = candidate.is_not_null() & ((length != 7) | (ibge7 == code))
+    return frame.select(
+        pl.when(valid).then(candidate).alias("ibge6"),
+        pl.when(valid).then(ibge7).alias("ibge7"),
+        uf.alias("uf"),
+        clean_text("nome").alias("nome"),
+        code.alias("codmunic_origem"),
+    )

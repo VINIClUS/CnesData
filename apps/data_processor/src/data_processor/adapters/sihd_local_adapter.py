@@ -33,6 +33,28 @@ _MAP_AIH_RAW: dict[str, str] = {
     "AH_MED_RESP_DOC": "MED_RESP_DOC",
 }
 
+_MAP_INTERNACAO_RAW: dict[str, str] = {
+    **_MAP_AIH_RAW,
+    "AH_OE_GESTOR": "OE_GESTOR",
+    "AH_SEQ": "SEQ",
+    "AH_IDENT": "IDENT",
+    "AH_MODALIDADE_INTERNACAO": "MODALIDADE",
+}
+
+_MAP_PROC_AIH_RAW: dict[str, str] = {
+    "PA_NUM_AIH": "NUM_AIH",
+    "PA_OE_GESTOR": "OE_GESTOR",
+    "PA_SEQ_PRINC": "SEQ_PRINC",
+    "PA_INDX": "INDX",
+    "PA_CNES": "CNES",
+    "PA_CMPT": "COMPETENCIA",
+    "PA_PROCEDIMENTO": "PROCEDIMENTO",
+    "PA_PROCEDIMENTO_QTD": "QTD",
+    "PA_VALOR": "VALOR",
+    "PA_PF_CBO": "CBO_EXEC",
+    "PA_PF_DOC": "DOC_EXEC",
+}
+
 
 class SihdLocalAdapter:
     """Adapter entre raw Parquet SIHD e schema canonico de AIH."""

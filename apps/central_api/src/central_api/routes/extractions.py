@@ -5,10 +5,10 @@ from datetime import date  # noqa: TC003
 from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, ConfigDict
 
-from central_api.deps import get_engine
+from central_api.deps import get_engine, require_admin_token
 from central_api.validation_errors import validation_error
 from cnes_contracts.landing import SOURCE_TYPE  # noqa: TC001
 from cnes_domain.tenant import set_tenant_id
@@ -36,9 +36,6 @@ _SOURCE_MANIFEST: dict[str, list[tuple[str, bool]]] = {
 }
 
 
-_ADMIN_TOKEN = "test-admin"  # noqa: S105
-
-
 class EnqueueRequest(BaseModel):
     model_config = ConfigDict(strict=False)
 
@@ -51,11 +48,6 @@ class EnqueueResponse(BaseModel):
     job_ids: list[UUID]
 
 
-def _require_admin(x_admin_token: str | None = Header(None)) -> None:
-    if x_admin_token != _ADMIN_TOKEN:
-        raise HTTPException(status_code=401, detail="admin_token_required")
-
-
 @router.post(
     "/enqueue",
     response_model=EnqueueResponse,
@@ -63,7 +55,7 @@ def _require_admin(x_admin_token: str | None = Header(None)) -> None:
 )
 def enqueue(
     req: EnqueueRequest,
-    _: None = Depends(_require_admin),
+    _: None = Depends(require_admin_token),
     engine: Engine = Depends(get_engine),
 ) -> EnqueueResponse:
     manifest = _SOURCE_MANIFEST.get(req.source_type)

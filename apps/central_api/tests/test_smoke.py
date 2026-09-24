@@ -5,6 +5,8 @@ import urllib.request
 
 import pytest
 
+from cnes_infra import config
+
 pytestmark = [pytest.mark.e2e, pytest.mark.postgres]
 
 
@@ -27,6 +29,7 @@ def test_reap_leases_retorna_contagem(api_url):
         f"{api_url}/api/v1/admin/reap-leases",
         method="POST",
         data=b"",
+        headers={"X-Admin-Token": config.ADMIN_TOKEN or "local-admin"},
     )
     resp = urllib.request.urlopen(req)
     body = json.loads(resp.read())

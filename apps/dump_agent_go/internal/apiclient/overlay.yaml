@@ -184,6 +184,14 @@ actions:
       title: X-Admin-Token
       type: string
       nullable: true
+- target: $.paths['/api/v1/admin/reap-leases'].post.parameters[0].schema
+  remove: true
+- target: $.paths['/api/v1/admin/reap-leases'].post.parameters[0]
+  update:
+    schema:
+      title: X-Admin-Token
+      type: string
+      nullable: true
 - target: $.components.schemas
   update:
     FileManifest:
