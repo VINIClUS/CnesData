@@ -276,9 +276,8 @@ def _finalize(
 ) -> pl.DataFrame:
     derived = [_parse_date(name).alias(name) for name in spec.date_fields]
     if "VALOR_CENTAVOS" in spec.output_schema:
-        derived.append(
-            pl.col("VALOR").map_elements(_centavos, return_dtype=pl.Int64).alias("VALOR_CENTAVOS")
-        )
+        values = [None if item is None else _centavos(item) for item in frame["VALOR"]]
+        derived.append(pl.Series("VALOR_CENTAVOS", values, dtype=pl.Int64))
     frame = frame.with_columns(
         *derived,
         pl.lit(base.manifest_id).alias("_source_manifest_id"),

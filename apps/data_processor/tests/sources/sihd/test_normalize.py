@@ -55,7 +55,8 @@ def test_fixture_manifest_trava_hash_de_raw_e_expected() -> None:
         path.name for path in FIXTURES_DIR.glob("*.json") if path.name != "fixture-manifest.json"
     }
     for name, digest in frozen["files"].items():
-        assert hashlib.sha256((FIXTURES_DIR / name).read_bytes()).hexdigest() == digest, name
+        content = (FIXTURES_DIR / name).read_bytes().replace(b"\r\n", b"\n")
+        assert hashlib.sha256(content).hexdigest() == digest, name
 
 
 def test_layout_sihd_tem_um_par_de_arquivos_por_dependencia() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import polars as pl
 import pytest
 
 from apps.data_processor.tests.sources.sihd import (
@@ -14,11 +15,15 @@ from apps.data_processor.tests.sources.sihd import (
     FakeObjectStore,
     load_json,
     normalize_all,
+    normalize_request,
+    put_raw,
     raw_rows,
+    raw_spec,
     reconcile_request,
 )
 from cnes_contracts.manifests.processing import MaterializeRequest
 from data_processor.sources.sihd.contract import PII_DENY_LIST
+from data_processor.sources.sihd.normalize import normalize_sihd
 from data_processor.sources.sihd.reconcile import reconcile_sihd
 from data_processor.sources.sihd.serving import _assert_no_pii, materialize_sihd
 
@@ -104,3 +109,45 @@ def test_rejeita_target_key_fora_do_layout() -> None:
     request = _request(store, f"serving/{TENANT}/{RUN_ID}/outro.json")
     with pytest.raises(ValueError, match="unexpected_target_key"):
         materialize_sihd(request, store)
+
+
+def test_rejeita_mais_de_um_target_key() -> None:
+    store = FakeObjectStore()
+    request = _request(store).model_copy(
+        update={"target_keys": (_TARGET, f"serving/{TENANT}/{RUN_ID}/outro.json")}
+    )
+    with pytest.raises(ValueError, match="target_keys_must_be_single"):
+        materialize_sihd(request, store)
+
+
+def test_competencia_sem_movimento_materializa_overview_zerado() -> None:
+    store = FakeObjectStore()
+    manifests = tuple(
+        manifest
+        for subtype in ("SIHD_INTERNACAO", "SIHD_PROC_AIH")
+        for manifest in normalize_sihd(
+            normalize_request((put_raw(store, raw_spec(subtype), pl.DataFrame()),), subtype),
+            store,
+        ).manifests
+    )
+    reconciled = reconcile_sihd(reconcile_request(manifests), store)
+    request = _request(FakeObjectStore()).model_copy(
+        update={
+            "reconciliation_manifest": reconciled.reconciliation_manifest,
+            "divergence_manifest": reconciled.divergence_manifest,
+        }
+    )
+    result = materialize_sihd(request, store)
+    assert [item.row_count for item in manifests] == [0, 0, 0, 0]
+    assert reconciled.kpis["valor_total_centavos"] == 0
+    assert result.documents[0].payload["totais"] == {
+        "aih_com_procedimento": 0,
+        "procedimento_qtd": 0,
+        "valor_total_centavos": 0,
+        "internacao_sem_procedimento": 0,
+        "linhas_qualidade": 0,
+    }
+    assert result.documents[0].payload["periodo"] == {
+        "dt_internacao_min": None,
+        "dt_saida_max": None,
+    }
