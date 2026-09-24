@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 _DATA_SCHEMA_VERSION = "bpa-normalized-v1"
 _QUALITY_SCHEMA_VERSION = "bpa-quality-v1"
 _ROW_ORIGIN = ("_source_manifest_id", "_source_snapshot_id")
+_CDC_OPS = ("I", "U", "D")
 
 
 def normalize_bpa(request: NormalizeRequest, store: ObjectStorePort) -> NormalizeResult:
@@ -55,6 +56,7 @@ def normalize_bpa(request: NormalizeRequest, store: ObjectStorePort) -> Normaliz
     data_key, quality_key = _target_pair(request, layout)
     base = request.raw_manifests[0]
     frames = [_read_tagged(store, item) for item in request.raw_manifests]
+    _check_ops(frames[1:])
     current = reconstruct_from_deltas(frames[0], frames[1:], RAW_ROW_KEY)
     keyed = with_record_ids(current, layout.file_subtype)
     issues = quality_issues(keyed, layout.file_subtype, base.competencia)
@@ -85,6 +87,16 @@ def _target_pair(request: NormalizeRequest, layout: SubtypeLayout) -> tuple[str,
         raise ValueError(f"bpa_target_keys_invalidos subtype={layout.file_subtype}")
     data_name, quality_name = layout.normalized_filenames
     return by_leaf[data_name], by_leaf[quality_name]
+
+
+def _check_ops(deltas: list[pl.DataFrame]) -> None:
+    for delta in deltas:
+        if "_op" not in delta.columns:
+            raise ValueError("invalid_cdc_op op=missing")
+        op = pl.col("_op").cast(pl.String)
+        invalid = delta.filter(op.is_null() | ~op.is_in(_CDC_OPS))["_op"]
+        if invalid.len():
+            raise ValueError(f"invalid_cdc_op op={invalid[0]}")
 
 
 def _read_tagged(store: ObjectStorePort, manifest: RawManifest) -> pl.DataFrame:

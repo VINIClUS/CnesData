@@ -188,3 +188,8 @@ def test_registra_quantidade_acima_de_seis_digitos() -> None:
     rows = [_raw(prd_seq="01", prd_qt_p=999999.0), _raw(prd_seq="02", prd_qt_p=1000000.0)]
 
     assert _codes(rows) == ["quantidade_invalida"]
+
+
+def test_idade_ausente_invalida_bpa_i_mas_nao_bpa_c() -> None:
+    assert _codes([_raw(prd_idade="   ")]) == ["idade_invalida"]
+    assert _codes([_raw(prd_org="BPA", prd_idade="   ")], "BPA_C") == []

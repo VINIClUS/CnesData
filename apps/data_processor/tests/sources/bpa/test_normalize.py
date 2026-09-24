@@ -359,3 +359,28 @@ def test_rejeita_objeto_raw_divergente_do_sha256_do_manifesto() -> None:
 
     with pytest.raises(ValueError, match="input_sha256_mismatch"):
         normalize_bpa(_request((raw,), _target_keys("BPA_C")), store)
+
+
+@pytest.mark.parametrize(
+    ("op", "expected"), [("X", "op=X"), (None, "op=None"), ("omit", "op=missing")]
+)
+def test_rejeita_delta_com_operacao_cdc_invalida(op: str | None, expected: str) -> None:
+    store = _FakeObjectStore()
+    full = _put_raw(store, "BPA_C")
+    changed = dict(_load("raw_rows.json")["BPA_C"][0])
+    if op != "omit":
+        changed["_op"] = op
+    payload = _raw_payload([changed])
+    key = f"raw/{_TENANT}/BPA_MAG/{_COMPETENCIA}/fixture-bpa-c-d1/data.parquet"
+    store.put(key, BytesIO(payload), hashlib.sha256(payload).hexdigest())
+    delta = RawManifest.model_validate_json(json.dumps({
+        **full.model_dump(mode="json"), "manifest_id": "fixture-bpa-c-d1",
+        "snapshot_mode": "DELTA", "snapshot_id": "fixture-bpa-c-d1",
+        "base_snapshot_id": full.snapshot_id, "sequence": 2,
+        "previous_manifest_sha256": _manifest_sha(full), "row_count": 1,
+        "object_key": key, "object_sha256": hashlib.sha256(payload).hexdigest(),
+        "size_bytes": len(payload),
+    }))
+
+    with pytest.raises(ValueError, match=f"invalid_cdc_op {expected}"):
+        normalize_bpa(_request((full, delta), _target_keys("BPA_C")), store)

@@ -172,6 +172,12 @@ def _valid_age() -> pl.Expr:
     return (_matches("prd_idade", _IDADE) & (age <= _MAX_IDADE)).fill_null(False)
 
 
+def _invalid_age(file_subtype: str) -> pl.Expr:
+    if file_subtype == "BPA_I":
+        return ~_valid_age()
+    return pl.col("prd_idade").is_not_null() & ~_valid_age()
+
+
 def _valid_sequence(file_subtype: str) -> pl.Expr:
     sequence = pl.col("prd_seq").cast(pl.Int64, strict=False)
     in_range = (sequence >= 1) & (sequence <= _MAX_SEQUENCIA[file_subtype])
@@ -205,8 +211,7 @@ def _rules(file_subtype: str, competencia: str) -> tuple[QualityRule, ...]:
          (pl.col("prd_org") != SUBTYPE_ORIGIN[file_subtype]).fill_null(True)),
         ("sigtap", "sigtap_invalido", "prd_pa", ~_matches("prd_pa", _SIGTAP)),
         ("cbo", "cbo_invalido", "prd_cbo", _present_and_invalid("prd_cbo", _CBO)),
-        ("idade", "idade_invalida", "prd_idade",
-         pl.col("prd_idade").is_not_null() & ~_valid_age()),
+        ("idade", "idade_invalida", "prd_idade", _invalid_age(file_subtype)),
         ("quantidade", "quantidade_invalida", RAW_QUANTITY_COLUMN, ~_valid_quantity()),
         ("folha", "folha_invalida", "prd_flh",
          ~_matches("prd_flh", _FOLHA) | (pl.col("prd_flh") == "000").fill_null(False)),
