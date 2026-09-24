@@ -189,28 +189,32 @@
   ],
   "DIM_SIGTAP": [
     {
-      "cdn_tb": "PROC",
-      "cdn_it": "0301010072",
-      "cdn_dscr": "CONSULTA MEDICA EM ATENCAO ESPECIALIZADA ",
-      "cdn_chksm": "A1B2C3"
+      "co_procedimento": "0301010072",
+      "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA ",
+      "tp_complexidade": "2",
+      "co_financiamento": "06",
+      "dt_competencia": "202609"
     },
     {
-      "cdn_tb": "PROC",
-      "cdn_it": "0301010072",
-      "cdn_dscr": "CONSULTA MEDICA (DUPLICADA)",
-      "cdn_chksm": "A1B2C4"
+      "co_procedimento": "0301010072",
+      "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA",
+      "tp_complexidade": "2",
+      "co_financiamento": "06",
+      "dt_competencia": "202609"
     },
     {
-      "cdn_tb": "CBO",
-      "cdn_it": "225125",
-      "cdn_dscr": "MEDICO CLINICO",
-      "cdn_chksm": "D4E5F6"
+      "co_procedimento": "0301010064",
+      "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO PRIMÁRIA",
+      "tp_complexidade": "1",
+      "co_financiamento": "01",
+      "dt_competencia": "202609"
     },
     {
-      "cdn_tb": "PROC",
-      "cdn_it": "  ",
-      "cdn_dscr": "SEM CODIGO",
-      "cdn_chksm": "000000"
+      "co_procedimento": "03010100",
+      "no_procedimento": "CODIGO DE 8 DIGITOS (LAYOUT S_CDN)",
+      "tp_complexidade": "2",
+      "co_financiamento": "06",
+      "dt_competencia": "202609"
     }
   ],
   "DIM_MUNICIPIO": [

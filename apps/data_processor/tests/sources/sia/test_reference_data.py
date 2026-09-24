@@ -54,21 +54,30 @@ def test_adapter_de_referencia_nao_aceita_engine(function: object) -> None:
     assert all("Engine" not in str(item.annotation) for item in parameters.values())
 
 
-def test_sigtap_preserva_todas_as_tabelas_e_retira_item_ausente_e_duplicado(
-    sia: SiaHarness,
-) -> None:
+def test_sigtap_segue_layout_oficial_tb_procedimento(sia: SiaHarness) -> None:
+    raw = sia.raw_frame("DIM_SIGTAP", sia.load_fixture("raw_rows.json")["DIM_SIGTAP"])
+
+    data, _ = normalize_reference("DIM_SIGTAP", raw)
+
+    assert data.columns == [
+        "_source_row", "cod_procedimento", "descricao", "complexidade", "financiamento",
+        "competencia_sigtap",
+    ]
+    assert data.drop("_source_row").rows() == [
+        ("0301010072", "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA", "2", "06", "2026-09"),
+        ("0301010064", "CONSULTA MEDICA EM ATENÇÃO PRIMÁRIA", "1", "01", "2026-09"),
+    ]
+
+
+def test_sigtap_retira_codigo_fora_de_10_digitos_e_duplicado(sia: SiaHarness) -> None:
     raw = sia.raw_frame("DIM_SIGTAP", sia.load_fixture("raw_rows.json")["DIM_SIGTAP"])
 
     data, quality = normalize_reference("DIM_SIGTAP", raw)
 
-    assert data.select("_source_row", "tabela", "item").rows() == [
-        (0, "PROC", "0301010072"),
-        (2, "CBO", "225125"),
-    ]
-    assert data["descricao"][0] == "CONSULTA MEDICA EM ATENCAO ESPECIALIZADA"
+    assert data.height + quality.height == raw.height
     assert quality.rows() == [
         (1, "linha_duplicada", "duplicata", "primeira_linha=0"),
-        (3, "item_ausente", "rejeitada", None),
+        (3, "codigo_procedimento_invalido", "rejeitada", "co_procedimento=03010100"),
     ]
 
 
@@ -118,9 +127,11 @@ def test_referencia_vazia_gera_frames_vazios_tipados(sia: SiaHarness) -> None:
 
 
 def test_rejeita_referencia_com_schema_fora_do_contrato() -> None:
-    raw = pl.DataFrame({"cdn_tb": ["PROC"], "cdn_it": [1]})
+    raw = pl.DataFrame({"co_procedimento": [301010072], "no_procedimento": ["X"]})
 
-    with pytest.raises(ValueError, match="sia_schema_invalid subtype=DIM_SIGTAP column=cdn_it"):
+    with pytest.raises(
+        ValueError, match="sia_schema_invalid subtype=DIM_SIGTAP column=co_procedimento"
+    ):
         normalize_reference("DIM_SIGTAP", raw)
 
 

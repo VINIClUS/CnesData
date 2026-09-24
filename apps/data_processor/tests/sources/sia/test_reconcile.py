@@ -17,7 +17,7 @@ from data_processor.sources.sia.reconcile import KPIS_METADATA_KEY, reconcile_si
 if TYPE_CHECKING:
     from .conftest import SiaHarness
 
-_CONSULTA = "CONSULTA MEDICA EM ATENCAO ESPECIALIZADA"
+_CONSULTA = "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA"
 
 
 def _frame(sia: SiaHarness, key: str) -> pl.DataFrame:
@@ -50,6 +50,20 @@ def test_codigo_fora_do_sigtap_vira_divergencia_com_contador_sem_descartar(
         ("2077493", "0304010286", "SIA_APA", 1),
     ]
     assert result.kpis["procedimento_desconhecido"] == 1
+
+
+def test_sigtap_vazio_gera_uma_divergencia_em_vez_de_marcar_toda_linha(
+    sia: SiaHarness,
+) -> None:
+    result = sia.reconcile_all({"DIM_SIGTAP": []})
+
+    divergences = _frame(sia, result.divergence_manifest.object_key)
+    reconciled = _frame(sia, result.reconciliation_manifest.object_key)
+    assert divergences.filter(pl.col("tipo") == "procedimento_desconhecido").height == 0
+    assert divergences.filter(pl.col("tipo") == "referencia_sigtap_vazia").select(
+        "competencia", "cnes", "linhas"
+    ).rows() == [("2026-01", None, int(reconciled["linhas"].sum()))]
+    assert result.kpis["referencia_sigtap_vazia"] == 1
 
 
 def test_bpihst_nao_e_descartado_nem_preferido_sobre_bpi(sia: SiaHarness) -> None:

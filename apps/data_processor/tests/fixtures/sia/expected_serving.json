@@ -28,6 +28,7 @@
         },
         "divergencias": {
           "candidato_duplicado_bpi_bpihst": 0,
+          "referencia_sigtap_vazia": 0,
           "procedimento_desconhecido": 0
         }
       },
@@ -52,6 +53,7 @@
         },
         "divergencias": {
           "candidato_duplicado_bpi_bpihst": 1,
+          "referencia_sigtap_vazia": 0,
           "procedimento_desconhecido": 0
         }
       },
@@ -76,6 +78,7 @@
         },
         "divergencias": {
           "candidato_duplicado_bpi_bpihst": 0,
+          "referencia_sigtap_vazia": 0,
           "procedimento_desconhecido": 1
         }
       }
@@ -107,6 +110,7 @@
     },
     "divergencias": {
       "candidato_duplicado_bpi_bpihst": 1,
+      "referencia_sigtap_vazia": 0,
       "procedimento_desconhecido": 1
     },
     "kpis": {
@@ -124,6 +128,7 @@
       "qualidade_sia_bpi": 2,
       "qualidade_sia_bpihst": 1,
       "quantidade_total": 2147483661,
+      "referencia_sigtap_vazia": 0,
       "valor_aprovado_cents_total": 9000075000
     },
     "missing_sources": []

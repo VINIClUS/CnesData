@@ -56,7 +56,11 @@ RAW_DTYPES: dict[str, dict[str, Any]] = {
     "SIA_APA": _APA_DTYPES,
     "SIA_BPI": _BPI_DTYPES,
     "SIA_BPIHST": _BPI_DTYPES,
-    "DIM_SIGTAP": dict.fromkeys(("cdn_tb", "cdn_it", "cdn_dscr", "cdn_chksm"), pl.String),
+    "DIM_SIGTAP": dict.fromkeys(
+        ("co_procedimento", "no_procedimento", "tp_complexidade", "co_financiamento",
+         "dt_competencia"),
+        pl.String,
+    ),
     "DIM_MUNICIPIO": {
         "coduf": pl.String, "codmunic": pl.String, "nome": pl.String,
         "condic": pl.String, "tetopab": pl.Int64, "calcpab": pl.String,

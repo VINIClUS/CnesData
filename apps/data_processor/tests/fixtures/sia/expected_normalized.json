@@ -215,20 +215,22 @@
     "data": [
       {
         "_source_row": 0,
-        "tabela": "PROC",
-        "item": "0301010072",
-        "descricao": "CONSULTA MEDICA EM ATENCAO ESPECIALIZADA",
-        "checksum": "A1B2C3",
+        "cod_procedimento": "0301010072",
+        "descricao": "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA",
+        "complexidade": "2",
+        "financiamento": "06",
+        "competencia_sigtap": "2026-09",
         "_source_subtype": "DIM_SIGTAP",
         "_source_manifest_id": "raw-sia-sigtap-1",
         "_normalized_at": "2026-02-01T04:00:00+00:00"
       },
       {
         "_source_row": 2,
-        "tabela": "CBO",
-        "item": "225125",
-        "descricao": "MEDICO CLINICO",
-        "checksum": "D4E5F6",
+        "cod_procedimento": "0301010064",
+        "descricao": "CONSULTA MEDICA EM ATENÇÃO PRIMÁRIA",
+        "complexidade": "1",
+        "financiamento": "01",
+        "competencia_sigtap": "2026-09",
         "_source_subtype": "DIM_SIGTAP",
         "_source_manifest_id": "raw-sia-sigtap-1",
         "_normalized_at": "2026-02-01T04:00:00+00:00"
@@ -246,9 +248,9 @@
       },
       {
         "_source_row": 3,
-        "issue_code": "item_ausente",
+        "issue_code": "codigo_procedimento_invalido",
         "disposicao": "rejeitada",
-        "detalhe": null,
+        "detalhe": "co_procedimento=03010100",
         "_source_subtype": "DIM_SIGTAP",
         "_source_manifest_id": "raw-sia-sigtap-1",
         "_normalized_at": "2026-02-01T04:00:00+00:00"

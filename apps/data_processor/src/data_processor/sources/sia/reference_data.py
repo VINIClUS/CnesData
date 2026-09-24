@@ -1,4 +1,4 @@
-"""Referências SIA (S_CDN, CADMUN) -> Parquet versionado com qualidade explícita, sem SQL."""
+"""Referências SIA (SIGTAP, CADMUN) -> Parquet versionado com qualidade explícita, sem SQL."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from data_processor.sources.sia.contract import (
 )
 
 REFERENCE_SUBTYPES = frozenset({"DIM_SIGTAP", "DIM_MUNICIPIO"})
-_NO_DETAIL = pl.lit(None, dtype=pl.String)
 
 
 def normalize_reference(subtype: str, frame: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -34,8 +33,12 @@ def normalize_reference(subtype: str, frame: pl.DataFrame) -> tuple[pl.DataFrame
 
 def _sigtap(frame: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
     canonical = with_source_row(build_reference_sigtap(frame))
-    checks = (QualityCheck("item_ausente", pl.col("item").is_null(), _NO_DETAIL),)
-    return split_quality(canonical, checks, ("tabela", "item"))
+    detail = pl.lit("co_procedimento=") + pl.col("codigo_origem").fill_null("")
+    checks = (
+        QualityCheck("codigo_procedimento_invalido", pl.col("cod_procedimento").is_null(), detail),
+    )
+    data, quality = split_quality(canonical, checks, ("cod_procedimento",))
+    return data.drop("codigo_origem"), quality
 
 
 def _municipio(frame: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:

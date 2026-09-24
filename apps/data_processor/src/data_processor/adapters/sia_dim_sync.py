@@ -1,11 +1,15 @@
-"""SIA referências: S_CDN -> SIGTAP canônico; CADMUN -> município canônico (sem SQL)."""
+"""SIA referências: SIGTAP tb_procedimento e CADMUN -> frames canônicos (sem SQL)."""
 from __future__ import annotations
 
 import polars as pl
 
 from data_processor.adapters.sia_adapter import clean_text, require_schema, text_schema
 
-_CDN_SCHEMA = text_schema("cdn_tb", "cdn_it", "cdn_dscr", "cdn_chksm")
+# SIGTAP Tabela Unificada tb_procedimento layout (DATASUS), lower-cased; S_CDN is a
+# generic 2-char/8-char code domain and carries no 10-digit SIGTAP procedure.
+_SIGTAP_SCHEMA = text_schema(
+    "co_procedimento", "no_procedimento", "tp_complexidade", "co_financiamento", "dt_competencia",
+)
 _CADMUN_SCHEMA = text_schema("coduf", "codmunic", "nome")
 
 
@@ -21,17 +25,23 @@ def _ibge7_check_digit(ibge6: pl.Expr) -> pl.Expr:
 
 
 def build_reference_sigtap(frame: pl.DataFrame) -> pl.DataFrame:
-    """Mapeia S_CDN para `tabela, item, descricao, checksum`, preservando todas as tabelas.
+    """Mapeia tb_procedimento do SIGTAP; código fora de 10 dígitos vira null.
 
     Raises:
-        ValueError: schema raw fora do contrato Edge.
+        ValueError: schema raw fora do contrato SIGTAP.
     """
-    require_schema(frame, "DIM_SIGTAP", _CDN_SCHEMA)
+    require_schema(frame, "DIM_SIGTAP", _SIGTAP_SCHEMA)
+    code = clean_text("co_procedimento")
+    competencia = clean_text("dt_competencia")
     return frame.select(
-        clean_text("cdn_tb").alias("tabela"),
-        clean_text("cdn_it").alias("item"),
-        clean_text("cdn_dscr").alias("descricao"),
-        clean_text("cdn_chksm").alias("checksum"),
+        pl.when(code.str.contains(r"^\d{10}$")).then(code).alias("cod_procedimento"),
+        clean_text("no_procedimento").alias("descricao"),
+        clean_text("tp_complexidade").alias("complexidade"),
+        clean_text("co_financiamento").alias("financiamento"),
+        pl.when(competencia.str.contains(r"^\d{6}$"))
+        .then(competencia.str.slice(0, 4) + "-" + competencia.str.slice(4, 2))
+        .alias("competencia_sigtap"),
+        code.alias("codigo_origem"),
     )
 
 

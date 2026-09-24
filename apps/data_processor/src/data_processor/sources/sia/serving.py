@@ -10,12 +10,7 @@ import polars as pl
 from cnes_contracts.manifests.outputs import OutputManifest, ServingDocument
 from cnes_contracts.manifests.processing import MaterializeResult
 from data_processor.sources.sia.contract import read_output, resolve_serving_targets, write_verified
-from data_processor.sources.sia.reconcile import (
-    BPI_HISTORY_DUPLICATE,
-    FONTES,
-    KPIS_METADATA_KEY,
-    UNKNOWN_PROCEDURE,
-)
+from data_processor.sources.sia.reconcile import DIVERGENCE_TYPES, FONTES, KPIS_METADATA_KEY
 
 if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import MaterializeRequest
@@ -85,7 +80,7 @@ def _totals(frame: pl.DataFrame) -> dict[str, object]:
 def _divergence_counts(divergences: pl.DataFrame) -> dict[str, object]:
     return {
         tipo: divergences.filter(pl.col("tipo") == tipo).height
-        for tipo in (BPI_HISTORY_DUPLICATE, UNKNOWN_PROCEDURE)
+        for tipo in DIVERGENCE_TYPES
     }
 
 

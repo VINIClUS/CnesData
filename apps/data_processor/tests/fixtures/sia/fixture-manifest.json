@@ -13,7 +13,7 @@
       "row_count": 5
     },
     "raw_rows.json": {
-      "sha256": "bb9408521cca38a61c972fce4d7308ac570ba816c77a537217737c452f8124a8",
+      "sha256": "fbf609557382a2ed731bfd422d99f2bd800fdce956624897b8391d586d62828f",
       "row_counts": {
         "SIA_APA": 7,
         "SIA_BPI": 4,
@@ -23,7 +23,7 @@
       }
     },
     "expected_normalized.json": {
-      "sha256": "6e8d253ca282bba109a257e988b1f238df138637d1f6f0faa806ce9a04a818e8",
+      "sha256": "b85264927b4929497d4edd99a291a31fb47f358b37893ac72ffc64d6aa8709be",
       "row_counts": {
         "SIA_APA": {
           "data": 4,
@@ -48,7 +48,7 @@
       }
     },
     "expected_serving.json": {
-      "sha256": "1688b7ea35355d691392da79bda0033b8d7fe3aa6e45be8a9a6289863fa4c09a",
+      "sha256": "b9e58f0ae2f8d35bc8bc94c6b61718c1249e2ef1382d42421e9a053b03ecbc18",
       "documents": [
         "by-establishment",
         "overview"

@@ -32,7 +32,9 @@ type Frames = dict[str, tuple[pl.DataFrame, dict[str, str]]]
 KPIS_METADATA_KEY = "sia_kpis"
 FONTES = (("apa.parquet", "SIA_APA"), ("bpi.parquet", "SIA_BPI"), ("bpihst.parquet", "SIA_BPIHST"))
 UNKNOWN_PROCEDURE = "procedimento_desconhecido"
+EMPTY_SIGTAP = "referencia_sigtap_vazia"
 BPI_HISTORY_DUPLICATE = "candidato_duplicado_bpi_bpihst"
+DIVERGENCE_TYPES = (BPI_HISTORY_DUPLICATE, EMPTY_SIGTAP, UNKNOWN_PROCEDURE)
 _RECONCILIATION_SCHEMA_VERSION = "sia-reconciliation-v1"
 _DIVERGENCE_SCHEMA_VERSION = "sia-divergence-v1"
 _KEY = ("competencia", "cnes", "cod_procedimento", "fonte")
@@ -41,6 +43,10 @@ _RECONCILIATION_COLUMNS = (
 )
 _DIVERGENCE_COLUMNS = (*_KEY, "tipo", "linhas", "referencias")
 _REFERENCES = pl.List(pl.String)
+_DIVERGENCE_SCHEMA = {
+    "competencia": pl.String, "cnes": pl.String, "cod_procedimento": pl.String,
+    "fonte": pl.String, "tipo": pl.String, "linhas": pl.Int64, "referencias": _REFERENCES,
+}
 
 
 def reconcile_sia(request: ReconcileRequest, store: ObjectStorePort) -> ReconcileResult:
@@ -60,8 +66,11 @@ def reconcile_sia(request: ReconcileRequest, store: ObjectStorePort) -> Reconcil
         leaf: read_output(store, manifest)
         for leaf, manifest in resolve_reconcile_inputs(request).items()
     }
-    reconciled = _aggregate(_facts(frames), _procedures(frames["reference_sigtap.parquet"][0]))
-    divergences = pl.concat([_unknown_procedures(reconciled), _history_duplicates(frames)])
+    procedures = _procedures(frames["reference_sigtap.parquet"][0])
+    reconciled = _aggregate(_facts(frames), procedures)
+    divergences = pl.concat([
+        _unknown_procedures(reconciled, procedures.height), _history_duplicates(frames)
+    ])
     divergences = divergences.sort(
         [*_KEY, "tipo", pl.col("referencias").list.join(",")], nulls_last=True
     ).select(_DIVERGENCE_COLUMNS)
@@ -107,9 +116,8 @@ def _facts(frames: Frames) -> pl.DataFrame:
 
 
 def _procedures(sigtap: pl.DataFrame) -> pl.DataFrame:
-    return sigtap.filter(pl.col("tabela") == "PROC").select(
-        pl.col("item").alias("cod_procedimento"),
-        pl.col("descricao").alias("descricao_procedimento"),
+    return sigtap.select(
+        "cod_procedimento", pl.col("descricao").alias("descricao_procedimento")
     )
 
 
@@ -132,8 +140,20 @@ def _aggregate(facts: pl.DataFrame, procedures: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _unknown_procedures(reconciled: pl.DataFrame) -> pl.DataFrame:
-    return reconciled.filter(pl.col("descricao_procedimento").is_null()).select(
+def _unknown_procedures(reconciled: pl.DataFrame, reference_size: int) -> pl.DataFrame:
+    unknown = reconciled.filter(pl.col("descricao_procedimento").is_null())
+    if reference_size == 0 and unknown.height:
+        # An empty SIGTAP slot (absent source) cannot prove any code unknown: report the
+        # missing reference once instead of flagging every production row.
+        return pl.DataFrame(
+            {
+                "competencia": [reconciled["competencia"][0]], "cnes": [None],
+                "cod_procedimento": [None], "fonte": [None], "tipo": [EMPTY_SIGTAP],
+                "linhas": [int(unknown["linhas"].sum())], "referencias": [None],
+            },
+            schema=_DIVERGENCE_SCHEMA,
+        )
+    return unknown.select(
         *_KEY,
         pl.lit(UNKNOWN_PROCEDURE).alias("tipo"),
         "linhas",
@@ -174,7 +194,7 @@ def _kpis(frames: Frames, reconciled: pl.DataFrame, divergences: pl.DataFrame) -
     )
     kpis["quantidade_total"] = int(reconciled["quantidade"].sum())
     kpis["valor_aprovado_cents_total"] = int(reconciled["valor_aprovado_cents"].sum())
-    for tipo in (BPI_HISTORY_DUPLICATE, UNKNOWN_PROCEDURE):
+    for tipo in DIVERGENCE_TYPES:
         kpis[tipo] = divergences.filter(pl.col("tipo") == tipo).height
     return kpis
 
