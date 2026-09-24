@@ -193,6 +193,17 @@ def test_grava_somente_as_duas_chaves_alvo(sia: SiaHarness, subtype: str) -> Non
     assert set(sia.store.objects) - before == set(request.target_keys)
 
 
+def test_le_raw_parquet_gzip_emitido_pelo_edge(sia: SiaHarness) -> None:
+    rows = sia.load_fixture("raw_rows.json")["SIA_APA"]
+    raw = sia.put_raw("SIA_APA", sia.raw_frame("SIA_APA", rows), gzipped=True)
+
+    result = normalize_sia(sia.normalize_request(raw), sia.store)
+
+    data = sia.read_frame(result.manifests[0].object_key)
+    expected = sia.load_fixture("expected_normalized.json")["SIA_APA"]["data"]
+    assert sia.frame_rows(data) == expected
+
+
 def test_bytes_normalizados_sao_idempotentes(sia: SiaHarness) -> None:
     rows = sia.load_fixture("raw_rows.json")["SIA_APA"]
     raw = sia.put_raw("SIA_APA", sia.raw_frame("SIA_APA", rows))

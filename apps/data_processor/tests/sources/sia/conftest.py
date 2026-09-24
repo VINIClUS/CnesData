@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 from contextlib import nullcontext
@@ -135,12 +136,12 @@ class SiaHarness:
     def read_frame(self, key: str) -> pl.DataFrame:
         return pl.read_parquet(BytesIO(self.store.objects[key]))
 
-    def put_raw(self, subtype: str, frame: pl.DataFrame) -> RawManifest:
+    def put_raw(self, subtype: str, frame: pl.DataFrame, *, gzipped: bool = False) -> RawManifest:
         template = next(m for m in load_fixture("raw_manifests.json")
                         if m["file_subtype"] == subtype)
         output = BytesIO()
         frame.write_parquet(output)
-        payload = output.getvalue()
+        payload = gzip.compress(output.getvalue()) if gzipped else output.getvalue()
         digest = hashlib.sha256(payload).hexdigest()
         self.store.put(template["object_key"], BytesIO(payload), digest)
         body = {**template, "object_sha256": digest, "row_count": frame.height,

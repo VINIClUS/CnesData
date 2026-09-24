@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from dataclasses import dataclass
 from hashlib import sha256
@@ -57,6 +58,7 @@ _NORMALIZED_LEAVES = frozenset(
     name for item in SIA_LAYOUT.normalized for name in item.normalized_filenames
 )
 _QUALITY_COLUMNS = ("_source_row", "issue_code", "disposicao", "detalhe")
+_GZIP_MAGIC = b"\x1f\x8b"
 
 
 class SiaContractError(ValueError):
@@ -221,8 +223,10 @@ def _verified_bytes(store: ObjectStorePort, key: str, expected_sha256: str) -> b
 
 
 def read_raw(store: ObjectStorePort, manifest: RawManifest) -> pl.DataFrame:
-    """Lê o Parquet raw declarado no manifest após conferir o SHA-256."""
+    """Lê o Parquet raw declarado no manifest após conferir o SHA-256 do objeto armazenado."""
     payload = _verified_bytes(store, manifest.object_key, manifest.object_sha256)
+    if payload[:2] == _GZIP_MAGIC:
+        payload = gzip.decompress(payload)
     return pl.read_parquet(BytesIO(payload))
 
 
