@@ -1,0 +1,39 @@
+{
+  "source": {
+    "table": "S_PRD",
+    "database": "BPAMAG.GDB (BPA-Mag, Firebird 1.5)",
+    "introspected_at": "2026-09-24",
+    "subtype_discriminator": {
+      "column": "PRD_ORG",
+      "BPA_C": "BPA",
+      "BPA_I": "BPI"
+    },
+    "values": "sinteticos; nenhuma linha real"
+  },
+  "files": {
+    "expected_normalized.json": {
+      "sha256": "4e22d173ad9a217b037efc70797551e0aa6ced0d0918cf818f124df5621e6c53",
+      "bytes": 9967
+    },
+    "expected_serving.json": {
+      "sha256": "c1ca6d4ffa12188fea9a546dedcb896fc12b704a52e8208410522d320c3762ae",
+      "bytes": 1918
+    },
+    "raw_manifest_bpa_c.json": {
+      "sha256": "a6d0a6d3205752ccd71a6937af065db8224c99e592e4d84db7635338208e994f",
+      "bytes": 551
+    },
+    "raw_manifest_bpa_i.json": {
+      "sha256": "1aadf8d539e618060e987c9c354a64d002c944125eac3b12cadf1abf519a4df8",
+      "bytes": 551
+    },
+    "raw_rows.json": {
+      "sha256": "95b5d800f089f030d5cf4327dd6d52000ca3056ed41a7f7308c99dcb0be66add",
+      "bytes": 3334
+    }
+  },
+  "row_counts": {
+    "BPA_C": 6,
+    "BPA_I": 5
+  }
+}

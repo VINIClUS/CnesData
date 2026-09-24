@@ -1,0 +1,80 @@
+{
+  "by-establishment": {
+    "schema_version": "bpa-serving-v1",
+    "tenant_id": "354130",
+    "run_id": "fixture-bpa-run-v1",
+    "generated_at": "2026-09-02T14:00:00Z",
+    "dataset": "bpa",
+    "competencia": "2026-08",
+    "limite": 500,
+    "total_estabelecimentos": 2,
+    "truncado": false,
+    "estabelecimentos": [
+      {
+        "cnes": "2269481",
+        "linhas": 6,
+        "linhas_aceitas": 5,
+        "qtd_apresentada": 21,
+        "qtd_aceita": 20,
+        "procedimentos": 3,
+        "divergencias": 1
+      },
+      {
+        "cnes": "7654321",
+        "linhas": 5,
+        "linhas_aceitas": 0,
+        "qtd_apresentada": 9,
+        "qtd_aceita": 0,
+        "procedimentos": 2,
+        "divergencias": 9
+      }
+    ]
+  },
+  "overview": {
+    "schema_version": "bpa-serving-v1",
+    "tenant_id": "354130",
+    "run_id": "fixture-bpa-run-v1",
+    "generated_at": "2026-09-02T14:00:00Z",
+    "dataset": "bpa",
+    "competencia": "2026-08",
+    "missing_sources": [],
+    "kpis": {
+      "linhas": 11,
+      "linhas_aceitas": 5,
+      "qtd_apresentada": 30,
+      "qtd_aceita": 20,
+      "estabelecimentos": 2,
+      "procedimentos": 3,
+      "divergencias": 10,
+      "registros_com_divergencia": 6
+    },
+    "por_subtipo": [
+      {
+        "file_subtype": "BPA_C",
+        "linhas": 6,
+        "linhas_aceitas": 3,
+        "qtd_apresentada": 24,
+        "qtd_aceita": 18
+      },
+      {
+        "file_subtype": "BPA_I",
+        "linhas": 5,
+        "linhas_aceitas": 2,
+        "qtd_apresentada": 6,
+        "qtd_aceita": 2
+      }
+    ],
+    "divergence_counts": {
+      "cbo_invalido": 1,
+      "cid_invalido": 1,
+      "cns_profissional_ausente": 1,
+      "competencia_divergente": 1,
+      "data_atendimento_ausente": 1,
+      "data_atendimento_invalida": 1,
+      "origem_divergente": 1,
+      "quantidade_invalida": 1,
+      "registro_duplicado": 1,
+      "sigtap_invalido": 1
+    }
+  }
+}

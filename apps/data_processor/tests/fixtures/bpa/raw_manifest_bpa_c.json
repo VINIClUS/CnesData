@@ -1,0 +1,19 @@
+{
+  "manifest_version": 1,
+  "manifest_id": "fixture-bpa-c-v1",
+  "tenant_id": "354130",
+  "source_type": "BPA_MAG",
+  "file_subtype": "BPA_C",
+  "competencia": "2026-08",
+  "agent_id": "fixture-agent",
+  "agent_version": "1.0.0",
+  "schema_version": "bpa-s-prd-raw-v1",
+  "snapshot_mode": "FULL",
+  "snapshot_id": "fixture-bpa-c-v1",
+  "base_snapshot_id": null,
+  "sequence": 1,
+  "previous_manifest_sha256": null,
+  "row_count": 6,
+  "object_key": "raw/354130/BPA_MAG/2026-08/fixture-bpa-c-v1/data.parquet",
+  "created_at": "2026-09-01T00:00:00Z"
+}
