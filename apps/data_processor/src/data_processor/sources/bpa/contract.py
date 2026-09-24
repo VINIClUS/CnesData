@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 from hashlib import sha256
 from io import BytesIO
 from typing import TYPE_CHECKING
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 
 DATA_FILENAMES = tuple(item.normalized_filenames[0] for item in BPA_LAYOUT.normalized)
 QUALITY_FILENAMES = tuple(item.normalized_filenames[1] for item in BPA_LAYOUT.normalized)
+_GZIP_MAGIC = b"\x1f\x8b"
 PROVENANCE_SCHEMA: dict[str, type[pl.DataType]] = {
     "_source_manifest_id": pl.String, "_source_snapshot_id": pl.String,
     "_source_type": pl.String, "_normalized_at": pl.String,
@@ -32,7 +34,7 @@ def leaf(key: str) -> str:
 
 
 def read_parquet(store: ObjectStorePort, manifest: RawManifest | OutputManifest) -> pl.DataFrame:
-    """Lê o Parquet do manifest só depois de conferir o SHA-256 dos bytes.
+    """Lê o Parquet (puro ou gzip do Edge) só depois de conferir o SHA-256.
 
     Args:
         store: porta de objetos.
@@ -48,6 +50,8 @@ def read_parquet(store: ObjectStorePort, manifest: RawManifest | OutputManifest)
         payload = handle.read()
     if sha256(payload).hexdigest() != manifest.object_sha256:
         raise ValueError(f"input_sha256_mismatch key={manifest.object_key}")
+    if payload.startswith(_GZIP_MAGIC):
+        payload = gzip.decompress(payload)
     return pl.read_parquet(BytesIO(payload))
 
 

@@ -384,3 +384,22 @@ def test_rejeita_delta_com_operacao_cdc_invalida(op: str | None, expected: str) 
 
     with pytest.raises(ValueError, match=f"invalid_cdc_op {expected}"):
         normalize_bpa(_request((full, delta), _target_keys("BPA_C")), store)
+
+
+def test_normaliza_raw_parquet_gzip_emitido_pelo_edge() -> None:
+    import gzip
+
+    plain_store, _ = _normalize("BPA_C")
+    store = _FakeObjectStore()
+    template = _load("raw_manifest_bpa_c.json")
+    payload = gzip.compress(_raw_payload(_load("raw_rows.json")["BPA_C"]), mtime=0)
+    digest = hashlib.sha256(payload).hexdigest()
+    store.put(template["object_key"], BytesIO(payload), digest)
+    raw = RawManifest.model_validate_json(json.dumps(
+        {**template, "object_sha256": digest, "size_bytes": len(payload)}
+    ))
+
+    normalize_bpa(_request((raw,), _target_keys("BPA_C"), "unit-bpa-c"), store)
+
+    data_key = _target_keys("BPA_C")[0]
+    assert _read(store, data_key) == _read(plain_store, data_key)
