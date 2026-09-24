@@ -8,12 +8,12 @@ import (
 )
 
 // WriteBPACParquetGzip serializa BPA_C rows em Parquet+gzip in-memory.
-func WriteBPACParquetGzip(rows []extractor.BPACRow) ([]byte, error) {
+func WriteBPACParquetGzip(rows []extractor.BPARow) ([]byte, error) {
 	return writeRowsParquetGzip(rows)
 }
 
 // WriteBPAIParquetGzip serializa BPA_I rows em Parquet+gzip in-memory.
-func WriteBPAIParquetGzip(rows []extractor.BPAIRow) ([]byte, error) {
+func WriteBPAIParquetGzip(rows []extractor.BPARow) ([]byte, error) {
 	return writeRowsParquetGzip(rows)
 }
 

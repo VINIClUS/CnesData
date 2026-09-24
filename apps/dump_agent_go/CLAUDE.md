@@ -4,8 +4,7 @@
 
 Port Go do `dump_agent` Python (migração COMPLETE). Roda no edge (Firebird
 CNES/SIHD/BPA + DBF SIA) extraindo Parquet delta e enviando para MinIO via
-presigned PUT. mTLS por padrão via `dumpagent register`; ver
-`docs/roadmap.md` para o item pendente (nullability BPA produção). Histórico
+presigned PUT. mTLS por padrão via `dumpagent register`. Histórico
 de fases: `CHANGELOG.md` (não autoritativo).
 
 ## Role
@@ -100,8 +99,9 @@ check / self-update no agente ainda não existe (roadmap `Next`).
   — `--force` sem `--ca-pin` remove um pin persistido de um registro
   anterior.
 - **BPA (`--bpa-gdb`/`BPA_GDB_PATH`) requer FB 1.5 x86 no runtime** — driver
-  nakagami/firebirdsql. Nullability real de produção ainda não introspectada;
-  ver `docs/roadmap.md`.
+  nakagami/firebirdsql. Produção fica em `S_PRD` (não `BPA_*_LINHAS`);
+  `PRD_ORG='BPI'` → BPA_I, todo o resto → BPA_C (extração total, nunca filtrar
+  por origem); ver `docs/data-dictionary-bpa.md`.
 - **SIA (`--sia-dir`/`SIA_DIR`) lê DBF** via LindsayBradford/go-dbf com
   sanitize cp1252 (S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN).
 - **Audit trail HMAC-JSONL:** `%PROGRAMDATA%\dumpagent\audit\events-*.jsonl`,
