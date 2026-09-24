@@ -31,8 +31,10 @@ func TestBPA_ExtraiBPACeBPAIDeSPRDPorOrigem(t *testing.T) {
 		"2269481", "202608", "BPI", "177", "01", "0301010072", "225125",
 		"J00 ", "046", "20260805", "999000000000101", 1.0)
 
-	mock.ExpectQuery(sPrdQuery).WithArgs("202608", "BPA").WillReturnRows(rowsC)
-	mock.ExpectQuery(sPrdQuery).WithArgs("202608", "BPI").WillReturnRows(rowsI)
+	mock.ExpectQuery(regexp.QuoteMeta("COALESCE(PRD_ORG, '') <> ?")).
+		WithArgs("202608", "BPI").WillReturnRows(rowsC)
+	mock.ExpectQuery(regexp.QuoteMeta("PRD_ORG = ?")).
+		WithArgs("202608", "BPI").WillReturnRows(rowsI)
 
 	result, err := ExtractBPA(context.Background(), db, "202608")
 	if err != nil {
@@ -77,7 +79,7 @@ func TestBPA_QuantidadeNulaPermaneceNula(t *testing.T) {
 
 func TestBPA_SQLNaoSelecionaPIIDePaciente(t *testing.T) {
 	for _, column := range []string{"PRD_CNSPAC", "PRD_NMPAC", "PRD_DTNASC", "PRD_CPF_PCNTE"} {
-		if strings.Contains(sqlBPA, column) {
+		if strings.Contains(sqlBPASelect, column) {
 			t.Errorf("sqlBPA selects PII column %s", column)
 		}
 	}
@@ -155,5 +157,24 @@ func TestBPA_SanitizaCp1252Invalido(t *testing.T) {
 	}
 	if result.BPA_C[0].Cbo != "225?125" {
 		t.Errorf("cbo=%q want 225?125", result.BPA_C[0].Cbo)
+	}
+}
+
+func TestBPA_OrigemNaoBPIVaiParaBPACSemDescartarLinha(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	rows := sqlmock.NewRows(bpaColumns).AddRow(
+		"2269481", "202608", "PNI", "001", "01", "0301010056", "225125",
+		"", "045", "", "", 2.0)
+	mock.ExpectQuery(regexp.QuoteMeta("COALESCE(PRD_ORG, '') <> ?")).WillReturnRows(rows)
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(sqlmock.NewRows(bpaColumns))
+
+	result, err := ExtractBPA(context.Background(), db, "202608")
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(result.BPA_C) != 1 || result.BPA_C[0].Org != "PNI" {
+		t.Fatalf("bpa_c=%+v want one PNI row", result.BPA_C)
 	}
 }

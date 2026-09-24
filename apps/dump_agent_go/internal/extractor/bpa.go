@@ -7,11 +7,10 @@ import (
 	"fmt"
 )
 
-// Origem PRD_ORG em S_PRD: 'BPA' = consolidado (BPA_C), 'BPI' = individualizado (BPA_I).
-const (
-	bpaOrigemConsolidado     = "BPA"
-	bpaOrigemIndividualizado = "BPI"
-)
+// PRD_ORG = 'BPI' marca o individualizado no GDB; qualquer outra origem (inclusive
+// PNI/SIE/EXT do layout e nulo) segue como BPA_C para nunca descartar linha — o
+// data_processor sinaliza origem inesperada como origem_divergente.
+const bpaOrigemIndividualizado = "BPI"
 
 // BPARow linha raw de S_PRD, no contrato `prd_*` consumido pelo data_processor.
 // Colunas de PII de paciente (CNS, nome, nascimento, CPF, endereço) não são extraídas.
@@ -38,7 +37,7 @@ type BPAResult struct {
 
 // Strings nulas viram string vazia; o data_processor trata branco como nulo.
 // PRD_QT_P (DOUBLE) permanece nulo para virar quality issue explícita.
-const sqlBPA = `
+const sqlBPASelect = `
 	SELECT COALESCE(PRD_UID, '') AS PRD_UID,
 	       COALESCE(PRD_CMP, '') AS PRD_CMP,
 	       COALESCE(PRD_ORG, '') AS PRD_ORG,
@@ -52,20 +51,27 @@ const sqlBPA = `
 	       COALESCE(PRD_CNSMED, '') AS PRD_CNSMED,
 	       PRD_QT_P
 	FROM S_PRD
-	WHERE PRD_CMP = ? AND PRD_ORG = ?
+`
+
+const sqlBPAOrder = `
 	ORDER BY PRD_UID, PRD_FLH, PRD_SEQ
 `
 
-// ExtractBPA lê S_PRD da competência separando BPA_C e BPA_I por PRD_ORG.
+const (
+	sqlBPAC = sqlBPASelect + `WHERE PRD_CMP = ? AND COALESCE(PRD_ORG, '') <> ?` + sqlBPAOrder
+	sqlBPAI = sqlBPASelect + `WHERE PRD_CMP = ? AND PRD_ORG = ?` + sqlBPAOrder
+)
+
+// ExtractBPA lê toda a S_PRD da competência: BPA_I = PRD_ORG 'BPI', BPA_C = o resto.
 // Args: ctx, db (FB 1.5 BPAMAG.GDB), competencia AAAAMM (ex: "202608").
 // Returns: *BPAResult com BPA_C + BPA_I.
 // Raises: erro propagado se query/scan falhar.
 func ExtractBPA(ctx context.Context, db *sql.DB, competencia string) (*BPAResult, error) {
-	consolidado, err := extractBPARows(ctx, db, competencia, bpaOrigemConsolidado)
+	consolidado, err := extractBPARows(ctx, db, sqlBPAC, competencia)
 	if err != nil {
 		return nil, fmt.Errorf("bpa_c_%w", err)
 	}
-	individualizado, err := extractBPARows(ctx, db, competencia, bpaOrigemIndividualizado)
+	individualizado, err := extractBPARows(ctx, db, sqlBPAI, competencia)
 	if err != nil {
 		return nil, fmt.Errorf("bpa_i_%w", err)
 	}
@@ -73,9 +79,9 @@ func ExtractBPA(ctx context.Context, db *sql.DB, competencia string) (*BPAResult
 }
 
 func extractBPARows(
-	ctx context.Context, db *sql.DB, competencia, origem string,
+	ctx context.Context, db *sql.DB, query, competencia string,
 ) ([]BPARow, error) {
-	rows, err := db.QueryContext(ctx, sqlBPA, competencia, origem)
+	rows, err := db.QueryContext(ctx, query, competencia, bpaOrigemIndividualizado)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}

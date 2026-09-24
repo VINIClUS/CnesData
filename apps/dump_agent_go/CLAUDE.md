@@ -99,8 +99,9 @@ check / self-update no agente ainda não existe (roadmap `Next`).
   — `--force` sem `--ca-pin` remove um pin persistido de um registro
   anterior.
 - **BPA (`--bpa-gdb`/`BPA_GDB_PATH`) requer FB 1.5 x86 no runtime** — driver
-  nakagami/firebirdsql. Produção fica em `S_PRD` (não `BPA_*_LINHAS`), subtipo
-  por `PRD_ORG` (`BPA`/`BPI`); ver `docs/data-dictionary-bpa.md`.
+  nakagami/firebirdsql. Produção fica em `S_PRD` (não `BPA_*_LINHAS`);
+  `PRD_ORG='BPI'` → BPA_I, todo o resto → BPA_C (extração total, nunca filtrar
+  por origem); ver `docs/data-dictionary-bpa.md`.
 - **SIA (`--sia-dir`/`SIA_DIR`) lê DBF** via LindsayBradford/go-dbf com
   sanitize cp1252 (S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN).
 - **Audit trail HMAC-JSONL:** `%PROGRAMDATA%\dumpagent\audit\events-*.jsonl`,

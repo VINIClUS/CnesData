@@ -192,8 +192,13 @@ nenhuma linha lida.
   S_PACID, S_PAPA, S_PAREGR, S_PASRV, S_PRD, S_PRD_TEMP`. **Não existem**
   `BPA_C_LINHAS`/`BPA_I_LINHAS`.
 - Produção fica em **`S_PRD`** (52 colunas, todas nullable). BPA-C e BPA-I
-  compartilham a tabela; o subtipo é **`PRD_ORG`**: `'BPA'` = consolidado,
-  `'BPI'` = individualizado. Não há coluna `prd_ident`.
+  compartilham a tabela e não há coluna `prd_ident`. No GDB, **`PRD_ORG`**
+  `'BPI'` marca o individualizado (data, CNS profissional e sexo presentes em
+  100% das linhas) e `'BPA'` o consolidado (0%). `BPI` não pertence ao
+  domínio de origem do layout de export (`BPA/PNI/SIE/SIB/MIN/PAC/SCL/EXT`),
+  então o Edge extrai **toda** a competência: `BPI` → BPA_I, qualquer outro
+  valor (inclusive nulo) → BPA_C; o `data_processor` marca origem ≠ `BPA`
+  como `origem_divergente`, sem descartar a linha.
 - Brancos são preenchidos com espaço; em linhas `BPA`, `PRD_CNSPAC`,
   `PRD_CNSMED`, `PRD_DTATEN` e `PRD_CID` são sempre brancos.
 - `(PRD_UID, PRD_CMP, PRD_FLH, PRD_SEQ)` é única por origem; `PRD_QT_P` é
