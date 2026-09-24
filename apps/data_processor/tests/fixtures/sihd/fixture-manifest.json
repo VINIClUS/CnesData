@@ -1,0 +1,12 @@
+{
+  "fixture_version": 1,
+  "tenant_id": "354130",
+  "competencia": "2026-01",
+  "files": {
+    "expected_normalized.json": "f33a752f0f0ae2c60156b2287ecb3d0237351839ba0b04a081527c3151de090e",
+    "expected_serving.json": "6c6306986f9c537ec5dd8ab190cb79adbfc4c9b6deda34e83c29f1bdf3f7539f",
+    "raw_internacao_rows.json": "1bfa79265bb948f7271079358c60107bbe247129390f21f543c3a52c0fdc921f",
+    "raw_manifests.json": "dd1e755d2db6708fe26cb8f3d06ce041af9bfd9ef577b000743260c019ad86d1",
+    "raw_proc_aih_rows.json": "8789a9580f433f7c93f2652d77486ae53edb7c34f4ab2004113f741e2734c511"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "tenant_id": "354130",
+  "competencia": "2026-01",
+  "run_id": "run-1",
+  "normalized_at": "2026-01-15T12:00:00Z",
+  "manifests": {
+    "SIHD_INTERNACAO": {
+      "manifest_version": 1,
+      "manifest_id": "raw-sihd-internacao-1",
+      "tenant_id": "354130",
+      "source_type": "SIHD",
+      "file_subtype": "SIHD_INTERNACAO",
+      "competencia": "2026-01",
+      "agent_id": "agent-fixture",
+      "agent_version": "0.0.0-fixture",
+      "schema_version": "sihd-raw-v1",
+      "snapshot_mode": "FULL",
+      "snapshot_id": "snap-internacao-1",
+      "base_snapshot_id": null,
+      "sequence": 1,
+      "previous_manifest_sha256": null,
+      "object_key": "raw/354130/SIHD/2026-01/snap-internacao-1/internacao.parquet",
+      "created_at": "2026-01-15T11:00:00Z",
+      "rows_file": "raw_internacao_rows.json"
+    },
+    "SIHD_PROC_AIH": {
+      "manifest_version": 1,
+      "manifest_id": "raw-sihd-proc-aih-1",
+      "tenant_id": "354130",
+      "source_type": "SIHD",
+      "file_subtype": "SIHD_PROC_AIH",
+      "competencia": "2026-01",
+      "agent_id": "agent-fixture",
+      "agent_version": "0.0.0-fixture",
+      "schema_version": "sihd-raw-v1",
+      "snapshot_mode": "FULL",
+      "snapshot_id": "snap-proc-aih-1",
+      "base_snapshot_id": null,
+      "sequence": 1,
+      "previous_manifest_sha256": null,
+      "object_key": "raw/354130/SIHD/2026-01/snap-proc-aih-1/proc_aih.parquet",
+      "created_at": "2026-01-15T11:00:00Z",
+      "rows_file": "raw_proc_aih_rows.json"
+    }
+  }
+}
