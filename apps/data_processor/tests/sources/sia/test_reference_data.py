@@ -57,34 +57,35 @@ def test_adapter_de_referencia_nao_aceita_engine(function: object) -> None:
 def test_sigtap_segue_layout_oficial_tb_procedimento(sia: SiaHarness) -> None:
     raw = sia.raw_frame("DIM_SIGTAP", sia.load_fixture("raw_rows.json")["DIM_SIGTAP"])
 
-    data, _ = normalize_reference("DIM_SIGTAP", raw)
+    data, _ = normalize_reference("DIM_SIGTAP", raw, "2026-01")
 
     assert data.columns == [
         "_source_row", "cod_procedimento", "descricao", "complexidade", "financiamento",
         "competencia_sigtap",
     ]
     assert data.drop("_source_row").rows() == [
-        ("0301010072", "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA", "2", "06", "2026-09"),
-        ("0301010064", "CONSULTA MEDICA EM ATENÇÃO PRIMÁRIA", "1", "01", "2026-09"),
+        ("0301010072", "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA", "2", "06", "2026-01"),
+        ("0301010064", "CONSULTA MEDICA EM ATENÇÃO PRIMÁRIA", "1", "01", "2026-01"),
     ]
 
 
 def test_sigtap_retira_codigo_fora_de_10_digitos_e_duplicado(sia: SiaHarness) -> None:
     raw = sia.raw_frame("DIM_SIGTAP", sia.load_fixture("raw_rows.json")["DIM_SIGTAP"])
 
-    data, quality = normalize_reference("DIM_SIGTAP", raw)
+    data, quality = normalize_reference("DIM_SIGTAP", raw, "2026-01")
 
     assert data.height + quality.height == raw.height
     assert quality.rows() == [
         (1, "linha_duplicada", "duplicata", "primeira_linha=0"),
         (3, "codigo_procedimento_invalido", "rejeitada", "co_procedimento=03010100"),
+        (4, "competencia_divergente", "rejeitada", "competencia=2026-09"),
     ]
 
 
 def test_municipio_deriva_ibge6_e_ibge7_dos_layouts_de_4_6_e_7_digitos(sia: SiaHarness) -> None:
     raw = sia.raw_frame("DIM_MUNICIPIO", sia.load_fixture("raw_rows.json")["DIM_MUNICIPIO"])
 
-    data, _ = normalize_reference("DIM_MUNICIPIO", raw)
+    data, _ = normalize_reference("DIM_MUNICIPIO", raw, "2026-01")
 
     assert data.columns == ["_source_row", "ibge6", "ibge7", "uf", "nome"]
     assert data.select("ibge6", "ibge7").rows() == [
@@ -97,7 +98,7 @@ def test_municipio_deriva_ibge6_e_ibge7_dos_layouts_de_4_6_e_7_digitos(sia: SiaH
 def test_municipio_retira_codigo_invalido_digito_errado_e_duplicado(sia: SiaHarness) -> None:
     raw = sia.raw_frame("DIM_MUNICIPIO", sia.load_fixture("raw_rows.json")["DIM_MUNICIPIO"])
 
-    data, quality = normalize_reference("DIM_MUNICIPIO", raw)
+    data, quality = normalize_reference("DIM_MUNICIPIO", raw, "2026-01")
 
     assert data.height + quality.height == raw.height
     assert quality.rows() == [
@@ -110,14 +111,14 @@ def test_municipio_retira_codigo_invalido_digito_errado_e_duplicado(sia: SiaHarn
 def test_municipio_com_uf_nao_numerica_e_rejeitado() -> None:
     raw = pl.DataFrame({"coduf": ["SP"], "codmunic": ["4130"], "nome": ["X"]})
 
-    data, quality = normalize_reference("DIM_MUNICIPIO", raw)
+    data, quality = normalize_reference("DIM_MUNICIPIO", raw, "2026-01")
 
     assert data.height == 0
     assert quality["issue_code"].to_list() == ["codigo_municipio_invalido"]
 
 
 def test_referencia_vazia_gera_frames_vazios_tipados(sia: SiaHarness) -> None:
-    data, quality = normalize_reference("DIM_SIGTAP", sia.raw_frame("DIM_SIGTAP", []))
+    data, quality = normalize_reference("DIM_SIGTAP", sia.raw_frame("DIM_SIGTAP", []), "2026-01")
 
     assert data.height == quality.height == 0
     assert quality.schema == pl.Schema({
@@ -132,12 +133,12 @@ def test_rejeita_referencia_com_schema_fora_do_contrato() -> None:
     with pytest.raises(
         ValueError, match="sia_schema_invalid subtype=DIM_SIGTAP column=co_procedimento"
     ):
-        normalize_reference("DIM_SIGTAP", raw)
+        normalize_reference("DIM_SIGTAP", raw, "2026-01")
 
 
 def test_rejeita_subtipo_de_referencia_desconhecido() -> None:
     with pytest.raises(SiaContractError, match="sia_reference_unknown subtype=DIM_CID"):
-        normalize_reference("DIM_CID", pl.DataFrame())
+        normalize_reference("DIM_CID", pl.DataFrame(), "2026-01")
 
 
 @pytest.mark.parametrize(

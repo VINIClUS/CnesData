@@ -193,27 +193,34 @@
       "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA ",
       "tp_complexidade": "2",
       "co_financiamento": "06",
-      "dt_competencia": "202609"
+      "dt_competencia": "202601"
     },
     {
       "co_procedimento": "0301010072",
       "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA",
       "tp_complexidade": "2",
       "co_financiamento": "06",
-      "dt_competencia": "202609"
+      "dt_competencia": "202601"
     },
     {
       "co_procedimento": "0301010064",
       "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO PRIMÁRIA",
       "tp_complexidade": "1",
       "co_financiamento": "01",
-      "dt_competencia": "202609"
+      "dt_competencia": "202601"
     },
     {
       "co_procedimento": "03010100",
       "no_procedimento": "CODIGO DE 8 DIGITOS (LAYOUT S_CDN)",
       "tp_complexidade": "2",
       "co_financiamento": "06",
+      "dt_competencia": "202601"
+    },
+    {
+      "co_procedimento": "0304010286",
+      "no_procedimento": "PROCEDIMENTO DE OUTRA COMPETENCIA",
+      "tp_complexidade": "3",
+      "co_financiamento": "04",
       "dt_competencia": "202609"
     }
   ],

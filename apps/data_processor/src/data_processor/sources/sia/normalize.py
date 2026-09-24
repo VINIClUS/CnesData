@@ -84,7 +84,7 @@ def _split(
     subtype: str, raw: pl.DataFrame, competencia: str
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     if subtype in REFERENCE_SUBTYPES:
-        return normalize_reference(subtype, raw)
+        return normalize_reference(subtype, raw, competencia)
     canonical = canonicalize_apa(raw) if subtype == "SIA_APA" else canonicalize_bpi(raw, subtype)
     identity = raw.select(pl.struct(pl.all()).alias(_RAW_IDENTITY))
     indexed = with_source_row(canonical).hstack(identity)

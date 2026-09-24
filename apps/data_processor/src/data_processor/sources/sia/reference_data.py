@@ -15,8 +15,15 @@ from data_processor.sources.sia.contract import (
 REFERENCE_SUBTYPES = frozenset({"DIM_SIGTAP", "DIM_MUNICIPIO"})
 
 
-def normalize_reference(subtype: str, frame: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+def normalize_reference(
+    subtype: str, frame: pl.DataFrame, competencia: str
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Canonicaliza uma referência SIA e separa as linhas retiradas.
+
+    Args:
+        subtype: DIM_SIGTAP ou DIM_MUNICIPIO.
+        frame: Parquet raw da referência.
+        competencia: competência do manifest; SIGTAP de outro mês é rejeitado.
 
     Returns:
         (referência canônica com `_source_row`, linhas de qualidade).
@@ -25,17 +32,25 @@ def normalize_reference(subtype: str, frame: pl.DataFrame) -> tuple[pl.DataFrame
         SiaContractError: subtipo fora de REFERENCE_SUBTYPES.
     """
     if subtype == "DIM_SIGTAP":
-        return _sigtap(frame)
+        return _sigtap(frame, competencia)
     if subtype == "DIM_MUNICIPIO":
         return _municipio(frame)
     raise SiaContractError(f"sia_reference_unknown subtype={subtype}")
 
 
-def _sigtap(frame: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+def _sigtap(frame: pl.DataFrame, competencia: str) -> tuple[pl.DataFrame, pl.DataFrame]:
     canonical = with_source_row(build_reference_sigtap(frame))
-    detail = pl.lit("co_procedimento=") + pl.col("codigo_origem").fill_null("")
+    code_detail = pl.lit("co_procedimento=") + pl.col("codigo_origem").fill_null("")
+    competencia_detail = pl.lit("competencia=") + pl.col("competencia_sigtap").fill_null("")
     checks = (
-        QualityCheck("codigo_procedimento_invalido", pl.col("cod_procedimento").is_null(), detail),
+        QualityCheck(
+            "codigo_procedimento_invalido", pl.col("cod_procedimento").is_null(), code_detail
+        ),
+        QualityCheck(
+            "competencia_divergente",
+            pl.col("competencia_sigtap").ne_missing(pl.lit(competencia)),
+            competencia_detail,
+        ),
     )
     data, quality = split_quality(canonical, checks, ("cod_procedimento",))
     return data.drop("codigo_origem"), quality

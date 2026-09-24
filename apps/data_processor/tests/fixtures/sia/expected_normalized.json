@@ -219,7 +219,7 @@
         "descricao": "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA",
         "complexidade": "2",
         "financiamento": "06",
-        "competencia_sigtap": "2026-09",
+        "competencia_sigtap": "2026-01",
         "_source_subtype": "DIM_SIGTAP",
         "_source_manifest_id": "raw-sia-sigtap-1",
         "_normalized_at": "2026-02-01T04:00:00+00:00"
@@ -230,7 +230,7 @@
         "descricao": "CONSULTA MEDICA EM ATENÇÃO PRIMÁRIA",
         "complexidade": "1",
         "financiamento": "01",
-        "competencia_sigtap": "2026-09",
+        "competencia_sigtap": "2026-01",
         "_source_subtype": "DIM_SIGTAP",
         "_source_manifest_id": "raw-sia-sigtap-1",
         "_normalized_at": "2026-02-01T04:00:00+00:00"
@@ -251,6 +251,15 @@
         "issue_code": "codigo_procedimento_invalido",
         "disposicao": "rejeitada",
         "detalhe": "co_procedimento=03010100",
+        "_source_subtype": "DIM_SIGTAP",
+        "_source_manifest_id": "raw-sia-sigtap-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 4,
+        "issue_code": "competencia_divergente",
+        "disposicao": "rejeitada",
+        "detalhe": "competencia=2026-09",
         "_source_subtype": "DIM_SIGTAP",
         "_source_manifest_id": "raw-sia-sigtap-1",
         "_normalized_at": "2026-02-01T04:00:00+00:00"

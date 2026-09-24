@@ -52,6 +52,17 @@ def test_codigo_fora_do_sigtap_vira_divergencia_com_contador_sem_descartar(
     assert result.kpis["procedimento_desconhecido"] == 1
 
 
+def test_procedimento_so_existente_em_sigtap_de_outra_competencia_nao_valida_producao(
+    sia: SiaHarness,
+) -> None:
+    result = sia.reconcile_all()
+
+    reconciled = _frame(sia, result.reconciliation_manifest.object_key)
+    row = reconciled.filter(pl.col("cod_procedimento") == "0304010286").row(0, named=True)
+    assert row["descricao_procedimento"] is None
+    assert result.kpis["qualidade_dim_sigtap"] == 3
+
+
 def test_sigtap_vazio_gera_uma_divergencia_em_vez_de_marcar_toda_linha(
     sia: SiaHarness,
 ) -> None:
