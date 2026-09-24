@@ -1,0 +1,58 @@
+{
+  "fixture_version": 1,
+  "tenant_id": "354130",
+  "competencia": "2026-01",
+  "volatile_fields": [
+    "_source_manifest_sha256",
+    "object_sha256",
+    "size_bytes"
+  ],
+  "files": {
+    "raw_manifests.json": {
+      "sha256": "ba162fa1ddc208bba19eff08e0d18c42264413e6bce9379e82ee82c591db2537",
+      "row_count": 5
+    },
+    "raw_rows.json": {
+      "sha256": "bb9408521cca38a61c972fce4d7308ac570ba816c77a537217737c452f8124a8",
+      "row_counts": {
+        "SIA_APA": 7,
+        "SIA_BPI": 4,
+        "SIA_BPIHST": 3,
+        "DIM_SIGTAP": 4,
+        "DIM_MUNICIPIO": 6
+      }
+    },
+    "expected_normalized.json": {
+      "sha256": "6e8d253ca282bba109a257e988b1f238df138637d1f6f0faa806ce9a04a818e8",
+      "row_counts": {
+        "SIA_APA": {
+          "data": 4,
+          "quality": 3
+        },
+        "SIA_BPI": {
+          "data": 2,
+          "quality": 2
+        },
+        "SIA_BPIHST": {
+          "data": 2,
+          "quality": 1
+        },
+        "DIM_SIGTAP": {
+          "data": 2,
+          "quality": 2
+        },
+        "DIM_MUNICIPIO": {
+          "data": 3,
+          "quality": 3
+        }
+      }
+    },
+    "expected_serving.json": {
+      "sha256": "e82c7bf3a9808fd0ac5d70a2f03eb4ff57690d283fc413d110e0edb3864799c0",
+      "documents": [
+        "by-establishment",
+        "overview"
+      ]
+    }
+  }
+}

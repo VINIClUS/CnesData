@@ -1,0 +1,321 @@
+{
+  "SIA_APA": {
+    "data": [
+      {
+        "_source_row": 0,
+        "competencia": "2026-01",
+        "cnes": "2077485",
+        "cod_procedimento": "0301010072",
+        "cbo": "225125",
+        "cid10": "C509",
+        "cns_profissional": "708000000000101",
+        "dt_inicio": "2026-01-05",
+        "dt_inicio_invalida": false,
+        "dt_fim": "2026-01-31",
+        "dt_fim_invalida": false,
+        "quantidade": 1,
+        "valor_aprovado_cents": 15000,
+        "_source_subtype": "SIA_APA",
+        "_source_manifest_id": "raw-sia-apa-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 1,
+        "competencia": "2026-01",
+        "cnes": "2077493",
+        "cod_procedimento": "0304010286",
+        "cbo": "225125",
+        "cid10": "C509",
+        "cns_profissional": "708000000000102",
+        "dt_inicio": "2026-01-02",
+        "dt_inicio_invalida": false,
+        "dt_fim": "2026-01-30",
+        "dt_fim_invalida": false,
+        "quantidade": 2147483647,
+        "valor_aprovado_cents": 9000000000,
+        "_source_subtype": "SIA_APA",
+        "_source_manifest_id": "raw-sia-apa-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 4,
+        "competencia": "2026-01",
+        "cnes": "2077485",
+        "cod_procedimento": "0301010072",
+        "cbo": "225125",
+        "cid10": "C509",
+        "cns_profissional": "708000000000101",
+        "dt_inicio": "2026-01-05",
+        "dt_inicio_invalida": false,
+        "dt_fim": "2026-01-31",
+        "dt_fim_invalida": false,
+        "quantidade": 1,
+        "valor_aprovado_cents": 15000,
+        "_source_subtype": "SIA_APA",
+        "_source_manifest_id": "raw-sia-apa-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 6,
+        "competencia": "2026-01",
+        "cnes": "0077485",
+        "cod_procedimento": "0301010072",
+        "cbo": "225125",
+        "cid10": "C509",
+        "cns_profissional": "708000000000103",
+        "dt_inicio": null,
+        "dt_inicio_invalida": true,
+        "dt_fim": null,
+        "dt_fim_invalida": true,
+        "quantidade": 3,
+        "valor_aprovado_cents": 45000,
+        "_source_subtype": "SIA_APA",
+        "_source_manifest_id": "raw-sia-apa-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ],
+    "quality": [
+      {
+        "_source_row": 2,
+        "issue_code": "competencia_divergente",
+        "disposicao": "rejeitada",
+        "detalhe": "competencia=2025-12",
+        "_source_subtype": "SIA_APA",
+        "_source_manifest_id": "raw-sia-apa-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 3,
+        "issue_code": "linha_duplicada",
+        "disposicao": "duplicata",
+        "detalhe": "primeira_linha=0",
+        "_source_subtype": "SIA_APA",
+        "_source_manifest_id": "raw-sia-apa-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 5,
+        "issue_code": "cnes_ausente",
+        "disposicao": "rejeitada",
+        "detalhe": null,
+        "_source_subtype": "SIA_APA",
+        "_source_manifest_id": "raw-sia-apa-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ]
+  },
+  "SIA_BPI": {
+    "data": [
+      {
+        "_source_row": 0,
+        "competencia": "2026-01",
+        "cnes": "2077485",
+        "cod_procedimento": "0301010072",
+        "cbo": "225125",
+        "cid10": null,
+        "cns_profissional": "708000000000201",
+        "dt_atendimento": "2026-01-10",
+        "dt_atendimento_invalida": false,
+        "quantidade": 3,
+        "folha": 1,
+        "seq": 1,
+        "_source_subtype": "SIA_BPI",
+        "_source_manifest_id": "raw-sia-bpi-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 1,
+        "competencia": "2026-01",
+        "cnes": "2077493",
+        "cod_procedimento": "0301010072",
+        "cbo": "225125",
+        "cid10": null,
+        "cns_profissional": "708000000000202",
+        "dt_atendimento": "2026-01-11",
+        "dt_atendimento_invalida": false,
+        "quantidade": 1,
+        "folha": 1,
+        "seq": 2,
+        "_source_subtype": "SIA_BPI",
+        "_source_manifest_id": "raw-sia-bpi-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ],
+    "quality": [
+      {
+        "_source_row": 2,
+        "issue_code": "procedimento_ausente",
+        "disposicao": "rejeitada",
+        "detalhe": null,
+        "_source_subtype": "SIA_BPI",
+        "_source_manifest_id": "raw-sia-bpi-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 3,
+        "issue_code": "linha_duplicada",
+        "disposicao": "duplicata",
+        "detalhe": "primeira_linha=0",
+        "_source_subtype": "SIA_BPI",
+        "_source_manifest_id": "raw-sia-bpi-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ]
+  },
+  "SIA_BPIHST": {
+    "data": [
+      {
+        "_source_row": 0,
+        "competencia": "2026-01",
+        "cnes": "2077485",
+        "cod_procedimento": "0301010072",
+        "cbo": "225125",
+        "cid10": null,
+        "cns_profissional": "708000000000201",
+        "dt_atendimento": "2026-01-10",
+        "dt_atendimento_invalida": false,
+        "quantidade": 3,
+        "folha": 1,
+        "seq": 1,
+        "_source_subtype": "SIA_BPIHST",
+        "_source_manifest_id": "raw-sia-bpihst-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 1,
+        "competencia": "2026-01",
+        "cnes": "2077485",
+        "cod_procedimento": "0301010072",
+        "cbo": "225125",
+        "cid10": null,
+        "cns_profissional": "708000000000201",
+        "dt_atendimento": "2026-01-20",
+        "dt_atendimento_invalida": false,
+        "quantidade": 2,
+        "folha": 9,
+        "seq": 1,
+        "_source_subtype": "SIA_BPIHST",
+        "_source_manifest_id": "raw-sia-bpihst-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ],
+    "quality": [
+      {
+        "_source_row": 2,
+        "issue_code": "competencia_divergente",
+        "disposicao": "rejeitada",
+        "detalhe": "competencia=2025-12",
+        "_source_subtype": "SIA_BPIHST",
+        "_source_manifest_id": "raw-sia-bpihst-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ]
+  },
+  "DIM_SIGTAP": {
+    "data": [
+      {
+        "_source_row": 0,
+        "tabela": "PROC",
+        "item": "0301010072",
+        "descricao": "CONSULTA MEDICA EM ATENCAO ESPECIALIZADA",
+        "checksum": "A1B2C3",
+        "_source_subtype": "DIM_SIGTAP",
+        "_source_manifest_id": "raw-sia-sigtap-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 2,
+        "tabela": "CBO",
+        "item": "225125",
+        "descricao": "MEDICO CLINICO",
+        "checksum": "D4E5F6",
+        "_source_subtype": "DIM_SIGTAP",
+        "_source_manifest_id": "raw-sia-sigtap-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ],
+    "quality": [
+      {
+        "_source_row": 1,
+        "issue_code": "linha_duplicada",
+        "disposicao": "duplicata",
+        "detalhe": "primeira_linha=0",
+        "_source_subtype": "DIM_SIGTAP",
+        "_source_manifest_id": "raw-sia-sigtap-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 3,
+        "issue_code": "item_ausente",
+        "disposicao": "rejeitada",
+        "detalhe": null,
+        "_source_subtype": "DIM_SIGTAP",
+        "_source_manifest_id": "raw-sia-sigtap-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ]
+  },
+  "DIM_MUNICIPIO": {
+    "data": [
+      {
+        "_source_row": 0,
+        "ibge6": "354130",
+        "ibge7": "3541307",
+        "uf": "35",
+        "nome": "PRESIDENTE EPITACIO",
+        "_source_subtype": "DIM_MUNICIPIO",
+        "_source_manifest_id": "raw-sia-municipio-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 1,
+        "ibge6": "354140",
+        "ibge7": "3541406",
+        "uf": "35",
+        "nome": "PRESIDENTE PRUDENTE",
+        "_source_subtype": "DIM_MUNICIPIO",
+        "_source_manifest_id": "raw-sia-municipio-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 2,
+        "ibge6": "355030",
+        "ibge7": "3550308",
+        "uf": "35",
+        "nome": "SAO PAULO",
+        "_source_subtype": "DIM_MUNICIPIO",
+        "_source_manifest_id": "raw-sia-municipio-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ],
+    "quality": [
+      {
+        "_source_row": 3,
+        "issue_code": "codigo_municipio_invalido",
+        "disposicao": "rejeitada",
+        "detalhe": "codmunic=35503",
+        "_source_subtype": "DIM_MUNICIPIO",
+        "_source_manifest_id": "raw-sia-municipio-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 4,
+        "issue_code": "linha_duplicada",
+        "disposicao": "duplicata",
+        "detalhe": "primeira_linha=0",
+        "_source_subtype": "DIM_MUNICIPIO",
+        "_source_manifest_id": "raw-sia-municipio-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      },
+      {
+        "_source_row": 5,
+        "issue_code": "codigo_municipio_invalido",
+        "disposicao": "rejeitada",
+        "detalhe": "codmunic=3541300",
+        "_source_subtype": "DIM_MUNICIPIO",
+        "_source_manifest_id": "raw-sia-municipio-1",
+        "_normalized_at": "2026-02-01T04:00:00+00:00"
+      }
+    ]
+  }
+}

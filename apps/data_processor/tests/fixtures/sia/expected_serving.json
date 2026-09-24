@@ -1,0 +1,131 @@
+{
+  "by-establishment": {
+    "schema_version": "sia-by-establishment-v1",
+    "tenant_id": "354130",
+    "run_id": "run-sia-1",
+    "generated_at": "2026-02-01T04:00:00Z",
+    "dataset": "sia",
+    "competencia": "2026-01",
+    "estabelecimentos": [
+      {
+        "cnes": "0077485",
+        "totais_por_fonte": {
+          "SIA_APA": {
+            "linhas": 1,
+            "quantidade": 3,
+            "valor_aprovado_cents": 45000
+          },
+          "SIA_BPI": {
+            "linhas": 0,
+            "quantidade": 0,
+            "valor_aprovado_cents": null
+          },
+          "SIA_BPIHST": {
+            "linhas": 0,
+            "quantidade": 0,
+            "valor_aprovado_cents": null
+          }
+        },
+        "divergencias": {
+          "candidato_duplicado_bpi_bpihst": 0,
+          "procedimento_desconhecido": 0
+        }
+      },
+      {
+        "cnes": "2077485",
+        "totais_por_fonte": {
+          "SIA_APA": {
+            "linhas": 2,
+            "quantidade": 2,
+            "valor_aprovado_cents": 30000
+          },
+          "SIA_BPI": {
+            "linhas": 1,
+            "quantidade": 3,
+            "valor_aprovado_cents": null
+          },
+          "SIA_BPIHST": {
+            "linhas": 2,
+            "quantidade": 5,
+            "valor_aprovado_cents": null
+          }
+        },
+        "divergencias": {
+          "candidato_duplicado_bpi_bpihst": 1,
+          "procedimento_desconhecido": 0
+        }
+      },
+      {
+        "cnes": "2077493",
+        "totais_por_fonte": {
+          "SIA_APA": {
+            "linhas": 1,
+            "quantidade": 2147483647,
+            "valor_aprovado_cents": 9000000000
+          },
+          "SIA_BPI": {
+            "linhas": 1,
+            "quantidade": 1,
+            "valor_aprovado_cents": null
+          },
+          "SIA_BPIHST": {
+            "linhas": 0,
+            "quantidade": 0,
+            "valor_aprovado_cents": null
+          }
+        },
+        "divergencias": {
+          "candidato_duplicado_bpi_bpihst": 0,
+          "procedimento_desconhecido": 1
+        }
+      }
+    ]
+  },
+  "overview": {
+    "schema_version": "sia-overview-v1",
+    "tenant_id": "354130",
+    "run_id": "run-sia-1",
+    "generated_at": "2026-02-01T04:00:00Z",
+    "dataset": "sia",
+    "competencia": "2026-01",
+    "totais_por_fonte": {
+      "SIA_APA": {
+        "linhas": 4,
+        "quantidade": 2147483652,
+        "valor_aprovado_cents": 9000075000
+      },
+      "SIA_BPI": {
+        "linhas": 2,
+        "quantidade": 4,
+        "valor_aprovado_cents": null
+      },
+      "SIA_BPIHST": {
+        "linhas": 2,
+        "quantidade": 5,
+        "valor_aprovado_cents": null
+      }
+    },
+    "divergencias": {
+      "candidato_duplicado_bpi_bpihst": 1,
+      "procedimento_desconhecido": 1
+    },
+    "kpis": {
+      "candidato_duplicado_bpi_bpihst": 1,
+      "datas_invalidas": 1,
+      "linhas_dim_municipio": 3,
+      "linhas_dim_sigtap": 2,
+      "linhas_sia_apa": 4,
+      "linhas_sia_bpi": 2,
+      "linhas_sia_bpihst": 2,
+      "procedimento_desconhecido": 1,
+      "qualidade_dim_municipio": 3,
+      "qualidade_dim_sigtap": 2,
+      "qualidade_sia_apa": 3,
+      "qualidade_sia_bpi": 2,
+      "qualidade_sia_bpihst": 1,
+      "quantidade_total": 2147483661,
+      "valor_aprovado_cents_total": 9000075000
+    },
+    "missing_sources": []
+  }
+}
