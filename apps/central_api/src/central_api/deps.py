@@ -6,6 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from hmac import compare_digest
 from typing import TYPE_CHECKING
 
 from fastapi import Depends, Header, HTTPException
@@ -100,6 +101,15 @@ def require_auth(request: Request) -> AuthenticatedUser:
     if not isinstance(user, AuthenticatedUser):
         raise HTTPException(status_code=401, detail="auth_required")
     return user
+
+
+def require_admin_token(x_admin_token: str | None = Header(None)) -> None:
+    if not config.ADMIN_TOKEN:
+        raise HTTPException(status_code=503, detail="admin_disabled")
+    if not compare_digest(
+        (x_admin_token or "").encode(), config.ADMIN_TOKEN.encode(),
+    ):
+        raise HTTPException(status_code=401, detail="admin_token_required")
 
 
 async def require_tenant_header(

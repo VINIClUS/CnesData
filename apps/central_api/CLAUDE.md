@@ -20,8 +20,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `POST /api/v1/jobs/register` — registra manifest N-file em `landing.extractions`
 - `POST /api/v1/jobs/{job_id}/fail` — marca FAILED + persiste `error_detail`
   (status-guarded, `PENDING`/`CLAIMED` apenas — idempotente em retry)
-- `POST /api/v1/extractions/enqueue` — cria extractions por fonte/competência
-- `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (admin)
+- `POST /api/v1/extractions/enqueue` — cria extractions por fonte/competência (`X-Admin-Token`)
+- `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (`X-Admin-Token`)
 - `GET /api/v1/agents/status` — status agregado do agent (Bearer + `require_tenant_header`)
 - `GET /api/v1/agents/whoami` — identidade do cert mTLS (`require_agent_cert`); smoke do `register`
 - Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
@@ -83,6 +83,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `API_HOST` | opcional | Default `0.0.0.0` |
 | `API_PORT` | opcional | Default `8000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | opcional | Tracing (se OTel SDK instalado) |
+| `ADMIN_TOKEN` | opcional | `X-Admin-Token` das rotas admin (`deps.require_admin_token`); vazio = 503 `admin_disabled` |
 | `ENABLE_REAPER` | opcional | `true` em 1 réplica para reaper rodar (futuro) |
 | `AUTH_CA_CERT_PATH` | sim (no boot) | Path to PEM root CA cert |
 | `AUTH_CA_KEY_PATH` | sim (no boot) | Path to PEM root CA private key |

@@ -2,6 +2,7 @@
 import gzip
 import io
 import json
+import os
 import urllib.request
 import uuid
 
@@ -139,6 +140,7 @@ def test_reap_leases_retorna_contagem(api_url):
         f"{api_url}/api/v1/admin/reap-leases",
         method="POST",
         data=b"",
+        headers={"X-Admin-Token": os.environ.get("ADMIN_TOKEN", "local-admin")},
     )
     resp = urllib.request.urlopen(req)
     body = json.loads(resp.read())

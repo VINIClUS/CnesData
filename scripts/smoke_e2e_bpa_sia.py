@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from datetime import date
 
@@ -69,7 +70,10 @@ def main() -> int:
                        format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-url", required=True)
-    parser.add_argument("--admin-token", required=True)
+    parser.add_argument(
+        "--admin-token", default=os.environ.get("ADMIN_TOKEN"),
+        required="ADMIN_TOKEN" not in os.environ,
+    )
     parser.add_argument("--db-url", required=True)
     parser.add_argument("--tenant", default="354130")
     args = parser.parse_args()

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 
-from central_api.deps import get_engine
+from central_api.deps import get_engine, require_admin_token
 from cnes_infra.storage import extractions_repo
 
 if TYPE_CHECKING:
@@ -19,6 +19,7 @@ router = APIRouter(tags=["admin"])
 
 @router.post("/admin/reap-leases")
 def reap_leases(
+    _: None = Depends(require_admin_token),
     engine: Engine = Depends(get_engine),
 ) -> dict:
     count = extractions_repo.reap_expired(engine)

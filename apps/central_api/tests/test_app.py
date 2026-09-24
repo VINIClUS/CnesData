@@ -167,8 +167,21 @@ class TestLocalCompositionDependencies:
             _serving_principal_resolver(auth_service)(request)
 
 
+_ADMIN_KEY = "token-configurado"
+_ENQUEUE_BODY = {
+    "source_type": "BPA_MAG", "tenant_id": "354130", "competencia": "2026-02-01",
+}
+
+
+@pytest.fixture
+def admin_token(monkeypatch):
+    from cnes_infra import config
+    monkeypatch.setattr(config, "ADMIN_TOKEN", _ADMIN_KEY)
+    return _ADMIN_KEY
+
+
 class TestAdminEndpoint:
-    def test_reap_leases_retorna_contagem(self, app, assert_query_limit):
+    def test_reap_leases_retorna_contagem(self, app, admin_token, assert_query_limit):
         from central_api.deps import get_conn
         fake_conn = MagicMock()
         app.dependency_overrides[get_conn] = lambda: fake_conn
@@ -179,13 +192,15 @@ class TestAdminEndpoint:
                 return_value=3,
             ),
         ):
-            resp = c.post("/api/v1/admin/reap-leases")
+            resp = c.post(
+                "/api/v1/admin/reap-leases", headers={"X-Admin-Token": admin_token},
+            )
         app.dependency_overrides.clear()
         assert resp.status_code == 200
         assert resp.json() == {"reaped": 3}
         assert_query_limit(resp, 15)
 
-    def test_reap_leases_retorna_zero_quando_sem_leases(self, app):
+    def test_reap_leases_retorna_zero_quando_sem_leases(self, app, admin_token):
         from central_api.deps import get_conn
         fake_conn = MagicMock()
         app.dependency_overrides[get_conn] = lambda: fake_conn
@@ -196,9 +211,72 @@ class TestAdminEndpoint:
                 return_value=0,
             ),
         ):
-            resp = c.post("/api/v1/admin/reap-leases")
+            resp = c.post(
+                "/api/v1/admin/reap-leases", headers={"X-Admin-Token": admin_token},
+            )
         app.dependency_overrides.clear()
         assert resp.json() == {"reaped": 0}
+
+
+class TestAdminTokenGuard:
+    @pytest.fixture
+    def reap_expired(self):
+        with patch(
+            "central_api.routes.admin.extractions_repo.reap_expired", return_value=0,
+        ) as m:
+            yield m
+
+    @pytest.fixture
+    def enqueue(self):
+        with patch(
+            "central_api.routes.extractions.extractions_repo.enqueue",
+        ) as m:
+            yield m
+
+    @pytest.mark.parametrize("headers", [
+        {},
+        {"X-Admin-Token": "test-admin"},
+        {"X-Admin-Token": ""},
+    ])
+    def test_reap_leases_rejeita_token_ausente_ou_invalido(
+        self, app, admin_token, reap_expired, headers,
+    ):
+        with TestClient(app) as c:
+            resp = c.post("/api/v1/admin/reap-leases", headers=headers)
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "admin_token_required"
+        reap_expired.assert_not_called()
+
+    @pytest.mark.parametrize("headers", [
+        {},
+        {"X-Admin-Token": "test-admin"},
+    ])
+    def test_enqueue_rejeita_token_ausente_ou_invalido(
+        self, app, admin_token, enqueue, headers,
+    ):
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/extractions/enqueue", json=_ENQUEUE_BODY, headers=headers,
+            )
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "admin_token_required"
+        enqueue.assert_not_called()
+
+    @pytest.mark.parametrize("path", [
+        "/api/v1/admin/reap-leases",
+        "/api/v1/extractions/enqueue",
+    ])
+    def test_rotas_admin_desativadas_sem_token_configurado(
+        self, app, monkeypatch, reap_expired, enqueue, path,
+    ):
+        from cnes_infra import config
+        monkeypatch.setattr(config, "ADMIN_TOKEN", "")
+        with TestClient(app) as c:
+            resp = c.post(path, json=_ENQUEUE_BODY, headers={"X-Admin-Token": ""})
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "admin_disabled"
+        reap_expired.assert_not_called()
+        enqueue.assert_not_called()
 
 
 class TestTenantHeader:
