@@ -138,3 +138,20 @@ def test_canonicaliza_bpa_c_sem_cid_nem_data() -> None:
     assert row["cid"] is None
     assert row["data_atendimento"] is None
     assert row["competencia"] == "2026-08"
+
+
+def test_cbo_em_branco_e_aceito_para_procedimento_que_dispensa_cbo() -> None:
+    assert _codes([_raw(prd_cbo="      ")]) == []
+
+
+def test_registra_idade_fora_do_dominio_0_a_130() -> None:
+    rows = [_raw(prd_seq="01", prd_idade="130"), _raw(prd_seq="02", prd_idade="131"),
+            _raw(prd_seq="03", prd_idade="999")]
+    keyed = _keyed(rows)
+    issues = quality_issues(keyed, "BPA_I", "2026-08")
+
+    canonical = canonicalize(keyed, "BPA_I", "2026-08", issues["source_record_id"])
+
+    assert sorted(issues["raw_value"]) == ["131", "999"]
+    assert set(issues["code"]) == {"idade_invalida"}
+    assert canonical["idade"].to_list() == [130, None, None]

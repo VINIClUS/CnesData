@@ -31,6 +31,7 @@ _SIGTAP = r"^[0-9]{10}$"
 _CBO = r"^[0-9]{4}[0-9A-Z]{2}$"
 _CID = r"^[A-Z][0-9]{2}[0-9A-Z]?$"
 _IDADE = r"^[0-9]{1,3}$"
+_MAX_IDADE = 130
 _DATE = r"^[0-9]{8}$"
 _ORDINAL = "_ordinal"
 
@@ -137,7 +138,7 @@ def canonicalize(frame: pl.DataFrame, file_subtype: str, competencia: str,
         _valid_or_null("prd_pa", _SIGTAP).alias("sigtap"),
         _valid_or_null("prd_cbo", _CBO).alias("cbo"),
         (_valid_or_null("prd_cid", _CID) if individual else pl.lit(None)).alias("cid"),
-        _valid_or_null("prd_idade", _IDADE).cast(pl.Int64).alias("idade"),
+        pl.when(_valid_age()).then(pl.col("prd_idade")).cast(pl.Int64).alias("idade"),
         (_parsed_date() if individual else pl.lit(None)).alias("data_atendimento"),
         pl.when(_valid_quantity()).then(pl.col(RAW_QUANTITY_COLUMN)).alias("quantidade"),
         pl.col("prd_cnsmed").is_not_null().alias("tem_cns_profissional"),
@@ -159,6 +160,11 @@ def _present_and_invalid(column: str, pattern: str) -> pl.Expr:
 
 def _valid_or_null(column: str, pattern: str) -> pl.Expr:
     return pl.when(_matches(column, pattern)).then(pl.col(column))
+
+
+def _valid_age() -> pl.Expr:
+    age = pl.col("prd_idade").cast(pl.Int64, strict=False)
+    return (_matches("prd_idade", _IDADE) & (age <= _MAX_IDADE)).fill_null(False)
 
 
 def _valid_quantity() -> pl.Expr:
@@ -188,8 +194,9 @@ def _rules(file_subtype: str, competencia: str) -> tuple[QualityRule, ...]:
         ("origem", "origem_divergente", "prd_org",
          (pl.col("prd_org") != SUBTYPE_ORIGIN[file_subtype]).fill_null(True)),
         ("sigtap", "sigtap_invalido", "prd_pa", ~_matches("prd_pa", _SIGTAP)),
-        ("cbo", "cbo_invalido", "prd_cbo", ~_matches("prd_cbo", _CBO)),
-        ("idade", "idade_invalida", "prd_idade", _present_and_invalid("prd_idade", _IDADE)),
+        ("cbo", "cbo_invalido", "prd_cbo", _present_and_invalid("prd_cbo", _CBO)),
+        ("idade", "idade_invalida", "prd_idade",
+         pl.col("prd_idade").is_not_null() & ~_valid_age()),
         ("quantidade", "quantidade_invalida", RAW_QUANTITY_COLUMN, ~_valid_quantity()),
         ("chave_registro", "registro_duplicado", None, pl.col(_ORDINAL) > 0),
     )
