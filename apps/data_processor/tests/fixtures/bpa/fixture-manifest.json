@@ -8,7 +8,18 @@
       "BPA_C": "BPA",
       "BPA_I": "BPI"
     },
-    "values": "sinteticos; nenhuma linha real"
+    "values": "sinteticos; nenhuma linha real",
+    "evidence": {
+      "method": "RDB$ metadata + aggregates only; no row read",
+      "rows_by_origin": {
+        "BPA": 3370,
+        "BPI": 1440
+      },
+      "blank_convention": "space-padded; BPA rows have blank PRD_CNSPAC/PRD_CNSMED/PRD_DTATEN/PRD_CID",
+      "row_key_unique": "PRD_UID|PRD_CMP|PRD_FLH|PRD_SEQ distinct = row count per origin",
+      "prd_qt_p": "integral values only, 1..3157",
+      "prd_mvm_equals_prd_cmp": true
+    }
   },
   "files": {
     "expected_normalized.json": {
