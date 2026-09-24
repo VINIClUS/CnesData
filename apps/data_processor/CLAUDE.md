@@ -69,8 +69,9 @@ colisão (lease-based).
 | `src/data_processor/adapters/cnes_nacional_adapter.py` | Parquet BigQuery nacional → canônico |
 | `src/data_processor/adapters/sihd_local_adapter.py` | Parquet SIHD/AIH → canônico |
 | `src/data_processor/adapters/bpa_adapter.py` | `map_bpa_c_to_fato` / `map_bpa_i_to_fato` |
-| `src/data_processor/adapters/sia_adapter.py` | `map_apa_to_fato` / `map_bpi_to_fato` |
-| `src/data_processor/adapters/sia_dim_sync.py` | `sync_dim_procedimento`, `sync_dim_municipio` |
+| `src/data_processor/adapters/sia_adapter.py` | `canonicalize_apa` / `canonicalize_bpi` + `map_*_to_fato` legado |
+| `src/data_processor/adapters/sia_dim_sync.py` | `build_reference_sigtap` / `build_reference_municipio` (Polars puro, sem SQL) |
+| `src/data_processor/sources/sia/` | `normalize_sia` / `reconcile_sia` / `materialize_sia` — plugin Parquet SIA_LOCAL |
 | `src/data_processor/cdc_merger.py` | `merge_delta` — roteia `_op ∈ {I,U,D}` |
 | `src/data_processor/integrity_check.py` | `verify_parquet` — SHA-256 sobre Parquet baixado |
 | `src/data_processor/pipeline/normalize_cnes_local.py` | `normalize_cnes_local` — reconstrói FULL+DELTA |
