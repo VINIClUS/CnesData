@@ -80,10 +80,10 @@ colisão (lease-based).
 | `src/data_processor/pipeline/materialize_cnes.py` | `materialize_cnes` — serving JSON agregado |
 | `src/data_processor/pipeline/delta_reconstruction.py` | `reconstruct_from_deltas` — CDC por natural key |
 | `src/data_processor/sources/bpa/` | Plugin BPA: `normalize_bpa`, `reconcile_bpa`, `materialize_bpa` |
-| `sources/sihd/contract.py` | Layout, colunas permitidas, domínios, deny-list PII |
-| `sources/sihd/normalize.py` | `normalize_sihd` — FULL+DELTA → data + quality |
-| `sources/sihd/reconcile.py` | `reconcile_sihd` — internações × procedimentos por AIH |
-| `sources/sihd/serving.py` | `materialize_sihd` — `overview.json` sem PII |
+| `src/data_processor/sources/sihd/contract.py` | Layout, colunas, domínios, deny-list PII |
+| `src/data_processor/sources/sihd/normalize.py` | `normalize_sihd` (FULL+DELTA) |
+| `src/data_processor/sources/sihd/reconcile.py` | `reconcile_sihd` (join por AIH) |
+| `src/data_processor/sources/sihd/serving.py` | `materialize_sihd` (sem PII) |
 
 ## Gotchas
 
