@@ -115,7 +115,7 @@ def test_kpis_fecham_contabilidade_de_todos_os_subtipos(sia: SiaHarness) -> None
 
 def test_kpi_de_datas_invalidas_conta_somente_linhas_normalizadas(sia: SiaHarness) -> None:
     apa = sia.load_fixture("raw_rows.json")["SIA_APA"]
-    rejected_with_bad_date = {**apa[6], "apa_cmp": "202512"}
+    rejected_with_bad_date = {**apa[6], "prd_cmp": "202512"}
 
     result = sia.reconcile_all({"SIA_APA": [apa[0], rejected_with_bad_date]})
 

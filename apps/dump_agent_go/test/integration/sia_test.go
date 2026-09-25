@@ -11,7 +11,8 @@ import (
 
 func TestSIA_SyntheticFixtures(t *testing.T) {
 	dir := filepath.Join("fixtures", "sia_synthetic")
-	result, err := extractor.ExtractSIA(dir)
+	result, err := extractor.ExtractSIA(dir, "202601",
+		[]string{"SIA_APA", "SIA_BPI", "SIA_BPIHST", "DIM_SIGTAP", "DIM_MUNICIPIO"})
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -19,17 +20,17 @@ func TestSIA_SyntheticFixtures(t *testing.T) {
 	cases := []struct {
 		name string
 		got  int
-		min  int
+		want int
 	}{
-		{"APA", len(result.APA), 3},
-		{"BPI", len(result.BPI), 5},
-		{"BPIHST", len(result.BPIHST), 8},
-		{"CDN", len(result.CDN), 3},
+		{"APA", len(result.APA), 4},
+		{"BPI", len(result.BPI), 8},
+		{"BPIHST", len(result.BPIHST), 12},
+		{"SIGTAP", len(result.SIGTAP), 4},
 		{"CADMUN", len(result.CADMUN), 2},
 	}
 	for _, c := range cases {
-		if c.got < c.min {
-			t.Errorf("%s count=%d want>=%d", c.name, c.got, c.min)
+		if c.got != c.want {
+			t.Errorf("%s count=%d want=%d", c.name, c.got, c.want)
 		}
 	}
 }

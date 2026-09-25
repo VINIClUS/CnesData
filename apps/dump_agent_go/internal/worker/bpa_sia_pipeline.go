@@ -89,7 +89,11 @@ func RunBPAPipeline(ctx context.Context, cfg BPAPipelineConfig, job ClaimedJob) 
 // RunSIAPipeline extrai SIA_LOCAL, faz PUT de cada FileManifestRef e
 // registra manifest no central via /jobs/register.
 func RunSIAPipeline(ctx context.Context, cfg SIAPipelineConfig, job ClaimedJob) error {
-	result, err := extractor.ExtractSIA(cfg.SIADir)
+	subtypes := make([]string, 0, len(job.Files))
+	for _, f := range job.Files {
+		subtypes = append(subtypes, f.FatoSubtype)
+	}
+	result, err := extractor.ExtractSIA(cfg.SIADir, job.Competencia, subtypes)
 	if err != nil {
 		return fmt.Errorf("sia_extract: %w", err)
 	}
@@ -170,7 +174,7 @@ func serializeSIA(subtype string, r *extractor.SIAResult) ([]byte, error) {
 	case "SIA_BPIHST":
 		return writer.WriteSIABPIParquetGzip(r.BPIHST)
 	case "DIM_SIGTAP":
-		return writer.WriteCDNParquetGzip(r.CDN)
+		return writer.WriteSIGTAPParquetGzip(r.SIGTAP)
 	case "DIM_MUNICIPIO":
 		return writer.WriteCADMUNParquetGzip(r.CADMUN)
 	}

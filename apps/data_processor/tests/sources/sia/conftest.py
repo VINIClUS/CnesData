@@ -40,18 +40,16 @@ RUN_ID = "run-sia-1"
 NOW = datetime(2026, 2, 1, 4, tzinfo=UTC)
 SUBTYPES = tuple(item.file_subtype for item in SIA_LAYOUT.normalized)
 
-_DATETIME = pl.Datetime("ns", "UTC")
 _APA_DTYPES = {
-    "apa_cmp": pl.String, "apa_cnes": pl.String, "apa_cnspct": pl.String,
-    "apa_cnsexe": pl.String, "apa_proc": pl.String, "apa_cbo": pl.String,
-    "apa_cid": pl.String, "apa_dtini": _DATETIME, "apa_dtfin": _DATETIME,
-    "apa_qtapr": pl.Int32, "apa_vlapr": pl.Int64,
+    **dict.fromkeys(("prd_uid", "prd_cmp", "prd_apanum", "prd_pa", "prd_cbo", "prd_cidpri"),
+                    pl.String),
+    **dict.fromkeys(("prd_qt_p", "prd_qt_a", "prd_vl_p", "prd_vl_a"), pl.Int64),
+    **dict.fromkeys(("apa_dtinic", "apa_dtfim", "apa_cnsexe"), pl.String),
 }
 _BPI_DTYPES = {
-    "bpi_cmp": pl.String, "bpi_cnes": pl.String, "bpi_cnspac": pl.String,
-    "bpi_cnsmed": pl.String, "bpi_cbo": pl.String, "bpi_proc": pl.String,
-    "bpi_cid": pl.String, "bpi_dtaten": _DATETIME, "bpi_qt": pl.Int32,
-    "bpi_folha": pl.Int16, "bpi_seq": pl.Int16,
+    **dict.fromkeys(("bpi_uid", "bpi_cmp", "bpi_cnsmed", "bpi_cbo", "bpi_flh", "bpi_seq",
+                     "bpi_pa", "bpi_cid", "bpi_dtaten"), pl.String),
+    **dict.fromkeys(("bpi_qt_p", "bpi_qt_a"), pl.Int64),
 }
 RAW_DTYPES: dict[str, dict[str, Any]] = {
     "SIA_APA": _APA_DTYPES,
@@ -64,7 +62,7 @@ RAW_DTYPES: dict[str, dict[str, Any]] = {
     ),
     "DIM_MUNICIPIO": {
         "coduf": pl.String, "codmunic": pl.String, "nome": pl.String,
-        "condic": pl.String, "tetopab": pl.Int64, "calcpab": pl.String,
+        "condic": pl.String, "tetopab": pl.Float64, "calcpab": pl.Float64,
     },
 }
 
@@ -113,16 +111,7 @@ def frame_rows(frame: pl.DataFrame) -> list[dict[str, Any]]:
 
 def raw_frame(subtype: str, rows: list[dict[str, Any]]) -> pl.DataFrame:
     dtypes = RAW_DTYPES[subtype]
-    parsed = [
-        {name: _parse(value, dtypes[name]) for name, value in row.items()} for row in rows
-    ]
-    return pl.DataFrame(parsed, schema=dtypes)
-
-
-def _parse(value: Any, dtype: Any) -> Any:
-    if dtype == _DATETIME and value is not None:
-        return datetime.fromisoformat(value)
-    return value
+    return pl.DataFrame(rows, schema=dtypes)
 
 
 @dataclass

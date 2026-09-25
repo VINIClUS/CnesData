@@ -85,6 +85,21 @@ func TestFSStrategy_SIADirWithExpectedDBFs(t *testing.T) {
 	require.Equal(t, 70, cands[0].Score, "60 base + 10 SIA bonus")
 }
 
+func TestFSStrategy_SIADirSIASUSDoPiloto(t *testing.T) {
+	fs := &fakeFS{
+		dirs: map[string]bool{`C:\Datasus\SIASUS\SIA`: true},
+		files: map[string]int64{
+			`C:\Datasus\SIASUS\SIA\S_PRD.DBF`:  100,
+			`C:\Datasus\SIASUS\SIA\S_PA.DBF`:   100,
+			`C:\Datasus\SIASUS\SIA\CADMUN.DBF`: 50,
+		},
+	}
+	drives := func() []string { return []string{`C:`} }
+	cands := FilesystemHits(context.Background(), ProfileFor(SourceSIA), fs, drives)
+	require.Len(t, cands, 1)
+	require.Equal(t, `C:\Datasus\SIASUS\SIA`, cands[0].Path)
+}
+
 func TestFSStrategy_SIADirMissingExpectedDBFs(t *testing.T) {
 	fs := &fakeFS{
 		dirs:  map[string]bool{`C:\Datasus\SIA`: true},

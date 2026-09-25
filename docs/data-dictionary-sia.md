@@ -1,102 +1,141 @@
 # Dicionario de Dados - SIA (SIASUS DBFs)
 
 > Introspeccao automatica via `scripts/introspect_sia_dbf.py`.
-> Source: `E:\siasus`
-> DBFs: 105
+> Source: `C:\DATASUS\SIASUS\SIA`
+> Regenerado em 2026-09-25 no host SIASUS do piloto (versão atual do SIA).
+> DBFs: 113
 
 ## DBFs prioritárias
 
-Baseado em tamanho + papel inferido (via Manual_Operacional_SIA + nome):
-
-| DBF | Propósito | Mapeia para Gold v2 |
+| DBF | Propósito | Subtipo raw Edge |
 |---|---|---|
-| `S_APA.DBF` | Autorização Procedimentos de Alta Complexidade (APAC) | `fato_producao_ambulatorial` (subtipo `SIA_APA`) |
-| `S_BPI.DBF` | BPA Individualizado (procedimentos por paciente) | `fato_producao_ambulatorial` (subtipo `SIA_BPI`) |
-| `S_BPIHST.DBF` | BPA-I histórico | `fato_producao_ambulatorial` histórico |
-| `S_CDN.DBF` | Cadastro domínio de códigos | `dim_procedimento_sus` sync |
-| `CADMUN.DBF` | Cadastro municípios | `dim_municipio` reconciliação |
-| `consiste.dbf` | Regras de consistência | **Ignorar** (lógica de negócio) |
+| `S_PRD.DBF` | Produção consolidada (BPA-C, BPA-I, APAC); linhas APAC têm `PRD_APANUM` | `SIA_APA` |
+| `S_APA.DBF` | Cabeçalho da APAC (paciente, datas, executante) — sem procedimento/quantidade/valor | `SIA_APA` (join) |
+| `S_BPI.DBF` / `S_BPIHST.DBF` | BPA Individualizado (competência aberta / histórico) | `SIA_BPI` / `SIA_BPIHST` |
+| `S_PA.DBF` | Procedimentos SIGTAP por competência (`PA_ID`+`PA_DV`) | `DIM_SIGTAP` |
+| `CADMUN.DBF` | Cadastro de municípios (`CODUF`+`CODMUNIC` = IBGE6) | `DIM_MUNICIPIO` |
+| `S_CDN.DBF` | Domínio genérico de códigos (`CDN_TB` C2 / `CDN_IT` C10) — **não é SIGTAP** | — |
 
-Observações da introspecção real:
-- `S_APA.DBF` (1381 records, 62 fields): prefixos `APA_*` confirmam APAC individualizada (paciente, procedimento, dt_inicio/fim, CID).
-- `S_BPI.DBF` (910 records, 59 fields) e `S_BPIHST.DBF` (1792 records, 59 fields): schema idêntico com prefixo `BPI_*` (CNS paciente, CNS profissional, CBO, procedimento, folha/seq). Confirma BPA-Individualizado; `HST` é histórico de competências anteriores.
-- `S_CDN.DBF` (5570 records, 4 fields): schema genérico `CDN_TB/IT/DSCR/CHKSM` — tabela de domínio normalizada (dicionário de códigos). Útil para `dim_procedimento_sus` e demais dimensões que dependem de lookups SIA.
-- `CADMUN.DBF` (5715 records, 8 fields): `CODUF/CODMUNIC/NOME/CONDIC/TETOPAB/CALCPAB` — cadastro municípios com tetos PAB. Complementa `dim_municipio` com metadados financeiros se necessário.
-- `consiste.dbf` (469 records, 15 fields, prefixo misto `UID/CMP/TIPO/APAC/FOLHA/SEQ`): inconsistências de lote — lógica de auditoria interna do SIA, **ignorar** na Gold.
+Observações da introspecção real (2026-09-25, só metadata e agregados):
+- `S_PRD` e `S_BPI` só têm linhas entre a importação e o fechamento da
+  competência. Após o fechamento, BPI vai para `S_BPIHST` (4 competências
+  retidas), mas a produção APAC **não** tem histórico local (`S_PRDHST` guarda
+  só `CMP/UID/PA/INSRG`). O Edge precisa extrair APAC dentro da janela.
+- `S_APA` retém ~22 competências e `APA_NUM` se repete entre elas (APAC de
+  continuidade): o join com `S_PRD` é por `(PRD_APANUM, PRD_CMP) = (APA_NUM, APA_CMP)`.
+- `S_PA` retém ~6 competências; `PA_CPX` ∈ {0,1,2,3} equivale ao
+  `TP_COMPLEXIDADE` do SIGTAP e `PA_CTF` ∈ {01..08} ao `CO_FINANCIAMENTO`.
+- Datas são `C(8)` `AAAAMMDD`, não campos `D`. Quantidades `N(6)`, valores `N(15,2)`
+  (`PRD_VL_*`) / `N(10,2)` (`*_VL_FED/LOC/INC`).
+- `CODMUNIC` é `C(4)`; `TETOPAB`/`CALCPAB` são `N(12,2)` e podem vir em branco.
+- `s_proc.dbf`/`s_corpo.dbf` são staging de importação APAC (só a última
+  competência importada) — não usados.
+
+## Contrato raw Edge (`dump_agent_go`, SIA_LOCAL)
+
+Colunas em minúsculas com o nome real do DBF; texto em branco vai como `""`
+(o `data_processor` trata como nulo); PII de paciente (nome, CPF, CNS, endereço,
+nascimento) não sai do Edge. Campo exigido ausente → `sia_field_missing`;
+arquivo ausente de um subtipo pedido → `sia_file_missing`.
+
+| Subtipo | Colunas |
+|---|---|
+| `SIA_APA` | `prd_uid, prd_cmp, prd_apanum, prd_pa, prd_cbo, prd_cidpri` (texto), `prd_qt_p, prd_qt_a` (int64 opcional), `prd_vl_p, prd_vl_a` (centavos int64 opcional), `apa_dtinic, apa_dtfim, apa_cnsexe` (texto; vazio sem APAC correspondente) |
+| `SIA_BPI` / `SIA_BPIHST` | `bpi_uid, bpi_cmp, bpi_cnsmed, bpi_cbo, bpi_flh, bpi_seq, bpi_pa, bpi_cid, bpi_dtaten` (texto), `bpi_qt_p, bpi_qt_a` (int64 opcional) |
+| `DIM_SIGTAP` | `co_procedimento` (`PA_ID`+`PA_DV`), `no_procedimento` (`PA_DC`), `tp_complexidade` (`PA_CPX`), `co_financiamento` (`PA_CTF`), `dt_competencia` — só a competência do job; zero linhas → `sia_sigtap_empty` |
+| `DIM_MUNICIPIO` | `coduf, codmunic, nome, condic` (texto), `tetopab, calcpab` (float64 opcional) |
 
 ## Summary
 
 | Arquivo | Records | Size (bytes) |
 |---|---|---|
-| S_CEP.DBF | 1576563 | 23,648,543 |
-| S_FXAPAC.DBF | 1315705 | 52,628,330 |
-| S_PACBO.DBF | 1160735 | 32,500,743 |
-| S_PACID.DBF | 488085 | 13,178,490 |
-| S_PAHA.DBF | 65443 | 2,028,960 |
-| S_PADET.DBF | 60864 | 1,521,763 |
-| S_PROCED.DBF | 32721 | 5,563,181 |
-| S_PASRV.DBF | 24493 | 685,999 |
-| S_PAPA.DBF | 24181 | 894,924 |
-| S_VPA.DBF | 20387 | 1,977,926 |
-| S_PAREGR.DBF | 19833 | 515,821 |
-| S_PA.DBF | 19133 | 3,158,067 |
-| S_PAP.DBF | 18097 | 3,602,667 |
+| S_FXAPAC.DBF | 1658540 | 66,341,730 |
+| S_CEP.DBF | 1612186 | 24,182,888 |
+| S_PACBO.DBF | 1169615 | 32,749,383 |
+| S_PACID.DBF | 489107 | 13,206,084 |
+| S_PAHA.DBF | 65853 | 2,041,670 |
+| S_PADET.DBF | 61745 | 1,543,788 |
+| S_PROCED.DBF | 32919 | 5,596,841 |
+| S_PAPA.DBF | 24816 | 918,419 |
+| S_PASRV.DBF | 24701 | 691,823 |
+| S_PAP.DBF | 23680 | 4,500,227 |
+| S_VPA.DBF | 20562 | 1,994,901 |
+| S_PAREGR.DBF | 20452 | 531,915 |
+| S_PA.DBF | 19380 | 3,218,234 |
+| S_UPSPRF.DBF | 17077 | 2,579,301 |
 | S_CID.DBF | 15611 | 1,280,521 |
-| S_UPSPRF.DBF | 12870 | 1,944,044 |
-| S_TPCRD.DBF | 5919 | 1,078,093 |
-| CADMUN.DBF | 5715 | 457,490 |
-| S_DEPARA.DBF | 5576 | 184,170 |
-| S_CDN.DBF | 5570 | 317,652 |
+| S_COMPFEDERAL.DBF | 8975 | 7,746,451 |
+| S_CDN.DBF | 6663 | 393,279 |
+| CADMUN.DBF | 5721 | 457,970 |
+| S_TPCRD.DBF | 5697 | 1,037,689 |
+| S_DEPARA.DBF | 5575 | 184,137 |
+| S_BPIHST.DBF | 5295 | 2,278,805 |
 | S_FXRAAS.DBF | 4639 | 185,690 |
-| S_PRD.DBF | 3391 | 1,175,017 |
-| S_PRDHST.DBF | 2596 | 70,254 |
-| S_COMPFEDERAL.DBF | 2570 | 2,218,936 |
-| S_BPIHST.DBF | 1792 | 770,691 |
-| S_IPU.DBF | 1670 | 334,675 |
-| S_APA.DBF | 1381 | 1,076,589 |
-| S_EMU.DBF | 1197 | 49,367 |
-| S_SRV.DBF | 1152 | 31,330 |
-| S_BPI.DBF | 910 | 392,313 |
-| S_PAIN.DBF | 858 | 31,083 |
-| S_EQUIPE.DBF | 592 | 78,034 |
-| S_UPSGES.DBF | 541 | 9,359 |
-| consiste.dbf | 469 | 133,242 |
-| S_CNSQTD.DBF | 452 | 64,310 |
+| s_prdl.dbf | 4100 | 1,476,471 |
+| s_prdlc.dbf | 3258 | 159,997 |
+| ttvpa.dbf | 2862 | 278,001 |
+| S_PRDHST.DBF | 2716 | 73,494 |
+| S_APA.DBF | 1798 | 1,325,379 |
+| s_proc.dbf | 1716 | 168,651 |
+| S_IPU.DBF | 1656 | 331,875 |
+| S_EMU.DBF | 1222 | 50,392 |
+| S_SRV.DBF | 1200 | 32,626 |
+| S_PAIN.DBF | 1178 | 42,603 |
+| s_prdli.dbf | 873 | 323,516 |
+| S_EQUIPE.DBF | 784 | 103,186 |
+| S_UPSGES.DBF | 738 | 12,708 |
+| s_apal.dbf | 247 | 358,443 |
 | S_TUEMA.DBF | 99 | 15,245 |
-| S_RUB.DBF | 42 | 2,104 |
+| versaomn.dbf | 90 | 2,689 |
+| s_corpo.dbf | 88 | 49,011 |
+| s_varia.dbf | 88 | 14,419 |
+| S_RUB.DBF | 43 | 2,151 |
+| S_FFI.DBF | 42 | 2,168 |
 | S_CFA.DBF | 38 | 1,568 |
-| S_FFI.DBF | 30 | 1,604 |
-| S_UPS.DBF | 27 | 10,838 |
-| s_reprd.dbf | 27 | 2,537 |
-| S_PRFIRR.DBF | 22 | 1,096 |
-| S_RELAT.DBF | 22 | 73,600 |
-| S_ENCERR.DBF | 18 | 4,333 |
+| S_UPS.DBF | 28 | 11,186 |
+| S_UPSL.dbf | 28 | 2,095 |
+| s_reprd.dbf | 28 | 2,619 |
+| S_ENCERR.DBF | 23 | 5,278 |
+| S_PRFIRR.DBF | 23 | 1,137 |
+| S_RELAT.DBF | 23 | 76,909 |
+| S_OCOR.dbf | 15 | 735 |
+| vepe.dbf | 14 | 1,281 |
 | S_CGCEX.DBF | 8 | 274 |
 | S_UPSHA.DBF | 8 | 474 |
-| tot_cons.dbf | 8 | 947 |
 | CONFIMP.DBF | 5 | 5,830 |
 | S_TDIR.DBF | 5 | 414 |
 | S_UPSRC.DBF | 4 | 258 |
+| S_RLC.dbf | 2 | 517 |
+| S_RLR.dbf | 2 | 865 |
+| ERRO_HA.dbf | 1 | 505 |
 | S_CTR.DBF | 1 | 314 |
 | S_MNT.DBF | 1 | 1,006 |
 | S_SS.DBF | 1 | 770 |
 | s_cor.dbf | 1 | 886 |
+| s_prdlt.dbf | 1 | 232 |
 | ADESAO.DBF | 0 | 163 |
+| APA.dbf | 0 | 2,083 |
 | APCNES_TERC.DBF | 0 | 323 |
+| CADGESMN.DBF | 0 | 195 |
+| RAS.dbf | 0 | 1,667 |
+| R_MUTIRAOSAUDEMULHER.DBF | 0 | 579 |
+| S_BPI.DBF | 0 | 1,955 |
 | S_CD.DBF | 0 | 162 |
 | S_CDX.DBF | 0 | 162 |
 | S_CIDM.DBF | 0 | 98 |
+| S_CNSQTD.DBF | 0 | 578 |
 | S_CRD.DBF | 0 | 643 |
 | S_DPG.DBF | 0 | 419 |
 | S_FORNEC.DBF | 0 | 386 |
 | S_MN.DBF | 0 | 130 |
 | S_OCORR.DBF | 0 | 515 |
+| S_PRD.DBF | 0 | 1,795 |
 | S_RAPA.DBF | 0 | 1,155 |
-| S_RAS.DBF | 0 | 1,603 |
+| S_RAS.DBF | 0 | 1,635 |
 | S_TRMOTC.DBF | 0 | 321 |
 | S_UPSAUT.DBF | 0 | 162 |
 | advertencia_sexo.dbf | 0 | 483 |
-| cadgesmn.dbf | 0 | 195 |
+| consiste.dbf | 0 | 515 |
 | cpx.dbf | 0 | 962 |
 | crit_lmc.dbf | 0 | 547 |
 | crit_trastuzumabe.dbf | 0 | 419 |
@@ -106,52 +145,30 @@ Observações da introspecção real:
 | psico.dbf | 0 | 1,025 |
 | s_ad.dbf | 0 | 1,251 |
 | s_adpa.dbf | 0 | 707 |
-| s_apal.dbf | 0 | 4,259 |
 | s_cnesia.dbf | 0 | 130 |
-| s_corpo.dbf | 0 | 1,505 |
 | s_eqesf.dbf | 0 | 257 |
 | s_fcd.dbf | 0 | 2,050 |
 | s_fco.dbf | 0 | 2,434 |
 | s_imperr.dbf | 0 | 195 |
-| s_ipul.dbf | 0 | 449 |
+| s_ipul.dbf | 0 | 451 |
 | s_iput.dbf | 0 | 227 |
-| s_prdl.dbf | 0 | 1,251 |
-| s_prdlc.dbf | 0 | 355 |
-| s_prdli.dbf | 0 | 1,283 |
-| s_prdlt.dbf | 0 | 195 |
 | s_prdrep.dbf | 0 | 1,635 |
-| s_proc.dbf | 0 | 449 |
 | s_rapal.dbf | 0 | 675 |
 | s_sce.dbf | 0 | 162 |
-| s_trab.dbf | 0 | 1,443 |
+| s_trab.dbf | 0 | 1,347 |
 | s_upsval.dbf | 0 | 67 |
-| s_varia.dbf | 0 | 161 |
-| s_vpal.dbf | 0 | 385 |
+| s_vpal.dbf | 0 | 387 |
 | temu.dbf | 0 | 193 |
+| tot_cons.dbf | 0 | 163 |
 | tsrv.dbf | 0 | 161 |
-| ttvpa.dbf | 0 | 385 |
-| vepe.dbf | 0 | 257 |
-| versaomn.dbf | 0 | 257 |
 | vig.dbf | 0 | 993 |
 
 ## Detalhes por DBF
 
-### `S_CEP.DBF`
-
-- 1576563 records
-- Size: 23,648,543 bytes
-- Encoding: cp1252
-- Fields: 2
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| CEP | C(8) | 8 | 0 |
-| MUNICIPIO | C(6) | 6 | 0 |
-
 ### `S_FXAPAC.DBF`
 
-- 1315705 records
-- Size: 52,628,330 bytes
+- 1658540 records
+- Size: 66,341,730 bytes
 - Encoding: cp1252
 - Fields: 3
 
@@ -161,10 +178,22 @@ Observações da introspecção real:
 | FX_FIM | C(12) | 12 | 0 |
 | FX_SKSUM | C(15) | 15 | 0 |
 
+### `S_CEP.DBF`
+
+- 1612186 records
+- Size: 24,182,888 bytes
+- Encoding: cp1252
+- Fields: 2
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| CEP | C(8) | 8 | 0 |
+| MUNICIPIO | C(6) | 6 | 0 |
+
 ### `S_PACBO.DBF`
 
-- 1160735 records
-- Size: 32,500,743 bytes
+- 1169615 records
+- Size: 32,749,383 bytes
 - Encoding: cp1252
 - Fields: 4
 
@@ -177,8 +206,8 @@ Observações da introspecção real:
 
 ### `S_PACID.DBF`
 
-- 488085 records
-- Size: 13,178,490 bytes
+- 489107 records
+- Size: 13,206,084 bytes
 - Encoding: cp1252
 - Fields: 5
 
@@ -192,8 +221,8 @@ Observações da introspecção real:
 
 ### `S_PAHA.DBF`
 
-- 65443 records
-- Size: 2,028,960 bytes
+- 65853 records
+- Size: 2,041,670 bytes
 - Encoding: cp1252
 - Fields: 6
 
@@ -208,8 +237,8 @@ Observações da introspecção real:
 
 ### `S_PADET.DBF`
 
-- 60864 records
-- Size: 1,521,763 bytes
+- 61745 records
+- Size: 1,543,788 bytes
 - Encoding: cp1252
 - Fields: 4
 
@@ -222,8 +251,8 @@ Observações da introspecção real:
 
 ### `S_PROCED.DBF`
 
-- 32721 records
-- Size: 5,563,181 bytes
+- 32919 records
+- Size: 5,596,841 bytes
 - Encoding: cp1252
 - Fields: 18
 
@@ -248,25 +277,10 @@ Observações da introspecção real:
 | PA_SKSUM | C(15) | 15 | 0 |
 | PA_CHKSM | C(6) | 6 | 0 |
 
-### `S_PASRV.DBF`
-
-- 24493 records
-- Size: 685,999 bytes
-- Encoding: cp1252
-- Fields: 5
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| PASRV_CMP | C(6) | 6 | 0 |
-| PASRV_PA | C(9) | 9 | 0 |
-| PASRV_SRV | C(3) | 3 | 0 |
-| PASRV_CSF | C(3) | 3 | 0 |
-| PASRVCHKSM | C(6) | 6 | 0 |
-
 ### `S_PAPA.DBF`
 
-- 24181 records
-- Size: 894,924 bytes
+- 24816 records
+- Size: 918,419 bytes
 - Encoding: cp1252
 - Fields: 6
 
@@ -279,89 +293,25 @@ Observações da introspecção real:
 | PAPA_QTMAX | C(4) | 4 | 0 |
 | PAPA_CHKSM | C(6) | 6 | 0 |
 
-### `S_VPA.DBF`
+### `S_PASRV.DBF`
 
-- 20387 records
-- Size: 1,977,926 bytes
+- 24701 records
+- Size: 691,823 bytes
 - Encoding: cp1252
-- Fields: 11
+- Fields: 5
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
-| VPA_PA | C(9) | 9 | 0 |
-| VPA_CMP | C(6) | 6 | 0 |
-| VPA_SP | N(15,2) | 15 | 2 |
-| VPA_SA | N(15,2) | 15 | 2 |
-| VPA_SH | N(15,2) | 15 | 2 |
-| VPA_TOTAL | N(15,2) | 15 | 2 |
-| VPA_MUN | C(6) | 6 | 0 |
-| VPA_TIPO | C(1) | 1 | 0 |
-| VPA_CTF | C(2) | 2 | 0 |
-| VPA_RUB | C(6) | 6 | 0 |
-| VPA_MVM | C(6) | 6 | 0 |
-
-### `S_PAREGR.DBF`
-
-- 19833 records
-- Size: 515,821 bytes
-- Encoding: cp1252
-- Fields: 4
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| REG_CMP | C(6) | 6 | 0 |
-| REG_PA | C(9) | 9 | 0 |
-| REG_REGRA | C(4) | 4 | 0 |
-| REG_CHKSM | C(6) | 6 | 0 |
-
-### `S_PA.DBF`
-
-- 19133 records
-- Size: 3,158,067 bytes
-- Encoding: cp1252
-- Fields: 34
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| PA_CMP | C(6) | 6 | 0 |
-| PA_ID | C(9) | 9 | 0 |
-| PA_DV | C(1) | 1 | 0 |
-| PA_PAB | C(1) | 1 | 0 |
-| PA_TOTAL | N(12,2) | 12 | 2 |
-| PA_FAEC | C(1) | 1 | 0 |
-| PA_DC | C(60) | 60 | 0 |
-| PA_RUB | C(4) | 4 | 0 |
-| PA_TPCC | C(1) | 1 | 0 |
-| PA_AUX | C(20) | 20 | 0 |
-| PA_CPX | C(4) | 4 | 0 |
-| PA_CTF | C(4) | 4 | 0 |
-| PA_DOC | C(1) | 1 | 0 |
-| PA_IDADEMX | N(3) | 3 | 0 |
-| PA_IDADEMN | N(3) | 3 | 0 |
-| PA_SEXO | C(1) | 1 | 0 |
-| PA_QTDMAX | N(6) | 6 | 0 |
-| PA_LAUDO | C(2) | 2 | 0 |
-| PA_PRINC | C(1) | 1 | 0 |
-| PA_SECUN | C(1) | 1 | 0 |
-| PA_IDEBPA | C(1) | 1 | 0 |
-| PA_CNSPCN | C(1) | 1 | 0 |
-| PA_CNRAC | C(1) | 1 | 0 |
-| PA_CCMANAL | C(2) | 2 | 0 |
-| PA_ELETIVA | C(1) | 1 | 0 |
-| PA_APACONT | C(1) | 1 | 0 |
-| PA_EXIGCBO | C(1) | 1 | 0 |
-| PA_PROCCEO | C(1) | 1 | 0 |
-| PA_6MESES | C(1) | 1 | 0 |
-| PA_EXIGAUT | C(1) | 1 | 0 |
-| PA_PERMAN | N(4) | 4 | 0 |
-| PA_EXIGCAS | C(1) | 1 | 0 |
-| PA_SECOBRI | C(1) | 1 | 0 |
-| PA_CHKSM | C(6) | 6 | 0 |
+| PASRV_CMP | C(6) | 6 | 0 |
+| PASRV_PA | C(9) | 9 | 0 |
+| PASRV_SRV | C(3) | 3 | 0 |
+| PASRV_CSF | C(3) | 3 | 0 |
+| PASRVCHKSM | C(6) | 6 | 0 |
 
 ### `S_PAP.DBF`
 
-- 18097 records
-- Size: 3,602,667 bytes
+- 23680 records
+- Size: 4,500,227 bytes
 - Encoding: cp1252
 - Fields: 31
 
@@ -399,32 +349,90 @@ Observações da introspecção real:
 | PAP_RC | C(4) | 4 | 0 |
 | PAP_UNTERC | C(7) | 7 | 0 |
 
-### `S_CID.DBF`
+### `S_VPA.DBF`
 
-- 15611 records
-- Size: 1,280,521 bytes
+- 20562 records
+- Size: 1,994,901 bytes
 - Encoding: cp1252
-- Fields: 12
+- Fields: 11
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
-| CD_COD | C(4) | 4 | 0 |
-| OPC | C(1) | 1 | 0 |
-| CAT | C(1) | 1 | 0 |
-| SUBCAT | C(1) | 1 | 0 |
-| CD_DESCR | C(50) | 50 | 0 |
-| RESTRSEXO | C(1) | 1 | 0 |
-| CAMPOS_RAD | C(3) | 3 | 0 |
-| ESTADIO | C(1) | 1 | 0 |
-| REPETE_RAD | C(1) | 1 | 0 |
-| CMP_INI | C(6) | 6 | 0 |
-| CMP_FIM | C(6) | 6 | 0 |
-| CID_CHKSM | C(6) | 6 | 0 |
+| VPA_PA | C(9) | 9 | 0 |
+| VPA_CMP | C(6) | 6 | 0 |
+| VPA_SP | N(15,2) | 15 | 2 |
+| VPA_SA | N(15,2) | 15 | 2 |
+| VPA_SH | N(15,2) | 15 | 2 |
+| VPA_TOTAL | N(15,2) | 15 | 2 |
+| VPA_MUN | C(6) | 6 | 0 |
+| VPA_TIPO | C(1) | 1 | 0 |
+| VPA_CTF | C(2) | 2 | 0 |
+| VPA_RUB | C(6) | 6 | 0 |
+| VPA_MVM | C(6) | 6 | 0 |
+
+### `S_PAREGR.DBF`
+
+- 20452 records
+- Size: 531,915 bytes
+- Encoding: cp1252
+- Fields: 4
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| REG_CMP | C(6) | 6 | 0 |
+| REG_PA | C(9) | 9 | 0 |
+| REG_REGRA | C(4) | 4 | 0 |
+| REG_CHKSM | C(6) | 6 | 0 |
+
+### `S_PA.DBF`
+
+- 19380 records
+- Size: 3,218,234 bytes
+- Encoding: cp1252
+- Fields: 35
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| PA_CMP | C(6) | 6 | 0 |
+| PA_ID | C(9) | 9 | 0 |
+| PA_DV | C(1) | 1 | 0 |
+| PA_PAB | C(1) | 1 | 0 |
+| PA_TOTAL | N(12,2) | 12 | 2 |
+| PA_FAEC | C(1) | 1 | 0 |
+| PA_DC | C(60) | 60 | 0 |
+| PA_RUB | C(4) | 4 | 0 |
+| PA_TPCC | C(1) | 1 | 0 |
+| PA_AUX | C(20) | 20 | 0 |
+| PA_CPX | C(4) | 4 | 0 |
+| PA_CTF | C(4) | 4 | 0 |
+| PA_DOC | C(1) | 1 | 0 |
+| PA_IDADEMX | N(3) | 3 | 0 |
+| PA_IDADEMN | N(3) | 3 | 0 |
+| PA_SEXO | C(1) | 1 | 0 |
+| PA_QTDMAX | N(6) | 6 | 0 |
+| PA_LAUDO | C(2) | 2 | 0 |
+| PA_PRINC | C(1) | 1 | 0 |
+| PA_SECUN | C(1) | 1 | 0 |
+| PA_IDEBPA | C(1) | 1 | 0 |
+| PA_CPFPCN | C(1) | 1 | 0 |
+| PA_CNSPCN | C(1) | 1 | 0 |
+| PA_CNRAC | C(1) | 1 | 0 |
+| PA_CCMANAL | C(2) | 2 | 0 |
+| PA_ELETIVA | C(1) | 1 | 0 |
+| PA_APACONT | C(1) | 1 | 0 |
+| PA_EXIGCBO | C(1) | 1 | 0 |
+| PA_PROCCEO | C(1) | 1 | 0 |
+| PA_6MESES | C(1) | 1 | 0 |
+| PA_EXIGAUT | C(1) | 1 | 0 |
+| PA_PERMAN | N(4) | 4 | 0 |
+| PA_EXIGCAS | C(1) | 1 | 0 |
+| PA_SECOBRI | C(1) | 1 | 0 |
+| PA_CHKSM | C(6) | 6 | 0 |
 
 ### `S_UPSPRF.DBF`
 
-- 12870 records
-- Size: 1,944,044 bytes
+- 17077 records
+- Size: 2,579,301 bytes
 - Encoding: cp1252
 - Fields: 20
 
@@ -451,181 +459,32 @@ Observações da introspecção real:
 | PRF_CHKSM | C(6) | 6 | 0 |
 | PRF_INE | C(10) | 10 | 0 |
 
-### `S_TPCRD.DBF`
+### `S_CID.DBF`
 
-- 5919 records
-- Size: 1,078,093 bytes
+- 15611 records
+- Size: 1,280,521 bytes
 - Encoding: cp1252
-- Fields: 25
+- Fields: 12
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
-| TPCRDIFJ | C(1) | 1 | 0 |
-| TPCRD_RAD | C(8) | 8 | 0 |
-| TPCRDLIAL | C(6) | 6 | 0 |
-| TPCRD_BCO | C(3) | 3 | 0 |
-| TPCRD_AB | C(6) | 6 | 0 |
-| TPCRD_CC | C(14) | 14 | 0 |
-| TPCRD_IR | C(1) | 1 | 0 |
-| TPCRD_ID | C(7) | 7 | 0 |
-| TPCRD_CMP | C(6) | 6 | 0 |
-| TPCRD_FLH | C(13) | 13 | 0 |
-| TPCRD_SEQ | C(2) | 2 | 0 |
-| TPCRD_PA | C(9) | 9 | 0 |
-| TPCRD_ORG | C(3) | 3 | 0 |
-| TPCRD_CR | C(1) | 1 | 0 |
-| TPCRD_VL | N(13,2) | 13 | 2 |
-| TPCRD_INCC | C(1) | 1 | 0 |
-| TPCRD_CNPJ | C(14) | 14 | 0 |
-| TPCRD_NFIS | C(6) | 6 | 0 |
-| TPCRD_RUB | C(6) | 6 | 0 |
-| TPCRD_CNS | C(15) | 15 | 0 |
-| TPCRD_CBO | C(6) | 6 | 0 |
-| TPCRD_CPX | C(1) | 1 | 0 |
-| TPCRD_VFED | N(13,2) | 13 | 2 |
-| TPCRD_VLOC | N(13,2) | 13 | 2 |
-| TPCRD_VINC | N(13,2) | 13 | 2 |
-
-### `CADMUN.DBF`
-
-- 5715 records
-- Size: 457,490 bytes
-- Encoding: cp1252
-- Fields: 8
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| CODUF | C(2) | 2 | 0 |
-| CODMUNIC | C(4) | 4 | 0 |
-| NOME | C(40) | 40 | 0 |
-| CONDIC | C(2) | 2 | 0 |
-| TETOPAB | N(12,2) | 12 | 2 |
-| CALCPAB | N(12,2) | 12 | 2 |
-| DTHABIL | C(6) | 6 | 0 |
-| CIB_SAS | C(1) | 1 | 0 |
-
-### `S_DEPARA.DBF`
-
-- 5576 records
-- Size: 184,170 bytes
-- Encoding: cp1252
-- Fields: 4
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| ORIGEM | C(10) | 10 | 0 |
-| DESTINO | C(10) | 10 | 0 |
+| CD_COD | C(4) | 4 | 0 |
+| OPC | C(1) | 1 | 0 |
+| CAT | C(1) | 1 | 0 |
+| SUBCAT | C(1) | 1 | 0 |
+| CD_DESCR | C(50) | 50 | 0 |
+| RESTRSEXO | C(1) | 1 | 0 |
+| CAMPOS_RAD | C(3) | 3 | 0 |
+| ESTADIO | C(1) | 1 | 0 |
+| REPETE_RAD | C(1) | 1 | 0 |
 | CMP_INI | C(6) | 6 | 0 |
 | CMP_FIM | C(6) | 6 | 0 |
-
-### `S_CDN.DBF`
-
-- 5570 records
-- Size: 317,652 bytes
-- Encoding: cp1252
-- Fields: 4
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| CDN_TB | C(2) | 2 | 0 |
-| CDN_IT | C(8) | 8 | 0 |
-| CDN_DSCR | C(40) | 40 | 0 |
-| CDN_CHKSM | C(6) | 6 | 0 |
-
-### `S_FXRAAS.DBF`
-
-- 4639 records
-- Size: 185,690 bytes
-- Encoding: cp1252
-- Fields: 3
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| FX_INI | C(12) | 12 | 0 |
-| FX_FIM | C(12) | 12 | 0 |
-| FX_SKSUM | C(15) | 15 | 0 |
-
-### `S_PRD.DBF`
-
-- 3391 records
-- Size: 1,175,017 bytes
-- Encoding: cp1252
-- Fields: 53
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| PRD_UID | C(7) | 7 | 0 |
-| PRD_CMP | C(6) | 6 | 0 |
-| PRD_FLH | C(3) | 3 | 0 |
-| PRD_SEQ | C(2) | 2 | 0 |
-| PRD_PA | C(10) | 10 | 0 |
-| PRD_CBO | C(6) | 6 | 0 |
-| PRD_IDADE | N(3) | 3 | 0 |
-| PRD_QT_P | N(6) | 6 | 0 |
-| PRD_QT_A | N(6) | 6 | 0 |
-| PRD_VL_P | N(15,2) | 15 | 2 |
-| PRD_VL_A | N(15,2) | 15 | 2 |
-| PRD_MVM | C(6) | 6 | 0 |
-| PRD_ORG | C(3) | 3 | 0 |
-| PRD_FLPA | C(1) | 1 | 0 |
-| PRD_FLCBO | C(1) | 1 | 0 |
-| PRD_FLCA | C(1) | 1 | 0 |
-| PRD_FLIDA | C(1) | 1 | 0 |
-| PRD_FLQT | C(1) | 1 | 0 |
-| PRD_FLER | C(1) | 1 | 0 |
-| PRD_APANUM | C(13) | 13 | 0 |
-| PRD_CNSMED | C(15) | 15 | 0 |
-| PRD_RMS | C(4) | 4 | 0 |
-| PRD_CNPJ | C(14) | 14 | 0 |
-| PRD_NFIS | C(6) | 6 | 0 |
-| PRD_RESID | C(6) | 6 | 0 |
-| PRD_RUB | C(6) | 6 | 0 |
-| PRD_TPFIN | C(1) | 1 | 0 |
-| PRD_CPX | C(1) | 1 | 0 |
-| PRD_QTDATR | N(6) | 6 | 0 |
-| PRD_QTDATU | N(6) | 6 | 0 |
-| PRD_RC | C(4) | 4 | 0 |
-| PRD_CIDPRI | C(6) | 6 | 0 |
-| PRD_CIDSEC | C(6) | 6 | 0 |
-| PRD_CIDCAS | C(6) | 6 | 0 |
-| PRD_INCOUT | C(4) | 4 | 0 |
-| PRD_INCURG | C(4) | 4 | 0 |
-| PRD_INSRG | C(3) | 3 | 0 |
-| PRD_CPFPCT | C(11) | 11 | 0 |
-| PRD_CNSPCN | C(15) | 15 | 0 |
-| PRD_DTINI | C(8) | 8 | 0 |
-| PRD_DTREA | C(8) | 8 | 0 |
-| PRD_SRV | C(3) | 3 | 0 |
-| PRD_CSF | C(3) | 3 | 0 |
-| PRD_EQUIP | C(12) | 12 | 0 |
-| PRD_VL_FED | N(10,2) | 10 | 2 |
-| PRD_VL_LOC | N(10,2) | 10 | 2 |
-| PRD_VL_INC | N(10,2) | 10 | 2 |
-| PRD_RUBFED | C(6) | 6 | 0 |
-| PRD_LREX | C(1) | 1 | 0 |
-| PRD_INE | C(10) | 10 | 0 |
-| PRD_UNTERC | C(7) | 7 | 0 |
-| PRD_CHKSM | C(6) | 6 | 0 |
-| PRD_TEMP | C(20) | 20 | 0 |
-
-### `S_PRDHST.DBF`
-
-- 2596 records
-- Size: 70,254 bytes
-- Encoding: cp1252
-- Fields: 4
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| PRD_CMP | C(6) | 6 | 0 |
-| PRD_UID | C(7) | 7 | 0 |
-| PRD_PA | C(10) | 10 | 0 |
-| PRD_INSRG | C(3) | 3 | 0 |
+| CID_CHKSM | C(6) | 6 | 0 |
 
 ### `S_COMPFEDERAL.DBF`
 
-- 2570 records
-- Size: 2,218,936 bytes
+- 8975 records
+- Size: 7,746,451 bytes
 - Encoding: cp1252
 - Fields: 31
 
@@ -663,12 +522,93 @@ Observações da introspecção real:
 | CAMPO_SE | C(30) | 30 | 0 |
 | CAMPO_TO | C(30) | 30 | 0 |
 
+### `S_CDN.DBF`
+
+- 6663 records
+- Size: 393,279 bytes
+- Encoding: cp1252
+- Fields: 4
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| CDN_TB | C(2) | 2 | 0 |
+| CDN_IT | C(10) | 10 | 0 |
+| CDN_DSCR | C(40) | 40 | 0 |
+| CDN_CHKSM | C(6) | 6 | 0 |
+
+### `CADMUN.DBF`
+
+- 5721 records
+- Size: 457,970 bytes
+- Encoding: cp1252
+- Fields: 8
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| CODUF | C(2) | 2 | 0 |
+| CODMUNIC | C(4) | 4 | 0 |
+| NOME | C(40) | 40 | 0 |
+| CONDIC | C(2) | 2 | 0 |
+| TETOPAB | N(12,2) | 12 | 2 |
+| CALCPAB | N(12,2) | 12 | 2 |
+| DTHABIL | C(6) | 6 | 0 |
+| CIB_SAS | C(1) | 1 | 0 |
+
+### `S_TPCRD.DBF`
+
+- 5697 records
+- Size: 1,037,689 bytes
+- Encoding: cp1252
+- Fields: 25
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| TPCRDIFJ | C(1) | 1 | 0 |
+| TPCRD_RAD | C(8) | 8 | 0 |
+| TPCRDLIAL | C(6) | 6 | 0 |
+| TPCRD_BCO | C(3) | 3 | 0 |
+| TPCRD_AB | C(6) | 6 | 0 |
+| TPCRD_CC | C(14) | 14 | 0 |
+| TPCRD_IR | C(1) | 1 | 0 |
+| TPCRD_ID | C(7) | 7 | 0 |
+| TPCRD_CMP | C(6) | 6 | 0 |
+| TPCRD_FLH | C(13) | 13 | 0 |
+| TPCRD_SEQ | C(2) | 2 | 0 |
+| TPCRD_PA | C(9) | 9 | 0 |
+| TPCRD_ORG | C(3) | 3 | 0 |
+| TPCRD_CR | C(1) | 1 | 0 |
+| TPCRD_VL | N(13,2) | 13 | 2 |
+| TPCRD_INCC | C(1) | 1 | 0 |
+| TPCRD_CNPJ | C(14) | 14 | 0 |
+| TPCRD_NFIS | C(6) | 6 | 0 |
+| TPCRD_RUB | C(6) | 6 | 0 |
+| TPCRD_CNS | C(15) | 15 | 0 |
+| TPCRD_CBO | C(6) | 6 | 0 |
+| TPCRD_CPX | C(1) | 1 | 0 |
+| TPCRD_VFED | N(13,2) | 13 | 2 |
+| TPCRD_VLOC | N(13,2) | 13 | 2 |
+| TPCRD_VINC | N(13,2) | 13 | 2 |
+
+### `S_DEPARA.DBF`
+
+- 5575 records
+- Size: 184,137 bytes
+- Encoding: cp1252
+- Fields: 4
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| ORIGEM | C(10) | 10 | 0 |
+| DESTINO | C(10) | 10 | 0 |
+| CMP_INI | C(6) | 6 | 0 |
+| CMP_FIM | C(6) | 6 | 0 |
+
 ### `S_BPIHST.DBF`
 
-- 1792 records
-- Size: 770,691 bytes
+- 5295 records
+- Size: 2,278,805 bytes
 - Encoding: cp1252
-- Fields: 59
+- Fields: 60
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
@@ -730,44 +670,134 @@ Observações da introspecção real:
 | BPI_CHKSM | C(6) | 6 | 0 |
 | BPI_INE | C(10) | 10 | 0 |
 | BPI_STRUA | C(1) | 1 | 0 |
+| BPI_SEMCPF | C(1) | 1 | 0 |
 | BPI_ADVSEX | C(1) | 1 | 0 |
 
-### `S_IPU.DBF`
+### `S_FXRAAS.DBF`
 
-- 1670 records
-- Size: 334,675 bytes
+- 4639 records
+- Size: 185,690 bytes
 - Encoding: cp1252
-- Fields: 20
+- Fields: 3
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
-| IPU_UID | C(7) | 7 | 0 |
-| IPU_CMP | C(6) | 6 | 0 |
-| IPU_PA | C(9) | 9 | 0 |
-| IPU_TPFIN | C(1) | 1 | 0 |
-| IPU_NAPU | C(1) | 1 | 0 |
-| IPU_QT_O | N(8) | 8 | 0 |
-| IPU_VU_O | N(15,2) | 15 | 2 |
-| IPU_VL_O | N(15,2) | 15 | 2 |
-| IPU_QT_P | N(8) | 8 | 0 |
-| IPU_VL_P | N(15,2) | 15 | 2 |
-| IPU_QT_A | N(8) | 8 | 0 |
-| IPU_VL_A | N(15,2) | 15 | 2 |
-| IPU_VLAEST | N(15,2) | 15 | 2 |
-| IPU_VLPEST | N(15,2) | 15 | 2 |
-| IPU_VLOE | N(15,2) | 15 | 2 |
-| IPU_VL_J | N(12,2) | 12 | 2 |
-| IPU_MVM | C(6) | 6 | 0 |
-| IPU_AUX | C(21) | 21 | 0 |
-| IPU_FPOMAG | C(1) | 1 | 0 |
-| IPU_CHKSM | C(6) | 6 | 0 |
+| FX_INI | C(12) | 12 | 0 |
+| FX_FIM | C(12) | 12 | 0 |
+| FX_SKSUM | C(15) | 15 | 0 |
+
+### `s_prdl.dbf`
+
+- 4100 records
+- Size: 1,476,471 bytes
+- Encoding: cp1252
+- Fields: 41
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| PRDL_UPS | C(7) | 7 | 0 |
+| PRDL_CMP | C(6) | 6 | 0 |
+| PRDL_CNSME | C(15) | 15 | 0 |
+| PRDL_CBO | C(6) | 6 | 0 |
+| PRDL_DTATE | C(8) | 8 | 0 |
+| PRDL_FLH | C(3) | 3 | 0 |
+| PRDL_SEQ | C(2) | 2 | 0 |
+| PRDL_PA | C(10) | 10 | 0 |
+| PRDL_CNSPA | C(15) | 15 | 0 |
+| PRDL_CPFPC | C(11) | 11 | 0 |
+| PRDL_SEXO | C(1) | 1 | 0 |
+| PRDL_IBGE | C(6) | 6 | 0 |
+| PRDL_CID | C(4) | 4 | 0 |
+| PRDL_IDADE | N(3) | 3 | 0 |
+| PRDL_QT_P | N(6) | 6 | 0 |
+| PRDL_CATEN | C(2) | 2 | 0 |
+| PRDL_NAUT | C(13) | 13 | 0 |
+| PRDL_ORG | C(3) | 3 | 0 |
+| PRDL_NMPAC | C(30) | 30 | 0 |
+| PRDL_DTNAS | C(8) | 8 | 0 |
+| PRDL_TIPO | C(1) | 1 | 0 |
+| PRDL_RACA | C(2) | 2 | 0 |
+| PRDL_ETNIA | C(4) | 4 | 0 |
+| PRDL_NACIO | C(3) | 3 | 0 |
+| PRDL_SRV | C(3) | 3 | 0 |
+| PRDL_CSF | C(3) | 3 | 0 |
+| PRDL_EQUIP | C(12) | 12 | 0 |
+| PRDL_CNPJ | C(14) | 14 | 0 |
+| BPI_CEPPCN | C(8) | 8 | 0 |
+| BPI_CDLOGR | C(3) | 3 | 0 |
+| BPI_LOGPCN | C(30) | 30 | 0 |
+| BPI_CPLPCN | C(10) | 10 | 0 |
+| BPI_NUMPCN | C(5) | 5 | 0 |
+| BPI_BAIRRO | C(30) | 30 | 0 |
+| BPI_DDD | C(2) | 2 | 0 |
+| BPI_TEL | C(9) | 9 | 0 |
+| BPI_EMAIL | C(40) | 40 | 0 |
+| BPI_INE | C(10) | 10 | 0 |
+| BPI_STRUA | C(1) | 1 | 0 |
+| BPI_SEMCPF | C(1) | 1 | 0 |
+| CBO_ANT | C(6) | 6 | 0 |
+
+### `s_prdlc.dbf`
+
+- 3258 records
+- Size: 159,997 bytes
+- Encoding: cp1252
+- Fields: 10
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| IDENTIF | C(2) | 2 | 0 |
+| PRDL_UPS | C(7) | 7 | 0 |
+| PRDL_CMP | C(6) | 6 | 0 |
+| PRDL_CBO | C(6) | 6 | 0 |
+| PRDL_FLH | C(3) | 3 | 0 |
+| PRDL_SEQ | C(2) | 2 | 0 |
+| PRDL_PA | C(10) | 10 | 0 |
+| PRDL_IDADE | N(3) | 3 | 0 |
+| PRDL_QT_P | N(6) | 6 | 0 |
+| PRDL_ORG | C(3) | 3 | 0 |
+
+### `ttvpa.dbf`
+
+- 2862 records
+- Size: 278,001 bytes
+- Encoding: cp1252
+- Fields: 11
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| VPA_PA | C(9) | 9 | 0 |
+| VPA_CMP | C(6) | 6 | 0 |
+| VPA_SP | N(15,2) | 15 | 2 |
+| VPA_SA | N(15,2) | 15 | 2 |
+| VPA_SH | N(15,2) | 15 | 2 |
+| VPA_TOTAL | N(15,2) | 15 | 2 |
+| VPA_MUN | C(6) | 6 | 0 |
+| VPA_TIPO | C(1) | 1 | 0 |
+| VPA_CTF | C(2) | 2 | 0 |
+| VPA_RUB | C(6) | 6 | 0 |
+| VPA_MVM | C(6) | 6 | 0 |
+
+### `S_PRDHST.DBF`
+
+- 2716 records
+- Size: 73,494 bytes
+- Encoding: cp1252
+- Fields: 4
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| PRD_CMP | C(6) | 6 | 0 |
+| PRD_UID | C(7) | 7 | 0 |
+| PRD_PA | C(10) | 10 | 0 |
+| PRD_INSRG | C(3) | 3 | 0 |
 
 ### `S_APA.DBF`
 
-- 1381 records
-- Size: 1,076,589 bytes
+- 1798 records
+- Size: 1,325,379 bytes
 - Encoding: cp1252
-- Fields: 62
+- Fields: 63
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
@@ -833,11 +863,66 @@ Observações da introspecção real:
 | APA_STRUA | C(1) | 1 | 0 |
 | APA_FNTORC | C(2) | 2 | 0 |
 | APA_EMEPAR | C(1) | 1 | 0 |
+| APA_SEMCPF | C(1) | 1 | 0 |
+
+### `s_proc.dbf`
+
+- 1716 records
+- Size: 168,651 bytes
+- Encoding: cp1252
+- Fields: 14
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| IDENTIF | C(2) | 2 | 0 |
+| AP_CMP | C(6) | 6 | 0 |
+| AP_NUMAPAC | C(13) | 13 | 0 |
+| AP_CDPROC | C(10) | 10 | 0 |
+| AP_CDATIV | C(6) | 6 | 0 |
+| AP_QTPROC | C(7) | 7 | 0 |
+| AP_CNPJ | C(14) | 14 | 0 |
+| AP_NFISC | C(6) | 6 | 0 |
+| AP_CIDPRI | C(4) | 4 | 0 |
+| AP_CIDSEC | C(4) | 4 | 0 |
+| AP_SRV | C(3) | 3 | 0 |
+| AP_CSF | C(3) | 3 | 0 |
+| AP_EQUIPE | C(12) | 12 | 0 |
+| AP_UNTERC | C(7) | 7 | 0 |
+
+### `S_IPU.DBF`
+
+- 1656 records
+- Size: 331,875 bytes
+- Encoding: cp1252
+- Fields: 20
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| IPU_UID | C(7) | 7 | 0 |
+| IPU_CMP | C(6) | 6 | 0 |
+| IPU_PA | C(9) | 9 | 0 |
+| IPU_TPFIN | C(1) | 1 | 0 |
+| IPU_NAPU | C(1) | 1 | 0 |
+| IPU_QT_O | N(8) | 8 | 0 |
+| IPU_VU_O | N(15,2) | 15 | 2 |
+| IPU_VL_O | N(15,2) | 15 | 2 |
+| IPU_QT_P | N(8) | 8 | 0 |
+| IPU_VL_P | N(15,2) | 15 | 2 |
+| IPU_QT_A | N(8) | 8 | 0 |
+| IPU_VL_A | N(15,2) | 15 | 2 |
+| IPU_VLAEST | N(15,2) | 15 | 2 |
+| IPU_VLPEST | N(15,2) | 15 | 2 |
+| IPU_VLOE | N(15,2) | 15 | 2 |
+| IPU_VL_J | N(12,2) | 12 | 2 |
+| IPU_MVM | C(6) | 6 | 0 |
+| IPU_AUX | C(21) | 21 | 0 |
+| IPU_FPOMAG | C(1) | 1 | 0 |
+| IPU_CHKSM | C(6) | 6 | 0 |
 
 ### `S_EMU.DBF`
 
-- 1197 records
-- Size: 49,367 bytes
+- 1222 records
+- Size: 50,392 bytes
 - Encoding: cp1252
 - Fields: 8
 
@@ -854,8 +939,8 @@ Observações da introspecção real:
 
 ### `S_SRV.DBF`
 
-- 1152 records
-- Size: 31,330 bytes
+- 1200 records
+- Size: 32,626 bytes
 - Encoding: cp1252
 - Fields: 6
 
@@ -868,79 +953,10 @@ Observações da introspecção real:
 | SRV_LOCNAC | C(1) | 1 | 0 |
 | SRV_CHKSM | C(6) | 6 | 0 |
 
-### `S_BPI.DBF`
-
-- 910 records
-- Size: 392,313 bytes
-- Encoding: cp1252
-- Fields: 59
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| BPI_UID | C(7) | 7 | 0 |
-| BPI_CMP | C(6) | 6 | 0 |
-| BPI_CNSMED | C(15) | 15 | 0 |
-| BPI_CBO | C(6) | 6 | 0 |
-| BPI_FLH | C(3) | 3 | 0 |
-| BPI_SEQ | C(2) | 2 | 0 |
-| BPI_PA | C(10) | 10 | 0 |
-| BPI_CPFPCT | C(11) | 11 | 0 |
-| BPI_CNSPAC | C(15) | 15 | 0 |
-| BPI_NMPAC | C(30) | 30 | 0 |
-| BPI_DTNASC | C(8) | 8 | 0 |
-| BPI_SEXO | C(1) | 1 | 0 |
-| BPI_IBGE | C(6) | 6 | 0 |
-| BPI_DTATEN | C(8) | 8 | 0 |
-| BPI_CID | C(4) | 4 | 0 |
-| BPI_CATEN | C(2) | 2 | 0 |
-| BPI_NAUT | C(13) | 13 | 0 |
-| BPI_QT_P | N(6) | 6 | 0 |
-| BPI_QT_A | N(6) | 6 | 0 |
-| BPI_IDADE | N(3) | 3 | 0 |
-| BPI_MVM | C(6) | 6 | 0 |
-| BPI_ORG | C(3) | 3 | 0 |
-| BPI_TPFIN | C(1) | 1 | 0 |
-| BPI_RMS | C(4) | 4 | 0 |
-| BPI_FLPA | C(1) | 1 | 0 |
-| BPI_FLCID | C(1) | 1 | 0 |
-| BPI_FLCBO | C(1) | 1 | 0 |
-| BPI_FLCA | C(1) | 1 | 0 |
-| BPI_FLIDA | C(1) | 1 | 0 |
-| BPI_FLQT | C(1) | 1 | 0 |
-| BPI_FLER | C(1) | 1 | 0 |
-| BPI_RACA | C(2) | 2 | 0 |
-| BPI_ETNIA | C(4) | 4 | 0 |
-| BPI_NACIO | C(3) | 3 | 0 |
-| BPI_SRV | C(3) | 3 | 0 |
-| BPI_CSF | C(3) | 3 | 0 |
-| BPI_EQUIPE | C(12) | 12 | 0 |
-| BPI_CNPJ | C(14) | 14 | 0 |
-| BPI_CEPPCN | C(8) | 8 | 0 |
-| BPI_CDLOGR | C(3) | 3 | 0 |
-| BPI_LOGPCN | C(30) | 30 | 0 |
-| BPI_CPLPCN | C(10) | 10 | 0 |
-| BPI_NUMPCN | C(5) | 5 | 0 |
-| BPI_BAIRRO | C(30) | 30 | 0 |
-| BPI_DDD | C(2) | 2 | 0 |
-| BPI_TEL | C(9) | 9 | 0 |
-| BPI_EMAIL | C(40) | 40 | 0 |
-| BPI_VL_FED | N(10,2) | 10 | 2 |
-| BPI_VL_LOC | N(10,2) | 10 | 2 |
-| BPI_VL_INC | N(10,2) | 10 | 2 |
-| BPI_INCOUT | C(4) | 4 | 0 |
-| BPI_INCURG | C(4) | 4 | 0 |
-| BPI_RUB | C(6) | 6 | 0 |
-| BPI_CPX | C(1) | 1 | 0 |
-| BPI_RC | C(4) | 4 | 0 |
-| BPI_CHKSM | C(6) | 6 | 0 |
-| BPI_INE | C(10) | 10 | 0 |
-| BPI_STRUA | C(1) | 1 | 0 |
-| BPI_ADVSEX | C(1) | 1 | 0 |
-
 ### `S_PAIN.DBF`
 
-- 858 records
-- Size: 31,083 bytes
+- 1178 records
+- Size: 42,603 bytes
 - Encoding: cp1252
 - Fields: 5
 
@@ -952,10 +968,62 @@ Observações da introspecção real:
 | PAIN_IN | N(10,2) | 10 | 2 |
 | PAIN_CHKSM | C(6) | 6 | 0 |
 
+### `s_prdli.dbf`
+
+- 873 records
+- Size: 323,516 bytes
+- Encoding: cp1252
+- Fields: 42
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| IDENTIF | C(2) | 2 | 0 |
+| PRDL_UPS | C(7) | 7 | 0 |
+| PRDL_CMP | C(6) | 6 | 0 |
+| PRDL_CNSME | C(15) | 15 | 0 |
+| PRDL_CBO | C(6) | 6 | 0 |
+| PRDL_DTATE | C(8) | 8 | 0 |
+| PRDL_FLH | C(3) | 3 | 0 |
+| PRDL_SEQ | C(2) | 2 | 0 |
+| PRDL_PA | C(10) | 10 | 0 |
+| PRDL_CNSPA | C(15) | 15 | 0 |
+| PRDL_SEXO | C(1) | 1 | 0 |
+| PRDL_IBGE | C(6) | 6 | 0 |
+| PRDL_CID | C(4) | 4 | 0 |
+| PRDL_IDADE | N(3) | 3 | 0 |
+| PRDL_QT_P | N(6) | 6 | 0 |
+| PRDL_CATEN | C(2) | 2 | 0 |
+| PRDL_NAUT | C(13) | 13 | 0 |
+| PRDL_ORG | C(3) | 3 | 0 |
+| PRDL_NMPAC | C(30) | 30 | 0 |
+| PRDL_DTNAS | C(8) | 8 | 0 |
+| PRDL_RACA | C(2) | 2 | 0 |
+| PRDL_ETNIA | C(4) | 4 | 0 |
+| PRDL_NACIO | C(3) | 3 | 0 |
+| PRDL_SRV | C(3) | 3 | 0 |
+| PRDL_CSF | C(3) | 3 | 0 |
+| PRDL_EQUIP | C(12) | 12 | 0 |
+| PRDL_CNPJ | C(14) | 14 | 0 |
+| BPI_CEPPCN | C(8) | 8 | 0 |
+| BPI_CDLOGR | C(3) | 3 | 0 |
+| BPI_LOGPCN | C(30) | 30 | 0 |
+| BPI_CPLPCN | C(10) | 10 | 0 |
+| BPI_NUMPCN | C(5) | 5 | 0 |
+| BPI_BAIRRO | C(30) | 30 | 0 |
+| BPI_DDD | C(2) | 2 | 0 |
+| BPI_TEL | C(9) | 9 | 0 |
+| BPI_EMAIL | C(40) | 40 | 0 |
+| BPI_INE | C(10) | 10 | 0 |
+| PRDL_CPFPC | C(11) | 11 | 0 |
+| BPI_STRUA | C(1) | 1 | 0 |
+| BPI_SEMCPF | C(1) | 1 | 0 |
+| T1 | N(15) | 15 | 0 |
+| T2 | N(2) | 2 | 0 |
+
 ### `S_EQUIPE.DBF`
 
-- 592 records
-- Size: 78,034 bytes
+- 784 records
+- Size: 103,186 bytes
 - Encoding: cp1252
 - Fields: 14
 
@@ -978,8 +1046,8 @@ Observações da introspecção real:
 
 ### `S_UPSGES.DBF`
 
-- 541 records
-- Size: 9,359 bytes
+- 738 records
+- Size: 12,708 bytes
 - Encoding: cp1252
 - Fields: 4
 
@@ -990,57 +1058,162 @@ Observações da introspecção real:
 | GES_CPX | C(2) | 2 | 0 |
 | GES_IN | C(1) | 1 | 0 |
 
-### `consiste.dbf`
+### `s_apal.dbf`
 
-- 469 records
-- Size: 133,242 bytes
+- 247 records
+- Size: 358,443 bytes
 - Encoding: cp1252
-- Fields: 15
+- Fields: 147
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
-| UID | C(7) | 7 | 0 |
-| CMP | C(6) | 6 | 0 |
-| TIPO | C(1) | 1 | 0 |
-| APAC | C(13) | 13 | 0 |
-| FOLHA | C(3) | 3 | 0 |
-| SEQ | C(2) | 2 | 0 |
-| PROCEDIM | C(10) | 10 | 0 |
-| CBO | C(6) | 6 | 0 |
-| CNSMED | C(15) | 15 | 0 |
-| CNSPCT | C(15) | 15 | 0 |
-| DTINIC | C(8) | 8 | 0 |
-| COD_ERRO | C(4) | 4 | 0 |
-| DESCR_ERRO | C(80) | 80 | 0 |
-| ERRO_67 | C(100) | 100 | 0 |
-| EQUIPE | C(12) | 12 | 0 |
-
-### `S_CNSQTD.DBF`
-
-- 452 records
-- Size: 64,310 bytes
-- Encoding: cp1252
-- Fields: 17
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| CNSPCT | C(15) | 15 | 0 |
-| CMP | C(6) | 6 | 0 |
-| PROCEDIM | C(10) | 10 | 0 |
-| QTD | N(8) | 8 | 0 |
-| SUBTOT | N(15) | 15 | 0 |
-| UID | C(7) | 7 | 0 |
-| TIPO | C(1) | 1 | 0 |
-| APAC | C(13) | 13 | 0 |
-| FOLHA | C(3) | 3 | 0 |
-| SEQ | C(2) | 2 | 0 |
-| CBO | C(6) | 6 | 0 |
-| CNSMED | C(15) | 15 | 0 |
-| MVM | C(6) | 6 | 0 |
-| ORG | C(3) | 3 | 0 |
-| PRINCIPAL | C(9) | 9 | 0 |
-| ERRO | C(1) | 1 | 0 |
-| X | C(20) | 20 | 0 |
+| APA_UF | C(2) | 2 | 0 |
+| APA_UID | C(7) | 7 | 0 |
+| APA_NUM | C(13) | 13 | 0 |
+| APA_EMISSA | C(8) | 8 | 0 |
+| APA_DTINIC | C(8) | 8 | 0 |
+| APA_DTFIM | C(8) | 8 | 0 |
+| APA_TPATEN | C(2) | 2 | 0 |
+| APA_TPAPAC | C(1) | 1 | 0 |
+| APA_NMPCN | C(30) | 30 | 0 |
+| APA_FILLER | C(2) | 2 | 0 |
+| APA_MAEPCN | C(30) | 30 | 0 |
+| APA_LOGPCN | C(30) | 30 | 0 |
+| APA_NUMPCN | C(5) | 5 | 0 |
+| APA_CPLPCN | C(10) | 10 | 0 |
+| APA_CEPPCN | C(8) | 8 | 0 |
+| APA_MUNPCN | C(7) | 7 | 0 |
+| APA_DTNASC | C(8) | 8 | 0 |
+| APA_SEXPCN | C(1) | 1 | 0 |
+| APA_VARIA | C(141) | 141 | 0 |
+| APA_CPFRES | C(11) | 11 | 0 |
+| APA_NMRES | C(30) | 30 | 0 |
+| PAP_PA1 | C(10) | 10 | 0 |
+| PAP_AT_P1 | C(6) | 6 | 0 |
+| PAP_QT_P1 | C(7) | 7 | 0 |
+| PAP_PA2 | C(10) | 10 | 0 |
+| PAP_AT_P2 | C(6) | 6 | 0 |
+| PAP_QT_P2 | C(7) | 7 | 0 |
+| PAP_PA3 | C(10) | 10 | 0 |
+| PAP_AT_P3 | C(6) | 6 | 0 |
+| PAP_QT_P3 | C(7) | 7 | 0 |
+| PAP_PA4 | C(10) | 10 | 0 |
+| PAP_AT_P4 | C(6) | 6 | 0 |
+| PAP_QT_P4 | C(7) | 7 | 0 |
+| PAP_PA5 | C(10) | 10 | 0 |
+| PAP_AT_P5 | C(6) | 6 | 0 |
+| PAP_QT_P5 | C(7) | 7 | 0 |
+| PAP_PA6 | C(10) | 10 | 0 |
+| PAP_AT_P6 | C(6) | 6 | 0 |
+| PAP_QT_P6 | C(7) | 7 | 0 |
+| PAP_PA7 | C(10) | 10 | 0 |
+| PAP_AT_P7 | C(6) | 6 | 0 |
+| PAP_QT_P7 | C(7) | 7 | 0 |
+| PAP_PA8 | C(10) | 10 | 0 |
+| PAP_AT_P8 | C(6) | 6 | 0 |
+| PAP_QT_P8 | C(7) | 7 | 0 |
+| PAP_PA9 | C(10) | 10 | 0 |
+| PAP_AT_P9 | C(6) | 6 | 0 |
+| PAP_QT_P9 | C(7) | 7 | 0 |
+| PAP_PA10 | C(10) | 10 | 0 |
+| PAP_AT_P10 | C(6) | 6 | 0 |
+| PAP_QT_P10 | C(7) | 7 | 0 |
+| APA_MOTCOB | C(2) | 2 | 0 |
+| APA_DTOBAL | C(8) | 8 | 0 |
+| APA_CPFDIR | C(11) | 11 | 0 |
+| APA_NMDIR | C(30) | 30 | 0 |
+| APA_CONT | C(1) | 1 | 0 |
+| PAP_CGC1 | C(14) | 14 | 0 |
+| PAP_NF1 | C(6) | 6 | 0 |
+| PAP_CGC2 | C(14) | 14 | 0 |
+| PAP_NF2 | C(6) | 6 | 0 |
+| PAP_CGC3 | C(14) | 14 | 0 |
+| PAP_NF3 | C(6) | 6 | 0 |
+| PAP_CGC4 | C(14) | 14 | 0 |
+| PAP_NF4 | C(6) | 6 | 0 |
+| PAP_CGC5 | C(14) | 14 | 0 |
+| PAP_NF5 | C(6) | 6 | 0 |
+| PAP_CGC6 | C(14) | 14 | 0 |
+| PAP_NF6 | C(6) | 6 | 0 |
+| PAP_CGC7 | C(14) | 14 | 0 |
+| PAP_NF7 | C(6) | 6 | 0 |
+| PAP_CGC8 | C(14) | 14 | 0 |
+| PAP_NF8 | C(6) | 6 | 0 |
+| PAP_CGC9 | C(14) | 14 | 0 |
+| PAP_NF9 | C(6) | 6 | 0 |
+| PAP_CGC10 | C(14) | 14 | 0 |
+| PAP_NF10 | C(6) | 6 | 0 |
+| APA_CNSPCT | C(15) | 15 | 0 |
+| APA_CNSRES | C(15) | 15 | 0 |
+| APA_CNSDIR | C(15) | 15 | 0 |
+| CIDPR1 | C(4) | 4 | 0 |
+| CIDSE1 | C(4) | 4 | 0 |
+| CIDPR2 | C(4) | 4 | 0 |
+| CIDSE2 | C(4) | 4 | 0 |
+| CIDPR3 | C(4) | 4 | 0 |
+| CIDSE3 | C(4) | 4 | 0 |
+| CIDPR4 | C(4) | 4 | 0 |
+| CIDSE4 | C(4) | 4 | 0 |
+| CIDPR5 | C(4) | 4 | 0 |
+| CIDSE5 | C(4) | 4 | 0 |
+| CIDPR6 | C(4) | 4 | 0 |
+| CIDSE6 | C(4) | 4 | 0 |
+| CIDPR7 | C(4) | 4 | 0 |
+| CIDSE7 | C(4) | 4 | 0 |
+| CIDPR8 | C(4) | 4 | 0 |
+| CIDSE8 | C(4) | 4 | 0 |
+| CIDPR9 | C(4) | 4 | 0 |
+| CIDSE9 | C(4) | 4 | 0 |
+| CIDPR10 | C(4) | 4 | 0 |
+| CIDSE10 | C(4) | 4 | 0 |
+| AP_CIDCA | C(4) | 4 | 0 |
+| AP_NPRONT | C(10) | 10 | 0 |
+| AP_CODSOL | C(7) | 7 | 0 |
+| AP_DTSOLIC | C(8) | 8 | 0 |
+| AP_DTAUTOR | C(8) | 8 | 0 |
+| AP_CODEMIS | C(10) | 10 | 0 |
+| AP_CATEND | C(2) | 2 | 0 |
+| AP_APACANT | C(13) | 13 | 0 |
+| APA_RACA | C(2) | 2 | 0 |
+| APA_NOMERE | C(30) | 30 | 0 |
+| APA_UFPCN | C(3) | 3 | 0 |
+| APA_ETNIA | C(4) | 4 | 0 |
+| AP_SRV | C(3) | 3 | 0 |
+| AP_CSF | C(3) | 3 | 0 |
+| AP_EQUIPE1 | C(12) | 12 | 0 |
+| AP_EQUIPE2 | C(12) | 12 | 0 |
+| AP_EQUIPE3 | C(12) | 12 | 0 |
+| AP_EQUIPE4 | C(12) | 12 | 0 |
+| AP_EQUIPE5 | C(12) | 12 | 0 |
+| AP_EQUIPE6 | C(12) | 12 | 0 |
+| AP_EQUIPE7 | C(12) | 12 | 0 |
+| AP_EQUIPE8 | C(12) | 12 | 0 |
+| AP_EQUIPE9 | C(12) | 12 | 0 |
+| AP_EQUIPE0 | C(12) | 12 | 0 |
+| AP_CDLOGR | C(3) | 3 | 0 |
+| AP_BAIRRO | C(30) | 30 | 0 |
+| AP_DDD | C(2) | 2 | 0 |
+| AP_TEL | C(9) | 9 | 0 |
+| AP_EMAIL | C(40) | 40 | 0 |
+| AP_CNSEXE | C(15) | 15 | 0 |
+| APA_CPFPCT | C(11) | 11 | 0 |
+| AP_INE | C(10) | 10 | 0 |
+| APA_STRUA | C(1) | 1 | 0 |
+| APA_FNTORC | C(2) | 2 | 0 |
+| APA_EMEPAR | C(1) | 1 | 0 |
+| APA_SEMCPF | C(1) | 1 | 0 |
+| AP_UNTERC1 | C(7) | 7 | 0 |
+| AP_UNTERC2 | C(7) | 7 | 0 |
+| AP_UNTERC3 | C(7) | 7 | 0 |
+| AP_UNTERC4 | C(7) | 7 | 0 |
+| AP_UNTERC5 | C(7) | 7 | 0 |
+| AP_UNTERC6 | C(7) | 7 | 0 |
+| AP_UNTERC7 | C(7) | 7 | 0 |
+| AP_UNTERC8 | C(7) | 7 | 0 |
+| AP_UNTERC9 | C(7) | 7 | 0 |
+| AP_UNTERC0 | C(7) | 7 | 0 |
+| APAL_SOMA | N(15) | 15 | 0 |
+| APAL_X | C(25) | 25 | 0 |
 
 ### `S_TUEMA.DBF`
 
@@ -1054,10 +1227,102 @@ Observações da introspecção real:
 | TUEMA_TUP | C(2) | 2 | 0 |
 | TUEMA_EMA | C(150) | 150 | 0 |
 
+### `versaomn.dbf`
+
+- 90 records
+- Size: 2,689 bytes
+- Encoding: cp1252
+- Fields: 7
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| CMP | C(6) | 6 | 0 |
+| FILL1 | C(1) | 1 | 0 |
+| DEPARA | C(5) | 5 | 0 |
+| FILL2 | C(1) | 1 | 0 |
+| BDSIA | C(7) | 7 | 0 |
+| FILL3 | C(1) | 1 | 0 |
+| SIA | C(5) | 5 | 0 |
+
+### `s_corpo.dbf`
+
+- 88 records
+- Size: 49,011 bytes
+- Encoding: cp1252
+- Fields: 51
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| IDENTIF | C(2) | 2 | 0 |
+| AP_CMP | C(6) | 6 | 0 |
+| AP_NUMAPAC | C(13) | 13 | 0 |
+| AP_CODUF | C(2) | 2 | 0 |
+| AP_CODUNI | C(7) | 7 | 0 |
+| AP_DTEMI | C(8) | 8 | 0 |
+| AP_DTINVAL | C(8) | 8 | 0 |
+| AP_DTFIVAL | C(8) | 8 | 0 |
+| AP_TIPATE | C(2) | 2 | 0 |
+| AP_TIPAPAC | C(1) | 1 | 0 |
+| AP_NOMEPAC | C(30) | 30 | 0 |
+| AP_NOMEMAE | C(30) | 30 | 0 |
+| AP_ENDPAC | C(30) | 30 | 0 |
+| AP_ENDNUM | C(5) | 5 | 0 |
+| AP_ENDCOMP | C(10) | 10 | 0 |
+| AP_ENDCEP | C(8) | 8 | 0 |
+| AP_CODMUN | C(7) | 7 | 0 |
+| AP_DTNASC | C(8) | 8 | 0 |
+| AP_SEXO | C(1) | 1 | 0 |
+| AP_NOMESOL | C(30) | 30 | 0 |
+| AP_CDPROC0 | C(10) | 10 | 0 |
+| AP_CODCOB | C(2) | 2 | 0 |
+| AP_DTOCORR | C(8) | 8 | 0 |
+| AP_NOMEDIR | C(30) | 30 | 0 |
+| AP_CNS | C(15) | 15 | 0 |
+| AP_CNSRES | C(15) | 15 | 0 |
+| AP_CNSDIR | C(15) | 15 | 0 |
+| AP_CIDCA | C(4) | 4 | 0 |
+| AP_NPRONT | C(10) | 10 | 0 |
+| AP_CODSOL | C(7) | 7 | 0 |
+| AP_DTSOLIC | C(8) | 8 | 0 |
+| AP_DTAUTOR | C(8) | 8 | 0 |
+| AP_CODEMIS | C(10) | 10 | 0 |
+| AP_CATEND | C(2) | 2 | 0 |
+| AP_APACANT | C(13) | 13 | 0 |
+| AP_RACA | C(2) | 2 | 0 |
+| AP_NOMERES | C(30) | 30 | 0 |
+| AP_UFNASC | C(3) | 3 | 0 |
+| AP_ETNIA | C(4) | 4 | 0 |
+| AP_CDLOGR | C(3) | 3 | 0 |
+| AP_BAIRRO | C(30) | 30 | 0 |
+| AP_DDD | C(2) | 2 | 0 |
+| AP_TEL | C(9) | 9 | 0 |
+| AP_EMAIL | C(40) | 40 | 0 |
+| AP_CNSEXE | C(15) | 15 | 0 |
+| AP_CPFPCT | C(11) | 11 | 0 |
+| AP_INE | C(10) | 10 | 0 |
+| AP_STRUA | C(1) | 1 | 0 |
+| AP_FNTORC | C(2) | 2 | 0 |
+| AP_EMEPAR | C(1) | 1 | 0 |
+| AP_SEMCPF | C(1) | 1 | 0 |
+
+### `s_varia.dbf`
+
+- 88 records
+- Size: 14,419 bytes
+- Encoding: cp1252
+- Fields: 4
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| IDENTIF | C(2) | 2 | 0 |
+| AP_CMP | C(6) | 6 | 0 |
+| AP_NUMAPAC | C(13) | 13 | 0 |
+| AP_VARIA | C(140) | 140 | 0 |
+
 ### `S_RUB.DBF`
 
-- 42 records
-- Size: 2,104 bytes
+- 43 records
+- Size: 2,151 bytes
 - Encoding: cp1252
 - Fields: 3
 
@@ -1066,6 +1331,21 @@ Observações da introspecção real:
 | RUB_ID | C(4) | 4 | 0 |
 | RUB_DC | C(40) | 40 | 0 |
 | RUB_TOTAL | C(2) | 2 | 0 |
+
+### `S_FFI.DBF`
+
+- 42 records
+- Size: 2,168 bytes
+- Encoding: cp1252
+- Fields: 5
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| FFI_IN_PF | C(1) | 1 | 0 |
+| FFI_CGCCPF | C(14) | 14 | 0 |
+| FFI_MVM | C(6) | 6 | 0 |
+| FFI_VL | N(13,2) | 13 | 2 |
+| FFI_IR | N(12,2) | 12 | 2 |
 
 ### `S_CFA.DBF`
 
@@ -1081,25 +1361,10 @@ Observações da introspecção real:
 | CFAAMINI | C(6) | 6 | 0 |
 | CFAAMFIN | C(6) | 6 | 0 |
 
-### `S_FFI.DBF`
-
-- 30 records
-- Size: 1,604 bytes
-- Encoding: cp1252
-- Fields: 5
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| FFI_IN_PF | C(1) | 1 | 0 |
-| FFI_CGCCPF | C(14) | 14 | 0 |
-| FFI_MVM | C(6) | 6 | 0 |
-| FFI_VL | N(13,2) | 13 | 2 |
-| FFI_IR | N(12,2) | 12 | 2 |
-
 ### `S_UPS.DBF`
 
-- 27 records
-- Size: 10,838 bytes
+- 28 records
+- Size: 11,186 bytes
 - Encoding: cp1252
 - Fields: 44
 
@@ -1150,10 +1415,24 @@ Observações da introspecção real:
 | UPS_LOCNAC | C(1) | 1 | 0 |
 | UPS_CHKSM | C(6) | 6 | 0 |
 
+### `S_UPSL.dbf`
+
+- 28 records
+- Size: 2,095 bytes
+- Encoding: cp1252
+- Fields: 4
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| MARCADO | C(1) | 1 | 0 |
+| UPS_ID | C(7) | 7 | 0 |
+| UPS_RZSC | C(30) | 30 | 0 |
+| UPS_NMFN | C(30) | 30 | 0 |
+
 ### `s_reprd.dbf`
 
-- 27 records
-- Size: 2,537 bytes
+- 28 records
+- Size: 2,619 bytes
 - Encoding: cp1252
 - Fields: 9
 
@@ -1169,59 +1448,10 @@ Observações da introspecção real:
 | RE_NQPSI | N(5) | 5 | 0 |
 | RE_MENSAGE | C(8) | 8 | 0 |
 
-### `S_PRFIRR.DBF`
-
-- 22 records
-- Size: 1,096 bytes
-- Encoding: cp1252
-- Fields: 5
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| PRF_MVM | C(6) | 6 | 0 |
-| PRF_CNES | C(7) | 7 | 0 |
-| PRF_CPF | C(11) | 11 | 0 |
-| PRF_CNS | C(15) | 15 | 0 |
-| PRF_FLG | C(1) | 1 | 0 |
-
-### `S_RELAT.DBF`
-
-- 22 records
-- Size: 73,600 bytes
-- Encoding: cp1252
-- Fields: 24
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| CODIGO | C(8) | 8 | 0 |
-| DESCR | C(40) | 40 | 0 |
-| CABEC | C(200) | 200 | 0 |
-| HEADER | C(200) | 200 | 0 |
-| IND_ORDEM | C(100) | 100 | 0 |
-| QUEBRA1 | C(100) | 100 | 0 |
-| HEAD_1 | C(200) | 200 | 0 |
-| FOOT_1 | C(200) | 200 | 0 |
-| QUEBRA2 | C(100) | 100 | 0 |
-| HEAD_2 | C(200) | 200 | 0 |
-| FOOT_2 | C(250) | 250 | 0 |
-| QUEBRA3 | C(100) | 100 | 0 |
-| HEAD_3 | C(200) | 200 | 0 |
-| FOOT_3 | C(200) | 200 | 0 |
-| DETALHE | C(250) | 250 | 0 |
-| DETALHE_CO | C(200) | 200 | 0 |
-| SOMA1 | C(100) | 100 | 0 |
-| SOMA2 | C(100) | 100 | 0 |
-| SOMA3 | C(100) | 100 | 0 |
-| SOMA4 | C(100) | 100 | 0 |
-| SOMA5 | C(100) | 100 | 0 |
-| FILTRO | C(30) | 30 | 0 |
-| TOT_GER | C(200) | 200 | 0 |
-| I_TEMP_PRD | C(30) | 30 | 0 |
-
 ### `S_ENCERR.DBF`
 
-- 18 records
-- Size: 4,333 bytes
+- 23 records
+- Size: 5,278 bytes
 - Encoding: cp1252
 - Fields: 28
 
@@ -1256,6 +1486,87 @@ Observações da introspecção real:
 | ENC_VTOTH | C(6) | 6 | 0 |
 | ENC_RTOTH | C(6) | 6 | 0 |
 
+### `S_PRFIRR.DBF`
+
+- 23 records
+- Size: 1,137 bytes
+- Encoding: cp1252
+- Fields: 5
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| PRF_MVM | C(6) | 6 | 0 |
+| PRF_CNES | C(7) | 7 | 0 |
+| PRF_CPF | C(11) | 11 | 0 |
+| PRF_CNS | C(15) | 15 | 0 |
+| PRF_FLG | C(1) | 1 | 0 |
+
+### `S_RELAT.DBF`
+
+- 23 records
+- Size: 76,909 bytes
+- Encoding: cp1252
+- Fields: 24
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| CODIGO | C(8) | 8 | 0 |
+| DESCR | C(40) | 40 | 0 |
+| CABEC | C(200) | 200 | 0 |
+| HEADER | C(200) | 200 | 0 |
+| IND_ORDEM | C(100) | 100 | 0 |
+| QUEBRA1 | C(100) | 100 | 0 |
+| HEAD_1 | C(200) | 200 | 0 |
+| FOOT_1 | C(200) | 200 | 0 |
+| QUEBRA2 | C(100) | 100 | 0 |
+| HEAD_2 | C(200) | 200 | 0 |
+| FOOT_2 | C(250) | 250 | 0 |
+| QUEBRA3 | C(100) | 100 | 0 |
+| HEAD_3 | C(200) | 200 | 0 |
+| FOOT_3 | C(200) | 200 | 0 |
+| DETALHE | C(250) | 250 | 0 |
+| DETALHE_CO | C(200) | 200 | 0 |
+| SOMA1 | C(100) | 100 | 0 |
+| SOMA2 | C(100) | 100 | 0 |
+| SOMA3 | C(100) | 100 | 0 |
+| SOMA4 | C(100) | 100 | 0 |
+| SOMA5 | C(100) | 100 | 0 |
+| FILTRO | C(30) | 30 | 0 |
+| TOT_GER | C(200) | 200 | 0 |
+| I_TEMP_PRD | C(30) | 30 | 0 |
+
+### `S_OCOR.dbf`
+
+- 15 records
+- Size: 735 bytes
+- Encoding: cp1252
+- Fields: 5
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| OC_OCOR | C(4) | 4 | 0 |
+| OC_QTD | N(10) | 10 | 0 |
+| OC_FREQ | N(7) | 7 | 0 |
+| OC_VALOR | N(12,2) | 12 | 2 |
+| OC_IP | C(2) | 2 | 0 |
+
+### `vepe.dbf`
+
+- 14 records
+- Size: 1,281 bytes
+- Encoding: cp1252
+- Fields: 7
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| ORDEM | C(6) | 6 | 0 |
+| REGRAC | C(4) | 4 | 0 |
+| TP_FINANC | C(2) | 2 | 0 |
+| CD_RUB | C(4) | 4 | 0 |
+| CPX | C(1) | 1 | 0 |
+| TTOTAL | N(15,2) | 15 | 2 |
+| DESCRICAO | C(40) | 40 | 0 |
+
 ### `S_CGCEX.DBF`
 
 - 8 records
@@ -1284,20 +1595,6 @@ Observações da introspecção real:
 | UPSHA_FIM | C(6) | 6 | 0 |
 | UHA_LOCNAC | C(1) | 1 | 0 |
 | UHA_CHKSM | C(6) | 6 | 0 |
-
-### `tot_cons.dbf`
-
-- 8 records
-- Size: 947 bytes
-- Encoding: cp1252
-- Fields: 4
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| GRUPO | C(3) | 3 | 0 |
-| COD_ERRO | C(4) | 4 | 0 |
-| DESCR_ERRO | C(80) | 80 | 0 |
-| QTD_TOTAL | N(10) | 10 | 0 |
 
 ### `CONFIMP.DBF`
 
@@ -1352,6 +1649,71 @@ Observações da introspecção real:
 | UPSRC_RC | C(4) | 4 | 0 |
 | UPSRC_INI | C(6) | 6 | 0 |
 | UPSRC_FIM | C(6) | 6 | 0 |
+
+### `S_RLC.dbf`
+
+- 2 records
+- Size: 517 bytes
+- Encoding: cp1252
+- Fields: 9
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| RLC_IN_PF | C(1) | 1 | 0 |
+| RLC_CGCCPF | C(14) | 14 | 0 |
+| RLC_NM | C(35) | 35 | 0 |
+| RLC_CD | C(7) | 7 | 0 |
+| RLC_BCO | C(3) | 3 | 0 |
+| RLC_CC | C(14) | 14 | 0 |
+| RLC_AB | C(6) | 6 | 0 |
+| RLC_VL | N(13,2) | 13 | 2 |
+| RLC_REGSAU | C(3) | 3 | 0 |
+
+### `S_RLR.dbf`
+
+- 2 records
+- Size: 865 bytes
+- Encoding: cp1252
+- Fields: 15
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| RLC_IN_PF | C(1) | 1 | 0 |
+| RLC_CGCCPF | C(14) | 14 | 0 |
+| RLC_NM | C(35) | 35 | 0 |
+| RLC_CD | C(7) | 7 | 0 |
+| RLC_BCO | C(3) | 3 | 0 |
+| RLC_CC | C(14) | 14 | 0 |
+| RLC_AB | C(6) | 6 | 0 |
+| RLC_VL | N(13,2) | 13 | 2 |
+| RLCALTA | N(13,2) | 13 | 2 |
+| RLCESTRAT | N(13,2) | 13 | 2 |
+| RLCPAB | N(13,2) | 13 | 2 |
+| RLCMEDIA | N(13,2) | 13 | 2 |
+| RLCBDP | N(13,2) | 13 | 2 |
+| RLCBDP_OUT | N(13,2) | 13 | 2 |
+| RLC_REGSAU | C(3) | 3 | 0 |
+
+### `ERRO_HA.dbf`
+
+- 1 records
+- Size: 505 bytes
+- Encoding: cp1252
+- Fields: 11
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| UPS | C(7) | 7 | 0 |
+| CMP | C(6) | 6 | 0 |
+| PA | C(10) | 10 | 0 |
+| CNPJ | C(14) | 14 | 0 |
+| SRV | C(1) | 1 | 0 |
+| CBO | C(6) | 6 | 0 |
+| CID | C(4) | 4 | 0 |
+| APAC | C(14) | 14 | 0 |
+| CNSPCT | C(15) | 15 | 0 |
+| NMPCN | C(30) | 30 | 0 |
+| NPRONT | C(10) | 10 | 0 |
 
 ### `S_CTR.DBF`
 
@@ -1456,6 +1818,21 @@ Observações da introspecção real:
 | OUTRO2 | C(30) | 30 | 0 |
 | OUTRO3 | C(30) | 30 | 0 |
 
+### `s_prdlt.dbf`
+
+- 1 records
+- Size: 232 bytes
+- Encoding: cp1252
+- Fields: 5
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| ID | N(1) | 1 | 0 |
+| PRDL_PA | N(10) | 10 | 0 |
+| PRDL_QT_P | N(6) | 6 | 0 |
+| T1 | N(2) | 2 | 0 |
+| S1 | N(17) | 17 | 0 |
+
 ### `ADESAO.DBF`
 
 - 0 records
@@ -1469,6 +1846,80 @@ Observações da introspecção real:
 | GESTOR | C(6) | 6 | 0 |
 | CMP_INI | C(6) | 6 | 0 |
 | CMP_FIM | C(6) | 6 | 0 |
+
+### `APA.dbf`
+
+- 0 records
+- Size: 2,083 bytes
+- Encoding: cp1252
+- Fields: 64
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| APA_UID | C(7) | 7 | 0 |
+| APA_NUM | C(13) | 13 | 0 |
+| APA_EMISSA | C(8) | 8 | 0 |
+| APA_DTINIC | C(8) | 8 | 0 |
+| APA_DTFIM | C(8) | 8 | 0 |
+| APA_TPATEN | C(2) | 2 | 0 |
+| APA_TPAPAC | C(1) | 1 | 0 |
+| APA_NMPCN | C(30) | 30 | 0 |
+| APA_UFPCN | C(3) | 3 | 0 |
+| APA_MAEPCN | C(30) | 30 | 0 |
+| APA_LOGPCN | C(30) | 30 | 0 |
+| APA_NUMPCN | C(5) | 5 | 0 |
+| APA_CPLPCN | C(10) | 10 | 0 |
+| APA_CEPPCN | C(8) | 8 | 0 |
+| APA_MUNPCN | C(7) | 7 | 0 |
+| APA_DTNASC | C(8) | 8 | 0 |
+| APA_SEXPCN | C(1) | 1 | 0 |
+| APA_VARIA | C(141) | 141 | 0 |
+| APA_CPFRES | C(11) | 11 | 0 |
+| APA_NMRES | C(30) | 30 | 0 |
+| APA_MOTCOB | C(2) | 2 | 0 |
+| APA_DTOBAL | C(8) | 8 | 0 |
+| APA_CPFDIR | C(11) | 11 | 0 |
+| APA_NMDIR | C(30) | 30 | 0 |
+| APA_CMP | C(6) | 6 | 0 |
+| APA_MVM | C(6) | 6 | 0 |
+| APA_RMS | C(4) | 4 | 0 |
+| APA_DTGER | C(8) | 8 | 0 |
+| APA_FLER | C(10) | 10 | 0 |
+| APA_INERPP | C(1) | 1 | 0 |
+| APA_PRIPAL | C(9) | 9 | 0 |
+| APA_CPFPCT | C(11) | 11 | 0 |
+| APA_CNSPCT | C(15) | 15 | 0 |
+| APA_CNSRES | C(15) | 15 | 0 |
+| APA_CNSDIR | C(15) | 15 | 0 |
+| APA_CIDCA | C(4) | 4 | 0 |
+| APA_NPRONT | C(10) | 10 | 0 |
+| APA_CODSOL | C(7) | 7 | 0 |
+| APA_DTSOL | C(8) | 8 | 0 |
+| APA_DTAUT | C(8) | 8 | 0 |
+| APA_CODEMI | C(10) | 10 | 0 |
+| APA_CATEND | C(2) | 2 | 0 |
+| APA_APACAN | C(14) | 14 | 0 |
+| APA_RACA | C(2) | 2 | 0 |
+| APA_NOMERE | C(30) | 30 | 0 |
+| APA_ETNIA | C(4) | 4 | 0 |
+| APA_ADVLMC | C(1) | 1 | 0 |
+| APA_ADVTZM | C(1) | 1 | 0 |
+| APA_SRV | C(3) | 3 | 0 |
+| APA_CSF | C(3) | 3 | 0 |
+| APA_CDLOGR | C(3) | 3 | 0 |
+| APA_BAIRRO | C(30) | 30 | 0 |
+| APA_DDD | C(2) | 2 | 0 |
+| APA_TEL | C(9) | 9 | 0 |
+| APA_EMAIL | C(40) | 40 | 0 |
+| APA_CNSEXE | C(15) | 15 | 0 |
+| APA_INE | C(10) | 10 | 0 |
+| APA_ADVSEX | C(1) | 1 | 0 |
+| APA_EXPMAE | C(1) | 1 | 0 |
+| APA_STRUA | C(1) | 1 | 0 |
+| APA_FNTORC | C(2) | 2 | 0 |
+| APA_EMEPAR | C(1) | 1 | 0 |
+| APA_SEMCPF | C(1) | 1 | 0 |
+| APA_CHKSM | C(6) | 6 | 0 |
 
 ### `APCNES_TERC.DBF`
 
@@ -1488,6 +1939,179 @@ Observações da introspecção real:
 | UID_TERC | C(7) | 7 | 0 |
 | QTD | N(6) | 6 | 0 |
 | MVM | C(6) | 6 | 0 |
+
+### `CADGESMN.DBF`
+
+- 0 records
+- Size: 195 bytes
+- Encoding: cp1252
+- Fields: 5
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| CODUF | C(2) | 2 | 0 |
+| CODMUNIC | C(4) | 4 | 0 |
+| NOME | C(40) | 40 | 0 |
+| CONDIC | C(2) | 2 | 0 |
+| CIB_SAS | C(1) | 1 | 0 |
+
+### `RAS.dbf`
+
+- 0 records
+- Size: 1,667 bytes
+- Encoding: cp1252
+- Fields: 51
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| RA_INSRG | C(3) | 3 | 0 |
+| RA_UID | C(7) | 7 | 0 |
+| RA_CMP | C(6) | 6 | 0 |
+| RA_CPFPCT | C(11) | 11 | 0 |
+| RA_CNSPCT | C(15) | 15 | 0 |
+| RA_DTINIC | C(8) | 8 | 0 |
+| RA_DTFIM | C(8) | 8 | 0 |
+| RA_NMPCN | C(30) | 30 | 0 |
+| RA_NPRONT | C(10) | 10 | 0 |
+| RA_NACPCN | C(3) | 3 | 0 |
+| RA_MAEPCN | C(30) | 30 | 0 |
+| RA_NOMERE | C(30) | 30 | 0 |
+| RA_LOGPCN | C(30) | 30 | 0 |
+| RA_NUMPCN | C(5) | 5 | 0 |
+| RA_CPLPCN | C(10) | 10 | 0 |
+| RA_CEPPCN | C(8) | 8 | 0 |
+| RA_MUNPCN | C(7) | 7 | 0 |
+| RA_DTNASC | C(8) | 8 | 0 |
+| RA_SEXPCN | C(1) | 1 | 0 |
+| RA_RACA | C(2) | 2 | 0 |
+| RA_ETNIA | C(4) | 4 | 0 |
+| RA_TELEF | C(11) | 11 | 0 |
+| RA_CELULAR | C(11) | 11 | 0 |
+| RA_MOTCOB | C(2) | 2 | 0 |
+| RA_DTOBAL | C(8) | 8 | 0 |
+| RA_CATEND | C(2) | 2 | 0 |
+| RA_CIDPRI | C(4) | 4 | 0 |
+| RA_CIDCA | C(4) | 4 | 0 |
+| RA_CIDSEC1 | C(4) | 4 | 0 |
+| RA_CIDSEC2 | C(4) | 4 | 0 |
+| RA_CIDSEC3 | C(4) | 4 | 0 |
+| RA_PCNORI | C(2) | 2 | 0 |
+| RA_CODESF | C(1) | 1 | 0 |
+| RA_CNESESF | C(7) | 7 | 0 |
+| RA_DESTPCT | C(2) | 2 | 0 |
+| RA_ORG | C(3) | 3 | 0 |
+| RA_STRUA | C(1) | 1 | 0 |
+| RA_USUDRGA | C(1) | 1 | 0 |
+| RA_TPDRGA | C(3) | 3 | 0 |
+| RA_NAUTO | C(13) | 13 | 0 |
+| RA_CHKSU | C(4) | 4 | 0 |
+| RA_RMS | C(4) | 4 | 0 |
+| RA_DTGER | C(8) | 8 | 0 |
+| RA_FLER | C(10) | 10 | 0 |
+| RA_INERPP | C(1) | 1 | 0 |
+| RA_MVM | C(6) | 6 | 0 |
+| RA_CDLOGR | C(3) | 3 | 0 |
+| RA_BAIRRO | C(30) | 30 | 0 |
+| RA_EMAIL | C(40) | 40 | 0 |
+| RA_SEMCPF | C(1) | 1 | 0 |
+| RA_CHKSM | C(6) | 6 | 0 |
+
+### `R_MUTIRAOSAUDEMULHER.DBF`
+
+- 0 records
+- Size: 579 bytes
+- Encoding: cp1252
+- Fields: 17
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| TIPO | C(4) | 4 | 0 |
+| UID | C(7) | 7 | 0 |
+| CMP | C(6) | 6 | 0 |
+| DT_ATEND | C(8) | 8 | 0 |
+| CNS | C(15) | 15 | 0 |
+| APAC | C(13) | 13 | 0 |
+| PROCEDIM | C(9) | 9 | 0 |
+| SEXO | C(1) | 1 | 0 |
+| MVM | C(6) | 6 | 0 |
+| CNSMED | C(15) | 15 | 0 |
+| CBO | C(6) | 6 | 0 |
+| FOLHA | C(3) | 3 | 0 |
+| SEQ | C(2) | 2 | 0 |
+| QTD | N(6) | 6 | 0 |
+| VL_PROD | N(10,2) | 10 | 2 |
+| VL_FED | N(10,2) | 10 | 2 |
+| VL_APROV | N(10,2) | 10 | 2 |
+
+### `S_BPI.DBF`
+
+- 0 records
+- Size: 1,955 bytes
+- Encoding: cp1252
+- Fields: 60
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| BPI_UID | C(7) | 7 | 0 |
+| BPI_CMP | C(6) | 6 | 0 |
+| BPI_CNSMED | C(15) | 15 | 0 |
+| BPI_CBO | C(6) | 6 | 0 |
+| BPI_FLH | C(3) | 3 | 0 |
+| BPI_SEQ | C(2) | 2 | 0 |
+| BPI_PA | C(10) | 10 | 0 |
+| BPI_CPFPCT | C(11) | 11 | 0 |
+| BPI_CNSPAC | C(15) | 15 | 0 |
+| BPI_NMPAC | C(30) | 30 | 0 |
+| BPI_DTNASC | C(8) | 8 | 0 |
+| BPI_SEXO | C(1) | 1 | 0 |
+| BPI_IBGE | C(6) | 6 | 0 |
+| BPI_DTATEN | C(8) | 8 | 0 |
+| BPI_CID | C(4) | 4 | 0 |
+| BPI_CATEN | C(2) | 2 | 0 |
+| BPI_NAUT | C(13) | 13 | 0 |
+| BPI_QT_P | N(6) | 6 | 0 |
+| BPI_QT_A | N(6) | 6 | 0 |
+| BPI_IDADE | N(3) | 3 | 0 |
+| BPI_MVM | C(6) | 6 | 0 |
+| BPI_ORG | C(3) | 3 | 0 |
+| BPI_TPFIN | C(1) | 1 | 0 |
+| BPI_RMS | C(4) | 4 | 0 |
+| BPI_FLPA | C(1) | 1 | 0 |
+| BPI_FLCID | C(1) | 1 | 0 |
+| BPI_FLCBO | C(1) | 1 | 0 |
+| BPI_FLCA | C(1) | 1 | 0 |
+| BPI_FLIDA | C(1) | 1 | 0 |
+| BPI_FLQT | C(1) | 1 | 0 |
+| BPI_FLER | C(1) | 1 | 0 |
+| BPI_RACA | C(2) | 2 | 0 |
+| BPI_ETNIA | C(4) | 4 | 0 |
+| BPI_NACIO | C(3) | 3 | 0 |
+| BPI_SRV | C(3) | 3 | 0 |
+| BPI_CSF | C(3) | 3 | 0 |
+| BPI_EQUIPE | C(12) | 12 | 0 |
+| BPI_CNPJ | C(14) | 14 | 0 |
+| BPI_CEPPCN | C(8) | 8 | 0 |
+| BPI_CDLOGR | C(3) | 3 | 0 |
+| BPI_LOGPCN | C(30) | 30 | 0 |
+| BPI_CPLPCN | C(10) | 10 | 0 |
+| BPI_NUMPCN | C(5) | 5 | 0 |
+| BPI_BAIRRO | C(30) | 30 | 0 |
+| BPI_DDD | C(2) | 2 | 0 |
+| BPI_TEL | C(9) | 9 | 0 |
+| BPI_EMAIL | C(40) | 40 | 0 |
+| BPI_VL_FED | N(10,2) | 10 | 2 |
+| BPI_VL_LOC | N(10,2) | 10 | 2 |
+| BPI_VL_INC | N(10,2) | 10 | 2 |
+| BPI_INCOUT | C(4) | 4 | 0 |
+| BPI_INCURG | C(4) | 4 | 0 |
+| BPI_RUB | C(6) | 6 | 0 |
+| BPI_CPX | C(1) | 1 | 0 |
+| BPI_RC | C(4) | 4 | 0 |
+| BPI_CHKSM | C(6) | 6 | 0 |
+| BPI_INE | C(10) | 10 | 0 |
+| BPI_STRUA | C(1) | 1 | 0 |
+| BPI_SEMCPF | C(1) | 1 | 0 |
+| BPI_ADVSEX | C(1) | 1 | 0 |
 
 ### `S_CD.DBF`
 
@@ -1528,6 +2152,33 @@ Observações da introspecção real:
 |---|---|---|---|
 | CDN_COD | C(6) | 6 | 0 |
 | CDN_DESCR | C(68) | 68 | 0 |
+
+### `S_CNSQTD.DBF`
+
+- 0 records
+- Size: 578 bytes
+- Encoding: cp1252
+- Fields: 17
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| CNSPCT | C(15) | 15 | 0 |
+| CMP | C(6) | 6 | 0 |
+| PROCEDIM | C(10) | 10 | 0 |
+| QTD | N(8) | 8 | 0 |
+| SUBTOT | N(15) | 15 | 0 |
+| UID | C(7) | 7 | 0 |
+| TIPO | C(1) | 1 | 0 |
+| APAC | C(13) | 13 | 0 |
+| FOLHA | C(3) | 3 | 0 |
+| SEQ | C(2) | 2 | 0 |
+| CBO | C(6) | 6 | 0 |
+| CNSMED | C(15) | 15 | 0 |
+| MVM | C(6) | 6 | 0 |
+| ORG | C(3) | 3 | 0 |
+| PRINCIPAL | C(9) | 9 | 0 |
+| ERRO | C(1) | 1 | 0 |
+| X | C(20) | 20 | 0 |
 
 ### `S_CRD.DBF`
 
@@ -1639,6 +2290,71 @@ Observações da introspecção real:
 | ORR_DSCR | C(100) | 100 | 0 |
 | ORR_MVM | C(6) | 6 | 0 |
 
+### `S_PRD.DBF`
+
+- 0 records
+- Size: 1,795 bytes
+- Encoding: cp1252
+- Fields: 55
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| PRD_UID | C(7) | 7 | 0 |
+| PRD_CMP | C(6) | 6 | 0 |
+| PRD_FLH | C(3) | 3 | 0 |
+| PRD_SEQ | C(2) | 2 | 0 |
+| PRD_PA | C(10) | 10 | 0 |
+| PRD_CBO | C(6) | 6 | 0 |
+| PRD_IDADE | N(3) | 3 | 0 |
+| PRD_QT_P | N(6) | 6 | 0 |
+| PRD_QT_A | N(6) | 6 | 0 |
+| PRD_VL_P | N(15,2) | 15 | 2 |
+| PRD_VL_A | N(15,2) | 15 | 2 |
+| PRD_MVM | C(6) | 6 | 0 |
+| PRD_ORG | C(3) | 3 | 0 |
+| PRD_FLPA | C(1) | 1 | 0 |
+| PRD_FLCBO | C(1) | 1 | 0 |
+| PRD_FLCA | C(1) | 1 | 0 |
+| PRD_FLIDA | C(1) | 1 | 0 |
+| PRD_FLQT | C(1) | 1 | 0 |
+| PRD_FLER | C(1) | 1 | 0 |
+| PRD_APANUM | C(13) | 13 | 0 |
+| PRD_CNSMED | C(15) | 15 | 0 |
+| PRD_RMS | C(4) | 4 | 0 |
+| PRD_CNPJ | C(14) | 14 | 0 |
+| PRD_NFIS | C(6) | 6 | 0 |
+| PRD_RESID | C(6) | 6 | 0 |
+| PRD_RUB | C(6) | 6 | 0 |
+| PRD_TPFIN | C(1) | 1 | 0 |
+| PRD_CPX | C(1) | 1 | 0 |
+| PRD_QTDATR | N(6) | 6 | 0 |
+| PRD_QTDATU | N(6) | 6 | 0 |
+| PRD_RC | C(4) | 4 | 0 |
+| PRD_CIDPRI | C(6) | 6 | 0 |
+| PRD_CIDSEC | C(6) | 6 | 0 |
+| PRD_CIDCAS | C(6) | 6 | 0 |
+| PRD_INCOUT | C(4) | 4 | 0 |
+| PRD_INCURG | C(4) | 4 | 0 |
+| PRD_INSRG | C(3) | 3 | 0 |
+| PRD_CPFPCT | C(11) | 11 | 0 |
+| PRD_CNSPCN | C(15) | 15 | 0 |
+| PRD_DTINI | C(8) | 8 | 0 |
+| PRD_DTREA | C(8) | 8 | 0 |
+| PRD_SRV | C(3) | 3 | 0 |
+| PRD_CSF | C(3) | 3 | 0 |
+| PRD_EQUIP | C(12) | 12 | 0 |
+| PRD_VL_FED | N(10,2) | 10 | 2 |
+| PRD_VL_LOC | N(10,2) | 10 | 2 |
+| PRD_VL_INC | N(10,2) | 10 | 2 |
+| PRD_VL_CRD | N(10,2) | 10 | 2 |
+| PRD_RUBFED | C(6) | 6 | 0 |
+| PRD_LREX | C(1) | 1 | 0 |
+| PRD_INE | C(10) | 10 | 0 |
+| PRD_UNTERC | C(7) | 7 | 0 |
+| PRD_STCRED | C(1) | 1 | 0 |
+| PRD_CHKSM | C(6) | 6 | 0 |
+| PRD_TEMP | C(20) | 20 | 0 |
+
 ### `S_RAPA.DBF`
 
 - 0 records
@@ -1687,9 +2403,9 @@ Observações da introspecção real:
 ### `S_RAS.DBF`
 
 - 0 records
-- Size: 1,603 bytes
+- Size: 1,635 bytes
 - Encoding: cp1252
-- Fields: 49
+- Fields: 50
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
@@ -1742,6 +2458,7 @@ Observações da introspecção real:
 | RA_CDLOGR | C(3) | 3 | 0 |
 | RA_BAIRRO | C(30) | 30 | 0 |
 | RA_EMAIL | C(40) | 40 | 0 |
+| RA_SEMCPF | C(1) | 1 | 0 |
 
 ### `S_TRMOTC.DBF`
 
@@ -1800,20 +2517,30 @@ Observações da introspecção real:
 | SEQ | C(2) | 2 | 0 |
 | ERRO | C(1) | 1 | 0 |
 
-### `cadgesmn.dbf`
+### `consiste.dbf`
 
 - 0 records
-- Size: 195 bytes
+- Size: 515 bytes
 - Encoding: cp1252
-- Fields: 5
+- Fields: 15
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
-| CODUF | C(2) | 2 | 0 |
-| CODMUNIC | C(4) | 4 | 0 |
-| NOME | C(40) | 40 | 0 |
-| CONDIC | C(2) | 2 | 0 |
-| CIB_SAS | C(1) | 1 | 0 |
+| UID | C(7) | 7 | 0 |
+| CMP | C(6) | 6 | 0 |
+| TIPO | C(1) | 1 | 0 |
+| APAC | C(13) | 13 | 0 |
+| FOLHA | C(3) | 3 | 0 |
+| SEQ | C(2) | 2 | 0 |
+| PROCEDIM | C(10) | 10 | 0 |
+| CBO | C(6) | 6 | 0 |
+| CNSMED | C(15) | 15 | 0 |
+| CNSPCT | C(15) | 15 | 0 |
+| DTINIC | C(8) | 8 | 0 |
+| COD_ERRO | C(4) | 4 | 0 |
+| DESCR_ERRO | C(80) | 80 | 0 |
+| ERRO_67 | C(100) | 100 | 0 |
+| EQUIPE | C(12) | 12 | 0 |
 
 ### `cpx.dbf`
 
@@ -2096,148 +2823,6 @@ Observações da introspecção real:
 | ADPA_FLQT | C(1) | 1 | 0 |
 | ADPA_FLER | C(1) | 1 | 0 |
 
-### `s_apal.dbf`
-
-- 0 records
-- Size: 4,259 bytes
-- Encoding: cp1252
-- Fields: 132
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| APA_UF | C(2) | 2 | 0 |
-| APA_UID | C(7) | 7 | 0 |
-| APA_NUM | C(13) | 13 | 0 |
-| APA_EMISSA | C(8) | 8 | 0 |
-| APA_DTINIC | C(8) | 8 | 0 |
-| APA_DTFIM | C(8) | 8 | 0 |
-| APA_TPATEN | C(2) | 2 | 0 |
-| APA_TPAPAC | C(1) | 1 | 0 |
-| APA_NMPCN | C(30) | 30 | 0 |
-| APA_FILLER | C(2) | 2 | 0 |
-| APA_MAEPCN | C(30) | 30 | 0 |
-| APA_LOGPCN | C(30) | 30 | 0 |
-| APA_NUMPCN | C(5) | 5 | 0 |
-| APA_CPLPCN | C(10) | 10 | 0 |
-| APA_CEPPCN | C(8) | 8 | 0 |
-| APA_MUNPCN | C(7) | 7 | 0 |
-| APA_DTNASC | C(8) | 8 | 0 |
-| APA_SEXPCN | C(1) | 1 | 0 |
-| APA_VARIA | C(141) | 141 | 0 |
-| APA_CPFRES | C(11) | 11 | 0 |
-| APA_NMRES | C(30) | 30 | 0 |
-| PAP_PA1 | C(10) | 10 | 0 |
-| PAP_AT_P1 | C(6) | 6 | 0 |
-| PAP_QT_P1 | C(7) | 7 | 0 |
-| PAP_PA2 | C(10) | 10 | 0 |
-| PAP_AT_P2 | C(6) | 6 | 0 |
-| PAP_QT_P2 | C(7) | 7 | 0 |
-| PAP_PA3 | C(10) | 10 | 0 |
-| PAP_AT_P3 | C(6) | 6 | 0 |
-| PAP_QT_P3 | C(7) | 7 | 0 |
-| PAP_PA4 | C(10) | 10 | 0 |
-| PAP_AT_P4 | C(6) | 6 | 0 |
-| PAP_QT_P4 | C(7) | 7 | 0 |
-| PAP_PA5 | C(10) | 10 | 0 |
-| PAP_AT_P5 | C(6) | 6 | 0 |
-| PAP_QT_P5 | C(7) | 7 | 0 |
-| PAP_PA6 | C(10) | 10 | 0 |
-| PAP_AT_P6 | C(6) | 6 | 0 |
-| PAP_QT_P6 | C(7) | 7 | 0 |
-| PAP_PA7 | C(10) | 10 | 0 |
-| PAP_AT_P7 | C(6) | 6 | 0 |
-| PAP_QT_P7 | C(7) | 7 | 0 |
-| PAP_PA8 | C(10) | 10 | 0 |
-| PAP_AT_P8 | C(6) | 6 | 0 |
-| PAP_QT_P8 | C(7) | 7 | 0 |
-| PAP_PA9 | C(10) | 10 | 0 |
-| PAP_AT_P9 | C(6) | 6 | 0 |
-| PAP_QT_P9 | C(7) | 7 | 0 |
-| PAP_PA10 | C(10) | 10 | 0 |
-| PAP_AT_P10 | C(6) | 6 | 0 |
-| PAP_QT_P10 | C(7) | 7 | 0 |
-| APA_MOTCOB | C(2) | 2 | 0 |
-| APA_DTOBAL | C(8) | 8 | 0 |
-| APA_CPFDIR | C(11) | 11 | 0 |
-| APA_NMDIR | C(30) | 30 | 0 |
-| APA_CONT | C(1) | 1 | 0 |
-| PAP_CGC1 | C(14) | 14 | 0 |
-| PAP_NF1 | C(6) | 6 | 0 |
-| PAP_CGC2 | C(14) | 14 | 0 |
-| PAP_NF2 | C(6) | 6 | 0 |
-| PAP_CGC3 | C(14) | 14 | 0 |
-| PAP_NF3 | C(6) | 6 | 0 |
-| PAP_CGC4 | C(14) | 14 | 0 |
-| PAP_NF4 | C(6) | 6 | 0 |
-| PAP_CGC5 | C(14) | 14 | 0 |
-| PAP_NF5 | C(6) | 6 | 0 |
-| PAP_CGC6 | C(14) | 14 | 0 |
-| PAP_NF6 | C(6) | 6 | 0 |
-| PAP_CGC7 | C(14) | 14 | 0 |
-| PAP_NF7 | C(6) | 6 | 0 |
-| PAP_CGC8 | C(14) | 14 | 0 |
-| PAP_NF8 | C(6) | 6 | 0 |
-| PAP_CGC9 | C(14) | 14 | 0 |
-| PAP_NF9 | C(6) | 6 | 0 |
-| PAP_CGC10 | C(14) | 14 | 0 |
-| PAP_NF10 | C(6) | 6 | 0 |
-| APA_CNSPCT | C(15) | 15 | 0 |
-| APA_CNSRES | C(15) | 15 | 0 |
-| APA_CNSDIR | C(15) | 15 | 0 |
-| CIDPR1 | C(4) | 4 | 0 |
-| CIDSE1 | C(4) | 4 | 0 |
-| CIDPR2 | C(4) | 4 | 0 |
-| CIDSE2 | C(4) | 4 | 0 |
-| CIDPR3 | C(4) | 4 | 0 |
-| CIDSE3 | C(4) | 4 | 0 |
-| CIDPR4 | C(4) | 4 | 0 |
-| CIDSE4 | C(4) | 4 | 0 |
-| CIDPR5 | C(4) | 4 | 0 |
-| CIDSE5 | C(4) | 4 | 0 |
-| CIDPR6 | C(4) | 4 | 0 |
-| CIDSE6 | C(4) | 4 | 0 |
-| CIDPR7 | C(4) | 4 | 0 |
-| CIDSE7 | C(4) | 4 | 0 |
-| CIDPR8 | C(4) | 4 | 0 |
-| CIDSE8 | C(4) | 4 | 0 |
-| CIDPR9 | C(4) | 4 | 0 |
-| CIDSE9 | C(4) | 4 | 0 |
-| CIDPR10 | C(4) | 4 | 0 |
-| CIDSE10 | C(4) | 4 | 0 |
-| AP_CIDCA | C(4) | 4 | 0 |
-| AP_NPRONT | C(10) | 10 | 0 |
-| AP_CODSOL | C(7) | 7 | 0 |
-| AP_DTSOLIC | C(8) | 8 | 0 |
-| AP_DTAUTOR | C(8) | 8 | 0 |
-| AP_CODEMIS | C(10) | 10 | 0 |
-| AP_CATEND | C(2) | 2 | 0 |
-| AP_APACANT | C(13) | 13 | 0 |
-| APA_RACA | C(2) | 2 | 0 |
-| APA_NOMERE | C(30) | 30 | 0 |
-| APA_UFPCN | C(3) | 3 | 0 |
-| APA_ETNIA | C(4) | 4 | 0 |
-| AP_SRV | C(3) | 3 | 0 |
-| AP_CSF | C(3) | 3 | 0 |
-| AP_EQUIPE1 | C(12) | 12 | 0 |
-| AP_EQUIPE2 | C(12) | 12 | 0 |
-| AP_EQUIPE3 | C(12) | 12 | 0 |
-| AP_EQUIPE4 | C(12) | 12 | 0 |
-| AP_EQUIPE5 | C(12) | 12 | 0 |
-| AP_EQUIPE6 | C(12) | 12 | 0 |
-| AP_EQUIPE7 | C(12) | 12 | 0 |
-| AP_EQUIPE8 | C(12) | 12 | 0 |
-| AP_EQUIPE9 | C(12) | 12 | 0 |
-| AP_EQUIPE0 | C(12) | 12 | 0 |
-| AP_CDLOGR | C(3) | 3 | 0 |
-| AP_BAIRRO | C(30) | 30 | 0 |
-| AP_DDD | C(2) | 2 | 0 |
-| AP_TEL | C(9) | 9 | 0 |
-| AP_EMAIL | C(40) | 40 | 0 |
-| AP_CNSEXE | C(15) | 15 | 0 |
-| AP_INE | C(10) | 10 | 0 |
-| APAL_SOMA | N(15) | 15 | 0 |
-| APAL_X | C(25) | 25 | 0 |
-
 ### `s_cnesia.dbf`
 
 - 0 records
@@ -2250,62 +2835,6 @@ Observações da introspecção real:
 | COD_CNES | C(7) | 7 | 0 |
 | COD_SIA | C(7) | 7 | 0 |
 | GESTAO | C(6) | 6 | 0 |
-
-### `s_corpo.dbf`
-
-- 0 records
-- Size: 1,505 bytes
-- Encoding: cp1252
-- Fields: 46
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| IDENTIF | C(2) | 2 | 0 |
-| AP_CMP | C(6) | 6 | 0 |
-| AP_NUMAPAC | C(13) | 13 | 0 |
-| AP_CODUF | C(2) | 2 | 0 |
-| AP_CODUNI | C(7) | 7 | 0 |
-| AP_DTEMI | C(8) | 8 | 0 |
-| AP_DTINVAL | C(8) | 8 | 0 |
-| AP_DTFIVAL | C(8) | 8 | 0 |
-| AP_TIPATE | C(2) | 2 | 0 |
-| AP_TIPAPAC | C(1) | 1 | 0 |
-| AP_NOMEPAC | C(30) | 30 | 0 |
-| AP_NOMEMAE | C(30) | 30 | 0 |
-| AP_ENDPAC | C(30) | 30 | 0 |
-| AP_ENDNUM | C(5) | 5 | 0 |
-| AP_ENDCOMP | C(10) | 10 | 0 |
-| AP_ENDCEP | C(8) | 8 | 0 |
-| AP_CODMUN | C(7) | 7 | 0 |
-| AP_DTNASC | C(8) | 8 | 0 |
-| AP_SEXO | C(1) | 1 | 0 |
-| AP_NOMESOL | C(30) | 30 | 0 |
-| AP_CDPROC0 | C(10) | 10 | 0 |
-| AP_CODCOB | C(2) | 2 | 0 |
-| AP_DTOCORR | C(8) | 8 | 0 |
-| AP_NOMEDIR | C(30) | 30 | 0 |
-| AP_CNS | C(15) | 15 | 0 |
-| AP_CNSRES | C(15) | 15 | 0 |
-| AP_CNSDIR | C(15) | 15 | 0 |
-| AP_CIDCA | C(4) | 4 | 0 |
-| AP_NPRONT | C(10) | 10 | 0 |
-| AP_CODSOL | C(7) | 7 | 0 |
-| AP_DTSOLIC | C(8) | 8 | 0 |
-| AP_DTAUTOR | C(8) | 8 | 0 |
-| AP_CODEMIS | C(10) | 10 | 0 |
-| AP_CATEND | C(2) | 2 | 0 |
-| AP_APACANT | C(13) | 13 | 0 |
-| AP_RACA | C(2) | 2 | 0 |
-| AP_NOMERES | C(30) | 30 | 0 |
-| AP_UFNASC | C(3) | 3 | 0 |
-| AP_ETNIA | C(4) | 4 | 0 |
-| AP_CDLOGR | C(3) | 3 | 0 |
-| AP_BAIRRO | C(30) | 30 | 0 |
-| AP_DDD | C(2) | 2 | 0 |
-| AP_TEL | C(9) | 9 | 0 |
-| AP_EMAIL | C(40) | 40 | 0 |
-| AP_CNSEXE | C(15) | 15 | 0 |
-| AP_INE | C(10) | 10 | 0 |
 
 ### `s_eqesf.dbf`
 
@@ -2500,7 +3029,7 @@ Observações da introspecção real:
 ### `s_ipul.dbf`
 
 - 0 records
-- Size: 449 bytes
+- Size: 451 bytes
 - Encoding: cp1252
 - Fields: 13
 
@@ -2535,138 +3064,6 @@ Observações da introspecção real:
 | IPUL_QT_O | N(8) | 8 | 0 |
 | IPUL_NAPU | C(1) | 1 | 0 |
 | IPUL_ARQ | C(12) | 12 | 0 |
-
-### `s_prdl.dbf`
-
-- 0 records
-- Size: 1,251 bytes
-- Encoding: cp1252
-- Fields: 38
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| PRDL_UPS | C(7) | 7 | 0 |
-| PRDL_CMP | C(6) | 6 | 0 |
-| PRDL_CNSME | C(15) | 15 | 0 |
-| PRDL_CBO | C(6) | 6 | 0 |
-| PRDL_DTATE | C(8) | 8 | 0 |
-| PRDL_FLH | C(3) | 3 | 0 |
-| PRDL_SEQ | C(2) | 2 | 0 |
-| PRDL_PA | C(10) | 10 | 0 |
-| PRDL_CNSPA | C(15) | 15 | 0 |
-| PRDL_SEXO | C(1) | 1 | 0 |
-| PRDL_IBGE | C(6) | 6 | 0 |
-| PRDL_CID | C(4) | 4 | 0 |
-| PRDL_IDADE | N(3) | 3 | 0 |
-| PRDL_QT_P | N(6) | 6 | 0 |
-| PRDL_CATEN | C(2) | 2 | 0 |
-| PRDL_NAUT | C(13) | 13 | 0 |
-| PRDL_ORG | C(3) | 3 | 0 |
-| PRDL_NMPAC | C(30) | 30 | 0 |
-| PRDL_DTNAS | C(8) | 8 | 0 |
-| PRDL_TIPO | C(1) | 1 | 0 |
-| PRDL_RACA | C(2) | 2 | 0 |
-| PRDL_ETNIA | C(4) | 4 | 0 |
-| PRDL_NACIO | C(3) | 3 | 0 |
-| PRDL_SRV | C(3) | 3 | 0 |
-| PRDL_CSF | C(3) | 3 | 0 |
-| PRDL_EQUIP | C(12) | 12 | 0 |
-| PRDL_CNPJ | C(14) | 14 | 0 |
-| BPI_CEPPCN | C(8) | 8 | 0 |
-| BPI_CDLOGR | C(3) | 3 | 0 |
-| BPI_LOGPCN | C(30) | 30 | 0 |
-| BPI_CPLPCN | C(10) | 10 | 0 |
-| BPI_NUMPCN | C(5) | 5 | 0 |
-| BPI_BAIRRO | C(30) | 30 | 0 |
-| BPI_DDD | C(2) | 2 | 0 |
-| BPI_TEL | C(9) | 9 | 0 |
-| BPI_EMAIL | C(40) | 40 | 0 |
-| BPI_INE | C(40) | 40 | 0 |
-| CBO_ANT | C(6) | 6 | 0 |
-
-### `s_prdlc.dbf`
-
-- 0 records
-- Size: 355 bytes
-- Encoding: cp1252
-- Fields: 10
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| IDENTIF | C(2) | 2 | 0 |
-| PRDL_UPS | C(7) | 7 | 0 |
-| PRDL_CMP | C(6) | 6 | 0 |
-| PRDL_CBO | C(6) | 6 | 0 |
-| PRDL_FLH | C(3) | 3 | 0 |
-| PRDL_SEQ | C(2) | 2 | 0 |
-| PRDL_PA | C(10) | 10 | 0 |
-| PRDL_IDADE | N(3) | 3 | 0 |
-| PRDL_QT_P | N(6) | 6 | 0 |
-| PRDL_ORG | C(3) | 3 | 0 |
-
-### `s_prdli.dbf`
-
-- 0 records
-- Size: 1,283 bytes
-- Encoding: cp1252
-- Fields: 39
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| IDENTIF | C(2) | 2 | 0 |
-| PRDL_UPS | C(7) | 7 | 0 |
-| PRDL_CMP | C(6) | 6 | 0 |
-| PRDL_CNSME | C(15) | 15 | 0 |
-| PRDL_CBO | C(6) | 6 | 0 |
-| PRDL_DTATE | C(8) | 8 | 0 |
-| PRDL_FLH | C(3) | 3 | 0 |
-| PRDL_SEQ | C(2) | 2 | 0 |
-| PRDL_PA | C(10) | 10 | 0 |
-| PRDL_CNSPA | C(15) | 15 | 0 |
-| PRDL_SEXO | C(1) | 1 | 0 |
-| PRDL_IBGE | C(6) | 6 | 0 |
-| PRDL_CID | C(4) | 4 | 0 |
-| PRDL_IDADE | N(3) | 3 | 0 |
-| PRDL_QT_P | N(6) | 6 | 0 |
-| PRDL_CATEN | C(2) | 2 | 0 |
-| PRDL_NAUT | C(13) | 13 | 0 |
-| PRDL_ORG | C(3) | 3 | 0 |
-| PRDL_NMPAC | C(30) | 30 | 0 |
-| PRDL_DTNAS | C(8) | 8 | 0 |
-| PRDL_RACA | C(2) | 2 | 0 |
-| PRDL_ETNIA | C(4) | 4 | 0 |
-| PRDL_NACIO | C(3) | 3 | 0 |
-| PRDL_SRV | C(3) | 3 | 0 |
-| PRDL_CSF | C(3) | 3 | 0 |
-| PRDL_EQUIP | C(12) | 12 | 0 |
-| PRDL_CNPJ | C(14) | 14 | 0 |
-| BPI_CEPPCN | C(8) | 8 | 0 |
-| BPI_CDLOGR | C(3) | 3 | 0 |
-| BPI_LOGPCN | C(30) | 30 | 0 |
-| BPI_CPLPCN | C(10) | 10 | 0 |
-| BPI_NUMPCN | C(5) | 5 | 0 |
-| BPI_BAIRRO | C(30) | 30 | 0 |
-| BPI_DDD | C(2) | 2 | 0 |
-| BPI_TEL | C(9) | 9 | 0 |
-| BPI_EMAIL | C(40) | 40 | 0 |
-| BPI_INE | C(10) | 10 | 0 |
-| T1 | N(15) | 15 | 0 |
-| T2 | N(2) | 2 | 0 |
-
-### `s_prdlt.dbf`
-
-- 0 records
-- Size: 195 bytes
-- Encoding: cp1252
-- Fields: 5
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| ID | N(1) | 1 | 0 |
-| PRDL_PA | N(10) | 10 | 0 |
-| PRDL_QT_P | N(6) | 6 | 0 |
-| T1 | N(2) | 2 | 0 |
-| S1 | N(17) | 17 | 0 |
 
 ### `s_prdrep.dbf`
 
@@ -2728,29 +3125,6 @@ Observações da introspecção real:
 | PRD_TEMP | C(20) | 20 | 0 |
 | PRD_MVMORI | C(6) | 6 | 0 |
 
-### `s_proc.dbf`
-
-- 0 records
-- Size: 449 bytes
-- Encoding: cp1252
-- Fields: 13
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| IDENTIF | C(2) | 2 | 0 |
-| AP_CMP | C(6) | 6 | 0 |
-| AP_NUMAPAC | C(13) | 13 | 0 |
-| AP_CDPROC | C(10) | 10 | 0 |
-| AP_CDATIV | C(6) | 6 | 0 |
-| AP_QTPROC | C(7) | 7 | 0 |
-| AP_CNPJ | C(14) | 14 | 0 |
-| AP_NFISC | C(6) | 6 | 0 |
-| AP_CIDPRI | C(4) | 4 | 0 |
-| AP_CIDSEC | C(4) | 4 | 0 |
-| AP_SRV | C(3) | 3 | 0 |
-| AP_CSF | C(3) | 3 | 0 |
-| AP_EQUIPE | C(12) | 12 | 0 |
-
 ### `s_rapal.dbf`
 
 - 0 records
@@ -2798,23 +3172,22 @@ Observações da introspecção real:
 ### `s_trab.dbf`
 
 - 0 records
-- Size: 1,443 bytes
+- Size: 1,347 bytes
 - Encoding: cp1252
-- Fields: 44
+- Fields: 41
 
 | Field | Type | Length | Decimal |
 |---|---|---|---|
-| TRAB_INSRG | C(3) | 3 | 0 |
 | TRAB_UID | C(7) | 7 | 0 |
-| TRAB_CMP | C(6) | 6 | 0 |
-| TRAB_CNSPC | C(15) | 15 | 0 |
+| TRAB_NUM | C(13) | 13 | 0 |
+| TRAB_EMISS | C(6) | 6 | 0 |
 | TRAB_DTINI | C(8) | 8 | 0 |
 | TRAB_DTFIM | C(8) | 8 | 0 |
+| TRAB_TIPTR | C(2) | 2 | 0 |
+| TRAB_CARTR | C(1) | 1 | 0 |
 | TRAB_NMPCN | C(30) | 30 | 0 |
-| TRAB_NPRON | C(10) | 10 | 0 |
-| TRAB_NACPC | C(3) | 3 | 0 |
+| TRAB_UFPCN | C(2) | 2 | 0 |
 | TRAB_MAEPC | C(30) | 30 | 0 |
-| TRAB_NOMER | C(30) | 30 | 0 |
 | TRAB_LOGPC | C(30) | 30 | 0 |
 | TRAB_NUMPC | C(5) | 5 | 0 |
 | TRAB_CPLPC | C(10) | 10 | 0 |
@@ -2822,32 +3195,30 @@ Observações da introspecção real:
 | TRAB_MUNPC | C(7) | 7 | 0 |
 | TRAB_DTNAS | C(8) | 8 | 0 |
 | TRAB_SEXPC | C(1) | 1 | 0 |
-| TRAB_RACA | C(2) | 2 | 0 |
-| TRAB_ETNIA | C(4) | 4 | 0 |
-| TRAB_TELEF | C(11) | 11 | 0 |
-| TRAB_CELUL | C(11) | 11 | 0 |
-| TRAB_CDLOG | C(3) | 3 | 0 |
-| TRAB_BAIRR | C(30) | 30 | 0 |
-| TRAB_EMAIL | C(40) | 40 | 0 |
+| TRAB_VARIA | C(60) | 60 | 0 |
+| TRAB_CPFRE | C(11) | 11 | 0 |
+| TRAB_NMRES | C(30) | 30 | 0 |
 | TRAB_MOTCO | C(2) | 2 | 0 |
 | TRAB_DTOBA | C(8) | 8 | 0 |
-| TRAB_CATEN | C(2) | 2 | 0 |
-| TRAB_CIDPR | C(4) | 4 | 0 |
-| TRAB_CIDCA | C(4) | 4 | 0 |
-| TRAB_CIDS1 | C(4) | 4 | 0 |
-| TRAB_CIDS2 | C(4) | 4 | 0 |
-| TRAB_CIDS3 | C(4) | 4 | 0 |
-| TRAB_PCNOR | C(1) | 1 | 0 |
-| TRAB_CODES | C(1) | 1 | 0 |
-| TRAB_CNESE | C(7) | 7 | 0 |
-| TRAB_DESTP | C(2) | 2 | 0 |
-| TRAB_ORG | C(3) | 3 | 0 |
-| TRAB_CHKSU | C(4) | 4 | 0 |
+| TRAB_CPFDI | C(11) | 11 | 0 |
+| TRAB_NMDIR | C(30) | 30 | 0 |
+| TRAB_PRIPA | C(9) | 9 | 0 |
+| TRAB_CMP | C(6) | 6 | 0 |
+| TRAB_MVM | C(6) | 6 | 0 |
 | TRAB_RMS | C(4) | 4 | 0 |
 | TRAB_DTGER | C(8) | 8 | 0 |
 | TRAB_FLER | C(10) | 10 | 0 |
 | TRAB_INERP | C(1) | 1 | 0 |
-| TRAB_MVM | C(6) | 6 | 0 |
+| TRAB_SMTRD | C(3) | 3 | 0 |
+| TRAB_CNSPA | C(15) | 15 | 0 |
+| TRAB_SRV | C(3) | 3 | 0 |
+| TRAB_CSF | C(3) | 3 | 0 |
+| TRAB_EXEC | C(13) | 13 | 0 |
+| TRAB_INE | C(10) | 10 | 0 |
+| TRAB_CPFPA | C(11) | 11 | 0 |
+| TRAB_STRUA | C(1) | 1 | 0 |
+| TRAB_FNTOR | C(2) | 2 | 0 |
+| TRAB_EMEPA | C(1) | 1 | 0 |
 
 ### `s_upsval.dbf`
 
@@ -2860,24 +3231,10 @@ Observações da introspecção real:
 |---|---|---|---|
 | CO_CNES | C(7) | 7 | 0 |
 
-### `s_varia.dbf`
-
-- 0 records
-- Size: 161 bytes
-- Encoding: cp1252
-- Fields: 4
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| IDENTIF | C(2) | 2 | 0 |
-| AP_CMP | C(6) | 6 | 0 |
-| AP_NUMAPAC | C(13) | 13 | 0 |
-| AP_VARIA | C(140) | 140 | 0 |
-
 ### `s_vpal.dbf`
 
 - 0 records
-- Size: 385 bytes
+- Size: 387 bytes
 - Encoding: cp1252
 - Fields: 11
 
@@ -2910,6 +3267,20 @@ Observações da introspecção real:
 | EMU_QT_PR | N(3) | 3 | 0 |
 | EMU_QT_HR | N(5) | 5 | 0 |
 
+### `tot_cons.dbf`
+
+- 0 records
+- Size: 163 bytes
+- Encoding: cp1252
+- Fields: 4
+
+| Field | Type | Length | Decimal |
+|---|---|---|---|
+| GRUPO | C(3) | 3 | 0 |
+| COD_ERRO | C(4) | 4 | 0 |
+| DESCR_ERRO | C(80) | 80 | 0 |
+| QTD_TOTAL | N(10) | 10 | 0 |
+
 ### `tsrv.dbf`
 
 - 0 records
@@ -2923,61 +3294,6 @@ Observações da introspecção real:
 | SRV_CMP | C(6) | 6 | 0 |
 | SRV_SR | C(3) | 3 | 0 |
 | SRV_CSF | C(3) | 3 | 0 |
-
-### `ttvpa.dbf`
-
-- 0 records
-- Size: 385 bytes
-- Encoding: cp1252
-- Fields: 11
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| VPA_PA | C(9) | 9 | 0 |
-| VPA_CMP | C(6) | 6 | 0 |
-| VPA_TOTAL | N(13,2) | 13 | 2 |
-| VPA_SP | N(13,2) | 13 | 2 |
-| VPA_SA | N(13,2) | 13 | 2 |
-| VPA_SH | N(13,2) | 13 | 2 |
-| VPA_MUN | C(6) | 6 | 0 |
-| VPA_TIPO | C(1) | 1 | 0 |
-| VPA_CTF | C(2) | 2 | 0 |
-| VPA_RUB | C(6) | 6 | 0 |
-| VPA_MVM | C(6) | 6 | 0 |
-
-### `vepe.dbf`
-
-- 0 records
-- Size: 257 bytes
-- Encoding: cp1252
-- Fields: 7
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| ORDEM | C(6) | 6 | 0 |
-| REGRAC | C(4) | 4 | 0 |
-| TP_FINANC | C(2) | 2 | 0 |
-| CD_RUB | C(4) | 4 | 0 |
-| CPX | C(1) | 1 | 0 |
-| TTOTAL | N(15,2) | 15 | 2 |
-| DESCRICAO | C(40) | 40 | 0 |
-
-### `versaomn.dbf`
-
-- 0 records
-- Size: 257 bytes
-- Encoding: cp1252
-- Fields: 7
-
-| Field | Type | Length | Decimal |
-|---|---|---|---|
-| CMP | C(6) | 6 | 0 |
-| FILL1 | C(1) | 1 | 0 |
-| DEPARA | C(5) | 5 | 0 |
-| FILL2 | C(1) | 1 | 0 |
-| BDSIA | C(7) | 7 | 0 |
-| FILL3 | C(1) | 1 | 0 |
-| SIA | C(5) | 5 | 0 |
 
 ### `vig.dbf`
 
