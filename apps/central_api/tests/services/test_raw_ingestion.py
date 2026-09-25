@@ -180,6 +180,60 @@ def command(raw: RawManifest, **updates: object) -> RegisterRawManifest:
     return RegisterRawManifest(**(values | updates))
 
 
+RETAINED_PAIRS = (
+    (SourceType.SIHD, "SIHD_INTERNACAO"),
+    (SourceType.SIHD, "SIHD_PROC_AIH"),
+    (SourceType.BPA_MAG, "BPA_C"),
+    (SourceType.BPA_MAG, "BPA_I"),
+    (SourceType.SIA_LOCAL, "SIA_APA"),
+    (SourceType.SIA_LOCAL, "SIA_BPI"),
+    (SourceType.SIA_LOCAL, "SIA_BPIHST"),
+    (SourceType.SIA_LOCAL, "DIM_SIGTAP"),
+    (SourceType.SIA_LOCAL, "DIM_MUNICIPIO"),
+)
+
+
+def retained(source_type: SourceType, file_subtype: str, row_count: int = 1) -> RawManifest:
+    return RawManifest.model_validate(manifest().model_dump() | {
+        "source_type": source_type,
+        "file_subtype": file_subtype,
+        "row_count": row_count,
+        "object_key": f"raw/354130/{source_type.value}/2026-07/base/data.parquet",
+    })
+
+
+def retained_job(raw: RawManifest) -> Job:
+    return job().model_copy(
+        update={"source_type": raw.source_type.value, "file_subtype": raw.file_subtype},
+    )
+
+
+@pytest.mark.parametrize(("source_type", "file_subtype"), RETAINED_PAIRS)
+def test_registra_manifesto_raw_de_fontes_retidas(
+    source_type: SourceType, file_subtype: str,
+) -> None:
+    raw = retained(source_type, file_subtype)
+    control = ControlPlane(retained_job(raw))
+
+    result = RawIngestionService(control, ObjectStore(raw), DeltaPolicy()).register(command(raw))
+
+    assert result.accepted
+    assert control.mutations == ["complete"]
+    stored = control.completions[0].manifest
+    assert (stored.source_type, stored.file_subtype) == (source_type.value, file_subtype)
+    assert stored.manifest_key == f"raw/354130/{source_type.value}/2026-07/base/manifest.json"
+
+
+def test_registra_slot_zero_row_de_fonte_retida() -> None:
+    raw = retained(SourceType.SIA_LOCAL, "SIA_BPIHST", row_count=0)
+    control = ControlPlane(retained_job(raw))
+
+    result = RawIngestionService(control, ObjectStore(raw), DeltaPolicy()).register(command(raw))
+
+    assert result.accepted
+    assert control.mutations == ["complete"]
+
+
 def test_aceite_grava_sidecar_antes_do_commit_atomico_e_callback() -> None:
     raw = manifest()
     store = ObjectStore(raw)
