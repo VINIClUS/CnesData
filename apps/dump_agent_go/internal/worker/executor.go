@@ -61,6 +61,7 @@ type JobExecutor struct {
 	DeltaStore        *delta.Store
 	AuditLogger       *audit.Logger
 	RawExtract        func(context.Context, Job) ([]delta.Row, error)
+	RawPayload        func(context.Context, Job) (RawPayload, error)
 	RawUploader       upload.RawUploader
 	RawOutbox         EnvelopeOutbox
 	RawSpoolDirectory string
@@ -77,7 +78,7 @@ func (e *JobExecutor) RunRaw(ctx context.Context, job *Job) (sizeBytes int64, er
 	if size, replay, err := e.replayRaw(job); replay || err != nil {
 		return size, err
 	}
-	ref := delta.PendingRef{SourceKey: deltaKeyFromParams(job.Params),
+	ref := delta.PendingRef{SourceKey: rawSourceKey(job),
 		JobID: job.ID, FencingToken: job.FencingToken}
 	if err := e.reconcileRawState(ref); err != nil {
 		return 0, err

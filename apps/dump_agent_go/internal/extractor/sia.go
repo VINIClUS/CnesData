@@ -2,8 +2,10 @@
 package extractor
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -85,6 +87,7 @@ var (
 // ExtractSIA lê de dir só os DBFs necessários aos subtipos pedidos.
 //
 // Args: dir (pasta SIASUS), competencia AAAAMM, subtypes (fato_subtype do job).
+// S_BPIHST.DBF ausente vira SIA_BPIHST vazio; demais DBFs ausentes falham.
 // Raises: sia_file_missing, sia_field_missing, sia_sigtap_empty, unknown_sia_subtype.
 func ExtractSIA(dir, competencia string, subtypes []string) (*SIAResult, error) {
 	if _, err := os.Stat(dir); err != nil {
@@ -108,7 +111,7 @@ func extractSIASubtype(dir, competencia, subtype string, r *SIAResult) error {
 	case "SIA_BPI":
 		r.BPI, err = readBPI(dir, "S_BPI.DBF")
 	case "SIA_BPIHST":
-		r.BPIHST, err = readBPI(dir, "S_BPIHST.DBF")
+		r.BPIHST, err = readOptionalBPI(dir, "S_BPIHST.DBF")
 	case "DIM_SIGTAP":
 		r.SIGTAP, err = readSIGTAP(dir, competencia)
 	case "DIM_MUNICIPIO":
@@ -214,6 +217,14 @@ func readBPI(dir, file string) ([]SIABPIRow, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// Histórico BPI só existe depois de fechamentos; ausência é slot zero-row, não dependência.
+func readOptionalBPI(dir, file string) ([]SIABPIRow, error) {
+	if _, err := os.Stat(filepath.Join(dir, file)); errors.Is(err, os.ErrNotExist) {
+		return []SIABPIRow{}, nil
+	}
+	return readBPI(dir, file)
 }
 
 func readSIGTAP(dir, competencia string) ([]SIASIGTAPRow, error) {
