@@ -98,6 +98,7 @@ func siaRawPayload(dir string, request *manifest.BuildRequest) (RawPayload, erro
 	if err != nil {
 		return RawPayload{}, fmt.Errorf("sia_extract: %w", err)
 	}
+	keepSIACompetencia(result, compactCompetencia(request.Competencia))
 	rows := map[string]int{
 		"SIA_APA": len(result.APA), "SIA_BPI": len(result.BPI),
 		"SIA_BPIHST": len(result.BPIHST), "DIM_SIGTAP": len(result.SIGTAP),
@@ -105,6 +106,17 @@ func siaRawPayload(dir string, request *manifest.BuildRequest) (RawPayload, erro
 	}[request.FileSubtype]
 	payload, err := serializeSIA(request.FileSubtype, result)
 	return bytesRawPayload(rows, payload, err)
+}
+
+// S_BPIHST retém várias competências e S_PRD/S_BPI podem ter meses em aberto; o manifest
+// raw declara uma só, então fatos de outro mês não saem do Edge.
+func keepSIACompetencia(result *extractor.SIAResult, competencia string) {
+	result.APA = slices.DeleteFunc(result.APA, func(row extractor.SIAAPARow) bool {
+		return row.Competencia != competencia
+	})
+	otherMonth := func(row extractor.SIABPIRow) bool { return row.Competencia != competencia }
+	result.BPI = slices.DeleteFunc(result.BPI, otherMonth)
+	result.BPIHST = slices.DeleteFunc(result.BPIHST, otherMonth)
 }
 
 // BPA/SIA reusam o Parquet gzip do caminho legado, já lido pelos processors SRC-011/012.

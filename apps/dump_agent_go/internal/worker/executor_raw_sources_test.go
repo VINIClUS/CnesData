@@ -337,3 +337,39 @@ func TestExtratorDePayloadFalhaSemFonteConfiguradaOuComErroDeExtracao(t *testing
 	_, err := extract(context.Background(), *job)
 	require.EqualError(t, err, "raw_source=unsupported source=CNES_NACIONAL")
 }
+
+func siaPayloadRows[T any](t *testing.T, dir, subtype string) []T {
+	t.Helper()
+	job := rawSourceJobs(manifest.SourceTypeSIALocal, "http://edge.invalid")[0]
+	job.RawRequest.FileSubtype = subtype
+	extract := worker.NewRawPayloadExtractor(worker.RawSourcesConfig{SIADir: dir})
+	payload, err := extract(context.Background(), *job)
+	require.NoError(t, err)
+	var buf bytes.Buffer
+	require.NoError(t, payload.Write(&buf))
+	reader, err := gzip.NewReader(&buf)
+	require.NoError(t, err)
+	plain, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	rows := make([]T, payload.RowCount+1)
+	n, _ := pq.NewGenericReader[T](bytes.NewReader(plain)).Read(rows)
+	require.Equal(t, int(payload.RowCount), n)
+	return rows[:n]
+}
+
+func TestFatosSIARawSaoFiltradosPelaCompetenciaDoManifest(t *testing.T) {
+	bpihst := siaPayloadRows[extractor.SIABPIRow](t, siaFixturesDir(), "SIA_BPIHST")
+	require.NotEmpty(t, bpihst)
+	all, err := extractor.ExtractSIA(siaFixturesDir(), "202601", []string{"SIA_BPIHST"})
+	require.NoError(t, err)
+	require.Less(t, len(bpihst), len(all.BPIHST), "fixture mistura 202512 e 202601")
+	for _, row := range bpihst {
+		require.Equal(t, "202601", row.Competencia)
+	}
+	for _, row := range siaPayloadRows[extractor.SIABPIRow](t, siaFixturesDir(), "SIA_BPI") {
+		require.Equal(t, "202601", row.Competencia)
+	}
+	for _, row := range siaPayloadRows[extractor.SIAAPARow](t, siaFixturesDir(), "SIA_APA") {
+		require.Equal(t, "202601", row.Competencia)
+	}
+}
