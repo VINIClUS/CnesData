@@ -281,7 +281,7 @@ Tabela unificada de procedimentos do SUS.
 
 ### Problema Conhecido: Conflito de Role SYSDBA
 
-O banco possui um SQL ROLE chamado "SYSDBA" (dono `UNKNOWN`) que impede login do usuário
+O banco possui um SQL ROLE chamado "SYSDBA" (dono `UKNOWN`) que impede login do usuário
 SYSDBA: `login SYSDBA is same as one of the SQL role name`. No piloto (25/09/2026, #295) o
 `security.fdb` só tinha SYSDBA e o login falhou via TCP (`isql`, com ou sem `-role`) e via
 `gbak` local na sessão do console. O `dump_agent_go` conecta via TCP, portanto não autentica
