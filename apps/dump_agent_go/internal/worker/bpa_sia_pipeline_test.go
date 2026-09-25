@@ -51,7 +51,10 @@ func TestRunSIAPipeline_UploadsNFilesAndRegistersOnce(t *testing.T) {
 			{FatoSubtype: "SIA_APA", MinioKey: "sia/2026-01/apa.parquet.gz", PresignedURL: upServer.URL + "/apa"},
 			{FatoSubtype: "SIA_BPI", MinioKey: "sia/2026-01/bpi.parquet.gz", PresignedURL: upServer.URL + "/bpi"},
 			{FatoSubtype: "DIM_MUNICIPIO", MinioKey: "sia/2026-01/cadmun.parquet.gz", PresignedURL: upServer.URL + "/cad"},
-			{FatoSubtype: "DIM_SIGTAP", MinioKey: "sia/2026-01/sigtap.parquet.gz", PresignedURL: upServer.URL + "/sig"},
+			{
+				FatoSubtype: "DIM_SIGTAP", MinioKey: "sia/2026-01/sigtap.parquet.gz",
+				PresignedURL: upServer.URL + "/sig",
+			},
 		},
 	}
 	cfg := worker.SIAPipelineConfig{

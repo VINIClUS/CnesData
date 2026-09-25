@@ -19,7 +19,8 @@ import (
 // apps/data_processor/tests/sources/sia/test_edge_contract.py.
 var updateSIAGolden = flag.Bool("update-sia-golden", false, "regrava golden SIA do contrato Edge")
 
-var siaGoldenDir = filepath.Join("..", "..", "..", "data_processor", "tests", "fixtures", "sia", "edge_golden")
+var siaGoldenDir = filepath.Join(
+	"..", "..", "..", "data_processor", "tests", "fixtures", "sia", "edge_golden")
 
 var siaPIIColumns = []string{
 	"apa_cnspct", "apa_cpfpct", "apa_nmpcn", "apa_dtnasc", "prd_cnspcn", "prd_cpfpct",

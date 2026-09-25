@@ -7,14 +7,17 @@
 
 ## DBFs prioritárias
 
-| DBF | Propósito | Subtipo raw Edge |
-|---|---|---|
-| `S_PRD.DBF` | Produção consolidada (BPA-C, BPA-I, APAC); linhas APAC têm `PRD_APANUM` | `SIA_APA` |
-| `S_APA.DBF` | Cabeçalho da APAC (paciente, datas, executante) — sem procedimento/quantidade/valor | `SIA_APA` (join) |
-| `S_BPI.DBF` / `S_BPIHST.DBF` | BPA Individualizado (competência aberta / histórico) | `SIA_BPI` / `SIA_BPIHST` |
-| `S_PA.DBF` | Procedimentos SIGTAP por competência (`PA_ID`+`PA_DV`) | `DIM_SIGTAP` |
-| `CADMUN.DBF` | Cadastro de municípios (`CODUF`+`CODMUNIC` = IBGE6) | `DIM_MUNICIPIO` |
-| `S_CDN.DBF` | Domínio genérico de códigos (`CDN_TB` C2 / `CDN_IT` C10) — **não é SIGTAP** | — |
+- `S_PRD.DBF` → `SIA_APA`: produção consolidada (BPA-C, BPA-I, APAC); as
+  linhas APAC têm `PRD_APANUM`.
+- `S_APA.DBF` → `SIA_APA` (join): cabeçalho da APAC (paciente, datas,
+  executante), sem procedimento/quantidade/valor.
+- `S_BPI.DBF` / `S_BPIHST.DBF` → `SIA_BPI` / `SIA_BPIHST`: BPA Individualizado
+  (competência aberta / histórico).
+- `S_PA.DBF` → `DIM_SIGTAP`: procedimentos SIGTAP por competência
+  (`PA_ID`+`PA_DV`).
+- `CADMUN.DBF` → `DIM_MUNICIPIO`: municípios (`CODUF`+`CODMUNIC` = IBGE6).
+- `S_CDN.DBF`: domínio genérico de códigos (`CDN_TB` C2 / `CDN_IT` C10) —
+  **não é SIGTAP**, não extraído.
 
 Observações da introspecção real (2026-09-25, só metadata e agregados):
 - `S_PRD` e `S_BPI` só têm linhas entre a importação e o fechamento da
@@ -38,12 +41,18 @@ Colunas em minúsculas com o nome real do DBF; texto em branco vai como `""`
 nascimento) não sai do Edge. Campo exigido ausente → `sia_field_missing`;
 arquivo ausente de um subtipo pedido → `sia_file_missing`.
 
-| Subtipo | Colunas |
-|---|---|
-| `SIA_APA` | `prd_uid, prd_cmp, prd_apanum, prd_pa, prd_cbo, prd_cidpri` (texto), `prd_qt_p, prd_qt_a` (int64 opcional), `prd_vl_p, prd_vl_a` (centavos int64 opcional), `apa_dtinic, apa_dtfim, apa_cnsexe` (texto; vazio sem APAC correspondente) |
-| `SIA_BPI` / `SIA_BPIHST` | `bpi_uid, bpi_cmp, bpi_cnsmed, bpi_cbo, bpi_flh, bpi_seq, bpi_pa, bpi_cid, bpi_dtaten` (texto), `bpi_qt_p, bpi_qt_a` (int64 opcional) |
-| `DIM_SIGTAP` | `co_procedimento` (`PA_ID`+`PA_DV`), `no_procedimento` (`PA_DC`), `tp_complexidade` (`PA_CPX`), `co_financiamento` (`PA_CTF`), `dt_competencia` — só a competência do job; zero linhas → `sia_sigtap_empty` |
-| `DIM_MUNICIPIO` | `coduf, codmunic, nome, condic` (texto), `tetopab, calcpab` (float64 opcional) |
+- `SIA_APA`: `prd_uid, prd_cmp, prd_apanum, prd_pa, prd_cbo, prd_cidpri`
+  (texto); `prd_qt_p, prd_qt_a` (int64 opcional); `prd_vl_p, prd_vl_a`
+  (centavos, int64 opcional); `apa_dtinic, apa_dtfim, apa_cnsexe` (texto,
+  vazio quando não há APAC correspondente).
+- `SIA_BPI` / `SIA_BPIHST`: `bpi_uid, bpi_cmp, bpi_cnsmed, bpi_cbo, bpi_flh,
+  bpi_seq, bpi_pa, bpi_cid, bpi_dtaten` (texto); `bpi_qt_p, bpi_qt_a` (int64
+  opcional).
+- `DIM_SIGTAP`: `co_procedimento` (`PA_ID`+`PA_DV`), `no_procedimento`
+  (`PA_DC`), `tp_complexidade` (`PA_CPX`), `co_financiamento` (`PA_CTF`),
+  `dt_competencia` — só a competência do job; zero linhas → `sia_sigtap_empty`.
+- `DIM_MUNICIPIO`: `coduf, codmunic, nome, condic` (texto); `tetopab, calcpab`
+  (float64 opcional).
 
 ## Summary
 
