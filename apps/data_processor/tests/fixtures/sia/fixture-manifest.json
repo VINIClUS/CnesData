@@ -1,5 +1,5 @@
 {
-  "fixture_version": 1,
+  "fixture_version": 2,
   "tenant_id": "354130",
   "competencia": "2026-01",
   "volatile_fields": [
@@ -13,7 +13,7 @@
       "row_count": 5
     },
     "raw_rows.json": {
-      "sha256": "a7f1668f35a59d64bc9a32a477f0876cc2bcfef8a7d978cd4c64ec3b98f667f3",
+      "sha256": "7f2c2c1dd25dbfa9dccc46436e929f91e6f60bfd3d399978474abbe7a32c6500",
       "row_counts": {
         "SIA_APA": 7,
         "SIA_BPI": 4,

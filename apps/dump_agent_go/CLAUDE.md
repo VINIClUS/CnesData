@@ -102,8 +102,12 @@ check / self-update no agente ainda não existe (roadmap `Next`).
   nakagami/firebirdsql. Produção fica em `S_PRD` (não `BPA_*_LINHAS`);
   `PRD_ORG='BPI'` → BPA_I, todo o resto → BPA_C (extração total, nunca filtrar
   por origem); ver `docs/data-dictionary-bpa.md`.
-- **SIA (`--sia-dir`/`SIA_DIR`) lê DBF** via LindsayBradford/go-dbf com
-  sanitize cp1252 (S_APA, S_BPI, S_BPIHST, S_CDN, CADMUN).
+- **SIA (`--sia-dir`/`SIA_DIR`) lê DBF** via LindsayBradford/go-dbf (cp1252),
+  só os arquivos dos subtipos pedidos. APA = `S_PRD` com `PRD_APANUM` + join
+  `S_APA` por `(APA_NUM, APA_CMP)`; SIGTAP = `S_PA` da competência (nunca
+  `S_CDN`). Campo ausente → `sia_field_missing`; `S_PRD`/`S_BPI` só têm linhas
+  entre importação e fechamento. Golden do contrato:
+  `go test ./internal/writer -update-sia-golden`. Ver `docs/data-dictionary-sia.md`.
 - **Audit trail HMAC-JSONL:** `%PROGRAMDATA%\dumpagent\audit\events-*.jsonl`,
   lifecycle extracted→uploaded→committed/aborted. Verificar com
   `dumpagent audit verify <path>`.

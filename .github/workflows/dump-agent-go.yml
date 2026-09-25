@@ -5,12 +5,14 @@ on:
     types: [opened, synchronize, reopened, labeled]
     paths:
       - 'apps/dump_agent_go/**'
+      - 'apps/data_processor/tests/fixtures/sia/edge_golden/**'
       - 'docs/contracts/openapi.json'
       - '.github/workflows/dump-agent-go.yml'
   push:
     branches: [main, develop]
     paths:
       - 'apps/dump_agent_go/**'
+      - 'apps/data_processor/tests/fixtures/sia/edge_golden/**'
       - 'docs/contracts/openapi.json'
   schedule:
     - cron: "30 2 * * *"

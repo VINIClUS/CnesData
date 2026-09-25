@@ -51,6 +51,10 @@ func TestRunSIAPipeline_UploadsNFilesAndRegistersOnce(t *testing.T) {
 			{FatoSubtype: "SIA_APA", MinioKey: "sia/2026-01/apa.parquet.gz", PresignedURL: upServer.URL + "/apa"},
 			{FatoSubtype: "SIA_BPI", MinioKey: "sia/2026-01/bpi.parquet.gz", PresignedURL: upServer.URL + "/bpi"},
 			{FatoSubtype: "DIM_MUNICIPIO", MinioKey: "sia/2026-01/cadmun.parquet.gz", PresignedURL: upServer.URL + "/cad"},
+			{
+				FatoSubtype: "DIM_SIGTAP", MinioKey: "sia/2026-01/sigtap.parquet.gz",
+				PresignedURL: upServer.URL + "/sig",
+			},
 		},
 	}
 	cfg := worker.SIAPipelineConfig{
@@ -60,9 +64,9 @@ func TestRunSIAPipeline_UploadsNFilesAndRegistersOnce(t *testing.T) {
 	}
 	err := worker.RunSIAPipeline(context.Background(), cfg, job)
 	require.NoError(t, err)
-	require.Equal(t, int32(3), atomic.LoadInt32(&uploadCalls))
+	require.Equal(t, int32(4), atomic.LoadInt32(&uploadCalls))
 	require.Equal(t, int32(1), atomic.LoadInt32(&reg.calls))
-	require.Len(t, reg.lastMan, 3)
+	require.Len(t, reg.lastMan, 4)
 	require.Equal(t, "SIA_APA", reg.lastMan[0].FatoSubtype)
 	require.Greater(t, reg.lastMan[0].SizeBytes, int64(0))
 	require.Len(t, reg.lastMan[0].Sha256, 64)
@@ -107,6 +111,26 @@ func TestRunSIAPipeline_UnknownSubtype(t *testing.T) {
 	}
 	err := worker.RunSIAPipeline(context.Background(), cfg, job)
 	require.Error(t, err)
+}
+
+func TestRunSIAPipeline_ExtractErrorNaoFazUpload(t *testing.T) {
+	reg := &registerStub{}
+	cfg := worker.SIAPipelineConfig{
+		SIADir:   siaFixturesDir(),
+		Uploader: upload.NewHTTP(nil),
+		Register: reg.fn(),
+	}
+	job := worker.ClaimedJob{
+		JobID:       "11111111-1111-1111-1111-111111111111",
+		SourceType:  "SIA_LOCAL",
+		Competencia: "209912",
+		Files: []worker.FileManifestRef{
+			{FatoSubtype: "DIM_SIGTAP", MinioKey: "x.parquet.gz", PresignedURL: "http://127.0.0.1:1/x"},
+		},
+	}
+	err := worker.RunSIAPipeline(context.Background(), cfg, job)
+	require.ErrorContains(t, err, "sia_sigtap_empty")
+	require.Equal(t, int32(0), atomic.LoadInt32(&reg.calls))
 }
 
 func TestRunSIAPipeline_NilRegister(t *testing.T) {

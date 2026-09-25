@@ -128,5 +128,9 @@ colisão (lease-based).
   procedimentos da mesma AIH colapsam). `NUM_AIH` só compõe o `SIHD_KEY`.
 - **Delta SIHD com `_op` fora de I/U/D é rejeitado:** `invalid_cdc_op op=...`
   antes da reconstrução (o FULL base não é checado).
+- **SIA raw usa os nomes reais dos DBFs SIASUS** (`prd_*`/`apa_*`, `bpi_*`,
+  datas `AAAAMMDD` em texto); `quantidade` = `*_qt_p`, valor APAC = `prd_vl_a`.
+  O Parquet do Edge em `tests/fixtures/sia/edge_golden/` é o contrato
+  verificado pelos dois lados; ver `docs/data-dictionary-sia.md`.
 
 Histórico de fases (T12/T13, P2, P3): `CHANGELOG.md`.

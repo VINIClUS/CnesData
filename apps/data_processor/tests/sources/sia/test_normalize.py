@@ -164,22 +164,13 @@ def test_linha_de_outra_competencia_vira_qualidade_rejeitada(sia: SiaHarness) ->
     ]
 
 
-@pytest.mark.parametrize(
-    ("subtype", "column"), [("SIA_APA", "apa_cnspct"), ("SIA_BPI", "bpi_cnspac")]
-)
-def test_normalizado_nao_carrega_cns_do_paciente(
-    sia: SiaHarness, subtype: str, column: str
-) -> None:
+@pytest.mark.parametrize("subtype", ["SIA_APA", "SIA_BPI", "SIA_BPIHST"])
+def test_raw_e_normalizado_nao_carregam_dados_do_paciente(sia: SiaHarness, subtype: str) -> None:
     data, quality = _outputs(sia, subtype)
 
-    patients = {row[column] for row in sia.load_fixture("raw_rows.json")[subtype]}
-    for frame in (data, quality):
-        assert not any("pac" in name or "pct" in name for name in frame.columns)
-        values = {
-            value for name in frame.columns if frame.schema[name] == pl.String
-            for value in frame[name].to_list()
-        }
-        assert values.isdisjoint(patients)
+    raw_columns = set(sia.load_fixture("raw_rows.json")[subtype][0])
+    for columns in (raw_columns, set(data.columns), set(quality.columns)):
+        assert not any("pac" in name or "pct" in name or "pcn" in name for name in columns)
 
 
 @pytest.mark.parametrize("subtype", _SUBTYPES)
@@ -279,10 +270,10 @@ def test_rejeita_raw_com_sha256_divergente_do_manifest(sia: SiaHarness) -> None:
 
 
 def test_rejeita_raw_com_schema_fora_do_contrato_edge(sia: SiaHarness) -> None:
-    frame = sia.raw_frame("SIA_BPI", []).drop("bpi_proc")
+    frame = sia.raw_frame("SIA_BPI", []).drop("bpi_pa")
     raw = sia.put_raw("SIA_BPI", frame)
 
-    with pytest.raises(ValueError, match="sia_schema_invalid subtype=SIA_BPI column=bpi_proc"):
+    with pytest.raises(ValueError, match="sia_schema_invalid subtype=SIA_BPI column=bpi_pa"):
         normalize_sia(sia.normalize_request(raw), sia.store)
 
 
