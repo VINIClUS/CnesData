@@ -87,7 +87,7 @@ check / self-update no agente ainda não existe (roadmap `Next`).
   Skew > 60min → exit(1).
 - Panic recovery: TODO spawn de goroutine passa por `SafeGo`/`SafeRun`. Nunca
   `go func()...()` direto em código de produção.
-- **Delta é o único modo de execução** (sem flag, sem snapshot legado): CNES/
+- **Caminho legado `/api/v1/jobs`: delta é o único modo** (sem flag): CNES/
   SIHD/BPA usam fingerprint SHA-256 linha-a-linha (`internal/delta`); SIA
   segue full-extract. Parquet emite coluna `_op ∈ {I,U,D}`.
 - **mTLS por padrão:** `dumpagent register` provisiona o cert; sem cert
