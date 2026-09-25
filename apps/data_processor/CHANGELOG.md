@@ -5,9 +5,13 @@ Histórico de fases de implementação. Não autoritativo para o estado atual
 
 ## SIHD parquet data plane (SRC-010, 2026-09-24)
 
-- `sources/sihd/` — `normalize_sihd`, `reconcile_sihd`, `materialize_sihd` isolados; ainda não registrados em `composition.py` (#275).
-- Contrato em `sources/sihd/contract.py`; definição em `cnes_domain.orchestration.source_definitions.sihd`.
-- PII fora por allow-list no normalize; identidade da AIH `(COMPETENCIA, OE_GESTOR, SEQ/SEQ_PRINC)`; `_op` fora de I/U/D rejeitado.
+- `sources/sihd/` — `normalize_sihd`, `reconcile_sihd`, `materialize_sihd`
+  isolados; ainda não registrados em `composition.py` (#275).
+- Contrato em `sources/sihd/contract.py`; definição em
+  `cnes_domain.orchestration.source_definitions.sihd`.
+- PII fora por allow-list no normalize; identidade da AIH
+  `(COMPETENCIA, OE_GESTOR, SEQ/SEQ_PRINC)`, procedimento + `INDX`; `_op` fora
+  de I/U/D rejeitado.
 
 ## BPA + SIA adapters (T12/T13, 2026-04-23)
 

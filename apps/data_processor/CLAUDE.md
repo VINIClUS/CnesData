@@ -80,10 +80,10 @@ colisão (lease-based).
 | `src/data_processor/pipeline/materialize_cnes.py` | `materialize_cnes` — serving JSON agregado |
 | `src/data_processor/pipeline/delta_reconstruction.py` | `reconstruct_from_deltas` — CDC por natural key |
 | `src/data_processor/sources/bpa/` | Plugin BPA: `normalize_bpa`, `reconcile_bpa`, `materialize_bpa` |
-| `src/data_processor/sources/sihd/contract.py` | Contrato SIHD: layout, colunas permitidas, domínios congelados, deny-list de PII |
-| `src/data_processor/sources/sihd/normalize.py` | `normalize_sihd` — FULL+DELTA por subtipo → data + quality Parquet |
-| `src/data_processor/sources/sihd/reconcile.py` | `reconcile_sihd` — junta internações × procedimentos por AIH |
-| `src/data_processor/sources/sihd/serving.py` | `materialize_sihd` — serving `overview.json` sem PII |
+| `sources/sihd/contract.py` | Layout, colunas permitidas, domínios, deny-list PII |
+| `sources/sihd/normalize.py` | `normalize_sihd` — FULL+DELTA → data + quality |
+| `sources/sihd/reconcile.py` | `reconcile_sihd` — internações × procedimentos por AIH |
+| `sources/sihd/serving.py` | `materialize_sihd` — `overview.json` sem PII |
 
 ## Gotchas
 
@@ -123,8 +123,9 @@ colisão (lease-based).
   allow-list (`*_SOURCE_SCHEMA` em `sources/sihd/contract.py`); o
   `PII_DENY_LIST` é rechecado em `materialize_sihd` (`pii_field_in_serving`).
 - **Identidade da AIH é `(COMPETENCIA, OE_GESTOR, SEQ = SEQ_PRINC)`, não
-  `NUM_AIH`:** é a chave CDC e o join internação × procedimento em
-  `reconcile_sihd`; `NUM_AIH` só compõe o `SIHD_KEY` de deduplicação.
+  `NUM_AIH`:** é a chave CDC da internação e o join internação × procedimento
+  em `reconcile_sihd`. A chave CDC de procedimento acrescenta `INDX` (sem ele,
+  procedimentos da mesma AIH colapsam). `NUM_AIH` só compõe o `SIHD_KEY`.
 - **Delta SIHD com `_op` fora de I/U/D é rejeitado:** `invalid_cdc_op op=...`
   antes da reconstrução (o FULL base não é checado).
 
