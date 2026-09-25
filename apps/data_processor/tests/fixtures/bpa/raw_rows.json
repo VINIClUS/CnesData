@@ -1,0 +1,18 @@
+{
+  "BPA_C": [
+    {"prd_uid": "2269481", "prd_cmp": "202608", "prd_org": "BPA", "prd_flh": "001", "prd_seq": "01", "prd_pa": "0301010056", "prd_cbo": "225125", "prd_idade": "045", "prd_qt_p": 10.0, "prd_cnsmed": ""},
+    {"prd_uid": "2269481", "prd_cmp": "202608", "prd_org": "BPA", "prd_flh": "001", "prd_seq": "02", "prd_pa": "0301010056", "prd_cbo": "225125", "prd_idade": "030", "prd_qt_p": 5.0, "prd_cnsmed": ""},
+    {"prd_uid": "2269481", "prd_cmp": "202608", "prd_org": "BPA", "prd_flh": "001", "prd_seq": "03", "prd_pa": "0101010010", "prd_cbo": "223505", "prd_idade": "   ", "prd_qt_p": 3.0, "prd_cnsmed": ""},
+    {"prd_uid": "7654321", "prd_cmp": "202608", "prd_org": "BPA", "prd_flh": "002", "prd_seq": "01", "prd_pa": "03010100", "prd_cbo": "225125", "prd_idade": "045", "prd_qt_p": 2.0, "prd_cnsmed": ""},
+    {"prd_uid": "7654321", "prd_cmp": "202608", "prd_org": "BPA", "prd_flh": "002", "prd_seq": "01", "prd_pa": "0301010056", "prd_cbo": "225125", "prd_idade": "045", "prd_qt_p": 4.0, "prd_cnsmed": ""},
+    {"prd_uid": "7654321", "prd_cmp": "202608", "prd_org": "BPA", "prd_flh": "002", "prd_seq": "03", "prd_pa": "0301010056", "prd_cbo": "225125", "prd_idade": "045", "prd_qt_p": 2.5, "prd_cnsmed": ""},
+    {"prd_uid": "12345", "prd_cmp": "202608", "prd_org": "BPA", "prd_flh": "003", "prd_seq": "01", "prd_pa": "0301010056", "prd_cbo": "225125", "prd_idade": "045", "prd_qt_p": 7.0, "prd_cnsmed": "          "}
+  ],
+  "BPA_I": [
+    {"prd_uid": "2269481", "prd_cmp": "202608", "prd_org": "BPI", "prd_flh": "001", "prd_seq": "01", "prd_pa": "0301010072", "prd_cbo": "225125", "prd_idade": "046", "prd_qt_p": 1.0, "prd_cnsmed": "999000000000101", "prd_cnspac": "999000000000001", "prd_nmpac": "PACIENTE TESTE 001", "prd_dtnasc": "19800115", "prd_sexo": "F", "prd_ibge": "354130", "prd_dtaten": "20260805", "prd_cid": "J00", "prd_cpf_pcnte": "90000000001"},
+    {"prd_uid": "2269481", "prd_cmp": "202608", "prd_org": "BPI", "prd_flh": "001", "prd_seq": "02", "prd_pa": "0301010072", "prd_cbo": "225125", "prd_idade": "032", "prd_qt_p": 1.0, "prd_cnsmed": "999000000000101", "prd_cnspac": "999000000000002", "prd_nmpac": "PACIENTE TESTE 002", "prd_dtnasc": "19930420", "prd_sexo": "M", "prd_ibge": "354130", "prd_dtaten": "20260812", "prd_cid": "", "prd_cpf_pcnte": "90000000002"},
+    {"prd_uid": "2269481", "prd_cmp": "202608", "prd_org": "BPI", "prd_flh": "001", "prd_seq": "03", "prd_pa": "0301010072", "prd_cbo": "225125", "prd_idade": "070", "prd_qt_p": 1.0, "prd_cnsmed": "999000000000101", "prd_cnspac": "999000000000003", "prd_nmpac": "PACIENTE TESTE 003", "prd_dtnasc": "19560101", "prd_sexo": "F", "prd_ibge": "354130", "prd_dtaten": "", "prd_cid": "I10", "prd_cpf_pcnte": ""},
+    {"prd_uid": "7654321", "prd_cmp": "202608", "prd_org": "BPI", "prd_flh": "001", "prd_seq": "01", "prd_pa": "0301010072", "prd_cbo": "22A", "prd_idade": "025", "prd_qt_p": 2.0, "prd_cnsmed": "", "prd_cnspac": "999000000000004", "prd_nmpac": "PACIENTE TESTE 004", "prd_dtnasc": "20010930", "prd_sexo": "M", "prd_ibge": "354130", "prd_dtaten": "20261345", "prd_cid": "Z9", "prd_cpf_pcnte": "90000000004"},
+    {"prd_uid": "7654321", "prd_cmp": "202607", "prd_org": "BPA", "prd_flh": "001", "prd_seq": "02", "prd_pa": "0301010072", "prd_cbo": "2231F9", "prd_idade": "051", "prd_qt_p": 1.0, "prd_cnsmed": "999000000000102", "prd_cnspac": "999000000000005", "prd_nmpac": "PACIENTE TESTE 005", "prd_dtnasc": "19750303", "prd_sexo": "F", "prd_ibge": "354130", "prd_dtaten": "20260720", "prd_cid": "", "prd_cpf_pcnte": "90000000005"}
+  ]
+}

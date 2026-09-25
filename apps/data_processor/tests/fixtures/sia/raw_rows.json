@@ -1,0 +1,291 @@
+{
+  "SIA_APA": [
+    {
+      "prd_uid": "2077485",
+      "prd_cmp": "202601",
+      "prd_apanum": "3526100000001",
+      "prd_pa": "0301010072",
+      "prd_cbo": "225125",
+      "prd_cidpri": "C509",
+      "prd_qt_p": 1,
+      "prd_qt_a": 1,
+      "prd_vl_p": 15000,
+      "prd_vl_a": 15000,
+      "apa_dtinic": "20260105",
+      "apa_dtfim": "20260131",
+      "apa_cnsexe": "708000000000101"
+    },
+    {
+      "prd_uid": "2077493",
+      "prd_cmp": "202601",
+      "prd_apanum": "3526100000002",
+      "prd_pa": "0304010286",
+      "prd_cbo": "225125",
+      "prd_cidpri": "C509",
+      "prd_qt_p": 2147483647,
+      "prd_qt_a": 2147483647,
+      "prd_vl_p": 9000000000,
+      "prd_vl_a": 9000000000,
+      "apa_dtinic": "20260102",
+      "apa_dtfim": "20260130",
+      "apa_cnsexe": "708000000000102"
+    },
+    {
+      "prd_uid": "2077485",
+      "prd_cmp": "202512",
+      "prd_apanum": "3526100000003",
+      "prd_pa": "0301010072",
+      "prd_cbo": "225125",
+      "prd_cidpri": "C509",
+      "prd_qt_p": 1,
+      "prd_qt_a": 1,
+      "prd_vl_p": 15000,
+      "prd_vl_a": 15000,
+      "apa_dtinic": "20251201",
+      "apa_dtfim": "20251231",
+      "apa_cnsexe": "708000000000101"
+    },
+    {
+      "prd_uid": "2077485",
+      "prd_cmp": "202601",
+      "prd_apanum": "3526100000001",
+      "prd_pa": "0301010072",
+      "prd_cbo": "225125",
+      "prd_cidpri": "C509",
+      "prd_qt_p": 1,
+      "prd_qt_a": 1,
+      "prd_vl_p": 15000,
+      "prd_vl_a": 15000,
+      "apa_dtinic": "20260105",
+      "apa_dtfim": "20260131",
+      "apa_cnsexe": "708000000000101"
+    },
+    {
+      "prd_uid": "2077485",
+      "prd_cmp": "202601",
+      "prd_apanum": "3526100000004",
+      "prd_pa": "0301010072",
+      "prd_cbo": "225125",
+      "prd_cidpri": "C509",
+      "prd_qt_p": 1,
+      "prd_qt_a": 1,
+      "prd_vl_p": 15000,
+      "prd_vl_a": 15000,
+      "apa_dtinic": "20260105",
+      "apa_dtfim": "20260131",
+      "apa_cnsexe": "708000000000101"
+    },
+    {
+      "prd_uid": "   ",
+      "prd_cmp": "202601",
+      "prd_apanum": "3526100000005",
+      "prd_pa": "0301010072",
+      "prd_cbo": "225125",
+      "prd_cidpri": "C509",
+      "prd_qt_p": 1,
+      "prd_qt_a": 1,
+      "prd_vl_p": 15000,
+      "prd_vl_a": 15000,
+      "apa_dtinic": "20260105",
+      "apa_dtfim": "20260131",
+      "apa_cnsexe": "708000000000101"
+    },
+    {
+      "prd_uid": " 77485 ",
+      "prd_cmp": "202601",
+      "prd_apanum": "3526100000006",
+      "prd_pa": "0301010072",
+      "prd_cbo": "225125",
+      "prd_cidpri": "C509",
+      "prd_qt_p": 3,
+      "prd_qt_a": 3,
+      "prd_vl_p": 45000,
+      "prd_vl_a": 45000,
+      "apa_dtinic": "",
+      "apa_dtfim": "00000000",
+      "apa_cnsexe": "708000000000103"
+    }
+  ],
+  "SIA_BPI": [
+    {
+      "bpi_uid": "2077485",
+      "bpi_cmp": "202601",
+      "bpi_cnsmed": "708000000000201",
+      "bpi_cbo": "225125",
+      "bpi_flh": "001",
+      "bpi_seq": "01",
+      "bpi_pa": "0301010072",
+      "bpi_cid": "",
+      "bpi_dtaten": "20260110",
+      "bpi_qt_p": 3,
+      "bpi_qt_a": 3
+    },
+    {
+      "bpi_uid": "2077493",
+      "bpi_cmp": "202601",
+      "bpi_cnsmed": "708000000000202",
+      "bpi_cbo": "225125",
+      "bpi_flh": "001",
+      "bpi_seq": "02",
+      "bpi_pa": "0301010072",
+      "bpi_cid": "",
+      "bpi_dtaten": "20260111",
+      "bpi_qt_p": 1,
+      "bpi_qt_a": 1
+    },
+    {
+      "bpi_uid": "2077485",
+      "bpi_cmp": "202601",
+      "bpi_cnsmed": "708000000000201",
+      "bpi_cbo": "225125",
+      "bpi_flh": "001",
+      "bpi_seq": "03",
+      "bpi_pa": "  ",
+      "bpi_cid": "",
+      "bpi_dtaten": "20260112",
+      "bpi_qt_p": 1,
+      "bpi_qt_a": 1
+    },
+    {
+      "bpi_uid": "2077485",
+      "bpi_cmp": "202601",
+      "bpi_cnsmed": "708000000000201",
+      "bpi_cbo": "225125",
+      "bpi_flh": "001",
+      "bpi_seq": "01",
+      "bpi_pa": "0301010072",
+      "bpi_cid": "",
+      "bpi_dtaten": "20260110",
+      "bpi_qt_p": 3,
+      "bpi_qt_a": 3
+    }
+  ],
+  "SIA_BPIHST": [
+    {
+      "bpi_uid": "2077485",
+      "bpi_cmp": "202601",
+      "bpi_cnsmed": "708000000000201",
+      "bpi_cbo": "225125",
+      "bpi_flh": "001",
+      "bpi_seq": "01",
+      "bpi_pa": "0301010072",
+      "bpi_cid": "",
+      "bpi_dtaten": "20260110",
+      "bpi_qt_p": 3,
+      "bpi_qt_a": 3
+    },
+    {
+      "bpi_uid": "2077485",
+      "bpi_cmp": "202601",
+      "bpi_cnsmed": "708000000000201",
+      "bpi_cbo": "225125",
+      "bpi_flh": "009",
+      "bpi_seq": "01",
+      "bpi_pa": "0301010072",
+      "bpi_cid": "",
+      "bpi_dtaten": "20260120",
+      "bpi_qt_p": 2,
+      "bpi_qt_a": 2
+    },
+    {
+      "bpi_uid": "2077485",
+      "bpi_cmp": "202512",
+      "bpi_cnsmed": "708000000000201",
+      "bpi_cbo": "225125",
+      "bpi_flh": "008",
+      "bpi_seq": "01",
+      "bpi_pa": "0301010072",
+      "bpi_cid": "",
+      "bpi_dtaten": "20251220",
+      "bpi_qt_p": 2,
+      "bpi_qt_a": 2
+    }
+  ],
+  "DIM_SIGTAP": [
+    {
+      "co_procedimento": "0301010072",
+      "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA ",
+      "tp_complexidade": "2",
+      "co_financiamento": "06",
+      "dt_competencia": "202601"
+    },
+    {
+      "co_procedimento": "0301010072",
+      "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO ESPECIALIZADA",
+      "tp_complexidade": "2",
+      "co_financiamento": "06",
+      "dt_competencia": "202601"
+    },
+    {
+      "co_procedimento": "0301010064",
+      "no_procedimento": "CONSULTA MEDICA EM ATENÇÃO PRIMÁRIA",
+      "tp_complexidade": "1",
+      "co_financiamento": "01",
+      "dt_competencia": "202601"
+    },
+    {
+      "co_procedimento": "03010100",
+      "no_procedimento": "CODIGO DE 8 DIGITOS (LAYOUT S_CDN)",
+      "tp_complexidade": "2",
+      "co_financiamento": "06",
+      "dt_competencia": "202601"
+    },
+    {
+      "co_procedimento": "0304010286",
+      "no_procedimento": "PROCEDIMENTO DE OUTRA COMPETENCIA",
+      "tp_complexidade": "3",
+      "co_financiamento": "04",
+      "dt_competencia": "202609"
+    }
+  ],
+  "DIM_MUNICIPIO": [
+    {
+      "coduf": "35",
+      "codmunic": "4130",
+      "nome": "PRESIDENTE EPITACIO",
+      "condic": "GP",
+      "tetopab": 0.0,
+      "calcpab": 0.0
+    },
+    {
+      "coduf": "35",
+      "codmunic": "354140",
+      "nome": "PRESIDENTE PRUDENTE",
+      "condic": "GP",
+      "tetopab": 0.0,
+      "calcpab": 0.0
+    },
+    {
+      "coduf": "35",
+      "codmunic": "3550308",
+      "nome": "SAO PAULO",
+      "condic": "GP",
+      "tetopab": 0.0,
+      "calcpab": 0.0
+    },
+    {
+      "coduf": "35",
+      "codmunic": "35503",
+      "nome": "CODIGO CURTO",
+      "condic": "GP",
+      "tetopab": 0.0,
+      "calcpab": 0.0
+    },
+    {
+      "coduf": "35",
+      "codmunic": "4130",
+      "nome": "PRESIDENTE EPITACIO",
+      "condic": "GP",
+      "tetopab": 0.0,
+      "calcpab": 0.0
+    },
+    {
+      "coduf": "35",
+      "codmunic": "3541300",
+      "nome": "DIGITO ERRADO",
+      "condic": "GP",
+      "tetopab": 0.0,
+      "calcpab": 0.0
+    }
+  ]
+}

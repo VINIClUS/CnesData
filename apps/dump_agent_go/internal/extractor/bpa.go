@@ -5,119 +5,121 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 )
 
-// BPACRow raw row para BPA_C_LINHAS (consolidado).
-type BPACRow struct {
-	Competencia  string `parquet:"nu_competencia"`
-	Cnes         string `parquet:"co_cnes"`
-	Procedimento string `parquet:"co_procedimento"`
-	Quantidade   int32  `parquet:"qt_aprovada"`
-	Cbo          string `parquet:"co_cbo"`
-	TpIdade      int16  `parquet:"tp_idade"`
-	NuIdade      int16  `parquet:"nu_idade"`
+// PRD_ORG = 'BPI' marca o individualizado no GDB; qualquer outra origem (inclusive
+// PNI/SIE/EXT do layout e nulo) segue como BPA_C para nunca descartar linha — o
+// data_processor sinaliza origem inesperada como origem_divergente.
+const bpaOrigemIndividualizado = "BPI"
+
+// BPARow linha raw de S_PRD, no contrato `prd_*` consumido pelo data_processor.
+// Colunas de PII de paciente (CNS, nome, nascimento, CPF, endereço) não são extraídas.
+type BPARow struct {
+	Uid             string   `parquet:"prd_uid"`
+	Competencia     string   `parquet:"prd_cmp"`
+	Org             string   `parquet:"prd_org"`
+	Folha           string   `parquet:"prd_flh"`
+	Sequencia       string   `parquet:"prd_seq"`
+	Procedimento    string   `parquet:"prd_pa"`
+	Cbo             string   `parquet:"prd_cbo"`
+	Cid             string   `parquet:"prd_cid"`
+	Idade           string   `parquet:"prd_idade"`
+	DtAtendimento   string   `parquet:"prd_dtaten"`
+	CnsProfissional string   `parquet:"prd_cnsmed"`
+	Quantidade      *float64 `parquet:"prd_qt_p,optional"`
 }
 
-// BPAIRow raw row para BPA_I_LINHAS (individualizado).
-type BPAIRow struct {
-	Competencia     string    `parquet:"nu_competencia"`
-	Cnes            string    `parquet:"co_cnes"`
-	CnsPaciente     string    `parquet:"nu_cns_pac"`
-	CpfPaciente     string    `parquet:"nu_cpf_pac"`
-	Procedimento    string    `parquet:"co_procedimento"`
-	Cbo             string    `parquet:"co_cbo"`
-	Cid10           string    `parquet:"co_cid10"`
-	DtAtendimento   time.Time `parquet:"dt_atendimento"`
-	Quantidade      int32     `parquet:"qt_aprovada"`
-	CnsProfissional string    `parquet:"nu_cns_prof"`
-}
-
-// BPAResult agregado das duas tabelas BPA para uma competência.
+// BPAResult agregado dos dois subtipos BPA para uma competência.
 type BPAResult struct {
-	BPA_C []BPACRow
-	BPA_I []BPAIRow
+	BPA_C []BPARow
+	BPA_I []BPARow
 }
 
-const sqlBPAC = `
-	SELECT NU_COMPETENCIA, CO_CNES, CO_PROCEDIMENTO, QT_APROVADA,
-	       CO_CBO, TP_IDADE, NU_IDADE
-	FROM BPA_C_LINHAS
-	WHERE NU_COMPETENCIA = ?
+// Strings nulas viram string vazia; o data_processor trata branco como nulo.
+// PRD_QT_P (DOUBLE) permanece nulo para virar quality issue explícita.
+const sqlBPASelect = `
+	SELECT COALESCE(PRD_UID, '') AS PRD_UID,
+	       COALESCE(PRD_CMP, '') AS PRD_CMP,
+	       COALESCE(PRD_ORG, '') AS PRD_ORG,
+	       COALESCE(PRD_FLH, '') AS PRD_FLH,
+	       COALESCE(PRD_SEQ, '') AS PRD_SEQ,
+	       COALESCE(PRD_PA, '') AS PRD_PA,
+	       COALESCE(PRD_CBO, '') AS PRD_CBO,
+	       COALESCE(PRD_CID, '') AS PRD_CID,
+	       COALESCE(PRD_IDADE, '') AS PRD_IDADE,
+	       COALESCE(PRD_DTATEN, '') AS PRD_DTATEN,
+	       COALESCE(PRD_CNSMED, '') AS PRD_CNSMED,
+	       PRD_QT_P
+	FROM S_PRD
 `
 
-// DT_ATENDIMENTO sentinel '0001-01-01' is the Go time.Time zero-value;
-// downstream code can detect NULL-original rows via t.IsZero().
-const sqlBPAI = `
-	SELECT NU_COMPETENCIA, CO_CNES, NU_CNS_PAC,
-	       COALESCE(NU_CPF_PAC, '') AS NU_CPF_PAC,
-	       COALESCE(CO_PROCEDIMENTO, '') AS CO_PROCEDIMENTO,
-	       COALESCE(CO_CBO, '') AS CO_CBO,
-	       COALESCE(CO_CID10, '') AS CO_CID10,
-	       COALESCE(DT_ATENDIMENTO, CAST('0001-01-01' AS DATE)) AS DT_ATENDIMENTO,
-	       COALESCE(QT_APROVADA, 0) AS QT_APROVADA,
-	       COALESCE(NU_CNS_PROF, '') AS NU_CNS_PROF
-	FROM BPA_I_LINHAS
-	WHERE NU_COMPETENCIA = ?
+const sqlBPAOrder = `
+	ORDER BY PRD_UID, PRD_FLH, PRD_SEQ
 `
 
-// ExtractBPA executa as duas queries BPA e retorna BPAResult agregado.
-// Args: ctx, db (FB 1.5 BPAMAG.GDB), competencia AAAAMM (ex: "202601").
+const (
+	sqlBPAC = sqlBPASelect + `WHERE PRD_CMP = ? AND COALESCE(PRD_ORG, '') <> ?` + sqlBPAOrder
+	sqlBPAI = sqlBPASelect + `WHERE PRD_CMP = ? AND PRD_ORG = ?` + sqlBPAOrder
+)
+
+// ExtractBPA lê toda a S_PRD da competência: BPA_I = PRD_ORG 'BPI', BPA_C = o resto.
+// Args: ctx, db (FB 1.5 BPAMAG.GDB), competencia AAAAMM (ex: "202608").
 // Returns: *BPAResult com BPA_C + BPA_I.
 // Raises: erro propagado se query/scan falhar.
 func ExtractBPA(ctx context.Context, db *sql.DB, competencia string) (*BPAResult, error) {
-	result := &BPAResult{}
-	if err := extractBPAC(ctx, db, competencia, result); err != nil {
-		return nil, err
+	consolidado, err := extractBPARows(ctx, db, sqlBPAC, competencia)
+	if err != nil {
+		return nil, fmt.Errorf("bpa_c_%w", err)
 	}
-	if err := extractBPAI(ctx, db, competencia, result); err != nil {
-		return nil, err
+	individualizado, err := extractBPARows(ctx, db, sqlBPAI, competencia)
+	if err != nil {
+		return nil, fmt.Errorf("bpa_i_%w", err)
 	}
-	return result, nil
+	return &BPAResult{BPA_C: consolidado, BPA_I: individualizado}, nil
 }
 
-func extractBPAC(ctx context.Context, db *sql.DB, competencia string, result *BPAResult) error {
-	rows, err := db.QueryContext(ctx, sqlBPAC, competencia)
+func extractBPARows(
+	ctx context.Context, db *sql.DB, query, competencia string,
+) ([]BPARow, error) {
+	rows, err := db.QueryContext(ctx, query, competencia, bpaOrigemIndividualizado)
 	if err != nil {
-		return fmt.Errorf("bpa_c_query: %w", err)
+		return nil, fmt.Errorf("query: %w", err)
 	}
 	defer rows.Close()
 
+	var out []BPARow
 	for rows.Next() {
-		var r BPACRow
-		if err := rows.Scan(
-			&r.Competencia, &r.Cnes, &r.Procedimento, &r.Quantidade,
-			&r.Cbo, &r.TpIdade, &r.NuIdade,
-		); err != nil {
-			return fmt.Errorf("bpa_c_scan: %w", err)
+		r, err := scanBPARow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
 		}
-		r.Procedimento, _ = SanitizeString(r.Procedimento)
-		r.Cbo, _ = SanitizeString(r.Cbo)
-		result.BPA_C = append(result.BPA_C, r)
+		out = append(out, r)
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+	return out, nil
 }
 
-func extractBPAI(ctx context.Context, db *sql.DB, competencia string, result *BPAResult) error {
-	rows, err := db.QueryContext(ctx, sqlBPAI, competencia)
-	if err != nil {
-		return fmt.Errorf("bpa_i_query: %w", err)
+func scanBPARow(rows *sql.Rows) (BPARow, error) {
+	var r BPARow
+	var quantidade sql.NullFloat64
+	fields := []*string{
+		&r.Uid, &r.Competencia, &r.Org, &r.Folha, &r.Sequencia, &r.Procedimento,
+		&r.Cbo, &r.Cid, &r.Idade, &r.DtAtendimento, &r.CnsProfissional,
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var r BPAIRow
-		if err := rows.Scan(
-			&r.Competencia, &r.Cnes, &r.CnsPaciente, &r.CpfPaciente,
-			&r.Procedimento, &r.Cbo, &r.Cid10, &r.DtAtendimento,
-			&r.Quantidade, &r.CnsProfissional,
-		); err != nil {
-			return fmt.Errorf("bpa_i_scan: %w", err)
-		}
-		r.Procedimento, _ = SanitizeString(r.Procedimento)
-		r.Cbo, _ = SanitizeString(r.Cbo)
-		r.Cid10, _ = SanitizeString(r.Cid10)
-		result.BPA_I = append(result.BPA_I, r)
+	dest := make([]any, 0, len(fields)+1)
+	for _, field := range fields {
+		dest = append(dest, field)
 	}
-	return rows.Err()
+	if err := rows.Scan(append(dest, &quantidade)...); err != nil {
+		return BPARow{}, err
+	}
+	for _, field := range fields {
+		*field, _ = SanitizeString(*field)
+	}
+	if quantidade.Valid {
+		r.Quantidade = &quantidade.Float64
+	}
+	return r, nil
 }

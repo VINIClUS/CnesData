@@ -8,12 +8,12 @@ import (
 )
 
 // WriteBPACParquetGzip serializa BPA_C rows em Parquet+gzip in-memory.
-func WriteBPACParquetGzip(rows []extractor.BPACRow) ([]byte, error) {
+func WriteBPACParquetGzip(rows []extractor.BPARow) ([]byte, error) {
 	return writeRowsParquetGzip(rows)
 }
 
 // WriteBPAIParquetGzip serializa BPA_I rows em Parquet+gzip in-memory.
-func WriteBPAIParquetGzip(rows []extractor.BPAIRow) ([]byte, error) {
+func WriteBPAIParquetGzip(rows []extractor.BPARow) ([]byte, error) {
 	return writeRowsParquetGzip(rows)
 }
 
@@ -27,8 +27,8 @@ func WriteSIABPIParquetGzip(rows []extractor.SIABPIRow) ([]byte, error) {
 	return writeRowsParquetGzip(rows)
 }
 
-// WriteCDNParquetGzip serializa SIA CDN (DIM_SIGTAP) rows em Parquet+gzip.
-func WriteCDNParquetGzip(rows []extractor.SIACDNRow) ([]byte, error) {
+// WriteSIGTAPParquetGzip serializa DIM_SIGTAP (layout tb_procedimento) em Parquet+gzip.
+func WriteSIGTAPParquetGzip(rows []extractor.SIASIGTAPRow) ([]byte, error) {
 	return writeRowsParquetGzip(rows)
 }
 

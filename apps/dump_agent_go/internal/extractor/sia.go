@@ -2,252 +2,265 @@
 package extractor
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/LindsayBradford/go-dbf/godbf"
 )
 
+// SIAAPARow é uma linha de produção APAC: S_PRD com PRD_APANUM, enriquecida
+// com S_APA por (APA_NUM, APA_CMP). Campos apa_* ficam vazios sem APAC.
 type SIAAPARow struct {
-	Competencia     string    `parquet:"apa_cmp"`
-	Cnes            string    `parquet:"apa_cnes"`
-	CnsPaciente     string    `parquet:"apa_cnspct"`
-	CnsProfissional string    `parquet:"apa_cnsexe"`
-	Procedimento    string    `parquet:"apa_proc"`
-	Cbo             string    `parquet:"apa_cbo"`
-	Cid10           string    `parquet:"apa_cid"`
-	DtInicio        time.Time `parquet:"apa_dtini"`
-	DtFim           time.Time `parquet:"apa_dtfin"`
-	Quantidade      int32     `parquet:"apa_qtapr"`
-	ValorCents      int64     `parquet:"apa_vlapr"`
+	Uid              string `parquet:"prd_uid"`
+	Competencia      string `parquet:"prd_cmp"`
+	Apanum           string `parquet:"prd_apanum"`
+	Procedimento     string `parquet:"prd_pa"`
+	Cbo              string `parquet:"prd_cbo"`
+	CidPrincipal     string `parquet:"prd_cidpri"`
+	QtProduzida      *int64 `parquet:"prd_qt_p,optional"`
+	QtAprovada       *int64 `parquet:"prd_qt_a,optional"`
+	ValorProduzCents *int64 `parquet:"prd_vl_p,optional"`
+	ValorAprovCents  *int64 `parquet:"prd_vl_a,optional"`
+	DtInicio         string `parquet:"apa_dtinic"`
+	DtFim            string `parquet:"apa_dtfim"`
+	CnsExecutante    string `parquet:"apa_cnsexe"`
 }
 
+// SIABPIRow é uma linha de S_BPI/S_BPIHST sem dados do paciente.
 type SIABPIRow struct {
-	Competencia     string    `parquet:"bpi_cmp"`
-	Cnes            string    `parquet:"bpi_cnes"`
-	CnsPaciente     string    `parquet:"bpi_cnspac"`
-	CnsProfissional string    `parquet:"bpi_cnsmed"`
-	Cbo             string    `parquet:"bpi_cbo"`
-	Procedimento    string    `parquet:"bpi_proc"`
-	Cid10           string    `parquet:"bpi_cid"`
-	DtAtendimento   time.Time `parquet:"bpi_dtaten"`
-	Quantidade      int32     `parquet:"bpi_qt"`
-	Folha           int16     `parquet:"bpi_folha"`
-	Seq             int16     `parquet:"bpi_seq"`
+	Uid             string `parquet:"bpi_uid"`
+	Competencia     string `parquet:"bpi_cmp"`
+	CnsProfissional string `parquet:"bpi_cnsmed"`
+	Cbo             string `parquet:"bpi_cbo"`
+	Folha           string `parquet:"bpi_flh"`
+	Seq             string `parquet:"bpi_seq"`
+	Procedimento    string `parquet:"bpi_pa"`
+	Cid             string `parquet:"bpi_cid"`
+	DtAtendimento   string `parquet:"bpi_dtaten"`
+	QtProduzida     *int64 `parquet:"bpi_qt_p,optional"`
+	QtAprovada      *int64 `parquet:"bpi_qt_a,optional"`
 }
 
-type SIACDNRow struct {
-	Tabela    string `parquet:"cdn_tb"`
-	Item      string `parquet:"cdn_it"`
-	Descricao string `parquet:"cdn_dscr"`
-	Checksum  string `parquet:"cdn_chksm"`
+// SIASIGTAPRow segue o layout tb_procedimento do SIGTAP, derivado de S_PA.
+type SIASIGTAPRow struct {
+	CoProcedimento  string `parquet:"co_procedimento"`
+	NoProcedimento  string `parquet:"no_procedimento"`
+	TpComplexidade  string `parquet:"tp_complexidade"`
+	CoFinanciamento string `parquet:"co_financiamento"`
+	DtCompetencia   string `parquet:"dt_competencia"`
 }
 
+// CADMUNRow é uma linha de CADMUN; CODMUNIC tem 4 dígitos (IBGE6 = CODUF+CODMUNIC).
 type CADMUNRow struct {
-	CodUF   string `parquet:"coduf"`
-	CodMun  string `parquet:"codmunic"`
-	Nome    string `parquet:"nome"`
-	Condic  string `parquet:"condic"`
-	TetoPab int64  `parquet:"tetopab"`
-	CalcPab string `parquet:"calcpab"`
+	CodUF   string   `parquet:"coduf"`
+	CodMun  string   `parquet:"codmunic"`
+	Nome    string   `parquet:"nome"`
+	Condic  string   `parquet:"condic"`
+	TetoPab *float64 `parquet:"tetopab,optional"`
+	CalcPab *float64 `parquet:"calcpab,optional"`
 }
 
+// SIAResult contém só os subtipos pedidos ao ExtractSIA.
 type SIAResult struct {
 	APA    []SIAAPARow
 	BPI    []SIABPIRow
 	BPIHST []SIABPIRow
-	CDN    []SIACDNRow
+	SIGTAP []SIASIGTAPRow
 	CADMUN []CADMUNRow
 }
 
-// ExtractSIA lê os 5 DBFs SIA em dir. Arquivos ausentes são tolerados;
-// erros de parse são agregados via errors.Join.
-func ExtractSIA(dir string) (*SIAResult, error) {
+var (
+	fieldsPRD = []string{
+		"PRD_UID", "PRD_CMP", "PRD_APANUM", "PRD_PA", "PRD_CBO", "PRD_CIDPRI",
+		"PRD_QT_P", "PRD_QT_A", "PRD_VL_P", "PRD_VL_A",
+	}
+	fieldsAPA = []string{"APA_NUM", "APA_CMP", "APA_DTINIC", "APA_DTFIM", "APA_CNSEXE"}
+	fieldsBPI = []string{
+		"BPI_UID", "BPI_CMP", "BPI_CNSMED", "BPI_CBO", "BPI_FLH", "BPI_SEQ", "BPI_PA",
+		"BPI_CID", "BPI_DTATEN", "BPI_QT_P", "BPI_QT_A",
+	}
+	fieldsPA     = []string{"PA_CMP", "PA_ID", "PA_DV", "PA_DC", "PA_CPX", "PA_CTF"}
+	fieldsCADMUN = []string{"CODUF", "CODMUNIC", "NOME", "CONDIC", "TETOPAB", "CALCPAB"}
+)
+
+// ExtractSIA lê de dir só os DBFs necessários aos subtipos pedidos.
+//
+// Args: dir (pasta SIASUS), competencia AAAAMM, subtypes (fato_subtype do job).
+// Raises: sia_file_missing, sia_field_missing, sia_sigtap_empty, unknown_sia_subtype.
+func ExtractSIA(dir, competencia string, subtypes []string) (*SIAResult, error) {
 	if _, err := os.Stat(dir); err != nil {
 		return nil, fmt.Errorf("sia_dir_missing: %w", err)
 	}
+	competencia = strings.ReplaceAll(competencia, "-", "")
 	result := &SIAResult{}
-	errs := readSIAFiles(dir, result)
-	if len(errs) > 0 {
-		return result, errors.Join(errs...)
+	for _, subtype := range subtypes {
+		if err := extractSIASubtype(dir, competencia, subtype, result); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }
 
-func readSIAFiles(dir string, result *SIAResult) []error {
-	var errs []error
-	if apa, err := readAPA(filepath.Join(dir, "S_APA.DBF")); err == nil {
-		result.APA = apa
-	} else if !errors.Is(err, os.ErrNotExist) {
-		errs = append(errs, err)
+func extractSIASubtype(dir, competencia, subtype string, r *SIAResult) error {
+	var err error
+	switch subtype {
+	case "SIA_APA":
+		r.APA, err = readAPA(dir)
+	case "SIA_BPI":
+		r.BPI, err = readBPI(dir, "S_BPI.DBF")
+	case "SIA_BPIHST":
+		r.BPIHST, err = readBPI(dir, "S_BPIHST.DBF")
+	case "DIM_SIGTAP":
+		r.SIGTAP, err = readSIGTAP(dir, competencia)
+	case "DIM_MUNICIPIO":
+		r.CADMUN, err = readCADMUN(dir)
+	default:
+		err = fmt.Errorf("unknown_sia_subtype=%s", subtype)
 	}
-	if bpi, err := readBPI(filepath.Join(dir, "S_BPI.DBF")); err == nil {
-		result.BPI = bpi
-	} else if !errors.Is(err, os.ErrNotExist) {
-		errs = append(errs, err)
-	}
-	if bpihst, err := readBPI(filepath.Join(dir, "S_BPIHST.DBF")); err == nil {
-		result.BPIHST = bpihst
-	} else if !errors.Is(err, os.ErrNotExist) {
-		errs = append(errs, err)
-	}
-	if cdn, err := readCDN(filepath.Join(dir, "S_CDN.DBF")); err == nil {
-		result.CDN = cdn
-	} else if !errors.Is(err, os.ErrNotExist) {
-		errs = append(errs, err)
-	}
-	if cadmun, err := readCADMUN(filepath.Join(dir, "CADMUN.DBF")); err == nil {
-		result.CADMUN = cadmun
-	} else if !errors.Is(err, os.ErrNotExist) {
-		errs = append(errs, err)
-	}
-	return errs
+	return err
 }
 
-func openDBF(path string) (*godbf.DbfTable, error) {
-	if _, err := os.Stat(path); err != nil {
-		return nil, err
-	}
-	t, err := godbf.NewFromFile(path, "windows-1252")
-	if err != nil {
-		return nil, fmt.Errorf("dbf_open path=%s: %w", filepath.Base(path), err)
-	}
-	return t, nil
-}
+type apaKey struct{ num, cmp string }
 
-func readAPA(path string) ([]SIAAPARow, error) {
-	t, err := openDBF(path)
+type apaHeader struct{ dtInicio, dtFim, cnsExecutante string }
+
+func readAPA(dir string) ([]SIAAPARow, error) {
+	headers, err := readAPAHeaders(dir)
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]SIAAPARow, 0, t.NumberOfRecords())
+	t, err := openSIADBF(dir, "S_PRD.DBF", fieldsPRD)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]SIAAPARow, 0)
 	for i := 0; i < t.NumberOfRecords(); i++ {
-		qt, _ := t.Int64FieldValueByName(i, "APA_QTAPR")
-		vl, _ := t.Int64FieldValueByName(i, "APA_VLAPR")
-		rows = append(rows, SIAAPARow{
-			Competencia:     sanitizeDBF(t, i, "APA_CMP"),
-			Cnes:            sanitizeDBF(t, i, "APA_CNES"),
-			CnsPaciente:     sanitizeDBF(t, i, "APA_CNSPCT"),
-			CnsProfissional: sanitizeDBF(t, i, "APA_CNSEXE"),
-			Procedimento:    sanitizeDBF(t, i, "APA_PROC"),
-			Cbo:             sanitizeDBF(t, i, "APA_CBO"),
-			Cid10:           sanitizeDBF(t, i, "APA_CID"),
-			DtInicio:        parseDBFDate(t, i, "APA_DTINI"),
-			DtFim:           parseDBFDate(t, i, "APA_DTFIN"),
-			Quantidade:      safeInt32(qt),
-			ValorCents:      vl,
-		})
+		apanum := t.text(i, "PRD_APANUM")
+		if t.RowIsDeleted(i) || apanum == "" {
+			continue
+		}
+		row, err := buildAPARow(t, i, apanum)
+		if err != nil {
+			return nil, err
+		}
+		header := headers[apaKey{apanum, row.Competencia}]
+		row.DtInicio, row.DtFim, row.CnsExecutante = header.dtInicio, header.dtFim, header.cnsExecutante
+		rows = append(rows, row)
 	}
 	return rows, nil
 }
 
-func readBPI(path string) ([]SIABPIRow, error) {
-	t, err := openDBF(path)
+func buildAPARow(t *siaTable, i int, apanum string) (SIAAPARow, error) {
+	row := SIAAPARow{
+		Uid: t.text(i, "PRD_UID"), Competencia: t.text(i, "PRD_CMP"), Apanum: apanum,
+		Procedimento: t.text(i, "PRD_PA"), Cbo: t.text(i, "PRD_CBO"),
+		CidPrincipal: t.text(i, "PRD_CIDPRI"),
+	}
+	var err error
+	if row.QtProduzida, err = t.integer(i, "PRD_QT_P"); err != nil {
+		return row, err
+	}
+	if row.QtAprovada, err = t.integer(i, "PRD_QT_A"); err != nil {
+		return row, err
+	}
+	if row.ValorProduzCents, err = t.cents(i, "PRD_VL_P"); err != nil {
+		return row, err
+	}
+	row.ValorAprovCents, err = t.cents(i, "PRD_VL_A")
+	return row, err
+}
+
+func readAPAHeaders(dir string) (map[apaKey]apaHeader, error) {
+	t, err := openSIADBF(dir, "S_APA.DBF", fieldsAPA)
+	if err != nil {
+		return nil, err
+	}
+	headers := make(map[apaKey]apaHeader, t.NumberOfRecords())
+	for i := 0; i < t.NumberOfRecords(); i++ {
+		if t.RowIsDeleted(i) {
+			continue
+		}
+		headers[apaKey{t.text(i, "APA_NUM"), t.text(i, "APA_CMP")}] = apaHeader{
+			dtInicio:      t.text(i, "APA_DTINIC"),
+			dtFim:         t.text(i, "APA_DTFIM"),
+			cnsExecutante: t.text(i, "APA_CNSEXE"),
+		}
+	}
+	return headers, nil
+}
+
+func readBPI(dir, file string) ([]SIABPIRow, error) {
+	t, err := openSIADBF(dir, file, fieldsBPI)
 	if err != nil {
 		return nil, err
 	}
 	rows := make([]SIABPIRow, 0, t.NumberOfRecords())
 	for i := 0; i < t.NumberOfRecords(); i++ {
-		rows = append(rows, buildBPIRow(t, i))
+		if t.RowIsDeleted(i) {
+			continue
+		}
+		row := SIABPIRow{
+			Uid: t.text(i, "BPI_UID"), Competencia: t.text(i, "BPI_CMP"),
+			CnsProfissional: t.text(i, "BPI_CNSMED"), Cbo: t.text(i, "BPI_CBO"),
+			Folha: t.text(i, "BPI_FLH"), Seq: t.text(i, "BPI_SEQ"),
+			Procedimento: t.text(i, "BPI_PA"), Cid: t.text(i, "BPI_CID"),
+			DtAtendimento: t.text(i, "BPI_DTATEN"),
+		}
+		if row.QtProduzida, err = t.integer(i, "BPI_QT_P"); err != nil {
+			return nil, err
+		}
+		if row.QtAprovada, err = t.integer(i, "BPI_QT_A"); err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }
 
-func buildBPIRow(t *godbf.DbfTable, i int) SIABPIRow {
-	qt, _ := t.Int64FieldValueByName(i, "BPI_QT")
-	folha, _ := t.Int64FieldValueByName(i, "BPI_FOLHA")
-	seq, _ := t.Int64FieldValueByName(i, "BPI_SEQ")
-	return SIABPIRow{
-		Competencia:     sanitizeDBF(t, i, "BPI_CMP"),
-		Cnes:            sanitizeDBF(t, i, "BPI_CNES"),
-		CnsPaciente:     sanitizeDBF(t, i, "BPI_CNSPAC"),
-		CnsProfissional: sanitizeDBF(t, i, "BPI_CNSMED"),
-		Cbo:             sanitizeDBF(t, i, "BPI_CBO"),
-		Procedimento:    sanitizeDBF(t, i, "BPI_PROC"),
-		Cid10:           sanitizeDBF(t, i, "BPI_CID"),
-		DtAtendimento:   parseDBFDate(t, i, "BPI_DTATEN"),
-		Quantidade:      safeInt32(qt),
-		Folha:           safeInt16(folha),
-		Seq:             safeInt16(seq),
-	}
-}
-
-func readCDN(path string) ([]SIACDNRow, error) {
-	t, err := openDBF(path)
+func readSIGTAP(dir, competencia string) ([]SIASIGTAPRow, error) {
+	t, err := openSIADBF(dir, "S_PA.DBF", fieldsPA)
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]SIACDNRow, 0, t.NumberOfRecords())
+	rows := make([]SIASIGTAPRow, 0)
 	for i := 0; i < t.NumberOfRecords(); i++ {
-		rows = append(rows, SIACDNRow{
-			Tabela:    sanitizeDBF(t, i, "CDN_TB"),
-			Item:      sanitizeDBF(t, i, "CDN_IT"),
-			Descricao: sanitizeDBF(t, i, "CDN_DSCR"),
-			Checksum:  sanitizeDBF(t, i, "CDN_CHKSM"),
+		if t.RowIsDeleted(i) || t.text(i, "PA_CMP") != competencia {
+			continue
+		}
+		rows = append(rows, SIASIGTAPRow{
+			CoProcedimento:  t.text(i, "PA_ID") + t.text(i, "PA_DV"),
+			NoProcedimento:  t.text(i, "PA_DC"),
+			TpComplexidade:  t.text(i, "PA_CPX"),
+			CoFinanciamento: t.text(i, "PA_CTF"),
+			DtCompetencia:   competencia,
 		})
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("sia_sigtap_empty competencia=%s", competencia)
 	}
 	return rows, nil
 }
 
-func readCADMUN(path string) ([]CADMUNRow, error) {
-	t, err := openDBF(path)
+func readCADMUN(dir string) ([]CADMUNRow, error) {
+	t, err := openSIADBF(dir, "CADMUN.DBF", fieldsCADMUN)
 	if err != nil {
 		return nil, err
 	}
 	rows := make([]CADMUNRow, 0, t.NumberOfRecords())
 	for i := 0; i < t.NumberOfRecords(); i++ {
-		teto, _ := t.Int64FieldValueByName(i, "TETOPAB")
-		rows = append(rows, CADMUNRow{
-			CodUF:   sanitizeDBF(t, i, "CODUF"),
-			CodMun:  sanitizeDBF(t, i, "CODMUNIC"),
-			Nome:    sanitizeDBF(t, i, "NOME"),
-			Condic:  sanitizeDBF(t, i, "CONDIC"),
-			TetoPab: teto,
-			CalcPab: sanitizeDBF(t, i, "CALCPAB"),
-		})
+		if t.RowIsDeleted(i) {
+			continue
+		}
+		row := CADMUNRow{
+			CodUF: t.text(i, "CODUF"), CodMun: t.text(i, "CODMUNIC"),
+			Nome: t.text(i, "NOME"), Condic: t.text(i, "CONDIC"),
+		}
+		if row.TetoPab, err = t.decimal(i, "TETOPAB"); err != nil {
+			return nil, err
+		}
+		if row.CalcPab, err = t.decimal(i, "CALCPAB"); err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
-}
-
-func sanitizeDBF(t *godbf.DbfTable, row int, col string) string {
-	v, _ := t.FieldValueByName(row, col)
-	clean, _ := SanitizeString(strings.TrimSpace(v))
-	return clean
-}
-
-func parseDBFDate(t *godbf.DbfTable, row int, col string) time.Time {
-	v, _ := t.FieldValueByName(row, col)
-	s := strings.TrimSpace(v)
-	if s == "" {
-		return time.Time{}
-	}
-	d, err := time.Parse("20060102", s)
-	if err != nil {
-		return time.Time{}
-	}
-	return d
-}
-
-func safeInt32(v int64) int32 {
-	if v > 2147483647 {
-		return 2147483647
-	}
-	if v < -2147483648 {
-		return -2147483648
-	}
-	return int32(v)
-}
-
-func safeInt16(v int64) int16 {
-	if v > 32767 {
-		return 32767
-	}
-	if v < -32768 {
-		return -32768
-	}
-	return int16(v)
 }

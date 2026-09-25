@@ -62,9 +62,10 @@ func ProfileFor(s SourceID) Profile {
 			FileExtension:         ".DBF",
 			FSTemplates: []string{
 				`<DRIVE>\Datasus\SIA`,
+				`<DRIVE>\Datasus\SIASUS\SIA`,
 				`<DRIVE>\SIA`,
 			},
-			SIAExpectedDBFs: []string{"S_APA", "S_BPI", "S_BPIHST", "S_CDN", "CADMUN"},
+			SIAExpectedDBFs: []string{"S_APA", "S_PRD", "S_BPI", "S_BPIHST", "S_PA", "CADMUN"},
 		}
 	default:
 		return Profile{Source: SourceUnknown}

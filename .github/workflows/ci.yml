@@ -23,6 +23,9 @@ on:
       - 'scripts/ci_phase2_adapters.sh'
       - 'scripts/local_backup.py'
       - 'scripts/local_backup_test.py'
+      - 'scripts/gen_sia_dbf_fixtures.py'
+      - 'scripts/tests/test_gen_sia_dbf.py'
+      - 'docs/data-dictionary-sia.md'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -78,3 +81,6 @@ jobs:
 
       - name: Run backup script unit tests
         run: uv run --no-build pytest -q scripts/local_backup_test.py
+
+      - name: Check SIA DBF fixtures against the real SIASUS layout
+        run: uv run --no-build pytest -q scripts/tests/test_gen_sia_dbf.py

@@ -3,163 +3,178 @@ package extractor
 import (
 	"context"
 	"database/sql"
+	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
-func TestBPA_ExtractCAndI(t *testing.T) {
+var bpaColumns = []string{
+	"PRD_UID", "PRD_CMP", "PRD_ORG", "PRD_FLH", "PRD_SEQ", "PRD_PA", "PRD_CBO",
+	"PRD_CID", "PRD_IDADE", "PRD_DTATEN", "PRD_CNSMED", "PRD_QT_P",
+}
+
+var sPrdQuery = regexp.QuoteMeta("FROM S_PRD")
+
+func TestBPA_ExtraiBPACeBPAIDeSPRDPorOrigem(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	rowsC := sqlmock.NewRows([]string{
-		"NU_COMPETENCIA", "CO_CNES", "CO_PROCEDIMENTO",
-		"QT_APROVADA", "CO_CBO", "TP_IDADE", "NU_IDADE",
-	}).AddRow("202601", "2269481", "0301010056", 10, "225125", 3, 45)
+	rowsC := sqlmock.NewRows(bpaColumns).AddRow(
+		"2269481", "202608", "BPA", "001", "01", "0301010056", "225125",
+		"    ", "045", "        ", "               ", 10.0)
+	rowsI := sqlmock.NewRows(bpaColumns).AddRow(
+		"2269481", "202608", "BPI", "177", "01", "0301010072", "225125",
+		"J00 ", "046", "20260805", "999000000000101", 1.0)
 
-	rowsI := sqlmock.NewRows([]string{
-		"NU_COMPETENCIA", "CO_CNES", "NU_CNS_PAC", "NU_CPF_PAC",
-		"CO_PROCEDIMENTO", "CO_CBO", "CO_CID10", "DT_ATENDIMENTO",
-		"QT_APROVADA", "NU_CNS_PROF",
-	}).AddRow("202601", "2269481", "700123456789012", "12345678901",
-		"0301010064", "225125", "J00",
-		time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
-		1, "700987654321098")
+	mock.ExpectQuery(regexp.QuoteMeta("COALESCE(PRD_ORG, '') <> ?")).
+		WithArgs("202608", "BPI").WillReturnRows(rowsC)
+	mock.ExpectQuery(regexp.QuoteMeta("PRD_ORG = ?")).
+		WithArgs("202608", "BPI").WillReturnRows(rowsI)
 
-	mock.ExpectQuery("FROM BPA_C_LINHAS").WillReturnRows(rowsC)
-	mock.ExpectQuery("FROM BPA_I_LINHAS").WillReturnRows(rowsI)
-
-	result, err := ExtractBPA(context.Background(), db, "202601")
+	result, err := ExtractBPA(context.Background(), db, "202608")
 	if err != nil {
 		t.Fatalf("extract err=%v", err)
 	}
-
-	if len(result.BPA_C) != 1 {
-		t.Errorf("BPA_C count=%d want=1", len(result.BPA_C))
+	if len(result.BPA_C) != 1 || len(result.BPA_I) != 1 {
+		t.Fatalf("counts C=%d I=%d want 1/1", len(result.BPA_C), len(result.BPA_I))
 	}
-	if len(result.BPA_I) != 1 {
-		t.Errorf("BPA_I count=%d want=1", len(result.BPA_I))
+	c, i := result.BPA_C[0], result.BPA_I[0]
+	if c.Org != "BPA" || c.Procedimento != "0301010056" || *c.Quantidade != 10 {
+		t.Errorf("bpa_c row=%+v", c)
 	}
-	if result.BPA_C[0].Procedimento != "0301010056" {
-		t.Errorf("proc=%q", result.BPA_C[0].Procedimento)
+	if i.Org != "BPI" || i.Folha != "177" || i.DtAtendimento != "20260805" {
+		t.Errorf("bpa_i row=%+v", i)
+	}
+	if i.CnsProfissional != "999000000000101" || i.Cid != "J00 " {
+		t.Errorf("bpa_i row=%+v", i)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestBPA_EmptyCompetencia(t *testing.T) {
+func TestBPA_QuantidadeNulaPermaneceNula(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 
-	mock.ExpectQuery("FROM BPA_C_LINHAS").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"NU_COMPETENCIA", "CO_CNES", "CO_PROCEDIMENTO",
-			"QT_APROVADA", "CO_CBO", "TP_IDADE", "NU_IDADE",
-		}))
-	mock.ExpectQuery("FROM BPA_I_LINHAS").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"NU_COMPETENCIA", "CO_CNES", "NU_CNS_PAC", "NU_CPF_PAC",
-			"CO_PROCEDIMENTO", "CO_CBO", "CO_CID10", "DT_ATENDIMENTO",
-			"QT_APROVADA", "NU_CNS_PROF",
-		}))
+	rows := sqlmock.NewRows(bpaColumns).AddRow(
+		"2269481", "202608", "BPA", "001", "01", "0301010056", "225125",
+		"", "045", "", "", nil)
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(rows)
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(sqlmock.NewRows(bpaColumns))
 
-	result, err := ExtractBPA(context.Background(), db, "202601")
+	result, err := ExtractBPA(context.Background(), db, "202608")
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if result.BPA_C[0].Quantidade != nil {
+		t.Errorf("quantidade=%v want nil", *result.BPA_C[0].Quantidade)
+	}
+}
+
+func TestBPA_SQLNaoSelecionaPIIDePaciente(t *testing.T) {
+	for _, column := range []string{"PRD_CNSPAC", "PRD_NMPAC", "PRD_DTNASC", "PRD_CPF_PCNTE"} {
+		if strings.Contains(sqlBPASelect, column) {
+			t.Errorf("sqlBPA selects PII column %s", column)
+		}
+	}
+}
+
+func TestBPA_CompetenciaVazia(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(sqlmock.NewRows(bpaColumns))
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(sqlmock.NewRows(bpaColumns))
+
+	result, err := ExtractBPA(context.Background(), db, "202608")
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
 	if len(result.BPA_C) != 0 || len(result.BPA_I) != 0 {
-		t.Errorf("expected empty, got C=%d I=%d",
-			len(result.BPA_C), len(result.BPA_I))
+		t.Errorf("expected empty, got C=%d I=%d", len(result.BPA_C), len(result.BPA_I))
 	}
 }
 
-func TestBPA_QueryError(t *testing.T) {
+func TestBPA_ErroDeQueryBPAC(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 
-	mock.ExpectQuery("FROM BPA_C_LINHAS").
-		WillReturnError(sql.ErrConnDone)
+	mock.ExpectQuery(sPrdQuery).WillReturnError(sql.ErrConnDone)
 
-	_, err := ExtractBPA(context.Background(), db, "202601")
-	if err == nil {
-		t.Fatal("expected error")
+	_, err := ExtractBPA(context.Background(), db, "202608")
+	if err == nil || !strings.Contains(err.Error(), "bpa_c_query") {
+		t.Fatalf("err=%v, want bpa_c_query", err)
 	}
 }
 
-func TestBPA_ScanErrorBPAC(t *testing.T) {
+func TestBPA_ErroDeQueryBPAI(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 
-	rowsC := sqlmock.NewRows([]string{
-		"NU_COMPETENCIA", "CO_CNES", "CO_PROCEDIMENTO",
-		"QT_APROVADA", "CO_CBO", "TP_IDADE", "NU_IDADE",
-	}).AddRow("202601", "2269481", "0301010056", 10, "225125",
-		"not-a-number", 45)
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(sqlmock.NewRows(bpaColumns))
+	mock.ExpectQuery(sPrdQuery).WillReturnError(sql.ErrConnDone)
 
-	mock.ExpectQuery("FROM BPA_C_LINHAS").WillReturnRows(rowsC)
-
-	_, err := ExtractBPA(context.Background(), db, "202601")
-	if err == nil {
-		t.Fatal("expected scan error, got nil")
-	}
-	if !strings.Contains(err.Error(), "bpa_c_scan") {
-		t.Errorf("err=%v, want prefix bpa_c_scan", err)
+	_, err := ExtractBPA(context.Background(), db, "202608")
+	if err == nil || !strings.Contains(err.Error(), "bpa_i_query") {
+		t.Fatalf("err=%v, want bpa_i_query", err)
 	}
 }
 
-func TestBPA_QueryErrorBPAI(t *testing.T) {
+func TestBPA_ErroDeScan(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 
-	mock.ExpectQuery("FROM BPA_C_LINHAS").WillReturnRows(sqlmock.NewRows([]string{
-		"NU_COMPETENCIA", "CO_CNES", "CO_PROCEDIMENTO",
-		"QT_APROVADA", "CO_CBO", "TP_IDADE", "NU_IDADE",
-	}))
-	mock.ExpectQuery("FROM BPA_I_LINHAS").WillReturnError(sql.ErrConnDone)
+	rows := sqlmock.NewRows(bpaColumns).AddRow(
+		"2269481", "202608", "BPA", "001", "01", "0301010056", "225125",
+		"", "045", "", "", "not-a-number")
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(rows)
 
-	_, err := ExtractBPA(context.Background(), db, "202601")
-	if err == nil {
-		t.Fatal("expected BPA_I query error, got nil")
-	}
-	if !strings.Contains(err.Error(), "bpa_i_query") {
-		t.Errorf("err=%v, want prefix bpa_i_query", err)
+	_, err := ExtractBPA(context.Background(), db, "202608")
+	if err == nil || !strings.Contains(err.Error(), "bpa_c_scan") {
+		t.Fatalf("err=%v, want bpa_c_scan", err)
 	}
 }
 
-func TestBPA_SanitizesDirtyCp1252(t *testing.T) {
+func TestBPA_SanitizaCp1252Invalido(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 
-	dirtyCbo := "225\xc3125"
+	rows := sqlmock.NewRows(bpaColumns).AddRow(
+		"2269481", "202608", "BPA", "001", "01", "0301010056", "225\xc3125",
+		"", "045", "", "", 1.0)
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(rows)
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(sqlmock.NewRows(bpaColumns))
 
-	rowsC := sqlmock.NewRows([]string{
-		"NU_COMPETENCIA", "CO_CNES", "CO_PROCEDIMENTO",
-		"QT_APROVADA", "CO_CBO", "TP_IDADE", "NU_IDADE",
-	}).AddRow("202601", "2269481", "0301010056", 10, dirtyCbo, 3, 45)
-	rowsI := sqlmock.NewRows([]string{
-		"NU_COMPETENCIA", "CO_CNES", "NU_CNS_PAC", "NU_CPF_PAC",
-		"CO_PROCEDIMENTO", "CO_CBO", "CO_CID10", "DT_ATENDIMENTO",
-		"QT_APROVADA", "NU_CNS_PROF",
-	})
-
-	mock.ExpectQuery("FROM BPA_C_LINHAS").WillReturnRows(rowsC)
-	mock.ExpectQuery("FROM BPA_I_LINHAS").WillReturnRows(rowsI)
-
-	result, err := ExtractBPA(context.Background(), db, "202601")
+	result, err := ExtractBPA(context.Background(), db, "202608")
 	if err != nil {
-		t.Fatalf("extract err=%v", err)
+		t.Fatalf("err=%v", err)
 	}
-	if len(result.BPA_C) != 1 {
-		t.Fatalf("count=%d", len(result.BPA_C))
+	if result.BPA_C[0].Cbo != "225?125" {
+		t.Errorf("cbo=%q want 225?125", result.BPA_C[0].Cbo)
 	}
-	got := result.BPA_C[0].Cbo
-	if got == dirtyCbo {
-		t.Errorf("Cbo not sanitized: %q", got)
+}
+
+func TestBPA_OrigemNaoBPIVaiParaBPACSemDescartarLinha(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	rows := sqlmock.NewRows(bpaColumns).AddRow(
+		"2269481", "202608", "PNI", "001", "01", "0301010056", "225125",
+		"", "045", "", "", 2.0)
+	mock.ExpectQuery(regexp.QuoteMeta("COALESCE(PRD_ORG, '') <> ?")).WillReturnRows(rows)
+	mock.ExpectQuery(sPrdQuery).WillReturnRows(sqlmock.NewRows(bpaColumns))
+
+	result, err := ExtractBPA(context.Background(), db, "202608")
+	if err != nil {
+		t.Fatalf("err=%v", err)
 	}
-	if strings.ContainsRune(got, '\ufffd') {
-		t.Errorf("Cbo still contains U+FFFD: %q", got)
+	if len(result.BPA_C) != 1 || result.BPA_C[0].Org != "PNI" {
+		t.Fatalf("bpa_c=%+v want one PNI row", result.BPA_C)
 	}
 }
