@@ -80,6 +80,10 @@ colisão (lease-based).
 | `src/data_processor/pipeline/materialize_cnes.py` | `materialize_cnes` — serving JSON agregado |
 | `src/data_processor/pipeline/delta_reconstruction.py` | `reconstruct_from_deltas` — CDC por natural key |
 | `src/data_processor/sources/bpa/` | Plugin BPA: `normalize_bpa`, `reconcile_bpa`, `materialize_bpa` |
+| `src/data_processor/sources/sihd/contract.py` | Layout, colunas, domínios, deny-list PII |
+| `src/data_processor/sources/sihd/normalize.py` | `normalize_sihd` (FULL+DELTA) |
+| `src/data_processor/sources/sihd/reconcile.py` | `reconcile_sihd` (join por AIH) |
+| `src/data_processor/sources/sihd/serving.py` | `materialize_sihd` (sem PII) |
 
 ## Gotchas
 
@@ -115,5 +119,14 @@ colisão (lease-based).
   `apps/data_processor/tests/fixtures/bpa/fixture-manifest.json`. PII de
   paciente é descartada em `prepare_raw`; `prd_cnsmed` só vira o booleano
   `tem_cns_profissional` — nenhum CNS/CPF chega ao normalizado ou ao serving.
+- **SIHD PII sai no normalize:** `_canonicalize` projeta só as colunas da
+  allow-list (`*_SOURCE_SCHEMA` em `sources/sihd/contract.py`); o
+  `PII_DENY_LIST` é rechecado em `materialize_sihd` (`pii_field_in_serving`).
+- **Identidade da AIH é `(COMPETENCIA, OE_GESTOR, SEQ = SEQ_PRINC)`, não
+  `NUM_AIH`:** é a chave CDC da internação e o join internação × procedimento
+  em `reconcile_sihd`. A chave CDC de procedimento acrescenta `INDX` (sem ele,
+  procedimentos da mesma AIH colapsam). `NUM_AIH` só compõe o `SIHD_KEY`.
+- **Delta SIHD com `_op` fora de I/U/D é rejeitado:** `invalid_cdc_op op=...`
+  antes da reconstrução (o FULL base não é checado).
 
 Histórico de fases (T12/T13, P2, P3): `CHANGELOG.md`.
