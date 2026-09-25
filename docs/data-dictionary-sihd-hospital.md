@@ -1,7 +1,7 @@
 # Dicionário de Dados — SIHD2 (AIH)
 
 Banco Firebird local: `C:\Datasus\SIHD2\BDSIHD2.GDB`
-ODS: 10.1 | Dialeto: 1 | Firebird: 1.5 | Charset: WIN1252
+ODS: 10.1 | Dialeto: 1 | Firebird: 1.5 | Charset: NONE (colunas sem charset)
 
 ---
 
@@ -36,6 +36,8 @@ Layout idêntico ao de TB_AIH.
 
 - A chave de acesso NÃO é o número da AIH mas o sequencial `AH_SEQ` criado na importação.
 - `AH_SITUACAO`: 0 = aprovada, 1 = rejeitada.
+- TB_HAIH só recebe a competência no fechamento: com 202608 já exportada, o histórico ia até
+  202607 e 202608 existia apenas em TB_AIH/TB_PA (verificado em 25/09/2026, #295).
 
 ### Estrutura de Campos (TB_AIH / TB_HAIH)
 
@@ -58,7 +60,8 @@ Layout idêntico ao de TB_AIH.
 | AH_DIAG_COMP | CHAR | 4 | NULL | Diagnóstico complementar (CID) | TU_CID |
 | AH_DIAG_OBITO | CHAR | 4 | NULL | Diagnóstico do óbito (CID) | TU_CID |
 | AH_DIAG_PRI | CHAR | 4 | NULL | Diagnóstico principal (CID) | TU_CID |
-| AH_DIAG_SEC a AH_DIAG_SEC_9 | CHAR | 4 | NULL | Diagnóstico secundário (CID) | TU_CID |
+| AH_DIAG_SEC | CHAR | 4 | NULL | Diagnóstico secundário legado; sempre '0000' no SIHD2 real | TU_CID |
+| AH_DIAG_SEC_1 a AH_DIAG_SEC_9 | VARCHAR | 4 | NULL | Diagnósticos secundários (CID); branco = ausente | TU_CID |
 | AH_DIAG_SEC_1_CLASS a AH_DIAG_SEC_9_CLASS | CHAR | 1 | NULL | Classificação do diagnóstico secundário | 0=campo anterior em branco; 1=PREEXISTENTE; 2=ADQUIRIDO |
 | AH_DIARIAS | INTEGER | 4 | NULL | Total geral de diárias | |
 | AH_DIARIAS_UI | INTEGER | 4 | NULL | Diárias de unidade intermediária (UI) | |
@@ -73,7 +76,7 @@ Layout idêntico ao de TB_AIH.
 | AH_FINANCIAMENTO | CHAR | 2 | NULL | Tipo de financiamento | TB_C_D tabela 4 (União/Estado/Município) |
 | AH_GESTOR_DOC | CHAR | 15 | NULL | Documento do gestor | |
 | AH_GESTOR_IDENT | CHAR | 1 | NULL | Tipo documento do gestor | 1=CPF; 2=CNS |
-| AH_IDENT | CHAR | 2 | NULL | Tipo de AIH | 1=normal; 3=continuação; 4=registro civil; 5=longa permanência |
+| AH_IDENT | CHAR | 2 | NOT NULL | Tipo de AIH (zero à esquerda; só '01' observado) | 01=normal; 03=continuação; 04=registro civil; 05=longa permanência |
 | AH_IN_GER_INF | CHAR | 1 | NULL | Flag AIH gerenciada | Gestor pode bloquear/liberar |
 | AH_IVD_SH | NUMERIC | 4,2 | NULL | Índice valorização serviços hospitalares | |
 | AH_IVD_SP | NUMERIC | 4,2 | NULL | Índice valorização serviços prestados (desuso) | |
@@ -111,7 +114,7 @@ Layout idêntico ao de TB_AIH.
 | AH_PACIENTE_LOGR_MUNICIPIO | CHAR | 6 | NULL | Código IBGE município do paciente | TB_MUN |
 | AH_PACIENTE_LOGR_NUMERO | VARCHAR | 7 | NULL | Número do endereço | |
 | AH_PACIENTE_LOGR_UF | CHAR | 2 | NULL | UF do paciente | |
-| AH_PACIENTE_MUN_ORIGEM | CHAR | 6 | NULL | Código IBGE município de origem | TB_MUN |
+| AH_PACIENTE_MUN_ORIGEM | CHAR | 6 | NULL | Não preenchido pelo SIHD2 (sempre NULL); usar AH_PACIENTE_LOGR_MUNICIPIO | TB_MUN |
 | AH_PACIENTE_NACIONALIDADE | CHAR | 2 | NULL | Nacionalidade do paciente | TB_C_D tabela 29 |
 | AH_PACIENTE_NOME | VARCHAR | 70 | NULL | Nome do paciente | |
 | AH_PACIENTE_NOME_MAE | VARCHAR | 70 | NULL | Nome da mãe | |
@@ -211,7 +214,7 @@ GROUP BY ah_seq, ah_num_aih
 | PA_NUM_AIH | CHAR | 13 | NULL | Número da AIH | |
 | PA_OE_GESTOR | CHAR | 10 | NOT NULL | Código órgão emissor do gestor | |
 | PA_OE_REGIONAL | CHAR | 10 | NULL | Código órgão emissor regional | |
-| PA_PF_CBO | CHAR | 6 | NULL | CBO do profissional | |
+| PA_PF_CBO | CHAR | 6 | NULL | CBO do profissional; '000000' = sem profissional (83% das linhas) | |
 | PA_PF_DOC | CHAR | 15 | NULL | Documento pessoa física | |
 | PA_PF_EQUIPE | CHAR | - | NULL | Papel do profissional na equipe | |
 | PA_PF_IDENT | CHAR | 1 | NULL | Tipo identificação pessoa física | 1=CPF; 2=CNS |
@@ -223,7 +226,7 @@ GROUP BY ah_seq, ah_num_aih
 | PA_SEQ_PRINC | INTEGER | 4 | NOT NULL | Sequencial da AIH principal | |
 | PA_SUBGRUPO | CHAR | 2 | NULL | Subgrupo do procedimento | TB_C_D tabela 2 |
 | PA_TIPO_FAEC | CHAR | 5 | NULL | Tipo de FAEC | TB_C_D tabela 13 |
-| PA_VALOR | DOUBLE PRECISION | 8 | NULL | Valor da parcela (R$) | |
+| PA_VALOR | DOUBLE PRECISION | 8 | NULL | Valor da parcela (R$); NUMERIC(15,2) em dialeto 1 (escala -2) | |
 
 ---
 
@@ -272,14 +275,17 @@ Tabela unificada de procedimentos do SUS.
 | Firebird | 1.5 (32-bit) |
 | ODS | 10.1 |
 | Dialeto SQL | 1 |
-| Charset | WIN1252 |
+| Charset | NONE (Edge conecta com `charset=WIN1252`) |
 | Servidor | localhost:3050 |
 | Binários | C:\Program Files (x86)\Firebird\Firebird_1_5\bin |
 
 ### Problema Conhecido: Conflito de Role SYSDBA
 
-O banco possui um SQL ROLE chamado "SYSDBA" que impede login do usuário SYSDBA.
-Usuários alternativos (FCES, SIHD_READ) não possuem permissão em tabelas de sistema.
+O banco possui um SQL ROLE chamado "SYSDBA" (dono `UNKNOWN`) que impede login do usuário
+SYSDBA: `login SYSDBA is same as one of the SQL role name`. No piloto (25/09/2026, #295) o
+`security.fdb` só tinha SYSDBA e o login falhou via TCP (`isql`, com ou sem `-role`) e via
+`gbak` local na sessão do console. O `dump_agent_go` conecta via TCP, portanto não autentica
+neste banco sem ajuste; não se sabe como o SIHD2.exe autentica.
 As tabelas de dados (TB_AIH, etc.) são criadas pelo aplicativo SIHD2.exe na primeira importação de AIHs.
 
 ### Queries Úteis para o Adapter

@@ -122,6 +122,10 @@ colisão (lease-based).
 - **SIHD PII sai no normalize:** `_canonicalize` projeta só as colunas da
   allow-list (`*_SOURCE_SCHEMA` em `sources/sihd/contract.py`); o
   `PII_DENY_LIST` é rechecado em `materialize_sihd` (`pii_field_in_serving`).
+- **Colunas SIHD homônimas enganam (#295):** no SIHD2 real `AH_DIAG_SEC` é legado
+  (`'0000'`) e `AH_PACIENTE_MUN_ORIGEM` é sempre NULL; `DIAG_SEC` vem de
+  `AH_DIAG_SEC_1` e `PACIENTE_MUN_ORIGEM` de `AH_PACIENTE_LOGR_MUNICIPIO`. `AH_IDENT`
+  tem zero à esquerda (`'01'`). Ver `docs/data-dictionary-sihd-hospital.md`.
 - **Identidade da AIH é `(COMPETENCIA, OE_GESTOR, SEQ = SEQ_PRINC)`, não
   `NUM_AIH`:** é a chave CDC da internação e o join internação × procedimento
   em `reconcile_sihd`. A chave CDC de procedimento acrescenta `INDX` (sem ele,
