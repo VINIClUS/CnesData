@@ -108,6 +108,17 @@ check / self-update no agente ainda não existe (roadmap `Next`).
   `S_CDN`). Campo ausente → `sia_field_missing`; `S_PRD`/`S_BPI` só têm linhas
   entre importação e fechamento. Golden do contrato:
   `go test ./internal/writer -update-sia-golden`. Ver `docs/data-dictionary-sia.md`.
+- **Raw manifests (`/api/v1/edge/*`):** matriz `(source_type, file_subtype)` única em
+  `internal/manifest/raw_pairs.go` — CNES_LOCAL/CNES_VINCULO, SIHD/{SIHD_INTERNACAO,
+  SIHD_PROC_AIH}, BPA_MAG/{BPA_C, BPA_I}, SIA_LOCAL/{SIA_APA, SIA_BPI, SIA_BPIHST,
+  DIM_SIGTAP, DIM_MUNICIPIO}. `JobExecutor.RunRawSource` exige 1 job por subtipo da
+  fonte (senão `raw_source_set=incomplete`). Fora do CNES é **FULL-only**
+  (`raw_snapshot_mode=unsupported`), extraído por `RawPayload`
+  (`NewRawPayloadExtractor`): SIHD = `TB_HAIH`/`TB_HPA` cru `AH_*`/`PA_*` em Parquet
+  puro; BPA/SIA = mesmos bytes gzip do legado. Slot vazio e `S_BPIHST.DBF` ausente →
+  Parquet zero-row; demais DBFs ausentes falham. Chave delta store: CNES mantém
+  `cnes/profissionais`, demais `lower(source)/lower(subtype)`. `cmd/` ainda não liga o
+  caminho raw (nem CNES); legado `/api/v1/jobs` coexiste até MIG-012.
 - **Audit trail HMAC-JSONL:** `%PROGRAMDATA%\dumpagent\audit\events-*.jsonl`,
   lifecycle extracted→uploaded→committed/aborted. Verificar com
   `dumpagent audit verify <path>`.

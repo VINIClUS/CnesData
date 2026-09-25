@@ -211,3 +211,28 @@ func TestSIA_Cp1252Sanitize(t *testing.T) {
 	require.NotEmpty(t, got)
 	require.Positive(t, dirty)
 }
+
+func TestSIA_BPIHSTAusenteViraSlotZeroRowSemAfrouxarOsDemais(t *testing.T) {
+	tmp := t.TempDir()
+
+	result, err := ExtractSIA(tmp, "202601", []string{"SIA_BPIHST"})
+	require.NoError(t, err)
+	require.NotNil(t, result.BPIHST)
+	require.Empty(t, result.BPIHST)
+
+	for subtype, file := range map[string]string{
+		"SIA_APA": "S_APA.DBF", "SIA_BPI": "S_BPI.DBF",
+		"DIM_SIGTAP": "S_PA.DBF", "DIM_MUNICIPIO": "CADMUN.DBF",
+	} {
+		_, err = ExtractSIA(tmp, "202601", []string{subtype})
+		require.ErrorContains(t, err, "sia_file_missing file="+file)
+	}
+}
+
+func TestSIA_BPIHSTPresenteComLayoutErradoContinuaFalhando(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestDBF(t, filepath.Join(tmp, "S_BPIHST.DBF"), []string{"BPI_CMP"}, nil)
+
+	_, err := ExtractSIA(tmp, "202601", []string{"SIA_BPIHST"})
+	require.ErrorContains(t, err, "sia_field_missing file=S_BPIHST.DBF")
+}

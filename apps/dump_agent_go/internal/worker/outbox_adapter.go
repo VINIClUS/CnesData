@@ -35,6 +35,7 @@ type rawCycle struct {
 	indexed   map[string]delta.Row
 	spoolName string
 	uploadURL string
+	payload   *RawPayload
 }
 
 const rawTerminalPollInterval = 10 * time.Millisecond
@@ -84,6 +85,9 @@ func (e *JobExecutor) prepareRaw(ctx context.Context, job *Job) (rawCycle, error
 	if err := ctx.Err(); err != nil {
 		return cycle, err
 	}
+	if cycle.request.SourceType != manifest.SourceTypeCNESLocal {
+		return e.prepareRawPayload(ctx, job, cycle)
+	}
 	cycle.rows, err = e.RawExtract(ctx, *job)
 	if err != nil {
 		return cycle, err
@@ -120,7 +124,7 @@ func (e *JobExecutor) rawRequest(job *Job) (rawCycle, error) {
 	if err := e.validateRawRequest(job); err != nil {
 		return cycle, err
 	}
-	cycle.ref = delta.PendingRef{SourceKey: deltaKeyFromParams(job.Params),
+	cycle.ref = delta.PendingRef{SourceKey: rawSourceKey(job),
 		JobID: job.ID, FencingToken: job.FencingToken}
 	cycle.request = *job.RawRequest
 	cycle.request.JobID, cycle.request.TenantID = job.ID, job.TenantID
@@ -148,7 +152,7 @@ func (e *JobExecutor) rawRequest(job *Job) (rawCycle, error) {
 
 func (e *JobExecutor) validateRawRequest(job *Job) error {
 	if job == nil || job.RawRequest == nil || e.DeltaStore == nil || e.RawOutbox == nil ||
-		e.RawUploader == nil || e.RawExtract == nil || job.FencingToken == 0 {
+		e.RawUploader == nil || !e.rawExtractorConfigured(job) || job.FencingToken == 0 {
 		return errors.New("raw_executor=unconfigured")
 	}
 	return validateRawIdentity(job)
@@ -158,25 +162,9 @@ func validateRawIdentity(job *Job) error {
 	if job.RawRequest.CreatedAt.IsZero() {
 		return errors.New("raw_request=identity_invalid")
 	}
-	return validateRawScope(deltaKeyFromParams(job.Params), manifest.Raw{
+	return validateRawScope(rawSourceKey(job), manifest.Raw{
 		SourceType: job.RawRequest.SourceType, FileSubtype: job.RawRequest.FileSubtype,
-		Competencia: job.RawRequest.Competencia})
-}
-
-func validateRawScope(key delta.SourceKey, raw manifest.Raw) error {
-	if key.Source != "cnes" || raw.SourceType != manifest.SourceTypeCNESLocal ||
-		key.Intent != "profissionais" || raw.FileSubtype != "CNES_VINCULO" {
-		return errors.New("raw_source=identity_invalid")
-	}
-	layout := "200601"
-	if len(key.Competencia) == 7 {
-		layout = "2006-01"
-	}
-	month, err := time.Parse(layout, key.Competencia)
-	if err != nil || month.Format("2006-01") != raw.Competencia {
-		return errors.New("raw_competencia=identity_invalid")
-	}
-	return nil
+		Competencia: job.RawRequest.Competencia, SnapshotMode: job.RawRequest.SnapshotMode})
 }
 
 func (e *JobExecutor) replayRaw(job *Job) (int64, bool, error) {
@@ -195,7 +183,7 @@ func (e *JobExecutor) replayRaw(job *Job) (int64, bool, error) {
 	if err != nil {
 		return 0, true, err
 	}
-	if err := validateRawScope(deltaKeyFromParams(job.Params), raw); err != nil {
+	if err := validateRawScope(rawSourceKey(job), raw); err != nil {
 		return 0, true, err
 	}
 	if raw.TenantID != job.TenantID {
@@ -331,6 +319,9 @@ func assignRawOccurrences(rows []delta.Row, free []string, indexed map[string]de
 }
 
 func (cycle rawCycle) write(dst io.Writer) error {
+	if cycle.payload != nil {
+		return cycle.payload.Write(dst)
+	}
 	if cycle.request.SnapshotMode == manifest.SnapshotModeFull {
 		return writer.WriteRawFullParquet(dst, cycle.rows)
 	}
