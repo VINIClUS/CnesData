@@ -32,6 +32,16 @@ for environment in ("dev", "prod"):
     assert dynamodb.get_item(
         TableName=values["RAW_DYNAMODB_TABLE"], Key=item_key,
     )["Item"] == item_key
+    transaction_key = {"pk": {"S": "VERIFY#IAM"}, "sk": {"S": "VERIFY#TRANSACTION"}}
+    dynamodb.transact_write_items(TransactItems=[
+        {"ConditionCheck": {
+            "TableName": values["RAW_DYNAMODB_TABLE"],
+            "Key": item_key,
+            "ConditionExpression": "attribute_exists(pk)",
+        }},
+        {"Put": {"TableName": values["RAW_DYNAMODB_TABLE"], "Item": transaction_key}},
+    ])
+    dynamodb.delete_item(TableName=values["RAW_DYNAMODB_TABLE"], Key=transaction_key)
     dynamodb.delete_item(TableName=values["RAW_DYNAMODB_TABLE"], Key=item_key)
     key = "verification/iam-check"
     response = s3.put_object(Bucket=values["RAW_S3_BUCKET"], Key=key, Body=b"raw-check")
