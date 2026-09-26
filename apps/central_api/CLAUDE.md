@@ -87,8 +87,11 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `ADMIN_TOKEN` | opcional | `X-Admin-Token` das rotas admin (`deps.require_admin_token`); vazio = 503 `admin_disabled` |
 | `RAW_LOCAL_TOKEN` | sim (profile local raw) | Token próprio do agente para `/api/v1/edge/*` |
 | `RAW_BACKEND` | sim (VPS raw) | `aws` ativa DynamoDB/S3 raw sem alterar o legado |
-| `RAW_DYNAMODB_TABLE`, `RAW_S3_BUCKET`, `RAW_AWS_REGION` | sim (`RAW_BACKEND=aws`) | Recursos raw do ambiente |
-| `RAW_AWS_ACCESS_KEY_ID`, `RAW_AWS_SECRET_ACCESS_KEY` | sim (`RAW_BACKEND=aws`) | IAM raw distinto por ambiente |
+| `RAW_DYNAMODB_TABLE` | sim (`RAW_BACKEND=aws`) | Tabela raw do ambiente |
+| `RAW_S3_BUCKET` | sim (`RAW_BACKEND=aws`) | Bucket raw do ambiente |
+| `RAW_AWS_REGION` | sim (`RAW_BACKEND=aws`) | Região dos recursos raw |
+| `RAW_AWS_ACCESS_KEY_ID` | sim (`RAW_BACKEND=aws`) | IAM raw do ambiente |
+| `RAW_AWS_SECRET_ACCESS_KEY` | sim (`RAW_BACKEND=aws`) | Segredo IAM raw |
 | `ENABLE_REAPER` | opcional | `true` em 1 réplica para reaper rodar (futuro) |
 | `AUTH_CA_CERT_PATH` | sim (no boot) | Path to PEM root CA cert |
 | `AUTH_CA_KEY_PATH` | sim (no boot) | Path to PEM root CA private key |

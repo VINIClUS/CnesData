@@ -1,6 +1,13 @@
 """Adapters públicos de armazenamento de objetos."""
 
-from cnes_infra.object_store.filesystem import FilesystemObjectStore
+import os
+
+if os.name == "nt":
+    from cnes_infra.object_store.windows_filesystem import (
+        WindowsFilesystemObjectStore as FilesystemObjectStore,
+    )
+else:
+    from cnes_infra.object_store.filesystem import FilesystemObjectStore
 from cnes_infra.object_store.s3 import S3ObjectStore, S3Retention
 
 __all__ = ("FilesystemObjectStore", "S3ObjectStore", "S3Retention")
