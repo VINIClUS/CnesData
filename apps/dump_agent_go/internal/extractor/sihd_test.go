@@ -81,11 +81,28 @@ func TestSihdInternacaoLeTBHAIHDaCompetenciaComColunasCruas(t *testing.T) {
 	require.Equal(t, "3526100012345", rows[0]["AH_NUM_AIH"])
 	require.Equal(t, int64(12), rows[0]["AH_SEQ"])
 	require.Nil(t, rows[0]["AH_CNES"])
-	require.Nil(t, rows[0]["AH_PACIENTE_MUN_ORIGEM"])
+	require.Nil(t, rows[0]["AH_PACIENTE_LOGR_MUNICIPIO"])
 	require.Len(t, rows[0], 17)
 	require.Contains(t, captured.queries[0], "FROM TB_HAIH")
 	require.Contains(t, captured.queries[0], "WHERE AH_CMPT = ?")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSihdInternacaoLeDiagnosticoSecundarioEMunicipioDasColunasPreenchidas(t *testing.T) {
+	db, mock, captured := newSihdRawMock(t)
+	mock.ExpectQuery("").WillReturnRows(sqlmock.NewRows(sihdRawNames("SIHD_INTERNACAO")))
+
+	_, err := extractor.ExtractSihdRaw(context.Background(), db, "202607", "SIHD_INTERNACAO")
+
+	require.NoError(t, err)
+	names := sihdRawNames("SIHD_INTERNACAO")
+	require.Contains(t, names, "AH_DIAG_SEC_1")
+	require.Contains(t, names, "AH_PACIENTE_LOGR_MUNICIPIO")
+	require.NotContains(t, names, "AH_DIAG_SEC")
+	require.NotContains(t, names, "AH_PACIENTE_MUN_ORIGEM")
+	require.Contains(t, captured.queries[0], "AH_DIAG_SEC_1,")
+	require.NotContains(t, captured.queries[0], "AH_DIAG_SEC,")
+	require.NotContains(t, captured.queries[0], "AH_PACIENTE_MUN_ORIGEM")
 }
 
 func TestSihdProcAIHConverteValorDuploEmTextoDecimal(t *testing.T) {

@@ -71,11 +71,12 @@ type SihdQueryer interface {
 
 // Só tabelas históricas (pós-fechamento) e só colunas mapeadas pelo data_processor;
 // nome, CNS e nascimento do paciente e documentos de profissionais nunca saem do Edge.
+// No SIHD2 real AH_DIAG_SEC é legado ('0000') e AH_PACIENTE_MUN_ORIGEM fica NULL (#295).
 const sqlSihdInternacao = `
 	SELECT AH_NUM_AIH, AH_OE_GESTOR, AH_SEQ, AH_CNES, AH_CMPT,
-	       AH_PROC_SOLICITADO, AH_PROC_REALIZADO, AH_DIAG_PRI, AH_DIAG_SEC,
+	       AH_PROC_SOLICITADO, AH_PROC_REALIZADO, AH_DIAG_PRI, AH_DIAG_SEC_1,
 	       AH_DT_INTERNACAO, AH_DT_SAIDA, AH_CAR_INTERNACAO, AH_SITUACAO, AH_IDENT,
-	       AH_MODALIDADE_INTERNACAO, AH_PACIENTE_SEXO, AH_PACIENTE_MUN_ORIGEM
+	       AH_MODALIDADE_INTERNACAO, AH_PACIENTE_SEXO, AH_PACIENTE_LOGR_MUNICIPIO
 	FROM TB_HAIH
 	WHERE AH_CMPT = ?
 	ORDER BY AH_OE_GESTOR, AH_SEQ
@@ -98,11 +99,11 @@ var sihdRawColumns = map[string][]SihdColumn{
 	"SIHD_INTERNACAO": {
 		{"AH_NUM_AIH", SihdText}, {"AH_OE_GESTOR", SihdText}, {"AH_SEQ", SihdInteger},
 		{"AH_CNES", SihdText}, {"AH_CMPT", SihdText}, {"AH_PROC_SOLICITADO", SihdText},
-		{"AH_PROC_REALIZADO", SihdText}, {"AH_DIAG_PRI", SihdText}, {"AH_DIAG_SEC", SihdText},
+		{"AH_PROC_REALIZADO", SihdText}, {"AH_DIAG_PRI", SihdText}, {"AH_DIAG_SEC_1", SihdText},
 		{"AH_DT_INTERNACAO", SihdText}, {"AH_DT_SAIDA", SihdText},
 		{"AH_CAR_INTERNACAO", SihdText}, {"AH_SITUACAO", SihdText}, {"AH_IDENT", SihdText},
 		{"AH_MODALIDADE_INTERNACAO", SihdText}, {"AH_PACIENTE_SEXO", SihdText},
-		{"AH_PACIENTE_MUN_ORIGEM", SihdText},
+		{"AH_PACIENTE_LOGR_MUNICIPIO", SihdText},
 	},
 	"SIHD_PROC_AIH": {
 		{"PA_NUM_AIH", SihdText}, {"PA_OE_GESTOR", SihdText}, {"PA_SEQ_PRINC", SihdInteger},
