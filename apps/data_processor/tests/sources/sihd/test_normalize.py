@@ -270,3 +270,21 @@ def test_rejeita_delta_sem_coluna_de_operacao() -> None:
     delta = put_raw(store, _delta_spec(full), pl.DataFrame(rows[:1]))
     with pytest.raises(ValueError, match="invalid_cdc_op op=missing"):
         normalize_sihd(normalize_request((full, delta), "SIHD_INTERNACAO"), store)
+
+
+def test_internacao_le_colunas_reais_do_sihd2_e_ignora_diag_sec_legado() -> None:
+    store = FakeObjectStore()
+    rows = raw_rows("SIHD_INTERNACAO")
+    for row in rows:
+        row.pop("AH_PACIENTE_MUN_ORIGEM", None)
+        row.update(AH_DIAG_SEC="0000", AH_DIAG_SEC_1="", AH_PACIENTE_LOGR_MUNICIPIO="354130")
+        row.update(AH_IDENT="01")
+    rows[0].update(AH_DIAG_SEC_1="E11", AH_PACIENTE_LOGR_MUNICIPIO="354100")
+    manifest = put_raw(store, raw_spec("SIHD_INTERNACAO"), pl.DataFrame(rows))
+    result = normalize_sihd(normalize_request((manifest,), "SIHD_INTERNACAO"), store)
+    data, quality = (read_parquet(store, item.object_key) for item in result.manifests)
+    first = data.filter(pl.col("NUM_AIH") == rows[0]["AH_NUM_AIH"]).row(0, named=True)
+    assert (first["DIAG_SEC"], first["PACIENTE_MUN_ORIGEM"]) == ("E11", "354100")
+    assert data["DIAG_SEC"].null_count() == len(rows) - 1
+    assert data["PACIENTE_MUN_ORIGEM"].null_count() == 0
+    assert quality.filter(pl.col("field") == "IDENT").is_empty()

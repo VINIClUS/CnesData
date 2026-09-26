@@ -143,6 +143,9 @@ class ControlPlane:
     def get_agent(self, tenant_id: str, agent_id: str) -> Agent | None:
         return self.agent
 
+    def register_edge_agent(self, tenant_id, agent_id, fingerprint, now):
+        return self.agent
+
     def get_job(self, tenant_id: str, job_id: str) -> Job | None:
         return self.job if (tenant_id, job_id) == (self.job.tenant_id, self.job.job_id) else None
 

@@ -166,3 +166,4 @@ CODEX.md
 bainstorming_edge_agent.md
 # AIStor license (credential, never commit)
 minio.license
+.terraform/

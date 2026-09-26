@@ -19,7 +19,7 @@ from central_api.schemas.raw_api import EdgeIdentity
 from central_api.services.raw_upload import RawUploadService
 from cnes_domain.control_plane.entities import Agent, Job
 from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.errors import FenceRejected, LeaseLost, NotFound
+from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_domain.ports.object_store import ObjectStat
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
@@ -75,6 +75,18 @@ class ControlPlane:
 
     def get_agent(self, tenant_id: str, agent_id: str) -> Agent | None:
         self.calls.append("get_agent")
+        return self.agent
+
+    def register_edge_agent(self, tenant_id, agent_id, fingerprint, now):
+        self.calls.append("register_agent")
+        if self.agent is None:
+            self.agent = agent(certificate_fingerprint=fingerprint)
+        if self.agent.state is AgentState.REVOKED:
+            raise Conflict("agent_revoked")
+        if (self.agent.tenant_id, self.agent.agent_id) == (tenant_id, agent_id):
+            self.agent = self.agent.model_copy(update={
+                "certificate_fingerprint": fingerprint,
+            })
         return self.agent
 
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int):
@@ -177,10 +189,8 @@ def test_provider_nao_configurado_falha_fechado(provider) -> None:
 @pytest.mark.parametrize(
     ("current", "status", "detail"),
     [
-        (None, 403, "agent_missing"),
         (agent(state=AgentState.REVOKED), 403, "agent_revoked"),
         (agent(tenant_id="other"), 403, "agent_identity_mismatch"),
-        (agent(certificate_fingerprint="b" * 64), 403, "certificate_fingerprint_mismatch"),
     ],
 )
 def test_identidade_invalida_rejeita_claim(current, status: int, detail: str) -> None:
@@ -202,11 +212,13 @@ def test_claim_isola_tenant_e_agente_e_retorna_job_fortemente_reclamado(monkeypa
     assert response.status_code == 200
     assert response.json() == {
         "job_id": "job-1",
+        "agent_id": "agent-1",
         "source_type": "CNES_LOCAL",
         "file_subtype": "CNES_VINCULO",
         "competencia": "2026-07",
         "requested_snapshot_mode": "FULL",
         "fencing_token": 1,
+        "attempt": 1,
         "lease_until": "2026-07-15T12:05:00Z",
         "raw_upload_path": "/api/v1/edge/jobs/job-1/raw-object",
     }
@@ -369,7 +381,7 @@ def test_raw_upload_body_rejeita_fencing_token_invalido(token: str) -> None:
     assert captured.value.detail[0]["loc"] == ["header", "X-Fencing-Token"]
 
 
-def test_fingerprint_divergente_rejeita_antes_do_objeto() -> None:
+def test_fingerprint_rotacionado_atualiza_agente_antes_do_objeto() -> None:
     control = ControlPlane(agent(certificate_fingerprint="b" * 64), (job(),))
     store = ObjectStore()
     upload = RawUploadService(control, store, lambda: NOW)
@@ -384,7 +396,8 @@ def test_fingerprint_divergente_rejeita_antes_do_objeto() -> None:
         },
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 409
+    assert control.agent.certificate_fingerprint == FINGERPRINT
     assert store.calls == []
 
 

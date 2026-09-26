@@ -284,3 +284,50 @@ func TestWriteDeltaParquet_StringifiesNonStringValues(t *testing.T) {
 	require.Nil(t, rows[0]["NOME_FANTA"])
 	require.Equal(t, "I", rows[0]["_op"])
 }
+
+var tableColumns = []writer.RawColumn{
+	{Name: "PA_NUM_AIH", Kind: writer.RawText}, {Name: "PA_INDX", Kind: writer.RawInt64},
+	{Name: "PA_VALOR", Kind: writer.RawText},
+}
+
+func TestTabelaRawUsaSchemaDoSubtipoNaOrdemDeclarada(t *testing.T) {
+	var buf bytes.Buffer
+	rows := []delta.Row{
+		{"PA_NUM_AIH": "2", "PA_INDX": int64(1), "PA_VALOR": "10.5"},
+		{"PA_NUM_AIH": "1", "PA_INDX": int64(2), "PA_VALOR": nil},
+	}
+	require.NoError(t, writer.WriteRawTableParquet(&buf, tableColumns, rows))
+
+	file, err := pq.OpenFile(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	require.NoError(t, err)
+	var names []string
+	for _, column := range file.Schema().Columns() {
+		names = append(names, column[0])
+	}
+	require.Equal(t, []string{"PA_NUM_AIH", "PA_INDX", "PA_VALOR"}, names)
+	require.Equal(t, int64(2), file.NumRows())
+	got := make([]pq.Row, 2)
+	n, _ := file.RowGroups()[0].Rows().ReadRows(got)
+	require.Equal(t, 2, n)
+	require.Equal(t, "1", got[0][0].String())
+	require.Equal(t, int64(1), got[1][1].Int64())
+	require.Equal(t, "2", rows[0]["PA_NUM_AIH"])
+}
+
+func TestTabelaRawVaziaProduzParquetComSchema(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, writer.WriteRawTableParquet(&buf, tableColumns, nil))
+	file, err := pq.OpenFile(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	require.NoError(t, err)
+	require.Zero(t, file.NumRows())
+	require.Len(t, file.Schema().Columns(), 3)
+}
+
+func TestTabelaRawRejeitaTipoIncompativelESchemaVazio(t *testing.T) {
+	var buf bytes.Buffer
+	err := writer.WriteRawTableParquet(&buf, tableColumns,
+		[]delta.Row{{"PA_INDX": "1"}})
+	require.EqualError(t, err, "raw_column_type_invalid=PA_INDX")
+	require.EqualError(t, writer.WriteRawTableParquet(&buf, nil, nil), "raw_columns=empty")
+	require.Zero(t, buf.Len())
+}

@@ -19,6 +19,7 @@ from cnes_domain.control_plane.commands import (
 from cnes_domain.control_plane.entities import AccessRequest, RunDependency
 from cnes_domain.control_plane.enums import (
     AccessRequestState,
+    AgentState,
     DispatchOutcome,
     DispatchState,
     RunState,
@@ -187,6 +188,17 @@ def dynamodb_adapter() -> Iterator[tuple[DynamoDBControlPlane, MutableClock]]:
         _create_table(client)
         clock = MutableClock(_NOW)
         yield DynamoDBControlPlane(client, _TABLE_NAME, clock.now), clock
+
+
+def test_registro_edge_dynamo_nao_reativa_revogado(dynamodb_adapter) -> None:
+    adapter, clock = dynamodb_adapter
+    first = adapter.register_edge_agent("354130", "agent-1", "a" * 64, clock.now())
+    rotated = adapter.register_edge_agent("354130", "agent-1", "b" * 64, clock.now())
+    assert first.certificate_fingerprint == "a" * 64
+    assert rotated.certificate_fingerprint == "b" * 64
+    adapter.put_agent(rotated.model_copy(update={"state": AgentState.REVOKED}))
+    with pytest.raises(Conflict):
+        adapter.register_edge_agent("354130", "agent-1", "c" * 64, clock.now())
 
 
 @pytest.mark.parametrize("case", control_plane_cases(), ids=lambda case: case.name)

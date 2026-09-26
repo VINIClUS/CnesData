@@ -6,3 +6,4 @@ package worker
 
 var SerializeBPA = serializeBPA
 var SerializeSIA = serializeSIA
+var ValidateRawScope = validateRawScope

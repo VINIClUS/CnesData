@@ -4,3 +4,4 @@
 
 DS-0002  # apps/web_dashboard/Dockerfile nginx runs as root; non-root nginx needs port >1024 rearchitecture, tracked as follow-up, review 2026-12-17
 KSV-0014  # charts/web-dashboard readOnlyRootFilesystem needs emptyDir mounts for nginx cache/pid, tracked as follow-up, review 2026-12-17
+AWS-0132  # raw dev/prod buckets use SSE-S3 AES256; KMS would require permissions beyond the raw IAM scope in #294, review 2026-09-26

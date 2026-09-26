@@ -108,18 +108,60 @@ func (e LeadCreateInterest) Valid() bool {
 	}
 }
 
+// Defines values for RawEnqueueRequestCnesSnapshotMode.
+const (
+	RawEnqueueRequestCnesSnapshotModeDELTA RawEnqueueRequestCnesSnapshotMode = "DELTA"
+	RawEnqueueRequestCnesSnapshotModeFULL  RawEnqueueRequestCnesSnapshotMode = "FULL"
+)
+
+// Valid indicates whether the value is a known member of the RawEnqueueRequestCnesSnapshotMode enum.
+func (e RawEnqueueRequestCnesSnapshotMode) Valid() bool {
+	switch e {
+	case RawEnqueueRequestCnesSnapshotModeDELTA:
+		return true
+	case RawEnqueueRequestCnesSnapshotModeFULL:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RawSource.
+const (
+	RawSourceBPAMAG    RawSource = "BPA_MAG"
+	RawSourceCNESLOCAL RawSource = "CNES_LOCAL"
+	RawSourceSIALOCAL  RawSource = "SIA_LOCAL"
+	RawSourceSIHD      RawSource = "SIHD"
+)
+
+// Valid indicates whether the value is a known member of the RawSource enum.
+func (e RawSource) Valid() bool {
+	switch e {
+	case RawSourceBPAMAG:
+		return true
+	case RawSourceCNESLOCAL:
+		return true
+	case RawSourceSIALOCAL:
+		return true
+	case RawSourceSIHD:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SnapshotMode.
 const (
-	DELTA SnapshotMode = "DELTA"
-	FULL  SnapshotMode = "FULL"
+	SnapshotModeDELTA SnapshotMode = "DELTA"
+	SnapshotModeFULL  SnapshotMode = "FULL"
 )
 
 // Valid indicates whether the value is a known member of the SnapshotMode enum.
 func (e SnapshotMode) Valid() bool {
 	switch e {
-	case DELTA:
+	case SnapshotModeDELTA:
 		return true
-	case FULL:
+	case SnapshotModeFULL:
 		return true
 	default:
 		return false
@@ -314,6 +356,8 @@ type DeviceAuthorizationResponse struct {
 
 // EdgeJobResponse Job adquirido pelo Edge Agent.
 type EdgeJobResponse struct {
+	AgentId               string    `json:"agent_id"`
+	Attempt               int       `json:"attempt"`
 	Competencia           string    `json:"competencia"`
 	FencingToken          int       `json:"fencing_token"`
 	FileSubtype           string    `json:"file_subtype"`
@@ -467,6 +511,23 @@ type ProvisionCertRequest struct {
 	MachineFingerprint string `json:"machine_fingerprint"`
 }
 
+// RawEnqueueRequest defines model for RawEnqueueRequest.
+type RawEnqueueRequest struct {
+	AgentId          string                             `json:"agent_id"`
+	CnesSnapshotMode *RawEnqueueRequestCnesSnapshotMode `json:"cnes_snapshot_mode,omitempty"`
+	Competencia      string                             `json:"competencia"`
+	Sources          *[]RawSource                       `json:"sources,omitempty"`
+	TenantId         string                             `json:"tenant_id"`
+}
+
+// RawEnqueueRequestCnesSnapshotMode defines model for RawEnqueueRequest.CnesSnapshotMode.
+type RawEnqueueRequestCnesSnapshotMode string
+
+// RawEnqueueResponse defines model for RawEnqueueResponse.
+type RawEnqueueResponse struct {
+	JobIds []string `json:"job_ids"`
+}
+
 // RawManifest defines model for RawManifest.
 type RawManifest struct {
 	AgentId                string       `json:"agent_id"`
@@ -505,6 +566,9 @@ type RawManifestSubmission struct {
 	JobId        string      `json:"job_id"`
 	Manifest     RawManifest `json:"manifest"`
 }
+
+// RawSource defines model for RawSource.
+type RawSource string
 
 // RawUploadResponse Recibo do objeto raw persistido.
 type RawUploadResponse struct {
@@ -627,6 +691,12 @@ type CentralApiRoutesDashboardAgentStatusResponse struct {
 	Sources   []SourceStatusOut `json:"sources"`
 }
 
+// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams defines parameters for EnqueueRawJobsApiV1AdminRawJobsEnqueuePost.
+type EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams struct {
+	IdempotencyKey string  `json:"Idempotency-Key"`
+	XAdminToken    *string `json:"x-admin-token,omitempty"`
+}
+
 // ReapLeasesApiV1AdminReapLeasesPostParams defines parameters for ReapLeasesApiV1AdminReapLeasesPost.
 type ReapLeasesApiV1AdminReapLeasesPostParams struct {
 	XAdminToken *string `json:"x-admin-token,omitempty"`
@@ -687,6 +757,9 @@ type FailJobApiV1JobsJobIdFailPostJSONBody map[string]interface{}
 
 // ActivateConfirmActivateConfirmPostJSONRequestBody defines body for ActivateConfirmActivateConfirmPost for application/json ContentType.
 type ActivateConfirmActivateConfirmPostJSONRequestBody = ActivateConfirmRequest
+
+// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody defines body for EnqueueRawJobsApiV1AdminRawJobsEnqueuePost for application/json ContentType.
+type EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody = RawEnqueueRequest
 
 // LoginApiV1AuthLocalLoginPostJSONRequestBody defines body for LoginApiV1AuthLocalLoginPost for application/json ContentType.
 type LoginApiV1AuthLocalLoginPostJSONRequestBody = LoginRequest
@@ -1001,6 +1074,20 @@ type ClientInterface interface {
 	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
 	ActivateConfirmActivateConfirmPost(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBody Enqueue Raw Jobs
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/admin/raw-jobs/enqueue (the `EnqueueRawJobsApiV1AdminRawJobsEnqueuePost` operationId).
+	EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBody(ctx context.Context, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EnqueueRawJobsApiV1AdminRawJobsEnqueuePost Enqueue Raw Jobs
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/admin/raw-jobs/enqueue (the `EnqueueRawJobsApiV1AdminRawJobsEnqueuePost` operationId).
+	EnqueueRawJobsApiV1AdminRawJobsEnqueuePost(ctx context.Context, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, body EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ReapLeasesApiV1AdminReapLeasesPost Reap Leases
 	//
 	// Corresponds with POST /api/v1/admin/reap-leases (the `ReapLeasesApiV1AdminReapLeasesPost` operationId).
@@ -1311,6 +1398,40 @@ func (c *Client) ActivateConfirmActivateConfirmPostWithBody(ctx context.Context,
 // Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
 func (c *Client) ActivateConfirmActivateConfirmPost(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewActivateConfirmActivateConfirmPostRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBody Enqueue Raw Jobs
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/admin/raw-jobs/enqueue (the `EnqueueRawJobsApiV1AdminRawJobsEnqueuePost` operationId).
+func (c *Client) EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBody(ctx context.Context, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EnqueueRawJobsApiV1AdminRawJobsEnqueuePost Enqueue Raw Jobs
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/admin/raw-jobs/enqueue (the `EnqueueRawJobsApiV1AdminRawJobsEnqueuePost` operationId).
+func (c *Client) EnqueueRawJobsApiV1AdminRawJobsEnqueuePost(ctx context.Context, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, body EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2072,6 +2193,70 @@ func NewActivateConfirmActivateConfirmPostRequestWithBody(server string, content
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequest calls the generic EnqueueRawJobsApiV1AdminRawJobsEnqueuePost builder with application/json body
+func NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequest(server string, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, body EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequestWithBody constructs an http.Request for the EnqueueRawJobsApiV1AdminRawJobsEnqueuePost method, with any body, and a specified content type
+func NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequestWithBody(server string, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/admin/raw-jobs/enqueue")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+		if params.XAdminToken != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "x-admin-token", *params.XAdminToken, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("x-admin-token", headerParam1)
+		}
+
+	}
 
 	return req, nil
 }
@@ -3361,6 +3546,20 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
 	ActivateConfirmActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error)
 
+	// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBodyWithResponse Enqueue Raw Jobs
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/admin/raw-jobs/enqueue (the `EnqueueRawJobsApiV1AdminRawJobsEnqueuePost` operationId).
+	EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBodyWithResponse(ctx context.Context, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse, error)
+
+	// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithResponse Enqueue Raw Jobs
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/admin/raw-jobs/enqueue (the `EnqueueRawJobsApiV1AdminRawJobsEnqueuePost` operationId).
+	EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithResponse(ctx context.Context, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, body EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody, reqEditors ...RequestEditorFn) (*EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse, error)
+
 	// ReapLeasesApiV1AdminReapLeasesPostWithResponse Reap Leases
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -3723,6 +3922,54 @@ func (r ActivateConfirmActivateConfirmPostResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ActivateConfirmActivateConfirmPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *RawEnqueueResponse
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse) GetJSON201() *RawEnqueueResponse {
+	return r.JSON201
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5132,6 +5379,32 @@ func (c *ClientWithResponses) ActivateConfirmActivateConfirmPostWithResponse(ctx
 	return ParseActivateConfirmActivateConfirmPostResponse(rsp)
 }
 
+// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBodyWithResponse Enqueue Raw Jobs
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/admin/raw-jobs/enqueue (the `EnqueueRawJobsApiV1AdminRawJobsEnqueuePost` operationId).
+func (c *ClientWithResponses) EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBodyWithResponse(ctx context.Context, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse, error) {
+	rsp, err := c.EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse(rsp)
+}
+
+// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithResponse Enqueue Raw Jobs
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/admin/raw-jobs/enqueue (the `EnqueueRawJobsApiV1AdminRawJobsEnqueuePost` operationId).
+func (c *ClientWithResponses) EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithResponse(ctx context.Context, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, body EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody, reqEditors ...RequestEditorFn) (*EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse, error) {
+	rsp, err := c.EnqueueRawJobsApiV1AdminRawJobsEnqueuePost(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse(rsp)
+}
+
 // ReapLeasesApiV1AdminReapLeasesPostWithResponse Reap Leases
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5729,6 +6002,39 @@ func ParseActivateConfirmActivateConfirmPostResponse(rsp *http.Response) (*Activ
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse parses an HTTP response from a EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithResponse call
+func ParseEnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse(rsp *http.Response) (*EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest RawEnqueueResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
 		var dest HTTPValidationError

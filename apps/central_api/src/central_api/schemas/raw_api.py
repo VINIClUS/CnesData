@@ -26,11 +26,13 @@ class EdgeJobResponse(_FrozenSchema):
     """Job adquirido pelo Edge Agent."""
 
     job_id: str
+    agent_id: str
     source_type: str
     file_subtype: str
     competencia: str
     requested_snapshot_mode: str
     fencing_token: int
+    attempt: int
     lease_until: AwareDatetime
     raw_upload_path: str
 
