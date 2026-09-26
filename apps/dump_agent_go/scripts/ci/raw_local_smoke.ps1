@@ -75,11 +75,15 @@ try {
         for ($i = 0; $i -lt 180; $i++) {
             $count = & $python $statusScript $stateDb
             if ($count -eq "10") { $complete = $true; break }
+            if ($runningAgent.HasExited) { break }
             Start-Sleep -Seconds 1
         }
         if (-not $complete) {
+            Write-Host "raw_smoke_status succeeded=$count agent_exited=$($runningAgent.HasExited)"
             Get-Content "C:\tmp\raw-agent.err" -Tail 100 -ErrorAction SilentlyContinue
             Get-Content "C:\tmp\raw-agent.out" -Tail 100 -ErrorAction SilentlyContinue
+            $logFile = Join-Path $env:DUMP_LOGS_DIR "dumpagent.log"
+            Get-Content $logFile -Tail 100 -ErrorAction SilentlyContinue
             throw "raw_jobs_not_complete"
         }
     } finally {
