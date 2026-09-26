@@ -1,10 +1,14 @@
 """Valida acesso raw isolado entre ambientes sem imprimir credenciais."""
 
+import logging
 import sys
 from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -50,4 +54,4 @@ for environment in ("dev", "prod"):
                 raise
         else:
             raise AssertionError(f"raw_cross_environment_access={environment}")
-    print(f"raw_iam_verified environment={environment}")
+    logger.info("raw_iam_verified environment=%s", environment)

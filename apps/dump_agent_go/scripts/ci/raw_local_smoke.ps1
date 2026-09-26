@@ -22,6 +22,17 @@ $env:SIHD_DB_PATH = "C:/tmp/SIHD_test.gdb"
 $env:BPA_DB_PATH = "C:/tmp/BPAMAG_test.gdb"
 $env:SIA_DIR = (Resolve-Path "test/integration/fixtures/sia_synthetic").Path
 
+function Start-RawAgent([string]$stdout, [string]$stderr) {
+    $options = @{
+        FilePath = $agent
+        ArgumentList = @("run", "--raw")
+        PassThru = $true
+        RedirectStandardOutput = $stdout
+        RedirectStandardError = $stderr
+    }
+    return Start-Process @options
+}
+
 New-Item -ItemType Directory -Path $env:DATA_DIR -Force | Out-Null
 go build -o $agent ./cmd/dumpagent
 $api = Start-Process -FilePath $python -ArgumentList @(
@@ -39,14 +50,24 @@ try {
             Start-Sleep -Seconds 1
         }
     }
-    if (-not $healthy) { throw "raw_api_not_ready" }
+    if (-not $healthy) {
+        Get-Content "C:\tmp\raw-api.err" -ErrorAction SilentlyContinue
+        Get-Content "C:\tmp\raw-api.out" -ErrorAction SilentlyContinue
+        throw "raw_api_not_ready"
+    }
 
     $headers = @{ "X-Admin-Token" = "raw-ci-admin"; "Idempotency-Key" = "raw-ci-202601" }
-    $body = @{ tenant_id = "354130"; agent_id = "raw-ci-agent"; competencia = "2026-01" } | ConvertTo-Json
-    $first = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/v1/admin/raw-jobs/enqueue" -Headers $headers -ContentType "application/json" -Body $body
+    $body = @{
+        tenant_id = "354130"
+        agent_id = "raw-ci-agent"
+        competencia = "2026-01"
+    } | ConvertTo-Json
+    $enqueueUri = "http://127.0.0.1:8000/api/v1/admin/raw-jobs/enqueue"
+    $first = Invoke-RestMethod -Method Post -Uri $enqueueUri -Headers $headers `
+        -ContentType "application/json" -Body $body
     if ($first.job_ids.Count -ne 10) { throw "raw_enqueue_count_invalid" }
 
-    $runningAgent = Start-Process -FilePath $agent -ArgumentList @("run", "--raw") -PassThru -RedirectStandardOutput "C:\tmp\raw-agent.out" -RedirectStandardError "C:\tmp\raw-agent.err"
+    $runningAgent = Start-RawAgent "C:\tmp\raw-agent.out" "C:\tmp\raw-agent.err"
     try {
         $statusScript = Join-Path $PWD "scripts/ci/raw_status.py"
         $stateDb = Join-Path $env:DATA_DIR "state/cnesdata.sqlite3"
@@ -61,9 +82,12 @@ try {
         Stop-Process -Id $runningAgent.Id -Force -ErrorAction SilentlyContinue
     }
 
-    $replay = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/v1/admin/raw-jobs/enqueue" -Headers $headers -ContentType "application/json" -Body $body
-    if (@(Compare-Object $first.job_ids $replay.job_ids).Count -ne 0) { throw "raw_enqueue_replay_mismatch" }
-    $restarted = Start-Process -FilePath $agent -ArgumentList @("run", "--raw") -PassThru -RedirectStandardOutput "C:\tmp\raw-agent-restart.out" -RedirectStandardError "C:\tmp\raw-agent-restart.err"
+    $replay = Invoke-RestMethod -Method Post -Uri $enqueueUri -Headers $headers `
+        -ContentType "application/json" -Body $body
+    if (@(Compare-Object $first.job_ids $replay.job_ids).Count -ne 0) {
+        throw "raw_enqueue_replay_mismatch"
+    }
+    $restarted = Start-RawAgent "C:\tmp\raw-agent-restart.out" "C:\tmp\raw-agent-restart.err"
     Start-Sleep -Seconds 10
     if ($restarted.HasExited -and $restarted.ExitCode -ne 0) { throw "raw_restart_failed" }
     Stop-Process -Id $restarted.Id -Force -ErrorAction SilentlyContinue

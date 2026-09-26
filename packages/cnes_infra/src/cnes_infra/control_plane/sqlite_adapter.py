@@ -27,6 +27,7 @@ from cnes_infra.control_plane import (
     sqlite_job,
     sqlite_publication,
 )
+from cnes_infra.control_plane.edge_registration import SQLiteEdgeRegistrationMixin
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 from cnes_infra.control_plane.sqlite_raw_registration import SQLiteRawRegistrationQueries
 from cnes_infra.control_plane.sqlite_schema import (
@@ -102,11 +103,10 @@ def _fetch_all[Model: BaseModel](
     return tuple(deserialize_model(row[0], model) for row in rows)
 
 
-def _is_network_filesystem(path: Path) -> bool:
-    return is_network_filesystem(path)
+_is_network_filesystem = is_network_filesystem
 
-
-class SQLiteControlPlane(SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
+class SQLiteControlPlane(
+    SQLiteEdgeRegistrationMixin, SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
     """Persiste o plano de controle em um arquivo SQLite local."""
     def __init__(self, database_path: Path, clock: Callable[[], datetime]) -> None:
         self._database_path = Path(database_path)
@@ -217,27 +217,6 @@ class SQLiteControlPlane(SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
                 "state = excluded.state, data = excluded.data",
                 (agent.tenant_id, agent.agent_id, agent.state.value, serialize_model(agent)),
             )
-
-    def register_edge_agent(
-        self, tenant_id: str, agent_id: str, fingerprint: str, now: datetime
-    ) -> Agent:
-        with self.write_transaction() as connection:
-            current = self.get_agent_record(connection, tenant_id, agent_id)
-            if current is not None and current.state is AgentState.REVOKED:
-                raise Conflict(ErrorCode.AGENT_REVOKED)
-            agent = current.model_copy(update={
-                "certificate_fingerprint": fingerprint, "last_seen_at": now,
-            }) if current is not None else Agent(
-                tenant_id=tenant_id, agent_id=agent_id, state=AgentState.ACTIVE,
-                version="unknown", certificate_fingerprint=fingerprint,
-                last_seen_at=now, created_at=now,
-            )
-            connection.execute(
-                "INSERT INTO agents (tenant_id, agent_id, state, data) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT (tenant_id, agent_id) DO UPDATE SET data = excluded.data",
-                (tenant_id, agent_id, agent.state.value, serialize_model(agent)),
-            )
-            return agent
 
     def get_job_record(
         self, connection: sqlite3.Connection, tenant_id: str, job_id: str

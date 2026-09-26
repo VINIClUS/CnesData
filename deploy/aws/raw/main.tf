@@ -126,7 +126,7 @@ resource "aws_iam_user_policy" "raw" {
         Action = [
           "dynamodb:DescribeTable", "dynamodb:GetItem", "dynamodb:PutItem",
           "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query",
-          "dynamodb:Scan", "dynamodb:TransactWriteItems"
+          "dynamodb:TransactWriteItems"
         ]
         Resource = [
           aws_dynamodb_table.raw[each.key].arn,

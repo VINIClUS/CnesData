@@ -57,6 +57,7 @@ from cnes_infra.control_plane.dynamodb_keys import (
 )
 from cnes_infra.control_plane.dynamodb_publication import DynamoDBPublication
 from cnes_infra.control_plane.dynamodb_queries import DynamoDBQueries
+from cnes_infra.control_plane.edge_registration import DynamoEdgeRegistrationMixin
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 
 if TYPE_CHECKING:
@@ -76,15 +77,12 @@ _RECOVERABLE = {
     RunState.PUBLISHING,
     RunState.CANCEL_REQUESTED,
 }
-_NONTERMINAL_UNITS = {
-    RunUnitState.PENDING,
-    RunUnitState.LEASED,
-    RunUnitState.FAILED_RETRYABLE,
-}
+_NONTERMINAL_UNITS = {RunUnitState.PENDING, RunUnitState.LEASED, RunUnitState.FAILED_RETRYABLE}
 
 
 class DynamoDBControlPlane(
-    DeprecatedRawQueryMixin, DynamoDBQueries, DynamoDBClaims, DynamoDBDispatch, DynamoDBPublication
+    DynamoEdgeRegistrationMixin, DeprecatedRawQueryMixin, DynamoDBQueries,
+    DynamoDBClaims, DynamoDBDispatch, DynamoDBPublication
 ):
     """Persiste o plano de controle em uma tabela DynamoDB."""
     def __init__(self, client: Any, table_name: str, clock: Callable[[], datetime]) -> None:
@@ -197,31 +195,6 @@ class DynamoDBControlPlane(
         key = entity_key(agent.tenant_id, "AGENT", agent.agent_id)
         self._put_direct(encode_model(agent, "AGENT", key))
 
-    def register_edge_agent(
-        self, tenant_id: str, agent_id: str, fingerprint: str, now: datetime
-    ) -> Agent:
-        key = entity_key(tenant_id, "AGENT", agent_id)
-        for _ in range(3):
-            current_item = self._get_item(key)
-            current = decode_model(current_item, Agent) if current_item else None
-            if current is not None and current.state is AgentState.REVOKED:
-                raise Conflict(ErrorCode.AGENT_REVOKED)
-            agent = current.model_copy(update={
-                "certificate_fingerprint": fingerprint, "last_seen_at": now,
-            }) if current is not None else Agent(
-                tenant_id=tenant_id, agent_id=agent_id, state=AgentState.ACTIVE,
-                version="unknown", certificate_fingerprint=fingerprint,
-                last_seen_at=now, created_at=now,
-            )
-            try:
-                self._transact((put_action(
-                    self._table_name, encode_model(agent, "AGENT", key),
-                    payload(current_item) if current_item else None,
-                ),))
-            except Conflict:
-                continue
-            return agent
-        raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
         """Cria um job e seu evento atomicamente."""
         key = entity_key(job.tenant_id, "JOB", job.job_id)

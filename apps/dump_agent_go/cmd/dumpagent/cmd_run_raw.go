@@ -135,7 +135,7 @@ func prepareRawRun(
 	if err != nil {
 		return rawRun{}, nil, err
 	}
-	store := wireDeltaStoreNoClose(boot.appData)
+	store := openDeltaStore(boot.appData)
 	if store == nil {
 		_ = outbox.Close()
 		return rawRun{}, nil, fmt.Errorf("raw_delta_store=unavailable")
@@ -163,8 +163,6 @@ func prepareRawRun(
 		_ = outbox.Close()
 	}, nil
 }
-
-func wireDeltaStoreNoClose(appData string) *delta.Store { return openDeltaStore(appData) }
 
 func rawCnesExtractor(db *sql.DB) func(context.Context, worker.Job) ([]delta.Row, error) {
 	return func(ctx context.Context, job worker.Job) ([]delta.Row, error) {

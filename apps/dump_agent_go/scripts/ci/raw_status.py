@@ -8,4 +8,4 @@ with sqlite3.connect(sys.argv[1]) as connection:
         "SELECT count(*) FROM jobs WHERE tenant_id = ? AND state = 'SUCCEEDED'",
         ("354130",),
     ).fetchone()[0]
-print(count)
+sys.stdout.write(f"{count}\n")
