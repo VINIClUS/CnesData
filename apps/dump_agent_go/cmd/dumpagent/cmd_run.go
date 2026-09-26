@@ -32,6 +32,7 @@ import (
 // RunFlags parâmetros CLI extras passados via `dumpagent run`.
 // BPA/SIA only; CNES/SIHD seguem via env vars tradicionais.
 type RunFlags struct {
+	Raw          bool
 	BPAGDBPath   string
 	SIADir       string
 	FBClientPath string
@@ -39,6 +40,7 @@ type RunFlags struct {
 
 func defaultRunFlags() RunFlags {
 	return RunFlags{
+		Raw:          os.Getenv("AGENT_RAW_MODE") == "true",
 		BPAGDBPath:   os.Getenv("BPA_GDB_PATH"),
 		SIADir:       os.Getenv("SIA_DIR"),
 		FBClientPath: os.Getenv("FBCLIENT_PATH"),
@@ -48,6 +50,7 @@ func defaultRunFlags() RunFlags {
 func parseRunFlags(args []string) RunFlags {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	raw := fs.Bool("raw", os.Getenv("AGENT_RAW_MODE") == "true", "run raw Edge jobs")
 	bpaGdb := fs.String("bpa-gdb", os.Getenv("BPA_GDB_PATH"), "BPAMAG.GDB absolute path")
 	siaDir := fs.String("sia-dir", os.Getenv("SIA_DIR"), "SIA DBF directory")
 	fbClient := fs.String(
@@ -56,7 +59,7 @@ func parseRunFlags(args []string) RunFlags {
 	fs.Bool("verbose", false, "enable DEBUG logging")
 	fs.Bool("v", false, "enable DEBUG logging (short)")
 	_ = fs.Parse(args)
-	return RunFlags{BPAGDBPath: *bpaGdb, SIADir: *siaDir, FBClientPath: *fbClient}
+	return RunFlags{Raw: *raw, BPAGDBPath: *bpaGdb, SIADir: *siaDir, FBClientPath: *fbClient}
 }
 
 // setupBootLogger resolves logs dir + builds the rotating/eventlog handler
@@ -179,6 +182,9 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 	slog.Info("startup_jitter", "duration", jitter.String())
 	if !sleepCancellable(ctx, jitter) {
 		return 0
+	}
+	if flags.Raw {
+		return runRawForeground(ctx, boot)
 	}
 
 	resources, ok := openRunResources(ctx, boot)

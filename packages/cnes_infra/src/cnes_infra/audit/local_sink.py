@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import sqlite3
@@ -18,6 +17,11 @@ import polars as pl
 
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.errors import Conflict
+
+if os.name == "nt":  # pragma: no cover - Windows smoke
+    import msvcrt
+else:
+    import fcntl
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -148,11 +152,23 @@ class LocalAuditSink:
     @contextmanager
     def _locked(self) -> Iterator[None]:
         with self._lock_path.open("a+b") as stream:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            if os.name == "nt":  # pragma: no cover - Windows smoke
+                stream.seek(0)
+                if not stream.read(1):
+                    stream.write(b"\0")
+                    stream.flush()
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
             try:
                 yield
             finally:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                if os.name == "nt":  # pragma: no cover - Windows smoke
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -378,6 +394,8 @@ class LocalAuditSink:
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
+        if os.name == "nt":  # pragma: no cover - Windows smoke
+            return
         descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(descriptor)

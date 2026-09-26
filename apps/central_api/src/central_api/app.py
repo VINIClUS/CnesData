@@ -22,6 +22,7 @@ from central_api.routes import (
     provision,
     provision_rotate,
     public_leads,
+    raw_admin,
     raw_jobs,
     raw_manifests,
     serving,
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(provision.router)
     app.include_router(provision_rotate.router)
     app.include_router(raw_jobs.router)
+    app.include_router(raw_admin.router)
     app.include_router(raw_manifests.router)
     app.include_router(local_auth.router)
     app.include_router(serving.router)

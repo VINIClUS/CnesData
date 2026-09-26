@@ -42,7 +42,7 @@ jobs:
 
       - name: Install tools
         run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 
       - name: Tidy check
         run: |
@@ -81,6 +81,7 @@ jobs:
   integration-windows:
     if: >-
       contains(github.event.pull_request.labels.*.name, 'run-windows-integration')
+      || contains(github.event.pull_request.labels.*.name, 'run-raw-smoke')
       || github.event_name == 'push'
       || github.event_name == 'schedule'
       || github.event_name == 'workflow_dispatch'
@@ -115,13 +116,38 @@ jobs:
         run: .\scripts\ci\setup_bpa_db.ps1
         shell: powershell
 
+      - name: Setup SIHD synthetic DB
+        run: .\scripts\ci\setup_sihd_db.ps1
+        shell: powershell
+
       - name: Integration tests
         env:
           FB_HOST: localhost
           FB_PORT: '3050'
           FB_PATH: C:/tmp/CNES_test.gdb
           BPA_GDB_PATH: C:/tmp/BPAMAG_test.gdb
+          SIHD_DB_PATH: C:/tmp/SIHD_test.gdb
         run: go test -tags=integration -race -v ./test/integration/... ./internal/extractor/...
+
+      - name: Setup Python for opt-in raw smoke
+        if: contains(github.event.pull_request.labels.*.name, 'run-raw-smoke')
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Setup uv for opt-in raw smoke
+        if: contains(github.event.pull_request.labels.*.name, 'run-raw-smoke')
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install central_api for opt-in raw smoke
+        if: contains(github.event.pull_request.labels.*.name, 'run-raw-smoke')
+        working-directory: .
+        run: uv sync --all-packages --frozen
+
+      - name: Raw Edge smoke against central_api local
+        if: contains(github.event.pull_request.labels.*.name, 'run-raw-smoke')
+        run: .\scripts\ci\raw_local_smoke.ps1
+        shell: powershell
 
       - name: Upload logs on failure
         if: failure()

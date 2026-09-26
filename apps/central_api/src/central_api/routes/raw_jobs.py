@@ -30,7 +30,6 @@ from central_api.services.raw_upload import (
 )
 from central_api.validation_errors import validation_error
 from cnes_domain.control_plane.commands import ClaimJob, RenewJobLease
-from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_domain.ports.control_plane import ControlPlanePort  # noqa: TC001
 
@@ -109,11 +108,13 @@ def require_edge_agent(
 ) -> EdgeIdentity:
     """Valida o agente persistido contra a identidade mTLS."""
 
-    agent = control_plane.get_agent(identity.tenant_id, identity.agent_id)
-    if agent is None:
-        raise HTTPException(status_code=403, detail="agent_missing")
-    if agent.state is AgentState.REVOKED:
-        raise HTTPException(status_code=403, detail="agent_revoked")
+    try:
+        agent = control_plane.register_edge_agent(
+            identity.tenant_id, identity.agent_id,
+            identity.certificate_fingerprint, _utc_now(),
+        )
+    except Conflict as error:
+        raise HTTPException(status_code=403, detail="agent_revoked") from error
     if (agent.tenant_id, agent.agent_id) != (identity.tenant_id, identity.agent_id):
         raise HTTPException(status_code=403, detail="agent_identity_mismatch")
     if not compare_digest(agent.certificate_fingerprint, identity.certificate_fingerprint):
@@ -223,11 +224,13 @@ def _job_response(job: Job, identity: EdgeIdentity) -> EdgeJobResponse:
         raise HTTPException(status_code=409, detail="job_not_leased")
     return EdgeJobResponse(
         job_id=job.job_id,
+        agent_id=job.agent_id,
         source_type=job.source_type,
         file_subtype=job.file_subtype,
         competencia=job.competencia,
         requested_snapshot_mode=job.requested_snapshot_mode,
         fencing_token=job.fencing_token,
+        attempt=job.attempt,
         lease_until=job.lease_until,
         raw_upload_path=f"/api/v1/edge/jobs/{job.job_id}/raw-object",
     )

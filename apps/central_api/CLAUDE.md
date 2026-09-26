@@ -21,6 +21,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - `POST /api/v1/jobs/{job_id}/fail` — marca FAILED + persiste `error_detail`
   (status-guarded, `PENDING`/`CLAIMED` apenas — idempotente em retry)
 - `POST /api/v1/extractions/enqueue` — cria extractions por fonte/competência (`X-Admin-Token`)
+- `POST /api/v1/admin/raw-jobs/enqueue` — cria até dez jobs raw idempotentes por competência
 - `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (`X-Admin-Token`)
 - `GET /api/v1/agents/status` — status agregado do agent (Bearer + `require_tenant_header`)
 - `GET /api/v1/agents/whoami` — identidade do cert mTLS (`require_agent_cert`); smoke do `register`
@@ -84,6 +85,13 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `API_PORT` | opcional | Default `8000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | opcional | Tracing (se OTel SDK instalado) |
 | `ADMIN_TOKEN` | opcional | `X-Admin-Token` das rotas admin (`deps.require_admin_token`); vazio = 503 `admin_disabled` |
+| `RAW_LOCAL_TOKEN` | sim (profile local raw) | Token próprio do agente para `/api/v1/edge/*` |
+| `RAW_BACKEND` | sim (VPS raw) | `aws` ativa DynamoDB/S3 raw sem alterar o legado |
+| `RAW_DYNAMODB_TABLE` | sim (`RAW_BACKEND=aws`) | Tabela raw do ambiente |
+| `RAW_S3_BUCKET` | sim (`RAW_BACKEND=aws`) | Bucket raw do ambiente |
+| `RAW_AWS_REGION` | sim (`RAW_BACKEND=aws`) | Região dos recursos raw |
+| `RAW_AWS_ACCESS_KEY_ID` | sim (`RAW_BACKEND=aws`) | IAM raw do ambiente |
+| `RAW_AWS_SECRET_ACCESS_KEY` | sim (`RAW_BACKEND=aws`) | Segredo IAM raw |
 | `ENABLE_REAPER` | opcional | `true` em 1 réplica para reaper rodar (futuro) |
 | `AUTH_CA_CERT_PATH` | sim (no boot) | Path to PEM root CA cert |
 | `AUTH_CA_KEY_PATH` | sim (no boot) | Path to PEM root CA private key |

@@ -50,6 +50,19 @@ func (f rawDrainFixture) drainer(client RawManifestClient) *RawDrainer {
 	return drainer
 }
 
+func TestFenceObsoletoDescartaSomenteTentativaAntiga(t *testing.T) {
+	f := newRawDrainFixture(t)
+	client := rawClientFunc(func(context.Context, queue.Envelope) (RawManifestResponse, error) {
+		return RawManifestResponse{StatusCode: 409, Reason: "job_fence_rejected"}, nil
+	})
+
+	require.NoError(t, f.drainer(client).Drain(context.Background(), f.out))
+	items, err := f.out.Peek(10)
+	require.NoError(t, err)
+	require.Empty(t, items)
+	require.NoFileExists(t, filepath.Join(f.spoolDirectory, f.env.SpoolName))
+}
+
 func TestSpoolAusenteSemReciboNaoRegistraManifesto(t *testing.T) {
 	f := newRawDrainFixture(t)
 	require.NoError(t, upload.RemoveRawSpool(f.spoolDirectory, f.env.SpoolName))
