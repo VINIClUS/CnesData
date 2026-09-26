@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/cnesdata/dumpagent/internal/rawclient"
 	"github.com/stretchr/testify/require"
@@ -22,4 +23,6 @@ func TestClaimRawMontaJobComIdentidadeDoServidor(t *testing.T) {
 	require.Equal(t, "registered-agent", job.RawRequest.AgentID)
 	require.Equal(t, "202609", job.Params.Competencia)
 	require.Equal(t, "https://api.example/api/v1/edge/jobs/job-1/raw-object", job.UploadURL)
+	require.Equal(t, job.RawRequest.CreatedAt.Truncate(time.Microsecond),
+		job.RawRequest.CreatedAt)
 }

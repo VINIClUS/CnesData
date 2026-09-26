@@ -63,7 +63,8 @@ func rawJobFromClaim(
 			SourceType:  manifest.SourceType(claim.SourceType),
 			FileSubtype: claim.FileSubtype, Competencia: claim.Competencia,
 			AgentID: claim.AgentID, AgentVersion: Version, SchemaVersion: "1",
-			SnapshotMode: manifest.SnapshotMode(claim.SnapshotMode), CreatedAt: time.Now().UTC(),
+			SnapshotMode: manifest.SnapshotMode(claim.SnapshotMode),
+			CreatedAt:    time.Now().UTC().Truncate(time.Microsecond),
 		},
 	}, nil
 }
