@@ -13,6 +13,8 @@ from central_api.services.raw_upload import RawUploadService
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.object_store import S3ObjectStore
 
+_RAW_BUCKET_OWNER = "836651842853"
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from datetime import datetime
@@ -46,7 +48,7 @@ def build_raw_aws_runtime(config: RawAWSConfig, clock: Callable[[], datetime]):
     dynamodb = session.client("dynamodb")
     s3 = session.client("s3")
     dynamodb.describe_table(TableName=config.table)
-    s3.head_bucket(Bucket=config.bucket)
+    s3.head_bucket(Bucket=config.bucket, ExpectedBucketOwner=_RAW_BUCKET_OWNER)
     control = DynamoDBControlPlane(dynamodb, config.table, clock)
     objects = S3ObjectStore(s3, config.bucket)
     return control, RawUploadService(control, objects, clock), RawIngestionService(
