@@ -282,7 +282,7 @@ func TestSlotsVaziosEDBFOpcionalAusenteViramParquetZeroRow(t *testing.T) {
 	}
 }
 
-func TestConjuntoDeJobsDaFonteIncompletoNaoEmiteNada(t *testing.T) {
+func TestConjuntoDeJobsDaFonteAceitaSubconjuntoSemDuplicatas(t *testing.T) {
 	mixed := rawSourceJobs(manifest.SourceTypeSIHD, "http://edge.invalid")
 	mixed[1].RawRequest.Competencia = "2026-02"
 	other := rawSourceJobs(manifest.SourceTypeSIHD, "http://edge.invalid")
@@ -290,13 +290,17 @@ func TestConjuntoDeJobsDaFonteIncompletoNaoEmiteNada(t *testing.T) {
 	full := rawSourceJobs(manifest.SourceTypeBPAMag, "http://edge.invalid")
 	cases := map[string][]*worker.Job{
 		"vazio":             nil,
-		"faltando_subtipo":  rawSourceJobs(manifest.SourceTypeSIALocal, "http://edge.invalid")[:4],
 		"subtipo_duplicado": {full[0], full[0]},
 		"competencia_mista": mixed,
 		"fonte_mista":       other,
 		"job_nulo":          {full[0], nil},
 		"sem_raw_request":   {full[0], {ID: "legacy"}},
 	}
+	partial := rawSourceJobs(manifest.SourceTypeSIALocal, "http://edge.invalid")[:4]
+	exe := newRawExecutor(t)
+	exe.RawPayload = worker.NewRawPayloadExtractor(worker.RawSourcesConfig{SIADir: siaRawDir(t)})
+	_, err := exe.RunRawSource(context.Background(), partial)
+	require.NoError(t, err)
 	for name, jobs := range cases {
 		t.Run(name, func(t *testing.T) {
 			exe := newRawExecutor(t)

@@ -41,6 +41,8 @@ type RawDrainer struct {
 	Uploader       upload.RawUploader
 }
 
+var errObsoleteRawAttempt = errors.New("raw_attempt=obsolete")
+
 // NewRawDrainer constrói o drainer sem depender da composição do serviço.
 func NewRawDrainer(client RawManifestClient, store *delta.Store, legacy JobAPIClient) *RawDrainer {
 	return &RawDrainer{client: client, store: store, legacy: legacy}
@@ -81,16 +83,43 @@ func (d *RawDrainer) deliverRaw(ctx context.Context, out EnvelopeOutbox, item qu
 	}
 	if !terminal {
 		if err := d.uploadAndConfirm(ctx, item.Envelope, raw); err != nil {
-			return err
+			if !errors.Is(err, errObsoleteRawAttempt) {
+				return err
+			}
+			if err := d.dropObsoletePending(out, item); err != nil {
+				return err
+			}
 		}
 		if err := out.MarkRawTerminal(item.Key); err != nil {
 			return err
 		}
 	}
+	return d.cleanupRawTerminal(out, item)
+}
+
+func (d *RawDrainer) cleanupRawTerminal(out EnvelopeOutbox, item queue.Item) error {
 	if err := upload.RemoveRawSpool(d.SpoolDirectory, item.Envelope.SpoolName); err != nil {
 		return err
 	}
 	return out.Delete(item.Key)
+}
+
+func (d *RawDrainer) dropObsoletePending(out EnvelopeOutbox, item queue.Item) error {
+	items, err := allEnvelopeItems(out)
+	if err != nil {
+		return err
+	}
+	refs := make([]delta.PendingRef, 0, len(items))
+	for _, queued := range items {
+		if queued.Envelope.Type == queue.TypeRawManifest &&
+			!bytes.Equal(queued.Key, item.Key) {
+			refs = append(refs, pendingRef(queued.Envelope))
+		}
+	}
+	if _, err := d.store.ReconcileRawPending(refs); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (d *RawDrainer) uploadAndConfirm(ctx context.Context,
@@ -100,6 +129,9 @@ func (d *RawDrainer) uploadAndConfirm(ctx context.Context,
 		Directory: d.SpoolDirectory, Name: env.SpoolName, URL: env.UploadURL,
 		FencingToken: env.FencingToken, Manifest: raw})
 	if err != nil {
+		if obsoleteRawUpload(err) {
+			return errObsoleteRawAttempt
+		}
 		return err
 	}
 	return d.confirm(ctx, env)
@@ -126,7 +158,30 @@ func (d *RawDrainer) confirm(ctx context.Context, env queue.Envelope) error {
 	if resyncRawResponse(response, env) {
 		return d.store.RequireFull(ref, response.Reason)
 	}
+	if response.StatusCode == http.StatusConflict && obsoleteRawDetail(response.Reason) {
+		return errObsoleteRawAttempt
+	}
 	return fmt.Errorf("raw_ack=invalid_or_retryable status=%d", response.StatusCode)
+}
+
+func obsoleteRawUpload(err error) bool {
+	var httpErr *obs.HTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusConflict {
+		return false
+	}
+	var response struct {
+		Detail string `json:"detail"`
+	}
+	return json.Unmarshal([]byte(httpErr.Body), &response) == nil &&
+		obsoleteRawDetail(response.Detail)
+}
+
+func obsoleteRawDetail(detail string) bool {
+	switch detail {
+	case "job_fence_rejected", "job_owner_lost", "job_lease_expired":
+		return true
+	}
+	return false
 }
 
 func successfulRawResponse(response RawManifestResponse) bool {
@@ -152,7 +207,9 @@ func decodeRawEnvelope(env queue.Envelope) (manifest.Raw, error) {
 	if err != nil {
 		return raw, err
 	}
-	if raw.ManifestID != env.JobID || raw.SnapshotID != env.JobID ||
+	if raw.ManifestID != env.JobID ||
+		(raw.SnapshotID != env.JobID &&
+			raw.SnapshotID != fmt.Sprintf("%s-f%d", env.JobID, env.FencingToken)) ||
 		env.FencingToken == 0 || hash != env.ManifestSHA256 ||
 		!bytes.Equal(canonical, env.ManifestJSON) {
 		return raw, errors.New("raw_manifest=identity_invalid")

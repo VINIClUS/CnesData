@@ -60,8 +60,8 @@ def local_stack(data_dir: Path) -> Iterator[Stack]:
     env = {"PROFILE": "local", "TENANT_ID": TENANT, "DATA_DIR": str(data_dir)}
     with patch.dict(os.environ, env):
         app = create_app()
-        app.dependency_overrides[get_edge_identity] = lambda: IDENTITY
         with TestClient(app) as client:
+            app.dependency_overrides[get_edge_identity] = lambda: IDENTITY
             yield Stack(app, client)
 
 

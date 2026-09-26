@@ -6,6 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from hashlib import sha256
 from hmac import compare_digest
 from typing import TYPE_CHECKING
 
@@ -162,6 +163,9 @@ def _build_local_state(app: object) -> None:
         _utc_now,
     )
     _install_edge_overrides(app)
+    from central_api.routes.raw_jobs import get_edge_identity
+
+    app.dependency_overrides[get_edge_identity] = local_edge_identity
     _install_local_auth_and_serving(app, runtime, settings)
     logger.info(
         "local_profile_composed tenant_id=%s data_dir=%s",
@@ -207,6 +211,38 @@ def _install_edge_identity(app: object) -> None:
     from central_api.routes.raw_jobs import get_edge_identity
 
     app.dependency_overrides[get_edge_identity] = edge_identity_from_cert
+
+
+def local_edge_identity(request: Request):
+    from central_api.schemas.raw_api import EdgeIdentity
+
+    token = os.environ.get("RAW_LOCAL_TOKEN", "")
+    presented = request.headers.get("X-Raw-Token", "")
+    agent_id = request.headers.get("X-Raw-Agent-Id", "")
+    tenant_id = os.environ.get("TENANT_ID", "")
+    if not token:
+        raise HTTPException(status_code=503, detail="raw_local_token_disabled")
+    if not presented or not compare_digest(presented, token):
+        raise HTTPException(status_code=401, detail="raw_local_token_required")
+    if not agent_id or not tenant_id:
+        raise HTTPException(status_code=400, detail="raw_local_identity_required")
+    fingerprint = sha256(f"local:{tenant_id}:{agent_id}:{token}".encode()).hexdigest()
+    return EdgeIdentity(
+        tenant_id=tenant_id, agent_id=agent_id, certificate_fingerprint=fingerprint,
+    )
+
+
+def _build_aws_raw_state(app: object) -> None:
+    from central_api.raw_aws_runtime import RawAWSConfig, build_raw_aws_runtime
+
+    if os.environ.get("RAW_BACKEND", "").lower() != "aws":
+        return
+    config = RawAWSConfig.from_env(os.environ)
+    control, upload, ingestion = build_raw_aws_runtime(config, _utc_now)
+    app.state.control_plane = control
+    app.state.raw_upload = upload
+    app.state.raw_ingestion = ingestion
+    _install_edge_overrides(app)
 
 
 def _install_local_auth_and_serving(
@@ -288,6 +324,7 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     app.state.provisioned_certs = ProvisionedCertsRepo(_engine)  # type: ignore[attr-defined]
     _install_cert_authority(app)
     _install_edge_identity(app)
+    _build_aws_raw_state(app)
     app.state.verification_uri = os.environ.get("AUTH_DEVICE_VERIFICATION_URI", "")  # type: ignore[attr-defined]
     app.state.access_token_ttl = config.AUTH_ACCESS_TOKEN_TTL  # type: ignore[attr-defined]
     app.state.device_code_ttl = config.AUTH_DEVICE_CODE_TTL  # type: ignore[attr-defined]

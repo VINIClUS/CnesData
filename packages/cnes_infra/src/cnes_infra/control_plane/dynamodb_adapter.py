@@ -57,6 +57,7 @@ from cnes_infra.control_plane.dynamodb_keys import (
 )
 from cnes_infra.control_plane.dynamodb_publication import DynamoDBPublication
 from cnes_infra.control_plane.dynamodb_queries import DynamoDBQueries
+from cnes_infra.control_plane.edge_registration import DynamoEdgeRegistrationMixin
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 
 if TYPE_CHECKING:
@@ -76,15 +77,12 @@ _RECOVERABLE = {
     RunState.PUBLISHING,
     RunState.CANCEL_REQUESTED,
 }
-_NONTERMINAL_UNITS = {
-    RunUnitState.PENDING,
-    RunUnitState.LEASED,
-    RunUnitState.FAILED_RETRYABLE,
-}
+_NONTERMINAL_UNITS = {RunUnitState.PENDING, RunUnitState.LEASED, RunUnitState.FAILED_RETRYABLE}
 
 
 class DynamoDBControlPlane(
-    DeprecatedRawQueryMixin, DynamoDBQueries, DynamoDBClaims, DynamoDBDispatch, DynamoDBPublication
+    DynamoEdgeRegistrationMixin, DeprecatedRawQueryMixin, DynamoDBQueries,
+    DynamoDBClaims, DynamoDBDispatch, DynamoDBPublication
 ):
     """Persiste o plano de controle em uma tabela DynamoDB."""
     def __init__(self, client: Any, table_name: str, clock: Callable[[], datetime]) -> None:
@@ -196,6 +194,7 @@ class DynamoDBControlPlane(
         """Persiste um agente."""
         key = entity_key(agent.tenant_id, "AGENT", agent.agent_id)
         self._put_direct(encode_model(agent, "AGENT", key))
+
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
         """Cria um job e seu evento atomicamente."""
         key = entity_key(job.tenant_id, "JOB", job.job_id)

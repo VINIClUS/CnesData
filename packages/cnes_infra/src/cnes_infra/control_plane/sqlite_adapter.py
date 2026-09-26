@@ -27,6 +27,7 @@ from cnes_infra.control_plane import (
     sqlite_job,
     sqlite_publication,
 )
+from cnes_infra.control_plane.edge_registration import SQLiteEdgeRegistrationMixin
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 from cnes_infra.control_plane.sqlite_raw_registration import SQLiteRawRegistrationQueries
 from cnes_infra.control_plane.sqlite_schema import (
@@ -102,11 +103,10 @@ def _fetch_all[Model: BaseModel](
     return tuple(deserialize_model(row[0], model) for row in rows)
 
 
-def _is_network_filesystem(path: Path) -> bool:
-    return is_network_filesystem(path)
+_is_network_filesystem = is_network_filesystem
 
-
-class SQLiteControlPlane(SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
+class SQLiteControlPlane(
+    SQLiteEdgeRegistrationMixin, SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
     """Persiste o plano de controle em um arquivo SQLite local."""
     def __init__(self, database_path: Path, clock: Callable[[], datetime]) -> None:
         self._database_path = Path(database_path)

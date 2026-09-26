@@ -346,6 +346,14 @@
         "additionalProperties": false,
         "description": "Job adquirido pelo Edge Agent.",
         "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
           "competencia": {
             "title": "Competencia",
             "type": "string"
@@ -382,11 +390,13 @@
         },
         "required": [
           "job_id",
+          "agent_id",
           "source_type",
           "file_subtype",
           "competencia",
           "requested_snapshot_mode",
           "fencing_token",
+          "attempt",
           "lease_until",
           "raw_upload_path"
         ],
@@ -827,6 +837,72 @@
         "title": "ProvisionCertRequest",
         "type": "object"
       },
+      "RawEnqueueRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "minLength": 1,
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "cnes_snapshot_mode": {
+            "default": "FULL",
+            "enum": [
+              "FULL",
+              "DELTA"
+            ],
+            "title": "Cnes Snapshot Mode",
+            "type": "string"
+          },
+          "competencia": {
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+            "title": "Competencia",
+            "type": "string"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RawSource"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources"
+          },
+          "tenant_id": {
+            "minLength": 1,
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "agent_id",
+          "competencia"
+        ],
+        "title": "RawEnqueueRequest",
+        "type": "object"
+      },
+      "RawEnqueueResponse": {
+        "properties": {
+          "job_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Job Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_ids"
+        ],
+        "title": "RawEnqueueResponse",
+        "type": "object"
+      },
       "RawManifest": {
         "additionalProperties": false,
         "properties": {
@@ -1026,6 +1102,15 @@
         ],
         "title": "RawManifestSubmission",
         "type": "object"
+      },
+      "RawSource": {
+        "enum": [
+          "CNES_LOCAL",
+          "SIHD",
+          "BPA_MAG",
+          "SIA_LOCAL"
+        ],
+        "type": "string"
       },
       "RawUploadResponse": {
         "additionalProperties": false,
@@ -1471,6 +1556,74 @@
         "summary": "Activate Confirm",
         "tags": [
           "oauth"
+        ]
+      }
+    },
+    "/api/v1/admin/raw-jobs/enqueue": {
+      "post": {
+        "operationId": "enqueue_raw_jobs_api_v1_admin_raw_jobs_enqueue_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RawEnqueueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RawEnqueueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue Raw Jobs",
+        "tags": [
+          "admin-raw"
         ]
       }
     },
