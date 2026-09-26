@@ -77,7 +77,11 @@ try {
             if ($count -eq "10") { $complete = $true; break }
             Start-Sleep -Seconds 1
         }
-        if (-not $complete) { throw "raw_jobs_not_complete" }
+        if (-not $complete) {
+            Get-Content "C:\tmp\raw-agent.err" -Tail 100 -ErrorAction SilentlyContinue
+            Get-Content "C:\tmp\raw-agent.out" -Tail 100 -ErrorAction SilentlyContinue
+            throw "raw_jobs_not_complete"
+        }
     } finally {
         Stop-Process -Id $runningAgent.Id -Force -ErrorAction SilentlyContinue
     }
@@ -89,7 +93,10 @@ try {
     }
     $restarted = Start-RawAgent "C:\tmp\raw-agent-restart.out" "C:\tmp\raw-agent-restart.err"
     Start-Sleep -Seconds 10
-    if ($restarted.HasExited -and $restarted.ExitCode -ne 0) { throw "raw_restart_failed" }
+    if ($restarted.HasExited -and $restarted.ExitCode -ne 0) {
+        Get-Content "C:\tmp\raw-agent-restart.err" -Tail 100 -ErrorAction SilentlyContinue
+        throw "raw_restart_failed"
+    }
     Stop-Process -Id $restarted.Id -Force -ErrorAction SilentlyContinue
     Write-Host "raw_smoke_completed jobs=10 replay=ok restart=ok"
 } finally {
