@@ -31,8 +31,10 @@ instalar explicitamente Compose e variáveis raw na VPS. Para cada stack:
    `deploy/prod` para `/opt/cnesdata`, preservando propriedade e modo.
 3. Acrescentar as seis variáveis raw ao `.env` existente de cada stack,
    usando a chave IAM do ambiente correspondente. Não reescrever os segredos
-   já existentes. Confirmar `docker compose ... config --quiet` nas duas
-   stacks antes de reiniciar qualquer serviço.
+   já existentes. Definir também `ADMIN_TOKEN` para permitir o enqueue
+   administrativo. Confirmar `docker compose --env-file .env --env-file
+   .env.image ... config --quiet` nas duas stacks antes de reiniciar qualquer
+   serviço.
 4. Executar `deploy-develop` em `develop`, verificar health e smoke de claim,
    upload e registro. Só depois publicar `main` pelo workflow protegido e
    repetir a verificação. O workflow de release do agente aceita
