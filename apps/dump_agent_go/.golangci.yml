@@ -1,47 +1,64 @@
+version: "2"
 run:
-  timeout: 5m
   go: "1.26"
-
 linters:
-  disable-all: true
+  default: none
   enable:
     - errcheck
-    - govet
-    - staticcheck
-    - ineffassign
-    - gocritic
-    - gosec
-    - revive
-    - gocyclo
     - gocognit
-    - unused
-    - unparam
+    - gocritic
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
     - misspell
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  gocognit:
-    min-complexity: 20
-  revive:
+    - revive
+    - staticcheck
+    - unparam
+    - unused
+  settings:
+    gocognit:
+      min-complexity: 20
+    gocyclo:
+      min-complexity: 15
+    gosec:
+      excludes:
+        - G306
+        - G404
+    misspell:
+      ignore-rules:
+        - exponencial
+        - persistente
+    revive:
+      rules:
+        - name: exported
+        - name: unused-parameter
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: exported
-      - name: unused-parameter
-        disabled: true
-  gosec:
-    excludes:
-      - G306
-      - G404
-  misspell:
-    ignore-words:
-      - exponencial
-      - persistente
-
-issues:
-  exclude-files:
-    - internal/apiclient/generated\.go
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
+      - linters:
+          - errcheck
+          - gosec
+        path: _test\.go
+      - linters:
+          - gosec
+        path: internal/(auth/store|platform/(dll_unix|paths))\.go
+        text: G703
+    paths:
+      - internal/apiclient/generated\.go
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

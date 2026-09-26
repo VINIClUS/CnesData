@@ -58,6 +58,7 @@ type PreviousHead struct {
 
 type BuildRequest struct {
 	JobID         string
+	SnapshotID    string
 	TenantID      string
 	SourceType    SourceType
 	FileSubtype   string
@@ -80,6 +81,10 @@ var (
 )
 
 func Build(request BuildRequest) (Raw, error) {
+	snapshotID := request.SnapshotID
+	if snapshotID == "" {
+		snapshotID = request.JobID
+	}
 	baseSnapshotID, sequence, previousHash, err := buildChain(request)
 	if err != nil {
 		return Raw{}, err
@@ -89,7 +94,7 @@ func Build(request BuildRequest) (Raw, error) {
 		SourceType: request.SourceType, FileSubtype: request.FileSubtype,
 		Competencia: request.Competencia, AgentID: request.AgentID,
 		AgentVersion: request.AgentVersion, SchemaVersion: request.SchemaVersion,
-		SnapshotMode: request.SnapshotMode, SnapshotID: request.JobID,
+		SnapshotMode: request.SnapshotMode, SnapshotID: snapshotID,
 		BaseSnapshotID: baseSnapshotID, Sequence: sequence,
 		PreviousManifestSHA256: previousHash, ObjectSHA256: request.ObjectSHA256,
 		RowCount: request.RowCount, SizeBytes: request.SizeBytes,

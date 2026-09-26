@@ -134,9 +134,9 @@ func compactCompetencia(competencia string) string {
 	return strings.ReplaceAll(competencia, "-", "")
 }
 
-// RunRawSource emite, pelo outbox durável, um manifest por subtipo exigido da fonte.
+// RunRawSource emite, pelo outbox durável, um manifest por job da fonte.
 //
-// Args: jobs com RawRequest cobrindo exatamente manifest.RawSubtypes da fonte e competência.
+// Args: jobs com RawRequest de subtipos únicos da mesma fonte e competência.
 // Returns: bytes enviados somados.
 // Raises: raw_source_set=incomplete, erros de RunRaw com raw_source_subtype.
 func (e *JobExecutor) RunRawSource(ctx context.Context, jobs []*Job) (int64, error) {
@@ -160,19 +160,18 @@ func validateRawSourceSet(jobs []*Job) error {
 		return incomplete
 	}
 	first := jobs[0].RawRequest
-	subtypes := make([]string, 0, len(jobs))
+	want := manifest.RawSubtypes(first.SourceType)
+	seen := make(map[string]bool, len(jobs))
 	for _, job := range jobs {
 		if job == nil || job.RawRequest == nil || job.RawRequest.SourceType != first.SourceType ||
 			job.RawRequest.Competencia != first.Competencia {
 			return incomplete
 		}
-		subtypes = append(subtypes, job.RawRequest.FileSubtype)
-	}
-	want := manifest.RawSubtypes(first.SourceType)
-	slices.Sort(subtypes)
-	slices.Sort(want)
-	if !slices.Equal(subtypes, want) {
-		return incomplete
+		subtype := job.RawRequest.FileSubtype
+		if seen[subtype] || !slices.Contains(want, subtype) {
+			return incomplete
+		}
+		seen[subtype] = true
 	}
 	return nil
 }

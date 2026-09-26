@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -128,6 +129,9 @@ func (e *JobExecutor) rawRequest(job *Job) (rawCycle, error) {
 		JobID: job.ID, FencingToken: job.FencingToken}
 	cycle.request = *job.RawRequest
 	cycle.request.JobID, cycle.request.TenantID = job.ID, job.TenantID
+	if job.Attempt > 1 {
+		cycle.request.SnapshotID = fmt.Sprintf("%s-f%d", job.ID, job.FencingToken)
+	}
 	key := cycle.ref.SourceKey
 	_, forced, err := e.DeltaStore.ForceFull(key)
 	if err != nil {

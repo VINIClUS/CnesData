@@ -58,6 +58,19 @@ func TestConstrucaoDeltaCarregaBaseSequenciaEHashDoServidor(t *testing.T) {
 	)
 }
 
+func TestNovaTentativaUsaSnapshotDiferenteSemMudarManifestID(t *testing.T) {
+	request := goldenRequest()
+	request.JobID = "job-reclaimed"
+	request.SnapshotID = "job-reclaimed-f2"
+
+	got, err := Build(request)
+
+	require.NoError(t, err)
+	require.Equal(t, "job-reclaimed", got.ManifestID)
+	require.Equal(t, "job-reclaimed-f2", got.SnapshotID)
+	require.Contains(t, got.ObjectKey, "/job-reclaimed-f2/")
+}
+
 func TestConstrucaoRejeitaContratoRawInvalido(t *testing.T) {
 	tests := map[string]func(*BuildRequest){
 		"identificador vazio": func(r *BuildRequest) { r.JobID = "" },

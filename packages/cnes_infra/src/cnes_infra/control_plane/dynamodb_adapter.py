@@ -196,6 +196,32 @@ class DynamoDBControlPlane(
         """Persiste um agente."""
         key = entity_key(agent.tenant_id, "AGENT", agent.agent_id)
         self._put_direct(encode_model(agent, "AGENT", key))
+
+    def register_edge_agent(
+        self, tenant_id: str, agent_id: str, fingerprint: str, now: datetime
+    ) -> Agent:
+        key = entity_key(tenant_id, "AGENT", agent_id)
+        for _ in range(3):
+            current_item = self._get_item(key)
+            current = decode_model(current_item, Agent) if current_item else None
+            if current is not None and current.state is AgentState.REVOKED:
+                raise Conflict(ErrorCode.AGENT_REVOKED)
+            agent = current.model_copy(update={
+                "certificate_fingerprint": fingerprint, "last_seen_at": now,
+            }) if current is not None else Agent(
+                tenant_id=tenant_id, agent_id=agent_id, state=AgentState.ACTIVE,
+                version="unknown", certificate_fingerprint=fingerprint,
+                last_seen_at=now, created_at=now,
+            )
+            try:
+                self._transact((put_action(
+                    self._table_name, encode_model(agent, "AGENT", key),
+                    payload(current_item) if current_item else None,
+                ),))
+            except Conflict:
+                continue
+            return agent
+        raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
         """Cria um job e seu evento atomicamente."""
         key = entity_key(job.tenant_id, "JOB", job.job_id)

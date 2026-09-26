@@ -48,6 +48,7 @@ type Job struct {
 	Sha256       string
 	RowCount     int
 	FencingToken uint64
+	Attempt      int
 	RawRequest   *manifest.BuildRequest
 }
 
