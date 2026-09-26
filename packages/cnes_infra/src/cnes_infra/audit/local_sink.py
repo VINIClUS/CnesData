@@ -18,7 +18,7 @@ import polars as pl
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.errors import Conflict
 
-if os.name == "nt":
+if os.name == "nt":  # pragma: no cover - Windows smoke
     import msvcrt
 else:
     import fcntl
@@ -152,7 +152,7 @@ class LocalAuditSink:
     @contextmanager
     def _locked(self) -> Iterator[None]:
         with self._lock_path.open("a+b") as stream:
-            if os.name == "nt":
+            if os.name == "nt":  # pragma: no cover - Windows smoke
                 stream.seek(0)
                 if not stream.read(1):
                     stream.write(b"\0")
@@ -164,7 +164,7 @@ class LocalAuditSink:
             try:
                 yield
             finally:
-                if os.name == "nt":
+                if os.name == "nt":  # pragma: no cover - Windows smoke
                     stream.seek(0)
                     msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
@@ -394,7 +394,7 @@ class LocalAuditSink:
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
-        if os.name == "nt":
+        if os.name == "nt":  # pragma: no cover - Windows smoke
             return
         descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
         try:

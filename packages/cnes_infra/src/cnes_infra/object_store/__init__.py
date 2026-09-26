@@ -2,7 +2,7 @@
 
 import os
 
-if os.name == "nt":
+if os.name == "nt":  # pragma: no cover - Windows smoke
     from cnes_infra.object_store.windows_filesystem import (
         WindowsFilesystemObjectStore as FilesystemObjectStore,
     )
