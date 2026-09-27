@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 _SCHEMA_VERSION = "cnes-serving-v1"
 _DOCUMENT_NAME = "overview"
 _TARGET_LEAF = f"{_DOCUMENT_NAME}.json"
-_MISSING_NATIONAL = "CNES_NACIONAL"
+_MISSING_NATIONAL = "CNES_NACIONAL/CNES_VINCULO"
 
 
 def materialize_cnes(request: MaterializeRequest, store: ObjectStorePort) -> MaterializeResult:
