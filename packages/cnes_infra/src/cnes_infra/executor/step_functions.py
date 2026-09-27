@@ -148,6 +148,8 @@ def _container_environment(
     matches = [override for override in overrides if override.get("Name") == container_name]
     if len(matches) != 1:
         raise IncompatibleStateMachine("processor_container_override_missing")
+    if matches[0].keys() - {"Name", "Environment"}:
+        raise IncompatibleStateMachine("container_override_must_only_set_environment")
     variables = matches[0].get("Environment", [])
     names = [variable.get("Name") for variable in variables]
     if len(set(names)) != len(names):

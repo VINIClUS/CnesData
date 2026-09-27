@@ -357,6 +357,7 @@ def test_rejeita_workflow_incompativel(fixture_name: str, workflow_type: str, er
         ((*_NETWORK, "Subnets"), [], "subnets_required"),
         ((*_NETWORK, "AssignPublicIp"), "ENABLED", "assign_public_ip_mismatch"),
         ((*_CONTAINER, "Name"), "other", "processor_container_override_missing"),
+        ((*_CONTAINER, "Command"), ["noop"], "container_override_must_only_set_environment"),
         ((*_ENVIRONMENT, 6, "Value"), "600", "lease_seconds_mismatch"),
         ((*_ENVIRONMENT, 0, "Value.$"), "$.run_id", "environment_bindings_mismatch"),
         ((*_ENVIRONMENT, 5), _DUPLICATE_TENANT, "duplicate_environment_variable"),
@@ -366,7 +367,7 @@ def test_rejeita_workflow_incompativel(fixture_name: str, workflow_type: str, er
         "sem_map", "dois_maps", "map_fora_do_inicio", "items_divergente", "sem_selector",
         "concorrencia_implicita", "task_fora_do_inicio", "modo_implicito", "task_sem_sync",
         "duas_tasks", "catch_no_map", "falha_tolerada", "catch_na_task", "ec2",
-        "sem_task_definition", "sem_subnets", "ip_publico", "container_errado",
+        "sem_task_definition", "sem_subnets", "ip_publico", "container_errado", "comando",
         "lease_divergente", "binding_divergente", "variavel_duplicada", "variavel_faltante",
     ],
 )
