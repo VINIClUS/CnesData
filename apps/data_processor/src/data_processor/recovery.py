@@ -6,12 +6,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from data_processor.orchestration.coordinator import RecoveryFailed
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
     from cnes_domain.ports.control_plane import ControlPlanePort
-    from data_processor.orchestration.coordinator import PipelineCoordinator
+    from data_processor.orchestration.coordinator import CoordinatorResult, PipelineCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,18 @@ _MAX_LIMIT = 1000
 class RecoveryResult:
     scanned: int
     recovered: int
+
+
+def _log_pass(results: tuple[CoordinatorResult, ...], scanned: int, failed: int) -> None:
+    for result in results:
+        logger.info(
+            "processor_execution_observed",
+            extra={"run_state": str(result.state), "published": result.published},
+        )
+    logger.info(
+        "processor_recovery_completed",
+        extra={"scanned": scanned, "recovered": len(results), "failed": failed},
+    )
 
 
 class ProcessorRecovery:
@@ -36,7 +50,8 @@ class ProcessorRecovery:
     def run_once(self, limit: int) -> RecoveryResult:
         """Args: limit: máximo de runs da passada, entre 1 e 1000.
         Returns: Runs candidatos lidos e runs revalidados pelo coordinator.
-        Raises: ValueError para limite inválido; erros do control plane e do coordinator.
+        Raises: ValueError para limite inválido; RecoveryFailed se algum run da passada
+            falhou; erros do control plane e do coordinator.
         """
         if not 1 <= limit <= _MAX_LIMIT:
             raise ValueError("limit=invalid")
@@ -48,18 +63,13 @@ class ProcessorRecovery:
         )
         try:
             results = self._coordinator.recover(limit=limit)
+        except RecoveryFailed as error:
+            _log_pass(error.results, len(runs), error.failed)
+            raise
         except Exception as error:
             logger.error("processor_execution_probe_failed", extra={"reason": type(error).__name__})
             raise
-        for result in results:
-            logger.info(
-                "processor_execution_observed",
-                extra={"run_state": str(result.state), "published": result.published},
-            )
-        logger.info(
-            "processor_recovery_completed",
-            extra={"scanned": len(runs), "recovered": len(results)},
-        )
+        _log_pass(results, len(runs), 0)
         return RecoveryResult(scanned=len(runs), recovered=len(results))
 
 

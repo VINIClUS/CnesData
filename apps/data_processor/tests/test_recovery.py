@@ -11,9 +11,22 @@ import pytest
 from cnes_domain.control_plane.entities import Run, RunDependency, RunDispatch
 from cnes_domain.control_plane.enums import DispatchState, RunState
 from cnes_domain.ports.control_plane import ControlPlanePort
+from cnes_domain.ports.processing import (
+    ExecutionCallbacks,
+    ExecutionPolicyConfig,
+    ProcessorExecutorPort,
+)
 from cnes_infra.executor.step_functions import ProcessorExecutionUnavailable
 from cnes_infra.observability import JsonLogFormatter
-from data_processor.orchestration.coordinator import CoordinatorResult, PipelineCoordinator
+from data_processor.orchestration.coordinator import (
+    CoordinatorDependencies,
+    CoordinatorResult,
+    PipelineCoordinator,
+    RecoveryFailed,
+    allow_execution,
+    noop_execution_started,
+)
+from data_processor.orchestration.publisher import DatasetPublisher
 from data_processor.recovery import ProcessorRecovery, RecoveryResult
 
 NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
@@ -138,8 +151,53 @@ def test_recovery_emite_eventos_json_sem_dados_sensiveis(
     assert lines[0]["scanned"] == 2
     assert lines[0]["run_states"] == {"PROCESSING": 1, "PUBLISHING": 1}
     assert (lines[1]["run_state"], lines[1]["published"]) == ("PUBLISHED", True)
-    assert (lines[3]["scanned"], lines[3]["recovered"]) == (2, 2)
+    assert (lines[3]["scanned"], lines[3]["recovered"], lines[3]["failed"]) == (2, 2, 0)
     assert lines[5]["reason"] == "ProcessorExecutionUnavailable"
+    rendered = "\n".join(json.dumps(line) for line in lines)
+    for forbidden in ("arn:", "serving/", "raw/", "manifest", "https://", "Bearer"):
+        assert forbidden not in rendered
+
+
+def _recovery_com_run_falho() -> tuple[ProcessorRecovery, Mock]:
+    control_plane = Mock(spec=ControlPlanePort)
+    control_plane.list_recoverable_runs.return_value = (_run("r1"), _run("r2"))
+    published = _run("r2", RunState.PUBLISHED)
+
+    def get_run(tenant_id: str, run_id: str) -> Run:
+        if run_id == "r1":
+            raise ConnectionError("control_plane=unavailable")
+        return published
+
+    control_plane.get_run.side_effect = get_run
+    coordinator = PipelineCoordinator(
+        CoordinatorDependencies(
+            control_plane=control_plane, executor=Mock(spec=ProcessorExecutorPort),
+            publisher=Mock(spec=DatasetPublisher), clock=lambda: NOW,
+        ),
+        ExecutionPolicyConfig(2, 300, ExecutionCallbacks(allow_execution, noop_execution_started)),
+    )
+    return ProcessorRecovery(control_plane, coordinator, clock=lambda: NOW), control_plane
+
+
+def test_recovery_falha_a_passada_depois_de_retomar_os_demais_runs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    recovery, control_plane = _recovery_com_run_falho()
+    caplog.set_level(logging.INFO, logger="data_processor.recovery")
+
+    with pytest.raises(RecoveryFailed, match="failed=1"):
+        recovery.run_once(10)
+
+    resumed = [call.args for call in control_plane.get_run.call_args_list]
+    assert resumed == [("354130", "r1"), ("354130", "r2")]
+    formatter = JsonLogFormatter("data-processor")
+    lines = [
+        json.loads(formatter.format(record))
+        for record in caplog.records if record.name == "data_processor.recovery"
+    ]
+    assert [line["event"] for line in lines] == [EVENTS[0], EVENTS[1], EVENTS[3]]
+    assert (lines[1]["run_state"], lines[1]["published"]) == ("PUBLISHED", False)
+    assert (lines[2]["scanned"], lines[2]["recovered"], lines[2]["failed"]) == (2, 1, 1)
     rendered = "\n".join(json.dumps(line) for line in lines)
     for forbidden in ("arn:", "serving/", "raw/", "manifest", "https://", "Bearer"):
         assert forbidden not in rendered

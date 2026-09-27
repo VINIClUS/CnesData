@@ -255,7 +255,7 @@ def test_missing_sources_reflete_o_request() -> None:
             _RECONCILIATION_KEY, gold_digest, local_only.height
         ),
         divergence_manifest=_divergence_manifest(_DIVERGENCE_KEY, divergence_digest, 0),
-        missing_sources=("CNES_NACIONAL",),
+        missing_sources=("CNES_NACIONAL/CNES_VINCULO",),
         target_keys=(_TARGET_KEY,),
         generated_at=_GENERATED_AT,
     )
@@ -263,7 +263,7 @@ def test_missing_sources_reflete_o_request() -> None:
     result = materialize_cnes(request, store)
 
     payload = result.documents[0].payload
-    assert payload["missing_sources"] == ["CNES_NACIONAL"]
+    assert payload["missing_sources"] == ["CNES_NACIONAL/CNES_VINCULO"]
     assert payload["kpis"]["match_count"] == 0
     assert payload["kpis"]["national_only_count"] == 0
     assert payload["kpis"]["local_only_count"] == local_only.height

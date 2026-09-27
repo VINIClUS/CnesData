@@ -28,6 +28,7 @@ _COMPLETED_STATUS_LIMIT = 1024
 class _Batch:
     pool: ThreadPoolExecutor
     futures: tuple[Future[RunUnit | None], ...]
+    cancel_event: threading.Event
 
 
 class LocalWorkerPool:
@@ -55,19 +56,26 @@ class LocalWorkerPool:
         with self._lock:
             if ref in self._batches or ref in self._completed:
                 return ref
-            cancel = self._cancel_events.setdefault(request.run_id, threading.Event())
+            run_cancel = self._cancel_events.setdefault(request.run_id, threading.Event())
+            batch_cancel = threading.Event()
+            cancels = (run_cancel, batch_cancel)
             pool = ThreadPoolExecutor(max_workers=request.max_concurrency)
             futures = tuple(
-                pool.submit(copy_context().run, self._run_unit, message, cancel)
+                pool.submit(copy_context().run, self._run_unit, message, cancels)
                 for message in self._ordered_messages(request)
             )
-            self._batches[ref] = _Batch(pool=pool, futures=futures)
+            self._batches[ref] = _Batch(pool=pool, futures=futures, cancel_event=batch_cancel)
         return ref
 
     def cancel(self, request: CancelRunExecution) -> None:
-        """Sinaliza cancelamento best-effort para o run; não interrompe threads em curso."""
+        """Cancela best-effort o batch do ref (sem ref, o run); não interrompe threads em curso."""
         with self._lock:
-            self._cancel_events.setdefault(request.run_id, threading.Event()).set()
+            if request.execution_ref is None:
+                self._cancel_events.setdefault(request.run_id, threading.Event()).set()
+                return
+            batch = self._batches.get(request.execution_ref)
+            if batch is not None:
+                batch.cancel_event.set()
 
     def status(self, execution_ref: str) -> ExecutionStatus:
         """Reporta o estado agregado do dispatch a partir das futures registradas."""
@@ -128,7 +136,9 @@ class LocalWorkerPool:
             for unit_id in sorted(request.unit_ids)
         )
 
-    def _run_unit(self, message: RunUnitMessage, cancel: threading.Event) -> RunUnit | None:
-        if cancel.is_set():
+    def _run_unit(
+        self, message: RunUnitMessage, cancels: tuple[threading.Event, ...]
+    ) -> RunUnit | None:
+        if any(cancel.is_set() for cancel in cancels):
             return None
         return self._handler(message)
