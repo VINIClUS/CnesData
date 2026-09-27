@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -24,9 +25,23 @@ _BASE_FIELDS = frozenset({"timestamp", "level", "service", "logger", "event"})
 _RESERVED = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"} | _BASE_FIELDS
 
 
+def _without_exception_text(value: Any) -> Any:
+    return type(value).__name__ if isinstance(value, BaseException) else value
+
+
+def _safe_message(record: logging.LogRecord) -> str:
+    message = str(_without_exception_text(record.msg))
+    args = record.args
+    if isinstance(args, Mapping):
+        return message % {key: _without_exception_text(v) for key, v in args.items()}
+    if args:
+        return message % tuple(_without_exception_text(value) for value in args)
+    return message
+
+
 def _safe_extra(record: logging.LogRecord) -> dict[str, Any]:
     return {
-        key: _REDACTED if key.lower() in _REDACTED_FIELDS else value
+        key: _REDACTED if key.lower() in _REDACTED_FIELDS else _without_exception_text(value)
         for key, value in record.__dict__.items()
         if key not in _RESERVED
     }
@@ -46,7 +61,7 @@ class JsonLogFormatter(logging.Formatter):
             "level": record.levelname,
             "service": self._service_name,
             "logger": record.name,
-            "event": record.getMessage(),
+            "event": _safe_message(record),
         }
         event.update(_safe_extra(record))
         if record.exc_info and record.exc_info[0] is not None:

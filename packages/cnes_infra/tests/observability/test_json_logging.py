@@ -139,3 +139,27 @@ def test_substitui_handlers_existentes_de_forma_idempotente(tmp_path: Path) -> N
     assert root.level == logging.INFO
     logger.info("uma_vez")
     assert len(_linhas(stream)) == 1
+
+
+def test_excecao_como_argumento_sai_so_com_tipo() -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+    error = RuntimeError("https://x/?X-Amz-Signature=secret-value")
+
+    try:
+        raise error
+    except RuntimeError as exc:
+        logger.exception("poll_loop_iter_failed err=%s", exc)
+    logger.error(error)
+    logger.warning("falhou err=%(err)s", {"err": error})
+    logger.info("falhou", extra={"cause": error})
+
+    assert "secret-value" not in stream.getvalue()
+    events = _linhas(stream)
+    assert [event["event"] for event in events] == [
+        "poll_loop_iter_failed err=RuntimeError",
+        "RuntimeError",
+        "falhou err=RuntimeError",
+        "falhou",
+    ]
+    assert events[3]["cause"] == "RuntimeError"
