@@ -131,7 +131,8 @@ def _bounded(values: Mapping[str, str], limit: _Limit) -> int:
     return value
 
 
-def _issuer(value: str, allow_http: bool) -> str:
+def _issuer(raw: str, allow_http: bool) -> str:
+    value = raw.strip()
     parts = urlsplit(value)
     schemes = {"https", "http"} if allow_http else {"https"}
     has_suffix = "?" in value or "#" in value

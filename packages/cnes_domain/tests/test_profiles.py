@@ -12,6 +12,7 @@ from cnes_domain.profiles import (
     local_objects_dir,
     local_state_db,
     local_state_db_arcname,
+    parse_local_profile,
     parse_profile,
 )
 
@@ -98,6 +99,20 @@ def test_aceita_profile_aws_sem_tenant() -> None:
 
     assert settings.profile is RuntimeProfile.AWS
     assert settings.tenant_id is None
+
+
+def test_parse_local_profile_aceita_profile_local() -> None:
+    settings = parse_local_profile({"TENANT_ID": "354130"})
+
+    assert settings.profile is RuntimeProfile.LOCAL
+    assert settings.tenant_id == "354130"
+
+
+def test_parse_local_profile_rejeita_profile_aws() -> None:
+    env = {"PROFILE": "aws", "AUTH_MODE": "oidc", "OIDC_ISSUER": "https://issuer.example"}
+
+    with pytest.raises(ValueError, match="local_profile_required"):
+        parse_local_profile(env)
 
 
 @pytest.mark.parametrize(

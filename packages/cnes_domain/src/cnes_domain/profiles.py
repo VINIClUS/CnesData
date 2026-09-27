@@ -98,6 +98,17 @@ def parse_profile(env: Mapping[str, str]) -> ProfileSettings:
     return ProfileSettings.model_validate(values)
 
 
+def parse_local_profile(env: Mapping[str, str]) -> ProfileSettings:
+    """Args: env: Variáveis ambientais disponíveis.
+    Returns: Configuração validada do profile local.
+    Raises: ValueError: Quando o profile não é local ou a configuração é inválida.
+    """
+    settings = parse_profile(env)
+    if settings.profile is not RuntimeProfile.LOCAL:
+        raise ValueError("code=local_profile_required")
+    return settings
+
+
 __all__ = [
     "AuthMode",
     "BillingMode",
@@ -107,5 +118,6 @@ __all__ = [
     "local_objects_dir",
     "local_state_db",
     "local_state_db_arcname",
+    "parse_local_profile",
     "parse_profile",
 ]

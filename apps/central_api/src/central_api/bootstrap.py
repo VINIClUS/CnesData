@@ -19,7 +19,7 @@ from getpass import getpass
 from typing import TYPE_CHECKING
 
 from cnes_domain.control_plane.entities import Membership
-from cnes_domain.profiles import ProfileSettings, parse_profile
+from cnes_domain.profiles import ProfileSettings, parse_local_profile
 from cnes_infra.auth.local_credentials import LocalCredentialStore, build_user
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 
@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
     args = _build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     resolved_env = env if env is not None else os.environ
-    settings = parse_profile(dict(resolved_env))
+    settings = parse_local_profile(dict(resolved_env))
     password = _resolve_password(resolved_env)
     bootstrap_user(settings, args.email, args.user_id, args.role, password)
     return 0

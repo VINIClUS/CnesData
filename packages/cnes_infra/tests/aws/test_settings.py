@@ -225,6 +225,15 @@ def test_remove_uma_barra_final_do_issuer() -> None:
     assert settings.oidc_issuer == "https://id.example.test/realms/cnes"
 
 
+@pytest.mark.parametrize("issuer", [" https://id.example.test", "https://id.example.test/ "])
+def test_remove_espacos_do_issuer(issuer: str) -> None:
+    values = _valid_values() | {"OIDC_ISSUER": issuer}
+
+    settings = AwsRuntimeSettings.from_mapping(values)
+
+    assert settings.oidc_issuer == "https://id.example.test"
+
+
 def test_aceita_issuer_http_com_endpoint_de_emulador() -> None:
     values = _valid_values() | {
         "OIDC_ISSUER": "http://keycloak:8080/realms/cnes",
