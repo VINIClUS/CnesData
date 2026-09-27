@@ -142,13 +142,33 @@ def test_rejeita_profile_ausente() -> None:
 
 @pytest.mark.parametrize(
     ("key", "value"),
-    [("AUTH_MODE", "jwt"), ("OIDC_ISSUER", ""), ("BILLING_MODE", "manual")],
+    [("AUTH_MODE", "jwt"), ("OIDC_ISSUER", ""), ("OIDC_ISSUER", "   ")],
 )
 def test_traduz_erro_de_profile_settings(key: str, value: str) -> None:
     values = _valid_values() | {key: value}
 
     with pytest.raises(AwsRuntimeConfigurationError, match="profile_settings_invalid"):
         AwsRuntimeSettings.from_mapping(values)
+
+
+def test_rejeita_issuer_ausente() -> None:
+    values = _valid_values()
+    del values["OIDC_ISSUER"]
+
+    with pytest.raises(AwsRuntimeConfigurationError, match="profile_settings_invalid"):
+        AwsRuntimeSettings.from_mapping(values)
+
+
+def test_ignora_campos_de_profile_fora_do_escopo_aws() -> None:
+    values = _valid_values() | {
+        "TENANT_ID": "tenant-a",
+        "BILLING_MODE": "manual",
+        "DATA_DIR": "/var/lib/cnes",
+    }
+
+    settings = AwsRuntimeSettings.from_mapping(values)
+
+    assert settings.region == "us-east-1"
 
 
 def test_exige_auth_mode_explicito() -> None:

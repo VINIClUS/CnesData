@@ -9,6 +9,8 @@ from pydantic import ValidationError
 
 from cnes_domain.profiles import AuthMode, ProfileSettings, RuntimeProfile, parse_profile
 
+_PROFILE_KEYS = ("PROFILE", "AUTH_MODE", "OIDC_ISSUER")
+
 
 class AwsRuntimeConfigurationError(ValueError):
     pass
@@ -94,7 +96,7 @@ def _profile(values: Mapping[str, str]) -> ProfileSettings:
     if values.get("PROFILE") != RuntimeProfile.AWS:
         raise AwsRuntimeConfigurationError("profile_must_be_aws")
     try:
-        profile = parse_profile(values)
+        profile = parse_profile({key: values[key] for key in _PROFILE_KEYS if key in values})
     except ValidationError as error:
         raise AwsRuntimeConfigurationError("profile_settings_invalid") from error
     if profile.auth_mode is not AuthMode.OIDC:
