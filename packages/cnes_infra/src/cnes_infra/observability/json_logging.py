@@ -29,7 +29,10 @@ _RESERVED = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime
 
 
 def _is_sensitive(key: object) -> bool:
-    return isinstance(key, str) and key.lower() in _REDACTED_FIELDS
+    if not isinstance(key, str):
+        return False
+    name = key.lower()
+    return name in _REDACTED_FIELDS or name.rpartition("_")[2] in _REDACTED_FIELDS
 
 
 def _sanitize(value: Any) -> Any:
@@ -50,10 +53,11 @@ def _safe_message(record: logging.LogRecord) -> str:
     args = record.args
     if not args:
         return template
-    if isinstance(args, Mapping):
+    if isinstance(args, Mapping) and "%(" in template:
         values: Any = _sanitize(args)
     else:
-        template, kept = _redact_labeled(template, args)
+        positional = args if isinstance(args, tuple) else (args,)
+        template, kept = _redact_labeled(template, positional)
         values = tuple(_sanitize(value) for value in kept)
     try:
         return template % values

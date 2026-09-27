@@ -223,3 +223,34 @@ def test_template_de_mapping_invalido_emite_template_sem_valores() -> None:
     logger.info("user=%(ausente)s", {"email": "secret-value"})
 
     assert _linhas(stream)[0]["event"] == "user=%(ausente)s"
+
+
+def test_mapping_unico_em_spec_posicional_segue_redacao_por_rotulo() -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+
+    logger.info("token=%s", {"value": "secret-value"})
+    logger.info("ctx=%s", {"email": "secret-value", "id": 1})
+
+    assert "secret-value" not in stream.getvalue()
+    assert [event["event"] for event in _linhas(stream)] == [
+        "token=[REDACTED]",
+        "ctx={'email': '[REDACTED]', 'id': 1}",
+    ]
+
+
+def test_redige_rotulos_com_sufixo_sensivel() -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+
+    logger.info("oidc access_token=%s token_count=%d", "secret-value", 2)
+    logger.info(
+        "ctx",
+        extra={"refresh_token": "secret-value", "user_email": "secret-value", "por_id": {7: "a"}},
+    )
+
+    assert "secret-value" not in stream.getvalue()
+    first, second = _linhas(stream)
+    assert first["event"] == "oidc access_token=[REDACTED] token_count=2"
+    assert (second["refresh_token"], second["user_email"]) == ("[REDACTED]", "[REDACTED]")
+    assert second["por_id"] == {"7": "a"}
