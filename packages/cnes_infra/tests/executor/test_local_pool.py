@@ -266,6 +266,51 @@ def test_cancel_antes_do_start_suprime_execucao() -> None:
     assert pool.status(ref) is ExecutionStatus.CANCELED
 
 
+def test_cancel_por_ref_nao_suprime_dispatch_seguinte_do_mesmo_run() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[tuple[str, str]] = []
+
+    def handler(message: RunUnitMessage) -> RunUnit:
+        calls.append((message.dispatch_id, message.unit_id))
+        started.set()
+        assert release.wait(timeout=5)
+        return _reconcile_unit(message.unit_id, message.run_id)
+
+    pool = LocalWorkerPool(handler, "local-worker", _utc_now, lease_seconds=300)
+    first = pool.start(_request(unit_ids=("unit-1", "unit-2"), max_concurrency=1))
+    assert started.wait(timeout=5)
+    pool.cancel(CancelRunExecution(tenant_id=_TENANT, run_id="run-1", execution_ref=first))
+    release.set()
+    pool.close()
+
+    second = pool.start(_request().model_copy(update={"dispatch_id": "0000000000000002"}))
+    pool.close()
+
+    assert calls == [(_DISPATCH_ID, "unit-1"), ("0000000000000002", "unit-1")]
+    assert pool.status(first) is ExecutionStatus.CANCELED
+    assert pool.status(second) is ExecutionStatus.SUCCEEDED
+
+
+def test_cancel_de_ref_desconhecido_nao_afeta_o_run() -> None:
+    calls: list[str] = []
+
+    def handler(message: RunUnitMessage) -> RunUnit:
+        calls.append(message.unit_id)
+        return _reconcile_unit(message.unit_id, message.run_id)
+
+    pool = LocalWorkerPool(handler, "local-worker", _utc_now, lease_seconds=300)
+    pool.cancel(CancelRunExecution(
+        tenant_id=_TENANT, run_id="run-1", execution_ref="local:run-1:0000000000000000",
+    ))
+
+    ref = pool.start(_request())
+    pool.close()
+
+    assert calls == ["unit-1"]
+    assert pool.status(ref) is ExecutionStatus.SUCCEEDED
+
+
 def test_rejeita_execution_ref_desconhecido() -> None:
     pool = LocalWorkerPool(
         lambda message: _reconcile_unit(message.unit_id, message.run_id),
