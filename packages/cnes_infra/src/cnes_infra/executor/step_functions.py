@@ -32,6 +32,13 @@ _ENVIRONMENT_PATHS = {
     "UNIT_ID": "$.unit_id",
     "EXECUTION_OWNER": "$$.Execution.Id",
 }
+_ITEM_SELECTOR = {
+    "tenant_id.$": "$.tenant_id",
+    "run_id.$": "$.run_id",
+    "wave_id.$": "$.wave_id",
+    "dispatch_id.$": "$.dispatch_id",
+    "unit_id.$": "$$.Map.Item.Value",
+}
 
 
 class IncompatibleStateMachine(Exception):
@@ -69,15 +76,29 @@ def _describe_state_machine(client: BaseClient, state_machine_arn: str) -> dict[
         raise ProcessorExecutionUnavailable(_error_code(error)) from error
 
 
-def _states_of_type(states: dict[str, Any], state_type: str) -> list[dict[str, Any]]:
-    return [state for state in states.values() if state.get("Type") == state_type]
+def _start_state_of_type(
+    machine: dict[str, Any], state_type: str,
+) -> tuple[dict[str, Any] | None, int]:
+    states = machine.get("States", {})
+    matches = [name for name, state in states.items() if state.get("Type") == state_type]
+    start = states.get(machine.get("StartAt")) if matches == [machine.get("StartAt")] else None
+    return start, len(matches)
+
+
+def _validate_map_items(run_map: dict[str, Any]) -> None:
+    if run_map.get("ItemsPath") != "$.unit_ids":
+        raise IncompatibleStateMachine("map_items_must_be_unit_ids")
+    if run_map.get("ItemSelector") != _ITEM_SELECTOR:
+        raise IncompatibleStateMachine("map_item_selector_mismatch")
 
 
 def _inline_map(definition: dict[str, Any]) -> dict[str, Any]:
-    maps = _states_of_type(definition.get("States", {}), "Map")
-    if len(maps) != 1:
+    run_map, count = _start_state_of_type(definition, "Map")
+    if count != 1:
         raise IncompatibleStateMachine("single_map_required")
-    run_map = maps[0]
+    if run_map is None:
+        raise IncompatibleStateMachine("map_must_be_start_state")
+    _validate_map_items(run_map)
     processor = run_map.get("ItemProcessor", {})
     if processor.get("ProcessorConfig", {}).get("Mode") != "INLINE":
         raise IncompatibleStateMachine("map_must_be_inline")
@@ -87,10 +108,10 @@ def _inline_map(definition: dict[str, Any]) -> dict[str, Any]:
 
 
 def _ecs_parameters(processor: dict[str, Any]) -> dict[str, Any]:
-    tasks = _states_of_type(processor.get("States", {}), "Task")
-    if len(tasks) != 1 or tasks[0].get("Resource") != _ECS_RUN_TASK_SYNC:
+    task, count = _start_state_of_type(processor, "Task")
+    if count != 1 or task is None or task.get("Resource") != _ECS_RUN_TASK_SYNC:
         raise IncompatibleStateMachine("single_ecs_sync_task_required")
-    parameters = tasks[0].get("Parameters", {})
+    parameters = task.get("Parameters", {})
     if parameters.get("LaunchType") != "FARGATE":
         raise IncompatibleStateMachine("launch_type_must_be_fargate")
     return parameters

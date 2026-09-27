@@ -30,6 +30,7 @@ from cnes_infra.executor.step_functions import (
 
 _FIXTURES = Path(__file__).parents[1] / "fixtures" / "step_functions"
 _ECS_SYNC = "arn:aws:states:::ecs:runTask.sync"
+_EXTRA_TASK = {"Type": "Task", "Resource": _ECS_SYNC}
 _ECS_PARAMETERS = ("States", "RunUnits", "ItemProcessor", "States", "RunProcessor", "Parameters")
 _ITEM_STATES = ("States", "RunUnits", "ItemProcessor", "States")
 _NETWORK = (*_ECS_PARAMETERS, "NetworkConfiguration", "AwsvpcConfiguration")
@@ -348,14 +349,14 @@ def test_rejeita_workflow_incompativel(fixture_name: str, workflow_type: str, er
     [
         (("States", "RunUnits", "Type"), "Pass", "single_map_required"),
         (("States", "Extra"), {"Type": "Map"}, "single_map_required"),
+        (("StartAt",), "Other", "map_must_be_start_state"),
+        (("States", "RunUnits", "ItemsPath"), "$.other", "map_items_must_be_unit_ids"),
+        (("States", "RunUnits", "ItemSelector"), None, "map_item_selector_mismatch"),
         (("States", "RunUnits", "MaxConcurrencyPath"), None, "map_concurrency_must_be_explicit"),
+        ((*_ITEM_STATES[:-1], "StartAt"), "Other", "single_ecs_sync_task_required"),
         (("States", "RunUnits", "ItemProcessor", "ProcessorConfig"), None, "map_must_be_inline"),
         ((*_ECS_PARAMETERS[:-1], "Resource"), _ECS_SYNC[:-5], "single_ecs_sync_task_required"),
-        (
-            (*_ITEM_STATES, "Extra"),
-            {"Type": "Task", "Resource": _ECS_SYNC},
-            "single_ecs_sync_task_required",
-        ),
+        ((*_ITEM_STATES, "Extra"), _EXTRA_TASK, "single_ecs_sync_task_required"),
         ((*_ECS_PARAMETERS, "LaunchType"), "EC2", "launch_type_must_be_fargate"),
         ((*_NETWORK, "AssignPublicIp"), "ENABLED", "assign_public_ip_mismatch"),
         ((*_CONTAINER, "Name"), "other", "processor_container_override_missing"),
@@ -364,7 +365,8 @@ def test_rejeita_workflow_incompativel(fixture_name: str, workflow_type: str, er
         ((*_ENVIRONMENT, 5), {"Name": "OTHER", "Value": "x"}, "environment_bindings_mismatch"),
     ],
     ids=[
-        "sem_map", "dois_maps", "concorrencia_implicita", "modo_implicito", "task_sem_sync",
+        "sem_map", "dois_maps", "map_fora_do_inicio", "items_divergente", "sem_selector",
+        "concorrencia_implicita", "task_fora_do_inicio", "modo_implicito", "task_sem_sync",
         "duas_tasks", "ec2", "ip_publico", "container_errado", "lease_divergente",
         "binding_divergente", "variavel_faltante",
     ],
