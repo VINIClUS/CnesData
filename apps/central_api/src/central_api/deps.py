@@ -10,13 +10,19 @@ from hashlib import sha256
 from hmac import compare_digest
 from typing import TYPE_CHECKING
 
+import httpx
+from boto3.session import Session
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import create_engine
 from starlette.requests import Request  # noqa: TC002 - needed at runtime by FastAPI
 
+from central_api.composition import build_runtime
 from central_api.middleware import AuthenticatedUser
+from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra import config
+from cnes_infra.auth.oidc import OidcVerifier
+from cnes_infra.aws import AwsRuntimeConfigurationError, AwsRuntimeSettings
 from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.query_counter import install_query_counter
 from cnes_infra.storage.rls import install_rls_listener
@@ -24,12 +30,13 @@ from cnes_infra.storage.s3_presigned import S3PresignedStorage, build_s3_client
 from cnes_infra.telemetry import instrument_engine
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable, Iterator
+    from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 
     from sqlalchemy.engine import Connection, Engine
 
-    from central_api.composition import LocalRuntime
+    from central_api.composition import RuntimeComponents
     from central_api.routes.serving import ServingPrincipal
+    from cnes_domain.outbox_dispatcher import DispatchResult
     from cnes_domain.ports.object_storage import ObjectStoragePort
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.auth.local_auth import LocalAuthService
@@ -38,6 +45,8 @@ logger = logging.getLogger(__name__)
 
 _engine: Engine | None = None
 _REAPER_INTERVAL = 60
+_OUTBOX_INTERVAL = 30
+_OIDC_HTTP_TIMEOUT_SECONDS = 5.0
 
 
 def get_engine() -> Engine:
@@ -48,7 +57,7 @@ def get_engine() -> Engine:
 
 
 def get_health_engine() -> Engine | None:
-    if _local_profile_requested():
+    if _local_profile_requested() or _aws_profile_requested():
         return None
     return get_engine()
 
@@ -131,6 +140,10 @@ def _local_profile_requested() -> bool:
     return os.environ.get("PROFILE", "").strip().lower() == "local"
 
 
+def _aws_profile_requested() -> bool:
+    return os.environ.get("PROFILE", "").strip().lower() == "aws"
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -138,14 +151,14 @@ def _utc_now() -> datetime:
 def _build_local_state(app: object) -> None:
     """Compõe uma única vez o grafo SQLite/filesystem do profile local."""
 
-    from central_api.composition import build_local_runtime
     from central_api.services.national_ingestion import NationalIngestionService
     from central_api.services.raw_upload import RawUploadService
     from cnes_domain.profiles import parse_profile
     from cnes_infra.ingestion import DatasusCnesFtpTransport, DatasusCnesRawAdapter
 
     settings = parse_profile(os.environ)
-    runtime = build_local_runtime(settings, _utc_now)
+    runtime = build_runtime("local", os.environ, Session())
+    app.state.runtime = runtime
     app.state.settings = settings
     app.state.control_plane = runtime.control_plane
     app.state.raw_query = runtime.control_plane
@@ -246,7 +259,7 @@ def _build_aws_raw_state(app: object) -> None:
 
 
 def _install_local_auth_and_serving(
-    app: object, runtime: LocalRuntime, settings: ProfileSettings
+    app: object, runtime: RuntimeComponents, settings: ProfileSettings
 ) -> None:
     from central_api.routes import local_auth, serving
     from central_api.services.serving_access import LocalServingAccess
@@ -286,18 +299,75 @@ def _install_cert_authority(app: object) -> None:
         logger.warning("agent_mtls required=false jobs_routes=unauthenticated")
 
 
+def _reject_raw_backend(values: Mapping[str, str]) -> None:
+    # PROFILE=aws uses only the provider chain; the VPS raw path (#294) carries static keys.
+    if values.get("RAW_BACKEND") or any(name.startswith("RAW_AWS_") for name in values):
+        raise AwsRuntimeConfigurationError("raw_backend=forbidden")
+
+
+def _serving_principal_from_state(request: Request) -> ServingPrincipal:
+    from central_api.routes.serving import ServingPrincipal
+
+    principal = getattr(request.state, "principal", None)
+    authorized = getattr(request.state, "authorized_tenant", None)
+    if principal is None or authorized is None:
+        raise HTTPException(status_code=401, detail="auth_required")
+    return ServingPrincipal(tenant_id=authorized.tenant_id, user_id=principal.subject)
+
+
+def _install_aws_serving(app: object, runtime: RuntimeComponents) -> None:
+    from central_api.routes import serving
+
+    delivery = serving.signed_serving_delivery(runtime.services.serving_access, _utc_now)
+    app.dependency_overrides[serving.get_serving_principal] = _serving_principal_from_state
+    app.dependency_overrides[serving.get_serving_delivery] = lambda: delivery
+
+
+def _dispatch_outbox(runtime: RuntimeComponents) -> DispatchResult:
+    return dispatch_once(runtime.control_plane, runtime.audit_sink, _utc_now())
+
+
+async def _outbox_dispatch_loop(runtime: RuntimeComponents) -> None:
+    loop = asyncio.get_running_loop()
+    while True:
+        await asyncio.sleep(_OUTBOX_INTERVAL)
+        try:
+            result = await loop.run_in_executor(None, _dispatch_outbox, runtime)
+        except Exception:
+            logger.exception("outbox_dispatch_error")
+            continue
+        if result.delivered or result.failed:
+            logger.info(
+                "outbox_dispatched delivered=%d failed=%d", result.delivered, result.failed,
+            )
+
+
 @asynccontextmanager
-async def lifespan(app: object) -> AsyncGenerator[None]:
-    global _engine
-    if _local_profile_requested():
-        _build_local_state(app)
+async def _aws_lifespan(app: object) -> AsyncGenerator[None]:
+    _reject_raw_backend(os.environ)
+    settings = AwsRuntimeSettings.from_mapping(os.environ)
+    runtime = build_runtime("aws", os.environ, Session())
+    http_client = httpx.Client(timeout=_OIDC_HTTP_TIMEOUT_SECONDS)
+    app.state.runtime = runtime
+    app.state.oidc_verifier = OidcVerifier(
+        settings.oidc_issuer, settings.oidc_audience, http_client,
+    )
+    _install_aws_serving(app, runtime)
+    dispatcher = asyncio.create_task(_outbox_dispatch_loop(runtime))
+    logger.info("aws_profile_composed region=%s", settings.region)
+    try:
         yield
-        return
+    finally:
+        dispatcher.cancel()
+        http_client.close()
+
+
+def _build_legacy_state(app: object) -> Engine:
     _db_url = os.environ.get("DB_URL") or config.DB_URL
-    _engine = create_engine(_db_url)
-    install_rls_listener(_engine)
-    install_query_counter(_engine)
-    instrument_engine(_engine)
+    engine = create_engine(_db_url)
+    install_rls_listener(engine)
+    install_query_counter(engine)
+    instrument_engine(engine)
 
     from central_api.repositories.dashboard_repo import DashboardRepo
     from central_api.repositories.leads_repo import LeadsRepo
@@ -316,12 +386,12 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
         )
     else:
         app.state.jwt_validator = None  # type: ignore[attr-defined]
-    app.state.dashboard_repo = DashboardRepo(_engine)  # type: ignore[attr-defined]
-    app.state.leads_repo = LeadsRepo(_engine)  # type: ignore[attr-defined]
+    app.state.dashboard_repo = DashboardRepo(engine)  # type: ignore[attr-defined]
+    app.state.leads_repo = LeadsRepo(engine)  # type: ignore[attr-defined]
     app.state.device_code_store = DeviceCodeStore()  # type: ignore[attr-defined]
     app.state.access_token_store = AccessTokenStore()  # type: ignore[attr-defined]
-    app.state.refresh_token_store = RefreshTokenStore(_engine)  # type: ignore[attr-defined]
-    app.state.provisioned_certs = ProvisionedCertsRepo(_engine)  # type: ignore[attr-defined]
+    app.state.refresh_token_store = RefreshTokenStore(engine)  # type: ignore[attr-defined]
+    app.state.provisioned_certs = ProvisionedCertsRepo(engine)  # type: ignore[attr-defined]
     _install_cert_authority(app)
     _install_edge_identity(app)
     _build_aws_raw_state(app)
@@ -330,7 +400,21 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     app.state.device_code_ttl = config.AUTH_DEVICE_CODE_TTL  # type: ignore[attr-defined]
     app.state.cert_ttl_days = config.AUTH_CERT_TTL_DAYS  # type: ignore[attr-defined]
     app.state.auth_required = config.AUTH_REQUIRED  # type: ignore[attr-defined]
+    return engine
 
+
+@asynccontextmanager
+async def lifespan(app: object) -> AsyncGenerator[None]:
+    global _engine
+    if _local_profile_requested():
+        _build_local_state(app)
+        yield
+        return
+    if _aws_profile_requested():
+        async with _aws_lifespan(app):
+            yield
+        return
+    _engine = _build_legacy_state(app)
     reaper = asyncio.create_task(_lease_reaper_loop(_engine))
     yield
     reaper.cancel()

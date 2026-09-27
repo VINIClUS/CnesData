@@ -4,13 +4,19 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from uuid import UUID
 
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from central_api.auth.aws_oidc import TenantAccessDenied
+from cnes_domain.tenant import set_tenant_id
 from cnes_infra.auth import TokenInvalid
 
 logger = logging.getLogger(__name__)
+
+_HEALTH_PATH = "/api/v1/system/health"
+_TENANT_SCOPED_PREFIX = "/api/v1/dashboard/"
 
 _query_count: ContextVar[list[int] | None] = ContextVar(
     "query_count", default=None,
@@ -34,6 +40,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path.startswith(("/oauth/", "/provision/", "/api/v1/public/")):
             return await call_next(request)
+        verifier = getattr(request.app.state, "oidc_verifier", None)
+        if verifier is not None:
+            return await self._dispatch_oidc(request, call_next, verifier)
         header = request.headers.get("Authorization", "")
         if not header.lower().startswith("bearer "):
             return await call_next(request)
@@ -74,6 +83,48 @@ class AuthMiddleware(BaseHTTPMiddleware):
             tenant_ids=list(user.tenant_ids),
         )
         return await call_next(request)
+
+    async def _dispatch_oidc(
+        self, request: Request, call_next: object, verifier: object,
+    ) -> Response:
+        path = request.url.path
+        if path == _HEALTH_PATH:
+            return await call_next(request)
+        tenant_scoped = path.startswith(_TENANT_SCOPED_PREFIX)
+        header = request.headers.get("Authorization", "")
+        if not header.lower().startswith("bearer "):
+            if tenant_scoped:
+                return _deny(401, "auth_required")
+            return await call_next(request)
+        try:
+            principal = await run_in_threadpool(verifier.verify, header[7:].strip())
+        except TokenInvalid as e:
+            logger.warning("oidc_token_invalid reason=%s", e)
+            return _deny(401, "token_invalid")
+        request.state.principal = principal
+        if tenant_scoped:
+            return await self._authorize_tenant(request, call_next, principal)
+        return await call_next(request)
+
+    async def _authorize_tenant(
+        self, request: Request, call_next: object, principal: object,
+    ) -> Response:
+        requested = request.headers.get("X-Tenant-Id", "").strip()
+        if not requested:
+            return _deny(400, "tenant_header_required")
+        authorizer = request.app.state.runtime.services.membership_authorizer
+        try:
+            authorized = await run_in_threadpool(authorizer.authorize, principal, requested)
+        except TenantAccessDenied as e:
+            logger.warning("tenant_access_denied code=%s", e.code)
+            return _deny(403, "tenant_not_allowed")
+        request.state.authorized_tenant = authorized
+        set_tenant_id(authorized.tenant_id)
+        return await call_next(request)
+
+
+def _deny(status_code: int, detail: str) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"detail": detail})
 
 
 class QueryCounterMiddleware(BaseHTTPMiddleware):

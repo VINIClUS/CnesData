@@ -325,3 +325,81 @@ class TestPollUntilShutdown:
         )
 
         assert len(ticks) == 2
+
+
+class TestMainProfileAws:
+    @pytest.fixture(autouse=True)
+    def _aws_profile(self, monkeypatch):
+        import sys
+
+        monkeypatch.setenv("PROFILE", "aws")
+        monkeypatch.setattr(sys, "argv", ["data_processor", "recover-once"])
+
+    @pytest.mark.asyncio
+    async def test_main_aws_entrega_runtime_ao_entrypoint(self):
+        import os
+
+        from data_processor.composition import ProcessorRuntimeComponents
+
+        expected = MagicMock(spec=ProcessorRuntimeComponents)
+        with (
+            patch("data_processor.main.configure_json_stdout"),
+            patch("data_processor.main.init_telemetry"),
+            patch("data_processor.main.Session") as session_cls,
+            patch(
+                "data_processor.main.build_processor_runtime", return_value=expected,
+            ) as build,
+            patch("data_processor.main.run_aws_entrypoint", return_value=0) as entrypoint,
+        ):
+            from data_processor.main import main
+            rc = await main()
+
+        assert rc == 0
+        build.assert_called_once_with("aws", os.environ, session_cls.return_value)
+        entrypoint.assert_called_once_with(expected, os.environ, ["recover-once"])
+
+    @pytest.mark.asyncio
+    async def test_main_aws_nao_instala_file_handler(self):
+        from logging.handlers import RotatingFileHandler
+
+        root = logging.getLogger()
+        handlers_before = root.handlers[:]
+        with (
+            patch("data_processor.main.configure_json_stdout") as configure,
+            patch("data_processor.main._setup_logging") as setup,
+            patch("data_processor.main.init_telemetry"),
+            patch("data_processor.main.Session"),
+            patch("data_processor.main.build_processor_runtime"),
+            patch("data_processor.main.run_aws_entrypoint", return_value=0),
+            patch("data_processor.main.create_engine") as create_engine,
+            patch("data_processor.main.run_processor") as run_processor,
+        ):
+            from data_processor.main import main
+            await main()
+
+        configure.assert_called_once_with("data-processor")
+        setup.assert_not_called()
+        create_engine.assert_not_called()
+        run_processor.assert_not_called()
+        assert root.handlers == handlers_before
+        assert not any(isinstance(h, RotatingFileHandler) for h in root.handlers)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failing", ["build_processor_runtime", "run_aws_entrypoint"])
+    async def test_main_aws_falha_retorna_nao_zero_com_evento_json(self, failing, caplog):
+        caplog.set_level(logging.ERROR, logger="data_processor.main")
+        with (
+            patch("data_processor.main.configure_json_stdout"),
+            patch("data_processor.main.init_telemetry"),
+            patch("data_processor.main.Session"),
+            patch("data_processor.main.build_processor_runtime"),
+            patch("data_processor.main.run_aws_entrypoint", return_value=0),
+            patch(f"data_processor.main.{failing}", side_effect=RuntimeError("aws=down")),
+        ):
+            from data_processor.main import main
+            rc = await main()
+
+        assert rc == 1
+        assert [record.getMessage() for record in caplog.records] == [
+            "processor_entrypoint_failed",
+        ]

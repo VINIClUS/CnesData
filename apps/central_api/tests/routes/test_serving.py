@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
 
@@ -9,11 +10,19 @@ from fastapi.testclient import TestClient
 from central_api.routes.serving import (
     ServingPrincipal,
     get_serving_access,
+    get_serving_delivery,
     get_serving_object_store,
     get_serving_principal,
     router,
+    signed_serving_delivery,
 )
 from central_api.services.serving_access import ServingUnavailable
+from central_api.serving import (
+    ServingKeyForbidden,
+    ServingSigningUnavailable,
+    SignedServingGrant,
+    SignedServingRequest,
+)
 from cnes_domain.ports.object_store import ObjectStat
 from cnes_domain.ports.serving import ServingGrant, ServingRequest
 
@@ -201,3 +210,107 @@ def test_objeto_sumido_apos_grant_retorna_503_sem_abrir() -> None:
     assert response.status_code == 503
     assert response.json() == {"detail": "active_serving_unavailable"}
     assert store.opened == []
+
+
+NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
+SIGNED_URL = f"https://signed.example.test/{KEY}?X-Amz-Signature=abc"
+
+
+def signed_grant() -> SignedServingGrant:
+    return SignedServingGrant(
+        version_id=RUN_ID, run_id=RUN_ID, object_key=KEY, url=SIGNED_URL,
+        expires_at=NOW + timedelta(seconds=300),
+    )
+
+
+class Signed:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[tuple[SignedServingRequest, datetime]] = []
+
+    def grant(self, request: SignedServingRequest, now: datetime) -> SignedServingGrant:
+        self.calls.append((request, now))
+        if self.error is not None:
+            raise self.error
+        return signed_grant()
+
+
+def signed_client(signed: Signed, current: ServingPrincipal) -> TestClient:
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_serving_principal] = lambda: current
+    app.dependency_overrides[get_serving_delivery] = lambda: signed_serving_delivery(
+        signed, lambda: NOW,
+    )
+    return TestClient(app)
+
+
+def expected_request() -> SignedServingRequest:
+    return SignedServingRequest(
+        access=ServingRequest(user_id="user-1", tenant_id=TENANT, dataset_name="cnes"),
+        relative_name=f"{DOCUMENT}.json",
+    )
+
+
+def test_rota_aws_redireciona_para_get_assinado_sem_tenant_na_url(caplog) -> None:
+    signed = Signed()
+    caplog.set_level("DEBUG")
+
+    response = signed_client(signed, principal()).get(
+        f"/api/v1/dashboard/serving/cnes/{DOCUMENT}", follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == SIGNED_URL
+    assert response.headers["x-dataset-version"] == RUN_ID
+    assert response.headers["cache-control"] == "private, no-store"
+    assert "tenant" not in response.request.url.query.decode()
+    assert signed.calls == [(expected_request(), NOW)]
+    assert SIGNED_URL not in caplog.text
+
+
+def test_rota_aws_ignora_tenant_e_chave_da_query() -> None:
+    signed = Signed()
+
+    response = signed_client(signed, principal()).get(
+        f"/api/v1/dashboard/serving/cnes/{DOCUMENT}",
+        params={"tenant_id": "999999", "key": "serving/999999/run-9/overview.json"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert signed.calls == [(expected_request(), NOW)]
+
+
+def test_rota_aws_valida_documento_antes_de_assinar() -> None:
+    signed = Signed()
+
+    response = signed_client(signed, principal()).get(
+        "/api/v1/dashboard/serving/cnes/overview.json", follow_redirects=False,
+    )
+
+    assert response.status_code == 422
+    assert signed.calls == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "detail"),
+    [
+        (ServingUnavailable("membership_denied"), 403, "serving_forbidden"),
+        (ServingUnavailable("run_manifest_missing"), 503, "active_serving_unavailable"),
+        (ServingKeyForbidden("serving_key_forbidden"), 404, "serving_document_not_found"),
+        (ServingSigningUnavailable("serving_object_missing"), 503, "active_serving_unavailable"),
+        (ServingSigningUnavailable("serving_signing_failed"), 503, "active_serving_unavailable"),
+    ],
+    ids=["membership", "policy", "chave-fora-do-grant", "objeto-ausente", "assinatura"],
+)
+def test_rota_aws_mapeia_falhas_sem_redirect(
+    error: Exception, status: int, detail: str,
+) -> None:
+    response = signed_client(Signed(error), principal()).get(
+        f"/api/v1/dashboard/serving/cnes/{DOCUMENT}", follow_redirects=False,
+    )
+
+    assert response.status_code == status
+    assert response.json() == {"detail": detail}
+    assert "location" not in response.headers
