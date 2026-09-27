@@ -2,6 +2,7 @@
 
 import errno
 import fcntl
+import gc
 import multiprocessing
 import os
 import socket
@@ -391,6 +392,7 @@ def test_chaves_prefixadas_coexistem(order: tuple[str, str], tmp_path: Path) -> 
         assert (parent.read(), child.read()) == (b"pai", b"filho")
 @pytest.mark.parametrize("relative", ["", _INTERNAL, f"{_INTERNAL}/objects", f"{_INTERNAL}/locks"])
 def test_descritores_nao_seguem_layout_substituido(relative: str, tmp_path: Path) -> None:
+    gc.collect()
     descriptor_count, parent = len(os.listdir("/proc/self/fd")), tmp_path / "original"
     adapter = FilesystemObjectStore(root := parent / "store")
     target = root / relative if relative else parent
@@ -401,6 +403,7 @@ def test_descritores_nao_seguem_layout_substituido(relative: str, tmp_path: Path
     assert tuple(target.iterdir()) == ()
     assert adapter.stat(key) is not None
     del adapter
+    gc.collect()
     assert len(os.listdir("/proc/self/fd")) == descriptor_count
 def test_construtor_rejeita_symlink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     parent, attacker = tmp_path / "original", tmp_path / "attacker"

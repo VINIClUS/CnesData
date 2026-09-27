@@ -1,0 +1,55 @@
+{
+  "StartAt": "RunUnits",
+  "States": {
+    "RunUnits": {
+      "Type": "Map",
+      "ItemsPath": "$.unit_ids",
+      "MaxConcurrencyPath": "$.max_concurrency",
+      "ItemSelector": {
+        "tenant_id.$": "$.tenant_id",
+        "run_id.$": "$.run_id",
+        "wave_id.$": "$.wave_id",
+        "dispatch_id.$": "$.dispatch_id",
+        "unit_id.$": "$$.Map.Item.Value"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {"Mode": "DISTRIBUTED"},
+        "StartAt": "RunProcessor",
+        "States": {
+          "RunProcessor": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::ecs:runTask.sync",
+            "Parameters": {
+              "Cluster": "arn:aws:ecs:us-east-1:000000000000:cluster/test",
+              "TaskDefinition": "arn:aws:ecs:us-east-1:000000000000:task-definition/processor:1",
+              "LaunchType": "FARGATE",
+              "NetworkConfiguration": {
+                "AwsvpcConfiguration": {
+                  "AssignPublicIp": "DISABLED",
+                  "Subnets": ["subnet-00000000000000001"],
+                  "SecurityGroups": ["sg-00000000000000001"]
+                }
+              },
+              "Overrides": {
+                "ContainerOverrides": [{
+                  "Name": "processor",
+                  "Environment": [
+                    {"Name": "TENANT_ID", "Value.$": "$.tenant_id"},
+                    {"Name": "RUN_ID", "Value.$": "$.run_id"},
+                    {"Name": "WAVE_ID", "Value.$": "$.wave_id"},
+                    {"Name": "DISPATCH_ID", "Value.$": "$.dispatch_id"},
+                    {"Name": "UNIT_ID", "Value.$": "$.unit_id"},
+                    {"Name": "EXECUTION_OWNER", "Value.$": "$$.Execution.Id"},
+                    {"Name": "LEASE_SECONDS", "Value": "300"}
+                  ]
+                }]
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "End": true
+    }
+  }
+}
