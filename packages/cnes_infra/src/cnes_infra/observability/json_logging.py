@@ -25,26 +25,37 @@ _BASE_FIELDS = frozenset({"timestamp", "level", "service", "logger", "event"})
 _RESERVED = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"} | _BASE_FIELDS
 
 
-def _without_exception_text(value: Any) -> Any:
-    return type(value).__name__ if isinstance(value, BaseException) else value
+def _is_sensitive(key: object) -> bool:
+    return isinstance(key, str) and key.lower() in _REDACTED_FIELDS
+
+
+def _sanitize(value: Any) -> Any:
+    if isinstance(value, BaseException):
+        return type(value).__name__
+    if isinstance(value, Mapping):
+        return {
+            key: _REDACTED if _is_sensitive(key) else _sanitize(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_sanitize(item) for item in value]
+    return value
 
 
 def _safe_message(record: logging.LogRecord) -> str:
-    message = str(_without_exception_text(record.msg))
+    message = str(_sanitize(record.msg))
     args = record.args
     if isinstance(args, Mapping):
-        return message % {key: _without_exception_text(v) for key, v in args.items()}
+        return message % _sanitize(args)
     if args:
-        return message % tuple(_without_exception_text(value) for value in args)
+        return message % tuple(_sanitize(value) for value in args)
     return message
 
 
 def _safe_extra(record: logging.LogRecord) -> dict[str, Any]:
-    return {
-        key: _REDACTED if key.lower() in _REDACTED_FIELDS else _without_exception_text(value)
-        for key, value in record.__dict__.items()
-        if key not in _RESERVED
-    }
+    return _sanitize({
+        key: value for key, value in record.__dict__.items() if key not in _RESERVED
+    })
 
 
 class JsonLogFormatter(logging.Formatter):

@@ -163,3 +163,19 @@ def test_excecao_como_argumento_sai_so_com_tipo() -> None:
         "falhou",
     ]
     assert events[3]["cause"] == "RuntimeError"
+
+
+def test_sanitiza_argumentos_e_extras_recursivamente() -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+    error = RuntimeError("secret-value")
+
+    logger.info("request token=%(token)s id=%(id)s", {"token": "secret-value", "id": 7})
+    logger.info("falhas=%s", [error, (error,), {"Email": "secret-value"}])
+    logger.info("ctx", extra={"ctx": {"nested": {"authorization": "secret-value"}, "e": {error}}})
+
+    assert "secret-value" not in stream.getvalue()
+    first, second, third = _linhas(stream)
+    assert first["event"] == "request token=[REDACTED] id=7"
+    assert second["event"] == "falhas=['RuntimeError', ['RuntimeError'], {'Email': '[REDACTED]'}]"
+    assert third["ctx"] == {"nested": {"authorization": "[REDACTED]"}, "e": ["RuntimeError"]}
