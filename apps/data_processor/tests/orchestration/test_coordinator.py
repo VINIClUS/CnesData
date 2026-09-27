@@ -49,6 +49,7 @@ from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     CoordinatorResult,
     PipelineCoordinator,
+    RecoveryFailed,
     _processor_recoverable_runs,
     allow_execution,
     noop_execution_started,
@@ -656,7 +657,7 @@ def test_recover_com_limite_zero_retorna_vazio(adapter, clock):
     assert _processor_recoverable_runs(adapter, clock.now(), 0, set()) == ()
 
 
-def test_recover_isola_falha_de_um_run_e_continua_com_os_demais(
+def test_recover_isola_falha_de_um_run_e_falha_a_passada_depois_dos_demais(
     adapter, executor, store, clock, monkeypatch, caplog
 ):
     failed = _run().model_copy(update={"run_id": "a-failed"})
@@ -675,10 +676,11 @@ def test_recover_isola_falha_de_um_run_e_continua_com_os_demais(
 
     monkeypatch.setattr(coordinator, "resume", resume)
 
-    with caplog.at_level("ERROR"):
-        results = coordinator.recover(limit=2)
+    with caplog.at_level("ERROR"), pytest.raises(RecoveryFailed, match="failed=1") as raised:
+        coordinator.recover(limit=2)
 
-    assert results == (expected,)
+    assert raised.value.results == (expected,)
+    assert raised.value.failed == 1
     assert "recover_run_error tenant_id=354130 run_id=a-failed" in caplog.text
 
 
@@ -707,9 +709,10 @@ def test_recover_avanca_alem_de_candidatos_com_falha_persistente(
 
     monkeypatch.setattr(coordinator, "resume", resume)
 
-    results = coordinator.recover(limit=100)
+    with pytest.raises(RecoveryFailed, match="failed=100") as raised:
+        coordinator.recover(limit=100)
 
-    assert results == (expected,)
+    assert raised.value.results == (expected,)
     assert resumed[-1] == "z-healthy"
 
 

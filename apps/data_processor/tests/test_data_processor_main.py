@@ -1,8 +1,11 @@
 """Testes do ponto de entrada main do data_processor."""
 import logging
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+
+_NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 
 
 class TestSetupLogging:
@@ -327,6 +330,68 @@ class TestPollUntilShutdown:
         assert len(ticks) == 2
 
 
+def _control_plane_com_run_falho():
+    from cnes_domain.control_plane.entities import Run, RunDependency
+    from cnes_domain.control_plane.enums import RunState
+    from cnes_domain.ports.control_plane import ControlPlanePort
+
+    def run(run_id: str, state: RunState) -> Run:
+        return Run(
+            tenant_id="354130", run_id=run_id, competencia="2026-08", dataset_name="cnes",
+            state=state, dependencies=(
+                RunDependency(source_type="CNES_LOCAL", file_subtype="CNES_VINCULO", required=True),
+            ), missing_sources=(), created_at=_NOW,
+        )
+
+    def get_run(tenant_id: str, run_id: str) -> Run:
+        if run_id == "r1":
+            raise ConnectionError("control_plane=unavailable")
+        return run(run_id, RunState.PUBLISHED)
+
+    control_plane = Mock(spec=ControlPlanePort)
+    control_plane.list_recoverable_runs.return_value = (
+        run("r1", RunState.PROCESSING), run("r2", RunState.PROCESSING),
+    )
+    control_plane.get_run.side_effect = get_run
+    return control_plane
+
+
+def _runtime_com_run_falho():
+    from cnes_domain.ports.processing import (
+        ExecutionCallbacks,
+        ExecutionPolicyConfig,
+        ProcessorExecutorPort,
+    )
+    from data_processor.composition import AwsProcessorServices, ProcessorRuntimeComponents
+    from data_processor.orchestration.coordinator import (
+        CoordinatorDependencies,
+        PipelineCoordinator,
+        allow_execution,
+        noop_execution_started,
+    )
+    from data_processor.orchestration.publisher import DatasetPublisher
+    from data_processor.recovery import ProcessorRecovery
+
+    control_plane = _control_plane_com_run_falho()
+    coordinator = PipelineCoordinator(
+        CoordinatorDependencies(
+            control_plane=control_plane, executor=Mock(spec=ProcessorExecutorPort),
+            publisher=Mock(spec=DatasetPublisher), clock=lambda: _NOW,
+        ),
+        ExecutionPolicyConfig(2, 300, ExecutionCallbacks(allow_execution, noop_execution_started)),
+    )
+    runtime = ProcessorRuntimeComponents(
+        control_plane=control_plane, object_store=Mock(), executor=Mock(), publisher=Mock(),
+        source_registry=Mock(), stage_processor=Mock(), coordinator=coordinator,
+        unit_worker=Mock(), unit_handler=Mock(),
+        services=AwsProcessorServices(
+            recovery=ProcessorRecovery(control_plane, coordinator, clock=lambda: _NOW),
+            recovery_batch_size=10,
+        ),
+    )
+    return runtime, control_plane
+
+
 class TestMainProfileAws:
     @pytest.fixture(autouse=True)
     def _aws_profile(self, monkeypatch):
@@ -402,4 +467,36 @@ class TestMainProfileAws:
         assert rc == 1
         assert [record.getMessage() for record in caplog.records] == [
             "processor_entrypoint_failed",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_main_aws_recover_once_sai_1_quando_um_run_da_passada_falha(
+        self, monkeypatch, caplog,
+    ):
+        from data_processor.aws_entrypoint import _ENVELOPE_NAMES
+        from data_processor.main import main
+
+        for name in _ENVELOPE_NAMES:
+            monkeypatch.delenv(name, raising=False)
+        runtime, control_plane = _runtime_com_run_falho()
+        caplog.set_level(logging.INFO)
+        with (
+            patch("data_processor.main.configure_json_stdout"),
+            patch("data_processor.main.init_telemetry"),
+            patch("data_processor.main.Session"),
+            patch("data_processor.main.build_processor_runtime", return_value=runtime),
+        ):
+            rc = await main()
+
+        assert rc == 1
+        assert [call.args for call in control_plane.get_run.call_args_list] == [
+            ("354130", "r1"), ("354130", "r2"),
+        ]
+        events = [
+            record.getMessage() for record in caplog.records
+            if record.name in {"data_processor.recovery", "data_processor.main"}
+        ]
+        assert events == [
+            "processor_recovery_scanned", "processor_execution_observed",
+            "processor_recovery_completed", "processor_entrypoint_failed",
         ]

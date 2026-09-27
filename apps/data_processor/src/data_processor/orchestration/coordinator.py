@@ -101,6 +101,15 @@ class CoordinatorResult:
     published: bool
 
 
+class RecoveryFailed(RuntimeError):
+    """Passada de recovery com runs que falharam; carrega os resultados dos demais."""
+
+    def __init__(self, results: tuple[CoordinatorResult, ...], failed: int) -> None:
+        super().__init__(f"failed={failed} recovered={len(results)}")
+        self.results = results
+        self.failed = failed
+
+
 def _build_event(run: Run, event_type: str, now: datetime) -> OutboxEvent:
     return OutboxEvent(
         tenant_id=run.tenant_id, event_id=f"{event_type}:{run.tenant_id}:{run.run_id}",
@@ -305,6 +314,7 @@ class PipelineCoordinator:
         now = self._dependencies.clock()
         skipped: set[tuple[str, str]] = set()
         results: list[CoordinatorResult] = []
+        failed = 0
         while len(results) < limit:
             candidates = _processor_recoverable_runs(
                 control_plane, now, limit - len(results), skipped
@@ -316,11 +326,14 @@ class PipelineCoordinator:
                 try:
                     results.append(self.resume(run.tenant_id, run.run_id))
                 except Exception:
+                    failed += 1
                     logger.exception(
                         "recover_run_error tenant_id=%s run_id=%s",
                         run.tenant_id,
                         run.run_id,
                     )
+        if failed:
+            raise RecoveryFailed(tuple(results), failed)
         return tuple(results)
 
 
@@ -328,6 +341,7 @@ __all__ = [
     "CoordinatorDependencies",
     "CoordinatorResult",
     "PipelineCoordinator",
+    "RecoveryFailed",
     "allow_execution",
     "noop_execution_started",
 ]
