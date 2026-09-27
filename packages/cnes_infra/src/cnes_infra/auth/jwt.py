@@ -26,7 +26,7 @@ class _JwksCache:
     discovery_url: str
     ttl_seconds: int
     resolve_jwks_uri: Callable[[dict[str, Any]], str]
-    error: Callable[[FetchStage, httpx.HTTPError], TokenInvalid]
+    error: Callable[[FetchStage, Exception], TokenInvalid]
     _keys: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False)
     _fetched_at: float = field(default=0.0, init=False, repr=False)
     _jwks_uri: str = field(default="", init=False, repr=False)
@@ -47,25 +47,37 @@ class _JwksCache:
             return self._keys
         url = self._jwks_uri or self._discover()
         try:
-            resp = self.fetch(url)
-            resp.raise_for_status()
-        except httpx.HTTPError as e:
+            keys = _keys_from(self._document(url))
+        except (httpx.HTTPError, ValueError) as e:
             if self._keys:
                 return self._keys
             raise self.error("jwks", e) from e
-        self._keys = resp.json().get("keys", [])
+        self._keys = keys
         self._fetched_at = now
         return self._keys
 
     def _discover(self) -> str:
         try:
-            resp = self.fetch(self.discovery_url)
-            resp.raise_for_status()
-            document = resp.json()
-        except httpx.HTTPError as e:
+            document = self._document(self.discovery_url)
+        except (httpx.HTTPError, ValueError) as e:
             raise self.error("discovery", e) from e
         self._jwks_uri = self.resolve_jwks_uri(document)
         return self._jwks_uri
+
+    def _document(self, url: str) -> dict[str, Any]:
+        resp = self.fetch(url)
+        resp.raise_for_status()
+        document = resp.json()
+        if not isinstance(document, dict):
+            raise ValueError("document_not_object")
+        return document
+
+
+def _keys_from(document: dict[str, Any]) -> list[dict[str, Any]]:
+    keys = document.get("keys", [])
+    if not isinstance(keys, list):
+        raise ValueError("keys_not_list")
+    return [key for key in keys if isinstance(key, dict)]
 
 
 def discovery_url(issuer: str) -> str:
@@ -80,7 +92,7 @@ def _legacy_jwks_uri(document: dict[str, Any]) -> str:
     return str(jwks_uri)
 
 
-def _legacy_error(stage: FetchStage, error: httpx.HTTPError) -> TokenInvalid:
+def _legacy_error(stage: FetchStage, error: Exception) -> TokenInvalid:
     code = "oidc_discovery_failed" if stage == "discovery" else "jwks_unreachable"
     return TokenInvalid(f"{code}: {error}")
 

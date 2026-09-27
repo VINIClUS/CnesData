@@ -51,6 +51,8 @@ class OidcVerifier:
         except TokenInvalid as error:
             raise TokenInvalid(str(error)) from None
         claims = self._decode(token, key)
+        if "aud" not in claims:
+            raise TokenInvalid("audience")
         if any(name not in claims for name in _REQUIRED_CLAIMS):
             raise TokenInvalid("claims")
         subject = claims.get("sub")
@@ -102,7 +104,7 @@ def _claims_code(error: JWTClaimsError) -> str:
     return "claims"
 
 
-def _unreachable(stage: FetchStage, _error: httpx.HTTPError) -> TokenInvalid:
+def _unreachable(stage: FetchStage, _error: Exception) -> TokenInvalid:
     return TokenInvalid(f"{stage}_unreachable")
 
 

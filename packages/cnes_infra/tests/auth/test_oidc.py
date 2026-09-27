@@ -153,6 +153,18 @@ def test_rejeita_token_sem_claim_temporal(httpx_mock, client, claim: str) -> Non
         _verifier(client).verify(_signed_token(extra={claim: None}))
 
 
+def test_rejeita_token_sem_audience(httpx_mock, client) -> None:
+    _mock_provider(httpx_mock)
+    with pytest.raises(TokenInvalid, match=r"^audience$"):
+        _verifier(client).verify(_signed_token(extra={"aud": None}))
+
+
+def test_rejeita_token_sem_issuer(httpx_mock, client) -> None:
+    _mock_provider(httpx_mock)
+    with pytest.raises(TokenInvalid, match=r"^issuer$"):
+        _verifier(client).verify(_signed_token(extra={"iss": None}))
+
+
 def test_rejeita_token_ainda_nao_valido(httpx_mock, client) -> None:
     _mock_provider(httpx_mock)
     token = _signed_token(extra={"nbf": int(time.time()) + 3600})
@@ -226,6 +238,38 @@ def test_falha_quando_jwks_inacessivel_sem_cache(httpx_mock, client) -> None:
     httpx_mock.add_response(url=JWKS, status_code=503, text=f"erro em {JWKS}")
     with pytest.raises(TokenInvalid, match=r"^jwks_unreachable$"):
         _verifier(client).verify(_signed_token())
+
+
+_MALFORMED = [
+    {"text": "<html>proxy</html>"},
+    {"json": ["k1"]},
+    {"json": {"keys": "k1"}},
+]
+
+
+@pytest.mark.parametrize("body", _MALFORMED, ids=["nao_json", "lista", "keys_invalido"])
+def test_falha_quando_jwks_malformado_sem_cache(
+    httpx_mock, client, body: dict[str, Any],
+) -> None:
+    _mock_discovery(httpx_mock)
+    httpx_mock.add_response(url=JWKS, **body)
+    with pytest.raises(TokenInvalid, match=r"^jwks_unreachable$"):
+        _verifier(client).verify(_signed_token())
+
+
+@pytest.mark.parametrize("body", _MALFORMED[:2], ids=["nao_json", "lista"])
+def test_falha_quando_discovery_malformada(httpx_mock, client, body: dict[str, Any]) -> None:
+    httpx_mock.add_response(url=DISCOVERY, **body)
+    with pytest.raises(TokenInvalid, match=r"^discovery_unreachable$"):
+        _verifier(client).verify(_signed_token())
+
+
+def test_usa_cache_quando_jwks_malformado(httpx_mock, client) -> None:
+    _mock_provider(httpx_mock)
+    httpx_mock.add_response(url=JWKS, text="<html>proxy</html>")
+    verifier = _verifier(client, cache_ttl_seconds=0)
+    verifier.verify(_signed_token())
+    assert verifier.verify(_signed_token()).subject == "user-1"
 
 
 def test_usa_cache_fresco_sem_nova_requisicao(httpx_mock, client) -> None:
