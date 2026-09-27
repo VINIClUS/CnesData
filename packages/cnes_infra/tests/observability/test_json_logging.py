@@ -275,14 +275,19 @@ def test_contexto_malformado_nunca_derruba_nem_vaza(capsys: pytest.CaptureFixtur
     configure_json_stdout("worker", stream)
     cycle: list[object] = []
     cycle.append(cycle)
+    error = ValueError("secret-value")
 
-    logger.info("email=%s", "secret-value", extra={"ctx": {("a", "b"): 1}})
+    logger.info(
+        "email=%s",
+        "secret-value",
+        extra={"ctx": {("a", "b"): 1, RuntimeError("secret-value"): 2, (error,): 3}},
+    )
     logger.info("ciclo=%s", cycle)
     logger.info("email=%s", "secret-value", extra={"ctx": _Explode()})
 
     assert "secret-value" not in stream.getvalue() + capsys.readouterr().err
     first, second, third = _linhas(stream)
-    assert first["ctx"] == {"('a', 'b')": 1}
+    assert first["ctx"] == {"['a', 'b']": 1, "RuntimeError": 2, "['ValueError']": 3}
     assert "[TRUNCATED]" in second["event"]
     assert (third["event"], third["error_type"]) == ("log_format_failed", "RuntimeError")
     assert third["service"] == "worker"

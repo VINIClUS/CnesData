@@ -43,13 +43,18 @@ def _sanitize(value: Any, depth: int = 0) -> Any:
     if isinstance(value, BaseException):
         return type(value).__name__
     if isinstance(value, Mapping):
-        return {
-            str(key): _REDACTED if _is_sensitive(str(key)) else _sanitize(item, depth + 1)
-            for key, item in value.items()
-        }
+        return _sanitize_mapping(value, depth)
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_sanitize(item, depth + 1) for item in value]
     return value
+
+
+def _sanitize_mapping(value: Mapping[Any, Any], depth: int) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, item in value.items():
+        name = str(_sanitize(key, depth + 1))
+        sanitized[name] = _REDACTED if _is_sensitive(name) else _sanitize(item, depth + 1)
+    return sanitized
 
 
 def _safe_message(record: logging.LogRecord) -> str:
