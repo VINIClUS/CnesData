@@ -46,14 +46,24 @@ class S3Retention:
             raise ValueError("retain_until=naive")
 
 
+@dataclass(frozen=True, slots=True)
+class S3PutOptions:
+    """Atributos opcionais enviados em cada escrita."""
+
+    retention: S3Retention | None = None
+    content_type: str | None = None
+
+
 class S3ObjectStore:
     def __init__(
-        self, client: Any, bucket: str, prefix: str = "", retention: S3Retention | None = None
+        self, client: Any, bucket: str, prefix: str = "", options: S3PutOptions | None = None
     ) -> None:
+        put_options = options or S3PutOptions()
         self._client = client
         self._bucket = bucket
         self._prefix = prefix.strip("/")
-        self._retention = retention
+        self._retention = put_options.retention
+        self._content_type = put_options.content_type
 
     def _key(self, key: str) -> str:
         validate_key(key)
@@ -88,6 +98,8 @@ class S3ObjectStore:
             "Key": self._key(key),
             "Metadata": {"sha256": expected_sha256},
         }
+        if self._content_type is not None:
+            request["ContentType"] = self._content_type
         if self._retention is not None:
             request.update(
                 ChecksumAlgorithm="SHA256",

@@ -120,6 +120,7 @@ def _put_params(event: Any) -> dict[str, Any]:
         "IfNoneMatch": "*",
         "Key": f"audit/tenant-a/2026/07/15/{event.event_id}.json",
         "Metadata": {"sha256": digest},
+        "ContentType": "application/json",
         "ChecksumAlgorithm": "SHA256",
         "ChecksumSHA256": b64encode(bytes.fromhex(digest)).decode(),
         "ObjectLockMode": "COMPLIANCE",
