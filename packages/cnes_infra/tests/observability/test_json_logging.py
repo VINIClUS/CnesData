@@ -198,3 +198,28 @@ def test_redige_argumento_posicional_rotulado_como_sensivel() -> None:
         "download Signed_URL='[REDACTED]' ok=100% n=3",
         "header Authorization: [REDACTED]",
     ]
+
+
+def test_suporta_largura_dinamica_e_template_invalido_sem_vazar() -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+
+    logger.info("value=%*s|", 4, "ab")
+    logger.info("email=%.*s id=%-*d", 3, "secret-value", 3, 7)
+    logger.info("progresso 50%y token", "secret-value")
+
+    assert "secret-value" not in stream.getvalue()
+    assert [event["event"] for event in _linhas(stream)] == [
+        "value=  ab|",
+        "email=[REDACTED] id=7  ",
+        "progresso 50%y token",
+    ]
+
+
+def test_template_de_mapping_invalido_emite_template_sem_valores() -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+
+    logger.info("user=%(ausente)s", {"email": "secret-value"})
+
+    assert _linhas(stream)[0]["event"] == "user=%(ausente)s"

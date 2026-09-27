@@ -23,7 +23,7 @@ _REDACTED_FIELDS = frozenset({
     "email",
 })
 _BASE_FIELDS = frozenset({"timestamp", "level", "service", "logger", "event"})
-_SPEC = re.compile(r"%[#0 +\-]*\d*(?:\.\d+)?[hlL]?([diouxXeEfFgGcrsa%])")
+_SPEC = re.compile(r"%[#0 +\-]*(?:\*|\d*)(?:\.(?:\*|\d*))?[hlL]?([diouxXeEfFgGcrsa%])")
 _LABEL = re.compile(r"(\w+)\s*[=:]\s*[\"']?$")
 _RESERVED = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"} | _BASE_FIELDS
 
@@ -46,14 +46,19 @@ def _sanitize(value: Any) -> Any:
 
 
 def _safe_message(record: logging.LogRecord) -> str:
-    message = str(_sanitize(record.msg))
+    template = str(_sanitize(record.msg))
     args = record.args
+    if not args:
+        return template
     if isinstance(args, Mapping):
-        return message % _sanitize(args)
-    if args:
-        message, kept = _redact_labeled(message, args)
-        return message % tuple(_sanitize(value) for value in kept)
-    return message
+        values: Any = _sanitize(args)
+    else:
+        template, kept = _redact_labeled(template, args)
+        values = tuple(_sanitize(value) for value in kept)
+    try:
+        return template % values
+    except (KeyError, TypeError, ValueError):
+        return template
 
 
 def _redact_labeled(message: str, args: tuple[Any, ...]) -> tuple[str, list[Any]]:
@@ -64,13 +69,13 @@ def _redact_labeled(message: str, args: tuple[Any, ...]) -> tuple[str, list[Any]
     for spec in _SPEC.finditer(message):
         if spec.group(1) == "%":
             continue
-        value = next(values, None)
+        consumed = [next(values, None) for _ in range(spec.group(0).count("*") + 1)]
         label = _LABEL.search(message, cursor, spec.start())
         if label is not None and _is_sensitive(label.group(1)):
             parts.append(message[cursor:spec.start()] + _REDACTED)
             cursor = spec.end()
         else:
-            kept.append(value)
+            kept.extend(consumed)
     return "".join(parts) + message[cursor:], kept
 
 
