@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from botocore.exceptions import ClientError
 
-from cnes_domain.ports.processing import ExecutionStatus
+from cnes_domain.ports.processing import ExecutionStatus, StartRunExecution
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
 
-    from cnes_domain.ports.processing import CancelRunExecution, StartRunExecution
+    from cnes_domain.ports.processing import CancelRunExecution
 
 _STATUS = {
     "RUNNING": ExecutionStatus.RUNNING,
@@ -22,6 +22,24 @@ _STATUS = {
     "TIMED_OUT": ExecutionStatus.FAILED,
     "ABORTED": ExecutionStatus.CANCELED,
 }
+_ECS_RUN_TASK_SYNC = "arn:aws:states:::ecs:runTask.sync"
+_ASSIGN_PUBLIC_IP = "DISABLED"
+_ENVIRONMENT_PATHS = {
+    "TENANT_ID": "$.tenant_id",
+    "RUN_ID": "$.run_id",
+    "WAVE_ID": "$.wave_id",
+    "DISPATCH_ID": "$.dispatch_id",
+    "UNIT_ID": "$.unit_id",
+    "EXECUTION_OWNER": "$$.Execution.Id",
+}
+
+
+class IncompatibleStateMachine(Exception):
+    """State machine fora do contrato Standard + Inline Map + ECS Fargate."""
+
+
+class ProcessorExecutionUnavailable(Exception):
+    """Falha AWS normalizada ou conflito de nome de execução."""
 
 
 def _error_code(error: ClientError) -> str:
@@ -29,6 +47,7 @@ def _error_code(error: ClientError) -> str:
 
 
 def _payload(request: StartRunExecution) -> str:
+    StartRunExecution.model_validate(request.model_dump())
     return json.dumps(
         {
             "tenant_id": request.tenant_id,
@@ -43,6 +62,89 @@ def _payload(request: StartRunExecution) -> str:
     )
 
 
+def _describe_state_machine(client: BaseClient, state_machine_arn: str) -> dict[str, Any]:
+    try:
+        return client.describe_state_machine(stateMachineArn=state_machine_arn)
+    except ClientError as error:
+        raise ProcessorExecutionUnavailable(_error_code(error)) from error
+
+
+def _states_of_type(states: dict[str, Any], state_type: str) -> list[dict[str, Any]]:
+    return [state for state in states.values() if state.get("Type") == state_type]
+
+
+def _inline_map(definition: dict[str, Any]) -> dict[str, Any]:
+    maps = _states_of_type(definition.get("States", {}), "Map")
+    if len(maps) != 1:
+        raise IncompatibleStateMachine("single_map_required")
+    run_map = maps[0]
+    processor = run_map.get("ItemProcessor", {})
+    if processor.get("ProcessorConfig", {}).get("Mode") != "INLINE":
+        raise IncompatibleStateMachine("map_must_be_inline")
+    if run_map.get("MaxConcurrencyPath") != "$.max_concurrency":
+        raise IncompatibleStateMachine("map_concurrency_must_be_explicit")
+    return processor
+
+
+def _ecs_parameters(processor: dict[str, Any]) -> dict[str, Any]:
+    tasks = _states_of_type(processor.get("States", {}), "Task")
+    if len(tasks) != 1 or tasks[0].get("Resource") != _ECS_RUN_TASK_SYNC:
+        raise IncompatibleStateMachine("single_ecs_sync_task_required")
+    parameters = tasks[0].get("Parameters", {})
+    if parameters.get("LaunchType") != "FARGATE":
+        raise IncompatibleStateMachine("launch_type_must_be_fargate")
+    return parameters
+
+
+def _validate_assign_public_ip(parameters: dict[str, Any]) -> None:
+    network = parameters.get("NetworkConfiguration", {}).get("AwsvpcConfiguration", {})
+    if network.get("AssignPublicIp") != _ASSIGN_PUBLIC_IP:
+        raise IncompatibleStateMachine("assign_public_ip_mismatch")
+
+
+def _container_environment(
+    parameters: dict[str, Any], container_name: str,
+) -> dict[str, dict[str, Any]]:
+    overrides = parameters.get("Overrides", {}).get("ContainerOverrides", [])
+    matches = [override for override in overrides if override.get("Name") == container_name]
+    if len(matches) != 1:
+        raise IncompatibleStateMachine("processor_container_override_missing")
+    return {
+        variable.get("Name"): {key: value for key, value in variable.items() if key != "Name"}
+        for variable in matches[0].get("Environment", [])
+    }
+
+
+def _validate_environment(environment: dict[str, dict[str, Any]], lease_seconds: int) -> None:
+    lease = {"Value": str(lease_seconds)}
+    if environment.get("LEASE_SECONDS") != lease:
+        raise IncompatibleStateMachine("lease_seconds_mismatch")
+    expected = {name: {"Value.$": path} for name, path in _ENVIRONMENT_PATHS.items()}
+    if environment != {**expected, "LEASE_SECONDS": lease}:
+        raise IncompatibleStateMachine("environment_bindings_mismatch")
+
+
+def validate_state_machine(
+    client: BaseClient,
+    state_machine_arn: str,
+    processor_container_name: str,
+    lease_seconds: int,
+) -> None:
+    """Valida a state machine contra o contrato Standard + Inline Map + ECS Fargate.
+
+    Raises:
+        IncompatibleStateMachine: definição fora do contrato.
+        ProcessorExecutionUnavailable: falha AWS ao descrever a state machine.
+    """
+    described = _describe_state_machine(client, state_machine_arn)
+    if described["type"] != "STANDARD":
+        raise IncompatibleStateMachine("workflow_must_be_standard")
+    parameters = _ecs_parameters(_inline_map(json.loads(described["definition"])))
+    _validate_assign_public_ip(parameters)
+    environment = _container_environment(parameters, processor_container_name)
+    _validate_environment(environment, lease_seconds)
+
+
 class StepFunctionsExecutor:
     """Delega a execução de um dispatch a uma state machine do Step Functions."""
 
@@ -54,16 +156,17 @@ class StepFunctionsExecutor:
 
     def start(self, request: StartRunExecution) -> str:
         """Inicia a execução; reaproveita a existente em replay do mesmo dispatch."""
+        payload = _payload(request)
         try:
             response = self._client.start_execution(
                 stateMachineArn=self._state_machine_arn,
                 name=request.dispatch_id,
-                input=_payload(request),
+                input=payload,
             )
         except ClientError as error:
             if _error_code(error) != "ExecutionAlreadyExists":
-                raise
-            return self._existing_execution_arn(request.dispatch_id)
+                raise ProcessorExecutionUnavailable(_error_code(error)) from error
+            return self._confirm_existing(request.dispatch_id, payload)
         return response["executionArn"]
 
     def cancel(self, request: CancelRunExecution) -> None:
@@ -71,15 +174,29 @@ class StepFunctionsExecutor:
         if request.execution_ref is None:
             return
         cause = f"tenant_id={request.tenant_id} run_id={request.run_id}"
-        self._client.stop_execution(executionArn=request.execution_ref, cause=cause)
+        try:
+            self._client.stop_execution(executionArn=request.execution_ref, cause=cause)
+        except ClientError as error:
+            raise ProcessorExecutionUnavailable(_error_code(error)) from error
 
     def status(self, execution_ref: str) -> ExecutionStatus:
         """Traduz o status da execução para `ExecutionStatus`, falhando fechado."""
-        response = self._client.describe_execution(executionArn=execution_ref)
-        state = response["status"]
+        state = self._describe_execution(execution_ref)["status"]
         if state not in _STATUS:
             raise ValueError(f"execution_status={state}")
         return _STATUS[state]
+
+    def _describe_execution(self, execution_ref: str) -> dict[str, Any]:
+        try:
+            return self._client.describe_execution(executionArn=execution_ref)
+        except ClientError as error:
+            raise ProcessorExecutionUnavailable(_error_code(error)) from error
+
+    def _confirm_existing(self, execution_name: str, payload: str) -> str:
+        execution_ref = self._existing_execution_arn(execution_name)
+        if self._describe_execution(execution_ref).get("input") != payload:
+            raise ProcessorExecutionUnavailable("execution_name_conflict")
+        return execution_ref
 
     def _existing_execution_arn(self, execution_name: str) -> str:
         prefix, _, machine = self._state_machine_arn.rpartition(":stateMachine:")
