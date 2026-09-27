@@ -276,16 +276,43 @@ Tabela unificada de procedimentos do SUS.
 | ODS | 10.1 |
 | Dialeto SQL | 1 |
 | Charset | NONE (Edge conecta com `charset=WIN1252`) |
-| Servidor | localhost:3050 |
+| Método do SIHD2 | attach local (caminho absoluto, sem host TCP) |
 | Binários | C:\Program Files (x86)\Firebird\Firebird_1_5\bin |
+| `SIHD_CLIENT_DLL` | `C:\Windows\SysWOW64\gds32.dll` (Firebird 1.5.5, 32 bits) |
+| `SIHD_DB_USER` | `UKNOWN` (grafia observada) |
 
 ### Problema Conhecido: Conflito de Role SYSDBA
 
 O banco possui um SQL ROLE chamado "SYSDBA" (dono `UKNOWN`) que impede login do usuário
 SYSDBA: `login SYSDBA is same as one of the SQL role name`. No piloto (25/09/2026, #295) o
 `security.fdb` só tinha SYSDBA e o login falhou via TCP (`isql`, com ou sem `-role`) e via
-`gbak` local na sessão do console. O `dump_agent_go` conecta via TCP, portanto não autentica
-neste banco sem ajuste; não se sabe como o SIHD2.exe autentica.
+`gbak` local na sessão do console. A conexão TCP do `dump_agent_go` não autentica neste banco.
+
+Em 26/09/2026, um `isc_attach_database` bem-sucedido do `SIHD2.exe` na sessão 1 do
+console confirmou o caminho local acima, a DLL de 32 bits acima e os parâmetros IBX
+`user_name` (texto, 6 bytes) e `password` (texto, 8 bytes), sem ROLE. O usuário foi
+`UKNOWN`; a senha diferiu daquela do `sihd2.ibb`. A tentativa anterior do próprio
+SIHD2 com `sysdba` e a senha do `.ibb` falhou. O valor da senha efetiva não foi
+registrado. A senha efetiva foi provisionada no cofre DPAPI via
+`dumpagent set-secret sihd`, sem expor o valor.
+
+Na investigação da #297, o DPB do attach bem-sucedido foi comparado byte a byte,
+apenas em memória, com o DPB construído pelo auxiliar: ambos têm versão 1 e 19 bytes
+idênticos. Ainda assim, o auxiliar recebeu `335544472` (falha de login) com o
+mesmo caminho, DLL e sessão, tanto com o SIHD2 aberto quanto fechado. O próprio
+SIHD2 autentica no serviço `localhost:service_mgr` como `sysdba` e executa
+`isc_service_start` com ação 4 (`add_user`) antes do attach bem-sucedido e ação
+5 (`delete_user`) depois. A credencial do serviço é diferente da credencial
+`UKNOWN` do banco. O Edge não executou essas ações administrativas. Apenas
+reproduzir o attach do serviço, sem a ação de usuário, não resolveu o login.
+
+A extração local da #297 permanece bloqueada: o SIHD2 altera temporariamente
+usuários do Firebird para autenticar, mas a premissa da issue proíbe que o Edge
+altere usuários, ROLE ou configuração. O auxiliar experimental não deve ser
+habilitado para jobs no piloto até haver um método de leitura que respeite essa
+premissa e passe no E2E do banco vivo. Sem sessão ativa do console, ele também
+falha explicitamente.
+
 As tabelas de dados (TB_AIH, etc.) são criadas pelo aplicativo SIHD2.exe na primeira importação de AIHs.
 
 ### Queries Úteis para o Adapter
