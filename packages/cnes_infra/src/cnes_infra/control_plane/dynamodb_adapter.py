@@ -186,7 +186,9 @@ class DynamoDBControlPlane(
     def put_membership(self, membership: Membership) -> None:
         """Persiste uma associação."""
         key = entity_key(membership.tenant_id, "MEMBERSHIP", membership.user_id)
-        self._put_direct(encode_model(membership, "MEMBERSHIP", key))
+        attributes = {"gsi1pk": f"USER#{key_component(membership.user_id)}",
+                      "gsi1sk": f"TENANT#{key_component(membership.tenant_id)}"}
+        self._put_direct(encode_model(membership, "MEMBERSHIP", key, attributes))
     def get_agent(self, tenant_id: str, agent_id: str) -> Agent | None:
         """Retorna o agente solicitado."""
         return self._get_model(entity_key(tenant_id, "AGENT", agent_id), Agent)
