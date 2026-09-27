@@ -54,7 +54,7 @@ class ProfileSettings(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     profile: RuntimeProfile = RuntimeProfile.LOCAL
-    tenant_id: str = Field(pattern=r"^[0-9]{6}$")
+    tenant_id: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
     data_dir: Path = Path("data")
     auth_mode: AuthMode = AuthMode.LOCAL
     billing_mode: BillingMode = BillingMode.DISABLED
@@ -62,6 +62,8 @@ class ProfileSettings(BaseModel):
 
     @model_validator(mode="after")
     def _validate_modes(self) -> Self:
+        if self.profile is RuntimeProfile.LOCAL and self.tenant_id is None:
+            raise ValueError("code=tenant_id_required")
         if self.profile is RuntimeProfile.LOCAL and self.billing_mode is BillingMode.STRIPE:
             raise ValueError("code=local_billing_disabled")
         if self.auth_mode is AuthMode.OIDC and not (self.oidc_issuer or "").strip():
