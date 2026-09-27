@@ -16,7 +16,7 @@ from cnes_domain.control_plane.commands import (
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import AccessRequest, RunDependency
+from cnes_domain.control_plane.entities import AccessRequest, Membership, RunDependency
 from cnes_domain.control_plane.enums import (
     AccessRequestState,
     AgentState,
@@ -27,10 +27,12 @@ from cnes_domain.control_plane.enums import (
 )
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import put_action
 from cnes_infra.control_plane.dynamodb_keys import (
+    entity_key,
     item_key,
     key_component,
     unit_key,
@@ -883,3 +885,46 @@ def test_validador_rejeita_lease_corrompido_sem_prazo() -> None:
     command = _commit_command("a" * 16, "worker-a", 1)
     with pytest.raises(LeaseLost, match="unit_lease_expired"):
         DynamoDBClaims._validate_unit_fence(unit, command, _NOW)
+
+
+def _membership(tenant_id: str = _TENANT, user_id: str = "user-1") -> Membership:
+    return Membership(tenant_id=tenant_id, user_id=user_id, role="gestor", created_at=_NOW)
+
+
+def test_put_membership_grava_projecao_gsi1(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
+    adapter.put_membership(_membership())
+    key = entity_key(_TENANT, "MEMBERSHIP", "user-1")
+    item = adapter._client.get_item(TableName=_TABLE_NAME, Key=item_key(*key))["Item"]
+    assert item["gsi1pk"] == {"S": f"USER#{key_component('user-1')}"}
+    assert item["gsi1sk"] == {"S": f"TENANT#{key_component(_TENANT)}"}
+
+
+def test_candidatos_refletem_membership_gravada_e_revogada(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
+    adapter.put_membership(_membership("tenant-a"))
+    adapter.put_membership(_membership("tenant-b"))
+    adapter.put_membership(_membership("tenant-c", user_id="user-2"))
+    candidates = DynamoDBMembershipCandidates(adapter._client, _TABLE_NAME)
+    assert set(candidates.list_candidates("user-1")) == {"tenant-a", "tenant-b"}
+    key = entity_key("tenant-a", "MEMBERSHIP", "user-1")
+    adapter._client.delete_item(TableName=_TABLE_NAME, Key=item_key(*key))
+    assert candidates.list_candidates("user-1") == ("tenant-b",)
+
+
+def test_queries_do_gsi1_usam_igualdade_de_particao(ctx: _DynamoContext) -> None:
+    adapter, _ = ctx
+    spy = ClientSpy(adapter._client)
+    adapter._client = spy
+    adapter.put_agent(_agent("agent-a"))
+    adapter.create_job(_job("job-1"), _event("event-1"))
+    adapter.put_membership(_membership())
+    jobs = adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
+    tenants = DynamoDBMembershipCandidates(spy, _TABLE_NAME).list_candidates("user-1")
+    assert [job.job_id for job in jobs] == ["job-1"]
+    assert tenants == (_TENANT,)
+    gsi1 = [request for request in spy.query_requests if request.get("IndexName") == "gsi1"]
+    assert len(gsi1) == 2
+    for request in gsi1:
+        assert "begins_with" not in request["KeyConditionExpression"]
+        assert request["KeyConditionExpression"].startswith("gsi1pk = :")
