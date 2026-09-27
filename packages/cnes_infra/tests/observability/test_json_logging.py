@@ -254,3 +254,12 @@ def test_redige_rotulos_com_sufixo_sensivel() -> None:
     assert first["event"] == "oidc access_token=[REDACTED] token_count=2"
     assert (second["refresh_token"], second["user_email"]) == ("[REDACTED]", "[REDACTED]")
     assert second["por_id"] == {"7": "a"}
+
+
+def test_redige_placeholder_nomeado_pelo_rotulo_exibido() -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+
+    logger.info("token=%(value)s id=%(id)s", {"value": "secret-value", "id": 3})
+
+    assert _linhas(stream)[0]["event"] == "token=[REDACTED] id=3"

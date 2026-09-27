@@ -23,7 +23,9 @@ _REDACTED_FIELDS = frozenset({
     "email",
 })
 _BASE_FIELDS = frozenset({"timestamp", "level", "service", "logger", "event"})
-_SPEC = re.compile(r"%[#0 +\-]*(?:\*|\d*)(?:\.(?:\*|\d*))?[hlL]?([diouxXeEfFgGcrsa%])")
+_SPEC = re.compile(
+    r"%(?:\([^)]*\))?[#0 +\-]*(?:\*|\d*)(?:\.(?:\*|\d*))?[hlL]?([diouxXeEfFgGcrsa%])"
+)
 _LABEL = re.compile(r"(\w+)\s*[=:]\s*[\"']?$")
 _RESERVED = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"} | _BASE_FIELDS
 
@@ -54,6 +56,7 @@ def _safe_message(record: logging.LogRecord) -> str:
     if not args:
         return template
     if isinstance(args, Mapping) and "%(" in template:
+        template, _ = _redact_labeled(template, ())
         values: Any = _sanitize(args)
     else:
         positional = args if isinstance(args, tuple) else (args,)
