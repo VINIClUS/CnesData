@@ -16,7 +16,7 @@ from botocore.stub import ANY, Stubber
 from moto import mock_aws
 
 from cnes_domain.control_plane.errors import Conflict
-from cnes_infra.object_store.s3 import S3ObjectStore, S3Retention
+from cnes_infra.object_store.s3 import S3ObjectStore, S3PutOptions, S3Retention
 from packages.cnes_infra.tests.contracts.clock import MutableClock
 from packages.cnes_infra.tests.contracts.object_store_contract import (
     ObjectStoreCase,
@@ -270,10 +270,31 @@ def test_envia_retencao_e_sha256_explicito_e_valida_resposta() -> None:
         adapter = S3ObjectStore(
             client,
             "bucket",
-            retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
+            options=S3PutOptions(S3Retention(mode="COMPLIANCE", retain_until=retain_until)),
         )
 
         stat = adapter.put("locked/objeto", BytesIO(body), digest)
+
+    assert (stat.size_bytes, stat.sha256) == (len(body), digest)
+
+
+def test_envia_content_type_configurado_na_escrita() -> None:
+    body = b'{"ok":true}'
+    digest = sha256(body).hexdigest()
+    client = _client()
+
+    with Stubber(client) as stubber:
+        stubber.add_response(
+            "put_object",
+            {},
+            _put_params("raw/objeto.json", digest) | {"ContentType": "application/json"},
+        )
+        adapter = S3ObjectStore(
+            client, "bucket", options=S3PutOptions(content_type="application/json")
+        )
+
+        stat = adapter.put("raw/objeto.json", BytesIO(body), digest)
+        stubber.assert_no_pending_responses()
 
     assert (stat.size_bytes, stat.sha256) == (len(body), digest)
 
@@ -284,9 +305,9 @@ def test_rejeita_retencao_naive_antes_de_acessar_cliente() -> None:
         S3ObjectStore(
             client,
             "bucket",
-            retention=S3Retention(
+            options=S3PutOptions(S3Retention(
                 "COMPLIANCE", datetime(2036, 1, 1, tzinfo=UTC).replace(tzinfo=None)
-            ),
+            )),
         )
     client.assert_not_called()
 
@@ -318,7 +339,7 @@ def test_aceita_replay_412_quando_retencao_existente_satisfaz_pedido(
         adapter = S3ObjectStore(
             client,
             "bucket",
-            retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
+            options=S3PutOptions(S3Retention(mode="COMPLIANCE", retain_until=retain_until)),
         )
         stat = adapter.put("locked/objeto", BytesIO(body), digest)
         stubber.assert_no_pending_responses()
@@ -358,7 +379,7 @@ def test_rejeita_replay_412_quando_retencao_existente_nao_satisfaz_pedido(
         adapter = S3ObjectStore(
             client,
             "bucket",
-            retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
+            options=S3PutOptions(S3Retention(mode="COMPLIANCE", retain_until=retain_until)),
         )
         with pytest.raises(Conflict, match="retention=insufficient"):
             adapter.put("locked/objeto", BytesIO(body), digest)
@@ -375,8 +396,8 @@ def test_rejeita_replay_retido_sem_version_id_verificado() -> None:
         stubber.add_response(
             "get_object", _object_response(body, digest),
             {"Bucket": "bucket", "Key": "locked/objeto"})
-        adapter = S3ObjectStore(client, "bucket", retention=S3Retention(
-            mode="COMPLIANCE", retain_until=retain_until))
+        adapter = S3ObjectStore(client, "bucket", options=S3PutOptions(S3Retention(
+            mode="COMPLIANCE", retain_until=retain_until)))
         with pytest.raises(Conflict, match="retention_version=missing"):
             adapter.put("locked/objeto", BytesIO(body), digest)
         stubber.assert_no_pending_responses()
@@ -400,7 +421,7 @@ def test_rejeita_checksum_de_resposta_ausente_ou_divergente(
         adapter = S3ObjectStore(
             client,
             "bucket",
-            retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
+            options=S3PutOptions(S3Retention(mode="COMPLIANCE", retain_until=retain_until)),
         )
 
         with pytest.raises(ValueError, match=message):
@@ -423,7 +444,7 @@ def test_rejeita_baddigest_do_s3() -> None:
         adapter = S3ObjectStore(
             client,
             "bucket",
-            retention=S3Retention(mode="COMPLIANCE", retain_until=retain_until),
+            options=S3PutOptions(S3Retention(mode="COMPLIANCE", retain_until=retain_until)),
         )
 
         with pytest.raises(ValueError, match="checksum=rejected"):

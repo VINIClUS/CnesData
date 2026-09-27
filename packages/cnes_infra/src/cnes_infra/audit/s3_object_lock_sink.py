@@ -8,7 +8,7 @@ from hashlib import sha256
 from io import BytesIO
 from typing import TYPE_CHECKING
 
-from cnes_infra.object_store.s3 import S3ObjectStore, S3Retention
+from cnes_infra.object_store.s3 import S3ObjectStore, S3PutOptions, S3Retention
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
@@ -73,7 +73,11 @@ class S3ObjectLockAuditSink:
         retention = S3Retention(
             "COMPLIANCE", event.created_at + timedelta(days=self._retention_days)
         )
-        store = S3ObjectStore(self._client, self._bucket, retention=retention)
+        store = S3ObjectStore(
+            self._client,
+            self._bucket,
+            options=S3PutOptions(retention=retention, content_type="application/json"),
+        )
         identity_key = f"audit/.event-id/{event_id}.json"
         store.put(identity_key, BytesIO(body), digest)
         store.put(key, BytesIO(body), digest)

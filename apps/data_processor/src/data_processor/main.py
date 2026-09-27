@@ -11,13 +11,17 @@ from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from typing import TYPE_CHECKING
 
+from boto3.session import Session
 from sqlalchemy import create_engine
 
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_infra import config
+from cnes_infra.observability import configure_json_stdout
 from cnes_infra.storage.rls import install_rls_listener
 from cnes_infra.storage.s3_presigned import S3PresignedStorage, build_s3_client
 from cnes_infra.telemetry import init_telemetry
+from data_processor.aws_entrypoint import run_aws_entrypoint
+from data_processor.composition import build_processor_runtime
 from data_processor.consumer import run_processor
 
 if TYPE_CHECKING:
@@ -67,6 +71,10 @@ def _create_storage() -> ObjectStoragePort:
 
 def _profile_is_local() -> bool:
     return os.environ.get("PROFILE", "").strip().lower() == "local"
+
+
+def _profile_is_aws() -> bool:
+    return os.environ.get("PROFILE", "").strip().lower() == "aws"
 
 
 def _utc_now() -> datetime:
@@ -142,7 +150,20 @@ async def _run_local_profile() -> None:
         runtime.executor.close()
 
 
+def _run_aws_profile() -> int:
+    configure_json_stdout("data-processor")
+    init_telemetry("data-processor")
+    try:
+        runtime = build_processor_runtime("aws", os.environ, Session())
+        return run_aws_entrypoint(runtime, os.environ, sys.argv[1:])
+    except Exception:
+        logging.getLogger(__name__).exception("processor_entrypoint_failed")
+        return 1
+
+
 async def main() -> int:
+    if _profile_is_aws():
+        return _run_aws_profile()
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
     _setup_logging(verbose)
     init_telemetry("data-processor")
