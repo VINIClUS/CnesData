@@ -40,17 +40,7 @@ class OidcVerifier:
         Raises:
             TokenInvalid: código sanitizado, sem token, URL ou corpo de resposta.
         """
-        header = _header(token)
-        if header.get("alg") != "RS256":
-            raise TokenInvalid("unsupported_algorithm")
-        kid = header.get("kid")
-        if not kid:
-            raise TokenInvalid("missing_kid")
-        try:
-            key = self._keys.key_for_kid(kid)
-        except TokenInvalid as error:
-            raise TokenInvalid(str(error)) from None
-        claims = self._decode(token, key)
+        claims = self._verified_claims(token)
         if "aud" not in claims:
             raise TokenInvalid("audience")
         if any(name not in claims for name in _REQUIRED_CLAIMS):
@@ -65,7 +55,12 @@ class OidcVerifier:
             display_name=_optional_text(claims.get("name")),
         )
 
-    def _decode(self, token: str, key: dict[str, Any]) -> dict[str, Any]:
+    def _verified_claims(self, token: str) -> dict[str, Any]:
+        try:
+            header = jose_jwt.get_unverified_header(token)
+        except JWTError:
+            raise TokenInvalid("malformed_header") from None
+        key = self._signing_key(header)
         try:
             return jose_jwt.decode(
                 token, key, algorithms=["RS256"], audience=self._audience, issuer=self._issuer,
@@ -77,6 +72,17 @@ class OidcVerifier:
         except (JWTError, JWKError):
             raise TokenInvalid("signature") from None
 
+    def _signing_key(self, header: dict[str, Any]) -> dict[str, Any]:
+        if header.get("alg") != "RS256":
+            raise TokenInvalid("unsupported_algorithm")
+        kid = header.get("kid")
+        if not kid:
+            raise TokenInvalid("missing_kid")
+        try:
+            return self._keys.key_for_kid(kid)
+        except TokenInvalid as error:
+            raise TokenInvalid(str(error)) from None
+
     def _jwks_uri(self, document: dict[str, Any]) -> str:
         if document.get("issuer") != self._issuer:
             raise TokenInvalid("discovery_issuer_mismatch")
@@ -86,13 +92,6 @@ class OidcVerifier:
         if urlsplit(jwks_uri).scheme != "https":
             raise TokenInvalid("jwks_uri_not_https")
         return jwks_uri
-
-
-def _header(token: str) -> dict[str, Any]:
-    try:
-        return jose_jwt.get_unverified_header(token)
-    except JWTError:
-        raise TokenInvalid("malformed_header") from None
 
 
 def _claims_code(error: JWTClaimsError) -> str:
