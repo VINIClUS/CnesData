@@ -12,6 +12,7 @@ from cnes_domain.profiles import (
     local_objects_dir,
     local_state_db,
     local_state_db_arcname,
+    parse_local_profile,
     parse_profile,
 )
 
@@ -35,12 +36,15 @@ def test_aplica_diretorio_default() -> None:
     assert settings.data_dir == Path("data")
 
 
-@pytest.mark.parametrize("tenant_id", [None, "", "35413", "3541308", "35413A"])
-def test_rejeita_tenant_ausente_ou_invalido(tenant_id: str | None) -> None:
-    env = {} if tenant_id is None else {"TENANT_ID": tenant_id}
+def test_rejeita_tenant_ausente_no_profile_local() -> None:
+    with pytest.raises(ValidationError, match="tenant_id_required"):
+        parse_profile({})
 
-    with pytest.raises(ValidationError):
-        parse_profile(env)
+
+@pytest.mark.parametrize("tenant_id", ["", "35413", "3541308", "35413A"])
+def test_rejeita_tenant_invalido(tenant_id: str) -> None:
+    with pytest.raises(ValidationError, match="string_pattern_mismatch"):
+        parse_profile({"TENANT_ID": tenant_id})
 
 
 def test_impede_mutacao() -> None:
@@ -86,6 +90,29 @@ def test_aceita_profile_aws_com_oidc_e_stripe() -> None:
     assert settings.auth_mode is AuthMode.OIDC
     assert settings.billing_mode is BillingMode.STRIPE
     assert settings.oidc_issuer == "https://issuer.example"
+
+
+def test_aceita_profile_aws_sem_tenant() -> None:
+    settings = parse_profile(
+        {"PROFILE": "aws", "AUTH_MODE": "oidc", "OIDC_ISSUER": "https://issuer.example"}
+    )
+
+    assert settings.profile is RuntimeProfile.AWS
+    assert settings.tenant_id is None
+
+
+def test_parse_local_profile_aceita_profile_local() -> None:
+    settings = parse_local_profile({"TENANT_ID": "354130"})
+
+    assert settings.profile is RuntimeProfile.LOCAL
+    assert settings.tenant_id == "354130"
+
+
+def test_parse_local_profile_rejeita_profile_aws() -> None:
+    env = {"PROFILE": "aws", "AUTH_MODE": "oidc", "OIDC_ISSUER": "https://issuer.example"}
+
+    with pytest.raises(ValueError, match="local_profile_required"):
+        parse_local_profile(env)
 
 
 @pytest.mark.parametrize(

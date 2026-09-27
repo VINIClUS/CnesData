@@ -57,3 +57,16 @@ def test_main_restore_recompoe_state_db(tmp_path: Path) -> None:
 def test_main_exige_subcomando(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main([], env=_env(tmp_path / "data"))
+
+
+def test_main_rejeita_profile_aws(tmp_path: Path) -> None:
+    env = {
+        "PROFILE": "aws", "AUTH_MODE": "oidc", "OIDC_ISSUER": "https://issuer.example",
+        "DATA_DIR": str(tmp_path / "data"),
+    }
+    target = tmp_path / "backup.tar"
+
+    with pytest.raises(ValueError, match="local_profile_required"):
+        main(["create", "--target", str(target)], env=env)
+
+    assert not target.exists()
