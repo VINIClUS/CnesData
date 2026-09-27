@@ -81,6 +81,12 @@ DUMP_MAX_JITTER_SECONDS=1800
 FIREBIRD_DLL=C:\Programa CNES\fbclient.dll
 ```
 
+Não configurar a extração SIHD no piloto por enquanto. A investigação da
+#297 confirmou que o SIHD2 faz attach local após adicionar temporariamente um
+usuário no serviço Firebird; o Edge ainda não autentica sem essa alteração,
+que está fora do escopo permitido. Ver
+`docs/data-dictionary-sihd-hospital.md#informações-de-conexão`.
+
 ## Senha do Firebird
 
 Antes ou depois do install, como Administrator:
