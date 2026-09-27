@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from typing import TextIO
 
 _REDACTED = "[REDACTED]"
+_TRUNCATED = "[TRUNCATED]"
+_MAX_DEPTH = 16
 _REDACTED_FIELDS = frozenset({
     "authorization",
     "token",
@@ -30,23 +32,23 @@ _LABEL = re.compile(r"(\w+)\s*[=:]\s*[\"']?$")
 _RESERVED = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"} | _BASE_FIELDS
 
 
-def _is_sensitive(key: object) -> bool:
-    if not isinstance(key, str):
-        return False
+def _is_sensitive(key: str) -> bool:
     name = key.lower()
     return name in _REDACTED_FIELDS or name.rpartition("_")[2] in _REDACTED_FIELDS
 
 
-def _sanitize(value: Any) -> Any:
+def _sanitize(value: Any, depth: int = 0) -> Any:
+    if depth > _MAX_DEPTH:
+        return _TRUNCATED
     if isinstance(value, BaseException):
         return type(value).__name__
     if isinstance(value, Mapping):
         return {
-            key: _REDACTED if _is_sensitive(key) else _sanitize(item)
+            str(key): _REDACTED if _is_sensitive(str(key)) else _sanitize(item, depth + 1)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple, set, frozenset)):
-        return [_sanitize(item) for item in value]
+        return [_sanitize(item, depth + 1) for item in value]
     return value
 
 
@@ -100,18 +102,30 @@ class JsonLogFormatter(logging.Formatter):
         self._service_name = service_name
 
     def format(self, record: logging.LogRecord) -> str:
+        event = self._base(record)
+        try:
+            event.update(_safe_extra(record))
+            event["event"] = _safe_message(record)
+            if record.exc_info and record.exc_info[0] is not None:
+                event["exception_type"] = record.exc_info[0].__name__
+            return json.dumps(event, ensure_ascii=False, separators=(",", ":"), default=str)
+        except Exception as error:
+            # Raising here makes logging print the raw, unredacted record args to stderr.
+            failed = self._base(record) | {
+                "event": "log_format_failed",
+                "error_type": type(error).__name__,
+            }
+            return json.dumps(failed, separators=(",", ":"))
+
+    def _base(self, record: logging.LogRecord) -> dict[str, Any]:
         timestamp = datetime.fromtimestamp(record.created, tz=UTC)
-        event: dict[str, Any] = {
+        return {
             "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "service": self._service_name,
             "logger": record.name,
-            "event": _safe_message(record),
+            "event": "",
         }
-        event.update(_safe_extra(record))
-        if record.exc_info and record.exc_info[0] is not None:
-            event["exception_type"] = record.exc_info[0].__name__
-        return json.dumps(event, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
 def configure_json_stdout(service_name: str, stream: TextIO | None = None) -> None:

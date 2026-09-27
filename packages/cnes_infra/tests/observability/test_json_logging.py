@@ -263,3 +263,26 @@ def test_redige_placeholder_nomeado_pelo_rotulo_exibido() -> None:
     logger.info("token=%(value)s id=%(id)s", {"value": "secret-value", "id": 3})
 
     assert _linhas(stream)[0]["event"] == "token=[REDACTED] id=3"
+
+
+class _Explode:
+    def __str__(self) -> str:
+        raise RuntimeError("secret-value")
+
+
+def test_contexto_malformado_nunca_derruba_nem_vaza(capsys: pytest.CaptureFixture[str]) -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+    cycle: list[object] = []
+    cycle.append(cycle)
+
+    logger.info("email=%s", "secret-value", extra={"ctx": {("a", "b"): 1}})
+    logger.info("ciclo=%s", cycle)
+    logger.info("email=%s", "secret-value", extra={"ctx": _Explode()})
+
+    assert "secret-value" not in stream.getvalue() + capsys.readouterr().err
+    first, second, third = _linhas(stream)
+    assert first["ctx"] == {"('a', 'b')": 1}
+    assert "[TRUNCATED]" in second["event"]
+    assert (third["event"], third["error_type"]) == ("log_format_failed", "RuntimeError")
+    assert third["service"] == "worker"
