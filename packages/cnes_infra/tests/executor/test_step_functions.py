@@ -31,6 +31,8 @@ from cnes_infra.executor.step_functions import (
 _FIXTURES = Path(__file__).parents[1] / "fixtures" / "step_functions"
 _ECS_SYNC = "arn:aws:states:::ecs:runTask.sync"
 _EXTRA_TASK = {"Type": "Task", "Resource": _ECS_SYNC}
+_DUPLICATE_TENANT = {"Name": "TENANT_ID", "Value.$": "$.x"}
+_CATCH_ALL = [{"ErrorEquals": ["States.ALL"], "Next": "Done"}]
 _ECS_PARAMETERS = ("States", "RunUnits", "ItemProcessor", "States", "RunProcessor", "Parameters")
 _ITEM_STATES = ("States", "RunUnits", "ItemProcessor", "States")
 _NETWORK = (*_ECS_PARAMETERS, "NetworkConfiguration", "AwsvpcConfiguration")
@@ -109,17 +111,6 @@ def _mutate(definition: dict[str, Any], path: tuple[Any, ...], value: Any) -> di
     else:
         parent[path[-1]] = value
     return mutated
-
-
-def _leaf_diff(left: Any, right: Any, pointer: str = "") -> list[str]:
-    if isinstance(left, dict) and isinstance(right, dict):
-        keys = sorted(left.keys() | right.keys())
-        return [
-            diff
-            for key in keys
-            for diff in _leaf_diff(left.get(key), right.get(key), f"{pointer}/{key}")
-        ]
-    return [] if left == right else [pointer]
 
 
 def _client_for_definition(definition: dict[str, Any], workflow_type: str = "STANDARD") -> Any:
@@ -322,11 +313,12 @@ def test_aceita_standard_inline_map_com_ecs_fargate() -> None:
 
 
 def test_fixture_distribuida_difere_so_no_modo_do_map() -> None:
-    diff = _leaf_diff(
-        _definition("standard_inline_ecs.json"), _definition("distributed_map.json"),
-    )
+    standard = _definition("standard_inline_ecs.json")
+    distributed = _definition("distributed_map.json")
+    mode = ("States", "RunUnits", "ItemProcessor", "ProcessorConfig", "Mode")
 
-    assert diff == ["/States/RunUnits/ItemProcessor/ProcessorConfig/Mode"]
+    assert standard != distributed
+    assert _mutate(standard, mode, "DISTRIBUTED") == distributed
 
 
 @pytest.mark.parametrize(
@@ -357,18 +349,25 @@ def test_rejeita_workflow_incompativel(fixture_name: str, workflow_type: str, er
         (("States", "RunUnits", "ItemProcessor", "ProcessorConfig"), None, "map_must_be_inline"),
         ((*_ECS_PARAMETERS[:-1], "Resource"), _ECS_SYNC[:-5], "single_ecs_sync_task_required"),
         ((*_ITEM_STATES, "Extra"), _EXTRA_TASK, "single_ecs_sync_task_required"),
+        (("States", "RunUnits", "Catch"), _CATCH_ALL, "unit_failures_must_propagate"),
+        (("States", "RunUnits", "ToleratedFailurePercentage"), 100, "unit_failures_must_propagate"),
+        ((*_ECS_PARAMETERS[:-1], "Catch"), _CATCH_ALL, "unit_failures_must_propagate"),
         ((*_ECS_PARAMETERS, "LaunchType"), "EC2", "launch_type_must_be_fargate"),
+        ((*_ECS_PARAMETERS, "TaskDefinition"), None, "task_definition_required"),
+        ((*_NETWORK, "Subnets"), [], "subnets_required"),
         ((*_NETWORK, "AssignPublicIp"), "ENABLED", "assign_public_ip_mismatch"),
         ((*_CONTAINER, "Name"), "other", "processor_container_override_missing"),
         ((*_ENVIRONMENT, 6, "Value"), "600", "lease_seconds_mismatch"),
         ((*_ENVIRONMENT, 0, "Value.$"), "$.run_id", "environment_bindings_mismatch"),
+        ((*_ENVIRONMENT, 5), _DUPLICATE_TENANT, "duplicate_environment_variable"),
         ((*_ENVIRONMENT, 5), {"Name": "OTHER", "Value": "x"}, "environment_bindings_mismatch"),
     ],
     ids=[
         "sem_map", "dois_maps", "map_fora_do_inicio", "items_divergente", "sem_selector",
         "concorrencia_implicita", "task_fora_do_inicio", "modo_implicito", "task_sem_sync",
-        "duas_tasks", "ec2", "ip_publico", "container_errado", "lease_divergente",
-        "binding_divergente", "variavel_faltante",
+        "duas_tasks", "catch_no_map", "falha_tolerada", "catch_na_task", "ec2",
+        "sem_task_definition", "sem_subnets", "ip_publico", "container_errado",
+        "lease_divergente", "binding_divergente", "variavel_duplicada", "variavel_faltante",
     ],
 )
 def test_rejeita_definicao_ecs_incompativel(path: tuple[Any, ...], value: Any, error: str) -> None:

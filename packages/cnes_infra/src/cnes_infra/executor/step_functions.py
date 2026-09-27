@@ -32,6 +32,13 @@ _ENVIRONMENT_PATHS = {
     "UNIT_ID": "$.unit_id",
     "EXECUTION_OWNER": "$$.Execution.Id",
 }
+_FAILURE_ABSORBING_FIELDS = (
+    "Catch",
+    "ToleratedFailureCount",
+    "ToleratedFailureCountPath",
+    "ToleratedFailurePercentage",
+    "ToleratedFailurePercentagePath",
+)
 _ITEM_SELECTOR = {
     "tenant_id.$": "$.tenant_id",
     "run_id.$": "$.run_id",
@@ -85,6 +92,11 @@ def _start_state_of_type(
     return start, len(matches)
 
 
+def _validate_failures_propagate(state: dict[str, Any]) -> None:
+    if any(field in state for field in _FAILURE_ABSORBING_FIELDS):
+        raise IncompatibleStateMachine("unit_failures_must_propagate")
+
+
 def _validate_map_items(run_map: dict[str, Any]) -> None:
     if run_map.get("ItemsPath") != "$.unit_ids":
         raise IncompatibleStateMachine("map_items_must_be_unit_ids")
@@ -98,6 +110,7 @@ def _inline_map(definition: dict[str, Any]) -> dict[str, Any]:
         raise IncompatibleStateMachine("single_map_required")
     if run_map is None:
         raise IncompatibleStateMachine("map_must_be_start_state")
+    _validate_failures_propagate(run_map)
     _validate_map_items(run_map)
     processor = run_map.get("ItemProcessor", {})
     if processor.get("ProcessorConfig", {}).get("Mode") != "INLINE":
@@ -111,14 +124,19 @@ def _ecs_parameters(processor: dict[str, Any]) -> dict[str, Any]:
     task, count = _start_state_of_type(processor, "Task")
     if count != 1 or task is None or task.get("Resource") != _ECS_RUN_TASK_SYNC:
         raise IncompatibleStateMachine("single_ecs_sync_task_required")
+    _validate_failures_propagate(task)
     parameters = task.get("Parameters", {})
     if parameters.get("LaunchType") != "FARGATE":
         raise IncompatibleStateMachine("launch_type_must_be_fargate")
+    if not parameters.get("TaskDefinition"):
+        raise IncompatibleStateMachine("task_definition_required")
     return parameters
 
 
-def _validate_assign_public_ip(parameters: dict[str, Any]) -> None:
+def _validate_network(parameters: dict[str, Any]) -> None:
     network = parameters.get("NetworkConfiguration", {}).get("AwsvpcConfiguration", {})
+    if not network.get("Subnets"):
+        raise IncompatibleStateMachine("subnets_required")
     if network.get("AssignPublicIp") != _ASSIGN_PUBLIC_IP:
         raise IncompatibleStateMachine("assign_public_ip_mismatch")
 
@@ -130,9 +148,13 @@ def _container_environment(
     matches = [override for override in overrides if override.get("Name") == container_name]
     if len(matches) != 1:
         raise IncompatibleStateMachine("processor_container_override_missing")
+    variables = matches[0].get("Environment", [])
+    names = [variable.get("Name") for variable in variables]
+    if len(set(names)) != len(names):
+        raise IncompatibleStateMachine("duplicate_environment_variable")
     return {
         variable.get("Name"): {key: value for key, value in variable.items() if key != "Name"}
-        for variable in matches[0].get("Environment", [])
+        for variable in variables
     }
 
 
@@ -161,7 +183,7 @@ def validate_state_machine(
     if described["type"] != "STANDARD":
         raise IncompatibleStateMachine("workflow_must_be_standard")
     parameters = _ecs_parameters(_inline_map(json.loads(described["definition"])))
-    _validate_assign_public_ip(parameters)
+    _validate_network(parameters)
     environment = _container_environment(parameters, processor_container_name)
     _validate_environment(environment, lease_seconds)
 
