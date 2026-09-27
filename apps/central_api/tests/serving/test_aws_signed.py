@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
 import pytest
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
 
 from central_api.services.serving_access import ServingUnavailable
 from central_api.serving.aws_signed import (
@@ -189,3 +189,23 @@ def test_falha_de_assinatura_gera_indisponivel(failure: Exception) -> None:
 
     assert error.value.code == "serving_signing_failed"
     assert error.value.__cause__ is failure
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        EndpointConnectionError(endpoint_url="https://s3.amazonaws.com"),
+        ClientError({"Error": {"Code": "AccessDenied", "Message": "x"}}, "GetObject"),
+        OSError("disk"),
+    ],
+)
+def test_falha_na_consulta_do_objeto_gera_indisponivel(failure: Exception) -> None:
+    store, signer = _store(), _signer()
+    store.stat.side_effect = failure
+
+    with pytest.raises(ServingSigningUnavailable) as error:
+        _access(store=store, signer=signer).grant(_request(), NOW)
+
+    assert error.value.code == "serving_object_lookup_failed"
+    assert error.value.__cause__ is failure
+    signer.generate_presigned_url.assert_not_called()

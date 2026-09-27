@@ -179,3 +179,22 @@ def test_sanitiza_argumentos_e_extras_recursivamente() -> None:
     assert first["event"] == "request token=[REDACTED] id=7"
     assert second["event"] == "falhas=['RuntimeError', ['RuntimeError'], {'Email': '[REDACTED]'}]"
     assert third["ctx"] == {"nested": {"authorization": "[REDACTED]"}, "e": ["RuntimeError"]}
+
+
+def test_redige_argumento_posicional_rotulado_como_sensivel() -> None:
+    stream = StringIO()
+    configure_json_stdout("worker", stream)
+
+    logger.info(
+        "local_bootstrap_user_created user_id=%s email=%s tenant_id=%s role=%s",
+        "user-1", "secret-value", "354130", "admin",
+    )
+    logger.info("download Signed_URL='%s' ok=100%% n=%d", "secret-value", 3)
+    logger.info("header Authorization: %r", "secret-value")
+
+    assert "secret-value" not in stream.getvalue()
+    assert [event["event"] for event in _linhas(stream)] == [
+        "local_bootstrap_user_created user_id=user-1 email=[REDACTED] tenant_id=354130 role=admin",
+        "download Signed_URL='[REDACTED]' ok=100% n=3",
+        "header Authorization: [REDACTED]",
+    ]

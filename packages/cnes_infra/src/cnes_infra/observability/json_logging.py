@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -22,6 +23,8 @@ _REDACTED_FIELDS = frozenset({
     "email",
 })
 _BASE_FIELDS = frozenset({"timestamp", "level", "service", "logger", "event"})
+_SPEC = re.compile(r"%[#0 +\-]*\d*(?:\.\d+)?[hlL]?([diouxXeEfFgGcrsa%])")
+_LABEL = re.compile(r"(\w+)\s*[=:]\s*[\"']?$")
 _RESERVED = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"} | _BASE_FIELDS
 
 
@@ -48,8 +51,27 @@ def _safe_message(record: logging.LogRecord) -> str:
     if isinstance(args, Mapping):
         return message % _sanitize(args)
     if args:
-        return message % tuple(_sanitize(value) for value in args)
+        message, kept = _redact_labeled(message, args)
+        return message % tuple(_sanitize(value) for value in kept)
     return message
+
+
+def _redact_labeled(message: str, args: tuple[Any, ...]) -> tuple[str, list[Any]]:
+    parts: list[str] = []
+    kept: list[Any] = []
+    cursor = 0
+    values = iter(args)
+    for spec in _SPEC.finditer(message):
+        if spec.group(1) == "%":
+            continue
+        value = next(values, None)
+        label = _LABEL.search(message, cursor, spec.start())
+        if label is not None and _is_sensitive(label.group(1)):
+            parts.append(message[cursor:spec.start()] + _REDACTED)
+            cursor = spec.end()
+        else:
+            kept.append(value)
+    return "".join(parts) + message[cursor:], kept
 
 
 def _safe_extra(record: logging.LogRecord) -> dict[str, Any]:

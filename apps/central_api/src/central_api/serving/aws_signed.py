@@ -86,8 +86,7 @@ class S3SignedServingAccess:
         if authorized.tenant_id != request.access.tenant_id:
             raise ServingKeyForbidden("serving_key_forbidden")
         key = _resolve_key(authorized, request.relative_name)
-        if self._object_store.stat(key) is None:
-            raise ServingSigningUnavailable("serving_object_missing")
+        self._require_object(key)
         return SignedServingGrant(
             version_id=authorized.version_id,
             run_id=authorized.run_id,
@@ -95,6 +94,14 @@ class S3SignedServingAccess:
             url=self._sign(key),
             expires_at=now + timedelta(seconds=self._settings.ttl_seconds),
         )
+
+    def _require_object(self, key: str) -> None:
+        try:
+            stat = self._object_store.stat(key)
+        except (BotoCoreError, ClientError, OSError) as error:
+            raise ServingSigningUnavailable("serving_object_lookup_failed") from error
+        if stat is None:
+            raise ServingSigningUnavailable("serving_object_missing")
 
     def _sign(self, key: str) -> str:
         try:
