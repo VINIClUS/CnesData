@@ -15,9 +15,15 @@ O job `aws-runtime-integration` de `.github/workflows/python-quality.yml` sobe `
 `localstack` (profile `aws-test`), roda a suíte AWS-014 (`tests/integration/aws/`) e sempre
 executa o step `Stop AWS emulators` (`docker compose --profile aws-test down -v` sob
 `if: always()`). Credenciais dummy existem só no step do pytest. O job herda os gatilhos do
-workflow: PR que toca `packages/`, `apps/central_api/`, `apps/data_processor/` ou `tests/`,
-nightly (que lê o arquivo de `main`) e `workflow_dispatch`. Torná-lo obrigatório é regra de
-ruleset, decisão do dono do repo.
+workflow: PR que toca algum path do filtro `pull_request` (hoje `packages/`,
+`apps/central_api/`, `apps/data_processor/`, `tests/`, `scripts/flag_quality_violation.py` e o
+próprio workflow), nightly (que lê o arquivo de `main`) e `workflow_dispatch`. Torná-lo
+obrigatório é regra de ruleset, decisão do dono do repo.
+
+PR que muda só o `docker-compose.yml` não dispara o job. O `lint-test-coverage` (`ci.yml`, sem
+filtro de paths no `pull_request`) sobe os mesmos `dynamodb-local` e `localstack` em
+`scripts/ci_phase2_adapters.sh`, mas roda só as matrizes de adapter, não a suíte AWS-014. Depois
+de trocar imagem ou configuração desses serviços, rodar o job por `workflow_dispatch`.
 
 Reprodução local, com projeto compose próprio para não tocar em outras stacks:
 
