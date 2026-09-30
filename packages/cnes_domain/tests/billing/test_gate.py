@@ -152,7 +152,7 @@ class _SpyCache:
         self.snapshot = snapshot
         self.calls: list[str] = []
 
-    def get(self, billing_account_id: str) -> EntitlementSnapshot | None:
+    def get_latest(self, billing_account_id: str) -> EntitlementSnapshot | None:
         self.calls.append(billing_account_id)
         return self.snapshot
 
@@ -426,7 +426,7 @@ def test_spies_satisfazem_os_protocolos_de_porta() -> None:
 
 
 def test_protocolo_de_cache_expoe_somente_leitura_por_conta() -> None:
-    declared = EntitlementCacheReader.get
+    declared = EntitlementCacheReader.get_latest
     assert tuple(inspect.signature(declared).parameters) == ("self", "billing_account_id")
     assert declared(_SpyCache(None), _ACCOUNT) is None
     assert isinstance(_SpyCache(None), EntitlementCacheReader)

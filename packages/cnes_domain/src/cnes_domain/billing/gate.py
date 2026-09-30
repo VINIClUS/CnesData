@@ -28,7 +28,7 @@ from cnes_domain.billing.validation import require_positive
 
 @runtime_checkable
 class EntitlementCacheReader(Protocol):
-    def get(self, billing_account_id: str) -> EntitlementSnapshot | None: ...
+    def get_latest(self, billing_account_id: str) -> EntitlementSnapshot | None: ...
 
 
 def _require_account(snapshot: EntitlementSnapshot, billing_account_id: str) -> EntitlementSnapshot:
@@ -146,7 +146,7 @@ class EntitlementGate:
     def _serving_snapshot(self, billing_account_id: str, allow_cached: bool) -> EntitlementSnapshot:
         cached = None
         if allow_cached and self._cache is not None:
-            cached = self._cache.get(billing_account_id)
+            cached = self._cache.get_latest(billing_account_id)
         if cached is None:
             return self._critical_snapshot(billing_account_id)
         return _require_account(cached, billing_account_id)
