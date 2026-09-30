@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
 
 from cnes_domain.billing.commands import (
     ReleasePendingCheckoutCommand,
@@ -36,6 +36,10 @@ KEY_B = "b" * 64
 TTL = timedelta(minutes=30)
 KEY = pending_checkout_key(ACCOUNT)
 THROTTLED = "ProvisionedThroughputExceededException"
+NETWORK_FAULTS = [
+    EndpointConnectionError(endpoint_url="http://x"),
+    ReadTimeoutError(endpoint_url="http://x"),
+]
 CONDITIONAL_FAILED = "ConditionalCheckFailedException"
 
 
@@ -310,6 +314,53 @@ def test_falha_de_storage_ao_liberar_reserva_gera_dependency_error() -> None:
         catalog.reserve_pending_checkout(reserve())
         with pytest.raises(BillingDependencyError) as raised:
             faulty(client, clock, fail_on="delete_item").release_pending_checkout(release())
+        assert get_stored(client, KEY) is not None
+    assert raised.value.code == "dynamodb_unavailable"
+
+
+@pytest.mark.parametrize("fault", NETWORK_FAULTS, ids=type)
+def test_falha_de_rede_ao_ler_reserva_gera_dependency_error(fault: Exception) -> None:
+    with catalog_env() as (client, clock, _):
+        with pytest.raises(BillingDependencyError) as raised:
+            faulty(client, clock, fail_on="get_item", fault=fault).reserve_pending_checkout(
+                reserve()
+            )
+    assert raised.value.code == "dynamodb_unavailable"
+
+
+@pytest.mark.parametrize("fault", NETWORK_FAULTS, ids=type)
+def test_falha_de_rede_ao_gravar_reserva_gera_dependency_error(fault: Exception) -> None:
+    with catalog_env() as (client, clock, _):
+        with pytest.raises(BillingDependencyError) as raised:
+            faulty(client, clock, fail_on="put_item", fault=fault).reserve_pending_checkout(
+                reserve()
+            )
+        assert get_stored(client, KEY) is None
+    assert raised.value.code == "dynamodb_unavailable"
+
+
+@pytest.mark.parametrize("fault", NETWORK_FAULTS, ids=type)
+def test_falha_de_rede_ao_estender_reserva_gera_dependency_error(fault: Exception) -> None:
+    with catalog_env() as (client, clock, catalog):
+        catalog.reserve_pending_checkout(reserve())
+        before = get_stored(client, KEY)
+        clock.advance(timedelta(minutes=5))
+        with pytest.raises(BillingDependencyError) as raised:
+            faulty(client, clock, fail_on="update_item", fault=fault).reserve_pending_checkout(
+                reserve(expires_in=TTL * 2)
+            )
+        assert get_stored(client, KEY) == before
+    assert raised.value.code == "dynamodb_unavailable"
+
+
+@pytest.mark.parametrize("fault", NETWORK_FAULTS, ids=type)
+def test_falha_de_rede_ao_liberar_reserva_gera_dependency_error(fault: Exception) -> None:
+    with catalog_env() as (client, clock, catalog):
+        catalog.reserve_pending_checkout(reserve())
+        with pytest.raises(BillingDependencyError) as raised:
+            faulty(client, clock, fail_on="delete_item", fault=fault).release_pending_checkout(
+                release()
+            )
         assert get_stored(client, KEY) is not None
     assert raised.value.code == "dynamodb_unavailable"
 

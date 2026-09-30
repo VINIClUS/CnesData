@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cnes_domain.billing.commands import (
     PendingCheckout,
@@ -102,6 +102,8 @@ def _conditional_write(operation: Callable[..., Any], **request: Any) -> bool:
         if _is_conditional_failure(error):
             return False
         raise BillingDependencyError(UNAVAILABLE_CODE) from error
+    except BotoCoreError as error:
+        raise BillingDependencyError(UNAVAILABLE_CODE) from error
     return True
 
 
@@ -154,7 +156,10 @@ class DynamoPendingCheckoutMixin:
 
     def _stored_pending(self, billing_account_id: str) -> PendingCheckout | None:
         key = pending_checkout_key(billing_account_id)
-        item = get_item(self._client, self._table, key, True)
+        try:
+            item = get_item(self._client, self._table, key, True)
+        except BotoCoreError as error:
+            raise BillingDependencyError(UNAVAILABLE_CODE) from error
         return None if item is None else _decode(item, billing_account_id)
 
     def _put_pending(self, pending: PendingCheckout) -> bool:
