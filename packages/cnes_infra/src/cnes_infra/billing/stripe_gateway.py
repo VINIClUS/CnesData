@@ -244,7 +244,7 @@ class StripeGateway:
         Raises: StripeMappingError: Preco do plano nao mapeado; erros Stripe traduzidos.
         """
         price_id = self._checkout_price(command.plan_version)
-        self._guard_checkout(command.stripe_customer_id)
+        self._guard_checkout(command.stripe_customer_id, command.idempotency_key)
         params = {
             "mode": "subscription",
             "customer": command.stripe_customer_id,
@@ -255,6 +255,7 @@ class StripeGateway:
             },
             "success_url": self._config.success_url,
             "cancel_url": self._config.cancel_url,
+            "client_reference_id": command.idempotency_key,
         }
         options = {"idempotency_key": f"checkout:{command.idempotency_key}"}
         session = _call(
@@ -327,7 +328,7 @@ class StripeGateway:
             raise _mapping("stripe_price_unmapped", price_id=price_id)
         return price_id
 
-    def _guard_checkout(self, customer_id: str) -> None:
+    def _guard_checkout(self, customer_id: str, request_key: str) -> None:
         subscriptions = _call(
             "subscriptions.list",
             lambda: self._client.v1.subscriptions.list(
@@ -338,15 +339,17 @@ class StripeGateway:
             raise StripeMappingError("stripe_subscriptions_unbounded")
         if any(sub.status not in _ENDED_STATUSES for sub in subscriptions.data):
             raise PermanentBillingError("stripe_subscription_exists")
-        self._expire_open_sessions(customer_id)
+        self._expire_open_sessions(customer_id, request_key)
 
-    def _expire_open_sessions(self, customer_id: str) -> None:
+    def _expire_open_sessions(self, customer_id: str, request_key: str) -> None:
         sessions = self._client.v1.checkout.sessions
         params = {"customer": customer_id, "status": "open", "limit": _GUARD_PAGE}
         found = _call("checkout.sessions.list", lambda: sessions.list(params=params))
         if found.has_more is True:
             raise StripeMappingError("stripe_checkout_sessions_unbounded")
         for session in found.data:
+            if getattr(session, "client_reference_id", None) == request_key:
+                continue
             _call("checkout.sessions.expire", partial(sessions.expire, session.id))
 
     def _subscription(self, request: StripeStateRequest) -> Any:

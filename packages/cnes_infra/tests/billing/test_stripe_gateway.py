@@ -60,6 +60,7 @@ def test_checkout_usa_hosted_session_metadata_opaca_e_idempotencia() -> None:
             "metadata": {"billing_account_id": "ba_01", "plan_version_id": "plan_v1"},
             "success_url": SUCCESS_URL,
             "cancel_url": CANCEL_URL,
+            "client_reference_id": "req_01",
         },
         options={"idempotency_key": "checkout:req_01"},
     )
@@ -331,3 +332,15 @@ def test_checkout_nao_consulta_stripe_quando_preco_nao_mapeado() -> None:
     with pytest.raises(StripeMappingError):
         gateway.create_checkout(_checkout(make_plan(())))
     assert client.v1.mock_calls == []
+
+
+def test_checkout_repetido_nao_expira_a_propria_sessao_idempotente() -> None:
+    gateway, client, _ = make_gateway()
+    sessions = client.v1.checkout.sessions
+    own = SimpleNamespace(id="cs_01", client_reference_id="req_01")
+    other = SimpleNamespace(id="cs_old", client_reference_id="req_00")
+    sessions.list.return_value = page([own, other])
+    sessions.create.return_value = _session()
+    result = gateway.create_checkout(_checkout())
+    assert [c.args for c in sessions.expire.call_args_list] == [("cs_old",)]
+    assert result.session_id == "cs_01"
