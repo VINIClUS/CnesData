@@ -1,3 +1,5 @@
+"""Testes da criação e transferência de contas de billing."""
+
 import pytest
 from fastapi.testclient import TestClient
 

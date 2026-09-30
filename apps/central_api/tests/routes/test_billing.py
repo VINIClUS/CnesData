@@ -1,3 +1,8 @@
+"""Testes das rotas de billing: autorização, checkout, portal, status e modo desabilitado."""
+
+
+from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -23,7 +28,11 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import BillingAccountStatus, ReadConsistency
+from cnes_domain.billing.models import (
+    BillingAccountStatus,
+    ReadConsistency,
+    SubscriptionStatus,
+)
 from cnes_domain.profiles import BillingMode
 
 from .billing_fakes import (
@@ -36,9 +45,11 @@ from .billing_fakes import (
     checkout_body,
     make_account,
     make_link,
+    make_plan,
     make_snapshot,
     portal_body,
     post,
+    transfer_body,
 )
 
 
@@ -239,7 +250,7 @@ def test_portal_usa_chave_escopada(client, env):
 
 
 @pytest.mark.parametrize(
-    ("error", "status", "detail"),
+    "case",
     [
         (RetryableBillingError("stripe_price_unmapped"), 409, "plan_price_unmapped"),
         (RetryableBillingError("stripe_unavailable"), 503, "stripe_unavailable"),
@@ -248,7 +259,8 @@ def test_portal_usa_chave_escopada(client, env):
         (BillingTenantConflict("x"), 409, "billing_tenant_conflict"),
     ],
 )
-def test_erros_do_gateway_sao_mapeados(client, env, error, status, detail):
+def test_erros_do_gateway_sao_mapeados(client, env, case):
+    error, status, detail = case
     env.gateway.create_checkout.side_effect = error
     response = post(client, "checkout")
     assert response.status_code == status
@@ -317,3 +329,73 @@ def test_principal_do_middleware_e_aceito_e_ausente_retorna_401(env):
     env.catalog.get_account.return_value = make_account(owner="user-1")
     response = TestClient(app).get("/api/v1/billing/status?billing_account_id=ba_01")
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        SubscriptionStatus.ACTIVE,
+        SubscriptionStatus.TRIALING,
+        SubscriptionStatus.PAST_DUE,
+        SubscriptionStatus.UNPAID,
+        SubscriptionStatus.PAUSED,
+        SubscriptionStatus.INCOMPLETE,
+        SubscriptionStatus.ADMIN_REVOKED,
+    ],
+)
+def test_checkout_com_assinatura_vigente_retorna_409_sem_chamar_stripe(client, env, status):
+    env.projection.get_snapshot.return_value = make_snapshot(status)
+    response = post(client, "checkout")
+    assert response.status_code == 409
+    assert response.json() == {"detail": "subscription_exists"}
+    env.projection.get_snapshot.assert_called_once_with("ba_01", ReadConsistency.STRONG)
+    env.gateway.create_checkout.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "status", [SubscriptionStatus.CANCELED, SubscriptionStatus.INCOMPLETE_EXPIRED],
+)
+def test_checkout_apos_assinatura_encerrada_e_permitido(client, env, status):
+    env.projection.get_snapshot.return_value = make_snapshot(status)
+    assert post(client, "checkout").status_code == 201
+    env.gateway.create_checkout.assert_called_once()
+
+
+def test_checkout_rejeita_plano_ainda_nao_vigente(client, env):
+    env.catalog.get_plan.return_value = replace(make_plan(), effective_from=NOW + timedelta(days=1))
+    response = post(client, "checkout")
+    assert response.status_code == 409
+    assert response.json() == {"detail": "plan_not_effective"}
+    env.gateway.create_checkout.assert_not_called()
+
+
+def test_erro_retryable_fora_do_stripe_nao_aparece_como_stripe(client, env):
+    env.catalog.get_account.side_effect = RetryableBillingError("dynamodb_throttled")
+    response = post(client, "checkout")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "billing_dependency_unavailable"}
+    assert response.headers["Retry-After"] == "5"
+    assert env.gateway.method_calls == []
+
+
+def test_erro_permanente_fora_do_stripe_falha_fechado_com_500(env):
+    env.catalog.get_account.side_effect = PermanentBillingError("catalog_record_corrupt")
+    response = TestClient(env.app(), raise_server_exceptions=False).post(
+        MUTATIONS["checkout"][0], json=checkout_body(), headers=HEADERS,
+    )
+    assert response.status_code == 500
+    assert env.gateway.method_calls == []
+
+
+def test_status_com_snapshot_inclui_conta(client, env):
+    env.projection.get_snapshot.return_value = make_snapshot()
+    response = client.get("/api/v1/billing/status?billing_account_id=ba_01", headers=HEADERS)
+    assert response.json()["billing_account_id"] == "ba_01"
+
+
+def test_transferencia_rejeita_id_de_conta_longo(client, env):
+    response = client.post(
+        f"/api/v1/billing/accounts/{'a' * 129}/transfer", json=transfer_body(), headers=HEADERS,
+    )
+    assert response.status_code == 422
+    env.catalog.get_account.assert_not_called()

@@ -109,7 +109,6 @@ class Env:
         return app
 
 
-
 def checkout_body(**extra):
     return {
         "billing_account_id": "ba_01", "plan_version_id": "plan-1",
