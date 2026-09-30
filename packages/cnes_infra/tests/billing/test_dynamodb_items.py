@@ -9,7 +9,7 @@ from unittest.mock import Mock
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from moto import mock_aws
 
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
@@ -441,3 +441,16 @@ def test_transact_converte_erro_nao_condicional_em_dependencia() -> None:
     with pytest.raises(BillingDependencyError) as error:
         items.transact(client, (action,))
     assert error.value.code == "dynamodb_unavailable"
+
+
+def test_falha_de_conexao_vira_dependencia_indisponivel_em_leitura_e_transacao() -> None:
+    client = Mock()
+    client.get_item.side_effect = EndpointConnectionError(endpoint_url="http://x.invalid")
+    client.transact_write_items.side_effect = EndpointConnectionError(
+        endpoint_url="http://x.invalid"
+    )
+    action = items.put_new(TABLE_NAME, items.encode_plan(make_plan()))
+    with pytest.raises(BillingDependencyError, match="dynamodb_unavailable"):
+        items.get_item(client, TABLE_NAME, billing_account_key("x"), True)
+    with pytest.raises(BillingDependencyError, match="dynamodb_unavailable"):
+        items.transact(client, (action,))
