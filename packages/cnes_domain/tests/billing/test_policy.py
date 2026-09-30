@@ -300,11 +300,38 @@ def test_retencao_zero_nao_nega_serving() -> None:
     assert decision.quota_limit == 0
 
 
-def test_cotas_nulas_sao_ilimitadas() -> None:
-    quotas = QuotaLimits(None, None, None, None, None, None)
-    decision = _evaluate(_S.ACTIVE, _A.CREATE_RUN, quotas=quotas)
+_GATED_QUOTAS = [
+    (_A.CREATE_RUN, "max_runs_per_period"),
+    (_A.REGISTER_AGENT, "max_agents"),
+    (_A.ANALYTICS_QUERY, "athena_scan_budget_bytes"),
+    (_A.TENANT_CREATION, "max_tenants"),
+]
+
+
+@pytest.mark.parametrize(("action", "field"), _GATED_QUOTAS)
+def test_cota_nula_nega_acao_limitada_no_modo_stripe(action: EntitlementAction, field: str) -> None:
+    decision = _evaluate(_S.ACTIVE, action, quotas=replace(_QUOTAS, **{field: None}))
+    assert not decision.allowed
+    assert decision.reason == "quota_missing"
+    assert decision.quota_limit is None
+
+
+@pytest.mark.parametrize(("action", "field"), _GATED_QUOTAS)
+def test_cota_nula_e_ilimitada_no_modo_desabilitado(
+    action: EntitlementAction, field: str,
+) -> None:
+    snapshot = _snapshot(_S.ACTIVE, quotas=replace(_QUOTAS, **{field: None}))
+    decision = EntitlementPolicy(BillingMode.DISABLED).evaluate(snapshot, action, _NOW)
     assert decision.allowed
     assert decision.quota_limit is None
+
+
+def test_cotas_nulas_nao_negam_acoes_sem_cota_no_modo_stripe() -> None:
+    quotas = QuotaLimits(None, None, None, None, None, None)
+    serving = _evaluate(_S.ACTIVE, _A.SERVING_ACCESS, quotas=quotas)
+    publish = _evaluate(_S.ACTIVE, _A.PUBLISH_RUN, quotas=quotas)
+    assert serving.allowed
+    assert publish.allowed
 
 
 @pytest.mark.parametrize(

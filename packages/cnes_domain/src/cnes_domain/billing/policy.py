@@ -104,6 +104,14 @@ def _quota_limit(snapshot: EntitlementSnapshot, action: EntitlementAction) -> in
     return None if field is None else getattr(snapshot.quotas, field)
 
 
+def _quota_denial(action: EntitlementAction, limit: int | None, mode: BillingMode) -> str | None:
+    if action not in _QUOTA_GATED:
+        return None
+    if limit is None:
+        return None if mode is BillingMode.DISABLED else "quota_missing"
+    return "quota_not_granted" if limit == 0 else None
+
+
 class EntitlementPolicy:
     def __init__(self, mode: BillingMode = BillingMode.STRIPE) -> None:
         self._mode = mode
@@ -126,8 +134,9 @@ class EntitlementPolicy:
         if feature is not None and not _has_feature(snapshot, feature, self._mode):
             return _denied(snapshot, action, level, "feature_missing")
         limit = _quota_limit(snapshot, action)
-        if action in _QUOTA_GATED and limit == 0:
-            return _denied(snapshot, action, level, "quota_not_granted")
+        quota_denial = _quota_denial(action, limit, self._mode)
+        if quota_denial is not None:
+            return _denied(snapshot, action, level, quota_denial)
         return EntitlementDecision(
             action=action,
             allowed=True,

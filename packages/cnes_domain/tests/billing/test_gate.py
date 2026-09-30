@@ -33,6 +33,7 @@ from cnes_domain.billing.models import (
 from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.billing.ports import EntitlementProjectionPort, QuotaReservationPort
 from cnes_domain.control_plane.entities import RunDependency
+from cnes_domain.profiles import BillingMode
 
 _NOW = datetime(2026, 9, 15, 12, tzinfo=UTC)
 _HOUR = timedelta(hours=1)
@@ -167,7 +168,10 @@ class _Factory:
 
 class _Harness:
     def __init__(
-        self, snapshot: EntitlementSnapshot | None, cache: _SpyCache | None = None,
+        self,
+        snapshot: EntitlementSnapshot | None,
+        cache: _SpyCache | None = None,
+        policy: EntitlementPolicy | None = None,
     ) -> None:
         self.projection = _SpyProjection(snapshot)
         self.quotas = _SpyQuotas()
@@ -178,6 +182,7 @@ class _Harness:
             quotas=self.quotas,
             clock=lambda: _NOW,
             run_settings=RunReservationSettings(4, self.factory, _TTL),
+            policy=policy or EntitlementPolicy(),
             cache=cache,
         ))
 
@@ -333,11 +338,18 @@ def test_analytics_autoriza_sem_reserva_com_limite_do_orcamento() -> None:
     assert harness.quotas.commands == []
 
 
-def test_analytics_sem_orcamento_usa_estimativa_da_requisicao() -> None:
+def test_analytics_sem_orcamento_no_modo_desabilitado_usa_estimativa_da_requisicao() -> None:
     quotas = replace(_QUOTAS, athena_scan_budget_bytes=None)
-    harness = _Harness(_snapshot(quotas=quotas))
+    harness = _Harness(_snapshot(quotas=quotas), policy=EntitlementPolicy(BillingMode.DISABLED))
     result = harness.gate.authorize_analytics_query(_ANALYTICS_REQUEST)
     assert result.max_scan_bytes == 4096
+
+
+def test_analytics_sem_orcamento_no_modo_stripe_e_negado() -> None:
+    quotas = replace(_QUOTAS, athena_scan_budget_bytes=None)
+    harness = _Harness(_snapshot(quotas=quotas))
+    with pytest.raises(EntitlementDenied, match="reason=quota_missing action=analytics_query"):
+        harness.gate.authorize_analytics_query(_ANALYTICS_REQUEST)
 
 
 def test_analytics_sem_feature_e_negado() -> None:
