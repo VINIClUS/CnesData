@@ -56,6 +56,9 @@ _QUOTA_GATED = frozenset({
     EntitlementAction.TENANT_CREATION,
 })
 _QUOTA_REQUIRED = _QUOTA_GATED | {EntitlementAction.SERVING_ACCESS}
+_COMPANION_QUOTAS = MappingProxyType({
+    EntitlementAction.CREATE_RUN: ("max_concurrency",),
+})
 
 
 def require_allowed(decision: EntitlementDecision) -> EntitlementDecision:
@@ -113,6 +116,16 @@ def _quota_denial(action: EntitlementAction, limit: int | None, mode: BillingMod
     return "quota_not_granted" if limit == 0 and action in _QUOTA_GATED else None
 
 
+def _companion_denial(
+    snapshot: EntitlementSnapshot, action: EntitlementAction, mode: BillingMode,
+) -> str | None:
+    if mode is BillingMode.DISABLED:
+        return None
+    fields = _COMPANION_QUOTAS.get(action, ())
+    missing = any(getattr(snapshot.quotas, field) is None for field in fields)
+    return "quota_missing" if missing else None
+
+
 class EntitlementPolicy:
     def __init__(self, mode: BillingMode = BillingMode.STRIPE) -> None:
         self._mode = mode
@@ -135,7 +148,9 @@ class EntitlementPolicy:
         if feature is not None and not _has_feature(snapshot, feature, self._mode):
             return _denied(snapshot, action, level, "feature_missing")
         limit = _quota_limit(snapshot, action)
-        quota_denial = _quota_denial(action, limit, self._mode)
+        quota_denial = _quota_denial(action, limit, self._mode) or _companion_denial(
+            snapshot, action, self._mode,
+        )
         if quota_denial is not None:
             return _denied(snapshot, action, level, quota_denial)
         return EntitlementDecision(

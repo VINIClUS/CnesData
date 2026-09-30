@@ -386,3 +386,23 @@ def test_require_allowed_levanta_quando_negada() -> None:
     decision = _evaluate(_S.ACTIVE, _A.ANALYTICS_QUERY, features=frozenset())
     with pytest.raises(EntitlementDenied, match="reason=feature_missing action=analytics_query"):
         require_allowed(decision)
+
+
+def test_concorrencia_nula_nega_criacao_de_run_no_modo_stripe() -> None:
+    quotas = replace(_QUOTAS, max_concurrency=None)
+    decision = _evaluate(_S.ACTIVE, _A.CREATE_RUN, quotas=quotas)
+    assert not decision.allowed
+    assert decision.reason == "quota_missing"
+
+
+def test_concorrencia_nula_e_ilimitada_no_modo_desabilitado() -> None:
+    snapshot = _snapshot(_S.ACTIVE, quotas=replace(_QUOTAS, max_concurrency=None))
+    policy = EntitlementPolicy(BillingMode.DISABLED)
+    decision = policy.evaluate(snapshot, _A.CREATE_RUN, _NOW)
+    assert decision.allowed
+
+
+def test_concorrencia_nula_nao_afeta_outras_acoes_no_modo_stripe() -> None:
+    quotas = replace(_QUOTAS, max_concurrency=None)
+    decision = _evaluate(_S.ACTIVE, _A.REGISTER_AGENT, quotas=quotas)
+    assert decision.allowed
