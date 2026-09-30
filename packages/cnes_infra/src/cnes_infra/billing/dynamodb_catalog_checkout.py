@@ -1,6 +1,8 @@
 """Account-scoped pending checkout reservation in the DynamoDB billing catalog."""
 
 import math
+from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
@@ -35,6 +37,10 @@ _ENTITY = "pending_checkout"
 _RESERVE_CONDITION = (
     "attribute_not_exists(pk) OR reservation_expires_at <= :now OR request_key = :key"
 )
+_EXTEND_CONDITION = (
+    "request_key = :key AND reserved_at = :reserved_at AND reservation_expires_at > :now"
+)
+_EXTEND_UPDATE = "SET reservation_expires_at = :reservation_expires_at, expires_at = :expires_at"
 
 
 def _text(value: str) -> dict[str, str]:
@@ -87,6 +93,16 @@ def _is_conditional_failure(error: ClientError) -> bool:
     return error.response.get("Error", {}).get("Code") == _CONDITIONAL_FAILED
 
 
+def _conditional_write(operation: Callable[..., Any], **request: Any) -> bool:
+    try:
+        operation(**request)
+    except ClientError as error:
+        if _is_conditional_failure(error):
+            return False
+        raise BillingDependencyError(UNAVAILABLE_CODE) from error
+    return True
+
+
 class DynamoPendingCheckoutMixin:
     _client: Any
     _table: str
@@ -96,8 +112,9 @@ class DynamoPendingCheckoutMixin:
         """Reserva atomicamente o checkout pendente da conta.
 
         Args: Conta, chave da requisição e expiração UTC da reserva.
-        Returns: Reserva gravada, ou a existente viva com a mesma chave.
-        Raises: ValueError, PermanentBillingError, RetryableBillingError.
+        Returns: Reserva gravada, ou a existente viva da mesma chave, estendida.
+        Raises: ValueError, PermanentBillingError, RetryableBillingError,
+            BillingDependencyError.
         """
         now = self._clock()
         if command.expires_at <= now:
@@ -105,7 +122,7 @@ class DynamoPendingCheckoutMixin:
         account = command.billing_account_id
         live = _live_match(self._stored_pending(account), command.request_key, now)
         if live is not None:
-            return live
+            return self._extend_pending(live, command.expires_at, now)
         pending = PendingCheckout(account, command.request_key, now, command.expires_at)
         if self._put_pending(pending):
             return pending
@@ -122,18 +139,13 @@ class DynamoPendingCheckoutMixin:
         Raises: BillingDependencyError.
         """
         key = item_key(*pending_checkout_key(command.billing_account_id))
-        try:
-            self._client.delete_item(
-                TableName=self._table,
-                Key=key,
-                ConditionExpression="request_key = :key",
-                ExpressionAttributeValues={":key": _text(command.request_key)},
-            )
-        except ClientError as error:
-            if _is_conditional_failure(error):
-                return False
-            raise BillingDependencyError(UNAVAILABLE_CODE) from error
-        return True
+        return _conditional_write(
+            self._client.delete_item,
+            TableName=self._table,
+            Key=key,
+            ConditionExpression="request_key = :key",
+            ExpressionAttributeValues={":key": _text(command.request_key)},
+        )
 
     def _stored_pending(self, billing_account_id: str) -> PendingCheckout | None:
         key = pending_checkout_key(billing_account_id)
@@ -141,18 +153,37 @@ class DynamoPendingCheckoutMixin:
         return None if item is None else _decode(item, billing_account_id)
 
     def _put_pending(self, pending: PendingCheckout) -> bool:
-        try:
-            self._client.put_item(
-                TableName=self._table,
-                Item=_encode(pending),
-                ConditionExpression=_RESERVE_CONDITION,
-                ExpressionAttributeValues={
-                    ":now": _text(utc_attribute(pending.reserved_at)),
-                    ":key": _text(pending.request_key),
-                },
-            )
-        except ClientError as error:
-            if _is_conditional_failure(error):
-                return False
-            raise BillingDependencyError(UNAVAILABLE_CODE) from error
-        return True
+        return _conditional_write(
+            self._client.put_item,
+            TableName=self._table,
+            Item=_encode(pending),
+            ConditionExpression=_RESERVE_CONDITION,
+            ExpressionAttributeValues={
+                ":now": _text(utc_attribute(pending.reserved_at)),
+                ":key": _text(pending.request_key),
+            },
+        )
+
+    def _extend_pending(
+        self, stored: PendingCheckout, requested: datetime, now: datetime
+    ) -> PendingCheckout:
+        expires_at = max(stored.expires_at, requested)
+        if expires_at == stored.expires_at:
+            return stored
+        written = _conditional_write(
+            self._client.update_item,
+            TableName=self._table,
+            Key=item_key(*pending_checkout_key(stored.billing_account_id)),
+            UpdateExpression=_EXTEND_UPDATE,
+            ConditionExpression=_EXTEND_CONDITION,
+            ExpressionAttributeValues={
+                ":key": _text(stored.request_key),
+                ":reserved_at": _text(utc_attribute(stored.reserved_at)),
+                ":now": _text(utc_attribute(now)),
+                ":reservation_expires_at": _text(utc_attribute(expires_at)),
+                ":expires_at": {"N": str(math.ceil(expires_at.timestamp()))},
+            },
+        )
+        if not written:
+            raise RetryableBillingError(CONFLICT_CODE)
+        return replace(stored, expires_at=expires_at)

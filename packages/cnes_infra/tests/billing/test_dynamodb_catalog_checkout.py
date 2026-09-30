@@ -1,7 +1,8 @@
 """Reserva de checkout pendente no catálogo DynamoDB de billing."""
 
 import math
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -33,10 +34,16 @@ KEY_A = "a" * 64
 KEY_B = "b" * 64
 TTL = timedelta(minutes=30)
 KEY = pending_checkout_key(ACCOUNT)
+THROTTLED = "ProvisionedThroughputExceededException"
+CONDITIONAL_FAILED = "ConditionalCheckFailedException"
 
 
 def reserve(key: str = KEY_A, expires_in: timedelta = TTL) -> ReservePendingCheckoutCommand:
     return ReservePendingCheckoutCommand(ACCOUNT, key, NOW + expires_in)
+
+
+def reserve_until(expires_at: datetime, key: str = KEY_A) -> ReservePendingCheckoutCommand:
+    return ReservePendingCheckoutCommand(ACCOUNT, key, expires_at)
 
 
 def release(key: str = KEY_A) -> ReleasePendingCheckoutCommand:
@@ -53,26 +60,42 @@ class FaultyClient:
         inner: Any,
         blind_reads: int = 0,
         fail_on: str | None = None,
-        code: str = "ProvisionedThroughputExceededException",
+        fault: Exception | None = None,
+        after_read: Callable[[], None] | None = None,
     ) -> None:
         self.inner = inner
         self.blind_reads = blind_reads
         self.fail_on = fail_on
-        self.code = code
+        self.fault = fault
+        self.after_read = after_read
+        self.calls: list[str] = []
+
+    def _raise_if_failing(self, name: str) -> None:
+        self.calls.append(name)
+        if name == self.fail_on:
+            raise self.fault or client_error(THROTTLED, name)
 
     def get_item(self, **kwargs: Any) -> dict[str, Any]:
+        self._raise_if_failing("get_item")
         if self.blind_reads > 0:
             self.blind_reads -= 1
             return {}
-        return self.inner.get_item(**kwargs)
+        response = self.inner.get_item(**kwargs)
+        if self.after_read is not None:
+            self.after_read()
+            self.after_read = None
+        return response
 
     def __getattr__(self, name: str) -> Any:
-        if name == self.fail_on:
-            def boom(**_: Any) -> Any:
-                raise client_error(self.code, name)
+        target = getattr(self.inner, name)
+        if not callable(target):
+            return target
 
-            return boom
-        return getattr(self.inner, name)
+        def call(**kwargs: Any) -> Any:
+            self._raise_if_failing(name)
+            return target(**kwargs)
+
+        return call
 
 
 def faulty(client: Any, clock: Any, **options: Any) -> DynamoBillingCatalog:
@@ -99,14 +122,105 @@ def test_reserva_checkout_pendente_grava_item_com_ttl() -> None:
     assert int(item["expires_at"]["N"]) > expires.timestamp()
 
 
-def test_reserva_com_mesma_chave_e_replay_sem_regravar() -> None:
+def test_replay_com_mesma_chave_proximo_da_expiracao_estende_a_reserva() -> None:
+    with catalog_env() as (client, clock, catalog):
+        first = catalog.reserve_pending_checkout(reserve())
+        clock.advance(TTL - timedelta(milliseconds=1))
+        extended_to = clock.now() + TTL
+        replay = catalog.reserve_pending_checkout(reserve_until(extended_to))
+        item = get_stored(client, KEY)
+    assert (replay.reserved_at, replay.expires_at) == (first.reserved_at, extended_to)
+    assert item["reserved_at"] == {"S": utc_attribute(NOW)}
+    assert item["reservation_expires_at"] == {"S": utc_attribute(extended_to)}
+    assert item["expires_at"] == {"N": str(math.ceil(extended_to.timestamp()))}
+
+
+def test_outra_chave_no_instante_da_expiracao_original_segue_em_progresso() -> None:
+    with catalog_env() as (_, clock, catalog):
+        catalog.reserve_pending_checkout(reserve())
+        clock.advance(TTL - timedelta(milliseconds=1))
+        catalog.reserve_pending_checkout(reserve_until(NOW + TTL * 2))
+        clock.advance(timedelta(milliseconds=1))
+        with pytest.raises(PermanentBillingError) as raised:
+            catalog.reserve_pending_checkout(reserve(KEY_B, TTL * 2))
+    assert raised.value.code == "checkout_in_progress"
+
+
+@pytest.mark.parametrize("expires_in", [TTL, TTL - timedelta(minutes=10)])
+def test_replay_com_expiracao_nao_posterior_nao_regrava(expires_in: timedelta) -> None:
     with catalog_env() as (client, clock, catalog):
         first = catalog.reserve_pending_checkout(reserve())
         before = get_stored(client, KEY)
         clock.advance(timedelta(minutes=5))
-        replay = catalog.reserve_pending_checkout(reserve())
+        spy = FaultyClient(client)
+        spied = DynamoBillingCatalog(spy, TABLE_NAME, clock.now)
+        replay = spied.reserve_pending_checkout(reserve(expires_in=expires_in))
         assert get_stored(client, KEY) == before
     assert replay == first
+    assert "update_item" not in spy.calls
+
+
+def test_falha_condicional_ao_estender_gera_conflito_retentavel() -> None:
+    fault = client_error(CONDITIONAL_FAILED, "UpdateItem")
+    with catalog_env() as (client, clock, catalog):
+        catalog.reserve_pending_checkout(reserve())
+        before = get_stored(client, KEY)
+        clock.advance(timedelta(minutes=5))
+        with pytest.raises(RetryableBillingError) as raised:
+            faulty(client, clock, fail_on="update_item", fault=fault).reserve_pending_checkout(
+                reserve(expires_in=TTL * 2)
+            )
+        assert get_stored(client, KEY) == before
+    assert raised.value.code == "billing_transaction_conflict"
+    assert not isinstance(raised.value, BillingDependencyError)
+
+
+def test_falha_de_storage_ao_estender_gera_dependency_error() -> None:
+    with catalog_env() as (client, clock, catalog):
+        catalog.reserve_pending_checkout(reserve())
+        before = get_stored(client, KEY)
+        clock.advance(timedelta(minutes=5))
+        with pytest.raises(BillingDependencyError) as raised:
+            faulty(client, clock, fail_on="update_item").reserve_pending_checkout(
+                reserve(expires_in=TTL * 2)
+            )
+        assert get_stored(client, KEY) == before
+    assert raised.value.code == "dynamodb_unavailable"
+
+
+def _superseding_items() -> dict[str, dict[str, Any] | None]:
+    base = valid_item()
+    live = {"S": utc_attribute(NOW + TTL)}
+    return {
+        "liberada": None,
+        "outra_chave": {**base, "request_key": {"S": KEY_B}, "reservation_expires_at": live},
+        "outro_reserved_at": {
+            **base,
+            "reserved_at": {"S": utc_attribute(NOW + timedelta(minutes=1))},
+            "reservation_expires_at": live,
+        },
+        "expirada": {**base, "reservation_expires_at": {"S": utc_attribute(NOW)}},
+    }
+
+
+@pytest.mark.parametrize("kind", ["liberada", "outra_chave", "outro_reserved_at", "expirada"])
+def test_extensao_nao_sobrescreve_reserva_alterada_entre_leitura_e_gravacao(kind: str) -> None:
+    superseding = _superseding_items()[kind]
+
+    def supersede() -> None:
+        if superseding is None:
+            client.delete_item(TableName=TABLE_NAME, Key=item_key(*KEY))
+        else:
+            put(client, superseding)
+
+    with catalog_env() as (client, clock, catalog):
+        catalog.reserve_pending_checkout(reserve())
+        clock.advance(timedelta(minutes=5))
+        racing = faulty(client, clock, after_read=supersede)
+        with pytest.raises(RetryableBillingError) as raised:
+            racing.reserve_pending_checkout(reserve(expires_in=TTL * 2))
+        assert get_stored(client, KEY) == superseding
+    assert raised.value.code == "billing_transaction_conflict"
 
 
 def test_reserva_com_outra_chave_viva_gera_checkout_in_progress() -> None:
@@ -152,7 +266,11 @@ def test_corrida_com_mesma_chave_viva_devolve_reserva_gravada() -> None:
         stored = catalog.reserve_pending_checkout(reserve())
         clock.advance(timedelta(minutes=1))
         lost_put = faulty(
-            client, clock, blind_reads=1, fail_on="put_item", code="ConditionalCheckFailedException"
+            client,
+            clock,
+            blind_reads=1,
+            fail_on="put_item",
+            fault=client_error(CONDITIONAL_FAILED, "PutItem"),
         )
         raced = lost_put.reserve_pending_checkout(reserve())
     assert raced == stored
