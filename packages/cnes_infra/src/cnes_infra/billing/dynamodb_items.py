@@ -7,7 +7,7 @@ from dataclasses import fields
 from datetime import UTC, datetime
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cnes_domain.billing.commands import CreateBillingAccountCommand, LinkBillingTenantCommand
 from cnes_domain.billing.errors import (
@@ -421,7 +421,7 @@ def get_item(client: Any, table_name: str, key: Key, strong: bool) -> Item | Non
     """Lê um item pela chave base, convertendo falhas de storage."""
     try:
         response = client.get_item(TableName=table_name, Key=item_key(*key), ConsistentRead=strong)
-    except ClientError as error:
+    except (ClientError, BotoCoreError) as error:
         raise BillingDependencyError(UNAVAILABLE_CODE) from error
     return response.get("Item")
 
@@ -439,6 +439,6 @@ def transact(client: Any, actions: tuple[Action, ...]) -> bool:
         if error.code in _LIMIT_CODES:
             raise PermanentBillingError(_LIMIT_CODES[error.code]) from error
         return False
-    except ClientError as error:
+    except (ClientError, BotoCoreError) as error:
         raise BillingDependencyError(UNAVAILABLE_CODE) from error
     return True
