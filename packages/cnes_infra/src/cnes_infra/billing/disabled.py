@@ -31,6 +31,7 @@ from cnes_domain.billing.ports import ClockPort
 
 LOCAL_UNMETERED_PLAN_VERSION_ID = "local-unmetered-v1"
 _FOREVER = datetime.max.replace(tzinfo=UTC)
+_LOCAL_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _UNMETERED = QuotaLimits(None, None, None, None, None, None)
 _CAPACITY_PREFIX = "local-capacity"
 _WRITE_DISABLED = "billing_mode=disabled operation=write_snapshot"
@@ -133,26 +134,25 @@ class DisabledQuotaReservations:
             resource_id=resource_id,
             kind=kind,
             status=status,
-            created_at=self._clock(),
+            created_at=_LOCAL_EPOCH,
             expires_at=_FOREVER,
         )
 
     def _run_reservation(
         self, billing_account_id: str, reservation_id: str, status: ReservationStatus,
     ) -> QuotaReservation:
-        now = self._clock()
         return QuotaReservation(
             reservation_id=reservation_id,
             billing_account_id=billing_account_id,
             resource_id=reservation_id,
             kind=ReservationKind.RUN,
-            period_start=now,
+            period_start=_LOCAL_EPOCH,
             reserved_runs=0,
             reserved_scan_bytes=0,
             consumed_runs=0,
             consumed_scan_bytes=0,
             status=status,
-            created_at=now,
+            created_at=_LOCAL_EPOCH,
             expires_at=_FOREVER,
         )
 
@@ -161,5 +161,5 @@ def _decode_capacity_id(reservation_id: str) -> tuple[CapacityKind, str]:
     prefix, _, remainder = reservation_id.partition("#")
     kind, _, resource_id = remainder.partition("#")
     if prefix != _CAPACITY_PREFIX or kind not in set(CapacityKind) or not resource_id:
-        raise ValueError("reason=unknown_local_reservation")
+        raise BillingDisabledError("billing_mode=disabled operation=foreign_capacity_reservation")
     return CapacityKind(kind), resource_id

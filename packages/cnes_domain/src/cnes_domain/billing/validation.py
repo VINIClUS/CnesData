@@ -2,14 +2,35 @@
 
 import math
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import datetime, timedelta
-from types import MappingProxyType
 
 _LOWER_HEX_16 = re.compile(r"^[0-9a-f]{16}$")
 _LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 _COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _ATTRIBUTE_TYPES = (str, int, bool, type(None))
+
+
+class FrozenMapping(Mapping[str, object]):
+    __slots__ = ("_items",)
+
+    def __init__(self, items: Mapping[str, object]) -> None:
+        self._items = dict(items)
+
+    def __getitem__(self, key: str) -> object:
+        return self._items[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __hash__(self) -> int:
+        return hash(frozenset(self._items.items()))
+
+    def __repr__(self) -> str:
+        return f"FrozenMapping({self._items!r})"
 
 
 def require_id(value: str, name: str) -> None:
@@ -127,7 +148,7 @@ def freeze_attributes(
         require_id(key, name)
         if not isinstance(value, _ATTRIBUTE_TYPES):
             raise ValueError(f"reason=invalid_attribute field={name}")
-    return MappingProxyType(copied)
+    return FrozenMapping(copied)
 
 
 def freeze_dimensions(values: Mapping[str, str], name: str) -> Mapping[str, str]:
@@ -139,7 +160,7 @@ def freeze_dimensions(values: Mapping[str, str], name: str) -> Mapping[str, str]
     for key, value in copied.items():
         require_id(key, name)
         require_id(value, name)
-    return MappingProxyType(copied)
+    return FrozenMapping(copied)
 
 
 def require_finite(value: float, name: str) -> None:

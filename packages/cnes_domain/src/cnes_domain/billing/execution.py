@@ -27,7 +27,7 @@ def _check_binding(wave_id: str, dispatch_id: str, generation: int) -> None:
 def _check_previous_binding(dispatch_id: str | None, execution_ref: str | None) -> None:
     if (dispatch_id is None) != (execution_ref is None):
         raise ValueError("reason=previous_binding_incomplete")
-    if dispatch_id is not None and execution_ref is not None:
+    if dispatch_id is not None:
         require_hex16(dispatch_id, "expected_previous_dispatch_id")
         require_id(execution_ref, "expected_previous_execution_ref")
 

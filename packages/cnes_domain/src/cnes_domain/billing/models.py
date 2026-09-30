@@ -145,6 +145,8 @@ class QuotaLimits:
 
     def __post_init__(self) -> None:
         require_fields(self, optional_non_negative, (f.name for f in fields(self)))
+        if self.max_concurrency is not None:
+            require_positive(self.max_concurrency, "max_concurrency")
 
 
 @dataclass(frozen=True, slots=True)

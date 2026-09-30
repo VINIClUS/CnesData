@@ -149,8 +149,7 @@ def test_enums_expoem_valores_de_string_do_plano() -> None:
     assert [m.value for m in BillingEnforcementMode] == ["off", "shadow", "enforce"]
     assert [a.value for a in AccessLevel] == ["full", "read_only", "blocked"]
     assert [s.value for s in ReservationStatus] == ["reserved", "consumed", "released"]
-    assert [k.value for k in ReservationKind] == ["run", "analytics"]
-    assert [k.value for k in CapacityKind] == ["tenant", "agent"]
+    assert [*ReservationKind, *CapacityKind] == ["run", "analytics", "tenant", "agent"]
     assert (ReadConsistency.EVENTUAL, ReadConsistency.STRONG) == ("eventual", "strong")
     assert LOCAL_UNMETERED_PLAN_KEY == "local-unmetered"
 
@@ -164,8 +163,8 @@ def test_instancia_conta_com_todos_os_campos() -> None:
         created_at=_NOW,
         updated_at=_LATER,
     )
-    assert (account.stripe_customer_id, account.updated_at) == (None, _LATER)
-    assert account.status is BillingAccountStatus.TRANSFER_PENDING
+    expected = (None, _LATER, BillingAccountStatus.TRANSFER_PENDING)
+    assert (account.stripe_customer_id, account.updated_at, account.status) == expected
 
 
 @pytest.mark.parametrize(
@@ -180,8 +179,7 @@ def test_rejeita_conta_invalida(overrides: dict[str, Any]) -> None:
 
 def test_instancia_link_com_todos_os_campos() -> None:
     link = BillingAccountTenantLink("ba-2", "tenant-z", "admin", "migracao", _LATER)
-    assert (link.billing_account_id, link.tenant_id, link.linked_at) == ("ba-2", "tenant-z", _LATER)
-    assert (link.linked_by_user_id, link.reason_code) == ("admin", "migracao")
+    assert astuple(link) == ("ba-2", "tenant-z", "admin", "migracao", _LATER)
 
 
 @pytest.mark.parametrize(
@@ -201,15 +199,17 @@ def test_instancia_pagina_de_contas_com_todos_os_campos() -> None:
 
 
 def test_instancia_limites_de_quota_com_todos_os_campos() -> None:
-    quotas = QuotaLimits(1, 2, 3, 4, 5, 6)
-    assert astuple(quotas) == (1, 2, 3, 4, 5, 6)
+    assert astuple(QuotaLimits(1, 2, 3, 4, 5, 6)) == (1, 2, 3, 4, 5, 6)
     assert QuotaLimits(None, None, None, None, None, None).max_tenants is None
 
 
-@pytest.mark.parametrize("field", list(QuotaLimits.__dataclass_fields__))
-def test_rejeita_limite_de_quota_negativo(field: str) -> None:
-    with pytest.raises(ValueError, match=f"negative_value field={field}"):
-        replace(_QUOTAS, **{field: -1})
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [*((name, -1) for name in QuotaLimits.__dataclass_fields__), ("max_concurrency", 0)],
+)
+def test_rejeita_limite_de_quota_invalido(field: str, value: int) -> None:
+    with pytest.raises(ValueError, match=f"field={field}"):
+        replace(_QUOTAS, **{field: value})
 
 
 def test_instancia_plano_com_todos_os_campos() -> None:

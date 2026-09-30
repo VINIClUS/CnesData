@@ -64,3 +64,19 @@ def test_erro_classificado_rejeita_payload_cru(raw: object) -> None:
 def test_dependencia_indisponivel_e_retryable() -> None:
     assert issubclass(BillingDependencyError, RetryableBillingError)
     assert not issubclass(PermanentBillingError, RetryableBillingError)
+
+
+def test_erro_classificado_aceita_detalhe_chave_valor_sanitizado() -> None:
+    error = RetryableBillingError("stripe_price_unmapped", detail="price_id=price_123")
+    assert error.code == "stripe_price_unmapped"
+    assert str(error) == "code=stripe_price_unmapped price_id=price_123"
+    multi = PermanentBillingError("stripe_mapping", detail="customer_id=cus_1 count=2")
+    assert str(multi) == "code=stripe_mapping customer_id=cus_1 count=2"
+
+
+@pytest.mark.parametrize(
+    "detail", ["", "price 123", '{"card": "4242"}', "k=v=w", "=v", "k=", "k=v  x=y"],
+)
+def test_erro_classificado_rejeita_detalhe_nao_sanitizado(detail: str) -> None:
+    with pytest.raises(ValueError, match="unsanitized_error_detail"):
+        RetryableBillingError("stripe_mapping", detail=detail)

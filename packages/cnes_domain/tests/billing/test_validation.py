@@ -1,5 +1,8 @@
 """Testes das invariantes compartilhadas de billing."""
 
+import copy
+import pickle
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
@@ -145,3 +148,23 @@ def test_rejeita_booleano_invalido(value: object) -> None:
     validation.require_bool(True, "flag_not_bool")
     with pytest.raises(ValueError, match="reason=flag_not_bool"):
         validation.require_bool(value, "flag_not_bool")
+
+
+def test_mapa_congelado_e_hashable_copiavel_e_serializavel() -> None:
+    frozen = validation.freeze_attributes({"b": 1, "a": "x"}, "attributes")
+    assert hash(frozen) == hash(validation.freeze_attributes({"a": "x", "b": 1}, "attributes"))
+    assert frozen == {"a": "x", "b": 1}
+    assert copy.deepcopy(frozen) == frozen
+    assert pickle.loads(pickle.dumps(frozen)) == frozen  # noqa: S301
+    assert len(frozen) == 2
+    assert sorted(frozen) == ["a", "b"]
+    assert repr(frozen) == "FrozenMapping({'b': 1, 'a': 'x'})"
+
+
+def test_mapa_congelado_sobrevive_a_asdict() -> None:
+    @dataclass(frozen=True)
+    class _Holder:
+        values: validation.FrozenMapping
+
+    holder = _Holder(validation.freeze_dimensions({"plan": "pro"}, "dimensions"))
+    assert asdict(holder) == {"values": {"plan": "pro"}}

@@ -148,18 +148,22 @@ def test_reserva_analytics_nao_cria_reserva() -> None:
 
 @pytest.mark.parametrize("kind", list(CapacityKind))
 def test_capacity_reserva_consumo_e_liberacao_sao_idempotentes(kind: CapacityKind) -> None:
-    quotas = DisabledQuotaReservations(MutableClock(_NOW).now)
+    clock = MutableClock(_NOW)
+    quotas = DisabledQuotaReservations(clock.now)
     reserved = quotas.reserve_capacity(_capacity_command(kind))
+    clock.advance(timedelta(minutes=5))
     assert quotas.reserve_capacity(_capacity_command(kind)) == reserved
     assert (reserved.kind, reserved.resource_id) == (kind, "agent#1")
     assert reserved.status is ReservationStatus.RESERVED
     consume = ConsumeCapacityCommand("local", reserved.reservation_id, _NOW)
     consumed = quotas.consume_capacity(consume)
+    clock.advance(timedelta(minutes=5))
     assert quotas.consume_capacity(consume) == consumed
     assert consumed.status is ReservationStatus.CONSUMED
     assert (consumed.kind, consumed.resource_id) == (kind, "agent#1")
     release = ReleaseCapacityCommand("local", reserved.reservation_id, _NOW, "agent_removed")
     released = quotas.release_capacity(release)
+    clock.advance(timedelta(minutes=5))
     assert quotas.release_capacity(release) == released
     assert released.status is ReservationStatus.RELEASED
 
@@ -167,14 +171,19 @@ def test_capacity_reserva_consumo_e_liberacao_sao_idempotentes(kind: CapacityKin
 @pytest.mark.parametrize("reservation_id", ["cap-externa", "local-capacity#other#x"])
 def test_capacity_rejeita_reserva_nao_local(reservation_id: str) -> None:
     quotas = DisabledQuotaReservations(MutableClock(_NOW).now)
-    with pytest.raises(ValueError, match="reason=unknown_local_reservation"):
+    message = "billing_mode=disabled operation=foreign_capacity_reservation"
+    with pytest.raises(BillingDisabledError, match=message):
         quotas.consume_capacity(ConsumeCapacityCommand("local", reservation_id, _NOW))
+    with pytest.raises(BillingDisabledError, match=message):
+        quotas.release_capacity(ReleaseCapacityCommand("local", reservation_id, _NOW, "x"))
 
 
 def test_consumo_e_liberacao_de_run_sao_noops_idempotentes() -> None:
-    quotas = DisabledQuotaReservations(MutableClock(_NOW).now)
+    clock = MutableClock(_NOW)
+    quotas = DisabledQuotaReservations(clock.now)
     consume = ConsumeReservationCommand("local", "r-1", 99, _NOW)
     consumed = quotas.consume(consume)
+    clock.advance(timedelta(minutes=5))
     assert quotas.consume(consume) == consumed
     assert consumed.status is ReservationStatus.CONSUMED
     assert consumed.kind is ReservationKind.RUN
@@ -187,6 +196,7 @@ def test_consumo_e_liberacao_de_run_sao_noops_idempotentes() -> None:
     assert counters == (0, 0, 0, 0)
     release = ReleaseReservationCommand("local", "r-1", _NOW, "run_canceled")
     released = quotas.release(release)
+    clock.advance(timedelta(minutes=5))
     assert quotas.release(release) == released
     assert released.status is ReservationStatus.RELEASED
 
