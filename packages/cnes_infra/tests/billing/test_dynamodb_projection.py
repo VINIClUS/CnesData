@@ -1,5 +1,6 @@
 """Testes do DynamoEntitlementProjection (BIL-012) sobre moto e cliente low-level."""
 
+from dataclasses import replace
 from typing import Any
 from unittest.mock import Mock
 
@@ -8,6 +9,7 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
@@ -90,6 +92,11 @@ def _seed_inbox(client: Any, state: str = "processing", attempt: int = 2) -> Non
 
 def _claim(attempt: int = 2) -> InboxClaim:
     return InboxClaim("evt_01", "customer.subscription.updated", "cus_01", "sub_01", attempt, True)
+
+
+def _claimed_write(expected_version: int = 0, audits: tuple[str, ...] = ()) -> SnapshotWrite:
+    write = make_write(expected_version, audits=audits)
+    return replace(write, snapshot=replace(write.snapshot, source_event_id="evt_01"))
 
 
 def _stored(client: Any, key: dict[str, Any]) -> dict[str, Any]:
@@ -196,14 +203,14 @@ def test_commit_claimed_snapshot_rejeita_fence_sem_efeitos(context):
     _seed_inbox(client, attempt=2)
     before = table_items(client)
     with pytest.raises(StaleInboxClaim, match="inbox_claim_stale"):
-        projection.commit_claimed_snapshot(_claim(1), make_write(0, audits=("audit-01",)))
+        projection.commit_claimed_snapshot(_claim(1), _claimed_write(0, audits=("audit-01",)))
     assert table_items(client) == before
 
 
 def test_commit_claimed_snapshot_grava_snapshot_inbox_e_auditoria(context):
     client, _, projection = context
     _seed_inbox(client)
-    assert projection.commit_claimed_snapshot(_claim(), make_write(0, audits=("audit-01",)))
+    assert projection.commit_claimed_snapshot(_claim(), _claimed_write(0, audits=("audit-01",)))
     inbox = _stored(client, INBOX_KEY)
     assert inbox["state"] == {"S": "processed"}
     assert inbox["attempt"] == {"N": "2"}
@@ -220,27 +227,27 @@ def test_commit_claimed_snapshot_perde_versao_sem_efeitos(context):
     _seed_inbox(client)
     projection.compare_and_set_snapshot(make_write(0))
     before = table_items(client)
-    assert projection.commit_claimed_snapshot(_claim(), make_write(0)) is False
+    assert projection.commit_claimed_snapshot(_claim(), _claimed_write(0)) is False
     assert table_items(client) == before
 
 
 def test_commit_claimed_snapshot_sem_inbox_levanta_stale(context):
     with pytest.raises(StaleInboxClaim):
-        context[2].commit_claimed_snapshot(_claim(), make_write(0))
+        context[2].commit_claimed_snapshot(_claim(), _claimed_write(0))
 
 
 def test_commit_claimed_snapshot_inbox_fora_de_processing_levanta_stale(context):
     client, _, projection = context
     _seed_inbox(client, state="processed")
     with pytest.raises(StaleInboxClaim):
-        projection.commit_claimed_snapshot(_claim(), make_write(0))
+        projection.commit_claimed_snapshot(_claim(), _claimed_write(0))
 
 
 def test_commit_claimed_snapshot_inbox_malformado_conta_como_fence_perdido(context):
     client, _, projection = context
     client.put_item(TableName=TABLE_NAME, Item={**INBOX_KEY, "entity": {"S": "STRIPEEVENTINBOX"}})
     with pytest.raises(StaleInboxClaim):
-        projection.commit_claimed_snapshot(_claim(), make_write(0))
+        projection.commit_claimed_snapshot(_claim(), _claimed_write(0))
 
 
 def test_commit_claimed_snapshot_sem_claim_adquirido_nao_faz_io():
@@ -258,7 +265,7 @@ def test_commit_claimed_snapshot_ambiguo_levanta_retryable_sem_efeitos(context):
     _seed_inbox(client)
     before = table_items(client)
     with pytest.raises(RetryableBillingError, match="billing_commit_ambiguous"):
-        projection.commit_claimed_snapshot(_claim(), make_write(1, audits=("audit-01",)))
+        projection.commit_claimed_snapshot(_claim(), _claimed_write(1, audits=("audit-01",)))
     assert table_items(client) == before
 
 
@@ -267,13 +274,13 @@ def test_commit_claimed_snapshot_com_erro_nao_condicional_levanta_dependencia(co
     _seed_inbox(client)
     projection = DynamoEntitlementProjection(_ThrottlingClient(client), TABLE_NAME, clock.now)
     with pytest.raises(BillingDependencyError):
-        projection.commit_claimed_snapshot(_claim(), make_write(0))
+        projection.commit_claimed_snapshot(_claim(), _claimed_write(0))
 
 
 def test_auditoria_de_conta_e_entregue_pelo_dispatcher_uma_vez(context):
     client, clock, projection = context
     _seed_inbox(client)
-    projection.commit_claimed_snapshot(_claim(), make_write(0, audits=("audit-01",)))
+    projection.commit_claimed_snapshot(_claim(), _claimed_write(0, audits=("audit-01",)))
     sink = _CollectingSink()
     plane = DynamoDBControlPlane(client, TABLE_NAME, clock.now)
     assert dispatch_once(plane, sink, NOW).delivered == 1
@@ -283,3 +290,12 @@ def test_auditoria_de_conta_e_entregue_pelo_dispatcher_uma_vez(context):
     assert event.aggregate_id == "ba_01"
     assert event.payload["reason_code"] == "webhook_projection"
     assert dispatch_once(plane, sink, NOW).delivered == 0
+
+
+def test_commit_claimed_snapshot_rejeita_snapshot_de_outro_evento(context):
+    client, _, projection = context
+    _seed_inbox(client)
+    before = table_items(client)
+    with pytest.raises(ValueError, match="reason=snapshot_event_mismatch"):
+        projection.commit_claimed_snapshot(_claim(), make_write(0, audits=("audit-01",)))
+    assert table_items(client) == before

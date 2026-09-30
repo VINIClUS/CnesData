@@ -90,10 +90,13 @@ class DynamoEntitlementProjection:
 
         Args: Claim adquirido e escrita do snapshot.
         Returns: True se gravou; False se a versão esperada mudou.
-        Raises: StaleInboxClaim se o fence foi perdido; RetryableBillingError se ambíguo.
+        Raises: StaleInboxClaim se o fence foi perdido; RetryableBillingError se ambíguo;
+            ValueError se o snapshot não vier do evento reivindicado.
         """
         if not claim.acquired:
             raise StaleInboxClaim(claim.event_id)
+        if command.snapshot.source_event_id != claim.event_id:
+            raise ValueError("reason=snapshot_event_mismatch")
         actions = (
             self._snapshot_put(command),
             self._inbox_processed(claim, command),

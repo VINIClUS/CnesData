@@ -189,3 +189,18 @@ def test_piso_expira_junto_com_o_ttl() -> None:
     cache.put(make_snapshot("ba_01", 2))
 
     assert cache.get_latest("ba_01") == make_snapshot("ba_01", 2)
+
+
+def test_expiracao_da_ultima_versao_recalcula_indice_pela_versao_viva() -> None:
+    clock = MutableClock(NOW)
+    cache = LocalEntitlementCache(60, clock.now)
+    cache.put(make_snapshot("ba_01", 2))
+    clock.advance(timedelta(seconds=30))
+    cache.put(make_snapshot("ba_01", 1))
+    clock.advance(timedelta(seconds=30))
+
+    assert _latest_version(cache) == 1
+
+    clock.advance(timedelta(seconds=30))
+    assert cache.get_latest("ba_01") is None
+    assert cache.tracked_accounts() == 0

@@ -76,7 +76,8 @@ class LocalEntitlementCache:
             version = self._latest.get(billing_account_id)
             if version is None:
                 return None
-            return self._lookup(CacheKey(billing_account_id, version))
+            snapshot = self._lookup(CacheKey(billing_account_id, version))
+            return snapshot if snapshot is not None else self._reindex_latest(billing_account_id)
 
     def invalidate_before(self, billing_account_id: str, entitlement_version: int) -> None:
         """Remove versões anteriores da conta e eleva o piso de invalidação."""
@@ -128,6 +129,19 @@ class LocalEntitlementCache:
             del self._entries[key]
             return None
         return entry.snapshot
+
+    def _reindex_latest(self, account: str) -> EntitlementSnapshot | None:
+        now = self._clock()
+        live = [
+            key.entitlement_version
+            for key, entry in self._entries.items()
+            if key.billing_account_id == account and now < entry.expires_at
+        ]
+        if not live:
+            del self._latest[account]
+            return None
+        self._latest[account] = max(live)
+        return self._entries[CacheKey(account, max(live))].snapshot
 
     def _drop_stale_latest(self, account: str, floor: int) -> None:
         if self._latest.get(account, floor) < floor:

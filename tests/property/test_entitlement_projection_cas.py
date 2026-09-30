@@ -80,6 +80,9 @@ def test_exatamente_um_cas_vence_por_versao_esperada(executor, contenders):
     assert stored.source_event_id == winner.source_event_id
 
 
+def _claimed_write() -> SnapshotWrite:
+    return SnapshotWrite(0, make_snapshot(version=1, source_event_id="evt_01"), ())
+
 def test_somente_o_claim_da_tentativa_atual_vence_a_corrida(executor):
     with mock_aws():
         client, projection = _setup()
@@ -98,7 +101,7 @@ def test_somente_o_claim_da_tentativa_atual_vence_a_corrida(executor):
         ]
         futures = _race(
             executor,
-            [lambda c=c: projection.commit_claimed_snapshot(c, make_write(0)) for c in claims],
+            [lambda c=c: projection.commit_claimed_snapshot(c, _claimed_write()) for c in claims],
         )
         with pytest.raises(StaleInboxClaim):
             futures[0].result()
