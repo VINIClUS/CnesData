@@ -60,8 +60,11 @@ def make_limits(**changes: int | None) -> QuotaLimits:
     return replace(limits, **changes)
 
 
+FEATURES = frozenset({"create_run", "analytics_query", "serving_access"})
+
+
 def make_quota_snapshot(**limits: int | None) -> EntitlementSnapshot:
-    return make_snapshot(ACCOUNT, quotas=make_limits(**limits))
+    return make_snapshot(ACCOUNT, quotas=make_limits(**limits), features=FEATURES)
 
 
 def seed_snapshot(client: Any, snapshot: EntitlementSnapshot) -> None:

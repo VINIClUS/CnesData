@@ -17,7 +17,7 @@ from cnes_domain.billing.errors import (
     QuotaExceeded,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import CapacityKind, ReservationStatus
+from cnes_domain.billing.models import CapacityKind, ReservationStatus, SubscriptionStatus
 from cnes_infra.billing.dynamodb_items import deterministic_id, outbox_item
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_infra.billing.dynamodb_quota_capacity import (
@@ -42,6 +42,7 @@ from packages.cnes_infra.tests.billing.quota_support import (
     HASH_B,
     TENANT,
     make_capacity_command,
+    make_quota_snapshot,
     quota_env,
     seed_snapshot,
     table_items,
@@ -366,3 +367,25 @@ def test_transicao_liberada_sem_motivo_omite_reason_code() -> None:
         assert "reason_code" not in _events(env)["quota.released"]
 
 
+
+
+def test_carencia_expirada_nega_capacidade_sem_escrever() -> None:
+    snapshot = replace(
+        make_quota_snapshot(),
+        subscription_status=SubscriptionStatus.PAST_DUE,
+        grace_until=NOW + timedelta(hours=1),
+    )
+    with quota_env(snapshot) as env:
+        env.clock.advance(timedelta(hours=2))
+        before = table_items(env.client)
+        with pytest.raises(EntitlementDenied, match="reason=grace_expired"):
+            env.repo.reserve_capacity(make_capacity_command())
+        assert table_items(env.client) == before
+
+
+def test_capacidade_com_snapshot_de_outra_versao_nega_sem_escrever() -> None:
+    with quota_env() as env:
+        before = table_items(env.client)
+        with pytest.raises(EntitlementDenied, match="reason=snapshot_changed"):
+            env.repo.reserve_capacity(make_capacity_command(entitlement_version=2))
+        assert table_items(env.client) == before

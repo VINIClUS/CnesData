@@ -70,7 +70,7 @@ def _encode_cursor(last_key: dict[str, Any] | None) -> str | None:
 def _is_due_key(values: Any) -> bool:
     if not isinstance(values, dict) or set(values) != _CURSOR_ATTRIBUTES:
         return False
-    if not all(isinstance(value, str) for value in values.values()):
+    if not all(isinstance(value, str) and value for value in values.values()):
         return False
     return values["gsi1pk"] == QUOTA_RESERVATION_DUE_PARTITION
 

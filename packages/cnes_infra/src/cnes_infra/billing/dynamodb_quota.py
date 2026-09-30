@@ -46,6 +46,7 @@ from cnes_infra.billing.dynamodb_quota_items import (
     idempotency_put,
     quota_event,
     read_replay,
+    require_commit_access,
     scan_attributes,
     snapshot_check,
     usage_counter,
@@ -352,6 +353,7 @@ class DynamoQuotaReservations(
         max_runs = snapshot.quotas.max_runs_per_period
         if max_runs is not None and max_runs < 1:
             raise QuotaExceeded(_runs_message(max_runs))
+        require_commit_access(snapshot, now)
         plan = _run_plan(command, now)
         if transact(self._client, _run_actions(self._table, plan)):
             return plan.authorization
@@ -376,6 +378,7 @@ class DynamoQuotaReservations(
         estimate = request.estimated_scan_bytes
         if budget is not None and budget - estimate < 0:
             raise QuotaExceeded(_budget_message(budget))
+        require_commit_access(snapshot, now)
         reservation = _analytics_reservation(command, now)
         if transact(self._client, _analytics_actions(self._table, command, reservation, now)):
             return _analytics_authorization(command, now)

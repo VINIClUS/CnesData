@@ -405,3 +405,37 @@ def test_expiracao_nao_futura_rejeita_analytics_sem_escrever() -> None:
             env.repo.reserve_analytics(command)
         assert error.value.code == "invalid_reservation_expiry"
         assert table_items(env.client) == before
+
+
+def _grace_snapshot() -> Any:
+    return replace(
+        make_quota_snapshot(),
+        subscription_status=SubscriptionStatus.PAST_DUE,
+        grace_until=NOW + timedelta(hours=1),
+    )
+
+
+def test_carencia_expirada_entre_gate_e_commit_nega_run_sem_escrever() -> None:
+    snapshot = _grace_snapshot()
+    with quota_env(snapshot) as env:
+        env.clock.advance(timedelta(hours=2))
+        before = table_items(env.client)
+        command = replace(
+            make_reserve_command(snapshot), expires_at=env.clock.now() + timedelta(minutes=15)
+        )
+        with pytest.raises(EntitlementDenied, match="reason=grace_expired"):
+            env.repo.reserve_and_create_run(command)
+        assert table_items(env.client) == before
+
+
+def test_carencia_expirada_entre_gate_e_commit_nega_analytics_sem_escrever() -> None:
+    snapshot = _grace_snapshot()
+    with quota_env(snapshot) as env:
+        env.clock.advance(timedelta(hours=2))
+        before = table_items(env.client)
+        command = replace(
+            make_analytics_command(snapshot), expires_at=env.clock.now() + timedelta(minutes=15)
+        )
+        with pytest.raises(EntitlementDenied, match="reason=grace_expired"):
+            env.repo.reserve_analytics(command)
+        assert table_items(env.client) == before

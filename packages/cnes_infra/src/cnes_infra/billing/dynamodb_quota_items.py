@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from cnes_domain.billing.errors import IdempotencyConflict
+from cnes_domain.billing.errors import EntitlementDenied, IdempotencyConflict
 from cnes_domain.billing.execution import RunBillingState
 from cnes_domain.billing.models import (
     AnalyticsAuthorization,
     CapacityKind,
     CapacityReservation,
+    EntitlementSnapshot,
     QuotaReservation,
     ReservationKind,
     ReservationStatus,
@@ -393,3 +394,16 @@ def read_replay(
     if record.request_hash != request_hash:
         raise IdempotencyConflict(f"key={identity[2]}")
     return item
+
+
+def require_commit_access(snapshot: EntitlementSnapshot, now: datetime) -> None:
+    """Reaplica em now as regras temporais da política (carência, fim de período).
+
+    Raises: EntitlementDenied: carência vencida ou período cancelado encerrado.
+    """
+    grace = snapshot.grace_until
+    past_due = snapshot.subscription_status is SubscriptionStatus.PAST_DUE
+    if past_due and (grace is None or now > grace):
+        raise EntitlementDenied("reason=grace_expired")
+    if snapshot.cancel_at_period_end and now > snapshot.period_end:
+        raise EntitlementDenied("reason=period_ended")

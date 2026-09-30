@@ -472,6 +472,7 @@ _FOREIGN_KEY = '{"gsi1pk": "OTHER", "gsi1sk": "s", "pk": "p", "sk": "s"}'
         _encode('{"pk": "x"}'),
         _encode(_FOREIGN_KEY),
         _encode(_FOREIGN_KEY.replace('"p"', "1")),
+        _encode(_FOREIGN_KEY.replace('"OTHER"', '"QUOTA_RESERVATION#DUE"').replace('"p"', '""')),
     ],
 )
 def test_rejeita_cursor_invalido(cursor: str) -> None:

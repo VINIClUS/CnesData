@@ -15,7 +15,11 @@ from cnes_domain.billing.errors import (
     QuotaExceeded,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import CapacityReservation, ReservationStatus
+from cnes_domain.billing.models import (
+    CapacityReservation,
+    EntitlementSnapshot,
+    ReservationStatus,
+)
 from cnes_domain.billing.ports import ClockPort
 from cnes_domain.control_plane.entities import IdempotencyRecord
 from cnes_infra.billing.dynamodb_items import (
@@ -38,6 +42,7 @@ from cnes_infra.billing.dynamodb_quota_items import (
     idempotency_put,
     quota_event,
     read_replay,
+    require_commit_access,
     settle_usage_update,
     snapshot_check,
     usage_counter,
@@ -127,6 +132,7 @@ class DynamoQuotaCapacityMixin:
             return decode_capacity_result(stored)
         if command.limit is not None and command.limit < 1:
             raise _exceeded(command)
+        self._require_entitled(command, now)
         reservation = _new_reservation(command, now)
         if transact(self._client, self._reserve_actions(command, reservation, now)):
             return reservation
@@ -153,6 +159,16 @@ class DynamoQuotaCapacityMixin:
             ReservationStatus.RELEASED, command.released_at, command.reason_code
         )
         return self._settle_capacity(command.billing_account_id, command.reservation_id, change)
+
+    def _current_snapshot(self, account: str) -> EntitlementSnapshot | None:
+        item = get_item(self._client, self._table, entitlement_snapshot_key(account), True)
+        return None if item is None else decode_snapshot(item, account)
+
+    def _require_entitled(self, command: CapacityReservationCommand, now: datetime) -> None:
+        snapshot = self._current_snapshot(command.billing_account_id)
+        if snapshot is None or snapshot.entitlement_version != command.entitlement_version:
+            raise EntitlementDenied("reason=snapshot_changed")
+        require_commit_access(snapshot, now)
 
     def _reserve_actions(
         self, command: CapacityReservationCommand, reservation: CapacityReservation, now: datetime
@@ -190,12 +206,10 @@ class DynamoQuotaCapacityMixin:
         if stored is not None:
             return decode_capacity_result(stored)
         account = command.billing_account_id
-        snapshot_item = get_item(self._client, self._table, entitlement_snapshot_key(account), True)
-        if snapshot_item is None:
-            raise EntitlementDenied("reason=snapshot_changed")
-        snapshot = decode_snapshot(snapshot_item, account)
+        snapshot = self._current_snapshot(account)
         if (
-            snapshot.entitlement_version != command.entitlement_version
+            snapshot is None
+            or snapshot.entitlement_version != command.entitlement_version
             or snapshot.valid_until <= now
         ):
             raise EntitlementDenied("reason=snapshot_changed")

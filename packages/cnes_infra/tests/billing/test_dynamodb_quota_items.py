@@ -6,7 +6,11 @@ from typing import Any
 
 import pytest
 
-from cnes_domain.billing.errors import IdempotencyConflict, PermanentBillingError
+from cnes_domain.billing.errors import (
+    EntitlementDenied,
+    IdempotencyConflict,
+    PermanentBillingError,
+)
 from cnes_domain.billing.execution import RunBillingState
 from cnes_domain.billing.models import (
     AnalyticsAuthorization,
@@ -430,3 +434,37 @@ def test_leitura_de_replay_com_hash_diferente_levanta_conflito_de_idempotencia()
 
     with pytest.raises(IdempotencyConflict, match="key=k-1"):
         codec.read_replay(FakeClient(item), TABLE_NAME, (TENANT, codec.RUN_SCOPE, "k-1"), HASH_B)
+
+
+def _access_snapshot(**changes: Any) -> Any:
+    from packages.cnes_infra.tests.billing.quota_support import make_quota_snapshot
+
+    return replace(make_quota_snapshot(), **changes)
+
+
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [
+        ({"subscription_status": SubscriptionStatus.PAST_DUE, "grace_until": None}, "grace"),
+        (
+            {"subscription_status": SubscriptionStatus.PAST_DUE, "grace_until": NOW},
+            "grace",
+        ),
+        ({"cancel_at_period_end": True, "period_end": NOW}, "period_ended"),
+    ],
+)
+def test_acesso_no_commit_nega_prazos_temporais_vencidos(
+    changes: dict[str, Any], reason: str
+) -> None:
+    later = NOW + timedelta(seconds=1)
+    with pytest.raises(EntitlementDenied, match=reason):
+        codec.require_commit_access(_access_snapshot(**changes), later)
+
+
+def test_acesso_no_commit_permite_carencia_e_periodo_vigentes() -> None:
+    snapshot = _access_snapshot(
+        subscription_status=SubscriptionStatus.PAST_DUE,
+        grace_until=NOW + timedelta(hours=1),
+        cancel_at_period_end=True,
+    )
+    codec.require_commit_access(snapshot, NOW)
