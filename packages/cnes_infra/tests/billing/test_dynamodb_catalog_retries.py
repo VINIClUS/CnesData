@@ -6,11 +6,12 @@ from typing import Any
 
 import pytest
 
-from cnes_domain.billing.errors import PermanentBillingError
-from cnes_domain.billing.models import ReadConsistency
+from cnes_domain.billing.errors import BillingTenantConflict, PermanentBillingError
+from cnes_domain.billing.models import BillingAccountStatus, ReadConsistency
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_items import encode_account, encode_customer_map
-from cnes_infra.control_plane.dynamodb_keys import idempotency_key
+from cnes_infra.billing.keys import account_tenant_key
+from cnes_infra.control_plane.dynamodb_keys import idempotency_key, item_key
 from packages.cnes_infra.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,
@@ -143,3 +144,42 @@ def test_attach_concorrente_com_mapa_proprio_e_conta_divergente_e_stale(env: Any
 
     with pytest.raises(PermanentBillingError, match="billing_account_stale"):
         racing.attach_customer(attach("ba_01", "cus_01"))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"owner_user_id": "user-other"}, {"status": BillingAccountStatus.CLOSED}],
+)
+def test_replay_tardio_com_conta_alterada_gera_conflito(env: Any, change: Any) -> None:
+    client, clock, catalog = env
+    command = make_create_command()
+    catalog.create_account(command)
+    clock.advance(timedelta(days=2))
+    changed = replace(command, account=replace(command.account, **change))
+    before = table_items(client)
+
+    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-a"):
+        catalog.create_account(changed)
+    assert table_items(client) == before
+
+
+def test_replay_tardio_com_motivo_do_link_alterado_gera_conflito(env: Any) -> None:
+    _, clock, catalog = env
+    command = make_create_command()
+    catalog.create_account(command)
+    clock.advance(timedelta(days=2))
+    link = replace(command.initial_tenant_link, reason_code="other_reason")
+
+    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-a"):
+        catalog.create_account(replace(command, initial_tenant_link=link))
+
+
+def test_replay_tardio_sem_link_direto_nao_e_tratado_como_replay(env: Any) -> None:
+    client, clock, catalog = env
+    command = make_create_command()
+    catalog.create_account(command)
+    client.delete_item(TableName=TABLE_NAME, Key=item_key(*account_tenant_key("ba_01", "tenant-a")))
+    clock.advance(timedelta(days=2))
+
+    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-a"):
+        catalog.create_account(command)

@@ -165,3 +165,27 @@ def test_put_remove_entradas_expiradas_de_qualquer_conta() -> None:
 
     assert len(cache) == 1
     assert cache.get_latest("ba_old") is None
+
+
+def test_expiracao_libera_metadados_de_contas_inativas() -> None:
+    clock = MutableClock(NOW)
+    cache = LocalEntitlementCache(60, clock.now)
+    for index in range(50):
+        cache.put(make_snapshot(f"ba_{index}", 2))
+        handle_entitlement_changed(EntitlementChange(f"ba_{index}", 2), cache)
+    clock.advance(timedelta(seconds=60))
+
+    cache.put(make_snapshot("ba_new", 1))
+
+    assert cache.tracked_accounts() == 1
+
+
+def test_piso_expira_junto_com_o_ttl() -> None:
+    clock = MutableClock(NOW)
+    cache = LocalEntitlementCache(60, clock.now)
+    handle_entitlement_changed(EntitlementChange("ba_01", 3), cache)
+    clock.advance(timedelta(seconds=60))
+
+    cache.put(make_snapshot("ba_01", 2))
+
+    assert cache.get_latest("ba_01") == make_snapshot("ba_01", 2)

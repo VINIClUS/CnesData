@@ -33,6 +33,12 @@ class _Entry:
     expires_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class _Floor:
+    version: int
+    expires_at: datetime
+
+
 class LocalEntitlementCache:
     """Cache local de leitura para UI e emissão de cookie de URL.
 
@@ -46,7 +52,7 @@ class LocalEntitlementCache:
         self._lock = Lock()
         self._entries: dict[CacheKey, _Entry] = {}
         self._latest: dict[str, int] = {}
-        self._floors: dict[str, int] = {}
+        self._floors: dict[str, _Floor] = {}
 
     def put(self, snapshot: EntitlementSnapshot) -> None:
         """Armazena o snapshot, ignorando versões abaixo do piso de invalidação."""
@@ -54,7 +60,7 @@ class LocalEntitlementCache:
         version = snapshot.entitlement_version
         with self._lock:
             self._evict_expired()
-            if version < self._floors.get(account, 0):
+            if version < self._floor_version(account):
                 return
             self._entries[CacheKey(account, version)] = _Entry(snapshot, self._clock() + self._ttl)
             self._latest[account] = max(version, self._latest.get(account, 0))
@@ -75,8 +81,8 @@ class LocalEntitlementCache:
     def invalidate_before(self, billing_account_id: str, entitlement_version: int) -> None:
         """Remove versões anteriores da conta e eleva o piso de invalidação."""
         with self._lock:
-            floor = max(self._floors.get(billing_account_id, 0), entitlement_version)
-            self._floors[billing_account_id] = floor
+            floor = max(self._floor_version(billing_account_id), entitlement_version)
+            self._floors[billing_account_id] = _Floor(floor, self._clock() + self._ttl)
             stale = [
                 key
                 for key in self._entries
@@ -90,11 +96,29 @@ class LocalEntitlementCache:
         with self._lock:
             return len(self._entries)
 
+    def tracked_accounts(self) -> int:
+        """Retorna quantas contas ainda têm entrada, índice ou piso retidos."""
+        with self._lock:
+            accounts = {key.billing_account_id for key in self._entries}
+            return len(accounts | set(self._latest) | set(self._floors))
+
+    def _floor_version(self, account: str) -> int:
+        floor = self._floors.get(account)
+        return 0 if floor is None else floor.version
+
     def _evict_expired(self) -> None:
         now = self._clock()
-        expired = [key for key, entry in self._entries.items() if now >= entry.expires_at]
-        for key in expired:
-            del self._entries[key]
+        self._entries = {
+            key: entry for key, entry in self._entries.items() if now < entry.expires_at
+        }
+        self._latest = {
+            account: version
+            for account, version in self._latest.items()
+            if CacheKey(account, version) in self._entries
+        }
+        self._floors = {
+            account: floor for account, floor in self._floors.items() if now < floor.expires_at
+        }
 
     def _lookup(self, key: CacheKey) -> EntitlementSnapshot | None:
         entry = self._entries.get(key)

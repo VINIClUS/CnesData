@@ -356,7 +356,12 @@ class DynamoBillingCatalog(DynamoPlanCatalogMixin):
         item = get_item(self._client, self._table, tenant_account_key(tenant_id), True)
         if item is None or decode_tenant_account(item, tenant_id) != account_id:
             return None
-        return self.get_account(account_id)
+        account = self.get_account(account_id)
+        link = self.get_tenant_link(account_id, tenant_id, ReadConsistency.STRONG)
+        if account is None or link is None:
+            return None
+        stored = CreateBillingAccountCommand(account, link, command.idempotency_key)
+        return account if idempotency_digest(stored) == idempotency_digest(command) else None
 
     def _raise_tenant_failure(self, tenant_id: str) -> None:
         if self._exists(tenant_account_key(tenant_id)):
