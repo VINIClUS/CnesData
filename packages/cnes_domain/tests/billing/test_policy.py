@@ -68,12 +68,10 @@ def _snapshot(status: SubscriptionStatus, **overrides: Any) -> EntitlementSnapsh
 def _evaluate(
     status: SubscriptionStatus,
     action: EntitlementAction,
-    policy: EntitlementPolicy | None = None,
     now: datetime = _NOW,
     **overrides: Any,
 ) -> EntitlementDecision:
-    snapshot = _snapshot(status, **overrides)
-    return (policy or EntitlementPolicy()).evaluate(snapshot, action, now)
+    return EntitlementPolicy().evaluate(_snapshot(status, **overrides), action, now)
 
 
 @pytest.mark.parametrize(
@@ -240,8 +238,8 @@ def test_feature_ausente_nega(action: EntitlementAction) -> None:
 
 @pytest.mark.parametrize("action", [_A.ANALYTICS_QUERY, _A.SERVING_ACCESS])
 def test_curinga_concede_feature_no_modo_desabilitado(action: EntitlementAction) -> None:
-    policy = EntitlementPolicy(BillingMode.DISABLED)
-    decision = _evaluate(_S.ACTIVE, action, policy, features=frozenset({WILDCARD_FEATURE}))
+    snapshot = _snapshot(_S.ACTIVE, features=frozenset({WILDCARD_FEATURE}))
+    decision = EntitlementPolicy(BillingMode.DISABLED).evaluate(snapshot, action, _NOW)
     assert decision.allowed
 
 
