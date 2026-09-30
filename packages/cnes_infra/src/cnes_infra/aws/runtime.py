@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, cast
 
 from botocore.config import Config
 
-from cnes_domain.profiles import BillingMode
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
+from cnes_infra.billing.settings import LOCAL_BILLING_SETTINGS, BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.object_store.s3 import S3ObjectStore
 
@@ -63,17 +63,17 @@ def create_aws_clients(settings: AwsRuntimeSettings, session: Session) -> AwsCli
 
 def build_aws_runtime(
     settings: AwsRuntimeSettings, clients: AwsClients, clock: Callable[[], datetime],
-    billing_mode: BillingMode = BillingMode.DISABLED,
+    billing: BillingSettings = LOCAL_BILLING_SETTINGS,
 ) -> AwsRuntimeComponents:
     """Args: settings: Configuração. clients: Clientes boto3. clock: Relógio injetado.
-        billing_mode: Modo de billing aplicado ao claim de unidades.
+        billing: Settings de billing aplicados ao claim de unidades.
     Returns: Adapters sobre os recursos configurados, sem provisionamento.
     Raises: ValueError: Quando o bucket de auditoria não tem Object Lock.
     """
     return AwsRuntimeComponents(
         control_plane=DynamoDBControlPlane(
             client=clients.dynamodb, table_name=settings.control_plane_table, clock=clock,
-            billing_mode=billing_mode,
+            billing=billing,
         ),
         object_store=S3ObjectStore(client=clients.s3, bucket=settings.data_bucket, prefix=""),
         audit_sink=S3ObjectLockAuditSink(

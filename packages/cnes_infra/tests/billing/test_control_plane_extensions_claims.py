@@ -8,6 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_domain.billing.models import BillingEnforcementMode
 from cnes_domain.control_plane.commands import (
     BindRunDispatch,
     ClaimRunUnit,
@@ -21,6 +22,7 @@ from cnes_domain.profiles import BillingMode
 from cnes_infra.aws.runtime import AwsClients, build_aws_runtime
 from cnes_infra.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_infra.billing.keys import run_billing_key
+from cnes_infra.billing.settings import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_keys import item_key
 from packages.cnes_infra.tests.aws.test_runtime import _LOCKED, _settings
@@ -43,8 +45,20 @@ def env() -> Iterator[Env]:
         yield opened
 
 
-def plane_for(env: Env, mode: BillingMode) -> DynamoDBControlPlane:
-    return DynamoDBControlPlane(env.spy, TABLE_NAME, env.clock.now, billing_mode=mode)
+ENFORCE = BillingEnforcementMode.ENFORCE
+
+
+def billing(
+    mode: BillingMode, enforcement: BillingEnforcementMode = ENFORCE,
+) -> BillingSettings:
+    return BillingSettings(mode, enforcement, 60)
+
+
+def plane_for(
+    env: Env, mode: BillingMode, enforcement: BillingEnforcementMode = ENFORCE,
+) -> DynamoDBControlPlane:
+    settings = billing(mode, enforcement)
+    return DynamoDBControlPlane(env.spy, TABLE_NAME, env.clock.now, billing=settings)
 
 
 def unit() -> RunUnit:
@@ -226,10 +240,39 @@ def test_runtime_aws_padrao_nao_exige_companion_no_claim(env: Env) -> None:
 
 
 def test_runtime_aws_stripe_exige_companion_vinculado_no_claim(env: Env) -> None:
-    plane = runtime_plane(env, billing_mode=BillingMode.STRIPE)
+    plane = runtime_plane(env, billing=billing(BillingMode.STRIPE))
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
 
     assert claim(plane, dispatch) is None
     bind_companion(plane, dispatch)
+    assert claim(plane, dispatch) is not None
+
+
+@pytest.mark.parametrize(
+    "enforcement", [BillingEnforcementMode.OFF, BillingEnforcementMode.SHADOW],
+)
+def test_stripe_sem_enforce_exige_vinculo_quando_companion_existe(
+    env: Env, enforcement: BillingEnforcementMode,
+) -> None:
+    plane = plane_for(env, BillingMode.STRIPE, enforcement)
+    dispatch = processing_run(plane)
+    start_dispatch(plane, dispatch)
+
+    assert claim(plane, dispatch) is None
+    bind_companion(plane, dispatch)
+    assert claim(plane, dispatch) is not None
+
+
+@pytest.mark.parametrize(
+    "enforcement", [BillingEnforcementMode.OFF, BillingEnforcementMode.SHADOW],
+)
+def test_stripe_sem_enforce_reivindica_run_legado_sem_companion(
+    env: Env, enforcement: BillingEnforcementMode,
+) -> None:
+    plane = plane_for(env, BillingMode.STRIPE, enforcement)
+    dispatch = processing_run(plane)
+    start_dispatch(plane, dispatch)
+    delete_companion(env)
+
     assert claim(plane, dispatch) is not None

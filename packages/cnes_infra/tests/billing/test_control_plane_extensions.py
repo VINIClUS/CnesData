@@ -386,4 +386,4 @@ def test_dynamodb_control_plane_cumpre_a_porta(env: Env) -> None:
 
 
 def test_modo_de_billing_padrao_e_desabilitado(env: Env) -> None:
-    assert env.plane._billing_mode is BillingMode.DISABLED
+    assert env.plane._billing.mode is BillingMode.DISABLED

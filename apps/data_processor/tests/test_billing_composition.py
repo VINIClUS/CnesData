@@ -123,7 +123,8 @@ def test_aws_propaga_modo_efetivo_ao_control_plane_e_a_politica(
 
     callbacks = _callbacks(runtime)
     assert isinstance(runtime.control_plane, DynamoDBControlPlane)
-    assert runtime.control_plane._billing_mode is expected
+    assert runtime.control_plane._billing.mode is BillingMode(mode)
+    assert runtime.control_plane._billing.enforcement_mode.value == enforcement
     assert isinstance(callbacks.policy, BillingConcurrencyPolicy)
     assert callbacks.policy._dependencies.mode is expected
     assert callbacks.started.billing._dependencies.mode is expected

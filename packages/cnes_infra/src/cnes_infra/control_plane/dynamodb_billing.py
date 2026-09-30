@@ -199,7 +199,7 @@ class DynamoBillingMixin:
         raise RetryableBillingError("run_execution_contended")
 
     def _claim_billing_checks(self, dispatch_item: Item) -> tuple[Action, ...] | None:
-        if self._billing_mode is not BillingMode.STRIPE:
+        if self._billing.mode is not BillingMode.STRIPE:
             return ()
         from cnes_infra.billing.dynamodb_quota_items import decode_run_billing_state
         from cnes_infra.billing.keys import run_billing_key
@@ -207,7 +207,7 @@ class DynamoBillingMixin:
         dispatch = decode_model(dispatch_item, RunDispatch)
         item = self._get_item(run_billing_key(dispatch.tenant_id, dispatch.run_id))
         if item is None:
-            return None
+            return None if self._billing.enforced else ()
         state = decode_run_billing_state(item)
         bound = (
             state.execution_dispatch_id == dispatch.dispatch_id

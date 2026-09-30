@@ -128,7 +128,7 @@ def _build_plane(case: Case, clock: MutableClock, tmp_path: Path) -> tuple[Any, 
     client = boto3.client("dynamodb", region_name="us-east-1")
     create_table(client)
     seed_snapshot(client, make_quota_snapshot())
-    plane = DynamoDBControlPlane(client, TABLE_NAME, clock.now, billing_mode=case.settings.mode)
+    plane = DynamoDBControlPlane(client, TABLE_NAME, clock.now, billing=case.settings)
     return plane, client
 
 
