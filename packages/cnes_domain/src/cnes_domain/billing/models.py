@@ -332,4 +332,3 @@ class BillingMetric:
         require_finite(self.value, "value")
         require_utc(self.occurred_at, "occurred_at")
         object.__setattr__(self, "dimensions", freeze_dimensions(self.dimensions, "dimensions"))
-
