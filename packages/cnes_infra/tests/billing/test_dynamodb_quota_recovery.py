@@ -34,6 +34,7 @@ from cnes_infra.billing.keys import (
     usage_key,
 )
 from cnes_infra.control_plane.dynamodb_codec import item_key
+from cnes_infra.control_plane.dynamodb_keys import entity_key
 from packages.cnes_infra.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_infra.tests.billing.quota_support import (
     ACCOUNT,
@@ -390,6 +391,37 @@ def test_nao_libera_quando_run_aparece_entre_leitura_e_transacao() -> None:
         assert result.released == 0
         assert _stored(env, reservation)[0].status is ReservationStatus.RESERVED
         assert _counters(env)["consumed_runs"] == 1
+
+
+def test_renovacoes_sucessivas_mantem_lease_de_duracao_fixa() -> None:
+    with quota_env() as env:
+        reservation = _reservation()
+        _seed(env, reservation)
+        env.control_plane.put_run(_run(RunState.PROCESSING))
+        for _ in range(3):
+            _expire(env)
+            assert _reconcile(env.repo, env).released == 0
+            stored, _item = _stored(env, reservation)
+            assert stored.expires_at == env.clock.now() + RESERVATION_TTL
+
+
+def test_nao_consome_capacidade_quando_recurso_some_entre_leitura_e_transacao() -> None:
+    with quota_env() as env:
+        capacity = _capacity(CapacityKind.AGENT, "agent-01")
+        _seed_capacity(env, capacity)
+        env.control_plane.put_agent(_agent())
+        _expire(env)
+        agent_key = item_key(*entity_key(TENANT, "AGENT", "agent-01"))
+        client = _Client(env.client)
+        client.before_transact = lambda: env.client.delete_item(
+            TableName=TABLE_NAME, Key=agent_key
+        )
+        repo = DynamoQuotaReservations(client, TABLE_NAME, env.clock.now)
+
+        assert _reconcile(repo, env).released == 0
+        assert _stored_capacity(env, capacity).status is ReservationStatus.RESERVED
+        assert _reconcile(env.repo, env).released == 1
+        assert _capacity_counter(env, "agent_count") == 0
 
 
 def test_nao_libera_capacidade_quando_recurso_aparece_entre_leitura_e_transacao() -> None:

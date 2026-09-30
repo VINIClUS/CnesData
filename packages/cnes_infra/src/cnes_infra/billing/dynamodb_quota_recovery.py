@@ -3,7 +3,7 @@
 import base64
 import json
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from botocore.exceptions import ClientError
@@ -45,6 +45,7 @@ from cnes_infra.billing.keys import (
 from cnes_infra.control_plane.dynamodb_codec import (
     Item,
     absent_check_action,
+    check_action,
     decode_model,
     payload,
     put_action,
@@ -52,6 +53,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
 from cnes_infra.control_plane.dynamodb_keys import entity_key, run_entity_key
 
 _CURSOR_CODE = "invalid_recovery_cursor"
+RESERVATION_LEASE_RENEWAL = timedelta(minutes=15)
 _CURSOR_ATTRIBUTES = frozenset({"pk", "sk", "gsi1pk", "gsi1sk"})
 _TERMINAL_RUN_STATES = frozenset(
     {RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED, RunState.FAILED, RunState.CANCELED}
@@ -189,8 +191,7 @@ class DynamoQuotaRecoveryMixin:
         self, item: Item, reservation: QuotaReservation, context: tuple[str, datetime]
     ) -> None:
         tenant_id, now = context
-        lease = reservation.expires_at - reservation.created_at
-        renewed = replace(reservation, expires_at=now + lease)
+        renewed = replace(reservation, expires_at=now + RESERVATION_LEASE_RENEWAL)
         action = put_action(self._table, encode_reservation(renewed, tenant_id), payload(item))
         transact(self._client, (action,))
 
@@ -199,8 +200,11 @@ class DynamoQuotaRecoveryMixin:
     ) -> bool:
         tenant_id, now = context
         resource_key = _capacity_resource_key(reservation, tenant_id)
-        if get_item(self._client, self._table, resource_key, True) is not None:
-            self._transition_capacity(item, CapacityTransition(ReservationStatus.CONSUMED, now))
+        resource = get_item(self._client, self._table, resource_key, True)
+        if resource is not None:
+            guards = (check_action(self._table, resource),)
+            change = CapacityTransition(ReservationStatus.CONSUMED, now, None, guards)
+            self._transition_capacity(item, change)
             return False
         guards = (absent_check_action(self._table, resource_key),)
         change = CapacityTransition(ReservationStatus.RELEASED, now, "resource_absent", guards)
