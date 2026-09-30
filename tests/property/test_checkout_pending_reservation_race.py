@@ -135,5 +135,6 @@ def test_reservas_concorrentes_com_a_mesma_chave_sao_idempotentes(executor):
             results = [future.result() for future in futures]
             assert {result.request_key for result in results} == {KEY_A}
             assert len({result.reserved_at for result in results}) == 1
+            assert sorted(result.replayed for result in results) == [False, True]
         assert client.puts == 2 * ITERATIONS
-        assert client.conditional_failures == 0
+        assert client.conditional_failures == ITERATIONS

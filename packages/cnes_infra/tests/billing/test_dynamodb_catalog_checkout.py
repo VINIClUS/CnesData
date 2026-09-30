@@ -284,6 +284,17 @@ def test_corrida_com_mesma_chave_viva_devolve_reserva_gravada() -> None:
     assert raced == replace(stored, replayed=True)
 
 
+def test_corrida_com_mesma_chave_viva_nao_sobrescreve_a_reserva_gravada() -> None:
+    with catalog_env() as (client, clock, catalog):
+        stored = catalog.reserve_pending_checkout(reserve())
+        clock.advance(timedelta(minutes=1))
+        raced = faulty(client, clock, blind_reads=1).reserve_pending_checkout(reserve())
+        persisted = get_stored(client, KEY)
+    assert raced == replace(stored, replayed=True)
+    assert persisted is not None
+    assert persisted["reserved_at"] == {"S": utc_attribute(stored.reserved_at)}
+
+
 def test_corrida_com_outra_chave_viva_gera_checkout_in_progress() -> None:
     with catalog_env() as (client, clock, catalog):
         catalog.reserve_pending_checkout(reserve(KEY_A))

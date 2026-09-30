@@ -34,9 +34,7 @@ IN_PROGRESS_CODE = "checkout_in_progress"
 CONFLICT_CODE = "billing_transaction_conflict"
 _CONDITIONAL_FAILED = "ConditionalCheckFailedException"
 _ENTITY = "pending_checkout"
-_RESERVE_CONDITION = (
-    "attribute_not_exists(pk) OR reservation_expires_at <= :now OR request_key = :key"
-)
+_RESERVE_CONDITION = "attribute_not_exists(pk) OR reservation_expires_at <= :now"
 _RELEASE_CONDITION = "request_key = :key AND reserved_at = :reserved_at"
 _EXTEND_CONDITION = (
     "request_key = :key AND reserved_at = :reserved_at AND reservation_expires_at > :now"
@@ -168,10 +166,7 @@ class DynamoPendingCheckoutMixin:
             TableName=self._table,
             Item=_encode(pending),
             ConditionExpression=_RESERVE_CONDITION,
-            ExpressionAttributeValues={
-                ":now": _text(utc_attribute(pending.reserved_at)),
-                ":key": _text(pending.request_key),
-            },
+            ExpressionAttributeValues={":now": _text(utc_attribute(pending.reserved_at))},
         )
 
     def _extend_pending(
