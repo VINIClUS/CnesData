@@ -1,10 +1,9 @@
 """Immutable billing domain models."""
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
 
 from cnes_domain.billing.validation import (
     freeze_attributes,
@@ -12,6 +11,7 @@ from cnes_domain.billing.validation import (
     optional_id,
     optional_non_negative,
     optional_utc,
+    require_fields,
     require_finite,
     require_id,
     require_non_negative,
@@ -84,11 +84,6 @@ class ReadConsistency(StrEnum):
     STRONG = "strong"
 
 
-def _check_each(obj: Any, check: Callable[[Any, str], None], names: Iterable[str]) -> None:
-    for name in names:
-        check(getattr(obj, name), name)
-
-
 def _check_features(features: frozenset[str]) -> None:
     require_unique_ids(sorted(features), "features")
 
@@ -110,9 +105,9 @@ class BillingAccount:
     updated_at: datetime
 
     def __post_init__(self) -> None:
-        _check_each(self, require_id, ("billing_account_id", "owner_user_id"))
+        require_fields(self, require_id, ("billing_account_id", "owner_user_id"))
         optional_id(self.stripe_customer_id, "stripe_customer_id")
-        _check_each(self, require_utc, ("created_at", "updated_at"))
+        require_fields(self, require_utc, ("created_at", "updated_at"))
         require_not_before(self.updated_at, self.created_at, "updated_before_created")
 
 
@@ -126,7 +121,7 @@ class BillingAccountTenantLink:
 
     def __post_init__(self) -> None:
         names = ("billing_account_id", "tenant_id", "linked_by_user_id", "reason_code")
-        _check_each(self, require_id, names)
+        require_fields(self, require_id, names)
         require_utc(self.linked_at, "linked_at")
 
 
@@ -149,7 +144,7 @@ class QuotaLimits:
     athena_scan_budget_bytes: int | None
 
     def __post_init__(self) -> None:
-        _check_each(self, optional_non_negative, (f.name for f in fields(self)))
+        require_fields(self, optional_non_negative, (f.name for f in fields(self)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +159,7 @@ class PlanVersion:
     effective_from: datetime
 
     def __post_init__(self) -> None:
-        _check_each(self, require_id, ("plan_version_id", "plan_key"))
+        require_fields(self, require_id, ("plan_version_id", "plan_key"))
         optional_id(self.stripe_product_id, "stripe_product_id")
         require_unique_ids(self.stripe_price_ids, "stripe_price_ids")
         _check_features(self.features)
@@ -192,10 +187,10 @@ class EntitlementSnapshot:
 
     def __post_init__(self) -> None:
         names = ("billing_account_id", "plan_version_id", "source_event_id")
-        _check_each(self, require_id, names)
+        require_fields(self, require_id, names)
         optional_id(self.stripe_subscription_id, "stripe_subscription_id")
         _check_features(self.features)
-        _check_each(
+        require_fields(
             self,
             require_utc,
             ("period_start", "period_end", "valid_until", "updated_at"),
@@ -239,8 +234,8 @@ class RunAuthorization:
     authorized_at: datetime
 
     def __post_init__(self) -> None:
-        _check_each(self, require_id, ("billing_account_id", "plan_version_id"))
-        _check_each(self, require_positive, ("entitlement_version", "max_concurrency"))
+        require_fields(self, require_id, ("billing_account_id", "plan_version_id"))
+        require_fields(self, require_positive, ("entitlement_version", "max_concurrency"))
         optional_id(self.budget_reservation_id, "budget_reservation_id")
         require_utc(self.authorized_at, "authorized_at")
 
@@ -273,8 +268,8 @@ class CapacityReservation:
 
     def __post_init__(self) -> None:
         names = ("reservation_id", "billing_account_id", "resource_id")
-        _check_each(self, require_id, names)
-        _check_each(self, require_utc, ("created_at", "expires_at"))
+        require_fields(self, require_id, names)
+        require_fields(self, require_utc, ("created_at", "expires_at"))
         require_not_before(self.expires_at, self.created_at, "expires_before_created")
 
 
@@ -295,15 +290,15 @@ class QuotaReservation:
 
     def __post_init__(self) -> None:
         names = ("reservation_id", "billing_account_id", "resource_id")
-        _check_each(self, require_id, names)
-        _check_each(self, require_utc, ("period_start", "created_at", "expires_at"))
+        require_fields(self, require_id, names)
+        require_fields(self, require_utc, ("period_start", "created_at", "expires_at"))
         counters = (
             "reserved_runs",
             "reserved_scan_bytes",
             "consumed_runs",
             "consumed_scan_bytes",
         )
-        _check_each(self, require_non_negative, counters)
+        require_fields(self, require_non_negative, counters)
         require_not_before(self.expires_at, self.created_at, "expires_before_created")
 
 
@@ -319,7 +314,7 @@ class BillingAuditEvent:
 
     def __post_init__(self) -> None:
         names = ("event_id", "event_type", "aggregate_id", "actor_id", "reason_code")
-        _check_each(self, require_id, names)
+        require_fields(self, require_id, names)
         require_utc(self.occurred_at, "occurred_at")
         object.__setattr__(self, "attributes", freeze_attributes(self.attributes, "attributes"))
 
@@ -333,7 +328,7 @@ class BillingMetric:
     occurred_at: datetime
 
     def __post_init__(self) -> None:
-        _check_each(self, require_id, ("name", "unit"))
+        require_fields(self, require_id, ("name", "unit"))
         require_finite(self.value, "value")
         require_utc(self.occurred_at, "occurred_at")
         object.__setattr__(self, "dimensions", freeze_dimensions(self.dimensions, "dimensions"))

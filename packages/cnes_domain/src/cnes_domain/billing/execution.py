@@ -6,6 +6,8 @@ from datetime import datetime
 from cnes_domain.billing.models import RunAuthorization
 from cnes_domain.billing.validation import (
     optional_id,
+    require_bool,
+    require_fields,
     require_hex16,
     require_id,
     require_non_negative,
@@ -81,16 +83,14 @@ class RunBillingState:
     updated_at: datetime
 
     def __post_init__(self) -> None:
-        for name in ("billing_account_id", "tenant_id", "run_id"):
-            require_id(getattr(self, name), name)
+        require_fields(self, require_id, ("billing_account_id", "tenant_id", "run_id"))
         if self.authorization.billing_account_id != self.billing_account_id:
             raise ValueError("reason=authorization_account_mismatch")
         require_non_negative(self.execution_generation, "execution_generation")
         require_non_negative(self.fencing_token, "fencing_token")
         _check_execution_binding(self)
         _check_terminal_outcome(self.execution_status, self.execution_terminal_outcome)
-        if not isinstance(self.cancel_requested, bool):
-            raise ValueError("reason=cancel_requested_not_bool")
+        require_bool(self.cancel_requested, "cancel_requested_not_bool")
         require_utc(self.updated_at, "updated_at")
 
 
@@ -141,8 +141,7 @@ class RunExecutionBindingCommand:
     bound_at: datetime
 
     def __post_init__(self) -> None:
-        for name in ("tenant_id", "run_id", "execution_ref"):
-            require_id(getattr(self, name), name)
+        require_fields(self, require_id, ("tenant_id", "run_id", "execution_ref"))
         _check_binding(self.wave_id, self.dispatch_id, self.generation)
         _check_unit_ids(self.unit_ids)
         _check_previous_binding(

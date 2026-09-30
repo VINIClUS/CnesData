@@ -128,3 +128,20 @@ def test_rejeita_numero_nao_finito(value: object) -> None:
         validation.require_finite(value, "value")  # type: ignore[arg-type]
     validation.require_finite(1, "value")
     validation.require_finite(0.5, "value")
+
+
+def test_valida_cada_campo_nomeado() -> None:
+    class _Obj:
+        a = "x"
+        b = ""
+
+    validation.require_fields(_Obj(), validation.require_id, ("a",))
+    with pytest.raises(ValueError, match="blank_value field=b"):
+        validation.require_fields(_Obj(), validation.require_id, ("a", "b"))
+
+
+@pytest.mark.parametrize("value", [1, None, "true"])
+def test_rejeita_booleano_invalido(value: object) -> None:
+    validation.require_bool(True, "flag_not_bool")
+    with pytest.raises(ValueError, match="reason=flag_not_bool"):
+        validation.require_bool(value, "flag_not_bool")

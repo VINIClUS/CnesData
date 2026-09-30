@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from cnes_domain.billing.validation import (
     optional_id,
+    require_bool,
     require_id,
     require_non_negative,
     require_positive,
@@ -36,11 +37,6 @@ _ACTIVE_STATES = frozenset({
     InboxProcessingState.PROCESSING,
     InboxProcessingState.FAILED_RETRYABLE,
 })
-
-
-def _require_bool(value: object, reason: str) -> None:
-    if not isinstance(value, bool):
-        raise ValueError(f"reason={reason}")
 
 
 def _is_positive_int(value: object) -> bool:
@@ -84,7 +80,7 @@ class InboxClaim:
         require_id(self.event_type, "event_type")
         require_id(self.customer_id, "customer_id")
         optional_id(self.subscription_id, "subscription_id")
-        _require_bool(self.acquired, "claim_acquired_not_bool")
+        require_bool(self.acquired, "claim_acquired_not_bool")
         consistent = _is_positive_int(self.attempt) if self.acquired else self.attempt is None
         if not consistent:
             raise ValueError("reason=claim_attempt_mismatch")
@@ -116,7 +112,7 @@ class ProjectionResult:
 
     def __post_init__(self) -> None:
         require_id(self.event_id, "event_id")
-        _require_bool(self.applied, "applied_not_bool")
+        require_bool(self.applied, "applied_not_bool")
         if self.entitlement_version is not None:
             require_positive(self.entitlement_version, "entitlement_version")
         elif self.applied:
@@ -232,7 +228,7 @@ class StripeEventPage:
     has_more: bool
 
     def __post_init__(self) -> None:
-        _require_bool(self.has_more, "has_more_not_bool")
+        require_bool(self.has_more, "has_more_not_bool")
 
 
 @dataclass(frozen=True, slots=True)

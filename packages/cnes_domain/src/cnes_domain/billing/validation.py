@@ -2,7 +2,7 @@
 
 import math
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from types import MappingProxyType
 
@@ -148,6 +148,24 @@ def require_finite(value: float, name: str) -> None:
     """
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         raise ValueError(f"reason=non_finite_value field={name}")
+
+
+def require_fields(
+    owner: object, check: Callable[[object, str], None], names: Iterable[str],
+) -> None:
+    """Args: owner: Objeto validado; check: Validador; names: Campos a validar.
+    Raises: ValueError: Algum campo viola o validador.
+    """
+    for name in names:
+        check(getattr(owner, name), name)
+
+
+def require_bool(value: object, reason: str) -> None:
+    """Args: value: Flag; reason: Código do erro.
+    Raises: ValueError: Valor não booleano.
+    """
+    if not isinstance(value, bool):
+        raise ValueError(f"reason={reason}")
 
 
 def _is_int(value: object) -> bool:
