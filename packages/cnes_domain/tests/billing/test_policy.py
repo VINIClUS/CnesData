@@ -326,12 +326,26 @@ def test_cota_nula_e_ilimitada_no_modo_desabilitado(
     assert decision.quota_limit is None
 
 
-def test_cotas_nulas_nao_negam_acoes_sem_cota_no_modo_stripe() -> None:
+def test_cotas_nulas_nao_negam_publicacao_no_modo_stripe() -> None:
     quotas = QuotaLimits(None, None, None, None, None, None)
-    serving = _evaluate(_S.ACTIVE, _A.SERVING_ACCESS, quotas=quotas)
-    publish = _evaluate(_S.ACTIVE, _A.PUBLISH_RUN, quotas=quotas)
-    assert serving.allowed
-    assert publish.allowed
+    assert _evaluate(_S.ACTIVE, _A.PUBLISH_RUN, quotas=quotas).allowed
+
+
+def test_retencao_nula_nega_serving_no_modo_stripe() -> None:
+    decision = _evaluate(
+        _S.ACTIVE, _A.SERVING_ACCESS, quotas=replace(_QUOTAS, retention_days=None),
+    )
+    assert not decision.allowed
+    assert decision.reason == "quota_missing"
+
+
+def test_retencao_nula_e_ilimitada_no_modo_desabilitado() -> None:
+    snapshot = _snapshot(_S.ACTIVE, quotas=replace(_QUOTAS, retention_days=None))
+    decision = EntitlementPolicy(BillingMode.DISABLED).evaluate(
+        snapshot, _A.SERVING_ACCESS, _NOW,
+    )
+    assert decision.allowed
+    assert decision.quota_limit is None
 
 
 @pytest.mark.parametrize(

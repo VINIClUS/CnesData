@@ -55,6 +55,7 @@ _QUOTA_GATED = frozenset({
     EntitlementAction.ANALYTICS_QUERY,
     EntitlementAction.TENANT_CREATION,
 })
+_QUOTA_REQUIRED = _QUOTA_GATED | {EntitlementAction.SERVING_ACCESS}
 
 
 def require_allowed(decision: EntitlementDecision) -> EntitlementDecision:
@@ -105,11 +106,11 @@ def _quota_limit(snapshot: EntitlementSnapshot, action: EntitlementAction) -> in
 
 
 def _quota_denial(action: EntitlementAction, limit: int | None, mode: BillingMode) -> str | None:
-    if action not in _QUOTA_GATED:
+    if action not in _QUOTA_REQUIRED:
         return None
     if limit is None:
         return None if mode is BillingMode.DISABLED else "quota_missing"
-    return "quota_not_granted" if limit == 0 else None
+    return "quota_not_granted" if limit == 0 and action in _QUOTA_GATED else None
 
 
 class EntitlementPolicy:
