@@ -1,7 +1,9 @@
 """Testes das invariantes compartilhadas de billing."""
 
 import copy
+import json
 import pickle
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta, timezone
 
@@ -168,3 +170,26 @@ def test_mapa_congelado_sobrevive_a_asdict() -> None:
 
     holder = _Holder(validation.freeze_dimensions({"plan": "pro"}, "dimensions"))
     assert asdict(holder) == {"values": {"plan": "pro"}}
+    assert json.dumps(asdict(holder)) == '{"values": {"plan": "pro"}}'
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda m: m.__setitem__("a", 1),
+        lambda m: m.__delitem__("a"),
+        lambda m: m.clear(),
+        lambda m: m.pop("a"),
+        lambda m: m.popitem(),
+        lambda m: m.setdefault("b", 1),
+        lambda m: m.update(b=1),
+        lambda m: m.__ior__({"b": 1}),
+    ],
+)
+def test_mapa_congelado_rejeita_mutacao(
+    mutate: Callable[[validation.FrozenMapping], object],
+) -> None:
+    frozen = validation.freeze_attributes({"a": "x"}, "attributes")
+    with pytest.raises(TypeError, match="reason=immutable_mapping"):
+        mutate(frozen)
+    assert frozen == {"a": "x"}

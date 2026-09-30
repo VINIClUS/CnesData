@@ -2,8 +2,9 @@
 
 import math
 import re
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
+from typing import NoReturn
 
 _LOWER_HEX_16 = re.compile(r"^[0-9a-f]{16}$")
 _LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
@@ -11,26 +12,23 @@ _COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _ATTRIBUTE_TYPES = (str, int, bool, type(None))
 
 
-class FrozenMapping(Mapping[str, object]):
-    __slots__ = ("_items",)
+class FrozenMapping(dict[str, object]):
+    __slots__ = ()
 
-    def __init__(self, items: Mapping[str, object]) -> None:
-        self._items = dict(items)
+    def _immutable(self, *args: object, **kwargs: object) -> NoReturn:
+        raise TypeError("reason=immutable_mapping")
 
-    def __getitem__(self, key: str) -> object:
-        return self._items[key]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._items)
-
-    def __len__(self) -> int:
-        return len(self._items)
+    __setitem__ = __delitem__ = __ior__ = _immutable
+    clear = pop = popitem = setdefault = update = _immutable
 
     def __hash__(self) -> int:
-        return hash(frozenset(self._items.items()))
+        return hash(frozenset(self.items()))
+
+    def __reduce__(self) -> tuple[type["FrozenMapping"], tuple[dict[str, object]]]:
+        return (FrozenMapping, (dict(self),))
 
     def __repr__(self) -> str:
-        return f"FrozenMapping({self._items!r})"
+        return f"FrozenMapping({dict(self)!r})"
 
 
 def require_id(value: str, name: str) -> None:
