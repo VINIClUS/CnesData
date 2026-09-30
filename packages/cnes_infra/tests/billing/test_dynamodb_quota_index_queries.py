@@ -11,7 +11,11 @@ from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingE
 from cnes_domain.billing.inbox import ReservationRecoveryRequest
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 from packages.cnes_infra.tests.billing.billing_factories import TABLE_NAME
-from packages.cnes_infra.tests.billing.quota_support import quota_env
+from packages.cnes_infra.tests.billing.quota_support import (
+    make_capacity_command,
+    make_reserve_command,
+    quota_env,
+)
 
 
 def _encode(text: str) -> str:
@@ -69,3 +73,28 @@ def test_falha_de_rede_no_localizador_vira_dependencia_indisponivel() -> None:
         command = ConsumeReservationCommand("ba_01", "res-01", 10, env.clock.now())
         with pytest.raises(BillingDependencyError):
             repo.consume(command)
+
+
+class _Offline(_Unreachable):
+    def __init__(self, inner: Any, operation: str) -> None:
+        super().__init__(inner)
+        self._operation = operation
+
+    def __getattr__(self, name: str) -> Any:
+        if name == self._operation:
+            return self._fail
+        return getattr(self._inner, name)
+
+    def _fail(self, **_kwargs: Any) -> Any:
+        raise EndpointConnectionError(endpoint_url="http://dynamodb.invalid")
+
+
+@pytest.mark.parametrize("operation", ["get_item", "transact_write_items"])
+def test_falha_de_rede_na_reserva_vira_dependencia_indisponivel(operation: str) -> None:
+    with quota_env() as env:
+        client = _Offline(env.client, operation)
+        repo = DynamoQuotaReservations(client, TABLE_NAME, env.clock.now)
+        with pytest.raises(BillingDependencyError):
+            repo.reserve_and_create_run(make_reserve_command())
+        with pytest.raises(BillingDependencyError):
+            repo.reserve_capacity(make_capacity_command())
