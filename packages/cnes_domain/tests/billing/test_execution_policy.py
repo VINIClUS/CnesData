@@ -376,4 +376,3 @@ def test_callback_nunca_chama_bind_run_dispatch() -> None:
     _started(fake)(_run(), _request(), "exec-1", _permit())
 
     assert not hasattr(fake, "bind_run_dispatch")
-
