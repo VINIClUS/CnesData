@@ -8,7 +8,11 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError
 
-from cnes_domain.billing.commands import ReleaseCapacityCommand, ReleaseReservationCommand
+from cnes_domain.billing.commands import (
+    ConsumeReservationCommand,
+    ReleaseCapacityCommand,
+    ReleaseReservationCommand,
+)
 from cnes_domain.billing.errors import (
     EntitlementDenied,
     PermanentBillingError,
@@ -226,3 +230,50 @@ def test_replay_de_capacidade_sem_item_base_devolve_resultado_gravado() -> None:
         key = item_key(*capacity_reservation_key(ACCOUNT, first.reservation_id))
         env.client.delete_item(TableName=TABLE_NAME, Key=key)
         assert env.repo.reserve_capacity(make_capacity_command()) == first
+
+
+def _release_expired_analytics(env: QuotaEnv) -> None:
+    env.repo.reserve_analytics(make_analytics_command())
+    env.clock.advance(RESERVATION_TTL + timedelta(minutes=1))
+    request = ReservationRecoveryRequest(now=env.clock.now(), limit=10, cursor=None)
+    assert env.repo.reconcile_expired_reservations(request).released == 1
+
+
+def test_replay_de_analytics_liberada_e_rejeitado() -> None:
+    with quota_env() as env:
+        _release_expired_analytics(env)
+        with pytest.raises(PermanentBillingError) as error:
+            env.repo.reserve_analytics(make_analytics_command())
+        assert error.value.code == "quota_reservation_released"
+
+
+def test_replay_de_analytics_consumida_devolve_autorizacao() -> None:
+    with quota_env() as env:
+        first = env.repo.reserve_analytics(make_analytics_command())
+        consume = ConsumeReservationCommand(ACCOUNT, "res-query-01", 10, NOW)
+        env.repo.consume(consume)
+        assert env.repo.reserve_analytics(make_analytics_command()) == first
+
+
+def test_replay_de_analytics_sem_reserva_localizada_devolve_autorizacao() -> None:
+    with quota_env() as env:
+        first = env.repo.reserve_analytics(make_analytics_command())
+        for item in env.client.scan(TableName=TABLE_NAME)["Items"]:
+            if item["entity"]["S"] == "QUOTARESERVATION":
+                key = {"pk": item["pk"], "sk": item["sk"]}
+                env.client.delete_item(TableName=TABLE_NAME, Key=key)
+        assert env.repo.reserve_analytics(make_analytics_command()) == first
+
+
+def test_replay_de_run_com_reserva_liberada_pelo_recovery_e_rejeitado() -> None:
+    with quota_env() as env:
+        env.repo.reserve_and_create_run(make_reserve_command())
+        env.client.delete_item(
+            TableName=TABLE_NAME, Key=item_key(*run_entity_key(TENANT, "run-01"))
+        )
+        env.clock.advance(RESERVATION_TTL + timedelta(minutes=1))
+        request = ReservationRecoveryRequest(now=env.clock.now(), limit=10, cursor=None)
+        assert env.repo.reconcile_expired_reservations(request).released == 1
+        with pytest.raises(PermanentBillingError) as error:
+            env.repo.reserve_and_create_run(make_reserve_command())
+        assert error.value.code == "quota_reservation_released"

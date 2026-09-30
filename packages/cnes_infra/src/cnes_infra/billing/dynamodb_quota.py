@@ -47,6 +47,7 @@ from cnes_infra.billing.dynamodb_quota_items import (
     any_present,
     collision_keys,
     decode_analytics_result,
+    decode_reservation,
     decode_run_result,
     encode_reservation,
     encode_run_billing_state,
@@ -70,6 +71,8 @@ from cnes_infra.control_plane.dynamodb_run_codec import run_dependency_actions, 
 RUN_FIXED_ACTIONS = 8
 CONFLICT_CODE = "quota_reservation_conflict"
 CONTENDED_CODE = "quota_reservation_contended"
+RELEASED_CODE = "quota_reservation_released"
+RELEASED = ReservationStatus.RELEASED
 EXPIRY_CODE = "invalid_reservation_expiry"
 
 
@@ -369,7 +372,7 @@ class DynamoQuotaReservations(
         query = ReplayQuery(identity, request.request_hash, now)
         replay = read_replay(self._client, self._table, query)
         if replay.stored is not None:
-            return decode_run_result(replay.stored)
+            return self._run_replay(replay.stored)
         _require_future(command.expires_at, now)
         max_runs = snapshot.quotas.max_runs_per_period
         if max_runs is not None and max_runs < 1:
@@ -381,7 +384,7 @@ class DynamoQuotaReservations(
             return plan.authorization
         collisions = collision_keys(actions, idempotency_key(*identity))
         failure = _Failure(query, snapshot, _runs_exceeded, collisions)
-        return decode_run_result(self._resolve_failure(failure))
+        return self._run_replay(self._resolve_failure(failure))
 
     def reserve_analytics(self, command: ReserveAnalyticsCommand) -> AnalyticsAuthorization:
         """Reserva o budget de scan analítico em uma transação.
@@ -395,7 +398,7 @@ class DynamoQuotaReservations(
         query = ReplayQuery(identity, request.request_hash, now)
         replay = read_replay(self._client, self._table, query)
         if replay.stored is not None:
-            return decode_analytics_result(replay.stored)
+            return self._analytics_replay(replay.stored)
         _require_future(command.expires_at, now)
         budget, estimate = snapshot.quotas.athena_scan_budget_bytes, request.estimated_scan_bytes
         if budget is not None and budget - estimate < 0:
@@ -407,7 +410,22 @@ class DynamoQuotaReservations(
             return _analytics_authorization(command, now)
         collisions = collision_keys(actions, idempotency_key(*identity))
         failure = _Failure(query, snapshot, _budget_exceeded(estimate), collisions)
-        return decode_analytics_result(self._resolve_failure(failure))
+        return self._analytics_replay(self._resolve_failure(failure))
+
+    def _analytics_replay(self, stored: Item) -> AnalyticsAuthorization:
+        authorization = decode_analytics_result(stored)
+        self._reject_released(authorization.billing_account_id, authorization.budget_reservation_id)
+        return authorization
+
+    def _run_replay(self, stored: Item) -> RunAuthorization:
+        authorization = decode_run_result(stored)
+        self._reject_released(authorization.billing_account_id, authorization.budget_reservation_id)
+        return authorization
+
+    def _reject_released(self, billing_account_id: str, reservation_id: str | None) -> None:
+        located = self._locate_reservation(billing_account_id, str(reservation_id))
+        if located is not None and decode_reservation(located)[0].status is RELEASED:
+            raise PermanentBillingError(RELEASED_CODE)
 
     def _resolve_failure(self, failure: _Failure) -> Item:
         replay = read_replay(self._client, self._table, failure.query)
