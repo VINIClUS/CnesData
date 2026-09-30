@@ -40,6 +40,11 @@ def entitlement_snapshot_key(billing_account_id: str) -> Key:
     return billing_partition(billing_account_id), "ENTITLEMENT"
 
 
+def pending_checkout_key(billing_account_id: str) -> Key:
+    """Cria a chave da reserva de checkout pendente da conta."""
+    return billing_partition(billing_account_id), "PENDING_CHECKOUT"
+
+
 def billing_account_key(billing_account_id: str) -> Key:
     """Cria a chave base da conta."""
     return billing_partition(billing_account_id), "ACCOUNT"

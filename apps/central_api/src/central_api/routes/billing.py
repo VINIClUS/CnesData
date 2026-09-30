@@ -2,10 +2,9 @@
 
 import hashlib
 import logging
-from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
@@ -14,6 +13,12 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
 from central_api.auth.aws_oidc import AuthorizedTenant, TenantAccessDenied
+from central_api.routes.billing_checkout import (
+    get_checkout_reservation_ttl,
+    pending_checkout,
+    reservation_expiry,
+)
+from central_api.routes.billing_errors import mapped_errors
 from central_api.routes.billing_schemas import (
     BillingAccountCreate,
     BillingAccountOut,
@@ -32,14 +37,6 @@ from cnes_domain.billing.commands import (
     HostedSession,
     PortalCommand,
     TransferOwnerCommand,
-)
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    BillingError,
-    BillingTenantConflict,
-    IdempotencyConflict,
-    PermanentBillingError,
-    RetryableBillingError,
 )
 from cnes_domain.billing.models import (
     BillingAccount,
@@ -68,8 +65,6 @@ BILLING_ADMIN_ROLES = frozenset({"gestor"})
 
 _OWNER_REQUIRED = "billing_owner_required"
 _NOT_CONFIGURED = "billing_not_configured"
-_RETRY_AFTER_SECONDS = "5"
-
 
 
 class _LocalUnmeteredStatus(Exception):
@@ -200,45 +195,6 @@ def _scoped_key(*parts: str) -> str:
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
 
 
-def _retryable_to_http(error: RetryableBillingError) -> HTTPException:
-    if error.code == "stripe_price_unmapped":
-        return HTTPException(409, "plan_price_unmapped")
-    headers = {"Retry-After": _RETRY_AFTER_SECONDS}
-    if error.code == "stripe_unavailable":
-        return HTTPException(503, "stripe_unavailable", headers=headers)
-    return HTTPException(503, "billing_dependency_unavailable", headers=headers)
-
-
-def _to_http(error: BillingError) -> HTTPException | None:
-    if isinstance(error, BillingDependencyError):
-        return HTTPException(503, "billing_dependency_unavailable")
-    if isinstance(error, RetryableBillingError):
-        return _retryable_to_http(error)
-    if isinstance(error, PermanentBillingError):
-        if error.code == "stripe_subscription_exists":
-            return HTTPException(409, "subscription_exists")
-        stripe = error.code.startswith("stripe_")
-        return HTTPException(502, "stripe_request_rejected") if stripe else None
-    if isinstance(error, IdempotencyConflict):
-        return HTTPException(409, "idempotency_conflict")
-    return HTTPException(409, "billing_tenant_conflict")
-
-
-_MAPPED = (RetryableBillingError, PermanentBillingError, IdempotencyConflict, BillingTenantConflict)
-
-
-@contextmanager
-def _mapped_errors() -> Iterator[None]:
-    try:
-        yield
-    except _MAPPED as error:
-        logger.warning("billing_request_failed code=%s", error.code)
-        mapped = _to_http(error)
-        if mapped is None:
-            raise
-        raise mapped from error
-
-
 def _owner_denied() -> HTTPException:
     return HTTPException(status_code=403, detail=_OWNER_REQUIRED)
 
@@ -340,7 +296,7 @@ def create_billing_account(
     owner = ctx.principal.subject
     digest = _scoped_key(owner, tenant.tenant_id, body.idempotency_key)
     account_id = f"ba_{digest[:32]}"
-    with _mapped_errors():
+    with mapped_errors():
         account = ctx.catalog.get_account(account_id)
         if account is not None and account.owner_user_id != owner:
             raise HTTPException(status_code=409, detail="idempotency_conflict")
@@ -375,7 +331,7 @@ def transfer_billing_account(
     tenant = ctx.authorized_tenant
     if tenant is None:
         raise _owner_denied()
-    with _mapped_errors():
+    with mapped_errors():
         account = _load_account(ctx.catalog, billing_account_id)
         if _check_owner(account, ctx.principal, tenant, ctx.catalog) is None:
             _read_link(account, tenant, ctx.catalog)
@@ -439,13 +395,16 @@ def create_checkout_session(
     body: CheckoutCreate,
     ctx: Annotated[BillingContext, Depends(get_billing_context)],
     ports: Annotated[CheckoutPorts, Depends(get_checkout_ports)],
+    ttl: Annotated[timedelta, Depends(get_checkout_reservation_ttl)],
 ) -> HostedSessionOut:
-    """Abre checkout hospedado no Stripe; 409 se a conta já tem assinatura não encerrada."""
-    with _mapped_errors():
+    """Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress."""
+    with mapped_errors():
         account_id, customer_id = _hosted_account(ctx, body.billing_account_id)
         plan = _checkout_plan(ctx, ports, body)
         key = _scoped_key("checkout", account_id, body.plan_version_id, body.idempotency_key)
-        session = ports.gateway.create_checkout(CheckoutCommand(account_id, customer_id, plan, key))
+        command = CheckoutCommand(account_id, customer_id, plan, key)
+        with pending_checkout(ctx.catalog, account_id, key, reservation_expiry(ctx.clock(), ttl)):
+            session = ports.gateway.create_checkout(command)
         attributes = {
             "plan_version_id": plan.plan_version_id,
             "stripe_checkout_session_id": session.session_id,
@@ -462,7 +421,7 @@ def create_portal_session(
     gateway: Annotated[StripeGatewayPort, Depends(get_stripe_gateway)],
 ) -> HostedSessionOut:
     """Abre o portal de cobrança hospedado no Stripe para o dono da conta."""
-    with _mapped_errors():
+    with mapped_errors():
         account_id, customer_id = _hosted_account(ctx, body.billing_account_id)
         key = _scoped_key("portal", account_id, body.idempotency_key)
         session = gateway.create_portal(PortalCommand(account_id, customer_id, key))
@@ -481,7 +440,7 @@ def get_billing_status(
     projection: Annotated[EntitlementProjectionPort, Depends(get_entitlement_projection)],
 ) -> BillingStatusOut:
     """Informa o estado de entitlement projetado; nunca consulta o Stripe."""
-    with _mapped_errors():
+    with mapped_errors():
         account = _owned_account(ctx, billing_account_id)
         snapshot = projection.get_snapshot(account.billing_account_id, ReadConsistency.STRONG)
     if snapshot is None:

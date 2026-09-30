@@ -29,6 +29,7 @@ from cnes_domain.billing.models import (
 )
 from cnes_domain.billing.ports import ClockPort
 from cnes_domain.control_plane.entities import IdempotencyRecord
+from cnes_infra.billing.dynamodb_catalog_checkout import DynamoPendingCheckoutMixin
 from cnes_infra.billing.dynamodb_catalog_plans import DynamoPlanCatalogMixin
 from cnes_infra.billing.dynamodb_catalog_replays import DynamoLateReplayMixin
 from cnes_infra.billing.dynamodb_items import (
@@ -120,7 +121,9 @@ def _cursor_of(last_key: dict[str, Any] | None) -> str | None:
     return bytes.fromhex(sort_key.removeprefix(BILLING_ACCOUNT_LIST_PREFIX)).decode()
 
 
-class DynamoBillingCatalog(DynamoLateReplayMixin, DynamoPlanCatalogMixin):
+class DynamoBillingCatalog(
+    DynamoLateReplayMixin, DynamoPlanCatalogMixin, DynamoPendingCheckoutMixin
+):
     """Catálogo de billing em DynamoDB sem GSI, com escritas em transação única."""
 
     def __init__(self, client: Any, table_name: str, clock: ClockPort) -> None:
