@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from central_api.routes.stripe_webhook import (
+    STRIPE_WEBHOOK_MAX_BODY_BYTES,
     get_stripe_webhook_verifier,
     get_webhook_inbox,
     router,
@@ -185,3 +186,102 @@ def test_webhook_ponta_a_ponta_rejeita_body_adulterado(real_env):
     assert response.status_code == 400
     assert response.json() == {"detail": "stripe_signature_invalid"}
     real_env.inbox.accept.assert_not_called()
+
+
+LIMIT = STRIPE_WEBHOOK_MAX_BODY_BYTES
+OVER_LIMIT = b"x" * (2 * 1024 * 1024)
+
+
+def _chunks(body: bytes, size: int = 65_536, consumed: list | None = None):
+    for start in range(0, len(body), size):
+        if consumed is not None:
+            consumed.append(start)
+        yield body[start:start + size]
+
+
+def test_limite_do_body_e_um_mebibyte():
+    assert STRIPE_WEBHOOK_MAX_BODY_BYTES == 1_048_576
+
+
+def test_webhook_rejeita_body_acima_do_limite_com_413(env):
+    response = env.post(content=OVER_LIMIT)
+    assert response.status_code == 413
+    assert response.json() == {"detail": "stripe_webhook_payload_too_large"}
+    env.verifier.verify.assert_not_called()
+    env.inbox.accept.assert_not_called()
+
+
+def test_webhook_rejeita_body_chunked_sem_content_length_com_413(env):
+    request = env.client.build_request("POST", URL, content=_chunks(OVER_LIMIT))
+    request.headers["Stripe-Signature"] = SIGNATURE
+    assert "content-length" not in request.headers
+    response = env.client.send(request)
+    assert response.status_code == 413
+    assert response.json() == {"detail": "stripe_webhook_payload_too_large"}
+    env.verifier.verify.assert_not_called()
+    env.inbox.accept.assert_not_called()
+
+
+def test_webhook_aceita_body_exatamente_no_limite(env):
+    payload = b"y" * LIMIT
+    response = env.post(content=payload)
+    assert response.status_code == 200
+    assert env.verifier.verify.call_args.args[0] == payload
+    env.inbox.accept.assert_called_once_with(EVENT)
+
+
+def test_webhook_aceita_body_chunked_exatamente_no_limite(env):
+    payload = b"z" * LIMIT
+    response = env.post(content=_chunks(payload))
+    assert response.status_code == 200
+    assert env.verifier.verify.call_args.args[0] == payload
+
+
+def test_webhook_content_length_mentiroso_menor_que_o_body_responde_413(env):
+    response = env.client.post(
+        URL,
+        content=_chunks(OVER_LIMIT),
+        headers={"Stripe-Signature": SIGNATURE, "Content-Length": "10"},
+    )
+    assert response.status_code == 413
+    env.verifier.verify.assert_not_called()
+    env.inbox.accept.assert_not_called()
+
+
+@pytest.mark.parametrize("signature", [None, "", "   "])
+def test_webhook_sem_assinatura_nao_le_body_grande_e_responde_400(env, signature):
+    consumed: list[int] = []
+    response = env.post(content=_chunks(OVER_LIMIT, consumed=consumed), signature=signature)
+    assert response.status_code == 400
+    assert response.json() == {"detail": "stripe_signature_invalid"}
+    assert consumed == []
+    env.verifier.verify.assert_not_called()
+    env.inbox.accept.assert_not_called()
+
+
+def test_webhook_sem_assinatura_com_body_acima_do_limite_nao_responde_413(env):
+    response = env.post(content=OVER_LIMIT, signature=None)
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("length", ["abc", "-1", "1.5", ""])
+def test_webhook_content_length_invalido_responde_400(env, length):
+    response = env.client.post(
+        URL, content=PAYLOAD, headers={"Stripe-Signature": SIGNATURE, "Content-Length": length},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid_content_length"}
+    env.verifier.verify.assert_not_called()
+    env.inbox.accept.assert_not_called()
+
+
+def test_webhook_content_length_declarado_acima_do_limite_responde_413_sem_ler_body(env):
+    consumed: list[int] = []
+    response = env.client.post(
+        URL,
+        content=_chunks(b"a" * 1000, consumed=consumed),
+        headers={"Stripe-Signature": SIGNATURE, "Content-Length": str(LIMIT + 1)},
+    )
+    assert response.status_code == 413
+    assert response.json() == {"detail": "stripe_webhook_payload_too_large"}
+    env.verifier.verify.assert_not_called()
