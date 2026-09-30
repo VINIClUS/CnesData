@@ -222,6 +222,30 @@ def test_rejeita_operacao_quando_snapshot_ausente(operation: str) -> None:
     assert harness.projection.calls == _STRONG_CALL
 
 
+@pytest.mark.parametrize("operation", list(_ALL))
+def test_rejeita_snapshot_de_outra_conta_na_leitura_forte(operation: str) -> None:
+    harness = _Harness(_snapshot(billing_account_id="ba-outra"))
+    with pytest.raises(EntitlementDenied, match="reason=snapshot_account_mismatch"):
+        _ALL[operation](harness.gate)
+    assert harness.quotas.commands == []
+
+
+def test_serving_rejeita_snapshot_em_cache_de_outra_conta() -> None:
+    cache = _SpyCache(_snapshot(billing_account_id="ba-outra"))
+    harness = _Harness(_snapshot(), cache)
+    with pytest.raises(EntitlementDenied, match="reason=snapshot_account_mismatch"):
+        harness.gate.authorize_serving_access(_GATE_REQUEST, allow_cached=True)
+    assert harness.projection.calls == []
+
+
+def test_serving_nega_snapshot_revogado_vindo_do_cache() -> None:
+    cache = _SpyCache(_snapshot(_S.ADMIN_REVOKED))
+    harness = _Harness(_snapshot(), cache)
+    with pytest.raises(EntitlementDenied, match="reason=admin_revoked"):
+        harness.gate.authorize_serving_access(_GATE_REQUEST, allow_cached=True)
+    assert harness.projection.calls == []
+
+
 def test_serving_com_cache_permitido_usa_snapshot_em_cache() -> None:
     cache = _SpyCache(_snapshot())
     harness = _Harness(None, cache)
@@ -395,3 +419,10 @@ def test_protocolo_de_cache_expoe_somente_leitura_por_conta() -> None:
     assert declared(_SpyCache(None), _ACCOUNT) is None
     assert isinstance(_SpyCache(None), EntitlementCacheReader)
     assert not isinstance(object(), EntitlementCacheReader)
+
+
+def test_analytics_com_orcamento_zero_e_negado() -> None:
+    quotas = replace(_QUOTAS, athena_scan_budget_bytes=0)
+    harness = _Harness(_snapshot(quotas=quotas))
+    with pytest.raises(EntitlementDenied, match="reason=quota_not_granted"):
+        harness.gate.authorize_analytics_query(_ANALYTICS_REQUEST)

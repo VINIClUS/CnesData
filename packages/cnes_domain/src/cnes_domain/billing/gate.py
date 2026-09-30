@@ -31,6 +31,12 @@ class EntitlementCacheReader(Protocol):
     def get(self, billing_account_id: str) -> EntitlementSnapshot | None: ...
 
 
+def _require_account(snapshot: EntitlementSnapshot, billing_account_id: str) -> EntitlementSnapshot:
+    if snapshot.billing_account_id != billing_account_id:
+        raise EntitlementDenied("reason=snapshot_account_mismatch")
+    return snapshot
+
+
 @dataclass(frozen=True, slots=True)
 class RunReservationSettings:
     deployment_max_concurrency: int
@@ -135,13 +141,15 @@ class EntitlementGate:
         snapshot = self._projection.get_snapshot(billing_account_id, ReadConsistency.STRONG)
         if snapshot is None:
             raise EntitlementDenied("reason=snapshot_missing")
-        return snapshot
+        return _require_account(snapshot, billing_account_id)
 
     def _serving_snapshot(self, billing_account_id: str, allow_cached: bool) -> EntitlementSnapshot:
         cached = None
         if allow_cached and self._cache is not None:
             cached = self._cache.get(billing_account_id)
-        return cached if cached is not None else self._critical_snapshot(billing_account_id)
+        if cached is None:
+            return self._critical_snapshot(billing_account_id)
+        return _require_account(cached, billing_account_id)
 
     def _authorize(
         self, snapshot: EntitlementSnapshot, action: EntitlementAction, now: datetime,

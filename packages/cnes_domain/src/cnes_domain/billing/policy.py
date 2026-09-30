@@ -52,6 +52,7 @@ _QUOTA_FIELD = MappingProxyType({
 _QUOTA_GATED = frozenset({
     EntitlementAction.CREATE_RUN,
     EntitlementAction.REGISTER_AGENT,
+    EntitlementAction.ANALYTICS_QUERY,
     EntitlementAction.TENANT_CREATION,
 })
 
@@ -128,5 +129,10 @@ class EntitlementPolicy:
         if action in _QUOTA_GATED and limit == 0:
             return _denied(snapshot, action, level, "quota_not_granted")
         return EntitlementDecision(
-            action, True, level, "allowed", snapshot.entitlement_version, limit,
+            action=action,
+            allowed=True,
+            access_level=level,
+            reason="allowed",
+            entitlement_version=snapshot.entitlement_version,
+            quota_limit=limit,
         )

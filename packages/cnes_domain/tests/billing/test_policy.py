@@ -161,6 +161,41 @@ def test_cancelamento_apos_period_end_nega_escrita_e_permite_serving() -> None:
     assert read.allowed
 
 
+@pytest.mark.parametrize("action", list(EntitlementAction))
+def test_graca_vencida_rebaixa_toda_acao_para_somente_leitura(
+    action: EntitlementAction,
+) -> None:
+    decision = _evaluate(_S.PAST_DUE, action, grace_until=_NOW - _SECOND)
+    assert decision.access_level is AccessLevel.READ_ONLY
+    assert decision.allowed is (action is _A.SERVING_ACCESS)
+    if not decision.allowed:
+        assert decision.reason == "grace_expired"
+
+
+@pytest.mark.parametrize("action", list(EntitlementAction))
+def test_periodo_encerrado_rebaixa_toda_acao_para_somente_leitura(
+    action: EntitlementAction,
+) -> None:
+    later = _PERIOD_END + _SECOND
+    overrides = {"cancel_at_period_end": True, "valid_until": later + _HOUR}
+    decision = _evaluate(_S.ACTIVE, action, now=later, **overrides)
+    assert decision.access_level is AccessLevel.READ_ONLY
+    assert decision.allowed is (action is _A.SERVING_ACCESS)
+    if not decision.allowed:
+        assert decision.reason == "period_ended"
+
+
+def test_past_due_na_graca_com_cancelamento_apos_period_end_encerra_periodo() -> None:
+    later = _PERIOD_END + _SECOND
+    decision = _evaluate(
+        _S.PAST_DUE, _A.CREATE_RUN, now=later, grace_until=later + _HOUR,
+        cancel_at_period_end=True, valid_until=later + _HOUR,
+    )
+    assert not decision.allowed
+    assert decision.access_level is AccessLevel.READ_ONLY
+    assert decision.reason == "period_ended"
+
+
 def test_period_end_ultrapassado_sem_cancelamento_mantem_full() -> None:
     later = _PERIOD_END + _SECOND
     decision = _evaluate(_S.ACTIVE, _A.CREATE_RUN, now=later, valid_until=later + _HOUR)
@@ -244,9 +279,25 @@ def test_cota_zero_de_agentes_nega_registro() -> None:
     assert decision.quota_limit is None
 
 
-def test_cota_zero_em_acao_nao_limitada_nao_nega() -> None:
-    quotas = replace(_QUOTAS, athena_scan_budget_bytes=0)
-    decision = _evaluate(_S.ACTIVE, _A.ANALYTICS_QUERY, quotas=quotas)
+@pytest.mark.parametrize(
+    ("action", "field"),
+    [
+        (_A.CREATE_RUN, "max_runs_per_period"),
+        (_A.REGISTER_AGENT, "max_agents"),
+        (_A.ANALYTICS_QUERY, "athena_scan_budget_bytes"),
+        (_A.TENANT_CREATION, "max_tenants"),
+    ],
+)
+def test_cota_zero_nega_acao_limitada_por_cota(action: EntitlementAction, field: str) -> None:
+    quotas = replace(_QUOTAS, **{field: 0})
+    decision = _evaluate(_S.ACTIVE, action, quotas=quotas)
+    assert not decision.allowed
+    assert decision.reason == "quota_not_granted"
+
+
+def test_retencao_zero_nao_nega_serving() -> None:
+    quotas = replace(_QUOTAS, retention_days=0)
+    decision = _evaluate(_S.ACTIVE, _A.SERVING_ACCESS, quotas=quotas)
     assert decision.allowed
     assert decision.quota_limit == 0
 
