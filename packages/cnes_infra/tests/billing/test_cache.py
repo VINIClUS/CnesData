@@ -152,3 +152,16 @@ def test_mudanca_rejeita_conta_vazia(account):
 def test_mudanca_rejeita_versao_nao_positiva(version):
     with pytest.raises(ValueError, match="positive_value_required"):
         EntitlementChange("ba_01", version)
+
+
+def test_put_remove_entradas_expiradas_de_qualquer_conta() -> None:
+    clock = MutableClock(NOW)
+    cache = LocalEntitlementCache(60, clock.now)
+    for version in range(1, 101):
+        cache.put(make_snapshot("ba_old", version))
+    clock.advance(timedelta(seconds=60))
+
+    cache.put(make_snapshot("ba_new", 1))
+
+    assert len(cache) == 1
+    assert cache.get_latest("ba_old") is None

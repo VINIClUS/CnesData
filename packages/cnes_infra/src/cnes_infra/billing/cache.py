@@ -53,6 +53,7 @@ class LocalEntitlementCache:
         account = snapshot.billing_account_id
         version = snapshot.entitlement_version
         with self._lock:
+            self._evict_expired()
             if version < self._floors.get(account, 0):
                 return
             self._entries[CacheKey(account, version)] = _Entry(snapshot, self._clock() + self._ttl)
@@ -84,6 +85,16 @@ class LocalEntitlementCache:
             for key in stale:
                 del self._entries[key]
             self._drop_stale_latest(billing_account_id, floor)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def _evict_expired(self) -> None:
+        now = self._clock()
+        expired = [key for key, entry in self._entries.items() if now >= entry.expires_at]
+        for key in expired:
+            del self._entries[key]
 
     def _lookup(self, key: CacheKey) -> EntitlementSnapshot | None:
         entry = self._entries.get(key)

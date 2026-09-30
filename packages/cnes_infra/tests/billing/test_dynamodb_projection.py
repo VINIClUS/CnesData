@@ -147,7 +147,15 @@ def test_cas_grava_exatamente_esperada_mais_um_sem_campos_de_cartao(context):
     client, _, projection = context
     projection.compare_and_set_snapshot(make_write(0))
     item = _stored(client, SNAPSHOT_KEY)
-    assert set(item) == {"pk", "sk", "entity", "payload", "entitlement_version"}
+    assert set(item) == {
+        "pk",
+        "sk",
+        "entity",
+        "payload",
+        "entitlement_version",
+        "subscription_status",
+        "valid_until",
+    }
     assert item["entitlement_version"] == {"N": "1"}
 
 

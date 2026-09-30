@@ -11,8 +11,8 @@ from moto import mock_aws
 
 from cnes_domain.billing.commands import AttachStripeCustomerCommand, TransferOwnerCommand
 from cnes_domain.control_plane.entities import IdempotencyRecord
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.dynamodb_items import idempotency_item, request_hash
+from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog, idempotency_digest
+from cnes_infra.billing.dynamodb_items import idempotency_item
 from cnes_infra.control_plane.dynamodb_keys import item_key
 from packages.cnes_infra.tests.billing.billing_factories import (
     NOW,
@@ -70,7 +70,7 @@ def idem(tenant: str, scope: str, command: Any, resource: str, **changes: Any) -
         tenant_id=tenant,
         scope=scope,
         key=command.idempotency_key,
-        request_hash=request_hash(command),
+        request_hash=idempotency_digest(command),
         status="COMPLETED",
         resource_id=resource,
         created_at=NOW,

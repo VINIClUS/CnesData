@@ -64,7 +64,9 @@ class DisabledEntitlementProjection:
         self._clock = clock
 
     def get_snapshot(
-        self, billing_account_id: str, consistency: ReadConsistency,
+        self,
+        billing_account_id: str,
+        consistency: ReadConsistency,
     ) -> EntitlementSnapshot | None:
         return disabled_snapshot(billing_account_id, self._clock())
 
@@ -101,31 +103,44 @@ class DisabledQuotaReservations:
     def reserve_capacity(self, command: CapacityReservationCommand) -> CapacityReservation:
         reservation_id = f"{_CAPACITY_PREFIX}#{command.kind}#{command.resource_id}"
         return self._capacity(
-            command.billing_account_id, reservation_id, ReservationStatus.RESERVED,
+            command.billing_account_id,
+            reservation_id,
+            ReservationStatus.RESERVED,
         )
 
     def consume_capacity(self, command: ConsumeCapacityCommand) -> CapacityReservation:
         return self._capacity(
-            command.billing_account_id, command.reservation_id, ReservationStatus.CONSUMED,
+            command.billing_account_id,
+            command.reservation_id,
+            ReservationStatus.CONSUMED,
         )
 
     def release_capacity(self, command: ReleaseCapacityCommand) -> CapacityReservation:
         return self._capacity(
-            command.billing_account_id, command.reservation_id, ReservationStatus.RELEASED,
+            command.billing_account_id,
+            command.reservation_id,
+            ReservationStatus.RELEASED,
         )
 
     def consume(self, command: ConsumeReservationCommand) -> QuotaReservation:
         return self._run_reservation(
-            command.billing_account_id, command.reservation_id, ReservationStatus.CONSUMED,
+            command.billing_account_id,
+            command.reservation_id,
+            ReservationStatus.CONSUMED,
         )
 
     def release(self, command: ReleaseReservationCommand) -> QuotaReservation:
         return self._run_reservation(
-            command.billing_account_id, command.reservation_id, ReservationStatus.RELEASED,
+            command.billing_account_id,
+            command.reservation_id,
+            ReservationStatus.RELEASED,
         )
 
     def _capacity(
-        self, billing_account_id: str, reservation_id: str, status: ReservationStatus,
+        self,
+        billing_account_id: str,
+        reservation_id: str,
+        status: ReservationStatus,
     ) -> CapacityReservation:
         kind, resource_id = _decode_capacity_id(reservation_id)
         return CapacityReservation(
@@ -139,7 +154,10 @@ class DisabledQuotaReservations:
         )
 
     def _run_reservation(
-        self, billing_account_id: str, reservation_id: str, status: ReservationStatus,
+        self,
+        billing_account_id: str,
+        reservation_id: str,
+        status: ReservationStatus,
     ) -> QuotaReservation:
         return QuotaReservation(
             reservation_id=reservation_id,

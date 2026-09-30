@@ -15,7 +15,6 @@ from moto import mock_aws
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.validation import FrozenMapping
 from cnes_domain.control_plane.entities import IdempotencyRecord
-from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.billing import dynamodb_items as items
 from cnes_infra.billing.keys import (
     BILLING_AUDIT_TENANT_ID,
@@ -433,13 +432,6 @@ def test_transact_retorna_false_em_cancelamento_condicional(client: Any) -> None
     action = items.put_new(TABLE_NAME, items.encode_plan(make_plan()))
     assert items.transact(client, (action,)) is True
     assert items.transact(client, (action,)) is False
-
-
-def test_transact_repropaga_conflito_nao_condicional(client: Any) -> None:
-    action = items.put_new(TABLE_NAME, items.encode_plan(make_plan()))
-    with pytest.raises(Conflict) as error:
-        items.transact(client, (action, action))
-    assert error.value.code.name == "DUPLICATE_TRANSACTION_KEY"
 
 
 def test_transact_converte_erro_nao_condicional_em_dependencia() -> None:

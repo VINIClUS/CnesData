@@ -10,6 +10,7 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from cnes_domain.billing.commands import CreateBillingAccountCommand, LinkBillingTenantCommand
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.models import (
     BillingAccount,
@@ -21,6 +22,7 @@ from cnes_domain.billing.models import (
     QuotaLimits,
     SubscriptionStatus,
 )
+from cnes_domain.billing.validation import require_utc
 from cnes_domain.control_plane.entities import IdempotencyRecord, OutboxEvent
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
@@ -36,7 +38,13 @@ from cnes_infra.billing.keys import (
     stripe_price_key,
     tenant_account_key,
 )
-from cnes_infra.control_plane.dynamodb_codec import Action, Item, encode_model, execute_transaction
+from cnes_infra.control_plane.dynamodb_codec import (
+    Action,
+    Item,
+    decode_model,
+    encode_model,
+    execute_transaction,
+)
 from cnes_infra.control_plane.dynamodb_keys import (
     idempotency_key,
     item_key,
@@ -53,6 +61,11 @@ TENANT_ACCOUNT_ENTITY = "TENANTBILLINGACCOUNT"
 CUSTOMER_MAP_ENTITY = "STRIPECUSTOMERMAP"
 PLAN_ENTITY = "PLANVERSION"
 PRICE_MAP_ENTITY = "STRIPEPRICEMAP"
+IDEMPOTENCY_ENTITY = "IDEMPOTENCYRECORD"
+_INVALID_TRANSACTION_CODES = {
+    ErrorCode.TRANSACTION_LIMIT: "billing_transaction_too_large",
+    ErrorCode.DUPLICATE_TRANSACTION_KEY: "billing_duplicate_action",
+}
 
 
 def _jsonable(value: Any) -> Any:
@@ -87,6 +100,7 @@ def deterministic_id(*parts: str) -> str:
 
 def utc_attribute(value: datetime) -> str:
     """Codifica um instante UTC em largura fixa para condições."""
+    require_utc(value, "value")
     return timestamp(value.astimezone(UTC))
 
 
@@ -132,6 +146,8 @@ def encode_snapshot(snapshot: EntitlementSnapshot) -> Item:
     """Codifica o snapshot com a versão como atributo numérico."""
     item = _item(SNAPSHOT_ENTITY, entitlement_snapshot_key(snapshot.billing_account_id), snapshot)
     item["entitlement_version"] = {"N": str(snapshot.entitlement_version)}
+    item["subscription_status"] = {"S": snapshot.subscription_status.value}
+    item["valid_until"] = {"S": utc_attribute(snapshot.valid_until)}
     return item
 
 
@@ -345,6 +361,45 @@ def idempotency_item(record: IdempotencyRecord) -> Item:
     return item
 
 
+def idempotency_digest(command: CreateBillingAccountCommand | LinkBillingTenantCommand) -> str:
+    """Calcula o hash de idempotência sem timestamps definidos pelo servidor."""
+    if isinstance(command, CreateBillingAccountCommand):
+        account, link = command.account, command.initial_tenant_link
+        return request_hash(
+            {
+                "billing_account_id": account.billing_account_id,
+                "owner_user_id": account.owner_user_id,
+                "status": account.status,
+                "tenant_id": link.tenant_id,
+                "linked_by_user_id": link.linked_by_user_id,
+                "reason_code": link.reason_code,
+            }
+        )
+    link = command.link
+    return request_hash(
+        {
+            "billing_account_id": link.billing_account_id,
+            "tenant_id": link.tenant_id,
+            "linked_by_user_id": link.linked_by_user_id,
+            "reason_code": link.reason_code,
+            "expected_account_updated_at": utc_attribute(command.expected_account_updated_at),
+        }
+    )
+
+
+def decode_idempotency_record(item: Item, identity: tuple[str, str, str]) -> IdempotencyRecord:
+    """Decodifica o registro e rejeita identidade divergente da solicitada."""
+    try:
+        record = decode_model(item, IdempotencyRecord)
+    except (KeyError, TypeError, ValueError) as error:
+        raise corrupt_item(IDEMPOTENCY_ENTITY) from error
+    if item.get("entity", {}).get("S") != IDEMPOTENCY_ENTITY or (
+        (record.tenant_id, record.scope, record.key) != identity
+    ):
+        raise corrupt_item(IDEMPOTENCY_ENTITY)
+    return record
+
+
 def put_new(table_name: str, item: Item) -> Action:
     """Cria um Put condicionado à ausência da chave."""
     return {
@@ -370,8 +425,9 @@ def transact(client: Any, actions: tuple[Action, ...]) -> bool:
     try:
         execute_transaction(client, actions)
     except Conflict as error:
-        if error.code is not ErrorCode.TRANSACTION_CONFLICT:
-            raise
+        invalid = _INVALID_TRANSACTION_CODES.get(error.code)
+        if invalid is not None:
+            raise PermanentBillingError(invalid) from error
         return False
     except ClientError as error:
         raise BillingDependencyError("dynamodb_unavailable") from error
