@@ -154,3 +154,11 @@ def test_ids_com_cerquilha_nao_colidem() -> None:
 @pytest.mark.parametrize("account_id", ["SYSTEM", "system", "", "ba_01"])
 def test_particao_de_conta_nunca_e_a_particao_de_sistema(account_id: str) -> None:
     assert keys.billing_partition(account_id) != keys.stripe_recovery_cursor_key()[0]
+
+
+def test_chave_de_checkout_pendente_fica_na_particao_da_conta() -> None:
+    assert keys.pending_checkout_key("ba_01") == (
+        keys.billing_partition("ba_01"),
+        "PENDING_CHECKOUT",
+    )
+    assert keys.pending_checkout_key("a#b") != keys.pending_checkout_key("a")
