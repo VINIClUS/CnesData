@@ -14,10 +14,13 @@ from cnes_domain.billing.commands import (
     CreateStripeCustomerCommand,
     HostedSession,
     LinkBillingTenantCommand,
+    PendingCheckout,
     PortalCommand,
     ReleaseCapacityCommand,
+    ReleasePendingCheckoutCommand,
     ReleaseReservationCommand,
     ReserveAnalyticsCommand,
+    ReservePendingCheckoutCommand,
     ReserveRunCommand,
     SnapshotWrite,
     StripeBillingState,
@@ -77,6 +80,10 @@ class BillingCatalogPort(Protocol):
     def publish_plan(self, plan: PlanVersion) -> PlanVersion: ...
     def get_plan(self, plan_version_id: str) -> PlanVersion | None: ...
     def get_plan_by_price(self, stripe_price_id: str) -> PlanVersion | None: ...
+    def reserve_pending_checkout(
+        self, command: ReservePendingCheckoutCommand,
+    ) -> PendingCheckout: ...
+    def release_pending_checkout(self, command: ReleasePendingCheckoutCommand) -> bool: ...
 
 
 @runtime_checkable
