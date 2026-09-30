@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 _RETRYABLE_SECRET_CODES = frozenset(
     {"ThrottlingException", "InternalServiceError", "ServiceUnavailableException"}
 )
-_SAFE_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+_SAFE_CODE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 
 
 class SecretsManagerClient(Protocol):
@@ -45,14 +45,9 @@ class SecretsManagerSecretProvider:
         self._client = client
 
     def get_secret(self, secret_arn: str) -> str:
-        """Busca um segredo de texto.
-
-        Args:
-            secret_arn: ARN do segredo, enviado sem alteração.
-        Returns:
-            Valor de SecretString sem alteração.
-        Raises:
-            SecretProviderError: falha sanitizada, sem ARN nem valor.
+        """Args: secret_arn: ARN do segredo, enviado sem alteração.
+        Returns: SecretString não vazio, sem alteração.
+        Raises: SecretProviderError: falha sanitizada, sem ARN nem valor.
         """
         if not isinstance(secret_arn, str) or not secret_arn.strip():
             raise _fail("secret_arn_empty", False)
