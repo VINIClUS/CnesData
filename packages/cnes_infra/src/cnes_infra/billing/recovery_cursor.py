@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.billing.inbox import StripeRecoveryCursor, require_cursor_successor
@@ -177,5 +177,7 @@ class DynamoRecoveryCursor:
         except ClientError as error:
             if error.response.get("Error", {}).get("Code") == _CONDITION_LOST:
                 return False
+            raise BillingDependencyError(UNAVAILABLE_CODE) from error
+        except BotoCoreError as error:
             raise BillingDependencyError(UNAVAILABLE_CODE) from error
         return True

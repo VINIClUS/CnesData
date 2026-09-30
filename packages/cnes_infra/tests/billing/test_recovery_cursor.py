@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from moto import mock_aws
 
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
@@ -276,3 +276,15 @@ def test_falha_de_storage_vira_dependencia_indisponivel_em_toda_operacao(context
         with pytest.raises(BillingDependencyError, match="dynamodb_unavailable"):
             operation()
     assert table_items(client) == []
+
+
+def test_falha_de_conexao_vira_dependencia_indisponivel_no_cursor() -> None:
+    client = Mock()
+    client.get_item.side_effect = EndpointConnectionError(endpoint_url="http://x.invalid")
+    client.update_item.side_effect = EndpointConnectionError(endpoint_url="http://x.invalid")
+    cursors = DynamoRecoveryCursor(client, TABLE_NAME, lambda: NOW)
+    cursor = _cursor()
+    with pytest.raises(BillingDependencyError, match="dynamodb_unavailable"):
+        cursors.load(STRONG)
+    with pytest.raises(BillingDependencyError, match="dynamodb_unavailable"):
+        cursors.start(cursor)

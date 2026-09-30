@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cnes_domain.billing.errors import (
     BillingDependencyError,
@@ -130,6 +130,8 @@ class WebhookInbox:
             if not _is_conditional(error):
                 raise BillingDependencyError(UNAVAILABLE_CODE) from error
             return InboxAcceptResult(event.event_id, InboxDisposition.DUPLICATE)
+        except BotoCoreError as error:
+            raise BillingDependencyError(UNAVAILABLE_CODE) from error
         pending = item["state"] == _state(InboxProcessingState.PENDING)
         disposition = InboxDisposition.ACCEPTED if pending else InboxDisposition.IGNORED
         return InboxAcceptResult(event.event_id, disposition)
@@ -166,6 +168,8 @@ class WebhookInbox:
             if not _is_conditional(error):
                 raise BillingDependencyError(UNAVAILABLE_CODE) from error
             return self._unacquired(event_id)
+        except BotoCoreError as error:
+            raise BillingDependencyError(UNAVAILABLE_CODE) from error
         item = response["Attributes"]
         record = decode_recovery_record(item, event_id)
         return _claim_from(decode_event(item), record.attempt)
@@ -245,7 +249,7 @@ class WebhookInbox:
                 Limit=limit,
                 ScanIndexForward=True,
             )
-        except ClientError as error:
+        except (ClientError, BotoCoreError) as error:
             raise BillingDependencyError(UNAVAILABLE_CODE) from error
         rows = (row["gsi1sk"]["S"] for row in response["Items"])
         events = (self._confirmed_event(sort_key, now) for sort_key in rows)
@@ -292,6 +296,8 @@ class WebhookInbox:
             if not _is_conditional(error):
                 raise BillingDependencyError(UNAVAILABLE_CODE) from error
             raise StaleInboxClaim(claim.event_id) from error
+        except BotoCoreError as error:
+            raise BillingDependencyError(UNAVAILABLE_CODE) from error
 
     def _fail_retryable(self, claim: InboxClaim, error_code: str) -> None:
         due = self._clock() + timedelta(seconds=retry_delay_seconds(claim.attempt))

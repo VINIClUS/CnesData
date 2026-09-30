@@ -4,10 +4,12 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from botocore.exceptions import EndpointConnectionError
 
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.inbox import InboxProcessingState, InboxRecoveryRecord
 from cnes_infra.billing.keys import STRIPE_RECOVERY_DUE_PARTITION, stripe_event_key
+from cnes_infra.billing.webhook_inbox import WebhookInbox
 from cnes_infra.billing.webhook_inbox_items import (
     STRIPE_PROCESSING_LEASE_SECONDS,
     retry_delay_seconds,
@@ -290,3 +292,49 @@ def test_lista_rejeita_evento_com_created_at_corrompido(context: Context) -> Non
     context.put_raw(item)
     with pytest.raises(PermanentBillingError, match="billing_item_corrupt"):
         context.inbox.list_recoverable(NOW, 10)
+
+
+class _UnreachableClient:
+    def __init__(self, inner: Any, operation: str) -> None:
+        self._inner = inner
+        self._operation = operation
+
+    def __getattr__(self, name: str) -> Any:
+        if name == self._operation:
+            return self._raise
+        return getattr(self._inner, name)
+
+    def _raise(self, **_: Any) -> None:
+        raise EndpointConnectionError(endpoint_url="http://dynamodb.invalid")
+
+
+@pytest.mark.parametrize(
+    ("operation", "call"),
+    [
+        ("put_item", lambda ctx: ctx.inbox.accept(make_event())),
+        ("update_item", lambda ctx: ctx.inbox.claim(make_event().event_id, NOW)),
+        ("query", lambda ctx: ctx.inbox.list_recoverable(NOW, 10)),
+        ("get_item", lambda ctx: ctx.inbox.get_state(make_event().event_id, STRONG)),
+    ],
+)
+def test_falha_de_conexao_com_dynamodb_vira_dependencia_indisponivel(
+    context: Context, operation: str, call: Callable[[Context], Any],
+) -> None:
+    _pending(context)
+    unreachable = _UnreachableClient(context.client, operation)
+    inbox = WebhookInbox(unreachable, TABLE_NAME, context.clock.now)
+    ctx = Context(unreachable, context.clock, inbox)
+    with pytest.raises(BillingDependencyError, match="dynamodb_unavailable"):
+        call(ctx)
+
+
+def test_falha_de_conexao_ao_concluir_claim_vira_dependencia_indisponivel(
+    context: Context,
+) -> None:
+    _pending(context)
+    claim = context.acquire()
+    unreachable = _UnreachableClient(context.client, "update_item")
+    inbox = WebhookInbox(unreachable, TABLE_NAME, context.clock.now)
+    with pytest.raises(BillingDependencyError, match="dynamodb_unavailable"):
+        inbox.mark_processed(claim, entitlement_version=1)
+    assert context.inbox.get_state(claim.event_id, STRONG) is InboxProcessingState.PROCESSING
