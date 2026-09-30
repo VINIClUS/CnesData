@@ -15,10 +15,11 @@ from cnes_domain.billing.errors import (
     RetryableBillingError,
 )
 from cnes_domain.billing.inbox import ReservationRecoveryRequest
-from cnes_domain.billing.models import SubscriptionStatus
+from cnes_domain.billing.models import ReservationStatus, SubscriptionStatus
 from cnes_infra.billing import dynamodb_quota_items as codec
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_infra.billing.dynamodb_quota_items import IDEMPOTENCY_TTL
+from cnes_infra.billing.keys import capacity_reservation_key
 from cnes_infra.control_plane.dynamodb_codec import item_key
 from cnes_infra.control_plane.dynamodb_keys import run_entity_key
 from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
@@ -207,3 +208,21 @@ def test_run_removido_durante_renovacao_mantem_reserva_vencida_para_liberacao() 
         request = ReservationRecoveryRequest(now=env.clock.now(), limit=10, cursor=None)
         assert repo.reconcile_expired_reservations(request).released == 0
         assert env.repo.reconcile_expired_reservations(request).released == 1
+
+
+def test_replay_de_capacidade_liberada_reflete_o_estado_atual() -> None:
+    with quota_env() as env:
+        first = env.repo.reserve_capacity(make_capacity_command())
+        release = ReleaseCapacityCommand(ACCOUNT, first.reservation_id, NOW, "agent_failed")
+        env.repo.release_capacity(release)
+        replay = env.repo.reserve_capacity(make_capacity_command())
+        assert replay.reservation_id == first.reservation_id
+        assert replay.status is ReservationStatus.RELEASED
+
+
+def test_replay_de_capacidade_sem_item_base_devolve_resultado_gravado() -> None:
+    with quota_env() as env:
+        first = env.repo.reserve_capacity(make_capacity_command())
+        key = item_key(*capacity_reservation_key(ACCOUNT, first.reservation_id))
+        env.client.delete_item(TableName=TABLE_NAME, Key=key)
+        assert env.repo.reserve_capacity(make_capacity_command()) == first

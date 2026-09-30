@@ -136,7 +136,7 @@ class DynamoQuotaCapacityMixin:
         query = ReplayQuery(_identity(command), command.request_hash, now)
         replay = read_replay(self._client, self._table, query)
         if replay.stored is not None:
-            return decode_capacity_result(replay.stored)
+            return self._replayed(replay.stored)
         if command.limit is not None and command.limit < 1:
             raise _exceeded(command)
         self._require_entitled(command, now)
@@ -168,6 +168,12 @@ class DynamoQuotaCapacityMixin:
             ReservationStatus.RELEASED, command.released_at, command.reason_code
         )
         return self._settle_capacity(command.billing_account_id, command.reservation_id, change)
+
+    def _replayed(self, stored: Item) -> CapacityReservation:
+        recorded = decode_capacity_result(stored)
+        key = capacity_reservation_key(recorded.billing_account_id, recorded.reservation_id)
+        current = get_item(self._client, self._table, key, True)
+        return recorded if current is None else decode_capacity_reservation(current)[0]
 
     def _current_snapshot(self, account: str) -> EntitlementSnapshot | None:
         item = get_item(self._client, self._table, entitlement_snapshot_key(account), True)
@@ -220,7 +226,7 @@ class DynamoQuotaCapacityMixin:
     ) -> CapacityReservation:
         replay = read_replay(self._client, self._table, query)
         if replay.stored is not None:
-            return decode_capacity_result(replay.stored)
+            return self._replayed(replay.stored)
         now = self._clock()
         account = command.billing_account_id
         snapshot = self._current_snapshot(account)
