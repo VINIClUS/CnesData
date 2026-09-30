@@ -282,10 +282,11 @@ def _corruptions() -> list[tuple[str, dict[str, Any] | None]]:
 
 
 @pytest.mark.parametrize(("name", "change"), _corruptions())
-@pytest.mark.parametrize(("entity", "valid", "decode"), _decoders(), ids=lambda v: str(v)[:24])
+@pytest.mark.parametrize("decoder", _decoders(), ids=lambda v: str(v[0]))
 def test_decoders_rejeitam_itens_corrompidos(
-    entity: str, valid: dict[str, Any], decode: Any, name: str, change: dict[str, Any] | None
+    decoder: tuple[str, dict[str, Any], Any], name: str, change: dict[str, Any] | None
 ) -> None:
+    entity, valid, decode = decoder
     corrupted = (
         {key: value for key, value in valid.items() if key != "payload"}
         if change is None

@@ -145,9 +145,7 @@ def stripe_recovery_cursor_key() -> tuple[str, str]:
     return "BILLING#SYSTEM", "RECOVERY#STRIPE"
 
 
-def revocation_progress_key(
-    billing_account_id: str, entitlement_version: int
-) -> tuple[str, str]:
+def revocation_progress_key(billing_account_id: str, entitlement_version: int) -> tuple[str, str]:
     """Cria a chave do progresso de revogação por versão."""
     if isinstance(entitlement_version, bool) or entitlement_version < 1:
         raise ValueError("reason=invalid_entitlement_version")
