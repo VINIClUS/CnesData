@@ -52,6 +52,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
 from cnes_infra.control_plane.dynamodb_keys import entity_key, run_entity_key
 
 _CURSOR_CODE = "invalid_recovery_cursor"
+_CURSOR_ATTRIBUTES = frozenset({"pk", "sk", "gsi1pk", "gsi1sk"})
 _TERMINAL_RUN_STATES = frozenset(
     {RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED, RunState.FAILED, RunState.CANCELED}
 )
@@ -64,11 +65,19 @@ def _encode_cursor(last_key: dict[str, Any] | None) -> str | None:
     return base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
 
 
+def _is_due_key(values: Any) -> bool:
+    if not isinstance(values, dict) or set(values) != _CURSOR_ATTRIBUTES:
+        return False
+    if not all(isinstance(value, str) for value in values.values()):
+        return False
+    return values["gsi1pk"] == QUOTA_RESERVATION_DUE_PARTITION
+
+
 def _decode_cursor(cursor: str) -> dict[str, dict[str, str]]:
     try:
         raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
         values = json.loads(raw)
-        if not isinstance(values, dict) or not all(isinstance(v, str) for v in values.values()):
+        if not _is_due_key(values):
             raise ValueError(_CURSOR_CODE)
     except ValueError as error:
         raise PermanentBillingError(_CURSOR_CODE) from error
