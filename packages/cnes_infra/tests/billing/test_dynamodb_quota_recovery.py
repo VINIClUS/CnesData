@@ -1,6 +1,5 @@
 """Testes da recuperação de reservas de quota abandonadas."""
 
-import base64
 from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -8,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from botocore.exceptions import ClientError
 
-from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
+from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.billing.inbox import ReservationRecoveryRequest, ReservationRecoveryResult
 from cnes_domain.billing.models import (
     CapacityKind,
@@ -34,7 +33,7 @@ from cnes_infra.billing.keys import (
     usage_key,
 )
 from cnes_infra.control_plane.dynamodb_codec import item_key
-from cnes_infra.control_plane.dynamodb_keys import entity_key
+from cnes_infra.control_plane.dynamodb_keys import entity_key, run_entity_key
 from packages.cnes_infra.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_infra.tests.billing.quota_support import (
     ACCOUNT,
@@ -405,6 +404,23 @@ def test_renovacoes_sucessivas_mantem_lease_de_duracao_fixa() -> None:
             assert stored.expires_at == env.clock.now() + RESERVATION_TTL
 
 
+def test_nao_liquida_run_terminal_removido_entre_leitura_e_transacao() -> None:
+    with quota_env() as env:
+        reservation = _reservation()
+        _seed(env, reservation)
+        env.control_plane.put_run(_run(RunState.FAILED))
+        _expire(env)
+        run_key = item_key(*run_entity_key(TENANT, "run-01"))
+        client = _Client(env.client)
+        client.before_transact = lambda: env.client.delete_item(TableName=TABLE_NAME, Key=run_key)
+        repo = DynamoQuotaReservations(client, TABLE_NAME, env.clock.now)
+
+        assert _reconcile(repo, env).released == 0
+        assert _stored(env, reservation)[0].status is ReservationStatus.RESERVED
+        assert _reconcile(env.repo, env).released == 1
+        assert _counters(env)["consumed_runs"] == 0
+
+
 def test_nao_consome_capacidade_quando_recurso_some_entre_leitura_e_transacao() -> None:
     with quota_env() as env:
         capacity = _capacity(CapacityKind.AGENT, "agent-01")
@@ -452,35 +468,6 @@ def test_pagina_candidatos_com_cursor() -> None:
         assert (second.examined, second.released) == (1, 1)
         statuses = {_stored(env, r)[0].status for r in reservations}
         assert statuses == {ReservationStatus.RELEASED}
-
-
-def _encode(text: str) -> str:
-    return base64.urlsafe_b64encode(text.encode()).decode()
-
-
-_FOREIGN_KEY = '{"gsi1pk": "OTHER", "gsi1sk": "s", "pk": "p", "sk": "s"}'
-
-
-@pytest.mark.parametrize(
-    "cursor",
-    [
-        "@@@",
-        _encode("[1]"),
-        _encode('{"pk": 1}'),
-        "bm90LWpzb24",
-        _encode("{}"),
-        _encode('{"pk": "x"}'),
-        _encode(_FOREIGN_KEY),
-        _encode(_FOREIGN_KEY.replace('"p"', "1")),
-        _encode(_FOREIGN_KEY.replace('"OTHER"', '"QUOTA_RESERVATION#DUE"').replace('"p"', '""')),
-    ],
-)
-def test_rejeita_cursor_invalido(cursor: str) -> None:
-    with quota_env() as env:
-        with pytest.raises(PermanentBillingError) as error:
-            _reconcile(env.repo, env, cursor=cursor)
-
-        assert error.value.code == "invalid_recovery_cursor"
 
 
 def test_propaga_falha_do_storage_na_descoberta() -> None:

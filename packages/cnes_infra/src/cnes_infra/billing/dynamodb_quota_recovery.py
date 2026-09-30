@@ -180,7 +180,10 @@ class DynamoQuotaRecoveryMixin:
             return self._transition_reservation(item, change)
         if decode_model(stored, Run).state in _TERMINAL_RUN_STATES:
             change = ReservationTransition(
-                ReservationStatus.CONSUMED, now, actual_scan_bytes=reservation.reserved_scan_bytes
+                ReservationStatus.CONSUMED,
+                now,
+                actual_scan_bytes=reservation.reserved_scan_bytes,
+                guards=(check_action(self._table, stored),),
             )
             self._transition_reservation(item, change)
             return False
