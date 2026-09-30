@@ -59,6 +59,7 @@ from cnes_infra.control_plane.dynamodb_run_codec import run_dependency_actions, 
 
 RUN_FIXED_ACTIONS = 8
 CONFLICT_CODE = "quota_reservation_conflict"
+EXPIRY_CODE = "invalid_reservation_expiry"
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +280,11 @@ def _analytics_reservation(command: ReserveAnalyticsCommand, now: datetime) -> Q
     )
 
 
+def _require_future(expires_at: datetime, now: datetime) -> None:
+    if expires_at <= now:
+        raise PermanentBillingError(EXPIRY_CODE)
+
+
 def _runs_message(limit: int) -> str:
     return f"reason=max_runs_per_period_exceeded limit={limit}"
 
@@ -331,20 +337,22 @@ class DynamoQuotaReservations(
 
     def reserve_and_create_run(self, command: ReserveRunCommand) -> RunAuthorization:
         """Reserva o run, cria o Run canônico e o companion em uma transação.
-
         Args: command: pedido, snapshot, teto do deploy e reserva.
         Returns: Autorização de execução (a mesma em replays).
-        Raises: QuotaExceeded, EntitlementDenied, IdempotencyConflict, PermanentBillingError.
+        Raises: QuotaExceeded, EntitlementDenied, IdempotencyConflict, PermanentBillingError;
+            Conflict(TRANSACTION_LIMIT) com mais de 92 dependências.
         """
         request, snapshot = command.request, command.snapshot
         identity = (request.tenant_id, RUN_SCOPE, request.idempotency_key)
         stored = read_replay(self._client, self._table, identity, request.request_hash)
         if stored is not None:
             return decode_run_result(stored)
+        now = self._clock()
+        _require_future(command.expires_at, now)
         max_runs = snapshot.quotas.max_runs_per_period
         if max_runs is not None and max_runs < 1:
             raise QuotaExceeded(_runs_message(max_runs))
-        plan = _run_plan(command, self._clock())
+        plan = _run_plan(command, now)
         if transact(self._client, _run_actions(self._table, plan)):
             return plan.authorization
         failed = self._resolve_failure(identity, request.request_hash, snapshot, _runs_exceeded)
@@ -362,11 +370,12 @@ class DynamoQuotaReservations(
         stored = read_replay(self._client, self._table, identity, request.request_hash)
         if stored is not None:
             return decode_analytics_result(stored)
+        now = self._clock()
+        _require_future(command.expires_at, now)
         budget = snapshot.quotas.athena_scan_budget_bytes
         estimate = request.estimated_scan_bytes
         if budget is not None and budget - estimate < 0:
             raise QuotaExceeded(_budget_message(budget))
-        now = self._clock()
         reservation = _analytics_reservation(command, now)
         if transact(self._client, _analytics_actions(self._table, command, reservation, now)):
             return _analytics_authorization(command, now)

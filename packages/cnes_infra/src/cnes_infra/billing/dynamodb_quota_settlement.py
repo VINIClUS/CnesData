@@ -10,7 +10,6 @@ from botocore.exceptions import ClientError
 from cnes_domain.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
 from cnes_domain.billing.errors import (
     BillingDependencyError,
-    PermanentBillingError,
     RetryableBillingError,
 )
 from cnes_domain.billing.models import QuotaReservation, ReservationStatus
@@ -100,18 +99,16 @@ class DynamoQuotaSettlementMixin:
     _clock: ClockPort
 
     def consume(self, command: ConsumeReservationCommand) -> QuotaReservation:
-        """Liquida a reserva como consumida com o scan real.
+        """Liquida o scan real; uma reserva já liberada ainda contabiliza o medido.
 
         Args: command: conta, reserva, bytes reais e instante.
         Returns: Reserva armazenada após a liquidação.
-        Raises: RetryableBillingError, PermanentBillingError.
+        Raises: RetryableBillingError.
         """
 
         def decide(reservation: QuotaReservation) -> ReservationTransition | None:
             if reservation.status is ReservationStatus.CONSUMED:
                 return None
-            if reservation.status is ReservationStatus.RELEASED:
-                raise PermanentBillingError("quota_reservation_released")
             return ReservationTransition(
                 ReservationStatus.CONSUMED,
                 command.consumed_at,

@@ -10,7 +10,6 @@ from botocore.exceptions import ClientError
 from cnes_domain.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
 from cnes_domain.billing.errors import (
     BillingDependencyError,
-    PermanentBillingError,
     RetryableBillingError,
 )
 from cnes_domain.billing.models import QuotaReservation, ReservationKind, ReservationStatus
@@ -205,13 +204,20 @@ def test_liberar_apos_consumo_nao_altera_nada() -> None:
         assert _usage(env) == usage
 
 
-def test_consumir_apos_liberacao_e_rejeitado() -> None:
+def test_consumo_apos_liberacao_contabiliza_o_scan_medido() -> None:
     with quota_env() as env:
         _seed(env)
         env.repo.release(_release())
-        with pytest.raises(PermanentBillingError) as error:
-            env.repo.consume(_consume(400))
-        assert error.value.code == "quota_reservation_released"
+        settled = env.repo.consume(_consume(400))
+        again = env.repo.consume(_consume(900))
+        usage = _usage(env)
+    assert settled.status is ReservationStatus.CONSUMED
+    assert again == settled
+    assert settled.consumed_scan_bytes == 400
+    assert usage["run_reserved_scan_bytes"] == 0
+    assert usage["run_consumed_scan_bytes"] == 400
+    assert usage["run_committed_scan_bytes"] == 400
+    assert usage["consumed_runs"] == 1
 
 
 def test_liquidacao_analitica_usa_contadores_analytics() -> None:

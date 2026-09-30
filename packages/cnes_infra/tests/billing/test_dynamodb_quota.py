@@ -384,3 +384,24 @@ def test_analytics_corrida_pelo_ultimo_budget_classifica_como_quota_excedida() -
         repo = _racing(env, lambda: env.repo.reserve_analytics(other))
         with pytest.raises(QuotaExceeded, match="reason=athena_scan_budget_exceeded"):
             repo.reserve_analytics(make_analytics_command(snapshot))
+
+
+@pytest.mark.parametrize("offset", [timedelta(0), -timedelta(seconds=1)])
+def test_expiracao_nao_futura_rejeita_run_sem_escrever(offset: timedelta) -> None:
+    with quota_env() as env:
+        before = table_items(env.client)
+        command = replace(make_reserve_command(), expires_at=NOW + offset)
+        with pytest.raises(PermanentBillingError) as error:
+            env.repo.reserve_and_create_run(command)
+        assert error.value.code == "invalid_reservation_expiry"
+        assert table_items(env.client) == before
+
+
+def test_expiracao_nao_futura_rejeita_analytics_sem_escrever() -> None:
+    with quota_env() as env:
+        before = table_items(env.client)
+        command = replace(make_analytics_command(), expires_at=NOW)
+        with pytest.raises(PermanentBillingError) as error:
+            env.repo.reserve_analytics(command)
+        assert error.value.code == "invalid_reservation_expiry"
+        assert table_items(env.client) == before

@@ -10,6 +10,7 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from cnes_domain.billing.commands import ConsumeReservationCommand
 from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.billing.inbox import (
     ReservationRecoveryRequest,
@@ -28,6 +29,7 @@ from packages.cnes_infra.tests.billing.quota_support import (
     RESERVATION_TTL,
     TENANT,
     QuotaEnv,
+    make_analytics_command,
     make_reserve_command,
     quota_env,
     table_items,
@@ -160,3 +162,17 @@ def test_converge_apos_falha_entre_descoberta_e_liquidacao() -> None:
         assert _reservation(env).status is ReservationStatus.RELEASED
         assert _counters(env)["consumed_runs"] == 0
         assert _reservation(env).consumed_runs == 0
+
+
+def test_consulta_longa_liberada_pelo_recovery_ainda_contabiliza_o_scan() -> None:
+    with quota_env() as env:
+        env.repo.reserve_analytics(make_analytics_command())
+        env.clock.advance(_PAST_EXPIRY)
+        assert _reconcile(env.repo, env).released == 1
+        late = ConsumeReservationCommand(ACCOUNT, "res-query-01", 5_000, env.clock.now())
+        settled = env.repo.consume(late)
+        counters = _counters(env)
+    assert settled.status is ReservationStatus.CONSUMED
+    assert counters["analytics_reserved_scan_bytes"] == 0
+    assert counters["analytics_consumed_scan_bytes"] == 5_000
+    assert counters["analytics_committed_scan_bytes"] == 5_000
