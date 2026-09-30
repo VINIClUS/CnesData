@@ -70,10 +70,14 @@ def make_membership(tenant="tenant-a", user="user-2", role="gestor"):
     return Membership(tenant_id=tenant, user_id=user, role=role, created_at=NOW)
 
 
-def _echo_reservation(command):
+def echo_reservation(command, replayed=False):
     return PendingCheckout(
-        command.billing_account_id, command.request_key, NOW, command.expires_at,
+        command.billing_account_id, command.request_key, NOW, command.expires_at, replayed,
     )
+
+
+def echo_replayed_reservation(command):
+    return echo_reservation(command, replayed=True)
 
 
 class Env:
@@ -93,7 +97,7 @@ class Env:
         self.gateway.create_portal.return_value = HostedSession("bps_01", "https://stripe.test/p")
         self.gateway.create_customer.return_value = StripeCustomer("cus_new")
         self.projection.get_snapshot.return_value = None
-        self.catalog.reserve_pending_checkout.side_effect = _echo_reservation
+        self.catalog.reserve_pending_checkout.side_effect = echo_reservation
 
     def _authorize(self, principal, tenant_id):
         return AuthorizedTenant(tenant_id, "user-1", self.role)

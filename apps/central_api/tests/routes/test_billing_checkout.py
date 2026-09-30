@@ -1,5 +1,6 @@
 """Testes da reserva de checkout pendente antes da chamada ao Stripe."""
 
+from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import Mock, create_autospec
 
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from central_api.routes.billing_checkout import (
     CHECKOUT_RESERVATION_TTL,
     MAX_CHECKOUT_RESERVATION_TTL,
+    RELEASABLE_CODES,
     get_checkout_reservation_ttl,
     pending_checkout,
     reservation_expiry,
@@ -33,6 +35,7 @@ from .billing_fakes import (
     NOW,
     Env,
     checkout_body,
+    echo_replayed_reservation,
     make_account,
     make_snapshot,
     post,
@@ -92,9 +95,21 @@ def test_checkout_libera_reserva_quando_gateway_recusa_antes_da_sessao(
     response = post(client, "checkout")
     assert (response.status_code, response.json()) == (status, {"detail": detail})
     env.catalog.release_pending_checkout.assert_called_once_with(
-        ReleasePendingCheckoutCommand("ba_01", sent_key(env)),
+        ReleasePendingCheckoutCommand("ba_01", sent_key(env), NOW),
     )
     env.audit.append.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RetryableBillingError("stripe_price_unmapped"),
+     PermanentBillingError("stripe_subscription_exists")],
+)  # fmt: skip
+def test_checkout_nao_libera_reserva_reaproveitada_de_tentativa_anterior(client, env, error):
+    env.catalog.reserve_pending_checkout.side_effect = echo_replayed_reservation
+    env.gateway.create_checkout.side_effect = error
+    assert post(client, "checkout").status_code == 409
+    env.catalog.release_pending_checkout.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -214,10 +229,14 @@ def test_reservation_expiry_aceita_exatamente_24_horas():
     assert reservation_expiry(NOW, MAX_CHECKOUT_RESERVATION_TTL) == NOW + timedelta(hours=24)
 
 
+RESERVED_AT = NOW - timedelta(minutes=5)
+RESERVATION = PendingCheckout("ba_01", KEY, RESERVED_AT, NOW)
+
+
 @pytest.fixture
 def catalog():
     port = create_autospec(BillingCatalogPort, instance=True)
-    port.reserve_pending_checkout.return_value = PendingCheckout("ba_01", KEY, NOW, NOW)
+    port.reserve_pending_checkout.return_value = RESERVATION
     return port
 
 
@@ -235,8 +254,20 @@ def test_pending_checkout_libera_e_repropaga_recusa_anterior_a_sessao(catalog):
         raise refused
     assert raised.value is refused
     catalog.release_pending_checkout.assert_called_once_with(
-        ReleasePendingCheckoutCommand("ba_01", KEY),
+        ReleasePendingCheckoutCommand("ba_01", KEY, RESERVED_AT),
     )
+
+
+@pytest.mark.parametrize("code", sorted(RELEASABLE_CODES))
+def test_pending_checkout_nao_libera_reserva_reaproveitada(catalog, code):
+    catalog.reserve_pending_checkout.return_value = replace(RESERVATION, replayed=True)
+    refused = PermanentBillingError(code)
+    with pytest.raises(PermanentBillingError) as raised, pending_checkout(
+        catalog, "ba_01", KEY, NOW,
+    ):
+        raise refused
+    assert raised.value is refused
+    catalog.release_pending_checkout.assert_not_called()
 
 
 @pytest.mark.parametrize(

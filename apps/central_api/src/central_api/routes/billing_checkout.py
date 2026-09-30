@@ -32,9 +32,12 @@ def reservation_expiry(now: datetime, ttl: timedelta) -> datetime:
     return now + ttl
 
 
-def _release_quietly(catalog: BillingCatalogPort, account_id: str, request_key: str) -> None:
+def _release_quietly(catalog: BillingCatalogPort, reservation: PendingCheckout) -> None:
+    command = ReleasePendingCheckoutCommand(
+        reservation.billing_account_id, reservation.request_key, reservation.reserved_at,
+    )
     try:
-        catalog.release_pending_checkout(ReleasePendingCheckoutCommand(account_id, request_key))
+        catalog.release_pending_checkout(command)
     except BillingError as error:
         logger.warning("billing_checkout_release_failed code=%s", error.code)
 
@@ -43,13 +46,13 @@ def _release_quietly(catalog: BillingCatalogPort, account_id: str, request_key: 
 def pending_checkout(
     catalog: BillingCatalogPort, account_id: str, request_key: str, expires_at: datetime,
 ) -> Iterator[PendingCheckout]:
-    """Reserva o checkout da conta; libera só em recusa anterior à criação da sessão."""
+    """Reserva o checkout da conta; libera só a reserva criada aqui, antes da sessão."""
     command = ReservePendingCheckoutCommand(account_id, request_key, expires_at)
     reservation = catalog.reserve_pending_checkout(command)
     try:
         yield reservation
     except BillingError as error:
-        # Why: other failures may leave a Stripe session or an in-flight same-key twin.
-        if error.code in RELEASABLE_CODES:
-            _release_quietly(catalog, account_id, request_key)
+        # Why: a replayed reservation may back a Stripe session from an earlier attempt.
+        if not reservation.replayed and error.code in RELEASABLE_CODES:
+            _release_quietly(catalog, reservation)
         raise

@@ -2,6 +2,7 @@
 
 import math
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -46,8 +47,8 @@ def reserve_until(expires_at: datetime, key: str = KEY_A) -> ReservePendingCheck
     return ReservePendingCheckoutCommand(ACCOUNT, key, expires_at)
 
 
-def release(key: str = KEY_A) -> ReleasePendingCheckoutCommand:
-    return ReleasePendingCheckoutCommand(ACCOUNT, key)
+def release(key: str = KEY_A, reserved_at: datetime = NOW) -> ReleasePendingCheckoutCommand:
+    return ReleasePendingCheckoutCommand(ACCOUNT, key, reserved_at)
 
 
 def client_error(code: str, operation: str) -> ClientError:
@@ -110,6 +111,7 @@ def test_reserva_checkout_pendente_grava_item_com_ttl() -> None:
         )
         item = get_stored(client, KEY)
     assert (pending.request_key, pending.reserved_at, pending.expires_at) == (KEY_A, NOW, expires)
+    assert pending.replayed is False
     assert item == {
         **item_key(*KEY),
         "entity": {"S": "PENDINGCHECKOUT"},
@@ -130,6 +132,7 @@ def test_replay_com_mesma_chave_proximo_da_expiracao_estende_a_reserva() -> None
         replay = catalog.reserve_pending_checkout(reserve_until(extended_to))
         item = get_stored(client, KEY)
     assert (replay.reserved_at, replay.expires_at) == (first.reserved_at, extended_to)
+    assert replay.replayed is True
     assert item["reserved_at"] == {"S": utc_attribute(NOW)}
     assert item["reservation_expires_at"] == {"S": utc_attribute(extended_to)}
     assert item["expires_at"] == {"N": str(math.ceil(extended_to.timestamp()))}
@@ -156,7 +159,8 @@ def test_replay_com_expiracao_nao_posterior_nao_regrava(expires_in: timedelta) -
         spied = DynamoBillingCatalog(spy, TABLE_NAME, clock.now)
         replay = spied.reserve_pending_checkout(reserve(expires_in=expires_in))
         assert get_stored(client, KEY) == before
-    assert replay == first
+    assert replay == replace(first, replayed=True)
+    assert replay.replayed is True
     assert "update_item" not in spy.calls
 
 
@@ -273,7 +277,7 @@ def test_corrida_com_mesma_chave_viva_devolve_reserva_gravada() -> None:
             fault=client_error(CONDITIONAL_FAILED, "PutItem"),
         )
         raced = lost_put.reserve_pending_checkout(reserve())
-    assert raced == stored
+    assert raced == replace(stored, replayed=True)
 
 
 def test_corrida_com_outra_chave_viva_gera_checkout_in_progress() -> None:
@@ -352,6 +356,7 @@ def test_item_valido_gravado_externamente_e_reconhecido() -> None:
         put(client, valid_item())
         pending = catalog.reserve_pending_checkout(reserve())
     assert (pending.request_key, pending.reserved_at) == (KEY_A, NOW)
+    assert pending.replayed is True
 
 
 def test_libera_com_mesma_chave_remove_a_reserva() -> None:
@@ -367,6 +372,16 @@ def test_libera_com_outra_chave_preserva_a_reserva() -> None:
         catalog.reserve_pending_checkout(reserve(KEY_A))
         before = get_stored(client, KEY)
         assert catalog.release_pending_checkout(release(KEY_B)) is False
+        assert get_stored(client, KEY) == before
+
+
+def test_libera_com_outro_reserved_at_preserva_a_reserva_mais_nova() -> None:
+    with catalog_env() as (client, clock, catalog):
+        stale = catalog.reserve_pending_checkout(reserve())
+        clock.advance(TTL)
+        catalog.reserve_pending_checkout(reserve(expires_in=TTL * 2))
+        before = get_stored(client, KEY)
+        assert catalog.release_pending_checkout(release(reserved_at=stale.reserved_at)) is False
         assert get_stored(client, KEY) == before
 
 

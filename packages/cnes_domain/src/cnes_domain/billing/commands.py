@@ -364,10 +364,12 @@ class ReservePendingCheckoutCommand:
 class ReleasePendingCheckoutCommand:
     billing_account_id: str
     request_key: str
+    reserved_at: datetime
 
     def __post_init__(self) -> None:
         require_id(self.billing_account_id, "billing_account_id")
         require_sha256(self.request_key, "request_key")
+        require_utc(self.reserved_at, "reserved_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,6 +378,7 @@ class PendingCheckout:
     request_key: str
     reserved_at: datetime
     expires_at: datetime
+    replayed: bool = False
 
     def __post_init__(self) -> None:
         require_id(self.billing_account_id, "billing_account_id")

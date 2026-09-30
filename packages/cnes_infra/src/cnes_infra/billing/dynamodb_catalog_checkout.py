@@ -37,6 +37,7 @@ _ENTITY = "pending_checkout"
 _RESERVE_CONDITION = (
     "attribute_not_exists(pk) OR reservation_expires_at <= :now OR request_key = :key"
 )
+_RELEASE_CONDITION = "request_key = :key AND reserved_at = :reserved_at"
 _EXTEND_CONDITION = (
     "request_key = :key AND reserved_at = :reserved_at AND reservation_expires_at > :now"
 )
@@ -74,6 +75,7 @@ def _decode(item: Item, billing_account_id: str) -> PendingCheckout:
             item["request_key"]["S"],
             datetime.fromisoformat(item["reserved_at"]["S"]),
             datetime.fromisoformat(item["reservation_expires_at"]["S"]),
+            replayed=True,
         )
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         raise corrupt_item(_ENTITY) from error
@@ -112,7 +114,7 @@ class DynamoPendingCheckoutMixin:
         """Reserva atomicamente o checkout pendente da conta.
 
         Args: Conta, chave da requisição e expiração UTC da reserva.
-        Returns: Reserva gravada, ou a existente viva da mesma chave, estendida.
+        Returns: Reserva nova (replayed=False) ou a viva da mesma chave, estendida.
         Raises: ValueError, PermanentBillingError, RetryableBillingError,
             BillingDependencyError.
         """
@@ -132,10 +134,10 @@ class DynamoPendingCheckoutMixin:
         return raced
 
     def release_pending_checkout(self, command: ReleasePendingCheckoutCommand) -> bool:
-        """Libera a reserva somente se pertencer à chave informada.
+        """Libera a reserva somente se for a da chave e do instante informados.
 
-        Args: Conta e chave da requisição dona da reserva.
-        Returns: True se removeu; False se ausente ou de outra chave.
+        Args: Conta, chave da requisição e instante em que a reserva foi criada.
+        Returns: True se removeu; False se ausente, de outra chave ou mais nova.
         Raises: BillingDependencyError.
         """
         key = item_key(*pending_checkout_key(command.billing_account_id))
@@ -143,8 +145,11 @@ class DynamoPendingCheckoutMixin:
             self._client.delete_item,
             TableName=self._table,
             Key=key,
-            ConditionExpression="request_key = :key",
-            ExpressionAttributeValues={":key": _text(command.request_key)},
+            ConditionExpression=_RELEASE_CONDITION,
+            ExpressionAttributeValues={
+                ":key": _text(command.request_key),
+                ":reserved_at": _text(utc_attribute(command.reserved_at)),
+            },
         )
 
     def _stored_pending(self, billing_account_id: str) -> PendingCheckout | None:
