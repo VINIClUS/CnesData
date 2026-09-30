@@ -30,9 +30,15 @@ def make_gateway(
     plan: PlanVersion | None = None,
 ) -> tuple[StripeGateway, MagicMock, MagicMock]:
     client = MagicMock()
+    client.v1.subscriptions.list.return_value = page([])
+    client.v1.checkout.sessions.list.return_value = page([])
     plans = MagicMock()
     plans.get_plan_by_price.return_value = plan if plan is not None else make_plan()
     return StripeGateway(client, make_config(), plans), client, plans
+
+
+def page(data: list[object], has_more: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(data=data, has_more=has_more)
 
 
 def make_item(price: object = "price_01") -> SimpleNamespace:

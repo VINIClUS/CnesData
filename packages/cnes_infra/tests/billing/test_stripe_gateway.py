@@ -31,6 +31,7 @@ from packages.cnes_infra.tests.billing.stripe_fakes import (
     make_gateway,
     make_plan,
     make_subscription,
+    page,
 )
 
 
@@ -273,3 +274,60 @@ def test_registra_nada_sensivel_e_nao_envia_pii_ao_cliente(caplog) -> None:
     metadata = client.v1.checkout.sessions.create.call_args.kwargs["params"]["metadata"]
     assert set(metadata) <= {"billing_account_id", "plan_version_id"}
     assert isinstance(gateway, StripeGateway)
+
+
+_LIVE = ["active", "trialing", "past_due", "incomplete", "unpaid", "paused"]
+
+
+@pytest.mark.parametrize("status", _LIVE)
+def test_checkout_bloqueia_cliente_com_assinatura_viva_no_stripe(status) -> None:
+    gateway, client, _ = make_gateway()
+    client.v1.subscriptions.list.return_value = page([make_subscription(status=status)])
+    with pytest.raises(PermanentBillingError) as info:
+        gateway.create_checkout(_checkout())
+    assert info.value.code == "stripe_subscription_exists"
+    client.v1.subscriptions.list.assert_called_once_with(
+        params={"customer": "cus_01", "status": "all", "limit": 100},
+    )
+    client.v1.checkout.sessions.create.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["canceled", "incomplete_expired"])
+def test_checkout_permite_cliente_com_assinaturas_encerradas(status) -> None:
+    gateway, client, _ = make_gateway()
+    client.v1.subscriptions.list.return_value = page([make_subscription(status=status)])
+    client.v1.checkout.sessions.create.return_value = _session()
+    assert gateway.create_checkout(_checkout()).session_id == "cs_01"
+
+
+def test_checkout_expira_sessoes_abertas_antes_de_criar_nova() -> None:
+    gateway, client, _ = make_gateway()
+    sessions = client.v1.checkout.sessions
+    old = [SimpleNamespace(id="cs_old1"), SimpleNamespace(id="cs_old2")]
+    sessions.list.return_value = page(old)
+    sessions.create.return_value = _session()
+    gateway.create_checkout(_checkout())
+    sessions.list.assert_called_once_with(
+        params={"customer": "cus_01", "status": "open", "limit": 100},
+    )
+    names = [call[0] for call in sessions.mock_calls if not call[0].startswith("create.")]
+    assert names == ["list", "expire", "expire", "create"]
+    assert [c.args for c in sessions.expire.call_args_list] == [("cs_old1",), ("cs_old2",)]
+
+
+@pytest.mark.parametrize("listing", ["subscriptions", "sessions"])
+def test_checkout_falha_fechado_quando_listagem_nao_cabe_em_uma_pagina(listing) -> None:
+    gateway, client, _ = make_gateway()
+    service = client.v1.subscriptions if listing == "subscriptions" else client.v1.checkout.sessions
+    service.list.return_value = page([], has_more=True)
+    with pytest.raises(StripeMappingError):
+        gateway.create_checkout(_checkout())
+    client.v1.checkout.sessions.create.assert_not_called()
+    client.v1.checkout.sessions.expire.assert_not_called()
+
+
+def test_checkout_nao_consulta_stripe_quando_preco_nao_mapeado() -> None:
+    gateway, client, _ = make_gateway()
+    with pytest.raises(StripeMappingError):
+        gateway.create_checkout(_checkout(make_plan(())))
+    assert client.v1.mock_calls == []

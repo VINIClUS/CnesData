@@ -215,6 +215,8 @@ def _to_http(error: BillingError) -> HTTPException | None:
     if isinstance(error, RetryableBillingError):
         return _retryable_to_http(error)
     if isinstance(error, PermanentBillingError):
+        if error.code == "stripe_subscription_exists":
+            return HTTPException(409, "subscription_exists")
         stripe = error.code.startswith("stripe_")
         return HTTPException(502, "stripe_request_rejected") if stripe else None
     if isinstance(error, IdempotencyConflict):

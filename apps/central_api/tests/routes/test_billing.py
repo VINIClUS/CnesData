@@ -255,6 +255,7 @@ def test_portal_usa_chave_escopada(client, env):
         (RetryableBillingError("stripe_price_unmapped"), 409, "plan_price_unmapped"),
         (RetryableBillingError("stripe_unavailable"), 503, "stripe_unavailable"),
         (PermanentBillingError("stripe_rejected"), 502, "stripe_request_rejected"),
+        (PermanentBillingError("stripe_subscription_exists"), 409, "subscription_exists"),
         (IdempotencyConflict("x"), 409, "idempotency_conflict"),
         (BillingTenantConflict("x"), 409, "billing_tenant_conflict"),
     ],

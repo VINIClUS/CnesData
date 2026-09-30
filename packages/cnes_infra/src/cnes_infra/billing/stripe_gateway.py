@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from re import compile as re_compile
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 _DETAIL_VALUE = re_compile(r"^[A-Za-z0-9_.:-]+$")
 _TRANSIENT_ERRORS = frozenset({"APIConnectionError", "RateLimitError", "APIError"})
 _ENTITLEMENT_PAGE = 100
+_GUARD_PAGE = 100
+_ENDED_STATUSES = frozenset({"canceled", "incomplete_expired"})
 
 
 class StripeMappingError(RetryableBillingError):
@@ -57,8 +60,20 @@ class _Retrievable(Protocol):
     ) -> Any: ...  # pragma: no cover
 
 
+class _Expirable(Protocol):
+    def expire(self, session: str, /) -> Any: ...  # pragma: no cover
+
+
 class _Sessions(Protocol):
     sessions: _Creatable
+
+
+class _CheckoutSessions(_Creatable, _Listable, _Expirable, Protocol):
+    pass
+
+
+class _Checkout(Protocol):
+    sessions: _CheckoutSessions
 
 
 class _Subscriptions(_Retrievable, _Listable, Protocol):
@@ -71,7 +86,7 @@ class _Entitlements(Protocol):
 
 class _V1(Protocol):
     customers: _Creatable
-    checkout: _Sessions
+    checkout: _Checkout
     billing_portal: _Sessions
     subscriptions: _Subscriptions
     invoices: _Retrievable
@@ -229,6 +244,7 @@ class StripeGateway:
         Raises: StripeMappingError: Preco do plano nao mapeado; erros Stripe traduzidos.
         """
         price_id = self._checkout_price(command.plan_version)
+        self._guard_checkout(command.stripe_customer_id)
         params = {
             "mode": "subscription",
             "customer": command.stripe_customer_id,
@@ -310,6 +326,28 @@ class StripeGateway:
         ):
             raise _mapping("stripe_price_unmapped", price_id=price_id)
         return price_id
+
+    def _guard_checkout(self, customer_id: str) -> None:
+        subscriptions = _call(
+            "subscriptions.list",
+            lambda: self._client.v1.subscriptions.list(
+                params={"customer": customer_id, "status": "all", "limit": _GUARD_PAGE},
+            ),
+        )
+        if subscriptions.has_more is True:
+            raise StripeMappingError("stripe_subscriptions_unbounded")
+        if any(sub.status not in _ENDED_STATUSES for sub in subscriptions.data):
+            raise PermanentBillingError("stripe_subscription_exists")
+        self._expire_open_sessions(customer_id)
+
+    def _expire_open_sessions(self, customer_id: str) -> None:
+        sessions = self._client.v1.checkout.sessions
+        params = {"customer": customer_id, "status": "open", "limit": _GUARD_PAGE}
+        found = _call("checkout.sessions.list", lambda: sessions.list(params=params))
+        if found.has_more is True:
+            raise StripeMappingError("stripe_checkout_sessions_unbounded")
+        for session in found.data:
+            _call("checkout.sessions.expire", partial(sessions.expire, session.id))
 
     def _subscription(self, request: StripeStateRequest) -> Any:
         subscriptions = self._client.v1.subscriptions
