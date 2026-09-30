@@ -1,6 +1,7 @@
 """Composição do gate de entitlement e dos callbacks de execução por modo."""
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -45,8 +46,11 @@ class BillingGateResources:
     table_name: str | None = None
 
 
+StartedCallback = Callable[[Any, Any, str, ExecutionPermit], None]
+
+
 class ChainedExecutionStarted:
-    def __init__(self, billing: ExecutionStarted, downstream: ExecutionStarted) -> None:
+    def __init__(self, billing: StartedCallback, downstream: StartedCallback) -> None:
         self.billing = billing
         self.downstream = downstream
 
