@@ -3,6 +3,7 @@
 import json
 from dataclasses import replace
 from datetime import timedelta
+from functools import partial
 from typing import Any
 
 import pytest
@@ -236,7 +237,7 @@ def test_outbox_preexistente_gera_conflito_permanente() -> None:
 
 def test_replay_concorrente_na_falha_retorna_reserva_gravada() -> None:
     with quota_env() as env:
-        winner = lambda: env.repo.reserve_capacity(make_capacity_command())  # noqa: E731
+        winner = partial(env.repo.reserve_capacity, make_capacity_command())
         client = _ContendedClient(env.client, 1, winner)
         repo = DynamoQuotaReservations(client, TABLE_NAME, env.clock.now)
 
