@@ -30,6 +30,7 @@ from cnes_domain.billing.models import (
 from cnes_domain.billing.ports import ClockPort
 from cnes_domain.control_plane.entities import IdempotencyRecord
 from cnes_infra.billing.dynamodb_catalog_plans import DynamoPlanCatalogMixin
+from cnes_infra.billing.dynamodb_catalog_replays import DynamoLateReplayMixin
 from cnes_infra.billing.dynamodb_items import (
     CUSTOMER_MAP_ENTITY,
     audit_outbox_event,
@@ -39,7 +40,6 @@ from cnes_infra.billing.dynamodb_items import (
     decode_customer_map,
     decode_idempotency_record,
     decode_link,
-    decode_tenant_account,
     deterministic_id,
     encode_account,
     encode_account_list_row,
@@ -119,7 +119,7 @@ def _cursor_of(last_key: dict[str, Any] | None) -> str | None:
     return bytes.fromhex(sort_key.removeprefix(BILLING_ACCOUNT_LIST_PREFIX)).decode()
 
 
-class DynamoBillingCatalog(DynamoPlanCatalogMixin):
+class DynamoBillingCatalog(DynamoLateReplayMixin, DynamoPlanCatalogMixin):
     """Catálogo de billing em DynamoDB sem GSI, com escritas em transação única."""
 
     def __init__(self, client: Any, table_name: str, clock: ClockPort) -> None:
@@ -244,6 +244,8 @@ class DynamoBillingCatalog(DynamoPlanCatalogMixin):
             return account
         if account.owner_user_id != command.expected_owner_user_id:
             raise PermanentBillingError("billing_account_owner_mismatch")
+        if command.transferred_at < account.updated_at:
+            raise PermanentBillingError("billing_account_stale")
         updated = dataclasses.replace(
             account, owner_user_id=command.new_owner_user_id, updated_at=command.transferred_at
         )
@@ -350,19 +352,6 @@ class DynamoBillingCatalog(DynamoPlanCatalogMixin):
             raise PermanentBillingError("billing_account_exists")
         raise RetryableBillingError("billing_transaction_conflict")
 
-    def _created_account(self, command: CreateBillingAccountCommand) -> BillingAccount | None:
-        tenant_id = command.initial_tenant_link.tenant_id
-        account_id = command.account.billing_account_id
-        item = get_item(self._client, self._table, tenant_account_key(tenant_id), True)
-        if item is None or decode_tenant_account(item, tenant_id) != account_id:
-            return None
-        account = self.get_account(account_id)
-        link = self.get_tenant_link(account_id, tenant_id, ReadConsistency.STRONG)
-        if account is None or link is None:
-            return None
-        stored = CreateBillingAccountCommand(account, link, command.idempotency_key)
-        return account if idempotency_digest(stored) == idempotency_digest(command) else None
-
     def _raise_tenant_failure(self, tenant_id: str) -> None:
         if self._exists(tenant_account_key(tenant_id)):
             raise BillingTenantConflict(f"tenant_id={tenant_id}")
@@ -400,6 +389,9 @@ class DynamoBillingCatalog(DynamoPlanCatalogMixin):
         _, live = self._prior(tenant_id, LINK_SCOPE, command.idempotency_key, digest)
         if live is not None:
             return self._replay_link(live, tenant_id)
+        existing = self._linked_replay(command)
+        if existing is not None:
+            return existing
         self._raise_tenant_failure(tenant_id)
         self._raise_account_failure(command)
         raise RetryableBillingError("billing_transaction_conflict")
