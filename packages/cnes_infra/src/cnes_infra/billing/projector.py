@@ -36,6 +36,7 @@ _STATE_INVALID = "stripe_state_invalid"
 _ATTEMPTS_EXHAUSTED = "inbox_attempts_exhausted"
 _TRANSIENT_PERMANENT_CODES = frozenset({"stripe_request_rejected"})
 _DATA_ERRORS = (ValueError, TypeError, AttributeError)
+_ENDED_STATUSES = frozenset({SubscriptionStatus.CANCELED, SubscriptionStatus.INCOMPLETE_EXPIRED})
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,14 @@ def _status(inputs: _Inputs) -> SubscriptionStatus:
 def _grace_until(inputs: _Inputs, status: SubscriptionStatus) -> datetime | None:
     if status is not SubscriptionStatus.PAST_DUE:
         return None
+    current = inputs.current
+    if (
+        current is not None
+        and current.subscription_status is SubscriptionStatus.PAST_DUE
+        and current.stripe_subscription_id == inputs.state.stripe_subscription_id
+        and current.grace_until is not None
+    ):
+        return max(current.grace_until, inputs.state.period_start)
     return inputs.state.period_start + timedelta(days=inputs.plan.grace_period_days)
 
 
@@ -202,10 +211,12 @@ class StripeEventProjector:
         account = self._deps.catalog.get_account_by_customer(claim.customer_id)
         if account is None:
             raise RetryableBillingError("stripe_customer_mapping_missing")
-        request = StripeStateRequest(claim.customer_id, claim.subscription_id)
         for _ in range(STRIPE_PROJECTION_CAS_RETRIES):
-            state = self._deps.stripe.get_current_state(request)
-            write = self._write(claim, account.billing_account_id, state)
+            current = self._deps.projection.get_snapshot(
+                account.billing_account_id, ReadConsistency.STRONG
+            )
+            state = self._current_state(claim, current)
+            write = self._write(claim, account.billing_account_id, state, current)
             if self._deps.projection.commit_claimed_snapshot(claim, write):
                 version = write.snapshot.entitlement_version
                 logger.info(
@@ -214,11 +225,33 @@ class StripeEventProjector:
                 return ProjectionResult(claim.event_id, True, version)
         raise RetryableBillingError("snapshot_cas_exhausted")
 
+    def _current_state(
+        self, claim: InboxClaim, current: EntitlementSnapshot | None
+    ) -> StripeBillingState:
+        current_id = None if current is None else current.stripe_subscription_id
+        subscription_id = claim.subscription_id or current_id
+        state = self._deps.stripe.get_current_state(
+            StripeStateRequest(claim.customer_id, subscription_id)
+        )
+        superseded = (
+            current_id is not None
+            and current_id != state.stripe_subscription_id
+            and state.subscription_status in _ENDED_STATUSES
+        )
+        if not superseded:
+            return state
+        return self._deps.stripe.get_current_state(
+            StripeStateRequest(claim.customer_id, current_id)
+        )
+
     def _write(
-        self, claim: InboxClaim, account_id: str, state: StripeBillingState
+        self,
+        claim: InboxClaim,
+        account_id: str,
+        state: StripeBillingState,
+        current: EntitlementSnapshot | None,
     ) -> SnapshotWrite:
         plan = self._deps.catalog.get_plan_by_price(state.stripe_price_id)
         if plan is None:
             raise RetryableBillingError("stripe_price_unmapped")
-        current = self._deps.projection.get_snapshot(account_id, ReadConsistency.STRONG)
         return _build_write(_Inputs(claim, account_id, state, plan, current, self._deps.clock()))

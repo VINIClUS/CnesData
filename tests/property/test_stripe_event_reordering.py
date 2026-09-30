@@ -161,3 +161,29 @@ def test_snapshot_final_iguala_ultimo_estado_retornado_pela_stripe(data):
     assert snapshot.subscription_status is last_status
     assert snapshot.plan_version_id == last_plan
     assert snapshot.entitlement_version == count
+
+
+@given(data=st.data())
+def test_assinatura_encerrada_tardia_nunca_substitui_a_assinatura_atual(data):
+    old_ids = [f"evt_old_{index}" for index in range(data.draw(st.integers(1, 3)))]
+    new_ids = [f"evt_new_{index}" for index in range(data.draw(st.integers(1, 3)))]
+    old_status = data.draw(
+        st.sampled_from((SubscriptionStatus.CANCELED, SubscriptionStatus.INCOMPLETE_EXPIRED))
+    )
+    states = {
+        "sub_old": make_state(stripe_subscription_id="sub_old", subscription_status=old_status),
+        "sub_new": make_state(stripe_subscription_id="sub_new"),
+    }
+    late = data.draw(st.permutations(old_ids + new_ids[1:]))
+    with projector_env() as env:
+        env.stripe.get_current_state.side_effect = lambda r: states[r.stripe_subscription_id]
+        for event_id in new_ids:
+            env.accept(event_id, subscription="sub_new")
+        for event_id in old_ids:
+            env.accept(event_id, subscription="sub_old")
+        env.projector().process(new_ids[0])
+        for event_id in late:
+            env.projector().process(event_id)
+        snapshot = env.snapshot()
+    assert snapshot.stripe_subscription_id == "sub_new"
+    assert snapshot.subscription_status is SubscriptionStatus.ACTIVE
