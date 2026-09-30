@@ -204,3 +204,16 @@ def test_expiracao_da_ultima_versao_recalcula_indice_pela_versao_viva() -> None:
     clock.advance(timedelta(seconds=30))
     assert cache.get_latest("ba_01") is None
     assert cache.tracked_accounts() == 0
+
+
+def test_varredura_ansiosa_reindexa_versao_viva_da_conta() -> None:
+    clock = MutableClock(NOW)
+    cache = LocalEntitlementCache(60, clock.now)
+    cache.put(make_snapshot("ba_01", 2))
+    clock.advance(timedelta(seconds=30))
+    cache.put(make_snapshot("ba_01", 1))
+    clock.advance(timedelta(seconds=30))
+
+    cache.put(make_snapshot("ba_other", 1))
+
+    assert cache.get_latest("ba_01") == make_snapshot("ba_01", 1)

@@ -112,11 +112,11 @@ class LocalEntitlementCache:
         self._entries = {
             key: entry for key, entry in self._entries.items() if now < entry.expires_at
         }
-        self._latest = {
-            account: version
-            for account, version in self._latest.items()
-            if CacheKey(account, version) in self._entries
-        }
+        latest: dict[str, int] = {}
+        for key in self._entries:
+            account = key.billing_account_id
+            latest[account] = max(latest.get(account, 0), key.entitlement_version)
+        self._latest = latest
         self._floors = {
             account: floor for account, floor in self._floors.items() if now < floor.expires_at
         }

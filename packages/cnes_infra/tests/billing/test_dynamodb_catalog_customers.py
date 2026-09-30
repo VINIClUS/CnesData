@@ -305,3 +305,15 @@ def test_cancelamento_inesperado_na_transferencia_e_retryable(env: Any) -> None:
 
     with pytest.raises(RetryableBillingError, match="billing_transaction_conflict"):
         failing(client, clock).transfer_owner(transfer())
+
+
+def test_attach_com_relogio_atrasado_avanca_updated_at_da_conta(env: Any) -> None:
+    client, _, catalog = env
+    catalog.create_account(make_create_command())
+    ahead = NOW + timedelta(hours=2)
+    put(client, encode_account(make_account(updated_at=ahead)))
+
+    attached = catalog.attach_customer(attach("ba_01", "cus_01", ahead))
+
+    assert attached.updated_at > ahead
+    assert catalog.get_account("ba_01") == attached

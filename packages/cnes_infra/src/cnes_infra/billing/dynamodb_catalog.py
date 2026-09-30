@@ -70,6 +70,7 @@ from cnes_infra.control_plane.dynamodb_keys import idempotency_key, item_key
 CREATE_SCOPE = "billing_account.create"
 LINK_SCOPE = "billing_account.link_tenant"
 IDEMPOTENCY_TTL = timedelta(days=1)
+_MIN_ADVANCE = timedelta(microseconds=1)
 MAX_PAGE_LIMIT = 100
 type _Prior = tuple[Item | None, IdempotencyRecord | None]
 
@@ -222,9 +223,8 @@ class DynamoBillingCatalog(DynamoLateReplayMixin, DynamoPlanCatalogMixin):
             raise PermanentBillingError("stripe_customer_already_attached")
         if utc_attribute(account.updated_at) != utc_attribute(command.expected_updated_at):
             raise PermanentBillingError("billing_account_stale")
-        updated = dataclasses.replace(
-            account, stripe_customer_id=customer, updated_at=self._clock()
-        )
+        advanced = max(self._clock(), account.updated_at + _MIN_ADVANCE)
+        updated = dataclasses.replace(account, stripe_customer_id=customer, updated_at=advanced)
         if transact(self._client, self._attach_actions(updated, item)):
             return updated
         return self._classify_attach(updated, item)
