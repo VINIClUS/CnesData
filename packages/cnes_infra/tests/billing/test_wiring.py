@@ -118,8 +118,11 @@ def test_fabrica_de_reserva_gera_uuid_e_ttl_de_quinze_minutos():
     gate = build_entitlement_gate(LOCAL_BILLING_SETTINGS, _resources())
     run_settings = gate._settings
 
-    assert UUID(run_settings.reservation_id_factory()).version == 4
-    assert run_settings.reservation_id_factory() != run_settings.reservation_id_factory()
+    first = run_settings.reservation_id_factory()
+    second = run_settings.reservation_id_factory()
+
+    assert UUID(first).version == 4
+    assert first != second
     assert run_settings.reservation_ttl == RESERVATION_TTL == timedelta(minutes=15)
     assert run_settings.deployment_max_concurrency == 8
 
