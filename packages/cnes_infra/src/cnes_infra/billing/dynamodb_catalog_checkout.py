@@ -153,7 +153,11 @@ class DynamoPendingCheckoutMixin:
         )
 
     def _stored_pending(self, billing_account_id: str) -> PendingCheckout | None:
-        item = get_item(self._client, self._table, pending_checkout_key(billing_account_id), True)
+        key = pending_checkout_key(billing_account_id)
+        try:
+            item = get_item(self._client, self._table, key, True)
+        except BotoCoreError as error:
+            raise BillingDependencyError(UNAVAILABLE_CODE) from error
         return None if item is None else _decode(item, billing_account_id)
 
     def _put_pending(self, pending: PendingCheckout) -> bool:
