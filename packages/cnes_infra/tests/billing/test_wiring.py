@@ -331,6 +331,18 @@ def test_callbacks_em_stripe_negam_run_sem_companion():
         callbacks.policy(_run(), _dispatch(), 4)
 
 
+@pytest.mark.parametrize("enforcement", [OFF, SHADOW])
+def test_callbacks_em_stripe_sem_enforce_aceitam_run_legado_sem_companion(enforcement):
+    callbacks = build_execution_callbacks(
+        _settings(BillingMode.STRIPE, enforcement), FakeControlPlane(), _clock, Mock(),
+    )
+
+    permit = callbacks.policy(_run(), _dispatch(), 4)
+
+    assert permit.max_concurrency == 4
+    assert permit.binding_context.billing_account_id == "local-tenant-1"
+
+
 def test_callbacks_em_disabled_devolvem_permit_sem_medicao():
     callbacks = build_execution_callbacks(
         LOCAL_BILLING_SETTINGS, FakeControlPlane(), _clock, Mock(),

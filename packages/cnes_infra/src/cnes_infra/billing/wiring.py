@@ -168,6 +168,6 @@ def build_execution_callbacks(
     """Args: settings: Modo; control_plane: Port; clock: Relógio; execution_started: A jusante.
     Returns: Política de concorrência e callback de início encadeado.
     """
-    deps = BillingExecutionDependencies(control_plane, clock, settings.mode)
+    deps = BillingExecutionDependencies(control_plane, clock, settings.execution_mode)
     started = ChainedExecutionStarted(BillingExecutionStarted(deps), execution_started)
     return ExecutionCallbacks(BillingConcurrencyPolicy(deps), started)

@@ -1,3 +1,3 @@
 """Namespaces públicos da infraestrutura."""
 
-__all__ = ("audit", "billing", "control_plane", "object_store")
+__all__ = ("audit", "control_plane", "object_store")

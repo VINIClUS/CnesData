@@ -47,6 +47,11 @@ class BillingSettings:
             and self.enforcement_mode is BillingEnforcementMode.ENFORCE
         )
 
+    @property
+    def execution_mode(self) -> BillingMode:
+        """Returns: STRIPE só com enforce; senão DISABLED (companion opcional)."""
+        return BillingMode.STRIPE if self.enforced else BillingMode.DISABLED
+
 
 LOCAL_BILLING_SETTINGS = BillingSettings(
     BillingMode.DISABLED, BillingEnforcementMode.OFF, _DEFAULT_TTL_SECONDS

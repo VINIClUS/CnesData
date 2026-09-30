@@ -105,13 +105,19 @@ def test_local_stripe_e_rejeitado_no_startup(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("mode", "expected"), [("disabled", BillingMode.DISABLED), ("stripe", BillingMode.STRIPE)],
+    ("mode", "enforcement", "expected"),
+    [
+        ("disabled", "enforce", BillingMode.DISABLED),
+        ("stripe", "off", BillingMode.DISABLED),
+        ("stripe", "shadow", BillingMode.DISABLED),
+        ("stripe", "enforce", BillingMode.STRIPE),
+    ],
 )
-def test_aws_propaga_modo_ao_control_plane_e_a_politica(
-    session: Mock, mode: str, expected: BillingMode,
+def test_aws_propaga_modo_efetivo_ao_control_plane_e_a_politica(
+    session: Mock, mode: str, enforcement: str, expected: BillingMode,
 ) -> None:
     started = Mock(name="execution_started")
-    values = _aws_values() | {"BILLING_MODE": mode}
+    values = _aws_values() | {"BILLING_MODE": mode, "BILLING_ENFORCEMENT_MODE": enforcement}
 
     runtime = build_processor_runtime("aws", values, session, started)
 

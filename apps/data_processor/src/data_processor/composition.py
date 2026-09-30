@@ -212,7 +212,7 @@ def build_processor_runtime(
     settings = AwsRuntimeSettings.from_mapping(values)
     clients = create_aws_clients(settings, session)
     billing = BillingSettings.from_mapping(values)
-    core = build_aws_runtime(settings, clients, _utc_now, billing.mode)
+    core = build_aws_runtime(settings, clients, _utc_now, billing.execution_mode)
     callbacks = build_execution_callbacks(
         billing, core.control_plane, _utc_now, execution_started,
     )

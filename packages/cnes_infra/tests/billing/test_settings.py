@@ -123,3 +123,18 @@ def test_chaves_nao_relacionadas_sao_ignoradas():
     settings = BillingSettings.from_mapping({**_LOCAL, "AUTH_MODE": "oidc"})
 
     assert settings.mode is BillingMode.DISABLED
+
+
+@pytest.mark.parametrize(
+    ("mode", "enforcement", "expected"),
+    [
+        (BillingMode.DISABLED, BillingEnforcementMode.ENFORCE, BillingMode.DISABLED),
+        (BillingMode.STRIPE, BillingEnforcementMode.OFF, BillingMode.DISABLED),
+        (BillingMode.STRIPE, BillingEnforcementMode.SHADOW, BillingMode.DISABLED),
+        (BillingMode.STRIPE, BillingEnforcementMode.ENFORCE, BillingMode.STRIPE),
+    ],
+)
+def test_modo_de_execucao_so_exige_companion_com_stripe_em_enforce(
+    mode: BillingMode, enforcement: BillingEnforcementMode, expected: BillingMode,
+) -> None:
+    assert BillingSettings(mode, enforcement, 60).execution_mode is expected
