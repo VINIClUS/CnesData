@@ -25,6 +25,8 @@ from cnes_domain.control_plane.transitions import (
     transition_run,
     transition_run_unit,
 )
+from cnes_domain.profiles import BillingMode
+from cnes_infra.control_plane.dynamodb_billing import DynamoBillingMixin
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
@@ -76,14 +78,18 @@ _NONTERMINAL_UNITS = {RunUnitState.PENDING, RunUnitState.LEASED, RunUnitState.FA
 
 
 class DynamoDBControlPlane(
-    DynamoEdgeRegistrationMixin, DeprecatedRawQueryMixin, DynamoDBQueries,
+    DynamoBillingMixin, DynamoEdgeRegistrationMixin, DeprecatedRawQueryMixin, DynamoDBQueries,
     DynamoDBClaims, DynamoDBDispatch, DynamoDBPublication
 ):
     """Persiste o plano de controle em uma tabela DynamoDB."""
-    def __init__(self, client: Any, table_name: str, clock: Callable[[], datetime]) -> None:
+    def __init__(
+        self, client: Any, table_name: str, clock: Callable[[], datetime],
+        billing_mode: BillingMode = BillingMode.DISABLED,
+    ) -> None:
         self._client = client
         self._table_name = table_name
         self._clock = clock
+        self._billing_mode = billing_mode
     def _get_item(self, key: tuple[str, str]) -> Item | None:
         response = self._client.get_item(
             TableName=self._table_name,

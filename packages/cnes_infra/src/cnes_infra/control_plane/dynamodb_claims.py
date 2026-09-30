@@ -273,6 +273,9 @@ class DynamoDBClaims:
         if context is None:
             return None
         run_item, dispatch_item, unit_item, unit = context
+        billing = self._claim_billing_checks(dispatch_item)
+        if billing is None:
+            return None
         leased = (
             transition_run_unit(unit, RunUnitState.LEASED)
             if unit.state is not RunUnitState.LEASED
@@ -292,6 +295,7 @@ class DynamoDBClaims:
             check_action(self._table_name, run_item),
             check_action(self._table_name, dispatch_item),
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
+            *billing,
         )
         try:
             self._transact(actions)
