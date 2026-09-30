@@ -325,3 +325,26 @@ def test_falha_final_conta_como_failed():
         state = env.inbox_state()
     assert result.failed == 1
     assert state is InboxProcessingState.FAILED_FINAL
+
+
+def test_pagina_liquida_cada_evento_logo_apos_a_tentativa():
+    with recovery_env() as env:
+        states = {"evt_b": RetryableBillingError("stripe_unavailable")}
+
+        def current_state(request: Any) -> Any:
+            outcome = states.pop("evt_b", None)
+            if outcome is not None:
+                raise outcome
+            env.clock.advance(timedelta(seconds=31))
+            return make_state()
+
+        env.stripe.get_current_state.side_effect = current_state
+        env.stripe.list_events.return_value = page("evt_b", "evt_a")
+        result = env.recovery().run(REQUEST)
+        cursor = env.cursor.load(STRONG)
+        failed_state = env.inbox_state("evt_b")
+        processed_state = env.inbox_state("evt_a")
+    assert cursor is None
+    assert result.failed == 1
+    assert failed_state is FAILED_RETRYABLE
+    assert processed_state is PROCESSED

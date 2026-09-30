@@ -14,6 +14,7 @@ from cnes_domain.billing.inbox import InboxProcessingState
 from cnes_domain.billing.models import SubscriptionStatus
 from packages.cnes_infra.tests.billing.billing_factories import create_table
 from packages.cnes_infra.tests.billing.test_projector import (
+    PRICE_V1,
     PRICE_V2,
     ProjectorEnv,
     make_state,
@@ -130,4 +131,33 @@ def test_ordem_arbitraria_e_duplicatas_convergem_ao_estado_atual(data):
     assert set(states.values()) == {InboxProcessingState.PROCESSED}
     assert snapshot.subscription_status is SubscriptionStatus.ACTIVE
     assert snapshot.plan_version_id == "plan_v2"
+    assert snapshot.entitlement_version == count
+
+
+_STATUSES = (SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE, SubscriptionStatus.CANCELED)
+_PLANS = {"plan_v1": PRICE_V1, "plan_v2": PRICE_V2}
+
+
+@given(data=st.data())
+def test_snapshot_final_iguala_ultimo_estado_retornado_pela_stripe(data):
+    count = data.draw(st.integers(min_value=1, max_value=5))
+    ids = data.draw(st.permutations([f"evt_{index:02d}" for index in range(count)]))
+    returned = data.draw(
+        st.lists(
+            st.tuples(st.sampled_from(_STATUSES), st.sampled_from(sorted(_PLANS))),
+            min_size=count,
+            max_size=count,
+        )
+    )
+    states = [make_state(subscription_status=s, stripe_price_id=_PLANS[p]) for s, p in returned]
+    with projector_env() as env:
+        env.stripe.get_current_state.side_effect = states
+        for event_id in ids:
+            env.accept(event_id)
+        for event_id in ids:
+            env.projector().process(event_id)
+        snapshot = env.snapshot()
+    last_status, last_plan = returned[-1]
+    assert snapshot.subscription_status is last_status
+    assert snapshot.plan_version_id == last_plan
     assert snapshot.entitlement_version == count

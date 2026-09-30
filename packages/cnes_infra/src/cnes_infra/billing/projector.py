@@ -26,17 +26,24 @@ from cnes_domain.billing.ports import (
     WebhookInboxPort,
 )
 from cnes_infra.billing.dynamodb_items import deterministic_id
+from cnes_infra.billing.webhook_inbox_items import STRIPE_INBOX_MAX_ATTEMPTS
 
 STRIPE_PROJECTION_CAS_RETRIES = 3
 STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS = 72
 PROJECTION_ACTOR_ID = "stripe_webhook"
 _PROJECTION_REASON = "stripe_webhook_projection"
+_STATE_INVALID = "stripe_state_invalid"
+_ATTEMPTS_EXHAUSTED = "inbox_attempts_exhausted"
+_TRANSIENT_PERMANENT_CODES = frozenset({"stripe_request_rejected"})
+_DATA_ERRORS = (ValueError, TypeError, AttributeError)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectorDependencies:
+    """Portas usadas pelo projetor de eventos Stripe."""
+
     inbox: WebhookInboxPort
     catalog: BillingCatalogPort
     stripe: StripeGatewayPort
@@ -157,6 +164,9 @@ class StripeEventProjector:
         if not claim.acquired:
             return _not_applied(event_id)
         try:
+            if claim.attempt > STRIPE_INBOX_MAX_ATTEMPTS:
+                self._fail(claim, _ATTEMPTS_EXHAUSTED, retryable=False)
+                return _not_applied(event_id)
             return self._project_or_fail(claim)
         except StaleInboxClaim:
             logger.info("stripe_projection_stale event_id=%s", event_id)
@@ -169,8 +179,17 @@ class StripeEventProjector:
             self._fail(claim, error.code, retryable=True)
             raise
         except PermanentBillingError as error:
-            self._fail(claim, error.code, retryable=False)
+            return self._fail_permanent(claim, error)
+        except _DATA_ERRORS:
+            self._fail(claim, _STATE_INVALID, retryable=False)
             return _not_applied(claim.event_id)
+
+    def _fail_permanent(self, claim: InboxClaim, error: PermanentBillingError) -> ProjectionResult:
+        if error.code in _TRANSIENT_PERMANENT_CODES:
+            self._fail(claim, error.code, retryable=True)
+            raise RetryableBillingError(error.code) from error
+        self._fail(claim, error.code, retryable=False)
+        return _not_applied(claim.event_id)
 
     def _fail(self, claim: InboxClaim, code: str, retryable: bool) -> None:
         self._deps.inbox.mark_failed(claim, code, retryable)

@@ -44,6 +44,8 @@ _ATTEMPTABLE = frozenset({
 
 
 class ProjectorPort(Protocol):
+    """Porta do projetor de eventos Stripe usada pela recuperação."""
+
     def process(self, event_id: str) -> ProjectionResult:
         raise NotImplementedError
 
@@ -54,6 +56,8 @@ def _new_cycle_id() -> str:
 
 @dataclass(frozen=True, slots=True)
 class RecoveryDependencies:
+    """Portas e fábrica de ciclo usadas pela recuperação de webhooks."""
+
     inbox: WebhookInboxPort
     projector: ProjectorPort
     stripe: StripeGatewayPort
@@ -100,6 +104,8 @@ def _classify(
 
 
 class WebhookRecovery:
+    """Recupera webhooks Stripe pela fila do inbox e pelo cursor de eventos."""
+
     def __init__(self, dependencies: RecoveryDependencies) -> None:
         self._deps = dependencies
 
@@ -114,14 +120,11 @@ class WebhookRecovery:
         return self._drain(limit).result(None)
 
     def run(self, request: RecoveryRequest) -> RecoveryResult:
-        """Drena a fila e processa uma página do ciclo de recuperação Stripe.
+        """Drena a fila e processa uma página do ciclo de recuperação.
 
-        Args:
-            request: Janela de lookback e tamanho de página.
-        Returns:
-            Contadores acumulados e o cursor seguinte (None ao concluir o ciclo).
-        Raises:
-            RetryableBillingError: Página não liquidada, cursor sem progresso ou conflito.
+        Args: Janela de lookback e tamanho de página.
+        Returns: Contadores e cursor seguinte (None ao concluir o ciclo).
+        Raises: RetryableBillingError se página não liquidada, sem progresso ou conflito.
         """
         tally = self._drain(request.batch_size)
         if tally.unsettled or tally.scanned == request.batch_size:
@@ -178,17 +181,14 @@ class WebhookRecovery:
 
     def _import_page(self, page: StripeEventPage, tally: _Tally) -> None:
         tally.scanned += len(page.events)
-        pending: list[str] = []
+        unsettled_before = tally.unsettled
         for event in page.events:
             disposition = self._deps.inbox.accept(event).disposition
             if disposition is InboxDisposition.ACCEPTED:
                 tally.imported += 1
             if disposition is not InboxDisposition.IGNORED:
                 self._attempt_if_open(event.event_id, tally)
-                pending.append(event.event_id)
-        unsettled_before = tally.unsettled
-        for event_id in pending:
-            self._settle(event_id, tally)
+                self._settle(event.event_id, tally)
         if tally.unsettled > unsettled_before:
             raise RetryableBillingError("stripe_recovery_page_unsettled")
 

@@ -225,3 +225,10 @@ def test_propaga_erro_do_sdk_que_nao_e_de_assinatura(fake_stripe, verifier):
     fake_stripe.Webhook = SimpleNamespace(construct_event=explode)
     with pytest.raises(RuntimeError, match="sdk_quebrado"):
         verify(verifier, b"{}")
+
+
+def test_objeto_customer_usa_o_proprio_id_como_cliente(verifier):
+    obj = {"object": "customer", "id": "cus_7"}
+    event = verify(verifier, body("customer.updated", obj))
+    assert event.stripe_customer_id == "cus_7"
+    assert event.stripe_subscription_id is None

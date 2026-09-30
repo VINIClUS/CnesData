@@ -36,6 +36,12 @@ def _subscription_id(event_type: str, obj: Any) -> str | None:
     return _object_id(getattr(obj, "subscription", None))
 
 
+def _customer_id(obj: Any) -> str | None:
+    if getattr(obj, "object", None) == "customer":
+        return _object_id(obj)
+    return _object_id(getattr(obj, "customer", None))
+
+
 def _is_signature_error(error: Exception) -> bool:
     return any(cls.__name__ == _SIGNATURE_ERROR for cls in type(error).__mro__)
 
@@ -46,13 +52,15 @@ def _to_stripe_event(event: Any, payload: bytes) -> StripeEvent:
         event_id=event.id,
         event_type=event.type,
         created_at=datetime.fromtimestamp(event.created, tz=UTC),
-        stripe_customer_id=_object_id(getattr(obj, "customer", None)),
+        stripe_customer_id=_customer_id(obj),
         stripe_subscription_id=_subscription_id(event.type, obj),
         payload_sha256=hashlib.sha256(payload).hexdigest(),
     )
 
 
 class StripeWebhookVerifier:
+    """Valida a assinatura do webhook Stripe e mapeia o evento mínimo."""
+
     def __init__(self, webhook_secret: str) -> None:
         if not isinstance(webhook_secret, str) or not webhook_secret.strip():
             raise ValueError("reason=blank_webhook_secret")
