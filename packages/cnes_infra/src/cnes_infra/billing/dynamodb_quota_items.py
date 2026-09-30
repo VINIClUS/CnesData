@@ -29,7 +29,6 @@ from cnes_infra.billing.dynamodb_items import (
     deterministic_id,
     get_item,
     idempotency_item,
-    put_new,
     utc_attribute,
 )
 from cnes_infra.billing.keys import (
@@ -44,7 +43,7 @@ from cnes_infra.billing.keys import (
     run_billing_key,
     run_lookup_key,
 )
-from cnes_infra.control_plane.dynamodb_codec import Action, Item
+from cnes_infra.control_plane.dynamodb_codec import Action, Item, payload, put_action
 from cnes_infra.control_plane.dynamodb_keys import idempotency_key
 
 RESERVATION_ENTITY = "QUOTARESERVATION"
@@ -373,27 +372,57 @@ def quota_event(
     )
 
 
-def idempotency_put(table_name: str, record: IdempotencyRecord, result: Any) -> Action:
-    """Cria o Put do registro de idempotência CND com o resultado gravado."""
-    return put_new(table_name, with_result(idempotency_item(record), result))
+@dataclass(frozen=True, slots=True)
+class ReplayQuery:
+    identity: tuple[str, str, str]
+    request_hash: str
+    now: datetime
 
 
-def read_replay(
-    client: Any, table_name: str, identity: tuple[str, str, str], request_hash: str
-) -> Item | None:
-    """Lê fortemente a idempotência; retorna o item se o hash coincide.
+@dataclass(frozen=True, slots=True)
+class Replay:
+    stored: Item | None
+    expired: Item | None
 
-    Args: identity: (tenant_id, scope, key).
-    Returns: Item gravado ou None quando ausente.
-    Raises: IdempotencyConflict: mesma chave com outro hash.
+
+def idempotency_put(
+    table_name: str, record: IdempotencyRecord, result: Any, expired: Item | None
+) -> Action:
+    """Cria o Put da idempotência CND com o resultado; sobrescreve por CAS um expirado."""
+    item = with_result(idempotency_item(record), result)
+    return put_action(table_name, item, None if expired is None else payload(expired))
+
+
+def read_replay(client: Any, table_name: str, query: ReplayQuery) -> Replay:
+    """Lê fortemente a idempotência; registro expirado conta como ausente (semântica CND).
+
+    Returns: Replay com o item vigente de mesmo hash ou o item expirado a sobrescrever.
+    Raises: IdempotencyConflict: chave vigente com outro hash.
     """
-    item = get_item(client, table_name, idempotency_key(*identity), True)
+    item = get_item(client, table_name, idempotency_key(*query.identity), True)
     if item is None:
-        return None
-    record = decode_idempotency_record(item, identity)
-    if record.request_hash != request_hash:
-        raise IdempotencyConflict(f"key={identity[2]}")
-    return item
+        return Replay(None, None)
+    record = decode_idempotency_record(item, query.identity)
+    if record.expires_at <= query.now:
+        return Replay(None, item)
+    if record.request_hash != query.request_hash:
+        raise IdempotencyConflict(f"key={query.identity[2]}")
+    return Replay(item, None)
+
+
+def collision_keys(actions: tuple[Action, ...], excluded: Key) -> tuple[Key, ...]:
+    """Retorna as chaves dos Puts da transação, exceto a informada."""
+    keys = (
+        (action["Put"]["Item"]["pk"]["S"], action["Put"]["Item"]["sk"]["S"])
+        for action in actions
+        if "Put" in action
+    )
+    return tuple(key for key in keys if key != excluded)
+
+
+def any_present(client: Any, table_name: str, keys: tuple[Key, ...]) -> bool:
+    """Prova colisão: alguma chave já existe numa leitura forte."""
+    return any(get_item(client, table_name, key, True) is not None for key in keys)
 
 
 def require_commit_access(snapshot: EntitlementSnapshot, now: datetime) -> None:

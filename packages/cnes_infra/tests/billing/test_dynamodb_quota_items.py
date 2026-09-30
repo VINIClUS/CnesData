@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 
 from cnes_domain.billing.errors import (
-    EntitlementDenied,
     IdempotencyConflict,
     PermanentBillingError,
 )
@@ -403,8 +402,17 @@ def test_evento_de_quota_tem_id_deterministico_e_campos_do_payload() -> None:
     assert first.delivered_at is None
 
 
+IDENTITY = (TENANT, codec.RUN_SCOPE, "k-1")
+
+
+def _stored_record() -> dict[str, Any]:
+    return codec.idempotency_put(TABLE_NAME, idempotency_record(), authorization(), None)["Put"][
+        "Item"
+    ]
+
+
 def test_put_de_idempotencia_e_condicional_e_carrega_resultado_e_ttl() -> None:
-    put = codec.idempotency_put(TABLE_NAME, idempotency_record(), authorization())["Put"]
+    put = codec.idempotency_put(TABLE_NAME, idempotency_record(), authorization(), None)["Put"]
 
     assert "attribute_not_exists" in put["ConditionExpression"]
     assert put["Item"]["result"]["S"].startswith("{")
@@ -412,59 +420,56 @@ def test_put_de_idempotencia_e_condicional_e_carrega_resultado_e_ttl() -> None:
     assert put["Item"]["expires_at"] == {"N": str(int((NOW + codec.IDEMPOTENCY_TTL).timestamp()))}
 
 
-def test_leitura_de_replay_ausente_retorna_none_com_leitura_forte() -> None:
+def test_put_de_idempotencia_sobrescreve_expirado_por_cas() -> None:
+    expired = _stored_record()
+    put = codec.idempotency_put(TABLE_NAME, idempotency_record(), authorization(), expired)["Put"]
+
+    assert put["ConditionExpression"] == "payload = :expected"
+    assert put["ExpressionAttributeValues"] == {":expected": expired["payload"]}
+
+
+def test_leitura_de_replay_ausente_retorna_vazio_com_leitura_forte() -> None:
     client = FakeClient(None)
 
-    assert codec.read_replay(client, TABLE_NAME, (TENANT, codec.RUN_SCOPE, "k-1"), HASH_A) is None
+    replay = codec.read_replay(client, TABLE_NAME, codec.ReplayQuery(IDENTITY, HASH_A, NOW))
+
+    assert replay == codec.Replay(None, None)
     assert client.requests[0]["ConsistentRead"] is True
 
 
 def test_leitura_de_replay_com_mesmo_hash_retorna_item_gravado() -> None:
-    item = codec.idempotency_put(TABLE_NAME, idempotency_record(), authorization())["Put"]["Item"]
+    item = _stored_record()
 
     replay = codec.read_replay(
-        FakeClient(item), TABLE_NAME, (TENANT, codec.RUN_SCOPE, "k-1"), HASH_A
+        FakeClient(item), TABLE_NAME, codec.ReplayQuery(IDENTITY, HASH_A, NOW)
     )
 
-    assert replay == item
+    assert replay == codec.Replay(item, None)
 
 
 def test_leitura_de_replay_com_hash_diferente_levanta_conflito_de_idempotencia() -> None:
-    item = codec.idempotency_put(TABLE_NAME, idempotency_record(), authorization())["Put"]["Item"]
+    query = codec.ReplayQuery(IDENTITY, HASH_B, NOW)
 
     with pytest.raises(IdempotencyConflict, match="key=k-1"):
-        codec.read_replay(FakeClient(item), TABLE_NAME, (TENANT, codec.RUN_SCOPE, "k-1"), HASH_B)
+        codec.read_replay(FakeClient(_stored_record()), TABLE_NAME, query)
 
 
-def _access_snapshot(**changes: Any) -> Any:
-    from packages.cnes_infra.tests.billing.quota_support import make_quota_snapshot
+def test_registro_expirado_ainda_presente_conta_como_ausente() -> None:
+    item = _stored_record()
+    query = codec.ReplayQuery(IDENTITY, HASH_B, NOW + codec.IDEMPOTENCY_TTL)
 
-    return replace(make_quota_snapshot(), **changes)
-
-
-@pytest.mark.parametrize(
-    ("changes", "reason"),
-    [
-        ({"subscription_status": SubscriptionStatus.PAST_DUE, "grace_until": None}, "grace"),
-        (
-            {"subscription_status": SubscriptionStatus.PAST_DUE, "grace_until": NOW},
-            "grace",
-        ),
-        ({"cancel_at_period_end": True, "period_end": NOW}, "period_ended"),
-    ],
-)
-def test_acesso_no_commit_nega_prazos_temporais_vencidos(
-    changes: dict[str, Any], reason: str
-) -> None:
-    later = NOW + timedelta(seconds=1)
-    with pytest.raises(EntitlementDenied, match=reason):
-        codec.require_commit_access(_access_snapshot(**changes), later)
+    assert codec.read_replay(FakeClient(item), TABLE_NAME, query) == codec.Replay(None, item)
 
 
-def test_acesso_no_commit_permite_carencia_e_periodo_vigentes() -> None:
-    snapshot = _access_snapshot(
-        subscription_status=SubscriptionStatus.PAST_DUE,
-        grace_until=NOW + timedelta(hours=1),
-        cancel_at_period_end=True,
-    )
-    codec.require_commit_access(snapshot, NOW)
+def test_chaves_de_colisao_ignoram_nao_puts_e_a_chave_excluida() -> None:
+    first = {"Put": {"Item": {"pk": {"S": "a"}, "sk": {"S": "1"}}}}
+    second = {"Put": {"Item": {"pk": {"S": "b"}, "sk": {"S": "2"}}}}
+    check = {"ConditionCheck": {"Key": {"pk": {"S": "c"}, "sk": {"S": "3"}}}}
+
+    assert codec.collision_keys((first, check, second), ("b", "2")) == (("a", "1"),)
+
+
+def test_colisao_exige_alguma_chave_presente_em_leitura_forte() -> None:
+    assert codec.any_present(FakeClient({"pk": {"S": "a"}}), TABLE_NAME, (("a", "1"),))
+    assert not codec.any_present(FakeClient(None), TABLE_NAME, (("a", "1"),))
+    assert not codec.any_present(FakeClient(None), TABLE_NAME, ())

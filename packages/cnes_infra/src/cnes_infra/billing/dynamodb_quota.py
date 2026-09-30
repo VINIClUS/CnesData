@@ -10,7 +10,12 @@ from cnes_domain.billing.commands import (
     ReserveAnalyticsCommand,
     ReserveRunCommand,
 )
-from cnes_domain.billing.errors import EntitlementDenied, PermanentBillingError, QuotaExceeded
+from cnes_domain.billing.errors import (
+    EntitlementDenied,
+    PermanentBillingError,
+    QuotaExceeded,
+    RetryableBillingError,
+)
 from cnes_domain.billing.execution import RunBillingState
 from cnes_domain.billing.models import (
     AnalyticsAuthorization,
@@ -36,8 +41,11 @@ from cnes_infra.billing.dynamodb_quota_items import (
     CONSUMED_RUNS,
     IDEMPOTENCY_TTL,
     RUN_SCOPE,
+    ReplayQuery,
     SnapshotExpectation,
     UsageGuard,
+    any_present,
+    collision_keys,
     decode_analytics_result,
     decode_run_result,
     encode_reservation,
@@ -54,12 +62,14 @@ from cnes_infra.billing.dynamodb_quota_items import (
 )
 from cnes_infra.billing.dynamodb_quota_recovery import DynamoQuotaRecoveryMixin
 from cnes_infra.billing.dynamodb_quota_settlement import DynamoQuotaSettlementMixin
-from cnes_infra.billing.keys import entitlement_snapshot_key, usage_key
+from cnes_infra.billing.keys import Key, entitlement_snapshot_key, usage_key
 from cnes_infra.control_plane.dynamodb_codec import Action, Item
+from cnes_infra.control_plane.dynamodb_keys import idempotency_key
 from cnes_infra.control_plane.dynamodb_run_codec import run_dependency_actions, run_item
 
 RUN_FIXED_ACTIONS = 8
 CONFLICT_CODE = "quota_reservation_conflict"
+CONTENDED_CODE = "quota_reservation_contended"
 EXPIRY_CODE = "invalid_reservation_expiry"
 
 
@@ -71,6 +81,7 @@ class _RunPlan:
     reservation: QuotaReservation
     state: RunBillingState
     now: datetime
+    expired: Item | None
 
 
 def _run_concurrency(command: ReserveRunCommand) -> int:
@@ -145,7 +156,7 @@ def _run_billing_state(
     )
 
 
-def _run_plan(command: ReserveRunCommand, now: datetime) -> _RunPlan:
+def _run_plan(command: ReserveRunCommand, now: datetime, expired: Item | None) -> _RunPlan:
     authorization = _run_authorization(command, now)
     return _RunPlan(
         command,
@@ -154,6 +165,7 @@ def _run_plan(command: ReserveRunCommand, now: datetime) -> _RunPlan:
         _run_reservation(command, now),
         _run_billing_state(command.request, authorization, now),
         now,
+        expired,
     )
 
 
@@ -217,15 +229,16 @@ def _run_actions(table: str, plan: _RunPlan) -> tuple[Action, ...]:
         *dependencies,
         put_new(table, encode_run_billing_state(plan.state)),
         put_new(table, encode_run_lookup(plan.state, reservation)),
-        idempotency_put(table, record, plan.authorization),
+        idempotency_put(table, record, plan.authorization, plan.expired),
         put_new(table, _reserved_outbox(reservation, request.tenant_id, extra, now)),
     )
 
 
 def _analytics_actions(
-    table: str, command: ReserveAnalyticsCommand, reservation: QuotaReservation, now: datetime
+    table: str, command: ReserveAnalyticsCommand, reservation: QuotaReservation,
+    expired: Item | None,
 ) -> tuple[Action, ...]:
-    request, snapshot = command.request, command.snapshot
+    request, snapshot, now = command.request, command.snapshot, reservation.created_at
     account, estimate = request.billing_account_id, request.estimated_scan_bytes
     budget = snapshot.quotas.athena_scan_budget_bytes
     scan = scan_attributes(ReservationKind.ANALYTICS)
@@ -246,7 +259,7 @@ def _analytics_actions(
             guard,
         ),
         put_new(table, encode_reservation(reservation, request.tenant_id)),
-        idempotency_put(table, record, _analytics_authorization(command, now)),
+        idempotency_put(table, record, _analytics_authorization(command, now), expired),
         put_new(table, outbox),
     )
 
@@ -279,6 +292,14 @@ def _analytics_reservation(command: ReserveAnalyticsCommand, now: datetime) -> Q
         created_at=now,
         expires_at=command.expires_at,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _Failure:
+    query: ReplayQuery
+    snapshot: EntitlementSnapshot
+    exceeded: Callable[[EntitlementSnapshot, Item | None], str | None]
+    collisions: tuple[Key, ...]
 
 
 def _require_future(expires_at: datetime, now: datetime) -> None:
@@ -340,69 +361,68 @@ class DynamoQuotaReservations(
         """Reserva o run, cria o Run canônico e o companion em uma transação.
         Args: command: pedido, snapshot, teto do deploy e reserva.
         Returns: Autorização de execução (a mesma em replays).
-        Raises: QuotaExceeded, EntitlementDenied, IdempotencyConflict, PermanentBillingError;
+        Raises: QuotaExceeded, EntitlementDenied, IdempotencyConflict, *BillingError;
             Conflict(TRANSACTION_LIMIT) com mais de 92 dependências.
         """
-        request, snapshot = command.request, command.snapshot
+        request, snapshot, now = command.request, command.snapshot, self._clock()
         identity = (request.tenant_id, RUN_SCOPE, request.idempotency_key)
-        stored = read_replay(self._client, self._table, identity, request.request_hash)
-        if stored is not None:
-            return decode_run_result(stored)
-        now = self._clock()
+        query = ReplayQuery(identity, request.request_hash, now)
+        replay = read_replay(self._client, self._table, query)
+        if replay.stored is not None:
+            return decode_run_result(replay.stored)
         _require_future(command.expires_at, now)
         max_runs = snapshot.quotas.max_runs_per_period
         if max_runs is not None and max_runs < 1:
             raise QuotaExceeded(_runs_message(max_runs))
         require_commit_access(snapshot, now)
-        plan = _run_plan(command, now)
-        if transact(self._client, _run_actions(self._table, plan)):
+        plan = _run_plan(command, now, replay.expired)
+        actions = _run_actions(self._table, plan)
+        if transact(self._client, actions):
             return plan.authorization
-        failed = self._resolve_failure(identity, request.request_hash, snapshot, _runs_exceeded)
-        return decode_run_result(failed)
+        collisions = collision_keys(actions, idempotency_key(*identity))
+        failure = _Failure(query, snapshot, _runs_exceeded, collisions)
+        return decode_run_result(self._resolve_failure(failure))
 
     def reserve_analytics(self, command: ReserveAnalyticsCommand) -> AnalyticsAuthorization:
         """Reserva o budget de scan analítico em uma transação.
 
         Args: command: pedido, snapshot e reserva.
         Returns: Autorização analítica (a mesma em replays).
-        Raises: QuotaExceeded, EntitlementDenied, IdempotencyConflict, PermanentBillingError.
+        Raises: QuotaExceeded, EntitlementDenied, IdempotencyConflict, *BillingError.
         """
-        request, snapshot = command.request, command.snapshot
+        request, snapshot, now = command.request, command.snapshot, self._clock()
         identity = (request.tenant_id, ANALYTICS_SCOPE, request.idempotency_key)
-        stored = read_replay(self._client, self._table, identity, request.request_hash)
-        if stored is not None:
-            return decode_analytics_result(stored)
-        now = self._clock()
+        query = ReplayQuery(identity, request.request_hash, now)
+        replay = read_replay(self._client, self._table, query)
+        if replay.stored is not None:
+            return decode_analytics_result(replay.stored)
         _require_future(command.expires_at, now)
-        budget = snapshot.quotas.athena_scan_budget_bytes
-        estimate = request.estimated_scan_bytes
+        budget, estimate = snapshot.quotas.athena_scan_budget_bytes, request.estimated_scan_bytes
         if budget is not None and budget - estimate < 0:
             raise QuotaExceeded(_budget_message(budget))
         require_commit_access(snapshot, now)
         reservation = _analytics_reservation(command, now)
-        if transact(self._client, _analytics_actions(self._table, command, reservation, now)):
+        actions = _analytics_actions(self._table, command, reservation, replay.expired)
+        if transact(self._client, actions):
             return _analytics_authorization(command, now)
-        check = _budget_exceeded(estimate)
-        failed = self._resolve_failure(identity, request.request_hash, snapshot, check)
-        return decode_analytics_result(failed)
+        collisions = collision_keys(actions, idempotency_key(*identity))
+        failure = _Failure(query, snapshot, _budget_exceeded(estimate), collisions)
+        return decode_analytics_result(self._resolve_failure(failure))
 
-    def _resolve_failure(
-        self,
-        identity: tuple[str, str, str],
-        request_hash: str,
-        snapshot: EntitlementSnapshot,
-        exceeded: Callable[[EntitlementSnapshot, Item | None], str | None],
-    ) -> Item:
-        stored = read_replay(self._client, self._table, identity, request_hash)
-        if stored is not None:
-            return stored
+    def _resolve_failure(self, failure: _Failure) -> Item:
+        replay = read_replay(self._client, self._table, failure.query)
+        if replay.stored is not None:
+            return replay.stored
+        snapshot = failure.snapshot
         account = snapshot.billing_account_id
         item = get_item(self._client, self._table, entitlement_snapshot_key(account), True)
         current = None if item is None else decode_snapshot(item, account)
         if _snapshot_drifted(current, snapshot, self._clock()):
             raise EntitlementDenied("reason=snapshot_changed")
         usage = get_item(self._client, self._table, usage_key(account, snapshot.period_start), True)
-        message = exceeded(snapshot, usage)
+        message = failure.exceeded(snapshot, usage)
         if message is not None:
             raise QuotaExceeded(message)
-        raise PermanentBillingError(CONFLICT_CODE)
+        if any_present(self._client, self._table, failure.collisions):
+            raise PermanentBillingError(CONFLICT_CODE)
+        raise RetryableBillingError(CONTENDED_CODE)

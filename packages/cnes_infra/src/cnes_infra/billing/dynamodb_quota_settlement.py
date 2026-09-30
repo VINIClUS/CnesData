@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cnes_domain.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
 from cnes_domain.billing.errors import (
@@ -162,7 +162,7 @@ class DynamoQuotaSettlementMixin:
                 ExpressionAttributeValues={":locator": {"S": locator}},
                 Limit=2,
             )
-        except ClientError as error:
+        except (ClientError, BotoCoreError) as error:
             raise BillingDependencyError(UNAVAILABLE_CODE) from error
         candidates = response.get("Items", ())
         if not candidates:

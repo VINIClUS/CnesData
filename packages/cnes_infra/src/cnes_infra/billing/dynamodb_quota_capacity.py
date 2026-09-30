@@ -34,8 +34,11 @@ from cnes_infra.billing.dynamodb_quota_items import (
     CAPACITY_COUNTERS,
     CAPACITY_SCOPE,
     IDEMPOTENCY_TTL,
+    ReplayQuery,
     SnapshotExpectation,
     UsageGuard,
+    any_present,
+    collision_keys,
     decode_capacity_reservation,
     decode_capacity_result,
     encode_capacity_reservation,
@@ -49,14 +52,17 @@ from cnes_infra.billing.dynamodb_quota_items import (
     usage_update,
 )
 from cnes_infra.billing.keys import (
+    Key,
     capacity_reservation_key,
     capacity_usage_key,
     entitlement_snapshot_key,
 )
 from cnes_infra.control_plane.dynamodb_codec import Action, Item, payload, put_action
+from cnes_infra.control_plane.dynamodb_keys import idempotency_key
 
 CAPACITY_RESERVATION_TTL = timedelta(minutes=15)
 _MAX_ATTEMPTS = 3
+_CONTENDED = "capacity_reservation_contended"
 _EVENT_TYPES = {
     ReservationStatus.CONSUMED: "quota.consumed",
     ReservationStatus.RELEASED: "quota.released",
@@ -127,16 +133,19 @@ class DynamoQuotaCapacityMixin:
         Raises: QuotaExceeded, EntitlementDenied, IdempotencyConflict.
         """
         now = self._clock()
-        stored = read_replay(self._client, self._table, _identity(command), command.request_hash)
-        if stored is not None:
-            return decode_capacity_result(stored)
+        query = ReplayQuery(_identity(command), command.request_hash, now)
+        replay = read_replay(self._client, self._table, query)
+        if replay.stored is not None:
+            return decode_capacity_result(replay.stored)
         if command.limit is not None and command.limit < 1:
             raise _exceeded(command)
         self._require_entitled(command, now)
         reservation = _new_reservation(command, now)
-        if transact(self._client, self._reserve_actions(command, reservation, now)):
+        actions = self._reserve_actions(command, reservation, replay.expired)
+        if transact(self._client, actions):
             return reservation
-        return self._classify_reserve_failure(command, now)
+        collisions = collision_keys(actions, idempotency_key(*query.identity))
+        return self._classify_reserve_failure(command, query, collisions)
 
     def consume_capacity(self, command: ConsumeCapacityCommand) -> CapacityReservation:
         """Confirma o uso da reserva de capacidade sem alterar o contador.
@@ -171,9 +180,13 @@ class DynamoQuotaCapacityMixin:
         require_commit_access(snapshot, now)
 
     def _reserve_actions(
-        self, command: CapacityReservationCommand, reservation: CapacityReservation, now: datetime
+        self,
+        command: CapacityReservationCommand,
+        reservation: CapacityReservation,
+        expired: Item | None,
     ) -> tuple[Action, ...]:
         account, tenant = command.billing_account_id, command.tenant_id
+        now = reservation.created_at
         counter = CAPACITY_COUNTERS[command.kind]
         limit = command.limit
         guard = None if limit is None else UsageGuard(counter, limit - 1)
@@ -195,16 +208,20 @@ class DynamoQuotaCapacityMixin:
             snapshot_check(self._table, expected, now),
             usage_update(self._table, capacity_usage_key(account), {counter: 1}, guard),
             put_new(self._table, encode_capacity_reservation(reservation, tenant)),
-            idempotency_put(self._table, record, reservation),
+            idempotency_put(self._table, record, reservation, expired),
             put_new(self._table, outbox_item(event)),
         )
 
     def _classify_reserve_failure(
-        self, command: CapacityReservationCommand, now: datetime
+        self,
+        command: CapacityReservationCommand,
+        query: ReplayQuery,
+        collisions: tuple[Key, ...],
     ) -> CapacityReservation:
-        stored = read_replay(self._client, self._table, _identity(command), command.request_hash)
-        if stored is not None:
-            return decode_capacity_result(stored)
+        replay = read_replay(self._client, self._table, query)
+        if replay.stored is not None:
+            return decode_capacity_result(replay.stored)
+        now = self._clock()
         account = command.billing_account_id
         snapshot = self._current_snapshot(account)
         if (
@@ -217,7 +234,9 @@ class DynamoQuotaCapacityMixin:
         counter = usage_counter(usage, CAPACITY_COUNTERS[command.kind])
         if command.limit is not None and counter >= command.limit:
             raise _exceeded(command)
-        raise PermanentBillingError("capacity_reservation_conflict")
+        if any_present(self._client, self._table, collisions):
+            raise PermanentBillingError("capacity_reservation_conflict")
+        raise RetryableBillingError(_CONTENDED)
 
     def _settle_capacity(
         self, account: str, reservation_id: str, change: CapacityTransition
@@ -232,7 +251,7 @@ class DynamoQuotaCapacityMixin:
                 return current
             if self._transition_capacity(item, change):
                 return replace(current, status=change.target)
-        raise RetryableBillingError("capacity_reservation_contended")
+        raise RetryableBillingError(_CONTENDED)
 
     def _transition_capacity(self, item: Item, change: CapacityTransition) -> bool:
         current, tenant = decode_capacity_reservation(item)

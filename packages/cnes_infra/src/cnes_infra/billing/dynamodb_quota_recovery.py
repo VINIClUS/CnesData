@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.inbox import ReservationRecoveryRequest, ReservationRecoveryResult
@@ -131,7 +131,7 @@ class DynamoQuotaRecoveryMixin:
             query["ExclusiveStartKey"] = _decode_cursor(request.cursor)
         try:
             response = self._client.query(**query)
-        except ClientError as error:
+        except (ClientError, BotoCoreError) as error:
             raise BillingDependencyError(UNAVAILABLE_CODE) from error
         keys = [(row["pk"]["S"], row["sk"]["S"]) for row in response.get("Items", ())]
         return keys, _encode_cursor(response.get("LastEvaluatedKey"))
