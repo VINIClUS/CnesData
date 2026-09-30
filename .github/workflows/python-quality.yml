@@ -124,7 +124,7 @@ jobs:
         with: { python-version: "3.13" }
       - run: |
           pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
-          pip install pytest hypothesis
+          pip install pytest hypothesis "moto[dynamodb]>=5.2"
       - name: Migrate
         run: cd packages/cnes_infra && alembic -c alembic.ini upgrade head
       - name: Race tests
