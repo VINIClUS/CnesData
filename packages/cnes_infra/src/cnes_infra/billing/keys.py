@@ -16,6 +16,10 @@ BILLING_ACCOUNT_LIST_PREFIX = "ACCOUNT#"
 BILLING_AUDIT_TENANT_ID = "_billing"
 STRIPE_RECOVERY_DUE_INDEX = "gsi1"
 STRIPE_RECOVERY_DUE_PARTITION = "STRIPE_RECOVERY#DUE"
+QUOTA_RESERVATION_DUE_INDEX = "gsi1"
+QUOTA_RESERVATION_DUE_PARTITION = "QUOTA_RESERVATION#DUE"
+QUOTA_RESERVATION_LOCATOR_INDEX = "gsi2"
+QUOTA_RESERVATION_LOCATOR_SORT_KEY = "RESERVATION"
 _SYSTEM_PARTITION = "BILLING#SYSTEM"
 _REVOCATION_WIDTH = 20
 
@@ -141,6 +145,20 @@ def stripe_event_key(event_id: str) -> Key:
 def stripe_recovery_due_sort_key(due_at: datetime, event_id: str) -> str:
     """Cria a sort key do índice de recovery por vencimento."""
     return f"{_utc_timestamp(due_at)}#{key_component(event_id)}"
+
+
+def quota_reservation_due_sort_key(
+    expires_at: datetime, billing_account_id: str, reservation_id: str
+) -> str:
+    """Cria a sort key do índice de recovery de reservas por vencimento."""
+    identity = f"{key_component(billing_account_id)}#{key_component(reservation_id)}"
+    return f"{_utc_timestamp(expires_at)}#{identity}"
+
+
+def quota_reservation_locator(billing_account_id: str, reservation_id: str) -> str:
+    """Cria a partição do índice que localiza a reserva sem o período."""
+    identity = f"{key_component(billing_account_id)}#{key_component(reservation_id)}"
+    return f"QUOTA_RESERVATION#{identity}"
 
 
 def stripe_recovery_cursor_key() -> Key:

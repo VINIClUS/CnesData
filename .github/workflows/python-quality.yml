@@ -180,7 +180,7 @@ jobs:
       - run: |
           pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
           pip install -e apps/central_api apps/data_processor
-          pip install pytest pytest-asyncio httpx minio
+          pip install pytest pytest-asyncio httpx minio "moto[dynamodb]>=5.2"
       - name: Chaos tests
         run: pytest tests/chaos/ -m "chaos and not chaos_infra" -v
       - name: Flag violation
