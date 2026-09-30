@@ -147,6 +147,13 @@ def test_replay_com_mesmo_hash_devolve_o_mesmo_run_sem_duplicar(adapter, databas
     assert row_counts(database) == dict.fromkeys(TABLES, 1) | {"run_dependencies": 2}
 
 
+def test_replay_resolve_o_run_pelo_recurso_gravado(adapter) -> None:
+    first = adapter.create_unmetered_run(authorized())
+
+    assert adapter.create_unmetered_run(authorized(run_id="run-02")) == first
+    assert adapter.get_run(TENANT, "run-02") is None
+
+
 def test_rejeita_replay_com_outro_hash(adapter) -> None:
     adapter.create_unmetered_run(authorized())
 

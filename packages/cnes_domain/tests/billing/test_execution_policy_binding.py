@@ -159,3 +159,9 @@ def test_substitui_vinculo_anterior_com_geracao_seguinte() -> None:
 
     assert (result.execution_generation, result.execution_dispatch_id) == (2, DISPATCH)
     assert result.execution_ref == "exec-1"
+
+
+def test_replay_idempotente_de_run_cancelado_e_rejeitado() -> None:
+    state = _bound(execution_dispatch_id=DISPATCH, execution_ref="exec-1", cancel_requested=True)
+
+    assert _code(state, _command(generation=2)) == "run_execution_canceled"

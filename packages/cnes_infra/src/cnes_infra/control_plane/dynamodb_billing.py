@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 
 RUN_FIXED_ACTIONS = 4
+_BIND_ATTEMPTS = 2
 EVENT_TYPE = "run.authorized"
 
 
@@ -121,14 +122,14 @@ class DynamoBillingMixin:
         query = ReplayQuery(identity, request.request_hash, now)
         replay = read_replay(self._client, self._table_name, query)
         if replay.stored is not None:
-            return self._replayed_run(request.tenant_id, request.run_id)
+            return self._replayed_run(replay.stored, identity)
         records = authorized_run_records(command, now)
         actions = self._unmetered_actions(records, command, replay.expired)
         if transact(self._client, actions):
             return records.run
         replay = read_replay(self._client, self._table_name, query)
         if replay.stored is not None:
-            return self._replayed_run(request.tenant_id, request.run_id)
+            return self._replayed_run(replay.stored, identity)
         collisions = collision_keys(actions, idempotency_key(*identity))
         if any_present(self._client, self._table_name, collisions):
             raise PermanentBillingError("run_conflict")
@@ -152,8 +153,11 @@ class DynamoBillingMixin:
             put_new(table, outbox_item(records.event)),
         )
 
-    def _replayed_run(self, tenant_id: str, run_id: str) -> Run:
-        run = self.get_run(tenant_id, run_id)
+    def _replayed_run(self, stored: Item, identity: tuple[str, str, str]) -> Run:
+        from cnes_infra.billing.dynamodb_items import decode_idempotency_record
+
+        record = decode_idempotency_record(stored, identity)
+        run = self.get_run(record.tenant_id, record.resource_id)
         if run is None:
             raise PermanentBillingError("run_missing_after_replay")
         return run
@@ -183,17 +187,15 @@ class DynamoBillingMixin:
             encode_run_billing_state,
         )
 
-        item = self._billing_item(command.tenant_id, command.run_id)
-        state = None if item is None else decode_run_billing_state(item)
-        updated = apply_execution_binding(state, command)
-        if updated is state:
-            return state
-        action = put_action(self._table_name, encode_run_billing_state(updated), payload(item))
-        if transact(self._client, (action,)):
-            return updated
-        current = self.get_run_billing_state(command.tenant_id, command.run_id)
-        if apply_execution_binding(current, command) is current:
-            return current
+        for _ in range(_BIND_ATTEMPTS):
+            item = self._billing_item(command.tenant_id, command.run_id)
+            state = None if item is None else decode_run_billing_state(item)
+            updated = apply_execution_binding(state, command)
+            if updated is state:
+                return state
+            encoded = encode_run_billing_state(updated)
+            if transact(self._client, (put_action(self._table_name, encoded, payload(item)),)):
+                return updated
         raise RetryableBillingError("run_execution_contended")
 
     def _claim_billing_checks(self, dispatch_item: Item) -> tuple[Action, ...] | None:

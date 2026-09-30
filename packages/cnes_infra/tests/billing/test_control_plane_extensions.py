@@ -326,6 +326,34 @@ def test_perda_do_cas_com_estado_diferente_e_contencao(env: Env) -> None:
     assert error.value.code == "run_execution_contended"
 
 
+def test_perda_do_cas_por_atualizacao_alheia_reaplica_o_vinculo(env: Env) -> None:
+    env.plane.create_unmetered_run(authorized())
+    calls: list[int] = []
+
+    def interfere() -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            overwrite_companion(env, updated_at=NOW + timedelta(seconds=5))
+        else:
+            env.spy.fail_transact = False
+
+    env.spy.before_transact = interfere
+    env.spy.fail_transact = True
+
+    state = env.plane.bind_run_execution(binding())
+
+    assert len(calls) == 2
+    assert state == env.plane.get_run_billing_state(TENANT, "run-01")
+    assert state.execution_ref == "exec-1"
+
+
+def test_replay_resolve_o_run_pelo_recurso_gravado(env: Env) -> None:
+    first = env.plane.create_unmetered_run(authorized())
+
+    assert env.plane.create_unmetered_run(authorized(run_id="run-02")) == first
+    assert env.plane.get_run(TENANT, "run-02") is None
+
+
 @pytest.mark.parametrize("operation", ["consume", "release"])
 def test_consumo_e_liberacao_delegam_as_reservas_de_quota(env: Env, operation: str) -> None:
     consume = ConsumeReservationCommand(ACCOUNT, "res-1", 0, NOW)

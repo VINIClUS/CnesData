@@ -111,7 +111,7 @@ class SQLiteBillingMixin:
             return None
         if current.request_hash != request.request_hash:
             raise IdempotencyConflict(f"key={request.idempotency_key}")
-        run = self.get_run_record(connection, request.tenant_id, request.run_id)
+        run = self.get_run_record(connection, current.tenant_id, current.resource_id)
         if run is None:
             raise PermanentBillingError("run_missing_after_replay")
         return run

@@ -64,6 +64,8 @@ def _already_bound(state: RunBillingState, command: RunExecutionBindingCommand) 
 def _check_idempotent(state: RunBillingState, command: RunExecutionBindingCommand) -> None:
     if state.execution_ref != command.execution_ref:
         raise PermanentBillingError("run_execution_conflict")
+    if state.cancel_requested:
+        raise PermanentBillingError("run_execution_canceled")
 
 
 def _check_expectations(state: RunBillingState, command: RunExecutionBindingCommand) -> None:
