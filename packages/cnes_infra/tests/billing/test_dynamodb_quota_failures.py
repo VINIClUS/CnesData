@@ -14,14 +14,19 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
     RetryableBillingError,
 )
+from cnes_domain.billing.inbox import ReservationRecoveryRequest
 from cnes_domain.billing.models import SubscriptionStatus
 from cnes_infra.billing import dynamodb_quota_items as codec
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_infra.billing.dynamodb_quota_items import IDEMPOTENCY_TTL
+from cnes_infra.control_plane.dynamodb_codec import item_key
+from cnes_infra.control_plane.dynamodb_keys import run_entity_key
 from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_infra.tests.billing.quota_support import (
     ACCOUNT,
     HASH_B,
+    RESERVATION_TTL,
+    TENANT,
     QuotaEnv,
     make_analytics_command,
     make_capacity_command,
@@ -173,3 +178,32 @@ def test_acesso_no_commit_permite_carencia_e_periodo_vigentes() -> None:
         cancel_at_period_end=True,
     )
     codec.require_commit_access(snapshot, NOW)
+
+
+class _BeforeTransact:
+    def __init__(self, inner: Any, hook: Callable[[], None]) -> None:
+        self._inner = inner
+        self._hook: Callable[[], None] | None = hook
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def transact_write_items(self, **request: Any) -> Any:
+        hook, self._hook = self._hook, None
+        if hook is not None:
+            hook()
+        return self._inner.transact_write_items(**request)
+
+
+def test_run_removido_durante_renovacao_mantem_reserva_vencida_para_liberacao() -> None:
+    with quota_env() as env:
+        env.repo.reserve_and_create_run(make_reserve_command())
+        env.clock.advance(RESERVATION_TTL + timedelta(minutes=1))
+        run_key = item_key(*run_entity_key(TENANT, "run-01"))
+        client = _BeforeTransact(
+            env.client, lambda: env.client.delete_item(TableName=TABLE_NAME, Key=run_key)
+        )
+        repo = DynamoQuotaReservations(client, TABLE_NAME, env.clock.now)
+        request = ReservationRecoveryRequest(now=env.clock.now(), limit=10, cursor=None)
+        assert repo.reconcile_expired_reservations(request).released == 0
+        assert env.repo.reconcile_expired_reservations(request).released == 1

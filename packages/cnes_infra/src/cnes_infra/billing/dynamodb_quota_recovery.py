@@ -187,16 +187,15 @@ class DynamoQuotaRecoveryMixin:
             )
             self._transition_reservation(item, change)
             return False
-        self._renew_lease(item, reservation, context)
+        self._renew_lease(item, stored, context)
         return False
 
-    def _renew_lease(
-        self, item: Item, reservation: QuotaReservation, context: tuple[str, datetime]
-    ) -> None:
+    def _renew_lease(self, item: Item, run: Item, context: tuple[str, datetime]) -> None:
+        reservation, _tenant = decode_reservation(item)
         tenant_id, now = context
         renewed = replace(reservation, expires_at=now + RESERVATION_LEASE_RENEWAL)
         action = put_action(self._table, encode_reservation(renewed, tenant_id), payload(item))
-        transact(self._client, (action,))
+        transact(self._client, (action, check_action(self._table, run)))
 
     def _recover_capacity(
         self, item: Item, reservation: CapacityReservation, context: tuple[str, datetime]
