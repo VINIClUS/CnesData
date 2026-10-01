@@ -23,6 +23,14 @@ um ciclo limitado e termina; a repetição é responsabilidade do scheduler.
 - Exit codes: 0 ciclo concluído; 1 falha retryable (`BillingError`,
   `SecretProviderError` retryable); 2 entrada ou configuração inválida.
 
+## Cadência (agendamento é IaC, fora deste app)
+
+- `inbox --limit 100`: a cada 1 min. O backoff do inbox vai de 30 s a 1 h e o
+  lease de processamento é 300 s (`STRIPE_PROCESSING_LEASE_SECONDS`, constante).
+- `recover`: a cada 5–15 min; cada chamada processa uma página do cursor
+  (`STRIPE_RECOVERY_BATCH_SIZE`) dentro da janela `STRIPE_RECOVERY_LOOKBACK_HOURS`.
+- Execuções concorrentes são seguras: claims e cursor usam condição DynamoDB.
+
 ## Limitations
 
 - Eventos que o dreno não consegue liquidar permanecem vencidos no inbox
