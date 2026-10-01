@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from central_api.routes.serving import ServingPrincipal
     from cnes_domain.billing.ports import SecretProviderPort
     from cnes_domain.outbox_dispatcher import DispatchResult
+    from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_storage import ObjectStoragePort
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.auth.local_auth import LocalAuthService
@@ -48,6 +49,7 @@ _engine: Engine | None = None
 _REAPER_INTERVAL = 60
 _OUTBOX_INTERVAL = 30
 _OIDC_HTTP_TIMEOUT_SECONDS = 5.0
+_BILLING_PATH_PREFIX = "/api/v1/billing/"
 
 
 def get_engine() -> Engine:
@@ -344,6 +346,15 @@ def _install_billing(app: object, runtime: RuntimeComponents, session: Session) 
     _install_stripe_billing(app, runtime, provider)
 
 
+def _billing_control_plane(runtime: RuntimeComponents) -> Callable[[Request], ControlPlanePort]:
+    def _resolve(request: Request) -> ControlPlanePort:
+        if not request.url.path.startswith(_BILLING_PATH_PREFIX):
+            raise HTTPException(status_code=503, detail="control_plane_not_configured")
+        return runtime.control_plane
+
+    return _resolve
+
+
 def _install_stripe_billing(
     app: object, runtime: RuntimeComponents, provider: SecretProviderPort
 ) -> None:
@@ -368,7 +379,7 @@ def _install_stripe_billing(
     overrides[billing.get_entitlement_projection] = lambda: components.projection
     overrides[billing.get_billing_audit] = lambda: components.audit
     overrides[billing.get_billing_clock] = lambda: _utc_now
-    overrides[raw_jobs.get_control_plane] = lambda: runtime.control_plane
+    overrides[raw_jobs.get_control_plane] = _billing_control_plane(runtime)
     overrides[stripe_webhook.get_stripe_webhook_verifier] = lambda: components.verifier
     overrides[stripe_webhook.get_webhook_inbox] = lambda: components.inbox
     logger.info("billing_composed mode=stripe")

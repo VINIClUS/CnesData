@@ -1,6 +1,11 @@
 """Composição do billing no lifespan: aws, local e legado."""
+import dataclasses
+import hashlib
+import hmac
 import inspect
+import json
 import logging
+import time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -168,7 +173,7 @@ def _stripe_client(monkeypatch, storage=None):
 
 def test_aws_stripe_le_segredos_uma_vez_e_valida_assinatura_do_webhook(monkeypatch) -> None:
     session, (build, verifier, sess, client) = _stripe_client(monkeypatch)
-    with build, verifier, sess, client:
+    with build as built, verifier, sess, client:
         invalid = client.post(
             "/api/v1/billing/webhooks/stripe", content=b"{}",
             headers={"Stripe-Signature": "t=1,v1=abc"},
@@ -176,6 +181,7 @@ def test_aws_stripe_le_segredos_uma_vez_e_valida_assinatura_do_webhook(monkeypat
         missing = client.post("/api/v1/billing/webhooks/stripe", content=b"{}")
 
     assert len(_secretsmanager_calls(session)) == 1
+    assert built.call_args.args[2] is session
     assert (invalid.status_code, invalid.json()) == (
         400, {"detail": "stripe_signature_invalid"},
     )
@@ -321,3 +327,94 @@ def test_build_local_state_usa_mesma_session_no_runtime_e_no_billing(
     assert build.call_args.args[2] is session
     assert install.call_args.args[2] is session
     assert install.call_args.args[1] is build.return_value
+
+
+ADMIN_TOKEN = "admin-token-de-teste"  # noqa: S105
+ENQUEUE_BODY = {"tenant_id": AWS_TENANT, "agent_id": "agent-1", "competencia": "2026-09"}
+
+
+def _components_patch(**replacements):
+    from cnes_infra.billing import build_stripe_billing as real
+
+    def _build(*args, **kwargs):
+        return dataclasses.replace(real(*args, **kwargs), **replacements)
+
+    return patch("cnes_infra.billing.build_stripe_billing", side_effect=_build)
+
+
+def _owned_catalog() -> Mock:
+    from datetime import UTC, datetime
+
+    from cnes_domain.billing.models import BillingAccount, BillingAccountStatus
+
+    moment = datetime(2026, 9, 1, tzinfo=UTC)
+    catalog = Mock(name="catalog")
+    catalog.get_account.return_value = BillingAccount(
+        "ba_x", "cus_x", "user-1", BillingAccountStatus.ACTIVE, moment, moment,
+    )
+    return catalog
+
+
+def _signed_event(event_id: str) -> tuple[bytes, str]:
+    payload = json.dumps({
+        "id": event_id, "object": "event", "type": "customer.subscription.updated",
+        "created": int(time.time()), "livemode": False,
+        "data": {"object": {"id": "sub_x", "object": "subscription", "customer": "cus_x"}},
+    }).encode()
+    timestamp = str(int(time.time()))
+    digest = hmac.new(
+        SECRET_WEBHOOK.encode(), f"{timestamp}.".encode() + payload, hashlib.sha256,
+    ).hexdigest()
+    return payload, f"t={timestamp},v1={digest}"
+
+
+def test_aws_stripe_nao_habilita_rota_admin_raw_jobs_sem_control_plane(monkeypatch) -> None:
+    from cnes_infra import config
+
+    monkeypatch.setattr(config, "ADMIN_TOKEN", ADMIN_TOKEN, raising=False)
+    _, (build, verifier, sess, client) = _stripe_client(monkeypatch)
+    with build as built, verifier, sess, client:
+        response = client.post(
+            "/api/v1/admin/raw-jobs/enqueue", json=ENQUEUE_BODY,
+            headers={**_bearer(), "X-Admin-Token": ADMIN_TOKEN, "Idempotency-Key": KEY},
+        )
+
+    assert (response.status_code, response.json()) == (
+        503, {"detail": "control_plane_not_configured"},
+    )
+    built.return_value.control_plane.assert_not_called()
+
+
+def test_aws_stripe_status_alcanca_projecao_com_catalogo_e_projecao_compostos(
+    monkeypatch,
+) -> None:
+    projection = Mock(name="projection")
+    projection.get_snapshot.return_value = None
+    _, (build, verifier, sess, client) = _stripe_client(monkeypatch)
+    components = _components_patch(catalog=_owned_catalog(), projection=projection)
+    with build, verifier, sess, components, client:
+        response = client.get(
+            "/api/v1/billing/status?billing_account_id=ba_x", headers=_bearer(),
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"state": "pending", "billing_account_id": "ba_x"}
+    projection.get_snapshot.assert_called_once()
+
+
+def test_aws_stripe_webhook_assinado_e_aceito_no_inbox(monkeypatch) -> None:
+    from cnes_domain.billing.inbox import InboxAcceptResult, InboxDisposition
+
+    inbox = Mock(name="inbox")
+    inbox.accept.return_value = InboxAcceptResult("evt_1", InboxDisposition.ACCEPTED)
+    payload, signature = _signed_event("evt_1")
+    _, (build, verifier, sess, client) = _stripe_client(monkeypatch)
+    with build, verifier, sess, _components_patch(inbox=inbox), client:
+        response = client.post(
+            "/api/v1/billing/webhooks/stripe", content=payload,
+            headers={"Stripe-Signature": signature},
+        )
+
+    assert (response.status_code, response.json()) == (200, {"received": True})
+    inbox.accept.assert_called_once()
+    assert inbox.accept.call_args.args[0].event_id == "evt_1"
