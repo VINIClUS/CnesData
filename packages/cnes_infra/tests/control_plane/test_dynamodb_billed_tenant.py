@@ -369,4 +369,3 @@ def test_evento_de_tenant_criado_e_deterministico() -> None:
         assert event.reason_code == command.link.reason_code
         assert event.occurred_at == command.tenant.created_at
         assert dict(event.attributes) == {"tenant_id": NEW}
-

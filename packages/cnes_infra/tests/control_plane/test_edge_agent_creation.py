@@ -239,4 +239,3 @@ def test_upsert_existente_continua_igual(backend) -> None:
     with pytest.raises(Conflict) as raised:
         backend.adapter.register_edge_agent(TENANT, AGENT, "c" * 64, NOW)
     assert raised.value.code is ErrorCode.AGENT_REVOKED
-
