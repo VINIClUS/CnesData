@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from cnes_domain.billing.commands import PublishGateRequest
 from cnes_domain.billing.errors import EntitlementDenied, PublishDenied
 from cnes_domain.billing.execution import PublicationGuard
-from cnes_domain.billing.models import SubscriptionStatus
+from cnes_domain.billing.models import EntitlementAction, SubscriptionStatus
+from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.control_plane.commands import PublicationPermit
 from cnes_domain.profiles import BillingMode
 
@@ -55,7 +56,7 @@ def require_publication_snapshot(
     snapshot: EntitlementSnapshot | None, guard: PublicationGuard, now: datetime,
 ) -> None:
     """Args: snapshot: Snapshot lido na transação; guard: Guard do permit; now: Instante.
-    Raises: PublishDenied: Snapshot ausente, revogado, expirado ou de outra versão.
+    Raises: PublishDenied: Snapshot ausente, de outra versão ou sem acesso em now.
     """
     if snapshot is None:
         raise PublishDenied("reason=snapshot_missing")
@@ -63,8 +64,11 @@ def require_publication_snapshot(
         raise PublishDenied("reason=admin_revoked")
     if snapshot.entitlement_version != guard.expected_entitlement_version:
         raise PublishDenied("reason=stale_entitlement")
-    if snapshot.valid_until <= now:
-        raise PublishDenied("reason=snapshot_expired")
+    decision = EntitlementPolicy(BillingMode.STRIPE).evaluate(
+        snapshot, EntitlementAction.PUBLISH_RUN, now,
+    )
+    if not decision.allowed:
+        raise PublishDenied(f"reason={decision.reason}")
 
 
 def unit_companion_allows(

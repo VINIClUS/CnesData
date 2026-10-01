@@ -370,11 +370,7 @@ class DynamoDBClaims:
 
     def _commit_client_request_token(self, command: CommitRunUnit, event: Any) -> str:
         values = (
-            self._table_name,
-            command.tenant_id,
-            command.run_id,
-            command.unit_id,
-            event.event_id,
+            self._table_name, command.tenant_id, command.run_id, command.unit_id, event.event_id,
         )
         return sha256(dumps(values, separators=(",", ":")).encode()).hexdigest()[:36]
 
@@ -448,6 +444,7 @@ class DynamoDBClaims:
         try:
             self._transact(actions)
         except Conflict:
+            self._unit_billing_checks(command)
             updated, actions = self._fail_run_unit_actions(command, event)
             self._transact(actions)
         return updated

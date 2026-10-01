@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -40,6 +41,7 @@ from packages.cnes_infra.tests.billing.revocation_support import (
 STRIPE = BillingSettings(BillingMode.STRIPE, BillingEnforcementMode.ENFORCE, 0)
 DISABLED = BillingSettings(BillingMode.DISABLED, BillingEnforcementMode.OFF, 0)
 DATASET = "cnes_vinculos"
+SECOND = timedelta(seconds=1)
 
 
 @pytest.fixture
@@ -198,12 +200,26 @@ def test_snapshot_alterado_entre_leitura_e_transacao_nega_a_publicacao(env: RevE
     assert stored_reservation(env).status is ReservationStatus.RESERVED
 
 
-def test_snapshot_expirado_nega_a_publicacao(env: RevEnv) -> None:
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [
+        ({"valid_until": NOW + SECOND}, "snapshot_expired"),
+        (
+            {"subscription_status": SubscriptionStatus.PAST_DUE, "grace_until": NOW + SECOND},
+            "grace_expired",
+        ),
+        ({"cancel_at_period_end": True, "period_end": NOW + SECOND}, "period_ended"),
+    ],
+)
+def test_acesso_perdido_no_instante_da_publicacao_nega(
+    env: RevEnv, changes: dict[str, Any], reason: str,
+) -> None:
     plane = plane_of(env, STRIPE)
     publishing(env)
-    put_snapshot(env, valid_until=NOW)
+    put_snapshot(env, **changes)
+    env.clock.advance(2 * SECOND)
 
-    with pytest.raises(PublishDenied, match="reason=snapshot_expired"):
+    with pytest.raises(PublishDenied, match=f"reason={reason}"):
         plane.publish_dataset(publish_command(guard()))
 
     assert_untouched(env, plane)
@@ -212,6 +228,7 @@ def test_snapshot_expirado_nega_a_publicacao(env: RevEnv) -> None:
 def test_snapshot_expirado_na_mesma_versao_entre_leitura_e_transacao_nega(env: RevEnv) -> None:
     plane = plane_of(env, STRIPE)
     publishing(env)
+    env.clock.advance(SECOND)
     once(env, lambda: put_snapshot(env, valid_until=NOW))
 
     with pytest.raises(PublishDenied, match="reason=snapshot_expired"):

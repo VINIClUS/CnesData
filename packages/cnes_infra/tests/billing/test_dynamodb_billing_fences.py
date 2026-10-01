@@ -7,9 +7,9 @@ from typing import Any
 import pytest
 
 from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit
+from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit, TransitionRun
 from cnes_domain.control_plane.entities import ManifestRef, OutboxEvent, RunUnit
-from cnes_domain.control_plane.enums import RunUnitState
+from cnes_domain.control_plane.enums import RunState, RunUnitState
 from cnes_domain.control_plane.errors import FenceRejected
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.dynamodb_quota_items import encode_run_billing_state
@@ -178,5 +178,33 @@ def test_fail_e_rejeitado_se_companion_muda_entre_leitura_e_transacao(env: Env) 
 
     with pytest.raises(FenceRejected):
         fail(plane, unit)
+
+    assert stored_state(plane) is RunUnitState.LEASED
+
+
+def revoke_before_transaction(env: Env, plane: DynamoDBControlPlane) -> None:
+    def hook() -> None:
+        env.spy.before_transact = None
+        overwrite(env, plane, cancel_requested=True)
+        plane.transition_run(
+            TransitionRun(
+                tenant_id=TENANT, run_id="run-01", expected_state=RunState.PROCESSING,
+                new_state=RunState.CANCEL_REQUESTED, missing_sources=(),
+            ),
+            event().model_copy(update={"event_id": "evt-cancel"}),
+        )
+
+    env.spy.before_transact = hook
+
+
+@pytest.mark.parametrize("action", sorted(FINISH))
+def test_revogacao_entre_leitura_e_transacao_e_classificada_como_fence(
+    env: Env, action: str,
+) -> None:
+    plane, unit = leased(env, STRIPE)
+    revoke_before_transaction(env, plane)
+
+    with pytest.raises(FenceRejected):
+        FINISH[action][0](plane, unit)
 
     assert stored_state(plane) is RunUnitState.LEASED

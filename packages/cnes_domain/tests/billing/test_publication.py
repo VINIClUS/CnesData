@@ -1,7 +1,6 @@
 """Testes das regras de fence e da política de publicação."""
 
-from datetime import UTC, datetime
-from types import SimpleNamespace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -13,6 +12,8 @@ from cnes_domain.billing.models import (
     AccessLevel,
     EntitlementAction,
     EntitlementDecision,
+    EntitlementSnapshot,
+    QuotaLimits,
     RunAuthorization,
     SubscriptionStatus,
 )
@@ -263,10 +264,23 @@ def test_aceita_companion_consistente_sem_guard_em_disabled():
     require_publication_companion(_state(), _permit(), DISABLED)
 
 
-def _snapshot(status: SubscriptionStatus, version: int, valid_until: datetime = LATER) -> Any:
-    return SimpleNamespace(
-        subscription_status=status, entitlement_version=version, valid_until=valid_until,
-    )
+_QUOTAS = QuotaLimits(
+    max_tenants=3, max_agents=5, max_runs_per_period=100, max_concurrency=4,
+    retention_days=365, athena_scan_budget_bytes=1_000_000,
+)
+
+
+def _snapshot(status: SubscriptionStatus, version: int, **overrides: Any) -> EntitlementSnapshot:
+    values: dict[str, Any] = {
+        "billing_account_id": "acct-1", "stripe_subscription_id": "sub_1",
+        "subscription_status": status, "cancel_at_period_end": False,
+        "plan_version_id": "plan-1", "features": frozenset(), "quotas": _QUOTAS,
+        "period_start": NOW - timedelta(days=10), "period_end": LATER, "grace_until": None,
+        "valid_until": LATER, "entitlement_version": version,
+        "updated_at": NOW - timedelta(days=10),
+        "source_event_id": "evt_1",
+    }
+    return EntitlementSnapshot(**{**values, **overrides})
 
 
 def test_snapshot_ausente_eh_rejeitado():
@@ -290,10 +304,27 @@ def test_snapshot_vigente_eh_aceito():
     require_publication_snapshot(_snapshot(SubscriptionStatus.ACTIVE, 3), _guard(), NOW)
 
 
-@pytest.mark.parametrize("valid_until", [NOW, NOW - (LATER - NOW)])
-def test_snapshot_expirado_eh_rejeitado(valid_until: datetime):
-    snapshot = _snapshot(SubscriptionStatus.ACTIVE, 3, valid_until)
-    with pytest.raises(PublishDenied, match="reason=snapshot_expired"):
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"valid_until": NOW - timedelta(microseconds=1)}, "snapshot_expired"),
+        (
+            {"subscription_status": SubscriptionStatus.PAST_DUE,
+             "grace_until": NOW - timedelta(seconds=1)},
+            "grace_expired",
+        ),
+        (
+            {"cancel_at_period_end": True, "period_end": NOW - timedelta(seconds=1)},
+            "period_ended",
+        ),
+        ({"subscription_status": SubscriptionStatus.CANCELED}, "status_canceled"),
+    ],
+)
+def test_snapshot_sem_acesso_no_instante_da_publicacao_eh_rejeitado(
+    overrides: dict[str, Any], reason: str,
+):
+    snapshot = _snapshot(SubscriptionStatus.ACTIVE, 3, **overrides)
+    with pytest.raises(PublishDenied, match=f"reason={reason}"):
         require_publication_snapshot(snapshot, _guard(), NOW)
 
 
