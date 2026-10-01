@@ -68,7 +68,7 @@ def test_criacao_de_tenant_e_link_rollbackam_juntos(stack: ApiStack) -> None:
     response = create_tenant(client, "novo-tenant")
 
     assert response.status_code == 503
-    assert stack.faulty.failures == 1
+    assert stack.faulty.failures == 2
     assert stack.plane.get_tenant("novo-tenant") is None
     assert not _tenant_keys("novo-tenant") & stored_keys(stack)
     partition, prefix = idempotency_key("novo-tenant", TENANT_SCOPE, "")

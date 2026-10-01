@@ -17,9 +17,12 @@ from central_api.services.billing_gates import ApiBillingGates, BillingAccountMi
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     EntitlementDenied,
+    IdempotencyConflict,
     PermanentBillingError,
+    PublishDenied,
     QuotaExceeded,
 )
+from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
 from cnes_domain.profiles import BillingMode
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
@@ -114,3 +117,52 @@ def test_dependencia_padrao_usa_control_plane_sem_gates() -> None:
         NOW,
     ).agent_id == "agent-1"
     assert control.calls == ["register_agent"]
+
+
+class _FailingControlPlane(ControlPlane):
+    def __init__(self, error: Exception) -> None:
+        super().__init__(agent())
+        self.error = error
+
+    def register_edge_agent(self, tenant_id, agent_id, fingerprint, now):
+        raise self.error
+
+
+def _admit_with_control_error(error: Exception):
+    control = _FailingControlPlane(error)
+    return client(control, Resolver(), Gate()).get("/api/v1/edge/jobs/next")
+
+
+def test_contencao_no_upsert_responde_503_e_nao_agent_revoked() -> None:
+    response = _admit_with_control_error(Conflict(ControlPlaneErrorCode.TRANSACTION_CONFLICT))
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "agent_registration_contended"}
+    assert response.headers["Retry-After"] == "5"
+
+
+def test_agente_revogado_continua_403_pelo_codigo() -> None:
+    response = _admit_with_control_error(Conflict(ControlPlaneErrorCode.AGENT_REVOKED))
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "agent_revoked"}
+    assert "Retry-After" not in response.headers
+
+
+def test_idempotencia_conflitante_409() -> None:
+    response = client(
+        ControlPlane(None), Resolver(), Gate(IdempotencyConflict("key=x")),
+    ).get("/api/v1/edge/jobs/next")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "agent_registration_conflict"}
+
+
+def test_erro_de_billing_generico_503() -> None:
+    response = client(
+        ControlPlane(None), Resolver(), Gate(PublishDenied("reason=x")),
+    ).get("/api/v1/edge/jobs/next")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "billing_dependency_unavailable"}
+    assert response.headers["Retry-After"] == "5"

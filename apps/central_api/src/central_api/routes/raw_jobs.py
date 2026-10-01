@@ -33,13 +33,21 @@ from central_api.services.raw_upload import (
 )
 from central_api.validation_errors import validation_error
 from cnes_domain.billing.errors import (
+    BillingError,
     EntitlementDenied,
+    IdempotencyConflict,
     PermanentBillingError,
     QuotaExceeded,
     RetryableBillingError,
 )
 from cnes_domain.control_plane.commands import ClaimJob, RenewJobLease
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_domain.control_plane.errors import (
+    Conflict,
+    ControlPlaneErrorCode,
+    FenceRejected,
+    LeaseLost,
+    NotFound,
+)
 from cnes_domain.ports.control_plane import ControlPlanePort  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -126,6 +134,8 @@ _BILLING_DENIALS: tuple[tuple[type[Exception], int, str], ...] = (
     (QuotaExceeded, 403, "agent_quota_exceeded"),
     (RetryableBillingError, 503, "billing_dependency_unavailable"),
     (PermanentBillingError, 409, "agent_registration_conflict"),
+    (IdempotencyConflict, 409, "agent_registration_conflict"),
+    (BillingError, 503, "billing_dependency_unavailable"),
 )
 
 
@@ -139,6 +149,17 @@ def _billing_rejection(error: Exception) -> HTTPException:
     return HTTPException(status_code=status, detail=code, headers=headers)
 
 
+def _conflict_rejection(error: Conflict) -> HTTPException:
+    if error.code == ControlPlaneErrorCode.AGENT_REVOKED:
+        return HTTPException(status_code=403, detail="agent_revoked")
+    logger.warning("agent_admission_contended code=%s", _error_code(error))
+    return HTTPException(
+        status_code=503,
+        detail="agent_registration_contended",
+        headers={"Retry-After": "5"},
+    )
+
+
 def require_edge_agent(
     identity: Annotated[EdgeIdentity, Depends(get_edge_identity)],
     admission: Annotated[AgentAdmission, Depends(get_agent_admission)],
@@ -148,7 +169,7 @@ def require_edge_agent(
     try:
         agent = admission.admit(identity, _utc_now())
     except Conflict as error:
-        raise HTTPException(status_code=403, detail="agent_revoked") from error
+        raise _conflict_rejection(error) from error
     except _BILLING_ERRORS as error:
         raise _billing_rejection(error) from error
     if (agent.tenant_id, agent.agent_id) != (identity.tenant_id, identity.agent_id):

@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Annotated
 
@@ -29,7 +29,9 @@ from cnes_domain.billing.commands import (
 )
 from cnes_domain.billing.errors import (
     BillingError,
+    BillingTenantConflict,
     EntitlementDenied,
+    IdempotencyConflict,
     PermanentBillingError,
     QuotaExceeded,
 )
@@ -40,6 +42,7 @@ from cnes_domain.billing.models import (
     CapacityKind,
     CapacityReservation,
     ReadConsistency,
+    ReservationStatus,
 )
 from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.ports.control_plane import ControlPlanePort
@@ -49,6 +52,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
 
 _RESERVED = "tenant_id_reserved"
+_RESERVE_ATTEMPTS = 3
+_RETRY_AFTER = "5"
+_NO_COMMIT = (
+    BillingTenantConflict, IdempotencyConflict, EntitlementDenied, QuotaExceeded,
+    PermanentBillingError,
+)
 
 
 class TenantCreate(BaseModel):
@@ -80,6 +89,12 @@ class TenantCreationPorts:
     ctx: BillingContext
     gates: ApiBillingGates
     control_plane: ControlPlanePort
+
+
+@dataclass(frozen=True, slots=True)
+class _Attempt:
+    command: CreateBilledTenantCommand
+    releasable: bool
 
 
 def get_tenant_gates() -> ApiBillingGates:
@@ -131,11 +146,19 @@ def _reserve(
 ) -> CapacityReservation:
     decision = ports.gates.gate.authorize_tenant_creation(GateRequest(account_id, body.tenant_id))
     request_hash = _scoped_key(account_id, body.tenant_id, body.municipality_name)
-    return ports.gates.capacity.reserve_capacity(
-        CapacityReservationCommand(
-            account_id, body.tenant_id, body.tenant_id, CapacityKind.TENANT, key,
-            request_hash, decision.entitlement_version, decision.quota_limit,
-        ),
+    command = CapacityReservationCommand(
+        account_id, body.tenant_id, body.tenant_id, CapacityKind.TENANT, key,
+        request_hash, decision.entitlement_version, decision.quota_limit,
+    )
+    for attempt in range(_RESERVE_ATTEMPTS):
+        derived = key if attempt == 0 else f"{key}#{attempt}"
+        reservation = ports.gates.capacity.reserve_capacity(
+            replace(command, idempotency_key=derived),
+        )
+        if reservation.status is not ReservationStatus.RELEASED:
+            return reservation
+    raise HTTPException(
+        503, "tenant_creation_retry_exhausted", headers={"Retry-After": _RETRY_AFTER},
     )
 
 
@@ -153,7 +176,10 @@ def _build_command(
     return CreateBilledTenantCommand(tenant, link, reservation.reservation_id, key)
 
 
-def _release(ports: TenantCreationPorts, command: CreateBilledTenantCommand) -> None:
+def _release(ports: TenantCreationPorts, attempt: _Attempt) -> None:
+    if not attempt.releasable:
+        return
+    command = attempt.command
     release = ReleaseCapacityCommand(
         command.link.billing_account_id,
         command.reservation_id,
@@ -166,36 +192,39 @@ def _release(ports: TenantCreationPorts, command: CreateBilledTenantCommand) -> 
         logger.warning("tenant_creation_release_failed")
 
 
-def _owns_link(link: BillingAccountTenantLink, command: CreateBilledTenantCommand) -> bool:
-    expected = command.link
-    return (link.billing_account_id, link.tenant_id) == (
-        expected.billing_account_id, expected.tenant_id,
-    )
-
-
-def _recover(
-    ports: TenantCreationPorts, command: CreateBilledTenantCommand, error: Exception,
-) -> Tenant:
-    tenant_id = command.tenant.tenant_id
-    account_id = command.link.billing_account_id
+def _release_if_absent(ports: TenantCreationPorts, attempt: _Attempt) -> None:
+    tenant_id = attempt.command.tenant.tenant_id
+    account_id = attempt.command.link.billing_account_id
     try:
         tenant = ports.control_plane.get_tenant(tenant_id)
         link = ports.ctx.catalog.get_tenant_link(account_id, tenant_id, ReadConsistency.STRONG)
     except Exception:
         logger.warning("tenant_creation_probe_failed")
-        raise error from None
+        return
     if tenant is None and link is None:
-        _release(ports, command)
-    elif tenant is not None and link is not None and _owns_link(link, command):
-        return tenant
+        _release(ports, attempt)
+
+
+def _recover(ports: TenantCreationPorts, attempt: _Attempt, error: Exception) -> Tenant:
+    try:
+        return ports.control_plane.create_billed_tenant(attempt.command)
+    except _NO_COMMIT:
+        _release(ports, attempt)
+        raise error from None
+    except Exception:
+        logger.warning("tenant_creation_probe_uncertain")
+    _release_if_absent(ports, attempt)
     raise error
 
 
-def _create(ports: TenantCreationPorts, command: CreateBilledTenantCommand) -> Tenant:
+def _create(ports: TenantCreationPorts, attempt: _Attempt) -> Tenant:
     try:
-        return ports.control_plane.create_billed_tenant(command)
+        return ports.control_plane.create_billed_tenant(attempt.command)
+    except _NO_COMMIT:
+        _release(ports, attempt)
+        raise
     except Exception as error:
-        return _recover(ports, command, error)
+        return _recover(ports, attempt, error)
 
 
 @router.post(
@@ -217,7 +246,8 @@ def create_billed_tenant(
         key = _scoped_key("tenant", ctx.principal.subject, account_id, body.idempotency_key)
         reservation = _reserve(ports, body, account_id, key)
         command = _build_command(ctx, body, reservation, key)
-        tenant = _create(ports, command)
+        releasable = reservation.status is ReservationStatus.RESERVED
+        tenant = _create(ports, _Attempt(command, releasable))
     return TenantOut(
         tenant_id=tenant.tenant_id,
         municipality_name=tenant.municipality_name,

@@ -1,6 +1,7 @@
 """Testes da rota de criação de tenant cobrado."""
 
 import hashlib
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -58,6 +59,7 @@ class FakeCapacity:
         self.events = events
         self.error = None
         self.release_error = None
+        self.forced_status = None
         self.reserved = {}
         self.commands = []
         self.releases = []
@@ -72,7 +74,8 @@ class FakeCapacity:
             return existing
         reservation = CapacityReservation(
             f"res-{len(self.reserved) + 1}", command.billing_account_id, command.resource_id,
-            command.kind, ReservationStatus.RESERVED, NOW, NOW + timedelta(minutes=5),
+            command.kind, self.forced_status or ReservationStatus.RESERVED, NOW,
+            NOW + timedelta(minutes=5),
         )
         self.reserved[command.idempotency_key] = reservation
         return reservation
@@ -82,12 +85,16 @@ class FakeCapacity:
         self.releases.append(command)
         if self.release_error is not None:
             raise self.release_error
+        for key, item in self.reserved.items():
+            if item.reservation_id == command.reservation_id:
+                self.reserved[key] = replace(item, status=ReservationStatus.RELEASED)
 
 
 class FakeControlPlane:
     def __init__(self, events):
         self.events = events
         self.error = None
+        self.error_queue = []
         self.read_error = None
         self.tenants = {}
         self.by_key = {}
@@ -96,6 +103,8 @@ class FakeControlPlane:
     def create_billed_tenant(self, command):
         self.events.append("create")
         self.commands.append(command)
+        if self.error_queue:
+            raise self.error_queue.pop(0)
         if self.error is not None:
             raise self.error
         tenant = self.by_key.setdefault(command.idempotency_key, command.tenant)
@@ -306,7 +315,7 @@ def test_falha_sem_commit_libera_reserva_apos_leitura_forte(client, env):
     response = create(client)
     assert response.status_code == 503
     assert env.events == [
-        "gate", "reserve", "create", "get_tenant", "get_tenant_link", "release",
+        "gate", "reserve", "create", "create", "get_tenant", "get_tenant_link", "release",
     ]
     env.catalog.get_tenant_link.assert_called_with("ba_01", "novo-tenant", ReadConsistency.STRONG)
     (release,) = env.capacity.releases
@@ -321,17 +330,6 @@ def test_falha_inesperada_libera_reserva_e_relanca(env):
     response = create(TestClient(env.app(), raise_server_exceptions=False))
     assert response.status_code == 500
     assert len(env.capacity.releases) == 1
-
-
-def test_falha_com_commit_devolve_tenant_sem_liberar(client, env):
-    fail_creation(env, BillingDependencyError("timeout_after_commit"))
-    tenant = Tenant(tenant_id="novo-tenant", municipality_name="Lido", created_at=NOW)
-    env.control_plane.tenants["novo-tenant"] = tenant
-    env.link_result = committed_link()
-    response = create(client)
-    assert response.status_code == 201
-    assert response.json()["municipality_name"] == "Lido"
-    assert env.capacity.releases == []
 
 
 @pytest.mark.parametrize("link", [None, committed_link(account="ba_99")])
@@ -376,12 +374,10 @@ def test_falha_na_liberacao_preserva_erro_original(client, env):
 
 def test_conflito_de_tenant_409(client, env):
     fail_creation(env, BillingTenantConflict("reason=exists"))
-    env.control_plane.tenants["novo-tenant"] = Tenant(
-        tenant_id="novo-tenant", municipality_name="Outro", created_at=NOW,
-    )
     response = create(client)
     assert response.status_code == 409
     assert response.json() == {"detail": "billing_tenant_conflict"}
+    assert len(env.capacity.releases) == 1
 
 
 def test_idempotencia_conflitante_409(client, env):
