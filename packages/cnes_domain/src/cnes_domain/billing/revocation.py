@@ -7,11 +7,14 @@ from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_domain.billing.execution import RunBillingState
 from cnes_domain.billing.models import (
+    AccessLevel,
     BillingAuditEvent,
+    EntitlementAction,
     EntitlementSnapshot,
     ReadConsistency,
     SubscriptionStatus,
 )
+from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.billing.revocation_models import (
     DEFAULT_SETTINGS,
     MAX_REASON_CODE_LENGTH,
@@ -32,6 +35,7 @@ from cnes_domain.billing.revocation_models import (
 from cnes_domain.billing.validation import require_id
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.ports.processing import CancelRunExecution
+from cnes_domain.profiles import BillingMode
 
 __all__ = [
     "DEFAULT_SETTINGS",
@@ -66,7 +70,7 @@ class _Context:
     actor_id: str
     fenced: list[str]
     failures: list[str]
-    guard: EntitlementSnapshot | None = None
+    guarded: bool = False
 
 
 class ImmediateRevocationService:
@@ -77,6 +81,7 @@ class ImmediateRevocationService:
     ) -> None:
         self._deps = dependencies
         self._settings = settings
+        self._policy = EntitlementPolicy(BillingMode.STRIPE)
 
     def revoke(self, command: ImmediateRevocationCommand) -> RevocationResult:
         """Revoga o entitlement, fenceia runs e cancela execuções.
@@ -92,28 +97,46 @@ class ImmediateRevocationService:
         """Fenceia runs e cancela execuções após perda de acesso já gravada no snapshot.
 
         Args: snapshot: Snapshot já persistido sem acesso pleno; actor_id: Ator auditado.
-        Returns: Versão do snapshot, runs fenceadas e falhas de cancelamento.
+        Returns: Versão aplicada, runs fenceadas e falhas de cancelamento.
         Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
         """
         require_id(actor_id, "actor_id")
-        context = _Context(actor_id, [], [], snapshot)
-        return self._enforce(self._progress(snapshot, True), context)
+        return self._converge(self._progress(snapshot, True), _Context(actor_id, [], [], True))
 
-    def settle_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
-        """Conclui cancelamento e liquidação de runs já fenceadas, sem fencear novas.
+    def resume_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
+        """Retoma o progresso de revogação incompleto; versão superada não fenceia runs novas.
 
         Args: billing_account_id: Conta; actor_id: Ator auditado.
-        Returns: Resultado da conclusão, ou None sem progresso pendente.
+        Returns: Resultado da retomada, ou None sem progresso pendente.
         Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
         """
         require_id(actor_id, "actor_id")
         stored = self._deps.store.get_revocation_progress(billing_account_id)
         if stored is None or stored.phase is RevocationPhase.COMPLETE:
             return None
-        context = _Context(actor_id, [], [])
-        if stored.phase is RevocationPhase.FENCING:
-            stored = self._skip_fencing(stored)
-        return self._enforce(stored, context)
+        return self._converge(stored, _Context(actor_id, [], [], True))
+
+    def _converge(self, progress: RevocationProgress, context: _Context) -> RevocationResult:
+        for _ in range(_ATTEMPTS):
+            result = self._enforce(progress, context)
+            current = self._current(progress.billing_account_id)
+            if current is None or not self._newer_denial(current, progress):
+                return result
+            progress = self._progress(current, True)
+        raise RetryableBillingError("access_loss_enforcement_unstable")
+
+    def _newer_denial(self, current: EntitlementSnapshot, progress: RevocationProgress) -> bool:
+        if current.entitlement_version <= progress.entitlement_version:
+            return False
+        if current.subscription_status is SubscriptionStatus.ADMIN_REVOKED:
+            return False
+        level = self._policy.evaluate(
+            current, EntitlementAction.SERVING_ACCESS, self._deps.clock()
+        ).access_level
+        return level is not AccessLevel.FULL
+
+    def _current(self, billing_account_id: str) -> EntitlementSnapshot | None:
+        return self._deps.projection.get_snapshot(billing_account_id, ReadConsistency.STRONG)
 
     def _enforce(self, progress: RevocationProgress, context: _Context) -> RevocationResult:
         while progress.phase is not RevocationPhase.COMPLETE:
@@ -223,15 +246,14 @@ class ImmediateRevocationService:
     def _skip_fencing(self, progress: RevocationProgress) -> RevocationProgress:
         return self._save(progress, self._advanced(replace(progress, run_cursor=None), None))
 
-    def _superseded(self, guard: EntitlementSnapshot | None) -> bool:
-        if guard is None:
+    def _superseded(self, progress: RevocationProgress, context: _Context) -> bool:
+        if not context.guarded:
             return False
-        account = guard.billing_account_id
-        current = self._deps.projection.get_snapshot(account, ReadConsistency.STRONG)
-        return current is None or current.entitlement_version != guard.entitlement_version
+        current = self._current(progress.billing_account_id)
+        return current is None or current.entitlement_version != progress.entitlement_version
 
     def _fencing(self, progress: RevocationProgress, context: _Context) -> RevocationProgress:
-        if self._superseded(context.guard):
+        if self._superseded(progress, context):
             logger.info("access_loss_superseded account=%s", progress.billing_account_id)
             return self._skip_fencing(progress)
         page = self._page(progress, self._settings.run_page_size)

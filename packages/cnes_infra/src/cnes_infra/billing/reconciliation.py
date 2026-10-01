@@ -7,7 +7,12 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
-from cnes_domain.billing.errors import BillingError, PermanentBillingError, RetryableBillingError
+from cnes_domain.billing.errors import (
+    BillingDependencyError,
+    BillingError,
+    PermanentBillingError,
+    RetryableBillingError,
+)
 from cnes_domain.billing.inbox import ReconciliationRequest, ReconciliationResult
 from cnes_domain.billing.models import (
     AccessLevel,
@@ -67,7 +72,8 @@ _ACCESS_LOSS_REASON = "stripe_access_loss"
 _STATE_INVALID = "stripe_state_invalid"
 _NO_LIVE_SUBSCRIPTION = "stripe_subscription_ambiguous"
 _ENDED_STATUSES = frozenset({SubscriptionStatus.CANCELED, SubscriptionStatus.INCOMPLETE_EXPIRED})
-_DATA_ERRORS = (ValueError, TypeError)
+_DATA_ERRORS = (ValueError, TypeError, AttributeError)
+_STRIPE_UNAVAILABLE = "stripe_unavailable"
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +96,7 @@ class AccessLossEnforcerPort(Protocol):
     ) -> RevocationResult:
         raise NotImplementedError
 
-    def settle_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
+    def resume_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
         raise NotImplementedError
 
 
@@ -203,14 +209,9 @@ class BillingReconciler:
         page = self._deps.catalog.list_stripe_accounts(request.limit, position)
         run = _Run(stored, position)
         for account in page.accounts:
-            code = self._reconcile_or_code(account, run.tally)
-            if code is not None:
-                run.tally.failed += 1
-                logger.warning(
-                    "billing_reconcile_failed billing_account_id=%s code=%s",
-                    account.billing_account_id,
-                    code,
-                )
+            try:
+                self._reconcile_or_fail(account, run.tally)
+            except BillingDependencyError:
                 return self._finish(run, run.position)
             self._advance(run, account.billing_account_id)
         self._advance(run, page.next_cursor)
@@ -240,14 +241,18 @@ class BillingReconciler:
             tally.examined, tally.drift, tally.corrected, tally.failed, next_cursor
         )
 
-    def _reconcile_or_code(self, account: BillingAccount, tally: _Tally) -> str | None:
+    def _reconcile_or_fail(self, account: BillingAccount, tally: _Tally) -> None:
         try:
             self._reconcile(account, tally)
         except BillingError as error:
-            return error.code
-        except _DATA_ERRORS:
-            return _STATE_INVALID
-        return None
+            tally.failed += 1
+            logger.warning(
+                "billing_reconcile_failed billing_account_id=%s code=%s",
+                account.billing_account_id,
+                error.code,
+            )
+            if isinstance(error, BillingDependencyError) or error.code == _STRIPE_UNAVAILABLE:
+                raise BillingDependencyError(error.code) from error
 
     def _reconcile(self, account: BillingAccount, tally: _Tally) -> None:
         tally.examined += 1
@@ -288,6 +293,12 @@ class BillingReconciler:
         return snapshot
 
     def _observe(self, account: BillingAccount, current: EntitlementSnapshot) -> _Observation:
+        try:
+            return self._map_current(account, current)
+        except _DATA_ERRORS as error:
+            raise PermanentBillingError(_STATE_INVALID) from error
+
+    def _map_current(self, account: BillingAccount, current: EntitlementSnapshot) -> _Observation:
         state = self._stripe_state(account, current)
         plan = self._deps.catalog.get_plan_by_price(state.stripe_price_id)
         if plan is None:
@@ -344,10 +355,11 @@ class BillingReconciler:
             snapshot, EntitlementAction.SERVING_ACCESS, now
         )
         if decision.access_level is AccessLevel.FULL:
-            self._deps.enforcer.settle_pending(snapshot.billing_account_id, RECONCILER_ACTOR_ID)
-            return
-        result = self._deps.enforcer.enforce_access_loss(snapshot, RECONCILER_ACTOR_ID)
-        if result.fenced_run_ids:
+            account_id = snapshot.billing_account_id
+            result = self._deps.enforcer.resume_pending(account_id, RECONCILER_ACTOR_ID)
+        else:
+            result = self._deps.enforcer.enforce_access_loss(snapshot, RECONCILER_ACTOR_ID)
+        if result is not None and result.fenced_run_ids:
             self._deps.metrics.emit(
                 billing_metric(
                     BillingMetricName.RUNS_CANCELED_BY_REVOCATION,

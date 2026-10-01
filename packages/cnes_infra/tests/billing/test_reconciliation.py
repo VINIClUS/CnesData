@@ -278,22 +278,23 @@ def test_falha_retryable_para_o_lote_e_nao_avanca_cursor(caplog):
     assert "billing_account_id=ba_02 code=stripe_unavailable" in caplog.text
 
 
-def test_falha_permanent_para_o_lote_e_nao_avanca_cursor():
+def test_falha_permanente_conta_em_failed_e_o_cursor_avanca():
     env = make_env("ba_01", "ba_02")
     env.stripe.error = PermanentBillingError("stripe_subscription_ambiguous")
     result = _run(env)
-    assert (result.examined, result.failed, result.next_cursor) == (1, 1, None)
-    assert env.cursor.saves == []
+    assert (result.examined, result.failed, result.next_cursor) == (2, 2, None)
+    assert env.cursor.saves == ["ba_01", "ba_02", None]
     assert len(env.metrics.named(DRIFT_METRIC)) == 1
 
 
-def test_preco_nao_mapeado_conta_como_falha(caplog):
-    env = make_env()
-    env.stripe.states = [make_state(stripe_price_id="price_desconhecido")]
+def test_preco_nao_mapeado_no_meio_da_pagina_nao_para_o_lote(caplog):
+    env = make_env("ba_01", "ba_02", "ba_03")
+    env.stripe.states = [make_state(), make_state(stripe_price_id="price_legado"), make_state()]
     with caplog.at_level(logging.WARNING):
         result = _run(env)
-    assert (result.failed, result.drift_found) == (1, 0)
-    assert "code=stripe_price_unmapped" in caplog.text
+    assert (result.examined, result.failed, result.drift_found) == (3, 1, 0)
+    assert env.cursor.saves == ["ba_01", "ba_02", "ba_03", None]
+    assert "billing_account_id=ba_02 code=stripe_price_unmapped" in caplog.text
 
 
 def test_conta_sem_snapshot_e_ignorada(caplog):
@@ -452,13 +453,39 @@ def test_falha_da_busca_da_substituta_falha_a_conta():
     assert env.projection.cas_calls == 0
 
 
-def test_dado_stripe_invalido_falha_a_conta_sem_derrubar_o_lote():
+@pytest.mark.parametrize(
+    "error", [ValueError("reason=x"), TypeError("x"), AttributeError("items")],
+    ids=["value", "type", "attribute"],
+)
+def test_objeto_stripe_malformado_falha_a_conta_sem_derrubar_o_lote(error, caplog):
+    env = make_env("ba_01", "ba_02", "ba_03")
+    env.stripe.states = [make_state(), error, make_state()]
+    with caplog.at_level(logging.WARNING):
+        result = _run(env)
+    assert (result.examined, result.failed) == (3, 1)
+    assert env.cursor.saves == ["ba_01", "ba_02", "ba_03", None]
+    assert "billing_account_id=ba_02 code=stripe_state_invalid" in caplog.text
+
+
+def test_defeito_do_enforcer_nao_e_engolido():
     env = make_env()
-    env.stripe.states = [ValueError("reason=period_end_before_start")]
+    env.enforcer.error = AttributeError("bug")
+    with pytest.raises(AttributeError):
+        _run(env)
+    assert env.cursor.saves == []
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RetryableBillingError("stripe_unavailable"), BillingDependencyError("dynamodb_unavailable")],
+    ids=["stripe", "dynamodb"],
+)
+def test_indisponibilidade_de_dependencia_para_o_lote(error):
+    env = make_env("ba_01", "ba_02")
+    env.stripe.error = error
     result = _run(env)
     assert (result.examined, result.failed, result.next_cursor) == (1, 1, None)
     assert env.cursor.saves == []
-    assert len(env.metrics.named(DRIFT_METRIC)) == 1
 
 
 def test_admin_revoked_nao_delega_enforcement_concorrente_com_revoke():
@@ -470,24 +497,31 @@ def test_admin_revoked_nao_delega_enforcement_concorrente_com_revoke():
     assert env.enforcer.calls == []
 
 
-def test_acesso_pleno_liquida_revogacao_pendente_de_versao_anterior():
+def test_acesso_pleno_retoma_revogacao_pendente():
     env = make_env()
     _run(env)
-    assert env.enforcer.settled == [("ba_01", RECONCILER_ACTOR_ID)]
+    assert env.enforcer.resumed == [("ba_01", RECONCILER_ACTOR_ID)]
     assert env.enforcer.calls == []
 
 
-def test_perda_de_acesso_nao_usa_liquidacao_de_pendente():
+def test_perda_de_acesso_nao_usa_retomada_de_pendente():
     env = make_env()
     env.stripe.states = [make_state(subscription_status=SubscriptionStatus.UNPAID)]
     _run(env)
-    assert env.enforcer.settled == []
+    assert env.enforcer.resumed == []
     assert len(env.enforcer.calls) == 1
 
 
-def test_falha_na_liquidacao_pendente_falha_a_conta():
+def test_falha_na_retomada_pendente_conta_em_failed_e_avanca():
     env = make_env()
     env.enforcer.error = RetryableBillingError("revocation_progress_contended")
     result = _run(env)
     assert result.failed == 1
-    assert env.cursor.saves == []
+    assert env.cursor.saves == ["ba_01", None]
+
+def test_retomada_que_fenceia_emite_metrica_de_cancelamento():
+    env = make_env()
+    env.enforcer.fenced = ("run-1",)
+    _run(env)
+    [metric] = env.metrics.named(RUNS_METRIC)
+    assert metric.value == 1

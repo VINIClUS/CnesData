@@ -59,14 +59,21 @@ a cada execução; cancele a assinatura na Stripe ao revogar para encerrar o ala
 Se o snapshot vigente (o corrigido, ou o atual quando não há drift) não dá acesso FULL pela
 `EntitlementPolicy`, o reconciler delega ao mesmo serviço da revogação imediata: fence de Runs,
 cancelamento no executor e finalização. Não grava `admin_revoked`. Antes de cada página de
-fencing o serviço relê o snapshot com leitura forte; se a versão mudou (por exemplo, o cliente
-pagou e o projector gravou acesso de novo), para de fencear e só conclui cancelamento e
-liquidação das Runs já fenceadas (log `access_loss_superseded`). Se o snapshot vigente dá acesso
-FULL, o reconciler conclui da mesma forma qualquer progresso de revogação pendente de uma versão
-anterior (`settle_pending`), para que uma queda no meio do fencing não deixe Runs fenceadas sem
-cancelamento. Contas `admin_revoked` não são
-delegadas: a revogação administrativa conduz as próprias fases. O progresso fica por versão
-em `REVOCATION#<versão>`; a chamada é idempotente e versão já COMPLETE retorna sem efeito.
+fencing o serviço relê o snapshot com leitura forte. O fence é irreversível, então, se a versão
+mudou, o serviço para de fencear Runs novas e sempre conclui cancelamento e liquidação das Runs
+já fenceadas (log `access_loss_superseded`). Em seguida relê o snapshot: se a versão nova ainda
+não dá acesso FULL (e não é `admin_revoked`), aplica o enforcement dessa versão na mesma chamada,
+até 3 vezes; acima disso falha com `access_loss_enforcement_unstable`.
+
+Se o snapshot vigente dá acesso FULL, o reconciler chama `resume_pending`: retoma o progresso de
+revogação incompleto mais recente da conta. Se o progresso é de uma versão anterior, não fenceia
+Runs novas e só conclui as já fenceadas; se é da versão vigente (um enforcement concorrente em
+curso), continua normalmente. Assim uma queda no meio do fencing seguida de reativação não deixa
+Runs fenceadas sem cancelamento. A Task 17 reusa esse ponto de entrada no `revoke-pending`.
+
+Contas `admin_revoked` não são delegadas: a revogação administrativa conduz as próprias fases. O
+progresso fica por versão em `REVOCATION#<versão>`; a chamada é idempotente e versão já COMPLETE
+retorna sem efeito.
 
 Perdem acesso FULL:
 
@@ -90,15 +97,20 @@ O item `BILLING#SYSTEM / RECONCILIATION#STRIPE` guarda `position` (última conta
 
 ### Falhas
 
-Falha numa conta (erro retryable ou de dependência, dado Stripe inválido `stripe_state_invalid`,
-`stripe_price_unmapped`,
-`stripe_subscription_ambiguous` etc.): a conta fica em `failed`, o lote para e devolve
-`next_cursor` igual à última conta confirmada. O cursor não avança além dela. Uma falha
-permanente numa conta bloqueia o ciclo até correção manual; investigar pelo log
-`billing_reconcile_failed`.
+Só a indisponibilidade de dependência interrompe o lote: `BillingDependencyError`
+(`dynamodb_unavailable`) e `stripe_unavailable`. Nesse caso as contas seguintes falhariam do mesmo
+jeito, então o lote para, a conta fica em `failed`, e `next_cursor` é a última conta confirmada;
+o cursor não avança além dela. Com falha na primeira conta de um ciclo, `next_cursor` volta
+`None` (a posição inicial); use `failed > 0` para distinguir de ciclo concluído.
 
-Com falha na primeira conta de um ciclo, `next_cursor` volta `None` (a posição inicial); use
-`failed > 0` para distinguir de ciclo concluído.
+Qualquer outra falha específica da conta segue o fluxo: a conta fica em `failed`, é logada como
+`billing_reconcile_failed billing_account_id=... code=...` e o cursor avança além dela. A conta é
+reexaminada no próximo ciclo; o CAS e o progresso de revogação são idempotentes, então a correção
+continua única. Exemplos: `stripe_price_unmapped`, `stripe_subscription_ambiguous`,
+`stripe_request_rejected`, `stripe_state_invalid` (objeto Stripe malformado na leitura ou no
+mapeamento), `reconciliation_cas_exhausted`, `access_loss_enforcement_unstable` e
+`revocation_progress_contended`. Uma conta que falha em todo ciclo aparece repetidamente nesse
+log. Exceções inesperadas (defeitos) propagam e encerram a execução sem avançar o cursor.
 
 Conta sem snapshot: ignorada, contada em `examined` e sem drift. O snapshot inicial é
 responsabilidade do webhook ou do recovery.

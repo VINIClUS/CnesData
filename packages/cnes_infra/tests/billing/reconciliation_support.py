@@ -143,7 +143,7 @@ class FakeCursor:
 class FakeEnforcer:
     def __init__(self) -> None:
         self.calls: list[tuple[EntitlementSnapshot, str]] = []
-        self.settled: list[tuple[str, str]] = []
+        self.resumed: list[tuple[str, str]] = []
         self.fenced: tuple[str, ...] = ()
         self.error: Exception | None = None
 
@@ -153,11 +153,13 @@ class FakeEnforcer:
             raise self.error
         return RevocationResult(snapshot.entitlement_version, self.fenced, ())
 
-    def settle_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
-        self.settled.append((billing_account_id, actor_id))
+    def resume_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
+        self.resumed.append((billing_account_id, actor_id))
         if self.error is not None:
             raise self.error
-        return None
+        if not self.fenced:
+            return None
+        return RevocationResult(2, self.fenced, ())
 
 
 class FakeAudit:

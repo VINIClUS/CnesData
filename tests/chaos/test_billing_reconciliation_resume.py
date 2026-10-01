@@ -18,7 +18,7 @@ from cnes_domain.billing.models import (
     ReadConsistency,
     SubscriptionStatus,
 )
-from cnes_domain.billing.revocation import RevocationPhase
+from cnes_domain.billing.revocation import RevocationPhase, RevocationSettings
 from cnes_domain.control_plane.enums import RunState
 from cnes_infra.billing.audit_outbox import DynamoBillingAudit
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
@@ -47,6 +47,7 @@ from packages.cnes_infra.tests.billing.revocation_support import (
 )
 from packages.cnes_infra.tests.billing.test_dynamodb_revocation_service import (
     RecordingExecutor,
+    ServiceOptions,
     build_service,
     companion,
     outbox_events,
@@ -115,8 +116,24 @@ class CrashingEnforcer:
             raise RuntimeError("process_crash")
         return self._inner.enforce_access_loss(snapshot, actor_id)
 
-    def settle_pending(self, billing_account_id: str, actor_id: str) -> Any:
-        return self._inner.settle_pending(billing_account_id, actor_id)
+    def resume_pending(self, billing_account_id: str, actor_id: str) -> Any:
+        return self._inner.resume_pending(billing_account_id, actor_id)
+
+
+class CrashingProgressStore:
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.crashes = 1
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def save_revocation_progress(self, expected: Any, replacement: Any) -> bool:
+        paging = replacement.phase is RevocationPhase.FENCING and replacement.run_cursor
+        if paging and self.crashes > 0:
+            self.crashes -= 1
+            raise RuntimeError("process_crash")
+        return self._inner.save_revocation_progress(expected, replacement)
 
 
 class MetricSink:
@@ -300,6 +317,43 @@ def test_queda_entre_cas_e_fence_retoma_enforcement() -> None:
         assert len(executor.requests) == 1
         assert run_event_ids(env) == audited
         assert companion(env, "run-01").fencing_token == 1
+
+
+def test_queda_no_meio_do_fencing_e_acesso_restaurado_liquida_runs_fenceadas() -> None:
+    with open_env() as env:
+        catalog = seed_accounts(env, make_plan(quotas=snapshot_quotas(env)))
+        first = seed_simple_run(env, "run-01")
+        seed_simple_run(env, "run-02")
+        executor = RecordingExecutor()
+        options = ServiceOptions(
+            settings=RevocationSettings(run_page_size=1),
+            store=CrashingProgressStore(env.store),
+        )
+        harness = build_harness(env, catalog, enforcer=build_service(env, executor, options))
+        before = snapshot_of(env)
+        harness.stripe.states["cus_1"] = stripe_state(
+            "cus_1", subscription_status=SubscriptionStatus.CANCELED,
+            active_features=before.features,
+        )
+
+        with pytest.raises(RuntimeError, match="process_crash"):
+            harness.reconciler.run(PAGE)
+
+        fenced = [run for run in ("run-01", "run-02") if companion(env, run).cancel_requested]
+        assert len(fenced) == 1
+        untouched = "run-02" if fenced == ["run-01"] else "run-01"
+        harness.stripe.states["cus_1"] = stripe_state("cus_1", active_features=before.features)
+
+        result = harness.reconciler.run(PAGE)
+
+        assert counts(result)[1:] == (1, 1, 0)
+        assert snapshot_of(env).subscription_status is SubscriptionStatus.ACTIVE
+        assert stored_run(env, fenced[0]).state is RunState.CANCELED
+        assert not companion(env, untouched).cancel_requested
+        assert stored_run(env, untouched).state is not RunState.CANCELED
+        assert {run for run, _ in executor.refs()} == set(fenced)
+        assert env.store.get_revocation_progress("ba_01").phase is RevocationPhase.COMPLETE
+        assert first.execution_ref is not None
 
 
 def test_falha_de_dependencia_nao_avanca_cursor() -> None:

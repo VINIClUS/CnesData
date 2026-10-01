@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from cnes_domain.billing.errors import RetryableBillingError
 from cnes_domain.billing.models import (
     BillingAuditEvent,
     EntitlementSnapshot,
@@ -124,18 +125,52 @@ def test_perda_de_acesso_superada_nao_fenceia_e_conclui() -> None:
     assert harness.store.progress.phase is RevocationPhase.COMPLETE
 
 
+def _snapshots(harness: Harness, *items: EntitlementSnapshot | None) -> None:
+    queue = list(items)
+    harness.projection.get_snapshot = lambda *_: queue.pop(0) if len(queue) > 1 else queue[0]
+
+
+def _active(version: int) -> EntitlementSnapshot:
+    return replace(_lost(version), subscription_status=SubscriptionStatus.ACTIVE)
+
+
 def test_perda_de_acesso_superada_no_meio_do_fencing_liquida_runs_ja_fenceadas() -> None:
     harness = _two_runs(page=1)
-    snapshots = [_lost(3), _lost(4)]
-    harness.projection.get_snapshot = lambda *_: snapshots.pop(0) if len(snapshots) > 1 else (
-        snapshots[0]
-    )
+    _snapshots(harness, _lost(3), _active(4))
     result = harness.service.enforce_access_loss(_lost(3), ACTOR)
     assert result.fenced_run_ids == ("run_01",)
     assert harness.store.fence_requests == 1
     assert [r.run_id for r in harness.executor.requests] == ["run_01"]
     assert [e.aggregate_id for e in _canceled_events(harness, "run_01")] == ["run_01"]
     assert harness.store.progress.phase is RevocationPhase.COMPLETE
+
+
+def test_versao_superada_ainda_negada_converge_na_mesma_chamada() -> None:
+    harness = _two_runs(page=1)
+    _snapshots(harness, _lost(3), _lost(4))
+    result = harness.service.enforce_access_loss(_lost(3), ACTOR)
+    assert result.fenced_run_ids == ("run_01", "run_02")
+    assert result.entitlement_version == 4
+    assert harness.store.progress.entitlement_version == 4
+    assert harness.store.progress.phase is RevocationPhase.COMPLETE
+
+
+def test_versao_superada_por_revogacao_administrativa_nao_e_reenforcada() -> None:
+    harness = _two_runs(page=1)
+    revoked = replace(_lost(4), subscription_status=SubscriptionStatus.ADMIN_REVOKED)
+    _snapshots(harness, _lost(3), revoked)
+    result = harness.service.enforce_access_loss(_lost(3), ACTOR)
+    assert result.fenced_run_ids == ("run_01",)
+    assert harness.store.progress.entitlement_version == 3
+
+
+def test_convergencia_instavel_falha_com_codigo_proprio() -> None:
+    harness = _two_runs(page=1)
+    versions = iter(range(3, 100))
+    harness.projection.get_snapshot = lambda *_: _lost(next(versions))
+    with pytest.raises(RetryableBillingError) as error:
+        harness.service.enforce_access_loss(_lost(3), ACTOR)
+    assert error.value.code == "access_loss_enforcement_unstable"
 
 
 def test_perda_de_acesso_sem_snapshot_e_superada() -> None:
@@ -145,35 +180,37 @@ def test_perda_de_acesso_sem_snapshot_e_superada() -> None:
     assert harness.store.fence_requests == 0
 
 
-def test_liquida_progresso_pendente_sem_fencear_novas_runs() -> None:
+def test_retomada_de_versao_superada_liquida_sem_fencear_novas_runs() -> None:
     harness = _two_runs()
+    harness.projection.snapshot = _active(4)
     state = harness.store.states["run_01"]
     harness.store.states["run_01"] = replace(state, cancel_requested=True)
     harness.store.progress = RevocationProgress(ACCOUNT, 3, RevocationPhase.FENCING, None, NOW)
-    result = harness.service.settle_pending(ACCOUNT, ACTOR)
+    result = harness.service.resume_pending(ACCOUNT, ACTOR)
     assert result == RevocationResult(3, (), ())
     assert harness.store.fence_requests == 0
     assert [r.run_id for r in harness.executor.requests] == ["run_01"]
     assert harness.store.progress.phase is RevocationPhase.COMPLETE
 
 
-@pytest.mark.parametrize("phase", [None, RevocationPhase.COMPLETE])
-def test_sem_progresso_pendente_nao_liquida(phase: RevocationPhase | None) -> None:
-    harness = _harness()
-    if phase is not None:
-        harness.store.progress = RevocationProgress(ACCOUNT, 3, phase, None, NOW)
-    assert harness.service.settle_pending(ACCOUNT, ACTOR) is None
-    assert harness.executor.requests == []
-
-
-def test_liquidacao_retoma_progresso_em_cancelamento() -> None:
+def test_retomada_da_versao_vigente_continua_o_fencing() -> None:
     harness = _two_runs()
-    harness.store.progress = RevocationProgress(ACCOUNT, 3, RevocationPhase.CANCELING, None, NOW)
-    result = harness.service.settle_pending(ACCOUNT, ACTOR)
-    assert result == RevocationResult(3, (), ())
+    harness.projection.snapshot = _lost(4)
+    harness.store.progress = RevocationProgress(ACCOUNT, 4, RevocationPhase.FENCING, None, NOW)
+    result = harness.service.resume_pending(ACCOUNT, ACTOR)
+    assert result.fenced_run_ids == ("run_01", "run_02")
     assert harness.store.progress.phase is RevocationPhase.COMPLETE
 
 
-def test_liquidacao_rejeita_ator_vazio() -> None:
+@pytest.mark.parametrize("phase", [None, RevocationPhase.COMPLETE])
+def test_sem_progresso_pendente_nao_retoma(phase: RevocationPhase | None) -> None:
+    harness = _harness()
+    if phase is not None:
+        harness.store.progress = RevocationProgress(ACCOUNT, 3, phase, None, NOW)
+    assert harness.service.resume_pending(ACCOUNT, ACTOR) is None
+    assert harness.executor.requests == []
+
+
+def test_retomada_rejeita_ator_vazio() -> None:
     with pytest.raises(ValueError):
-        _harness().service.settle_pending(ACCOUNT, "")
+        _harness().service.resume_pending(ACCOUNT, "")
