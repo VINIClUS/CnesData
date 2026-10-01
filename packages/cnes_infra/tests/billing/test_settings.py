@@ -56,6 +56,20 @@ def test_profile_invalido_rejeita_configuracao():
     assert caught.value.code == "billing_profile_invalid"
 
 
+@pytest.mark.parametrize("tenant", ["tenant-a", "", "12345"])
+def test_aws_ignora_tenant_id_fora_do_formato_local(tenant):
+    settings = BillingSettings.from_mapping({**_AWS, "TENANT_ID": tenant, "BILLING_MODE": "stripe"})
+
+    assert settings.mode is BillingMode.STRIPE
+
+
+def test_local_continua_validando_tenant_id():
+    with pytest.raises(BillingConfigurationError) as caught:
+        BillingSettings.from_mapping({"PROFILE": "local", "TENANT_ID": "tenant-a"})
+
+    assert caught.value.code == "billing_profile_invalid"
+
+
 def test_local_sem_tenant_rejeita_configuracao():
     with pytest.raises(BillingConfigurationError) as caught:
         BillingSettings.from_mapping({"PROFILE": "local"})

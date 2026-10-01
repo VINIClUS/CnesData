@@ -131,6 +131,14 @@ def test_aws_propaga_modo_efetivo_ao_control_plane_e_a_politica(
     assert callbacks.started.downstream is started
 
 
+def test_aws_compoe_com_tenant_id_do_envelope_ecs_fora_do_padrao_ibge(session: Mock) -> None:
+    values = _aws_values() | {"TENANT_ID": "tenant-a", "BILLING_MODE": "stripe"}
+
+    runtime = build_processor_runtime("aws", values, session)
+
+    assert runtime.control_plane._billing.mode is BillingMode.STRIPE
+
+
 def test_aws_rejeita_enforcement_invalido(session: Mock) -> None:
     values = _aws_values() | {"BILLING_ENFORCEMENT_MODE": "bogus"}
 

@@ -7,9 +7,10 @@ from typing import Self
 from pydantic import ValidationError
 
 from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.profiles import BillingMode, parse_profile
+from cnes_domain.profiles import BillingMode, RuntimeProfile, parse_profile
 
 _PROFILE_KEYS = ("PROFILE", "BILLING_MODE", "TENANT_ID")
+_AWS_PROFILE_KEYS = ("PROFILE", "BILLING_MODE")
 _CODE_PREFIX = "code="
 _DEFAULT_PROFILE_CODE = "billing_profile_invalid"
 _DEFAULT_TTL_SECONDS = 60
@@ -66,9 +67,15 @@ def _error_code(error: ValidationError) -> str:
     return _DEFAULT_PROFILE_CODE
 
 
+def _profile_values(values: Mapping[str, str]) -> dict[str, str]:
+    aws = values.get("PROFILE") == RuntimeProfile.AWS.value
+    keys = _AWS_PROFILE_KEYS if aws else _PROFILE_KEYS
+    return {key: values[key] for key in keys if key in values}
+
+
 def _mode(values: Mapping[str, str]) -> BillingMode:
     try:
-        profile = parse_profile({key: values[key] for key in _PROFILE_KEYS if key in values})
+        profile = parse_profile(_profile_values(values))
     except ValidationError as error:
         raise BillingConfigurationError(_error_code(error)) from error
     return profile.billing_mode
