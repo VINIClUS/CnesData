@@ -6,7 +6,7 @@ from typing import Protocol
 from cnes_domain.billing.execution_policy import local_billing_account_id
 from cnes_domain.billing.gate import EntitlementGate
 from cnes_domain.billing.models import BillingAccountTenantLink, ReadConsistency
-from cnes_domain.billing.ports import QuotaReservationPort
+from cnes_domain.billing.ports import BillingAuditPort, QuotaReservationPort
 from cnes_domain.profiles import BillingMode
 
 
@@ -49,6 +49,7 @@ class ApiBillingGates:
     gate: EntitlementGate
     capacity: QuotaReservationPort
     accounts: TenantAccountResolver
+    audit: BillingAuditPort | None = None
 
     @property
     def enforced(self) -> bool:

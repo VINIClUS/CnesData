@@ -15,9 +15,11 @@ from cnes_infra.billing.composition import (
     StripeRuntimeSettings,
     build_secret_provider,
     build_stripe_billing,
+    build_webhook_recovery,
 )
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_infra.billing.projector import ProjectorDependencies
 from cnes_infra.billing.secrets_manager import SecretsManagerSecretProvider
 from cnes_infra.billing.settings import BillingConfigurationError
 from cnes_infra.billing.stripe_gateway import StripeGateway
@@ -213,3 +215,15 @@ def test_importar_composition_nao_carrega_sdk_remoto() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True,
     )
     assert result.stdout.strip() == "[]"
+
+
+def test_build_webhook_recovery_propaga_o_enforcer_ao_projetor() -> None:
+    components, _, _, storage, clock = _build()
+    enforcer = Mock()
+    dependencies = ProjectorDependencies(
+        components.inbox, components.catalog, components.gateway,
+        components.projection, clock, enforcer,
+    )
+    recovery = build_webhook_recovery(storage, dependencies)
+    assert recovery._deps.projector._deps.enforcer is enforcer
+    assert recovery._deps.cursor._client is storage.client

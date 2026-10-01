@@ -7,7 +7,11 @@ import pytest
 from cnes_domain.billing.errors import BillingDependencyError, RetryableBillingError
 from cnes_domain.billing.inbox import ReconciliationRequest, ReconciliationResult
 from cnes_domain.billing.models import SubscriptionStatus
-from cnes_infra.billing.reconciliation import RECONCILER_ACTOR_ID
+from cnes_infra.billing.reconciliation import (
+    RECONCILER_ACTOR_ID,
+    BillingReconciler,
+    ReconciliationDependencies,
+)
 from packages.cnes_infra.tests.billing.billing_factories import make_snapshot
 from packages.cnes_infra.tests.billing.reconciliation_support import (
     FEATURES,
@@ -162,3 +166,18 @@ def test_admin_revoked_com_assinatura_encerrada_na_stripe_nao_e_drift():
     result = _run(env)
     assert result.drift_found == 0
     assert env.audit.events == []
+
+
+def test_sem_enforcer_modo_off_reconcilia_sem_enforcement():
+    env = make_env()
+    canceled = SubscriptionStatus.CANCELED
+    env.projection.snapshots["ba_01"] = make_snapshot(subscription_status=canceled)
+    env.stripe.states = [make_state(subscription_status=SubscriptionStatus.CANCELED)]
+    reconciler = BillingReconciler(ReconciliationDependencies(
+        env.catalog, env.stripe, env.projection, env.cursor,
+        None, env.audit, env.metrics, env.clock.now,
+    ))
+    result = reconciler.run(REQUEST)
+    assert result.examined == 1
+    assert env.enforcer.calls == []
+    assert env.enforcer.resumed == []

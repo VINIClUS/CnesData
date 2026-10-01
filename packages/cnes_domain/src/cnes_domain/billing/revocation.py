@@ -1,7 +1,8 @@
 """Immediate entitlement revocation service and Stripe access-loss enforcement."""
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from typing import TypeGuard
 
 from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
@@ -18,10 +19,12 @@ from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.billing.revocation_models import (
     DEFAULT_SETTINGS,
     MAX_REASON_CODE_LENGTH,
+    PUBLICATION_DENIABLE_RUN_STATES,
     REVOCABLE_RUN_STATES,
     REVOKED_REASON_CODE,
     CancelRunUnitsCommand,
     CancelRunUnitsResult,
+    FailDeniedPublicationCommand,
     ImmediateRevocationCommand,
     RevocableRunPage,
     RevocationDependencies,
@@ -33,17 +36,20 @@ from cnes_domain.billing.revocation_models import (
     RevokeRunCommand,
 )
 from cnes_domain.billing.validation import require_id
-from cnes_domain.control_plane.entities import OutboxEvent
+from cnes_domain.control_plane.entities import OutboxEvent, RunDispatch
+from cnes_domain.control_plane.enums import DispatchState
 from cnes_domain.ports.processing import CancelRunExecution
 from cnes_domain.profiles import BillingMode
 
 __all__ = [
     "DEFAULT_SETTINGS",
     "MAX_REASON_CODE_LENGTH",
+    "PUBLICATION_DENIABLE_RUN_STATES",
     "REVOCABLE_RUN_STATES",
     "REVOKED_REASON_CODE",
     "CancelRunUnitsCommand",
     "CancelRunUnitsResult",
+    "FailDeniedPublicationCommand",
     "ImmediateRevocationCommand",
     "ImmediateRevocationService",
     "RevocableRunPage",
@@ -71,6 +77,7 @@ class _Context:
     fenced: list[str]
     failures: list[str]
     guarded: bool = False
+    failed: list[str] = field(default_factory=list)
 
 
 class ImmediateRevocationService:
@@ -130,10 +137,12 @@ class ImmediateRevocationService:
             return False
         if current.subscription_status is SubscriptionStatus.ADMIN_REVOKED:
             return False
-        level = self._policy.evaluate(
-            current, EntitlementAction.SERVING_ACCESS, self._deps.clock()
+        return self._level(current) is not AccessLevel.FULL
+
+    def _level(self, snapshot: EntitlementSnapshot) -> AccessLevel:
+        return self._policy.evaluate(
+            snapshot, EntitlementAction.SERVING_ACCESS, self._deps.clock()
         ).access_level
-        return level is not AccessLevel.FULL
 
     def _current(self, billing_account_id: str) -> EntitlementSnapshot | None:
         return self._deps.projection.get_snapshot(billing_account_id, ReadConsistency.STRONG)
@@ -142,7 +151,10 @@ class ImmediateRevocationService:
         while progress.phase is not RevocationPhase.COMPLETE:
             progress = self._advance(progress, context)
         return RevocationResult(
-            progress.entitlement_version, tuple(context.fenced), tuple(context.failures)
+            progress.entitlement_version,
+            tuple(context.fenced),
+            tuple(context.failures),
+            tuple(context.failed),
         )
 
     def _revoked_snapshot(
@@ -250,7 +262,10 @@ class ImmediateRevocationService:
         if not context.guarded:
             return False
         current = self._current(progress.billing_account_id)
-        return current is None or current.entitlement_version != progress.entitlement_version
+        if current is None:
+            return True
+        newer = current.entitlement_version != progress.entitlement_version
+        return newer and self._level(current) is AccessLevel.FULL
 
     def _fencing(self, progress: RevocationProgress, context: _Context) -> RevocationProgress:
         if self._superseded(progress, context):
@@ -258,34 +273,65 @@ class ImmediateRevocationService:
             return self._skip_fencing(progress)
         page = self._page(progress, self._settings.run_page_size)
         for state in page.runs:
-            if self._fence(state, progress):
-                context.fenced.append(state.run_id)
+            self._fence(state, progress, context)
         return self._save(progress, self._advanced(progress, page.next_cursor))
 
-    def _fence(self, state: RunBillingState, progress: RevocationProgress) -> bool:
+    def _fence(
+        self, state: RunBillingState, progress: RevocationProgress, context: _Context
+    ) -> None:
         for _ in range(_ATTEMPTS):
             try:
-                return self._try_fence(state, progress)
+                return self._try_fence(state, progress, context)
             except RetryableBillingError as error:
                 if error.code != "run_revocation_stale":
                     raise
         raise RetryableBillingError("run_revocation_contended")
 
-    def _try_fence(self, state: RunBillingState, progress: RevocationProgress) -> bool:
+    def _try_fence(
+        self, state: RunBillingState, progress: RevocationProgress, context: _Context
+    ) -> None:
         store = self._deps.store
         tenant, run_id = state.tenant_id, state.run_id
         current = store.get_run_billing_state(tenant, run_id)
         run = store.get_run(tenant, run_id)
         if current is None or run is None:
             raise PermanentBillingError("run_revocation_missing")
-        if current.cancel_requested or run.state not in REVOCABLE_RUN_STATES:
-            return False
+        if current.cancel_requested:
+            return
+        if run.state in PUBLICATION_DENIABLE_RUN_STATES:
+            if self._fail_publication(current, progress):
+                context.failed.append(run_id)
+            return
+        if run.state not in REVOCABLE_RUN_STATES:
+            return
         now = self._deps.clock()
         command = RevokeRunCommand(
             tenant, run_id, run.state, current.fencing_token, REVOKED_REASON_CODE, now
         )
         store.request_run_revocation(command, self._fence_event(current, progress))
-        return True
+        context.fenced.append(run_id)
+
+    def _fail_publication(self, current: RunBillingState, progress: RevocationProgress) -> bool:
+        tenant, run_id = current.tenant_id, current.run_id
+        now = self._deps.clock()
+        command = FailDeniedPublicationCommand(
+            tenant, run_id, current.fencing_token, REVOKED_REASON_CODE, now
+        )
+        event = OutboxEvent(
+            tenant_id=tenant,
+            event_id=f"run.failed.revoked:{tenant}:{run_id}",
+            event_type="run.failed",
+            aggregate_id=run_id,
+            payload={
+                "billing_account_id": progress.billing_account_id,
+                "entitlement_version": progress.entitlement_version,
+                "fencing_token": current.fencing_token,
+                "reason_code": REVOKED_REASON_CODE,
+            },
+            created_at=now,
+            delivered_at=None,
+        )
+        return self._deps.store.fail_denied_publication(command, event)
 
     def _fence_event(self, current: RunBillingState, progress: RevocationProgress) -> OutboxEvent:
         tenant, run_id = current.tenant_id, current.run_id
@@ -316,8 +362,8 @@ class ImmediateRevocationService:
         for state in page.runs:
             if not state.cancel_requested:
                 continue
-            dispatch = self._deps.store.get_active_run_dispatch(state.tenant_id, state.run_id)
-            if dispatch is not None and dispatch.execution_ref is not None:
+            dispatch = self._deps.store.get_run_dispatch(state.tenant_id, state.run_id)
+            if self._executing(dispatch):
                 targets.append(
                     CancelRunExecution(
                         tenant_id=state.tenant_id,
@@ -326,6 +372,14 @@ class ImmediateRevocationService:
                     )
                 )
         return targets
+
+    @staticmethod
+    def _executing(dispatch: RunDispatch | None) -> TypeGuard[RunDispatch]:
+        return (
+            dispatch is not None
+            and dispatch.state is not DispatchState.TERMINAL
+            and dispatch.execution_ref is not None
+        )
 
     def _cancel(self, request: CancelRunExecution, context: _Context) -> None:
         try:

@@ -15,9 +15,11 @@ from cnes_domain.billing.errors import (
 from cnes_domain.billing.execution import RunBillingState
 from cnes_domain.billing.ports import ClockPort
 from cnes_domain.billing.revocation import (
+    PUBLICATION_DENIABLE_RUN_STATES,
     REVOCABLE_RUN_STATES,
     CancelRunUnitsCommand,
     CancelRunUnitsResult,
+    FailDeniedPublicationCommand,
     RevocableRunPage,
     RevocationPhase,
     RevocationProgress,
@@ -30,6 +32,7 @@ from cnes_infra.billing.dynamodb_items import (
     UNAVAILABLE_CODE,
     canonical_json,
     corrupt_item,
+    get_item,
     outbox_item,
     put_new,
     transact,
@@ -38,6 +41,7 @@ from cnes_infra.billing.dynamodb_quota_items import (
     RUN_LOOKUP_ENTITY,
     encode_run_billing_state,
 )
+from cnes_infra.billing.dynamodb_revocation_publication import PublicationDenial
 from cnes_infra.billing.dynamodb_revocation_units import (
     RunCancellation,
     RunContext,
@@ -53,9 +57,11 @@ from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_codec import (
     Item,
     check_action,
+    decode_model,
     payload,
     put_action,
 )
+from cnes_infra.control_plane.dynamodb_keys import dispatch_key
 from cnes_infra.control_plane.dynamodb_run_codec import run_item
 
 logger = logging.getLogger(__name__)
@@ -157,6 +163,7 @@ class DynamoRevocationStore:
         self._clock = clock
         self._plane = DynamoDBControlPlane(client, table_name, clock)
         self._cancellation = RunCancellation(client, table_name, self._plane, clock)
+        self._denial = PublicationDenial(client, table_name, clock)
 
     def get_run(self, tenant_id: str, run_id: str) -> Run | None:
         """Lê o Run canônico."""
@@ -170,12 +177,18 @@ class DynamoRevocationStore:
         """Lê o dispatch ativo do Run."""
         return self._plane.get_active_run_dispatch(tenant_id, run_id)
 
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
+        """Lê com consistência forte o dispatch canônico, em qualquer estado ou lease."""
+        item = get_item(self._client, self._table, dispatch_key(tenant_id, run_id), True)
+        return None if item is None else decode_model(item, RunDispatch)
+
     def list_revocable_runs(
         self, billing_account_id: str, limit: int, cursor: str | None,
     ) -> RevocableRunPage:
-        """Lista, com leitura forte, os Runs revogáveis ou cancelados com fence.
+        """Lista, com leitura forte, os Runs revogáveis, em publicação ou cancelados com fence.
 
         Runs CANCELED com cancel_requested seguem listados para liquidação idempotente.
+        Runs PUBLISHING são listados para que a publicação negada seja falhada.
         Lookups órfãos são ignorados com aviso.
 
         Args: Conta, tamanho da página e cursor opaco da página anterior.
@@ -198,7 +211,8 @@ class DynamoRevocationStore:
             logger.warning("revocation_lookup_orphan tenant_id=%s run_id=%s", tenant_id, run_id)
             return None
         fenced_cancel = run.state is RunState.CANCELED and state.cancel_requested
-        return state if run.state in REVOCABLE_RUN_STATES or fenced_cancel else None
+        listed = REVOCABLE_RUN_STATES | PUBLICATION_DENIABLE_RUN_STATES
+        return state if run.state in listed or fenced_cancel else None
 
     def request_run_revocation(
         self, command: RevokeRunCommand, event: OutboxEvent,
@@ -241,6 +255,17 @@ class DynamoRevocationStore:
             return check_action(self._table, context.run_item)
         requested = transition_run(context.run, RunState.CANCEL_REQUESTED)
         return put_action(self._table, run_item(requested), payload(context.run_item))
+
+    def fail_denied_publication(
+        self, command: FailDeniedPublicationCommand, event: OutboxEvent,
+    ) -> bool:
+        """Move o Run PUBLISHING para FAILED e libera a reserva em uma transação.
+
+        Args: Comando com fence esperado e o evento de outbox.
+        Returns: True se gravou; False se o Run não era elegível ou outro atuou antes.
+        Raises: ValueError, PermanentBillingError, RetryableBillingError.
+        """
+        return self._denial.fail(command, event)
 
     def cancel_run_units(self, command: CancelRunUnitsCommand) -> CancelRunUnitsResult:
         """Cancela um lote de unidades; finaliza e liquida o Run no último lote.

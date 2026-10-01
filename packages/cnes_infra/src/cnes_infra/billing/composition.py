@@ -33,6 +33,7 @@ __all__ = [
     "StripeRuntimeSettings",
     "build_secret_provider",
     "build_stripe_billing",
+    "build_webhook_recovery",
 ]
 
 
@@ -135,9 +136,12 @@ class StripeBillingComponents:
     recovery: WebhookRecovery
 
 
-def _build_recovery(
+def build_webhook_recovery(
     storage: BillingStorage, dependencies: ProjectorDependencies,
 ) -> WebhookRecovery:
+    """Args: storage: DynamoDB; dependencies: Portas do projetor, com enforcer opcional.
+    Returns: Recuperação de webhooks que reprojeta eventos pendentes.
+    """
     from cnes_infra.billing.projector import StripeEventProjector
     from cnes_infra.billing.recovery import RecoveryDependencies, WebhookRecovery
     from cnes_infra.billing.recovery_cursor import DynamoRecoveryCursor
@@ -182,7 +186,7 @@ def build_stripe_billing(
         verifier=StripeWebhookVerifier(webhook_secret),
         inbox=inbox,
         audit=DynamoBillingAudit(storage.client, storage.table_name),
-        recovery=_build_recovery(
+        recovery=build_webhook_recovery(
             storage, ProjectorDependencies(inbox, catalog, gateway, projection, clock),
         ),
     )

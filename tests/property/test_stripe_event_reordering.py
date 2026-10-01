@@ -2,6 +2,7 @@
 
 import threading
 from datetime import timedelta
+from itertools import pairwise
 from typing import Any
 
 import boto3
@@ -131,7 +132,7 @@ def test_ordem_arbitraria_e_duplicatas_convergem_ao_estado_atual(data):
     assert set(states.values()) == {InboxProcessingState.PROCESSED}
     assert snapshot.subscription_status is SubscriptionStatus.ACTIVE
     assert snapshot.plan_version_id == "plan_v2"
-    assert snapshot.entitlement_version == count
+    assert snapshot.entitlement_version == 1
 
 
 _STATUSES = (SubscriptionStatus.ACTIVE, SubscriptionStatus.PAST_DUE, SubscriptionStatus.CANCELED)
@@ -160,7 +161,8 @@ def test_snapshot_final_iguala_ultimo_estado_retornado_pela_stripe(data):
     last_status, last_plan = returned[-1]
     assert snapshot.subscription_status is last_status
     assert snapshot.plan_version_id == last_plan
-    assert snapshot.entitlement_version == count
+    transitions = sum(1 for before, after in pairwise(returned) if before != after)
+    assert snapshot.entitlement_version == 1 + transitions
 
 
 @given(data=st.data())

@@ -94,7 +94,9 @@ class ProjectorEnv:
         for item in items:
             self.client.put_item(TableName=TABLE_NAME, Item=item)
 
-    def projector(self, inbox: Any = None, projection: Any = None) -> StripeEventProjector:
+    def projector(
+        self, inbox: Any = None, projection: Any = None, enforcer: Any = None
+    ) -> StripeEventProjector:
         return StripeEventProjector(
             ProjectorDependencies(
                 inbox=inbox or self.inbox,
@@ -102,6 +104,7 @@ class ProjectorEnv:
                 stripe=self.stripe,
                 projection=projection or self.projection,
                 clock=self.clock.now,
+                enforcer=enforcer,
             )
         )
 
@@ -153,10 +156,14 @@ def projector_env() -> Iterator[ProjectorEnv]:
 
 
 class ScriptedProjection:
-    def __init__(self, inner: Any, outcomes: list[Any]) -> None:
+    def __init__(
+        self, inner: Any, outcomes: list[Any], completions: list[bool] | None = None
+    ) -> None:
         self._inner = inner
         self._outcomes = outcomes
+        self._completions = completions or []
         self.commits = 0
+        self.completions = 0
 
     def get_snapshot(self, account_id: str, consistency: ReadConsistency) -> Any:
         return self._inner.get_snapshot(account_id, consistency)
@@ -170,6 +177,14 @@ class ScriptedProjection:
             if outcome is False:
                 return False
         return self._inner.commit_claimed_snapshot(claim, command)
+
+    def complete_claim_unchanged(
+        self, claim: Any, billing_account_id: str, expected_version: int
+    ) -> bool:
+        self.completions += 1
+        if self._completions and self._completions.pop(0) is False:
+            return False
+        return self._inner.complete_claim_unchanged(claim, billing_account_id, expected_version)
 
 
 class StaleFailInbox:
@@ -220,7 +235,7 @@ def test_eventos_fora_de_ordem_convergem_ao_estado_atual():
         snapshot = env.snapshot()
     assert snapshot.subscription_status is SubscriptionStatus.ACTIVE
     assert snapshot.plan_version_id == "plan_v2"
-    assert snapshot.entitlement_version == 2
+    assert snapshot.entitlement_version == 1
 
 
 def test_claim_nao_adquirido_nao_chama_stripe():

@@ -135,7 +135,7 @@ def _access(gates: ApiBillingGates, versions=None, inner=None) -> EntitledServin
 
 
 def _audit_lines(caplog) -> list[str]:
-    return [r.getMessage() for r in caplog.records if "billing_audit" in r.getMessage()]
+    return [r.getMessage() for r in caplog.records if "serving_denied" in r.getMessage()]
 
 
 def _assert_sem_ids(caplog) -> None:
@@ -156,7 +156,7 @@ def test_admin_revoked_nega_na_hora_mesmo_com_snapshot_anterior_em_cache(caplog)
     assert captured.value.code == "entitlement_denied"
     assert projection.calls == [(ACCOUNT, ReadConsistency.STRONG)]
     assert _audit_lines(caplog) == [
-        "billing_audit event_type=serving.denied reason=admin_revoked access_level=blocked"
+        "serving_denied reason=admin_revoked access_level=blocked"
     ]
     _assert_sem_ids(caplog)
 
@@ -204,7 +204,7 @@ def test_read_only_fora_da_retencao_nega(caplog) -> None:
 
     assert captured.value.code == "retention_expired"
     assert _audit_lines(caplog) == [
-        "billing_audit event_type=serving.denied reason=retention_expired access_level=read_only"
+        "serving_denied reason=retention_expired access_level=read_only"
     ]
     _assert_sem_ids(caplog)
 
@@ -254,7 +254,7 @@ def test_conta_ausente_em_stripe_nega(caplog) -> None:
     assert captured.value.code == "billing_account_missing"
     assert projection.calls == []
     assert _audit_lines(caplog) == [
-        "billing_audit event_type=serving.denied reason=billing_account_missing "
+        "serving_denied reason=billing_account_missing "
         "access_level=blocked"
     ]
     _assert_sem_ids(caplog)
@@ -268,7 +268,7 @@ def test_snapshot_ausente_nega_com_motivo_do_dominio(caplog) -> None:
 
     assert captured.value.code == "entitlement_denied"
     assert _audit_lines(caplog) == [
-        "billing_audit event_type=serving.denied reason=snapshot_missing access_level=blocked"
+        "serving_denied reason=snapshot_missing access_level=blocked"
     ]
 
 

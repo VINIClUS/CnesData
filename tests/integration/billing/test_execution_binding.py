@@ -27,6 +27,7 @@ from tests.integration.billing._execution_stack import (
     claim_command,
     complete_wave,
     create_processing_run,
+    has_outbox_event,
     open_stack,
     overwrite_companion,
     resume,
@@ -181,8 +182,13 @@ def test_falha_no_bind_cancela_execucao_e_finaliza_dispatch(
         tenant_id=TENANT, run_id=RUN_ID, execution_ref=f"exec-{started.dispatch_id}",
     )]
     assert active_dispatch(stack) is None
-    assert "billing_audit" in caplog.text
-    assert "reason_code=bind_failed" in caplog.text
+    assert (
+        f"run_execution_bind_failed tenant_id={TENANT} run_id={RUN_ID} "
+        f"dispatch_id={started.dispatch_id}"
+    ) in caplog.text
+    assert "billing_audit" not in caplog.text
+    audit_id = f"run_execution.bind_failed:{TENANT}:{RUN_ID}:{started.dispatch_id}"
+    assert has_outbox_event(stack, audit_id) is stack.case.stripe
     assert billing_state(stack).execution_generation == 0
 
 

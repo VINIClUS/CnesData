@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from central_api.composition import RuntimeComponents
     from central_api.services.billing_gates import ApiBillingGates
-    from cnes_domain.billing.ports import SecretProviderPort
+    from cnes_domain.billing.ports import BillingMetricsPort, SecretProviderPort
     from cnes_domain.billing.revocation import ImmediateRevocationService
     from cnes_infra.billing import StripeBillingComponents
 
@@ -43,6 +43,7 @@ def install_billing(app: object, runtime: RuntimeComponents, session: Session) -
     """
     from central_api.routes import billing, stripe_webhook
     from cnes_infra.billing import BillingSettings, build_secret_provider
+    from cnes_infra.billing.metrics import build_billing_metrics
 
     settings = BillingSettings.from_mapping(os.environ)
     provider = build_secret_provider(settings.mode, session)
@@ -52,7 +53,9 @@ def install_billing(app: object, runtime: RuntimeComponents, session: Session) -
         app.dependency_overrides[stripe_webhook.get_stripe_webhook_verifier] = _billing_disabled
         logger.info("billing_composed mode=%s", settings.mode.value)
         return
-    _install_stripe_billing(app, runtime, provider)
+    _install_stripe_billing(
+        app, runtime, provider, build_billing_metrics(settings.metrics_environment),
+    )
 
 
 def _install_agent_admission(app: object, gates: ApiBillingGates | None) -> None:
@@ -77,7 +80,10 @@ def _billing_control_plane(runtime: RuntimeComponents) -> Callable[[Request], Co
 
 
 def _install_stripe_billing(
-    app: object, runtime: RuntimeComponents, provider: SecretProviderPort
+    app: object,
+    runtime: RuntimeComponents,
+    provider: SecretProviderPort,
+    metrics: BillingMetricsPort,
 ) -> None:
     from central_api.routes import billing, stripe_webhook
     from cnes_infra.billing import (
@@ -85,7 +91,6 @@ def _install_stripe_billing(
         StripeRuntimeSettings,
         build_stripe_billing,
     )
-
     services = runtime.services
     if services is None or services.billing_storage is None:
         raise BillingConfigurationError("billing_dynamodb_required")
@@ -103,6 +108,7 @@ def _install_stripe_billing(
     overrides[raw_jobs.get_control_plane] = _billing_control_plane(runtime)
     overrides[stripe_webhook.get_stripe_webhook_verifier] = lambda: components.verifier
     overrides[stripe_webhook.get_webhook_inbox] = lambda: components.inbox
+    overrides[stripe_webhook.get_billing_metrics] = lambda: metrics
     _install_billing_admin(app, runtime, components)
     logger.info("billing_composed mode=stripe")
 

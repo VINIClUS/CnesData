@@ -299,3 +299,97 @@ def test_commit_claimed_snapshot_rejeita_snapshot_de_outro_evento(context):
     with pytest.raises(ValueError, match="reason=snapshot_event_mismatch"):
         projection.commit_claimed_snapshot(_claim(), make_write(0, audits=("audit-01",)))
     assert table_items(client) == before
+
+
+class _CancelingClient:
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def transact_write_items(self, **_: Any) -> None:
+        raise ClientError(
+            {
+                "Error": {"Code": "TransactionCanceledException", "Message": "x"},
+                "CancellationReasons": [{"Code": "ConditionalCheckFailed"}],
+            },
+            "TransactWriteItems",
+        )
+
+
+def test_complete_claim_unchanged_conclui_inbox_sem_tocar_o_snapshot(context):
+    client, _, projection = context
+    _seed_inbox(client)
+    projection.compare_and_set_snapshot(make_write(0))
+    snapshot_before = _stored(client, SNAPSHOT_KEY)
+    assert projection.complete_claim_unchanged(_claim(), "ba_01", 1) is True
+    inbox = _stored(client, INBOX_KEY)
+    assert inbox["state"] == {"S": "processed"}
+    assert inbox["entitlement_version"] == {"N": "1"}
+    assert inbox["processed_at"] == {"S": utc_attribute(NOW)}
+    for name in ("lease_until", "gsi1pk", "gsi1sk"):
+        assert name not in inbox
+    assert _stored(client, SNAPSHOT_KEY) == snapshot_before
+
+
+def test_complete_claim_unchanged_perde_versao_sem_efeitos(context):
+    client, _, projection = context
+    _seed_inbox(client)
+    projection.compare_and_set_snapshot(make_write(0))
+    projection.compare_and_set_snapshot(make_write(1))
+    before = table_items(client)
+    assert projection.complete_claim_unchanged(_claim(), "ba_01", 1) is False
+    assert table_items(client) == before
+
+
+def test_complete_claim_unchanged_com_fence_perdido_levanta_stale_sem_efeitos(context):
+    client, _, projection = context
+    _seed_inbox(client, attempt=2)
+    projection.compare_and_set_snapshot(make_write(0))
+    before = table_items(client)
+    with pytest.raises(StaleInboxClaim):
+        projection.complete_claim_unchanged(_claim(1), "ba_01", 1)
+    assert table_items(client) == before
+
+
+def test_complete_claim_unchanged_sem_snapshot_nem_inbox_levanta_stale(context):
+    with pytest.raises(StaleInboxClaim):
+        context[2].complete_claim_unchanged(_claim(), "ba_01", 1)
+
+
+def test_complete_claim_unchanged_ambiguo_levanta_retryable(context):
+    client, clock, _ = context
+    _seed_inbox(client)
+    DynamoEntitlementProjection(client, TABLE_NAME, clock.now).compare_and_set_snapshot(
+        make_write(0)
+    )
+    projection = DynamoEntitlementProjection(_CancelingClient(client), TABLE_NAME, clock.now)
+    with pytest.raises(RetryableBillingError, match="billing_commit_ambiguous"):
+        projection.complete_claim_unchanged(_claim(), "ba_01", 1)
+
+
+def test_complete_claim_unchanged_sem_claim_adquirido_nao_faz_io():
+    client = Mock()
+    projection = DynamoEntitlementProjection(client, TABLE_NAME, lambda: NOW)
+    claim = InboxClaim("evt_01", "customer.subscription.updated", "cus_01", None, None, False)
+    with pytest.raises(StaleInboxClaim):
+        projection.complete_claim_unchanged(claim, "ba_01", 1)
+    assert client.mock_calls == []
+
+
+@pytest.mark.parametrize("version", [0, -1])
+def test_complete_claim_unchanged_rejeita_versao_esperada_menor_que_um(version):
+    client = Mock()
+    projection = DynamoEntitlementProjection(client, TABLE_NAME, lambda: NOW)
+    with pytest.raises(ValueError, match="reason=expected_version_invalid"):
+        projection.complete_claim_unchanged(_claim(), "ba_01", version)
+    assert client.mock_calls == []
+
+
+def test_complete_claim_unchanged_com_erro_nao_condicional_levanta_dependencia(context):
+    client, clock, _ = context
+    _seed_inbox(client)
+    projection = DynamoEntitlementProjection(_ThrottlingClient(client), TABLE_NAME, clock.now)
+    with pytest.raises(BillingDependencyError):
+        projection.complete_claim_unchanged(_claim(), "ba_01", 1)

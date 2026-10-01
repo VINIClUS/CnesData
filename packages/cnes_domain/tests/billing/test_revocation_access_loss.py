@@ -155,12 +155,12 @@ def test_versao_superada_ainda_negada_converge_na_mesma_chamada() -> None:
     assert harness.store.progress.phase is RevocationPhase.COMPLETE
 
 
-def test_versao_superada_por_revogacao_administrativa_nao_e_reenforcada() -> None:
+def test_versao_superada_por_revogacao_administrativa_continua_fenceando_sem_reenforcar() -> None:
     harness = _two_runs(page=1)
     revoked = replace(_lost(4), subscription_status=SubscriptionStatus.ADMIN_REVOKED)
     _snapshots(harness, _lost(3), revoked)
     result = harness.service.enforce_access_loss(_lost(3), ACTOR)
-    assert result.fenced_run_ids == ("run_01",)
+    assert result.fenced_run_ids == ("run_01", "run_02")
     assert harness.store.progress.entitlement_version == 3
 
 

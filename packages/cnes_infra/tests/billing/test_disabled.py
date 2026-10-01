@@ -122,6 +122,8 @@ def test_escrita_de_snapshot_levanta_billing_disabled() -> None:
         projection.compare_and_set_snapshot(write)
     with pytest.raises(BillingDisabledError, match=message):
         projection.commit_claimed_snapshot(_claim(), write)
+    with pytest.raises(BillingDisabledError, match=message):
+        projection.complete_claim_unchanged(_claim(), "local", 1)
 
 
 def test_reserva_de_run_usa_concorrencia_do_deployment_sem_reserva() -> None:

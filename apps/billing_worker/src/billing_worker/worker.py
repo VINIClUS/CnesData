@@ -1,20 +1,19 @@
-"""Composição e execução dos ciclos do worker de billing."""
+"""Execução dos ciclos limitados do worker de billing."""
 
-from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Protocol
 
-from cnes_domain.billing.inbox import RecoveryRequest, RecoveryResult
-from cnes_domain.profiles import BillingMode
-from cnes_infra.billing.composition import (
-    BillingStorage,
-    StripeRuntimeSettings,
-    build_secret_provider,
-    build_stripe_billing,
+from cnes_domain.billing.inbox import (
+    ReconciliationRequest,
+    ReconciliationResult,
+    RecoveryRequest,
+    RecoveryResult,
+    ReservationRecoveryRequest,
+    ReservationRecoveryResult,
 )
-from cnes_infra.billing.settings import BillingConfigurationError, BillingSettings
-
-SessionFactory = Callable[[str], Any]
+from cnes_domain.billing.ports import BillingMetricsPort, ClockPort
+from cnes_infra.billing.metrics import BillingMetricName, billing_metric
+from cnes_infra.billing.revocation_sweep import RevocationSweepResult
 
 
 class RecoveryRunner(Protocol):
@@ -23,56 +22,76 @@ class RecoveryRunner(Protocol):
     def run(self, request: RecoveryRequest) -> RecoveryResult: ...  # pragma: no cover
 
 
+class ReconcileRunner(Protocol):
+    def run(self, request: ReconciliationRequest) -> ReconciliationResult: ...  # pragma: no cover
+
+
+class SweepRunner(Protocol):
+    def run(self, request: ReconciliationRequest) -> RevocationSweepResult: ...  # pragma: no cover
+
+
+class ReservationRecoveryRunner(Protocol):
+    def reconcile_expired_reservations(
+        self, request: ReservationRecoveryRequest
+    ) -> ReservationRecoveryResult: ...  # pragma: no cover
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerJobs:
+    recovery: RecoveryRunner
+    request: RecoveryRequest
+    reconciler: ReconcileRunner
+    revocations: SweepRunner | None
+    reservations: ReservationRecoveryRunner
+    metrics: BillingMetricsPort
+    clock: ClockPort
+
+
 class BillingWorker:
-    def __init__(self, recovery: RecoveryRunner, request: RecoveryRequest) -> None:
-        self._recovery = recovery
-        self._request = request
+    def __init__(self, jobs: WorkerJobs) -> None:
+        self._jobs = jobs
 
     def run_inbox(self, limit: int) -> RecoveryResult:
         """Args: limit: Máximo de eventos vencidos do inbox neste ciclo.
-        Returns: Resultado do dreno limitado.
+        Returns: Resultado do dreno limitado; emite RecoveryBacklog.
         Raises: BillingError: Falha de dependência ou permanente.
         """
-        return self._recovery.drain_inbox(limit)
+        result = self._jobs.recovery.drain_inbox(limit)
+        backlog = max(result.scanned - result.reprocessed, 0)
+        self._emit(BillingMetricName.RECOVERY_BACKLOG, backlog)
+        return result
 
     def run_recover(self) -> RecoveryResult:
         """Returns: Resultado de uma página de recovery pelo cursor de eventos Stripe.
         Raises: RetryableBillingError: Página não resolvida ou sem progresso.
         """
-        return self._recovery.run(self._request)
+        return self._jobs.recovery.run(self._jobs.request)
 
+    def run_reconcile(self, limit: int) -> ReconciliationResult:
+        """Args: limit: Máximo de contas reconciliadas neste ciclo.
+        Returns: Contadores e próximo cursor persistido.
+        Raises: RetryableBillingError: Cursor disputado.
+        """
+        return self._jobs.reconciler.run(ReconciliationRequest(limit, None))
 
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
+    def run_revoke_pending(self, limit: int) -> RevocationSweepResult | None:
+        """Args: limit: Máximo de contas varridas neste ciclo.
+        Returns: Contadores da retomada, ou None sem enforcement (modo off).
+        Raises: RetryableBillingError: Cursor disputado.
+        """
+        if self._jobs.revocations is None:
+            return None
+        return self._jobs.revocations.run(ReconciliationRequest(limit, None))
 
+    def run_release_expired(self, limit: int) -> ReservationRecoveryResult:
+        """Args: limit: Máximo de reservas vencidas examinadas neste ciclo.
+        Returns: Reservas examinadas e liberadas; emite QuotaReservationsExpired.
+        Raises: BillingDependencyError, PermanentBillingError.
+        """
+        request = ReservationRecoveryRequest(self._jobs.clock(), limit, None)
+        result = self._jobs.reservations.reconcile_expired_reservations(request)
+        self._emit(BillingMetricName.QUOTA_RESERVATIONS_EXPIRED, result.released)
+        return result
 
-def _required(values: Mapping[str, str], key: str, code: str) -> str:
-    value = values.get(key, "").strip()
-    if not value:
-        raise BillingConfigurationError(code)
-    return value
-
-
-def build_worker(
-    values: Mapping[str, str], session_factory: SessionFactory,
-) -> BillingWorker | None:
-    """Args: values: Variáveis de ambiente; session_factory: região para sessão boto3.
-    Returns: Worker pronto, ou None quando o billing está desabilitado.
-    Raises: BillingConfigurationError: Configuração ausente ou inválida.
-    """
-    billing = BillingSettings.from_mapping(values)
-    if billing.mode is BillingMode.DISABLED:
-        return None
-    region = _required(values, "AWS_REGION", "aws_region_required")
-    table = _required(values, "AWS_CONTROL_PLANE_TABLE", "billing_table_required")
-    endpoint = values.get("DYNAMODB_ENDPOINT_URL", "").strip() or None
-    stripe_settings = StripeRuntimeSettings.from_mapping(values)
-    session = session_factory(region)
-    provider = build_secret_provider(billing.mode, session)
-    if provider is None:
-        raise BillingConfigurationError("secret_provider_required")
-    client = session.client("dynamodb", region_name=region, endpoint_url=endpoint)
-    components = build_stripe_billing(
-        stripe_settings, provider, BillingStorage(client, table), _utc_now,
-    )
-    return BillingWorker(components.recovery, stripe_settings.recovery)
+    def _emit(self, name: BillingMetricName, value: int) -> None:
+        self._jobs.metrics.emit(billing_metric(name, value, self._jobs.clock()))

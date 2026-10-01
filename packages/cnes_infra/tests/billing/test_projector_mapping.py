@@ -15,6 +15,8 @@ from packages.cnes_infra.tests.billing.billing_factories import NOW
 from packages.cnes_infra.tests.billing.test_projector import (
     ACCOUNT_ID,
     CUSTOMER,
+    PRICE_V1,
+    PRICE_V2,
     SUBSCRIPTION,
     make_state,
     projector_env,
@@ -136,6 +138,9 @@ def test_valid_until_usa_agora_quando_periodo_ja_terminou():
 
 def test_versao_esperada_encadeia_entre_eventos():
     with projector_env() as env:
+        env.stripe.get_current_state.side_effect = [
+            make_state(stripe_price_id=price) for price in (PRICE_V1, PRICE_V2, PRICE_V1)
+        ]
         for index in (1, 2, 3):
             env.accept(f"evt_{index:02d}")
         projector = env.projector()
@@ -172,6 +177,10 @@ def test_status_inalterado_audita_somente_mudanca_de_entitlement():
     with projector_env() as env:
         env.accept("evt_01")
         env.accept("evt_02")
+        env.stripe.get_current_state.side_effect = [
+            make_state(stripe_price_id=PRICE_V1),
+            make_state(stripe_price_id=PRICE_V2),
+        ]
         env.projector().process("evt_01")
         env.projector().process("evt_02")
         changed = env.audit_rows("entitlement.changed", "evt_02", 2)

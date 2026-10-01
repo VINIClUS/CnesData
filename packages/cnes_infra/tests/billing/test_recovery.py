@@ -212,7 +212,7 @@ def test_crash_antes_do_cas_repete_pagina_sem_perder_eventos():
     assert stuck.starting_after is None
     assert accepted == set(ALL_IDS)
     assert states == {PROCESSED}
-    assert snapshot.entitlement_version == 205
+    assert snapshot.entitlement_version == 1
 
 
 def test_failed_da_pagina_conclui_e_fila_reprocessa_fora_do_lookback():

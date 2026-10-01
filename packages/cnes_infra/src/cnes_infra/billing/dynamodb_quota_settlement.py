@@ -194,6 +194,23 @@ class DynamoQuotaSettlementMixin:
         )
         return self._transition_actions(item, change)
 
+    def release_reserved_actions(
+        self, billing_account_id: str, reservation_id: str, at: datetime, reason_code: str
+    ) -> tuple[Action, ...]:
+        """Ações que liberam o scan reservado na transação do chamador.
+
+        Returns: Ações de liberação; vazio fora de RESERVED. O Run segue consumido.
+        Raises: RetryableBillingError: quota_reservation_not_found.
+        """
+        item = self._locate_reservation(billing_account_id, reservation_id)
+        if item is None:
+            raise RetryableBillingError(_NOT_FOUND)
+        reservation, _tenant = decode_reservation(item)
+        if reservation.status is not ReservationStatus.RESERVED:
+            return ()
+        change = ReservationTransition(ReservationStatus.RELEASED, at, reason_code=reason_code)
+        return self._transition_actions(item, change)
+
     def _transition_actions(self, item: Item, change: ReservationTransition) -> tuple[Action, ...]:
         reservation, tenant_id = decode_reservation(item)
         updated = _settled(reservation, change)

@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Any
 
 from cnes_domain.billing.models import BillingMetric, SubscriptionStatus
+from cnes_domain.billing.ports import BillingMetricsPort
 
 BILLING_METRICS_NAMESPACE = "CnesData/Billing"
 ALLOWED_DIMENSIONS = frozenset({"Environment", "EventType", "Reason", "SubscriptionStatus"})
@@ -116,3 +117,19 @@ class CloudWatchBillingMetrics:
             **dimensions,
             metric.name: metric.value,
         }
+
+
+class DiscardBillingMetrics:
+    """Sink de métricas que descarta todas as emissões."""
+
+    def emit(self, metric: BillingMetric) -> None:
+        """Args: metric: Métrica ignorada."""
+
+
+def build_billing_metrics(environment: str | None) -> BillingMetricsPort:
+    """Args: environment: Ambiente EMF ou None.
+    Returns: Sink CloudWatch quando há ambiente; senão descarte.
+    """
+    if environment is None:
+        return DiscardBillingMetrics()
+    return CloudWatchBillingMetrics(environment)

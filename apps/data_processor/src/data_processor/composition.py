@@ -207,7 +207,10 @@ def build_local_processor_runtime(
     )
     execution = ExecutionPolicyConfig(
         _DEPLOYMENT_LIMIT, _DISPATCH_LEASE_SECONDS,
-        build_execution_callbacks(billing, control_plane, clock, noop_execution_started),
+        build_execution_callbacks(
+            billing, control_plane, BillingGateResources(clock, _DEPLOYMENT_LIMIT),
+            noop_execution_started,
+        ),
     )
 
     # LocalWorkerPool requires the handler in its constructor, but the handler exists only
@@ -263,12 +266,12 @@ def build_processor_runtime(
     clients = create_aws_clients(settings, session)
     billing = BillingSettings.from_mapping(values)
     core = build_aws_runtime(settings, clients, _utc_now, billing)
-    callbacks = build_execution_callbacks(
-        billing, core.control_plane, _utc_now, execution_started,
-    )
     resources = BillingGateResources(
         _utc_now, settings.processor_max_concurrency, clients.dynamodb,
         settings.control_plane_table,
+    )
+    callbacks = build_execution_callbacks(
+        billing, core.control_plane, resources, execution_started,
     )
     policy = _publication_policy(billing, core.control_plane, resources, _utc_now)
     return _build_aws_processor_runtime(

@@ -171,6 +171,11 @@ def stripe_reconciliation_cursor_key() -> Key:
     return _SYSTEM_PARTITION, "RECONCILIATION#STRIPE"
 
 
+def revocation_sweep_cursor_key() -> Key:
+    """Cria a chave do cursor da varredura de revogações pendentes."""
+    return _SYSTEM_PARTITION, "REVOCATION#PENDING"
+
+
 def revocation_progress_key(billing_account_id: str, entitlement_version: int) -> Key:
     """Cria a chave do progresso de revogação de uma versão."""
     if (

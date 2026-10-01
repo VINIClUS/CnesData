@@ -41,6 +41,7 @@ _EXPECTED: dict[type, dict[str, tuple[str, ...]]] = {
         "get_snapshot": ("billing_account_id", "consistency"),
         "compare_and_set_snapshot": ("command",),
         "commit_claimed_snapshot": ("claim", "command"),
+        "complete_claim_unchanged": ("claim", "billing_account_id", "expected_version"),
     },
     ports.BillingCatalogPort: {
         "create_account": ("command",),
@@ -98,6 +99,7 @@ _ARGUMENT_TYPES: dict[tuple[type, str], tuple[object, ...]] = {
     (ports.EntitlementProjectionPort, "get_snapshot"): (str, ReadConsistency),
     (ports.EntitlementProjectionPort, "compare_and_set_snapshot"): (SnapshotWrite,),
     (ports.EntitlementProjectionPort, "commit_claimed_snapshot"): (InboxClaim, SnapshotWrite),
+    (ports.EntitlementProjectionPort, "complete_claim_unchanged"): (InboxClaim, str, int),
     (ports.BillingCatalogPort, "create_account"): (CreateBillingAccountCommand,),
     (ports.BillingCatalogPort, "link_tenant"): (LinkBillingTenantCommand,),
     (ports.BillingCatalogPort, "attach_customer"): (AttachStripeCustomerCommand,),

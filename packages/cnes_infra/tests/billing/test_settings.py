@@ -152,3 +152,27 @@ def test_modo_de_execucao_so_exige_companion_com_stripe_em_enforce(
     mode: BillingMode, enforcement: BillingEnforcementMode, expected: BillingMode,
 ) -> None:
     assert BillingSettings(mode, enforcement, 60).execution_mode is expected
+
+
+def test_metrics_environment_ausente_ou_vazio_vira_none():
+    assert BillingSettings.from_mapping(_LOCAL).metrics_environment is None
+    values = {**_LOCAL, "BILLING_METRICS_ENVIRONMENT": "   "}
+    assert BillingSettings.from_mapping(values).metrics_environment is None
+
+
+def test_metrics_environment_valido_e_normalizado_com_strip():
+    values = {**_AWS, "BILLING_METRICS_ENVIRONMENT": " prod-1 "}
+
+    assert BillingSettings.from_mapping(values).metrics_environment == "prod-1"
+
+
+@pytest.mark.parametrize("raw", ["Prod", "1prod", "a" * 33, "pro d"])
+def test_metrics_environment_invalido_rejeita_configuracao(raw):
+    with pytest.raises(BillingConfigurationError) as caught:
+        BillingSettings.from_mapping({**_AWS, "BILLING_METRICS_ENVIRONMENT": raw})
+
+    assert caught.value.code == "billing_metrics_environment_invalid"
+
+
+def test_local_billing_settings_nao_tem_metrics_environment():
+    assert LOCAL_BILLING_SETTINGS.metrics_environment is None

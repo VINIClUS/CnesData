@@ -354,8 +354,7 @@ def test_repropaga_erro_de_vinculacao_e_registra_auditoria_uma_vez(
     assert raised.value is error
     messages = [record.getMessage() for record in caplog.records]
     assert messages == [
-        "billing_audit event_type=run_execution.bind_failed reason_code=bind_failed "
-        f"tenant_id=tenant-1 run_id=run-1 dispatch_id={DISPATCH}"
+        f"run_execution_bind_failed tenant_id=tenant-1 run_id=run-1 dispatch_id={DISPATCH}"
     ]
 
 
