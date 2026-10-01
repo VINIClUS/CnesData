@@ -289,7 +289,7 @@ async def _idle() -> None:
 
 
 def test_install_billing_local_disabled_nao_toca_secrets_manager(monkeypatch) -> None:
-    from central_api import deps
+    from central_api import billing_deps
     from central_api.routes import billing, stripe_webhook
     from cnes_domain.profiles import BillingMode
 
@@ -299,7 +299,7 @@ def test_install_billing_local_disabled_nao_toca_secrets_manager(monkeypatch) ->
     session = _session_spy()
     app = _make_app()
 
-    deps._install_billing(app, Mock(), session)
+    billing_deps.install_billing(app, Mock(), session)
 
     assert _secretsmanager_calls(session) == []
     assert app.dependency_overrides[billing.get_billing_mode]() is BillingMode.DISABLED
@@ -318,7 +318,7 @@ def test_build_local_state_usa_mesma_session_no_runtime_e_no_billing(
     with (
         patch("central_api.deps.Session", return_value=session),
         patch("central_api.deps.build_runtime") as build,
-        patch("central_api.deps._install_billing") as install,
+        patch("central_api.deps.install_billing") as install,
         patch("central_api.deps._install_local_auth_and_serving"),
         patch("central_api.deps._install_edge_overrides"),
     ):

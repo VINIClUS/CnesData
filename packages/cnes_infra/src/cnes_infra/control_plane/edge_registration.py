@@ -95,14 +95,9 @@ class DynamoEdgeRegistrationMixin:
     def create_edge_agent(self, command: NewEdgeAgent) -> EdgeAgentCreation:
         """Cria o agente novo e o registro de idempotência da reserva.
 
-        Args:
-            command: Agente novo e reserva de capacidade que o originou.
-
-        Returns:
-            Agente gravado; created indica se esta reserva o criou.
-
-        Raises:
-            Conflict: Cancelamento condicional sem agente presente.
+        Args: command: Agente novo e reserva de capacidade que o originou.
+        Returns: Agente gravado; created indica se esta reserva o criou.
+        Raises: Conflict: Cancelamento condicional sem agente presente.
         """
         agent = _new_agent(command)
         key = entity_key(command.tenant_id, "AGENT", command.agent_id)
@@ -155,11 +150,8 @@ class SQLiteEdgeRegistrationMixin:
     def create_edge_agent(self, command: NewEdgeAgent) -> EdgeAgentCreation:
         """Cria o agente novo e o registro de idempotência da reserva.
 
-        Args:
-            command: Agente novo e reserva de capacidade que o originou.
-
-        Returns:
-            Agente gravado; created indica se esta reserva o criou.
+        Args: command: Agente novo e reserva de capacidade que o originou.
+        Returns: Agente gravado; created indica se esta reserva o criou.
         """
         with self.write_transaction() as connection:
             stored = self.get_agent_record(connection, command.tenant_id, command.agent_id)

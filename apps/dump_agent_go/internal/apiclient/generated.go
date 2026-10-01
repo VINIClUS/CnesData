@@ -626,6 +626,19 @@ type RawUploadResponse struct {
 	SizeBytes    int    `json:"size_bytes"`
 }
 
+// RevocationCreate defines model for RevocationCreate.
+type RevocationCreate struct {
+	ReasonCode string `json:"reason_code"`
+}
+
+// RevocationOut defines model for RevocationOut.
+type RevocationOut struct {
+	BillingAccountId   string `json:"billing_account_id"`
+	CancelFailureCount int    `json:"cancel_failure_count"`
+	EntitlementVersion int    `json:"entitlement_version"`
+	FencedRunCount     int    `json:"fenced_run_count"`
+}
+
 // RunOut defines model for RunOut.
 type RunOut struct {
 	Competencia  int       `json:"competencia"`
@@ -654,12 +667,11 @@ type SourceStatusOut struct {
 // SourceType defines model for SourceType.
 type SourceType string
 
-// TenantOut defines model for TenantOut.
-type TenantOut struct {
-	Ibge6 string `json:"ibge6"`
-	Ibge7 string `json:"ibge7"`
-	Nome  string `json:"nome"`
-	Uf    string `json:"uf"`
+// TenantCreate defines model for TenantCreate.
+type TenantCreate struct {
+	IdempotencyKey   string `json:"idempotency_key"`
+	MunicipalityName string `json:"municipality_name"`
+	TenantId         string `json:"tenant_id"`
 }
 
 // TenantResponse defines model for TenantResponse.
@@ -724,6 +736,14 @@ type ValidationError_Loc_Item struct {
 	union json.RawMessage
 }
 
+// CentralApiRoutesAccessRequestsTenantOut defines model for central_api__routes__access_requests__TenantOut.
+type CentralApiRoutesAccessRequestsTenantOut struct {
+	Ibge6 string `json:"ibge6"`
+	Ibge7 string `json:"ibge7"`
+	Nome  string `json:"nome"`
+	Uf    string `json:"uf"`
+}
+
 // CentralApiRoutesAgentsAgentStatusResponse defines model for central_api__routes__agents__AgentStatusResponse.
 type CentralApiRoutesAgentsAgentStatusResponse struct {
 	AgentVersion    *string `json:"agent_version"`
@@ -738,6 +758,19 @@ type CentralApiRoutesAgentsAgentStatusResponse struct {
 type CentralApiRoutesDashboardAgentStatusResponse struct {
 	FetchedAt time.Time         `json:"fetched_at"`
 	Sources   []SourceStatusOut `json:"sources"`
+}
+
+// CentralApiRoutesTenantsTenantOut defines model for central_api__routes__tenants__TenantOut.
+type CentralApiRoutesTenantsTenantOut struct {
+	BillingAccountId string    `json:"billing_account_id"`
+	CreatedAt        time.Time `json:"created_at"`
+	MunicipalityName string    `json:"municipality_name"`
+	TenantId         string    `json:"tenant_id"`
+}
+
+// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams defines parameters for RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost.
+type RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams struct {
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
 }
 
 // EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams defines parameters for EnqueueRawJobsApiV1AdminRawJobsEnqueuePost.
@@ -759,6 +792,11 @@ type GetAgentStatusApiV1AgentsStatusGetParams struct {
 
 // CreateBillingAccountApiV1BillingAccountsPostParams defines parameters for CreateBillingAccountApiV1BillingAccountsPost.
 type CreateBillingAccountApiV1BillingAccountsPostParams struct {
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
+}
+
+// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams defines parameters for CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost.
+type CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams struct {
 	XTenantId *string `json:"X-Tenant-Id,omitempty"`
 }
 
@@ -838,6 +876,9 @@ type FailJobApiV1JobsJobIdFailPostJSONBody map[string]interface{}
 // ActivateConfirmActivateConfirmPostJSONRequestBody defines body for ActivateConfirmActivateConfirmPost for application/json ContentType.
 type ActivateConfirmActivateConfirmPostJSONRequestBody = ActivateConfirmRequest
 
+// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody defines body for RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost for application/json ContentType.
+type RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody = RevocationCreate
+
 // EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody defines body for EnqueueRawJobsApiV1AdminRawJobsEnqueuePost for application/json ContentType.
 type EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody = RawEnqueueRequest
 
@@ -846,6 +887,9 @@ type LoginApiV1AuthLocalLoginPostJSONRequestBody = LoginRequest
 
 // CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody defines body for CreateBillingAccountApiV1BillingAccountsPost for application/json ContentType.
 type CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody = BillingAccountCreate
+
+// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostJSONRequestBody defines body for CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost for application/json ContentType.
+type CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostJSONRequestBody = TenantCreate
 
 // TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody defines body for TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost for application/json ContentType.
 type TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody = BillingAccountTransfer
@@ -1166,6 +1210,24 @@ type ClientInterface interface {
 	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
 	ActivateConfirmActivateConfirmPost(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBody Revoke Billing Account
+	//
+	// Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/admin/billing/{billing_account_id}/revoke (the `RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost` operationId).
+	RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBody(ctx context.Context, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost Revoke Billing Account
+	//
+	// Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/admin/billing/{billing_account_id}/revoke (the `RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost` operationId).
+	RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost(ctx context.Context, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, body RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBody Enqueue Raw Jobs
 	//
 	// Takes any type of body and a specified content type.
@@ -1240,6 +1302,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
 	CreateBillingAccountApiV1BillingAccountsPost(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, body CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBody Create Billed Tenant
+	//
+	// Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/tenants (the `CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost` operationId).
+	CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBody(ctx context.Context, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost Create Billed Tenant
+	//
+	// Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/tenants (the `CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost` operationId).
+	CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost(ctx context.Context, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, body CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBody Transfer Billing Account
 	//
@@ -1586,6 +1666,44 @@ func (c *Client) ActivateConfirmActivateConfirmPost(ctx context.Context, body Ac
 	return c.Client.Do(req)
 }
 
+// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBody Revoke Billing Account
+//
+// Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/admin/billing/{billing_account_id}/revoke (the `RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost` operationId).
+func (c *Client) RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBody(ctx context.Context, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostRequestWithBody(c.Server, billingAccountId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost Revoke Billing Account
+//
+// Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/admin/billing/{billing_account_id}/revoke (the `RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost` operationId).
+func (c *Client) RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost(ctx context.Context, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, body RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostRequest(c.Server, billingAccountId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBody Enqueue Raw Jobs
 //
 // Takes any type of body and a specified content type.
@@ -1761,6 +1879,44 @@ func (c *Client) CreateBillingAccountApiV1BillingAccountsPostWithBody(ctx contex
 // Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
 func (c *Client) CreateBillingAccountApiV1BillingAccountsPost(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, body CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateBillingAccountApiV1BillingAccountsPostRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBody Create Billed Tenant
+//
+// Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/tenants (the `CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost` operationId).
+func (c *Client) CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBody(ctx context.Context, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostRequestWithBody(c.Server, billingAccountId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost Create Billed Tenant
+//
+// Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/tenants (the `CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost` operationId).
+func (c *Client) CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost(ctx context.Context, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, body CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostRequest(c.Server, billingAccountId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2561,6 +2717,68 @@ func NewActivateConfirmActivateConfirmPostRequestWithBody(server string, content
 	return req, nil
 }
 
+// NewRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostRequest calls the generic RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost builder with application/json body
+func NewRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostRequest(server string, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, body RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostRequestWithBody(server, billingAccountId, params, "application/json", bodyReader)
+}
+
+// NewRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostRequestWithBody constructs an http.Request for the RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost method, with any body, and a specified content type
+func NewRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostRequestWithBody(server string, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "billing_account_id", billingAccountId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/admin/billing/%s/revoke", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequest calls the generic EnqueueRawJobsApiV1AdminRawJobsEnqueuePost builder with application/json body
 func NewEnqueueRawJobsApiV1AdminRawJobsEnqueuePostRequest(server string, params *EnqueueRawJobsApiV1AdminRawJobsEnqueuePostParams, body EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2874,6 +3092,68 @@ func NewCreateBillingAccountApiV1BillingAccountsPostRequestWithBody(server strin
 	}
 
 	operationPath := fmt.Sprintf("/api/v1/billing/accounts")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostRequest calls the generic CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost builder with application/json body
+func NewCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostRequest(server string, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, body CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostRequestWithBody(server, billingAccountId, params, "application/json", bodyReader)
+}
+
+// NewCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostRequestWithBody constructs an http.Request for the CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost method, with any body, and a specified content type
+func NewCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostRequestWithBody(server string, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "billing_account_id", billingAccountId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/billing/accounts/%s/tenants", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4244,6 +4524,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
 	ActivateConfirmActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error)
 
+	// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBodyWithResponse Revoke Billing Account
+	//
+	// Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/admin/billing/{billing_account_id}/revoke (the `RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost` operationId).
+	RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBodyWithResponse(ctx context.Context, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse, error)
+
+	// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithResponse Revoke Billing Account
+	//
+	// Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/admin/billing/{billing_account_id}/revoke (the `RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost` operationId).
+	RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithResponse(ctx context.Context, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, body RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody, reqEditors ...RequestEditorFn) (*RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse, error)
+
 	// EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBodyWithResponse Enqueue Raw Jobs
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -4328,6 +4626,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
 	CreateBillingAccountApiV1BillingAccountsPostWithResponse(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, body CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateBillingAccountApiV1BillingAccountsPostResponse, error)
+
+	// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBodyWithResponse Create Billed Tenant
+	//
+	// Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/tenants (the `CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost` operationId).
+	CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBodyWithResponse(ctx context.Context, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse, error)
+
+	// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithResponse Create Billed Tenant
+	//
+	// Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/tenants (the `CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost` operationId).
+	CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithResponse(ctx context.Context, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, body CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse, error)
 
 	// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBodyWithResponse Transfer Billing Account
 	//
@@ -4716,6 +5032,54 @@ func (r ActivateConfirmActivateConfirmPostResponse) ContentType() string {
 	return ""
 }
 
+type RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RevocationOut
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse) GetJSON200() *RevocationOut {
+	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5072,6 +5436,54 @@ func (r CreateBillingAccountApiV1BillingAccountsPostResponse) ContentType() stri
 	return ""
 }
 
+type CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *CentralApiRoutesTenantsTenantOut
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse) GetJSON201() *CentralApiRoutesTenantsTenantOut {
+	return r.JSON201
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5364,11 +5776,11 @@ type ListAvailableTenantsApiV1DashboardAccessRequestsAvailableTenantsGetResponse
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *[]TenantOut
+	JSON200 *[]CentralApiRoutesAccessRequestsTenantOut
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ListAvailableTenantsApiV1DashboardAccessRequestsAvailableTenantsGetResponse) GetJSON200() *[]TenantOut {
+func (r ListAvailableTenantsApiV1DashboardAccessRequestsAvailableTenantsGetResponse) GetJSON200() *[]CentralApiRoutesAccessRequestsTenantOut {
 	return r.JSON200
 }
 
@@ -6455,6 +6867,36 @@ func (c *ClientWithResponses) ActivateConfirmActivateConfirmPostWithResponse(ctx
 	return ParseActivateConfirmActivateConfirmPostResponse(rsp)
 }
 
+// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBodyWithResponse Revoke Billing Account
+//
+// Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/admin/billing/{billing_account_id}/revoke (the `RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost` operationId).
+func (c *ClientWithResponses) RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBodyWithResponse(ctx context.Context, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse, error) {
+	rsp, err := c.RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBody(ctx, billingAccountId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse(rsp)
+}
+
+// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithResponse Revoke Billing Account
+//
+// Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/admin/billing/{billing_account_id}/revoke (the `RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost` operationId).
+func (c *ClientWithResponses) RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithResponse(ctx context.Context, billingAccountId string, params *RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostParams, body RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody, reqEditors ...RequestEditorFn) (*RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse, error) {
+	rsp, err := c.RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost(ctx, billingAccountId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse(rsp)
+}
+
 // EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithBodyWithResponse Enqueue Raw Jobs
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -6604,6 +7046,36 @@ func (c *ClientWithResponses) CreateBillingAccountApiV1BillingAccountsPostWithRe
 		return nil, err
 	}
 	return ParseCreateBillingAccountApiV1BillingAccountsPostResponse(rsp)
+}
+
+// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBodyWithResponse Create Billed Tenant
+//
+// Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/tenants (the `CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost` operationId).
+func (c *ClientWithResponses) CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBodyWithResponse(ctx context.Context, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse, error) {
+	rsp, err := c.CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithBody(ctx, billingAccountId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse(rsp)
+}
+
+// CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithResponse Create Billed Tenant
+//
+// Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/tenants (the `CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost` operationId).
+func (c *ClientWithResponses) CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithResponse(ctx context.Context, billingAccountId string, params *CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostParams, body CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse, error) {
+	rsp, err := c.CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPost(ctx, billingAccountId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse(rsp)
 }
 
 // TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBodyWithResponse Transfer Billing Account
@@ -7241,6 +7713,39 @@ func ParseActivateConfirmActivateConfirmPostResponse(rsp *http.Response) (*Activ
 	return response, nil
 }
 
+// ParseRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse parses an HTTP response from a RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithResponse call
+func ParseRevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse(rsp *http.Response) (*RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RevocationOut
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseEnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse parses an HTTP response from a EnqueueRawJobsApiV1AdminRawJobsEnqueuePostWithResponse call
 func ParseEnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse(rsp *http.Response) (*EnqueueRawJobsApiV1AdminRawJobsEnqueuePostResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7474,6 +7979,39 @@ func ParseCreateBillingAccountApiV1BillingAccountsPostResponse(rsp *http.Respons
 	return response, nil
 }
 
+// ParseCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse parses an HTTP response from a CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostWithResponse call
+func ParseCreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse(rsp *http.Response) (*CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateBilledTenantApiV1BillingAccountsBillingAccountIdTenantsPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest CentralApiRoutesTenantsTenantOut
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse parses an HTTP response from a TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithResponse call
 func ParseTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse(rsp *http.Response) (*TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7687,7 +8225,7 @@ func ParseListAvailableTenantsApiV1DashboardAccessRequestsAvailableTenantsGetRes
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []TenantOut
+		var dest []CentralApiRoutesAccessRequestsTenantOut
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

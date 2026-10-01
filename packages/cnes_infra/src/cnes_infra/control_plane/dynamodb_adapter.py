@@ -60,6 +60,7 @@ from cnes_infra.control_plane.dynamodb_publication import DynamoDBPublication
 from cnes_infra.control_plane.dynamodb_queries import DynamoDBQueries
 from cnes_infra.control_plane.dynamodb_run_codec import RECOVERABLE_RUN_STATES as _RECOVERABLE
 from cnes_infra.control_plane.dynamodb_run_codec import run_dependency_actions, run_item
+from cnes_infra.control_plane.dynamodb_tenants import DynamoBilledTenantMixin
 from cnes_infra.control_plane.edge_registration import DynamoEdgeRegistrationMixin
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 
@@ -78,8 +79,9 @@ _NONTERMINAL_UNITS = {RunUnitState.PENDING, RunUnitState.LEASED, RunUnitState.FA
 
 
 class DynamoDBControlPlane(
-    DynamoBillingMixin, DynamoEdgeRegistrationMixin, DeprecatedRawQueryMixin, DynamoDBQueries,
-    DynamoDBClaims, DynamoDBDispatch, DynamoDBPublication
+    DynamoBillingMixin, DynamoBilledTenantMixin, DynamoEdgeRegistrationMixin,
+    DeprecatedRawQueryMixin, DynamoDBQueries, DynamoDBClaims, DynamoDBDispatch,
+    DynamoDBPublication
 ):
     """Persiste o plano de controle em uma tabela DynamoDB."""
     def __init__(

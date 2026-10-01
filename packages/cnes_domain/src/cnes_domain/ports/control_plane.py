@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from cnes_domain.billing.commands import (
         AuthorizedRunCommand,
         ConsumeReservationCommand,
+        CreateBilledTenantCommand,
         ReleaseReservationCommand,
         ReserveRunCommand,
     )
@@ -133,6 +134,7 @@ class ControlPlanePort(Protocol):
     def request_run_revocation(
         self, command: RevokeRunCommand, event: OutboxEvent
     ) -> RunBillingState: ...
+    def create_billed_tenant(self, command: CreateBilledTenantCommand) -> Tenant: ...
     def begin_idempotency(self, command: BeginIdempotency) -> IdempotencyOutcome: ...
     def publish_dataset(self, command: PublishDataset) -> DatasetPointer: ...
     def get_dataset_pointer(
