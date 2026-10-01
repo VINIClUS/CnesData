@@ -136,7 +136,6 @@ class RevocationProgress:
     entitlement_version: int
     phase: RevocationPhase
     run_cursor: str | None
-    unit_cursor: str | None
     updated_at: datetime
 
     def __post_init__(self) -> None:
@@ -144,11 +143,8 @@ class RevocationProgress:
         require_positive(self.entitlement_version, "entitlement_version")
         RevocationPhase(self.phase)
         optional_id(self.run_cursor, "run_cursor")
-        optional_id(self.unit_cursor, "unit_cursor")
         if self.phase is RevocationPhase.COMPLETE and self.run_cursor is not None:
             raise ValueError("reason=complete_progress_has_cursor")
-        if self.unit_cursor is not None and self.phase is not RevocationPhase.FINALIZING:
-            raise ValueError("reason=unit_cursor_outside_finalizing")
         require_utc(self.updated_at, "updated_at")
 
 
@@ -286,7 +282,6 @@ class ImmediateRevocationService:
             snapshot.entitlement_version,
             RevocationPhase.FENCING,
             None,
-            None,
             self._deps.clock(),
         )
         if store.save_revocation_progress(None, start):
@@ -315,12 +310,11 @@ class ImmediateRevocationService:
     ) -> RevocationProgress:
         now = self._deps.clock()
         if next_cursor is not None:
-            return replace(progress, run_cursor=next_cursor, unit_cursor=None, updated_at=now)
+            return replace(progress, run_cursor=next_cursor, updated_at=now)
         return replace(
             progress,
             phase=_NEXT_PHASE[progress.phase],
             run_cursor=None,
-            unit_cursor=None,
             updated_at=now,
         )
 
@@ -381,11 +375,9 @@ class ImmediateRevocationService:
 
     def _canceling(self, progress: RevocationProgress, context: _Context) -> RevocationProgress:
         page = self._page(progress, self._settings.run_page_size)
-        targets = self._cancel_targets(page)
-        saved = self._save(progress, self._advanced(progress, page.next_cursor))
-        for request in targets:
+        for request in self._cancel_targets(page):
             self._cancel(request, context)
-        return saved
+        return self._save(progress, self._advanced(progress, page.next_cursor))
 
     def _cancel_targets(self, page: RevocableRunPage) -> list[CancelRunExecution]:
         targets: list[CancelRunExecution] = []
@@ -415,27 +407,29 @@ class ImmediateRevocationService:
             context.failures.append(request.run_id)
 
     def _finalizing(self, progress: RevocationProgress, context: _Context) -> RevocationProgress:
-        page = self._page(progress, 1)
-        if not page.runs or not page.runs[0].cancel_requested:
-            return self._save(progress, self._advanced(progress, page.next_cursor))
-        state = page.runs[0]
-        result = self._deps.store.cancel_run_units(
-            CancelRunUnitsCommand(
-                state.tenant_id,
-                state.run_id,
-                state.fencing_token,
-                self._settings.unit_batch_size,
-                progress.unit_cursor,
-                self._deps.clock(),
-            )
-        )
-        if not result.run_canceled:
-            replacement = replace(
-                progress, unit_cursor=result.next_cursor, updated_at=self._deps.clock()
-            )
-            return self._save(progress, replacement)
-        self._audit_canceled(state, progress, context.command)
+        page = self._page(progress, self._settings.run_page_size)
+        for state in page.runs:
+            if state.cancel_requested:
+                self._settle(state)
+                self._audit_canceled(state, progress, context.command)
         return self._save(progress, self._advanced(progress, page.next_cursor))
+
+    def _settle(self, state: RunBillingState) -> None:
+        cursor: str | None = None
+        while True:
+            result = self._deps.store.cancel_run_units(
+                CancelRunUnitsCommand(
+                    state.tenant_id,
+                    state.run_id,
+                    state.fencing_token,
+                    self._settings.unit_batch_size,
+                    cursor,
+                    self._deps.clock(),
+                )
+            )
+            if result.run_canceled:
+                return
+            cursor = result.next_cursor
 
     def _audit_canceled(
         self,

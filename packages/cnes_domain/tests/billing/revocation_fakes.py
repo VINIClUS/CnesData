@@ -22,6 +22,7 @@ from cnes_domain.billing.revocation import (
     ImmediateRevocationService,
     RevocableRunPage,
     RevocationDependencies,
+    RevocationPhase,
     RevocationProgress,
     RevocationResult,
     RevocationSettings,
@@ -155,6 +156,8 @@ class FakeStore:
         self.reject_first = False
         self.fail_on: dict[str, Exception] = {}
         self.fence_requests = 0
+        self.crash_save_phase: RevocationPhase | None = None
+        self.crash_on_unit_call: int | None = None
 
     def add_run(self, run_id: str, state: RunState = RunState.PROCESSING, ref: str | None = None):
         self.runs[run_id] = _run(run_id, state)
@@ -179,11 +182,15 @@ class FakeStore:
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
         return self.dispatches.get(run_id)
 
+    def _listable(self, run_id: str, run: Run) -> bool:
+        fenced_cancel = run.state is RunState.CANCELED and self.states[run_id].cancel_requested
+        return run.state in REVOCABLE_RUN_STATES or fenced_cancel
+
     def list_revocable_runs(self, billing_account_id: str, limit: int, cursor: str | None):
         ids = sorted(
             run_id
             for run_id, run in self.runs.items()
-            if run.state in REVOCABLE_RUN_STATES and (cursor is None or run_id > cursor)
+            if self._listable(run_id, run) and (cursor is None or run_id > cursor)
         )
         page = ids[:limit]
         more = len(ids) > limit
@@ -214,6 +221,8 @@ class FakeStore:
         self.unit_calls[run_id] = count
         self.unit_cursors.append(command.cursor)
         self.calls.append(f"units_{run_id}")
+        if count == self.crash_on_unit_call:
+            raise RuntimeError("crash")
         if count < self.units_needed.get(run_id, 1):
             return CancelRunUnitsResult((f"u{count}",), f"u{count}", False)
         self.runs[run_id] = self.runs[run_id].model_copy(update={"state": RunState.CANCELED})
@@ -223,6 +232,9 @@ class FakeStore:
         return self.progress
 
     def save_revocation_progress(self, expected, replacement) -> bool:
+        if expected is not None and expected.phase is self.crash_save_phase:
+            self.crash_save_phase = None
+            raise RuntimeError("crash")
         if expected is None and self.rival is not None:
             self.progress, self.rival = self.rival, None
             return False
@@ -241,6 +253,7 @@ class FakeExecutor:
         self.calls = calls
         self.requests: list[CancelRunExecution] = []
         self.fail = False
+        self.on_cancel: Any = None
 
     def start(self, request: Any) -> str:
         raise AssertionError
@@ -248,6 +261,8 @@ class FakeExecutor:
     def cancel(self, request: CancelRunExecution) -> None:
         self.calls.append(f"executor_{request.run_id}_cancel")
         self.requests.append(request)
+        if self.on_cancel is not None:
+            self.on_cancel(request)
         if self.fail:
             raise RuntimeError("step_functions_unavailable")
 

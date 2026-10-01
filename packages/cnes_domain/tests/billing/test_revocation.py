@@ -155,7 +155,7 @@ def test_snapshot_com_versao_maior_por_webhook_retoma_progresso_armazenado() -> 
         subscription_status=SubscriptionStatus.ADMIN_REVOKED, entitlement_version=6
     )
     harness.store.progress = RevocationProgress(
-        ACCOUNT, 5, RevocationPhase.FENCING, None, None, NOW
+        ACCOUNT, 5, RevocationPhase.FENCING, None, NOW
     )
     result = harness.revoke()
     assert result.entitlement_version == 5
@@ -166,7 +166,7 @@ def test_snapshot_com_versao_maior_por_webhook_retoma_progresso_armazenado() -> 
 def test_nova_revogacao_apos_reativacao_reinicia_progresso_antigo() -> None:
     harness = _two_runs()
     harness.store.progress = RevocationProgress(
-        ACCOUNT, 2, RevocationPhase.COMPLETE, None, None, NOW
+        ACCOUNT, 2, RevocationPhase.COMPLETE, None, NOW
     )
     result = harness.revoke()
     assert result.entitlement_version == 4
@@ -176,7 +176,7 @@ def test_nova_revogacao_apos_reativacao_reinicia_progresso_antigo() -> None:
 def test_conflito_ao_iniciar_progresso_usa_o_vencedor() -> None:
     harness = _two_runs()
     harness.store.rival = RevocationProgress(
-        ACCOUNT, 4, RevocationPhase.COMPLETE, None, None, NOW
+        ACCOUNT, 4, RevocationPhase.COMPLETE, None, NOW
     )
     assert harness.revoke() == RevocationResult(4, (), ())
     assert harness.store.fence_requests == 0
@@ -262,16 +262,80 @@ def test_fencing_pagina_por_pagina_antes_de_qualquer_cancelamento() -> None:
     assert len(cancels) == 3
 
 
-def test_unidades_em_varios_lotes_persistem_cursor_entre_chamadas() -> None:
+def test_unidades_em_varios_lotes_repassam_cursor_em_memoria() -> None:
     harness = Harness()
     harness.store.add_run("run_01", ref="exec-1")
     harness.store.units_needed["run_01"] = 3
     harness.revoke()
     assert harness.store.unit_cursors == [None, "u1", "u2"]
-    cursors = [p.unit_cursor for p in harness.store.saved]
-    assert "u1" in cursors
-    assert "u2" in cursors
     assert [e.event_type for e in harness.audit.events].count("run.canceled") == 1
+
+
+def test_finalizacao_processa_a_pagina_inteira_e_salva_progresso_uma_vez() -> None:
+    harness = _two_runs()
+    harness.store.units_needed = {"run_01": 2, "run_02": 2}
+    harness.revoke()
+    phases = [p.phase for p in harness.store.saved]
+    assert phases == [
+        RevocationPhase.FENCING,
+        RevocationPhase.CANCELING,
+        RevocationPhase.FINALIZING,
+        RevocationPhase.COMPLETE,
+    ]
+    assert harness.store.unit_calls == {"run_01": 2, "run_02": 2}
+    assert [e.aggregate_id for e in harness.audit.events if e.event_type == "run.canceled"] == [
+        "run_01", "run_02",
+    ]
+
+
+def test_queda_entre_lotes_de_unidades_retoma_e_converge() -> None:
+    harness = Harness()
+    harness.store.add_run("run_01", ref="exec-1")
+    harness.store.units_needed["run_01"] = 3
+    harness.store.crash_on_unit_call = 2
+    with pytest.raises(RuntimeError):
+        harness.revoke()
+    assert harness.store.progress.phase is RevocationPhase.FINALIZING
+    result = harness.revoke()
+    assert result == RevocationResult(4, (), ())
+    assert harness.store.runs["run_01"].state is RunState.CANCELED
+    assert harness.store.unit_cursors == [None, "u1", None]
+    assert [e.event_type for e in harness.audit.events].count("run.canceled") == 1
+
+
+def test_run_cancelado_por_terceiro_durante_a_revogacao_e_liquidado_e_auditado() -> None:
+    harness = _two_runs()
+
+    def finalize_elsewhere(request) -> None:
+        run = harness.store.runs[request.run_id]
+        harness.store.runs[request.run_id] = run.model_copy(update={"state": RunState.CANCELED})
+
+    harness.executor.on_cancel = finalize_elsewhere
+    harness.revoke()
+    assert harness.store.unit_calls == {"run_01": 1, "run_02": 1}
+    canceled = [e.aggregate_id for e in harness.audit.events if e.event_type == "run.canceled"]
+    assert canceled == ["run_01", "run_02"]
+    assert harness.store.progress.phase is RevocationPhase.COMPLETE
+
+
+def test_run_cancelado_sem_fence_nao_e_listado_nem_liquidado() -> None:
+    harness = _two_runs()
+    harness.store.add_run("run_00", RunState.CANCELED)
+    result = harness.revoke()
+    assert result.fenced_run_ids == ("run_01", "run_02")
+    assert "run_00" not in harness.store.unit_calls
+
+
+def test_queda_ao_salvar_pagina_de_cancelamento_recancela_so_aquela_pagina() -> None:
+    harness = _two_runs(page=1)
+    harness.store.crash_save_phase = RevocationPhase.CANCELING
+    with pytest.raises(RuntimeError):
+        harness.revoke()
+    assert [r.run_id for r in harness.executor.requests] == ["run_01"]
+    assert harness.store.fence_requests == 2
+    harness.revoke()
+    assert [r.run_id for r in harness.executor.requests] == ["run_01", "run_01", "run_02"]
+    assert harness.store.fence_requests == 2
 
 
 def test_finalizacao_sem_runs_conclui_sem_cancelar_unidades() -> None:
@@ -282,7 +346,7 @@ def test_finalizacao_sem_runs_conclui_sem_cancelar_unidades() -> None:
     assert harness.store.progress.phase is RevocationPhase.COMPLETE
 
 
-def test_queda_no_meio_da_finalizacao_retoma_sem_refencear_nem_recancelar() -> None:
+def test_queda_na_finalizacao_retoma_sem_refencear_nem_recancelar_executor() -> None:
     harness = _two_runs()
     harness.store.fail_on["cancel_run_units"] = RuntimeError("crash")
     with pytest.raises(RuntimeError):
@@ -318,9 +382,7 @@ def test_validacoes_dos_comandos_e_resultados() -> None:
     with pytest.raises(ValueError):
         CancelRunUnitsResult((), "u1", True)
     with pytest.raises(ValueError):
-        RevocationProgress(ACCOUNT, 1, RevocationPhase.COMPLETE, "run_01", None, NOW)
-    with pytest.raises(ValueError):
-        RevocationProgress(ACCOUNT, 1, RevocationPhase.FENCING, None, "u1", NOW)
+        RevocationProgress(ACCOUNT, 1, RevocationPhase.COMPLETE, "run_01", NOW)
 
 
 @pytest.mark.parametrize("field", ["run_page_size", "unit_batch_size"])

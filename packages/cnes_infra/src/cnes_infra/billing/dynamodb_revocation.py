@@ -1,6 +1,7 @@
 """Revogação imediata de entitlement sobre a single table DynamoDB."""
 
 import json
+import logging
 from dataclasses import replace
 from datetime import datetime
 from typing import Any
@@ -9,7 +10,6 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from cnes_domain.billing.errors import (
     BillingDependencyError,
-    PermanentBillingError,
     RetryableBillingError,
 )
 from cnes_domain.billing.execution import RunBillingState
@@ -58,6 +58,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
 )
 from cnes_infra.control_plane.dynamodb_run_codec import run_item
 
+logger = logging.getLogger(__name__)
 PROGRESS_ENTITY = "BILLINGREVOCATIONPROGRESS"
 _RUN_PREFIX = "RUN#"
 _PROGRESS_PREFIX = "REVOCATION#"
@@ -172,7 +173,10 @@ class DynamoRevocationStore:
     def list_revocable_runs(
         self, billing_account_id: str, limit: int, cursor: str | None,
     ) -> RevocableRunPage:
-        """Lista, com leitura forte, os Runs da conta em estados revogáveis.
+        """Lista, com leitura forte, os Runs revogáveis ou cancelados com fence.
+
+        Runs CANCELED com cancel_requested seguem listados para liquidação idempotente.
+        Lookups órfãos são ignorados com aviso.
 
         Args: Conta, tamanho da página e cursor opaco da página anterior.
         Returns: Companions revogáveis e o cursor da próxima página.
@@ -191,8 +195,10 @@ class DynamoRevocationStore:
         state = self.get_run_billing_state(tenant_id, run_id)
         run = self.get_run(tenant_id, run_id)
         if state is None or run is None:
-            raise PermanentBillingError("run_lookup_orphan")
-        return state if run.state in REVOCABLE_RUN_STATES else None
+            logger.warning("revocation_lookup_orphan tenant_id=%s run_id=%s", tenant_id, run_id)
+            return None
+        fenced_cancel = run.state is RunState.CANCELED and state.cancel_requested
+        return state if run.state in REVOCABLE_RUN_STATES or fenced_cancel else None
 
     def request_run_revocation(
         self, command: RevokeRunCommand, event: OutboxEvent,

@@ -139,6 +139,25 @@ def test_nao_lista_run_em_estado_nao_revogavel(env: RevEnv, state: RunState) -> 
     assert listed_ids(env) == []
 
 
+def test_lista_run_cancelado_com_fence_para_liquidacao_idempotente(env: RevEnv) -> None:
+    create_run(env)
+    fence(env)
+    put_run_state(env, RunState.CANCELED)
+
+    assert listed_ids(env) == [RUN_ID]
+
+
+@pytest.mark.parametrize(
+    "state", [RunState.PUBLISHING, RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED, RunState.FAILED]
+)
+def test_nao_lista_run_nao_revogavel_mesmo_com_fence(env: RevEnv, state: RunState) -> None:
+    create_run(env)
+    fence(env)
+    put_run_state(env, state)
+
+    assert listed_ids(env) == []
+
+
 def test_lista_run_com_cancelamento_ja_solicitado(env: RevEnv) -> None:
     create_run(env)
     put_run_state(env, RunState.CANCEL_REQUESTED)
@@ -181,12 +200,17 @@ def test_lookup_corrompido_vira_item_corrompido(env: RevEnv, change: Any) -> Non
 
 
 @pytest.mark.parametrize("missing", [run_billing_key, run_entity_key])
-def test_lookup_orfao_sem_companion_ou_run(env: RevEnv, missing: Any) -> None:
-    create_run(env)
-    env.client.delete_item(TableName=env.table, Key=item_key(*missing(TENANT, RUN_ID)))
+def test_lookup_orfao_e_ignorado_com_aviso_sem_bloquear_outros_runs(
+    env: RevEnv, missing: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    create_run(env, "run-01")
+    create_run(env, "run-02")
+    env.client.delete_item(TableName=env.table, Key=item_key(*missing(TENANT, "run-01")))
 
-    with pytest.raises(PermanentBillingError, match="run_lookup_orphan"):
-        env.store.list_revocable_runs(ACCOUNT, 10, None)
+    with caplog.at_level("WARNING"):
+        assert listed_ids(env) == ["run-02"]
+
+    assert f"revocation_lookup_orphan tenant_id={TENANT} run_id=run-01" in caplog.text
 
 
 def test_falha_de_query_na_listagem_vira_dependencia_indisponivel(env: RevEnv) -> None:
@@ -328,7 +352,7 @@ def test_fence_sem_run_e_permanente(env: RevEnv) -> None:
 def progress(**changes: Any) -> RevocationProgress:
     base = RevocationProgress(
         billing_account_id=ACCOUNT, entitlement_version=1, phase=RevocationPhase.FENCING,
-        run_cursor=None, unit_cursor=None, updated_at=NOW,
+        run_cursor=None, updated_at=NOW,
     )
     return replace(base, **changes)
 
@@ -348,7 +372,7 @@ def test_substitui_o_progresso_por_compare_and_set(env: RevEnv) -> None:
     started = progress()
     env.store.save_revocation_progress(None, started)
     advanced = progress(
-        phase=RevocationPhase.FINALIZING, run_cursor="RUN#a", unit_cursor="unit-0001",
+        phase=RevocationPhase.FINALIZING, run_cursor="RUN#a",
         updated_at=NOW + timedelta(seconds=5),
     )
 
@@ -416,4 +440,3 @@ def test_progresso_corrompido_vira_item_corrompido(env: RevEnv, change: Any) -> 
 def test_falha_de_query_do_progresso_vira_dependencia_indisponivel(env: RevEnv) -> None:
     with pytest.raises(BillingDependencyError, match="dynamodb_unavailable"):
         failing_store(env).get_revocation_progress(ACCOUNT)
-

@@ -88,7 +88,7 @@ def _canceled_event(command: CancelRunUnitsCommand, state: RunBillingState) -> O
     tenant_id, run_id = command.tenant_id, command.run_id
     return OutboxEvent(
         tenant_id=tenant_id,
-        event_id=f"run.canceled:{tenant_id}:{run_id}",
+        event_id=f"run.canceled.revoked:{tenant_id}:{run_id}",
         event_type="run.canceled",
         aggregate_id=run_id,
         payload={

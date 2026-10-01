@@ -102,22 +102,27 @@ def env() -> Any:
         yield opened
 
 
+@dataclass(frozen=True, slots=True)
+class ServiceOptions:
+    settings: RevocationSettings | None = None
+    projection: Any = None
+    store: Any = None
+    audit: Any = None
+
+
 def build_service(
-    env: RevEnv,
-    executor: Any,
-    settings: RevocationSettings | None = None,
-    projection: Any = None,
-    store: Any = None,
+    env: RevEnv, executor: Any, options: ServiceOptions | None = None
 ) -> ImmediateRevocationService:
+    chosen = options or ServiceOptions()
     dependencies = RevocationDependencies(
-        projection=projection
+        projection=chosen.projection
         or DynamoEntitlementProjection(env.spy, env.table, env.clock.now),
-        store=store or env.store,
+        store=chosen.store or env.store,
         executor=executor,
-        audit=DynamoBillingAudit(env.spy, env.table),
+        audit=chosen.audit or DynamoBillingAudit(env.spy, env.table),
         clock=env.clock.now,
     )
-    return ImmediateRevocationService(dependencies, settings or RevocationSettings())
+    return ImmediateRevocationService(dependencies, chosen.settings or RevocationSettings())
 
 
 def units_of(env: RevEnv, run_id: str) -> dict[str, Any]:
@@ -394,7 +399,7 @@ def test_retomada_apos_queda_pelo_cursor_de_revogacao(
     seed_simple_run(env, RUN_ID)
     seed_simple_run(env, SECOND_RUN)
     executor = RecordingExecutor()
-    service = build_service(env, executor, RevocationSettings(run_page_size=1))
+    service = build_service(env, executor, ServiceOptions(RevocationSettings(run_page_size=1)))
     inject_crash(env, predicate)
 
     with pytest.raises(RuntimeError, match="crash_injected"):
@@ -436,7 +441,7 @@ def test_modo_disabled_falha_fechado_sem_tocar_executor(env: RevEnv) -> None:
     executor = RecordingExecutor()
     store = StoreSpy(env.store)
     projection = DisabledEntitlementProjection(env.clock.now)
-    service = build_service(env, executor, projection=projection, store=store)
+    service = build_service(env, executor, ServiceOptions(projection=projection, store=store))
     transactions = len(env.spy.transactions)
 
     with pytest.raises(BillingDisabledError):
@@ -453,9 +458,9 @@ def test_run_com_150_unidades_converge_com_transacoes_de_ate_100_itens(env: RevE
     seed_units(env, 150)
     env.spy.transactions.clear()
 
-    result = build_service(env, RecordingExecutor(), RevocationSettings(unit_batch_size=50)).revoke(
-        COMMAND
-    )
+    options = ServiceOptions(RevocationSettings(unit_batch_size=50))
+
+    result = build_service(env, RecordingExecutor(), options).revoke(COMMAND)
 
     assert result.fenced_run_ids == (RUN_ID,)
     assert stored_run(env).state is RunState.CANCELED

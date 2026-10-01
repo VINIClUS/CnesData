@@ -16,9 +16,11 @@ from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingEr
 from cnes_domain.billing.models import BillingEnforcementMode, ReservationStatus
 from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
 from cnes_domain.profiles import BillingMode
+from cnes_infra.billing import dynamodb_revocation_units as revocation_units
 from cnes_infra.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_infra.billing.keys import run_billing_key
 from cnes_infra.billing.settings import BillingSettings
+from cnes_infra.control_plane import dynamodb_adapter
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_keys import dispatch_key, item_key, run_entity_key
 from packages.cnes_infra.tests.billing.quota_support import TENANT
@@ -69,8 +71,8 @@ def local_client() -> Any:
         "dynamodb",
         endpoint_url=ENDPOINT,
         region_name="us-east-1",
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "test"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "test"),
+        aws_access_key_id="test",
+        aws_secret_access_key="test",  # noqa: S106
         config=Config(retries={"max_attempts": 1}, connect_timeout=2, read_timeout=10),
     )
     try:
@@ -282,6 +284,23 @@ def test_run_ja_cancelado_retoma_a_liquidacao_e_depois_nao_regrava(env: RevEnv) 
     second = env.store.cancel_run_units(cancel_command(env, fenced))
     assert second.run_canceled is True
     assert env.spy.transactions == []
+
+
+def test_evento_de_finalizacao_da_revogacao_nao_colide_com_o_do_coordenador(
+    env: RevEnv,
+) -> None:
+    create_run(env)
+    fenced = fence(env)
+
+    cancel_until_done(env, fenced)
+
+    ids = {event.event_id for event in env.plane.pending_outbox(100)}
+    assert f"run.canceled.revoked:{TENANT}:{RUN_ID}" in ids
+    assert f"run.canceled:{TENANT}:{RUN_ID}" not in ids
+
+
+def test_estados_nao_terminais_de_unidade_espelham_o_adapter_canonico() -> None:
+    assert revocation_units._NONTERMINAL_UNITS == dynamodb_adapter._NONTERMINAL_UNITS
 
 
 def test_run_sem_reserva_nem_dispatch_cancela_sem_liquidar(env: RevEnv) -> None:
