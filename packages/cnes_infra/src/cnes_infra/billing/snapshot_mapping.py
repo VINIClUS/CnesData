@@ -1,12 +1,24 @@
 """Mapeamento puro do estado atual da Stripe para snapshot de entitlement."""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from cnes_domain.billing.commands import StripeBillingState
 from cnes_domain.billing.models import EntitlementSnapshot, PlanVersion, SubscriptionStatus
 
 STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS = 72
+COMPARED_FIELDS = (
+    "subscription_status",
+    "stripe_subscription_id",
+    "plan_version_id",
+    "features",
+    "quotas",
+    "period_start",
+    "period_end",
+    "cancel_at_period_end",
+    "grace_until",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,3 +89,29 @@ def map_snapshot(
         updated_at=inputs.now,
         source_event_id=source_event_id,
     )
+
+
+def canonical_fields(snapshot: EntitlementSnapshot) -> dict[str, Any]:
+    """Args: Snapshot de entitlement.
+    Returns: Campos comparados em forma canônica serializável.
+    """
+    grace = snapshot.grace_until
+    return {
+        "subscription_status": snapshot.subscription_status.value,
+        "stripe_subscription_id": snapshot.stripe_subscription_id,
+        "plan_version_id": snapshot.plan_version_id,
+        "features": sorted(snapshot.features),
+        "quotas": asdict(snapshot.quotas),
+        "period_start": snapshot.period_start.isoformat(),
+        "period_end": snapshot.period_end.isoformat(),
+        "cancel_at_period_end": snapshot.cancel_at_period_end,
+        "grace_until": None if grace is None else grace.isoformat(),
+    }
+
+
+def changed_fields(current: EntitlementSnapshot, desired: EntitlementSnapshot) -> tuple[str, ...]:
+    """Args: Snapshot atual e snapshot desejado.
+    Returns: Nomes dos campos comparados cujo valor canônico difere.
+    """
+    before, after = canonical_fields(current), canonical_fields(desired)
+    return tuple(name for name in COMPARED_FIELDS if before[name] != after[name])

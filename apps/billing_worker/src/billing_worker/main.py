@@ -1,14 +1,16 @@
-"""CLI do worker de billing: dreno do inbox e recovery de webhooks Stripe."""
+"""CLI do worker de billing: inbox, recovery, reconciliação, revogações e reservas."""
 
 import argparse
 import logging
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
-from billing_worker.worker import BillingWorker, build_worker
+from billing_worker.composition import build_worker
+from billing_worker.worker import BillingWorker
 from cnes_domain.billing.errors import BillingError
-from cnes_domain.billing.inbox import STRIPE_EVENT_PAGE_LIMIT, RecoveryResult
+from cnes_domain.billing.inbox import STRIPE_EVENT_PAGE_LIMIT
 from cnes_infra.billing.secrets_manager import SecretProviderError
 from cnes_infra.billing.settings import BillingConfigurationError
 
@@ -17,6 +19,19 @@ logger = logging.getLogger(__name__)
 EXIT_OK = 0
 EXIT_RETRY = 1
 EXIT_INVALID = 2
+
+_LIMITED_COMMANDS: dict[str, str] = {
+    "inbox": "drena eventos vencidos do inbox",
+    "reconcile": "reconcilia uma página de contas com a Stripe",
+    "revoke-pending": "retoma revogações pendentes de uma página de contas",
+    "release-expired-reservations": "libera reservas de quota vencidas",
+}
+_HANDLERS: dict[str, Callable[[BillingWorker, int], Any]] = {
+    "inbox": BillingWorker.run_inbox,
+    "reconcile": BillingWorker.run_reconcile,
+    "revoke-pending": BillingWorker.run_revoke_pending,
+    "release-expired-reservations": BillingWorker.run_release_expired,
+}
 
 
 def _limit(raw: str) -> int:
@@ -29,8 +44,9 @@ def _limit(raw: str) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="billing-worker")
     commands = parser.add_subparsers(dest="command", required=True)
-    inbox = commands.add_parser("inbox", help="drena eventos vencidos do inbox")
-    inbox.add_argument("--limit", type=_limit, default=STRIPE_EVENT_PAGE_LIMIT)
+    for name, help_text in _LIMITED_COMMANDS.items():
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument("--limit", type=_limit, default=STRIPE_EVENT_PAGE_LIMIT)
     commands.add_parser("recover", help="processa uma página do cursor de eventos Stripe")
     return parser
 
@@ -41,19 +57,19 @@ def _session(region: str) -> Any:
     return Session(region_name=region)
 
 
-def _execute(worker: BillingWorker, args: argparse.Namespace) -> RecoveryResult:
-    if args.command == "inbox":
-        return worker.run_inbox(args.limit)
-    return worker.run_recover()
+def _execute(worker: BillingWorker, args: argparse.Namespace) -> Any:
+    if args.command == "recover":
+        return worker.run_recover()
+    return _HANDLERS[args.command](worker, args.limit)
 
 
-def _log_done(command: str, result: RecoveryResult) -> None:
-    logger.info(
-        "billing_worker_cycle_done command=%s scanned=%d imported=%d reprocessed=%d "
-        "failed=%d next_cursor=%s",
-        command, result.scanned, result.imported, result.reprocessed, result.failed,
-        result.next_cursor,
-    )
+def _log_done(command: str, result: Any) -> None:
+    if result is None:
+        logger.info("billing_worker_skipped command=%s reason=enforcement_off", command)
+        return
+    fields = asdict(result) if is_dataclass(result) else {}
+    summary = " ".join(f"{name}={value}" for name, value in fields.items())
+    logger.info("billing_worker_cycle_done command=%s %s", command, summary)
 
 
 def _build() -> tuple[BillingWorker | None, int]:
@@ -77,8 +93,9 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace | int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Args: argv: Argumentos do CLI (inbox [--limit N] | recover).
-    Returns: 0 ciclo concluído; 1 falha retryable/registro durável; 2 entrada inválida.
+    """Args: argv: Argumentos do CLI (inbox|reconcile|revoke-pending|
+    release-expired-reservations [--limit N] | recover).
+    Returns: 0 ciclo concluído; 1 falha retryable sem registro; 2 entrada inválida.
     """
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s",

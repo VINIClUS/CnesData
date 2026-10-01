@@ -1,9 +1,11 @@
 """Entitlement gate routing critical operations through strong snapshot reads."""
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Protocol, runtime_checkable
+from functools import wraps
+from typing import Any, Protocol, runtime_checkable
 
 from cnes_domain.billing.commands import (
     AnalyticsRequest,
@@ -15,6 +17,7 @@ from cnes_domain.billing.commands import (
 from cnes_domain.billing.errors import EntitlementDenied
 from cnes_domain.billing.models import (
     AnalyticsAuthorization,
+    BillingMetric,
     EntitlementAction,
     EntitlementDecision,
     EntitlementSnapshot,
@@ -22,8 +25,33 @@ from cnes_domain.billing.models import (
     RunAuthorization,
 )
 from cnes_domain.billing.policy import EntitlementPolicy, require_allowed
-from cnes_domain.billing.ports import ClockPort, EntitlementProjectionPort, QuotaReservationPort
+from cnes_domain.billing.ports import (
+    BillingMetricsPort,
+    ClockPort,
+    EntitlementProjectionPort,
+    QuotaReservationPort,
+)
 from cnes_domain.billing.validation import require_positive
+
+_REASON = re.compile(r"reason=([a-z][a-z0-9_]*)")
+_FALLBACK_REASON = "entitlement_denied"
+
+
+def _denial_reason(error: EntitlementDenied) -> str:
+    match = _REASON.search(str(error))
+    return match.group(1) if match else _FALLBACK_REASON
+
+
+def _counts_denials(method: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(method)
+    def wrapper(self: "EntitlementGate", *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(self, *args, **kwargs)
+        except EntitlementDenied as error:
+            self._count_denial(error)
+            raise
+
+    return wrapper
 
 
 @runtime_checkable
@@ -57,6 +85,7 @@ class EntitlementGateDependencies:
     run_settings: RunReservationSettings
     policy: EntitlementPolicy = field(default_factory=EntitlementPolicy)
     cache: EntitlementCacheReader | None = None
+    metrics: BillingMetricsPort | None = None
 
 
 class EntitlementGate:
@@ -67,7 +96,22 @@ class EntitlementGate:
         self._settings = dependencies.run_settings
         self._policy = dependencies.policy
         self._cache = dependencies.cache
+        self._metrics = dependencies.metrics
 
+    def _count_denial(self, error: EntitlementDenied) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.emit(
+            BillingMetric(
+                name="EntitlementChecksDenied",
+                value=1.0,
+                unit="Count",
+                dimensions={"Reason": _denial_reason(error)},
+                occurred_at=self._clock(),
+            )
+        )
+
+    @_counts_denials
     def authorize_create_run(self, request: CreateRunRequest) -> RunAuthorization:
         """Args: request: Pedido de criação de run.
         Returns: Autorização com reserva de cota criada pelo port de quotas.
@@ -86,6 +130,7 @@ class EntitlementGate:
         )
         return self._quotas.reserve_and_create_run(command)
 
+    @_counts_denials
     def authorize_register_agent(self, request: GateRequest) -> EntitlementDecision:
         """Args: request: Pedido de registro de agente.
         Returns: Decisão permitida com limite de agentes.
@@ -93,6 +138,7 @@ class EntitlementGate:
         """
         return self._decide_critical(request, EntitlementAction.REGISTER_AGENT)
 
+    @_counts_denials
     def authorize_analytics_query(self, request: AnalyticsRequest) -> AnalyticsAuthorization:
         """Args: request: Pedido de consulta analítica.
         Returns: Autorização sem reserva, limitada pelo orçamento de scan.
@@ -110,6 +156,7 @@ class EntitlementGate:
             authorized_at=now,
         )
 
+    @_counts_denials
     def authorize_serving_access(
         self, request: GateRequest, allow_cached: bool = False,
     ) -> EntitlementDecision:
@@ -120,6 +167,7 @@ class EntitlementGate:
         snapshot = self._serving_snapshot(request.billing_account_id, allow_cached)
         return self._authorize(snapshot, EntitlementAction.SERVING_ACCESS, self._clock())
 
+    @_counts_denials
     def authorize_tenant_creation(self, request: GateRequest) -> EntitlementDecision:
         """Args: request: Pedido de criação de tenant.
         Returns: Decisão permitida com limite de tenants.
@@ -127,6 +175,7 @@ class EntitlementGate:
         """
         return self._decide_critical(request, EntitlementAction.TENANT_CREATION)
 
+    @_counts_denials
     def authorize_publish_run(self, request: PublishGateRequest) -> EntitlementDecision:
         """Args: request: Pedido de publicação com versão de entitlement esperada.
         Returns: Decisão permitida para publicar o run.

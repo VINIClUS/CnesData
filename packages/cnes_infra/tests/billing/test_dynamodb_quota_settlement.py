@@ -386,3 +386,31 @@ def test_acoes_de_consumo_sao_vazias_fora_de_reservado(status: ReservationStatus
 def test_acoes_de_consumo_de_reserva_desconhecida_sao_retryable() -> None:
     with quota_env() as env, pytest.raises(RetryableBillingError, match="not_found"):
         env.repo.consume_reserved_actions(ACCOUNT, "res-missing", NOW)
+
+
+def test_acoes_de_liberacao_devolvem_scan_sem_decrementar_run_consumido() -> None:
+    with quota_env() as env:
+        _seed(env)
+
+        actions = env.repo.release_reserved_actions(ACCOUNT, RID, NOW, "revoked")
+        assert transact(env.client, actions)
+
+        stored = decode_reservation(_stored(env))[0]
+        assert stored.status is ReservationStatus.RELEASED
+        usage = _usage(env)
+        assert usage["consumed_runs"] == 1
+        assert usage["run_reserved_scan_bytes"] == 0
+        assert usage["run_committed_scan_bytes"] == 0
+
+
+@pytest.mark.parametrize("status", [ReservationStatus.CONSUMED, ReservationStatus.RELEASED])
+def test_acoes_de_liberacao_sao_vazias_fora_de_reservado(status: ReservationStatus) -> None:
+    with quota_env() as env:
+        _seed(env, _reservation(status=status))
+
+        assert env.repo.release_reserved_actions(ACCOUNT, RID, NOW, "revoked") == ()
+
+
+def test_acoes_de_liberacao_de_reserva_desconhecida_sao_retryable() -> None:
+    with quota_env() as env, pytest.raises(RetryableBillingError, match="not_found"):
+        env.repo.release_reserved_actions(ACCOUNT, "res-missing", NOW, "revoked")

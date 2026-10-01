@@ -13,7 +13,7 @@ from moto import mock_aws
 from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.billing.ports import BillingAuditPort
 from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_infra.billing.audit_outbox import DynamoBillingAudit
+from cnes_infra.billing.audit_outbox import BestEffortBillingAudit, DynamoBillingAudit
 from cnes_infra.billing.keys import BILLING_AUDIT_TENANT_ID
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_codec import decode_model
@@ -115,3 +115,53 @@ def test_append_propaga_falha_de_storage_como_dependencia_indisponivel() -> None
 
 def test_adapter_satisfaz_o_port_de_auditoria() -> None:
     assert isinstance(DynamoBillingAudit(Mock(), "t"), BillingAuditPort)
+
+
+class _FailingAudit:
+    def append(self, event: Any) -> None:
+        raise BillingDependencyError("dynamodb_unavailable")
+
+
+class _SpyAudit:
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    def append(self, event: Any) -> None:
+        self.events.append(event)
+
+
+class _SpyMetrics:
+    def __init__(self) -> None:
+        self.emitted: list[Any] = []
+
+    def emit(self, metric: Any) -> None:
+        self.emitted.append(metric)
+
+
+def test_best_effort_delega_ao_audit_interno() -> None:
+    inner, metrics = _SpyAudit(), _SpyMetrics()
+    audit = make_audit("best-effort-1")
+
+    BestEffortBillingAudit(inner, metrics, lambda: NOW).append(audit)
+
+    assert inner.events == [audit]
+    assert metrics.emitted == []
+
+
+def test_best_effort_engole_billing_error_registra_e_emite_metrica(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    metrics = _SpyMetrics()
+    best_effort = BestEffortBillingAudit(_FailingAudit(), metrics, lambda: NOW)
+
+    with caplog.at_level(logging.WARNING):
+        best_effort.append(make_audit("best-effort-2"))
+
+    [metric] = metrics.emitted
+    assert metric.name == "AuditOutboxFailures"
+    assert metric.value == 1
+    assert dict(metric.dimensions) == {"EventType": "entitlement.changed"}
+    assert metric.occurred_at == NOW
+    assert [r.getMessage() for r in caplog.records] == [
+        "billing_audit_append_failed event_type=entitlement.changed code=dynamodb_unavailable"
+    ]

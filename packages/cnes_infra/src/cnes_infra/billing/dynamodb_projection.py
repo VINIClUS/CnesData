@@ -81,7 +81,7 @@ class DynamoEntitlementProjection:
         actions = (self._snapshot_put(command), *self._audit_puts(command))
         if transact(self._client, actions):
             return True
-        if self._snapshot_version(command) != command.expected_version:
+        if self._version_of(command.snapshot.billing_account_id) != command.expected_version:
             return False
         raise RetryableBillingError(AMBIGUOUS_COMMIT_CODE)
 
@@ -99,12 +99,45 @@ class DynamoEntitlementProjection:
             raise ValueError("reason=snapshot_event_mismatch")
         actions = (
             self._snapshot_put(command),
-            self._inbox_processed(claim, command),
+            self._inbox_processed(claim, command.snapshot.entitlement_version),
             *self._audit_puts(command),
         )
         if transact(self._client, actions):
             return True
-        return self._classify_claimed_failure(claim, command)
+        account_id = command.snapshot.billing_account_id
+        return self._classify_failure(claim, account_id, command.expected_version)
+
+    def complete_claim_unchanged(
+        self, claim: InboxClaim, billing_account_id: str, expected_version: int,
+    ) -> bool:
+        """Conclui o inbox sob o fence sem gravar snapshot, se a versão ainda for a esperada.
+
+        Args: Claim adquirido, conta de billing e versão atual do snapshot.
+        Returns: True se concluiu; False se a versão do snapshot mudou.
+        Raises: StaleInboxClaim se o fence foi perdido; RetryableBillingError se ambíguo;
+            ValueError se a versão esperada for menor que 1.
+        """
+        if not claim.acquired:
+            raise StaleInboxClaim(claim.event_id)
+        if expected_version < 1:
+            raise ValueError("reason=expected_version_invalid")
+        actions = (
+            self._snapshot_check(billing_account_id, expected_version),
+            self._inbox_processed(claim, expected_version),
+        )
+        if transact(self._client, actions):
+            return True
+        return self._classify_failure(claim, billing_account_id, expected_version)
+
+    def _snapshot_check(self, billing_account_id: str, expected_version: int) -> Action:
+        return {
+            "ConditionCheck": {
+                "TableName": self._table_name,
+                "Key": item_key(*entitlement_snapshot_key(billing_account_id)),
+                "ConditionExpression": "entitlement_version = :expected",
+                "ExpressionAttributeValues": {":expected": {"N": str(expected_version)}},
+            }
+        }
 
     def _snapshot_put(self, command: SnapshotWrite) -> Action:
         put: dict[str, Any] = {
@@ -124,7 +157,7 @@ class DynamoEntitlementProjection:
             for event in command.audit_events
         )
 
-    def _inbox_processed(self, claim: InboxClaim, command: SnapshotWrite) -> Action:
+    def _inbox_processed(self, claim: InboxClaim, version: int) -> Action:
         removed = ", ".join(INBOX_TRANSIENT_ATTRIBUTES)
         return {
             "Update": {
@@ -140,20 +173,20 @@ class DynamoEntitlementProjection:
                     ":processing": {"S": InboxProcessingState.PROCESSING.value},
                     ":processed": {"S": InboxProcessingState.PROCESSED.value},
                     ":attempt": {"N": str(claim.attempt)},
-                    ":version": {"N": str(command.snapshot.entitlement_version)},
+                    ":version": {"N": str(version)},
                     ":processed_at": {"S": utc_attribute(self._clock())},
                 },
             }
         }
 
-    def _snapshot_version(self, command: SnapshotWrite) -> int:
-        key = entitlement_snapshot_key(command.snapshot.billing_account_id)
+    def _version_of(self, billing_account_id: str) -> int:
+        key = entitlement_snapshot_key(billing_account_id)
         return _current_version(get_item(self._client, self._table_name, key, True))
 
-    def _classify_claimed_failure(self, claim: InboxClaim, command: SnapshotWrite) -> bool:
+    def _classify_failure(self, claim: InboxClaim, account_id: str, expected: int) -> bool:
         inbox = get_item(self._client, self._table_name, stripe_event_key(claim.event_id), True)
         if _fence_lost(inbox, claim.attempt):
             raise StaleInboxClaim(claim.event_id)
-        if self._snapshot_version(command) != command.expected_version:
+        if self._version_of(account_id) != expected:
             return False
         raise RetryableBillingError(AMBIGUOUS_COMMIT_CODE)

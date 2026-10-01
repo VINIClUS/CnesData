@@ -125,7 +125,6 @@ def test_lista_em_paginas_de_um_run_com_cursor(env: RevEnv) -> None:
 @pytest.mark.parametrize(
     "state",
     [
-        RunState.PUBLISHING,
         RunState.PUBLISHED,
         RunState.PUBLISHED_DEGRADED,
         RunState.FAILED,
@@ -148,7 +147,7 @@ def test_lista_run_cancelado_com_fence_para_liquidacao_idempotente(env: RevEnv) 
 
 
 @pytest.mark.parametrize(
-    "state", [RunState.PUBLISHING, RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED, RunState.FAILED]
+    "state", [RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED, RunState.FAILED]
 )
 def test_nao_lista_run_nao_revogavel_mesmo_com_fence(env: RevEnv, state: RunState) -> None:
     create_run(env)

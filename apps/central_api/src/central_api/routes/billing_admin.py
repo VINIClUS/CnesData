@@ -1,6 +1,7 @@
 """Rota administrativa de revogação imediata de entitlement de billing."""
 
 import logging
+from datetime import datetime
 from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -13,12 +14,15 @@ from central_api.routes.billing import (
     require_billing_owner,
 )
 from central_api.routes.billing_errors import mapped_errors
+from central_api.routes.stripe_webhook import get_billing_metrics
 from cnes_domain.billing.errors import BillingDisabledError, PermanentBillingError
+from cnes_domain.billing.ports import BillingMetricsPort
 from cnes_domain.billing.revocation_models import (
     MAX_REASON_CODE_LENGTH,
     ImmediateRevocationCommand,
     RevocationResult,
 )
+from cnes_infra.billing.metrics import BillingMetricName, billing_metric
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,18 @@ def _revoke(
         raise HTTPException(status_code=404, detail="billing_disabled") from error
 
 
+def _emit_revoked_runs(
+    metrics: BillingMetricsPort, result: RevocationResult, now: datetime,
+) -> None:
+    if result.fenced_run_ids:
+        metrics.emit(billing_metric(
+            BillingMetricName.RUNS_CANCELED_BY_REVOCATION,
+            len(result.fenced_run_ids),
+            now,
+            {"Reason": "admin_revoked"},
+        ))
+
+
 @router.post(
     "/{billing_account_id}/revoke",
     status_code=200,
@@ -76,6 +92,7 @@ def revoke_billing_account(
     body: RevocationCreate,
     ctx: Annotated[BillingContext, Depends(get_billing_context)],
     service: Annotated[RevocationService, Depends(get_revocation_service)],
+    metrics: Annotated[BillingMetricsPort, Depends(get_billing_metrics)],
 ) -> RevocationOut:
     """Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado."""
     with mapped_errors():
@@ -87,6 +104,7 @@ def revoke_billing_account(
             account.billing_account_id, ctx.principal.subject, body.reason_code, ctx.clock(),
         )
         result = _revoke(service, command)
+    _emit_revoked_runs(metrics, result, ctx.clock())
     logger.info(
         "billing_admin_revoked entitlement_version=%d fenced=%d failures=%d",
         result.entitlement_version, len(result.fenced_run_ids), len(result.cancel_failures),

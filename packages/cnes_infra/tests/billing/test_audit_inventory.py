@@ -11,9 +11,10 @@ SCANNED_GLOBS = (
     "packages/cnes_infra/src/cnes_infra/billing/*.py",
     "packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_billing.py",
     "apps/central_api/src/central_api/routes/billing.py",
+    "apps/central_api/src/central_api/services/serving_entitlement.py",
 )
 EVENT_PATTERN = re.compile(
-    r"^(billing_account|checkout|billing|entitlement|subscription|quota|run)"
+    r"^(billing_account|checkout|billing|entitlement|subscription|quota|run|run_execution|serving)"
     r"\.[a-z_]+(\.[a-z_]+)?$"
 )
 LOG_PATTERN = re.compile(r"billing_audit event_type=([a-z_.]+)")
@@ -38,8 +39,13 @@ AUDIT_EVENT_INVENTORY: Mapping[str, str] = {
     "run.canceled": "revocation/dynamodb_revocation_units: Run cancelado",
     "billing.reconciliation_drift": "reconciliation: drift detectado",
     "billing.reconciliation_corrected": "reconciliation: snapshot corrigido",
+    "run_execution.bind_failed": "execution_policy: falha de vinculação da execução",
+    "entitlement.shadow_denied": "wiring: negação observada em shadow",
+    "serving.denied": "central_api serving_entitlement: negação de serving",
+    "entitlement.shadow_access_loss": "enforcement: perda de acesso observada em shadow",
+    "run.failed": "revocation: publicação negada após revogação",
 }
-LOG_ONLY_EVENTS = frozenset({"run_execution.bind_failed", "entitlement.shadow_denied"})
+LOG_ONLY_EVENTS: frozenset[str] = frozenset()
 
 
 def _trees() -> dict[Path, ast.Module]:
@@ -141,10 +147,8 @@ def test_inventario_nao_lista_evento_sem_produtor() -> None:
     assert not orphans, f"events_sem_produtor={orphans}"
 
 
-def test_eventos_log_only_nao_sao_audit_duravel() -> None:
-    assert _log_only_literals() == LOG_ONLY_EVENTS
-    assert not LOG_ONLY_EVENTS & _produced_events()
-    assert not LOG_ONLY_EVENTS & set(AUDIT_EVENT_INVENTORY)
+def test_nenhum_evento_de_audit_e_somente_log() -> None:
+    assert _log_only_literals() == set()
 
 
 def test_inventario_cobre_categorias_do_bil_022() -> None:

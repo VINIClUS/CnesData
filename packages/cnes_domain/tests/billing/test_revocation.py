@@ -393,7 +393,7 @@ def test_configuracao_exige_valores_positivos(field: str) -> None:
 
 def test_metodos_do_port_sao_apenas_contrato() -> None:
     names = [n for n in vars(RevocationStorePort) if not n.startswith("_")]
-    assert len(names) == 8
+    assert len(names) == 10
     for name in names:
         method = getattr(RevocationStorePort, name)
         arity = method.__code__.co_argcount

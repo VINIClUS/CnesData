@@ -6,8 +6,11 @@ from typing import Any
 from cnes_domain.billing.commands import StripeBillingState
 from cnes_domain.billing.models import SubscriptionStatus
 from cnes_infra.billing.snapshot_mapping import (
+    COMPARED_FIELDS,
     STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS,
     SnapshotMappingInput,
+    canonical_fields,
+    changed_fields,
     map_snapshot,
     mapped_status,
 )
@@ -126,3 +129,23 @@ def test_features_quotas_e_plano_vem_do_state_e_do_plan():
     assert snapshot.features == frozenset({"a", "b"})
     assert snapshot.cancel_at_period_end is True
     assert (snapshot.period_start, snapshot.period_end) == (NOW, PERIOD_END)
+
+
+def test_campos_canonicos_cobrem_exatamente_os_campos_comparados():
+    fields = canonical_fields(make_snapshot(grace_until=NOW))
+    assert tuple(fields) == COMPARED_FIELDS
+    assert fields["features"] == ["create_run", "serving_access"]
+    assert fields["grace_until"] == NOW.isoformat()
+    assert canonical_fields(make_snapshot())["grace_until"] is None
+
+
+def test_changed_fields_vazio_para_snapshots_equivalentes():
+    current = make_snapshot(version=1)
+    desired = make_snapshot(version=2, valid_until=NOW + timedelta(days=90))
+    assert changed_fields(current, desired) == ()
+
+
+def test_changed_fields_lista_na_ordem_dos_campos_comparados():
+    current = make_snapshot()
+    desired = make_snapshot(plan_version_id="plan_v2", cancel_at_period_end=True)
+    assert changed_fields(current, desired) == ("plan_version_id", "cancel_at_period_end")

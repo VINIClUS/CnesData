@@ -70,20 +70,20 @@ def fence_companion(stack: Stack) -> None:
     overwrite_companion(stack, cancel_requested=True, fencing_token=token + 1)
 
 
-def test_revogacao_imediata_impede_publicacao_por_fence_antigo(stripe: Stack) -> None:
+def test_revogacao_apos_policy_falha_o_run_e_publish_nao_move_pointer(stripe: Stack) -> None:
     drive_to_publishing(stripe)
     stale = billing_state(stripe).fencing_token
     policy = RevokingPolicy(composed_policy(stripe), revoker(stripe))
 
-    with pytest.raises(PublishDenied, match=r"reason=(admin_revoked|stale_fence)"):
+    with pytest.raises(Conflict, match="run_not_publishing"):
         publish(stripe, policy)
 
     guard = policy.seen[0].binding_context
     assert isinstance(guard, PublicationGuard)
     assert guard.expected_run_fencing_token == stale
     assert pointer_of(stripe) is None
-    assert stripe.plane.get_run(TENANT, RUN_ID).state is RunState.PUBLISHING
-    assert reservation_of(stripe).status is not ReservationStatus.CONSUMED
+    assert stripe.plane.get_run(TENANT, RUN_ID).state is RunState.FAILED
+    assert reservation_of(stripe).status is ReservationStatus.RELEASED
 
 
 def test_publicacao_com_policy_composta_avanca_pointer_nos_tres_casos(stack: Stack) -> None:

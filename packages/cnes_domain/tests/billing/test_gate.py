@@ -112,6 +112,11 @@ class _SpyProjection:
     def commit_claimed_snapshot(self, claim: Any, command: Any) -> bool:
         raise AssertionError("write_called")
 
+    def complete_claim_unchanged(
+        self, claim: Any, billing_account_id: str, expected_version: int,
+    ) -> bool:
+        raise AssertionError("write_called")
+
 
 class _SpyQuotas:
     def __init__(self) -> None:
@@ -438,3 +443,4 @@ def test_analytics_com_orcamento_zero_e_negado() -> None:
     harness = _Harness(_snapshot(quotas=quotas))
     with pytest.raises(EntitlementDenied, match="reason=quota_not_granted"):
         harness.gate.authorize_analytics_query(_ANALYTICS_REQUEST)
+

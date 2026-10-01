@@ -187,7 +187,7 @@ def test_shadow_sem_snapshot_libera_e_registra_snapshot_missing(caplog):
     assert authorization.budget_reservation_id is None
     assert len(records) == 1
     assert records[0].getMessage() == (
-        "billing_audit event_type=entitlement.shadow_denied action=create_run "
+        "billing_shadow_denied action=create_run "
         f"reason=snapshot_missing billing_account_id={ACCOUNT} tenant_id=354130"
     )
 
@@ -210,7 +210,7 @@ def test_shadow_com_snapshot_negado_libera_e_registra_motivo(caplog, changes, re
 
     records = _shadow_records(caplog)
     assert authorization.budget_reservation_id is None
-    assert [r.getMessage().split()[3] for r in records] == [f"reason={reason}"]
+    assert [r.getMessage().split()[2] for r in records] == [f"reason={reason}"]
 
 
 def test_shadow_com_snapshot_permitido_nao_registra(caplog):
@@ -234,7 +234,7 @@ def test_shadow_com_projecao_indisponivel_libera_e_registra(caplog):
 
     records = _shadow_records(caplog)
     assert authorization.budget_reservation_id is None
-    assert [r.getMessage().split()[3] for r in records] == ["reason=projection_unavailable"]
+    assert [r.getMessage().split()[2] for r in records] == ["reason=projection_unavailable"]
 
 
 def test_shadow_com_conta_divergente_registra_snapshot_account_mismatch(caplog):
@@ -244,7 +244,7 @@ def test_shadow_com_conta_divergente_registra_snapshot_account_mismatch(caplog):
         gate.authorize_create_run(make_run_request())
 
     records = _shadow_records(caplog)
-    assert [r.getMessage().split()[3] for r in records] == ["reason=snapshot_account_mismatch"]
+    assert [r.getMessage().split()[2] for r in records] == ["reason=snapshot_account_mismatch"]
 
 
 def test_shadow_nao_grava_reserva_no_dynamodb():
@@ -316,7 +316,7 @@ def test_callbacks_compoem_politica_e_started_encadeado():
     downstream = Mock()
 
     callbacks = build_execution_callbacks(
-        _settings(BillingMode.STRIPE, ENFORCE), FakeControlPlane(), _clock, downstream,
+        _settings(BillingMode.STRIPE, ENFORCE), FakeControlPlane(), _resources(), downstream,
     )
 
     assert isinstance(callbacks.policy, BillingConcurrencyPolicy)
@@ -327,7 +327,7 @@ def test_callbacks_compoem_politica_e_started_encadeado():
 
 def test_callbacks_em_stripe_negam_run_sem_companion():
     callbacks = build_execution_callbacks(
-        _settings(BillingMode.STRIPE, ENFORCE), FakeControlPlane(), _clock, Mock(),
+        _settings(BillingMode.STRIPE, ENFORCE), FakeControlPlane(), _resources(), Mock(),
     )
 
     with pytest.raises(EntitlementDenied):
@@ -337,7 +337,7 @@ def test_callbacks_em_stripe_negam_run_sem_companion():
 @pytest.mark.parametrize("enforcement", [OFF, SHADOW])
 def test_callbacks_em_stripe_sem_enforce_aceitam_run_legado_sem_companion(enforcement):
     callbacks = build_execution_callbacks(
-        _settings(BillingMode.STRIPE, enforcement), FakeControlPlane(), _clock, Mock(),
+        _settings(BillingMode.STRIPE, enforcement), FakeControlPlane(), _resources(), Mock(),
     )
 
     permit = callbacks.policy(_run(), _dispatch(), 4)
@@ -348,7 +348,7 @@ def test_callbacks_em_stripe_sem_enforce_aceitam_run_legado_sem_companion(enforc
 
 def test_callbacks_em_disabled_devolvem_permit_sem_medicao():
     callbacks = build_execution_callbacks(
-        LOCAL_BILLING_SETTINGS, FakeControlPlane(), _clock, Mock(),
+        LOCAL_BILLING_SETTINGS, FakeControlPlane(), _resources(), Mock(),
     )
 
     permit = callbacks.policy(_run(), _dispatch(), 4)
@@ -393,3 +393,4 @@ def test_importar_billing_nao_carrega_sdk_remoto():
     )
 
     assert result.stdout.strip() == "[]"
+

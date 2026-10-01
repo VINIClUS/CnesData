@@ -38,6 +38,7 @@ from cnes_infra.billing.wiring import (
     build_execution_callbacks,
 )
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
+from cnes_infra.control_plane.dynamodb_keys import outbox_key
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.coordinator import CoordinatorDependencies, PipelineCoordinator
 from data_processor.orchestration.publisher import DatasetPublisher
@@ -132,9 +133,16 @@ def _build_plane(case: Case, clock: MutableClock, tmp_path: Path) -> tuple[Any, 
     return plane, client
 
 
-def _build_coordinator(case: Case, plane: Any, clock: MutableClock) -> tuple[Any, ...]:
+def _build_coordinator(
+    case: Case, plane: Any, clock: MutableClock, client: Any,
+) -> tuple[Any, ...]:
     recorder, executor, store = PermitRecorder(), HookedExecutor(), _FakeObjectStore()
-    real = build_execution_callbacks(case.settings, plane, clock.now, recorder.started)
+    resources = (
+        BillingGateResources(clock.now, DEPLOYMENT_LIMIT, client, TABLE_NAME)
+        if case.dynamo
+        else BillingGateResources(clock.now, DEPLOYMENT_LIMIT)
+    )
+    real = build_execution_callbacks(case.settings, plane, resources, recorder.started)
     callbacks = ExecutionCallbacks(RecordingPolicy(real.policy, recorder), real.started)
     execution = ExecutionPolicyConfig(DEPLOYMENT_LIMIT, LEASE_SECONDS, callbacks)
     publisher = DatasetPublisher(store=store, control_plane=plane)
@@ -149,7 +157,7 @@ def open_stack(case: Case, tmp_path: Path) -> Iterator[Stack]:
         if case.dynamo:
             exits.enter_context(mock_aws())
         plane, client = _build_plane(case, clock, tmp_path)
-        recorder, executor, store, coordinator = _build_coordinator(case, plane, clock)
+        recorder, executor, store, coordinator = _build_coordinator(case, plane, clock, client)
         yield Stack(case, plane, clock, client, executor, recorder, store, coordinator)
 
 
@@ -244,3 +252,11 @@ def overwrite_companion(stack: Stack, **changes: Any) -> None:
             "UPDATE run_billing_states SET data = ? WHERE tenant_id = ? AND run_id = ?",
             (json.dumps(changed), TENANT, RUN_ID),
         )
+
+
+def has_outbox_event(stack: Stack, event_id: str) -> bool:
+    if stack.client is None:
+        return False
+    _, sort_key = outbox_key(event_id)
+    items = stack.client.scan(TableName=TABLE_NAME, ConsistentRead=True)["Items"]
+    return any(item["sk"]["S"] == sort_key for item in items)

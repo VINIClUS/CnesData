@@ -15,7 +15,7 @@ from cnes_infra.billing.dynamodb_items import (
     get_item,
     utc_attribute,
 )
-from cnes_infra.billing.keys import stripe_reconciliation_cursor_key
+from cnes_infra.billing.keys import Key, stripe_reconciliation_cursor_key
 from cnes_infra.control_plane.dynamodb_keys import item_key
 
 RECONCILIATION_CURSOR_ENTITY = "STRIPERECONCILIATIONCURSOR"
@@ -91,10 +91,13 @@ def _changes(position: str | None, now: str) -> tuple[str, dict[str, Any]]:
 class DynamoReconciliationCursor:
     """Cursor da reconciliação Stripe sobre DynamoDB single-table."""
 
-    def __init__(self, client: Any, table_name: str, clock: ClockPort) -> None:
+    def __init__(
+        self, client: Any, table_name: str, clock: ClockPort, key: Key | None = None,
+    ) -> None:
         self._client = client
         self._table_name = table_name
         self._clock = clock
+        self._key = key or stripe_reconciliation_cursor_key()
 
     def load(self) -> ReconciliationCursor:
         """Lê o cursor com consistência forte.
@@ -102,7 +105,7 @@ class DynamoReconciliationCursor:
         Returns: Cursor armazenado ou EMPTY_RECONCILIATION_CURSOR.
         Raises: PermanentBillingError, BillingDependencyError.
         """
-        item = get_item(self._client, self._table_name, stripe_reconciliation_cursor_key(), True)
+        item = get_item(self._client, self._table_name, self._key, True)
         return EMPTY_RECONCILIATION_CURSOR if item is None else _decode(item)
 
     def save(
@@ -129,7 +132,7 @@ class DynamoReconciliationCursor:
         try:
             self._client.update_item(
                 TableName=self._table_name,
-                Key=item_key(*stripe_reconciliation_cursor_key()),
+                Key=item_key(*self._key),
                 UpdateExpression=expression,
                 ConditionExpression=condition,
                 ExpressionAttributeNames={k: v for k, v in _NAMES.items() if k in used},

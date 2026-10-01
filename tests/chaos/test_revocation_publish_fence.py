@@ -12,6 +12,7 @@ from cnes_domain.billing.errors import PublishDenied
 from cnes_domain.billing.models import ReservationStatus
 from cnes_domain.control_plane.entities import Run
 from cnes_domain.control_plane.enums import RunState
+from cnes_domain.control_plane.errors import Conflict
 from tests.integration.billing._enforcement_stack import (
     DYNAMO_STRIPE,
     RevokingPolicy,
@@ -63,12 +64,13 @@ def test_pausa_apos_policy_e_revogacao_antes_do_publish_preserva_pointer(stripe:
     drive_to_publishing(stripe)
     policy = RevokingPolicy(composed_policy(stripe), revoker(stripe))
 
-    with pytest.raises(PublishDenied, match=DENIAL):
+    with pytest.raises(Conflict, match="run_not_publishing"):
         publish(stripe, policy)
 
     assert len(policy.seen) == 1
     assert pointer_of(stripe) is None
-    assert run_of(stripe).state is RunState.PUBLISHING
+    assert run_of(stripe).state is RunState.FAILED
+    assert reservation_of(stripe).status is ReservationStatus.RELEASED
     assert any(key.endswith("run-manifest.json") for key in stripe.store.objects)
     promoted = {f"normalized/{TENANT}/CNES_LOCAL/2026-01/{RUN_ID}/a.bin",
                 f"reconciliation/{TENANT}/2026-01/{RUN_ID}/a.bin",
@@ -79,7 +81,7 @@ def test_pausa_apos_policy_e_revogacao_antes_do_publish_preserva_pointer(stripe:
         composed_policy(stripe)(run_of(stripe))
 
 
-def test_run_em_publishing_nao_e_revogavel_mas_publicacao_e_negada(stripe: Stack) -> None:
+def test_run_em_publishing_falha_na_revogacao_e_publicacao_e_negada(stripe: Stack) -> None:
     drive_to_publishing(stripe)
     before = billing_state(stripe)
 
@@ -87,12 +89,16 @@ def test_run_em_publishing_nao_e_revogavel_mas_publicacao_e_negada(stripe: Stack
 
     after = billing_state(stripe)
     assert result.fenced_run_ids == ()
+    assert result.failed_run_ids == (RUN_ID,)
     assert (after.cancel_requested, after.fencing_token) == (False, before.fencing_token)
-    assert run_of(stripe).state is RunState.PUBLISHING
-    with pytest.raises(PublishDenied):
+    assert run_of(stripe).state is RunState.FAILED
+    assert reservation_of(stripe).status is ReservationStatus.RELEASED
+    with pytest.raises(ValueError, match="run_not_publishing"):
         publish(stripe, composed_policy(stripe))
     assert pointer_of(stripe) is None
-    assert run_of(stripe).state is RunState.PUBLISHING
+    assert run_of(stripe).state is RunState.FAILED
+    with pytest.raises(PublishDenied, match="reason=admin_revoked"):
+        composed_policy(stripe)(run_of(stripe))
 
 
 def test_revogacao_concorrente_ao_publish_nao_avanca_pointer(
@@ -106,5 +112,5 @@ def test_revogacao_concorrente_ao_publish_nao_avanca_pointer(
         publish(stripe, policy)
 
     assert pointer_of(stripe) is None
-    assert run_of(stripe).state is RunState.PUBLISHING
-    assert reservation_of(stripe).status is ReservationStatus.RESERVED
+    assert run_of(stripe).state is RunState.FAILED
+    assert reservation_of(stripe).status is ReservationStatus.RELEASED

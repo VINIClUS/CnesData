@@ -3,8 +3,8 @@
 import hashlib
 import json
 import logging
-from dataclasses import asdict, dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
 from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
 from cnes_domain.billing.errors import (
@@ -32,12 +32,17 @@ from cnes_domain.billing.ports import (
     EntitlementProjectionPort,
     StripeGatewayPort,
 )
-from cnes_domain.billing.revocation import RevocationResult
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.dynamodb_items import deterministic_id
+from cnes_infra.billing.enforcement import AccessLossEnforcerPort
 from cnes_infra.billing.metrics import BillingMetricName, billing_metric
 from cnes_infra.billing.reconciliation_cursor import ReconciliationCursor
-from cnes_infra.billing.snapshot_mapping import SnapshotMappingInput, map_snapshot
+from cnes_infra.billing.snapshot_mapping import (
+    COMPARED_FIELDS,
+    SnapshotMappingInput,
+    canonical_fields,
+    map_snapshot,
+)
 
 __all__ = [
     "COMPARED_FIELDS",
@@ -57,17 +62,6 @@ RECONCILIATION_REASON = "stripe_projection_drift"
 DRIFT_EVENT = "billing.reconciliation_drift"
 CORRECTED_EVENT = "billing.reconciliation_corrected"
 RECONCILIATION_CAS_RETRIES = 3
-COMPARED_FIELDS = (
-    "subscription_status",
-    "stripe_subscription_id",
-    "plan_version_id",
-    "features",
-    "quotas",
-    "period_start",
-    "period_end",
-    "cancel_at_period_end",
-    "grace_until",
-)
 _ACCESS_LOSS_REASON = "stripe_access_loss"
 _STATE_INVALID = "stripe_state_invalid"
 _NO_LIVE_SUBSCRIPTION = "stripe_subscription_ambiguous"
@@ -89,17 +83,6 @@ class ReconciliationCursorPort(Protocol):
         raise NotImplementedError
 
 
-@runtime_checkable
-class AccessLossEnforcerPort(Protocol):
-    def enforce_access_loss(
-        self, snapshot: EntitlementSnapshot, actor_id: str
-    ) -> RevocationResult:
-        raise NotImplementedError
-
-    def resume_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
-        raise NotImplementedError
-
-
 @dataclass(frozen=True, slots=True)
 class ReconciliationDependencies:
     """Portas usadas pela reconciliação Stripe."""
@@ -108,7 +91,7 @@ class ReconciliationDependencies:
     stripe: StripeGatewayPort
     projection: EntitlementProjectionPort
     cursor: ReconciliationCursorPort
-    enforcer: AccessLossEnforcerPort
+    enforcer: AccessLossEnforcerPort | None
     audit: BillingAuditPort
     metrics: BillingMetricsPort
     clock: ClockPort
@@ -137,30 +120,15 @@ class _Observation:
     fields: tuple[str, ...]
 
 
-def _canonical(snapshot: EntitlementSnapshot) -> dict[str, Any]:
-    grace = snapshot.grace_until
-    return {
-        "subscription_status": snapshot.subscription_status.value,
-        "stripe_subscription_id": snapshot.stripe_subscription_id,
-        "plan_version_id": snapshot.plan_version_id,
-        "features": sorted(snapshot.features),
-        "quotas": asdict(snapshot.quotas),
-        "period_start": snapshot.period_start.isoformat(),
-        "period_end": snapshot.period_end.isoformat(),
-        "cancel_at_period_end": snapshot.cancel_at_period_end,
-        "grace_until": None if grace is None else grace.isoformat(),
-    }
-
-
 def _fingerprint(snapshot: EntitlementSnapshot) -> str:
-    payload = json.dumps(_canonical(snapshot), sort_keys=True, separators=(",", ":"))
+    payload = json.dumps(canonical_fields(snapshot), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _drift_fields(
     current: EntitlementSnapshot, desired: EntitlementSnapshot, state: StripeBillingState
 ) -> tuple[str, ...]:
-    before, after = _canonical(current), _canonical(desired)
+    before, after = canonical_fields(current), canonical_fields(desired)
     if _billable_after_revocation(current, state):
         before["subscription_status"] = state.subscription_status.value
     return tuple(name for name in COMPARED_FIELDS if before[name] != after[name])
@@ -357,6 +325,9 @@ class BillingReconciler:
         return self._deps.projection.compare_and_set_snapshot(write)
 
     def _enforce(self, snapshot: EntitlementSnapshot) -> None:
+        enforcer = self._deps.enforcer
+        if enforcer is None:
+            return
         if snapshot.subscription_status is SubscriptionStatus.ADMIN_REVOKED:
             return
         now = self._deps.clock()
@@ -366,9 +337,9 @@ class BillingReconciler:
         )
         if decision.access_level is AccessLevel.FULL:
             account_id = snapshot.billing_account_id
-            result = self._deps.enforcer.resume_pending(account_id, RECONCILER_ACTOR_ID)
+            result = enforcer.resume_pending(account_id, RECONCILER_ACTOR_ID)
         else:
-            result = self._deps.enforcer.enforce_access_loss(snapshot, RECONCILER_ACTOR_ID)
+            result = enforcer.enforce_access_loss(snapshot, RECONCILER_ACTOR_ID)
         if result is not None and result.fenced_run_ids:
             self._deps.metrics.emit(
                 billing_metric(

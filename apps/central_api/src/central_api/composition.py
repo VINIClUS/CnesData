@@ -157,7 +157,10 @@ def build_local_runtime(
     source_catalog = build_source_catalog()
     execution = ExecutionPolicyConfig(
         _DEPLOYMENT_LIMIT, _DISPATCH_LEASE_SECONDS,
-        build_execution_callbacks(billing, control_plane, clock, noop_execution_started),
+        build_execution_callbacks(
+            billing, control_plane, BillingGateResources(clock, _DEPLOYMENT_LIMIT),
+            noop_execution_started,
+        ),
     )
     run_planning = RunPlanningService(
         RunPlanningDependencies(
@@ -193,7 +196,9 @@ def api_billing_gates(
         client, table = resources.dynamodb_client, resources.table_name
         catalog = DynamoBillingCatalog(client, table, resources.clock)
     accounts = TenantAccountResolver(mode, catalog)
-    return ApiBillingGates(mode, enforcement.gate, enforcement.capacity, accounts)
+    return ApiBillingGates(
+        mode, enforcement.gate, enforcement.capacity, accounts, enforcement.audit,
+    )
 
 
 def build_runtime(
@@ -231,7 +236,7 @@ def _build_aws_api_runtime(
             control_plane=core.control_plane, object_store=core.object_store,
             executor=executor, source_catalog=source_catalog,
         ),
-        _execution_config(settings, core, billing), _utc_now,
+        _execution_config(settings, clients, core, billing), _utc_now,
     )
     raw_ingestion = RawIngestionService(
         core.control_plane, core.object_store, DeltaPolicy(),
@@ -291,12 +296,14 @@ def _gate_resources(settings: AwsRuntimeSettings, clients: AwsClients) -> Billin
 
 
 def _execution_config(
-    settings: AwsRuntimeSettings, core: AwsRuntimeComponents, billing: _AwsBilling,
+    settings: AwsRuntimeSettings, clients: AwsClients,
+    core: AwsRuntimeComponents, billing: _AwsBilling,
 ) -> ExecutionPolicyConfig:
     return ExecutionPolicyConfig(
         settings.processor_max_concurrency, settings.processor_lease_seconds,
         build_execution_callbacks(
-            billing.settings, core.control_plane, _utc_now, billing.execution_started,
+            billing.settings, core.control_plane, _gate_resources(settings, clients),
+            billing.execution_started,
         ),
     )
 

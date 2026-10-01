@@ -16,6 +16,7 @@ from cnes_domain.billing.commands import GateRequest
 from cnes_domain.billing.revocation import ImmediateRevocationService
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing import BillingStorage
+from cnes_infra.billing.metrics import CloudWatchBillingMetrics, DiscardBillingMetrics
 
 TENANT = "354130"
 AGENT = "agent-1"
@@ -169,7 +170,9 @@ def test_install_stripe_billing_sem_storage_falha_fechado() -> None:
     from cnes_infra.billing import BillingConfigurationError
 
     with pytest.raises(BillingConfigurationError):
-        billing_deps._install_stripe_billing(FastAPI(), _stripe_runtime(None, None), Mock())
+        billing_deps._install_stripe_billing(
+            FastAPI(), _stripe_runtime(None, None), Mock(), DiscardBillingMetrics(),
+        )
 
 
 def test_install_stripe_billing_sobrescreve_dependencias_dos_routers(monkeypatch) -> None:
@@ -185,7 +188,7 @@ def test_install_stripe_billing_sobrescreve_dependencias_dos_routers(monkeypatch
         patch("cnes_infra.billing.build_stripe_billing", return_value=components),
         patch("cnes_infra.billing.StripeRuntimeSettings.from_mapping"),
     ):
-        billing_deps._install_stripe_billing(app, runtime, Mock())
+        billing_deps._install_stripe_billing(app, runtime, Mock(), DiscardBillingMetrics())
 
     overrides = app.dependency_overrides
     assert overrides[billing.get_billing_catalog]() is components.catalog
@@ -195,6 +198,23 @@ def test_install_stripe_billing_sobrescreve_dependencias_dos_routers(monkeypatch
     assert overrides[tenants.get_tenant_gates]() is gates
     assert billing_admin.get_revocation_service in overrides
     assert raw_jobs.get_control_plane in overrides
+    assert isinstance(overrides[stripe_webhook.get_billing_metrics](), DiscardBillingMetrics)
+
+
+def test_install_billing_usa_cloudwatch_quando_ambiente_configurado(monkeypatch) -> None:
+    from unittest.mock import patch
+
+    monkeypatch.setenv("PROFILE", "local")
+    monkeypatch.setenv("TENANT_ID", TENANT)
+    monkeypatch.setenv("BILLING_MODE", "disabled")
+    monkeypatch.setenv("BILLING_METRICS_ENVIRONMENT", "prod")
+    with (
+        patch("cnes_infra.billing.build_secret_provider", return_value=Mock()),
+        patch.object(billing_deps, "_install_stripe_billing") as install,
+    ):
+        billing_deps.install_billing(FastAPI(), SimpleNamespace(billing_gates=None), Mock())
+
+    assert isinstance(install.call_args.args[3], CloudWatchBillingMetrics)
 
 
 def test_install_billing_com_provider_delega_ao_stripe(monkeypatch) -> None:
@@ -212,4 +232,5 @@ def test_install_billing_com_provider_delega_ao_stripe(monkeypatch) -> None:
         billing_deps.install_billing(FastAPI(), runtime, Mock())
 
     install.assert_called_once()
-    assert install.call_args.args[1:] == (runtime, provider)
+    assert install.call_args.args[1:3] == (runtime, provider)
+    assert isinstance(install.call_args.args[3], DiscardBillingMetrics)

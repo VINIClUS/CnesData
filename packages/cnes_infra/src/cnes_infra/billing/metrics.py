@@ -2,6 +2,7 @@
 
 import logging
 import re
+import sys
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -9,8 +10,11 @@ from types import MappingProxyType
 from typing import Any
 
 from cnes_domain.billing.models import BillingMetric, SubscriptionStatus
+from cnes_domain.billing.ports import BillingMetricsPort
+from cnes_infra.observability.json_logging import JsonLogFormatter
 
 BILLING_METRICS_NAMESPACE = "CnesData/Billing"
+EMF_LOGGER_NAME = "cnes_infra.billing.metrics.emf"
 ALLOWED_DIMENSIONS = frozenset({"Environment", "EventType", "Reason", "SubscriptionStatus"})
 
 _ENVIRONMENT = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -116,3 +120,37 @@ class CloudWatchBillingMetrics:
             **dimensions,
             metric.name: metric.value,
         }
+
+
+class DiscardBillingMetrics:
+    """Sink de métricas que descarta todas as emissões."""
+
+    def emit(self, metric: BillingMetric) -> None:
+        """Args: metric: Métrica ignorada."""
+
+
+class _StdoutHandler(logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        self.stream = sys.stdout
+        super().emit(record)
+
+
+def _emf_logger() -> logging.Logger:
+    # EMF needs the extras serialized as one JSON line, whatever the process root config is.
+    logger = logging.getLogger(EMF_LOGGER_NAME)
+    if not logger.handlers:
+        handler = _StdoutHandler()
+        handler.setFormatter(JsonLogFormatter("billing-metrics"))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+    return logger
+
+
+def build_billing_metrics(environment: str | None) -> BillingMetricsPort:
+    """Args: environment: Ambiente EMF ou None.
+    Returns: Sink CloudWatch em JSON no stdout quando há ambiente; senão descarte.
+    """
+    if environment is None:
+        return DiscardBillingMetrics()
+    return CloudWatchBillingMetrics(environment, _emf_logger())

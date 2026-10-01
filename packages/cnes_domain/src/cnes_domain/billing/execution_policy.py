@@ -12,6 +12,7 @@ from cnes_domain.billing.execution import (
     RunExecutionBindingCommand,
     RunExecutionPermit,
 )
+from cnes_domain.billing.models import BillingAuditEvent
 from cnes_domain.billing.validation import require_id
 from cnes_domain.control_plane.enums import DispatchState
 from cnes_domain.ports.processing import ExecutionPermit
@@ -20,7 +21,7 @@ from cnes_domain.profiles import BillingMode
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from cnes_domain.billing.ports import ClockPort
+    from cnes_domain.billing.ports import BillingAuditPort, ClockPort
     from cnes_domain.control_plane.entities import Run, RunDispatch
     from cnes_domain.ports.processing import StartRunExecution
 
@@ -55,6 +56,7 @@ class BillingExecutionDependencies:
     control_plane: ExecutionBindingPort
     clock: ClockPort
     mode: BillingMode
+    audit: BillingAuditPort | None = None
 
 
 def _already_bound(state: RunBillingState, command: RunExecutionBindingCommand) -> bool:
@@ -249,15 +251,45 @@ class BillingExecutionStarted:
     ) -> None:
         try:
             self._bind(run, request, execution_ref, permit)
-        except Exception:
+        except Exception as error:
             logger.warning(
-                "billing_audit event_type=run_execution.bind_failed reason_code=bind_failed "
-                "tenant_id=%s run_id=%s dispatch_id=%s",
+                "run_execution_bind_failed tenant_id=%s run_id=%s dispatch_id=%s",
                 run.tenant_id,
                 run.run_id,
                 request.dispatch_id,
             )
+            self._audit_failure(run, request, error)
             raise
+
+    def _audit_failure(self, run: Run, request: StartRunExecution, error: Exception) -> None:
+        audit = self._dependencies.audit
+        if audit is None:
+            return
+        try:
+            audit.append(
+                BillingAuditEvent(
+                    event_id=(
+                        f"run_execution.bind_failed:{run.tenant_id}:{run.run_id}:"
+                        f"{request.dispatch_id}"
+                    ),
+                    event_type="run_execution.bind_failed",
+                    aggregate_id=run.run_id,
+                    actor_id="system:billing_execution",
+                    reason_code="bind_failed",
+                    occurred_at=self._dependencies.clock(),
+                    attributes={
+                        "tenant_id": run.tenant_id,
+                        "dispatch_id": request.dispatch_id,
+                        "error_code": getattr(error, "code", type(error).__name__),
+                    },
+                )
+            )
+        except Exception as audit_error:
+            # Auditing must never replace the bind error that is being re-raised.
+            logger.warning(
+                "billing_audit_append_failed event_type=run_execution.bind_failed code=%s",
+                getattr(audit_error, "code", type(audit_error).__name__),
+            )
 
     def _bind(
         self, run: Run, request: StartRunExecution, execution_ref: str, permit: ExecutionPermit

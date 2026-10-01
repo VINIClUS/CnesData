@@ -74,6 +74,11 @@ class DisabledEntitlementProjection:
     def commit_claimed_snapshot(self, claim: InboxClaim, command: SnapshotWrite) -> bool:
         raise BillingDisabledError(_WRITE_DISABLED)
 
+    def complete_claim_unchanged(
+        self, claim: InboxClaim, billing_account_id: str, expected_version: int,
+    ) -> bool:
+        raise BillingDisabledError(_WRITE_DISABLED)
+
 
 class DisabledQuotaReservations:
     def __init__(self, clock: ClockPort) -> None:

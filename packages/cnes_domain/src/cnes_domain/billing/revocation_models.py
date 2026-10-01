@@ -24,6 +24,7 @@ REVOKED_REASON_CODE = "revoked"
 REVOCABLE_RUN_STATES = frozenset(
     {RunState.PLANNED, RunState.WAITING_INPUTS, RunState.PROCESSING, RunState.CANCEL_REQUESTED}
 )
+PUBLICATION_DENIABLE_RUN_STATES = frozenset({RunState.PUBLISHING})
 
 
 def _check_reason(reason_code: str) -> None:
@@ -50,6 +51,7 @@ class RevocationResult:
     entitlement_version: int
     fenced_run_ids: tuple[str, ...]
     cancel_failures: tuple[str, ...]
+    failed_run_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         require_positive(self.entitlement_version, "entitlement_version")
@@ -71,6 +73,21 @@ class RevokeRunCommand:
         require_non_negative(self.expected_fencing_token, "expected_fencing_token")
         _check_reason(self.reason_code)
         require_utc(self.requested_at, "requested_at")
+
+
+@dataclass(frozen=True, slots=True)
+class FailDeniedPublicationCommand:
+    tenant_id: str
+    run_id: str
+    expected_fencing_token: int
+    reason_code: str
+    failed_at: datetime
+
+    def __post_init__(self) -> None:
+        require_fields(self, require_id, ("tenant_id", "run_id"))
+        require_non_negative(self.expected_fencing_token, "expected_fencing_token")
+        _check_reason(self.reason_code)
+        require_utc(self.failed_at, "failed_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,12 +158,16 @@ class RevocationStorePort(Protocol):
     def get_run(self, tenant_id: str, run_id: str) -> Run | None: ...
     def get_run_billing_state(self, tenant_id: str, run_id: str) -> RunBillingState | None: ...
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None: ...
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None: ...
     def list_revocable_runs(
         self, billing_account_id: str, limit: int, cursor: str | None,
     ) -> RevocableRunPage: ...
     def request_run_revocation(
         self, command: RevokeRunCommand, event: OutboxEvent,
     ) -> RunBillingState: ...
+    def fail_denied_publication(
+        self, command: FailDeniedPublicationCommand, event: OutboxEvent,
+    ) -> bool: ...
     def cancel_run_units(self, command: CancelRunUnitsCommand) -> CancelRunUnitsResult: ...
     def get_revocation_progress(self, billing_account_id: str) -> RevocationProgress | None: ...
     def save_revocation_progress(

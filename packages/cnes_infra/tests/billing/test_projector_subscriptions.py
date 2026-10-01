@@ -55,7 +55,7 @@ def test_evento_tardio_de_assinatura_encerrada_nao_substitui_a_atual(event_type,
     assert state is InboxProcessingState.PROCESSED
     assert snapshot.stripe_subscription_id == "sub_new"
     assert snapshot.subscription_status is ACTIVE
-    assert snapshot.source_event_id == "evt_old"
+    assert snapshot.source_event_id == "evt_new"
     requested = [call.args[0] for call in env.stripe.get_current_state.call_args_list]
     assert requested[-1] == StripeStateRequest(CUSTOMER, "sub_new")
 

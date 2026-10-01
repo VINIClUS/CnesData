@@ -1,10 +1,11 @@
-# billing_worker — dreno do inbox e recovery de webhooks Stripe
+# billing_worker — jobs agendados de billing Stripe
 
 ## Executive Summary
 
-CLI de ciclo único (`billing-worker inbox|recover`) para execução agendada
-(EventBridge/ECS task ou cron). Compõe os adapters de `cnes_infra.billing` e
-delega a `WebhookRecovery`. Não expõe HTTP e não mantém estado próprio.
+CLI de ciclo único (`billing-worker inbox|recover|reconcile|revoke-pending|
+release-expired-reservations`) para execução agendada (EventBridge/ECS task ou
+cron). Compõe os adapters de `cnes_infra.billing` por modo de enforcement. Não
+expõe HTTP e não mantém estado próprio.
 
 ## Role
 
@@ -18,6 +19,16 @@ um ciclo limitado e termina; a repetição é responsabilidade do scheduler.
   vencidos via `WebhookRecovery.drain_inbox`.
 - `billing-worker recover` — drena e processa UMA página do cursor de Events
   via `WebhookRecovery.run` com `STRIPE_RECOVERY_*`.
+- `billing-worker reconcile [--limit N]` — `BillingReconciler` sobre uma página
+  de contas (cursor `RECONCILIATION#STRIPE`).
+- `billing-worker revoke-pending [--limit N]` — `RevocationSweep`: `resume_pending`
+  em uma página de contas Stripe (cursor `REVOCATION#PENDING`); no-op em `off`.
+- `billing-worker release-expired-reservations [--limit N]` — uma página do
+  índice de reservas vencidas (`reconcile_expired_reservations`).
+- Enforcer por modo (`select_access_loss_enforcer`): `enforce` →
+  `ImmediateRevocationService` com Step Functions; `shadow` →
+  `ShadowAccessLossEnforcer` (só audit `entitlement.shadow_access_loss`);
+  `off` → nenhum. O mesmo enforcer serve projector, reconcile e revoke-pending.
 - Modo `BILLING_MODE=disabled`: no-op com exit 0; nenhuma sessão, Secrets
   Manager, DynamoDB ou cliente Stripe é criado.
 - Exit codes: 0 ciclo concluído; 1 falha retryable (`BillingError`,
@@ -52,14 +63,18 @@ um ciclo limitado e termina; a repetição é responsabilidade do scheduler.
 | `STRIPE_WEBHOOK_SECRET_SECRET_ARN` | stripe | ARN do segredo do webhook |
 | `BILLING_RETURN_ORIGINS`, `BILLING_SUCCESS_URL`, `BILLING_CANCEL_URL`, `BILLING_PORTAL_RETURN_URL` | stripe | exigidas pelo gateway |
 | `STRIPE_RECOVERY_LOOKBACK_HOURS`, `STRIPE_RECOVERY_BATCH_SIZE` | não | padrão 72 / 100 |
+| `BILLING_ENFORCEMENT_MODE` | não | `off` (padrão), `shadow` ou `enforce` |
+| `AWS_STATE_MACHINE_ARN` | enforce | cancelamento de execuções na revogação |
+| `BILLING_METRICS_ENVIRONMENT` | não | dimensão `Environment` do EMF; ausente descarta métricas |
 
 Credenciais AWS vêm da cadeia padrão do boto3 (role da task).
 
 ## Module Map
 
-- `src/billing_worker/worker.py` — `BillingWorker`, `RecoveryRunner`, `build_worker`.
+- `src/billing_worker/worker.py` — `BillingWorker`, `WorkerJobs`, métricas por ciclo.
+- `src/billing_worker/composition.py` — `build_worker` por modo.
 - `src/billing_worker/main.py` — argparse, mapeamento de exit codes, logs.
-- `tests/test_worker.py` — composição, delegação, exit codes, ausência de vazamento.
+- `tests/` — worker, composição, CLI (`support.py` compartilhado).
 
 ## Gotchas
 

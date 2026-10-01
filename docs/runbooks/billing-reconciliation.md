@@ -6,14 +6,30 @@ alinhados por três caminhos: inbox de webhooks, recovery e reconciliação.
 
 ## Comandos
 
-O parser `billing-worker` é ligado na Task 17 (#327). Esta seção descreve a semântica final;
-até lá, as funções correspondentes existem em `cnes_infra.billing` sem entrypoint de CLI.
+Cada comando roda um ciclo limitado e idempotente e termina; a repetição é do scheduler. Exit
+0 conclui o ciclo (inclusive com falhas por conta, contadas em `failed`); 1 só quando o estado
+durável não registrou o retry (cursor disputado, dependência indisponível antes do primeiro
+registro, erro de billing não tratado); 2 para entrada ou configuração inválida.
 
 | Comando | Efeito |
 |---|---|
 | `billing-worker inbox --limit 100` | Processa até 100 eventos recuperáveis do inbox de webhooks |
 | `billing-worker recover` | Recovery por `events.list` da Stripe, com cursor retomável |
 | `billing-worker reconcile --limit 100` | Reconciliação de até 100 contas (seção abaixo) |
+| `billing-worker revoke-pending --limit 100` | Retoma revogações incompletas de até 100 contas (seção própria) |
+| `billing-worker release-expired-reservations --limit 100` | Recupera até 100 reservas vencidas (seção própria) |
+
+### Enforcer por modo
+
+`BILLING_ENFORCEMENT_MODE` decide quem age na perda de acesso (projector, reconcile e
+revoke-pending usam a mesma instância):
+
+- `enforce`: `ImmediateRevocationService` real (fence, cancelamento no Step Functions,
+  finalização). Exige `AWS_STATE_MACHINE_ARN`.
+- `shadow`: só grava o audit durável `entitlement.shadow_access_loss`; nenhum Run é fenceado.
+- `off`: nenhum enforcement; `revoke-pending` é no-op (`billing_worker_skipped ...
+  reason=enforcement_off`).
+- `BILLING_MODE=disabled`: o worker nem compõe.
 
 ## Reconciliação
 
@@ -69,7 +85,7 @@ Se o snapshot vigente dá acesso FULL, o reconciler chama `resume_pending`: reto
 revogação incompleto mais recente da conta. Se o progresso é de uma versão anterior, não fenceia
 Runs novas e só conclui as já fenceadas; se é da versão vigente (um enforcement concorrente em
 curso), continua normalmente. Assim uma queda no meio do fencing seguida de reativação não deixa
-Runs fenceadas sem cancelamento. A Task 17 reusa esse ponto de entrada no `revoke-pending`.
+Runs fenceadas sem cancelamento. O `revoke-pending` reusa esse ponto de entrada.
 
 Contas `admin_revoked` não são delegadas: a revogação administrativa conduz as próprias fases. O
 progresso fica por versão em `REVOCATION#<versão>`; a chamada é idempotente e versão já COMPLETE
@@ -120,11 +136,59 @@ responsabilidade do webhook ou do recovery.
 Duas execuções simultâneas disputam o CAS do cursor. A perdedora falha com
 `reconciliation_cursor_contended` e pode ser re-executada.
 
+## Delegação do projector
+
+Depois de gravar o snapshot, o projector compara o nível de acesso (`SERVING_ACCESS` na
+`EntitlementPolicy`) antes e depois. Uma transição de FULL para não-FULL chama
+`enforce_access_loss`. `cancel_at_period_end=true` antes de `period_end` continua FULL e não
+delega. Uma falha do enforcement é logada (`stripe_projection_enforcement_failed`) e não desfaz
+o snapshot; o reconcile e o revoke-pending retomam.
+
+Evento sem mudança: quando os campos comparados (`COMPARED_FIELDS`, os mesmos da
+reconciliação) não mudam e a validade não aumenta, o projector conclui o claim do inbox com uma
+ConditionCheck na versão atual, sem gravar snapshot. A versão não incrementa, então fences e
+enforcement não veem mudanças espúrias.
+
+## Revogações pendentes (`revoke-pending`)
+
+Pagina as contas com Stripe Customer (`list_stripe_accounts`, a mesma listagem do reconcile)
+com cursor próprio em `BILLING#SYSTEM / REVOCATION#PENDING` e chama `resume_pending` em cada
+uma. O progresso é por conta e versão (`REVOCATION#<versão>`), então não há índice de pendentes
+a manter; contas sem progresso incompleto custam uma Query.
+
+- Retoma revogações administrativas e por perda de acesso. Uma versão nova do snapshot só
+  interrompe o fence de Runs novas quando dá acesso FULL (ou o snapshot sumiu); uma versão nova
+  ainda negada, inclusive `admin_revoked`, continua fenceando sob o progresso armazenado.
+- Cancelamento no executor: usa o `execution_ref` do registro de dispatch mesmo com o lease
+  expirado, desde que o dispatch não seja TERMINAL.
+- Run em `PUBLISHING` durante o fence (publicação negada após a revogação): vai para `FAILED`
+  (único terminal legal a partir de `PUBLISHING` na CND) na mesma transação que grava o evento
+  `run.failed` e libera a reserva sem decrementar `consumed_runs`. Contado em
+  `failed_publications`.
+- Falhas: igual ao reconcile. Só `BillingDependencyError` interrompe o lote sem avançar; outra
+  falha da conta conta em `failed` (`billing_revoke_pending_failed`) e o cursor avança.
+
+## Reservas vencidas (`release-expired-reservations`)
+
+Lê uma página do índice de reservas vencidas (`QUOTA_RESERVATION#DUE`) e, com leitura forte:
+
+- reserva de Run sem Run criado: libera (devolve o Run e o scan reservado);
+- Run em estado terminal: consome sem decrementar `consumed_runs`;
+- Run ainda não terminal (inclusive `PUBLISHING` com publicação negada repetidamente): renova
+  o lease; a reserva sai do `RESERVED` quando o `revoke-pending` leva o Run a `FAILED`;
+- capacidade (agente/tenant) que ficou `RESERVED` após falha da segunda escrita ou do consumo:
+  consome quando há prova de posse da própria reserva (marcador do agente ou link do tenant),
+  senão libera.
+
+Emite `QuotaReservationsExpired` com o número de liberadas.
+
 ## Replay seguro
 
 - inbox: ids de evento Stripe; o inbox usa fence por claim.
 - recover: cursor por ciclo.
 - reconcile: conforme a seção anterior.
+- revoke-pending: progresso por versão com CAS; cursor próprio.
+- release-expired-reservations: transições condicionadas ao payload lido.
 
 Todos são idempotentes. Audit duplicado é no-op no outbox.
 
@@ -136,19 +200,25 @@ dimensão ou unidade fora do contrato é descartada com log `billing_metric_reje
 
 | Métrica | Unidade | Emissor |
 |---|---|---|
-| `WebhookLatencyMs` | Milliseconds | Sink pronto; emissão ligada na Task 17 (#327) |
-| `WebhookFailures` | Count | Sink pronto; emissão ligada na Task 17 (#327) |
-| `WebhookDuplicates` | Count | Sink pronto; emissão ligada na Task 17 (#327) |
-| `RecoveryBacklog` | Count | Sink pronto; emissão ligada na Task 17 (#327) |
+| `WebhookLatencyMs` | Milliseconds | Webhook: `now - created` do evento aceito pela primeira vez (duplicados não contam) |
+| `WebhookFailures` | Count | Webhook: assinatura inválida, payload grande demais ou dependência indisponível |
+| `WebhookDuplicates` | Count | Webhook: evento já recebido (disposição duplicada) |
+| `RecoveryBacklog` | Count | `inbox`: eventos vencidos vistos e não aplicados no ciclo (limitado por `--limit`) |
 | `ReconciliationDrift` | Count | Reconcile, nesta entrega: uma por execução, valor = drifts encontrados, inclusive 0 |
-| `EntitlementChecksDenied` | Count | Sink pronto; emissão ligada na Task 17 (#327) |
-| `QuotaReservationsActive` | Count | Sink pronto; emissão ligada na Task 17 (#327) |
-| `QuotaReservationsExpired` | Count | Sink pronto; emissão ligada na Task 17 (#327) |
-| `RunsCanceledByRevocation` | Count | Enforcement do reconcile, nesta entrega, quando fenceia Runs |
-| `AuditOutboxFailures` | Count | Sink pronto; emissão ligada na Task 17 (#327) |
-| `EntitlementSnapshotAgeSeconds` | Seconds | Sink pronto; emissão ligada na Task 17 (#327) |
+| `EntitlementChecksDenied` | Count | Gate de entitlement (`enforce`), por `Reason` |
+| `QuotaReservationsActive` | Count | Sem emissor (follow-up) |
+| `QuotaReservationsExpired` | Count | `release-expired-reservations`: reservas liberadas |
+| `RunsCanceledByRevocation` | Count | Projector e reconcile (`stripe_access_loss`), revoke admin (`admin_revoked`) e revoke-pending (`revocation_resumed`) |
+| `AuditOutboxFailures` | Count | Audit best-effort (gates, callbacks, serving) que falhou ao gravar |
+| `EntitlementSnapshotAgeSeconds` | Seconds | Sem emissor (follow-up) |
 
-O sink é `CloudWatchBillingMetrics` (`cnes_infra.billing.metrics`).
+O sink é `CloudWatchBillingMetrics` (`cnes_infra.billing.metrics`), com `Environment` de
+`BILLING_METRICS_ENVIRONMENT`; sem a variável as métricas são descartadas. O sink escreve no
+stdout por um logger próprio (`cnes_infra.billing.metrics.emf`, sem propagação) com o formatter
+JSON, então o documento EMF sai numa linha JSON qualquer que seja a configuração de logging do
+processo (worker ou API).
+`QuotaReservationsActive` e `EntitlementSnapshotAgeSeconds` ainda não têm emissor (sem ponto
+natural sem varredura dedicada); ficam como follow-up.
 
 ## Alarmes iniciais
 
@@ -157,9 +227,9 @@ especificação de deploy separada; a lacuna está registrada no EPIC #95.
 
 | Alarme | Significado | Primeira ação |
 |---|---|---|
-| `WebhookFailures >= 5` em 5 minutos | Webhooks falhando na verificação ou no projetor | Inspecionar o inbox e os logs; rodar `billing-worker inbox --limit 100` após corrigir a causa |
-| `RecoveryBacklog >= 100` por 10 minutos | Eventos recuperáveis acumulando sem processamento | Verificar se o worker está ativo; rodar `billing-worker inbox --limit 100` e depois `billing-worker recover` |
-| `EntitlementSnapshotAgeSeconds > 300` ativo por 10 minutos | Snapshots sem atualização; risco de runtime com estado velho | Conferir entrega de webhooks da Stripe e executar `billing-worker recover` |
+| `WebhookFailures >= 5` em 5 minutos | Webhooks rejeitados na rota (assinatura, tamanho ou inbox indisponível); falhas do projetor aparecem no inbox e em `RecoveryBacklog` | Inspecionar o inbox e os logs; rodar `billing-worker inbox --limit 100` após corrigir a causa |
+| `RecoveryBacklog >= 50` por 10 minutos (com `inbox --limit 100`) | Eventos recuperáveis acumulando sem processamento | Verificar se o worker está ativo; rodar `billing-worker inbox --limit 100` e depois `billing-worker recover` |
+| `EntitlementSnapshotAgeSeconds > 300` ativo por 10 minutos (inativo até existir emissor) | Snapshots sem atualização; risco de runtime com estado velho | Conferir entrega de webhooks da Stripe e executar `billing-worker recover` |
 | `ReconciliationDrift >= 1` em três execuções seguidas | Projeção divergente da Stripe de forma persistente | Ler os audits `billing.reconciliation_drift` e investigar por que o projector não converge |
 | `AuditOutboxFailures >= 1` por 5 minutos | Audit durável não está sendo gravado | Verificar o outbox e permissões da tabela; reprocessar após corrigir (audit duplicado é no-op) |
 
@@ -178,11 +248,16 @@ Eventos duráveis (outbox), iguais ao `AUDIT_EVENT_INVENTORY` de
 | Entitlement | `entitlement.changed`, `entitlement.revoked` |
 | Quota | `quota.reserved`, `quota.consumed`, `quota.released` |
 | Autorização de Run | `run.authorized` |
-| Revogação e cancelamento de Run | `run.cancel_requested`, `run.canceled` |
+| Revogação e cancelamento de Run | `run.cancel_requested`, `run.canceled`, `run.failed` |
+| Execução | `run_execution.bind_failed` |
+| Shadow | `entitlement.shadow_denied`, `entitlement.shadow_access_loss` |
+| Serving | `serving.denied` |
 | Reconciliação | `billing.reconciliation_drift`, `billing.reconciliation_corrected` |
 
-Log-only até a Task 17 (#327), emitidos como linha `billing_audit ...` e sem audit durável:
-`run_execution.bind_failed` e `entitlement.shadow_denied`. Serving denial chega na Task 17.
+Nenhum evento é só log: `run_execution.bind_failed`, `entitlement.shadow_denied` e
+`serving.denied` são gravados no outbox por um audit best-effort (falha de gravação vira
+`AuditOutboxFailures` e não muda a decisão). `serving.denied` grava um evento por tenant,
+dataset, motivo e hora (id determinístico); negações repetidas na mesma hora são no-op.
 
 ## Limitação conhecida
 

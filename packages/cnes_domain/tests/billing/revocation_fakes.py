@@ -15,9 +15,11 @@ from cnes_domain.billing.models import (
     SubscriptionStatus,
 )
 from cnes_domain.billing.revocation import (
+    PUBLICATION_DENIABLE_RUN_STATES,
     REVOCABLE_RUN_STATES,
     CancelRunUnitsCommand,
     CancelRunUnitsResult,
+    FailDeniedPublicationCommand,
     ImmediateRevocationCommand,
     ImmediateRevocationService,
     RevocableRunPage,
@@ -30,6 +32,7 @@ from cnes_domain.billing.revocation import (
 )
 from cnes_domain.control_plane.entities import OutboxEvent, Run, RunDependency, RunDispatch
 from cnes_domain.control_plane.enums import DispatchState, RunState
+from cnes_domain.control_plane.transitions import transition_run
 from cnes_domain.ports.processing import CancelRunExecution
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
@@ -158,6 +161,10 @@ class FakeStore:
         self.fence_requests = 0
         self.crash_save_phase: RevocationPhase | None = None
         self.crash_on_unit_call: int | None = None
+        self.fail_stale_times = 0
+        self.failed_commands: list[FailDeniedPublicationCommand] = []
+        self.failed_events: list[OutboxEvent] = []
+        self.released_reservations: list[str] = []
 
     def add_run(self, run_id: str, state: RunState = RunState.PROCESSING, ref: str | None = None):
         self.runs[run_id] = _run(run_id, state)
@@ -182,9 +189,33 @@ class FakeStore:
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
         return self.dispatches.get(run_id)
 
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
+        return self.dispatches.get(run_id)
+
+    def fail_denied_publication(
+        self, command: FailDeniedPublicationCommand, event: OutboxEvent
+    ) -> bool:
+        if self.fail_stale_times > 0:
+            self.fail_stale_times -= 1
+            raise RetryableBillingError("run_revocation_stale")
+        run_id = command.run_id
+        current = self.states[run_id]
+        if command.expected_fencing_token != current.fencing_token:
+            raise RetryableBillingError("run_revocation_stale")
+        run = self.runs[run_id]
+        if run.state not in PUBLICATION_DENIABLE_RUN_STATES or current.cancel_requested:
+            return False
+        self.runs[run_id] = transition_run(run, RunState.FAILED)
+        self.failed_commands.append(command)
+        self.failed_events.append(event)
+        self.released_reservations.append(current.authorization.budget_reservation_id)
+        self.calls.append(f"{run_id}_publication_failed")
+        return True
+
     def _listable(self, run_id: str, run: Run) -> bool:
         fenced_cancel = run.state is RunState.CANCELED and self.states[run_id].cancel_requested
-        return run.state in REVOCABLE_RUN_STATES or fenced_cancel
+        listed = REVOCABLE_RUN_STATES | PUBLICATION_DENIABLE_RUN_STATES
+        return run.state in listed or fenced_cancel
 
     def list_revocable_runs(self, billing_account_id: str, limit: int, cursor: str | None):
         ids = sorted(

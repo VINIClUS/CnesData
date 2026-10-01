@@ -21,16 +21,23 @@ from cnes_domain.billing.gate import (
     RunReservationSettings,
 )
 from cnes_domain.billing.models import (
+    BillingAuditEvent,
     BillingEnforcementMode,
     EntitlementAction,
     ReadConsistency,
     RunAuthorization,
 )
 from cnes_domain.billing.policy import EntitlementPolicy
-from cnes_domain.billing.ports import ClockPort, EntitlementProjectionPort, QuotaReservationPort
+from cnes_domain.billing.ports import (
+    BillingAuditPort,
+    ClockPort,
+    EntitlementProjectionPort,
+    QuotaReservationPort,
+)
 from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPermit, ExecutionStarted
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.disabled import DisabledEntitlementProjection, DisabledQuotaReservations
+from cnes_infra.billing.metrics import build_billing_metrics
 from cnes_infra.billing.settings import BillingConfigurationError, BillingSettings
 
 logger = logging.getLogger(__name__)
@@ -50,6 +57,7 @@ class BillingGateResources:
 class BillingEnforcement:
     gate: EntitlementGate
     capacity: QuotaReservationPort
+    audit: BillingAuditPort | None = None
 
 
 StartedCallback = Callable[[Any, Any, str, ExecutionPermit], None]
@@ -67,10 +75,14 @@ class ChainedExecutionStarted:
 
 class ShadowEntitlementGate(EntitlementGate):
     def __init__(
-        self, dependencies: EntitlementGateDependencies, observed: EntitlementProjectionPort,
+        self,
+        dependencies: EntitlementGateDependencies,
+        observed: EntitlementProjectionPort,
+        audit: BillingAuditPort | None = None,
     ) -> None:
         super().__init__(dependencies)
         self._observed = observed
+        self._audit = audit
 
     def authorize_create_run(self, request: CreateRunRequest) -> RunAuthorization:
         """Args: request: Pedido de criação de run.
@@ -79,13 +91,40 @@ class ShadowEntitlementGate(EntitlementGate):
         reason = self._shadow_reason(request)
         if reason is not None:
             logger.warning(
-                "billing_audit event_type=entitlement.shadow_denied action=create_run "
-                "reason=%s billing_account_id=%s tenant_id=%s",
+                "billing_shadow_denied action=create_run reason=%s billing_account_id=%s "
+                "tenant_id=%s",
                 reason,
                 request.billing_account_id,
                 request.tenant_id,
             )
+            self._audit_denial(request, reason)
         return super().authorize_create_run(request)
+
+    def _audit_denial(self, request: CreateRunRequest, reason: str) -> None:
+        if self._audit is None:
+            return
+        from cnes_infra.billing.dynamodb_items import deterministic_id
+
+        self._audit.append(
+            BillingAuditEvent(
+                event_id=deterministic_id(
+                    "entitlement.shadow_denied",
+                    request.billing_account_id,
+                    request.tenant_id,
+                    request.idempotency_key,
+                ),
+                event_type="entitlement.shadow_denied",
+                aggregate_id=request.billing_account_id,
+                actor_id="system:shadow_gate",
+                reason_code=reason,
+                occurred_at=self._clock(),
+                attributes={
+                    "action": "create_run",
+                    "tenant_id": request.tenant_id,
+                    "run_id": request.run_id,
+                },
+            )
+        )
 
     def _shadow_reason(self, request: CreateRunRequest) -> str | None:
         try:
@@ -131,11 +170,14 @@ def _dynamodb_resources(resources: BillingGateResources) -> tuple[Any, str]:
 def _enforced(
     settings: BillingSettings, resources: BillingGateResources, client: Any, table: str,
 ) -> BillingEnforcement:
+    from cnes_infra.billing.audit_outbox import BestEffortBillingAudit, DynamoBillingAudit
     from cnes_infra.billing.cache import LocalEntitlementCache
     from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
     from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 
     clock = resources.clock
+    metrics = build_billing_metrics(settings.metrics_environment)
+    audit = BestEffortBillingAudit(DynamoBillingAudit(client, table), metrics, clock)
     ttl = settings.cache_ttl_seconds
     cache = LocalEntitlementCache(ttl, clock) if ttl > 0 else None
     quotas = DynamoQuotaReservations(client, table, clock)
@@ -147,9 +189,10 @@ def _enforced(
             _run_settings(resources),
             EntitlementPolicy(BillingMode.STRIPE),
             cache,
+            metrics,
         )
     )
-    return BillingEnforcement(gate, quotas)
+    return BillingEnforcement(gate, quotas, audit)
 
 
 def _unmetered(resources: BillingGateResources) -> BillingEnforcement:
@@ -158,13 +201,17 @@ def _unmetered(resources: BillingGateResources) -> BillingEnforcement:
 
 
 def _shadow(
-    resources: BillingGateResources, client: Any, table: str,
+    settings: BillingSettings, resources: BillingGateResources, client: Any, table: str,
 ) -> BillingEnforcement:
+    from cnes_infra.billing.audit_outbox import BestEffortBillingAudit, DynamoBillingAudit
     from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
 
     observed = DynamoEntitlementProjection(client, table, resources.clock)
+    metrics = build_billing_metrics(settings.metrics_environment)
+    audit = BestEffortBillingAudit(DynamoBillingAudit(client, table), metrics, resources.clock)
     dependencies = _unmetered_dependencies(resources)
-    return BillingEnforcement(ShadowEntitlementGate(dependencies, observed), dependencies.quotas)
+    gate = ShadowEntitlementGate(dependencies, observed, audit)
+    return BillingEnforcement(gate, dependencies.quotas, audit)
 
 
 def build_billing_enforcement(
@@ -180,7 +227,7 @@ def build_billing_enforcement(
     client, table = _dynamodb_resources(resources)
     if settings.enforced:
         return _enforced(settings, resources, client, table)
-    return _shadow(resources, client, table)
+    return _shadow(settings, resources, client, table)
 
 
 def build_entitlement_gate(
@@ -193,15 +240,34 @@ def build_entitlement_gate(
     return build_billing_enforcement(settings, resources).gate
 
 
+def _execution_audit(
+    settings: BillingSettings, resources: BillingGateResources,
+) -> BillingAuditPort | None:
+    if settings.mode is not BillingMode.STRIPE:
+        return None
+    if resources.dynamodb_client is None or not resources.table_name:
+        return None
+    from cnes_infra.billing.audit_outbox import BestEffortBillingAudit, DynamoBillingAudit
+
+    return BestEffortBillingAudit(
+        DynamoBillingAudit(resources.dynamodb_client, resources.table_name),
+        build_billing_metrics(settings.metrics_environment),
+        resources.clock,
+    )
+
+
 def build_execution_callbacks(
     settings: BillingSettings,
     control_plane: ExecutionBindingPort,
-    clock: ClockPort,
+    resources: BillingGateResources,
     execution_started: ExecutionStarted,
 ) -> ExecutionCallbacks:
-    """Args: settings: Modo; control_plane: Port; clock: Relógio; execution_started: A jusante.
+    """Args: settings: Modo; control_plane: Port; resources: Relógio e DynamoDB; execution_started.
     Returns: Política de concorrência e callback de início encadeado.
     """
-    deps = BillingExecutionDependencies(control_plane, clock, settings.execution_mode)
+    audit = _execution_audit(settings, resources)
+    deps = BillingExecutionDependencies(
+        control_plane, resources.clock, settings.execution_mode, audit,
+    )
     started = ChainedExecutionStarted(BillingExecutionStarted(deps), execution_started)
     return ExecutionCallbacks(BillingConcurrencyPolicy(deps), started)

@@ -28,7 +28,11 @@ from cnes_domain.ports.processing import (
     RunUnitMessage,
     StartRunExecution,
 )
-from cnes_infra.billing import LOCAL_BILLING_SETTINGS, build_execution_callbacks
+from cnes_infra.billing import (
+    LOCAL_BILLING_SETTINGS,
+    BillingGateResources,
+    build_execution_callbacks,
+)
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.object_store import FilesystemObjectStore
 from data_processor.composition import build_source_registry
@@ -133,7 +137,8 @@ def _build_runtime(tmp_path: Path) -> _Runtime:
     processor = StageProcessor(control_plane, store, build_source_registry(), clock.now)
     publisher = DatasetPublisher(store=store, control_plane=control_plane)
     execution = ExecutionPolicyConfig(_LIMIT, _LEASE, build_execution_callbacks(
-        LOCAL_BILLING_SETTINGS, control_plane, clock.now, noop_execution_started,
+        LOCAL_BILLING_SETTINGS, control_plane, BillingGateResources(clock.now, _LIMIT),
+        noop_execution_started,
     ))
     coordinator = PipelineCoordinator(
         CoordinatorDependencies(control_plane, executor, publisher, clock.now), execution,

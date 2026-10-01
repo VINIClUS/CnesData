@@ -1,5 +1,6 @@
 """Settings imutáveis de billing."""
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Self
@@ -15,6 +16,7 @@ _CODE_PREFIX = "code="
 _DEFAULT_PROFILE_CODE = "billing_profile_invalid"
 _DEFAULT_TTL_SECONDS = 60
 _MAX_TTL_SECONDS = 60
+_ENVIRONMENT = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 class BillingConfigurationError(ValueError):
@@ -28,6 +30,7 @@ class BillingSettings:
     mode: BillingMode
     enforcement_mode: BillingEnforcementMode
     cache_ttl_seconds: int
+    metrics_environment: str | None = None
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, str]) -> Self:
@@ -39,6 +42,7 @@ class BillingSettings:
             mode=_mode(values),
             enforcement_mode=_enforcement_mode(values),
             cache_ttl_seconds=_cache_ttl(values),
+            metrics_environment=_metrics_environment(values),
         )
 
     @property
@@ -100,6 +104,15 @@ def _cache_ttl(values: Mapping[str, str]) -> int:
     if not 0 <= ttl <= _MAX_TTL_SECONDS:
         raise BillingConfigurationError("billing_cache_ttl_out_of_range")
     return ttl
+
+
+def _metrics_environment(values: Mapping[str, str]) -> str | None:
+    raw = values.get("BILLING_METRICS_ENVIRONMENT", "").strip()
+    if not raw:
+        return None
+    if _ENVIRONMENT.match(raw) is None:
+        raise BillingConfigurationError("billing_metrics_environment_invalid")
+    return raw
 
 
 __all__ = ["LOCAL_BILLING_SETTINGS", "BillingConfigurationError", "BillingSettings"]

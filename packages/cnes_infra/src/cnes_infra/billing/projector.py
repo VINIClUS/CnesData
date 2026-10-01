@@ -12,23 +12,31 @@ from cnes_domain.billing.errors import (
 )
 from cnes_domain.billing.inbox import InboxClaim, ProjectionResult
 from cnes_domain.billing.models import (
+    AccessLevel,
     BillingAuditEvent,
+    EntitlementAction,
     EntitlementSnapshot,
     PlanVersion,
     ReadConsistency,
     SubscriptionStatus,
 )
+from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.billing.ports import (
     BillingCatalogPort,
+    BillingMetricsPort,
     ClockPort,
     EntitlementProjectionPort,
     StripeGatewayPort,
     WebhookInboxPort,
 )
+from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.dynamodb_items import deterministic_id
+from cnes_infra.billing.enforcement import AccessLossEnforcerPort
+from cnes_infra.billing.metrics import BillingMetricName, billing_metric
 from cnes_infra.billing.snapshot_mapping import (
     STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS,
     SnapshotMappingInput,
+    changed_fields,
     map_snapshot,
 )
 from cnes_infra.billing.webhook_inbox_items import STRIPE_INBOX_MAX_ATTEMPTS
@@ -45,6 +53,7 @@ STRIPE_PROJECTION_CAS_RETRIES = 3
 PROJECTION_ACTOR_ID = "stripe_webhook"
 _PROJECTION_REASON = "stripe_webhook_projection"
 _STATE_INVALID = "stripe_state_invalid"
+_ACCESS_LOSS_REASON = "stripe_access_loss"
 _ATTEMPTS_EXHAUSTED = "inbox_attempts_exhausted"
 _TRANSIENT_PERMANENT_CODES = frozenset({"stripe_request_rejected"})
 _DATA_ERRORS = (ValueError, TypeError, AttributeError)
@@ -62,6 +71,8 @@ class ProjectorDependencies:
     stripe: StripeGatewayPort
     projection: EntitlementProjectionPort
     clock: ClockPort
+    enforcer: AccessLossEnforcerPort | None = None
+    metrics: BillingMetricsPort | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +128,15 @@ def _build_write(inputs: _Inputs) -> SnapshotWrite:
     )
     snapshot = map_snapshot(mapping, expected + 1, inputs.claim.event_id)
     return SnapshotWrite(expected, snapshot, _audits(inputs, snapshot))
+
+
+def _unchanged(current: EntitlementSnapshot, desired: EntitlementSnapshot) -> bool:
+    return not changed_fields(current, desired) and desired.valid_until <= current.valid_until
+
+
+def _access_level(snapshot: EntitlementSnapshot, now: datetime) -> AccessLevel:
+    policy = EntitlementPolicy(BillingMode.STRIPE)
+    return policy.evaluate(snapshot, EntitlementAction.SERVING_ACCESS, now).access_level
 
 
 def _not_applied(event_id: str) -> ProjectionResult:
@@ -184,13 +204,74 @@ class StripeEventProjector:
             )
             state = self._current_state(claim, current)
             write = self._write(claim, account.billing_account_id, state, current)
-            if self._deps.projection.commit_claimed_snapshot(claim, write):
-                version = write.snapshot.entitlement_version
-                logger.info(
-                    "stripe_projection_applied event_id=%s version=%d", claim.event_id, version
-                )
-                return ProjectionResult(claim.event_id, True, version)
+            result = self._settle(claim, current, write)
+            if result is not None:
+                return result
         raise RetryableBillingError("snapshot_cas_exhausted")
+
+    def _settle(
+        self, claim: InboxClaim, current: EntitlementSnapshot | None, write: SnapshotWrite
+    ) -> ProjectionResult | None:
+        if current is not None and _unchanged(current, write.snapshot):
+            return self._complete_unchanged(claim, current)
+        if not self._deps.projection.commit_claimed_snapshot(claim, write):
+            return None
+        version = write.snapshot.entitlement_version
+        logger.info("stripe_projection_applied event_id=%s version=%d", claim.event_id, version)
+        if current is not None:
+            self._delegate_revocation(claim, current, write.snapshot)
+        return ProjectionResult(claim.event_id, True, version)
+
+    def _complete_unchanged(
+        self, claim: InboxClaim, current: EntitlementSnapshot
+    ) -> ProjectionResult | None:
+        version = current.entitlement_version
+        account_id = current.billing_account_id
+        if not self._deps.projection.complete_claim_unchanged(claim, account_id, version):
+            return None
+        logger.info(
+            "stripe_projection_unchanged event_id=%s version=%d", claim.event_id, version
+        )
+        return ProjectionResult(claim.event_id, True, version)
+
+    def _delegate_revocation(
+        self, claim: InboxClaim, current: EntitlementSnapshot, snapshot: EntitlementSnapshot
+    ) -> None:
+        enforcer = self._deps.enforcer
+        if enforcer is None or not self._lost_access(current, snapshot):
+            return
+        try:
+            result = enforcer.enforce_access_loss(snapshot, PROJECTION_ACTOR_ID)
+        except Exception as error:
+            # The snapshot and inbox are already committed; reconcile and revoke-pending resume.
+            logger.warning(
+                "stripe_projection_enforcement_failed event_id=%s billing_account_id=%s code=%s",
+                claim.event_id, snapshot.billing_account_id,
+                getattr(error, "code", type(error).__name__),
+            )
+            return
+        self._emit_fenced(len(result.fenced_run_ids))
+
+    def _emit_fenced(self, fenced: int) -> None:
+        if self._deps.metrics is None or not fenced:
+            return
+        self._deps.metrics.emit(
+            billing_metric(
+                BillingMetricName.RUNS_CANCELED_BY_REVOCATION,
+                fenced,
+                self._deps.clock(),
+                {"Reason": _ACCESS_LOSS_REASON},
+            )
+        )
+
+    def _lost_access(self, current: EntitlementSnapshot, snapshot: EntitlementSnapshot) -> bool:
+        # The previous level is judged when it was written: a scheduled cancellation or an
+        # expired grace is already non-FULL "now", yet its runs were never enforced.
+        previous = _access_level(current, current.updated_at)
+        return (
+            previous is AccessLevel.FULL
+            and _access_level(snapshot, self._deps.clock()) is not AccessLevel.FULL
+        )
 
     def _current_state(
         self, claim: InboxClaim, current: EntitlementSnapshot | None
