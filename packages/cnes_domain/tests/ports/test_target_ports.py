@@ -102,6 +102,10 @@ CONTROL_PLANE_SIGNATURES = {
     "release_reservation": (("command", "ReleaseReservationCommand"),),
     "get_run_billing_state": (("tenant_id", str), ("run_id", str)),
     "bind_run_execution": (("command", "RunExecutionBindingCommand"),),
+    "list_revocable_runs": (
+        ("billing_account_id", str), ("limit", int), ("cursor", "str | None"),
+    ),
+    "request_run_revocation": (("command", "RevokeRunCommand"), ("event", "OutboxEvent")),
     "begin_idempotency": (("command", "BeginIdempotency"),),
     "publish_dataset": (("command", "PublishDataset"),),
     "get_dataset_pointer": (("tenant_id", str), ("dataset_name", str)),
@@ -151,6 +155,7 @@ CONTROL_PLANE_RETURNS = {
     "reserve_and_create_run": "RunAuthorization", "create_unmetered_run": "Run",
     "consume_reservation": "QuotaReservation", "release_reservation": "QuotaReservation",
     "get_run_billing_state": "RunBillingState | None", "bind_run_execution": "RunBillingState",
+    "list_revocable_runs": "RevocableRunPage", "request_run_revocation": "RunBillingState",
     "begin_idempotency": "IdempotencyOutcome", "publish_dataset": "DatasetPointer",
     "get_dataset_pointer": "DatasetPointer | None", "put_access_request": "None",
     "get_dataset_version": "DatasetVersion | None", "decide_access_request": "AccessRequest",
