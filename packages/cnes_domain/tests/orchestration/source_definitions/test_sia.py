@@ -71,7 +71,7 @@ def test_definicao_sia_amarra_pipeline_fonte_e_layout() -> None:
 
 def test_catalogo_aceita_sia_isolado_e_junto_do_cnes() -> None:
     alone = SourceCatalog((SIA_DEFINITION,))
-    combined = SourceCatalog((*build_source_catalog().definitions, SIA_DEFINITION))
+    combined = SourceCatalog((build_source_catalog().for_pipeline("cnes"), SIA_DEFINITION))
 
     assert alone.for_source("SIA_LOCAL") is SIA_DEFINITION
     assert combined.for_pipeline("sia") is SIA_DEFINITION

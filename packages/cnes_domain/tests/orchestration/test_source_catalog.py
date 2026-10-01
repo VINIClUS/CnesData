@@ -14,6 +14,9 @@ from cnes_domain.orchestration.source_catalog import (
     SubtypeLayout,
     build_source_catalog,
 )
+from cnes_domain.orchestration.source_definitions.bpa import BPA_DEFINITION
+from cnes_domain.orchestration.source_definitions.sia import SIA_DEFINITION
+from cnes_domain.orchestration.source_definitions.sihd import SIHD_DEFINITION
 
 
 def _dependency(source_type: str, file_subtype: str, *, required: bool) -> RunDependency:
@@ -285,3 +288,55 @@ def test_build_source_catalog_e_deterministico() -> None:
     first = build_source_catalog().for_pipeline("cnes")
     second = build_source_catalog().for_pipeline("cnes")
     assert first == second
+
+
+def test_build_source_catalog_inclui_fontes_retidas_na_ordem_canonica() -> None:
+    definitions = build_source_catalog().definitions
+
+    assert tuple(item.pipeline_id for item in definitions) == ("cnes", "sihd", "bpa", "sia")
+    assert len(definitions) == 4
+    assert all(
+        actual is expected
+        for actual, expected in zip(
+            definitions[1:], (SIHD_DEFINITION, BPA_DEFINITION, SIA_DEFINITION), strict=True
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_type", "pipeline_id"), [("SIHD", "sihd"), ("BPA_MAG", "bpa"), ("SIA_LOCAL", "sia")]
+)
+def test_build_source_catalog_resolve_fonte_retida_por_source_type(
+    source_type: str, pipeline_id: str
+) -> None:
+    catalog = build_source_catalog()
+
+    assert catalog.for_source(source_type) is catalog.for_pipeline(pipeline_id)
+
+
+def test_catalogo_com_fonte_retida_duplicada_e_erro_de_startup() -> None:
+    duplicate = _definition(
+        pipeline_id="sihd_dup",
+        source_types=("SIHD",),
+        layout=_layout((SubtypeLayout("SIHD", "SIH", ("sihd_dup_internacoes.parquet",)),)),
+    )
+
+    with pytest.raises(CatalogConflict, match="source_ownership_conflict:SIHD"):
+        SourceCatalog((*build_source_catalog().definitions, duplicate))
+
+
+def test_catalogo_com_filename_normalizado_reusado_entre_pipelines_e_erro() -> None:
+    clash = _definition(
+        pipeline_id="outro",
+        source_types=("OUTRO",),
+        dependencies=(_dependency("OUTRO", "OUT", required=True),),
+        layout=_layout(
+            (SubtypeLayout("OUTRO", "OUT", ("internacoes.parquet",)),),
+            reconciliation_filename="outro.parquet",
+            divergence_filename="outro_divergences.parquet",
+        ),
+    )
+
+    expected = re.escape("normalized_filename_collision:internacoes.parquet")
+    with pytest.raises(CatalogConflict, match=expected):
+        SourceCatalog((*build_source_catalog().definitions, clash))
