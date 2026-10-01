@@ -87,10 +87,14 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       # Per-run level: the vulnerability DB refreshes intraday, so a day-scoped cache key
-      # would keep scanning an `apk upgrade` layer built before Alpine published fixes.
+      # would keep an `apk upgrade` layer built before Alpine published fixes. The Trivy
+      # scan and the deploy builds follow the same per-run policy, so both install the
+      # packages published at build time.
       - name: OS patch level
         id: patch
-        run: echo "level=$(date -u +%Y-%m-%d)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+        run: |
+          level="$(date -u +%Y-%m-%d)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "level=${level}" >> "$GITHUB_OUTPUT"
 
       - name: Build ${{ matrix.app }} image (local, not pushed)
         uses: docker/build-push-action@v6
