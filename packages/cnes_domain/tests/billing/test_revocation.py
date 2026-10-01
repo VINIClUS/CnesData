@@ -73,7 +73,7 @@ def test_eventos_de_run_carregam_codigo_fixo_e_nao_o_motivo_administrativo() -> 
     assert REASON not in str(event.payload)
     canceled = [e for e in harness.audit.events if e.event_type == "run.canceled"]
     assert [e.reason_code for e in canceled] == ["revoked", "revoked"]
-    assert canceled[0].event_id == "run.canceled:tenant-1:run_01:4"
+    assert canceled[0].event_id == "run.canceled:acct-1:tenant-1:run_01"
     assert harness.projection.snapshot.valid_until == LATER
 
 

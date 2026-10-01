@@ -1,191 +1,63 @@
-"""Immediate entitlement revocation: commands, store capability and service."""
+"""Immediate entitlement revocation service and Stripe access-loss enforcement."""
 
 import logging
 from dataclasses import dataclass, replace
-from datetime import datetime
-from enum import StrEnum
-from typing import Protocol, runtime_checkable
 
 from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_domain.billing.execution import RunBillingState
 from cnes_domain.billing.models import (
+    AccessLevel,
     BillingAuditEvent,
+    EntitlementAction,
     EntitlementSnapshot,
     ReadConsistency,
     SubscriptionStatus,
 )
-from cnes_domain.billing.ports import BillingAuditPort, ClockPort, EntitlementProjectionPort
-from cnes_domain.billing.validation import (
-    optional_id,
-    require_fields,
-    require_id,
-    require_non_negative,
-    require_positive,
-    require_utc,
+from cnes_domain.billing.policy import EntitlementPolicy
+from cnes_domain.billing.revocation_models import (
+    DEFAULT_SETTINGS,
+    MAX_REASON_CODE_LENGTH,
+    REVOCABLE_RUN_STATES,
+    REVOKED_REASON_CODE,
+    CancelRunUnitsCommand,
+    CancelRunUnitsResult,
+    ImmediateRevocationCommand,
+    RevocableRunPage,
+    RevocationDependencies,
+    RevocationPhase,
+    RevocationProgress,
+    RevocationResult,
+    RevocationSettings,
+    RevocationStorePort,
+    RevokeRunCommand,
 )
-from cnes_domain.control_plane.entities import OutboxEvent, Run, RunDispatch
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.ports.processing import CancelRunExecution, ProcessorExecutorPort
+from cnes_domain.billing.validation import require_id
+from cnes_domain.control_plane.entities import OutboxEvent
+from cnes_domain.ports.processing import CancelRunExecution
+from cnes_domain.profiles import BillingMode
+
+__all__ = [
+    "DEFAULT_SETTINGS",
+    "MAX_REASON_CODE_LENGTH",
+    "REVOCABLE_RUN_STATES",
+    "REVOKED_REASON_CODE",
+    "CancelRunUnitsCommand",
+    "CancelRunUnitsResult",
+    "ImmediateRevocationCommand",
+    "ImmediateRevocationService",
+    "RevocableRunPage",
+    "RevocationDependencies",
+    "RevocationPhase",
+    "RevocationProgress",
+    "RevocationResult",
+    "RevocationSettings",
+    "RevocationStorePort",
+    "RevokeRunCommand",
+]
 
 logger = logging.getLogger(__name__)
 _ATTEMPTS = 3
-
-MAX_REASON_CODE_LENGTH = 128
-REVOKED_REASON_CODE = "revoked"
-REVOCABLE_RUN_STATES = frozenset(
-    {RunState.PLANNED, RunState.WAITING_INPUTS, RunState.PROCESSING, RunState.CANCEL_REQUESTED}
-)
-
-
-def _check_reason(reason_code: str) -> None:
-    require_id(reason_code, "reason_code")
-    if len(reason_code) > MAX_REASON_CODE_LENGTH:
-        raise ValueError("reason=reason_code_too_long")
-
-
-@dataclass(frozen=True, slots=True)
-class ImmediateRevocationCommand:
-    billing_account_id: str
-    actor_id: str
-    reason_code: str
-    requested_at: datetime
-
-    def __post_init__(self) -> None:
-        require_fields(self, require_id, ("billing_account_id", "actor_id"))
-        _check_reason(self.reason_code)
-        require_utc(self.requested_at, "requested_at")
-
-
-@dataclass(frozen=True, slots=True)
-class RevocationResult:
-    entitlement_version: int
-    fenced_run_ids: tuple[str, ...]
-    cancel_failures: tuple[str, ...]
-
-    def __post_init__(self) -> None:
-        require_positive(self.entitlement_version, "entitlement_version")
-
-
-@dataclass(frozen=True, slots=True)
-class RevokeRunCommand:
-    tenant_id: str
-    run_id: str
-    expected_state: RunState
-    expected_fencing_token: int
-    reason_code: str
-    requested_at: datetime
-
-    def __post_init__(self) -> None:
-        require_fields(self, require_id, ("tenant_id", "run_id"))
-        if self.expected_state not in REVOCABLE_RUN_STATES:
-            raise ValueError("reason=run_state_not_revocable")
-        require_non_negative(self.expected_fencing_token, "expected_fencing_token")
-        _check_reason(self.reason_code)
-        require_utc(self.requested_at, "requested_at")
-
-
-@dataclass(frozen=True, slots=True)
-class RevocableRunPage:
-    runs: tuple[RunBillingState, ...]
-    next_cursor: str | None
-
-    def __post_init__(self) -> None:
-        optional_id(self.next_cursor, "next_cursor")
-
-
-@dataclass(frozen=True, slots=True)
-class CancelRunUnitsCommand:
-    tenant_id: str
-    run_id: str
-    expected_run_fencing_token: int
-    limit: int
-    cursor: str | None
-    canceled_at: datetime
-
-    def __post_init__(self) -> None:
-        require_fields(self, require_id, ("tenant_id", "run_id"))
-        require_non_negative(self.expected_run_fencing_token, "expected_run_fencing_token")
-        require_positive(self.limit, "limit")
-        optional_id(self.cursor, "cursor")
-        require_utc(self.canceled_at, "canceled_at")
-
-
-@dataclass(frozen=True, slots=True)
-class CancelRunUnitsResult:
-    canceled_unit_ids: tuple[str, ...]
-    next_cursor: str | None
-    run_canceled: bool
-
-    def __post_init__(self) -> None:
-        optional_id(self.next_cursor, "next_cursor")
-        if self.run_canceled and self.next_cursor is not None:
-            raise ValueError("reason=canceled_run_has_cursor")
-
-
-class RevocationPhase(StrEnum):
-    FENCING = "fencing"
-    CANCELING = "canceling"
-    FINALIZING = "finalizing"
-    COMPLETE = "complete"
-
-
-@dataclass(frozen=True, slots=True)
-class RevocationProgress:
-    billing_account_id: str
-    entitlement_version: int
-    phase: RevocationPhase
-    run_cursor: str | None
-    updated_at: datetime
-
-    def __post_init__(self) -> None:
-        require_id(self.billing_account_id, "billing_account_id")
-        require_positive(self.entitlement_version, "entitlement_version")
-        RevocationPhase(self.phase)
-        optional_id(self.run_cursor, "run_cursor")
-        if self.phase is RevocationPhase.COMPLETE and self.run_cursor is not None:
-            raise ValueError("reason=complete_progress_has_cursor")
-        require_utc(self.updated_at, "updated_at")
-
-
-@runtime_checkable
-class RevocationStorePort(Protocol):
-    def get_run(self, tenant_id: str, run_id: str) -> Run | None: ...
-    def get_run_billing_state(self, tenant_id: str, run_id: str) -> RunBillingState | None: ...
-    def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None: ...
-    def list_revocable_runs(
-        self, billing_account_id: str, limit: int, cursor: str | None,
-    ) -> RevocableRunPage: ...
-    def request_run_revocation(
-        self, command: RevokeRunCommand, event: OutboxEvent,
-    ) -> RunBillingState: ...
-    def cancel_run_units(self, command: CancelRunUnitsCommand) -> CancelRunUnitsResult: ...
-    def get_revocation_progress(self, billing_account_id: str) -> RevocationProgress | None: ...
-    def save_revocation_progress(
-        self, expected: RevocationProgress | None, replacement: RevocationProgress,
-    ) -> bool: ...
-
-
-@dataclass(frozen=True, slots=True)
-class RevocationDependencies:
-    projection: EntitlementProjectionPort
-    store: RevocationStorePort
-    executor: ProcessorExecutorPort
-    audit: BillingAuditPort
-    clock: ClockPort
-
-
-@dataclass(frozen=True, slots=True)
-class RevocationSettings:
-    run_page_size: int = 25
-    unit_batch_size: int = 98
-
-    def __post_init__(self) -> None:
-        require_positive(self.run_page_size, "run_page_size")
-        require_positive(self.unit_batch_size, "unit_batch_size")
-
-
-DEFAULT_SETTINGS = RevocationSettings()
 _NEXT_PHASE = {
     RevocationPhase.FENCING: RevocationPhase.CANCELING,
     RevocationPhase.CANCELING: RevocationPhase.FINALIZING,
@@ -195,9 +67,10 @@ _NEXT_PHASE = {
 
 @dataclass(slots=True)
 class _Context:
-    command: ImmediateRevocationCommand
+    actor_id: str
     fenced: list[str]
     failures: list[str]
+    guarded: bool = False
 
 
 class ImmediateRevocationService:
@@ -208,6 +81,7 @@ class ImmediateRevocationService:
     ) -> None:
         self._deps = dependencies
         self._settings = settings
+        self._policy = EntitlementPolicy(BillingMode.STRIPE)
 
     def revoke(self, command: ImmediateRevocationCommand) -> RevocationResult:
         """Revoga o entitlement, fenceia runs e cancela execuções.
@@ -217,8 +91,54 @@ class ImmediateRevocationService:
         Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
         """
         snapshot, fresh = self._revoked_snapshot(command)
-        progress = self._progress(snapshot, fresh)
-        context = _Context(command, [], [])
+        return self._enforce(self._progress(snapshot, fresh), _Context(command.actor_id, [], []))
+
+    def enforce_access_loss(self, snapshot: EntitlementSnapshot, actor_id: str) -> RevocationResult:
+        """Fenceia runs e cancela execuções após perda de acesso já gravada no snapshot.
+
+        Args: snapshot: Snapshot já persistido sem acesso pleno; actor_id: Ator auditado.
+        Returns: Versão aplicada, runs fenceadas e falhas de cancelamento.
+        Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
+        """
+        require_id(actor_id, "actor_id")
+        return self._converge(self._progress(snapshot, True), _Context(actor_id, [], [], True))
+
+    def resume_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
+        """Retoma o progresso de revogação incompleto; versão superada não fenceia runs novas.
+
+        Args: billing_account_id: Conta; actor_id: Ator auditado.
+        Returns: Resultado da retomada, ou None sem progresso pendente.
+        Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
+        """
+        require_id(actor_id, "actor_id")
+        stored = self._deps.store.get_revocation_progress(billing_account_id)
+        if stored is None or stored.phase is RevocationPhase.COMPLETE:
+            return None
+        return self._converge(stored, _Context(actor_id, [], [], True))
+
+    def _converge(self, progress: RevocationProgress, context: _Context) -> RevocationResult:
+        for _ in range(_ATTEMPTS):
+            result = self._enforce(progress, context)
+            current = self._current(progress.billing_account_id)
+            if current is None or not self._newer_denial(current, progress):
+                return result
+            progress = self._progress(current, True)
+        raise RetryableBillingError("access_loss_enforcement_unstable")
+
+    def _newer_denial(self, current: EntitlementSnapshot, progress: RevocationProgress) -> bool:
+        if current.entitlement_version <= progress.entitlement_version:
+            return False
+        if current.subscription_status is SubscriptionStatus.ADMIN_REVOKED:
+            return False
+        level = self._policy.evaluate(
+            current, EntitlementAction.SERVING_ACCESS, self._deps.clock()
+        ).access_level
+        return level is not AccessLevel.FULL
+
+    def _current(self, billing_account_id: str) -> EntitlementSnapshot | None:
+        return self._deps.projection.get_snapshot(billing_account_id, ReadConsistency.STRONG)
+
+    def _enforce(self, progress: RevocationProgress, context: _Context) -> RevocationResult:
         while progress.phase is not RevocationPhase.COMPLETE:
             progress = self._advance(progress, context)
         return RevocationResult(
@@ -323,7 +243,19 @@ class ImmediateRevocationService:
             progress.billing_account_id, limit, progress.run_cursor
         )
 
+    def _skip_fencing(self, progress: RevocationProgress) -> RevocationProgress:
+        return self._save(progress, self._advanced(replace(progress, run_cursor=None), None))
+
+    def _superseded(self, progress: RevocationProgress, context: _Context) -> bool:
+        if not context.guarded:
+            return False
+        current = self._current(progress.billing_account_id)
+        return current is None or current.entitlement_version != progress.entitlement_version
+
     def _fencing(self, progress: RevocationProgress, context: _Context) -> RevocationProgress:
+        if self._superseded(progress, context):
+            logger.info("access_loss_superseded account=%s", progress.billing_account_id)
+            return self._skip_fencing(progress)
         page = self._page(progress, self._settings.run_page_size)
         for state in page.runs:
             if self._fence(state, progress):
@@ -411,7 +343,7 @@ class ImmediateRevocationService:
         for state in page.runs:
             if state.cancel_requested:
                 self._settle(state)
-                self._audit_canceled(state, progress, context.command)
+                self._audit_canceled(state, progress, context.actor_id)
         return self._save(progress, self._advanced(progress, page.next_cursor))
 
     def _settle(self, state: RunBillingState) -> None:
@@ -435,16 +367,16 @@ class ImmediateRevocationService:
         self,
         state: RunBillingState,
         progress: RevocationProgress,
-        command: ImmediateRevocationCommand,
+        actor_id: str,
     ) -> None:
         tenant, run_id = state.tenant_id, state.run_id
         version = progress.entitlement_version
         self._deps.audit.append(
             BillingAuditEvent(
-                event_id=f"run.canceled:{tenant}:{run_id}:{version}",
+                event_id=f"run.canceled:{progress.billing_account_id}:{tenant}:{run_id}",
                 event_type="run.canceled",
                 aggregate_id=run_id,
-                actor_id=command.actor_id,
+                actor_id=actor_id,
                 reason_code=REVOKED_REASON_CODE,
                 occurred_at=self._deps.clock(),
                 attributes={

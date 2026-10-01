@@ -68,6 +68,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `billing/composition.py` | `build_secret_provider` (cliente `secretsmanager` só em `stripe`), `StripeRuntimeSettings`, `build_stripe_billing` (API e `billing_worker`) |
 | `billing/audit_outbox.py` | `DynamoBillingAudit`: `BillingAuditPort` no outbox canônico (tenant `_billing`) |
 | `billing/stripe_gateway.py`, `secrets_manager.py`, `webhook_*.py`, `projector.py`, `recovery*.py` | Stripe (BIL-020/021); `stripe`/`botocore` só importados no ramo `stripe` |
+| `billing/reconciliation*.py`, `snapshot_mapping.py`, `metrics.py` | Reconciliação Stripe (drift por CAS, cursor retomável), mapeamento compartilhado com o projector, métricas EMF (BIL-023) |
 | `control_plane/dynamodb_billing.py`, `sqlite_billing.py` | Extensões billing do `ControlPlanePort` (companion, run sem medição, claim) |
 
 ## Gotchas

@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
 from cnes_domain.billing.errors import (
@@ -26,10 +26,22 @@ from cnes_domain.billing.ports import (
     WebhookInboxPort,
 )
 from cnes_infra.billing.dynamodb_items import deterministic_id
+from cnes_infra.billing.snapshot_mapping import (
+    STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS,
+    SnapshotMappingInput,
+    map_snapshot,
+)
 from cnes_infra.billing.webhook_inbox_items import STRIPE_INBOX_MAX_ATTEMPTS
 
+__all__ = [
+    "PROJECTION_ACTOR_ID",
+    "STRIPE_PROJECTION_CAS_RETRIES",
+    "STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS",
+    "ProjectorDependencies",
+    "StripeEventProjector",
+]
+
 STRIPE_PROJECTION_CAS_RETRIES = 3
-STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS = 72
 PROJECTION_ACTOR_ID = "stripe_webhook"
 _PROJECTION_REASON = "stripe_webhook_projection"
 _STATE_INVALID = "stripe_state_invalid"
@@ -60,54 +72,6 @@ class _Inputs:
     plan: PlanVersion
     current: EntitlementSnapshot | None
     now: datetime
-
-
-def _status(inputs: _Inputs) -> SubscriptionStatus:
-    current = inputs.current
-    if current is not None and current.subscription_status is SubscriptionStatus.ADMIN_REVOKED:
-        return SubscriptionStatus.ADMIN_REVOKED
-    return inputs.state.subscription_status
-
-
-def _grace_until(inputs: _Inputs, status: SubscriptionStatus) -> datetime | None:
-    if status is not SubscriptionStatus.PAST_DUE:
-        return None
-    current = inputs.current
-    if (
-        current is not None
-        and current.subscription_status is SubscriptionStatus.PAST_DUE
-        and current.stripe_subscription_id == inputs.state.stripe_subscription_id
-        and current.grace_until is not None
-    ):
-        return max(current.grace_until, inputs.state.period_start)
-    return inputs.state.period_start + timedelta(days=inputs.plan.grace_period_days)
-
-
-def _valid_until(inputs: _Inputs, grace_until: datetime | None) -> datetime:
-    period_end = inputs.state.period_end
-    latest = max(inputs.now, period_end, grace_until or period_end)
-    return latest + timedelta(hours=STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS)
-
-
-def _snapshot(inputs: _Inputs, status: SubscriptionStatus, version: int) -> EntitlementSnapshot:
-    state = inputs.state
-    grace_until = _grace_until(inputs, status)
-    return EntitlementSnapshot(
-        billing_account_id=inputs.billing_account_id,
-        stripe_subscription_id=state.stripe_subscription_id,
-        subscription_status=status,
-        cancel_at_period_end=state.cancel_at_period_end,
-        plan_version_id=inputs.plan.plan_version_id,
-        features=state.active_features,
-        quotas=inputs.plan.quotas,
-        period_start=state.period_start,
-        period_end=state.period_end,
-        grace_until=grace_until,
-        valid_until=_valid_until(inputs, grace_until),
-        entitlement_version=version,
-        updated_at=inputs.now,
-        source_event_id=inputs.claim.event_id,
-    )
 
 
 def _audit(inputs: _Inputs, snapshot: EntitlementSnapshot, event_type: str) -> BillingAuditEvent:
@@ -148,7 +112,10 @@ def _audits(inputs: _Inputs, snapshot: EntitlementSnapshot) -> tuple[BillingAudi
 
 def _build_write(inputs: _Inputs) -> SnapshotWrite:
     expected = 0 if inputs.current is None else inputs.current.entitlement_version
-    snapshot = _snapshot(inputs, _status(inputs), expected + 1)
+    mapping = SnapshotMappingInput(
+        inputs.billing_account_id, inputs.state, inputs.plan, inputs.current, inputs.now
+    )
+    snapshot = map_snapshot(mapping, expected + 1, inputs.claim.event_id)
     return SnapshotWrite(expected, snapshot, _audits(inputs, snapshot))
 
 
