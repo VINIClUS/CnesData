@@ -195,7 +195,7 @@ _NEXT_PHASE = {
 
 @dataclass(slots=True)
 class _Context:
-    command: ImmediateRevocationCommand
+    actor_id: str
     fenced: list[str]
     failures: list[str]
 
@@ -217,8 +217,20 @@ class ImmediateRevocationService:
         Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
         """
         snapshot, fresh = self._revoked_snapshot(command)
-        progress = self._progress(snapshot, fresh)
-        context = _Context(command, [], [])
+        return self._enforce(self._progress(snapshot, fresh), command.actor_id)
+
+    def enforce_access_loss(self, snapshot: EntitlementSnapshot, actor_id: str) -> RevocationResult:
+        """Fenceia runs e cancela execuções após perda de acesso já gravada no snapshot.
+
+        Args: snapshot: Snapshot já persistido sem acesso pleno; actor_id: Ator auditado.
+        Returns: Versão do snapshot, runs fenceadas e falhas de cancelamento.
+        Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
+        """
+        require_id(actor_id, "actor_id")
+        return self._enforce(self._progress(snapshot, True), actor_id)
+
+    def _enforce(self, progress: RevocationProgress, actor_id: str) -> RevocationResult:
+        context = _Context(actor_id, [], [])
         while progress.phase is not RevocationPhase.COMPLETE:
             progress = self._advance(progress, context)
         return RevocationResult(
@@ -411,7 +423,7 @@ class ImmediateRevocationService:
         for state in page.runs:
             if state.cancel_requested:
                 self._settle(state)
-                self._audit_canceled(state, progress, context.command)
+                self._audit_canceled(state, progress, context.actor_id)
         return self._save(progress, self._advanced(progress, page.next_cursor))
 
     def _settle(self, state: RunBillingState) -> None:
@@ -435,16 +447,16 @@ class ImmediateRevocationService:
         self,
         state: RunBillingState,
         progress: RevocationProgress,
-        command: ImmediateRevocationCommand,
+        actor_id: str,
     ) -> None:
         tenant, run_id = state.tenant_id, state.run_id
         version = progress.entitlement_version
         self._deps.audit.append(
             BillingAuditEvent(
-                event_id=f"run.canceled:{tenant}:{run_id}:{version}",
+                event_id=f"run.canceled:{progress.billing_account_id}:{tenant}:{run_id}",
                 event_type="run.canceled",
                 aggregate_id=run_id,
-                actor_id=command.actor_id,
+                actor_id=actor_id,
                 reason_code=REVOKED_REASON_CODE,
                 occurred_at=self._deps.clock(),
                 attributes={
