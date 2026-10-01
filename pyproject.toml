@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["packages/*", "apps/central_api", "apps/data_processor", "apps/cnes_db_migrator", "apps/dump_agent"]
+members = ["packages/*", "apps/central_api", "apps/billing_worker", "apps/data_processor", "apps/cnes_db_migrator", "apps/dump_agent"]
 
 [tool.uv]
 override-dependencies = ["protobuf==6.33.6"]
@@ -127,6 +127,7 @@ known-first-party = [
     "cnes_domain",
     "cnes_infra",
     "central_api",
+    "billing_worker",
     "dump_agent",
     "data_processor",
 ]

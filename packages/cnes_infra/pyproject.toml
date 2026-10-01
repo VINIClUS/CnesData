@@ -16,6 +16,7 @@ dependencies = [
     "python-dotenv>=1.2",
     "python-jose[cryptography]>=3.3",
     "httpx>=0.28",
+    "stripe>=15.6,<16",
 ]
 
 [project.optional-dependencies]
