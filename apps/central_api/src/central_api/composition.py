@@ -24,6 +24,7 @@ from cnes_infra.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingGateResources,
     BillingSettings,
+    BillingStorage,
     build_entitlement_gate,
     build_execution_callbacks,
 )
@@ -96,6 +97,7 @@ class _AwsBilling:
 class AwsApiServices:
     membership_authorizer: MembershipAuthorizer
     serving_access: S3SignedServingAccess
+    billing_storage: BillingStorage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,7 +237,10 @@ def _aws_api_services(
         clients.s3,
         SignedServingSettings(settings.data_bucket, settings.serving_url_ttl_seconds),
     )
-    return AwsApiServices(MembershipAuthorizer(core.control_plane, candidates), serving)
+    return AwsApiServices(
+        MembershipAuthorizer(core.control_plane, candidates), serving,
+        BillingStorage(clients.dynamodb, settings.control_plane_table),
+    )
 
 
 def _notify_accepted(run_planning: RunPlanningService, record: RawManifestRecord) -> None:
