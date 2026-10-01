@@ -12,7 +12,13 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import BillingAccountStatus, CapacityKind, ReservationStatus
+from cnes_domain.billing.models import (
+    BillingAccountStatus,
+    CapacityKind,
+    EntitlementAction,
+    ReservationStatus,
+)
+from cnes_domain.billing.policy import EntitlementPolicy, require_allowed
 from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.profiles import BillingMode
 from cnes_infra.control_plane.billed_tenant import (
@@ -143,7 +149,6 @@ class DynamoBilledTenantMixin:
 
     def _billed_entitlement_version(self, command: CreateBilledTenantCommand, now: datetime) -> int:
         from cnes_infra.billing.dynamodb_items import decode_snapshot, get_item
-        from cnes_infra.billing.dynamodb_quota_items import require_commit_access
         from cnes_infra.billing.keys import entitlement_snapshot_key
 
         if not self._billing.enforced:
@@ -153,7 +158,8 @@ class DynamoBilledTenantMixin:
         if item is None:
             raise EntitlementDenied("reason=snapshot_missing")
         snapshot = decode_snapshot(item, account)
-        require_commit_access(snapshot, now)
+        policy = EntitlementPolicy(BillingMode.STRIPE)
+        require_allowed(policy.evaluate(snapshot, EntitlementAction.TENANT_CREATION, now))
         return snapshot.entitlement_version
 
     def _billed_actions(

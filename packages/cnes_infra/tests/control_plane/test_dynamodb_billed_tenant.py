@@ -54,7 +54,13 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     make_link,
     make_snapshot,
 )
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT, HASH_A, seed_snapshot
+from packages.cnes_infra.tests.billing.quota_support import (
+    ACCOUNT,
+    HASH_A,
+    make_limits,
+    make_quota_snapshot,
+    seed_snapshot,
+)
 from packages.cnes_infra.tests.control_plane.billed_tenant_support import (
     ALL_MODES,
     DISABLED,
@@ -274,6 +280,24 @@ def test_snapshot_vencido_nega(enforce_env: Env) -> None:
     seed_snapshot(enforce_env.client, past_due)
 
     with pytest.raises(EntitlementDenied, match="reason=grace_expired"):
+        enforce_env.plane.create_billed_tenant(enforce_env.command(reservation_id))
+
+    assert_nothing_written(enforce_env)
+
+
+@pytest.mark.parametrize(("changes", "reason"), [
+    ({"subscription_status": SubscriptionStatus.ADMIN_REVOKED}, "admin_revoked"),
+    ({"subscription_status": SubscriptionStatus.CANCELED}, "status_canceled"),
+    ({"quotas": make_limits(max_tenants=0)}, "quota_not_granted"),
+])
+def test_snapshot_que_perde_direito_apos_a_reserva_nega(
+    enforce_env: Env, changes: dict[str, Any], reason: str,
+) -> None:
+    reservation_id = enforce_env.reserve()
+    current = make_quota_snapshot()
+    seed_snapshot(enforce_env.client, replace(current, entitlement_version=9, **changes))
+
+    with pytest.raises(EntitlementDenied, match=f"reason={reason}"):
         enforce_env.plane.create_billed_tenant(enforce_env.command(reservation_id))
 
     assert_nothing_written(enforce_env)
