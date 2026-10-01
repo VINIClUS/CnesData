@@ -198,6 +198,7 @@ class _Context:
     actor_id: str
     fenced: list[str]
     failures: list[str]
+    guard: EntitlementSnapshot | None = None
 
 
 class ImmediateRevocationService:
@@ -217,7 +218,7 @@ class ImmediateRevocationService:
         Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
         """
         snapshot, fresh = self._revoked_snapshot(command)
-        return self._enforce(self._progress(snapshot, fresh), command.actor_id)
+        return self._enforce(self._progress(snapshot, fresh), _Context(command.actor_id, [], []))
 
     def enforce_access_loss(self, snapshot: EntitlementSnapshot, actor_id: str) -> RevocationResult:
         """Fenceia runs e cancela execuções após perda de acesso já gravada no snapshot.
@@ -227,10 +228,10 @@ class ImmediateRevocationService:
         Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
         """
         require_id(actor_id, "actor_id")
-        return self._enforce(self._progress(snapshot, True), actor_id)
+        context = _Context(actor_id, [], [], snapshot)
+        return self._enforce(self._progress(snapshot, True), context)
 
-    def _enforce(self, progress: RevocationProgress, actor_id: str) -> RevocationResult:
-        context = _Context(actor_id, [], [])
+    def _enforce(self, progress: RevocationProgress, context: _Context) -> RevocationResult:
         while progress.phase is not RevocationPhase.COMPLETE:
             progress = self._advance(progress, context)
         return RevocationResult(
@@ -335,7 +336,16 @@ class ImmediateRevocationService:
             progress.billing_account_id, limit, progress.run_cursor
         )
 
+    def _require_current(self, guard: EntitlementSnapshot | None) -> None:
+        if guard is None:
+            return
+        account = guard.billing_account_id
+        current = self._deps.projection.get_snapshot(account, ReadConsistency.STRONG)
+        if current is None or current.entitlement_version != guard.entitlement_version:
+            raise RetryableBillingError("access_loss_snapshot_superseded")
+
     def _fencing(self, progress: RevocationProgress, context: _Context) -> RevocationProgress:
+        self._require_current(context.guard)
         page = self._page(progress, self._settings.run_page_size)
         for state in page.runs:
             if self._fence(state, progress):

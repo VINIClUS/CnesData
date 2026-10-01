@@ -28,6 +28,11 @@ financeiros e de acesso:
 
 Não são comparados `valid_until`, `updated_at`, `source_event_id` e `entitlement_version`.
 
+Assinatura substituída: se a assinatura do snapshot estiver encerrada (`canceled` ou
+`incomplete_expired`), o reconciler consulta a assinatura viva do Customer e usa essa; só
+mantém o estado encerrado quando não há assinatura viva única (`stripe_subscription_ambiguous`).
+Assim um webhook perdido da nova assinatura não tira o acesso de quem recontratou.
+
 ### Sem drift
 
 Nenhuma escrita; a versão do snapshot não incrementa. Só métricas.
@@ -53,7 +58,11 @@ a cada execução; cancele a assinatura na Stripe ao revogar para encerrar o ala
 
 Se o snapshot vigente (o corrigido, ou o atual quando não há drift) não dá acesso FULL pela
 `EntitlementPolicy`, o reconciler delega ao mesmo serviço da revogação imediata: fence de Runs,
-cancelamento no executor e finalização. Não grava `admin_revoked`. O progresso fica por versão
+cancelamento no executor e finalização. Não grava `admin_revoked`. Antes de cada página de
+fencing o serviço relê o snapshot com leitura forte; se a versão mudou (por exemplo, o cliente
+pagou e o projector gravou acesso de novo), aborta com `access_loss_snapshot_superseded`, a
+conta conta em `failed` e a próxima execução reavalia. Contas `admin_revoked` não são
+delegadas: a revogação administrativa conduz as próprias fases. O progresso fica por versão
 em `REVOCATION#<versão>`; a chamada é idempotente e versão já COMPLETE retorna sem efeito.
 
 Perdem acesso FULL:
@@ -78,7 +87,8 @@ O item `BILLING#SYSTEM / RECONCILIATION#STRIPE` guarda `position` (última conta
 
 ### Falhas
 
-Falha numa conta (erro retryable ou de dependência, `stripe_price_unmapped`,
+Falha numa conta (erro retryable ou de dependência, dado Stripe inválido `stripe_state_invalid`,
+`stripe_price_unmapped`,
 `stripe_subscription_ambiguous` etc.): a conta fica em `failed`, o lote para e devolve
 `next_cursor` igual à última conta confirmada. O cursor não avança além dela. Uma falha
 permanente numa conta bloqueia o ciclo até correção manual; investigar pelo log

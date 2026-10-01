@@ -4,7 +4,13 @@ from dataclasses import replace
 
 import pytest
 
-from cnes_domain.billing.models import BillingAuditEvent, EntitlementSnapshot, SubscriptionStatus
+from cnes_domain.billing.errors import RetryableBillingError
+from cnes_domain.billing.models import (
+    BillingAuditEvent,
+    EntitlementSnapshot,
+    ReadConsistency,
+    SubscriptionStatus,
+)
 from cnes_domain.billing.revocation import (
     RevocationPhase,
     RevocationProgress,
@@ -50,7 +56,7 @@ def test_perda_de_acesso_fenceia_e_cancela_sem_reescrever_snapshot() -> None:
     ]
     assert harness.projection.writes == []
     assert harness.projection.snapshot.subscription_status is SubscriptionStatus.CANCELED
-    assert harness.projection.consistencies == []
+    assert set(harness.projection.consistencies) == {ReadConsistency.STRONG}
     assert result == RevocationResult(3, ("run_01", "run_02"), ())
 
 
@@ -84,6 +90,7 @@ def test_perda_de_acesso_completa_e_idempotente() -> None:
 def test_nova_versao_nao_reaudita_run_ja_cancelado() -> None:
     harness = _harness()
     harness.service.enforce_access_loss(_lost(3), ACTOR)
+    harness.projection.snapshot = _lost(4)
     harness.service.enforce_access_loss(_lost(4), ACTOR)
     expected = f"run.canceled:{ACCOUNT}:{TENANT}:run_01"
     events = _canceled_events(harness, "run_01")
@@ -106,3 +113,32 @@ def test_perda_de_acesso_rejeita_ator_vazio(actor: str) -> None:
     with pytest.raises(ValueError):
         harness.service.enforce_access_loss(_lost(), actor)
     assert harness.store.fence_requests == 0
+
+
+def test_perda_de_acesso_superada_nao_fenceia() -> None:
+    harness = _harness()
+    harness.projection.snapshot = replace(_lost(4), subscription_status=SubscriptionStatus.ACTIVE)
+    with pytest.raises(RetryableBillingError) as error:
+        harness.service.enforce_access_loss(_lost(3), ACTOR)
+    assert error.value.code == "access_loss_snapshot_superseded"
+    assert harness.store.fence_requests == 0
+    assert harness.executor.requests == []
+
+
+def test_perda_de_acesso_superada_no_meio_do_fencing_interrompe() -> None:
+    harness = _two_runs(page=1)
+    snapshots = [_lost(3), _lost(4)]
+    harness.projection.get_snapshot = lambda *_: snapshots.pop(0) if len(snapshots) > 1 else (
+        snapshots[0]
+    )
+    with pytest.raises(RetryableBillingError):
+        harness.service.enforce_access_loss(_lost(3), ACTOR)
+    assert harness.store.fence_requests == 1
+    assert harness.executor.requests == []
+
+
+def test_perda_de_acesso_sem_snapshot_e_superada() -> None:
+    harness = _harness()
+    harness.projection.snapshot = None
+    with pytest.raises(RetryableBillingError):
+        harness.service.enforce_access_loss(_lost(3), ACTOR)
