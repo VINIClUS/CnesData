@@ -406,9 +406,12 @@ class DynamoDBClaims:
         winner = self._get_model(
             unit_key(command.tenant_id, command.run_id, command.unit_id), RunUnit
         )
-        return winner == updated and self._event_replay_matches(
+        replayed = winner == updated and self._event_replay_matches(
             self._get_outbox_event(event.event_id), event
         )
+        if not replayed:
+            self._unit_billing_checks(command)
+        return replayed
     def _fail_run_unit_actions(
         self, command: FailRunUnit, event: Any
     ) -> tuple[RunUnit, tuple[Action, ...]]:

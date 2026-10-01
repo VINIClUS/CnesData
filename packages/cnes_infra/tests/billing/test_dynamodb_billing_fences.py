@@ -10,7 +10,7 @@ from cnes_domain.billing.models import BillingEnforcementMode
 from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit
 from cnes_domain.control_plane.entities import ManifestRef, OutboxEvent, RunUnit
 from cnes_domain.control_plane.enums import RunUnitState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected
+from cnes_domain.control_plane.errors import FenceRejected
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_infra.billing.keys import run_billing_key
@@ -166,7 +166,7 @@ def test_commit_e_rejeitado_se_companion_muda_entre_leitura_e_transacao(env: Env
     plane, unit = leased(env, STRIPE)
     cancel_before_transaction(env, plane)
 
-    with pytest.raises(Conflict):
+    with pytest.raises(FenceRejected):
         commit(plane, unit)
 
     assert stored_state(plane) is RunUnitState.LEASED
