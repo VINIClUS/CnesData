@@ -118,24 +118,24 @@ class DynamoEdgeRegistrationMixin:
             put_action(self._table_name, self._creation_item(command), None),
         )
         try:
-            self._transact(actions + self._fence_actions(command))
+            self._transact((*actions, *self._fence_actions(command)))
         except Conflict:
             return self._existing_creation(command, key)
         return EdgeAgentCreation(agent=agent, created=True)
 
-    def _fence_actions(self, command: NewEdgeAgent) -> tuple[Item, ...]:
+    def _fence_actions(self, command: NewEdgeAgent) -> list[Item]:
         from cnes_infra.billing.dynamodb_quota_items import SnapshotExpectation, snapshot_check
 
         fence = command.fence
         if fence is None:
-            return ()
+            return []
         now = self._clock()
         item = self._usable_reservation(command, now)
         expected = SnapshotExpectation(fence.billing_account_id, fence.entitlement_version, None)
-        return (
+        return [
             snapshot_check(self._table_name, expected, now),
             *consume_reservation_actions(self._table_name, item, now),
-        )
+        ]
 
     def _usable_reservation(self, command: NewEdgeAgent, now: datetime) -> Item:
         from cnes_domain.billing.errors import RetryableBillingError
