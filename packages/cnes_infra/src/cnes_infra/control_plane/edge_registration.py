@@ -29,12 +29,19 @@ _IDEMPOTENCY_TTL = timedelta(days=1)
 
 
 @dataclass(frozen=True, slots=True)
+class EntitlementFence:
+    billing_account_id: str
+    entitlement_version: int
+
+
+@dataclass(frozen=True, slots=True)
 class NewEdgeAgent:
     tenant_id: str
     agent_id: str
     fingerprint: str
     now: datetime
     reservation_id: str
+    fence: EntitlementFence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,14 +108,24 @@ class DynamoEdgeRegistrationMixin:
         """
         agent = _new_agent(command)
         key = entity_key(command.tenant_id, "AGENT", command.agent_id)
+        actions = (
+            put_action(self._table_name, encode_model(agent, "AGENT", key), None),
+            put_action(self._table_name, self._creation_item(command), None),
+        )
         try:
-            self._transact((
-                put_action(self._table_name, encode_model(agent, "AGENT", key), None),
-                put_action(self._table_name, self._creation_item(command), None),
-            ))
+            self._transact(actions + self._fence_actions(command))
         except Conflict:
             return self._existing_creation(command, key)
         return EdgeAgentCreation(agent=agent, created=True)
+
+    def _fence_actions(self, command: NewEdgeAgent) -> tuple[Item, ...]:
+        from cnes_infra.billing.dynamodb_quota_items import SnapshotExpectation, snapshot_check
+
+        fence = command.fence
+        if fence is None:
+            return ()
+        expected = SnapshotExpectation(fence.billing_account_id, fence.entitlement_version, None)
+        return (snapshot_check(self._table_name, expected, command.now),)
 
     def _creation_item(self, command: NewEdgeAgent) -> Item:
         record = _creation_record(command)
@@ -122,6 +139,7 @@ class DynamoEdgeRegistrationMixin:
     ) -> EdgeAgentCreation:
         stored = self._get_item(key)
         if stored is None:
+            self._raise_fence_failure(command)
             raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
         marker = self._get_item(
             idempotency_key(command.tenant_id, EDGE_AGENT_SCOPE, command.reservation_id)
@@ -131,6 +149,23 @@ class DynamoEdgeRegistrationMixin:
             and decode_model(marker, IdempotencyRecord).resource_id == command.agent_id
         )
         return EdgeAgentCreation(agent=decode_model(stored, Agent), created=created)
+
+    def _raise_fence_failure(self, command: NewEdgeAgent) -> None:
+        from cnes_domain.billing.errors import EntitlementDenied
+        from cnes_infra.billing.dynamodb_items import decode_snapshot
+        from cnes_infra.billing.keys import entitlement_snapshot_key
+
+        fence = command.fence
+        if fence is None:
+            return
+        account = fence.billing_account_id
+        item = self._get_item(entitlement_snapshot_key(account))
+        snapshot = None if item is None else decode_snapshot(item, account)
+        if snapshot is None or (
+            snapshot.entitlement_version != fence.entitlement_version
+            or snapshot.valid_until <= command.now
+        ):
+            raise EntitlementDenied("reason=snapshot_changed")
 
 
 class SQLiteEdgeRegistrationMixin:

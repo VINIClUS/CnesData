@@ -26,7 +26,7 @@ from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.profiles import BillingMode
-from cnes_infra.control_plane.edge_registration import EdgeAgentCreation
+from cnes_infra.control_plane.edge_registration import EdgeAgentCreation, EntitlementFence
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 FINGERPRINT = sha256(b"certificate").hexdigest()
@@ -61,6 +61,7 @@ class Registry:
         self.create_errors: list[Exception] = []
         self.commit_before_error = False
         self.hidden_reads = 0
+        self.commands: list = []
         self.lock = Lock()
 
     def get_agent(self, tenant_id: str, agent_id: str) -> Agent | None:
@@ -91,6 +92,7 @@ class Registry:
             return self._store(command)
 
     def _store(self, command) -> EdgeAgentCreation:
+        self.commands.append(command)
         current = self.agents.get(command.agent_id)
         if current is None:
             created = make_agent(command.agent_id, command.fingerprint)
@@ -193,6 +195,26 @@ def test_agente_novo_reserva_capacidade_cria_e_consome() -> None:
     )
     assert rig.capacity.consumed[0].reservation_id == "res-1"
     assert rig.registry.owners == {"agent-1": "res-1"}
+
+
+def test_criacao_e_cercada_pela_versao_de_entitlement_do_gate() -> None:
+    rig = Rig()
+
+    rig.admission().admit(identity(), NOW)
+
+    (command,) = rig.registry.commands
+    assert command.fence == EntitlementFence(ACCOUNT, 7)
+
+
+def test_snapshot_alterado_na_criacao_libera_e_nega() -> None:
+    rig = Rig()
+    rig.registry.create_errors = [EntitlementDenied("reason=snapshot_changed")]
+
+    with pytest.raises(EntitlementDenied, match="snapshot_changed"):
+        rig.admission().admit(identity(), NOW)
+
+    assert rig.calls == ["get_agent", "gate", "reserve", "create", "get_agent", "release"]
+    assert rig.capacity.consumed == []
 
 
 def test_rotacao_de_fingerprint_nao_reserva() -> None:

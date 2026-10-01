@@ -16,7 +16,7 @@ from cnes_domain.billing.commands import (
 from cnes_domain.billing.errors import RetryableBillingError
 from cnes_domain.billing.models import CapacityKind
 from cnes_domain.control_plane.errors import Conflict
-from cnes_infra.control_plane.edge_registration import NewEdgeAgent
+from cnes_infra.control_plane.edge_registration import EntitlementFence, NewEdgeAgent
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -47,13 +47,17 @@ def _uuid_key() -> str:
 class _Pending:
     identity: EdgeIdentity
     now: datetime
-    account: str
+    fence: EntitlementFence
     reservation_id: str
+
+    @property
+    def account(self) -> str:
+        return self.fence.billing_account_id
 
     def command(self) -> NewEdgeAgent:
         return NewEdgeAgent(
             self.identity.tenant_id, self.identity.agent_id,
-            self.identity.certificate_fingerprint, self.now, self.reservation_id,
+            self.identity.certificate_fingerprint, self.now, self.reservation_id, self.fence,
         )
 
 
@@ -98,7 +102,8 @@ class AgentAdmission:
         decision = gates.gate.authorize_register_agent(GateRequest(account, identity.tenant_id))
         if not gates.enforced:
             return self._upsert(identity, now)
-        pending = self._reserve(gates, decision, _Pending(identity, now, account, ""))
+        fence = EntitlementFence(account, decision.entitlement_version)
+        pending = self._reserve(gates, decision, _Pending(identity, now, fence, ""))
         creation = self._create_or_recover(gates, pending)
         if not creation.created:
             self._release(gates, pending, "agent_already_registered")
@@ -122,7 +127,7 @@ class AgentAdmission:
                 decision.entitlement_version, decision.quota_limit,
             ),
         )
-        return _Pending(identity, pending.now, pending.account, reservation.reservation_id)
+        return _Pending(identity, pending.now, pending.fence, reservation.reservation_id)
 
     def _create_or_recover(self, gates: ApiBillingGates, pending: _Pending) -> EdgeAgentCreation:
         identity = pending.identity
