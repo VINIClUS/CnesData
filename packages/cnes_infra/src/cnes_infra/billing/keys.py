@@ -166,6 +166,11 @@ def stripe_recovery_cursor_key() -> Key:
     return _SYSTEM_PARTITION, "RECOVERY#STRIPE"
 
 
+def stripe_reconciliation_cursor_key() -> Key:
+    """Cria a chave do cursor de reconciliação Stripe."""
+    return _SYSTEM_PARTITION, "RECONCILIATION#STRIPE"
+
+
 def revocation_progress_key(billing_account_id: str, entitlement_version: int) -> Key:
     """Cria a chave do progresso de revogação de uma versão."""
     if (
