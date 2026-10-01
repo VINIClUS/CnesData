@@ -15,7 +15,9 @@ from cnes_domain.billing.commands import (
 )
 from cnes_domain.billing.errors import RetryableBillingError
 from cnes_domain.billing.models import CapacityKind
+from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.edge_registration import EntitlementFence, NewEdgeAgent
 
 if TYPE_CHECKING:
@@ -111,6 +113,8 @@ class AgentAdmission:
         gates.capacity.consume_capacity(
             ConsumeCapacityCommand(account, pending.reservation_id, now),
         )
+        if creation.agent.state is AgentState.REVOKED:
+            raise Conflict(ErrorCode.AGENT_REVOKED)
         return creation.agent
 
     def _reserve(

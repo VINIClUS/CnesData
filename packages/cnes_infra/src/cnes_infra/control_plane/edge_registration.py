@@ -19,6 +19,11 @@ from cnes_infra.control_plane.dynamodb_codec import (
     put_action,
 )
 from cnes_infra.control_plane.dynamodb_keys import entity_key, idempotency_key
+from cnes_infra.control_plane.edge_capacity import (
+    RESERVATION_EXPIRED,
+    consume_reservation_actions,
+    usable_agent_reservation,
+)
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
 if TYPE_CHECKING:
@@ -124,8 +129,24 @@ class DynamoEdgeRegistrationMixin:
         fence = command.fence
         if fence is None:
             return ()
+        now = self._clock()
+        item = self._usable_reservation(command, now)
         expected = SnapshotExpectation(fence.billing_account_id, fence.entitlement_version, None)
-        return (snapshot_check(self._table_name, expected, self._clock()),)
+        return (
+            snapshot_check(self._table_name, expected, now),
+            *consume_reservation_actions(self._table_name, item, now),
+        )
+
+    def _usable_reservation(self, command: NewEdgeAgent, now: datetime) -> Item:
+        from cnes_domain.billing.errors import RetryableBillingError
+        from cnes_infra.billing.keys import capacity_reservation_key
+
+        fence = command.fence
+        item = self._get_item(capacity_reservation_key(fence.billing_account_id,
+                                                       command.reservation_id))
+        if not usable_agent_reservation(item, command, now):
+            raise RetryableBillingError(RESERVATION_EXPIRED)
+        return item
 
     def _creation_item(self, command: NewEdgeAgent) -> Item:
         record = _creation_record(command)
@@ -165,6 +186,7 @@ class DynamoEdgeRegistrationMixin:
             or snapshot.valid_until <= self._clock()
         ):
             raise EntitlementDenied("reason=snapshot_changed")
+        self._usable_reservation(command, self._clock())
 
 
 class SQLiteEdgeRegistrationMixin:

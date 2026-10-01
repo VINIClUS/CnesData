@@ -313,6 +313,26 @@ def test_falha_de_escrita_com_commit_proprio_consome() -> None:
     assert rig.calls[-3:] == ["get_agent", "create", "consume"]
 
 
+def test_agente_revogado_devolvido_pela_recuperacao_e_negado() -> None:
+    rig = Rig()
+    rig.registry.create_errors = [RuntimeError("timeout=1")]
+    rig.registry.commit_before_error = True
+    original = rig.registry._store
+
+    def revoke_then_store(command):
+        creation = original(command)
+        revoked = creation.agent.model_copy(update={"state": AgentState.REVOKED})
+        rig.registry.agents[command.agent_id] = revoked
+        return EdgeAgentCreation(revoked, creation.created)
+
+    rig.registry._store = revoke_then_store
+
+    with pytest.raises(Conflict) as raised:
+        rig.admission().admit(identity(), NOW)
+
+    assert raised.value.code is ErrorCode.AGENT_REVOKED
+
+
 def test_falha_de_escrita_com_agente_de_outro_libera() -> None:
     rig = Rig()
     rig.registry.create_errors = [RuntimeError("timeout=1")]
