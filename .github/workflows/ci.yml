@@ -11,6 +11,7 @@ on:
       - 'packages/**'
       - 'tests/**'
       - 'apps/central_api/**'
+      - 'apps/billing_worker/**'
       - 'apps/data_processor/**'
       - 'apps/cnes_db_migrator/**'
       - 'pyproject.toml'

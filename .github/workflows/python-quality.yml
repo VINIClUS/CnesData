@@ -5,6 +5,7 @@ on:
     paths:
       - 'packages/**'
       - 'apps/central_api/**'
+      - 'apps/billing_worker/**'
       - 'apps/data_processor/**'
       - 'tests/**'
       - 'scripts/flag_quality_violation.py'

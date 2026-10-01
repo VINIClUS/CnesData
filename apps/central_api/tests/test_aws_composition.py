@@ -162,6 +162,7 @@ def test_api_aws_instala_runtime_completo_oidc_e_serving(session: Mock) -> None:
     assert isinstance(runtime.services, AwsApiServices)
     assert isinstance(runtime.services.membership_authorizer, MembershipAuthorizer)
     assert isinstance(runtime.services.serving_access, S3SignedServingAccess)
+    assert runtime.services.billing_storage.client is session.clients["dynamodb"]
     assert [call.args[0] for call in session.client.call_args_list] == [
         "dynamodb", "s3", "stepfunctions",
     ]

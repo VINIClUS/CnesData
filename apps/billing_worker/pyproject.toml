@@ -1,0 +1,21 @@
+[project]
+name = "billing-worker"
+version = "0.1.0"
+description = "Billing worker — inbox drain and Stripe webhook recovery"
+requires-python = ">=3.13"
+dependencies = [
+    "cnes-infra",
+]
+
+[project.scripts]
+billing-worker = "billing_worker.main:main"
+
+[tool.uv.sources]
+cnes-infra = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/billing_worker"]

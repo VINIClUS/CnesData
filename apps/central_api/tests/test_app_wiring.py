@@ -46,6 +46,17 @@ def test_app_inclui_public_leads_router() -> None:
     assert "/api/v1/public/leads" in paths
 
 
+def test_app_inclui_billing_e_webhook_routes() -> None:
+    app = _make_app()
+    paths = {route.path for route in app.routes}
+    assert "/api/v1/billing/accounts" in paths
+    assert "/api/v1/billing/accounts/{billing_account_id}/transfer" in paths
+    assert "/api/v1/billing/checkout" in paths
+    assert "/api/v1/billing/portal" in paths
+    assert "/api/v1/billing/status" in paths
+    assert "/api/v1/billing/webhooks/stripe" in paths
+
+
 def test_app_inclui_access_requests_router() -> None:
     app = _make_app()
     paths = {r.path for r in app.routes}

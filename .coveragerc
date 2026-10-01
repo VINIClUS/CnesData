@@ -4,6 +4,7 @@ source =
     dump_agent
     data_processor
     central_api
+    billing_worker
     cnes_db_migrator
 omit =
     **/__pycache__/**

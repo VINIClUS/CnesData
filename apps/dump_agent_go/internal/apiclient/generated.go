@@ -311,6 +311,36 @@ type AgentWhoamiResponse struct {
 	TenantId  string `json:"tenant_id"`
 }
 
+// BillingAccountCreate defines model for BillingAccountCreate.
+type BillingAccountCreate struct {
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+// BillingAccountOut defines model for BillingAccountOut.
+type BillingAccountOut struct {
+	BillingAccountId string `json:"billing_account_id"`
+	OwnerUserId      string `json:"owner_user_id"`
+	StripeCustomerId string `json:"stripe_customer_id"`
+}
+
+// BillingAccountTransfer defines model for BillingAccountTransfer.
+type BillingAccountTransfer struct {
+	NewOwnerUserId string `json:"new_owner_user_id"`
+	ReasonCode     string `json:"reason_code"`
+}
+
+// BillingStatusOut defines model for BillingStatusOut.
+type BillingStatusOut struct {
+	BillingAccountId   *string    `json:"billing_account_id,omitempty"`
+	CancelAtPeriodEnd  *bool      `json:"cancel_at_period_end,omitempty"`
+	EntitlementVersion *int       `json:"entitlement_version,omitempty"`
+	Features           *[]string  `json:"features,omitempty"`
+	GraceUntil         *time.Time `json:"grace_until,omitempty"`
+	PeriodEnd          *time.Time `json:"period_end,omitempty"`
+	PlanVersionId      *string    `json:"plan_version_id,omitempty"`
+	State              string     `json:"state"`
+}
+
 // BodyTokenOauthTokenPost defines model for Body_token_oauth_token_post.
 type BodyTokenOauthTokenPost struct {
 	ClientId   string `json:"client_id"`
@@ -336,6 +366,13 @@ type CertRotateResponse struct {
 	CaChainPem string    `json:"ca_chain_pem"`
 	CertPem    string    `json:"cert_pem"`
 	ExpiresAt  time.Time `json:"expires_at"`
+}
+
+// CheckoutCreate defines model for CheckoutCreate.
+type CheckoutCreate struct {
+	BillingAccountId string `json:"billing_account_id"`
+	IdempotencyKey   string `json:"idempotency_key"`
+	PlanVersionId    string `json:"plan_version_id"`
 }
 
 // DeviceAuthorizationRequest Request body for POST /oauth/device_authorization (RFC 8628 §3.1).
@@ -435,6 +472,12 @@ type HeartbeatResponse struct {
 	LeaseUntil   time.Time `json:"lease_until"`
 }
 
+// HostedSessionOut defines model for HostedSessionOut.
+type HostedSessionOut struct {
+	SessionId string `json:"session_id"`
+	Url       string `json:"url"`
+}
+
 // JobRegisterRequest defines model for JobRegisterRequest.
 type JobRegisterRequest struct {
 	AgentVersion *string            `json:"agent_version,omitempty"`
@@ -495,6 +538,12 @@ type OverviewResponse struct {
 	FaturamentoAtualCents     int `json:"faturamento_atual_cents"`
 	ProfissionaisAnterior     int `json:"profissionais_anterior"`
 	ProfissionaisAtivos       int `json:"profissionais_ativos"`
+}
+
+// PortalCreate defines model for PortalCreate.
+type PortalCreate struct {
+	BillingAccountId string `json:"billing_account_id"`
+	IdempotencyKey   string `json:"idempotency_key"`
 }
 
 // PrincipalResponse defines model for PrincipalResponse.
@@ -708,6 +757,37 @@ type GetAgentStatusApiV1AgentsStatusGetParams struct {
 	XTenantId *string `json:"X-Tenant-Id,omitempty"`
 }
 
+// CreateBillingAccountApiV1BillingAccountsPostParams defines parameters for CreateBillingAccountApiV1BillingAccountsPost.
+type CreateBillingAccountApiV1BillingAccountsPostParams struct {
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
+}
+
+// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams defines parameters for TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost.
+type TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams struct {
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
+}
+
+// CreateCheckoutSessionApiV1BillingCheckoutPostParams defines parameters for CreateCheckoutSessionApiV1BillingCheckoutPost.
+type CreateCheckoutSessionApiV1BillingCheckoutPostParams struct {
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
+}
+
+// CreatePortalSessionApiV1BillingPortalPostParams defines parameters for CreatePortalSessionApiV1BillingPortalPost.
+type CreatePortalSessionApiV1BillingPortalPostParams struct {
+	XTenantId *string `json:"X-Tenant-Id,omitempty"`
+}
+
+// GetBillingStatusApiV1BillingStatusGetParams defines parameters for GetBillingStatusApiV1BillingStatusGet.
+type GetBillingStatusApiV1BillingStatusGetParams struct {
+	BillingAccountId string  `form:"billing_account_id" json:"billing_account_id"`
+	XTenantId        *string `json:"X-Tenant-Id,omitempty"`
+}
+
+// ReceiveStripeWebhookApiV1BillingWebhooksStripePostParams defines parameters for ReceiveStripeWebhookApiV1BillingWebhooksStripePost.
+type ReceiveStripeWebhookApiV1BillingWebhooksStripePostParams struct {
+	StripeSignature *string `json:"Stripe-Signature,omitempty"`
+}
+
 // AgentsRunsApiV1DashboardAgentsRunsGetParams defines parameters for AgentsRunsApiV1DashboardAgentsRunsGet.
 type AgentsRunsApiV1DashboardAgentsRunsGetParams struct {
 	Limit     *int    `form:"limit,omitempty" json:"limit,omitempty"`
@@ -763,6 +843,18 @@ type EnqueueRawJobsApiV1AdminRawJobsEnqueuePostJSONRequestBody = RawEnqueueReque
 
 // LoginApiV1AuthLocalLoginPostJSONRequestBody defines body for LoginApiV1AuthLocalLoginPost for application/json ContentType.
 type LoginApiV1AuthLocalLoginPostJSONRequestBody = LoginRequest
+
+// CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody defines body for CreateBillingAccountApiV1BillingAccountsPost for application/json ContentType.
+type CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody = BillingAccountCreate
+
+// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody defines body for TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost for application/json ContentType.
+type TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody = BillingAccountTransfer
+
+// CreateCheckoutSessionApiV1BillingCheckoutPostJSONRequestBody defines body for CreateCheckoutSessionApiV1BillingCheckoutPost for application/json ContentType.
+type CreateCheckoutSessionApiV1BillingCheckoutPostJSONRequestBody = CheckoutCreate
+
+// CreatePortalSessionApiV1BillingPortalPostJSONRequestBody defines body for CreatePortalSessionApiV1BillingPortalPost for application/json ContentType.
+type CreatePortalSessionApiV1BillingPortalPostJSONRequestBody = PortalCreate
 
 // CreateRequestApiV1DashboardAccessRequestsPostJSONRequestBody defines body for CreateRequestApiV1DashboardAccessRequestsPost for application/json ContentType.
 type CreateRequestApiV1DashboardAccessRequestsPostJSONRequestBody = AccessRequestCreate
@@ -1130,6 +1222,92 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/v1/auth/me (the `MeApiV1AuthMeGet` operationId).
 	MeApiV1AuthMeGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateBillingAccountApiV1BillingAccountsPostWithBody Create Billing Account
+	//
+	// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
+	CreateBillingAccountApiV1BillingAccountsPostWithBody(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateBillingAccountApiV1BillingAccountsPost Create Billing Account
+	//
+	// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
+	CreateBillingAccountApiV1BillingAccountsPost(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, body CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBody Transfer Billing Account
+	//
+	// Transfere a titularidade da conta a outro administrador do tenant vinculado.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/transfer (the `TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost` operationId).
+	TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBody(ctx context.Context, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost Transfer Billing Account
+	//
+	// Transfere a titularidade da conta a outro administrador do tenant vinculado.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/transfer (the `TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost` operationId).
+	TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost(ctx context.Context, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, body TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateCheckoutSessionApiV1BillingCheckoutPostWithBody Create Checkout Session
+	//
+	// Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/billing/checkout (the `CreateCheckoutSessionApiV1BillingCheckoutPost` operationId).
+	CreateCheckoutSessionApiV1BillingCheckoutPostWithBody(ctx context.Context, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateCheckoutSessionApiV1BillingCheckoutPost Create Checkout Session
+	//
+	// Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/billing/checkout (the `CreateCheckoutSessionApiV1BillingCheckoutPost` operationId).
+	CreateCheckoutSessionApiV1BillingCheckoutPost(ctx context.Context, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, body CreateCheckoutSessionApiV1BillingCheckoutPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreatePortalSessionApiV1BillingPortalPostWithBody Create Portal Session
+	//
+	// Abre o portal de cobrança hospedado no Stripe para o dono da conta.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/billing/portal (the `CreatePortalSessionApiV1BillingPortalPost` operationId).
+	CreatePortalSessionApiV1BillingPortalPostWithBody(ctx context.Context, params *CreatePortalSessionApiV1BillingPortalPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreatePortalSessionApiV1BillingPortalPost Create Portal Session
+	//
+	// Abre o portal de cobrança hospedado no Stripe para o dono da conta.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/billing/portal (the `CreatePortalSessionApiV1BillingPortalPost` operationId).
+	CreatePortalSessionApiV1BillingPortalPost(ctx context.Context, params *CreatePortalSessionApiV1BillingPortalPostParams, body CreatePortalSessionApiV1BillingPortalPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetBillingStatusApiV1BillingStatusGet Get Billing Status
+	//
+	// Informa o estado de entitlement projetado; nunca consulta o Stripe.
+	//
+	// Corresponds with GET /api/v1/billing/status (the `GetBillingStatusApiV1BillingStatusGet` operationId).
+	GetBillingStatusApiV1BillingStatusGet(ctx context.Context, params *GetBillingStatusApiV1BillingStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReceiveStripeWebhookApiV1BillingWebhooksStripePost Receive Stripe Webhook
+	//
+	// Verifica a assinatura do body raw e aceita o evento no inbox idempotente.
+	//
+	// Corresponds with POST /api/v1/billing/webhooks/stripe (the `ReceiveStripeWebhookApiV1BillingWebhooksStripePost` operationId).
+	ReceiveStripeWebhookApiV1BillingWebhooksStripePost(ctx context.Context, params *ReceiveStripeWebhookApiV1BillingWebhooksStripePostParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateRequestApiV1DashboardAccessRequestsPostWithBody Create Request
 	//
@@ -1545,6 +1723,192 @@ func (c *Client) LogoutApiV1AuthLogoutPost(ctx context.Context, reqEditors ...Re
 // Corresponds with GET /api/v1/auth/me (the `MeApiV1AuthMeGet` operationId).
 func (c *Client) MeApiV1AuthMeGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewMeApiV1AuthMeGetRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateBillingAccountApiV1BillingAccountsPostWithBody Create Billing Account
+//
+// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
+func (c *Client) CreateBillingAccountApiV1BillingAccountsPostWithBody(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateBillingAccountApiV1BillingAccountsPostRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateBillingAccountApiV1BillingAccountsPost Create Billing Account
+//
+// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
+func (c *Client) CreateBillingAccountApiV1BillingAccountsPost(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, body CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateBillingAccountApiV1BillingAccountsPostRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBody Transfer Billing Account
+//
+// Transfere a titularidade da conta a outro administrador do tenant vinculado.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/transfer (the `TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost` operationId).
+func (c *Client) TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBody(ctx context.Context, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostRequestWithBody(c.Server, billingAccountId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost Transfer Billing Account
+//
+// Transfere a titularidade da conta a outro administrador do tenant vinculado.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/transfer (the `TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost` operationId).
+func (c *Client) TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost(ctx context.Context, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, body TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostRequest(c.Server, billingAccountId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateCheckoutSessionApiV1BillingCheckoutPostWithBody Create Checkout Session
+//
+// Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/billing/checkout (the `CreateCheckoutSessionApiV1BillingCheckoutPost` operationId).
+func (c *Client) CreateCheckoutSessionApiV1BillingCheckoutPostWithBody(ctx context.Context, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCheckoutSessionApiV1BillingCheckoutPostRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateCheckoutSessionApiV1BillingCheckoutPost Create Checkout Session
+//
+// Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/billing/checkout (the `CreateCheckoutSessionApiV1BillingCheckoutPost` operationId).
+func (c *Client) CreateCheckoutSessionApiV1BillingCheckoutPost(ctx context.Context, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, body CreateCheckoutSessionApiV1BillingCheckoutPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCheckoutSessionApiV1BillingCheckoutPostRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreatePortalSessionApiV1BillingPortalPostWithBody Create Portal Session
+//
+// Abre o portal de cobrança hospedado no Stripe para o dono da conta.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/billing/portal (the `CreatePortalSessionApiV1BillingPortalPost` operationId).
+func (c *Client) CreatePortalSessionApiV1BillingPortalPostWithBody(ctx context.Context, params *CreatePortalSessionApiV1BillingPortalPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreatePortalSessionApiV1BillingPortalPostRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreatePortalSessionApiV1BillingPortalPost Create Portal Session
+//
+// Abre o portal de cobrança hospedado no Stripe para o dono da conta.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/billing/portal (the `CreatePortalSessionApiV1BillingPortalPost` operationId).
+func (c *Client) CreatePortalSessionApiV1BillingPortalPost(ctx context.Context, params *CreatePortalSessionApiV1BillingPortalPostParams, body CreatePortalSessionApiV1BillingPortalPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreatePortalSessionApiV1BillingPortalPostRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetBillingStatusApiV1BillingStatusGet Get Billing Status
+//
+// Informa o estado de entitlement projetado; nunca consulta o Stripe.
+//
+// Corresponds with GET /api/v1/billing/status (the `GetBillingStatusApiV1BillingStatusGet` operationId).
+func (c *Client) GetBillingStatusApiV1BillingStatusGet(ctx context.Context, params *GetBillingStatusApiV1BillingStatusGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetBillingStatusApiV1BillingStatusGetRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReceiveStripeWebhookApiV1BillingWebhooksStripePost Receive Stripe Webhook
+//
+// Verifica a assinatura do body raw e aceita o evento no inbox idempotente.
+//
+// Corresponds with POST /api/v1/billing/webhooks/stripe (the `ReceiveStripeWebhookApiV1BillingWebhooksStripePost` operationId).
+func (c *Client) ReceiveStripeWebhookApiV1BillingWebhooksStripePost(ctx context.Context, params *ReceiveStripeWebhookApiV1BillingWebhooksStripePostParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReceiveStripeWebhookApiV1BillingWebhooksStripePostRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2484,6 +2848,340 @@ func NewMeApiV1AuthMeGetRequest(server string) (*http.Request, error) {
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateBillingAccountApiV1BillingAccountsPostRequest calls the generic CreateBillingAccountApiV1BillingAccountsPost builder with application/json body
+func NewCreateBillingAccountApiV1BillingAccountsPostRequest(server string, params *CreateBillingAccountApiV1BillingAccountsPostParams, body CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateBillingAccountApiV1BillingAccountsPostRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewCreateBillingAccountApiV1BillingAccountsPostRequestWithBody constructs an http.Request for the CreateBillingAccountApiV1BillingAccountsPost method, with any body, and a specified content type
+func NewCreateBillingAccountApiV1BillingAccountsPostRequestWithBody(server string, params *CreateBillingAccountApiV1BillingAccountsPostParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/billing/accounts")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostRequest calls the generic TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost builder with application/json body
+func NewTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostRequest(server string, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, body TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostRequestWithBody(server, billingAccountId, params, "application/json", bodyReader)
+}
+
+// NewTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostRequestWithBody constructs an http.Request for the TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost method, with any body, and a specified content type
+func NewTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostRequestWithBody(server string, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "billing_account_id", billingAccountId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/billing/accounts/%s/transfer", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewCreateCheckoutSessionApiV1BillingCheckoutPostRequest calls the generic CreateCheckoutSessionApiV1BillingCheckoutPost builder with application/json body
+func NewCreateCheckoutSessionApiV1BillingCheckoutPostRequest(server string, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, body CreateCheckoutSessionApiV1BillingCheckoutPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateCheckoutSessionApiV1BillingCheckoutPostRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewCreateCheckoutSessionApiV1BillingCheckoutPostRequestWithBody constructs an http.Request for the CreateCheckoutSessionApiV1BillingCheckoutPost method, with any body, and a specified content type
+func NewCreateCheckoutSessionApiV1BillingCheckoutPostRequestWithBody(server string, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/billing/checkout")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewCreatePortalSessionApiV1BillingPortalPostRequest calls the generic CreatePortalSessionApiV1BillingPortalPost builder with application/json body
+func NewCreatePortalSessionApiV1BillingPortalPostRequest(server string, params *CreatePortalSessionApiV1BillingPortalPostParams, body CreatePortalSessionApiV1BillingPortalPostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreatePortalSessionApiV1BillingPortalPostRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewCreatePortalSessionApiV1BillingPortalPostRequestWithBody constructs an http.Request for the CreatePortalSessionApiV1BillingPortalPost method, with any body, and a specified content type
+func NewCreatePortalSessionApiV1BillingPortalPostRequestWithBody(server string, params *CreatePortalSessionApiV1BillingPortalPostParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/billing/portal")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetBillingStatusApiV1BillingStatusGetRequest constructs an http.Request for the GetBillingStatusApiV1BillingStatusGet method
+func NewGetBillingStatusApiV1BillingStatusGetRequest(server string, params *GetBillingStatusApiV1BillingStatusGetParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/billing/status")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "billing_account_id", params.BillingAccountId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Tenant-Id", *params.XTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewReceiveStripeWebhookApiV1BillingWebhooksStripePostRequest constructs an http.Request for the ReceiveStripeWebhookApiV1BillingWebhooksStripePost method
+func NewReceiveStripeWebhookApiV1BillingWebhooksStripePostRequest(server string, params *ReceiveStripeWebhookApiV1BillingWebhooksStripePostParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/billing/webhooks/stripe")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.StripeSignature != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Stripe-Signature", *params.StripeSignature, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Stripe-Signature", headerParam0)
+		}
+
 	}
 
 	return req, nil
@@ -3613,6 +4311,96 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/auth/me (the `MeApiV1AuthMeGet` operationId).
 	MeApiV1AuthMeGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MeApiV1AuthMeGetResponse, error)
 
+	// CreateBillingAccountApiV1BillingAccountsPostWithBodyWithResponse Create Billing Account
+	//
+	// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
+	CreateBillingAccountApiV1BillingAccountsPostWithBodyWithResponse(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateBillingAccountApiV1BillingAccountsPostResponse, error)
+
+	// CreateBillingAccountApiV1BillingAccountsPostWithResponse Create Billing Account
+	//
+	// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
+	CreateBillingAccountApiV1BillingAccountsPostWithResponse(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, body CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateBillingAccountApiV1BillingAccountsPostResponse, error)
+
+	// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBodyWithResponse Transfer Billing Account
+	//
+	// Transfere a titularidade da conta a outro administrador do tenant vinculado.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/transfer (the `TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost` operationId).
+	TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBodyWithResponse(ctx context.Context, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse, error)
+
+	// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithResponse Transfer Billing Account
+	//
+	// Transfere a titularidade da conta a outro administrador do tenant vinculado.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/transfer (the `TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost` operationId).
+	TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithResponse(ctx context.Context, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, body TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody, reqEditors ...RequestEditorFn) (*TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse, error)
+
+	// CreateCheckoutSessionApiV1BillingCheckoutPostWithBodyWithResponse Create Checkout Session
+	//
+	// Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/checkout (the `CreateCheckoutSessionApiV1BillingCheckoutPost` operationId).
+	CreateCheckoutSessionApiV1BillingCheckoutPostWithBodyWithResponse(ctx context.Context, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCheckoutSessionApiV1BillingCheckoutPostResponse, error)
+
+	// CreateCheckoutSessionApiV1BillingCheckoutPostWithResponse Create Checkout Session
+	//
+	// Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/checkout (the `CreateCheckoutSessionApiV1BillingCheckoutPost` operationId).
+	CreateCheckoutSessionApiV1BillingCheckoutPostWithResponse(ctx context.Context, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, body CreateCheckoutSessionApiV1BillingCheckoutPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCheckoutSessionApiV1BillingCheckoutPostResponse, error)
+
+	// CreatePortalSessionApiV1BillingPortalPostWithBodyWithResponse Create Portal Session
+	//
+	// Abre o portal de cobrança hospedado no Stripe para o dono da conta.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/portal (the `CreatePortalSessionApiV1BillingPortalPost` operationId).
+	CreatePortalSessionApiV1BillingPortalPostWithBodyWithResponse(ctx context.Context, params *CreatePortalSessionApiV1BillingPortalPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreatePortalSessionApiV1BillingPortalPostResponse, error)
+
+	// CreatePortalSessionApiV1BillingPortalPostWithResponse Create Portal Session
+	//
+	// Abre o portal de cobrança hospedado no Stripe para o dono da conta.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/portal (the `CreatePortalSessionApiV1BillingPortalPost` operationId).
+	CreatePortalSessionApiV1BillingPortalPostWithResponse(ctx context.Context, params *CreatePortalSessionApiV1BillingPortalPostParams, body CreatePortalSessionApiV1BillingPortalPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreatePortalSessionApiV1BillingPortalPostResponse, error)
+
+	// GetBillingStatusApiV1BillingStatusGetWithResponse Get Billing Status
+	//
+	// Informa o estado de entitlement projetado; nunca consulta o Stripe.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/billing/status (the `GetBillingStatusApiV1BillingStatusGet` operationId).
+	GetBillingStatusApiV1BillingStatusGetWithResponse(ctx context.Context, params *GetBillingStatusApiV1BillingStatusGetParams, reqEditors ...RequestEditorFn) (*GetBillingStatusApiV1BillingStatusGetResponse, error)
+
+	// ReceiveStripeWebhookApiV1BillingWebhooksStripePostWithResponse Receive Stripe Webhook
+	//
+	// Verifica a assinatura do body raw e aceita o evento no inbox idempotente.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/billing/webhooks/stripe (the `ReceiveStripeWebhookApiV1BillingWebhooksStripePost` operationId).
+	ReceiveStripeWebhookApiV1BillingWebhooksStripePostWithResponse(ctx context.Context, params *ReceiveStripeWebhookApiV1BillingWebhooksStripePostParams, reqEditors ...RequestEditorFn) (*ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse, error)
+
 	// CreateRequestApiV1DashboardAccessRequestsPostWithBodyWithResponse Create Request
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -4230,6 +5018,294 @@ func (r MeApiV1AuthMeGetResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r MeApiV1AuthMeGetResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateBillingAccountApiV1BillingAccountsPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *BillingAccountOut
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateBillingAccountApiV1BillingAccountsPostResponse) GetJSON201() *BillingAccountOut {
+	return r.JSON201
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateBillingAccountApiV1BillingAccountsPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateBillingAccountApiV1BillingAccountsPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateBillingAccountApiV1BillingAccountsPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateBillingAccountApiV1BillingAccountsPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateBillingAccountApiV1BillingAccountsPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BillingAccountOut
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse) GetJSON200() *BillingAccountOut {
+	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateCheckoutSessionApiV1BillingCheckoutPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *HostedSessionOut
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateCheckoutSessionApiV1BillingCheckoutPostResponse) GetJSON201() *HostedSessionOut {
+	return r.JSON201
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateCheckoutSessionApiV1BillingCheckoutPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateCheckoutSessionApiV1BillingCheckoutPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateCheckoutSessionApiV1BillingCheckoutPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateCheckoutSessionApiV1BillingCheckoutPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateCheckoutSessionApiV1BillingCheckoutPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreatePortalSessionApiV1BillingPortalPostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *HostedSessionOut
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreatePortalSessionApiV1BillingPortalPostResponse) GetJSON201() *HostedSessionOut {
+	return r.JSON201
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreatePortalSessionApiV1BillingPortalPostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r CreatePortalSessionApiV1BillingPortalPostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreatePortalSessionApiV1BillingPortalPostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreatePortalSessionApiV1BillingPortalPostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreatePortalSessionApiV1BillingPortalPostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetBillingStatusApiV1BillingStatusGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BillingStatusOut
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetBillingStatusApiV1BillingStatusGetResponse) GetJSON200() *BillingStatusOut {
+	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r GetBillingStatusApiV1BillingStatusGetResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r GetBillingStatusApiV1BillingStatusGetResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetBillingStatusApiV1BillingStatusGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetBillingStatusApiV1BillingStatusGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetBillingStatusApiV1BillingStatusGetResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *map[string]bool
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *HTTPValidationError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse) GetJSON200() *map[string]bool {
+	return r.JSON200
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse) GetJSON422() *HTTPValidationError {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5500,6 +6576,156 @@ func (c *ClientWithResponses) MeApiV1AuthMeGetWithResponse(ctx context.Context, 
 	return ParseMeApiV1AuthMeGetResponse(rsp)
 }
 
+// CreateBillingAccountApiV1BillingAccountsPostWithBodyWithResponse Create Billing Account
+//
+// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
+func (c *ClientWithResponses) CreateBillingAccountApiV1BillingAccountsPostWithBodyWithResponse(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateBillingAccountApiV1BillingAccountsPostResponse, error) {
+	rsp, err := c.CreateBillingAccountApiV1BillingAccountsPostWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateBillingAccountApiV1BillingAccountsPostResponse(rsp)
+}
+
+// CreateBillingAccountApiV1BillingAccountsPostWithResponse Create Billing Account
+//
+// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/accounts (the `CreateBillingAccountApiV1BillingAccountsPost` operationId).
+func (c *ClientWithResponses) CreateBillingAccountApiV1BillingAccountsPostWithResponse(ctx context.Context, params *CreateBillingAccountApiV1BillingAccountsPostParams, body CreateBillingAccountApiV1BillingAccountsPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateBillingAccountApiV1BillingAccountsPostResponse, error) {
+	rsp, err := c.CreateBillingAccountApiV1BillingAccountsPost(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateBillingAccountApiV1BillingAccountsPostResponse(rsp)
+}
+
+// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBodyWithResponse Transfer Billing Account
+//
+// Transfere a titularidade da conta a outro administrador do tenant vinculado.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/transfer (the `TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost` operationId).
+func (c *ClientWithResponses) TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBodyWithResponse(ctx context.Context, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse, error) {
+	rsp, err := c.TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithBody(ctx, billingAccountId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse(rsp)
+}
+
+// TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithResponse Transfer Billing Account
+//
+// Transfere a titularidade da conta a outro administrador do tenant vinculado.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/accounts/{billing_account_id}/transfer (the `TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost` operationId).
+func (c *ClientWithResponses) TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithResponse(ctx context.Context, billingAccountId string, params *TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostParams, body TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostJSONRequestBody, reqEditors ...RequestEditorFn) (*TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse, error) {
+	rsp, err := c.TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPost(ctx, billingAccountId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse(rsp)
+}
+
+// CreateCheckoutSessionApiV1BillingCheckoutPostWithBodyWithResponse Create Checkout Session
+//
+// Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/checkout (the `CreateCheckoutSessionApiV1BillingCheckoutPost` operationId).
+func (c *ClientWithResponses) CreateCheckoutSessionApiV1BillingCheckoutPostWithBodyWithResponse(ctx context.Context, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCheckoutSessionApiV1BillingCheckoutPostResponse, error) {
+	rsp, err := c.CreateCheckoutSessionApiV1BillingCheckoutPostWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCheckoutSessionApiV1BillingCheckoutPostResponse(rsp)
+}
+
+// CreateCheckoutSessionApiV1BillingCheckoutPostWithResponse Create Checkout Session
+//
+// Abre checkout no Stripe; 409 subscription_exists ou checkout_in_progress.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/checkout (the `CreateCheckoutSessionApiV1BillingCheckoutPost` operationId).
+func (c *ClientWithResponses) CreateCheckoutSessionApiV1BillingCheckoutPostWithResponse(ctx context.Context, params *CreateCheckoutSessionApiV1BillingCheckoutPostParams, body CreateCheckoutSessionApiV1BillingCheckoutPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCheckoutSessionApiV1BillingCheckoutPostResponse, error) {
+	rsp, err := c.CreateCheckoutSessionApiV1BillingCheckoutPost(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCheckoutSessionApiV1BillingCheckoutPostResponse(rsp)
+}
+
+// CreatePortalSessionApiV1BillingPortalPostWithBodyWithResponse Create Portal Session
+//
+// Abre o portal de cobrança hospedado no Stripe para o dono da conta.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/portal (the `CreatePortalSessionApiV1BillingPortalPost` operationId).
+func (c *ClientWithResponses) CreatePortalSessionApiV1BillingPortalPostWithBodyWithResponse(ctx context.Context, params *CreatePortalSessionApiV1BillingPortalPostParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreatePortalSessionApiV1BillingPortalPostResponse, error) {
+	rsp, err := c.CreatePortalSessionApiV1BillingPortalPostWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreatePortalSessionApiV1BillingPortalPostResponse(rsp)
+}
+
+// CreatePortalSessionApiV1BillingPortalPostWithResponse Create Portal Session
+//
+// Abre o portal de cobrança hospedado no Stripe para o dono da conta.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/portal (the `CreatePortalSessionApiV1BillingPortalPost` operationId).
+func (c *ClientWithResponses) CreatePortalSessionApiV1BillingPortalPostWithResponse(ctx context.Context, params *CreatePortalSessionApiV1BillingPortalPostParams, body CreatePortalSessionApiV1BillingPortalPostJSONRequestBody, reqEditors ...RequestEditorFn) (*CreatePortalSessionApiV1BillingPortalPostResponse, error) {
+	rsp, err := c.CreatePortalSessionApiV1BillingPortalPost(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreatePortalSessionApiV1BillingPortalPostResponse(rsp)
+}
+
+// GetBillingStatusApiV1BillingStatusGetWithResponse Get Billing Status
+//
+// Informa o estado de entitlement projetado; nunca consulta o Stripe.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/billing/status (the `GetBillingStatusApiV1BillingStatusGet` operationId).
+func (c *ClientWithResponses) GetBillingStatusApiV1BillingStatusGetWithResponse(ctx context.Context, params *GetBillingStatusApiV1BillingStatusGetParams, reqEditors ...RequestEditorFn) (*GetBillingStatusApiV1BillingStatusGetResponse, error) {
+	rsp, err := c.GetBillingStatusApiV1BillingStatusGet(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetBillingStatusApiV1BillingStatusGetResponse(rsp)
+}
+
+// ReceiveStripeWebhookApiV1BillingWebhooksStripePostWithResponse Receive Stripe Webhook
+//
+// Verifica a assinatura do body raw e aceita o evento no inbox idempotente.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/billing/webhooks/stripe (the `ReceiveStripeWebhookApiV1BillingWebhooksStripePost` operationId).
+func (c *ClientWithResponses) ReceiveStripeWebhookApiV1BillingWebhooksStripePostWithResponse(ctx context.Context, params *ReceiveStripeWebhookApiV1BillingWebhooksStripePostParams, reqEditors ...RequestEditorFn) (*ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse, error) {
+	rsp, err := c.ReceiveStripeWebhookApiV1BillingWebhooksStripePost(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse(rsp)
+}
+
 // CreateRequestApiV1DashboardAccessRequestsPostWithBodyWithResponse Create Request
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -6209,6 +7435,204 @@ func ParseMeApiV1AuthMeGetResponse(rsp *http.Response) (*MeApiV1AuthMeGetRespons
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateBillingAccountApiV1BillingAccountsPostResponse parses an HTTP response from a CreateBillingAccountApiV1BillingAccountsPostWithResponse call
+func ParseCreateBillingAccountApiV1BillingAccountsPostResponse(rsp *http.Response) (*CreateBillingAccountApiV1BillingAccountsPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateBillingAccountApiV1BillingAccountsPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest BillingAccountOut
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse parses an HTTP response from a TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostWithResponse call
+func ParseTransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse(rsp *http.Response) (*TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TransferBillingAccountApiV1BillingAccountsBillingAccountIdTransferPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BillingAccountOut
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateCheckoutSessionApiV1BillingCheckoutPostResponse parses an HTTP response from a CreateCheckoutSessionApiV1BillingCheckoutPostWithResponse call
+func ParseCreateCheckoutSessionApiV1BillingCheckoutPostResponse(rsp *http.Response) (*CreateCheckoutSessionApiV1BillingCheckoutPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateCheckoutSessionApiV1BillingCheckoutPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest HostedSessionOut
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreatePortalSessionApiV1BillingPortalPostResponse parses an HTTP response from a CreatePortalSessionApiV1BillingPortalPostWithResponse call
+func ParseCreatePortalSessionApiV1BillingPortalPostResponse(rsp *http.Response) (*CreatePortalSessionApiV1BillingPortalPostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreatePortalSessionApiV1BillingPortalPostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest HostedSessionOut
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetBillingStatusApiV1BillingStatusGetResponse parses an HTTP response from a GetBillingStatusApiV1BillingStatusGetWithResponse call
+func ParseGetBillingStatusApiV1BillingStatusGetResponse(rsp *http.Response) (*GetBillingStatusApiV1BillingStatusGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetBillingStatusApiV1BillingStatusGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BillingStatusOut
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse parses an HTTP response from a ReceiveStripeWebhookApiV1BillingWebhooksStripePostWithResponse call
+func ParseReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse(rsp *http.Response) (*ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReceiveStripeWebhookApiV1BillingWebhooksStripePostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]bool
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest HTTPValidationError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	}
 
