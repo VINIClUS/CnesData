@@ -194,3 +194,22 @@ def test_build_sem_ambiente_devolve_sink_que_descarta(
 
 def test_build_com_ambiente_devolve_sink_cloudwatch() -> None:
     assert isinstance(build_billing_metrics("prod"), CloudWatchBillingMetrics)
+
+
+def test_sink_configurado_escreve_documento_emf_json_no_stdout(capsys) -> None:
+    build_billing_metrics("prod").emit(
+        billing_metric(BillingMetricName.WEBHOOK_FAILURES, 1, NOW, {"Reason": "signature_invalid"})
+    )
+    document = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    directive = document["_aws"]["CloudWatchMetrics"][0]
+    assert directive["Metrics"] == [{"Name": "WebhookFailures", "Unit": "Count"}]
+    assert (document["Environment"], document["Reason"]) == ("prod", "signature_invalid")
+    assert document["WebhookFailures"] == 1
+
+
+def test_sink_configurado_nao_duplica_handler_nem_propaga(capsys) -> None:
+    build_billing_metrics("prod")
+    sink = build_billing_metrics("dev")
+    emf_logger = sink._logger
+    assert len(emf_logger.handlers) == 1
+    assert emf_logger.propagate is False

@@ -1,6 +1,6 @@
 """Testes do audit durável e das métricas compostos pelo wiring de billing."""
 
-import logging
+import json
 from dataclasses import replace
 from unittest.mock import Mock
 
@@ -94,17 +94,18 @@ def test_shadow_e_enforce_expoem_audit_best_effort_e_unmetered_nao():
     assert unmetered.audit is None
 
 
-def test_enforce_com_ambiente_de_metricas_emite_negacao_em_cloudwatch(caplog):
+def test_enforce_com_ambiente_de_metricas_emite_negacao_em_cloudwatch(capsys):
     settings = replace(_settings(BillingMode.STRIPE, ENFORCE), metrics_environment="prod")
     with quota_env() as env:
         gate = build_entitlement_gate(settings, _resources(env.client, TABLE_NAME))
 
-        with caplog.at_level(logging.INFO), pytest.raises(EntitlementDenied):
+        with pytest.raises(EntitlementDenied):
             gate.authorize_create_run(make_run_request(billing_account_id="ba_ausente"))
 
-    emitted = [r for r in caplog.records if r.getMessage() == "billing_metric"]
-    assert [r.EntitlementChecksDenied for r in emitted] == [1.0]
-    assert emitted[0].Reason == "snapshot_missing"
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    [document] = [line for line in lines if line.get("event") == "billing_metric"]
+    assert document["EntitlementChecksDenied"] == 1.0
+    assert document["Reason"] == "snapshot_missing"
 
 
 def _binding_callbacks(settings, resources):

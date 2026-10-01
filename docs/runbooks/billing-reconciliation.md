@@ -213,7 +213,10 @@ dimensão ou unidade fora do contrato é descartada com log `billing_metric_reje
 | `EntitlementSnapshotAgeSeconds` | Seconds | Sem emissor (follow-up) |
 
 O sink é `CloudWatchBillingMetrics` (`cnes_infra.billing.metrics`), com `Environment` de
-`BILLING_METRICS_ENVIRONMENT`; sem a variável as métricas são descartadas.
+`BILLING_METRICS_ENVIRONMENT`; sem a variável as métricas são descartadas. O sink escreve no
+stdout por um logger próprio (`cnes_infra.billing.metrics.emf`, sem propagação) com o formatter
+JSON, então o documento EMF sai numa linha JSON qualquer que seja a configuração de logging do
+processo (worker ou API).
 `QuotaReservationsActive` e `EntitlementSnapshotAgeSeconds` ainda não têm emissor (sem ponto
 natural sem varredura dedicada); ficam como follow-up.
 
