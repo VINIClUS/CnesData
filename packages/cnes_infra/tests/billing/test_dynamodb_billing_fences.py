@@ -180,4 +180,3 @@ def test_fail_e_rejeitado_se_companion_muda_entre_leitura_e_transacao(env: Env) 
         fail(plane, unit)
 
     assert stored_state(plane) is RunUnitState.LEASED
-
