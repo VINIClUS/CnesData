@@ -32,6 +32,7 @@ from cnes_domain.control_plane.entities import IdempotencyRecord
 from cnes_infra.billing.dynamodb_catalog_checkout import DynamoPendingCheckoutMixin
 from cnes_infra.billing.dynamodb_catalog_plans import DynamoPlanCatalogMixin
 from cnes_infra.billing.dynamodb_catalog_replays import DynamoLateReplayMixin
+from cnes_infra.billing.dynamodb_catalog_tenants import DynamoTenantAccountMixin
 from cnes_infra.billing.dynamodb_items import (
     CUSTOMER_MAP_ENTITY,
     audit_outbox_event,
@@ -122,7 +123,10 @@ def _cursor_of(last_key: dict[str, Any] | None) -> str | None:
 
 
 class DynamoBillingCatalog(
-    DynamoLateReplayMixin, DynamoPlanCatalogMixin, DynamoPendingCheckoutMixin
+    DynamoLateReplayMixin,
+    DynamoPlanCatalogMixin,
+    DynamoPendingCheckoutMixin,
+    DynamoTenantAccountMixin,
 ):
     """Catálogo de billing em DynamoDB sem GSI, com escritas em transação única."""
 

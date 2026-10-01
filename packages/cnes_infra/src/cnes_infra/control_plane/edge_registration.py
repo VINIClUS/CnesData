@@ -2,18 +2,60 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from datetime import timedelta
+from hashlib import sha256
+from typing import TYPE_CHECKING, Any
 
-from cnes_domain.control_plane.entities import Agent
+from cnes_domain.control_plane.entities import Agent, IdempotencyRecord
 from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_infra.control_plane.dynamodb_codec import decode_model, encode_model, payload, put_action
-from cnes_infra.control_plane.dynamodb_keys import entity_key
-from cnes_infra.control_plane.sqlite_schema import serialize_model
+from cnes_infra.control_plane.dynamodb_codec import (
+    Item,
+    decode_model,
+    encode_model,
+    payload,
+    put_action,
+)
+from cnes_infra.control_plane.dynamodb_keys import entity_key, idempotency_key
+from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+EDGE_AGENT_SCOPE = "edge_agent.register"
+_IDEMPOTENCY_TTL = timedelta(days=1)
+
+
+@dataclass(frozen=True, slots=True)
+class NewEdgeAgent:
+    tenant_id: str
+    agent_id: str
+    fingerprint: str
+    now: datetime
+    reservation_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeAgentCreation:
+    agent: Agent
+    created: bool
+
+
+def _creation_record(command: NewEdgeAgent) -> IdempotencyRecord:
+    digest = sha256(f"{command.tenant_id}\x1f{command.agent_id}".encode()).hexdigest()
+    return IdempotencyRecord(
+        tenant_id=command.tenant_id, scope=EDGE_AGENT_SCOPE, key=command.reservation_id,
+        request_hash=digest, status="COMPLETED", resource_id=command.agent_id,
+        created_at=command.now, expires_at=command.now + _IDEMPOTENCY_TTL,
+    )
+
+
+def _new_agent(command: NewEdgeAgent) -> Agent:
+    return edge_agent(
+        None, command.tenant_id, command.agent_id, command.fingerprint, command.now
+    )
 
 
 def edge_agent(current: Agent | None, tenant_id: str, agent_id: str,
@@ -50,6 +92,51 @@ class DynamoEdgeRegistrationMixin:
             return agent
         raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
+    def create_edge_agent(self, command: NewEdgeAgent) -> EdgeAgentCreation:
+        """Cria o agente novo e o registro de idempotência da reserva.
+
+        Args:
+            command: Agente novo e reserva de capacidade que o originou.
+
+        Returns:
+            Agente gravado; created indica se esta reserva o criou.
+
+        Raises:
+            Conflict: Cancelamento condicional sem agente presente.
+        """
+        agent = _new_agent(command)
+        key = entity_key(command.tenant_id, "AGENT", command.agent_id)
+        try:
+            self._transact((
+                put_action(self._table_name, encode_model(agent, "AGENT", key), None),
+                put_action(self._table_name, self._creation_item(command), None),
+            ))
+        except Conflict:
+            return self._existing_creation(command, key)
+        return EdgeAgentCreation(agent=agent, created=True)
+
+    def _creation_item(self, command: NewEdgeAgent) -> Item:
+        record = _creation_record(command)
+        key = idempotency_key(record.tenant_id, record.scope, record.key)
+        item = encode_model(record, "IDEMPOTENCYRECORD", key)
+        item["expires_at"] = {"N": str(int(record.expires_at.timestamp()))}
+        return item
+
+    def _existing_creation(
+        self, command: NewEdgeAgent, key: tuple[str, str]
+    ) -> EdgeAgentCreation:
+        stored = self._get_item(key)
+        if stored is None:
+            raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+        marker = self._get_item(
+            idempotency_key(command.tenant_id, EDGE_AGENT_SCOPE, command.reservation_id)
+        )
+        created = (
+            marker is not None
+            and decode_model(marker, IdempotencyRecord).resource_id == command.agent_id
+        )
+        return EdgeAgentCreation(agent=decode_model(stored, Agent), created=created)
+
 
 class SQLiteEdgeRegistrationMixin:
     def register_edge_agent(
@@ -64,3 +151,42 @@ class SQLiteEdgeRegistrationMixin:
                 (tenant_id, agent_id, agent.state.value, serialize_model(agent)),
             )
             return agent
+
+    def create_edge_agent(self, command: NewEdgeAgent) -> EdgeAgentCreation:
+        """Cria o agente novo e o registro de idempotência da reserva.
+
+        Args:
+            command: Agente novo e reserva de capacidade que o originou.
+
+        Returns:
+            Agente gravado; created indica se esta reserva o criou.
+        """
+        with self.write_transaction() as connection:
+            stored = self.get_agent_record(connection, command.tenant_id, command.agent_id)
+            if stored is not None:
+                return self._existing_creation(connection, command, stored)
+            agent = _new_agent(command)
+            record = _creation_record(command)
+            connection.execute(
+                "INSERT INTO agents (tenant_id, agent_id, state, data) VALUES (?, ?, ?, ?)",
+                (agent.tenant_id, agent.agent_id, agent.state.value, serialize_model(agent)),
+            )
+            connection.execute(
+                "INSERT INTO idempotency_records (tenant_id, scope, key, data) "
+                "VALUES (?, ?, ?, ?)",
+                (record.tenant_id, record.scope, record.key, serialize_model(record)),
+            )
+            return EdgeAgentCreation(agent=agent, created=True)
+
+    def _existing_creation(
+        self, connection: Any, command: NewEdgeAgent, stored: Agent
+    ) -> EdgeAgentCreation:
+        row = connection.execute(
+            "SELECT data FROM idempotency_records WHERE tenant_id = ? AND scope = ? AND key = ?",
+            (command.tenant_id, EDGE_AGENT_SCOPE, command.reservation_id),
+        ).fetchone()
+        created = (
+            row is not None
+            and deserialize_model(row[0], IdempotencyRecord).resource_id == command.agent_id
+        )
+        return EdgeAgentCreation(agent=stored, created=created)

@@ -48,6 +48,7 @@ _EXPECTED: dict[type, dict[str, tuple[str, ...]]] = {
         "get_account_by_customer": ("stripe_customer_id",),
         "list_stripe_accounts": ("limit", "cursor"),
         "get_tenant_link": ("billing_account_id", "tenant_id", "consistency"),
+        "get_tenant_account": ("tenant_id", "consistency"),
         "link_tenant": ("command",),
         "attach_customer": ("command",),
         "transfer_owner": ("command",),
