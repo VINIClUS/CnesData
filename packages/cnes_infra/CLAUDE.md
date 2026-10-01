@@ -65,6 +65,9 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `billing/dynamodb_projection.py`, `dynamodb_catalog*.py`, `cache.py` | Snapshot, catálogo de contas/planos, cache local ≤ 60 s |
 | `billing/dynamodb_quota*.py` | Reservas transacionais de quota/budget (`DynamoQuotaReservations`) |
 | `billing/disabled.py` | Adapters sem medição de `BILLING_MODE=disabled` (sem rede nem secrets) |
+| `billing/composition.py` | `build_secret_provider` (cliente `secretsmanager` só em `stripe`), `StripeRuntimeSettings`, `build_stripe_billing` (API e `billing_worker`) |
+| `billing/audit_outbox.py` | `DynamoBillingAudit`: `BillingAuditPort` no outbox canônico (tenant `_billing`) |
+| `billing/stripe_gateway.py`, `secrets_manager.py`, `webhook_*.py`, `projector.py`, `recovery*.py` | Stripe (BIL-020/021); `stripe`/`botocore` só importados no ramo `stripe` |
 | `control_plane/dynamodb_billing.py`, `sqlite_billing.py` | Extensões billing do `ControlPlanePort` (companion, run sem medição, claim) |
 
 ## Gotchas
