@@ -7,11 +7,13 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from central_api.auth.aws_oidc import MembershipAuthorizer
+from central_api.services.billing_gates import ApiBillingGates, TenantAccountResolver
 from central_api.services.delta_policy import DeltaPolicy
 from central_api.services.raw_ingestion import RawIngestionService
 from central_api.services.run_authorization import RunAuthorizationService
 from central_api.services.run_planning import RunPlanningDependencies, RunPlanningService
 from central_api.services.serving_access import LocalServingAccess
+from central_api.services.serving_entitlement import EntitledServingAccess
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
 from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.orchestration.source_catalog import build_source_catalog
@@ -25,9 +27,10 @@ from cnes_infra.billing import (
     BillingGateResources,
     BillingSettings,
     BillingStorage,
-    build_entitlement_gate,
+    build_billing_enforcement,
     build_execution_callbacks,
 )
+from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.executor.local_pool import LocalWorkerPool
 from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
@@ -85,6 +88,7 @@ class LocalRuntime:
     source_catalog: SourceCatalog
     run_planning: RunPlanningService
     run_authorization: RunAuthorizationService | None = None
+    billing_gates: ApiBillingGates | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +115,7 @@ class RuntimeComponents:
     run_planning: RunPlanningService
     services: AwsApiServices | None
     run_authorization: RunAuthorizationService | None = None
+    billing_gates: ApiBillingGates | None = None
 
     @classmethod
     def from_local(cls, runtime: LocalRuntime) -> RuntimeComponents:
@@ -120,6 +125,7 @@ class RuntimeComponents:
             raw_ingestion=runtime.raw_ingestion, source_catalog=runtime.source_catalog,
             run_planning=runtime.run_planning, services=None,
             run_authorization=runtime.run_authorization,
+            billing_gates=runtime.billing_gates,
         )
 
 
@@ -164,15 +170,30 @@ def build_local_runtime(
         control_plane, object_store, DeltaPolicy(),
         accepted_manifest=run_planning.on_raw_manifest_accepted,
     )
+    gates = api_billing_gates(billing, BillingGateResources(clock, _DEPLOYMENT_LIMIT))
     return LocalRuntime(
         control_plane=control_plane, object_store=object_store, executor=executor,
         audit_sink=audit_sink, raw_ingestion=raw_ingestion, source_catalog=source_catalog,
         run_planning=run_planning,
-        run_authorization=RunAuthorizationService(
-            build_entitlement_gate(billing, BillingGateResources(clock, _DEPLOYMENT_LIMIT)),
-            control_plane, run_planning,
-        ),
+        run_authorization=RunAuthorizationService(gates.gate, control_plane, run_planning),
+        billing_gates=gates,
     )
+
+
+def api_billing_gates(
+    billing: BillingSettings, resources: BillingGateResources,
+) -> ApiBillingGates:
+    """Args: billing: Modo de billing; resources: Relógio, limite e DynamoDB.
+    Returns: Gate, capacidade e resolvedor de conta de uma única composição por modo.
+    """
+    enforcement = build_billing_enforcement(billing, resources)
+    mode = billing.execution_mode
+    catalog = None
+    if billing.enforced:
+        client, table = resources.dynamodb_client, resources.table_name
+        catalog = DynamoBillingCatalog(client, table, resources.clock)
+    accounts = TenantAccountResolver(mode, catalog)
+    return ApiBillingGates(mode, enforcement.gate, enforcement.capacity, accounts)
 
 
 def build_runtime(
@@ -216,23 +237,23 @@ def _build_aws_api_runtime(
         core.control_plane, core.object_store, DeltaPolicy(),
         accepted_manifest=partial(_notify_accepted, run_planning),
     )
+    gates = api_billing_gates(billing.settings, _gate_resources(settings, clients))
     return RuntimeComponents(
         control_plane=core.control_plane, object_store=core.object_store, executor=executor,
         audit_sink=core.audit_sink, raw_ingestion=raw_ingestion, source_catalog=source_catalog,
-        run_planning=run_planning, services=_aws_api_services(settings, clients, core),
-        run_authorization=RunAuthorizationService(
-            build_entitlement_gate(billing.settings, _gate_resources(settings, clients)),
-            core.control_plane, run_planning,
-        ),
+        run_planning=run_planning, services=_aws_api_services(settings, clients, core, gates),
+        run_authorization=RunAuthorizationService(gates.gate, core.control_plane, run_planning),
+        billing_gates=gates,
     )
 
 
 def _aws_api_services(
     settings: AwsRuntimeSettings, clients: AwsClients, core: AwsRuntimeComponents,
+    gates: ApiBillingGates,
 ) -> AwsApiServices:
     candidates = DynamoDBMembershipCandidates(clients.dynamodb, settings.control_plane_table)
     serving = S3SignedServingAccess(
-        LocalServingAccess(core.control_plane, core.object_store),
+        entitled_serving_access(core.control_plane, core.object_store, gates),
         core.object_store,
         clients.s3,
         SignedServingSettings(settings.data_bucket, settings.serving_url_ttl_seconds),
@@ -241,6 +262,14 @@ def _aws_api_services(
         MembershipAuthorizer(core.control_plane, candidates), serving,
         BillingStorage(clients.dynamodb, settings.control_plane_table),
     )
+
+
+def entitled_serving_access(
+    control_plane: ControlPlanePort, object_store: ObjectStorePort, gates: ApiBillingGates,
+) -> EntitledServingAccess:
+    """Returns: Acesso serving com o gate de entitlement antes de emitir URL ou stream."""
+    inner = LocalServingAccess(control_plane, object_store)
+    return EntitledServingAccess(inner, gates, control_plane, _utc_now)
 
 
 def _notify_accepted(run_planning: RunPlanningService, record: RawManifestRecord) -> None:
@@ -276,7 +305,9 @@ __all__ = [
     "AwsApiServices",
     "LocalRuntime",
     "RuntimeComponents",
+    "api_billing_gates",
     "build_local_runtime",
     "build_runtime",
+    "entitled_serving_access",
     "noop_execution_started",
 ]

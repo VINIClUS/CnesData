@@ -27,7 +27,7 @@ from cnes_domain.billing.models import (
     RunAuthorization,
 )
 from cnes_domain.billing.policy import EntitlementPolicy
-from cnes_domain.billing.ports import ClockPort, EntitlementProjectionPort
+from cnes_domain.billing.ports import ClockPort, EntitlementProjectionPort, QuotaReservationPort
 from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPermit, ExecutionStarted
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.disabled import DisabledEntitlementProjection, DisabledQuotaReservations
@@ -44,6 +44,12 @@ class BillingGateResources:
     deployment_max_concurrency: int
     dynamodb_client: Any | None = None
     table_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BillingEnforcement:
+    gate: EntitlementGate
+    capacity: QuotaReservationPort
 
 
 StartedCallback = Callable[[Any, Any, str, ExecutionPermit], None]
@@ -122,9 +128,9 @@ def _dynamodb_resources(resources: BillingGateResources) -> tuple[Any, str]:
     return resources.dynamodb_client, resources.table_name
 
 
-def _enforced_gate(
+def _enforced(
     settings: BillingSettings, resources: BillingGateResources, client: Any, table: str,
-) -> EntitlementGate:
+) -> BillingEnforcement:
     from cnes_infra.billing.cache import LocalEntitlementCache
     from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
     from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
@@ -132,16 +138,49 @@ def _enforced_gate(
     clock = resources.clock
     ttl = settings.cache_ttl_seconds
     cache = LocalEntitlementCache(ttl, clock) if ttl > 0 else None
-    return EntitlementGate(
+    quotas = DynamoQuotaReservations(client, table, clock)
+    gate = EntitlementGate(
         EntitlementGateDependencies(
             DynamoEntitlementProjection(client, table, clock),
-            DynamoQuotaReservations(client, table, clock),
+            quotas,
             clock,
             _run_settings(resources),
             EntitlementPolicy(BillingMode.STRIPE),
             cache,
         )
     )
+    return BillingEnforcement(gate, quotas)
+
+
+def _unmetered(resources: BillingGateResources) -> BillingEnforcement:
+    dependencies = _unmetered_dependencies(resources)
+    return BillingEnforcement(EntitlementGate(dependencies), dependencies.quotas)
+
+
+def _shadow(
+    resources: BillingGateResources, client: Any, table: str,
+) -> BillingEnforcement:
+    from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
+
+    observed = DynamoEntitlementProjection(client, table, resources.clock)
+    dependencies = _unmetered_dependencies(resources)
+    return BillingEnforcement(ShadowEntitlementGate(dependencies, observed), dependencies.quotas)
+
+
+def build_billing_enforcement(
+    settings: BillingSettings, resources: BillingGateResources,
+) -> BillingEnforcement:
+    """Args: settings: Modo de billing; resources: Relógio, limite e DynamoDB.
+    Returns: Gate e port de capacidade da mesma composição por modo.
+    Raises: BillingConfigurationError: Stripe sem cliente ou tabela DynamoDB.
+    """
+    unmetered = settings.mode is BillingMode.DISABLED
+    if unmetered or settings.enforcement_mode is BillingEnforcementMode.OFF:
+        return _unmetered(resources)
+    client, table = _dynamodb_resources(resources)
+    if settings.enforced:
+        return _enforced(settings, resources, client, table)
+    return _shadow(resources, client, table)
 
 
 def build_entitlement_gate(
@@ -151,16 +190,7 @@ def build_entitlement_gate(
     Returns: Gate sem medição, em sombra ou com enforcement sobre DynamoDB.
     Raises: BillingConfigurationError: Stripe sem cliente ou tabela DynamoDB.
     """
-    unmetered = settings.mode is BillingMode.DISABLED
-    if unmetered or settings.enforcement_mode is BillingEnforcementMode.OFF:
-        return EntitlementGate(_unmetered_dependencies(resources))
-    client, table = _dynamodb_resources(resources)
-    if settings.enforced:
-        return _enforced_gate(settings, resources, client, table)
-    from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
-
-    observed = DynamoEntitlementProjection(client, table, resources.clock)
-    return ShadowEntitlementGate(_unmetered_dependencies(resources), observed)
+    return build_billing_enforcement(settings, resources).gate
 
 
 def build_execution_callbacks(

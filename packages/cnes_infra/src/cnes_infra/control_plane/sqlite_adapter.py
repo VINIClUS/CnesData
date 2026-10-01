@@ -38,6 +38,7 @@ from cnes_infra.control_plane.sqlite_schema import (
     is_network_filesystem,
     serialize_model,
 )
+from cnes_infra.control_plane.sqlite_tenants import SQLiteBilledTenantMixin
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -107,8 +108,8 @@ def _fetch_all[Model: BaseModel](
 _is_network_filesystem = is_network_filesystem
 
 class SQLiteControlPlane(
-    SQLiteBillingMixin, SQLiteEdgeRegistrationMixin, SQLiteRawRegistrationQueries,
-    DeprecatedRawQueryMixin):
+    SQLiteBillingMixin, SQLiteBilledTenantMixin, SQLiteEdgeRegistrationMixin,
+    SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
     """Persiste o plano de controle em um arquivo SQLite local."""
     def __init__(self, database_path: Path, clock: Callable[[], datetime]) -> None:
         self._database_path = Path(database_path)

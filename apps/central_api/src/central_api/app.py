@@ -13,6 +13,7 @@ from central_api.routes import (
     admin,
     agents,
     billing,
+    billing_admin,
     dashboard,
     extractions,
     health,
@@ -28,6 +29,7 @@ from central_api.routes import (
     raw_manifests,
     serving,
     stripe_webhook,
+    tenants,
 )
 from cnes_infra import config
 from cnes_infra.auth.errors import OAuthError
@@ -93,5 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(local_auth.router)
     app.include_router(serving.router)
     app.include_router(billing.router)
+    app.include_router(tenants.router)
+    app.include_router(billing_admin.router)
     app.include_router(stripe_webhook.router)
     return app

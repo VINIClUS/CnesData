@@ -16,6 +16,7 @@ from fastapi import Depends, Header, HTTPException
 from sqlalchemy import create_engine
 from starlette.requests import Request  # noqa: TC002 - needed at runtime by FastAPI
 
+from central_api.billing_deps import install_billing
 from central_api.composition import build_runtime
 from central_api.middleware import AuthenticatedUser
 from cnes_domain.outbox_dispatcher import dispatch_once
@@ -36,9 +37,7 @@ if TYPE_CHECKING:
 
     from central_api.composition import RuntimeComponents
     from central_api.routes.serving import ServingPrincipal
-    from cnes_domain.billing.ports import SecretProviderPort
     from cnes_domain.outbox_dispatcher import DispatchResult
-    from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_storage import ObjectStoragePort
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.auth.local_auth import LocalAuthService
@@ -49,7 +48,6 @@ _engine: Engine | None = None
 _REAPER_INTERVAL = 60
 _OUTBOX_INTERVAL = 30
 _OIDC_HTTP_TIMEOUT_SECONDS = 5.0
-_BILLING_PATH_PREFIX = "/api/v1/billing/"
 
 
 def get_engine() -> Engine:
@@ -184,7 +182,7 @@ def _build_local_state(app: object) -> None:
 
     app.dependency_overrides[get_edge_identity] = local_edge_identity
     _install_local_auth_and_serving(app, runtime, settings)
-    _install_billing(app, runtime, session)
+    install_billing(app, runtime, session)
     logger.info(
         "local_profile_composed tenant_id=%s data_dir=%s",
         settings.tenant_id,
@@ -266,6 +264,7 @@ def _build_aws_raw_state(app: object) -> None:
 def _install_local_auth_and_serving(
     app: object, runtime: RuntimeComponents, settings: ProfileSettings
 ) -> None:
+    from central_api.composition import entitled_serving_access
     from central_api.routes import local_auth, serving
     from central_api.services.serving_access import LocalServingAccess
     from cnes_infra.auth.local_auth import LocalAuthDependencies, LocalAuthService
@@ -277,6 +276,10 @@ def _install_local_auth_and_serving(
         LocalAuthDependencies(credentials, runtime.control_plane, settings), _utc_now
     )
     serving_access = LocalServingAccess(runtime.control_plane, runtime.object_store)
+    if runtime.billing_gates is not None:
+        serving_access = entitled_serving_access(
+            runtime.control_plane, runtime.object_store, runtime.billing_gates,
+        )
     app.state.local_auth_service = auth_service
     app.state.serving_access = serving_access
     app.dependency_overrides[local_auth.get_local_auth_service] = lambda: auth_service
@@ -328,63 +331,6 @@ def _install_aws_serving(app: object, runtime: RuntimeComponents) -> None:
     app.dependency_overrides[serving.get_serving_delivery] = lambda: delivery
 
 
-def _billing_disabled() -> None:
-    raise HTTPException(status_code=404, detail="billing_disabled")
-
-
-def _install_billing(app: object, runtime: RuntimeComponents, session: Session) -> None:
-    from central_api.routes import billing, stripe_webhook
-    from cnes_infra.billing import BillingSettings, build_secret_provider
-
-    settings = BillingSettings.from_mapping(os.environ)
-    provider = build_secret_provider(settings.mode, session)
-    app.dependency_overrides[billing.get_billing_mode] = lambda: settings.mode
-    if provider is None:
-        app.dependency_overrides[stripe_webhook.get_stripe_webhook_verifier] = _billing_disabled
-        logger.info("billing_composed mode=%s", settings.mode.value)
-        return
-    _install_stripe_billing(app, runtime, provider)
-
-
-def _billing_control_plane(runtime: RuntimeComponents) -> Callable[[Request], ControlPlanePort]:
-    def _resolve(request: Request) -> ControlPlanePort:
-        if not request.url.path.startswith(_BILLING_PATH_PREFIX):
-            raise HTTPException(status_code=503, detail="control_plane_not_configured")
-        return runtime.control_plane
-
-    return _resolve
-
-
-def _install_stripe_billing(
-    app: object, runtime: RuntimeComponents, provider: SecretProviderPort
-) -> None:
-    from central_api.routes import billing, raw_jobs, stripe_webhook
-    from cnes_infra.billing import (
-        BillingConfigurationError,
-        StripeRuntimeSettings,
-        build_stripe_billing,
-    )
-
-    services = runtime.services
-    if services is None or services.billing_storage is None:
-        raise BillingConfigurationError("billing_dynamodb_required")
-    components = build_stripe_billing(
-        StripeRuntimeSettings.from_mapping(os.environ), provider,
-        services.billing_storage, _utc_now,
-    )
-    overrides = app.dependency_overrides
-    overrides[billing.get_membership_authorizer] = lambda: services.membership_authorizer
-    overrides[billing.get_billing_catalog] = lambda: components.catalog
-    overrides[billing.get_stripe_gateway] = lambda: components.gateway
-    overrides[billing.get_entitlement_projection] = lambda: components.projection
-    overrides[billing.get_billing_audit] = lambda: components.audit
-    overrides[billing.get_billing_clock] = lambda: _utc_now
-    overrides[raw_jobs.get_control_plane] = _billing_control_plane(runtime)
-    overrides[stripe_webhook.get_stripe_webhook_verifier] = lambda: components.verifier
-    overrides[stripe_webhook.get_webhook_inbox] = lambda: components.inbox
-    logger.info("billing_composed mode=stripe")
-
-
 def _dispatch_outbox(runtime: RuntimeComponents) -> DispatchResult:
     return dispatch_once(runtime.control_plane, runtime.audit_sink, _utc_now())
 
@@ -410,7 +356,7 @@ async def _aws_lifespan(app: object) -> AsyncGenerator[None]:
     settings = AwsRuntimeSettings.from_mapping(os.environ)
     session = Session(region_name=settings.region)
     runtime = build_runtime("aws", os.environ, session)
-    _install_billing(app, runtime, session)
+    install_billing(app, runtime, session)
     http_client = httpx.Client(timeout=_OIDC_HTTP_TIMEOUT_SECONDS)
     app.state.runtime = runtime
     app.state.oidc_verifier = OidcVerifier(

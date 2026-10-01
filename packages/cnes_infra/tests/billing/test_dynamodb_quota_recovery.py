@@ -16,8 +16,8 @@ from cnes_domain.billing.models import (
     ReservationKind,
     ReservationStatus,
 )
-from cnes_domain.control_plane.entities import Agent, Run, Tenant
-from cnes_domain.control_plane.enums import AgentState, RunState
+from cnes_domain.control_plane.entities import Run
+from cnes_domain.control_plane.enums import RunState
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_infra.billing.dynamodb_quota_items import (
     decode_capacity_reservation,
@@ -27,18 +27,19 @@ from cnes_infra.billing.dynamodb_quota_items import (
     reservation_item_key,
 )
 from cnes_infra.billing.keys import (
+    account_tenant_key,
     capacity_reservation_key,
     capacity_usage_key,
     entitlement_snapshot_key,
     usage_key,
 )
 from cnes_infra.control_plane.dynamodb_codec import item_key
-from cnes_infra.control_plane.dynamodb_keys import entity_key, run_entity_key
+from cnes_infra.control_plane.dynamodb_keys import idempotency_key, run_entity_key
+from cnes_infra.control_plane.edge_registration import EDGE_AGENT_SCOPE
 from packages.cnes_infra.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_infra.tests.billing.quota_support import (
     ACCOUNT,
     DEPENDENCIES,
-    HASH_A,
     NOW,
     RESERVATION_TTL,
     TENANT,
@@ -179,6 +180,18 @@ def _seed_capacity(env: QuotaEnv, reservation: CapacityReservation) -> None:
     env.client.put_item(TableName=TABLE_NAME, Item=encode_capacity_reservation(reservation, TENANT))
 
 
+def _proof_key(reservation: CapacityReservation) -> tuple[str, str]:
+    if reservation.kind is CapacityKind.TENANT:
+        return account_tenant_key(ACCOUNT, reservation.resource_id)
+    return idempotency_key(TENANT, EDGE_AGENT_SCOPE, reservation.reservation_id)
+
+
+def _seed_proof(env: QuotaEnv, reservation: CapacityReservation) -> None:
+    pk, sk = _proof_key(reservation)
+    item = {"pk": {"S": pk}, "sk": {"S": sk}, "payload": {"S": "{}"}}
+    env.client.put_item(TableName=TABLE_NAME, Item=item)
+
+
 def _stored_capacity(env: QuotaEnv, reservation: CapacityReservation) -> CapacityReservation:
     key = capacity_reservation_key(ACCOUNT, reservation.reservation_id)
     item = env.client.get_item(TableName=TABLE_NAME, Key=item_key(*key), ConsistentRead=True)
@@ -189,18 +202,6 @@ def _capacity_counter(env: QuotaEnv, name: str) -> int:
     key = capacity_usage_key(ACCOUNT)
     item = env.client.get_item(TableName=TABLE_NAME, Key=item_key(*key), ConsistentRead=True)
     return int(item["Item"][name]["N"])
-
-
-def _agent() -> Agent:
-    return Agent(
-        tenant_id=TENANT,
-        agent_id="agent-01",
-        state=AgentState.ACTIVE,
-        version="1.0",
-        certificate_fingerprint=HASH_A,
-        last_seen_at=None,
-        created_at=NOW,
-    )
 
 
 def test_libera_reserva_completa_quando_run_esta_ausente() -> None:
@@ -349,10 +350,7 @@ def test_mantem_contador_quando_recurso_de_capacidade_existe() -> None:
         with quota_env() as env:
             capacity = _capacity(kind, resource_id)
             _seed_capacity(env, capacity)
-            env.control_plane.put_tenant(
-                Tenant(tenant_id=TENANT, municipality_name="Presidente Epitacio", created_at=NOW)
-            )
-            env.control_plane.put_agent(_agent())
+            _seed_proof(env, capacity)
             _expire(env)
 
             result = _reconcile(env.repo, env)
@@ -425,12 +423,12 @@ def test_nao_consome_capacidade_quando_recurso_some_entre_leitura_e_transacao() 
     with quota_env() as env:
         capacity = _capacity(CapacityKind.AGENT, "agent-01")
         _seed_capacity(env, capacity)
-        env.control_plane.put_agent(_agent())
+        _seed_proof(env, capacity)
         _expire(env)
-        agent_key = item_key(*entity_key(TENANT, "AGENT", "agent-01"))
+        proof_key = item_key(*_proof_key(capacity))
         client = _Client(env.client)
         client.before_transact = lambda: env.client.delete_item(
-            TableName=TABLE_NAME, Key=agent_key
+            TableName=TABLE_NAME, Key=proof_key
         )
         repo = DynamoQuotaReservations(client, TABLE_NAME, env.clock.now)
 
@@ -446,7 +444,7 @@ def test_nao_libera_capacidade_quando_recurso_aparece_entre_leitura_e_transacao(
         _seed_capacity(env, capacity)
         _expire(env)
         client = _Client(env.client)
-        client.before_transact = lambda: env.control_plane.put_agent(_agent())
+        client.before_transact = lambda: _seed_proof(env, capacity)
         repo = DynamoQuotaReservations(client, TABLE_NAME, env.clock.now)
 
         assert _reconcile(repo, env).released == 0

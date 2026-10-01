@@ -1377,6 +1377,50 @@
         "title": "RawUploadResponse",
         "type": "object"
       },
+      "RevocationCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "reason_code": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_code"
+        ],
+        "title": "RevocationCreate",
+        "type": "object"
+      },
+      "RevocationOut": {
+        "properties": {
+          "billing_account_id": {
+            "title": "Billing Account Id",
+            "type": "string"
+          },
+          "cancel_failure_count": {
+            "title": "Cancel Failure Count",
+            "type": "integer"
+          },
+          "entitlement_version": {
+            "title": "Entitlement Version",
+            "type": "integer"
+          },
+          "fenced_run_count": {
+            "title": "Fenced Run Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "billing_account_id",
+          "entitlement_version",
+          "fenced_run_count",
+          "cancel_failure_count"
+        ],
+        "title": "RevocationOut",
+        "type": "object"
+      },
       "RunOut": {
         "properties": {
           "competencia": {
@@ -1526,38 +1570,33 @@
         "title": "SourceType",
         "type": "string"
       },
-      "TenantOut": {
+      "TenantCreate": {
+        "additionalProperties": false,
         "properties": {
-          "ibge6": {
-            "maxLength": 6,
-            "minLength": 6,
-            "title": "Ibge6",
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotency Key",
             "type": "string"
           },
-          "ibge7": {
-            "maxLength": 7,
-            "minLength": 7,
-            "title": "Ibge7",
+          "municipality_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Municipality Name",
             "type": "string"
           },
-          "nome": {
-            "title": "Nome",
-            "type": "string"
-          },
-          "uf": {
-            "maxLength": 2,
-            "minLength": 2,
-            "title": "Uf",
+          "tenant_id": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+            "title": "Tenant Id",
             "type": "string"
           }
         },
         "required": [
-          "ibge6",
-          "ibge7",
-          "nome",
-          "uf"
+          "tenant_id",
+          "municipality_name",
+          "idempotency_key"
         ],
-        "title": "TenantOut",
+        "title": "TenantCreate",
         "type": "object"
       },
       "TenantResponse": {
@@ -1669,6 +1708,40 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "central_api__routes__access_requests__TenantOut": {
+        "properties": {
+          "ibge6": {
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Ibge6",
+            "type": "string"
+          },
+          "ibge7": {
+            "maxLength": 7,
+            "minLength": 7,
+            "title": "Ibge7",
+            "type": "string"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          },
+          "uf": {
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Uf",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ibge6",
+          "ibge7",
+          "nome",
+          "uf"
+        ],
+        "title": "TenantOut",
+        "type": "object"
+      },
       "central_api__routes__agents__AgentStatusResponse": {
         "properties": {
           "agent_version": {
@@ -1749,6 +1822,35 @@
         ],
         "title": "AgentStatusResponse",
         "type": "object"
+      },
+      "central_api__routes__tenants__TenantOut": {
+        "properties": {
+          "billing_account_id": {
+            "title": "Billing Account Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "municipality_name": {
+            "title": "Municipality Name",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "municipality_name",
+          "created_at",
+          "billing_account_id"
+        ],
+        "title": "TenantOut",
+        "type": "object"
       }
     }
   },
@@ -1796,6 +1898,77 @@
         "summary": "Activate Confirm",
         "tags": [
           "oauth"
+        ]
+      }
+    },
+    "/api/v1/admin/billing/{billing_account_id}/revoke": {
+      "post": {
+        "description": "Revoga de imediato o entitlement da conta para o dono ou gestor do tenant vinculado.",
+        "operationId": "revoke_billing_account_api_v1_admin_billing__billing_account_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "billing_account_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Billing Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevocationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevocationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Billing Account",
+        "tags": [
+          "billing-admin"
         ]
       }
     },
@@ -2131,6 +2304,77 @@
           }
         },
         "summary": "Create Billing Account",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/billing/accounts/{billing_account_id}/tenants": {
+      "post": {
+        "description": "Cria o tenant canônico cobrado pela conta com reserva de capacidade idempotente.",
+        "operationId": "create_billed_tenant_api_v1_billing_accounts__billing_account_id__tenants_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "billing_account_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Billing Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/central_api__routes__tenants__TenantOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Billed Tenant",
         "tags": [
           "billing"
         ]
@@ -2492,7 +2736,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/TenantOut"
+                    "$ref": "#/components/schemas/central_api__routes__access_requests__TenantOut"
                   },
                   "title": "Response List Available Tenants Api V1 Dashboard Access Requests Available Tenants Get",
                   "type": "array"

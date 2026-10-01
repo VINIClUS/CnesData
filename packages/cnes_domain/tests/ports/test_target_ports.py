@@ -45,12 +45,10 @@ LEGACY_PROTOCOLS = (
     ProfissionalStoragePort, EstabelecimentoStoragePort, VinculoStoragePort, UnitOfWorkPort,
 )
 CONTROL_PLANE_SIGNATURES = {
-    "get_tenant": (("tenant_id", str),),
-    "put_tenant": (("tenant", "Tenant"),),
+    "get_tenant": (("tenant_id", str),), "put_tenant": (("tenant", "Tenant"),),
     "get_membership": (("tenant_id", str), ("user_id", str)),
     "put_membership": (("membership", "Membership"),),
-    "get_agent": (("tenant_id", str), ("agent_id", str)),
-    "put_agent": (("agent", "Agent"),),
+    "get_agent": (("tenant_id", str), ("agent_id", str)), "put_agent": (("agent", "Agent"),),
     "create_job": (("job", "Job"), ("event", "OutboxEvent")),
     "get_job": (("tenant_id", str), ("job_id", str)),
     "latest_succeeded_job": (
@@ -104,6 +102,7 @@ CONTROL_PLANE_SIGNATURES = {
     "bind_run_execution": (("command", "RunExecutionBindingCommand"),),
     "list_revocable_runs": (("billing_account_id", str), ("limit", int), ("cursor", "str | None")),
     "request_run_revocation": (("command", "RevokeRunCommand"), ("event", "OutboxEvent")),
+    "create_billed_tenant": (("command", "CreateBilledTenantCommand"),),
     "begin_idempotency": (("command", "BeginIdempotency"),),
     "publish_dataset": (("command", "PublishDataset"),),
     "get_dataset_pointer": (("tenant_id", str), ("dataset_name", str)),
@@ -154,6 +153,7 @@ CONTROL_PLANE_RETURNS = {
     "consume_reservation": "QuotaReservation", "release_reservation": "QuotaReservation",
     "get_run_billing_state": "RunBillingState | None", "bind_run_execution": "RunBillingState",
     "list_revocable_runs": "RevocableRunPage", "request_run_revocation": "RunBillingState",
+    "create_billed_tenant": "Tenant",
     "begin_idempotency": "IdempotencyOutcome", "publish_dataset": "DatasetPointer",
     "get_dataset_pointer": "DatasetPointer | None", "put_access_request": "None",
     "get_dataset_version": "DatasetVersion | None", "decide_access_request": "AccessRequest",

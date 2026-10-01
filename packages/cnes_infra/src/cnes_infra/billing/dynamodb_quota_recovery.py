@@ -40,7 +40,7 @@ from cnes_infra.billing.keys import (
     QUOTA_RESERVATION_DUE_INDEX,
     QUOTA_RESERVATION_DUE_PARTITION,
     Key,
-    tenant_entity_key,
+    account_tenant_key,
 )
 from cnes_infra.control_plane.dynamodb_codec import (
     Item,
@@ -50,7 +50,8 @@ from cnes_infra.control_plane.dynamodb_codec import (
     payload,
     put_action,
 )
-from cnes_infra.control_plane.dynamodb_keys import entity_key, run_entity_key
+from cnes_infra.control_plane.dynamodb_keys import idempotency_key, run_entity_key
+from cnes_infra.control_plane.edge_registration import EDGE_AGENT_SCOPE
 
 _CURSOR_CODE = "invalid_recovery_cursor"
 RESERVATION_LEASE_RENEWAL = timedelta(minutes=15)
@@ -90,10 +91,10 @@ def _is_due(reservation: QuotaReservation | CapacityReservation, now: datetime) 
     return reservation.status is ReservationStatus.RESERVED and reservation.expires_at <= now
 
 
-def _capacity_resource_key(reservation: CapacityReservation, tenant_id: str) -> Key:
+def _capacity_proof_key(reservation: CapacityReservation, tenant_id: str) -> Key:
     if reservation.kind is CapacityKind.TENANT:
-        return tenant_entity_key(reservation.resource_id)
-    return entity_key(tenant_id, "AGENT", reservation.resource_id)
+        return account_tenant_key(reservation.billing_account_id, reservation.resource_id)
+    return idempotency_key(tenant_id, EDGE_AGENT_SCOPE, reservation.reservation_id)
 
 
 class DynamoQuotaRecoveryMixin:
@@ -201,7 +202,7 @@ class DynamoQuotaRecoveryMixin:
         self, item: Item, reservation: CapacityReservation, context: tuple[str, datetime]
     ) -> bool:
         tenant_id, now = context
-        resource_key = _capacity_resource_key(reservation, tenant_id)
+        resource_key = _capacity_proof_key(reservation, tenant_id)
         resource = get_item(self._client, self._table, resource_key, True)
         if resource is not None:
             guards = (check_action(self._table, resource),)

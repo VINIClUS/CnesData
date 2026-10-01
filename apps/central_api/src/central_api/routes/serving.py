@@ -30,6 +30,9 @@ router = APIRouter(prefix="/api/v1/dashboard/serving", tags=["dashboard-serving"
 
 _SAFE_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _CHUNK_SIZE = 1024 * 1024
+_ENTITLEMENT_DENIED_CODES = frozenset(
+    {"billing_account_missing", "entitlement_denied", "retention_expired"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +109,10 @@ def _serving_request(principal: ServingPrincipal, path: _DocumentPath) -> Servin
 def _policy_error(error: ServingUnavailable) -> HTTPException:
     if error.code == "membership_denied":
         return HTTPException(status_code=403, detail="serving_forbidden")
+    if error.code in _ENTITLEMENT_DENIED_CODES:
+        return HTTPException(status_code=403, detail="serving_entitlement_denied")
+    if error.code == "entitlement_unavailable":
+        return HTTPException(status_code=503, detail="billing_dependency_unavailable")
     return HTTPException(status_code=503, detail="active_serving_unavailable")
 
 
