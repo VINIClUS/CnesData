@@ -20,7 +20,7 @@ from cnes_contracts.manifests.processing import (
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
 from cnes_domain.control_plane.entities import ManifestRef, Run, RunUnit
 from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
-from cnes_domain.orchestration.source_catalog import build_source_catalog
+from cnes_domain.orchestration.source_catalog import SourceCatalog, build_source_catalog
 from cnes_domain.ports.object_store import ObjectStat
 from data_processor.orchestration.attempt_store import AttemptObjectStore
 from data_processor.pipeline.source_registry import SourcePipeline, SourceRegistry
@@ -94,7 +94,7 @@ def _run(**updates: object) -> Run:
 def _registry(
     normalize: Mock | None = None, reconcile: Mock | None = None, materialize: Mock | None = None
 ) -> SourceRegistry:
-    catalog = build_source_catalog()
+    catalog = SourceCatalog((build_source_catalog().for_pipeline("cnes"),))
     definition = catalog.for_pipeline("cnes")
     bundle = SourcePipeline(
         definition=definition,
@@ -508,7 +508,7 @@ def test_normalize_seleciona_layout_do_segundo_source_da_lista() -> None:
 
 def test_normalize_rejeita_source_type_registrado_sem_layout_para_o_subtype() -> None:
     store = _FakeObjectStore()
-    catalog = build_source_catalog()
+    catalog = SourceCatalog((build_source_catalog().for_pipeline("cnes"),))
     definition = catalog.for_pipeline("cnes")
     bundle = SourcePipeline(
         definition=definition, normalize=Mock(), reconcile=Mock(), materialize=Mock(),
