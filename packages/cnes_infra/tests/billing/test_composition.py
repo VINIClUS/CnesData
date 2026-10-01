@@ -193,9 +193,12 @@ def test_build_stripe_entrega_webhook_secret_ao_verifier() -> None:
 
 def test_segredos_nao_aparecem_em_repr_nem_em_logs(caplog) -> None:
     caplog.set_level(logging.DEBUG)
-    components, _, _, _, _ = _build()
-    texts = [repr(StripeRuntimeSettings.from_mapping(_values())), caplog.text]
-    texts.append(repr(components.recovery.__class__))
+    secrets = Mock()
+    secrets.get_secret.side_effect = {KEY_ARN: API_KEY, WEBHOOK_ARN: WEBHOOK_SECRET}.__getitem__
+    settings = StripeRuntimeSettings.from_mapping(_values())
+    storage = BillingStorage(Mock(name="ddb"), "billing-table")
+    components = build_stripe_billing(settings, secrets, storage, Mock(name="clock"))
+    texts = [repr(settings), repr(components), caplog.text]
     for text in texts:
         assert API_KEY not in text
         assert WEBHOOK_SECRET not in text

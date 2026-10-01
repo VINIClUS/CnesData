@@ -61,5 +61,10 @@ Credenciais AWS vêm da cadeia padrão do boto3 (role da task).
 - `StripeRuntimeSettings` é validada antes de criar qualquer sessão ou cliente.
 - O worker nunca vê valores de segredo; somente `build_stripe_billing` os lê.
   Logs carregam apenas `code=` e contadores.
-- `main.py` importa `billing_worker.worker`; `boto3` é importado só ao criar a
-  sessão, portanto o modo disabled não carrega clientes AWS.
+- `main.py` importa `botocore` (via `SecretProviderError`), mas `boto3.Session`
+  só é criada no modo stripe: em disabled nenhum cliente AWS ou Stripe existe.
+- `PermanentBillingError` no ciclo também sai com 1: o scheduler repete e o
+  alarme operacional vem do log `billing_worker_cycle_failed code=...`.
+- Sem `PROFILE`, `BillingSettings` assume o profile local e exige `TENANT_ID`
+  (exit 2 `code=tenant_id_required`); o worker agendado sempre define
+  `PROFILE=aws`.
