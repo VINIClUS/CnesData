@@ -12,6 +12,7 @@ from cnes_domain.billing import (
     BillingExecutionStarted,
     RunExecutionPermit,
 )
+from cnes_domain.billing.publication import BillingPublicationPolicy
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing import BillingConfigurationError
 from cnes_infra.billing.wiring import ChainedExecutionStarted
@@ -144,3 +145,34 @@ def test_aws_rejeita_enforcement_invalido(session: Mock) -> None:
 
     with pytest.raises(BillingConfigurationError):
         build_processor_runtime("aws", values, session)
+
+
+def test_local_disabled_injeta_politica_de_publicacao_sem_medicao(tmp_path: Path) -> None:
+    runtime = build_processor_runtime("local", _local_values(tmp_path), Mock())
+
+    policy = runtime.publisher._publication_policy
+    assert isinstance(policy, BillingPublicationPolicy)
+    assert policy._dependencies.mode is BillingMode.DISABLED
+    assert policy._dependencies.control_plane is runtime.control_plane
+
+
+@pytest.mark.parametrize(
+    ("mode", "enforcement", "expected"),
+    [
+        ("disabled", "off", BillingMode.DISABLED),
+        ("stripe", "off", BillingMode.DISABLED),
+        ("stripe", "enforce", BillingMode.STRIPE),
+    ],
+)
+def test_aws_injeta_politica_de_publicacao_com_modo_efetivo(
+    session: Mock, mode: str, enforcement: str, expected: BillingMode,
+) -> None:
+    values = _aws_values() | {"BILLING_MODE": mode, "BILLING_ENFORCEMENT_MODE": enforcement}
+
+    runtime = build_processor_runtime("aws", values, session)
+
+    policy = runtime.publisher._publication_policy
+    assert isinstance(policy, BillingPublicationPolicy)
+    assert policy._dependencies.mode is expected
+    assert policy._dependencies.control_plane is runtime.control_plane
+    assert hasattr(policy._dependencies.gate, "authorize_publish_run")

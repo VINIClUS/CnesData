@@ -6,6 +6,10 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from cnes_contracts.manifests.raw import SourceType
+from cnes_domain.billing.publication import (
+    BillingPublicationPolicy,
+    PublicationPolicyDependencies,
+)
 from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.orchestration.source_catalog import build_source_catalog
 from cnes_domain.ports.processing import ExecutionPolicyConfig
@@ -13,6 +17,7 @@ from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_pr
 from cnes_infra.audit.local_sink import LocalAuditSink
 from cnes_infra.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
 from cnes_infra.billing import LOCAL_BILLING_SETTINGS, BillingSettings, build_execution_callbacks
+from cnes_infra.billing.wiring import BillingGateResources, build_entitlement_gate
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.executor.local_pool import LocalWorkerPool
 from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
@@ -52,6 +57,7 @@ if TYPE_CHECKING:
     from boto3.session import Session
 
     from cnes_contracts.manifests.processing import NormalizeRequest, NormalizeResult
+    from cnes_domain.billing.ports import ClockPort
     from cnes_domain.control_plane.entities import RunUnit
     from cnes_domain.orchestration.source_catalog import SourceCatalog
     from cnes_domain.ports.audit import AuditSinkPort
@@ -153,6 +159,22 @@ class ProcessorRuntimeComponents:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _ProcessorBilling:
+    callbacks: ExecutionCallbacks
+    policy: BillingPublicationPolicy
+
+
+def _publication_policy(
+    billing: BillingSettings, control_plane: ControlPlanePort,
+    resources: BillingGateResources, clock: ClockPort,
+) -> BillingPublicationPolicy:
+    return BillingPublicationPolicy(PublicationPolicyDependencies(
+        control_plane, build_entitlement_gate(billing, resources), clock,
+        billing.execution_mode,
+    ))
+
+
 def _seed_tenant(control_plane: ControlPlanePort, settings: ProfileSettings, now: datetime) -> None:
     control_plane.put_tenant(Tenant(
         tenant_id=settings.tenant_id, municipality_name=f"tenant-{settings.tenant_id}",
@@ -177,7 +199,12 @@ def build_local_processor_runtime(
 
     source_registry = build_source_registry()
     stage_processor = StageProcessor(control_plane, object_store, source_registry, clock)
-    publisher = DatasetPublisher(store=object_store, control_plane=control_plane)
+    policy = _publication_policy(
+        billing, control_plane, BillingGateResources(clock, _DEPLOYMENT_LIMIT), clock,
+    )
+    publisher = DatasetPublisher(
+        store=object_store, control_plane=control_plane, publication_policy=policy,
+    )
     execution = ExecutionPolicyConfig(
         _DEPLOYMENT_LIMIT, _DISPATCH_LEASE_SECONDS,
         build_execution_callbacks(billing, control_plane, clock, noop_execution_started),
@@ -239,16 +266,26 @@ def build_processor_runtime(
     callbacks = build_execution_callbacks(
         billing, core.control_plane, _utc_now, execution_started,
     )
-    return _build_aws_processor_runtime(settings, clients, core, callbacks)
+    resources = BillingGateResources(
+        _utc_now, settings.processor_max_concurrency, clients.dynamodb,
+        settings.control_plane_table,
+    )
+    policy = _publication_policy(billing, core.control_plane, resources, _utc_now)
+    return _build_aws_processor_runtime(
+        settings, clients, core, _ProcessorBilling(callbacks, policy),
+    )
 
 
 def _build_aws_processor_runtime(
     settings: AwsRuntimeSettings, clients: AwsClients,
-    core: AwsRuntimeComponents, callbacks: ExecutionCallbacks,
+    core: AwsRuntimeComponents, billing: _ProcessorBilling,
 ) -> ProcessorRuntimeComponents:
     _validate_runtime(settings, clients)
     executor = StepFunctionsExecutor(clients.step_functions, settings.state_machine_arn)
-    publisher = DatasetPublisher(store=core.object_store, control_plane=core.control_plane)
+    publisher = DatasetPublisher(
+        store=core.object_store, control_plane=core.control_plane,
+        publication_policy=billing.policy,
+    )
     source_registry = build_source_registry(build_source_catalog())
     stage_processor = StageProcessor(
         core.control_plane, core.object_store, source_registry, _utc_now,
@@ -260,7 +297,7 @@ def _build_aws_processor_runtime(
         ),
         ExecutionPolicyConfig(
             settings.processor_max_concurrency, settings.processor_lease_seconds,
-            callbacks,
+            billing.callbacks,
         ),
     )
     unit_worker = UnitWorker(

@@ -14,6 +14,7 @@ from unittest.mock import Mock
 import pytest
 
 from cnes_contracts.manifests.outputs import OutputManifest
+from cnes_domain.billing.errors import PublishDenied
 from cnes_domain.control_plane.commands import PublicationPermit
 from cnes_domain.control_plane.entities import ManifestRef, Run, RunDependency, RunUnit
 from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
@@ -338,6 +339,54 @@ def test_policy_forte_roda_imediatamente_antes_da_transacao(adapter, store):
     control_plane.publish_dataset.assert_called_once()
     command = control_plane.publish_dataset.call_args.args[0]
     assert command.publication_permit is permit
+
+
+def test_policy_recebe_run_uma_vez_apos_promocao_e_permit_segue_por_identidade(adapter, store):
+    run = _run()
+    adapter.put_run(run)
+    _, ref = _seed_manifest(store, "unit-m", 1)
+    destination = f"reconciliation/{_TENANT}/{_COMPETENCIA}/{_RUN_ID}/part-a.parquet"
+    permit = PublicationPermit(
+        tenant_id=_TENANT, run_id=_RUN_ID, policy_version=7, fencing_token=3,
+        binding_context=object(),
+    )
+    seen: list[bool] = []
+
+    def policy(received: Run) -> PublicationPermit:
+        seen.append(store.stat(destination) is not None)
+        return permit
+
+    spy = Mock(side_effect=policy)
+    control_plane = Mock(wraps=adapter)
+    publisher = DatasetPublisher(
+        store=store, control_plane=control_plane, publication_policy=spy
+    )
+
+    publisher.publish(_request(run, (_materialize_unit((ref,)),)))
+
+    spy.assert_called_once_with(run)
+    assert seen == [True]
+    command = control_plane.publish_dataset.call_args.args[0]
+    assert command.publication_permit is permit
+    assert command.publication_permit.binding_context is permit.binding_context
+
+
+def test_policy_que_nega_propaga_sem_publicar_e_preserva_pointer(adapter, store):
+    run = _run()
+    adapter.put_run(run)
+    _, ref = _seed_manifest(store, "unit-m", 1)
+    policy = Mock(side_effect=PublishDenied("reason=stale_fence"))
+    control_plane = Mock(wraps=adapter)
+    publisher = DatasetPublisher(
+        store=store, control_plane=control_plane, publication_policy=policy
+    )
+
+    with pytest.raises(PublishDenied, match="stale_fence"):
+        publisher.publish(_request(run, (_materialize_unit((ref,)),)))
+
+    control_plane.publish_dataset.assert_not_called()
+    assert adapter.get_dataset_pointer(_TENANT, "gold") is None
+    assert adapter.get_run(_TENANT, _RUN_ID).state is RunState.PUBLISHING
 
 
 def test_publica_dataset_e_avanca_pointer(adapter, store):
