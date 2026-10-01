@@ -130,9 +130,8 @@ class DynamoEdgeRegistrationMixin:
     def _creation_item(self, command: NewEdgeAgent) -> Item:
         record = _creation_record(command)
         key = idempotency_key(record.tenant_id, record.scope, record.key)
-        item = encode_model(record, "IDEMPOTENCYRECORD", key)
-        item["expires_at"] = {"N": str(int(record.expires_at.timestamp()))}
-        return item
+        # No TTL attribute: capacity recovery reads this marker as durable ownership proof.
+        return encode_model(record, "IDEMPOTENCYRECORD", key)
 
     def _existing_creation(
         self, command: NewEdgeAgent, key: tuple[str, str]

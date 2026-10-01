@@ -239,3 +239,17 @@ def test_upsert_existente_continua_igual(backend) -> None:
     with pytest.raises(Conflict) as raised:
         backend.adapter.register_edge_agent(TENANT, AGENT, "c" * 64, NOW)
     assert raised.value.code is ErrorCode.AGENT_REVOKED
+
+
+def test_marcador_de_posse_do_agente_nao_expira_por_ttl() -> None:
+    with mock_aws():
+        client = boto3.client("dynamodb", region_name="us-east-1")
+        _create_table(client)
+        DynamoDBControlPlane(client, TABLE, lambda: NOW).create_edge_agent(_command())
+
+        pk, sk = idempotency_key(TENANT, EDGE_AGENT_SCOPE, "res-1")
+        item = client.get_item(
+            TableName=TABLE, Key={"pk": {"S": pk}, "sk": {"S": sk}}, ConsistentRead=True,
+        )["Item"]
+
+    assert "expires_at" not in item
