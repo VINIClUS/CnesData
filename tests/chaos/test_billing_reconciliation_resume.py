@@ -324,4 +324,3 @@ def test_falha_de_dependencia_nao_avanca_cursor() -> None:
 
 def snapshot_quotas(env: RevEnv) -> Any:
     return snapshot_of(env).quotas
-

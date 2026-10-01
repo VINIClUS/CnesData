@@ -208,4 +208,3 @@ def drifted(account_id: str = "ba_01", version: int = 1, **changes: Any) -> Enti
     values: dict[str, Any] = {"features": frozenset({"create_run"})}
     values.update(changes)
     return make_snapshot(account_id, version, **values)
-
