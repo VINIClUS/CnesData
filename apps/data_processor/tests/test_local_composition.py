@@ -119,3 +119,16 @@ def test_normalize_cnes_rejeita_source_type_desconhecido():
 
     with pytest.raises(UnsupportedSourceType):
         normalize_cnes(request, store=None)
+
+
+@pytest.mark.parametrize(
+    ("source_type", "pipeline_id"),
+    [
+        (SourceType.CNES_LOCAL, "cnes"), (SourceType.CNES_NACIONAL, "cnes"),
+        (SourceType.SIHD, "sihd"), (SourceType.BPA_MAG, "bpa"), (SourceType.SIA_LOCAL, "sia"),
+    ],
+)
+def test_runtime_local_registry_resolve_as_cinco_fontes(tmp_path, source_type, pipeline_id):
+    runtime = build_local_processor_runtime(_settings(tmp_path), _utc_now)
+
+    assert runtime.source_registry.for_source(source_type).pipeline_id == pipeline_id

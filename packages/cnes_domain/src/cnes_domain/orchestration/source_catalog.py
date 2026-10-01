@@ -147,8 +147,11 @@ class SourceCatalog:
 
 def build_source_catalog() -> SourceCatalog:
     from cnes_domain.control_plane.entities import RunDependency
+    from cnes_domain.orchestration.source_definitions.bpa import BPA_DEFINITION
+    from cnes_domain.orchestration.source_definitions.sia import SIA_DEFINITION
+    from cnes_domain.orchestration.source_definitions.sihd import SIHD_DEFINITION
 
-    definition = PipelineDefinition(
+    cnes = PipelineDefinition(
         pipeline_id="cnes",
         source_types=("CNES_LOCAL", "CNES_NACIONAL"),
         dependencies=(
@@ -167,7 +170,7 @@ def build_source_catalog() -> SourceCatalog:
             serving_documents=("overview",),
         ),
     )
-    return SourceCatalog((definition,))
+    return SourceCatalog((cnes, SIHD_DEFINITION, BPA_DEFINITION, SIA_DEFINITION))
 
 
 __all__ = [

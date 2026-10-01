@@ -36,6 +36,15 @@ from data_processor.pipeline.reconcile_cnes import reconcile_cnes
 from data_processor.pipeline.source_registry import SourcePipeline, SourceRegistry
 from data_processor.pipeline.stage_processor import StageProcessor
 from data_processor.recovery import ProcessorRecovery
+from data_processor.sources.bpa.normalize import normalize_bpa
+from data_processor.sources.bpa.reconcile import reconcile_bpa
+from data_processor.sources.bpa.serving import materialize_bpa
+from data_processor.sources.sia.normalize import normalize_sia
+from data_processor.sources.sia.reconcile import reconcile_sia
+from data_processor.sources.sia.serving import materialize_sia
+from data_processor.sources.sihd.normalize import normalize_sihd
+from data_processor.sources.sihd.reconcile import reconcile_sihd
+from data_processor.sources.sihd.serving import materialize_sihd
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -79,11 +88,25 @@ def normalize_cnes(request: NormalizeRequest, store: ObjectStorePort) -> Normali
 
 def build_source_registry(catalog: SourceCatalog | None = None) -> SourceRegistry:
     resolved = catalog if catalog is not None else build_source_catalog()
-    bundle = SourcePipeline(
-        definition=resolved.for_pipeline("cnes"), normalize=normalize_cnes,
-        reconcile=reconcile_cnes, materialize=materialize_cnes,
+    bundles = (
+        SourcePipeline(
+            definition=resolved.for_pipeline("cnes"), normalize=normalize_cnes,
+            reconcile=reconcile_cnes, materialize=materialize_cnes,
+        ),
+        SourcePipeline(
+            definition=resolved.for_pipeline("sihd"), normalize=normalize_sihd,
+            reconcile=reconcile_sihd, materialize=materialize_sihd,
+        ),
+        SourcePipeline(
+            definition=resolved.for_pipeline("bpa"), normalize=normalize_bpa,
+            reconcile=reconcile_bpa, materialize=materialize_bpa,
+        ),
+        SourcePipeline(
+            definition=resolved.for_pipeline("sia"), normalize=normalize_sia,
+            reconcile=reconcile_sia, materialize=materialize_sia,
+        ),
     )
-    return SourceRegistry(resolved, (bundle,))
+    return SourceRegistry(resolved, bundles)
 
 
 @dataclass(frozen=True, slots=True)
