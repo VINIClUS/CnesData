@@ -1,7 +1,7 @@
 """Rota administrativa de revogação imediata de entitlement de billing."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -69,12 +69,14 @@ def _revoke(
         raise HTTPException(status_code=404, detail="billing_disabled") from error
 
 
-def _emit_revoked_runs(metrics: BillingMetricsPort, result: RevocationResult) -> None:
+def _emit_revoked_runs(
+    metrics: BillingMetricsPort, result: RevocationResult, now: datetime,
+) -> None:
     if result.fenced_run_ids:
         metrics.emit(billing_metric(
             BillingMetricName.RUNS_CANCELED_BY_REVOCATION,
             len(result.fenced_run_ids),
-            datetime.now(UTC),
+            now,
             {"Reason": "admin_revoked"},
         ))
 
@@ -102,7 +104,7 @@ def revoke_billing_account(
             account.billing_account_id, ctx.principal.subject, body.reason_code, ctx.clock(),
         )
         result = _revoke(service, command)
-    _emit_revoked_runs(metrics, result)
+    _emit_revoked_runs(metrics, result, ctx.clock())
     logger.info(
         "billing_admin_revoked entitlement_version=%d fenced=%d failures=%d",
         result.entitlement_version, len(result.fenced_run_ids), len(result.cancel_failures),

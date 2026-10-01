@@ -103,6 +103,12 @@ def test_metricas_usam_o_ambiente_configurado() -> None:
     assert worker._jobs.reconciler._deps.metrics is worker._jobs.metrics
 
 
+def test_projetor_recebe_as_metricas_do_worker() -> None:
+    worker, _session, _stripe = _build(ENFORCED)
+    projector = worker._jobs.recovery._deps.projector
+    assert projector._deps.metrics is worker._jobs.metrics
+
+
 def test_metricas_sem_ambiente_sao_descartadas() -> None:
     worker, _session, _stripe = _build(STRIPE_ENV)
     assert isinstance(worker._jobs.metrics, DiscardBillingMetrics)

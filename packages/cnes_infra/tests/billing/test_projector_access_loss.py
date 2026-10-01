@@ -4,8 +4,6 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-import pytest
-
 from cnes_domain.billing.errors import RetryableBillingError
 from cnes_domain.billing.models import SubscriptionStatus
 from cnes_domain.billing.revocation import RevocationResult
@@ -22,15 +20,24 @@ CANCELED = SubscriptionStatus.CANCELED
 
 
 class SpyEnforcer:
-    def __init__(self, error: Exception | None = None) -> None:
+    def __init__(self, error: Exception | None = None, fenced: tuple[str, ...] = ()) -> None:
         self.calls: list[tuple[Any, str]] = []
         self.error = error
+        self.fenced = fenced
 
     def enforce_access_loss(self, snapshot: Any, actor_id: str) -> RevocationResult:
         self.calls.append((snapshot, actor_id))
         if self.error is not None:
             raise self.error
-        return RevocationResult(snapshot.entitlement_version, (), ())
+        return RevocationResult(snapshot.entitlement_version, self.fenced, ())
+
+
+class SpyMetrics:
+    def __init__(self) -> None:
+        self.emitted: list[Any] = []
+
+    def emit(self, metric: Any) -> None:
+        self.emitted.append(metric)
 
     def resume_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
         raise AssertionError("resume_not_expected")
@@ -116,10 +123,55 @@ def test_falha_retryable_do_enforcer_nao_desfaz_o_commit(caplog):
     assert "code=revocation_pending" in caplog.text
 
 
-def test_excecao_inesperada_do_enforcer_propaga():
-    spy = SpyEnforcer(RuntimeError("boom"))
-    with projector_env() as env, pytest.raises(RuntimeError):
-        _run_transition(env, spy, make_state(subscription_status=CANCELED))
+def test_excecao_inesperada_do_enforcer_e_registrada_sem_desfazer_o_commit(caplog):
+    spy = SpyEnforcer(ValueError("corrupt_run"))
+    with projector_env() as env, caplog.at_level(logging.WARNING):
+        result = _run_transition(env, spy, make_state(subscription_status=CANCELED))
+        stored = env.snapshot()
+    assert (result.applied, result.entitlement_version) == (True, 2)
+    assert stored.subscription_status is CANCELED
+    assert "stripe_projection_enforcement_failed event_id=evt_02" in caplog.text
+    assert "code=ValueError" in caplog.text
+
+
+def test_cancelamento_agendado_seguido_de_cancelado_apos_o_fim_do_periodo_delega():
+    spy = SpyEnforcer()
+    with projector_env() as env:
+        env.accept("evt_01")
+        env.accept("evt_02")
+        env.stripe.get_current_state.return_value = make_state(cancel_at_period_end=True)
+        env.projector().process("evt_01")
+        env.clock.advance(timedelta(days=31))
+        env.stripe.get_current_state.return_value = make_state(
+            subscription_status=CANCELED, cancel_at_period_end=True,
+        )
+        env.projector(enforcer=spy).process("evt_02")
+    assert len(spy.calls) == 1
+
+
+def test_runs_fenceadas_pelo_projetor_emitem_metrica_de_cancelamento():
+    spy, metrics = SpyEnforcer(fenced=("run-1", "run-2")), SpyMetrics()
+    with projector_env() as env:
+        env.accept("evt_01")
+        env.accept("evt_02")
+        env.projector().process("evt_01")
+        env.stripe.get_current_state.return_value = make_state(subscription_status=CANCELED)
+        env.projector(enforcer=spy, metrics=metrics).process("evt_02")
+    [metric] = metrics.emitted
+    assert (metric.name, metric.value) == ("RunsCanceledByRevocation", 2)
+    assert dict(metric.dimensions) == {"Reason": "stripe_access_loss"}
+
+
+def test_delegacao_sem_runs_fenceadas_nao_emite_metrica():
+    spy, metrics = SpyEnforcer(), SpyMetrics()
+    with projector_env() as env:
+        env.accept("evt_01")
+        env.accept("evt_02")
+        env.projector().process("evt_01")
+        env.stripe.get_current_state.return_value = make_state(subscription_status=CANCELED)
+        env.projector(enforcer=spy, metrics=metrics).process("evt_02")
+    assert len(spy.calls) == 1
+    assert metrics.emitted == []
 
 
 def test_past_due_alem_da_carencia_delega():

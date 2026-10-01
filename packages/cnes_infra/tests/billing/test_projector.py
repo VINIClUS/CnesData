@@ -95,7 +95,8 @@ class ProjectorEnv:
             self.client.put_item(TableName=TABLE_NAME, Item=item)
 
     def projector(
-        self, inbox: Any = None, projection: Any = None, enforcer: Any = None
+        self, inbox: Any = None, projection: Any = None, enforcer: Any = None,
+        metrics: Any = None,
     ) -> StripeEventProjector:
         return StripeEventProjector(
             ProjectorDependencies(
@@ -105,6 +106,7 @@ class ProjectorEnv:
                 projection=projection or self.projection,
                 clock=self.clock.now,
                 enforcer=enforcer,
+                metrics=metrics,
             )
         )
 

@@ -95,7 +95,7 @@ def _recovery(runtime: _Runtime, parts: _Parts) -> Any:
 
     c = parts.components
     dependencies = ProjectorDependencies(
-        c.inbox, c.catalog, c.gateway, c.projection, _utc_now, parts.enforcer,
+        c.inbox, c.catalog, c.gateway, c.projection, _utc_now, parts.enforcer, parts.metrics,
     )
     return build_webhook_recovery(runtime.storage, dependencies)
 

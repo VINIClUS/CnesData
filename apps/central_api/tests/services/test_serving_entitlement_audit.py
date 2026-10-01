@@ -96,3 +96,26 @@ def test_indisponibilidade_de_dependencia_nao_audita() -> None:
         _access(gates).authorize(_request())
 
     audit.append.assert_not_called()
+
+
+def _denied_event_id(access_clock) -> str:
+    audit = Mock()
+    gates = _audited(FakeProjection(_snapshot(SubscriptionStatus.ADMIN_REVOKED)), audit)
+    access = _access(gates)
+    access._clock = access_clock
+    with pytest.raises(ServingUnavailable):
+        access.authorize(_request())
+    return audit.append.call_args.args[0].event_id
+
+
+def test_negacoes_repetidas_na_mesma_hora_compartilham_o_id_do_audit() -> None:
+    first = _denied_event_id(lambda: NOW)
+    second = _denied_event_id(lambda: NOW + timedelta(minutes=30))
+    assert first == second
+    assert first.startswith("serving.denied:")
+
+
+def test_negacao_em_outra_hora_gera_novo_audit() -> None:
+    first = _denied_event_id(lambda: NOW)
+    later = _denied_event_id(lambda: NOW + timedelta(hours=1))
+    assert first != later

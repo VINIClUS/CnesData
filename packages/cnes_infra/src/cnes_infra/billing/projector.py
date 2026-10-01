@@ -6,7 +6,6 @@ from datetime import datetime
 
 from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
 from cnes_domain.billing.errors import (
-    BillingError,
     PermanentBillingError,
     RetryableBillingError,
     StaleInboxClaim,
@@ -24,6 +23,7 @@ from cnes_domain.billing.models import (
 from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.billing.ports import (
     BillingCatalogPort,
+    BillingMetricsPort,
     ClockPort,
     EntitlementProjectionPort,
     StripeGatewayPort,
@@ -32,6 +32,7 @@ from cnes_domain.billing.ports import (
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.dynamodb_items import deterministic_id
 from cnes_infra.billing.enforcement import AccessLossEnforcerPort
+from cnes_infra.billing.metrics import BillingMetricName, billing_metric
 from cnes_infra.billing.snapshot_mapping import (
     STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS,
     SnapshotMappingInput,
@@ -52,6 +53,7 @@ STRIPE_PROJECTION_CAS_RETRIES = 3
 PROJECTION_ACTOR_ID = "stripe_webhook"
 _PROJECTION_REASON = "stripe_webhook_projection"
 _STATE_INVALID = "stripe_state_invalid"
+_ACCESS_LOSS_REASON = "stripe_access_loss"
 _ATTEMPTS_EXHAUSTED = "inbox_attempts_exhausted"
 _TRANSIENT_PERMANENT_CODES = frozenset({"stripe_request_rejected"})
 _DATA_ERRORS = (ValueError, TypeError, AttributeError)
@@ -70,6 +72,7 @@ class ProjectorDependencies:
     projection: EntitlementProjectionPort
     clock: ClockPort
     enforcer: AccessLossEnforcerPort | None = None
+    metrics: BillingMetricsPort | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,18 +241,36 @@ class StripeEventProjector:
         if enforcer is None or not self._lost_access(current, snapshot):
             return
         try:
-            enforcer.enforce_access_loss(snapshot, PROJECTION_ACTOR_ID)
-        except BillingError as error:
+            result = enforcer.enforce_access_loss(snapshot, PROJECTION_ACTOR_ID)
+        except Exception as error:
+            # The snapshot and inbox are already committed; reconcile and revoke-pending resume.
             logger.warning(
                 "stripe_projection_enforcement_failed event_id=%s billing_account_id=%s code=%s",
-                claim.event_id, snapshot.billing_account_id, error.code,
+                claim.event_id, snapshot.billing_account_id,
+                getattr(error, "code", type(error).__name__),
             )
+            return
+        self._emit_fenced(len(result.fenced_run_ids))
+
+    def _emit_fenced(self, fenced: int) -> None:
+        if self._deps.metrics is None or not fenced:
+            return
+        self._deps.metrics.emit(
+            billing_metric(
+                BillingMetricName.RUNS_CANCELED_BY_REVOCATION,
+                fenced,
+                self._deps.clock(),
+                {"Reason": _ACCESS_LOSS_REASON},
+            )
+        )
 
     def _lost_access(self, current: EntitlementSnapshot, snapshot: EntitlementSnapshot) -> bool:
-        now = self._deps.clock()
+        # The previous level is judged when it was written: a scheduled cancellation or an
+        # expired grace is already non-FULL "now", yet its runs were never enforced.
+        previous = _access_level(current, current.updated_at)
         return (
-            _access_level(current, now) is AccessLevel.FULL
-            and _access_level(snapshot, now) is not AccessLevel.FULL
+            previous is AccessLevel.FULL
+            and _access_level(snapshot, self._deps.clock()) is not AccessLevel.FULL
         )
 
     def _current_state(

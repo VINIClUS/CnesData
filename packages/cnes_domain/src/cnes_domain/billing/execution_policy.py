@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from cnes_domain.billing.errors import BillingError, EntitlementDenied, PermanentBillingError
+from cnes_domain.billing.errors import EntitlementDenied, PermanentBillingError
 from cnes_domain.billing.execution import (
     RunBillingState,
     RunExecutionBindingCommand,
@@ -284,10 +284,11 @@ class BillingExecutionStarted:
                     },
                 )
             )
-        except BillingError as audit_error:
+        except Exception as audit_error:
+            # Auditing must never replace the bind error that is being re-raised.
             logger.warning(
                 "billing_audit_append_failed event_type=run_execution.bind_failed code=%s",
-                audit_error.code,
+                getattr(audit_error, "code", type(audit_error).__name__),
             )
 
     def _bind(

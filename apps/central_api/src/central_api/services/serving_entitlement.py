@@ -7,13 +7,13 @@ import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Protocol
-from uuid import uuid4
 
 from central_api.services.billing_gates import BillingAccountMissing
 from central_api.services.serving_access import ServingUnavailable
 from cnes_domain.billing.commands import GateRequest
 from cnes_domain.billing.errors import BillingError, EntitlementDenied
 from cnes_domain.billing.models import AccessLevel, BillingAuditEvent
+from cnes_infra.billing.dynamodb_items import deterministic_id
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -105,13 +105,19 @@ class EntitledServingAccess:
             "serving_denied reason=%s access_level=%s", denial.reason, denial.level,
         )
         if self._gates.audit is not None:
+            now = self._clock()
+            # One durable event per tenant/dataset/reason and hour keeps polling clients from
+            # writing an outbox row per request.
+            bucket = deterministic_id(
+                request.tenant_id, request.dataset_name, denial.reason, now.strftime("%Y%m%d%H"),
+            )
             self._gates.audit.append(BillingAuditEvent(
-                event_id=f"{SERVING_DENIED_EVENT}:{uuid4().hex}",
+                event_id=f"{SERVING_DENIED_EVENT}:{bucket}",
                 event_type=SERVING_DENIED_EVENT,
                 aggregate_id=aggregate_id,
                 actor_id=request.user_id,
                 reason_code=denial.reason,
-                occurred_at=self._clock(),
+                occurred_at=now,
                 attributes={
                     "tenant_id": request.tenant_id,
                     "dataset_name": request.dataset_name,

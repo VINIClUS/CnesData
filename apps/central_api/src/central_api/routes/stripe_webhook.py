@@ -66,6 +66,7 @@ def _emit_accepted(
     now = datetime.now(UTC)
     if disposition is InboxDisposition.DUPLICATE:
         metrics.emit(billing_metric(BillingMetricName.WEBHOOK_DUPLICATES, 1, now))
+        return
     latency_ms = (now - event.created_at).total_seconds() * _MILLISECOND_SECONDS
     metrics.emit(billing_metric(BillingMetricName.WEBHOOK_LATENCY_MS, latency_ms, now))
 

@@ -89,6 +89,23 @@ def test_falha_do_audit_nao_mascara_erro_original(caplog: pytest.LogCaptureFixtu
     ) in [r.getMessage() for r in caplog.records]
 
 
+def test_defeito_do_audit_tambem_nao_mascara_erro_original(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    error = PermanentBillingError("run_execution_stale")
+    fake = _bindable()
+    fake.bind_error = error
+    audit = _SpyAudit(RuntimeError("audit_bug"))
+
+    with caplog.at_level(logging.WARNING), pytest.raises(PermanentBillingError) as raised:
+        _started(fake, audit)(_run(), _request(), "exec-1", _permit())
+
+    assert raised.value is error
+    assert (
+        "billing_audit_append_failed event_type=run_execution.bind_failed code=RuntimeError"
+    ) in [r.getMessage() for r in caplog.records]
+
+
 def test_sem_audit_configurado_apenas_repropaga() -> None:
     fake = _bindable()
     fake.bind_error = PermanentBillingError("run_execution_stale")

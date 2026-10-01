@@ -200,15 +200,15 @@ dimensão ou unidade fora do contrato é descartada com log `billing_metric_reje
 
 | Métrica | Unidade | Emissor |
 |---|---|---|
-| `WebhookLatencyMs` | Milliseconds | Webhook: `now - created` do evento aceito |
+| `WebhookLatencyMs` | Milliseconds | Webhook: `now - created` do evento aceito pela primeira vez (duplicados não contam) |
 | `WebhookFailures` | Count | Webhook: assinatura inválida, payload grande demais ou dependência indisponível |
 | `WebhookDuplicates` | Count | Webhook: evento já recebido (disposição duplicada) |
-| `RecoveryBacklog` | Count | `inbox`: eventos vencidos vistos e não aplicados no ciclo |
+| `RecoveryBacklog` | Count | `inbox`: eventos vencidos vistos e não aplicados no ciclo (limitado por `--limit`) |
 | `ReconciliationDrift` | Count | Reconcile, nesta entrega: uma por execução, valor = drifts encontrados, inclusive 0 |
 | `EntitlementChecksDenied` | Count | Gate de entitlement (`enforce`), por `Reason` |
 | `QuotaReservationsActive` | Count | Sem emissor (follow-up) |
 | `QuotaReservationsExpired` | Count | `release-expired-reservations`: reservas liberadas |
-| `RunsCanceledByRevocation` | Count | Reconcile (`stripe_access_loss`), revoke admin (`admin_revoked`) e revoke-pending (`revocation_resumed`) |
+| `RunsCanceledByRevocation` | Count | Projector e reconcile (`stripe_access_loss`), revoke admin (`admin_revoked`) e revoke-pending (`revocation_resumed`) |
 | `AuditOutboxFailures` | Count | Audit best-effort (gates, callbacks, serving) que falhou ao gravar |
 | `EntitlementSnapshotAgeSeconds` | Seconds | Sem emissor (follow-up) |
 
@@ -224,9 +224,9 @@ especificação de deploy separada; a lacuna está registrada no EPIC #95.
 
 | Alarme | Significado | Primeira ação |
 |---|---|---|
-| `WebhookFailures >= 5` em 5 minutos | Webhooks falhando na verificação ou no projetor | Inspecionar o inbox e os logs; rodar `billing-worker inbox --limit 100` após corrigir a causa |
-| `RecoveryBacklog >= 100` por 10 minutos | Eventos recuperáveis acumulando sem processamento | Verificar se o worker está ativo; rodar `billing-worker inbox --limit 100` e depois `billing-worker recover` |
-| `EntitlementSnapshotAgeSeconds > 300` ativo por 10 minutos | Snapshots sem atualização; risco de runtime com estado velho | Conferir entrega de webhooks da Stripe e executar `billing-worker recover` |
+| `WebhookFailures >= 5` em 5 minutos | Webhooks rejeitados na rota (assinatura, tamanho ou inbox indisponível); falhas do projetor aparecem no inbox e em `RecoveryBacklog` | Inspecionar o inbox e os logs; rodar `billing-worker inbox --limit 100` após corrigir a causa |
+| `RecoveryBacklog >= 50` por 10 minutos (com `inbox --limit 100`) | Eventos recuperáveis acumulando sem processamento | Verificar se o worker está ativo; rodar `billing-worker inbox --limit 100` e depois `billing-worker recover` |
+| `EntitlementSnapshotAgeSeconds > 300` ativo por 10 minutos (inativo até existir emissor) | Snapshots sem atualização; risco de runtime com estado velho | Conferir entrega de webhooks da Stripe e executar `billing-worker recover` |
 | `ReconciliationDrift >= 1` em três execuções seguidas | Projeção divergente da Stripe de forma persistente | Ler os audits `billing.reconciliation_drift` e investigar por que o projector não converge |
 | `AuditOutboxFailures >= 1` por 5 minutos | Audit durável não está sendo gravado | Verificar o outbox e permissões da tabela; reprocessar após corrigir (audit duplicado é no-op) |
 
@@ -253,7 +253,8 @@ Eventos duráveis (outbox), iguais ao `AUDIT_EVENT_INVENTORY` de
 
 Nenhum evento é só log: `run_execution.bind_failed`, `entitlement.shadow_denied` e
 `serving.denied` são gravados no outbox por um audit best-effort (falha de gravação vira
-`AuditOutboxFailures` e não muda a decisão).
+`AuditOutboxFailures` e não muda a decisão). `serving.denied` grava um evento por tenant,
+dataset, motivo e hora (id determinístico); negações repetidas na mesma hora são no-op.
 
 ## Limitação conhecida
 

@@ -64,12 +64,12 @@ def test_evento_aceito_emite_apenas_latencia(env) -> None:
     assert 4000 <= metric.value < 60000
 
 
-def test_evento_duplicado_emite_duplicado_e_latencia(env) -> None:
+def test_evento_duplicado_emite_so_duplicado_sem_latencia(env) -> None:
     env.inbox.accept.return_value = InboxAcceptResult("evt_01", InboxDisposition.DUPLICATE)
 
     env.client.post(URL, content=b"{}", headers=SIGNATURE)
 
-    assert [m.name for m in env.emitted()] == ["WebhookDuplicates", "WebhookLatencyMs"]
+    assert [m.name for m in env.emitted()] == ["WebhookDuplicates"]
     assert env.emitted()[0].value == 1
 
 

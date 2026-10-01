@@ -199,19 +199,13 @@ def build_local_processor_runtime(
 
     source_registry = build_source_registry()
     stage_processor = StageProcessor(control_plane, object_store, source_registry, clock)
-    policy = _publication_policy(
-        billing, control_plane, BillingGateResources(clock, _DEPLOYMENT_LIMIT), clock,
-    )
+    resources = BillingGateResources(clock, _DEPLOYMENT_LIMIT)
+    policy = _publication_policy(billing, control_plane, resources, clock)
     publisher = DatasetPublisher(
         store=object_store, control_plane=control_plane, publication_policy=policy,
     )
-    execution = ExecutionPolicyConfig(
-        _DEPLOYMENT_LIMIT, _DISPATCH_LEASE_SECONDS,
-        build_execution_callbacks(
-            billing, control_plane, BillingGateResources(clock, _DEPLOYMENT_LIMIT),
-            noop_execution_started,
-        ),
-    )
+    callbacks = build_execution_callbacks(billing, control_plane, resources, noop_execution_started)
+    execution = ExecutionPolicyConfig(_DEPLOYMENT_LIMIT, _DISPATCH_LEASE_SECONDS, callbacks)
 
     # LocalWorkerPool requires the handler in its constructor, but the handler exists only
     # after UnitWorker (which depends on the coordinator for after_persist). The lambda
