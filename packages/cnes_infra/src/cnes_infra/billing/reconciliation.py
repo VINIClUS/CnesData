@@ -157,9 +157,19 @@ def _fingerprint(snapshot: EntitlementSnapshot) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _drift_fields(current: EntitlementSnapshot, desired: EntitlementSnapshot) -> tuple[str, ...]:
+def _drift_fields(
+    current: EntitlementSnapshot, desired: EntitlementSnapshot, state: StripeBillingState
+) -> tuple[str, ...]:
     before, after = _canonical(current), _canonical(desired)
+    if _billable_after_revocation(current, state):
+        before["subscription_status"] = state.subscription_status.value
     return tuple(name for name in COMPARED_FIELDS if before[name] != after[name])
+
+
+def _billable_after_revocation(current: EntitlementSnapshot, state: StripeBillingState) -> bool:
+    # ADMIN_REVOKED is sticky in the mapping, so a still-live Stripe subscription is compared raw.
+    revoked = current.subscription_status is SubscriptionStatus.ADMIN_REVOKED
+    return revoked and state.subscription_status not in _ENDED_STATUSES
 
 
 def _audit_event(
@@ -308,7 +318,7 @@ class BillingReconciler:
             current.billing_account_id, state, plan, current, self._deps.clock()
         )
         desired = map_snapshot(mapping, version, f"reconciliation:{version}")
-        return _Observation(current, desired, state, _drift_fields(current, desired))
+        return _Observation(current, desired, state, _drift_fields(current, desired, state))
 
     def _stripe_state(
         self, account: BillingAccount, current: EntitlementSnapshot

@@ -31,6 +31,7 @@ from cnes_infra.billing.reconciliation import (
 from cnes_infra.billing.reconciliation_cursor import DynamoReconciliationCursor
 from packages.cnes_infra.tests.billing.billing_factories import NOW, make_snapshot
 from packages.cnes_infra.tests.billing.reconciliation_support import (
+    FEATURES,
     Env,
     drifted,
     make_env,
@@ -112,7 +113,7 @@ def test_admin_revoked_e_preservado_e_drift_auditado_sem_correcao():
     [event] = env.audit.events
     assert event.event_type == DRIFT_EVENT
     assert event.attributes["corrected"] is False
-    assert event.attributes["drift_fields"] == "features"
+    assert event.attributes["drift_fields"] == "subscription_status,features"
     assert event.attributes["subscription_status"] == "admin_revoked"
     assert env.projection.snapshots["ba_01"] == current
     assert env.enforcer.calls == []
@@ -525,3 +526,27 @@ def test_retomada_que_fenceia_emite_metrica_de_cancelamento():
     _run(env)
     [metric] = env.metrics.named(RUNS_METRIC)
     assert metric.value == 1
+
+
+def test_admin_revoked_com_assinatura_viva_na_stripe_e_drift_sem_correcao():
+    env = make_env()
+    env.projection.snapshots["ba_01"] = make_snapshot(
+        subscription_status=SubscriptionStatus.ADMIN_REVOKED, features=FEATURES
+    )
+    result = _run(env)
+    assert (result.drift_found, result.corrected) == (1, 0)
+    assert env.projection.cas_calls == 0
+    [event] = env.audit.events
+    assert event.attributes["drift_fields"] == "subscription_status"
+    assert event.attributes["subscription_status"] == "admin_revoked"
+
+
+def test_admin_revoked_com_assinatura_encerrada_na_stripe_nao_e_drift():
+    env = make_env()
+    env.projection.snapshots["ba_01"] = make_snapshot(
+        subscription_status=SubscriptionStatus.ADMIN_REVOKED, features=FEATURES
+    )
+    env.stripe.states = [make_state(subscription_status=SubscriptionStatus.CANCELED)]
+    result = _run(env)
+    assert result.drift_found == 0
+    assert env.audit.events == []
