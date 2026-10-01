@@ -170,6 +170,14 @@ def _migrate_run_units(db: sqlite3.Connection) -> None:
             )
 
 
+def _migrate_run_billing_states(db: sqlite3.Connection) -> None:
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS run_billing_states ("
+        "tenant_id TEXT NOT NULL, run_id TEXT NOT NULL, data TEXT NOT NULL, "
+        "PRIMARY KEY (tenant_id, run_id))"
+    )
+
+
 def migrate_schema(db: sqlite3.Connection) -> None:
     _migrate_bind_responses(db)
     _migrate_finish_responses(db)
@@ -177,3 +185,4 @@ def migrate_schema(db: sqlite3.Connection) -> None:
     _migrate_access_snapshot(db)
     _migrate_publication_response(db)
     _migrate_run_units(db)
+    _migrate_run_billing_states(db)

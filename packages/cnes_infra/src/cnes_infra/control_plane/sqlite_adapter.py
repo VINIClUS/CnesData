@@ -29,6 +29,7 @@ from cnes_infra.control_plane import (
 )
 from cnes_infra.control_plane.edge_registration import SQLiteEdgeRegistrationMixin
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
+from cnes_infra.control_plane.sqlite_billing import SQLiteBillingMixin
 from cnes_infra.control_plane.sqlite_raw_registration import SQLiteRawRegistrationQueries
 from cnes_infra.control_plane.sqlite_schema import (
     _SQLiteWALUnavailable,
@@ -106,7 +107,8 @@ def _fetch_all[Model: BaseModel](
 _is_network_filesystem = is_network_filesystem
 
 class SQLiteControlPlane(
-    SQLiteEdgeRegistrationMixin, SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
+    SQLiteBillingMixin, SQLiteEdgeRegistrationMixin, SQLiteRawRegistrationQueries,
+    DeprecatedRawQueryMixin):
     """Persiste o plano de controle em um arquivo SQLite local."""
     def __init__(self, database_path: Path, clock: Callable[[], datetime]) -> None:
         self._database_path = Path(database_path)
@@ -390,34 +392,7 @@ class SQLiteControlPlane(
         )
 
     def put_run_record(self, connection: sqlite3.Connection, run: Run) -> None:
-        connection.execute(
-            "INSERT INTO runs (tenant_id, run_id, competencia, dataset_name, state, "
-            "created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT (tenant_id, run_id) DO UPDATE SET competencia = excluded.competencia, "
-            "dataset_name = excluded.dataset_name, state = excluded.state, "
-            "created_at = excluded.created_at, data = excluded.data",
-            (
-                run.tenant_id,
-                run.run_id,
-                run.competencia,
-                run.dataset_name,
-                run.state.value,
-                run.created_at.isoformat(),
-                serialize_model(run),
-            ),
-        )
-        connection.execute(
-            "DELETE FROM run_dependencies WHERE tenant_id = ? AND run_id = ?",
-            (run.tenant_id, run.run_id),
-        )
-        connection.executemany(
-            "INSERT INTO run_dependencies "
-            "(tenant_id, run_id, source_type, file_subtype, required) VALUES (?, ?, ?, ?, ?)",
-            (
-                (run.tenant_id, run.run_id, item.source_type, item.file_subtype, item.required)
-                for item in run.dependencies
-            ),
-        )
+        sqlite_publication.put_run_record(connection, run)
 
     def get_run(self, tenant_id: str, run_id: str) -> Run | None:
         return sqlite_publication.get_run(self, tenant_id, run_id)

@@ -178,7 +178,8 @@ def _start_and_bind(
     execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
 ) -> str:
     run = plan.run
-    permit = execution.callbacks.policy(run, dispatch, execution.deployment_limit)
+    requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
+    permit = execution.callbacks.policy(run, dispatch, requested_limit)
     if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
         raise ValueError("execution_permit_identity_mismatch")
     request = execution_request(plan, dispatch, permit.max_concurrency)

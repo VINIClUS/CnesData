@@ -7,9 +7,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from cnes_domain.billing import BillingConcurrencyPolicy
 from cnes_domain.orchestration.source_catalog import SourceCatalog
 from cnes_domain.profiles import parse_profile
 from cnes_infra.aws import AwsRuntimeConfigurationError
+from cnes_infra.billing import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.executor.step_functions import StepFunctionsExecutor
 from cnes_infra.object_store import S3ObjectStore
@@ -21,7 +23,6 @@ from data_processor.composition import (
 )
 from data_processor.orchestration.coordinator import (
     PipelineCoordinator,
-    allow_execution,
     noop_execution_started,
 )
 from data_processor.orchestration.publisher import DatasetPublisher
@@ -106,7 +107,10 @@ def test_processor_local_delega_ao_runtime_cnd(session: Mock) -> None:
     ) as build_local:
         runtime = build_processor_runtime("local", _local_values(), session)
 
-    build_local.assert_called_once_with(parse_profile(_local_values()), composition._utc_now)
+    build_local.assert_called_once_with(
+        parse_profile(_local_values()), composition._utc_now,
+        BillingSettings.from_mapping(_local_values()),
+    )
     for field in PROCESSOR_FIELDS:
         assert getattr(runtime, field) is getattr(local, field)
     assert runtime.services is None
@@ -152,21 +156,23 @@ def test_processor_aws_expoe_recovery_limitado(session: Mock) -> None:
     assert runtime.services.recovery._control_plane is runtime.control_plane
 
 
-def test_processor_aws_repassa_execution_started_sem_wrapper(session: Mock) -> None:
+def test_processor_aws_encadeia_execution_started_apos_o_binding(session: Mock) -> None:
     started = Mock(name="execution_started")
 
     runtime = build_processor_runtime("aws", _aws_values(), session, started)
 
     execution = runtime.coordinator._execution
-    assert execution.callbacks.started is started
-    assert execution.callbacks.policy is allow_execution
+    assert execution.callbacks.started.downstream is started
+    assert isinstance(execution.callbacks.policy, BillingConcurrencyPolicy)
     assert (execution.deployment_limit, execution.dispatch_lease_seconds) == (8, 300)
 
 
 def test_processor_aws_usa_noop_por_padrao(session: Mock) -> None:
     runtime = build_processor_runtime("aws", _aws_values(), session)
 
-    assert runtime.coordinator._execution.callbacks.started is noop_execution_started
+    assert (
+        runtime.coordinator._execution.callbacks.started.downstream is noop_execution_started
+    )
 
 
 def test_processor_aws_retoma_o_coordinator_apos_persistir_unidade(session: Mock) -> None:

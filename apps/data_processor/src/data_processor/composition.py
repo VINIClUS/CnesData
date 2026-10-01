@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING
 from cnes_contracts.manifests.raw import SourceType
 from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig
+from cnes_domain.ports.processing import ExecutionPolicyConfig
 from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_profile
 from cnes_infra.audit.local_sink import LocalAuditSink
 from cnes_infra.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
+from cnes_infra.billing import LOCAL_BILLING_SETTINGS, BillingSettings, build_execution_callbacks
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.executor.local_pool import LocalWorkerPool
 from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
@@ -19,7 +20,6 @@ from cnes_infra.object_store import FilesystemObjectStore
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     PipelineCoordinator,
-    allow_execution,
     noop_execution_started,
 )
 from data_processor.orchestration.publisher import DatasetPublisher
@@ -48,7 +48,11 @@ if TYPE_CHECKING:
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.processing import ExecutionStarted, ProcessorExecutorPort
+    from cnes_domain.ports.processing import (
+        ExecutionCallbacks,
+        ExecutionStarted,
+        ProcessorExecutorPort,
+    )
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.aws import AwsClients, AwsRuntimeComponents
 
@@ -134,7 +138,8 @@ def _seed_tenant(control_plane: ControlPlanePort, settings: ProfileSettings, now
 
 
 def build_local_processor_runtime(
-    settings: ProfileSettings, clock: Callable[[], datetime]
+    settings: ProfileSettings, clock: Callable[[], datetime],
+    billing: BillingSettings = LOCAL_BILLING_SETTINGS,
 ) -> LocalProcessorRuntime:
     if settings.profile is RuntimeProfile.AWS:
         raise ProfileNotImplemented("aws_runtime_plan_required")
@@ -152,7 +157,7 @@ def build_local_processor_runtime(
     publisher = DatasetPublisher(store=object_store, control_plane=control_plane)
     execution = ExecutionPolicyConfig(
         _DEPLOYMENT_LIMIT, _DISPATCH_LEASE_SECONDS,
-        ExecutionCallbacks(allow_execution, noop_execution_started),
+        build_execution_callbacks(billing, control_plane, clock, noop_execution_started),
     )
 
     # LocalWorkerPool requires the handler in its constructor, but the handler exists only
@@ -199,19 +204,24 @@ def build_processor_runtime(
     Raises: ValueError: profile desconhecido ou configuração aws inválida.
     """
     if profile == RuntimeProfile.LOCAL:
-        local = build_local_processor_runtime(parse_profile(values), _utc_now)
+        billing = BillingSettings.from_mapping(values)
+        local = build_local_processor_runtime(parse_profile(values), _utc_now, billing)
         return ProcessorRuntimeComponents.from_local(local)
     if profile != RuntimeProfile.AWS:
         raise ValueError("profile=unknown")
     settings = AwsRuntimeSettings.from_mapping(values)
     clients = create_aws_clients(settings, session)
-    core = build_aws_runtime(settings, clients, _utc_now)
-    return _build_aws_processor_runtime(settings, clients, core, execution_started)
+    billing = BillingSettings.from_mapping(values)
+    core = build_aws_runtime(settings, clients, _utc_now, billing)
+    callbacks = build_execution_callbacks(
+        billing, core.control_plane, _utc_now, execution_started,
+    )
+    return _build_aws_processor_runtime(settings, clients, core, callbacks)
 
 
 def _build_aws_processor_runtime(
     settings: AwsRuntimeSettings, clients: AwsClients,
-    core: AwsRuntimeComponents, execution_started: ExecutionStarted,
+    core: AwsRuntimeComponents, callbacks: ExecutionCallbacks,
 ) -> ProcessorRuntimeComponents:
     _validate_runtime(settings, clients)
     executor = StepFunctionsExecutor(clients.step_functions, settings.state_machine_arn)
@@ -227,7 +237,7 @@ def _build_aws_processor_runtime(
         ),
         ExecutionPolicyConfig(
             settings.processor_max_concurrency, settings.processor_lease_seconds,
-            ExecutionCallbacks(allow_execution, execution_started),
+            callbacks,
         ),
     )
     unit_worker = UnitWorker(

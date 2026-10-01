@@ -9,16 +9,24 @@ from typing import TYPE_CHECKING
 from central_api.auth.aws_oidc import MembershipAuthorizer
 from central_api.services.delta_policy import DeltaPolicy
 from central_api.services.raw_ingestion import RawIngestionService
+from central_api.services.run_authorization import RunAuthorizationService
 from central_api.services.run_planning import RunPlanningDependencies, RunPlanningService
 from central_api.services.serving_access import LocalServingAccess
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
 from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPermit, ExecutionPolicyConfig
+from cnes_domain.ports.processing import ExecutionPolicyConfig
 from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_profile
 from cnes_infra.audit.local_sink import LocalAuditSink
 from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_infra.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
+from cnes_infra.billing import (
+    LOCAL_BILLING_SETTINGS,
+    BillingGateResources,
+    BillingSettings,
+    build_entitlement_gate,
+    build_execution_callbacks,
+)
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.executor.local_pool import LocalWorkerPool
 from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
@@ -29,12 +37,13 @@ if TYPE_CHECKING:
 
     from boto3.session import Session
 
-    from cnes_domain.control_plane.entities import RawManifestRecord, Run, RunDispatch
+    from cnes_domain.control_plane.entities import RawManifestRecord, Run
     from cnes_domain.orchestration.source_catalog import SourceCatalog
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.processing import (
+        ExecutionPermit,
         ExecutionStarted,
         ProcessorExecutorPort,
         StartRunExecution,
@@ -49,16 +58,6 @@ _WORKER_OWNER = "central_api"
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def _allow_execution(
-    run: Run, dispatch: RunDispatch, requested_limit: int
-) -> ExecutionPermit:
-    del dispatch
-    return ExecutionPermit(
-        tenant_id=run.tenant_id, run_id=run.run_id, max_concurrency=requested_limit,
-        policy_version=0, fencing_token=0, binding_context=None,
-    )
 
 
 def noop_execution_started(
@@ -84,6 +83,13 @@ class LocalRuntime:
     raw_ingestion: RawIngestionService
     source_catalog: SourceCatalog
     run_planning: RunPlanningService
+    run_authorization: RunAuthorizationService | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _AwsBilling:
+    settings: BillingSettings
+    execution_started: ExecutionStarted
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +108,7 @@ class RuntimeComponents:
     source_catalog: SourceCatalog
     run_planning: RunPlanningService
     services: AwsApiServices | None
+    run_authorization: RunAuthorizationService | None = None
 
     @classmethod
     def from_local(cls, runtime: LocalRuntime) -> RuntimeComponents:
@@ -110,6 +117,7 @@ class RuntimeComponents:
             executor=runtime.executor, audit_sink=runtime.audit_sink,
             raw_ingestion=runtime.raw_ingestion, source_catalog=runtime.source_catalog,
             run_planning=runtime.run_planning, services=None,
+            run_authorization=runtime.run_authorization,
         )
 
 
@@ -120,7 +128,10 @@ def _seed_tenant(control_plane: ControlPlanePort, settings: ProfileSettings, now
     ))
 
 
-def build_local_runtime(settings: ProfileSettings, clock: Callable[[], datetime]) -> LocalRuntime:
+def build_local_runtime(
+    settings: ProfileSettings, clock: Callable[[], datetime],
+    billing: BillingSettings = LOCAL_BILLING_SETTINGS,
+) -> LocalRuntime:
     if settings.profile is RuntimeProfile.AWS:
         raise ProfileNotImplemented("aws_runtime_plan_required")
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +149,7 @@ def build_local_runtime(settings: ProfileSettings, clock: Callable[[], datetime]
     source_catalog = build_source_catalog()
     execution = ExecutionPolicyConfig(
         _DEPLOYMENT_LIMIT, _DISPATCH_LEASE_SECONDS,
-        ExecutionCallbacks(_allow_execution, noop_execution_started),
+        build_execution_callbacks(billing, control_plane, clock, noop_execution_started),
     )
     run_planning = RunPlanningService(
         RunPlanningDependencies(
@@ -155,6 +166,10 @@ def build_local_runtime(settings: ProfileSettings, clock: Callable[[], datetime]
         control_plane=control_plane, object_store=object_store, executor=executor,
         audit_sink=audit_sink, raw_ingestion=raw_ingestion, source_catalog=source_catalog,
         run_planning=run_planning,
+        run_authorization=RunAuthorizationService(
+            build_entitlement_gate(billing, BillingGateResources(clock, _DEPLOYMENT_LIMIT)),
+            control_plane, run_planning,
+        ),
     )
 
 
@@ -167,18 +182,23 @@ def build_runtime(
     Raises: ValueError: profile desconhecido ou configuração aws inválida.
     """
     if profile == RuntimeProfile.LOCAL:
-        return RuntimeComponents.from_local(build_local_runtime(parse_profile(values), _utc_now))
+        billing = BillingSettings.from_mapping(values)
+        local = build_local_runtime(parse_profile(values), _utc_now, billing)
+        return RuntimeComponents.from_local(local)
     if profile != RuntimeProfile.AWS:
         raise ValueError("profile=unknown")
     settings = AwsRuntimeSettings.from_mapping(values)
     clients = create_aws_clients(settings, session)
-    core = build_aws_runtime(settings, clients, _utc_now)
-    return _build_aws_api_runtime(settings, clients, core, execution_started)
+    billing = BillingSettings.from_mapping(values)
+    core = build_aws_runtime(settings, clients, _utc_now, billing)
+    return _build_aws_api_runtime(
+        settings, clients, core, _AwsBilling(billing, execution_started),
+    )
 
 
 def _build_aws_api_runtime(
     settings: AwsRuntimeSettings, clients: AwsClients,
-    core: AwsRuntimeComponents, execution_started: ExecutionStarted,
+    core: AwsRuntimeComponents, billing: _AwsBilling,
 ) -> RuntimeComponents:
     _validate_runtime(settings, clients)
     executor = StepFunctionsExecutor(clients.step_functions, settings.state_machine_arn)
@@ -188,7 +208,7 @@ def _build_aws_api_runtime(
             control_plane=core.control_plane, object_store=core.object_store,
             executor=executor, source_catalog=source_catalog,
         ),
-        _execution_config(settings, execution_started), _utc_now,
+        _execution_config(settings, core, billing), _utc_now,
     )
     raw_ingestion = RawIngestionService(
         core.control_plane, core.object_store, DeltaPolicy(),
@@ -198,6 +218,10 @@ def _build_aws_api_runtime(
         control_plane=core.control_plane, object_store=core.object_store, executor=executor,
         audit_sink=core.audit_sink, raw_ingestion=raw_ingestion, source_catalog=source_catalog,
         run_planning=run_planning, services=_aws_api_services(settings, clients, core),
+        run_authorization=RunAuthorizationService(
+            build_entitlement_gate(billing.settings, _gate_resources(settings, clients)),
+            core.control_plane, run_planning,
+        ),
     )
 
 
@@ -225,12 +249,21 @@ def _validate_runtime(settings: AwsRuntimeSettings, clients: AwsClients) -> None
     )
 
 
+def _gate_resources(settings: AwsRuntimeSettings, clients: AwsClients) -> BillingGateResources:
+    return BillingGateResources(
+        _utc_now, settings.processor_max_concurrency, clients.dynamodb,
+        settings.control_plane_table,
+    )
+
+
 def _execution_config(
-    settings: AwsRuntimeSettings, execution_started: ExecutionStarted,
+    settings: AwsRuntimeSettings, core: AwsRuntimeComponents, billing: _AwsBilling,
 ) -> ExecutionPolicyConfig:
     return ExecutionPolicyConfig(
         settings.processor_max_concurrency, settings.processor_lease_seconds,
-        ExecutionCallbacks(_allow_execution, execution_started),
+        build_execution_callbacks(
+            billing.settings, core.control_plane, _utc_now, billing.execution_started,
+        ),
     )
 
 

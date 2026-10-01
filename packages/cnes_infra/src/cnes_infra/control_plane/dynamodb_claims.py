@@ -53,6 +53,7 @@ if TYPE_CHECKING:
         FailRunUnit,
         RenewJobLease,
     )
+    from cnes_infra.control_plane.dynamodb_billing import ClaimDeferred
 
 
 class DynamoDBClaims:
@@ -267,12 +268,14 @@ class DynamoDBClaims:
         if item is None or decode_model(item, Agent).state is not AgentState.ACTIVE:
             raise LeaseLost(ErrorCode.AGENT_REVOKED)
         return item
-    def claim_run_unit(self, command: ClaimRunUnit) -> RunUnit | None:
-        """Reivindica uma unidade despachada com novo fence."""
+    def _claim_run_unit_once(self, command: ClaimRunUnit) -> RunUnit | ClaimDeferred | None:
         context = self._unit_claim_context(command)
         if context is None:
             return None
         run_item, dispatch_item, unit_item, unit = context
+        billing = self._claim_billing_checks(dispatch_item)
+        if not isinstance(billing, list):
+            return billing
         leased = (
             transition_run_unit(unit, RunUnitState.LEASED)
             if unit.state is not RunUnitState.LEASED
@@ -292,6 +295,7 @@ class DynamoDBClaims:
             check_action(self._table_name, run_item),
             check_action(self._table_name, dispatch_item),
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
+            *billing,
         )
         try:
             self._transact(actions)

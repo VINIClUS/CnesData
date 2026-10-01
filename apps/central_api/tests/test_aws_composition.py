@@ -31,6 +31,7 @@ from cnes_domain.profiles import parse_profile
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_infra.auth import OidcVerifier
 from cnes_infra.aws import AwsRuntimeConfigurationError
+from cnes_infra.billing import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.executor.step_functions import IncompatibleStateMachine, StepFunctionsExecutor
 from cnes_infra.object_store import S3ObjectStore
@@ -138,7 +139,10 @@ def test_api_local_delega_ao_runtime_cnd_sem_cliente_aws(session: Mock) -> None:
     ) as build_local:
         runtime = build_runtime("local", _local_values(), session)
 
-    build_local.assert_called_once_with(parse_profile(_local_values()), composition._utc_now)
+    build_local.assert_called_once_with(
+        parse_profile(_local_values()), composition._utc_now,
+        BillingSettings.from_mapping(_local_values()),
+    )
     for field in LOCAL_FIELDS:
         assert getattr(runtime, field) is getattr(local, field)
     assert runtime.services is None
@@ -176,16 +180,17 @@ def test_api_aws_planeja_com_executor_e_politica_canonicos(session: Mock) -> Non
     assert planning._dependencies.executor is runtime.executor
     assert planning._dependencies.control_plane is runtime.control_plane
     assert planning._dependencies.source_catalog is runtime.source_catalog
-    assert planning._execution.callbacks.started is started
+    assert planning._execution.callbacks.started.downstream is started
     assert (planning._execution.deployment_limit, planning._execution.dispatch_lease_seconds) == (
         8, 300,
     )
 
 
-def test_api_aws_usa_noop_quando_billing_nao_injeta_callback(session: Mock) -> None:
+def test_api_aws_encadeia_noop_quando_nao_injeta_callback(session: Mock) -> None:
     runtime = build_runtime("aws", _aws_values(), session)
 
-    assert runtime.run_planning._execution.callbacks.started is noop_execution_started
+    started = runtime.run_planning._execution.callbacks.started
+    assert started.downstream is noop_execution_started
 
 
 def test_api_aws_manifesto_aceito_notifica_o_planejamento(session: Mock) -> None:

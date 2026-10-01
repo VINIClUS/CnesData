@@ -59,6 +59,13 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `config.py` | `DB_URL`, `S3_*`, `API_*`, `COMPETENCIA_*`, `_LAZY_ATTRS` |
 | `auth/jwt.py` | JWKSValidator for OIDC JWT verification |
 | `storage/dashboard_models.py` | SQLAlchemy ORM for `dashboard.*` tables |
+| `billing/settings.py` | `BillingSettings.from_mapping` (compõe `parse_profile`) + `BillingConfigurationError` |
+| `billing/wiring.py` | `build_entitlement_gate` (off/shadow/enforce) + `build_execution_callbacks` |
+| `billing/keys.py`, `dynamodb_items.py` | Chaves e codec DynamoDB de billing; mapeiam botocore para `BillingDependencyError` |
+| `billing/dynamodb_projection.py`, `dynamodb_catalog*.py`, `cache.py` | Snapshot, catálogo de contas/planos, cache local ≤ 60 s |
+| `billing/dynamodb_quota*.py` | Reservas transacionais de quota/budget (`DynamoQuotaReservations`) |
+| `billing/disabled.py` | Adapters sem medição de `BILLING_MODE=disabled` (sem rede nem secrets) |
+| `control_plane/dynamodb_billing.py`, `sqlite_billing.py` | Extensões billing do `ControlPlanePort` (companion, run sem medição, claim) |
 
 ## Gotchas
 
