@@ -69,7 +69,7 @@ class FakeCatalog:
 class FakeStripe:
     def __init__(self, events: list[str]) -> None:
         self.events = events
-        self.states: list[StripeBillingState] = [make_state()]
+        self.states: list[StripeBillingState | Exception] = [make_state()]
         self.error: Exception | None = None
         self.requests: list[StripeStateRequest] = []
 
@@ -78,7 +78,10 @@ class FakeStripe:
         self.requests.append(request)
         if self.error is not None:
             raise self.error
-        return self.states.pop(0) if len(self.states) > 1 else self.states[0]
+        state = self.states.pop(0) if len(self.states) > 1 else self.states[0]
+        if isinstance(state, Exception):
+            raise state
+        return state
 
 
 class FakeProjection:

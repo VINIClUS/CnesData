@@ -114,7 +114,8 @@ def test_admin_revoked_e_preservado_e_drift_auditado_sem_correcao():
     assert event.attributes["corrected"] is False
     assert event.attributes["drift_fields"] == "features"
     assert event.attributes["subscription_status"] == "admin_revoked"
-    assert env.enforcer.calls == [(current, RECONCILER_ACTOR_ID)]
+    assert env.projection.snapshots["ba_01"] == current
+    assert env.enforcer.calls == []
 
 
 @pytest.mark.parametrize(
@@ -407,3 +408,63 @@ def test_audit_nao_contem_payload_nem_segredo():
     assert drift_event.attributes["entitlement_version"] == 1
     assert corrected_event.attributes["entitlement_version"] == 2
     assert drift_event.event_id != corrected_event.event_id
+
+
+def test_assinatura_encerrada_e_substituida_usa_a_assinatura_viva():
+    env = make_env()
+    env.stripe.states = [
+        make_state(subscription_status=SubscriptionStatus.CANCELED),
+        make_state(stripe_subscription_id="sub_02"),
+    ]
+    result = _run(env)
+    assert [r.stripe_subscription_id for r in env.stripe.requests] == ["sub_01", None]
+    written = env.projection.snapshots["ba_01"]
+    assert (written.stripe_subscription_id, written.subscription_status) == (
+        "sub_02", SubscriptionStatus.ACTIVE,
+    )
+    assert (result.drift_found, result.corrected) == (1, 1)
+    assert env.enforcer.calls == []
+
+
+def test_assinatura_encerrada_sem_substituta_mantem_estado_encerrado():
+    env = make_env()
+    env.stripe.states = [
+        make_state(subscription_status=SubscriptionStatus.CANCELED),
+        RetryableBillingError("stripe_subscription_ambiguous"),
+    ]
+    result = _run(env)
+    written = env.projection.snapshots["ba_01"]
+    assert (written.stripe_subscription_id, written.subscription_status) == (
+        "sub_01", SubscriptionStatus.CANCELED,
+    )
+    assert (result.corrected, result.failed) == (1, 0)
+    assert len(env.enforcer.calls) == 1
+
+
+def test_falha_da_busca_da_substituta_falha_a_conta():
+    env = make_env()
+    env.stripe.states = [
+        make_state(subscription_status=SubscriptionStatus.CANCELED),
+        BillingDependencyError("stripe_unavailable"),
+    ]
+    result = _run(env)
+    assert (result.failed, result.corrected) == (1, 0)
+    assert env.projection.cas_calls == 0
+
+
+def test_dado_stripe_invalido_falha_a_conta_sem_derrubar_o_lote():
+    env = make_env()
+    env.stripe.states = [ValueError("reason=period_end_before_start")]
+    result = _run(env)
+    assert (result.examined, result.failed, result.next_cursor) == (1, 1, None)
+    assert env.cursor.saves == []
+    assert len(env.metrics.named(DRIFT_METRIC)) == 1
+
+
+def test_admin_revoked_nao_delega_enforcement_concorrente_com_revoke():
+    env = make_env()
+    env.projection.snapshots["ba_01"] = make_snapshot(
+        subscription_status=SubscriptionStatus.ADMIN_REVOKED
+    )
+    _run(env)
+    assert env.enforcer.calls == []

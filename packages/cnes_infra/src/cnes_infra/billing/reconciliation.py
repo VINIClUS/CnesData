@@ -64,6 +64,10 @@ COMPARED_FIELDS = (
     "grace_until",
 )
 _ACCESS_LOSS_REASON = "stripe_access_loss"
+_STATE_INVALID = "stripe_state_invalid"
+_NO_LIVE_SUBSCRIPTION = "stripe_subscription_ambiguous"
+_ENDED_STATUSES = frozenset({SubscriptionStatus.CANCELED, SubscriptionStatus.INCOMPLETE_EXPIRED})
+_DATA_ERRORS = (ValueError, TypeError, AttributeError)
 
 logger = logging.getLogger(__name__)
 
@@ -196,14 +200,13 @@ class BillingReconciler:
         page = self._deps.catalog.list_stripe_accounts(request.limit, position)
         run = _Run(stored, position)
         for account in page.accounts:
-            try:
-                self._reconcile(account, run.tally)
-            except BillingError as error:
+            code = self._reconcile_or_code(account, run.tally)
+            if code is not None:
                 run.tally.failed += 1
                 logger.warning(
                     "billing_reconcile_failed billing_account_id=%s code=%s",
                     account.billing_account_id,
-                    error.code,
+                    code,
                 )
                 return self._finish(run, run.position)
             self._advance(run, account.billing_account_id)
@@ -233,6 +236,15 @@ class BillingReconciler:
         return ReconciliationResult(
             tally.examined, tally.drift, tally.corrected, tally.failed, next_cursor
         )
+
+    def _reconcile_or_code(self, account: BillingAccount, tally: _Tally) -> str | None:
+        try:
+            self._reconcile(account, tally)
+        except BillingError as error:
+            return error.code
+        except _DATA_ERRORS:
+            return _STATE_INVALID
+        return None
 
     def _reconcile(self, account: BillingAccount, tally: _Tally) -> None:
         tally.examined += 1
@@ -273,10 +285,7 @@ class BillingReconciler:
         return snapshot
 
     def _observe(self, account: BillingAccount, current: EntitlementSnapshot) -> _Observation:
-        # Stripe is read after the snapshot so a stale state never overwrites a projector fix.
-        state = self._deps.stripe.get_current_state(
-            StripeStateRequest(account.stripe_customer_id, current.stripe_subscription_id)
-        )
+        state = self._stripe_state(account, current)
         plan = self._deps.catalog.get_plan_by_price(state.stripe_price_id)
         if plan is None:
             raise RetryableBillingError("stripe_price_unmapped")
@@ -286,6 +295,23 @@ class BillingReconciler:
         )
         desired = map_snapshot(mapping, version, f"reconciliation:{version}")
         return _Observation(current, desired, state, _drift_fields(current, desired))
+
+    def _stripe_state(
+        self, account: BillingAccount, current: EntitlementSnapshot
+    ) -> StripeBillingState:
+        # Stripe is read after the snapshot so a stale state never overwrites a projector fix.
+        customer = account.stripe_customer_id
+        state = self._deps.stripe.get_current_state(
+            StripeStateRequest(customer, current.stripe_subscription_id)
+        )
+        if state.subscription_status not in _ENDED_STATUSES:
+            return state
+        try:
+            return self._deps.stripe.get_current_state(StripeStateRequest(customer, None))
+        except BillingError as error:
+            if error.code != _NO_LIVE_SUBSCRIPTION:
+                raise
+        return state
 
     def _without_drift(
         self, seen: _Observation | None, current: EntitlementSnapshot, tally: _Tally
@@ -307,6 +333,8 @@ class BillingReconciler:
         return self._deps.projection.compare_and_set_snapshot(write)
 
     def _enforce(self, snapshot: EntitlementSnapshot) -> None:
+        if snapshot.subscription_status is SubscriptionStatus.ADMIN_REVOKED:
+            return
         now = self._deps.clock()
         # SERVING_ACCESS is non-critical: its level ignores the valid_until cut-off.
         decision = EntitlementPolicy(BillingMode.STRIPE).evaluate(
