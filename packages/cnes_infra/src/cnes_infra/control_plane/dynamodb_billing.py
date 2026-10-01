@@ -222,22 +222,22 @@ class DynamoBillingMixin:
 
     def _claim_billing_checks(
         self, dispatch_item: Item
-    ) -> tuple[Action, ...] | ClaimDeferred | None:
+    ) -> list[Action] | ClaimDeferred | None:
         if self._billing.mode is not BillingMode.STRIPE:
-            return ()
+            return []
         from cnes_infra.billing.dynamodb_quota_items import decode_run_billing_state
         from cnes_infra.billing.keys import run_billing_key
 
         dispatch = decode_model(dispatch_item, RunDispatch)
         item = self._get_item(run_billing_key(dispatch.tenant_id, dispatch.run_id))
         if item is None:
-            return None if self._billing.enforced else ()
+            return None if self._billing.enforced else []
         state = decode_run_billing_state(item)
         if state.cancel_requested:
             return None
         verdict = _binding_verdict(state, dispatch)
         if verdict is True:
-            return (check_action(self._table_name, item),)
+            return [check_action(self._table_name, item)]
         return ClaimDeferred.BIND_PENDING if verdict is None else None
 
 

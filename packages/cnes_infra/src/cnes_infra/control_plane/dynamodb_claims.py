@@ -274,7 +274,7 @@ class DynamoDBClaims:
             return None
         run_item, dispatch_item, unit_item, unit = context
         billing = self._claim_billing_checks(dispatch_item)
-        if not isinstance(billing, tuple):
+        if not isinstance(billing, list):
             return billing
         leased = (
             transition_run_unit(unit, RunUnitState.LEASED)
