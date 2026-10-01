@@ -190,7 +190,8 @@ def api_billing_gates(
     mode = billing.execution_mode
     catalog = None
     if billing.enforced:
-        catalog = DynamoBillingCatalog(resources.dynamodb_client, resources.table_name, _utc_now)
+        client, table = resources.dynamodb_client, resources.table_name
+        catalog = DynamoBillingCatalog(client, table, resources.clock)
     accounts = TenantAccountResolver(mode, catalog)
     return ApiBillingGates(mode, enforcement.gate, enforcement.capacity, accounts)
 
