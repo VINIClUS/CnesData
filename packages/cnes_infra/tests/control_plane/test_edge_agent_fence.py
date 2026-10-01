@@ -124,3 +124,15 @@ def test_sqlite_ignora_fence_em_modo_disabled(tmp_path) -> None:
     plane.initialize()
 
     assert plane.create_edge_agent(_command(version=99)).created is True
+
+
+def test_expiracao_e_checada_no_relogio_do_adapter_no_commit(env: QuotaEnv) -> None:
+    current = make_quota_snapshot()
+    expiry = NOW + timedelta(seconds=5)
+    seed_snapshot(env.client, replace(current, valid_until=expiry))
+    env.clock.advance(timedelta(seconds=10))
+
+    with pytest.raises(EntitlementDenied, match="reason=snapshot_changed"):
+        env.control_plane.create_edge_agent(_command())
+
+    assert _nothing_written(env)

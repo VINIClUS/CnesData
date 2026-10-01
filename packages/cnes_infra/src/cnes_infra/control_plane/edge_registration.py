@@ -125,7 +125,7 @@ class DynamoEdgeRegistrationMixin:
         if fence is None:
             return ()
         expected = SnapshotExpectation(fence.billing_account_id, fence.entitlement_version, None)
-        return (snapshot_check(self._table_name, expected, command.now),)
+        return (snapshot_check(self._table_name, expected, self._clock()),)
 
     def _creation_item(self, command: NewEdgeAgent) -> Item:
         record = _creation_record(command)
@@ -162,7 +162,7 @@ class DynamoEdgeRegistrationMixin:
         snapshot = None if item is None else decode_snapshot(item, account)
         if snapshot is None or (
             snapshot.entitlement_version != fence.entitlement_version
-            or snapshot.valid_until <= command.now
+            or snapshot.valid_until <= self._clock()
         ):
             raise EntitlementDenied("reason=snapshot_changed")
 
