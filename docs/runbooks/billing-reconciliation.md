@@ -60,8 +60,11 @@ Se o snapshot vigente (o corrigido, ou o atual quando não há drift) não dá a
 `EntitlementPolicy`, o reconciler delega ao mesmo serviço da revogação imediata: fence de Runs,
 cancelamento no executor e finalização. Não grava `admin_revoked`. Antes de cada página de
 fencing o serviço relê o snapshot com leitura forte; se a versão mudou (por exemplo, o cliente
-pagou e o projector gravou acesso de novo), aborta com `access_loss_snapshot_superseded`, a
-conta conta em `failed` e a próxima execução reavalia. Contas `admin_revoked` não são
+pagou e o projector gravou acesso de novo), para de fencear e só conclui cancelamento e
+liquidação das Runs já fenceadas (log `access_loss_superseded`). Se o snapshot vigente dá acesso
+FULL, o reconciler conclui da mesma forma qualquer progresso de revogação pendente de uma versão
+anterior (`settle_pending`), para que uma queda no meio do fencing não deixe Runs fenceadas sem
+cancelamento. Contas `admin_revoked` não são
 delegadas: a revogação administrativa conduz as próprias fases. O progresso fica por versão
 em `REVOCATION#<versão>`; a chamada é idempotente e versão já COMPLETE retorna sem efeito.
 

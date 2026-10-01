@@ -115,6 +115,9 @@ class CrashingEnforcer:
             raise RuntimeError("process_crash")
         return self._inner.enforce_access_loss(snapshot, actor_id)
 
+    def settle_pending(self, billing_account_id: str, actor_id: str) -> Any:
+        return self._inner.settle_pending(billing_account_id, actor_id)
+
 
 class MetricSink:
     def __init__(self) -> None:

@@ -468,3 +468,26 @@ def test_admin_revoked_nao_delega_enforcement_concorrente_com_revoke():
     )
     _run(env)
     assert env.enforcer.calls == []
+
+
+def test_acesso_pleno_liquida_revogacao_pendente_de_versao_anterior():
+    env = make_env()
+    _run(env)
+    assert env.enforcer.settled == [("ba_01", RECONCILER_ACTOR_ID)]
+    assert env.enforcer.calls == []
+
+
+def test_perda_de_acesso_nao_usa_liquidacao_de_pendente():
+    env = make_env()
+    env.stripe.states = [make_state(subscription_status=SubscriptionStatus.UNPAID)]
+    _run(env)
+    assert env.enforcer.settled == []
+    assert len(env.enforcer.calls) == 1
+
+
+def test_falha_na_liquidacao_pendente_falha_a_conta():
+    env = make_env()
+    env.enforcer.error = RetryableBillingError("revocation_progress_contended")
+    result = _run(env)
+    assert result.failed == 1
+    assert env.cursor.saves == []

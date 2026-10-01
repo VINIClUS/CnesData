@@ -67,7 +67,7 @@ _ACCESS_LOSS_REASON = "stripe_access_loss"
 _STATE_INVALID = "stripe_state_invalid"
 _NO_LIVE_SUBSCRIPTION = "stripe_subscription_ambiguous"
 _ENDED_STATUSES = frozenset({SubscriptionStatus.CANCELED, SubscriptionStatus.INCOMPLETE_EXPIRED})
-_DATA_ERRORS = (ValueError, TypeError, AttributeError)
+_DATA_ERRORS = (ValueError, TypeError)
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,9 @@ class AccessLossEnforcerPort(Protocol):
     def enforce_access_loss(
         self, snapshot: EntitlementSnapshot, actor_id: str
     ) -> RevocationResult:
+        raise NotImplementedError
+
+    def settle_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
         raise NotImplementedError
 
 
@@ -341,6 +344,7 @@ class BillingReconciler:
             snapshot, EntitlementAction.SERVING_ACCESS, now
         )
         if decision.access_level is AccessLevel.FULL:
+            self._deps.enforcer.settle_pending(snapshot.billing_account_id, RECONCILER_ACTOR_ID)
             return
         result = self._deps.enforcer.enforce_access_loss(snapshot, RECONCILER_ACTOR_ID)
         if result.fenced_run_ids:

@@ -231,6 +231,22 @@ class ImmediateRevocationService:
         context = _Context(actor_id, [], [], snapshot)
         return self._enforce(self._progress(snapshot, True), context)
 
+    def settle_pending(self, billing_account_id: str, actor_id: str) -> RevocationResult | None:
+        """Conclui cancelamento e liquidação de runs já fenceadas, sem fencear novas.
+
+        Args: billing_account_id: Conta; actor_id: Ator auditado.
+        Returns: Resultado da conclusão, ou None sem progresso pendente.
+        Raises: RetryableBillingError, PermanentBillingError, BillingDisabledError.
+        """
+        require_id(actor_id, "actor_id")
+        stored = self._deps.store.get_revocation_progress(billing_account_id)
+        if stored is None or stored.phase is RevocationPhase.COMPLETE:
+            return None
+        context = _Context(actor_id, [], [])
+        if stored.phase is RevocationPhase.FENCING:
+            stored = self._skip_fencing(stored)
+        return self._enforce(stored, context)
+
     def _enforce(self, progress: RevocationProgress, context: _Context) -> RevocationResult:
         while progress.phase is not RevocationPhase.COMPLETE:
             progress = self._advance(progress, context)
@@ -336,16 +352,20 @@ class ImmediateRevocationService:
             progress.billing_account_id, limit, progress.run_cursor
         )
 
-    def _require_current(self, guard: EntitlementSnapshot | None) -> None:
+    def _skip_fencing(self, progress: RevocationProgress) -> RevocationProgress:
+        return self._save(progress, self._advanced(replace(progress, run_cursor=None), None))
+
+    def _superseded(self, guard: EntitlementSnapshot | None) -> bool:
         if guard is None:
-            return
+            return False
         account = guard.billing_account_id
         current = self._deps.projection.get_snapshot(account, ReadConsistency.STRONG)
-        if current is None or current.entitlement_version != guard.entitlement_version:
-            raise RetryableBillingError("access_loss_snapshot_superseded")
+        return current is None or current.entitlement_version != guard.entitlement_version
 
     def _fencing(self, progress: RevocationProgress, context: _Context) -> RevocationProgress:
-        self._require_current(context.guard)
+        if self._superseded(context.guard):
+            logger.info("access_loss_superseded account=%s", progress.billing_account_id)
+            return self._skip_fencing(progress)
         page = self._page(progress, self._settings.run_page_size)
         for state in page.runs:
             if self._fence(state, progress):
