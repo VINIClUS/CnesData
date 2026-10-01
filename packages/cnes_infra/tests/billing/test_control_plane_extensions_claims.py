@@ -1,7 +1,7 @@
 """Claim de unidade condicionado ao companion de billing no modo stripe."""
 
-from collections.abc import Iterator
-from dataclasses import replace
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import Any
 from unittest.mock import Mock
@@ -24,6 +24,7 @@ from cnes_infra.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_infra.billing.keys import run_billing_key
 from cnes_infra.billing.settings import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
+from cnes_infra.control_plane.dynamodb_billing import CLAIM_BIND_BACKOFF_SECONDS
 from cnes_infra.control_plane.dynamodb_keys import item_key
 from packages.cnes_infra.tests.aws.test_runtime import _LOCKED, _settings
 from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
@@ -43,6 +44,24 @@ UNIT_ID = "unit-001"
 def env() -> Iterator[Env]:
     with open_env() as opened:
         yield opened
+
+
+@dataclass
+class SleepRecorder:
+    delays: list[float] = field(default_factory=list)
+    on_sleep: Callable[[float], None] | None = None
+
+    def __call__(self, delay: float) -> None:
+        self.delays.append(delay)
+        if self.on_sleep is not None:
+            self.on_sleep(delay)
+
+
+@pytest.fixture(autouse=True)
+def sleeper(monkeypatch: pytest.MonkeyPatch) -> SleepRecorder:
+    recorder = SleepRecorder()
+    monkeypatch.setattr("cnes_infra.control_plane.dynamodb_billing.sleep", recorder)
+    return recorder
 
 
 ENFORCE = BillingEnforcementMode.ENFORCE
@@ -155,13 +174,14 @@ def test_modo_stripe_reivindica_apos_vinculacao_canonica(env: Env) -> None:
     assert claimed.lease_owner == "worker-a"
 
 
-def test_modo_stripe_nega_claim_sem_companion(env: Env) -> None:
+def test_modo_stripe_nega_claim_sem_companion(env: Env, sleeper: SleepRecorder) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
     delete_companion(env)
 
     assert claim(plane, dispatch) is None
+    assert sleeper.delays == []
 
 
 def test_modo_stripe_nega_claim_de_dispatch_reservado(env: Env) -> None:
@@ -188,16 +208,21 @@ def test_modo_stripe_nega_claim_com_companion_de_outro_dispatch(env: Env) -> Non
     assert claim(plane, dispatch) is None
 
 
-def test_modo_stripe_nega_claim_com_referencia_divergente(env: Env) -> None:
+def test_modo_stripe_nega_claim_com_referencia_divergente(
+    env: Env, sleeper: SleepRecorder,
+) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
     bind_companion(plane, dispatch, ref="exec-other")
 
     assert claim(plane, dispatch) is None
+    assert sleeper.delays == []
 
 
-def test_modo_stripe_nega_claim_com_cancelamento_solicitado(env: Env) -> None:
+def test_modo_stripe_nega_claim_com_cancelamento_solicitado(
+    env: Env, sleeper: SleepRecorder,
+) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
@@ -208,6 +233,80 @@ def test_modo_stripe_nega_claim_com_cancelamento_solicitado(env: Env) -> None:
     )
 
     assert claim(plane, dispatch) is None
+    assert sleeper.delays == []
+
+
+def test_modo_stripe_reivindica_quando_bind_chega_durante_retry(
+    env: Env, sleeper: SleepRecorder,
+) -> None:
+    plane = plane_for(env, BillingMode.STRIPE)
+    dispatch = processing_run(plane)
+    start_dispatch(plane, dispatch)
+
+    def bind_on_sleep(delay: float) -> None:
+        env.clock.advance(timedelta(seconds=delay))
+        bind_companion(plane, dispatch)
+
+    sleeper.on_sleep = bind_on_sleep
+
+    claimed = claim(plane, dispatch)
+
+    assert claimed is not None
+    assert claimed.lease_owner == "worker-a"
+    assert sleeper.delays == [CLAIM_BIND_BACKOFF_SECONDS[0]]
+    assert claimed.lease_until == NOW + timedelta(seconds=CLAIM_BIND_BACKOFF_SECONDS[0] + 60)
+
+
+def test_modo_stripe_reivindica_quando_bind_chega_no_ultimo_retry(
+    env: Env, sleeper: SleepRecorder,
+) -> None:
+    plane = plane_for(env, BillingMode.STRIPE)
+    dispatch = processing_run(plane)
+    start_dispatch(plane, dispatch)
+
+    def bind_on_last_sleep(delay: float) -> None:
+        env.clock.advance(timedelta(seconds=delay))
+        if len(sleeper.delays) == len(CLAIM_BIND_BACKOFF_SECONDS):
+            bind_companion(plane, dispatch)
+
+    sleeper.on_sleep = bind_on_last_sleep
+
+    assert claim(plane, dispatch) is not None
+    assert sleeper.delays == list(CLAIM_BIND_BACKOFF_SECONDS)
+
+
+def test_modo_stripe_esgota_retry_sem_bind_e_nega_claim(
+    env: Env, sleeper: SleepRecorder,
+) -> None:
+    plane = plane_for(env, BillingMode.STRIPE)
+    dispatch = processing_run(plane)
+    start_dispatch(plane, dispatch)
+    sleeper.on_sleep = lambda delay: env.clock.advance(timedelta(seconds=delay))
+
+    assert claim(plane, dispatch) is None
+    assert sleeper.delays == list(CLAIM_BIND_BACKOFF_SECONDS)
+
+
+def test_modo_stripe_nao_reintenta_alem_do_lease(env: Env, sleeper: SleepRecorder) -> None:
+    plane = plane_for(env, BillingMode.STRIPE)
+    dispatch = processing_run(plane)
+    start_dispatch(plane, dispatch)
+    sleeper.on_sleep = lambda delay: env.clock.advance(timedelta(seconds=59.8))
+
+    assert claim(plane, dispatch) is None
+    assert sleeper.delays == [CLAIM_BIND_BACKOFF_SECONDS[0]]
+
+
+def test_modo_stripe_nao_dorme_quando_primeiro_delay_ultrapassa_o_lease(
+    env: Env, sleeper: SleepRecorder,
+) -> None:
+    plane = plane_for(env, BillingMode.STRIPE)
+    dispatch = processing_run(plane)
+    start_dispatch(plane, dispatch)
+    env.clock.advance(timedelta(seconds=59.8))
+
+    assert claim(plane, dispatch) is None
+    assert sleeper.delays == []
 
 
 def test_modo_stripe_aborta_claim_se_companion_muda_antes_da_transacao(env: Env) -> None:

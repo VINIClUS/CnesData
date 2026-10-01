@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
+from enum import Enum
+from time import sleep
 from typing import TYPE_CHECKING
 
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
@@ -31,12 +34,18 @@ if TYPE_CHECKING:
     )
     from cnes_domain.billing.execution import RunBillingState, RunExecutionBindingCommand
     from cnes_domain.billing.models import QuotaReservation, RunAuthorization
-    from cnes_domain.control_plane.entities import IdempotencyRecord, Run
+    from cnes_domain.control_plane.commands import ClaimRunUnit
+    from cnes_domain.control_plane.entities import IdempotencyRecord, Run, RunUnit
     from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 
 RUN_FIXED_ACTIONS = 4
 _BIND_ATTEMPTS = 2
+CLAIM_BIND_BACKOFF_SECONDS = (0.5, 1.0, 2.0)
 EVENT_TYPE = "run.authorized"
+
+
+class ClaimDeferred(Enum):
+    BIND_PENDING = "bind_pending"
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,7 +207,22 @@ class DynamoBillingMixin:
                 return updated
         raise RetryableBillingError("run_execution_contended")
 
-    def _claim_billing_checks(self, dispatch_item: Item) -> tuple[Action, ...] | None:
+    def claim_run_unit(self, command: ClaimRunUnit) -> RunUnit | None:
+        """Reivindica a unidade, reintentando só enquanto o companion aguarda o bind."""
+        deadline = command.now + timedelta(seconds=command.lease_seconds)
+        result = self._claim_run_unit_once(command)
+        for delay in CLAIM_BIND_BACKOFF_SECONDS:
+            if result is not ClaimDeferred.BIND_PENDING:
+                return result
+            if self._clock() + timedelta(seconds=delay) >= deadline:
+                return None
+            sleep(delay)
+            result = self._claim_run_unit_once(command.model_copy(update={"now": self._clock()}))
+        return None if result is ClaimDeferred.BIND_PENDING else result
+
+    def _claim_billing_checks(
+        self, dispatch_item: Item
+    ) -> tuple[Action, ...] | ClaimDeferred | None:
         if self._billing.mode is not BillingMode.STRIPE:
             return ()
         from cnes_infra.billing.dynamodb_quota_items import decode_run_billing_state
@@ -209,10 +233,16 @@ class DynamoBillingMixin:
         if item is None:
             return None if self._billing.enforced else ()
         state = decode_run_billing_state(item)
-        bound = (
-            state.execution_dispatch_id == dispatch.dispatch_id
-            and state.execution_ref is not None
-            and state.execution_ref == dispatch.execution_ref
-            and state.cancel_requested is False
-        )
-        return (check_action(self._table_name, item),) if bound else None
+        if state.cancel_requested:
+            return None
+        verdict = _binding_verdict(state, dispatch)
+        if verdict is True:
+            return (check_action(self._table_name, item),)
+        return ClaimDeferred.BIND_PENDING if verdict is None else None
+
+
+def _binding_verdict(state: RunBillingState, dispatch: RunDispatch) -> bool | None:
+    unbound = state.execution_ref is None or dispatch.execution_ref is None
+    if unbound or state.execution_dispatch_id != dispatch.dispatch_id:
+        return None
+    return state.execution_ref == dispatch.execution_ref

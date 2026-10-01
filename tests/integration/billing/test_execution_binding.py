@@ -6,13 +6,17 @@ from pathlib import Path
 
 import pytest
 
+from apps.data_processor.tests.orchestration.test_coordinator import _processor
 from cnes_domain.billing.errors import EntitlementDenied, PermanentBillingError
 from cnes_domain.billing.execution import RunExecutionBindingCommand
 from cnes_domain.control_plane.commands import BindRunDispatch, ReserveRunDispatch
 from cnes_domain.control_plane.entities import RunDispatch
 from cnes_domain.control_plane.enums import DispatchState
+from cnes_domain.control_plane.errors import LeaseLost
 from cnes_domain.orchestration.planner import RunPlan, logical_wave_id, ready_units
 from cnes_domain.ports.processing import CancelRunExecution
+from cnes_infra.control_plane.dynamodb_billing import CLAIM_BIND_BACKOFF_SECONDS
+from data_processor.orchestration.unit_worker import UnitWorker, UnitWorkerDependencies
 from tests.integration.billing._execution_stack import (
     LEASE_SECONDS,
     RUN_ID,
@@ -46,6 +50,13 @@ WAVE_COUNT = 3
 def stack(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Stack]:
     with open_stack(request.param, tmp_path) as opened:
         yield opened
+
+
+@pytest.fixture(autouse=True)
+def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    delays: list[float] = []
+    monkeypatch.setattr("cnes_infra.control_plane.dynamodb_billing.sleep", delays.append)
+    return delays
 
 
 def binding_of(stack: Stack) -> tuple[str, str, int, str]:
@@ -145,6 +156,24 @@ def test_claim_depende_do_binding_do_companion_apenas_no_modo_stripe(stack: Stac
 
     assert before is not None
     assert before.lease_owner == "worker-a"
+
+
+@pytest.mark.parametrize("case", [DYNAMO_STRIPE])
+def test_unit_worker_perde_lease_apos_retries_com_companion_nunca_vinculado(
+    case: Case, tmp_path: Path, sleeps: list[float]
+) -> None:
+    with open_stack(case, tmp_path) as stack:
+        create_processing_run(stack)
+        dispatch = reserve_and_bind_canonical(stack)
+        dependencies = UnitWorkerDependencies(
+            control_plane=stack.plane, store=stack.store, processor=_processor,
+            clock=stack.clock.now,
+        )
+
+        with pytest.raises(LeaseLost):
+            UnitWorker(dependencies).execute(claim_command(stack, dispatch, dispatch.unit_ids[0]))
+
+        assert sleeps == list(CLAIM_BIND_BACKOFF_SECONDS)
 
 
 def test_falha_no_bind_cancela_execucao_e_finaliza_dispatch(
