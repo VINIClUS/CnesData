@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from cnes_domain.billing.errors import PublishDenied
+from cnes_domain.billing.models import ReservationStatus
 from cnes_domain.control_plane.entities import Run
 from cnes_domain.control_plane.enums import RunState
 from tests.integration.billing._enforcement_stack import (
@@ -106,4 +107,4 @@ def test_revogacao_concorrente_ao_publish_nao_avanca_pointer(
 
     assert pointer_of(stripe) is None
     assert run_of(stripe).state is RunState.PUBLISHING
-    assert reservation_of(stripe).status.value != "consumed"
+    assert reservation_of(stripe).status is ReservationStatus.RESERVED

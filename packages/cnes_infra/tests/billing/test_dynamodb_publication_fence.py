@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from cnes_domain.billing.errors import PublishDenied
+from cnes_domain.billing.errors import PublishDenied, RetryableBillingError
 from cnes_domain.billing.execution import PublicationGuard
 from cnes_domain.billing.models import (
     BillingEnforcementMode,
@@ -19,6 +19,7 @@ from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.dynamodb_items import encode_snapshot
+from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_infra.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_infra.billing.keys import run_billing_key
 from cnes_infra.billing.settings import BillingSettings
@@ -197,6 +198,29 @@ def test_snapshot_alterado_entre_leitura_e_transacao_nega_a_publicacao(env: RevE
     assert stored_reservation(env).status is ReservationStatus.RESERVED
 
 
+def test_snapshot_expirado_nega_a_publicacao(env: RevEnv) -> None:
+    plane = plane_of(env, STRIPE)
+    publishing(env)
+    put_snapshot(env, valid_until=NOW)
+
+    with pytest.raises(PublishDenied, match="reason=snapshot_expired"):
+        plane.publish_dataset(publish_command(guard()))
+
+    assert_untouched(env, plane)
+
+
+def test_snapshot_expirado_na_mesma_versao_entre_leitura_e_transacao_nega(env: RevEnv) -> None:
+    plane = plane_of(env, STRIPE)
+    publishing(env)
+    once(env, lambda: put_snapshot(env, valid_until=NOW))
+
+    with pytest.raises(PublishDenied, match="reason=snapshot_expired"):
+        plane.publish_dataset(publish_command(guard()))
+
+    assert_untouched(env, plane)
+    assert stored_reservation(env).status is ReservationStatus.RESERVED
+
+
 def test_companion_alterado_sem_violar_fence_repete_o_conflito_original(env: RevEnv) -> None:
     plane = plane_of(env, STRIPE)
     publishing(env)
@@ -206,6 +230,41 @@ def test_companion_alterado_sem_violar_fence_repete_o_conflito_original(env: Rev
         plane.publish_dataset(publish_command(guard()))
 
     assert_untouched(env, plane)
+
+
+def test_conflito_original_nao_e_mascarado_pela_leitura_da_reserva(
+    env: RevEnv, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plane = plane_of(env, STRIPE)
+    publishing(env)
+    original = DynamoQuotaReservations.consume_reserved_actions
+    calls: list[int] = []
+
+    def flaky(self: Any, *args: Any) -> Any:
+        calls.append(1)
+        if len(calls) > 1:
+            raise RetryableBillingError("quota_reservation_not_found")
+        return original(self, *args)
+
+    monkeypatch.setattr(DynamoQuotaReservations, "consume_reserved_actions", flaky)
+    once(env, lambda: put_companion(env, updated_at=NOW.replace(minute=5)))
+
+    with pytest.raises(Conflict):
+        plane.publish_dataset(publish_command(guard()))
+
+    assert calls == [1]
+
+
+def test_stripe_sem_reserva_de_orcamento_publica_sem_liquidar(env: RevEnv) -> None:
+    plane = plane_of(env, STRIPE)
+    publishing(env)
+    state = env.store.get_run_billing_state(TENANT, "run-01")
+    put_companion(env, authorization=replace(state.authorization, budget_reservation_id=None))
+
+    result = plane.publish_dataset(publish_command(guard()))
+
+    assert pointer(plane) == result
+    assert stored_reservation(env).status is ReservationStatus.RESERVED
 
 
 def test_disabled_publica_run_legado_sem_companion(env: RevEnv) -> None:

@@ -102,9 +102,7 @@ CONTROL_PLANE_SIGNATURES = {
     "release_reservation": (("command", "ReleaseReservationCommand"),),
     "get_run_billing_state": (("tenant_id", str), ("run_id", str)),
     "bind_run_execution": (("command", "RunExecutionBindingCommand"),),
-    "list_revocable_runs": (
-        ("billing_account_id", str), ("limit", int), ("cursor", "str | None"),
-    ),
+    "list_revocable_runs": (("billing_account_id", str), ("limit", int), ("cursor", "str | None")),
     "request_run_revocation": (("command", "RevokeRunCommand"), ("event", "OutboxEvent")),
     "begin_idempotency": (("command", "BeginIdempotency"),),
     "publish_dataset": (("command", "PublishDataset"),),
@@ -164,11 +162,8 @@ CONTROL_PLANE_RETURNS = {
 }
 OTHER_RETURNS = {
     ObjectStorePort: {
-        "put": "ObjectStat",
-        "open": "ContextManager[BinaryIO]",
-        "stat": "ObjectStat | None",
-        "promote": "ObjectStat",
-        "delete": "None",
+        "put": "ObjectStat", "open": "ContextManager[BinaryIO]", "stat": "ObjectStat | None",
+        "promote": "ObjectStat", "delete": "None",
     },
     ProcessorExecutorPort: {"start": "str", "cancel": "None", "status": "ExecutionStatus"},
     ServingAccessPort: {"authorize": "ServingGrant"},

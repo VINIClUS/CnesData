@@ -121,6 +121,25 @@ def test_reparo_bloqueado_por_cancelamento_nega_claim(env: Env) -> None:
     assert (state.cancel_requested, state.execution_generation) == (True, 0)
 
 
+def test_cancelamento_apos_reparo_e_antes_do_claim_nega_claim(
+    env: Env, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plane = plane_for(env, STRIPE)
+    dispatch = processing_run(plane)
+    start_dispatch(plane, dispatch)
+    original = plane.bind_run_execution
+
+    def bind_then_cancel(command: Any) -> Any:
+        bound = original(command)
+        set_cancel(env, plane)
+        return bound
+
+    monkeypatch.setattr(plane, "bind_run_execution", bind_then_cancel)
+
+    assert claim(plane, dispatch) is None
+    assert plane.get_run_billing_state(TENANT, "run-01").cancel_requested is True
+
+
 def test_reparo_concorrente_com_bind_legitimo_ainda_reivindica(env: Env) -> None:
     plane = plane_for(env, STRIPE)
     dispatch = processing_run(plane)

@@ -259,7 +259,8 @@ class DynamoBillingMixin(DynamoBillingFencesMixin):
         except RetryableBillingError:
             return ClaimDeferred.BIND_PENDING
         item = self._billing_item(dispatch.tenant_id, dispatch.run_id)
-        if _binding_verdict(decode_run_billing_state(item), dispatch) is not True:
+        repaired = decode_run_billing_state(item)
+        if repaired.cancel_requested or _binding_verdict(repaired, dispatch) is not True:
             return None
         return [check_action(self._table_name, item)]
 

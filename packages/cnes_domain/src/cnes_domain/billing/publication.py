@@ -13,6 +13,8 @@ from cnes_domain.control_plane.commands import PublicationPermit
 from cnes_domain.profiles import BillingMode
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from cnes_domain.billing.execution import RunBillingState
     from cnes_domain.billing.models import EntitlementDecision, EntitlementSnapshot
     from cnes_domain.billing.ports import ClockPort
@@ -50,10 +52,10 @@ def require_publication_companion(
 
 
 def require_publication_snapshot(
-    snapshot: EntitlementSnapshot | None, guard: PublicationGuard,
+    snapshot: EntitlementSnapshot | None, guard: PublicationGuard, now: datetime,
 ) -> None:
-    """Args: snapshot: Snapshot lido na transação; guard: Guard do permit.
-    Raises: PublishDenied: Snapshot ausente, revogado ou de outra versão.
+    """Args: snapshot: Snapshot lido na transação; guard: Guard do permit; now: Instante.
+    Raises: PublishDenied: Snapshot ausente, revogado, expirado ou de outra versão.
     """
     if snapshot is None:
         raise PublishDenied("reason=snapshot_missing")
@@ -61,6 +63,8 @@ def require_publication_snapshot(
         raise PublishDenied("reason=admin_revoked")
     if snapshot.entitlement_version != guard.expected_entitlement_version:
         raise PublishDenied("reason=stale_entitlement")
+    if snapshot.valid_until <= now:
+        raise PublishDenied("reason=snapshot_expired")
 
 
 def unit_companion_allows(

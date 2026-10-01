@@ -25,7 +25,6 @@ from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_
 if TYPE_CHECKING:
     import sqlite3
     from datetime import datetime
-    from typing import Any
 
     from cnes_domain.billing.commands import (
         AuthorizedRunCommand,
@@ -36,7 +35,7 @@ if TYPE_CHECKING:
     from cnes_domain.billing.execution import RunBillingState, RunExecutionBindingCommand
     from cnes_domain.billing.models import QuotaReservation, RunAuthorization
     from cnes_domain.billing.revocation_models import RevocableRunPage, RevokeRunCommand
-    from cnes_domain.control_plane.commands import PublishDataset
+    from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit, PublishDataset
     from cnes_domain.control_plane.entities import OutboxEvent, Run
 
 
@@ -156,7 +155,9 @@ class SQLiteBillingMixin:
         state = _select_state(connection, tenant_id, run_id)
         return unit_companion_allows(state, dispatch_id, BillingMode.DISABLED)
 
-    def require_unit_companion(self, connection: sqlite3.Connection, command: Any) -> None:
+    def require_unit_companion(
+        self, connection: sqlite3.Connection, command: CommitRunUnit | FailRunUnit
+    ) -> None:
         """Raises: FenceRejected: Companion cancelado para o dispatch do comando."""
         if not self.unit_companion_allows(
             connection, command.tenant_id, command.run_id, command.dispatch_id

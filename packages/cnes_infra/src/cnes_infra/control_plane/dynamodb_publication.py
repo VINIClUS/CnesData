@@ -169,7 +169,7 @@ class DynamoDBPublication:
                 raise
             winner = self._publication_replay(command, decode_model(winner_item, Run))
             if winner is None:
-                self._publication_billing_actions(command)
+                self._publication_guards(command)
                 raise
             return winner
         return pointer

@@ -263,29 +263,38 @@ def test_aceita_companion_consistente_sem_guard_em_disabled():
     require_publication_companion(_state(), _permit(), DISABLED)
 
 
-def _snapshot(status: SubscriptionStatus, version: int) -> Any:
-    return SimpleNamespace(subscription_status=status, entitlement_version=version)
+def _snapshot(status: SubscriptionStatus, version: int, valid_until: datetime = LATER) -> Any:
+    return SimpleNamespace(
+        subscription_status=status, entitlement_version=version, valid_until=valid_until,
+    )
 
 
 def test_snapshot_ausente_eh_rejeitado():
     with pytest.raises(PublishDenied, match="reason=snapshot_missing"):
-        require_publication_snapshot(None, _guard())
+        require_publication_snapshot(None, _guard(), NOW)
 
 
 def test_snapshot_revogado_eh_rejeitado():
     snapshot = _snapshot(SubscriptionStatus.ADMIN_REVOKED, 3)
     with pytest.raises(PublishDenied, match="reason=admin_revoked"):
-        require_publication_snapshot(snapshot, _guard())
+        require_publication_snapshot(snapshot, _guard(), NOW)
 
 
 def test_snapshot_de_outra_versao_eh_rejeitado():
     snapshot = _snapshot(SubscriptionStatus.ACTIVE, 4)
     with pytest.raises(PublishDenied, match="reason=stale_entitlement"):
-        require_publication_snapshot(snapshot, _guard())
+        require_publication_snapshot(snapshot, _guard(), NOW)
 
 
 def test_snapshot_vigente_eh_aceito():
-    require_publication_snapshot(_snapshot(SubscriptionStatus.ACTIVE, 3), _guard())
+    require_publication_snapshot(_snapshot(SubscriptionStatus.ACTIVE, 3), _guard(), NOW)
+
+
+@pytest.mark.parametrize("valid_until", [NOW, NOW - (LATER - NOW)])
+def test_snapshot_expirado_eh_rejeitado(valid_until: datetime):
+    snapshot = _snapshot(SubscriptionStatus.ACTIVE, 3, valid_until)
+    with pytest.raises(PublishDenied, match="reason=snapshot_expired"):
+        require_publication_snapshot(snapshot, _guard(), NOW)
 
 
 @pytest.mark.parametrize(
