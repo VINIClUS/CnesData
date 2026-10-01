@@ -175,14 +175,35 @@ class DynamoQuotaSettlementMixin:
         found = (reservation.billing_account_id, reservation.reservation_id)
         return item if found == (billing_account_id, reservation_id) else None
 
-    def _transition_reservation(self, item: Item, change: ReservationTransition) -> bool:
+    def consume_reserved_actions(
+        self, billing_account_id: str, reservation_id: str, at: datetime
+    ) -> tuple[Action, ...]:
+        """Ações que consomem o scan reservado na transação do chamador.
+
+        Returns: Ações de liquidação; vazio fora de RESERVED.
+        Raises: RetryableBillingError: quota_reservation_not_found.
+        """
+        item = self._locate_reservation(billing_account_id, reservation_id)
+        if item is None:
+            raise RetryableBillingError(_NOT_FOUND)
+        reservation, _tenant = decode_reservation(item)
+        if reservation.status is not ReservationStatus.RESERVED:
+            return ()
+        change = ReservationTransition(
+            ReservationStatus.CONSUMED, at, actual_scan_bytes=reservation.reserved_scan_bytes
+        )
+        return self._transition_actions(item, change)
+
+    def _transition_actions(self, item: Item, change: ReservationTransition) -> tuple[Action, ...]:
         reservation, tenant_id = decode_reservation(item)
         updated = _settled(reservation, change)
         usage = usage_key(reservation.billing_account_id, reservation.period_start)
-        actions = (
+        return (
             put_action(self._table, encode_reservation(updated, tenant_id), payload(item)),
             settle_usage_update(self._table, usage, _usage_deltas(reservation, change)),
             put_new(self._table, _event(reservation, tenant_id, change)),
             *change.guards,
         )
-        return transact(self._client, actions)
+
+    def _transition_reservation(self, item: Item, change: ReservationTransition) -> bool:
+        return transact(self._client, self._transition_actions(item, change))

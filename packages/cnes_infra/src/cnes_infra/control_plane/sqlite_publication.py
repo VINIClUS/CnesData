@@ -389,6 +389,7 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
             raise Conflict(ErrorCode.RUN_DATASET_MISMATCH)
         if version.run_manifest_key.split("/")[2] != run.competencia:
             raise Conflict(ErrorCode.RUN_COMPETENCIA_MISMATCH)
+        store.require_publication_companion(connection, command)
         updated = run.model_copy(
             update={"state": command.final_state, "missing_sources": command.missing_sources}
         )

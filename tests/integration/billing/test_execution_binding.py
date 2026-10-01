@@ -8,7 +8,6 @@ import pytest
 
 from apps.data_processor.tests.orchestration.test_coordinator import _processor
 from cnes_domain.billing.errors import EntitlementDenied, PermanentBillingError
-from cnes_domain.billing.execution import RunExecutionBindingCommand
 from cnes_domain.control_plane.commands import BindRunDispatch, ReserveRunDispatch
 from cnes_domain.control_plane.entities import RunDispatch
 from cnes_domain.control_plane.enums import DispatchState
@@ -69,34 +68,26 @@ def binding_of(stack: Stack) -> tuple[str, str, int, str]:
     )
 
 
-def reserve_and_bind_canonical(stack: Stack) -> RunDispatch:
+def reserve_canonical(stack: Stack) -> RunDispatch:
     run = stack.plane.get_run(TENANT, RUN_ID)
     units = stack.plane.list_run_units(TENANT, RUN_ID)
     plan = RunPlan(
         run=run, units=units, missing_required=(), missing_optional=(), deployment_limit=2,
     )
     ready = ready_units(plan, stack.clock.now())
-    dispatch = stack.plane.reserve_run_dispatch(ReserveRunDispatch(
+    return stack.plane.reserve_run_dispatch(ReserveRunDispatch(
         tenant_id=TENANT, run_id=RUN_ID, wave_id=logical_wave_id(ready),
         unit_ids=tuple(sorted(unit.unit_id for unit in ready)), now=stack.clock.now(),
         lease_seconds=LEASE_SECONDS,
     ))
+
+
+def reserve_and_bind_canonical(stack: Stack) -> RunDispatch:
+    dispatch = reserve_canonical(stack)
     return stack.plane.bind_run_dispatch(BindRunDispatch(
         tenant_id=TENANT, run_id=RUN_ID, dispatch_id=dispatch.dispatch_id,
         execution_ref="exec-manual", now=stack.clock.now(), lease_seconds=LEASE_SECONDS,
     ))
-
-
-def companion_command(stack: Stack, dispatch: RunDispatch) -> RunExecutionBindingCommand:
-    state = billing_state(stack)
-    return RunExecutionBindingCommand(
-        tenant_id=TENANT, run_id=RUN_ID, wave_id=dispatch.wave_id,
-        dispatch_id=dispatch.dispatch_id, generation=dispatch.generation,
-        execution_ref=dispatch.execution_ref, unit_ids=dispatch.unit_ids,
-        expected_previous_dispatch_id=None, expected_previous_execution_ref=None,
-        expected_entitlement_version=state.authorization.entitlement_version,
-        expected_fencing_token=state.fencing_token, bound_at=stack.clock.now(),
-    )
 
 
 def cancel_companion_before_start(stack: Stack) -> None:
@@ -142,29 +133,28 @@ def test_cada_binding_espera_o_anterior_e_o_callback_recebe_o_mesmo_permit(
     assert len(stack.recorder.seen) == len(stack.recorder.returned) == WAVE_COUNT
 
 
-def test_claim_depende_do_binding_do_companion_apenas_no_modo_stripe(stack: Stack) -> None:
+def test_claim_repara_binding_do_companion_apenas_no_modo_stripe(stack: Stack) -> None:
     create_processing_run(stack)
     dispatch = reserve_and_bind_canonical(stack)
     unit_id = dispatch.unit_ids[0]
     command = claim_command(stack, dispatch, unit_id)
 
-    before = stack.plane.claim_run_unit(command)
-    if stack.case.stripe:
-        assert before is None
-        stack.plane.bind_run_execution(companion_command(stack, dispatch))
-        before = stack.plane.claim_run_unit(command)
+    claimed = stack.plane.claim_run_unit(command)
 
-    assert before is not None
-    assert before.lease_owner == "worker-a"
+    assert claimed is not None
+    assert claimed.lease_owner == "worker-a"
+    assert (billing_state(stack).execution_dispatch_id == dispatch.dispatch_id) is (
+        stack.case.stripe
+    )
 
 
 @pytest.mark.parametrize("case", [DYNAMO_STRIPE])
-def test_unit_worker_perde_lease_apos_retries_com_companion_nunca_vinculado(
+def test_unit_worker_perde_lease_apos_retries_com_dispatch_ainda_nao_iniciado(
     case: Case, tmp_path: Path, sleeps: list[float]
 ) -> None:
     with open_stack(case, tmp_path) as stack:
         create_processing_run(stack)
-        dispatch = reserve_and_bind_canonical(stack)
+        dispatch = reserve_canonical(stack)
         dependencies = UnitWorkerDependencies(
             control_plane=stack.plane, store=stack.store, processor=_processor,
             clock=stack.clock.now,

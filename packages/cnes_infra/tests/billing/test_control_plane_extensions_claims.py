@@ -24,7 +24,7 @@ from cnes_infra.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_infra.billing.keys import run_billing_key
 from cnes_infra.billing.settings import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.control_plane.dynamodb_billing import CLAIM_BIND_BACKOFF_SECONDS
+from cnes_infra.control_plane.dynamodb_billing import CLAIM_BIND_BACKOFF_SECONDS, ClaimDeferred
 from cnes_infra.control_plane.dynamodb_keys import item_key
 from packages.cnes_infra.tests.aws.test_runtime import _LOCKED, _settings
 from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
@@ -142,6 +142,10 @@ def claim(plane: DynamoDBControlPlane, dispatch: RunDispatch) -> RunUnit | None:
     )
 
 
+def defer_repair(monkeypatch: pytest.MonkeyPatch, plane: DynamoDBControlPlane) -> None:
+    monkeypatch.setattr(plane, "_repair_claim_binding", lambda *_: ClaimDeferred.BIND_PENDING)
+
+
 def delete_companion(env: Env) -> None:
     env.client.delete_item(TableName=TABLE_NAME, Key=item_key(*run_billing_key(TENANT, "run-01")))
 
@@ -191,12 +195,14 @@ def test_modo_stripe_nega_claim_de_dispatch_reservado(env: Env) -> None:
     assert claim(plane, dispatch) is None
 
 
-def test_modo_stripe_nega_claim_com_companion_nao_vinculado(env: Env) -> None:
+def test_modo_stripe_repara_companion_nao_vinculado_de_dispatch_iniciado(env: Env) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
 
-    assert claim(plane, dispatch) is None
+    assert claim(plane, dispatch) is not None
+    state = plane.get_run_billing_state(TENANT, "run-01")
+    assert (state.execution_dispatch_id, state.execution_ref) == (dispatch.dispatch_id, "exec-1")
 
 
 def test_modo_stripe_nega_claim_com_companion_de_outro_dispatch(env: Env) -> None:
@@ -237,9 +243,10 @@ def test_modo_stripe_nega_claim_com_cancelamento_solicitado(
 
 
 def test_modo_stripe_reivindica_quando_bind_chega_durante_retry(
-    env: Env, sleeper: SleepRecorder,
+    env: Env, sleeper: SleepRecorder, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
+    defer_repair(monkeypatch, plane)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
 
@@ -258,9 +265,10 @@ def test_modo_stripe_reivindica_quando_bind_chega_durante_retry(
 
 
 def test_modo_stripe_reivindica_quando_bind_chega_no_ultimo_retry(
-    env: Env, sleeper: SleepRecorder,
+    env: Env, sleeper: SleepRecorder, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
+    defer_repair(monkeypatch, plane)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
 
@@ -276,9 +284,10 @@ def test_modo_stripe_reivindica_quando_bind_chega_no_ultimo_retry(
 
 
 def test_modo_stripe_esgota_retry_sem_bind_e_nega_claim(
-    env: Env, sleeper: SleepRecorder,
+    env: Env, sleeper: SleepRecorder, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
+    defer_repair(monkeypatch, plane)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
     sleeper.on_sleep = lambda delay: env.clock.advance(timedelta(seconds=delay))
@@ -287,8 +296,11 @@ def test_modo_stripe_esgota_retry_sem_bind_e_nega_claim(
     assert sleeper.delays == list(CLAIM_BIND_BACKOFF_SECONDS)
 
 
-def test_modo_stripe_nao_reintenta_alem_do_lease(env: Env, sleeper: SleepRecorder) -> None:
+def test_modo_stripe_nao_reintenta_alem_do_lease(
+    env: Env, sleeper: SleepRecorder, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
+    defer_repair(monkeypatch, plane)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
     sleeper.on_sleep = lambda delay: env.clock.advance(timedelta(seconds=59.8))
@@ -298,9 +310,10 @@ def test_modo_stripe_nao_reintenta_alem_do_lease(env: Env, sleeper: SleepRecorde
 
 
 def test_modo_stripe_nao_dorme_quando_primeiro_delay_ultrapassa_o_lease(
-    env: Env, sleeper: SleepRecorder,
+    env: Env, sleeper: SleepRecorder, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     plane = plane_for(env, BillingMode.STRIPE)
+    defer_repair(monkeypatch, plane)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
     env.clock.advance(timedelta(seconds=59.8))
@@ -338,8 +351,11 @@ def test_runtime_aws_padrao_nao_exige_companion_no_claim(env: Env) -> None:
     assert claim(plane, dispatch) is not None
 
 
-def test_runtime_aws_stripe_exige_companion_vinculado_no_claim(env: Env) -> None:
+def test_runtime_aws_stripe_exige_companion_vinculado_no_claim(
+    env: Env, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     plane = runtime_plane(env, billing=billing(BillingMode.STRIPE))
+    defer_repair(monkeypatch, plane)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
 
@@ -352,9 +368,10 @@ def test_runtime_aws_stripe_exige_companion_vinculado_no_claim(env: Env) -> None
     "enforcement", [BillingEnforcementMode.OFF, BillingEnforcementMode.SHADOW],
 )
 def test_stripe_sem_enforce_exige_vinculo_quando_companion_existe(
-    env: Env, enforcement: BillingEnforcementMode,
+    env: Env, enforcement: BillingEnforcementMode, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     plane = plane_for(env, BillingMode.STRIPE, enforcement)
+    defer_repair(monkeypatch, plane)
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
 

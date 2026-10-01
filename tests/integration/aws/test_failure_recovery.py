@@ -8,6 +8,7 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 
 from central_api.composition import build_runtime
 from central_api.services.serving_access import ServingUnavailable
+from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.control_plane.enums import DispatchState, RunStage, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
@@ -116,8 +117,9 @@ def test_dynamodb_indisponivel_falha_fechado(
         outage.api.services.membership_authorizer.authorize(principal("user-1"), TENANT)
     with pytest.raises(EndpointConnectionError):
         outage.processor.unit_handler.handle(message)
-    with pytest.raises(EndpointConnectionError):
+    with pytest.raises(BillingDependencyError) as denied:
         outage.processor.publisher.publish(publication)
+    assert isinstance(denied.value.__cause__, EndpointConnectionError)
 
     assert {(unit.state, unit.attempt) for unit in units_of(aws_runtime, run)} == {
         (RunUnitState.PENDING, 0),
