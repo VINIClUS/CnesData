@@ -338,6 +338,7 @@ class DynamoDBClaims:
             check_action(self._table_name, dispatch_item),
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
             self._event_action(command.tenant_id, event),
+            *self._unit_billing_checks(command),
         )
         token = self._commit_client_request_token(command, event)
         try:
@@ -436,6 +437,7 @@ class DynamoDBClaims:
         else:
             actions.append(check_action(self._table_name, run_item))
         actions.append(self._event_action(command.tenant_id, event))
+        actions.extend(self._unit_billing_checks(command))
         return updated, tuple(actions)
     def fail_run_unit(self, command: FailRunUnit, event: Any) -> RunUnit:
         """Falha ou degrada uma unidade fenced."""

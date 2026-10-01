@@ -9,9 +9,12 @@ from time import sleep
 from typing import TYPE_CHECKING
 
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
+from cnes_domain.billing.execution import RunExecutionBindingCommand
 from cnes_domain.billing.execution_policy import apply_execution_binding
 from cnes_domain.control_plane.entities import OutboxEvent, RunDispatch
+from cnes_domain.control_plane.enums import DispatchState
 from cnes_domain.profiles import BillingMode
+from cnes_infra.control_plane.dynamodb_billing_fences import DynamoBillingFencesMixin
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
     Item,
@@ -32,11 +35,13 @@ if TYPE_CHECKING:
         ReleaseReservationCommand,
         ReserveRunCommand,
     )
-    from cnes_domain.billing.execution import RunBillingState, RunExecutionBindingCommand
+    from cnes_domain.billing.execution import RunBillingState
     from cnes_domain.billing.models import QuotaReservation, RunAuthorization
+    from cnes_domain.billing.revocation import RevocableRunPage, RevokeRunCommand
     from cnes_domain.control_plane.commands import ClaimRunUnit
     from cnes_domain.control_plane.entities import IdempotencyRecord, Run, RunUnit
     from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
+    from cnes_infra.billing.dynamodb_revocation import DynamoRevocationStore
 
 RUN_FIXED_ACTIONS = 4
 _BIND_ATTEMPTS = 2
@@ -92,7 +97,7 @@ def authorized_run_records(command: AuthorizedRunCommand, now: datetime) -> Auth
 
 
 # billing.keys imports control_plane.dynamodb_keys: billing imports stay lazy (cycle).
-class DynamoBillingMixin:
+class DynamoBillingMixin(DynamoBillingFencesMixin):
     def _quota(self) -> DynamoQuotaReservations:
         from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 
@@ -223,13 +228,13 @@ class DynamoBillingMixin:
     def _claim_billing_checks(
         self, dispatch_item: Item
     ) -> list[Action] | ClaimDeferred | None:
-        if self._billing.mode is not BillingMode.STRIPE:
-            return []
         from cnes_infra.billing.dynamodb_quota_items import decode_run_billing_state
         from cnes_infra.billing.keys import run_billing_key
 
         dispatch = decode_model(dispatch_item, RunDispatch)
         item = self._get_item(run_billing_key(dispatch.tenant_id, dispatch.run_id))
+        if self._billing.mode is not BillingMode.STRIPE:
+            return _disabled_claim_checks(self._table_name, item)
         if item is None:
             return None if self._billing.enforced else []
         state = decode_run_billing_state(item)
@@ -238,7 +243,76 @@ class DynamoBillingMixin:
         verdict = _binding_verdict(state, dispatch)
         if verdict is True:
             return [check_action(self._table_name, item)]
+        if verdict is None and _bound_without_companion(dispatch):
+            return self._repair_claim_binding(dispatch, state)
         return ClaimDeferred.BIND_PENDING if verdict is None else None
+
+    def _repair_claim_binding(
+        self, dispatch: RunDispatch, state: RunBillingState
+    ) -> list[Action] | ClaimDeferred | None:
+        from cnes_infra.billing.dynamodb_quota_items import decode_run_billing_state
+
+        try:
+            self.bind_run_execution(_repair_command(dispatch, state, self._clock()))
+        except PermanentBillingError:
+            return None
+        except RetryableBillingError:
+            return ClaimDeferred.BIND_PENDING
+        item = self._billing_item(dispatch.tenant_id, dispatch.run_id)
+        if _binding_verdict(decode_run_billing_state(item), dispatch) is not True:
+            return None
+        return [check_action(self._table_name, item)]
+
+    def list_revocable_runs(
+        self, billing_account_id: str, limit: int, cursor: str | None
+    ) -> RevocableRunPage:
+        """Lista os Runs revogáveis da conta com leitura forte."""
+        return self._revocation_store().list_revocable_runs(billing_account_id, limit, cursor)
+
+    def request_run_revocation(
+        self, command: RevokeRunCommand, event: OutboxEvent
+    ) -> RunBillingState:
+        """Cerca o Run com cancel_requested, fence+1 e evento atomicamente."""
+        return self._revocation_store().request_run_revocation(command, event)
+
+    def _revocation_store(self) -> DynamoRevocationStore:
+        from cnes_infra.billing.dynamodb_revocation import DynamoRevocationStore
+
+        return DynamoRevocationStore(self._client, self._table_name, self._clock)
+
+
+def _disabled_claim_checks(table_name: str, item: Item | None) -> list[Action] | None:
+    from cnes_infra.billing.dynamodb_quota_items import decode_run_billing_state
+
+    if item is None:
+        return []
+    if decode_run_billing_state(item).cancel_requested:
+        return None
+    return [check_action(table_name, item)]
+
+
+def _bound_without_companion(dispatch: RunDispatch) -> bool:
+    return dispatch.state is DispatchState.STARTED and dispatch.execution_ref is not None
+
+
+def _repair_command(
+    dispatch: RunDispatch, state: RunBillingState, now: datetime
+) -> RunExecutionBindingCommand:
+    first = state.execution_generation == 0
+    return RunExecutionBindingCommand(
+        tenant_id=dispatch.tenant_id,
+        run_id=dispatch.run_id,
+        wave_id=dispatch.wave_id,
+        dispatch_id=dispatch.dispatch_id,
+        generation=dispatch.generation,
+        execution_ref=dispatch.execution_ref,
+        unit_ids=dispatch.unit_ids,
+        expected_previous_dispatch_id=None if first else state.execution_dispatch_id,
+        expected_previous_execution_ref=None if first else state.execution_ref,
+        expected_entitlement_version=state.authorization.entitlement_version,
+        expected_fencing_token=state.fencing_token,
+        bound_at=now,
+    )
 
 
 def _binding_verdict(state: RunBillingState, dispatch: RunDispatch) -> bool | None:

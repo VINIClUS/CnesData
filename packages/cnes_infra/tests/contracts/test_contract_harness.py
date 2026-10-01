@@ -51,6 +51,12 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
     def bind_run_execution(self, command: Any) -> Any:
         raise NotImplementedError
 
+    def list_revocable_runs(self, billing_account_id: str, limit: int, cursor: Any) -> Any:
+        raise NotImplementedError
+
+    def request_run_revocation(self, command: Any, event: Any) -> Any:
+        raise NotImplementedError
+
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Any, ...]:
         agent = self.get_agent(tenant_id, agent_id)
         if agent is None or agent.state is AgentState.REVOKED:

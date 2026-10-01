@@ -134,6 +134,7 @@ class DynamoDBPublication:
             return replay
         if run.state is not RunState.PUBLISHING:
             raise Conflict(ErrorCode.RUN_NOT_PUBLISHING)
+        billing = self._publication_billing_actions(command)
         pointer_key_value = pointer_key(
             command.version.tenant_id, command.version.dataset_name, command.pointer_name
         )
@@ -158,6 +159,7 @@ class DynamoDBPublication:
             put_action(self._table_name, self._pointer_item(pointer), expected_pointer),
             put_action(self._table_name, self._run_item(updated_run), payload(run_item)),
             self._event_action(command.version.tenant_id, command.event),
+            *billing,
         )
         try:
             self._transact(actions)
@@ -167,6 +169,7 @@ class DynamoDBPublication:
                 raise
             winner = self._publication_replay(command, decode_model(winner_item, Run))
             if winner is None:
+                self._publication_billing_actions(command)
                 raise
             return winner
         return pointer

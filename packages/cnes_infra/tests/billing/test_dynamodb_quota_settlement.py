@@ -13,6 +13,7 @@ from cnes_domain.billing.errors import (
     RetryableBillingError,
 )
 from cnes_domain.billing.models import QuotaReservation, ReservationKind, ReservationStatus
+from cnes_infra.billing.dynamodb_items import transact
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_infra.billing.dynamodb_quota_items import decode_reservation, encode_reservation
 from cnes_infra.billing.dynamodb_quota_settlement import ReservationTransition
@@ -356,3 +357,32 @@ def test_transicao_com_guarda_violada_nao_altera_nada() -> None:
         assert env.repo._transition_reservation(item, change) is False
         assert _usage(env) == before
         assert _stored(env) == item
+
+
+def test_acoes_de_consumo_liquidam_o_reservado_na_transacao_do_chamador() -> None:
+    with quota_env() as env:
+        _seed(env)
+
+        actions = env.repo.consume_reserved_actions(ACCOUNT, RID, NOW)
+        assert transact(env.client, actions)
+
+        stored = decode_reservation(_stored(env))[0]
+        assert (stored.status, stored.consumed_scan_bytes) == (
+            ReservationStatus.CONSUMED, RESERVED_BYTES
+        )
+        usage = _usage(env)
+        assert usage["consumed_runs"] == 1
+        assert usage["run_consumed_scan_bytes"] == RESERVED_BYTES
+
+
+@pytest.mark.parametrize("status", [ReservationStatus.CONSUMED, ReservationStatus.RELEASED])
+def test_acoes_de_consumo_sao_vazias_fora_de_reservado(status: ReservationStatus) -> None:
+    with quota_env() as env:
+        _seed(env, _reservation(status=status))
+
+        assert env.repo.consume_reserved_actions(ACCOUNT, RID, NOW) == ()
+
+
+def test_acoes_de_consumo_de_reserva_desconhecida_sao_retryable() -> None:
+    with quota_env() as env, pytest.raises(RetryableBillingError, match="not_found"):
+        env.repo.consume_reserved_actions(ACCOUNT, "res-missing", NOW)

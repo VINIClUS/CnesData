@@ -11,7 +11,13 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
 )
 from cnes_domain.billing.execution_policy import apply_execution_binding
+from cnes_domain.billing.publication import (
+    require_publication_companion,
+    unit_companion_allows,
+)
 from cnes_domain.control_plane.entities import IdempotencyRecord
+from cnes_domain.control_plane.errors import ControlPlaneErrorCode, FenceRejected
+from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.disabled import DisabledQuotaReservations
 from cnes_infra.control_plane.dynamodb_billing import authorized_run_records
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
@@ -19,6 +25,7 @@ from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_
 if TYPE_CHECKING:
     import sqlite3
     from datetime import datetime
+    from typing import Any
 
     from cnes_domain.billing.commands import (
         AuthorizedRunCommand,
@@ -28,7 +35,9 @@ if TYPE_CHECKING:
     )
     from cnes_domain.billing.execution import RunBillingState, RunExecutionBindingCommand
     from cnes_domain.billing.models import QuotaReservation, RunAuthorization
-    from cnes_domain.control_plane.entities import Run
+    from cnes_domain.billing.revocation_models import RevocableRunPage, RevokeRunCommand
+    from cnes_domain.control_plane.commands import PublishDataset
+    from cnes_domain.control_plane.entities import OutboxEvent, Run
 
 
 _SELECT_STATE = "SELECT data FROM run_billing_states WHERE tenant_id = ? AND run_id = ?"
@@ -139,3 +148,37 @@ class SQLiteBillingMixin:
                     ),
                 )
             return updated
+
+    def unit_companion_allows(
+        self, connection: sqlite3.Connection, tenant_id: str, run_id: str, dispatch_id: str
+    ) -> bool:
+        """Lê o companion na transação do chamador e decide se a unidade pode prosseguir."""
+        state = _select_state(connection, tenant_id, run_id)
+        return unit_companion_allows(state, dispatch_id, BillingMode.DISABLED)
+
+    def require_unit_companion(self, connection: sqlite3.Connection, command: Any) -> None:
+        """Raises: FenceRejected: Companion cancelado para o dispatch do comando."""
+        if not self.unit_companion_allows(
+            connection, command.tenant_id, command.run_id, command.dispatch_id
+        ):
+            raise FenceRejected(ControlPlaneErrorCode.DISPATCH_FENCE_REJECTED)
+
+    def require_publication_companion(
+        self, connection: sqlite3.Connection, command: PublishDataset
+    ) -> None:
+        """Raises: PublishDenied: Companion cancelado ou com fence diferente do permit."""
+        version = command.version
+        state = _select_state(connection, version.tenant_id, version.run_id)
+        require_publication_companion(state, command.publication_permit, BillingMode.DISABLED)
+
+    def list_revocable_runs(
+        self, billing_account_id: str, limit: int, cursor: str | None
+    ) -> RevocableRunPage:
+        """Indisponível: o SQLite opera apenas com billing desabilitado."""
+        raise BillingDisabledError("billing_mode=disabled operation=list_revocable_runs")
+
+    def request_run_revocation(
+        self, command: RevokeRunCommand, event: OutboxEvent
+    ) -> RunBillingState:
+        """Indisponível: o SQLite opera apenas com billing desabilitado."""
+        raise BillingDisabledError("billing_mode=disabled operation=request_run_revocation")
