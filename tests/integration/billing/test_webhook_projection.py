@@ -76,7 +76,8 @@ def test_entrega_em_ordem_invertida_converge_ao_estado_atual(stack: BillingStack
     snapshot = stack.snapshot()
     assert snapshot.plan_version_id == "plan_v2"
     assert snapshot.subscription_status is SubscriptionStatus.ACTIVE
-    assert snapshot.entitlement_version == 2
+    assert snapshot.entitlement_version == 1
+    assert snapshot.source_event_id == "evt_newer"
     assert stack.inbox_state("evt_older") is PROCESSED
 
 
@@ -121,6 +122,7 @@ def test_recovery_percorre_205_eventos_em_tres_paginas(stack: BillingStack) -> N
     assert [result.next_cursor for result in results] == ["evt_106", "evt_006", None]
     assert sum(result.imported for result in results) == 205
     assert states == {PROCESSED}
-    assert stack.snapshot().entitlement_version == 205
+    assert stack.snapshot().entitlement_version == 1
+    assert stack.snapshot().source_event_id == "evt_205"
     assert stack.cursor.load(ReadConsistency.STRONG) is None
     assert stack.snapshot().billing_account_id == ACCOUNT_ID
