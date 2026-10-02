@@ -30,9 +30,25 @@ jobs:
       - run: uv sync --locked --all-packages
       - name: Start DynamoDB Local
         run: docker compose --profile aws-test up -d --wait dynamodb-local
+      - name: Install Stripe CLI
+        env:
+          STRIPE_CLI_VERSION: 1.53.0
+        run: |
+          set -euo pipefail
+          release="https://github.com/stripe/stripe-cli/releases/download/v${STRIPE_CLI_VERSION}"
+          archive="stripe_${STRIPE_CLI_VERSION}_linux_x86_64.tar.gz"
+          workdir="$(mktemp -d)"
+          curl -fsSL --retry 3 -o "${workdir}/${archive}" "${release}/${archive}"
+          curl -fsSL --retry 3 -o "${workdir}/checksums.txt" "${release}/stripe-linux-checksums.txt"
+          grep -F "  ${archive}" "${workdir}/checksums.txt" > "${workdir}/expected.txt"
+          (cd "${workdir}" && sha256sum --check --strict expected.txt)
+          tar -xzf "${workdir}/${archive}" -C "${workdir}" stripe
+          sudo install -m 0755 "${workdir}/stripe" /usr/local/bin/stripe
+          stripe version
       - name: Run Stripe billing E2E
         env:
           RUN_STRIPE_E2E: "1"
+          STRIPE_E2E_DELIVERY: cli
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           STRIPE_TEST_PRICE_ID: ${{ secrets.STRIPE_TEST_PRICE_ID }}
           STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}

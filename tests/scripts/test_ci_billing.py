@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,9 @@ _STRIPE_SECRETS = (
 _FORBIDDEN_SNIPPETS = ("printenv", "env |", "set -x", "cat $GITHUB_ENV")
 _ARTIFACT = "stripe-billing-e2e-junit.xml"
 _REPO_GUARD = "github.repository == 'VINIClUS/CnesData'"
+_CLI_RELEASE = "https://github.com/stripe/stripe-cli/releases/download/v${STRIPE_CLI_VERSION}"
+_CLI_STEP = "Install Stripe CLI"
+_PIPE_TO_SHELL = re.compile(r"\|\s*(sudo\s+)?(ba)?sh\b")
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -218,3 +222,22 @@ def test_openapi_expoe_rota_de_billing(route: str, method: str) -> None:
     paths = json.loads(_OPENAPI.read_text(encoding="utf-8"))["paths"]
 
     assert method in paths[route]
+
+
+def test_e2e_stripe_instala_cli_fixa_do_release_oficial_com_checksum() -> None:
+    step = _step_named(_e2e_job(), _CLI_STEP)
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", str(step["env"]["STRIPE_CLI_VERSION"]))
+    assert _CLI_RELEASE in step["run"]
+    assert "stripe-linux-checksums.txt" in step["run"]
+    assert "sha256sum --check --strict" in step["run"]
+    assert not _PIPE_TO_SHELL.search(step["run"])
+    assert "secrets." not in str(step)
+
+
+def test_e2e_stripe_instala_cli_antes_da_suite_com_entrega_assinada() -> None:
+    job = _e2e_job()
+    run_step = _e2e_run_step()
+
+    assert _step_index(job, _CLI_STEP) < _step_index(job, run_step["name"])
+    assert run_step["env"]["STRIPE_E2E_DELIVERY"] == "cli"
