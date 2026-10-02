@@ -22,6 +22,7 @@ from cnes_domain.billing.revocation import (
 )
 from cnes_domain.control_plane.commands import CommitRunUnit
 from cnes_domain.control_plane.entities import ManifestRef, RunDispatch, RunUnit
+from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.ports.processing import CancelRunExecution
 from cnes_domain.profiles import BillingMode
@@ -34,8 +35,10 @@ from packages.cnes_infra.tests.billing.revocation_support import (
     event_of,
     make_unit,
     move_to_processing,
+    put_run_state,
     put_units,
     start_wave,
+    stored_run,
 )
 from packages.cnes_infra.tests.billing.test_dynamodb_publication_fence import (
     guard,
@@ -116,9 +119,11 @@ def _assert_publish_rejected(runtime: Any, auth: RunAuthorization, stale: int) -
         expected_run_fencing_token=stale,
         checked_at=runtime.clock.now(),
     )
-    with pytest.raises((PublishDenied, Conflict)):
+    put_run_state(runtime.env, RunState.PUBLISHING)
+    with pytest.raises(PublishDenied, match="reason=run_cancel_requested"):
         plane.publish_dataset(publish_command(permit, token=stale))
     assert plane.get_dataset_pointer(TENANT, DATASET) is None
+    assert stored_run(runtime.env).state is RunState.PUBLISHING
 
 
 def _assert_blocked(runtime: Any) -> None:
