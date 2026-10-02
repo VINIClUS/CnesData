@@ -35,6 +35,7 @@
 | Esus PEC | Alta | Acesso ao DB municipal varia; negociação política |
 | Automated DATASUS submission check | Baixa | Alertar quando competência local > nacional por mais de 2 meses |
 | Web dashboard v1.2 | Média | Faturamento+regressão, drill estabelecimento, admin UI approve/reject |
+| Billing, Entitlements e Stripe (EPIC #95) | Alta | Código completo e testado sem rede Stripe (BIL-010…023, Tasks 6/13/17; gate CI `python-quality.yml` job `billing-acceptance` + `tests/scripts/test_ci_billing.py`), enforcement desligado em produção. Go-live pendente de: environment `stripe-sandbox` e run `5 passed` do `stripe-billing-e2e.yml` (BIL-024 #328), secrets Stripe no Secrets Manager (D2), IaC dos alarmes, deploy do `billing_worker`, `PlanVersion`/Price reais e aceite de termos; rollout em `shadow` antes de `enforce` |
 | Perfil de produção AWS (EPIC #94) | Média | Step Functions/ECS Fargate/DynamoDB/Cognito; gate AWS-010…014 sem código, atrás de CND-064; planos em docs/superpowers/plans/2026-08-31-cnesdata-production-*.md |
 | PII em logs (CPF/nome/PIS em WARNING) | Média | `transformer.py`, `hr_client.py`, `hr_pre_processor.py` logam CPF/nome/PIS crus — mascarar antes de logar |
 | Update check + self-update no edge agent | Média | Contrato de manifesto já publicado (distribuição acima); falta `internal/updater` no dumpagent, fix do bug `AGENT_VERSION` sempre `dev` (`internal/apiclient/adapter.go`), e assinatura de código para AV estrito |
