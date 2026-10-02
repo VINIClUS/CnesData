@@ -51,11 +51,16 @@ jobs:
           STRIPE_E2E_DELIVERY: cli
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           STRIPE_TEST_PRICE_ID: ${{ secrets.STRIPE_TEST_PRICE_ID }}
-          STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+          STRIPE_DEVICE_NAME: cnesdata-stripe-e2e
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           DYNAMODB_ENDPOINT_URL: http://127.0.0.1:18000
-        run: uv run pytest tests/e2e/billing -m stripe -v --maxfail=1 --junitxml=stripe-billing-e2e-junit.xml
+        run: |
+          set -euo pipefail
+          STRIPE_TEST_WEBHOOK_SECRET="$(STRIPE_API_KEY="${STRIPE_TEST_SECRET_KEY}" stripe listen --print-secret)"
+          echo "::add-mask::${STRIPE_TEST_WEBHOOK_SECRET}"
+          export STRIPE_TEST_WEBHOOK_SECRET
+          uv run pytest tests/e2e/billing -m stripe -v --maxfail=1 --junitxml=stripe-billing-e2e-junit.xml
       - name: Upload JUnit report
         if: always()
         uses: actions/upload-artifact@v4

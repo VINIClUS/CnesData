@@ -52,7 +52,6 @@ _BILLING_ROUTES = (
 _STRIPE_SECRETS = (
     "STRIPE_TEST_SECRET_KEY",
     "STRIPE_TEST_PRICE_ID",
-    "STRIPE_TEST_WEBHOOK_SECRET",
 )
 _FORBIDDEN_SNIPPETS = ("printenv", "env |", "set -x", "cat $GITHUB_ENV")
 _ARTIFACT = "stripe-billing-e2e-junit.xml"
@@ -241,3 +240,18 @@ def test_e2e_stripe_instala_cli_antes_da_suite_com_entrega_assinada() -> None:
 
     assert _step_index(job, _CLI_STEP) < _step_index(job, run_step["name"])
     assert run_step["env"]["STRIPE_E2E_DELIVERY"] == "cli"
+
+
+def test_e2e_stripe_deriva_segredo_do_listener_com_device_fixo_e_mascarado() -> None:
+    step = _e2e_run_step()
+    lines = step["run"].splitlines()
+    derive = next(i for i, line in enumerate(lines) if "stripe listen --print-secret" in line)
+    mask = next(i for i, line in enumerate(lines) if "::add-mask::" in line)
+    export = lines.index("export STRIPE_TEST_WEBHOOK_SECRET")
+    suite = next(i for i, line in enumerate(lines) if "tests/e2e/billing" in line)
+
+    assert re.fullmatch(r"[a-z0-9-]+", step["env"]["STRIPE_DEVICE_NAME"])
+    assert "STRIPE_TEST_WEBHOOK_SECRET" not in step["env"]
+    assert lines[derive].startswith('STRIPE_TEST_WEBHOOK_SECRET="$(')
+    assert lines[0] == "set -euo pipefail"
+    assert derive < mask < export < suite
