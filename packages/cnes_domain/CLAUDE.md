@@ -51,6 +51,9 @@ os apps deployáveis.
 | `tenant.py` | ContextVar + `set_tenant_id` / `get_tenant_id` |
 | `observability.py` | `tracer` no-op ou wrapper OTel |
 | `config.py` | `validar_formato` (regex) + `_exigir` / `_exigir_inteiro` (usados por `cnes_infra`) |
+| `billing/models.py`, `commands.py`, `execution.py` | Domínio de billing imutável (snapshot, quotas, companion `RunBillingState`) |
+| `billing/policy.py`, `gate.py` | `EntitlementPolicy(mode)` + `EntitlementGate` (leitura forte, nega com `EntitlementDenied`) |
+| `billing/execution_policy.py` | `BillingConcurrencyPolicy`, `BillingExecutionStarted`, `apply_execution_binding` (CAS do companion) |
 
 ## Gotchas
 

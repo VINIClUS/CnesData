@@ -368,7 +368,9 @@ def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:
             and dispatch.lease_until > command.now
             and command.unit_id in dispatch.unit_ids
         )
+        ids = (command.tenant_id, command.run_id, command.dispatch_id)
         invalid = unit is None or run is None or run.state is not RunState.PROCESSING
+        invalid = invalid or not store.unit_companion_allows(connection, *ids)
         if invalid or not valid_dispatch:
             return None
         claimable = unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE}
@@ -413,6 +415,7 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
         raise FenceRejected(ErrorCode.FENCE_MISMATCH)
     if unit.lease_until is None or unit.lease_until <= store.now():
         raise LeaseLost(ErrorCode.LEASE_EXPIRED)
+    store.require_unit_companion(connection, command)
     return unit, run
 
 def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> RunUnit:
@@ -454,12 +457,8 @@ def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUn
             and not item.required
             for item in run.dependencies
         )
-        if command.retryable:
-            state = RunUnitState.FAILED_RETRYABLE
-        elif optional:
-            state = RunUnitState.SUCCEEDED_DEGRADED
-        else:
-            state = RunUnitState.FAILED_FINAL
+        final = RunUnitState.SUCCEEDED_DEGRADED if optional else RunUnitState.FAILED_FINAL
+        state = RunUnitState.FAILED_RETRYABLE if command.retryable else final
         failed = unit.model_copy(
             update={"error_code": command.error_code, "lease_owner": None, "lease_until": None}
         )

@@ -265,7 +265,8 @@ services:
     image: localstack/localstack:4.11.1@sha256:3071c9c72a1e9dbc23ad33540617ad7825ffeba80a8f421eff798b97850f9de5
     environment:
       AWS_DEFAULT_REGION: us-east-1
-      SERVICES: s3
+      # No ecs: the pinned community build has no ECS provider (health lists none).
+      SERVICES: s3,stepfunctions,logs
       # Off by default upstream: an unsigned/expired presigned URL would be
       # accepted silently, masking real signing bugs in CI.
       S3_SKIP_SIGNATURE_VALIDATION: '0'

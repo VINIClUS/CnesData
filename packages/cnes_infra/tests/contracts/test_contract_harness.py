@@ -33,6 +33,33 @@ _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 
 
 class FakeControlPlane(HarnessRawQueries, _HarnessState):
+    def reserve_and_create_run(self, command: Any) -> Any:
+        raise NotImplementedError
+
+    def create_unmetered_run(self, command: Any) -> Any:
+        raise NotImplementedError
+
+    def consume_reservation(self, command: Any) -> Any:
+        raise NotImplementedError
+
+    def release_reservation(self, command: Any) -> Any:
+        raise NotImplementedError
+
+    def get_run_billing_state(self, tenant_id: str, run_id: str) -> Any:
+        raise NotImplementedError
+
+    def bind_run_execution(self, command: Any) -> Any:
+        raise NotImplementedError
+
+    def list_revocable_runs(self, billing_account_id: str, limit: int, cursor: Any) -> Any:
+        raise NotImplementedError
+
+    def request_run_revocation(self, command: Any, event: Any) -> Any:
+        raise NotImplementedError
+
+    def create_billed_tenant(self, command: Any) -> Any:
+        raise NotImplementedError
+
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Any, ...]:
         agent = self.get_agent(tenant_id, agent_id)
         if agent is None or agent.state is AgentState.REVOKED:

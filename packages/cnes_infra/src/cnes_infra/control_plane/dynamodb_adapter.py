@@ -25,6 +25,8 @@ from cnes_domain.control_plane.transitions import (
     transition_run,
     transition_run_unit,
 )
+from cnes_infra.billing.settings import LOCAL_BILLING_SETTINGS, BillingSettings
+from cnes_infra.control_plane.dynamodb_billing import DynamoBillingMixin
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
@@ -33,7 +35,6 @@ from cnes_infra.control_plane.dynamodb_codec import (
     aggregate_replay,
     check_action,
     decode_model,
-    encode_marker,
     encode_model,
     execute_transaction,
     payload,
@@ -57,6 +58,9 @@ from cnes_infra.control_plane.dynamodb_keys import (
 )
 from cnes_infra.control_plane.dynamodb_publication import DynamoDBPublication
 from cnes_infra.control_plane.dynamodb_queries import DynamoDBQueries
+from cnes_infra.control_plane.dynamodb_run_codec import RECOVERABLE_RUN_STATES as _RECOVERABLE
+from cnes_infra.control_plane.dynamodb_run_codec import run_dependency_actions, run_item
+from cnes_infra.control_plane.dynamodb_tenants import DynamoBilledTenantMixin
 from cnes_infra.control_plane.edge_registration import DynamoEdgeRegistrationMixin
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 
@@ -71,24 +75,23 @@ if TYPE_CHECKING:
         TransitionRun,
     )
 
-_RECOVERABLE = {
-    RunState.WAITING_INPUTS,
-    RunState.PROCESSING,
-    RunState.PUBLISHING,
-    RunState.CANCEL_REQUESTED,
-}
 _NONTERMINAL_UNITS = {RunUnitState.PENDING, RunUnitState.LEASED, RunUnitState.FAILED_RETRYABLE}
 
 
 class DynamoDBControlPlane(
-    DynamoEdgeRegistrationMixin, DeprecatedRawQueryMixin, DynamoDBQueries,
-    DynamoDBClaims, DynamoDBDispatch, DynamoDBPublication
+    DynamoBillingMixin, DynamoBilledTenantMixin, DynamoEdgeRegistrationMixin,
+    DeprecatedRawQueryMixin, DynamoDBQueries, DynamoDBClaims, DynamoDBDispatch,
+    DynamoDBPublication
 ):
     """Persiste o plano de controle em uma tabela DynamoDB."""
-    def __init__(self, client: Any, table_name: str, clock: Callable[[], datetime]) -> None:
+    def __init__(
+        self, client: Any, table_name: str, clock: Callable[[], datetime],
+        billing: BillingSettings = LOCAL_BILLING_SETTINGS,
+    ) -> None:
         self._client = client
         self._table_name = table_name
         self._clock = clock
+        self._billing = billing
     def _get_item(self, key: tuple[str, str]) -> Item | None:
         response = self._client.get_item(
             TableName=self._table_name,
@@ -151,16 +154,7 @@ class DynamoDBControlPlane(
         actions.append(put_action(self._table_name, lookup, None))
         return tuple(actions)
     def _run_item(self, run: Run) -> Item:
-        attributes = {}
-        if run.state in _RECOVERABLE:
-            attributes = {
-                "gsi4pk": "RUN_RECOVERABLE",
-                "gsi4sk": (
-                    f"{timestamp(run.created_at)}#{key_component(run.tenant_id)}#"
-                    f"{key_component(run.run_id)}"
-                ),
-            }
-        return encode_model(run, "RUN", run_entity_key(run.tenant_id, run.run_id), attributes)
+        return run_item(run)
     def _unit_item(self, unit: RunUnit) -> Item:
         attributes = {
             "gsi5pk": (f"RUN_ITEMS#{key_component(unit.tenant_id)}#{key_component(unit.run_id)}"),
@@ -186,7 +180,9 @@ class DynamoDBControlPlane(
     def put_membership(self, membership: Membership) -> None:
         """Persiste uma associação."""
         key = entity_key(membership.tenant_id, "MEMBERSHIP", membership.user_id)
-        self._put_direct(encode_model(membership, "MEMBERSHIP", key))
+        attributes = {"gsi1pk": f"USER#{key_component(membership.user_id)}",
+                      "gsi1sk": f"TENANT#{key_component(membership.tenant_id)}"}
+        self._put_direct(encode_model(membership, "MEMBERSHIP", key, attributes))
     def get_agent(self, tenant_id: str, agent_id: str) -> Agent | None:
         """Retorna o agente solicitado."""
         return self._get_model(entity_key(tenant_id, "AGENT", agent_id), Agent)
@@ -285,24 +281,7 @@ class DynamoDBControlPlane(
             job.state is JobState.LEASED and job.lease_until is not None and job.lease_until <= now
         )
     def _dependency_actions(self, run: Run, reserved_actions: int) -> tuple[Action, ...]:
-        if run.state is not RunState.WAITING_INPUTS:
-            return ()
-        if len(run.dependencies) + reserved_actions > 100:
-            raise Conflict(ErrorCode.TRANSACTION_LIMIT)
-        base_key = run_entity_key(run.tenant_id, run.run_id)
-        actions = []
-        for dependency in run.dependencies:
-            values = (run.tenant_id, dependency.source_type,
-                      dependency.file_subtype, run.competencia)
-            identity = "RUN_DEP#" + "#".join(key_component(value) for value in values)
-            marker_key = dependency_marker_key(run.tenant_id, run.run_id, identity)
-            attributes = {
-                "gsi3pk": identity,
-                "gsi3sk": f"{timestamp(run.created_at)}#{key_component(run.run_id)}",
-            }
-            marker = encode_marker("RUN_DEP", marker_key, base_key, attributes)
-            actions.append(put_action(self._table_name, marker, None))
-        return tuple(actions)
+        return run_dependency_actions(self._table_name, run, reserved_actions)
     def put_run(self, run: Run) -> None:
         """Persiste um run e seus índices de dependência."""
         if run.state is not RunState.WAITING_INPUTS:

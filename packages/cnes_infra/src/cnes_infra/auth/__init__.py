@@ -6,6 +6,7 @@ from cnes_infra.auth.device_codes import (
     DeviceCodeStatus,
     DeviceCodeStore,
 )
+from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_infra.auth.errors import OAuthError
 from cnes_infra.auth.jwt import JWKSValidator, TokenInvalid
 from cnes_infra.auth.models import (
@@ -18,6 +19,7 @@ from cnes_infra.auth.models import (
     TokenError,
     TokenResponse,
 )
+from cnes_infra.auth.oidc import OidcPrincipal, OidcVerifier
 from cnes_infra.auth.peer_cert import (
     extract_peer_cert,
     read_agent_id,
@@ -41,8 +43,11 @@ __all__ = [
     "DeviceAuthorizationResponse",
     "DeviceCodeStatus",
     "DeviceCodeStore",
+    "DynamoDBMembershipCandidates",
     "JWKSValidator",
     "OAuthError",
+    "OidcPrincipal",
+    "OidcVerifier",
     "ProvisionedCertsRepo",
     "RefreshTokenRow",
     "RefreshTokenStore",

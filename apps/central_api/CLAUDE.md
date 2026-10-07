@@ -34,6 +34,15 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - /oauth/device_authorization, /oauth/token — device flow
 - /provision/cert, /provision/cert/rotate — cert enrollment + rotation
 
+- `/api/v1/billing/{accounts,accounts/{id}/transfer,checkout,portal,status}` + `POST
+  /api/v1/billing/webhooks/stripe` — montados sempre. `PROFILE=local|aws` com `disabled`:
+  404 `billing_disabled` (status responde `disabled`; webhook 404 sem ler o body). `stripe`
+  (só aws): `billing_deps.install_billing` sobrescreve as dependências dos routers (principal
+  OIDC + `MembershipAuthorizer`); segredos só no `StripeClient`/verificador. Legado: 503.
+- Gates 17B (`ApiBillingGates` de `composition.api_billing_gates`, uma composição por modo):
+  `POST /api/v1/billing/accounts/{id}/tenants` (tenant + links + capacidade numa transação),
+  `POST /api/v1/admin/billing/{id}/revoke` (fora do router de token legado), gate de agente
+  novo em `require_edge_agent` e gate de serving antes de emitir URL/stream (leitura forte).
 - `POST /api/v1/public/leads` — captação pública do formulário de contato (sem auth).
   Persiste em `marketing.leads` (migração 019), responde `202 {"status":"received"}`,
   `422` payload inválido, `429` + `Retry-After` acima de `LEADS_RATE_LIMIT` (slowapi, chave =
@@ -84,6 +93,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `API_HOST` | opcional | Default `0.0.0.0` |
 | `API_PORT` | opcional | Default `8000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | opcional | Tracing (se OTel SDK instalado) |
+| `BILLING_MODE` | não | `disabled` (default) \| `stripe` (só `PROFILE=aws`); demais `BILLING_*`/`STRIPE_*`: `.env.example` |
 | `ADMIN_TOKEN` | opcional | `X-Admin-Token` das rotas admin (`deps.require_admin_token`); vazio = 503 `admin_disabled` |
 | `RAW_LOCAL_TOKEN` | sim (profile local raw) | Token próprio do agente para `/api/v1/edge/*` |
 | `RAW_BACKEND` | sim (VPS raw) | `aws` ativa DynamoDB/S3 raw sem alterar o legado |
@@ -125,6 +135,7 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `src/central_api/routes/oauth.py` | device flow + `/activate/confirm` |
 | `src/central_api/routes/provision.py` | cert enrollment |
 | `src/central_api/routes/provision_rotate.py` | cert rotation |
+| `src/central_api/routes/billing*.py`, `stripe_webhook.py` | Billing Owner API + webhook Stripe (BIL-020/021); composição em `billing_deps.install_billing` |
 | `repositories/dashboard_repo.py` | DashboardRepo (user/tenant/audit + agents/status + recent_runs) |
 | `src/central_api/bootstrap.py` | `python -m central_api.bootstrap` — primeiro usuário do profile local |
 | `src/central_api/local_backup.py` | `python -m central_api.local_backup {create,restore}` — backup/restore do profile local |

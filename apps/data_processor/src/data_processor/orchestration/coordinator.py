@@ -101,6 +101,15 @@ class CoordinatorResult:
     published: bool
 
 
+class RecoveryFailed(RuntimeError):
+    """Passada de recovery com runs que falharam; carrega os resultados dos demais."""
+
+    def __init__(self, results: tuple[CoordinatorResult, ...], failed: int) -> None:
+        super().__init__(f"failed={failed} recovered={len(results)}")
+        self.results = results
+        self.failed = failed
+
+
 def _build_event(run: Run, event_type: str, now: datetime) -> OutboxEvent:
     return OutboxEvent(
         tenant_id=run.tenant_id, event_id=f"{event_type}:{run.tenant_id}:{run.run_id}",
@@ -148,21 +157,45 @@ def _settle_started(
     return None
 
 
+def _compensate_start(
+    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
+    finish: FinishRunDispatch, execution_ref: str,
+) -> None:
+    # An execution whose bind or started callback failed must not outlive its dispatch:
+    # finishing it CANCELED makes the next resume reserve generation+1 instead of a replay.
+    logger.warning(
+        "dispatch_start_compensated tenant_id=%s run_id=%s dispatch_id=%s",
+        finish.tenant_id, finish.run_id, finish.dispatch_id,
+    )
+    executor.cancel(CancelRunExecution(
+        tenant_id=finish.tenant_id, run_id=finish.run_id, execution_ref=execution_ref,
+    ))
+    control_plane.finish_run_dispatch(finish)
+
+
 def _start_and_bind(
     control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
     execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
 ) -> str:
     run = plan.run
-    permit = execution.callbacks.policy(run, dispatch, execution.deployment_limit)
+    requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
+    permit = execution.callbacks.policy(run, dispatch, requested_limit)
     if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
         raise ValueError("execution_permit_identity_mismatch")
     request = execution_request(plan, dispatch, permit.max_concurrency)
     execution_ref = executor.start(request)
-    bound = control_plane.bind_run_dispatch(BindRunDispatch(
-        tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
-        execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
-    ))
-    execution.callbacks.started(run, request, execution_ref, permit)
+    try:
+        bound = control_plane.bind_run_dispatch(BindRunDispatch(
+            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
+            execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
+        ))
+        execution.callbacks.started(run, request, execution_ref, permit)
+    except Exception:
+        _compensate_start(control_plane, executor, FinishRunDispatch(
+            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.CANCELED, finished_at=now,
+        ), execution_ref)
+        raise
     return bound.execution_ref
 
 
@@ -282,6 +315,7 @@ class PipelineCoordinator:
         now = self._dependencies.clock()
         skipped: set[tuple[str, str]] = set()
         results: list[CoordinatorResult] = []
+        failed = 0
         while len(results) < limit:
             candidates = _processor_recoverable_runs(
                 control_plane, now, limit - len(results), skipped
@@ -293,11 +327,14 @@ class PipelineCoordinator:
                 try:
                     results.append(self.resume(run.tenant_id, run.run_id))
                 except Exception:
+                    failed += 1
                     logger.exception(
                         "recover_run_error tenant_id=%s run_id=%s",
                         run.tenant_id,
                         run.run_id,
                     )
+        if failed:
+            raise RecoveryFailed(tuple(results), failed)
         return tuple(results)
 
 
@@ -305,6 +342,7 @@ __all__ = [
     "CoordinatorDependencies",
     "CoordinatorResult",
     "PipelineCoordinator",
+    "RecoveryFailed",
     "allow_execution",
     "noop_execution_started",
 ]

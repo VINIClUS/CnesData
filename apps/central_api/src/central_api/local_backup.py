@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from cnes_domain.profiles import local_state_db, local_state_db_arcname, parse_profile
+from cnes_domain.profiles import local_state_db, local_state_db_arcname, parse_local_profile
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -288,7 +288,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    settings = parse_profile(dict(env if env is not None else os.environ))
+    settings = parse_local_profile(dict(env if env is not None else os.environ))
     logging.basicConfig(level=logging.INFO)
     if args.command == "create":
         return _cli_create(settings.data_dir, Path(args.target))

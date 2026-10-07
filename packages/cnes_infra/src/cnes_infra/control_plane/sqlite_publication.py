@@ -28,6 +28,7 @@ from cnes_infra.control_plane.sqlite_schema import (
 )
 
 if TYPE_CHECKING:
+    import sqlite3
     from datetime import datetime
 
     from cnes_domain.control_plane.commands import TransitionRun
@@ -158,6 +159,37 @@ def query_raw_manifest_chain(store: Any, query: RawManifestChainQuery) -> tuple[
     return tuple(
         ManifestRef(manifest_id=item.manifest_id, manifest_key=item.manifest_key)
         for item in selected
+    )
+
+
+def put_run_record(connection: sqlite3.Connection, run: Run) -> None:
+    connection.execute(
+        "INSERT INTO runs (tenant_id, run_id, competencia, dataset_name, state, "
+        "created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT (tenant_id, run_id) DO UPDATE SET competencia = excluded.competencia, "
+        "dataset_name = excluded.dataset_name, state = excluded.state, "
+        "created_at = excluded.created_at, data = excluded.data",
+        (
+            run.tenant_id,
+            run.run_id,
+            run.competencia,
+            run.dataset_name,
+            run.state.value,
+            run.created_at.isoformat(),
+            serialize_model(run),
+        ),
+    )
+    connection.execute(
+        "DELETE FROM run_dependencies WHERE tenant_id = ? AND run_id = ?",
+        (run.tenant_id, run.run_id),
+    )
+    connection.executemany(
+        "INSERT INTO run_dependencies "
+        "(tenant_id, run_id, source_type, file_subtype, required) VALUES (?, ?, ?, ?, ?)",
+        (
+            (run.tenant_id, run.run_id, item.source_type, item.file_subtype, item.required)
+            for item in run.dependencies
+        ),
     )
 
 
@@ -357,6 +389,7 @@ def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:
             raise Conflict(ErrorCode.RUN_DATASET_MISMATCH)
         if version.run_manifest_key.split("/")[2] != run.competencia:
             raise Conflict(ErrorCode.RUN_COMPETENCIA_MISMATCH)
+        store.require_publication_companion(connection, command)
         updated = run.model_copy(
             update={"state": command.final_state, "missing_sources": command.missing_sources}
         )

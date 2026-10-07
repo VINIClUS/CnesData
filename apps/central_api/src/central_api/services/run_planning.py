@@ -1,6 +1,7 @@
 """Launches and recovers Runs: raw-chain reconstruction, planning, dispatch, cancellation."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -58,6 +59,7 @@ _STATUS_OUTCOME = {
     ExecutionStatus.FAILED: DispatchOutcome.FAILED,
     ExecutionStatus.CANCELED: DispatchOutcome.CANCELED,
 }
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,21 +141,45 @@ def _settle_started(
     return None
 
 
+def _compensate_start(
+    control_plane: _ControlPlane, executor: ProcessorExecutorPort,
+    finish: FinishRunDispatch, execution_ref: str,
+) -> None:
+    # An execution whose bind or started callback failed must not outlive its dispatch:
+    # finishing it CANCELED makes the next resume reserve generation+1 instead of a replay.
+    logger.warning(
+        "dispatch_start_compensated tenant_id=%s run_id=%s dispatch_id=%s",
+        finish.tenant_id, finish.run_id, finish.dispatch_id,
+    )
+    executor.cancel(CancelRunExecution(
+        tenant_id=finish.tenant_id, run_id=finish.run_id, execution_ref=execution_ref,
+    ))
+    control_plane.finish_run_dispatch(finish)
+
+
 def _start_and_bind(
     control_plane: _ControlPlane, executor: ProcessorExecutorPort,
     execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
 ) -> str:
     run = plan.run
-    permit = execution.callbacks.policy(run, dispatch, execution.deployment_limit)
+    requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
+    permit = execution.callbacks.policy(run, dispatch, requested_limit)
     if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
         raise ValueError("execution_permit_identity_mismatch")
     request: StartRunExecution = execution_request(plan, dispatch, permit.max_concurrency)
     execution_ref = executor.start(request)
-    bound = control_plane.bind_run_dispatch(BindRunDispatch(
-        tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
-        execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
-    ))
-    execution.callbacks.started(run, request, execution_ref, permit)
+    try:
+        bound = control_plane.bind_run_dispatch(BindRunDispatch(
+            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
+            execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
+        ))
+        execution.callbacks.started(run, request, execution_ref, permit)
+    except Exception:
+        _compensate_start(control_plane, executor, FinishRunDispatch(
+            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.CANCELED, finished_at=now,
+        ), execution_ref)
+        raise
     return bound.execution_ref
 
 

@@ -15,8 +15,15 @@ from central_api.services.run_planning import (
     RunPlanningService,
 )
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
-from cnes_domain.control_plane.entities import RawManifestRecord, Run, RunDependency
-from cnes_domain.control_plane.enums import RunState
+from cnes_domain.control_plane.commands import FinishRunDispatch, ReserveRunDispatch
+from cnes_domain.control_plane.entities import (
+    RawManifestRecord,
+    Run,
+    RunDependency,
+    RunDispatch,
+)
+from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
+from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode, FenceRejected
 from cnes_domain.orchestration.source_catalog import build_source_catalog
 from cnes_domain.ports.object_store import ObjectStat
 from cnes_domain.ports.processing import (
@@ -32,6 +39,8 @@ from data_processor.orchestration.coordinator import allow_execution, noop_execu
 if TYPE_CHECKING:
     from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+
+    from cnes_domain.control_plane.commands import BindRunDispatch
 
 _TENANT = "354130"
 _RUN_ID = "run-a"
@@ -265,6 +274,104 @@ def test_persistencia_imutavel_das_units_antes_do_executor_start(adapter, execut
     service.launch(_TENANT, _RUN_ID)
 
     assert order == ["put_run_units", "start"]
+
+
+def _stored_dispatch(adapter: SQLiteControlPlane) -> RunDispatch:
+    with adapter.read_connection() as connection:
+        row = connection.execute(
+            "SELECT data FROM run_dispatches WHERE tenant_id = ? AND run_id = ?",
+            (_TENANT, _RUN_ID),
+        ).fetchone()
+    return RunDispatch.model_validate_json(row[0])
+
+
+def _fail_first_bind(adapter: SQLiteControlPlane) -> None:
+    original = adapter.bind_run_dispatch
+    calls: list[BindRunDispatch] = []
+
+    def _bind(command: BindRunDispatch) -> RunDispatch:
+        calls.append(command)
+        if len(calls) == 1:
+            raise FenceRejected(ControlPlaneErrorCode.DISPATCH_FENCE_REJECTED)
+        return original(command)
+
+    adapter.bind_run_dispatch = _bind
+
+
+def test_bind_falho_cancela_execucao_e_relancamento_cria_geracao_nova(
+    adapter, executor, store, clock
+):
+    adapter.put_run(_run())
+    _seed_full_chain(adapter, store)
+    _fail_first_bind(adapter)
+    service = _service(adapter, executor, store, clock)
+
+    with pytest.raises(FenceRejected, match="dispatch_fence_rejected"):
+        service.launch(_TENANT, _RUN_ID)
+
+    failed = _stored_dispatch(adapter)
+    assert failed.state is DispatchState.TERMINAL
+    assert failed.terminal_outcome is DispatchOutcome.CANCELED
+    assert executor.canceled == [CancelRunExecution(
+        tenant_id=_TENANT, run_id=_RUN_ID, execution_ref=f"exec-{failed.dispatch_id}",
+    )]
+
+    service.launch(_TENANT, _RUN_ID)
+
+    retry = adapter.get_active_run_dispatch(_TENANT, _RUN_ID)
+    assert retry.state is DispatchState.STARTED
+    assert retry.wave_id == failed.wave_id
+    assert retry.generation == failed.generation + 1
+    assert retry.dispatch_id != failed.dispatch_id
+
+
+def test_callback_started_falho_cancela_execucao_vinculada(adapter, executor, store, clock):
+    adapter.put_run(_run())
+    _seed_full_chain(adapter, store)
+
+    def _started(run, request, execution_ref, permit) -> None:
+        raise RuntimeError("callback=down")
+
+    service = _service(adapter, executor, store, clock, started=_started)
+
+    with pytest.raises(RuntimeError, match="callback=down"):
+        service.launch(_TENANT, _RUN_ID)
+
+    failed = _stored_dispatch(adapter)
+    assert failed.terminal_outcome is DispatchOutcome.CANCELED
+    assert failed.execution_ref == f"exec-{failed.dispatch_id}"
+    assert [request.execution_ref for request in executor.canceled] == [failed.execution_ref]
+
+
+def test_bind_contra_geracao_mais_nova_cancela_so_a_propria_execucao(
+    adapter, executor, store, clock
+):
+    adapter.put_run(_run())
+    _seed_full_chain(adapter, store)
+    original = adapter.bind_run_dispatch
+    newer: list[RunDispatch] = []
+
+    def _bind_after_concurrent_redispatch(command: BindRunDispatch) -> RunDispatch:
+        stale = _stored_dispatch(adapter)
+        adapter.finish_run_dispatch(FinishRunDispatch(
+            tenant_id=_TENANT, run_id=_RUN_ID, dispatch_id=stale.dispatch_id,
+            outcome=DispatchOutcome.FAILED, finished_at=clock.now(),
+        ))
+        newer.append(adapter.reserve_run_dispatch(ReserveRunDispatch(
+            tenant_id=_TENANT, run_id=_RUN_ID, wave_id=stale.wave_id, unit_ids=stale.unit_ids,
+            now=clock.now(), lease_seconds=300,
+        )))
+        return original(command)
+
+    adapter.bind_run_dispatch = _bind_after_concurrent_redispatch
+    service = _service(adapter, executor, store, clock)
+
+    with pytest.raises(Conflict):
+        service.launch(_TENANT, _RUN_ID)
+
+    started_ref = f"exec-{executor.started[0].dispatch_id}"
+    assert [request.execution_ref for request in executor.canceled] == [started_ref]
+    assert adapter.get_active_run_dispatch(_TENANT, _RUN_ID) == newer[0]
 
 
 def test_launch_congela_fonte_opcional_ausente(adapter, executor, store, clock):

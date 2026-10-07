@@ -53,6 +53,7 @@ if TYPE_CHECKING:
         FailRunUnit,
         RenewJobLease,
     )
+    from cnes_infra.control_plane.dynamodb_billing import ClaimDeferred
 
 
 class DynamoDBClaims:
@@ -267,12 +268,14 @@ class DynamoDBClaims:
         if item is None or decode_model(item, Agent).state is not AgentState.ACTIVE:
             raise LeaseLost(ErrorCode.AGENT_REVOKED)
         return item
-    def claim_run_unit(self, command: ClaimRunUnit) -> RunUnit | None:
-        """Reivindica uma unidade despachada com novo fence."""
+    def _claim_run_unit_once(self, command: ClaimRunUnit) -> RunUnit | ClaimDeferred | None:
         context = self._unit_claim_context(command)
         if context is None:
             return None
         run_item, dispatch_item, unit_item, unit = context
+        billing = self._claim_billing_checks(dispatch_item)
+        if not isinstance(billing, list):
+            return billing
         leased = (
             transition_run_unit(unit, RunUnitState.LEASED)
             if unit.state is not RunUnitState.LEASED
@@ -292,6 +295,7 @@ class DynamoDBClaims:
             check_action(self._table_name, run_item),
             check_action(self._table_name, dispatch_item),
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
+            *billing,
         )
         try:
             self._transact(actions)
@@ -334,6 +338,7 @@ class DynamoDBClaims:
             check_action(self._table_name, dispatch_item),
             put_action(self._table_name, self._unit_item(updated), payload(unit_item)),
             self._event_action(command.tenant_id, event),
+            *self._unit_billing_checks(command),
         )
         token = self._commit_client_request_token(command, event)
         try:
@@ -365,11 +370,7 @@ class DynamoDBClaims:
 
     def _commit_client_request_token(self, command: CommitRunUnit, event: Any) -> str:
         values = (
-            self._table_name,
-            command.tenant_id,
-            command.run_id,
-            command.unit_id,
-            event.event_id,
+            self._table_name, command.tenant_id, command.run_id, command.unit_id, event.event_id,
         )
         return sha256(dumps(values, separators=(",", ":")).encode()).hexdigest()[:36]
 
@@ -401,9 +402,12 @@ class DynamoDBClaims:
         winner = self._get_model(
             unit_key(command.tenant_id, command.run_id, command.unit_id), RunUnit
         )
-        return winner == updated and self._event_replay_matches(
+        replayed = winner == updated and self._event_replay_matches(
             self._get_outbox_event(event.event_id), event
         )
+        if not replayed:
+            self._unit_billing_checks(command)
+        return replayed
     def _fail_run_unit_actions(
         self, command: FailRunUnit, event: Any
     ) -> tuple[RunUnit, tuple[Action, ...]]:
@@ -432,6 +436,7 @@ class DynamoDBClaims:
         else:
             actions.append(check_action(self._table_name, run_item))
         actions.append(self._event_action(command.tenant_id, event))
+        actions.extend(self._unit_billing_checks(command))
         return updated, tuple(actions)
     def fail_run_unit(self, command: FailRunUnit, event: Any) -> RunUnit:
         """Falha ou degrada uma unidade fenced."""
@@ -439,6 +444,7 @@ class DynamoDBClaims:
         try:
             self._transact(actions)
         except Conflict:
+            self._unit_billing_checks(command)
             updated, actions = self._fail_run_unit_actions(command, event)
             self._transact(actions)
         return updated

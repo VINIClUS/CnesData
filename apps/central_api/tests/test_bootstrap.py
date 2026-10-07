@@ -93,3 +93,15 @@ def test_main_exige_email(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit):
         main([], env=env)
+
+
+def test_main_rejeita_profile_aws_sem_criar_estado(tmp_path: Path) -> None:
+    env = {
+        "PROFILE": "aws", "AUTH_MODE": "oidc", "OIDC_ISSUER": "https://issuer.example",
+        "DATA_DIR": str(tmp_path), "LOCAL_BOOTSTRAP_PASSWORD": _PASSWORD,
+    }
+
+    with pytest.raises(ValueError, match="local_profile_required"):
+        main(["--email", _EMAIL], env=env)
+
+    assert list(tmp_path.iterdir()) == []
