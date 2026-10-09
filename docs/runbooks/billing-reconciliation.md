@@ -214,6 +214,13 @@ Sinais em log, sem ação automática (o Customer sobra no Stripe, sem anexo):
 
 Antes de apagar um órfão no Stripe, confirme que ele não tem assinatura nem é o Customer da conta.
 
+Limites conhecidos:
+
+- um 500 da Stripe que não criou o Customer fica guardado na chave: a busca não acha nada e os
+  replays recebem 503 até a chave expirar (até 24 h);
+- um Customer achado pela busca mas já mapeado a outra conta (metadata editada à mão na Stripe)
+  falha fechado com 502 `stripe_request_rejected`.
+
 ## Métricas EMF
 
 Namespace `CnesData/Billing`. Dimensões permitidas: apenas `Environment`, `EventType`,

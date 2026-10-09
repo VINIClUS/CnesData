@@ -59,7 +59,9 @@ _CUSTOMER_MAP_PREFIX = "STRIPE_CUSTOMER#"
 
 
 class StripeError(Exception):
-    http_status = 429
+    def __init__(self, http_status: int) -> None:
+        super().__init__(f"http_status={http_status}")
+        self.http_status = http_status
 
 
 class RateLimitError(StripeError):
@@ -67,17 +69,18 @@ class RateLimitError(StripeError):
 
 
 class APIError(StripeError):
-    http_status = 500
+    pass
 
 
 def _replayed(outcome: SimpleNamespace | None) -> SimpleNamespace:
     if outcome is None:
-        raise APIError
+        raise APIError(500)
     return outcome
 
 
 class FakeStripeCustomers:
-    """Customers Stripe: a chave vale 24 h, guarda até um 500 e a busca indexa com atraso."""
+    """Customers Stripe: a chave vale 24 h, guarda até um 500, responde 409 a requisição
+    concorrente com a mesma chave e a busca indexa com atraso."""
 
     def __init__(self, clock: MutableClock) -> None:
         self._clock = clock
@@ -87,6 +90,8 @@ class FakeStripeCustomers:
         self.searches = 0
         self.search_failures = 0
         self.errors_after_create = 0
+        self.errors_without_create = 0
+        self.in_flight_conflicts = 0
         self.index_lag = SEARCH_INDEX_LAG
 
     def create(self, params: dict[str, Any], options: dict[str, Any]) -> SimpleNamespace:
@@ -95,13 +100,11 @@ class FakeStripeCustomers:
             cached = self._keys.get(options["idempotency_key"])
             if cached is not None and now - cached[0] < IDEMPOTENCY_WINDOW:
                 return _replayed(cached[1])
-            outcome: SimpleNamespace | None = self._append(
-                params["metadata"]["billing_account_id"], now,
-            )
-            if self.errors_after_create:
-                self.errors_after_create -= 1
-                outcome = None
+            outcome = self._outcome(params["metadata"]["billing_account_id"], now)
             self._keys[options["idempotency_key"]] = (now, outcome)
+            if self.in_flight_conflicts:
+                self.in_flight_conflicts -= 1
+                raise APIError(409)
             return _replayed(outcome)
 
     def search(self, params: dict[str, Any]) -> SimpleNamespace:
@@ -111,7 +114,7 @@ class FakeStripeCustomers:
             self.searches += 1
             if self.search_failures:
                 self.search_failures -= 1
-                raise RateLimitError
+                raise RateLimitError(429)
             hits = [
                 customer for customer in reversed(self.customers)
                 if customer.metadata.billing_account_id == account_id
@@ -125,6 +128,16 @@ class FakeStripeCustomers:
 
     def of(self, account_id: str) -> list[str]:
         return [c.id for c in self.customers if c.metadata.billing_account_id == account_id]
+
+    def _outcome(self, account_id: str, now: datetime) -> SimpleNamespace | None:
+        if self.errors_without_create:
+            self.errors_without_create -= 1
+            return None
+        customer = self._append(account_id, now)
+        if self.errors_after_create:
+            self.errors_after_create -= 1
+            return None
+        return customer
 
     def _append(self, account_id: str, created_at: datetime) -> SimpleNamespace:
         customer = SimpleNamespace(
@@ -402,3 +415,32 @@ def test_corrida_na_fronteira_de_24h_sem_busca_anexa_um_so_customer(env: Env, ca
         f"billing_customer_orphaned billing_account_id={orphan.account_id} "
         f"stripe_customer_id={orphan.customer_id}"
     ) in caplog.messages
+
+
+def test_chave_em_uso_por_replay_concorrente_pede_retry_e_converge(env: Env) -> None:
+    env.stripe.in_flight_conflicts = 1
+
+    conflicted = _create(env)
+    response = _create(env)
+
+    assert conflicted.status_code == 503
+    assert conflicted.headers["Retry-After"] == "5"
+    assert response.status_code == 201
+    (customer,) = env.stripe.customers
+    assert response.json()["stripe_customer_id"] == customer.id
+    _assert_attached(env, Orphan(customer.metadata.billing_account_id, customer.id))
+
+
+def test_erro_500_guardado_sem_customer_so_libera_apos_a_chave_expirar(env: Env) -> None:
+    env.stripe.errors_without_create = 1
+    assert _create(env).status_code == 503
+    env.clock.advance(timedelta(hours=1))
+
+    blocked = _create(env)
+    env.clock.advance(IDEMPOTENCY_WINDOW)
+    recovered = _create(env)
+
+    assert blocked.status_code == 503
+    assert recovered.status_code == 201
+    (customer,) = env.stripe.customers
+    assert recovered.json()["stripe_customer_id"] == customer.id
