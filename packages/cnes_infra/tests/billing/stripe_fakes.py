@@ -30,6 +30,7 @@ def make_gateway(
     plan: PlanVersion | None = None,
 ) -> tuple[StripeGateway, MagicMock, MagicMock]:
     client = MagicMock()
+    client.v1.customers.search.return_value = page([])
     client.v1.subscriptions.list.return_value = page([])
     client.v1.checkout.sessions.list.return_value = page([])
     plans = MagicMock()
@@ -80,3 +81,11 @@ def make_event(
         id=event_id, type=event_type, created=PERIOD_START,
         data=SimpleNamespace(object=obj), to_dict=lambda: raw,
     )
+
+
+def make_customer(
+    customer_id: str, account: str | None = "ba_01", created: int = PERIOD_START,
+    **extra: object,
+) -> SimpleNamespace:
+    metadata = SimpleNamespace() if account is None else SimpleNamespace(billing_account_id=account)
+    return SimpleNamespace(id=customer_id, created=created, metadata=metadata, **extra)

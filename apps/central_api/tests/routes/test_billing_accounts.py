@@ -1,9 +1,11 @@
 """Testes da criação e transferência de contas de billing."""
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
-from cnes_domain.billing.errors import IdempotencyConflict
+from cnes_domain.billing.errors import IdempotencyConflict, PermanentBillingError
 from cnes_domain.billing.models import ReadConsistency
 
 from .billing_fakes import (
@@ -68,6 +70,52 @@ def test_replay_de_conta_sem_customer_cria_e_anexa_customer(client, env):
     attach = env.catalog.attach_customer.call_args.args[0]
     assert attach.stripe_customer_id == "cus_new"
     assert attach.expected_updated_at == NOW
+
+
+def _attach_conflict(env, code, reread):
+    unattached = make_account(owner="user-1", customer=None)
+    prepare_creation(env, existing=unattached)
+    env.catalog.get_account.side_effect = [unattached, reread]
+    env.catalog.attach_customer.side_effect = PermanentBillingError(code)
+
+
+def test_anexo_concorrente_de_outro_customer_retorna_conta_e_registra_orfao(client, env, caplog):
+    caplog.set_level(logging.WARNING)
+    _attach_conflict(env, "stripe_customer_already_attached", make_account(owner="user-1"))
+    response = post(client, "accounts")
+    assert response.status_code == 201
+    assert response.json()["stripe_customer_id"] == "cus_1"
+    assert (
+        "billing_customer_orphaned billing_account_id=ba_01 stripe_customer_id=cus_new"
+        in caplog.messages
+    )
+
+
+def test_anexo_com_conta_desatualizada_ja_anexada_ao_mesmo_customer_retorna_201(
+    client, env, caplog,
+):
+    caplog.set_level(logging.WARNING)
+    _attach_conflict(env, "billing_account_stale", make_account(owner="user-1", customer="cus_new"))
+    response = post(client, "accounts")
+    assert response.status_code == 201
+    assert response.json()["stripe_customer_id"] == "cus_new"
+    assert not any("orphaned" in message for message in caplog.messages)
+
+
+def test_anexo_com_conta_desatualizada_ainda_sem_customer_pede_retry(client, env):
+    unattached = make_account(owner="user-1", customer=None)
+    _attach_conflict(env, "billing_account_stale", unattached)
+    response = post(client, "accounts")
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
+    assert response.json() == {"detail": "billing_dependency_unavailable"}
+
+
+def test_outro_erro_permanente_do_anexo_nao_e_tratado_como_conflito(client, env):
+    prepare_creation(env, existing=make_account(owner="user-1", customer=None))
+    env.catalog.attach_customer.side_effect = PermanentBillingError("stripe_customer_conflict")
+    assert post(client, "accounts").status_code == 502
+    assert env.catalog.get_account.call_count == 1
 
 
 def test_conta_de_outro_dono_com_mesma_chave_retorna_409(client, env):

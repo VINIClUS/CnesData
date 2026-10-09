@@ -1381,8 +1381,7 @@
         "additionalProperties": false,
         "properties": {
           "reason_code": {
-            "maxLength": 128,
-            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
             "title": "Reason Code",
             "type": "string"
           }

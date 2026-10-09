@@ -38,6 +38,7 @@ from cnes_domain.billing.commands import (
     PortalCommand,
     TransferOwnerCommand,
 )
+from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_domain.billing.models import (
     BillingAccount,
     BillingAccountStatus,
@@ -65,6 +66,7 @@ BILLING_ADMIN_ROLES = frozenset({"gestor"})
 
 _OWNER_REQUIRED = "billing_owner_required"
 _NOT_CONFIGURED = "billing_not_configured"
+_ATTACH_CONFLICTS = frozenset({"stripe_customer_already_attached", "billing_account_stale"})
 
 
 class _LocalUnmeteredStatus(Exception):
@@ -272,15 +274,35 @@ def _create_account(ctx: BillingContext, tenant: AuthorizedTenant, id_: str) -> 
     return ctx.catalog.create_account(CreateBillingAccountCommand(account, link, id_))
 
 
+def _attached_by_race(
+    catalog: BillingCatalogPort, account_id: str, customer_id: str,
+) -> BillingAccount:
+    account = _load_account(catalog, account_id)
+    if account.stripe_customer_id is None:
+        raise RetryableBillingError("billing_account_stale")
+    if account.stripe_customer_id != customer_id:
+        logger.warning(
+            "billing_customer_orphaned billing_account_id=%s stripe_customer_id=%s",
+            account_id, customer_id,
+        )
+    return account
+
+
 def _ensure_customer(
     ctx: BillingContext, gw: StripeGatewayPort, acc: BillingAccount,
 ) -> BillingAccount:
     if acc.stripe_customer_id is not None:
         return acc
     id_ = acc.billing_account_id
-    customer = gw.create_customer(CreateStripeCustomerCommand(id_, id_))
-    command = AttachStripeCustomerCommand(id_, customer.stripe_customer_id, acc.updated_at)
-    return ctx.catalog.attach_customer(command)
+    customer = gw.create_customer(CreateStripeCustomerCommand(id_, id_)).stripe_customer_id
+    try:
+        return ctx.catalog.attach_customer(
+            AttachStripeCustomerCommand(id_, customer, acc.updated_at),
+        )
+    except PermanentBillingError as error:
+        if error.code not in _ATTACH_CONFLICTS:
+            raise
+    return _attached_by_race(ctx.catalog, id_, customer)
 
 
 @router.post("/accounts", status_code=201, response_model=BillingAccountOut, dependencies=_ENABLED)

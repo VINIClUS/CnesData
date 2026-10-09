@@ -25,6 +25,7 @@ from cnes_domain.billing.errors import (
     RetryableBillingError,
 )
 from cnes_domain.billing.revocation_models import (
+    REASON_CODE_PATTERN,
     ImmediateRevocationCommand,
     RevocationResult,
 )
@@ -148,7 +149,7 @@ def test_conta_inexistente_404_sem_servico(client, env):
         ({"reason_code": ""}, 422),
         ({"reason_code": "   "}, 422),
         ({"reason_code": "x" * 129}, 422),
-        ({"reason_code": "x" * 128}, 200),
+        ({"reason_code": "x" * 64}, 200),
         ({"reason_code": "fraud", "extra": 1}, 422),
         ({}, 422),
     ],
@@ -157,6 +158,39 @@ def test_reason_code(client, env, body, status):
     response = revoke(client, body=body)
     assert response.status_code == status
     assert env.service.revoke.called is (status == 200)
+
+
+@pytest.mark.parametrize(
+    "reason_code",
+    [
+        "Cliente João da Silva CPF 123.456.789-09",
+        "fraude confirmada",
+        "Fraud_confirmed",
+        "revogação",
+        "1st_fraud",
+        "_fraud",
+        "fraud-confirmed",
+        "fraud_confirmed\n",
+        "x" * 65,
+    ],
+)
+def test_rejeita_reason_code_em_texto_livre_antes_de_chamar_servico(client, env, reason_code):
+    response = revoke(client, body={"reason_code": reason_code})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "reason_code"]
+    env.catalog.get_account.assert_not_called()
+    env.service.revoke.assert_not_called()
+
+
+def test_aceita_reason_code_redigido(client, env):
+    response = revoke(client, body={"reason_code": "fraud_confirmed"})
+    assert response.status_code == 200
+    assert env.service.revoke.call_args.args[0].reason_code == "fraud_confirmed"
+
+
+def test_contrato_publica_o_padrao_de_reason_code_do_dominio(client):
+    schema = client.app.openapi()["components"]["schemas"]["RevocationCreate"]
+    assert schema["properties"]["reason_code"]["pattern"] == REASON_CODE_PATTERN
 
 
 def test_billing_desabilitado_404(env):

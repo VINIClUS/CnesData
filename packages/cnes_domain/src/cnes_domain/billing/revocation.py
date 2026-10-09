@@ -18,8 +18,8 @@ from cnes_domain.billing.models import (
 from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.billing.revocation_models import (
     DEFAULT_SETTINGS,
-    MAX_REASON_CODE_LENGTH,
     PUBLICATION_DENIABLE_RUN_STATES,
+    REASON_CODE_PATTERN,
     REVOCABLE_RUN_STATES,
     REVOKED_REASON_CODE,
     CancelRunUnitsCommand,
@@ -43,8 +43,8 @@ from cnes_domain.profiles import BillingMode
 
 __all__ = [
     "DEFAULT_SETTINGS",
-    "MAX_REASON_CODE_LENGTH",
     "PUBLICATION_DENIABLE_RUN_STATES",
+    "REASON_CODE_PATTERN",
     "REVOCABLE_RUN_STATES",
     "REVOKED_REASON_CODE",
     "CancelRunUnitsCommand",

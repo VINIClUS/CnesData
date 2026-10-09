@@ -27,6 +27,7 @@ _ACCEPTANCE_PATHS = (
     "tests/chaos/test_quota_reservation_recovery.py",
     "tests/chaos/test_revocation_publish_fence.py",
     "tests/chaos/test_billing_reconciliation_resume.py",
+    "tests/chaos/test_stripe_customer_orphan_recovery.py",
     "tests/integration/billing",
     "tests/scripts/test_ci_billing.py",
 )
