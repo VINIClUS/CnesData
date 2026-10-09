@@ -25,9 +25,36 @@ dev-dependencies = [
     "dbfread>=2.0.7",
     "pytest-httpx>=0.30",
     "moto[dynamodb,s3]>=5.2",
+    "pyright>=1.1.414",
+    "ty>=0.0.85",
+    "pre-commit>=4.6.2",
+    "types-boto3[dynamodb,s3]>=1.43.110",
 ]
 
 [tool.pyright]
+typeCheckingMode = "standard"
+strict = ["packages/*/src", "apps/*/src"]
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+include = ["packages", "apps", "tests", "scripts"]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.venv",
+    "**/alembic/versions",
+    "apps/dump_agent_go",
+    "apps/web_dashboard",
+]
+extraPaths = [
+    "packages/cnes_contracts/src",
+    "packages/cnes_domain/src",
+    "packages/cnes_infra/src",
+    "apps/central_api/src",
+    "apps/billing_worker/src",
+    "apps/data_processor/src",
+    "apps/cnes_db_migrator/src",
+]
 reportMissingModuleSource = "none"
 
 [tool.pytest.ini_options]
