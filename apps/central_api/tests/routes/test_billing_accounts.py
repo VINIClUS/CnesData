@@ -5,7 +5,13 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from cnes_domain.billing.errors import IdempotencyConflict, PermanentBillingError
+from cnes_domain.billing.commands import CreateStripeCustomerCommand
+from cnes_domain.billing.errors import (
+    BillingDependencyError,
+    BillingTenantConflict,
+    IdempotencyConflict,
+    PermanentBillingError,
+)
 from cnes_domain.billing.models import ReadConsistency
 
 from .billing_fakes import (
@@ -129,6 +135,78 @@ def test_conflito_de_idempotencia_do_catalogo_retorna_409(client, env):
     prepare_creation(env)
     env.catalog.create_account.side_effect = IdempotencyConflict("x")
     assert post(client, "accounts").status_code == 409
+    env.gateway.create_customer.assert_not_called()
+
+
+def prepare_recovery(env, recovered, link=None):
+    env.catalog.get_account.side_effect = [None, recovered]
+    env.catalog.create_account.side_effect = BillingTenantConflict("tenant_id=tenant-a")
+    env.catalog.get_tenant_account.return_value = link or make_link("tenant-a")
+    env.catalog.attach_customer.return_value = make_account(owner=recovered.owner_user_id)
+
+
+def test_chave_nova_de_tenant_vinculado_devolve_conta_existente(client, env, caplog):
+    caplog.set_level(logging.INFO)
+    prepare_recovery(env, make_account(owner="user-1"))
+    response = post(client, "accounts")
+    assert response.status_code == 201
+    assert response.json()["billing_account_id"] == "ba_01"
+    assert response.json()["stripe_customer_id"] == "cus_1"
+    env.catalog.get_tenant_account.assert_called_once_with("tenant-a", ReadConsistency.STRONG)
+    assert env.catalog.get_account.call_args.args == ("ba_01",)
+    env.gateway.create_customer.assert_not_called()
+    assert "billing_account_recovered billing_account_id=ba_01" in caplog.messages
+
+
+def test_conta_recuperada_sem_customer_reusa_chave_da_conta_e_anexa(client, env):
+    prepare_recovery(env, make_account(owner="user-1", customer=None))
+    response = post(client, "accounts")
+    assert response.status_code == 201
+    assert response.json()["stripe_customer_id"] == "cus_1"
+    env.gateway.create_customer.assert_called_once_with(
+        CreateStripeCustomerCommand("ba_01", "ba_01"),
+    )
+    attach = env.catalog.attach_customer.call_args.args[0]
+    assert (attach.billing_account_id, attach.stripe_customer_id) == ("ba_01", "cus_new")
+
+
+def test_gestor_nao_dono_recupera_conta_pelo_link_forte(client, env):
+    prepare_recovery(env, make_account(owner="user-9"))
+    response = post(client, "accounts")
+    assert response.status_code == 201
+    assert response.json()["owner_user_id"] == "user-9"
+    env.catalog.get_tenant_link.assert_called_once_with("ba_01", "tenant-a", ReadConsistency.STRONG)
+
+
+@pytest.mark.parametrize("direct_link", [None, make_link("tenant-b")])
+def test_conta_recuperada_sem_link_forte_nega_403_sem_chamar_stripe(client, env, direct_link):
+    prepare_recovery(env, make_account(owner="user-9", customer=None))
+    env.catalog.get_tenant_link.return_value = direct_link
+    response = post(client, "accounts")
+    assert response.status_code == 403
+    assert response.json() == {"detail": "billing_owner_required"}
+    env.gateway.create_customer.assert_not_called()
+    env.catalog.attach_customer.assert_not_called()
+
+
+@pytest.mark.parametrize("reverse_link", [None, make_link("tenant-a")])
+def test_conflito_sem_conta_recuperavel_mantem_409(client, env, reverse_link):
+    prepare_recovery(env, make_account())
+    env.catalog.get_account.side_effect = [None, None]
+    env.catalog.get_tenant_account.return_value = reverse_link
+    response = post(client, "accounts")
+    assert response.status_code == 409
+    assert response.json() == {"detail": "billing_tenant_conflict"}
+    env.catalog.get_tenant_account.assert_called_once_with("tenant-a", ReadConsistency.STRONG)
+    env.gateway.create_customer.assert_not_called()
+
+
+def test_falha_ao_ler_link_reverso_retorna_503(client, env):
+    prepare_recovery(env, make_account())
+    env.catalog.get_tenant_account.side_effect = BillingDependencyError("dynamodb_unavailable")
+    response = post(client, "accounts")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "billing_dependency_unavailable"}
     env.gateway.create_customer.assert_not_called()
 
 

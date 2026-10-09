@@ -205,6 +205,16 @@ entre os dois deixa o Customer órfão. O replay com a mesma `idempotency_key` o
 - o `StripeClient` repete falhas de rede até 2 vezes com a mesma chave, o que evita a maior
   parte dos órfãos por resposta perdida.
 
+Cliente que perdeu a `idempotency_key`: uma chave nova, enviada pelo dono ou por um `gestor` do
+tenant vinculado, devolve a mesma conta (201). A rota resolve o link reverso
+`TENANT#<t>/BILLING_ACCOUNT` com leitura forte, aplica o mesmo controle de dono/`gestor` com link
+direto forte e segue o mesmo caminho do Customer acima (chave `customer:<conta>` + busca por
+metadata), sem criar outro Customer. Sinal em log:
+`billing_account_recovered billing_account_id=...`. Após essa recuperação, 409
+`billing_tenant_conflict` no `POST /accounts` só ocorre com `TENANT#<t>/BILLING_ACCOUNT`
+pendente, ausente ou divergente do link direto: investigue o índice antes de qualquer correção
+manual.
+
 Sinais em log, sem ação automática (o Customer sobra no Stripe, sem anexo):
 
 - `stripe_customer_duplicates billing_account_id=... count=N chosen=...`: duplicatas já
