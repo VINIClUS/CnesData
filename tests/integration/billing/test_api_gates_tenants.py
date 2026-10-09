@@ -133,8 +133,9 @@ def test_replay_da_criacao_devolve_o_mesmo_tenant(stack: ApiStack) -> None:
     assert replay.json() == first.json()
     assert len(capacity_reservations(stack)) == 1
     assert capacity_counter(stack, "tenant_count") == 1
-    memberships = [k for k in stored_keys(stack) if k == membership_key("novo-tenant", OWNER)]
-    assert len(memberships) == 1
+    partition, _ = membership_key("novo-tenant", OWNER)
+    memberships = {k for k in stored_keys(stack) if k[0] == partition and "MEMBERSHIP#" in k[1]}
+    assert memberships == {membership_key("novo-tenant", OWNER)}
 
 
 def test_gestor_criador_acessa_o_tenant_novo(stack: ApiStack) -> None:

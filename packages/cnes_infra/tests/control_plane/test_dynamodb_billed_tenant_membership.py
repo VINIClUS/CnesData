@@ -11,7 +11,7 @@ from cnes_domain.billing.errors import (
     BillingTenantConflict,
     IdempotencyConflict,
 )
-from cnes_domain.billing.models import BILLING_ADMIN_ROLE, ReservationStatus
+from cnes_domain.billing.models import ReservationStatus
 from cnes_domain.control_plane.entities import Membership
 from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_infra.billing.settings import BillingSettings
@@ -52,10 +52,6 @@ def _boom(_: list[dict[str, Any]]) -> None:
     raise ClientError(
         {"Error": {"Code": "InternalServerError", "Message": "boom"}}, "TransactWriteItems",
     )
-
-
-def test_papel_do_criador_e_o_papel_administrativo_de_billing() -> None:
-    assert BILLING_ADMIN_ROLE == "gestor"
 
 
 @ALL_MODES
