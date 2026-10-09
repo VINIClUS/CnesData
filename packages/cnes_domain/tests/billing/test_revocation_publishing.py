@@ -175,6 +175,7 @@ def test_comando_de_falha_de_publicacao_valido_e_aceito() -> None:
         {"expected_fencing_token": -1},
         {"reason_code": ""},
         {"reason_code": "x" * 129},
+        {"reason_code": "Motivo livre"},
         {"failed_at": NOW.replace(tzinfo=None)},
     ],
 )

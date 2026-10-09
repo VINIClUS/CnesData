@@ -1,5 +1,6 @@
 """Immediate revocation commands, progress, settings and store capability."""
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -19,18 +20,20 @@ from cnes_domain.control_plane.entities import OutboxEvent, Run, RunDispatch
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.ports.processing import ProcessorExecutorPort
 
-MAX_REASON_CODE_LENGTH = 128
+# Reason codes reach the WORM audit sink, so free text (possible PII) is never accepted.
+REASON_CODE_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 REVOKED_REASON_CODE = "revoked"
 REVOCABLE_RUN_STATES = frozenset(
     {RunState.PLANNED, RunState.WAITING_INPUTS, RunState.PROCESSING, RunState.CANCEL_REQUESTED}
 )
 PUBLICATION_DENIABLE_RUN_STATES = frozenset({RunState.PUBLISHING})
+_REASON_CODE = re.compile(REASON_CODE_PATTERN)
 
 
 def _check_reason(reason_code: str) -> None:
     require_id(reason_code, "reason_code")
-    if len(reason_code) > MAX_REASON_CODE_LENGTH:
-        raise ValueError("reason=reason_code_too_long")
+    if _REASON_CODE.fullmatch(reason_code) is None:
+        raise ValueError("reason=reason_code_invalid")
 
 
 @dataclass(frozen=True, slots=True)

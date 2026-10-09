@@ -98,10 +98,40 @@ def test_retry_de_revogacao_nao_incrementa_fence_nem_cancela_de_novo() -> None:
     assert len(harness.projection.writes) == 1
 
 
-@pytest.mark.parametrize("reason", ["", "   ", "x" * 129])
+@pytest.mark.parametrize("reason", ["", "   "])
 def test_rejeita_reason_code_vazio(reason: str) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="reason=blank_value field=reason_code"):
         _command(reason_code=reason)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Cliente João da Silva CPF 123.456.789-09",
+        "fraude confirmada",
+        "Fraud_confirmed",
+        "revogação",
+        "1st_fraud",
+        "_fraud",
+        "fraud-confirmed",
+        "fraud_confirmed\n",
+        "x" * 65,
+        "x" * 129,
+    ],
+)
+def test_rejeita_reason_code_fora_do_padrao_redigido(reason: str) -> None:
+    with pytest.raises(ValueError, match="reason=reason_code_invalid"):
+        _command(reason_code=reason)
+
+
+@pytest.mark.parametrize("reason", ["a", "fraud_confirmed", "fraud_2026", "x" * 64])
+def test_aceita_reason_code_redigido(reason: str) -> None:
+    assert _command(reason_code=reason).reason_code == reason
+
+
+def test_comando_de_run_rejeita_reason_code_em_texto_livre() -> None:
+    with pytest.raises(ValueError, match="reason=reason_code_invalid"):
+        RevokeRunCommand(TENANT, "run_01", RunState.PROCESSING, 1, "Motivo livre", NOW)
 
 
 def test_modo_disabled_falha_fechado_sem_tocar_executor() -> None:
