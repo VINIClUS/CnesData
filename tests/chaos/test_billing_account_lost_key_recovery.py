@@ -177,7 +177,10 @@ def test_gestor_que_nao_e_dono_recupera_conta_do_tenant_vinculado(env: Env) -> N
     _assert_single_customer(env, account_id, customer_id)
 
 
-def test_criacoes_concorrentes_com_chaves_distintas_convergem_para_uma_conta(env: Env) -> None:
+def test_criacoes_concorrentes_com_chaves_distintas_convergem_para_uma_conta(
+    env: Env, caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
     keys = [f"client-key-race-{index:04d}-abcdef" for index in range(4)]
     barrier = threading.Barrier(len(keys))
 
@@ -189,6 +192,8 @@ def test_criacoes_concorrentes_com_chaves_distintas_convergem_para_uma_conta(env
         responses = list(pool.map(create, keys))
 
     assert {response.status_code for response in responses} <= {201, 503}
+    recovered = [m for m in caplog.messages if m.startswith("billing_account_recovered ")]
+    assert len(recovered) >= len(keys) - 1
     retried = [_create(env, key).json() for key in keys]
     assert len({body["billing_account_id"] for body in retried}) == 1
     (customer,) = env.stripe.customers
