@@ -165,9 +165,9 @@ def _apply_deletes(
         raise FatalError(
             f"unknown_source_intent source={source} intent={intent}",
         )
+    params = [_delete_params(key, row, pk_cols) for row in deletes]
     deleted = 0
-    for row in deletes:
-        pk = _delete_params(key, row, pk_cols)
+    for pk in params:
         result = conn.execute(text(sql), pk)
         if result.rowcount == 0:
             logger.info(

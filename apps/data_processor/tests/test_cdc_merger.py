@@ -125,7 +125,13 @@ def test_merge_delta_bpa_linhas_raises_unknown_source_intent():
 @pytest.mark.parametrize("cpf", [None, 12345678901])
 def test_merge_delta_delete_profissional_sem_cpf_texto_falha_fatal(cpf):
     df = pl.DataFrame(
-        {"CPF_PROF": [cpf], "CNES": ["1"], "COD_CBO": ["225125"], "_op": ["D"]},
+        {
+            "CPF_PROF": ["12345678901", cpf],
+            "CNES": ["1", "1"],
+            "COD_CBO": ["225125", "225125"],
+            "_op": ["D", "D"],
+        },
+        schema_overrides={"CPF_PROF": pl.Object},
     )
     conn = MagicMock()
     with pytest.raises(FatalError, match="invalid_pk column=CPF_PROF"):
