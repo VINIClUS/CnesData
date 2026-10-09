@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
     from datetime import datetime
 
+    from cnes_infra.billing.settings import BillingSettings
     from cnes_infra.control_plane.dynamodb_codec import Action
 
 EDGE_AGENT_SCOPE = "edge_agent.register"
@@ -94,6 +95,7 @@ class DynamoEdgeRegistrationMixin:
     if TYPE_CHECKING:
         _table_name: str
         _clock: Callable[[], datetime]
+        _billing: BillingSettings
 
         def _get_item(self, key: tuple[str, str], /) -> Item | None: ...
         def _transact(self, actions: tuple[Action, ...], /) -> None: ...
@@ -106,15 +108,38 @@ class DynamoEdgeRegistrationMixin:
             current_item = self._get_item(key)
             current = decode_model(current_item, Agent) if current_item else None
             agent = edge_agent(current, tenant_id, agent_id, fingerprint, now)
+            counted = () if current_item else self._unmetered_agent_actions(tenant_id)
             try:
                 self._transact((put_action(
                     self._table_name, encode_model(agent, "AGENT", key),
                     payload(current_item) if current_item else None,
-                ),))
+                ), *counted))
             except Conflict:
                 continue
             return agent
         raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+
+    def _unmetered_agent_actions(self, tenant_id: str) -> tuple[Action, ...]:
+        from cnes_domain.billing.models import CapacityKind
+        from cnes_domain.profiles import BillingMode
+        from cnes_infra.billing.capacity_counters import (
+            linked_agent_actions,
+            log_not_seeded,
+            unlinked_agent_actions,
+        )
+        from cnes_infra.billing.dynamodb_items import decode_tenant_account
+        from cnes_infra.billing.keys import capacity_usage_key, tenant_account_key
+
+        if self._billing.mode is not BillingMode.STRIPE or self._billing.enforced:
+            return ()
+        link = self._get_item(tenant_account_key(tenant_id))
+        if link is None:
+            return unlinked_agent_actions(self._table_name, tenant_id)
+        account = decode_tenant_account(link, tenant_id)
+        if self._get_item(capacity_usage_key(account)) is None:
+            log_not_seeded(account, CapacityKind.AGENT.value)
+            return ()
+        return linked_agent_actions(self._table_name, tenant_id, link)
 
     def create_edge_agent(self, command: NewEdgeAgent) -> EdgeAgentCreation:
         """Cria o agente novo e o registro de idempotência da reserva.

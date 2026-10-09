@@ -182,6 +182,37 @@ Lê uma página do índice de reservas vencidas (`QUOTA_RESERVATION#DUE`) e, com
 
 Emite `QuotaReservationsExpired` com o número de liberadas.
 
+## Capacidade (agentes e tenants)
+
+`BILLING#<conta>/CAPACITY` (entidade `BILLINGUSAGE`) guarda `tenant_count` e `agent_count`.
+Os contadores são corretos por construção, sem backfill:
+
+- Semente: `create_account` grava o item na mesma transação da conta, com `tenant_count=1` (o
+  tenant inicial consome `max_tenants`; plano de um município é `max_tenants=1`) e
+  `agent_count` igual ao contador pendente do tenant inicial (0 se não houver).
+- Contagem em todo modo `stripe`: em `enforce` a reserva soma (teto aplicado) e o consumo
+  confirma; em `off`/`shadow` o agente novo (`register_edge_agent`, ramo de criação) e o tenant
+  novo (`create_billed_tenant`) somam `+1` na mesma transação da escrita, sem teto. Réplicas
+  em modos mistos durante a virada mexem no mesmo contador. `put_agent` (agentes sintéticos,
+  ex.: `system-datasus`) não conta.
+- Tenant sem conta: em `off`/`shadow` o agente é admitido e contado em
+  `TENANT#<t>/BILLING_PENDING_CAPACITY`. `create_account` transfere o valor para a conta com CAS
+  (Delete condicionado ao valor lido); perder a corrida para uma admissão concorrente devolve
+  `503` retryable e o retry relê o pendente.
+- `capacity_not_seeded`: em `enforce`, conta sem item CAPACITY (ou sem o contador do tipo)
+  falha fechado com `EntitlementDenied reason=capacity_not_seeded` (HTTP 403
+  `agent_entitlement_denied`/`tenant_entitlement_denied`, sem `Retry-After`) e log
+  `capacity_counter_missing reason=capacity_not_seeded`. Em `off`/`shadow` a escrita segue sem
+  contar e o mesmo log é emitido.
+
+Checagem antes da virada para `enforce`, por conta:
+
+- links `BILLING#<conta>/TENANT#*` == `tenant_count`;
+- agentes não revogados dos tenants vinculados == `agent_count`;
+- nenhum `TENANT#*/BILLING_PENDING_CAPACITY` de tenant vinculado.
+
+Sem migração: dados de billing anteriores a esta versão são apagados, não migrados.
+
 ## Replay seguro
 
 - inbox: ids de evento Stripe; o inbox usa fence por claim.
@@ -269,7 +300,7 @@ Eventos duráveis (outbox), iguais ao `AUDIT_EVENT_INVENTORY` de
 
 | Categoria | Eventos |
 |---|---|
-| Conta | `billing_account.created`, `billing_account.tenant_linked`, `billing_account.customer_attached` |
+| Conta | `billing_account.created`, `billing_account.customer_attached` |
 | Transferência | `billing_account.transferred` |
 | Checkout | `checkout.session_created` |
 | Webhook | `billing.webhook_failed_final` |
@@ -294,3 +325,6 @@ Com `BILLING_MODE=stripe` e `BILLING_ENFORCEMENT_MODE` em `off` ou `shadow`,
 `create_unmetered_run` não confere o snapshot. Runs criados após uma revogação ou perda de
 acesso não são fenceados: não há enforcement nesses modos. Use `enforce` onde o corte de
 acesso for requisito.
+
+Revogar um agente ainda não libera a vaga: `agent_count` só diminui pela liberação de uma
+reserva de capacidade.

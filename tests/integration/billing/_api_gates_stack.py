@@ -25,6 +25,7 @@ from central_api.services.billing_gates import ApiBillingGates
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from cnes_domain.billing.models import (
+    BillingEnforcementMode,
     CapacityReservation,
     EntitlementSnapshot,
     QuotaLimits,
@@ -263,7 +264,19 @@ def _serving_delivery(stack: ApiStack, redirect: bool) -> serving.ServingDeliver
     return serving.signed_serving_delivery(signed, stack.clock.now)
 
 
-def build_client(stack: ApiStack, redirect: bool = False) -> TestClient:
+def with_enforcement(stack: ApiStack, enforcement: BillingEnforcementMode) -> ApiStack:
+    case = replace(stack.case, enforcement=enforcement)
+    plane = DynamoDBControlPlane(stack.faulty, TABLE_NAME, stack.clock.now, billing=case.settings)
+    resources = BillingGateResources(stack.clock.now, 4, stack.client, TABLE_NAME)
+    gates = api_billing_gates(case.settings, resources)
+    return replace(stack, case=case, plane=plane, gates=gates)
+
+
+def build_client(
+    stack: ApiStack, redirect: bool = False, enforcement: BillingEnforcementMode | None = None,
+) -> TestClient:
+    if enforcement is not None:
+        stack = with_enforcement(stack, enforcement)
     app = FastAPI()
     for module in (raw_jobs, tenants, billing_admin, serving):
         app.include_router(module.router)
@@ -290,8 +303,8 @@ def create_tenant(client: TestClient, tenant_id: str, key: str = "key-1") -> Any
     return client.post(TENANTS_URL, json=body, headers=user_headers(OWNER))
 
 
-def capacity_counter(stack: ApiStack, name: str) -> int:
-    item = get_raw(cast("RevEnv", RawView(stack.client, TABLE_NAME)), capacity_usage_key(ACCOUNT))
+def capacity_counter(stack: ApiStack, name: str, account: str = ACCOUNT) -> int:
+    item = get_raw(cast("RevEnv", RawView(stack.client, TABLE_NAME)), capacity_usage_key(account))
     return 0 if item is None else int(item.get(name, {"N": "0"})["N"])
 
 

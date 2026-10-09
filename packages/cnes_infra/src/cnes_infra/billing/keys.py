@@ -61,6 +61,11 @@ def capacity_usage_key(billing_account_id: str) -> Key:
     return billing_partition(billing_account_id), "CAPACITY"
 
 
+def pending_capacity_key(tenant_id: str) -> Key:
+    """Cria a chave do contador pendente de capacidade do tenant sem conta."""
+    return tenant_partition(tenant_id), "BILLING_PENDING_CAPACITY"
+
+
 def billing_account_list_key(billing_account_id: str) -> Key:
     """Cria a chave da lista global de contas."""
     return BILLING_ACCOUNT_LIST_PARTITION, BILLING_ACCOUNT_LIST_PREFIX + key_component(

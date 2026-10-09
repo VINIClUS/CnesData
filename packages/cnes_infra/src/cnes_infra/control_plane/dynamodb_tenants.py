@@ -185,7 +185,21 @@ class DynamoBilledTenantMixin:
             actions.extend(self._billed_link_actions(command))
         if self._billing.enforced:
             actions.extend(self._billed_capacity_actions(command, now, version))
+        elif self._billing.mode is BillingMode.STRIPE:
+            actions.extend(self._unmetered_count_actions(command.link.billing_account_id))
         return tuple(actions)
+
+    def _unmetered_count_actions(self, billing_account_id: str) -> tuple[Action, ...]:
+        from cnes_infra.billing.capacity_counters import TENANT_COUNTER, log_not_seeded
+        from cnes_infra.billing.dynamodb_items import get_item
+        from cnes_infra.billing.dynamodb_quota_items import settle_usage_update
+        from cnes_infra.billing.keys import capacity_usage_key
+
+        key = capacity_usage_key(billing_account_id)
+        if get_item(self._client, self._table_name, key, True) is None:
+            log_not_seeded(billing_account_id, CapacityKind.TENANT.value)
+            return ()
+        return (settle_usage_update(self._table_name, key, {TENANT_COUNTER: 1}),)
 
     def _billed_link_actions(self, command: CreateBilledTenantCommand) -> tuple[Action, ...]:
         from cnes_infra.billing.dynamodb_items import encode_link, encode_tenant_account, put_new

@@ -70,10 +70,13 @@ class Case:
     name: str
     dynamo: bool
     stripe: bool
+    enforcement: BillingEnforcementMode = BillingEnforcementMode.ENFORCE
 
     @property
     def settings(self) -> BillingSettings:
-        return STRIPE_SETTINGS if self.stripe else DISABLED_SETTINGS
+        if not self.stripe:
+            return DISABLED_SETTINGS
+        return replace(STRIPE_SETTINGS, enforcement_mode=self.enforcement)
 
 
 @dataclass

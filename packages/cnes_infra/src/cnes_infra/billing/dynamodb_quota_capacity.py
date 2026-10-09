@@ -22,6 +22,7 @@ from cnes_domain.billing.models import (
 )
 from cnes_domain.billing.ports import ClockPort
 from cnes_domain.control_plane.entities import IdempotencyRecord
+from cnes_infra.billing.capacity_counters import CAPACITY_NOT_SEEDED, log_not_seeded
 from cnes_infra.billing.dynamodb_items import (
     decode_snapshot,
     deterministic_id,
@@ -36,8 +37,8 @@ from cnes_infra.billing.dynamodb_quota_items import (
     IDEMPOTENCY_TTL,
     ReplayQuery,
     SnapshotExpectation,
-    UsageGuard,
     any_present,
+    capacity_update,
     collision_keys,
     decode_capacity_reservation,
     decode_capacity_result,
@@ -49,7 +50,6 @@ from cnes_infra.billing.dynamodb_quota_items import (
     settle_usage_update,
     snapshot_check,
     usage_counter,
-    usage_update,
 )
 from cnes_infra.billing.keys import (
     Key,
@@ -194,8 +194,7 @@ class DynamoQuotaCapacityMixin:
         account, tenant = command.billing_account_id, command.tenant_id
         now = reservation.created_at
         counter = CAPACITY_COUNTERS[command.kind]
-        limit = command.limit
-        guard = None if limit is None else UsageGuard(counter, limit - 1)
+        ceiling = None if command.limit is None else command.limit - 1
         expected = SnapshotExpectation(account, command.entitlement_version, None)
         record = IdempotencyRecord(
             tenant_id=tenant,
@@ -212,7 +211,7 @@ class DynamoQuotaCapacityMixin:
         )
         return (
             snapshot_check(self._table, expected, now),
-            usage_update(self._table, capacity_usage_key(account), {counter: 1}, guard),
+            capacity_update(self._table, capacity_usage_key(account), counter, ceiling),
             put_new(self._table, encode_capacity_reservation(reservation, tenant)),
             idempotency_put(self._table, record, reservation, expired),
             put_new(self._table, outbox_item(event)),
@@ -237,7 +236,11 @@ class DynamoQuotaCapacityMixin:
         ):
             raise EntitlementDenied("reason=snapshot_changed")
         usage = get_item(self._client, self._table, capacity_usage_key(account), True)
-        counter = usage_counter(usage, CAPACITY_COUNTERS[command.kind])
+        attribute = CAPACITY_COUNTERS[command.kind]
+        if usage is None or attribute not in usage:
+            log_not_seeded(account, command.kind.value)
+            raise EntitlementDenied(f"reason={CAPACITY_NOT_SEEDED}")
+        counter = usage_counter(usage, attribute)
         if command.limit is not None and counter >= command.limit:
             raise _exceeded(command)
         if any_present(self._client, self._table, collisions):

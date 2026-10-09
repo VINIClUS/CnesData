@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from cnes_domain.billing.errors import BillingTenantConflict, PermanentBillingError
-from cnes_domain.billing.models import BillingAccountStatus, ReadConsistency
+from cnes_domain.billing.models import BillingAccountStatus
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_items import encode_account, encode_customer_map
 from cnes_infra.billing.keys import account_tenant_key
@@ -17,7 +17,6 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     TABLE_NAME,
     make_account,
     make_create_command,
-    make_link_command,
     table_items,
 )
 from packages.cnes_infra.tests.billing.dynamodb_catalog_support import (
@@ -94,18 +93,6 @@ def test_retry_com_timestamps_novos_do_servidor_e_replay(env: Any) -> None:
     )
 
     assert catalog.create_account(retried) == command.account
-
-
-def test_retry_de_link_com_linked_at_novo_e_replay(env: Any) -> None:
-    _, _, catalog = env
-    catalog.create_account(make_create_command())
-    command = make_link_command()
-    catalog.link_tenant(command)
-    retried = replace(command, link=replace(command.link, linked_at=NOW + timedelta(seconds=5)))
-
-    result = catalog.link_tenant(retried)
-
-    assert result == catalog.get_tenant_link("ba_01", "tenant-b", ReadConsistency.STRONG)
 
 
 def test_registro_de_idempotencia_corrompido_e_erro_estavel(env: Any) -> None:
@@ -187,52 +174,15 @@ def test_replay_tardio_sem_link_direto_nao_e_tratado_como_replay(env: Any) -> No
         catalog.create_account(command)
 
 
-def test_replay_tardio_identico_de_link_retorna_link_existente(env: Any) -> None:
+def test_replay_tardio_de_criacao_sem_link_direto_gera_conflito(env: Any) -> None:
     client, clock, catalog = env
-    catalog.create_account(make_create_command())
-    command = make_link_command()
-    linked = catalog.link_tenant(command)
-    clock.advance(timedelta(days=2))
-    before = table_items(client)
-
-    assert catalog.link_tenant(command) == linked
-    assert table_items(client) == before
-
-
-def test_replay_tardio_de_link_com_motivo_alterado_gera_conflito(env: Any) -> None:
-    _, clock, catalog = env
-    catalog.create_account(make_create_command())
-    command = make_link_command()
-    catalog.link_tenant(command)
-    clock.advance(timedelta(days=2))
-    changed = replace(command, link=replace(command.link, reason_code="other_reason"))
-
-    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-b"):
-        catalog.link_tenant(changed)
-
-
-def test_replay_tardio_de_link_com_conta_alterada_gera_conflito(env: Any) -> None:
-    client, clock, catalog = env
-    catalog.create_account(make_create_command())
-    command = make_link_command()
-    catalog.link_tenant(command)
-    put(client, encode_account(make_account(updated_at=NOW + timedelta(hours=1))))
+    command = make_create_command()
+    catalog.create_account(command)
+    client.delete_item(TableName=TABLE_NAME, Key=item_key(*account_tenant_key("ba_01", "tenant-a")))
     clock.advance(timedelta(days=2))
 
-    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-b"):
-        catalog.link_tenant(command)
-
-
-def test_replay_tardio_de_link_sem_link_direto_gera_conflito(env: Any) -> None:
-    client, clock, catalog = env
-    catalog.create_account(make_create_command())
-    command = make_link_command()
-    catalog.link_tenant(command)
-    client.delete_item(TableName=TABLE_NAME, Key=item_key(*account_tenant_key("ba_01", "tenant-b")))
-    clock.advance(timedelta(days=2))
-
-    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-b"):
-        catalog.link_tenant(command)
+    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-a"):
+        catalog.create_account(command)
 
 
 def test_transferencia_com_instante_anterior_a_ultima_atualizacao_e_rejeitada(env: Any) -> None:
