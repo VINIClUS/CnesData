@@ -4,7 +4,7 @@ import json
 from dataclasses import replace
 from datetime import timedelta
 from functools import partial
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from botocore.exceptions import ClientError
@@ -67,7 +67,7 @@ class _ContendedClient:
             "Error": {"Code": "TransactionCanceledException", "Message": "x"},
             "CancellationReasons": [{"Code": "ConditionalCheckFailed"}],
         }
-        raise ClientError(response, "TransactWriteItems")
+        raise ClientError(cast("Any", response), "TransactWriteItems")
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)

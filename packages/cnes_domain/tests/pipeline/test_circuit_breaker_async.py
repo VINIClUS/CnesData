@@ -1,4 +1,6 @@
 """Regressão: CircuitBreaker.call_async (async-safe) e rejeição de tipos errados."""
+from typing import Any, cast
+
 import pytest
 
 from cnes_domain.pipeline.circuit_breaker import (
@@ -47,14 +49,14 @@ class TestCallAsyncRejeitaSync:
     async def test_call_async_com_fn_sync_levanta_typeerror(self) -> None:
         cb = CircuitBreaker()
         with pytest.raises(TypeError, match="call_async espera coroutine"):
-            await cb.call_async(_sync_ok)
+            await cb.call_async(cast("Any", _sync_ok))
 
 
 class TestCallRejeitaAsync:
     def test_call_com_async_def_levanta_typeerror(self) -> None:
         cb = CircuitBreaker()
         with pytest.raises(TypeError, match="call espera função síncrona"):
-            cb.call(_async_erro)
+            cb.call(cast("Any", _async_erro))
 
 
 class TestShouldHalfOpenGuard:

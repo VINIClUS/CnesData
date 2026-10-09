@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 from fastapi import Depends, HTTPException
 from starlette.requests import Request  # noqa: TC002 - resolved at runtime by FastAPI
@@ -17,12 +17,15 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from boto3.session import Session
+    from fastapi import FastAPI
 
-    from central_api.composition import RuntimeComponents
+    from central_api.composition import AwsApiServices, RuntimeComponents
+    from central_api.services.agent_admission import EdgeAgentRegistry
     from central_api.services.billing_gates import ApiBillingGates
     from cnes_domain.billing.ports import BillingMetricsPort, SecretProviderPort
     from cnes_domain.billing.revocation import ImmediateRevocationService
-    from cnes_infra.billing import StripeBillingComponents
+    from cnes_infra.billing import BillingStorage, StripeBillingComponents
+    from cnes_infra.billing.composition import SessionProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,7 @@ def _billing_disabled() -> None:
     raise HTTPException(status_code=404, detail="billing_disabled")
 
 
-def install_billing(app: object, runtime: RuntimeComponents, session: Session) -> None:
+def install_billing(app: FastAPI, runtime: RuntimeComponents, session: Session) -> None:
     """Args: app: FastAPI; runtime: Componentes compostos; session: boto3 do runtime.
     Raises: BillingConfigurationError: Stripe sem DynamoDB ou configuração inválida.
     """
@@ -46,7 +49,7 @@ def install_billing(app: object, runtime: RuntimeComponents, session: Session) -
     from cnes_infra.billing.metrics import build_billing_metrics
 
     settings = BillingSettings.from_mapping(os.environ)
-    provider = build_secret_provider(settings.mode, session)
+    provider = build_secret_provider(settings.mode, cast("SessionProtocol", session))
     app.dependency_overrides[billing.get_billing_mode] = lambda: settings.mode
     _install_agent_admission(app, runtime.billing_gates)
     if provider is None:
@@ -58,14 +61,14 @@ def install_billing(app: object, runtime: RuntimeComponents, session: Session) -
     )
 
 
-def _install_agent_admission(app: object, gates: ApiBillingGates | None) -> None:
+def _install_agent_admission(app: FastAPI, gates: ApiBillingGates | None) -> None:
     if gates is None:
         return
 
     def _admission(
         control_plane: Annotated[ControlPlanePort, Depends(raw_jobs.get_control_plane)],
     ) -> AgentAdmission:
-        return AgentAdmission(control_plane, gates)
+        return AgentAdmission(cast("EdgeAgentRegistry", control_plane), gates)
 
     app.dependency_overrides[raw_jobs.get_agent_admission] = _admission
 
@@ -80,7 +83,7 @@ def _billing_control_plane(runtime: RuntimeComponents) -> Callable[[Request], Co
 
 
 def _install_stripe_billing(
-    app: object,
+    app: FastAPI,
     runtime: RuntimeComponents,
     provider: SecretProviderPort,
     metrics: BillingMetricsPort,
@@ -114,7 +117,7 @@ def _install_stripe_billing(
 
 
 def _install_billing_admin(
-    app: object, runtime: RuntimeComponents, components: StripeBillingComponents,
+    app: FastAPI, runtime: RuntimeComponents, components: StripeBillingComponents,
 ) -> None:
     from central_api.routes import billing_admin, tenants
 
@@ -135,7 +138,8 @@ def _revocation_service(
     )
     from cnes_infra.billing.dynamodb_revocation import DynamoRevocationStore
 
-    storage = runtime.services.billing_storage
+    services = cast("AwsApiServices", runtime.services)
+    storage = cast("BillingStorage", services.billing_storage)
     store = DynamoRevocationStore(storage.client, storage.table_name, _utc_now)
     return ImmediateRevocationService(
         RevocationDependencies(

@@ -37,8 +37,8 @@ from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.coordinator import allow_execution, noop_execution_started
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
 
     from cnes_domain.control_plane.commands import BindRunDispatch
 

@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -69,6 +69,7 @@ def once(env: Env, hook: Any) -> None:
 
 def set_cancel(env: Env, plane: DynamoDBControlPlane) -> None:
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     env.client.put_item(
         TableName=TABLE_NAME, Item=encode_run_billing_state(replace(state, cancel_requested=True))
     )
@@ -89,6 +90,7 @@ def test_reparo_vincula_companion_a_dispatch_iniciado_e_reivindica(env: Env) -> 
     claimed = claim(plane, dispatch)
 
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     assert claimed is not None
     assert state.execution_generation == dispatch.generation
     assert (state.execution_dispatch_id, state.execution_ref) == (dispatch.dispatch_id, "exec-1")
@@ -118,6 +120,7 @@ def test_reparo_bloqueado_por_cancelamento_nega_claim(env: Env) -> None:
 
     assert claim(plane, dispatch) is None
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     assert (state.cancel_requested, state.execution_generation) == (True, 0)
 
 
@@ -137,7 +140,7 @@ def test_cancelamento_apos_reparo_e_antes_do_claim_nega_claim(
     monkeypatch.setattr(plane, "bind_run_execution", bind_then_cancel)
 
     assert claim(plane, dispatch) is None
-    assert plane.get_run_billing_state(TENANT, "run-01").cancel_requested is True
+    assert cast("Any", plane.get_run_billing_state(TENANT, "run-01")).cancel_requested is True
 
 
 def test_reparo_concorrente_com_bind_legitimo_ainda_reivindica(env: Env) -> None:
@@ -148,6 +151,7 @@ def test_reparo_concorrente_com_bind_legitimo_ainda_reivindica(env: Env) -> None
 
     assert claim(plane, dispatch) is not None
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     assert state.execution_dispatch_id == dispatch.dispatch_id
 
 
@@ -203,6 +207,7 @@ def test_reparo_envia_vinculo_anterior_quando_ha_geracao_previa() -> None:
         claimed = claim_unit(env, second, "unit-recon", plane)
 
         state = plane.get_run_billing_state(TENANT, "run-01")
+        assert state is not None
         assert claimed is not None
         assert state.execution_generation == second.generation == 2
         assert state.execution_dispatch_id == second.dispatch_id
@@ -255,6 +260,7 @@ def test_disabled_nega_claim_se_companion_muda_antes_da_transacao(env: Env) -> N
     dispatch = processing_run(plane)
     start_dispatch(plane, dispatch)
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     changed = replace(state, updated_at=NOW + timedelta(seconds=5))
     once(env, lambda: env.client.put_item(
         TableName=TABLE_NAME, Item=encode_run_billing_state(changed)

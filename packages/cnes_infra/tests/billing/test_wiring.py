@@ -5,6 +5,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from datetime import datetime, timedelta
+from typing import Any, cast
 from unittest.mock import Mock
 from uuid import UUID
 
@@ -74,7 +75,7 @@ def _shadow_gate(projection: FakeProjection) -> ShadowEntitlementGate:
         _settings(BillingMode.STRIPE, SHADOW), _resources(Mock(), "tabela"),
     )
     assert isinstance(gate, ShadowEntitlementGate)
-    gate._observed = projection
+    cast("Any", gate)._observed = projection
     return gate
 
 
@@ -343,7 +344,7 @@ def test_callbacks_em_stripe_sem_enforce_aceitam_run_legado_sem_companion(enforc
     permit = callbacks.policy(_run(), _dispatch(), 4)
 
     assert permit.max_concurrency == 4
-    assert permit.binding_context.billing_account_id == "local-tenant-1"
+    assert cast("Any", permit.binding_context).billing_account_id == "local-tenant-1"
 
 
 def test_callbacks_em_disabled_devolvem_permit_sem_medicao():
@@ -354,13 +355,14 @@ def test_callbacks_em_disabled_devolvem_permit_sem_medicao():
     permit = callbacks.policy(_run(), _dispatch(), 4)
 
     assert permit.max_concurrency == 4
-    assert permit.binding_context.billing_account_id == "local-tenant-1"
+    assert cast("Any", permit.binding_context).billing_account_id == "local-tenant-1"
 
 
 def test_started_encadeado_chama_billing_e_depois_downstream_com_mesmo_permit():
     order: list[str] = []
     billing = Mock(side_effect=lambda *args: order.append("billing"))
     downstream = Mock(side_effect=lambda *args: order.append("downstream"))
+    permit: Any
     permit, request = object(), object()
     run = _run()
 
@@ -376,8 +378,10 @@ def test_started_encadeado_nao_chama_downstream_quando_billing_falha():
     billing = Mock(side_effect=RuntimeError("bind_failed"))
     downstream = Mock()
 
+    permit: Any = object()
+
     with pytest.raises(RuntimeError, match="bind_failed"):
-        ChainedExecutionStarted(billing, downstream)(_run(), object(), "exec-1", object())
+        ChainedExecutionStarted(billing, downstream)(_run(), object(), "exec-1", permit)
 
     downstream.assert_not_called()
 

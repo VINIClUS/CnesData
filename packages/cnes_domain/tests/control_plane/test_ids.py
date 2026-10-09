@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -122,7 +123,7 @@ def test_identidades_rejeitam_componentes_invalidos(
 
 def test_identidade_de_unit_exige_enum_e_campos_de_normalize() -> None:
     with pytest.raises(TypeError):
-        RunUnitIdentity("run-1", "NORMALIZE")
+        RunUnitIdentity("run-1", cast("Any", "NORMALIZE"))
     with pytest.raises(ValueError, match="normalize_source_required"):
         RunUnitIdentity("run-1", RunStage.NORMALIZE)
     with pytest.raises(ValueError, match="downstream_source_forbidden"):
@@ -161,7 +162,7 @@ def _idempotency_record() -> IdempotencyRecord:
     )
 
 
-def _publication_values() -> dict[str, object]:
+def _publication_values() -> dict[str, Any]:
     version = DatasetVersion(
         tenant_id="354130",
         dataset_name="cnes",
@@ -252,7 +253,7 @@ def test_comandos_de_job_aceitam_valores_estritos() -> None:
 
 def test_comandos_de_unit_aceitam_valores_estritos() -> None:
     output = ManifestRef(manifest_id="output-1", manifest_key=OUTPUT_KEY)
-    common = {"tenant_id": "354130", "run_id": "run-1"}
+    common: dict[str, Any] = {"tenant_id": "354130", "run_id": "run-1"}
     commands = (
         TransitionRun(
             **common,

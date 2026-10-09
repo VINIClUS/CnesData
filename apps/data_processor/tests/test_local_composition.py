@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 
@@ -118,7 +119,7 @@ def test_normalize_cnes_rejeita_source_type_desconhecido():
     request = NormalizeRequest.model_construct(source_type="SIHD")
 
     with pytest.raises(UnsupportedSourceType):
-        normalize_cnes(request, store=None)
+        normalize_cnes(request, store=cast("Any", None))
 
 
 @pytest.mark.parametrize(

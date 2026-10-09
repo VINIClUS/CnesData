@@ -12,9 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from cnes_contracts.manifests.outputs import OutputManifest, ServingDocument  # noqa: TC001
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
 from cnes_contracts.manifests.validation import (
-    _COMPETENCIA_PATTERN,
-    _validate_utc,
+    COMPETENCIA_PATTERN,
     manifest_sha256,
+    validate_utc,
 )
 
 _STRICT_FROZEN_CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
@@ -115,7 +115,7 @@ class NormalizeRequest(BaseModel):
     @field_validator("normalized_at")
     @classmethod
     def validate_normalized_at(cls, value: datetime) -> datetime:
-        return _validate_utc(value)
+        return validate_utc(value)
 
     @field_validator("raw_manifests")
     @classmethod
@@ -166,7 +166,7 @@ class ReconcileRequest(BaseModel):
     model_config = _STRICT_FROZEN_CONFIG
 
     tenant_id: str = Field(min_length=1)
-    competencia: str = Field(pattern=_COMPETENCIA_PATTERN)
+    competencia: str = Field(pattern=COMPETENCIA_PATTERN)
     run_id: str = Field(min_length=1)
     unit_id: str = Field(min_length=1)
     attempt: int = Field(gt=0)
@@ -178,7 +178,7 @@ class ReconcileRequest(BaseModel):
     @field_validator("reconciled_at")
     @classmethod
     def validate_reconciled_at(cls, value: datetime) -> datetime:
-        return _validate_utc(value)
+        return validate_utc(value)
 
     @model_validator(mode="after")
     def validate_request(self) -> Self:
@@ -218,7 +218,7 @@ class MaterializeRequest(BaseModel):
     model_config = _STRICT_FROZEN_CONFIG
 
     tenant_id: str = Field(min_length=1)
-    competencia: str = Field(pattern=_COMPETENCIA_PATTERN)
+    competencia: str = Field(pattern=COMPETENCIA_PATTERN)
     run_id: str = Field(min_length=1)
     unit_id: str = Field(min_length=1)
     attempt: int = Field(gt=0)
@@ -231,7 +231,7 @@ class MaterializeRequest(BaseModel):
     @field_validator("generated_at")
     @classmethod
     def validate_generated_at(cls, value: datetime) -> datetime:
-        return _validate_utc(value)
+        return validate_utc(value)
 
     @field_validator("target_keys")
     @classmethod

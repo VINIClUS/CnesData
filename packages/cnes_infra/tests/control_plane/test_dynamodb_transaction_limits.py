@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import pytest
@@ -157,7 +157,7 @@ def test_rejeita_cancelamento_de_99_unidades_sem_transacao(ctx: _DynamoContext) 
     with pytest.raises(Conflict, match="transaction_limit"):
         _finalize(adapter, clock)
     assert spy.transactions == []
-    assert adapter.get_run(_TENANT, "run-a").state is RunState.CANCEL_REQUESTED
+    assert cast("Any", adapter.get_run(_TENANT, "run-a")).state is RunState.CANCEL_REQUESTED
     spy.calls.clear()
     spy.query_limit = 1
     assert adapter.list_run_units(_TENANT, "run-a") == _many_units(99)

@@ -113,6 +113,7 @@ def test_registro_de_idempotencia_corrompido_e_erro_estavel(env: Any) -> None:
     command = make_create_command()
     catalog.create_account(command)
     item = get_stored(client, idempotency_key("tenant-a", CREATE_SCOPE, command.idempotency_key))
+    assert item is not None
     put(client, item | {"payload": {"S": "{}"}})
 
     with pytest.raises(PermanentBillingError, match="billing_item_corrupt"):
@@ -125,6 +126,7 @@ def test_registro_de_idempotencia_de_outro_escopo_e_erro_estavel(env: Any) -> No
     catalog.create_account(command)
     key = idempotency_key("tenant-a", CREATE_SCOPE, command.idempotency_key)
     item = get_stored(client, key)
+    assert item is not None
     record = item["payload"]["S"].replace(CREATE_SCOPE, "billing_account.other")
     put(client, item | {"payload": {"S": record}})
 

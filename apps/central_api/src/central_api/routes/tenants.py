@@ -1,7 +1,7 @@
 """Rota de criação de tenant cobrado pela conta de billing."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from central_api.routes.billing import (
     BillingContext,
-    _scoped_key,
+    _scoped_key,  # pyright: ignore[reportPrivateUsage]
     get_billing_context,
     require_billing_enabled,
     require_billing_owner,
@@ -122,7 +122,7 @@ def _denial_to_http(error: BillingError) -> HTTPException:
 
 
 @contextmanager
-def _denials() -> Iterator[None]:
+def _denials() -> Generator[None]:
     try:
         yield
     except (EntitlementDenied, QuotaExceeded, PermanentBillingError) as error:

@@ -1,6 +1,6 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 import pytest
@@ -58,10 +58,13 @@ from packages.cnes_infra.tests.contracts.control_plane_contract import (
     control_plane_cases,
 )
 
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
+
 _TABLE_NAME = "cnesdata-control-plane"
 _INDEXES = tuple(f"gsi{number}" for number in range(1, 7))
 type _DynamoContext = tuple[DynamoDBControlPlane, MutableClock]
-type TransactionCallback = Callable[[list[dict[str, Any]]], None]
+type TransactionCallback = Callable[[list[dict[str, Any]]], object]
 
 
 @pytest.fixture
@@ -70,6 +73,8 @@ def ctx(dynamodb_adapter: _DynamoContext) -> _DynamoContext:
 
 
 class ClientSpy:
+    query_limit: int
+
     def __init__(
         self,
         client: Any,
@@ -125,31 +130,37 @@ def _raise_transaction_canceled(_: list[dict[str, Any]]) -> None:
     )
 
 
-def _lose_transaction_response(_: list[dict[str, Any]]) -> None:
+def _lose_transaction_response(_: Sequence[dict[str, Any]]) -> None:
     raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
 
 def _dynamodb_client_error(status: int) -> ClientError:
     return ClientError(
-        {
-            "Error": {"Code": "InternalServerError"},
-            "ResponseMetadata": {"HTTPStatusCode": status},
-        },
+        cast(
+            "Any",
+            {
+                "Error": {"Code": "InternalServerError"},
+                "ResponseMetadata": {"HTTPStatusCode": status},
+            },
+        ),
         "TransactWriteItems",
     )
 
 
 def _transaction_in_progress_error() -> ClientError:
     return ClientError(
-        {
-            "Error": {"Code": "TransactionInProgressException"},
-            "ResponseMetadata": {"HTTPStatusCode": 400},
-        },
+        cast(
+            "Any",
+            {
+                "Error": {"Code": "TransactionInProgressException"},
+                "ResponseMetadata": {"HTTPStatusCode": 400},
+            },
+        ),
         "TransactWriteItems",
     )
 
 
-def _create_table(client: object) -> None:
+def _create_table(client: Any) -> None:
     index_attributes = tuple(f"{index}{suffix}" for index in _INDEXES for suffix in ("pk", "sk"))
     attribute_definitions = [
         {"AttributeName": name, "AttributeType": "S"} for name in ("pk", "sk", *index_attributes)
@@ -392,7 +403,7 @@ def test_token_de_commit_nao_colide_com_separador_em_identificadores(
 
 @pytest.mark.parametrize("error_type", [ReadTimeoutError, ConnectionClosedError])
 def test_commit_reconhece_resposta_de_transporte_perdida_apos_transacao_confirmada(
-    ctx: _DynamoContext, error_type: type[Exception]
+    ctx: _DynamoContext, error_type: type[ReadTimeoutError | ConnectionClosedError]
 ) -> None:
     adapter, clock = ctx
     dispatch = _prepare_unit(adapter, clock)
@@ -686,12 +697,12 @@ def test_falha_opcional_rele_parent_apos_cas_concorrente(ctx: _DynamoContext) ->
     )
 
     def parent_wins(_: list[dict[str, Any]]) -> None:
-        current = adapter.get_run(_TENANT, "run-a")
+        current = cast("Any", adapter.get_run(_TENANT, "run-a"))
         adapter.put_run(current.model_copy(update={"missing_sources": ("SIHD/AIH",)}))
 
     adapter._client = ClientSpy(adapter._client, before_transaction=parent_wins)
     failed = adapter.fail_run_unit(command, _event("unit-degraded"))
-    assert (failed.state, adapter.get_run(_TENANT, "run-a").missing_sources) == (
+    assert (failed.state, cast("Any", adapter.get_run(_TENANT, "run-a")).missing_sources) == (
         RunUnitState.SUCCEEDED_DEGRADED,
         ("CNES/ST", "SIHD/AIH"),
     )
@@ -920,7 +931,9 @@ def test_queries_do_gsi1_usam_igualdade_de_particao(ctx: _DynamoContext) -> None
     adapter.create_job(_job("job-1"), _event("event-1"))
     adapter.put_membership(_membership())
     jobs = adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
-    tenants = DynamoDBMembershipCandidates(spy, _TABLE_NAME).list_candidates("user-1")
+    tenants = DynamoDBMembershipCandidates(cast("BaseClient", spy), _TABLE_NAME).list_candidates(
+        "user-1"
+    )
     assert [job.job_id for job in jobs] == ["job-1"]
     assert tenants == (_TENANT,)
     gsi1 = [request for request in spy.query_requests if request.get("IndexName") == "gsi1"]

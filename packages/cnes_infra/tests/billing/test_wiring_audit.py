@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import replace
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -117,7 +118,7 @@ def test_callbacks_stripe_com_dynamodb_montam_audit_best_effort():
         _settings(BillingMode.STRIPE, ENFORCE), _resources(Mock(), TABLE_NAME),
     )
 
-    audit = callbacks.started.billing._dependencies.audit
+    audit = cast("Any", callbacks.started).billing._dependencies.audit
 
     assert isinstance(audit, BestEffortBillingAudit)
 
@@ -129,10 +130,10 @@ def test_callbacks_stripe_com_dynamodb_montam_audit_best_effort():
 def test_callbacks_stripe_sem_dynamodb_ficam_sem_audit(resources):
     callbacks = _binding_callbacks(_settings(BillingMode.STRIPE, ENFORCE), resources)
 
-    assert callbacks.started.billing._dependencies.audit is None
+    assert cast("Any", callbacks.started).billing._dependencies.audit is None
 
 
 def test_callbacks_disabled_ficam_sem_audit():
     callbacks = _binding_callbacks(LOCAL_BILLING_SETTINGS, _resources(Mock(), TABLE_NAME))
 
-    assert callbacks.started.billing._dependencies.audit is None
+    assert cast("Any", callbacks.started).billing._dependencies.audit is None

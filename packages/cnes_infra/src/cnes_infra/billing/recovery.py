@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum, auto
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import uuid4
 
 from cnes_domain.billing.errors import RetryableBillingError
@@ -97,8 +97,9 @@ def _classify(
         return _Verdict.FAILED
     if record.state is not InboxProcessingState.FAILED_RETRYABLE:
         return _Verdict.UNSETTLED
-    expected_key = stripe_recovery_due_sort_key(record.due_at, event_id)
-    if record.due_at > now and record.due_index_key == expected_key:
+    due_at = cast("datetime", record.due_at)
+    expected_key = stripe_recovery_due_sort_key(due_at, event_id)
+    if due_at > now and record.due_index_key == expected_key:
         return _Verdict.FAILED
     return _Verdict.UNSETTLED
 

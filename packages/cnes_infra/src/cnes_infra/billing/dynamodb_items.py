@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import fields
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -78,7 +78,7 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, frozenset):
-        return sorted(value)
+        return sorted(cast("frozenset[Any]", value))
     return {field.name: getattr(value, field.name) for field in fields(value)}
 
 
@@ -150,46 +150,44 @@ def _pair(first: str, second: str) -> Callable[[Any], tuple[Any, Any]]:
 
 
 def _snapshot(data: dict[str, Any]) -> EntitlementSnapshot:
-    return EntitlementSnapshot(
-        **{
-            **data,
-            "subscription_status": SubscriptionStatus(data["subscription_status"]),
-            "features": frozenset(data["features"]),
-            "quotas": QuotaLimits(**data["quotas"]),
-            "period_start": _when(data, "period_start"),
-            "period_end": _when(data, "period_end"),
-            "grace_until": _optional_when(data, "grace_until"),
-            "valid_until": _when(data, "valid_until"),
-            "updated_at": _when(data, "updated_at"),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "subscription_status": SubscriptionStatus(data["subscription_status"]),
+        "features": frozenset(data["features"]),
+        "quotas": QuotaLimits(**data["quotas"]),
+        "period_start": _when(data, "period_start"),
+        "period_end": _when(data, "period_end"),
+        "grace_until": _optional_when(data, "grace_until"),
+        "valid_until": _when(data, "valid_until"),
+        "updated_at": _when(data, "updated_at"),
+    }
+    return EntitlementSnapshot(**values)
 
 
 def _account(data: dict[str, Any]) -> BillingAccount:
-    return BillingAccount(
-        **{
-            **data,
-            "status": BillingAccountStatus(data["status"]),
-            "created_at": _when(data, "created_at"),
-            "updated_at": _when(data, "updated_at"),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "status": BillingAccountStatus(data["status"]),
+        "created_at": _when(data, "created_at"),
+        "updated_at": _when(data, "updated_at"),
+    }
+    return BillingAccount(**values)
 
 
 def _link(data: dict[str, Any]) -> BillingAccountTenantLink:
-    return BillingAccountTenantLink(**{**data, "linked_at": _when(data, "linked_at")})
+    values: dict[str, Any] = {**data, "linked_at": _when(data, "linked_at")}
+    return BillingAccountTenantLink(**values)
 
 
 def _plan(data: dict[str, Any]) -> PlanVersion:
-    return PlanVersion(
-        **{
-            **data,
-            "stripe_price_ids": tuple(data["stripe_price_ids"]),
-            "features": frozenset(data["features"]),
-            "quotas": QuotaLimits(**data["quotas"]),
-            "effective_from": _when(data, "effective_from"),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "stripe_price_ids": tuple(data["stripe_price_ids"]),
+        "features": frozenset(data["features"]),
+        "quotas": QuotaLimits(**data["quotas"]),
+        "effective_from": _when(data, "effective_from"),
+    }
+    return PlanVersion(**values)
 
 
 def _idempotency_record(data: Any) -> IdempotencyRecord:
@@ -437,7 +435,8 @@ def transact(client: Any, actions: tuple[Action, ...]) -> bool:
         execute_transaction(client, actions)
     except Conflict as error:
         if error.code in _LIMIT_CODES:
-            raise PermanentBillingError(_LIMIT_CODES[error.code]) from error
+            code = cast("ErrorCode", error.code)
+            raise PermanentBillingError(_LIMIT_CODES[code]) from error
         return False
     except (ClientError, BotoCoreError) as error:
         raise BillingDependencyError(UNAVAILABLE_CODE) from error

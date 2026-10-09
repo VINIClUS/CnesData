@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -162,7 +163,7 @@ def test_processor_aws_encadeia_execution_started_apos_o_binding(session: Mock) 
     runtime = build_processor_runtime("aws", _aws_values(), session, started)
 
     execution = runtime.coordinator._execution
-    assert execution.callbacks.started.downstream is started
+    assert cast("Any", execution.callbacks.started).downstream is started
     assert isinstance(execution.callbacks.policy, BillingConcurrencyPolicy)
     assert (execution.deployment_limit, execution.dispatch_lease_seconds) == (8, 300)
 
@@ -171,7 +172,8 @@ def test_processor_aws_usa_noop_por_padrao(session: Mock) -> None:
     runtime = build_processor_runtime("aws", _aws_values(), session)
 
     assert (
-        runtime.coordinator._execution.callbacks.started.downstream is noop_execution_started
+        cast("Any", runtime.coordinator._execution.callbacks.started).downstream
+        is noop_execution_started
     )
 
 
@@ -207,5 +209,5 @@ def test_builders_e_helpers_tem_corpo_menor_que_cinquenta_linhas() -> None:
 
     for name in names:
         node = functions[name]
-        body_lines = node.end_lineno - node.body[0].lineno + 1
+        body_lines = cast("int", node.end_lineno) - node.body[0].lineno + 1
         assert body_lines < 50, (name, body_lines)

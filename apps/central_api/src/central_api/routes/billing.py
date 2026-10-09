@@ -2,10 +2,10 @@
 
 import hashlib
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Protocol
+from typing import Annotated, Any, Protocol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -74,7 +74,7 @@ class _LocalUnmeteredStatus(Exception):
 
 
 class _BillingRoute(APIRoute):
-    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         handler = super().get_route_handler()
 
         async def wrapped(request: Request) -> Response:

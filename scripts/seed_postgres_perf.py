@@ -8,7 +8,9 @@ import sys
 from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import insert
 
-from cnes_infra.storage.schema import dim_estabelecimento
+from cnes_infra.storage.schema import (  # pyright: ignore[reportMissingImports]
+    dim_estabelecimento,
+)
 
 logger = logging.getLogger(__name__)
 

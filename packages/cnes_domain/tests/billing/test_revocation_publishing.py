@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from datetime import timedelta
+from typing import Any, cast
 
 import pytest
 
@@ -22,6 +23,7 @@ from packages.cnes_domain.tests.billing.revocation_fakes import (
     Harness,
     _dispatch,
     _snapshot,
+    present,
 )
 
 
@@ -56,7 +58,7 @@ def test_run_em_publishing_com_progresso_superado_fica_intacta() -> None:
     harness = _publishing()
     harness.projection.snapshot = _snapshot(entitlement_version=5)
     harness.store.progress = RevocationProgress(ACCOUNT, 4, RevocationPhase.FENCING, None, NOW)
-    result = harness.service.resume_pending(ACCOUNT, "admin-1")
+    result = present(harness.service.resume_pending(ACCOUNT, "admin-1"))
     assert harness.store.runs["run_01"].state is RunState.PUBLISHING
     assert result.failed_run_ids == ()
 
@@ -83,7 +85,7 @@ def test_run_listada_em_estado_nao_revogavel_e_ignorada() -> None:
 
 def test_run_publishing_sem_mudanca_na_loja_nao_conta_como_falha() -> None:
     harness = _publishing()
-    harness.store.fail_denied_publication = lambda *_: False
+    harness.store.fail_denied_publication = cast("Any", lambda *_: False)
     assert harness.revoke().failed_run_ids == ()
 
 
@@ -143,7 +145,7 @@ def test_executor_nao_cancela_dispatch_reservado_sem_referencia() -> None:
 def test_servico_nao_consulta_dispatch_ativo() -> None:
     harness = Harness()
     harness.store.add_run("run_01", ref="exec-1")
-    harness.store.get_active_run_dispatch = lambda *_: pytest.fail("lease_dependent")
+    harness.store.get_active_run_dispatch = cast("Any", lambda *_: pytest.fail("lease_dependent"))
     harness.revoke()
     assert len(harness.executor.requests) == 1
 
@@ -152,8 +154,8 @@ def test_estados_de_publicacao_negavel_contem_apenas_publishing() -> None:
     assert frozenset({RunState.PUBLISHING}) == PUBLICATION_DENIABLE_RUN_STATES
 
 
-def _command(**overrides: object) -> FailDeniedPublicationCommand:
-    values: dict[str, object] = {
+def _command(**overrides: Any) -> FailDeniedPublicationCommand:
+    values: dict[str, Any] = {
         "tenant_id": TENANT,
         "run_id": "run_01",
         "expected_fencing_token": 0,

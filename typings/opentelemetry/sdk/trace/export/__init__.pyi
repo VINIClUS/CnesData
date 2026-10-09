@@ -1,0 +1,6 @@
+from opentelemetry.sdk.trace import SpanProcessor
+
+class SpanExporter: ...
+
+class BatchSpanProcessor(SpanProcessor):
+    def __init__(self, span_exporter: SpanExporter) -> None: ...

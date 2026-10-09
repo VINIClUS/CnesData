@@ -1,6 +1,7 @@
 """Pure DynamoDB billing key builders."""
 
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from cnes_infra.control_plane.dynamodb_keys import (
     entity_key,
@@ -25,7 +26,12 @@ _REVOCATION_WIDTH = 20
 
 
 def _utc_timestamp(value: datetime) -> str:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != timedelta(0):
+    raw_value = cast("object", value)
+    if (
+        not isinstance(raw_value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() != timedelta(0)
+    ):
         raise ValueError("reason=non_utc_datetime")
     return timestamp(value.astimezone(UTC))
 
@@ -179,8 +185,8 @@ def revocation_sweep_cursor_key() -> Key:
 def revocation_progress_key(billing_account_id: str, entitlement_version: int) -> Key:
     """Cria a chave do progresso de revogação de uma versão."""
     if (
-        isinstance(entitlement_version, bool)
-        or not isinstance(entitlement_version, int)
+        isinstance(cast("object", entitlement_version), bool)
+        or not isinstance(cast("object", entitlement_version), int)
         or entitlement_version < 1
     ):
         raise ValueError("reason=invalid_entitlement_version")

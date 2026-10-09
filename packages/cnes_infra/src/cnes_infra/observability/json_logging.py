@@ -6,9 +6,9 @@ import json
 import logging
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -43,9 +43,10 @@ def _sanitize(value: Any, depth: int = 0) -> Any:
     if isinstance(value, BaseException):
         return type(value).__name__
     if isinstance(value, Mapping):
-        return _sanitize_mapping(value, depth)
+        return _sanitize_mapping(cast("Mapping[Any, Any]", value), depth)
     if isinstance(value, (list, tuple, set, frozenset)):
-        return [_sanitize(item, depth + 1) for item in value]
+        items = cast("Iterable[Any]", value)
+        return [_sanitize(item, depth + 1) for item in items]
     return value
 
 

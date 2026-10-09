@@ -6,7 +6,7 @@ import asyncio
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import ANY, Mock, patch, sentinel
 
 import pytest
@@ -35,6 +35,9 @@ from cnes_infra.billing import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.executor.step_functions import IncompatibleStateMachine, StepFunctionsExecutor
 from cnes_infra.object_store import S3ObjectStore
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
 STATE_MACHINE_FIXTURE = (
@@ -162,7 +165,7 @@ def test_api_aws_instala_runtime_completo_oidc_e_serving(session: Mock) -> None:
     assert isinstance(runtime.services, AwsApiServices)
     assert isinstance(runtime.services.membership_authorizer, MembershipAuthorizer)
     assert isinstance(runtime.services.serving_access, S3SignedServingAccess)
-    assert runtime.services.billing_storage.client is session.clients["dynamodb"]
+    assert cast("Any", runtime.services.billing_storage).client is session.clients["dynamodb"]
     assert [call.args[0] for call in session.client.call_args_list] == [
         "dynamodb", "s3", "stepfunctions",
     ]
@@ -181,7 +184,7 @@ def test_api_aws_planeja_com_executor_e_politica_canonicos(session: Mock) -> Non
     assert planning._dependencies.executor is runtime.executor
     assert planning._dependencies.control_plane is runtime.control_plane
     assert planning._dependencies.source_catalog is runtime.source_catalog
-    assert planning._execution.callbacks.started.downstream is started
+    assert cast("Any", planning._execution.callbacks.started).downstream is started
     assert (planning._execution.deployment_limit, planning._execution.dispatch_lease_seconds) == (
         8, 300,
     )
@@ -191,7 +194,7 @@ def test_api_aws_encadeia_noop_quando_nao_injeta_callback(session: Mock) -> None
     runtime = build_runtime("aws", _aws_values(), session)
 
     started = runtime.run_planning._execution.callbacks.started
-    assert started.downstream is noop_execution_started
+    assert cast("Any", started).downstream is noop_execution_started
 
 
 def test_api_aws_manifesto_aceito_notifica_o_planejamento(session: Mock) -> None:
@@ -243,7 +246,7 @@ def test_builders_e_helpers_tem_corpo_menor_que_cinquenta_linhas() -> None:
 
     for name in names:
         node = functions[name]
-        body_lines = node.end_lineno - node.body[0].lineno + 1
+        body_lines = cast("int", node.end_lineno) - node.body[0].lineno + 1
         assert body_lines < 50, (name, body_lines)
 
 
@@ -314,7 +317,7 @@ def test_deps_aws_serving_sem_contexto_autorizado_retorna_401(state: dict[str, M
     request = SimpleNamespace(state=SimpleNamespace(**state))
 
     with pytest.raises(HTTPException) as caught:
-        _serving_principal_from_state(request)
+        _serving_principal_from_state(cast("Request", request))
 
     assert (caught.value.status_code, caught.value.detail) == (401, "auth_required")
 

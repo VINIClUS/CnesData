@@ -205,6 +205,7 @@ def test_crash_antes_do_cas_repete_pagina_sem_perder_eventos():
         with pytest.raises(RuntimeError, match="worker_crash"):
             recovery.run(REQUEST)
         stuck = env.cursor.load(STRONG)
+        assert stuck is not None
         env.drain_cycle(recovery)
         states = {env.inbox_state(event_id) for event_id in ALL_IDS}
         snapshot = env.snapshot()
@@ -260,6 +261,7 @@ def test_pagina_com_evento_em_processing_vivo_nao_avanca_cursor():
         with pytest.raises(RetryableBillingError, match="stripe_recovery_page_unsettled"):
             env.recovery().run(REQUEST)
         stored = env.cursor.load(STRONG)
+        assert stored is not None
     assert stored.starting_after is None
     assert stored.version == 1
 
@@ -270,6 +272,7 @@ def test_pagina_vazia_com_has_more_nao_avanca_cursor():
         with pytest.raises(RetryableBillingError, match="stripe_cursor_not_progressing"):
             env.recovery().run(REQUEST)
         stored = env.cursor.load(STRONG)
+        assert stored is not None
     assert stored.version == 1
 
 
@@ -304,6 +307,7 @@ def test_retryable_do_list_events_propaga_sem_mutar_cursor():
         with pytest.raises(RetryableBillingError, match="stripe_unavailable"):
             env.recovery().run(REQUEST)
         stored = env.cursor.load(STRONG)
+        assert stored is not None
     assert stored.version == 1
     assert stored.starting_after is None
 

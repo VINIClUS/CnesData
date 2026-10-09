@@ -1,6 +1,6 @@
 """Consultas e marcadores raw do plano de controle SQLite."""
 
-from typing import Any
+from typing import Any, cast
 
 from cnes_domain.control_plane.commands import CompleteJob, FailJob
 from cnes_domain.control_plane.entities import Job, ManifestRef, RawManifestRecord, RawResyncState
@@ -11,7 +11,9 @@ from cnes_domain.control_plane.queries import (
     RawManifestByIdQuery,
     RawResyncStateQuery,
 )
-from cnes_infra.control_plane.sqlite_publication import _build_ancestry
+from cnes_infra.control_plane.sqlite_publication import (
+    _build_ancestry,  # pyright: ignore[reportPrivateUsage]
+)
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
 
@@ -44,7 +46,7 @@ def _legacy_head(
     if row is None:
         return None
     job = deserialize_model(row[0], Job)
-    return job.result_manifest_id, job.created_at.isoformat(), job.job_id
+    return cast("str", job.result_manifest_id), job.created_at.isoformat(), job.job_id
 
 
 def _put_agent_head(

@@ -7,6 +7,7 @@ import logging
 import sys
 from datetime import UTC, datetime
 from types import ModuleType, SimpleNamespace
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -155,7 +156,7 @@ def _construct_event(payload, sig_header, secret):
 @pytest.fixture
 def real_env(monkeypatch):
     module = ModuleType("stripe")
-    module.Webhook = SimpleNamespace(construct_event=_construct_event)
+    cast("Any", module).Webhook = SimpleNamespace(construct_event=_construct_event)
     monkeypatch.setitem(sys.modules, "stripe", module)
     env = Env()
     env.app.dependency_overrides[get_stripe_webhook_verifier] = lambda: StripeWebhookVerifier(

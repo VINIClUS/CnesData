@@ -2,6 +2,7 @@
 
 import re
 from datetime import datetime
+from typing import TYPE_CHECKING, cast
 
 from cnes_domain.billing.inbox import InboxProcessingState, InboxRecoveryRecord, StripeEvent
 from cnes_infra.billing.dynamodb_items import corrupt_item, utc_attribute
@@ -12,6 +13,9 @@ from cnes_infra.billing.keys import (
     stripe_recovery_due_sort_key,
 )
 from cnes_infra.control_plane.dynamodb_codec import Item
+
+if TYPE_CHECKING:
+    from collections.abc import Set as AbstractSet
 
 STRIPE_WEBHOOK_EVENT_TYPES = frozenset({
     "checkout.session.completed",
@@ -62,7 +66,7 @@ def require_error_code(error_code: str) -> None:
     Args: Código de erro.
     Raises: ValueError se o código não for sanitizado.
     """
-    if not isinstance(error_code, str) or not _ERROR_CODE.fullmatch(error_code):
+    if not isinstance(cast("object", error_code), str) or not _ERROR_CODE.fullmatch(error_code):
         raise ValueError("reason=unsanitized_error_code")
 
 
@@ -130,7 +134,7 @@ def _identity(item: Item, event_id: str) -> tuple[InboxProcessingState, int]:
 
 
 def _check_transient(item: Item, state: InboxProcessingState, attempt: int, event_id: str) -> None:
-    expected = _TRANSIENT_BY_STATE.get(state, frozenset())
+    expected = cast("AbstractSet[str]", _TRANSIENT_BY_STATE.get(state, frozenset()))
     _require(expected == {name for name in INBOX_TRANSIENT_ATTRIBUTES if name in item})
     if not expected:
         return

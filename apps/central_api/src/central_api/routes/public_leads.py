@@ -1,6 +1,6 @@
 """Public (unauthenticated) lead capture — mounted at /api/v1/public."""
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -40,10 +40,12 @@ def _leads_limit() -> str:
 
 
 @router.post("/leads", response_model=LeadReceived, status_code=202)
-@limiter.limit(_leads_limit)
+@limiter.limit(_leads_limit)  # pyright: ignore[reportUnknownMemberType, reportUntypedFunctionDecorator]
 def create_lead(body: LeadCreate, request: Request) -> LeadReceived:
     repo = request.app.state.leads_repo
-    fields = {k: v.strip() if isinstance(v, str) else v for k, v in body.model_dump().items()}
+    fields: dict[str, Any] = {
+        k: v.strip() if isinstance(v, str) else v for k, v in body.model_dump().items()
+    }
     record = LeadRecord(**fields)
     try:
         lead_id = repo.create(record)

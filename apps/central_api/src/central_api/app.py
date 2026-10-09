@@ -1,5 +1,7 @@
 """Factory da aplicação FastAPI."""
 
+from typing import TYPE_CHECKING, cast
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -34,6 +36,9 @@ from central_api.routes import (
 from cnes_infra import config
 from cnes_infra.auth.errors import OAuthError
 from cnes_infra.telemetry import init_telemetry
+
+if TYPE_CHECKING:
+    from starlette.types import ExceptionHandler
 
 init_telemetry("central-api")
 
@@ -72,8 +77,8 @@ def create_app() -> FastAPI:
         max_age=600,
     )
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
-    app.add_exception_handler(OAuthError, _oauth_error_handler)
+    app.add_exception_handler(RateLimitExceeded, cast("ExceptionHandler", rate_limit_handler))
+    app.add_exception_handler(OAuthError, cast("ExceptionHandler", _oauth_error_handler))
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1")

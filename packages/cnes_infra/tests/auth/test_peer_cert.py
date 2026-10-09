@@ -1,12 +1,14 @@
 """peer_cert: mTLS header parsing, chain check + identity extraction."""
 import base64
 import datetime as dt
+from typing import cast
 
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
+from starlette.requests import Request
 
 from cnes_infra.auth.ca import CertAuthority
 from cnes_infra.auth.errors import OAuthError
@@ -64,38 +66,42 @@ class _FakeRequest:
         self.headers = headers
 
 
+def _request(headers: dict[str, str]) -> Request:
+    return cast("Request", _FakeRequest(headers))
+
+
 def test_extract_peer_cert_rejeita_header_ausente_retorna_401():
     with pytest.raises(OAuthError) as exc:
-        extract_peer_cert(_FakeRequest({}))
+        extract_peer_cert(_request({}))
     assert exc.value.code == "invalid_token"
     assert exc.value.status_code == 401
 
 
 def test_extract_peer_cert_rejeita_header_vazio_retorna_401():
     with pytest.raises(OAuthError):
-        extract_peer_cert(_FakeRequest({"X-SSL-Client-Cert": ""}))
+        extract_peer_cert(_request({"X-SSL-Client-Cert": ""}))
 
 
 def test_extract_peer_cert_rejeita_base64_invalido_retorna_401():
     with pytest.raises(OAuthError):
-        extract_peer_cert(_FakeRequest({"X-SSL-Client-Cert": "not base64!"}))
+        extract_peer_cert(_request({"X-SSL-Client-Cert": "not base64!"}))
 
 
 def test_extract_peer_cert_rejeita_der_malformado_retorna_401():
     garbage = base64.b64encode(b"not a certificate").decode()
     with pytest.raises(OAuthError):
-        extract_peer_cert(_FakeRequest({"X-SSL-Client-Cert": garbage}))
+        extract_peer_cert(_request({"X-SSL-Client-Cert": garbage}))
 
 
 def test_extract_peer_cert_ignora_verify_header_forjado():
     headers = {"X-SSL-Client-Verify": "SUCCESS"}
     with pytest.raises(OAuthError):
-        extract_peer_cert(_FakeRequest(headers))
+        extract_peer_cert(_request(headers))
 
 
 def test_extract_peer_cert_aceita_der_base64():
     leaf = _make_leaf_cert()
-    cert = extract_peer_cert(_FakeRequest({"X-SSL-Client-Cert": _der_b64(leaf)}))
+    cert = extract_peer_cert(_request({"X-SSL-Client-Cert": _der_b64(leaf)}))
     assert cert.serial_number == leaf.serial_number
 
 

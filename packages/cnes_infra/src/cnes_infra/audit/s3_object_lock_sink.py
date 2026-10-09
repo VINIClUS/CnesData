@@ -6,12 +6,13 @@ import json
 from datetime import timedelta
 from hashlib import sha256
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from cnes_infra.object_store.s3 import S3ObjectStore, S3PutOptions, S3Retention
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
+    from types_boto3_s3.client import S3Client
 
     from cnes_domain.control_plane.entities import OutboxEvent
 
@@ -48,7 +49,8 @@ class S3ObjectLockAuditSink:
             {} if expected_bucket_owner is None
             else {"ExpectedBucketOwner": expected_bucket_owner}
         )
-        response = client.get_object_lock_configuration(Bucket=bucket, **owner_kwargs)
+        s3_client = cast("S3Client", client)
+        response = s3_client.get_object_lock_configuration(Bucket=bucket, **owner_kwargs)
         configuration = response.get("ObjectLockConfiguration", {})
         if configuration.get("ObjectLockEnabled") != "Enabled":
             raise ValueError("object_lock=disabled")

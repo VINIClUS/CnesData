@@ -227,6 +227,7 @@ def bind_command(
     env: RevEnv, dispatch: RunDispatch, reference: str, previous: RunDispatch | None
 ) -> RunExecutionBindingCommand:
     state = env.plane.get_run_billing_state(TENANT, RUN_ID)
+    assert state is not None
     return RunExecutionBindingCommand(
         tenant_id=TENANT, run_id=RUN_ID, wave_id=dispatch.wave_id,
         dispatch_id=dispatch.dispatch_id, generation=dispatch.generation,
@@ -252,6 +253,7 @@ def claim_unit(
 def finish_wave(env: RevEnv, dispatch: RunDispatch) -> None:
     for unit_id in dispatch.unit_ids:
         claimed = claim_unit(env, dispatch, unit_id)
+        assert claimed is not None
         output = ManifestRef(
             manifest_id=f"out-{unit_id}",
             manifest_key=f"raw/{TENANT}/CNES/2026-08/out-{unit_id}/manifest.json",
@@ -275,6 +277,8 @@ def finish_wave(env: RevEnv, dispatch: RunDispatch) -> None:
 def revoke_command(env: RevEnv, run_id: str = RUN_ID, **changes: Any) -> RevokeRunCommand:
     state = env.store.get_run_billing_state(TENANT, run_id)
     run = env.store.get_run(TENANT, run_id)
+    assert state is not None
+    assert run is not None
     command = RevokeRunCommand(
         tenant_id=TENANT, run_id=run_id, expected_state=run.state,
         expected_fencing_token=state.fencing_token, reason_code="revoked",
@@ -342,6 +346,7 @@ def get_raw(env: RevEnv, key: tuple[str, str]) -> dict[str, Any] | None:
 
 def put_run_state(env: RevEnv, state: RunState, run_id: str = RUN_ID) -> None:
     run = env.store.get_run(TENANT, run_id)
+    assert run is not None
     env.client.put_item(TableName=env.table, Item=run_item(run.model_copy(update={"state": state})))
 
 
@@ -351,21 +356,27 @@ def stored_dispatch(env: RevEnv) -> RunDispatch | None:
 
 
 def stored_run(env: RevEnv, run_id: str = RUN_ID) -> Run:
-    return Run.model_validate_json(get_raw(env, run_entity_key(TENANT, run_id))["payload"]["S"])
+    item = get_raw(env, run_entity_key(TENANT, run_id))
+    assert item is not None
+    return Run.model_validate_json(item["payload"]["S"])
 
 
 def lookup_period(env: RevEnv, run_id: str = RUN_ID) -> datetime:
     item = get_raw(env, run_lookup_key(ACCOUNT, TENANT, run_id))
+    assert item is not None
     return datetime.fromisoformat(json.loads(item["payload"]["S"])["period_start"])
 
 
 def stored_reservation(env: RevEnv, run_id: str = RUN_ID) -> QuotaReservation:
     key = reservation_key(ACCOUNT, lookup_period(env, run_id), f"res-{run_id}")
-    return decode_reservation(get_raw(env, key))[0]
+    item = get_raw(env, key)
+    assert item is not None
+    return decode_reservation(item)[0]
 
 
 def usage_counters(env: RevEnv, run_id: str = RUN_ID) -> dict[str, int]:
     item = get_raw(env, usage_key(ACCOUNT, lookup_period(env, run_id)))
+    assert item is not None
     return {name: int(value["N"]) for name, value in item.items() if "N" in value}
 
 
@@ -392,6 +403,7 @@ def three_wave_revocation(env: RevEnv) -> None:
 
     fenced = fence(env)
     active = env.store.get_active_run_dispatch(TENANT, RUN_ID)
+    assert active is not None
     assert (active.dispatch_id, active.execution_ref, active.generation) == (
         third.dispatch_id, "exec-3", 3
     )
@@ -409,11 +421,13 @@ def three_wave_revocation(env: RevEnv) -> None:
     assert audited["unit-norm"].dispatch_id == first.dispatch_id
     assert audited["unit-recon"].dispatch_id == second.dispatch_id
     dispatch = stored_dispatch(env)
+    assert dispatch is not None
     assert dispatch.dispatch_id == third.dispatch_id
     assert (dispatch.state, dispatch.terminal_outcome) == (
         DispatchState.TERMINAL, DispatchOutcome.CANCELED
     )
     state = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert state is not None
     assert (state.cancel_requested, state.fencing_token) == (True, 1)
     assert (state.execution_dispatch_id, state.execution_ref) == (third.dispatch_id, "exec-3")
     assert (state.execution_status, state.execution_terminal_outcome) == (

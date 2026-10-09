@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from io import BytesIO
 from threading import Barrier
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -115,7 +115,10 @@ def _semear(store: FilesystemObjectStore, run_id: str) -> _Publicacao:
         row_count=10, created_at=_NOW,
     )
     prefix = unit_attempt_prefix(
-        SimpleNamespace(tenant_id=_TENANT, run_id=run_id, unit_id="unit-m", attempt=1)
+        cast(
+            "RunUnit",
+            SimpleNamespace(tenant_id=_TENANT, run_id=run_id, unit_id="unit-m", attempt=1),
+        )
     )
     source_key = attempt_object_key(prefix, object_key)
     store.put(source_key, BytesIO(body), digest)
@@ -218,7 +221,9 @@ def test_falha_antes_do_cas_preserva_o_ponteiro_ativo(tmp_path: Path) -> None:
         publisher.publish(request_b)
 
     assert adapter.get_dataset_pointer(_TENANT, "gold") == resultado_a.pointer
-    assert adapter.get_run(_TENANT, run_id_b).state is RunState.PUBLISHING
+    stored = adapter.get_run(_TENANT, run_id_b)
+    assert stored is not None
+    assert stored.state is RunState.PUBLISHING
     assert adapter.get_dataset_version(_TENANT, "gold", run_id_b) is None
     pending = adapter.pending_outbox(10)
     assert len(pending) == 1
@@ -227,4 +232,6 @@ def test_falha_antes_do_cas_preserva_o_ponteiro_ativo(tmp_path: Path) -> None:
     resultado_b = publisher.publish(request_b)
 
     assert resultado_b.pointer.version_id == run_id_b
-    assert adapter.get_run(_TENANT, run_id_b).state is RunState.PUBLISHED
+    stored = adapter.get_run(_TENANT, run_id_b)
+    assert stored is not None
+    assert stored.state is RunState.PUBLISHED

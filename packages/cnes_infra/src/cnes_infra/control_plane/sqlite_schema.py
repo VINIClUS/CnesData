@@ -450,7 +450,7 @@ def is_network_filesystem(path: Path) -> bool:
     except OSError:
         return False
     resolved = path.resolve()
-    matches = []
+    matches: list[tuple[int, str]] = []
     for line in mounts:
         fields = line.split()
         if len(fields) >= 3 and resolved.is_relative_to(Path(fields[1])):

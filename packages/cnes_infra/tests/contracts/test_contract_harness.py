@@ -1,7 +1,7 @@
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -102,6 +102,7 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         invalid = job is None or job.state is not JobState.LEASED
         if invalid or agent is None or agent.state is AgentState.REVOKED:
             raise LeaseLost(ErrorCode.JOB_NOT_LEASED)
+        assert job is not None
         if job.lease_owner != command.owner:
             raise LeaseLost(ErrorCode.OWNER_MISMATCH)
         if job.fencing_token != command.fencing_token:
@@ -134,7 +135,7 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         return failed
 
     def complete_job(self, command: Any, event: Any) -> Any:
-        current = self.get_job(command.tenant_id, command.job_id)
+        current = cast("Any", self.get_job(command.tenant_id, command.job_id))
         if self.mutation == "authorization_jobs" and current.lease_until <= self.clock.now():
             self.raw_records.append(command.manifest)
             self.outbox[event.event_id] = event

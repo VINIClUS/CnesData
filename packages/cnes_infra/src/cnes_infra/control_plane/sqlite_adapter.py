@@ -32,7 +32,7 @@ from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 from cnes_infra.control_plane.sqlite_billing import SQLiteBillingMixin
 from cnes_infra.control_plane.sqlite_raw_registration import SQLiteRawRegistrationQueries
 from cnes_infra.control_plane.sqlite_schema import (
-    _SQLiteWALUnavailable,
+    _SQLiteWALUnavailable,  # pyright: ignore[reportPrivateUsage]
     deserialize_model,
     initialize_schema,
     is_network_filesystem,
@@ -41,7 +41,7 @@ from cnes_infra.control_plane.sqlite_schema import (
 from cnes_infra.control_plane.sqlite_tenants import SQLiteBilledTenantMixin
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
 
     from cnes_domain.control_plane.commands import (
         BeginIdempotency,
@@ -138,7 +138,7 @@ class SQLiteControlPlane(
             raise _SQLiteFilesystemError("sqlite_filesystem") from error
 
     @contextmanager
-    def read_connection(self) -> Iterator[sqlite3.Connection]:
+    def read_connection(self) -> Generator[sqlite3.Connection]:
         try:
             connection = self._connect()
         except sqlite3.Error as error:
@@ -149,7 +149,7 @@ class SQLiteControlPlane(
             connection.close()
 
     @contextmanager
-    def write_transaction(self) -> Iterator[sqlite3.Connection]:
+    def write_transaction(self) -> Generator[sqlite3.Connection]:
         with self.read_connection() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -257,7 +257,9 @@ class SQLiteControlPlane(
                 serialize_model(job),
             ),
         )
-    def put_outbox_event(self, connection, event: OutboxEvent, tenant_id: str) -> None:
+    def put_outbox_event(
+        self, connection: sqlite3.Connection, event: OutboxEvent, tenant_id: str,
+    ) -> None:
         if event.tenant_id != tenant_id:
             raise Conflict(ErrorCode.OUTBOX_EVENT_TENANT_MISMATCH)
         if event.delivered_at is not None:

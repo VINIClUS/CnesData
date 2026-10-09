@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 _FONTE_LOCAL: str = "LOCAL"
 
-_MAP_PROFISSIONAL_RAW: dict[str, str] = {
+MAP_PROFISSIONAL_RAW: dict[str, str] = {
     "CPF_PROF": "CPF",
     "COD_CNS": "CNS",
     "NOME_PROF": "NOME_PROFISSIONAL",
@@ -47,7 +47,7 @@ _MAP_EQUIPE_RAW: dict[str, str] = {
 }
 
 
-def _normalizar_nfkd(serie: pl.Expr) -> pl.Expr:
+def normalizar_nfkd(serie: pl.Expr) -> pl.Expr:
     return serie.map_elements(
         lambda v: unicodedata.normalize("NFKD", v) if v else v,
         return_dtype=pl.Utf8,
@@ -68,16 +68,16 @@ class CnesLocalAdapter:
         """
         df = self._df.clone()
         df = df.rename(
-            {k: v for k, v in _MAP_PROFISSIONAL_RAW.items() if k in df.columns},
+            {k: v for k, v in MAP_PROFISSIONAL_RAW.items() if k in df.columns},
         )
         df = df.with_columns(
             pl.col("CPF").cast(pl.Utf8).str.strip_chars(),
             pl.col("CNS").cast(pl.Utf8).str.strip_chars(),
             pl.col("CNES").cast(pl.Utf8).str.strip_chars().str.pad_start(7, "0"),
-            _normalizar_nfkd(pl.col("NOME_PROFISSIONAL")).alias(
+            normalizar_nfkd(pl.col("NOME_PROFISSIONAL")).alias(
                 "NOME_PROFISSIONAL",
             ),
-            _normalizar_nfkd(pl.col("NOME_SOCIAL")).alias("NOME_SOCIAL"),
+            normalizar_nfkd(pl.col("NOME_SOCIAL")).alias("NOME_SOCIAL"),
             pl.lit(_FONTE_LOCAL).alias("FONTE"),
         )
         df = df.drop("ESTABELECIMENTO", "TIPO_UNIDADE", "COD_MUNICIPIO")

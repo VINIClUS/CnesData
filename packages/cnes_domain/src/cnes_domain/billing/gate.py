@@ -48,7 +48,7 @@ def _counts_denials(method: Callable[..., Any]) -> Callable[..., Any]:
         try:
             return method(self, *args, **kwargs)
         except EntitlementDenied as error:
-            self._count_denial(error)
+            self._count_denial(error)  # pyright: ignore[reportPrivateUsage]
             raise
 
     return wrapper

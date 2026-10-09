@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -34,6 +35,9 @@ from tests.integration.billing._execution_stack import (
     seed_run_without_companion,
 )
 
+if TYPE_CHECKING:
+    from cnes_domain.billing.execution import RunExecutionPermit
+
 SQLITE_DISABLED = Case("sqlite-disabled", dynamo=False, stripe=False)
 DYNAMO_DISABLED = Case("dynamodb-disabled", dynamo=True, stripe=False)
 DYNAMO_STRIPE = Case("dynamodb-stripe", dynamo=True, stripe=True)
@@ -42,7 +46,7 @@ MATRIX = [
     pytest.param(DYNAMO_DISABLED, id=DYNAMO_DISABLED.name),
     pytest.param(DYNAMO_STRIPE, id=DYNAMO_STRIPE.name),
 ]
-DISABLED_ONLY = [param for param in MATRIX if not param.values[0].stripe]
+DISABLED_ONLY = [param for param in MATRIX if not cast("Case", param.values[0]).stripe]
 WAVE_COUNT = 3
 
 
@@ -103,9 +107,9 @@ def test_tres_ondas_geram_tres_bindings_encadeados_do_companion(stack: Stack) ->
         resume(stack)
         bindings.append(binding_of(stack))
         assert binding_of(stack)[1:] == (
-            active_dispatch(stack).dispatch_id,
-            active_dispatch(stack).generation,
-            active_dispatch(stack).execution_ref,
+            cast("RunDispatch", active_dispatch(stack)).dispatch_id,
+            cast("RunDispatch", active_dispatch(stack)).generation,
+            cast("RunDispatch", active_dispatch(stack)).execution_ref,
         )
         complete_wave(stack)
 
@@ -123,7 +127,7 @@ def test_cada_binding_espera_o_anterior_e_o_callback_recebe_o_mesmo_permit(
 
     for index in range(WAVE_COUNT):
         resume(stack)
-        context = stack.recorder.returned[index].binding_context
+        context = cast("RunExecutionPermit", stack.recorder.returned[index].binding_context)
         assert (context.expected_previous_dispatch_id, context.expected_previous_execution_ref) == (
             previous
         )
@@ -205,6 +209,7 @@ def test_retomada_apos_bind_falho_reserva_geracao_seguinte_sem_unidade_reivindic
     resume(stack)
 
     retry = active_dispatch(stack)
+    assert retry is not None
     assert retry.state is DispatchState.STARTED
     assert retry.dispatch_id != first_dispatch_id
     assert retry.generation == 2
@@ -250,7 +255,7 @@ def test_desabilitado_sem_companion_executa_com_permit_sem_medicao(
         (permit,) = stack.recorder.returned
         assert result.execution_ref is not None
         assert len(stack.executor.started) == 1
-        assert permit.binding_context.expected_entitlement_version == 1
+        assert cast("RunExecutionPermit", permit.binding_context).expected_entitlement_version == 1
         assert permit.fencing_token == 0
         assert stack.recorder.seen == [permit]
         assert billing_state(stack) is None

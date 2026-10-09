@@ -1,6 +1,6 @@
 """Testes da varredura de revogações pendentes (revoke-pending)."""
 
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import pytest
@@ -160,5 +160,5 @@ def test_cursor_da_varredura_usa_chave_propria_sem_tocar_a_reconciliacao() -> No
         reconcile_item = client.get_item(
             TableName=TABLE_NAME, Key=item_key(*stripe_reconciliation_cursor_key()),
         )
-    assert sweep_item["Item"]["position"] == {"S": "ba_07"}
+    assert cast("Any", sweep_item)["Item"]["position"] == {"S": "ba_07"}
     assert "Item" not in reconcile_item

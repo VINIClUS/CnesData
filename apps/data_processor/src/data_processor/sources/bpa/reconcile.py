@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
@@ -18,8 +18,14 @@ from data_processor.sources.bpa.contract import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from polars._typing import ColumnNameOrSelector, PolarsDataType
+
     from cnes_contracts.manifests.processing import ReconcileRequest
     from cnes_domain.ports.object_store import ObjectStorePort
+
+    type _CastSchema = Mapping[ColumnNameOrSelector | PolarsDataType, PolarsDataType]
 
 _GROUP_KEY = ("competencia", "cnes", "sigtap", "cbo", "file_subtype")
 _RECONCILIATION_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
@@ -91,7 +97,7 @@ def _aggregate(data: pl.DataFrame, tenant_id: str) -> pl.DataFrame:
     grouped = grouped.with_columns(pl.lit(tenant_id).alias("tenant_id"))
     return (
         grouped.select(list(_RECONCILIATION_SCHEMA))
-        .cast(_RECONCILIATION_SCHEMA)
+        .cast(cast("_CastSchema", _RECONCILIATION_SCHEMA))
         .sort(list(_GROUP_KEY), nulls_last=True)
     )
 
@@ -109,7 +115,7 @@ def _divergences(
     )
     return (
         joined.select(list(_DIVERGENCE_SCHEMA))
-        .cast(_DIVERGENCE_SCHEMA)
+        .cast(cast("_CastSchema", _DIVERGENCE_SCHEMA))
         .sort(["file_subtype", "source_record_id", "field", "code"])
     )
 

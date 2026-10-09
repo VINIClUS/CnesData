@@ -44,9 +44,9 @@ AFTER_IDEMPOTENCY = IDEMPOTENCY_TTL + timedelta(minutes=1)
 
 
 class _AfterCancellation:
-    def __init__(self, inner: Any, hook: Callable[[], None]) -> None:
+    def __init__(self, inner: Any, hook: Callable[[], object]) -> None:
         self._inner = inner
-        self._hook: Callable[[], None] | None = hook
+        self._hook: Callable[[], object] | None = hook
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -61,7 +61,7 @@ class _AfterCancellation:
             raise
 
 
-def _after_cancellation(env: QuotaEnv, hook: Callable[[], None]) -> DynamoQuotaReservations:
+def _after_cancellation(env: QuotaEnv, hook: Callable[[], object]) -> DynamoQuotaReservations:
     return DynamoQuotaReservations(_AfterCancellation(env.client, hook), TABLE_NAME, env.clock.now)
 
 

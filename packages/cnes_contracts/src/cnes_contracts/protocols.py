@@ -1,7 +1,7 @@
 """PEP 544 Protocols for domain ports."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from datetime import date
@@ -23,14 +23,14 @@ class DimLookupPort(Protocol):
 
 class RowMapperPort(Protocol):
 
-    def map_vinculo(self, row: dict) -> VinculoCNES: ...
+    def map_vinculo(self, row: dict[str, Any]) -> VinculoCNES: ...
 
 
 class ExtractionRepoPort(Protocol):
 
     def enqueue(
         self, engine: Engine, *, tenant_id: str, source_type: str,
-        competencia: date, files: list[dict],
+        competencia: date, files: list[dict[str, Any]],
         depends_on: list[UUID] | None = None,
     ) -> UUID: ...
 
@@ -39,7 +39,7 @@ class ExtractionRepoPort(Protocol):
     ) -> ClaimedExtraction | None: ...
 
     def register(
-        self, engine: Engine, *, job_id: UUID, files: list[dict],
+        self, engine: Engine, *, job_id: UUID, files: list[dict[str, Any]],
         agent_version: str | None = None,
         machine_id: str | None = None,
     ) -> UUID | None: ...

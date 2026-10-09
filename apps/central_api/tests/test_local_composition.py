@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
+from typing import Any, cast
 
 import pytest
 
@@ -76,7 +77,7 @@ def test_executor_local_rejeita_execucao_de_unit_no_processo_da_api(tmp_path):
     runtime = build_local_runtime(_settings(tmp_path), _utc_now)
 
     with pytest.raises(NotImplementedError, match="processor_owns_unit_execution"):
-        runtime.executor._handler(object())
+        cast("Any", runtime.executor)._handler(object())
 
 
 def test_local_runtime_deixa_dispatch_para_o_processor(tmp_path):

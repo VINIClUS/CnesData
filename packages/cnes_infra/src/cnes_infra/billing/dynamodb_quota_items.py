@@ -139,16 +139,15 @@ def _tenant_of(item: Item, entity: str) -> str:
 
 
 def _quota_reservation(data: dict[str, Any]) -> QuotaReservation:
-    return QuotaReservation(
-        **{
-            **data,
-            "kind": ReservationKind(data["kind"]),
-            "status": ReservationStatus(data["status"]),
-            "period_start": _when(data["period_start"]),
-            "created_at": _when(data["created_at"]),
-            "expires_at": _when(data["expires_at"]),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "kind": ReservationKind(data["kind"]),
+        "status": ReservationStatus(data["status"]),
+        "period_start": _when(data["period_start"]),
+        "created_at": _when(data["created_at"]),
+        "expires_at": _when(data["expires_at"]),
+    }
+    return QuotaReservation(**values)
 
 
 def reservation_item_key(reservation: QuotaReservation) -> Key:
@@ -179,15 +178,14 @@ def decode_reservation(item: Item) -> tuple[QuotaReservation, str]:
 
 
 def _capacity_reservation(data: dict[str, Any]) -> CapacityReservation:
-    return CapacityReservation(
-        **{
-            **data,
-            "kind": CapacityKind(data["kind"]),
-            "status": ReservationStatus(data["status"]),
-            "created_at": _when(data["created_at"]),
-            "expires_at": _when(data["expires_at"]),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "kind": CapacityKind(data["kind"]),
+        "status": ReservationStatus(data["status"]),
+        "created_at": _when(data["created_at"]),
+        "expires_at": _when(data["expires_at"]),
+    }
+    return CapacityReservation(**values)
 
 
 def encode_capacity_reservation(reservation: CapacityReservation, tenant_id: str) -> Item:
@@ -211,26 +209,27 @@ def decode_capacity_reservation(item: Item) -> tuple[CapacityReservation, str]:
 
 
 def _run_authorization(data: dict[str, Any]) -> RunAuthorization:
-    return RunAuthorization(**{**data, "authorized_at": _when(data["authorized_at"])})
+    values: dict[str, Any] = {**data, "authorized_at": _when(data["authorized_at"])}
+    return RunAuthorization(**values)
 
 
 def _analytics_authorization(data: dict[str, Any]) -> AnalyticsAuthorization:
-    return AnalyticsAuthorization(**{**data, "authorized_at": _when(data["authorized_at"])})
+    values: dict[str, Any] = {**data, "authorized_at": _when(data["authorized_at"])}
+    return AnalyticsAuthorization(**values)
 
 
 def _run_billing_state(data: dict[str, Any]) -> RunBillingState:
     status = data["execution_status"]
     outcome = data["execution_terminal_outcome"]
-    return RunBillingState(
-        **{
-            **data,
-            "authorization": _run_authorization(data["authorization"]),
-            "execution_unit_ids": tuple(data["execution_unit_ids"]),
-            "execution_status": None if status is None else DispatchState(status),
-            "execution_terminal_outcome": None if outcome is None else DispatchOutcome(outcome),
-            "updated_at": _when(data["updated_at"]),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "authorization": _run_authorization(data["authorization"]),
+        "execution_unit_ids": tuple(data["execution_unit_ids"]),
+        "execution_status": None if status is None else DispatchState(status),
+        "execution_terminal_outcome": None if outcome is None else DispatchOutcome(outcome),
+        "updated_at": _when(data["updated_at"]),
+    }
+    return RunBillingState(**values)
 
 
 def encode_run_billing_state(state: RunBillingState) -> Item:
@@ -310,7 +309,7 @@ def snapshot_check(
 def _add_expression(deltas: Mapping[str, int]) -> tuple[str, dict[str, str], Item]:
     names = {"#entity": "entity"}
     values: Item = {":entity": _text(USAGE_ENTITY)}
-    clauses = []
+    clauses: list[str] = []
     for index, (attribute, delta) in enumerate(sorted(deltas.items())):
         names[f"#a{index}"] = attribute
         values[f":a{index}"] = _number(delta)

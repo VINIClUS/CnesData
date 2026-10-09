@@ -90,6 +90,7 @@ def test_stripe_request_rejected_e_tratado_como_retryable():
         with pytest.raises(RetryableBillingError) as raised:
             env.projector().process("evt_01")
         record = env.inbox.get_recovery_record("evt_01", _STRONG)
+        assert record is not None
         rows = env.failed_final_rows("evt_01", 1)
     assert raised.value.code == "stripe_request_rejected"
     assert raised.value.__cause__ is rejected

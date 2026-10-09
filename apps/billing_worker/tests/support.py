@@ -1,6 +1,8 @@
 """Ambiente e fakes compartilhados pelos testes do worker de billing."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any, Protocol, cast
 from unittest.mock import Mock
 
 from billing_worker.worker import BillingWorker, WorkerJobs
@@ -50,6 +52,16 @@ class Metrics:
         return [metric.value for metric in self.emitted if metric.name == name]
 
 
+class MockJobs(Protocol):
+    recovery: Mock
+    request: RecoveryRequest
+    reconciler: Mock
+    revocations: Mock
+    reservations: Mock
+    metrics: Metrics
+    clock: Callable[[], datetime]
+
+
 def env(**overrides: str) -> dict[str, str]:
     return {**STRIPE_ENV, **overrides}
 
@@ -68,7 +80,7 @@ def make_jobs(**overrides: object) -> WorkerJobs:
     revocations.run.return_value = SWEPT
     reservations = Mock()
     reservations.reconcile_expired_reservations.return_value = RELEASED
-    values: dict[str, object] = {
+    values: dict[str, Any] = {
         "recovery": recovery,
         "request": RecoveryRequest(72, 100),
         "reconciler": reconciler,
@@ -81,6 +93,6 @@ def make_jobs(**overrides: object) -> WorkerJobs:
     return WorkerJobs(**values)
 
 
-def make_worker(**overrides: object) -> tuple[BillingWorker, WorkerJobs]:
+def make_worker(**overrides: object) -> tuple[BillingWorker, MockJobs]:
     jobs = make_jobs(**overrides)
-    return BillingWorker(jobs), jobs
+    return BillingWorker(jobs), cast("MockJobs", jobs)

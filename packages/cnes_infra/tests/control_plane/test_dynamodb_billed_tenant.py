@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from botocore.exceptions import ClientError
@@ -223,7 +223,7 @@ def test_tenant_existente_conflita(env: Env) -> None:
         env.plane.create_billed_tenant(env.command(reservation_id))
 
     assert env.reservation(reservation_id).status is ReservationStatus.RESERVED
-    assert env.plane.get_tenant(NEW).municipality_name == "Antigo"
+    assert cast("Any", env.plane.get_tenant(NEW)).municipality_name == "Antigo"
     assert env.stored(idempotency_key(NEW, TENANT_SCOPE, "bt-01")) is None
 
 

@@ -82,7 +82,7 @@ def _require_session_token(request: Request) -> str:
 
 
 @router.post("/local/login", response_model=PrincipalResponse)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute")  # pyright: ignore[reportUnknownMemberType, reportUntypedFunctionDecorator]
 def login(
     body: LoginRequest,
     request: Request,

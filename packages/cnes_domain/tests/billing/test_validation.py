@@ -6,6 +6,7 @@ import pickle
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta, timezone
+from typing import cast
 
 import pytest
 
@@ -168,7 +169,12 @@ def test_mapa_congelado_sobrevive_a_asdict() -> None:
     class _Holder:
         values: validation.FrozenMapping
 
-    holder = _Holder(validation.freeze_dimensions({"plan": "pro"}, "dimensions"))
+    holder = _Holder(
+        cast(
+            "validation.FrozenMapping",
+            validation.freeze_dimensions({"plan": "pro"}, "dimensions"),
+        )
+    )
     assert asdict(holder) == {"values": {"plan": "pro"}}
     assert json.dumps(asdict(holder)) == '{"values": {"plan": "pro"}}'
 
@@ -189,7 +195,9 @@ def test_mapa_congelado_sobrevive_a_asdict() -> None:
 def test_mapa_congelado_rejeita_mutacao(
     mutate: Callable[[validation.FrozenMapping], object],
 ) -> None:
-    frozen = validation.freeze_attributes({"a": "x"}, "attributes")
+    frozen = cast(
+        "validation.FrozenMapping", validation.freeze_attributes({"a": "x"}, "attributes")
+    )
     with pytest.raises(TypeError, match="reason=immutable_mapping"):
         mutate(frozen)
     assert frozen == {"a": "x"}

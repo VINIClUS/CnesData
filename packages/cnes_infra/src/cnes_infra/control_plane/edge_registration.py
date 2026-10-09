@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cnes_domain.control_plane.entities import Agent, IdempotencyRecord
 from cnes_domain.control_plane.enums import AgentState
@@ -27,7 +27,12 @@ from cnes_infra.control_plane.edge_capacity import (
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
 if TYPE_CHECKING:
+    import sqlite3
+    from collections.abc import Callable
+    from contextlib import AbstractContextManager
     from datetime import datetime
+
+    from cnes_infra.control_plane.dynamodb_codec import Action
 
 EDGE_AGENT_SCOPE = "edge_agent.register"
 _IDEMPOTENCY_TTL = timedelta(days=1)
@@ -86,6 +91,13 @@ def edge_agent(current: Agent | None, tenant_id: str, agent_id: str,
 
 
 class DynamoEdgeRegistrationMixin:
+    if TYPE_CHECKING:
+        _table_name: str
+        _clock: Callable[[], datetime]
+
+        def _get_item(self, key: tuple[str, str], /) -> Item | None: ...
+        def _transact(self, actions: tuple[Action, ...], /) -> None: ...
+
     def register_edge_agent(
         self, tenant_id: str, agent_id: str, fingerprint: str, now: datetime
     ) -> Agent:
@@ -141,12 +153,12 @@ class DynamoEdgeRegistrationMixin:
         from cnes_domain.billing.errors import RetryableBillingError
         from cnes_infra.billing.keys import capacity_reservation_key
 
-        fence = command.fence
+        fence = cast("EntitlementFence", command.fence)
         item = self._get_item(capacity_reservation_key(fence.billing_account_id,
                                                        command.reservation_id))
         if not usable_agent_reservation(item, command, now):
             raise RetryableBillingError(RESERVATION_EXPIRED)
-        return item
+        return cast("Item", item)
 
     def _creation_item(self, command: NewEdgeAgent) -> Item:
         record = _creation_record(command)
@@ -190,6 +202,12 @@ class DynamoEdgeRegistrationMixin:
 
 
 class SQLiteEdgeRegistrationMixin:
+    if TYPE_CHECKING:
+        def write_transaction(self) -> AbstractContextManager[sqlite3.Connection]: ...
+        def get_agent_record(
+            self, connection: sqlite3.Connection, tenant_id: str, agent_id: str
+        ) -> Agent | None: ...
+
     def register_edge_agent(
         self, tenant_id: str, agent_id: str, fingerprint: str, now: datetime
     ) -> Agent:

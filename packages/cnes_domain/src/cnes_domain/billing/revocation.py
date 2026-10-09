@@ -77,7 +77,7 @@ class _Context:
     fenced: list[str]
     failures: list[str]
     guarded: bool = False
-    failed: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list[str])
 
 
 class ImmediateRevocationService:

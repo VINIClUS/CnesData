@@ -1,7 +1,7 @@
 """Reserva atômica de checkout pendente por conta de billing."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
@@ -45,7 +45,7 @@ def _release_quietly(catalog: BillingCatalogPort, reservation: PendingCheckout) 
 @contextmanager
 def pending_checkout(
     catalog: BillingCatalogPort, account_id: str, request_key: str, expires_at: datetime,
-) -> Iterator[PendingCheckout]:
+) -> Generator[PendingCheckout]:
     """Reserva o checkout da conta; libera só a reserva criada aqui, antes da sessão."""
     command = ReservePendingCheckoutCommand(account_id, request_key, expires_at)
     reservation = catalog.reserve_pending_checkout(command)

@@ -3,7 +3,7 @@
 import threading
 from concurrent.futures import Future
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import pytest
@@ -54,7 +54,7 @@ class _GatedClient:
             try:
                 return self._inner.put_item(**kwargs)
             except ClientError as error:
-                if error.response["Error"]["Code"] == CONDITIONAL_FAILED:
+                if cast("dict[str, Any]", error.response)["Error"]["Code"] == CONDITIONAL_FAILED:
                     self.conditional_failures += 1
                 raise
 

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -69,7 +70,7 @@ def test_cria_tenant_com_idempotencia_e_outbox(plane: SQLiteControlPlane) -> Non
 
     assert created == command.tenant
     assert plane.get_tenant(NEW) == command.tenant
-    record = IdempotencyRecord.model_validate_json(stored_record(plane))
+    record = IdempotencyRecord.model_validate_json(cast("str", stored_record(plane)))
     assert (record.status, record.resource_id) == ("COMPLETED", NEW)
     assert record.request_hash == billed_tenant_digest(command)
     assert record.expires_at == NOW + timedelta(days=1)
@@ -126,9 +127,9 @@ def test_idempotencia_expirada_e_sobrescrita(
 
     plane.create_billed_tenant(make_command(name="Outro Municipio"))
 
-    record = IdempotencyRecord.model_validate_json(stored_record(plane))
+    record = IdempotencyRecord.model_validate_json(cast("str", stored_record(plane)))
     assert record.expires_at == NOW + timedelta(days=3)
-    assert plane.get_tenant(NEW).municipality_name == "Outro Municipio"
+    assert cast("Any", plane.get_tenant(NEW)).municipality_name == "Outro Municipio"
 
 
 def test_tenant_existente_conflita(plane: SQLiteControlPlane) -> None:
@@ -137,7 +138,7 @@ def test_tenant_existente_conflita(plane: SQLiteControlPlane) -> None:
     with pytest.raises(BillingTenantConflict, match=f"tenant_id={NEW}"):
         plane.create_billed_tenant(make_command())
 
-    assert plane.get_tenant(NEW).municipality_name == "Antigo"
+    assert cast("Any", plane.get_tenant(NEW)).municipality_name == "Antigo"
     assert stored_record(plane) is None
     assert plane.pending_outbox(10) == ()
 

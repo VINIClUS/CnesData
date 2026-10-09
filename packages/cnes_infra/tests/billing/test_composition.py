@@ -3,6 +3,7 @@
 import logging
 import subprocess
 import sys
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -74,7 +75,7 @@ def test_stripe_cria_provider_com_client_secrets_manager(session_spy) -> None:
 
 def test_modo_desconhecido_rejeita_sem_chamar_sessao(session_spy) -> None:
     with pytest.raises(BillingConfigurationError) as caught:
-        build_secret_provider("other", session_spy)
+        build_secret_provider(cast("BillingMode", "other"), session_spy)
     assert caught.value.code == "billing_mode_unknown"
     session_spy.client.assert_not_called()
 
@@ -167,7 +168,7 @@ def test_build_stripe_monta_adapters_com_mesmo_storage_e_clock() -> None:
     assert isinstance(components.catalog, DynamoBillingCatalog)
     assert isinstance(components.projection, DynamoEntitlementProjection)
     assert isinstance(components.inbox, WebhookInbox)
-    assert components.gateway._plans is components.catalog
+    assert cast("Any", components.gateway)._plans is components.catalog
     for adapter in (components.catalog, components.projection, components.inbox):
         assert adapter._client is storage.client
         assert adapter._clock is clock
@@ -175,10 +176,10 @@ def test_build_stripe_monta_adapters_com_mesmo_storage_e_clock() -> None:
     assert deps.clock is clock
     assert deps.inbox is components.inbox
     assert deps.stripe is components.gateway
-    assert deps.cursor._clock is clock
-    assert deps.cursor._client is storage.client
-    assert deps.projector._deps.clock is clock
-    assert deps.projector._deps.projection is components.projection
+    assert cast("Any", deps.cursor)._clock is clock
+    assert cast("Any", deps.cursor)._client is storage.client
+    assert cast("Any", deps.projector)._deps.clock is clock
+    assert cast("Any", deps.projector)._deps.projection is components.projection
     assert isinstance(components.audit, DynamoBillingAudit)
     assert components.audit._client is storage.client
     assert components.audit._table_name == storage.table_name
@@ -225,5 +226,5 @@ def test_build_webhook_recovery_propaga_o_enforcer_ao_projetor() -> None:
         components.projection, clock, enforcer,
     )
     recovery = build_webhook_recovery(storage, dependencies)
-    assert recovery._deps.projector._deps.enforcer is enforcer
-    assert recovery._deps.cursor._client is storage.client
+    assert cast("Any", recovery._deps.projector)._deps.enforcer is enforcer
+    assert cast("Any", recovery._deps.cursor)._client is storage.client

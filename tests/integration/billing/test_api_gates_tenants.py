@@ -56,12 +56,15 @@ def test_cria_tenant_com_links_e_reserva_consumida(stack: ApiStack) -> None:
     catalog = DynamoBillingCatalog(stack.client, TABLE_NAME, stack.clock.now)
     forward = catalog.get_tenant_link(ACCOUNT, "novo-tenant", ReadConsistency.STRONG)
     reverse = catalog.get_tenant_account("novo-tenant", ReadConsistency.STRONG)
+    assert forward is not None
+    assert reverse is not None
     assert (forward.billing_account_id, reverse.billing_account_id) == (ACCOUNT, ACCOUNT)
     assert [r.status for r in capacity_reservations(stack)] == [ReservationStatus.CONSUMED]
     assert capacity_counter(stack, "tenant_count") == 1
 
 
 def test_criacao_de_tenant_e_link_rollbackam_juntos(stack: ApiStack) -> None:
+    assert stack.faulty is not None
     stack.faulty.fail_tenant_creation = True
     client = build_client(stack)
 
@@ -106,6 +109,7 @@ def test_link_inicial_da_conta_nao_consome_max_tenants(single_slot: ApiStack) ->
 
     initial = catalog.get_tenant_account("354130", ReadConsistency.STRONG)
 
+    assert initial is not None
     assert initial.billing_account_id == ACCOUNT
     assert capacity_counter(single_slot, "tenant_count") == 0
     assert create_tenant(build_client(single_slot), "tenant-um").status_code == 201

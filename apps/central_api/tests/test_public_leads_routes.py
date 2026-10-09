@@ -1,4 +1,5 @@
 """Tests for POST /api/v1/public/leads (unauthenticated lead capture)."""
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -12,6 +13,9 @@ from central_api.ratelimit import limiter, rate_limit_handler
 from central_api.repositories.leads_repo import LeadRecord
 from central_api.routes import public_leads
 from cnes_infra import config
+
+if TYPE_CHECKING:
+    from starlette.types import ExceptionHandler
 
 _URL = "/api/v1/public/leads"
 
@@ -38,7 +42,7 @@ def _build(repo: MagicMock, *, peer: str = "testclient") -> TestClient:
     app = FastAPI()
     app.state.leads_repo = repo
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+    app.add_exception_handler(RateLimitExceeded, cast("ExceptionHandler", rate_limit_handler))
     app.include_router(public_leads.router, prefix="/api/v1/public")
     return TestClient(app, client=(peer, 50000))
 

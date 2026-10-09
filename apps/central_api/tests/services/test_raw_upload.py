@@ -1,7 +1,9 @@
+from collections.abc import Buffer
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
 from threading import get_ident
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -24,12 +26,20 @@ from cnes_domain.control_plane.enums import JobState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.ports.object_store import ObjectStat
 
+if TYPE_CHECKING:
+    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.object_store import ObjectStorePort
+
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 KEY = "raw/354130/CNES_LOCAL/2026-07/snapshot-1/data.parquet"
 
 
-def job(**updates: object) -> Job:
-    values = {
+def ports(control: object, store: object) -> "tuple[ControlPlanePort, ObjectStorePort]":
+    return cast("ControlPlanePort", control), cast("ObjectStorePort", store)
+
+
+def job(**updates: Any) -> Job:
+    values: dict[str, Any] = {
         "tenant_id": "354130",
         "job_id": "job-1",
         "agent_id": "agent-1",
@@ -85,8 +95,8 @@ class ObjectStore:
         return ObjectStat(key, len(value), expected_sha256)
 
 
-def request(**updates: object) -> RawUploadRequest:
-    values = {
+def request(**updates: Any) -> RawUploadRequest:
+    values: dict[str, Any] = {
         "tenant_id": "354130",
         "agent_id": "agent-1",
         "job_id": "job-1",
@@ -103,7 +113,7 @@ async def chunks(*values: bytes):
 
 @pytest.mark.anyio
 async def test_upload_faz_stream_sem_carregar_payload_inteiro(monkeypatch) -> None:
-    writes: list[bytes] = []
+    writes: list[Buffer] = []
     write_threads: list[int] = []
     thresholds: list[int] = []
 
@@ -114,7 +124,7 @@ async def test_upload_faz_stream_sem_carregar_payload_inteiro(monkeypatch) -> No
         def __exit__(self, *_args):
             self.close()
 
-        def write(self, value: bytes) -> int:
+        def write(self, value: Buffer) -> int:
             writes.append(value)
             write_threads.append(get_ident())
             return super().write(value)
@@ -126,7 +136,7 @@ async def test_upload_faz_stream_sem_carregar_payload_inteiro(monkeypatch) -> No
 
     monkeypatch.setattr(raw_upload, "SpooledTemporaryFile", spool)
     store = ObjectStore()
-    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([job()]), store), lambda: NOW)
 
     result = await service.upload(request(), chunks(b"abc", b"def"))
 
@@ -141,7 +151,7 @@ async def test_upload_rejeita_mais_de_um_gibibyte(monkeypatch) -> None:
     assert RAW_UPLOAD_MAX_BYTES == 1024**3
     monkeypatch.setattr(raw_upload, "RAW_UPLOAD_MAX_BYTES", 5)
     store = ObjectStore()
-    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([job()]), store), lambda: NOW)
 
     with pytest.raises(RawUploadTooLarge, match="payload_too_large"):
         await service.upload(request(), chunks(b"123", b"456"))
@@ -152,7 +162,7 @@ async def test_upload_rejeita_mais_de_um_gibibyte(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_upload_rejeita_corpo_vazio_sem_publicar() -> None:
     store = ObjectStore()
-    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([job()]), store), lambda: NOW)
 
     with pytest.raises(RawUploadEmpty, match="payload_empty"):
         await service.upload(request(), chunks())
@@ -170,7 +180,7 @@ async def test_upload_publica_objeto_fora_da_thread_do_event_loop() -> None:
             return super().put(key, body, expected_sha256)
 
     store = ThreadRecordingStore()
-    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([job()]), store), lambda: NOW)
 
     await service.upload(request(), chunks(b"payload"))
 
@@ -189,7 +199,7 @@ async def test_upload_consulta_control_plane_fora_da_thread_do_event_loop() -> N
             return super().get_job(tenant_id, job_id)
 
     control = ThreadRecordingControlPlane([job()])
-    service = RawUploadService(control, ObjectStore(), lambda: NOW)
+    service = RawUploadService(*ports(control, ObjectStore()), lambda: NOW)
 
     await service.upload(request(), chunks(b"payload"))
 
@@ -200,7 +210,7 @@ async def test_upload_consulta_control_plane_fora_da_thread_do_event_loop() -> N
 async def test_upload_revalida_fence_antes_de_publicar() -> None:
     changed = job(fencing_token=8)
     store = ObjectStore()
-    service = RawUploadService(ControlPlane([job(), changed]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([job(), changed]), store), lambda: NOW)
 
     with pytest.raises(RawUploadFenceRejected, match="job_fence_rejected"):
         await service.upload(request(), chunks(b"payload"))
@@ -229,7 +239,7 @@ async def test_job_invalido_rejeita_antes_do_primeiro_byte(current, error) -> No
         yield b"payload"
 
     with pytest.raises(error):
-        await RawUploadService(ControlPlane([current]), ObjectStore(), lambda: NOW).upload(
+        await RawUploadService(*ports(ControlPlane([current]), ObjectStore()), lambda: NOW).upload(
             request(), body()
         )
 
@@ -250,7 +260,7 @@ async def test_job_invalido_rejeita_antes_do_primeiro_byte(current, error) -> No
 )
 async def test_upload_rejeita_chave_incompativel_antes_do_corpo(key: str) -> None:
     with pytest.raises(RawUploadKeyRejected, match="object_key_invalid"):
-        await RawUploadService(ControlPlane([job()]), ObjectStore(), lambda: NOW).upload(
+        await RawUploadService(*ports(ControlPlane([job()]), ObjectStore()), lambda: NOW).upload(
             request(object_key=key), chunks(b"payload")
         )
 
@@ -259,7 +269,7 @@ async def test_upload_rejeita_chave_incompativel_antes_do_corpo(key: str) -> Non
 async def test_replay_identico_retorna_stat_sem_nova_escrita() -> None:
     body = b"payload"
     store = ObjectStore({KEY: body})
-    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([job()]), store), lambda: NOW)
 
     result = await service.upload(request(), chunks(body))
 
@@ -278,7 +288,7 @@ async def test_replay_terminal_identico_retorna_stat_sem_nova_escrita() -> None:
         result_manifest_key="raw/354130/CNES_LOCAL/2026-07/snapshot-1/manifest.json",
     )
     store = ObjectStore({KEY: body})
-    service = RawUploadService(ControlPlane([terminal]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([terminal]), store), lambda: NOW)
 
     result = await service.upload(request(), chunks(body))
 
@@ -297,7 +307,7 @@ async def test_replay_resync_terminal_identico_retorna_stat() -> None:
         rejected_manifest_sha256="a" * 64,
     )
     store = ObjectStore({KEY: body})
-    service = RawUploadService(ControlPlane([terminal]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([terminal]), store), lambda: NOW)
 
     result = await service.upload(request(), chunks(body))
 
@@ -321,7 +331,7 @@ async def test_job_terminal_sem_objeto_rejeita_antes_do_primeiro_byte() -> None:
         consumed = True
         yield b"payload"
 
-    service = RawUploadService(ControlPlane([terminal]), ObjectStore(), lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([terminal]), ObjectStore()), lambda: NOW)
     with pytest.raises(RawUploadLeaseRejected, match="job_not_leased"):
         await service.upload(request(), body())
 
@@ -331,7 +341,7 @@ async def test_job_terminal_sem_objeto_rejeita_antes_do_primeiro_byte() -> None:
 @pytest.mark.anyio
 async def test_replay_divergente_preserva_objeto_anterior() -> None:
     store = ObjectStore({KEY: b"original"})
-    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([job()]), store), lambda: NOW)
 
     with pytest.raises(RawUploadConflict, match="object_conflict"):
         await service.upload(request(), chunks(b"different"))
@@ -350,12 +360,12 @@ async def test_corrida_de_publicacao_identica_retorna_objeto_vencedor() -> None:
                 return None
             return ObjectStat(key, len(body), sha256(body).hexdigest())
 
-        def put(self, key: str, stream, expected_sha256: str) -> ObjectStat:
+        def put(self, key: str, body, expected_sha256: str) -> ObjectStat:
             self.put_calls += 1
             raise Conflict("object=immutable")
 
     store = RacingStore()
-    service = RawUploadService(ControlPlane([job()]), store, lambda: NOW)
+    service = RawUploadService(*ports(ControlPlane([job()]), store), lambda: NOW)
 
     result = await service.upload(request(), chunks(body))
 

@@ -2,7 +2,7 @@
 
 import dataclasses
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import ClientError
 
@@ -178,7 +178,7 @@ class DynamoBillingCatalog(
         """
         if (
             isinstance(limit, bool)
-            or not isinstance(limit, int)
+            or not isinstance(cast("object", limit), int)
             or not 1 <= limit <= MAX_PAGE_LIMIT
         ):
             raise ValueError("limit=invalid")

@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn, Protocol, cast
 
 from central_api.auth.aws_oidc import MembershipAuthorizer
 from central_api.services.billing_gates import ApiBillingGates, TenantAccountResolver
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from cnes_domain.control_plane.entities import RawManifestRecord, Run
     from cnes_domain.orchestration.source_catalog import SourceCatalog
     from cnes_domain.ports.audit import AuditSinkPort
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.processing import (
         ExecutionPermit,
@@ -54,6 +54,9 @@ if TYPE_CHECKING:
     )
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.aws import AwsClients, AwsRuntimeComponents
+
+    class _RawQueryControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
+        pass
 
 _DEPLOYMENT_LIMIT = 4
 _DISPATCH_LEASE_SECONDS = 300
@@ -70,7 +73,7 @@ def noop_execution_started(
     del run, request, execution_ref, permit
 
 
-def _unit_execution_forbidden(message: object) -> None:
+def _unit_execution_forbidden(message: object) -> NoReturn:
     # central_api never executes units: a fabricated None/RunUnit handler would silently
     # mark work as CANCELED/SUCCEEDED through LocalWorkerPool.status. Raising keeps the
     # dispatch FAILED until CND-064 injects the real handler.
@@ -131,7 +134,8 @@ class RuntimeComponents:
 
 def _seed_tenant(control_plane: ControlPlanePort, settings: ProfileSettings, now: datetime) -> None:
     control_plane.put_tenant(Tenant(
-        tenant_id=settings.tenant_id, municipality_name=f"tenant-{settings.tenant_id}",
+        tenant_id=cast("str", settings.tenant_id),
+        municipality_name=f"tenant-{settings.tenant_id}",
         created_at=now,
     ))
 
@@ -194,7 +198,7 @@ def api_billing_gates(
     catalog = None
     if billing.enforced:
         client, table = resources.dynamodb_client, resources.table_name
-        catalog = DynamoBillingCatalog(client, table, resources.clock)
+        catalog = DynamoBillingCatalog(client, cast("str", table), resources.clock)
     accounts = TenantAccountResolver(mode, catalog)
     return ApiBillingGates(
         mode, enforcement.gate, enforcement.capacity, accounts, enforcement.audit,
@@ -231,15 +235,16 @@ def _build_aws_api_runtime(
     _validate_runtime(settings, clients)
     executor = StepFunctionsExecutor(clients.step_functions, settings.state_machine_arn)
     source_catalog = build_source_catalog()
+    control_plane = cast("_RawQueryControlPlane", core.control_plane)
     run_planning = RunPlanningService(
         RunPlanningDependencies(
-            control_plane=core.control_plane, object_store=core.object_store,
+            control_plane=control_plane, object_store=core.object_store,
             executor=executor, source_catalog=source_catalog,
         ),
         _execution_config(settings, clients, core, billing), _utc_now,
     )
     raw_ingestion = RawIngestionService(
-        core.control_plane, core.object_store, DeltaPolicy(),
+        control_plane, core.object_store, DeltaPolicy(),
         accepted_manifest=partial(_notify_accepted, run_planning),
     )
     gates = api_billing_gates(billing.settings, _gate_resources(settings, clients))

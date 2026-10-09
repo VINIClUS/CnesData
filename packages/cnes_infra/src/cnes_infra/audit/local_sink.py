@@ -11,7 +11,7 @@ from hashlib import sha256
 from itertools import groupby
 from pathlib import Path
 from secrets import token_hex
-from typing import TYPE_CHECKING, BinaryIO
+from typing import TYPE_CHECKING, BinaryIO, cast
 
 import polars as pl
 
@@ -24,7 +24,7 @@ else:
     import fcntl
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -115,7 +115,7 @@ def _batch_group(entry: _BatchEntry) -> tuple[str, str]:
 def _write_all(stream: BinaryIO, record: bytes) -> None:
     remaining = memoryview(record)
     while remaining:
-        written = stream.write(remaining)
+        written = cast("int | None", stream.write(remaining))
         if written is None or written <= 0:
             raise OSError("audit_write=incomplete")
         remaining = remaining[written:]
@@ -140,7 +140,7 @@ class LocalAuditSink:
             self._materialize_batches(database)
 
     def _ensure_audit_root(self) -> None:
-        missing = []
+        missing: list[Path] = []
         current = self._audit_root
         while not current.exists():
             missing.append(current)
@@ -150,7 +150,7 @@ class LocalAuditSink:
             self._fsync_directory(directory.parent)
 
     @contextmanager
-    def _locked(self) -> Iterator[None]:
+    def _locked(self) -> Generator[None]:
         with self._lock_path.open("a+b") as stream:
             if os.name == "nt":  # pragma: no cover - Windows smoke
                 stream.seek(0)
@@ -171,7 +171,7 @@ class LocalAuditSink:
                     fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
+    def _connect(self) -> Generator[sqlite3.Connection]:
         database = sqlite3.connect(self._database_path)
         try:
             database.execute("PRAGMA synchronous=FULL")
@@ -220,8 +220,9 @@ class LocalAuditSink:
             event = OutboxEvent.model_validate_json(body)
             valid = _canonical_event(event) == body and _log_path(event).as_posix() == relative
         except (ValueError, TypeError):
+            event = None
             valid = False
-        if not valid:
+        if event is None or not valid:
             raise ValueError("audit_record=invalid")
         return event, sha256(body).hexdigest()
 

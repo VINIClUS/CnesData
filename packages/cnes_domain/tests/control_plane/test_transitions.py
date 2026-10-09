@@ -1,6 +1,7 @@
 import ast
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -356,7 +357,7 @@ def test_publicacao_rejeita_evento_de_outro_aggregate() -> None:
         pytest.param({"value": {"nested": float("-inf")}}),
     ],
 )
-def test_outbox_rejeita_float_nao_finito(payload: dict[str, object]) -> None:
+def test_outbox_rejeita_float_nao_finito(payload: dict[str, Any]) -> None:
     with pytest.raises(ValidationError, match="non_finite_json_float"):
         OutboxEvent(
             tenant_id="354130",

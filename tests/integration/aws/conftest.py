@@ -9,7 +9,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -37,6 +37,8 @@ from tests.integration.aws._harness import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from boto3.session import Session
+
 _READY_TIMEOUT_SECONDS = 60
 _REGION = "us-east-1"
 _INDEXES = tuple(f"gsi{number}" for number in range(1, 7))
@@ -57,7 +59,7 @@ class _Endpoints:
 
 def _client(service: str, endpoint: str) -> Any:
     return boto3.client(
-        service, endpoint_url=endpoint, region_name=_REGION,
+        cast("Any", service), endpoint_url=endpoint, region_name=_REGION,
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "test"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "test"),
         config=Config(retries={"max_attempts": 2}),
@@ -183,8 +185,8 @@ def _build_runtime(
     session = new_session(resources)
     values = runtime_values(resources, overrides)
     return AwsTestRuntime(
-        api=build_runtime("aws", values, session),
-        processor=build_processor_runtime("aws", values, session),
+        api=build_runtime("aws", values, cast("Session", session)),
+        processor=build_processor_runtime("aws", values, cast("Session", session)),
         clock=clock, resources=resources, s3=session.client("s3"),
         step_functions=session.client("stepfunctions"), dynamodb=session.client("dynamodb"),
     )

@@ -27,8 +27,8 @@ from data_processor.sources.sia.normalize import normalize_sia
 from data_processor.sources.sia.reconcile import reconcile_sia
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
 
     from cnes_contracts.manifests.outputs import OutputManifest
     from cnes_contracts.manifests.processing import ReconcileResult

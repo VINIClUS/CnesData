@@ -52,7 +52,7 @@ def run_dependency_actions(
     if len(run.dependencies) + reserved_actions > 100:
         raise Conflict(ErrorCode.TRANSACTION_LIMIT)
     base_key = run_entity_key(run.tenant_id, run.run_id)
-    actions = []
+    actions: list[Action] = []
     for dependency in run.dependencies:
         values = (run.tenant_id, dependency.source_type,
                   dependency.file_subtype, run.competencia)

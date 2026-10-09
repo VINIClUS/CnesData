@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -68,7 +68,7 @@ def test_grava_somente_os_dois_documentos_de_serving(sia: SiaHarness) -> None:
 def test_documentos_declaram_dataset_sia(sia: SiaHarness) -> None:
     result = _materialize(sia)
 
-    assert {document.payload["dataset"] for document in result.documents} == {"sia"}
+    assert {cast("str", document.payload["dataset"]) for document in result.documents} == {"sia"}
 
 
 def test_serving_nao_contem_campo_da_deny_list(sia: SiaHarness) -> None:

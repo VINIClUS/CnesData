@@ -1,7 +1,7 @@
 """Três ondas lógicas, replay do mesmo dispatch e redispatch generation+1 no runtime AWS."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -31,6 +31,8 @@ from tests.integration.aws._harness import (
 )
 
 if TYPE_CHECKING:
+    from cnes_domain.ports.control_plane import ControlPlanePort
+    from data_processor.composition import AwsProcessorServices
     from tests.integration.aws._harness import AwsTestRuntime
 
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]
@@ -67,15 +69,15 @@ def test_terminal_sem_claim_retry_mantem_wave_e_avanca_dispatch(
     run = launch_frozen_cnes_run(aws_runtime)
     first = active_dispatch(aws_runtime, run)
     assert {unit.state for unit in units_of(aws_runtime, run)} == {RunUnitState.PENDING}
-    aws_runtime.step_functions.set_status(first.execution_ref, "FAILED")
+    aws_runtime.step_functions.set_status(cast("str", first.execution_ref), "FAILED")
 
-    aws_runtime.processor.services.recovery.run_once(limit=10)
+    cast("AwsProcessorServices", aws_runtime.processor.services).recovery.run_once(limit=10)
 
     retry = active_dispatch(aws_runtime, run)
     assert (retry.wave_id, retry.unit_ids) == (first.wave_id, first.unit_ids)
     assert retry.generation == first.generation + 1
     assert retry.dispatch_id != first.dispatch_id
-    assert execution_name(retry.execution_ref) == retry.dispatch_id
+    assert execution_name(cast("str", retry.execution_ref)) == retry.dispatch_id
     replay = next(
         request for request in recorded_start_requests(aws_runtime, run)
         if request.dispatch_id == retry.dispatch_id
@@ -91,7 +93,7 @@ def test_bind_dispatch_falha_cancela_ref_e_recovery_cria_geracao_nova(
         aws_runtime.processor.control_plane,
         FenceRejected(ControlPlaneErrorCode.DISPATCH_FENCE_REJECTED),
     )
-    coordinator = build_coordinator(aws_runtime, control_plane)
+    coordinator = build_coordinator(aws_runtime, cast("ControlPlanePort", control_plane))
     run = planned_run(aws_runtime)
 
     with pytest.raises(FenceRejected, match="dispatch_fence_rejected"):
@@ -105,7 +107,7 @@ def test_bind_dispatch_falha_cancela_ref_e_recovery_cria_geracao_nova(
     assert (failed.state, failed.terminal_outcome, failed.execution_ref) == (
         DispatchState.TERMINAL, DispatchOutcome.CANCELED, None,
     )
-    aws_runtime.processor.services.recovery.run_once(limit=10)
+    cast("AwsProcessorServices", aws_runtime.processor.services).recovery.run_once(limit=10)
     recovered = active_dispatch(aws_runtime, run)
     assert (recovered.wave_id, recovered.generation) == (failed.wave_id, failed.generation + 1)
     assert recovered.dispatch_id != failed.dispatch_id

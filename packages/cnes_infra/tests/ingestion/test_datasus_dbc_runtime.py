@@ -8,6 +8,7 @@ from re import search as regex_search
 from re import split as regex_split
 from sys import version_info
 from tomllib import loads as load_toml
+from typing import Any
 
 from dbfread import DBF
 
@@ -131,7 +132,7 @@ _PF_RECORD = {
 }
 
 
-def _project(path: str) -> dict[str, object]:
+def _project(path: str) -> dict[str, Any]:
     return load_toml((_ROOT / path).read_text(encoding="utf-8"))["project"]
 
 

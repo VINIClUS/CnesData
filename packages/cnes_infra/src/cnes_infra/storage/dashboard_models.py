@@ -1,5 +1,6 @@
 """SQLAlchemy ORM models for dashboard.* schema (mapped from migration 015)."""
 from datetime import datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -78,7 +79,7 @@ class DashboardAuditLog(DashboardBase):
     )
     tenant_id: Mapped[str | None] = mapped_column(CHAR(6))
     action: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
     request_id: Mapped[UUID | None] = mapped_column(pg.UUID(as_uuid=True))
     timestamp: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(),

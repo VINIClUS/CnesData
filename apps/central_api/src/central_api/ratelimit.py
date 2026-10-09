@@ -2,6 +2,7 @@
 import ipaddress
 import os
 from functools import lru_cache
+from typing import TYPE_CHECKING, cast
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -9,13 +10,16 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+if TYPE_CHECKING:
+    from slowapi.wrappers import Limit
+
 _IpNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
 @lru_cache
 def _parse_networks(raw: str) -> tuple[_IpNetwork, ...]:
     """Cache key is always the raw env string, never a fresh os.getenv() read."""
-    networks = []
+    networks: list[_IpNetwork] = []
     for raw_entry in raw.split(","):
         entry = raw_entry.strip()
         if not entry:
@@ -60,7 +64,7 @@ def client_ip(request: Request) -> str:
 
 def rate_limit_handler(_request: Request, exc: RateLimitExceeded) -> JSONResponse:
     """429 with Retry-After = window length of the exceeded limit (seconds)."""
-    retry_after = exc.limit.limit.get_expiry()
+    retry_after = cast("Limit", exc.limit).limit.get_expiry()
     return JSONResponse(
         status_code=429,
         content={"detail": "rate_limited", "retry_after": retry_after},

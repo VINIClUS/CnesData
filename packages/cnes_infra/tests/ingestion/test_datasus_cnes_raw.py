@@ -8,7 +8,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from traceback import format_exception
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 import pyarrow.parquet as pq
@@ -21,6 +21,9 @@ from cnes_infra.ingestion.datasus_cnes_transport import (
     DatasusCnesFtpTransport,
     DatasusCnesRequest,
 )
+
+if TYPE_CHECKING:
+    from cnes_domain.ports.object_store import ObjectStorePort
 
 _ROOT = Path(__file__).resolve().parents[4]
 _GOLDEN = _ROOT / "docs" / "fixtures" / "data-plane" / "cnes-nacional-v1.parquet"
@@ -64,6 +67,15 @@ class _Store:
         return ObjectStat(key, len(payload), expected_sha256)
 
 
+def _failure(error: BaseException) -> tuple[str, bool]:
+    failure = cast("Any", error)
+    return failure.code, failure.retryable
+
+
+def _port(store: _Store) -> ObjectStorePort:
+    return cast("ObjectStorePort", store)
+
+
 def _request(**updates: str) -> DatasusCnesRequest:
     values = {
         "tenant_id": "354130",
@@ -96,7 +108,7 @@ def _row(**updates: object) -> dict[str, object]:
 
 def _extract(rows: list[dict[str, object]], request: DatasusCnesRequest | None = None):
     store = _Store()
-    manifest = DatasusCnesRawAdapter(_Transport(rows), store, lambda: _CREATED_AT).extract(
+    manifest = DatasusCnesRawAdapter(_Transport(rows), _port(store), lambda: _CREATED_AT).extract(
         request or _request()
     )
     return manifest, store
@@ -109,7 +121,7 @@ def _read(store: _Store) -> pl.DataFrame:
 def _error_code(rows: list[dict[str, object]]) -> tuple[str, bool]:
     with pytest.raises(Exception) as captured:
         _extract(rows)
-    return captured.value.code, captured.value.retryable
+    return _failure(captured.value)
 
 
 def _replace_dbf_field(payload: bytearray, field_name: str, value: bytes) -> None:
@@ -213,7 +225,7 @@ def test_faz_put_unico_e_retorna_manifesto_full():
     request = _request()
     transport = _Transport([_row()])
     store = _Store()
-    manifest = DatasusCnesRawAdapter(transport, store, lambda: _CREATED_AT).extract(request)
+    manifest = DatasusCnesRawAdapter(transport, _port(store), lambda: _CREATED_AT).extract(request)
     key, payload, digest = store.calls[0]
 
     assert transport.requests == [request]
@@ -326,12 +338,12 @@ def test_rejeita_campos_ausentes():
 
 def test_rejeita_snapshot_inseguro_sem_put():
     store = _Store()
-    adapter = DatasusCnesRawAdapter(_Transport([_row()]), store, lambda: _CREATED_AT)
+    adapter = DatasusCnesRawAdapter(_Transport([_row()]), _port(store), lambda: _CREATED_AT)
 
     with pytest.raises(Exception) as captured:
         adapter.extract(_request(snapshot_id="bad/path"))
 
-    assert (captured.value.code, captured.value.retryable) == ("request_invalid", False)
+    assert _failure(captured.value) == ("request_invalid", False)
     assert store.calls == []
 
 
@@ -341,7 +353,7 @@ def test_valida_manifesto_antes_do_put():
     def invalid_clock() -> datetime:
         return datetime(2026, 2, 1, tzinfo=timezone(timedelta(hours=-3)))
 
-    adapter = DatasusCnesRawAdapter(_Transport([_row()]), store, invalid_clock)
+    adapter = DatasusCnesRawAdapter(_Transport([_row()]), _port(store), invalid_clock)
 
     with pytest.raises(Exception):
         adapter.extract(_request())
@@ -364,7 +376,7 @@ def test_fecha_iterador_do_transport_quando_projecao_falha():
     transport.fetch = lambda request: retained
 
     with pytest.raises(Exception):
-        DatasusCnesRawAdapter(transport, _Store(), lambda: _CREATED_AT).extract(_request())
+        DatasusCnesRawAdapter(transport, _port(_Store()), lambda: _CREATED_AT).extract(_request())
 
     assert closed is True
 
@@ -380,19 +392,21 @@ def test_preserva_erro_de_projecao_quando_fechamento_do_iterador_falha():
     transport.fetch = lambda request: rows("invalid")
 
     with pytest.raises(Exception) as captured:
-        DatasusCnesRawAdapter(transport, _Store(), lambda: _CREATED_AT).extract(_request())
+        DatasusCnesRawAdapter(transport, _port(_Store()), lambda: _CREATED_AT).extract(_request())
 
-    assert (captured.value.code, captured.value.retryable) == ("field_invalid", False)
+    assert _failure(captured.value) == ("field_invalid", False)
     transport.fetch = lambda request: rows("1")
     with pytest.raises(OSError, match="cleanup-sensitive"):
-        DatasusCnesRawAdapter(transport, _Store(), lambda: _CREATED_AT).extract(_request())
+        DatasusCnesRawAdapter(transport, _port(_Store()), lambda: _CREATED_AT).extract(_request())
 
 
 def test_aceita_iterador_do_transport_sem_close():
     transport = _Transport([])
-    transport.fetch = lambda request: iter([_row()])
+    cast("Any", transport).fetch = lambda request: iter([_row()])
 
-    manifest = DatasusCnesRawAdapter(transport, _Store(), lambda: _CREATED_AT).extract(_request())
+    manifest = DatasusCnesRawAdapter(transport, _port(_Store()), lambda: _CREATED_AT).extract(
+        _request()
+    )
 
     assert manifest.row_count == 1
 
@@ -409,13 +423,13 @@ def test_rejeita_dbc_ausente_ou_com_cabecalho_malformado_sem_put(
             destination.write_bytes(payload)
 
     monkeypatch.setattr(transport, "_download_protected", download)
-    adapter = DatasusCnesRawAdapter(transport, store, lambda: _CREATED_AT)
+    adapter = DatasusCnesRawAdapter(transport, _port(store), lambda: _CREATED_AT)
 
     with pytest.raises(BaseException) as captured:
         adapter.extract(_request())
 
     assert isinstance(captured.value, Exception)
-    assert (captured.value.code, captured.value.retryable) == ("dbc_invalid", False)
+    assert _failure(captured.value) == ("dbc_invalid", False)
     assert store.calls == []
 
 
@@ -443,12 +457,12 @@ def test_rejeita_dbf_fisicamente_invalido_sem_put(
 
     monkeypatch.setattr(transport, "_download_protected", download)
     monkeypatch.setattr(transport_module, "decompress", truncate)
-    adapter = DatasusCnesRawAdapter(transport, store, lambda: _CREATED_AT)
+    adapter = DatasusCnesRawAdapter(transport, _port(store), lambda: _CREATED_AT)
 
     with pytest.raises(Exception) as captured:
         adapter.extract(_request())
 
-    assert (captured.value.code, captured.value.retryable) == ("dbf_invalid", False)
+    assert _failure(captured.value) == ("dbf_invalid", False)
     assert store.calls == []
 
 
@@ -466,7 +480,7 @@ def test_preserva_cancelamento_do_descompressor(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(transport_module, "decompress", cancel)
 
     with pytest.raises(KeyboardInterrupt):
-        DatasusCnesRawAdapter(transport, store, lambda: _CREATED_AT).extract(_request())
+        DatasusCnesRawAdapter(transport, _port(store), lambda: _CREATED_AT).extract(_request())
 
     assert store.calls == []
 
@@ -491,7 +505,7 @@ def test_rejeita_overflow_numerico_do_dbf_como_campo_invalido(
     monkeypatch.setattr(transport_module, "decompress", inject_overflow)
 
     with pytest.raises(Exception) as captured:
-        DatasusCnesRawAdapter(transport, store, lambda: _CREATED_AT).extract(_request())
+        DatasusCnesRawAdapter(transport, _port(store), lambda: _CREATED_AT).extract(_request())
 
-    assert (captured.value.code, captured.value.retryable) == ("field_invalid", False)
+    assert _failure(captured.value) == ("field_invalid", False)
     assert store.calls == []

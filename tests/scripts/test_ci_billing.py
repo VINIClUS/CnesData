@@ -5,7 +5,7 @@ import configparser
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -66,8 +66,8 @@ def _load(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _triggers(workflow: dict[str, Any]) -> dict[str, Any]:
-    return workflow.get("on", workflow.get(True))
+def _triggers(workflow: dict[Any, Any]) -> dict[str, Any]:
+    return cast("dict[str, Any]", workflow.get("on", workflow.get(True)))
 
 
 def _steps(job: dict[str, Any]) -> list[dict[str, Any]]:

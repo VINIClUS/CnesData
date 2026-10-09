@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from central_api.routes.raw_jobs import (
-    _error_code,
-    _utc_now,
+    _error_code,  # pyright: ignore[reportPrivateUsage]
+    _utc_now,  # pyright: ignore[reportPrivateUsage]
     get_raw_ingestion_service,
     require_edge_agent,
 )

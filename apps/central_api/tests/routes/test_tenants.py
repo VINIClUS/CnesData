@@ -1,8 +1,8 @@
 """Testes da rota de criação de tenant cobrado."""
-
 import hashlib
 from dataclasses import replace
 from datetime import timedelta
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,6 +31,10 @@ from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.profiles import BillingMode
 
 from .billing_fakes import NOW, Env, make_account, make_link
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.gate import EntitlementGate
+    from cnes_domain.billing.ports import QuotaReservationPort
 
 URL = "/api/v1/billing/accounts/ba_01/tenants"
 KEY = "tenant-key-1"
@@ -138,7 +142,10 @@ class TenantEnv(Env):
         app.include_router(tenants.router)
         if with_gates:
             gates = ApiBillingGates(
-                mode, self.gate, self.capacity, TenantAccountResolver(mode),
+                mode,
+                cast("EntitlementGate", self.gate),
+                cast("QuotaReservationPort", self.capacity),
+                TenantAccountResolver(mode),
             )
             app.dependency_overrides[tenants.get_tenant_gates] = lambda: gates
         return app

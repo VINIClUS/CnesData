@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -125,7 +126,7 @@ class TestCompleteUploadRequest:
 
     def test_size_bytes_obrigatorio(self):
         with pytest.raises(ValidationError):
-            CompleteUploadRequest(machine_id="m", object_key="k")
+            cast("Any", CompleteUploadRequest)(machine_id="m", object_key="k")
 
 
 class TestHealthResponse:

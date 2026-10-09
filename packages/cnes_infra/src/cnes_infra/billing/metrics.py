@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TextIO
 
 from cnes_domain.billing.models import BillingMetric, SubscriptionStatus
 from cnes_domain.billing.ports import BillingMetricsPort
@@ -129,7 +129,7 @@ class DiscardBillingMetrics:
         """Args: metric: Métrica ignorada."""
 
 
-class _StdoutHandler(logging.StreamHandler):
+class _StdoutHandler(logging.StreamHandler[TextIO]):
     def emit(self, record: logging.LogRecord) -> None:
         self.stream = sys.stdout
         super().emit(record)

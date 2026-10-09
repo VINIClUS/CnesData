@@ -6,7 +6,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal, cast
 from unittest.mock import Mock
 
 import pytest
@@ -31,13 +31,16 @@ from data_processor.pipeline.stage_processor import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
+
+    from cnes_domain.ports.control_plane import ControlPlanePort
 
 _TENANT = "354130"
 _RUN_ID = "run-1"
 _COMPETENCIA = "2026-01"
 _NOW = datetime(2026, 1, 15, 12, tzinfo=UTC)
+_Layer = Literal["normalized", "reconciliation", "serving"]
 
 
 @dataclass
@@ -91,8 +94,12 @@ def _run(**updates: object) -> Run:
     return Run.model_validate(values | updates)
 
 
+def _port(fake: _FakeControlPlane) -> ControlPlanePort:
+    return cast("ControlPlanePort", fake)
+
+
 def _registry(
-    normalize: Mock | None = None, reconcile: Mock | None = None, materialize: Mock | None = None
+    normalize: Any = None, reconcile: Any = None, materialize: Any = None
 ) -> SourceRegistry:
     catalog = SourceCatalog((build_source_catalog().for_pipeline("cnes"),))
     definition = catalog.for_pipeline("cnes")
@@ -176,7 +183,7 @@ def _predecessor_unit(
 
 
 def _output_ref(
-    store: _FakeObjectStore, *, unit_id: str, layer: str, object_key: str,
+    store: _FakeObjectStore, *, unit_id: str, layer: _Layer, object_key: str,
     manifest_id: str = "out-1", attempt: int = 1, source_type: SourceType | None = None,
 ) -> ManifestRef:
     manifest_key = (
@@ -200,7 +207,7 @@ def test_normalize_dispatcha_exatamente_a_funcao_de_normalize() -> None:
     run = _run()
     captured: dict[str, object] = {}
 
-    def normalize(request: object, scoped_store: AttemptObjectStore) -> NormalizeResult:
+    def normalize(request: Any, scoped_store: AttemptObjectStore) -> NormalizeResult:
         captured["request"] = request
         captured["inputs"] = dict(scoped_store.inputs)
         key = request.target_keys[0]
@@ -213,7 +220,7 @@ def test_normalize_dispatcha_exatamente_a_funcao_de_normalize() -> None:
 
     reconcile, materialize = Mock(), Mock()
     registry = _registry(normalize=normalize, reconcile=reconcile, materialize=materialize)
-    processor = StageProcessor(_FakeControlPlane(run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
 
     result = processor(unit, attempt_store)
@@ -240,7 +247,7 @@ def test_normalize_rejeita_source_type_fora_do_catalogo(source_type: str) -> Non
     unit = _normalize_unit((dummy_ref,), source_type=source_type)
     run = _run()
     registry = _registry()
-    processor = StageProcessor(_FakeControlPlane(run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(UnsupportedUnitSource):
         processor(unit, attempt_store)
@@ -252,7 +259,7 @@ def test_normalize_rejeita_raw_manifest_com_subtype_divergente() -> None:
     unit = _normalize_unit((ref,))
     run = _run()
     registry = _registry()
-    processor = StageProcessor(_FakeControlPlane(run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="raw_manifest_identity_mismatch"):
         processor(unit, attempt_store)
@@ -264,7 +271,7 @@ def test_normalize_rejeita_resultado_fora_do_target_key() -> None:
     unit = _normalize_unit((ref,))
     run = _run()
 
-    def normalize(request: object, scoped_store: AttemptObjectStore) -> NormalizeResult:
+    def normalize(request: Any, scoped_store: AttemptObjectStore) -> NormalizeResult:
         return NormalizeResult(manifests=(OutputManifest(
             manifest_version=1, manifest_id="norm-1", tenant_id=_TENANT, layer="normalized",
             source_type=SourceType.CNES_LOCAL, competencia=_COMPETENCIA, run_id=_RUN_ID,
@@ -274,7 +281,7 @@ def test_normalize_rejeita_resultado_fora_do_target_key() -> None:
         ),))
 
     registry = _registry(normalize=normalize)
-    processor = StageProcessor(_FakeControlPlane(run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="result_target_mismatch"):
         processor(unit, attempt_store)
@@ -297,7 +304,7 @@ def test_reconcile_dispatcha_exatamente_a_funcao_de_reconcile_e_ignora_degradado
     run = _run()
     captured: dict[str, object] = {}
 
-    def reconcile(request: object, scoped_store: AttemptObjectStore) -> ReconcileResult:
+    def reconcile(request: Any, scoped_store: AttemptObjectStore) -> ReconcileResult:
         captured["request"] = request
         captured["inputs"] = dict(scoped_store.inputs)
         return ReconcileResult(
@@ -321,7 +328,7 @@ def test_reconcile_dispatcha_exatamente_a_funcao_de_reconcile_e_ignora_degradado
     normalize, materialize = Mock(), Mock()
     registry = _registry(normalize=normalize, reconcile=reconcile, materialize=materialize)
     control_plane = _FakeControlPlane(run, (local_unit, degraded_unit))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
 
     result = processor(unit, attempt_store)
@@ -338,7 +345,7 @@ def test_reconcile_rejeita_predecessor_ausente() -> None:
     unit = _downstream_unit(RunStage.RECONCILE, ("missing-unit",), unit_id="unit-reconcile")
     run = _run()
     registry = _registry()
-    processor = StageProcessor(_FakeControlPlane(run, ()), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run, ())), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="missing_predecessor_unit:missing-unit"):
         processor(unit, attempt_store)
@@ -353,7 +360,7 @@ def test_reconcile_rejeita_predecessor_com_layer_errado() -> None:
     run = _run()
     registry = _registry()
     control_plane = _FakeControlPlane(run, (local_unit,))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="wrong_layer:serving"):
         processor(unit, attempt_store)
@@ -380,7 +387,7 @@ def test_materialize_dispatcha_exatamente_a_funcao_de_materialize() -> None:
     run = _run()
     captured: dict[str, object] = {}
 
-    def materialize(request: object, scoped_store: AttemptObjectStore) -> MaterializeResult:
+    def materialize(request: Any, scoped_store: AttemptObjectStore) -> MaterializeResult:
         captured["request"] = request
         captured["inputs"] = dict(scoped_store.inputs)
         manifest = OutputManifest(
@@ -398,7 +405,7 @@ def test_materialize_dispatcha_exatamente_a_funcao_de_materialize() -> None:
     normalize, reconcile = Mock(), Mock()
     registry = _registry(normalize=normalize, reconcile=reconcile, materialize=materialize)
     control_plane = _FakeControlPlane(run, (reconcile_unit,))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
 
     result = processor(unit, attempt_store)
@@ -429,7 +436,7 @@ def test_materialize_rejeita_predecessor_sem_par_reconciliation_divergence() -> 
     run = _run()
     registry = _registry()
     control_plane = _FakeControlPlane(run, (reconcile_unit,))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="layout_mismatch:reconciliation_predecessor"):
         processor(unit, attempt_store)
@@ -444,7 +451,7 @@ def test_processor_rejeita_run_ausente() -> None:
     unit = _normalize_unit((dummy_ref,))
     absent_run = _run(run_id="other-run")
     registry = _registry()
-    processor = StageProcessor(_FakeControlPlane(absent_run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(absent_run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="unit_run_mismatch"):
         processor(unit, attempt_store)
@@ -488,7 +495,7 @@ def test_normalize_seleciona_layout_do_segundo_source_da_lista() -> None:
     unit = _normalize_unit((ref,), source_type="CNES_NACIONAL")
     run = _run()
 
-    def normalize(request: object, scoped_store: AttemptObjectStore) -> NormalizeResult:
+    def normalize(request: Any, scoped_store: AttemptObjectStore) -> NormalizeResult:
         key = request.target_keys[0]
         return NormalizeResult(manifests=(OutputManifest(
             manifest_version=1, manifest_id="norm-1", tenant_id=_TENANT, layer="normalized",
@@ -498,7 +505,7 @@ def test_normalize_seleciona_layout_do_segundo_source_da_lista() -> None:
         ),))
 
     registry = _registry(normalize=normalize)
-    processor = StageProcessor(_FakeControlPlane(run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     result = processor(unit, attempt_store)
     assert result[0].object_key == (
@@ -519,7 +526,7 @@ def test_normalize_rejeita_source_type_registrado_sem_layout_para_o_subtype() ->
     )
     unit = _normalize_unit((ref,), source_type="CNES_LOCAL", file_subtype="OUTRO_SUBTYPE")
     run = _run()
-    processor = StageProcessor(_FakeControlPlane(run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match=r"layout_mismatch:CNES_LOCAL/OUTRO_SUBTYPE"):
         processor(unit, attempt_store)
@@ -545,7 +552,7 @@ def test_normalize_rejeita_raw_sidecar_com_manifest_id_divergente() -> None:
     unit = _normalize_unit((ref,))
     run = _run()
     registry = _registry()
-    processor = StageProcessor(_FakeControlPlane(run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="raw_manifest_id_mismatch"):
         processor(unit, attempt_store)
@@ -570,7 +577,7 @@ def test_normalize_rejeita_raw_sidecar_nao_canonico() -> None:
     unit = _normalize_unit((ref,))
     run = _run()
     registry = _registry()
-    processor = StageProcessor(_FakeControlPlane(run), store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(_FakeControlPlane(run)), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="raw_manifest_not_canonical"):
         processor(unit, attempt_store)
@@ -595,7 +602,7 @@ def test_reconcile_rejeita_sidecar_predecessor_com_manifest_id_divergente() -> N
     run = _run()
     registry = _registry()
     control_plane = _FakeControlPlane(run, (local_unit,))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="output_manifest_id_mismatch"):
         processor(unit, attempt_store)
@@ -619,7 +626,7 @@ def test_reconcile_rejeita_sidecar_predecessor_nao_canonico() -> None:
     run = _run()
     registry = _registry()
     control_plane = _FakeControlPlane(run, (local_unit,))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="output_manifest_not_canonical"):
         processor(unit, attempt_store)
@@ -644,7 +651,7 @@ def test_reconcile_rejeita_predecessores_com_object_key_duplicada() -> None:
     run = _run()
     registry = _registry()
     control_plane = _FakeControlPlane(run, (unit_a, unit_b))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="duplicate_predecessor_object_key"):
         processor(unit, attempt_store)
@@ -661,7 +668,7 @@ def test_reconcile_rejeita_resultado_fora_das_target_keys() -> None:
     unit = _downstream_unit(RunStage.RECONCILE, (local_unit.unit_id,), unit_id="unit-reconcile")
     run = _run()
 
-    def reconcile(request: object, scoped_store: AttemptObjectStore) -> ReconcileResult:
+    def reconcile(request: Any, scoped_store: AttemptObjectStore) -> ReconcileResult:
         wrong_key = f"reconciliation/{_TENANT}/{_COMPETENCIA}/{_RUN_ID}/wrong.parquet"
         return ReconcileResult(
             reconciliation_manifest=OutputManifest(
@@ -683,7 +690,7 @@ def test_reconcile_rejeita_resultado_fora_das_target_keys() -> None:
 
     registry = _registry(reconcile=reconcile)
     control_plane = _FakeControlPlane(run, (local_unit,))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="result_target_mismatch"):
         processor(unit, attempt_store)
@@ -709,7 +716,7 @@ def test_materialize_rejeita_resultado_fora_da_target_key() -> None:
     )
     run = _run()
 
-    def materialize(request: object, scoped_store: AttemptObjectStore) -> MaterializeResult:
+    def materialize(request: Any, scoped_store: AttemptObjectStore) -> MaterializeResult:
         manifest = OutputManifest(
             manifest_version=1, manifest_id="serving-1", tenant_id=_TENANT, layer="serving",
             source_type=None, competencia=_COMPETENCIA, run_id=_RUN_ID, unit_id=unit.unit_id,
@@ -725,7 +732,7 @@ def test_materialize_rejeita_resultado_fora_da_target_key() -> None:
 
     registry = _registry(materialize=materialize)
     control_plane = _FakeControlPlane(run, (reconcile_unit,))
-    processor = StageProcessor(control_plane, store, registry, lambda: _NOW)
+    processor = StageProcessor(_port(control_plane), store, registry, lambda: _NOW)
     attempt_store = AttemptObjectStore(delegate=store, prefix="tmp/x")
     with pytest.raises(ValueError, match="result_target_mismatch"):
         processor(unit, attempt_store)

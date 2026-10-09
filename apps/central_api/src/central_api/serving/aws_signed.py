@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
+    from types_boto3_s3.client import S3Client
 
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRequest
@@ -105,7 +106,7 @@ class S3SignedServingAccess:
 
     def _sign(self, key: str) -> str:
         try:
-            return self._signer.generate_presigned_url(
+            return cast("S3Client", self._signer).generate_presigned_url(
                 "get_object",
                 Params={
                     "Bucket": self._settings.bucket,

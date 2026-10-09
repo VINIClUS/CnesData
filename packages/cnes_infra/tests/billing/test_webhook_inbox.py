@@ -3,7 +3,7 @@
 import json
 from collections.abc import Iterator
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import pytest
@@ -84,7 +84,7 @@ class FailingClient:
 
     def _raise(self, **_: Any) -> None:
         error = {"Error": {"Code": "InternalServerError", "Message": "x"}}
-        raise ClientError(error, self._operation)
+        raise ClientError(cast("Any", error), self._operation)
 
 
 class RecordingClient:
@@ -166,6 +166,7 @@ def test_calcula_atraso_exponencial_com_teto() -> None:
 def test_aceita_evento_suportado_como_pending(context: Context) -> None:
     result = context.inbox.accept(make_event())
     item = context.raw()
+    assert item is not None
     assert result == InboxAcceptResult("evt_01", InboxDisposition.ACCEPTED)
     assert (_attr(item, "state"), item["attempt"]["N"]) == ("pending", "0")
     due = NOW.isoformat(timespec="microseconds")
@@ -179,7 +180,7 @@ def test_aceita_evento_suportado_como_pending(context: Context) -> None:
 
 def test_aceita_evento_sem_subscription_omitindo_atributo(context: Context) -> None:
     context.inbox.accept(make_event(stripe_subscription_id=None))
-    assert "stripe_subscription_id" not in context.raw()
+    assert "stripe_subscription_id" not in cast("dict[str, Any]", context.raw())
 
 
 def test_todos_os_tipos_suportados_entram_como_pending(context: Context) -> None:
@@ -201,6 +202,7 @@ def test_duplicado_nao_altera_item_mesmo_com_payload_diferente(context: Context)
 def test_ignora_tipo_nao_suportado_sem_atributos_gsi(context: Context) -> None:
     result = context.inbox.accept(make_event(event_type="charge.refunded"))
     item = context.raw()
+    assert item is not None
     assert result.disposition is InboxDisposition.IGNORED
     assert (_attr(item, "state"), item["attempt"]["N"]) == ("ignored", "0")
     assert not set(TRANSIENT) & set(item)
@@ -209,8 +211,8 @@ def test_ignora_tipo_nao_suportado_sem_atributos_gsi(context: Context) -> None:
 def test_ignora_evento_suportado_sem_customer(context: Context) -> None:
     result = context.inbox.accept(make_event(stripe_customer_id=None))
     assert result.disposition is InboxDisposition.IGNORED
-    assert "stripe_customer_id" not in context.raw()
-    assert not set(TRANSIENT) & set(context.raw())
+    assert "stripe_customer_id" not in cast("dict[str, Any]", context.raw())
+    assert not set(TRANSIENT) & set(cast("dict[str, Any]", context.raw()))
 
 
 def test_accept_converte_erro_do_cliente_em_dependency_error(context: Context) -> None:
@@ -234,6 +236,7 @@ def test_claim_adquire_estados_reivindicaveis(context: Context, prepare: str) ->
     claim = context.inbox.claim("evt_01", context.clock.now())
     lease = (context.clock.now() + timedelta(seconds=STRIPE_PROCESSING_LEASE_SECONDS))
     item = context.raw()
+    assert item is not None
     assert claim == InboxClaim(
         "evt_01", "invoice.paid", "cus_01", "sub_01", expected_attempt, True
     )
@@ -303,6 +306,7 @@ def test_mark_processed_remove_atributos_transitorios(context: Context) -> None:
     context.inbox.accept(make_event())
     context.inbox.mark_processed(context.acquire(), 7)
     item = context.raw()
+    assert item is not None
     assert _attr(item, "state") == "processed"
     assert item["entitlement_version"]["N"] == "7"
     assert _attr(item, "processed_at") == NOW.isoformat(timespec="microseconds")
@@ -341,6 +345,7 @@ def test_mark_failed_retryable_agenda_nova_tentativa(context: Context) -> None:
     claim = context.acquire()
     context.inbox.mark_failed(claim, "boom", True)
     item = context.raw()
+    assert item is not None
     due = (NOW + timedelta(seconds=retry_delay_seconds(1))).isoformat(timespec="microseconds")
     assert _attr(item, "state") == "failed_retryable"
     assert _attr(item, "error_code") == "boom"
@@ -377,7 +382,7 @@ def test_claim_antigo_nao_conclui_apos_reclaim(context: Context) -> None:
     old = context.acquire()
     context.advance(STRIPE_PROCESSING_LEASE_SECONDS + 1)
     current = context.acquire()
-    assert current.attempt == old.attempt + 1
+    assert current.attempt == cast("int", old.attempt) + 1
     before = context.raw()
     with pytest.raises(StaleInboxClaim, match="inbox_claim_stale"):
         context.inbox.mark_processed(old, 2)
@@ -411,6 +416,7 @@ def test_falha_permanente_grava_final_e_uma_auditoria_em_uma_transacao(
     recorder = RecordingClient(context.client)
     context.with_client(recorder).mark_failed(claim, "bad_schema", False)
     item = context.raw()
+    assert item is not None
     audit_id = _attr(item, "final_audit_id")
     assert recorder.names() == ["transact_write_items"]
     assert (_attr(item, "state"), _attr(item, "error_code")) == ("failed_final", "bad_schema")

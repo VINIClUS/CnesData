@@ -1,10 +1,13 @@
 """Testes do DynamoDBMembershipCandidates — paginação e parsing estrito do gsi1sk."""
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_infra.control_plane.dynamodb_keys import key_component
+
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
 
 _TABLE = "cnesdata-raw-dev"
 
@@ -23,6 +26,10 @@ class _FakeClient:
         return response
 
 
+def _candidates(client: _FakeClient, **options: str) -> DynamoDBMembershipCandidates:
+    return DynamoDBMembershipCandidates(cast("BaseClient", client), _TABLE, **options)
+
+
 def _sk(value: str, index: str = "gsi1") -> dict[str, Any]:
     return {f"{index}sk": {"S": value}}
 
@@ -33,7 +40,7 @@ def _tenant(tenant_id: str) -> dict[str, Any]:
 
 def test_consulta_gsi1_por_igualdade_do_usuario() -> None:
     client = _FakeClient([])
-    DynamoDBMembershipCandidates(client, _TABLE).list_candidates("user-1")
+    _candidates(client).list_candidates("user-1")
     assert client.requests == [{
         "TableName": _TABLE,
         "IndexName": "gsi1",
@@ -45,7 +52,7 @@ def test_consulta_gsi1_por_igualdade_do_usuario() -> None:
 
 def test_pagina_query_e_preserva_ordem() -> None:
     client = _FakeClient([_tenant("tenant-a")], [_tenant("tenant-b")])
-    result = DynamoDBMembershipCandidates(client, _TABLE).list_candidates("user-1")
+    result = _candidates(client).list_candidates("user-1")
     assert result == ("tenant-a", "tenant-b")
     assert "ExclusiveStartKey" not in client.requests[0]
     assert client.requests[1]["ExclusiveStartKey"] == {"page": {"S": "1"}}
@@ -53,7 +60,7 @@ def test_pagina_query_e_preserva_ordem() -> None:
 
 def test_deduplica_candidatos_repetidos() -> None:
     client = _FakeClient([_tenant("tenant-a"), _tenant("tenant-a")], [_tenant("tenant-a")])
-    result = DynamoDBMembershipCandidates(client, _TABLE).list_candidates("user-1")
+    result = _candidates(client).list_candidates("user-1")
     assert result == ("tenant-a",)
 
 
@@ -77,13 +84,13 @@ def test_deduplica_candidatos_repetidos() -> None:
 )
 def test_descarta_gsi1sk_malformado(item: dict[str, Any]) -> None:
     client = _FakeClient([item, _tenant("tenant-a")])
-    result = DynamoDBMembershipCandidates(client, _TABLE).list_candidates("user-1")
+    result = _candidates(client).list_candidates("user-1")
     assert result == ("tenant-a",)
 
 
 def test_usa_atributos_do_indice_configurado() -> None:
     client = _FakeClient([_sk(f"TENANT#{key_component('tenant-a')}", index="gsi9")])
-    result = DynamoDBMembershipCandidates(client, _TABLE, index_name="gsi9").list_candidates("u")
+    result = _candidates(client, index_name="gsi9").list_candidates("u")
     assert result == ("tenant-a",)
     assert client.requests[0]["KeyConditionExpression"] == "gsi9pk = :user"
     assert client.requests[0]["ProjectionExpression"] == "gsi9sk"

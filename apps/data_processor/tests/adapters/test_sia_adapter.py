@@ -17,17 +17,17 @@ class _Lookup:
     def __init__(self, m: dict) -> None:
         self._m = m
 
-    def procedimento_sk(self, c: str) -> int | None:
-        return self._m.get(("P", c))
+    def procedimento_sk(self, code: str) -> int | None:
+        return self._m.get(("P", code))
 
-    def profissional_sk(self, c: str) -> int | None:
-        return self._m.get(("PROF", c))
+    def profissional_sk(self, cns: str) -> int | None:
+        return self._m.get(("PROF", cns))
 
-    def estabelecimento_sk(self, c: str) -> int | None:
-        return self._m.get(("E", c))
+    def estabelecimento_sk(self, cnes: str) -> int | None:
+        return self._m.get(("E", cnes))
 
-    def cid10_sk(self, c: str) -> int | None:
-        return self._m.get(("CID", c))
+    def cid10_sk(self, code: str) -> int | None:
+        return self._m.get(("CID", code))
 
     def competencia_sk(self, yyyymm: str) -> int | None:
         return self._m.get(("COMP", yyyymm))

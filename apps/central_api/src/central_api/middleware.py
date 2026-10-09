@@ -2,16 +2,20 @@
 import logging
 from contextvars import ContextVar
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from starlette.concurrency import run_in_threadpool
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from central_api.auth.aws_oidc import TenantAccessDenied
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra.auth import TokenInvalid
+
+if TYPE_CHECKING:
+    from cnes_infra.auth.oidc import OidcPrincipal, OidcVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +39,7 @@ class AuthenticatedUser:
 class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(
-        self, request: Request, call_next: object,
+        self, request: Request, call_next: RequestResponseEndpoint,
     ) -> Response:
         path = request.url.path
         if path.startswith(("/oauth/", "/provision/", "/api/v1/public/")):
@@ -57,7 +61,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await self._populate_user(request, call_next, claims)
 
     async def _on_invalid(
-        self, request: Request, call_next: object, err: TokenInvalid,
+        self, request: Request, call_next: RequestResponseEndpoint, err: TokenInvalid,
     ) -> Response:
         mode = getattr(request.app.state, "auth_required", "required")
         logger.warning("auth_token_invalid reason=%s mode=%s", err, mode)
@@ -68,7 +72,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         )
 
     async def _populate_user(
-        self, request: Request, call_next: object, claims: dict,
+        self, request: Request, call_next: RequestResponseEndpoint, claims: dict[str, Any],
     ) -> Response:
         repo = request.app.state.dashboard_repo
         user = repo.upsert_user(
@@ -85,7 +89,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
     async def _dispatch_oidc(
-        self, request: Request, call_next: object, verifier: object,
+        self, request: Request, call_next: RequestResponseEndpoint, verifier: "OidcVerifier",
     ) -> Response:
         path = request.url.path
         if path == _HEALTH_PATH:
@@ -107,7 +111,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
     async def _authorize_tenant(
-        self, request: Request, call_next: object, principal: object,
+        self, request: Request, call_next: RequestResponseEndpoint, principal: "OidcPrincipal",
     ) -> Response:
         requested = request.headers.get("X-Tenant-Id", "").strip()
         if not requested:
@@ -130,7 +134,7 @@ def _deny(status_code: int, detail: str) -> JSONResponse:
 class QueryCounterMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(
-        self, request: Request, call_next: object,
+        self, request: Request, call_next: RequestResponseEndpoint,
     ) -> Response:
         counter = [0]
         _query_count.set(counter)

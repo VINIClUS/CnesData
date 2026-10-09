@@ -1,5 +1,6 @@
 """Testes da rota administrativa de revogação imediata de billing."""
 
+from typing import TYPE_CHECKING, cast
 from unittest.mock import create_autospec
 
 import pytest
@@ -32,6 +33,9 @@ from cnes_domain.billing.revocation_models import (
 from cnes_domain.profiles import BillingMode
 
 from .billing_fakes import HEADERS, NOW, PRINCIPAL, Env, make_account, make_link
+
+if TYPE_CHECKING:
+    from fastapi.routing import APIRoute
 
 URL = "/api/v1/admin/billing/ba_01/revoke"
 BODY = {"reason_code": "fraud"}
@@ -232,5 +236,5 @@ def test_rota_nao_exige_token_admin_legado(client):
     assert all(
         getattr(dep.call, "__name__", "") != "require_admin_token"
         for route in router.routes
-        for dep in route.dependant.dependencies
+        for dep in cast("APIRoute", route).dependant.dependencies
     )

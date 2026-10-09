@@ -34,7 +34,7 @@ def extract_schema_tables(text: str) -> list[list[str]]:
 
 
 def main() -> int:
-    import pdfplumber
+    import pdfplumber  # pyright: ignore[reportMissingImports]
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdf", type=Path, required=True)

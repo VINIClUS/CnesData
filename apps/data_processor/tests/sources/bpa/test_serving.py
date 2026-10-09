@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import pytest
@@ -74,7 +74,7 @@ class _FakeObjectStore:
         raise NotImplementedError
 
 
-def _load(name: str) -> object:
+def _load(name: str) -> Any:
     return json.loads((_FIXTURES / name).read_text(encoding="utf-8"))
 
 

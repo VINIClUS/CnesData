@@ -7,23 +7,23 @@ from typing import Literal
 from pydantic import field_validator, model_validator
 
 from cnes_domain.control_plane.entities import (
+    ControlPlaneModel,
     DatasetVersion,
     IdempotencyRecord,
     ManifestRef,
     OutboxEvent,
     RawManifestRecord,
     RunUnit,
-    _ControlPlaneModel,
-    _optional_error_code,
-    _optional_non_blank,
-    _optional_sha256,
-    _require_dispatch_id,
-    _require_non_blank,
-    _require_sha256,
-    _require_unique_refs,
-    _require_utc,
-    _unique_non_blank,
-    _UtcDatetime,
+    UtcDatetime,
+    optional_error_code,
+    optional_non_blank,
+    optional_sha256,
+    require_dispatch_id,
+    require_non_blank,
+    require_sha256,
+    require_unique_refs,
+    require_utc,
+    unique_non_blank,
 )
 from cnes_domain.control_plane.enums import (
     DispatchOutcome,
@@ -45,42 +45,54 @@ def _require_non_negative(value: int) -> int:
     return value
 
 
+def _require_dispatch_field(value: str) -> str:
+    return require_dispatch_id(value, "dispatch_id")
+
+
+def _require_wave_field(value: str) -> str:
+    return require_dispatch_id(value, "wave_id")
+
+
+def _unique_missing_sources(values: tuple[str, ...]) -> tuple[str, ...]:
+    return unique_non_blank(values, "duplicate_missing_source")
+
+
 def _validate_dispatch_units(values: tuple[str, ...]) -> tuple[str, ...]:
     if not values:
         raise ValueError("unit_ids_required")
-    _unique_non_blank(values, "duplicate_unit_id")
+    unique_non_blank(values, "duplicate_unit_id")
     if values != tuple(sorted(values)):
         raise ValueError("unit_ids_not_ordered")
     return values
 
 
-class ClaimJob(_ControlPlaneModel):
+class ClaimJob(ControlPlaneModel):
     tenant_id: str
     job_id: str
     owner: str
-    now: _UtcDatetime
+    now: UtcDatetime
     lease_seconds: int
 
-    _strings = field_validator("tenant_id", "job_id", "owner")(_require_non_blank)
-    _now_utc = field_validator("now")(_require_utc)
+    _strings = field_validator("tenant_id", "job_id", "owner")(require_non_blank)
+    _now_utc = field_validator("now")(require_utc)
     _lease_positive = field_validator("lease_seconds")(_require_positive)
 
 
-class RenewJobLease(_ControlPlaneModel):
+class RenewJobLease(ControlPlaneModel):
     tenant_id: str
     job_id: str
     owner: str
     fencing_token: int
-    now: _UtcDatetime
+    now: UtcDatetime
     lease_seconds: int
 
-    _strings = field_validator("tenant_id", "job_id", "owner")(_require_non_blank)
+    _strings = field_validator("tenant_id", "job_id", "owner")(require_non_blank)
     _fence = field_validator("fencing_token")(_require_non_negative)
-    _now_utc = field_validator("now")(_require_utc)
+    _now_utc = field_validator("now")(require_utc)
     _lease_positive = field_validator("lease_seconds")(_require_positive)
 
 
-class CompleteJob(_ControlPlaneModel):
+class CompleteJob(ControlPlaneModel):
     tenant_id: str
     job_id: str
     owner: str
@@ -88,8 +100,8 @@ class CompleteJob(_ControlPlaneModel):
     manifest: RawManifestRecord
     expected_head_manifest_id: str | None = None
 
-    _strings = field_validator("tenant_id", "job_id", "owner")(_require_non_blank)
-    _expected_head = field_validator("expected_head_manifest_id")(_optional_non_blank)
+    _strings = field_validator("tenant_id", "job_id", "owner")(require_non_blank)
+    _expected_head = field_validator("expected_head_manifest_id")(optional_non_blank)
     _fence = field_validator("fencing_token")(_require_non_negative)
 
     @model_validator(mode="after")
@@ -99,7 +111,7 @@ class CompleteJob(_ControlPlaneModel):
         return self
 
 
-class FailJob(_ControlPlaneModel):
+class FailJob(ControlPlaneModel):
     tenant_id: str
     job_id: str
     owner: str
@@ -110,11 +122,11 @@ class FailJob(_ControlPlaneModel):
     expected_head_manifest_id: str | None = None
     expected_resync_marker: bool | None = None
 
-    _strings = field_validator("tenant_id", "job_id", "owner")(_require_non_blank)
-    _error = field_validator("error_code")(_optional_error_code)
+    _strings = field_validator("tenant_id", "job_id", "owner")(require_non_blank)
+    _error = field_validator("error_code")(optional_error_code)
     _fence = field_validator("fencing_token")(_require_non_negative)
-    _rejected_hash = field_validator("rejected_manifest_sha256")(_optional_sha256)
-    _expected_head = field_validator("expected_head_manifest_id")(_optional_non_blank)
+    _rejected_hash = field_validator("rejected_manifest_sha256")(optional_sha256)
+    _expected_head = field_validator("expected_head_manifest_id")(optional_non_blank)
 
     @model_validator(mode="after")
     def _validate_rejected_hash(self) -> FailJob:
@@ -137,25 +149,23 @@ class FailJob(_ControlPlaneModel):
         return self
 
 
-class CancelJob(_ControlPlaneModel):
+class CancelJob(ControlPlaneModel):
     tenant_id: str
     job_id: str
     requested_by: str
 
-    _strings = field_validator("tenant_id", "job_id", "requested_by")(_require_non_blank)
+    _strings = field_validator("tenant_id", "job_id", "requested_by")(require_non_blank)
 
 
-class TransitionRun(_ControlPlaneModel):
+class TransitionRun(ControlPlaneModel):
     tenant_id: str
     run_id: str
     expected_state: RunState
     new_state: RunState
     missing_sources: tuple[str, ...] = ()
 
-    _strings = field_validator("tenant_id", "run_id")(_require_non_blank)
-    _missing_unique = field_validator("missing_sources")(
-        lambda values: _unique_non_blank(values, "duplicate_missing_source")
-    )
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
+    _missing_unique = field_validator("missing_sources")(_unique_missing_sources)
 
 
 def _validate_unit_identity(command: PutRunUnits) -> None:
@@ -195,13 +205,13 @@ def _validate_unit_graph(units: tuple[RunUnit, ...]) -> None:
                 raise ValueError("invalid_stage_progression")
 
 
-class PutRunUnits(_ControlPlaneModel):
+class PutRunUnits(ControlPlaneModel):
     tenant_id: str
     run_id: str
     expected_run_state: RunState
     units: tuple[RunUnit, ...]
 
-    _strings = field_validator("tenant_id", "run_id")(_require_non_blank)
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
 
     @model_validator(mode="after")
     def _validate_units(self) -> PutRunUnits:
@@ -212,24 +222,22 @@ class PutRunUnits(_ControlPlaneModel):
         return self
 
 
-class ClaimRunUnit(_ControlPlaneModel):
+class ClaimRunUnit(ControlPlaneModel):
     tenant_id: str
     run_id: str
     unit_id: str
     dispatch_id: str
     owner: str
-    now: _UtcDatetime
+    now: UtcDatetime
     lease_seconds: int
 
-    _strings = field_validator("tenant_id", "run_id", "unit_id", "owner")(_require_non_blank)
-    _dispatch = field_validator("dispatch_id")(
-        lambda value: _require_dispatch_id(value, "dispatch_id")
-    )
-    _now_utc = field_validator("now")(_require_utc)
+    _strings = field_validator("tenant_id", "run_id", "unit_id", "owner")(require_non_blank)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
+    _now_utc = field_validator("now")(require_utc)
     _lease_positive = field_validator("lease_seconds")(_require_positive)
 
 
-class CommitRunUnit(_ControlPlaneModel):
+class CommitRunUnit(ControlPlaneModel):
     tenant_id: str
     run_id: str
     unit_id: str
@@ -238,10 +246,8 @@ class CommitRunUnit(_ControlPlaneModel):
     fencing_token: int
     output_manifests: tuple[ManifestRef, ...]
 
-    _strings = field_validator("tenant_id", "run_id", "unit_id", "owner")(_require_non_blank)
-    _dispatch = field_validator("dispatch_id")(
-        lambda value: _require_dispatch_id(value, "dispatch_id")
-    )
+    _strings = field_validator("tenant_id", "run_id", "unit_id", "owner")(require_non_blank)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
     _fence = field_validator("fencing_token")(_require_non_negative)
 
     @field_validator("output_manifests")
@@ -249,11 +255,11 @@ class CommitRunUnit(_ControlPlaneModel):
     def _outputs_required(cls, values: tuple[ManifestRef, ...]) -> tuple[ManifestRef, ...]:
         if not values:
             raise ValueError("output_manifests_required")
-        _require_unique_refs(values)
+        require_unique_refs(values)
         return values
 
 
-class FailRunUnit(_ControlPlaneModel):
+class FailRunUnit(ControlPlaneModel):
     tenant_id: str
     run_id: str
     unit_id: str
@@ -263,81 +269,75 @@ class FailRunUnit(_ControlPlaneModel):
     error_code: str
     retryable: bool
 
-    _strings = field_validator("tenant_id", "run_id", "unit_id", "owner")(_require_non_blank)
-    _error = field_validator("error_code")(_optional_error_code)
-    _dispatch = field_validator("dispatch_id")(
-        lambda value: _require_dispatch_id(value, "dispatch_id")
-    )
+    _strings = field_validator("tenant_id", "run_id", "unit_id", "owner")(require_non_blank)
+    _error = field_validator("error_code")(optional_error_code)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
     _fence = field_validator("fencing_token")(_require_non_negative)
 
 
-class FinalizeRunCancellation(_ControlPlaneModel):
+class FinalizeRunCancellation(ControlPlaneModel):
     tenant_id: str
     run_id: str
     expected_state: Literal[RunState.CANCEL_REQUESTED]
-    canceled_at: _UtcDatetime
+    canceled_at: UtcDatetime
 
-    _strings = field_validator("tenant_id", "run_id")(_require_non_blank)
-    _canceled_utc = field_validator("canceled_at")(_require_utc)
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
+    _canceled_utc = field_validator("canceled_at")(require_utc)
 
 
-class ReserveRunDispatch(_ControlPlaneModel):
+class ReserveRunDispatch(ControlPlaneModel):
     tenant_id: str
     run_id: str
     wave_id: str
     unit_ids: tuple[str, ...]
-    now: _UtcDatetime
+    now: UtcDatetime
     lease_seconds: int
 
-    _strings = field_validator("tenant_id", "run_id")(_require_non_blank)
-    _wave = field_validator("wave_id")(lambda value: _require_dispatch_id(value, "wave_id"))
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
+    _wave = field_validator("wave_id")(_require_wave_field)
     _units = field_validator("unit_ids")(_validate_dispatch_units)
-    _now_utc = field_validator("now")(_require_utc)
+    _now_utc = field_validator("now")(require_utc)
     _lease_positive = field_validator("lease_seconds")(_require_positive)
 
 
-class BindRunDispatch(_ControlPlaneModel):
+class BindRunDispatch(ControlPlaneModel):
     tenant_id: str
     run_id: str
     dispatch_id: str
     execution_ref: str
-    now: _UtcDatetime
+    now: UtcDatetime
     lease_seconds: int
 
-    _strings = field_validator("tenant_id", "run_id", "execution_ref")(_require_non_blank)
-    _dispatch = field_validator("dispatch_id")(
-        lambda value: _require_dispatch_id(value, "dispatch_id")
-    )
-    _now_utc = field_validator("now")(_require_utc)
+    _strings = field_validator("tenant_id", "run_id", "execution_ref")(require_non_blank)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
+    _now_utc = field_validator("now")(require_utc)
     _lease_positive = field_validator("lease_seconds")(_require_positive)
 
 
-class FinishRunDispatch(_ControlPlaneModel):
+class FinishRunDispatch(ControlPlaneModel):
     tenant_id: str
     run_id: str
     dispatch_id: str
     outcome: DispatchOutcome
-    finished_at: _UtcDatetime
+    finished_at: UtcDatetime
 
-    _strings = field_validator("tenant_id", "run_id")(_require_non_blank)
-    _dispatch = field_validator("dispatch_id")(
-        lambda value: _require_dispatch_id(value, "dispatch_id")
-    )
-    _finished_utc = field_validator("finished_at")(_require_utc)
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
+    _finished_utc = field_validator("finished_at")(require_utc)
 
 
-class BeginIdempotency(_ControlPlaneModel):
+class BeginIdempotency(ControlPlaneModel):
     tenant_id: str
     scope: str
     key: str
     request_hash: str
     resource_id: str
-    now: _UtcDatetime
-    expires_at: _UtcDatetime
+    now: UtcDatetime
+    expires_at: UtcDatetime
 
-    _strings = field_validator("tenant_id", "scope", "key", "resource_id")(_require_non_blank)
-    _request_hash = field_validator("request_hash")(_require_sha256)
-    _datetimes = field_validator("now", "expires_at")(_require_utc)
+    _strings = field_validator("tenant_id", "scope", "key", "resource_id")(require_non_blank)
+    _request_hash = field_validator("request_hash")(require_sha256)
+    _datetimes = field_validator("now", "expires_at")(require_utc)
 
     @model_validator(mode="after")
     def _validate_expiry(self) -> BeginIdempotency:
@@ -346,23 +346,23 @@ class BeginIdempotency(_ControlPlaneModel):
         return self
 
 
-class IdempotencyOutcome(_ControlPlaneModel):
+class IdempotencyOutcome(ControlPlaneModel):
     record: IdempotencyRecord
     created: bool
 
 
-class PublicationPermit(_ControlPlaneModel):
+class PublicationPermit(ControlPlaneModel):
     tenant_id: str
     run_id: str
     policy_version: int
     fencing_token: int
     binding_context: object | None = None
 
-    _strings = field_validator("tenant_id", "run_id")(_require_non_blank)
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
     _counters = field_validator("policy_version", "fencing_token")(_require_non_negative)
 
 
-class PublishDataset(_ControlPlaneModel):
+class PublishDataset(ControlPlaneModel):
     version: DatasetVersion
     pointer_name: str
     expected_version_id: str | None
@@ -371,11 +371,9 @@ class PublishDataset(_ControlPlaneModel):
     publication_permit: PublicationPermit
     event: OutboxEvent
 
-    _pointer = field_validator("pointer_name")(_require_non_blank)
-    _expected_version = field_validator("expected_version_id")(_optional_non_blank)
-    _missing_unique = field_validator("missing_sources")(
-        lambda values: _unique_non_blank(values, "duplicate_missing_source")
-    )
+    _pointer = field_validator("pointer_name")(require_non_blank)
+    _expected_version = field_validator("expected_version_id")(optional_non_blank)
+    _missing_unique = field_validator("missing_sources")(_unique_missing_sources)
 
     @model_validator(mode="after")
     def _validate_publication(self) -> PublishDataset:

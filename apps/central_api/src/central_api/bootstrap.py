@@ -16,7 +16,7 @@ import os
 import sys
 from datetime import UTC, datetime
 from getpass import getpass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from cnes_domain.control_plane.entities import Membership
 from cnes_domain.profiles import ProfileSettings, parse_local_profile
@@ -51,7 +51,7 @@ def bootstrap_user(
     control_plane = SQLiteControlPlane(settings.state_db, lambda: now)
     control_plane.initialize()
     control_plane.put_membership(Membership(
-        tenant_id=settings.tenant_id, user_id=user_id, role=role, created_at=now,
+        tenant_id=cast("str", settings.tenant_id), user_id=user_id, role=role, created_at=now,
         oidc_issuer=None,
     ))
     logger.info(

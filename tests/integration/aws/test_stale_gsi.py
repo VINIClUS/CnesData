@@ -1,7 +1,7 @@
 """Candidato stale do GSI é revalidado na chave base do DynamoDB Local antes de autorizar."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -23,6 +23,8 @@ from tests.integration.aws._harness import (
 )
 
 if TYPE_CHECKING:
+    from botocore.client import BaseClient
+
     from tests.integration.aws._harness import AwsTestRuntime
 
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]
@@ -32,13 +34,13 @@ def test_gsi_membership_revogada_nao_autoriza(aws_runtime: AwsTestRuntime) -> No
     table = aws_runtime.resources.table_name
     seed_membership(aws_runtime, "tenant-a", "user-1")
     recorder = QueryRecorder(aws_runtime.dynamodb)
-    assert DynamoDBMembershipCandidates(recorder, table).list_candidates("user-1") == (
-        "tenant-a",
-    )
+    candidates = DynamoDBMembershipCandidates(cast("BaseClient", recorder), table)
+    assert candidates.list_candidates("user-1") == ("tenant-a",)
     delete_membership(aws_runtime, "tenant-a", "user-1")
     stale = StaleQueryClient(aws_runtime.dynamodb, recorder.pages)
     authorizer = MembershipAuthorizer(
-        aws_runtime.api.control_plane, DynamoDBMembershipCandidates(stale, table),
+        aws_runtime.api.control_plane,
+        DynamoDBMembershipCandidates(cast("BaseClient", stale), table),
     )
 
     assert authorizer.list_authorized(principal("user-1")) == ()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cnes_domain.control_plane.commands import PublishDataset
 from cnes_domain.control_plane.entities import (
@@ -95,8 +95,8 @@ class _AncestrySearch:
 def _build_ancestry(connection: Any, identity: Any, current: RawManifestRecord, limit: int):
     search = identity if isinstance(identity, _AncestrySearch) else _AncestrySearch(
         identity, max(limit, 1) * _HEAD_SCAN_PAGES, {})
-    paths = [(current, (current,))]
-    expanded = set()
+    paths: list[tuple[RawManifestRecord, tuple[RawManifestRecord, ...]]] = [(current, (current,))]
+    expanded: set[str] = set()
     while paths:
         item, ancestry = paths.pop()
         if item.manifest_id in expanded:
@@ -342,7 +342,7 @@ def _put_pointer(connection: Any, pointer: DatasetPointer) -> None:
 
 def _validate_publication_replay(
     store: Any, connection: Any, command: PublishDataset, pointer: DatasetPointer | None
-) -> DatasetPointer | None:
+) -> DatasetPointer:
     row = connection.execute(
         "SELECT data, response_data FROM dataset_publications "
         "WHERE tenant_id = ? AND dataset_name = ? AND version_id = ?",
@@ -359,9 +359,10 @@ def _validate_publication_replay(
     command = command.model_copy(update={"publication_permit": permit})
     if canonical != command or not terminal_matches:
         raise Conflict(ErrorCode.PUBLICATION_REPLAY_CONFLICT)
-    if row[1] is None:
+    record = cast("tuple[str, str | None]", row)
+    if record[1] is None:
         raise Conflict(ErrorCode.PUBLICATION_REPLAY_RESPONSE_MISSING)
-    return deserialize_model(row[1], DatasetPointer)
+    return deserialize_model(record[1], DatasetPointer)
 
 
 def publish_dataset(store: Any, command: PublishDataset) -> DatasetPointer:

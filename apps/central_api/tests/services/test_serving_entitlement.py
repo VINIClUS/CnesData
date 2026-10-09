@@ -1,6 +1,6 @@
 """Gate de entitlement do serving: ordem, retenção, cache e auditoria sem ids."""
-
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -38,6 +38,9 @@ from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRe
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.cache import LocalEntitlementCache
 from cnes_infra.billing.disabled import DisabledQuotaReservations, disabled_snapshot
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.ports import EntitlementProjectionPort
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 TENANT = "tenant-a"
@@ -88,11 +91,11 @@ def _gates(
     projection: FakeProjection,
     cache: LocalEntitlementCache | None = None,
     mode: BillingMode = BillingMode.STRIPE,
-    resolver: Mock | None = None,
+    resolver: Mock | TenantAccountResolver | None = None,
 ) -> ApiBillingGates:
     quotas = DisabledQuotaReservations(lambda: NOW)
     gate = EntitlementGate(EntitlementGateDependencies(
-        projection=projection,
+        projection=cast("EntitlementProjectionPort", projection),
         quotas=quotas,
         clock=lambda: NOW,
         run_settings=RunReservationSettings(1, lambda: "res-1", timedelta(minutes=5)),
@@ -101,7 +104,7 @@ def _gates(
     ))
     accounts = resolver or Mock(spec=TenantAccountResolver)
     if resolver is None:
-        accounts.resolve.return_value = ACCOUNT
+        cast("Mock", accounts.resolve).return_value = ACCOUNT
     return ApiBillingGates(mode, gate, quotas, accounts)
 
 
@@ -178,7 +181,7 @@ def test_nao_membro_nega_antes_do_gate(caplog) -> None:
         access.authorize(_request())
 
     assert captured.value.code == "membership_denied"
-    gates.accounts.resolve.assert_not_called()
+    cast("Mock", gates.accounts.resolve).assert_not_called()
     assert projection.calls == []
     assert _audit_lines(caplog) == []
 
@@ -312,4 +315,5 @@ def test_disabled_libera_sem_medicao() -> None:
 
 
 def test_contrato_do_leitor_de_versao_nao_tem_implementacao() -> None:
-    assert DatasetVersionReader.get_dataset_version(Mock(), TENANT, "cnes", RUN_ID) is None
+    reader = cast("Any", DatasetVersionReader)
+    assert reader.get_dataset_version(Mock(), TENANT, "cnes", RUN_ID) is None

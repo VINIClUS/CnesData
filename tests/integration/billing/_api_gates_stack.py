@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import boto3
@@ -68,6 +68,9 @@ from packages.cnes_infra.tests.billing.revocation_support import get_raw
 from packages.cnes_infra.tests.contracts.clock import MutableClock
 from tests.integration.billing._enforcement_stack import RawView
 from tests.integration.billing._execution_stack import Case
+
+if TYPE_CHECKING:
+    from packages.cnes_infra.tests.billing.revocation_support import RevEnv
 
 OWNER = "user-owner"
 MANAGER = "manager-1"
@@ -288,7 +291,7 @@ def create_tenant(client: TestClient, tenant_id: str, key: str = "key-1") -> Any
 
 
 def capacity_counter(stack: ApiStack, name: str) -> int:
-    item = get_raw(RawView(stack.client, TABLE_NAME), capacity_usage_key(ACCOUNT))
+    item = get_raw(cast("RevEnv", RawView(stack.client, TABLE_NAME)), capacity_usage_key(ACCOUNT))
     return 0 if item is None else int(item.get(name, {"N": "0"})["N"])
 
 
@@ -303,7 +306,7 @@ def stored_keys(stack: ApiStack) -> set[tuple[str, str]]:
 
 def read_snapshot(stack: ApiStack) -> EntitlementSnapshot:
     projection = DynamoEntitlementProjection(stack.client, TABLE_NAME, stack.clock.now)
-    return projection.get_snapshot(ACCOUNT, ReadConsistency.STRONG)
+    return cast("EntitlementSnapshot", projection.get_snapshot(ACCOUNT, ReadConsistency.STRONG))
 
 
 def _put_object(store: FilesystemObjectStore, key: str, body: bytes) -> None:

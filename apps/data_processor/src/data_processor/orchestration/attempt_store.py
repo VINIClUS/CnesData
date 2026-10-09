@@ -5,8 +5,9 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO, Mapping
+    from collections.abc import Mapping
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
 
     from cnes_domain.control_plane.entities import RunUnit
     from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
@@ -46,7 +47,7 @@ def _validate_inputs(inputs: Mapping[str, str], prefix: str) -> None:
 class AttemptObjectStore:
     delegate: ObjectStorePort
     prefix: str
-    inputs: Mapping[str, str] = field(default_factory=dict)
+    inputs: Mapping[str, str] = field(default_factory=dict[str, str])
 
     def __post_init__(self) -> None:
         _validate_inputs(self.inputs, self.prefix)

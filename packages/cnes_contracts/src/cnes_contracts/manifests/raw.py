@@ -9,10 +9,10 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from cnes_contracts.manifests.validation import (
-    _COMPETENCIA_PATTERN,
-    _HASH_PATTERN,
-    _validate_utc,
+    COMPETENCIA_PATTERN,
+    HASH_PATTERN,
     validate_object_key,
+    validate_utc,
 )
 
 
@@ -37,7 +37,7 @@ class RawManifest(BaseModel):
     tenant_id: str = Field(min_length=1)
     source_type: SourceType
     file_subtype: str = Field(min_length=1)
-    competencia: str = Field(pattern=_COMPETENCIA_PATTERN)
+    competencia: str = Field(pattern=COMPETENCIA_PATTERN)
     agent_id: str = Field(min_length=1)
     agent_version: str = Field(min_length=1)
     schema_version: str = Field(min_length=1)
@@ -45,8 +45,8 @@ class RawManifest(BaseModel):
     snapshot_id: str = Field(min_length=1)
     base_snapshot_id: str | None
     sequence: int = Field(gt=0)
-    previous_manifest_sha256: str | None = Field(pattern=_HASH_PATTERN)
-    object_sha256: str = Field(pattern=_HASH_PATTERN)
+    previous_manifest_sha256: str | None = Field(pattern=HASH_PATTERN)
+    object_sha256: str = Field(pattern=HASH_PATTERN)
     row_count: int = Field(ge=0)
     size_bytes: int = Field(gt=0)
     object_key: str = Field(min_length=1)
@@ -55,7 +55,7 @@ class RawManifest(BaseModel):
     @field_validator("created_at")
     @classmethod
     def validate_created_at(cls, value: datetime) -> datetime:
-        return _validate_utc(value)
+        return validate_utc(value)
 
     @model_validator(mode="after")
     def validate_chain(self) -> Self:

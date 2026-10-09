@@ -1,6 +1,7 @@
 """Testes do ponto de entrada main do data_processor."""
 import logging
 from datetime import UTC, datetime
+from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -223,7 +224,7 @@ class TestPollUntilShutdown:
             return_value=SimpleNamespace(delivered=1, failed=0),
         ) as dispatch:
             with caplog.at_level("INFO", logger="data_processor.main"):
-                _audit_tick(object(), object())
+                _audit_tick(cast("Any", object()), cast("Any", object()))
 
         dispatch.assert_called_once()
         assert "local_profile_audit_tick delivered=1 failed=0" in caplog.text
@@ -246,7 +247,7 @@ class TestPollUntilShutdown:
 
         shutdown = asyncio.Event()
         await _poll_until_shutdown(
-            _Coordinator(), shutdown, interval=0.001, audit_tick=audit_tick
+            cast("Any", _Coordinator()), shutdown, interval=0.001, audit_tick=audit_tick
         )
 
         assert audit_ticks == [1]
@@ -273,7 +274,7 @@ class TestPollUntilShutdown:
         with caplog.at_level("ERROR", logger="data_processor.main"):
             await asyncio.wait_for(
                 _poll_until_shutdown(
-                    _Coordinator(), shutdown, interval=0.001, audit_tick=audit_tick
+                    cast("Any", _Coordinator()), shutdown, interval=0.001, audit_tick=audit_tick
                 ),
                 timeout=2,
             )
@@ -290,7 +291,7 @@ class TestPollUntilShutdown:
                 return ("run-a", "run-b")
 
         with caplog.at_level("INFO", logger="data_processor.main"):
-            await _recover_tick(_Coordinator())
+            await _recover_tick(cast("Any", _Coordinator()))
 
         assert "local_profile_recover_tick runs=2" in caplog.text
 
@@ -303,7 +304,7 @@ class TestPollUntilShutdown:
                 raise RuntimeError("sqlite_busy")
 
         with caplog.at_level("ERROR", logger="data_processor.main"):
-            await _recover_tick(_Coordinator())
+            await _recover_tick(cast("Any", _Coordinator()))
 
         assert "local_profile_recover_tick_error" in caplog.text
 
@@ -324,7 +325,7 @@ class TestPollUntilShutdown:
 
         shutdown = asyncio.Event()
         await asyncio.wait_for(
-            _poll_until_shutdown(_Coordinator(), shutdown, interval=0.001), timeout=2
+            _poll_until_shutdown(cast("Any", _Coordinator()), shutdown, interval=0.001), timeout=2
         )
 
         assert len(ticks) == 2

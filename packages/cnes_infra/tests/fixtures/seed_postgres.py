@@ -5,7 +5,7 @@ import random
 
 from sqlalchemy import create_engine, insert
 
-from cnes_infra.storage.schema import (
+from cnes_infra.storage.schema import (  # pyright: ignore[reportMissingImports]
     dim_estabelecimento,
     dim_profissional,
     fato_vinculo,

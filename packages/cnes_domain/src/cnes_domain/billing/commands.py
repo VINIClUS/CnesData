@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from cnes_domain.billing.models import (
     BillingAccount,
@@ -186,7 +187,7 @@ class SnapshotWrite:
         require_non_negative(self.expected_version, "expected_version")
         if self.snapshot.entitlement_version != self.expected_version + 1:
             raise ValueError("reason=snapshot_version_not_successor")
-        if not isinstance(self.audit_events, tuple):
+        if not isinstance(cast("object", self.audit_events), tuple):
             raise ValueError("reason=audit_events_not_tuple")
 
 

@@ -13,7 +13,7 @@ import polars as pl
 from cnes_contracts.manifests.outputs import OutputManifest
 from cnes_contracts.manifests.processing import NormalizeResult
 from cnes_contracts.manifests.raw import SourceType
-from data_processor.adapters.sihd_local_adapter import _MAP_INTERNACAO_RAW, _MAP_PROC_AIH_RAW
+from data_processor.adapters.sihd_local_adapter import MAP_INTERNACAO_RAW, MAP_PROC_AIH_RAW
 from data_processor.pipeline.delta_reconstruction import reconstruct_from_deltas
 from data_processor.sources.sihd.contract import (
     DATE_FORMAT,
@@ -61,7 +61,7 @@ class _SubtypeSpec:
 
 _SPECS: dict[str, _SubtypeSpec] = {
     SUBTYPE_INTERNACAO: _SubtypeSpec(
-        raw_map=_MAP_INTERNACAO_RAW,
+        raw_map=MAP_INTERNACAO_RAW,
         source_schema=INTERNACAO_SOURCE_SCHEMA,
         output_schema=INTERNACAO_SCHEMA,
         schema_version=INTERNACAO_SCHEMA_VERSION,
@@ -79,7 +79,7 @@ _SPECS: dict[str, _SubtypeSpec] = {
         date_fields=("DT_INTERNACAO", "DT_SAIDA"),
     ),
     SUBTYPE_PROC_AIH: _SubtypeSpec(
-        raw_map=_MAP_PROC_AIH_RAW,
+        raw_map=MAP_PROC_AIH_RAW,
         source_schema=PROC_AIH_SOURCE_SCHEMA,
         output_schema=PROC_AIH_SCHEMA,
         schema_version=PROC_AIH_SCHEMA_VERSION,
@@ -294,7 +294,9 @@ def _centavos(value: str) -> int:
 def _finalize(
     frame: pl.DataFrame, spec: _SubtypeSpec, request: NormalizeRequest, base: RawManifest
 ) -> pl.DataFrame:
-    derived = [_parse_date(name).alias(name) for name in spec.date_fields]
+    derived: list[pl.Expr | pl.Series] = [
+        _parse_date(name).alias(name) for name in spec.date_fields
+    ]
     if "VALOR_CENTAVOS" in spec.output_schema:
         values = [None if item is None else _centavos(item) for item in frame["VALOR"]]
         derived.append(pl.Series("VALOR_CENTAVOS", values, dtype=pl.Int64))

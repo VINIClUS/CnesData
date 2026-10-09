@@ -1,7 +1,6 @@
 """Fences do companion de billing no control plane SQLite: unidades e publicação."""
 
 import json
-from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -37,7 +36,7 @@ def clock() -> MutableClock:
 
 
 @pytest.fixture
-def adapter(tmp_path: Path, clock: MutableClock) -> Iterator[SQLiteControlPlane]:
+def adapter(tmp_path: Path, clock: MutableClock) -> SQLiteControlPlane:
     plane = SQLiteControlPlane(tmp_path / "control.sqlite3", clock.now)
     plane.initialize()
     return plane

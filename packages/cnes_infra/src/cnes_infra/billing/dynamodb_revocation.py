@@ -120,13 +120,12 @@ def _progress_item(progress: RevocationProgress) -> Item:
 def _decode_progress(item: Item) -> RevocationProgress:
     try:
         data = json.loads(item["payload"]["S"])
-        progress = RevocationProgress(
-            **{
-                **data,
-                "phase": RevocationPhase(data["phase"]),
-                "updated_at": datetime.fromisoformat(data["updated_at"]),
-            }
-        )
+        values: dict[str, Any] = {
+            **data,
+            "phase": RevocationPhase(data["phase"]),
+            "updated_at": datetime.fromisoformat(data["updated_at"]),
+        }
+        progress = RevocationProgress(**values)
         stored = (item["entity"], item["pk"], item["sk"])
         expected = _progress_item(progress)
         if stored == tuple(expected[name] for name in ("entity", "pk", "sk")):

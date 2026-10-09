@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 from cnes_domain.control_plane.enums import RunState
@@ -13,6 +14,12 @@ from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 
 
 class HarnessRawQueries(DeprecatedRawQueryMixin):
+    mutation: str | None
+    jobs: dict[tuple[str, str], Any]
+    raw_records: list[Any]
+    runs: dict[tuple[str, str], Any]
+    _select_raw_chain: Callable[[list[Any]], list[Any]]
+
     def query_raw_manifest_by_id(self, query: RawManifestByIdQuery) -> Any | None:
         return next(
             (record for record in self.raw_records

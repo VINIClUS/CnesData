@@ -42,8 +42,10 @@ from cnes_contracts.manifests.raw import RawManifest
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from pydantic import BaseModel
 
-MODELS: list[tuple[type, str]] = [
+
+MODELS: list[tuple[type[BaseModel], str]] = [
     (Profissional, "profissional.json"),
     (Estabelecimento, "estabelecimento.json"),
     (ProcedimentoSUS, "procedimentosus.json"),
@@ -88,7 +90,7 @@ def export_all(target_dir: Path | str) -> list[Path]:
 
     target = _Path(target_dir) if not isinstance(target_dir, _Path) else target_dir
     target.mkdir(parents=True, exist_ok=True)
-    written = []
+    written: list[_Path] = []
     for model_cls, filename in MODELS:
         schema = model_cls.model_json_schema()
         path = target / filename

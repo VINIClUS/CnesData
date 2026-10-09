@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from cnes_contracts.manifests.raw import SourceType
 from cnes_domain.billing.publication import (
@@ -120,7 +120,7 @@ class LocalProcessorRuntime:
     control_plane: ControlPlanePort
     object_store: ObjectStorePort
     audit_sink: AuditSinkPort
-    executor: ProcessorExecutorPort
+    executor: LocalWorkerPool
     publisher: DatasetPublisher
     source_registry: SourceRegistry
     stage_processor: StageProcessor
@@ -177,7 +177,7 @@ def _publication_policy(
 
 def _seed_tenant(control_plane: ControlPlanePort, settings: ProfileSettings, now: datetime) -> None:
     control_plane.put_tenant(Tenant(
-        tenant_id=settings.tenant_id, municipality_name=f"tenant-{settings.tenant_id}",
+        tenant_id=cast("str", settings.tenant_id), municipality_name=f"tenant-{settings.tenant_id}",
         created_at=now,
     ))
 

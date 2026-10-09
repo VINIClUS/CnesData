@@ -6,12 +6,11 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO
 
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
 
 _TENANT = "354130"

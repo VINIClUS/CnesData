@@ -5,6 +5,7 @@ import json
 import logging
 from collections.abc import Iterator
 from dataclasses import replace
+from typing import Any, cast
 
 import pytest
 
@@ -210,6 +211,6 @@ def test_sink_configurado_escreve_documento_emf_json_no_stdout(capsys) -> None:
 def test_sink_configurado_nao_duplica_handler_nem_propaga(capsys) -> None:
     build_billing_metrics("prod")
     sink = build_billing_metrics("dev")
-    emf_logger = sink._logger
+    emf_logger = cast("Any", sink)._logger
     assert len(emf_logger.handlers) == 1
     assert emf_logger.propagate is False

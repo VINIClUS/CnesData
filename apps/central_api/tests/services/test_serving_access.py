@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -12,6 +13,10 @@ from cnes_contracts.manifests.raw import SourceType
 from cnes_domain.control_plane.entities import DatasetPointer, DatasetVersion, Membership
 from cnes_domain.ports.object_store import ObjectStat
 from cnes_domain.ports.serving import ServingAccessPort, ServingRequest
+
+if TYPE_CHECKING:
+    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.object_store import ObjectStorePort
 
 NOW = datetime(2026, 7, 2, tzinfo=UTC)
 TENANT = "354130"
@@ -23,13 +28,19 @@ COMPETENCIA = "2026-07"
 MANIFEST_KEY = f"reconciliation/{TENANT}/{COMPETENCIA}/{RUN_ID}/run-manifest.json"
 
 
-def membership(**updates: object) -> Membership:
-    values = {"tenant_id": TENANT, "user_id": USER, "role": "viewer", "created_at": NOW}
+def ports(control: object, store: object) -> "tuple[ControlPlanePort, ObjectStorePort]":
+    return cast("ControlPlanePort", control), cast("ObjectStorePort", store)
+
+
+def membership(**updates: Any) -> Membership:
+    values: dict[str, Any] = {
+        "tenant_id": TENANT, "user_id": USER, "role": "viewer", "created_at": NOW,
+    }
     return Membership(**(values | updates))
 
 
-def pointer(**updates: object) -> DatasetPointer:
-    values = {
+def pointer(**updates: Any) -> DatasetPointer:
+    values: dict[str, Any] = {
         "tenant_id": TENANT,
         "dataset_name": DATASET,
         "pointer_name": "current",
@@ -39,8 +50,8 @@ def pointer(**updates: object) -> DatasetPointer:
     return DatasetPointer(**(values | updates))
 
 
-def version(**updates: object) -> DatasetVersion:
-    values = {
+def version(**updates: Any) -> DatasetVersion:
+    values: dict[str, Any] = {
         "tenant_id": TENANT,
         "dataset_name": DATASET,
         "version_id": RUN_ID,
@@ -51,13 +62,13 @@ def version(**updates: object) -> DatasetVersion:
     return DatasetVersion(**(values | updates))
 
 
-def output(layer: str, name: str, *, run_id: str = RUN_ID, **updates: object) -> OutputManifest:
+def output(layer: str, name: str, *, run_id: str = RUN_ID, **updates: Any) -> OutputManifest:
     keys = {
         "normalized": f"normalized/{TENANT}/CNES_LOCAL/{COMPETENCIA}/{run_id}/{name}.parquet",
         "reconciliation": f"reconciliation/{TENANT}/{COMPETENCIA}/{run_id}/{name}.parquet",
         "serving": f"serving/{TENANT}/{run_id}/{name}.json",
     }
-    values = {
+    values: dict[str, Any] = {
         "manifest_version": 1,
         "manifest_id": f"{layer}-{name}",
         "tenant_id": TENANT,
@@ -76,8 +87,8 @@ def output(layer: str, name: str, *, run_id: str = RUN_ID, **updates: object) ->
     return OutputManifest(**(values | updates))
 
 
-def run_manifest(outputs: tuple[OutputManifest, ...], **updates: object) -> RunManifest:
-    values = {
+def run_manifest(outputs: tuple[OutputManifest, ...], **updates: Any) -> RunManifest:
+    values: dict[str, Any] = {
         "manifest_version": 1,
         "tenant_id": TENANT,
         "dataset_name": DATASET,
@@ -91,7 +102,7 @@ def run_manifest(outputs: tuple[OutputManifest, ...], **updates: object) -> RunM
 
 
 def raw_output(**overrides: object) -> dict:
-    values = {
+    values: dict[str, Any] = {
         "manifest_version": 1,
         "manifest_id": "serving-overview",
         "tenant_id": TENANT,
@@ -111,7 +122,7 @@ def raw_output(**overrides: object) -> dict:
 
 
 def raw_run_manifest(outputs: list[dict], **overrides: object) -> dict:
-    values = {
+    values: dict[str, Any] = {
         "manifest_version": 1,
         "tenant_id": TENANT,
         "dataset_name": DATASET,
@@ -124,8 +135,8 @@ def raw_run_manifest(outputs: list[dict], **overrides: object) -> dict:
     return values | overrides
 
 
-def request(**updates: object) -> ServingRequest:
-    values = {"user_id": USER, "tenant_id": TENANT, "dataset_name": DATASET}
+def request(**updates: Any) -> ServingRequest:
+    values: dict[str, Any] = {"user_id": USER, "tenant_id": TENANT, "dataset_name": DATASET}
     return ServingRequest(**(values | updates))
 
 
@@ -193,7 +204,7 @@ class ObjectStore:
 
 
 def access(store: ObjectStore, control: ControlPlane) -> LocalServingAccess:
-    return LocalServingAccess(control, store)
+    return LocalServingAccess(*ports(control, store))
 
 
 def store_manifest(store: ObjectStore, manifest: RunManifest) -> None:

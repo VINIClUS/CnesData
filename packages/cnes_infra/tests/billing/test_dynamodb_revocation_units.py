@@ -4,7 +4,7 @@ import os
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import boto3
@@ -133,6 +133,7 @@ def test_fence_torna_inutilizavel_o_permit_da_proxima_geracao(env: RevEnv) -> No
     with pytest.raises(PermanentBillingError, match="run_execution_canceled"):
         env.plane.bind_run_execution(stale_bind)
     state = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert state is not None
     assert state.execution_dispatch_id == first.dispatch_id
 
 
@@ -164,7 +165,7 @@ def test_retomada_por_cursor_continua_depois_do_ultimo_lote(env: RevEnv) -> None
 
     second = env.store.cancel_run_units(cancel_command(env, fenced, cursor=first.next_cursor))
 
-    assert min(second.canceled_unit_ids) > first.next_cursor
+    assert min(second.canceled_unit_ids) > cast("str", first.next_cursor)
     assert not set(first.canceled_unit_ids) & set(second.canceled_unit_ids)
     assert second.run_canceled is False
 
@@ -211,6 +212,7 @@ def test_perda_de_cas_no_lote_e_retentavel_e_nao_cancela_nada(env: RevEnv) -> No
 
     def mutate() -> None:
         state = env.store.get_run_billing_state(TENANT, RUN_ID)
+        assert state is not None
         changed = replace(state, updated_at=state.updated_at + timedelta(seconds=1))
         env.client.put_item(TableName=env.table, Item=encode_run_billing_state(changed))
 
@@ -226,6 +228,7 @@ def test_perda_de_cas_no_lote_e_retentavel_e_nao_cancela_nada(env: RevEnv) -> No
 def test_fence_alterado_ou_ausente_e_retentavel(env: RevEnv) -> None:
     create_run(env)
     unfenced = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert unfenced is not None
     with pytest.raises(RetryableBillingError, match="run_fence_changed"):
         env.store.cancel_run_units(cancel_command(env, unfenced))
 
@@ -257,6 +260,7 @@ def test_cancelamento_sem_run_e_permanente(env: RevEnv) -> None:
 def test_run_fora_de_cancel_requested_e_permanente(env: RevEnv) -> None:
     create_run(env)
     state = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert state is not None
     fenced = replace(state, cancel_requested=True, fencing_token=1)
     env.client.put_item(TableName=env.table, Item=encode_run_billing_state(fenced))
 
@@ -279,7 +283,7 @@ def test_run_ja_cancelado_retoma_a_liquidacao_e_depois_nao_regrava(env: RevEnv) 
 
     assert (first.canceled_unit_ids, first.next_cursor, first.run_canceled) == ((), None, True)
     assert stored_reservation(env).status is ReservationStatus.RELEASED
-    assert stored_dispatch(env).terminal_outcome is DispatchOutcome.CANCELED
+    assert cast("Any", stored_dispatch(env)).terminal_outcome is DispatchOutcome.CANCELED
     env.spy.transactions.clear()
     second = env.store.cancel_run_units(cancel_command(env, fenced))
     assert second.run_canceled is True
@@ -326,9 +330,10 @@ def test_dispatch_com_lease_expirado_e_ignorado_na_liquidacao(env: RevEnv) -> No
 
     assert results[-1].run_canceled
     assert stored_run(env).state is RunState.CANCELED
-    assert stored_dispatch(env).state is DispatchState.STARTED
+    assert cast("Any", stored_dispatch(env)).state is DispatchState.STARTED
     assert stored_reservation(env).status is ReservationStatus.RELEASED
     state = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert state is not None
     assert state.execution_status is DispatchState.STARTED
 
 
@@ -337,12 +342,13 @@ def test_conflito_do_dispatch_diferente_de_expirado_e_retentavel(env: RevEnv) ->
 
     def mutate() -> None:
         raw = get_raw(env, dispatch_key(TENANT, RUN_ID))
-        changed = stored_dispatch(env).model_copy(
-            update={"lease_until": stored_dispatch(env).lease_until + timedelta(seconds=1)}
+        dispatch = cast("Any", stored_dispatch(env))
+        changed = cast("Any", stored_dispatch(env)).model_copy(
+            update={"lease_until": dispatch.lease_until + timedelta(seconds=1)}
         )
         env.client.put_item(
             TableName=env.table,
-            Item={**raw, "payload": {"S": changed.model_dump_json()}},
+            Item={**cast("dict[str, Any]", raw), "payload": {"S": changed.model_dump_json()}},
         )
 
     before_transaction(env, "RUNDISPATCH", mutate)
@@ -358,6 +364,7 @@ def test_perda_de_cas_no_espelho_do_companion_e_retentavel(env: RevEnv) -> None:
 
     def mutate() -> None:
         state = env.store.get_run_billing_state(TENANT, RUN_ID)
+        assert state is not None
         changed = replace(state, updated_at=state.updated_at + timedelta(seconds=1))
         env.client.put_item(TableName=env.table, Item=encode_run_billing_state(changed))
 
@@ -381,10 +388,12 @@ def test_falha_na_finalizacao_deixa_liquidacao_feita_e_retentativa_converge(
     assert stored_run(env).state is RunState.CANCEL_REQUESTED
     assert stored_reservation(env).status is ReservationStatus.RELEASED
     dispatch = stored_dispatch(env)
+    assert dispatch is not None
     assert (dispatch.state, dispatch.terminal_outcome) == (
         DispatchState.TERMINAL, DispatchOutcome.CANCELED
     )
     state = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert state is not None
     assert state.execution_status is DispatchState.TERMINAL
     assert units_by_id(env)["unit-a"].state is RunUnitState.PENDING
 

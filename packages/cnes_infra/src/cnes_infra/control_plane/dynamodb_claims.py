@@ -32,6 +32,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
     payload,
     put_action,
 )
+from cnes_infra.control_plane.dynamodb_host import DynamoDBHost
 from cnes_infra.control_plane.dynamodb_keys import (
     dispatch_key,
     entity_key,
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
     from cnes_infra.control_plane.dynamodb_billing import ClaimDeferred
 
 
-class DynamoDBClaims:
+class DynamoDBClaims(DynamoDBHost):
     """Implementa decisões protegidas por lease e fencing token."""
     def claim_job(self, command: ClaimJob) -> Job | None:
         """Reivindica um job elegível com novo fence."""

@@ -5,7 +5,7 @@ import logging
 import os
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, is_dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from billing_worker.composition import build_worker
 from billing_worker.worker import BillingWorker
@@ -13,6 +13,9 @@ from cnes_domain.billing.errors import BillingError
 from cnes_domain.billing.inbox import STRIPE_EVENT_PAGE_LIMIT
 from cnes_infra.billing.secrets_manager import SecretProviderError
 from cnes_infra.billing.settings import BillingConfigurationError
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +70,7 @@ def _log_done(command: str, result: Any) -> None:
     if result is None:
         logger.info("billing_worker_skipped command=%s reason=enforcement_off", command)
         return
-    fields = asdict(result) if is_dataclass(result) else {}
+    fields = asdict(cast("DataclassInstance", result)) if is_dataclass(result) else {}
     summary = " ".join(f"{name}={value}" for name, value in fields.items())
     logger.info("billing_worker_cycle_done command=%s %s", command, summary)
 

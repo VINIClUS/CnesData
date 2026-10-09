@@ -6,13 +6,14 @@ import re
 import sys
 import unicodedata
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-import config
-from ingestion.cnes_client import conectar
+import config  # pyright: ignore[reportMissingImports]
+from ingestion.cnes_client import conectar  # pyright: ignore[reportMissingImports]
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ def consultar_pispasep_firebird(con) -> pd.DataFrame:
         cur.close()
 
     df = pd.DataFrame(linhas, columns=colunas)
-    return df[df["PISPASEP"].str.strip() != ""].copy()
+    return cast("pd.DataFrame", df[df["PISPASEP"].str.strip() != ""].copy())
 
 
 def crosswalk_pis_cpf(df_rh: pd.DataFrame, df_firebird: pd.DataFrame) -> pd.DataFrame:
@@ -109,7 +110,10 @@ def crosswalk_pis_cpf(df_rh: pd.DataFrame, df_firebird: pd.DataFrame) -> pd.Data
 
     pis_map = dict(zip(df_firebird["PISPASEP"].str.strip(), df_firebird["CPF_PROF"].str.strip()))
     nome_map: dict[str, tuple[str, str]] = {
-        _normalizar_nome(r["NOME_PROF"]): (r["CPF_PROF"].strip(), r["NOME_PROF"].strip())
+        _normalizar_nome(cast("str", r["NOME_PROF"])): (
+            cast("str", r["CPF_PROF"]).strip(),
+            cast("str", r["NOME_PROF"]).strip(),
+        )
         for _, r in df_firebird.iterrows()
     }
 

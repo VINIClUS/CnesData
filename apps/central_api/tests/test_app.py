@@ -1,9 +1,13 @@
 """Testes de integração leve para central_api via TestClient (Gold v2)."""
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 
 def _make_app():
@@ -107,7 +111,7 @@ class TestLocalCompositionDependencies:
         )
 
         with TestClient(_make_app()) as client:
-            app = client.app
+            app = cast("FastAPI", client.app)
 
             assert app.state.local_auth_service is not None
             assert app.state.serving_access is not None

@@ -1,5 +1,6 @@
 """Fakes compartilhados dos testes do StripeGateway."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -38,7 +39,7 @@ def make_gateway(
     return StripeGateway(client, make_config(), plans), client, plans
 
 
-def page(data: list[object], has_more: bool = False) -> SimpleNamespace:
+def page(data: Sequence[object], has_more: bool = False) -> SimpleNamespace:
     return SimpleNamespace(data=data, has_more=has_more)
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from hashlib import sha256
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
@@ -13,6 +13,7 @@ from cnes_contracts.manifests.outputs import OutputManifest, ServingDocument
 from cnes_contracts.manifests.processing import MaterializeResult
 
 if TYPE_CHECKING:
+    from cnes_contracts.manifests.outputs import JsonValue
     from cnes_contracts.manifests.processing import MaterializeRequest
     from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
 
@@ -46,9 +47,9 @@ def materialize_cnes(request: MaterializeRequest, store: ObjectStorePort) -> Mat
         tenant_id=request.tenant_id,
         run_id=request.run_id,
         generated_at=request.generated_at,
-        payload=payload,
+        payload=cast("dict[str, JsonValue]", payload),
     )
-    stat = _persist(store, target_key, _render(document))
+    stat = _persist(store, target_key, render_serving_document(document))
     manifest = _output_manifest(request, target_key, stat)
     return MaterializeResult(manifests=(manifest,), documents=(document,))
 
@@ -115,7 +116,7 @@ def _divergence_counts(divergences: pl.DataFrame) -> dict[str, int]:
     return counts
 
 
-def _render(document: ServingDocument) -> bytes:
+def render_serving_document(document: ServingDocument) -> bytes:
     envelope = {
         "schema_version": document.schema_version,
         "tenant_id": document.tenant_id,

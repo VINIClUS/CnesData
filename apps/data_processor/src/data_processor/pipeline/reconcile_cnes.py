@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
@@ -149,7 +149,7 @@ def _merge_row(
 
 def _present_manifest_ids(
     local: Row | None, national: Row | None, manifest_ids: ManifestIds
-) -> list[str]:
+) -> list[str | None]:
     local_id, national_id = manifest_ids
     candidates = ((local is not None, local_id), (national is not None, national_id))
     return [manifest_id for present, manifest_id in candidates if present]
@@ -205,7 +205,7 @@ def _field_divergences(
 
 
 def _divergence_key(item: dict[str, object]) -> NaturalKey:
-    payload = item["natural_key"]
+    payload = cast("dict[str, str]", item["natural_key"])
     return payload["identity"], payload["CNES"], payload["CBO"], payload["COMPETENCIA"]
 
 

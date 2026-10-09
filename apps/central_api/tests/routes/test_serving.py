@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -26,19 +27,22 @@ from central_api.serving import (
 from cnes_domain.ports.object_store import ObjectStat
 from cnes_domain.ports.serving import ServingGrant, ServingRequest
 
+if TYPE_CHECKING:
+    from central_api.serving.aws_signed import S3SignedServingAccess
+
 TENANT = "354130"
 RUN_ID = "run-1"
 DOCUMENT = "overview"
 KEY = f"serving/{TENANT}/{RUN_ID}/{DOCUMENT}.json"
 
 
-def principal(**updates: object) -> ServingPrincipal:
-    values = {"tenant_id": TENANT, "user_id": "user-1"}
+def principal(**updates: Any) -> ServingPrincipal:
+    values: dict[str, Any] = {"tenant_id": TENANT, "user_id": "user-1"}
     return ServingPrincipal(**(values | updates))
 
 
-def grant(**updates: object) -> ServingGrant:
-    values = {
+def grant(**updates: Any) -> ServingGrant:
+    values: dict[str, Any] = {
         "tenant_id": TENANT,
         "run_id": RUN_ID,
         "version_id": RUN_ID,
@@ -59,7 +63,7 @@ class Access:
         self.requests.append(request)
         if self.error is not None:
             raise self.error
-        return self.grant
+        return cast("ServingGrant", self.grant)
 
 
 class ObjectStore:
@@ -240,7 +244,7 @@ def signed_client(signed: Signed, current: ServingPrincipal) -> TestClient:
     app.include_router(router)
     app.dependency_overrides[get_serving_principal] = lambda: current
     app.dependency_overrides[get_serving_delivery] = lambda: signed_serving_delivery(
-        signed, lambda: NOW,
+        cast("S3SignedServingAccess", signed), lambda: NOW,
     )
     return TestClient(app)
 

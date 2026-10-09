@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -68,7 +69,7 @@ def _local_values(tmp_path: Path) -> dict[str, str]:
     return {"PROFILE": "local", "TENANT_ID": "354130", "DATA_DIR": str(tmp_path)}
 
 
-def _callbacks(runtime: object):
+def _callbacks(runtime: Any):
     return runtime.coordinator._execution.callbacks
 
 
@@ -137,7 +138,7 @@ def test_aws_compoe_com_tenant_id_do_envelope_ecs_fora_do_padrao_ibge(session: M
 
     runtime = build_processor_runtime("aws", values, session)
 
-    assert runtime.control_plane._billing.mode is BillingMode.STRIPE
+    assert cast("Any", runtime.control_plane)._billing.mode is BillingMode.STRIPE
 
 
 def test_aws_rejeita_enforcement_invalido(session: Mock) -> None:

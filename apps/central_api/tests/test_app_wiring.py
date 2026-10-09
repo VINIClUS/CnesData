@@ -1,7 +1,12 @@
 """Tests for app factory wiring after AuthMiddleware integration."""
+from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+    from fastapi.routing import APIRoute
 
 
 def _make_app():
@@ -18,7 +23,7 @@ def _make_app():
 
 def test_app_inclui_router_dashboard() -> None:
     app = _make_app()
-    paths = {r.path for r in app.routes}
+    paths = {cast("APIRoute", r).path for r in app.routes}
     assert "/api/v1/dashboard/auth/me" in paths
     assert "/api/v1/dashboard/tenants" in paths
 
@@ -26,7 +31,7 @@ def test_app_inclui_router_dashboard() -> None:
 def test_app_registra_auth_middleware() -> None:
     from central_api.middleware import AuthMiddleware
     app = _make_app()
-    cls_names = {m.cls.__name__ for m in app.user_middleware}
+    cls_names = {cast("type", m.cls).__name__ for m in app.user_middleware}
     assert AuthMiddleware.__name__ in cls_names
 
 
@@ -42,13 +47,13 @@ def test_app_ordem_middleware_cors_depois_auth() -> None:
 
 def test_app_inclui_public_leads_router() -> None:
     app = _make_app()
-    paths = {r.path for r in app.routes}
+    paths = {cast("APIRoute", r).path for r in app.routes}
     assert "/api/v1/public/leads" in paths
 
 
 def test_app_inclui_billing_e_webhook_routes() -> None:
     app = _make_app()
-    paths = {route.path for route in app.routes}
+    paths = {cast("APIRoute", route).path for route in app.routes}
     assert "/api/v1/billing/accounts" in paths
     assert "/api/v1/billing/accounts/{billing_account_id}/transfer" in paths
     assert "/api/v1/billing/checkout" in paths
@@ -59,7 +64,7 @@ def test_app_inclui_billing_e_webhook_routes() -> None:
 
 def test_app_inclui_access_requests_router() -> None:
     app = _make_app()
-    paths = {r.path for r in app.routes}
+    paths = {cast("APIRoute", r).path for r in app.routes}
     assert "/api/v1/dashboard/access-requests/mine" in paths
     assert "/api/v1/dashboard/access-requests" in paths
     assert "/api/v1/dashboard/access-requests/available-tenants" in paths
@@ -237,7 +242,7 @@ def test_aws_health_nao_exige_identidade(monkeypatch) -> None:
 def test_aws_token_invalido_retorna_401_mesmo_em_modo_opcional(monkeypatch) -> None:
     build, verifier, client = _aws_client(monkeypatch)
     with build, verifier, client:
-        client.app.state.auth_required = "optional"
+        cast("FastAPI", client.app).state.auth_required = "optional"
         response = client.get("/api/v1/dashboard/__probe", headers=_bearer("forjado"))
 
     assert response.status_code == 401

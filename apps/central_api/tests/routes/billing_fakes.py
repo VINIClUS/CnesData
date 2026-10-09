@@ -47,7 +47,11 @@ HEADERS = {"X-Tenant-Id": "tenant-a"}
 QUOTAS = QuotaLimits(1, 1, 1, 1, 1, 1)
 
 
-def make_account(owner="user-1", customer="cus_1", status=BillingAccountStatus.ACTIVE):
+def make_account(
+    owner: str = "user-1",
+    customer: str | None = "cus_1",
+    status: BillingAccountStatus = BillingAccountStatus.ACTIVE,
+) -> BillingAccount:
     return BillingAccount("ba_01", customer, owner, status, NOW, NOW)
 
 

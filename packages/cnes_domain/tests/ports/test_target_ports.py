@@ -1,8 +1,10 @@
 """Testes dos ports alvo do data plane."""
 
+from collections.abc import Callable
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime, timedelta, timezone
 from inspect import Parameter, signature
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -179,7 +181,7 @@ def _annotation_name(annotation: object) -> object:
     return annotations.get(annotation, annotation) if isinstance(annotation, str) else annotation
 
 
-def _public_parameters(method: object) -> tuple[tuple[object, ...], ...]:
+def _public_parameters(method: Callable[..., Any]) -> tuple[tuple[object, ...], ...]:
     parameters = tuple(signature(method).parameters.values())[1:]
     result = []
     for parameter in parameters:
@@ -294,7 +296,7 @@ def test_object_stat_preserva_valores_e_eh_imutavel():
     assert (stat.key, stat.size_bytes, stat.sha256) == ("raw/object.parquet", 4, "a" * 64)
     assert not hasattr(stat, "__dict__")
     with pytest.raises(FrozenInstanceError):
-        stat.key = "other"
+        cast("Any", stat).key = "other"
 
 
 @pytest.mark.parametrize(
@@ -433,7 +435,7 @@ def test_callbacks_e_config_preservam_callables_e_sao_imutaveis():
     def started(run, request, ref, permit):
         return None
 
-    callbacks = ExecutionCallbacks(policy=policy, started=started)
+    callbacks = ExecutionCallbacks(policy=cast("Any", policy), started=started)
     config = ExecutionPolicyConfig(
         deployment_limit=2,
         dispatch_lease_seconds=30,
@@ -442,13 +444,13 @@ def test_callbacks_e_config_preservam_callables_e_sao_imutaveis():
     assert config.callbacks.policy is policy
     assert config.callbacks.started is started
     with pytest.raises(FrozenInstanceError):
-        config.deployment_limit = 3
+        cast("Any", config).deployment_limit = 3
 
 
 @pytest.mark.parametrize("field", ["deployment_limit", "dispatch_lease_seconds"])
 @pytest.mark.parametrize("value", [0, -1])
 def test_config_rejeita_limites_nao_positivos(field, value):
-    callbacks = ExecutionCallbacks(lambda *args: None, lambda *args: None)
+    callbacks = ExecutionCallbacks(cast("Any", lambda *args: None), lambda *args: None)
     values = {
         "deployment_limit": 2,
         "dispatch_lease_seconds": 30,

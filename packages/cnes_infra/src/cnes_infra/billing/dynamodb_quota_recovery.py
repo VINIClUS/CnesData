@@ -4,7 +4,7 @@ import base64
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -69,11 +69,12 @@ def _encode_cursor(last_key: dict[str, Any] | None) -> str | None:
 
 
 def _is_due_key(values: Any) -> bool:
-    if not isinstance(values, dict) or set(values) != _CURSOR_ATTRIBUTES:
+    mapping = cast("dict[str, object]", values)
+    if not isinstance(values, dict) or frozenset(mapping) != _CURSOR_ATTRIBUTES:
         return False
-    if not all(isinstance(value, str) and value for value in values.values()):
+    if not all(isinstance(value, str) and value for value in mapping.values()):
         return False
-    return values["gsi1pk"] == QUOTA_RESERVATION_DUE_PARTITION
+    return mapping["gsi1pk"] == QUOTA_RESERVATION_DUE_PARTITION
 
 
 def _decode_cursor(cursor: str) -> dict[str, dict[str, str]]:
@@ -101,6 +102,10 @@ class DynamoQuotaRecoveryMixin:
     _client: Any
     _table: str
     _clock: ClockPort
+
+    if TYPE_CHECKING:
+        def _transition_reservation(self, item: Item, change: ReservationTransition) -> bool: ...
+        def _transition_capacity(self, item: Item, change: CapacityTransition) -> bool: ...
 
     def reconcile_expired_reservations(
         self, request: ReservationRecoveryRequest

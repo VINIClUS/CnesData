@@ -401,10 +401,11 @@ class StripeGateway:
 
     def _subscription(self, request: StripeStateRequest) -> Any:
         subscriptions = self._client.v1.subscriptions
-        if request.stripe_subscription_id is not None:
+        subscription_id = request.stripe_subscription_id
+        if subscription_id is not None:
             return _call(
                 "subscriptions.retrieve",
-                lambda: subscriptions.retrieve(request.stripe_subscription_id),
+                lambda: subscriptions.retrieve(subscription_id),
             )
         params = {"customer": request.stripe_customer_id, "limit": 2}
         found = _call("subscriptions.list", lambda: subscriptions.list(params=params)).data

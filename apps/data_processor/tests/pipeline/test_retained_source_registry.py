@@ -9,7 +9,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import polars as pl
 import pytest
@@ -50,12 +50,14 @@ from data_processor.sources.sihd.reconcile import reconcile_sihd
 from data_processor.sources.sihd.serving import materialize_sihd
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
 
     from cnes_domain.orchestration.source_catalog import PipelineDefinition
+    from cnes_domain.ports.control_plane import ControlPlanePort
 
 _TENANT = "354130"
+_Layer = Literal["normalized", "reconciliation", "serving"]
 _RUN_ID = "run-1"
 _COMPETENCIA = "2026-01"
 _NOW = datetime(2026, 1, 15, 12, tzinfo=UTC)
@@ -120,16 +122,16 @@ class _ControlPlane:
 
 @dataclass
 class _Recorder:
-    requests: list[object] = field(default_factory=list)
+    requests: list[Any] = field(default_factory=list)
 
-    def normalize(self, request: object, store: object) -> NormalizeResult:
+    def normalize(self, request: Any, store: object) -> NormalizeResult:
         self.requests.append(request)
         return NormalizeResult(manifests=tuple(
             _output(key, "normalized", request.source_type, request.unit_id)
             for key in request.target_keys
         ))
 
-    def reconcile(self, request: object, store: object) -> ReconcileResult:
+    def reconcile(self, request: Any, store: object) -> ReconcileResult:
         self.requests.append(request)
         keys = (request.reconciliation_key, request.divergence_key)
         first, second = (_output(key, "reconciliation", None, request.unit_id) for key in keys)
@@ -137,7 +139,7 @@ class _Recorder:
             reconciliation_manifest=first, divergence_manifest=second, kpis={}
         )
 
-    def materialize(self, request: object, store: object) -> MaterializeResult:
+    def materialize(self, request: Any, store: object) -> MaterializeResult:
         self.requests.append(request)
         manifests = tuple(
             _output(key, "serving", None, request.unit_id) for key in request.target_keys
@@ -157,7 +159,7 @@ def _digest(value: str) -> str:
 
 
 def _output(
-    key: str, layer: str, source_type: SourceType | None, unit_id: str, manifest_id: str = "",
+    key: str, layer: _Layer, source_type: SourceType | None, unit_id: str, manifest_id: str = "",
 ) -> OutputManifest:
     return OutputManifest(
         manifest_version=1, manifest_id=manifest_id or f"out-{_digest(key)}",
@@ -229,7 +231,7 @@ def _raw_ref(store: _Store, source_type: str, file_subtype: str) -> ManifestRef:
     return ManifestRef(manifest_id=manifest.manifest_id, manifest_key=key)
 
 
-def _output_ref(store: _Store, unit_id: str, layer: str, object_key: str) -> ManifestRef:
+def _output_ref(store: _Store, unit_id: str, layer: _Layer, object_key: str) -> ManifestRef:
     manifest_id = f"m-{_digest(object_key)}"
     source_type = SourceType(object_key.split("/")[2]) if layer == "normalized" else None
     manifest = _output(object_key, layer, source_type, unit_id, manifest_id)
@@ -243,7 +245,9 @@ def _processor(
     units: tuple[RunUnit, ...] = (),
 ) -> StageProcessor:
     return StageProcessor(
-        _ControlPlane(_run(definition), units), store, _recording_registry(recorder),
+        cast("ControlPlanePort", _ControlPlane(_run(definition), units)),
+        store,
+        _recording_registry(recorder),
         lambda: _NOW,
     )
 

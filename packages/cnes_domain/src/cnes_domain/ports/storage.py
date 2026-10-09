@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -12,16 +12,16 @@ _logger = logging.getLogger(__name__)
 
 
 class ProfissionalStoragePort(Protocol):
-    def gravar(self, rows: Iterable[dict]) -> int: ...  # pragma: no cover - Protocol stub
+    def gravar(self, rows: Iterable[dict[str, Any]]) -> int: ...  # pragma: no cover - Protocol stub
 
 
 class EstabelecimentoStoragePort(Protocol):
-    def gravar(self, rows: Iterable[dict]) -> int: ...  # pragma: no cover - Protocol stub
+    def gravar(self, rows: Iterable[dict[str, Any]]) -> int: ...  # pragma: no cover - Protocol stub
 
 
 class VinculoStoragePort(Protocol):
     def snapshot_replace(
-        self, competencia: str, fonte: str, rows: Iterable[dict],
+        self, competencia: str, fonte: str, rows: Iterable[dict[str, Any]],
     ) -> int: ...  # pragma: no cover - Protocol stub
 
 
@@ -30,24 +30,24 @@ class UnitOfWorkPort(Protocol):
     estabelecimentos: EstabelecimentoStoragePort
     vinculos: VinculoStoragePort
     def __enter__(self) -> Self: ...  # pragma: no cover - Protocol stub
-    def __exit__(self, *exc) -> None: ...  # pragma: no cover - Protocol stub
+    def __exit__(self, *exc: object) -> None: ...  # pragma: no cover - Protocol stub
 
 
 class NullProfissionalStorage:
-    def gravar(self, rows: Iterable[dict]) -> int:
+    def gravar(self, rows: Iterable[dict[str, Any]]) -> int:
         _logger.warning("DB_URL nao configurado; profissionais nao gravados")
         return 0
 
 
 class NullEstabelecimentoStorage:
-    def gravar(self, rows: Iterable[dict]) -> int:
+    def gravar(self, rows: Iterable[dict[str, Any]]) -> int:
         _logger.warning("DB_URL nao configurado; estabelecimentos nao gravados")
         return 0
 
 
 class NullVinculoStorage:
     def snapshot_replace(
-        self, competencia: str, fonte: str, rows: Iterable[dict],
+        self, competencia: str, fonte: str, rows: Iterable[dict[str, Any]],
     ) -> int:
         _logger.warning(
             "DB_URL nao configurado; vinculos nao gravados competencia=%s",
@@ -65,5 +65,5 @@ class NullUnitOfWork:
     def __enter__(self) -> NullUnitOfWork:
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         pass

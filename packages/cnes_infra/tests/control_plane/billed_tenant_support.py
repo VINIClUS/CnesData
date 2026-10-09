@@ -126,7 +126,7 @@ def open_env(settings: BillingSettings) -> Iterator[Env]:
         yield Env(client, clock, spy, plane, DynamoQuotaReservations(client, TABLE_NAME, clock.now))
 
 
-def before_transaction(env: Env, action: Callable[[], None]) -> None:
+def before_transaction(env: Env, action: Callable[[], object]) -> None:
     env.spy.before_transaction = lambda _: action()
 
 

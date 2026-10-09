@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock, patch
 
 from central_api import composition, deps
@@ -20,6 +21,15 @@ from cnes_infra.aws import AwsRuntimeSettings
 from cnes_infra.billing import BillingGateResources, BillingSettings
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from central_api.composition import RuntimeComponents
+    from cnes_infra.aws.runtime import AwsClients, AwsRuntimeComponents
+
+if TYPE_CHECKING:
+    from central_api.services.billing_gates import ApiBillingGates
 
 TENANT = "354130"
 
@@ -54,9 +64,9 @@ def _aws_settings() -> AwsRuntimeSettings:
 def test_runtime_local_compartilha_gate_entre_runs_e_gates_da_api(tmp_path) -> None:
     runtime = build_local_runtime(_settings(tmp_path), _clock)
 
-    gates = runtime.billing_gates
+    gates = cast("ApiBillingGates", runtime.billing_gates)
     assert gates.mode is BillingMode.DISABLED
-    assert runtime.run_authorization._gate is gates.gate
+    assert cast("Any", runtime.run_authorization)._gate is gates.gate
     assert gates.accounts.resolve(TENANT) == f"local-{TENANT}"
 
 
@@ -114,12 +124,14 @@ def test_runtime_aws_envolve_serving_assinado_com_gate() -> None:
         BillingGateResources(_clock, 4),
     )
 
-    services = composition._aws_api_services(settings, clients, core, gates)
+    services = composition._aws_api_services(
+        settings, cast("AwsClients", clients), cast("AwsRuntimeComponents", core), gates
+    )
 
     assert isinstance(services.serving_access, S3SignedServingAccess)
     assert isinstance(services.serving_access._access_policy, EntitledServingAccess)
     assert services.serving_access._access_policy._gates is gates
-    assert services.billing_storage.table_name == "tabela"
+    assert cast("Any", services.billing_storage).table_name == "tabela"
 
 
 def test_serving_local_e_envolvido_quando_ha_gates(tmp_path) -> None:
@@ -129,7 +141,7 @@ def test_serving_local_e_envolvido_quando_ha_gates(tmp_path) -> None:
     runtime = composition.RuntimeComponents.from_local(build_local_runtime(settings, _clock))
     app = SimpleNamespace(state=SimpleNamespace(), dependency_overrides={})
 
-    deps._install_local_auth_and_serving(app, runtime, settings)
+    deps._install_local_auth_and_serving(cast("FastAPI", app), runtime, settings)
 
     access = app.dependency_overrides[serving.get_serving_access]()
     assert isinstance(access, EntitledServingAccess)
@@ -149,7 +161,9 @@ def test_serving_local_sem_gates_usa_acesso_local_direto(tmp_path) -> None:
     )
     app = SimpleNamespace(state=SimpleNamespace(), dependency_overrides={})
 
-    deps._install_local_auth_and_serving(app, runtime, settings)
+    deps._install_local_auth_and_serving(
+        cast("FastAPI", app), cast("RuntimeComponents", runtime), settings
+    )
 
     access = app.dependency_overrides[serving.get_serving_access]()
     assert isinstance(access, LocalServingAccess)
@@ -171,8 +185,10 @@ def test_runtime_aws_api_usa_o_mesmo_gate_em_runs_serving_e_runtime() -> None:
         patch.object(composition, "_validate_runtime"),
         patch.object(composition, "StepFunctionsExecutor"),
     ):
-        runtime = composition._build_aws_api_runtime(settings, clients, core, billing)
+        runtime = composition._build_aws_api_runtime(
+            settings, cast("AwsClients", clients), cast("AwsRuntimeComponents", core), billing
+        )
 
-    gates = runtime.billing_gates
-    assert runtime.run_authorization._gate is gates.gate
-    assert runtime.services.serving_access._access_policy._gates is gates
+    gates = cast("ApiBillingGates", runtime.billing_gates)
+    assert cast("Any", runtime.run_authorization)._gate is gates.gate
+    assert cast("Any", runtime.services).serving_access._access_policy._gates is gates
