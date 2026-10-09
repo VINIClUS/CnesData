@@ -192,6 +192,28 @@ Emite `QuotaReservationsExpired` com o número de liberadas.
 
 Todos são idempotentes. Audit duplicado é no-op no outbox.
 
+## Customer órfão
+
+`POST /api/v1/billing/accounts` cria o Customer no Stripe e depois o anexa à conta. Uma queda
+entre os dois deixa o Customer órfão. O replay com a mesma `idempotency_key` o recupera:
+
+- antes de criar, o gateway busca `metadata['billing_account_id']` e reusa o Customer não
+  excluído mais antigo da conta (a Stripe descarta chaves de idempotência após 24 h);
+- a busca indexa com atraso de cerca de 1 minuto; nessa janela, a chave `customer:<conta>`
+  devolve o mesmo Customer;
+- busca com mais de uma página falha fechado (`stripe_customers_unbounded`, 503) sem criar;
+- o `StripeClient` repete falhas de rede até 2 vezes com a mesma chave, o que evita a maior
+  parte dos órfãos por resposta perdida.
+
+Sinais em log, sem ação automática (o Customer sobra no Stripe, sem anexo):
+
+- `stripe_customer_duplicates billing_account_id=... count=N chosen=...`: duplicatas já
+  existentes;
+- `billing_customer_orphaned billing_account_id=... stripe_customer_id=...`: outro Customer foi
+  anexado na corrida.
+
+Antes de apagar um órfão no Stripe, confirme que ele não tem assinatura nem é o Customer da conta.
+
 ## Métricas EMF
 
 Namespace `CnesData/Billing`. Dimensões permitidas: apenas `Environment`, `EventType`,

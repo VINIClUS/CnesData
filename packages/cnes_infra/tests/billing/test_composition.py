@@ -155,9 +155,9 @@ def test_build_stripe_busca_ambos_os_segredos_pelos_arns() -> None:
     assert [c.args for c in secrets.get_secret.call_args_list] == [(KEY_ARN,), (WEBHOOK_ARN,)]
 
 
-def test_build_stripe_entrega_api_key_somente_ao_client_stripe() -> None:
+def test_build_stripe_entrega_api_key_somente_ao_client_stripe_com_retries_de_rede() -> None:
     components, _, stripe_client, _, _ = _build()
-    stripe_client.assert_called_once_with(API_KEY)
+    stripe_client.assert_called_once_with(API_KEY, max_network_retries=2)
     assert isinstance(components.gateway, StripeGateway)
     assert components.gateway._client is stripe_client.return_value
 

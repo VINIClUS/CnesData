@@ -36,6 +36,8 @@ __all__ = [
     "build_webhook_recovery",
 ]
 
+STRIPE_NETWORK_RETRIES = 2
+
 
 class SessionProtocol(Protocol):
     def client(self, service_name: str, *args: Any, **kwargs: Any) -> Any: ...  # pragma: no cover
@@ -178,7 +180,8 @@ def build_stripe_billing(
     catalog = DynamoBillingCatalog(*args)
     projection = DynamoEntitlementProjection(*args)
     inbox = WebhookInbox(*args)
-    gateway = StripeGateway(stripe.StripeClient(api_key), settings.gateway, catalog)
+    client = stripe.StripeClient(api_key, max_network_retries=STRIPE_NETWORK_RETRIES)
+    gateway = StripeGateway(client, settings.gateway, catalog)
     return StripeBillingComponents(
         catalog=catalog,
         projection=projection,
