@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import boto3
 from botocore.exceptions import ClientError
@@ -35,7 +35,7 @@ from cnes_domain.billing.models import BillingAccount
 from cnes_domain.profiles import BillingMode
 from cnes_infra.auth.oidc import OidcPrincipal
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.stripe_gateway import StripeGateway
+from cnes_infra.billing.stripe_gateway import StripeClientProtocol, StripeGateway
 from packages.cnes_infra.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,
@@ -108,7 +108,7 @@ class FakeStripeCustomers:
             return _replayed(outcome)
 
     def search(self, params: dict[str, Any]) -> SimpleNamespace:
-        account_id = _QUERY.fullmatch(params["query"]).group(1)
+        account_id = cast("re.Match[str]", _QUERY.fullmatch(params["query"])).group(1)
         indexed_until = int((self._clock.now() - self.index_lag).timestamp())
         with self._lock:
             self.searches += 1
@@ -150,8 +150,10 @@ class FakeStripeCustomers:
 
 
 def _unavailable() -> ClientError:
-    error = {"Error": {"Code": "InternalServerError", "Message": "injected"}}
-    return ClientError(error, "TransactWriteItems")
+    return ClientError(
+        {"Error": {"Code": "InternalServerError", "Message": "injected"}},
+        "TransactWriteItems",
+    )
 
 
 def _attaches_customer(actions: list[dict[str, Any]]) -> bool:
@@ -245,7 +247,7 @@ def env() -> Iterator[Env]:
         catalog = DynamoBillingCatalog(dynamo, TABLE_NAME, clock.now)
         stripe = FakeStripeCustomers(clock)
         client = SimpleNamespace(v1=SimpleNamespace(customers=stripe))
-        gateway = StripeGateway(client, make_config(), catalog)
+        gateway = StripeGateway(cast("StripeClientProtocol", client), make_config(), catalog)
         with TestClient(_app(catalog, gateway, clock)) as http:
             yield Env(dynamo, stripe, clock, catalog, http)
 
@@ -410,7 +412,9 @@ def test_corrida_na_fronteira_de_24h_sem_busca_anexa_um_so_customer(env: Env, ca
     assert (first.status_code, second.status_code) == (201, 201)
     assert first.json()["stripe_customer_id"] == winner
     assert env.stripe.of(orphan.account_id) == [orphan.customer_id, winner]
-    assert env.catalog.get_account(orphan.account_id).stripe_customer_id == winner
+    account = env.catalog.get_account(orphan.account_id)
+    assert account is not None
+    assert account.stripe_customer_id == winner
     assert (
         f"billing_customer_orphaned billing_account_id={orphan.account_id} "
         f"stripe_customer_id={orphan.customer_id}"
