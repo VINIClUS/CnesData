@@ -19,12 +19,13 @@ from cnes_domain.billing.models import (
     ReservationStatus,
 )
 from cnes_domain.billing.policy import EntitlementPolicy, require_allowed
-from cnes_domain.control_plane.entities import Tenant
+from cnes_domain.control_plane.entities import Membership, Tenant
 from cnes_domain.profiles import BillingMode
 from cnes_infra.control_plane.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
     completed_record,
+    creator_membership,
     require_creatable_tenant_id,
     tenant_created_event,
 )
@@ -36,7 +37,12 @@ from cnes_infra.control_plane.dynamodb_codec import (
     payload,
     put_action,
 )
-from cnes_infra.control_plane.dynamodb_keys import idempotency_key, item_key
+from cnes_infra.control_plane.dynamodb_keys import (
+    idempotency_key,
+    item_key,
+    key_component,
+    membership_key,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -49,6 +55,20 @@ if TYPE_CHECKING:
 
 type _Prior = tuple[Item | None, IdempotencyRecord | None]
 _NO_VERSION = 0
+
+
+def membership_item(membership: Membership) -> Item:
+    """Codifica a membership com a chave base e os atributos do índice por usuário.
+
+    Args: membership: Membership a persistir.
+    Returns: Item DynamoDB da entidade `MEMBERSHIP`.
+    """
+    attributes = {
+        "gsi1pk": f"USER#{key_component(membership.user_id)}",
+        "gsi1sk": f"TENANT#{key_component(membership.tenant_id)}",
+    }
+    key = membership_key(membership.tenant_id, membership.user_id)
+    return encode_model(membership, "MEMBERSHIP", key, attributes)
 
 
 def _account_active_check(table: str, billing_account_id: str) -> Action:
@@ -105,9 +125,9 @@ class DynamoBilledTenantMixin:
     _billing: BillingSettings
 
     def create_billed_tenant(self, command: CreateBilledTenantCommand) -> Tenant:
-        """Cria tenant, links, consumo da reserva, idempotência e outbox em uma transação.
+        """Cria tenant, membership, links, consumo, idempotência e outbox em uma transação.
 
-        Args: command: Tenant, link, reserva de capacidade e chave de idempotência.
+        Args: command: Tenant, link, reserva, chave de idempotência e emissor do criador.
         Returns: O tenant criado ou o tenant de um replay idêntico.
         Raises: BillingTenantConflict, IdempotencyConflict, EntitlementDenied, erros de billing.
         """
@@ -180,6 +200,7 @@ class DynamoBilledTenantMixin:
             put_new(table, encode_model(tenant, "TENANT", tenant_entity_key(tenant.tenant_id))),
             put_action(table, record, None if prior is None else payload(prior)),
             put_new(table, outbox_item(event)),
+            put_new(table, membership_item(creator_membership(command))),
         ]
         if self._billing.mode is BillingMode.STRIPE:
             actions.extend(self._billed_link_actions(command))
@@ -249,7 +270,8 @@ class DynamoBilledTenantMixin:
         from cnes_infra.billing.keys import tenant_account_key, tenant_entity_key
 
         tenant_id = command.tenant.tenant_id
-        keys = [tenant_entity_key(tenant_id)]
+        creator = command.link.linked_by_user_id
+        keys = [tenant_entity_key(tenant_id), membership_key(tenant_id, creator)]
         if self._billing.mode is BillingMode.STRIPE:
             keys.append(tenant_account_key(tenant_id))
         for key in keys:

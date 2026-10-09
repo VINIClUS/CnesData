@@ -9,11 +9,12 @@ from cnes_domain.billing.errors import (
     IdempotencyConflict,
     RetryableBillingError,
 )
-from cnes_domain.control_plane.entities import IdempotencyRecord, Tenant
+from cnes_domain.control_plane.entities import IdempotencyRecord, Membership, Tenant
 from cnes_infra.control_plane.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
     completed_record,
+    creator_membership,
     require_creatable_tenant_id,
     tenant_created_event,
 )
@@ -64,6 +65,22 @@ def _insert_tenant(connection: sqlite3.Connection, tenant: Tenant) -> None:
     )
 
 
+def _occupied(connection: sqlite3.Connection, membership: Membership) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM tenants WHERE tenant_id = ? UNION ALL "
+        "SELECT 1 FROM memberships WHERE tenant_id = ? AND user_id = ?",
+        (membership.tenant_id, membership.tenant_id, membership.user_id),
+    ).fetchone()
+    return row is not None
+
+
+def _insert_membership(connection: sqlite3.Connection, membership: Membership) -> None:
+    connection.execute(
+        "INSERT INTO memberships (tenant_id, user_id, data) VALUES (?, ?, ?)",
+        (membership.tenant_id, membership.user_id, serialize_model(membership)),
+    )
+
+
 def _upsert_record(connection: sqlite3.Connection, record: IdempotencyRecord) -> None:
     connection.execute(
         "INSERT INTO idempotency_records (tenant_id, scope, key, data) VALUES (?, ?, ?, ?) "
@@ -78,9 +95,9 @@ class SQLiteBilledTenantMixin:
     put_outbox_event: Any
 
     def create_billed_tenant(self, command: CreateBilledTenantCommand) -> Tenant:
-        """Cria o tenant, a idempotência e o evento em uma transação (billing desligado).
+        """Cria tenant, membership do criador, idempotência e evento em uma transação.
 
-        Args: command: Tenant, link, reserva e chave de idempotência.
+        Args: command: Tenant, link, reserva, chave de idempotência e emissor do criador.
         Returns: O tenant criado ou o tenant de um replay idêntico.
         Raises: BillingTenantConflict, IdempotencyConflict, PermanentBillingError.
         """
@@ -93,9 +110,11 @@ class SQLiteBilledTenantMixin:
             live = _live_record(connection, command, now)
             if live is not None:
                 return _replayed_tenant(connection, live)
-            if _select_tenant(connection, tenant.tenant_id) is not None:
+            membership = creator_membership(command)
+            if _occupied(connection, membership):
                 raise BillingTenantConflict(f"tenant_id={tenant.tenant_id}")
             _insert_tenant(connection, tenant)
+            _insert_membership(connection, membership)
             _upsert_record(connection, completed_record(command, now))
             event = audit_outbox_event(tenant_created_event(command))
             self.put_outbox_event(connection, event, event.tenant_id)

@@ -44,6 +44,11 @@ def entity_key(tenant_id: str, entity: str, identifier: str) -> tuple[str, str]:
     return tenant_partition(tenant_id), f"{entity}#{key_component(identifier)}"
 
 
+def membership_key(tenant_id: str, user_id: str) -> tuple[str, str]:
+    """Cria a chave base da membership do usuário no tenant."""
+    return entity_key(tenant_id, "MEMBERSHIP", user_id)
+
+
 def run_entity_key(tenant_id: str, run_id: str) -> tuple[str, str]:
     """Cria a chave base de um run."""
     return entity_key(tenant_id, "RUN", run_id)

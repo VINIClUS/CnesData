@@ -6,8 +6,8 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from cnes_domain.billing.errors import PermanentBillingError
-from cnes_domain.billing.models import BillingAuditEvent
-from cnes_domain.control_plane.entities import IdempotencyRecord
+from cnes_domain.billing.models import BILLING_ADMIN_ROLE, BillingAuditEvent
+from cnes_domain.control_plane.entities import IdempotencyRecord, Membership
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -45,8 +45,24 @@ def billed_tenant_digest(command: CreateBilledTenantCommand) -> str:
         "linked_by_user_id": link.linked_by_user_id,
         "reason_code": link.reason_code,
         "reservation_id": command.reservation_id,
+        "creator_issuer": command.creator_issuer,
     }
     return request_hash(identity)
+
+
+def creator_membership(command: CreateBilledTenantCommand) -> Membership:
+    """Cria a membership administrativa do criador no tenant novo.
+
+    Args: command: Comando de criação de tenant faturado.
+    Returns: Membership `gestor` do criador com o emissor OIDC do pedido.
+    """
+    return Membership(
+        tenant_id=command.tenant.tenant_id,
+        user_id=command.link.linked_by_user_id,
+        role=BILLING_ADMIN_ROLE,
+        created_at=command.tenant.created_at,
+        oidc_issuer=command.creator_issuer,
+    )
 
 
 def tenant_created_event(command: CreateBilledTenantCommand) -> BillingAuditEvent:

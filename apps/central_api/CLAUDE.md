@@ -40,7 +40,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   (só aws): `billing_deps.install_billing` sobrescreve as dependências dos routers (principal
   OIDC + `MembershipAuthorizer`); segredos só no `StripeClient`/verificador. Legado: 503.
 - Gates 17B (`ApiBillingGates` de `composition.api_billing_gates`, uma composição por modo):
-  `POST /api/v1/billing/accounts/{id}/tenants` (tenant + links + capacidade numa transação),
+  `POST /api/v1/billing/accounts/{id}/tenants` (tenant + links + capacidade + membership
+  `gestor` do criador, com o `oidc_issuer` do token, numa transação; membership órfã → 409),
   `POST /api/v1/admin/billing/{id}/revoke` (fora do router de token legado), gate de agente
   novo em `require_edge_agent` e gate de serving antes de emitir URL/stream (leitura forte).
 - `POST /api/v1/public/leads` — captação pública do formulário de contato (sem auth).

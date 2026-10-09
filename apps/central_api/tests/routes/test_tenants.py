@@ -203,6 +203,7 @@ def test_dono_cria_tenant_com_reserva_consumida_em_uma_transacao(client, env):
         "ba_01", "tenant_created",
     )
     assert command.link.linked_at == NOW
+    assert command.creator_issuer == "https://issuer"
     assert env.events == ["gate", "reserve", "create"]
     assert env.capacity.releases == []
 

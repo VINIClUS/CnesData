@@ -40,6 +40,7 @@ from cnes_domain.billing.commands import (
 )
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_domain.billing.models import (
+    BILLING_ADMIN_ROLE,
     BillingAccount,
     BillingAccountStatus,
     BillingAccountTenantLink,
@@ -62,7 +63,7 @@ from cnes_infra.billing.disabled import LOCAL_UNMETERED_PLAN_VERSION_ID
 
 logger = logging.getLogger(__name__)
 
-BILLING_ADMIN_ROLES = frozenset({"gestor"})
+BILLING_ADMIN_ROLES = frozenset({BILLING_ADMIN_ROLE})
 
 _OWNER_REQUIRED = "billing_owner_required"
 _NOT_CONFIGURED = "billing_not_configured"
