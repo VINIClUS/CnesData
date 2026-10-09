@@ -19,26 +19,6 @@ services:
     - pgdata_test:/var/lib/postgresql/data
     profiles:
     - dev
-  pg-seed:
-    image: python:3.13-slim
-    container_name: cnesdata_pg_seed
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrator:
-        condition: service_completed_successfully
-    environment:
-      PG_TEST_URL: postgresql+psycopg://cnesdata:cnesdata_test@postgres:5432/cnesdata_test
-    volumes:
-    - ./packages/cnes_infra/tests/fixtures:/app/fixtures
-    - ./packages:/app/packages
-    - ./pyproject.toml:/app/pyproject.toml
-    working_dir: /app
-    command: "sh -c \"\n  pip install psycopg[binary] sqlalchemy faker --quiet &&\n\
-      \  pip install --no-deps ./packages/cnes_domain ./packages/cnes_infra --quiet\
-      \ &&\n  python fixtures/seed_postgres.py\n\"\n"
-    profiles:
-    - dev
   # minio/minio was archived and pulled from Docker Hub; AIStor is the
   # successor. Free tier requires a mounted license file (never committed —
   # see .gitignore) — an unlicensed server starts and reports healthy on
