@@ -41,9 +41,11 @@ from cnes_domain.billing.models import (
     BillingAccountTenantLink,
     CapacityKind,
     CapacityReservation,
+    EntitlementAction,
     ReadConsistency,
     ReservationStatus,
 )
+from cnes_domain.billing.shadow import ShadowObservation
 from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.ports.control_plane import ControlPlanePort
 
@@ -145,6 +147,9 @@ def _reserve(
     ports: TenantCreationPorts, body: TenantCreate, account_id: str, key: str,
 ) -> CapacityReservation:
     decision = ports.gates.gate.authorize_tenant_creation(GateRequest(account_id, body.tenant_id))
+    ports.gates.observer.observe(
+        ShadowObservation(EntitlementAction.TENANT_CREATION, body.tenant_id, account_id),
+    )
     request_hash = _scoped_key(account_id, body.tenant_id, body.municipality_name)
     command = CapacityReservationCommand(
         account_id, body.tenant_id, body.tenant_id, CapacityKind.TENANT, key,

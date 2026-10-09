@@ -115,6 +115,7 @@ jobs:
           tests/chaos/test_revocation_publish_fence.py
           tests/chaos/test_billing_reconciliation_resume.py
           tests/chaos/test_stripe_customer_orphan_recovery.py
+          tests/chaos/test_shadow_observer_failures.py
           tests/integration/billing
       - name: Local billing has no remote dependency
         env:

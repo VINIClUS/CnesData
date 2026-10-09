@@ -40,7 +40,7 @@ AUDIT_EVENT_INVENTORY: Mapping[str, str] = {
     "billing.reconciliation_drift": "reconciliation: drift detectado",
     "billing.reconciliation_corrected": "reconciliation: snapshot corrigido",
     "run_execution.bind_failed": "execution_policy: falha de vinculação da execução",
-    "entitlement.shadow_denied": "wiring: negação observada em shadow",
+    "entitlement.shadow_denied": "shadow: negação hipotética dos gates de API",
     "serving.denied": "central_api serving_entitlement: negação de serving",
     "entitlement.shadow_access_loss": "enforcement: perda de acesso observada em shadow",
     "run.failed": "revocation: publicação negada após revogação",

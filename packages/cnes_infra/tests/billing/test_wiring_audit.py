@@ -16,69 +16,59 @@ from cnes_infra.billing import (
     build_execution_callbacks,
 )
 from cnes_infra.billing.audit_outbox import BestEffortBillingAudit
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME, make_snapshot
+from cnes_infra.billing.dynamodb_items import deterministic_id
+from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_infra.tests.billing.quota_support import (
-    ACCOUNT,
     make_run_request,
     quota_env,
 )
+from packages.cnes_infra.tests.billing.shadow_support import shadow_events
 from packages.cnes_infra.tests.billing.test_wiring import (
     ENFORCE,
     SHADOW,
     FakeControlPlane,
-    FakeProjection,
     _resources,
     _settings,
-    _shadow_gate,
 )
 
 
-class _SpyAudit:
-    def __init__(self) -> None:
-        self.events: list = []
+def test_shadow_negado_grava_audit_duravel_deterministico_por_hora():
+    request = make_run_request(billing_account_id="ba_ausente")
+    with quota_env() as env:
+        gate = build_entitlement_gate(
+            _settings(BillingMode.STRIPE, SHADOW), _resources(env.client, TABLE_NAME),
+        )
 
-    def append(self, event) -> None:
-        self.events.append(event)
+        gate.authorize_create_run(request)
+        gate.authorize_create_run(request)
+        events = shadow_events(env.client)
 
-
-def test_shadow_negado_grava_audit_duravel_deterministico():
-    audit = _SpyAudit()
-    gate = _shadow_gate(FakeProjection(None))
-    gate._audit = audit
-    request = make_run_request()
-
-    gate.authorize_create_run(request)
-    gate.authorize_create_run(request)
-
-    first, second = audit.events
-    assert first.event_id == second.event_id
-    assert first.event_type == "entitlement.shadow_denied"
-    assert first.aggregate_id == ACCOUNT
-    assert first.actor_id == "system:shadow_gate"
-    assert first.reason_code == "snapshot_missing"
-    assert first.occurred_at == NOW
-    assert dict(first.attributes) == {
-        "action": "create_run",
-        "tenant_id": request.tenant_id,
-        "run_id": request.run_id,
+    [event] = events
+    bucket = deterministic_id(request.tenant_id, "create_run", "snapshot_missing", "2026093012")
+    assert event.event_id == f"entitlement.shadow_denied:{bucket}"
+    assert event.aggregate_id == "ba_ausente"
+    assert event.created_at == NOW
+    assert event.payload == {
+        "actor_id": "system:shadow_observer",
+        "reason_code": "snapshot_missing",
+        "attributes": {
+            "action": "create_run",
+            "reason": "snapshot_missing",
+            "tenant_id": request.tenant_id,
+            "billing_account_id": "ba_ausente",
+        },
     }
 
 
 def test_shadow_permitido_nao_grava_audit():
-    audit = _SpyAudit()
-    gate = _shadow_gate(FakeProjection(make_snapshot(ACCOUNT)))
-    gate._audit = audit
+    with quota_env() as env:
+        gate = build_entitlement_gate(
+            _settings(BillingMode.STRIPE, SHADOW), _resources(env.client, TABLE_NAME),
+        )
 
-    gate.authorize_create_run(make_run_request())
+        gate.authorize_create_run(make_run_request())
 
-    assert audit.events == []
-
-
-def test_shadow_sem_audit_configurado_apenas_libera():
-    gate = _shadow_gate(FakeProjection(None))
-    gate._audit = None
-
-    assert gate.authorize_create_run(make_run_request()).budget_reservation_id is None
+        assert shadow_events(env.client) == []
 
 
 def test_shadow_e_enforce_expoem_audit_best_effort_e_unmetered_nao():

@@ -10,10 +10,16 @@ from unittest.mock import Mock
 from uuid import UUID
 
 import pytest
+from botocore.exceptions import ClientError
 
-from cnes_domain.billing.errors import BillingDependencyError, EntitlementDenied
+from cnes_domain.billing.errors import EntitlementDenied
 from cnes_domain.billing.execution_policy import BillingConcurrencyPolicy, BillingExecutionStarted
-from cnes_domain.billing.models import BillingEnforcementMode, SubscriptionStatus
+from cnes_domain.billing.models import (
+    BillingEnforcementMode,
+    EntitlementAction,
+    SubscriptionStatus,
+)
+from cnes_domain.billing.shadow import ShadowObservation
 from cnes_domain.control_plane.entities import Run, RunDependency, RunDispatch
 from cnes_domain.control_plane.enums import DispatchState, RunState
 from cnes_domain.profiles import BillingMode
@@ -34,15 +40,18 @@ from cnes_infra.billing.wiring import (
 from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME, make_snapshot
 from packages.cnes_infra.tests.billing.quota_support import (
     ACCOUNT,
+    make_quota_snapshot,
     make_run_request,
     quota_env,
     seed_snapshot,
 )
+from packages.cnes_infra.tests.billing.shadow_support import shadow_reasons
 
 OFF = BillingEnforcementMode.OFF
 SHADOW = BillingEnforcementMode.SHADOW
 ENFORCE = BillingEnforcementMode.ENFORCE
 LOGGER_NAME = "cnes_infra.billing.wiring"
+SHADOW_LOGGER = "cnes_domain.billing.shadow"
 
 
 def _clock() -> datetime:
@@ -57,25 +66,20 @@ def _resources(client=None, table=None) -> BillingGateResources:
     return BillingGateResources(_clock, 8, client, table)
 
 
-class FakeProjection:
-    def __init__(self, snapshot=None, error: Exception | None = None) -> None:
-        self.snapshot = snapshot
-        self.error = error
-        self.calls = 0
+class SpyObserver:
+    def __init__(self) -> None:
+        self.observations: list[ShadowObservation] = []
 
-    def get_snapshot(self, billing_account_id, consistency):
-        self.calls += 1
-        if self.error is not None:
-            raise self.error
-        return self.snapshot
+    def observe(self, observation: ShadowObservation) -> None:
+        self.observations.append(observation)
 
 
-def _shadow_gate(projection: FakeProjection) -> ShadowEntitlementGate:
+def _shadow_gate(observer: SpyObserver) -> ShadowEntitlementGate:
     gate = build_entitlement_gate(
         _settings(BillingMode.STRIPE, SHADOW), _resources(Mock(), "tabela"),
     )
     assert isinstance(gate, ShadowEntitlementGate)
-    cast("Any", gate)._observed = projection
+    cast("Any", gate)._observer = observer
     return gate
 
 
@@ -178,74 +182,71 @@ def test_enforce_sem_cache_quando_ttl_zero():
     assert gate._cache is None
 
 
-def test_shadow_sem_snapshot_libera_e_registra_snapshot_missing(caplog):
-    gate = _shadow_gate(FakeProjection(None))
+def test_shadow_delega_create_run_ao_observador_e_libera():
+    observer = SpyObserver()
+    gate = _shadow_gate(observer)
+    request = make_run_request()
 
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        authorization = gate.authorize_create_run(make_run_request())
+    authorization = gate.authorize_create_run(request)
 
-    records = _shadow_records(caplog)
     assert authorization.budget_reservation_id is None
-    assert len(records) == 1
-    assert records[0].getMessage() == (
-        "billing_shadow_denied action=create_run "
-        f"reason=snapshot_missing billing_account_id={ACCOUNT} tenant_id=354130"
+    assert observer.observations == [
+        ShadowObservation(EntitlementAction.CREATE_RUN, request.tenant_id, ACCOUNT),
+    ]
+
+
+def test_shadow_sem_snapshot_libera_e_registra_snapshot_missing(caplog):
+    with quota_env() as env:
+        gate = build_entitlement_gate(
+            _settings(BillingMode.STRIPE, SHADOW), _resources(env.client, TABLE_NAME),
+        )
+
+        with caplog.at_level(logging.WARNING, logger=SHADOW_LOGGER):
+            authorization = gate.authorize_create_run(
+                make_run_request(billing_account_id="ba_ausente"),
+            )
+        reasons = shadow_reasons(env.client)
+
+    assert authorization.budget_reservation_id is None
+    assert reasons == ["snapshot_missing"]
+    assert [r.getMessage() for r in caplog.records if r.name == SHADOW_LOGGER] == [
+        "billing_shadow_denied action=create_run reason=snapshot_missing",
+    ]
+
+
+def test_shadow_com_snapshot_revogado_libera_e_registra_motivo():
+    snapshot = replace(
+        make_quota_snapshot(), subscription_status=SubscriptionStatus.ADMIN_REVOKED,
+    )
+    with quota_env(snapshot) as env:
+        gate = build_entitlement_gate(
+            _settings(BillingMode.STRIPE, SHADOW), _resources(env.client, TABLE_NAME),
+        )
+
+        authorization = gate.authorize_create_run(make_run_request())
+        reasons = shadow_reasons(env.client)
+
+    assert authorization.budget_reservation_id is None
+    assert reasons == ["admin_revoked"]
+
+
+def test_shadow_com_projecao_indisponivel_libera_sem_audit(caplog):
+    client = Mock()
+    client.get_item.side_effect = ClientError(
+        {"Error": {"Code": "InternalServerError", "Message": "boom"}}, "GetItem",
+    )
+    gate = build_entitlement_gate(
+        _settings(BillingMode.STRIPE, SHADOW), _resources(client, TABLE_NAME),
     )
 
-
-@pytest.mark.parametrize(
-    ("changes", "reason"),
-    [
-        ({"subscription_status": SubscriptionStatus.ADMIN_REVOKED}, "admin_revoked"),
-        (
-            {"valid_until": NOW - timedelta(seconds=1), "updated_at": NOW - timedelta(hours=1)},
-            "snapshot_expired",
-        ),
-    ],
-)
-def test_shadow_com_snapshot_negado_libera_e_registra_motivo(caplog, changes, reason):
-    gate = _shadow_gate(FakeProjection(make_snapshot(ACCOUNT, **changes)))
-
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        authorization = gate.authorize_create_run(make_run_request())
-
-    records = _shadow_records(caplog)
-    assert authorization.budget_reservation_id is None
-    assert [r.getMessage().split()[2] for r in records] == [f"reason={reason}"]
-
-
-def test_shadow_com_snapshot_permitido_nao_registra(caplog):
-    snapshot = make_snapshot(ACCOUNT)
-    projection = FakeProjection(replace(snapshot, quotas=replace(snapshot.quotas)))
-    gate = _shadow_gate(projection)
-
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+    with caplog.at_level(logging.WARNING, logger=SHADOW_LOGGER):
         authorization = gate.authorize_create_run(make_run_request())
 
     assert authorization.budget_reservation_id is None
-    assert _shadow_records(caplog) == []
-    assert projection.calls == 1
-
-
-def test_shadow_com_projecao_indisponivel_libera_e_registra(caplog):
-    gate = _shadow_gate(FakeProjection(error=BillingDependencyError("dynamodb_unavailable")))
-
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        authorization = gate.authorize_create_run(make_run_request())
-
-    records = _shadow_records(caplog)
-    assert authorization.budget_reservation_id is None
-    assert [r.getMessage().split()[2] for r in records] == ["reason=projection_unavailable"]
-
-
-def test_shadow_com_conta_divergente_registra_snapshot_account_mismatch(caplog):
-    gate = _shadow_gate(FakeProjection(make_snapshot("ba_outra")))
-
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        gate.authorize_create_run(make_run_request())
-
-    records = _shadow_records(caplog)
-    assert [r.getMessage().split()[2] for r in records] == ["reason=snapshot_account_mismatch"]
+    client.transact_write_items.assert_not_called()
+    assert [r.getMessage() for r in caplog.records if r.name == SHADOW_LOGGER] == [
+        "billing_shadow_observer_failed action=create_run code=dynamodb_unavailable",
+    ]
 
 
 def test_shadow_nao_grava_reserva_no_dynamodb():
