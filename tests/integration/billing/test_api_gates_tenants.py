@@ -156,3 +156,21 @@ def test_gestor_criador_acessa_o_tenant_novo(stack: ApiStack) -> None:
     principal = OidcPrincipal(ISSUER, MANAGER, None, None)
     granted = {grant.tenant_id for grant in authorizer.list_authorized(principal)}
     assert {TENANT, "novo-tenant"} <= granted
+
+
+def test_retry_concorrente_commitado_na_sonda_nao_libera_a_vaga(single_slot: ApiStack) -> None:
+    assert single_slot.faulty is not None
+    client = build_client(single_slot)
+
+    def commit_identical_request() -> None:
+        assert create_tenant(client, "novo-tenant", "key-1").status_code == 201
+
+    single_slot.faulty.before_query = commit_identical_request
+
+    retry = create_tenant(client, "novo-tenant", "key-1")
+    later = create_tenant(client, "outro-tenant", "key-2")
+
+    assert retry.status_code == 201
+    assert [r.status for r in capacity_reservations(single_slot)] == [ReservationStatus.CONSUMED]
+    assert capacity_counter(single_slot, "tenant_count") == 1
+    assert (later.status_code, later.json()["detail"]) == (403, "tenant_quota_exceeded")

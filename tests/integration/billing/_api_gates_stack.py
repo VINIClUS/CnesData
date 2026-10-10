@@ -95,9 +95,16 @@ class FaultyClient:
         self._inner = inner
         self.fail_tenant_creation = False
         self.failures = 0
+        self.before_query: Callable[[], None] | None = None
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
+
+    def query(self, **request: Any) -> Any:
+        hook, self.before_query = self.before_query, None
+        if hook is not None:
+            hook()
+        return self._inner.query(**request)
 
     def transact_write_items(self, **request: Any) -> Any:
         if self.fail_tenant_creation and _creates_tenant(request["TransactItems"]):

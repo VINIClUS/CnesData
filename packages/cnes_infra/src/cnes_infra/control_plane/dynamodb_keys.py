@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+MEMBERSHIP = "MEMBERSHIP"
+
 
 def key_component(value: str) -> str:
     """Codifica componente preservando ordem e removendo ambiguidade."""
@@ -46,7 +48,7 @@ def entity_key(tenant_id: str, entity: str, identifier: str) -> tuple[str, str]:
 
 def membership_key(tenant_id: str, user_id: str) -> tuple[str, str]:
     """Cria a chave base da membership do usuário no tenant."""
-    return entity_key(tenant_id, "MEMBERSHIP", user_id)
+    return entity_key(tenant_id, MEMBERSHIP, user_id)
 
 
 def run_entity_key(tenant_id: str, run_id: str) -> tuple[str, str]:

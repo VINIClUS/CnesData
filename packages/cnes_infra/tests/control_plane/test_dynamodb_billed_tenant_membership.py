@@ -17,6 +17,7 @@ from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_infra.billing.settings import BillingSettings
 from cnes_infra.control_plane.billed_tenant import creator_membership
 from cnes_infra.control_plane.dynamodb_keys import key_component, membership_key
+from cnes_infra.control_plane.dynamodb_tenants import membership_item
 from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_infra.tests.control_plane.billed_tenant_support import (
     ALL_MODES,
@@ -161,12 +162,20 @@ def test_issuer_diferente_com_a_mesma_chave_conflita(settings: BillingSettings) 
         assert env.membership() == EXPECTED
 
 
-def test_rollback_injetado_nao_deixa_membership(enforce_env: Env) -> None:
-    reservation_id = enforce_env.reserve()
-    enforce_env.spy.before_transaction = _boom
+@ALL_MODES
+def test_membership_do_criador_gravada_antes_da_transacao_conflita(
+    settings: BillingSettings,
+) -> None:
+    with open_env(settings) as env:
+        reservation_id = env.reserve()
+        orphan = EXPECTED.model_copy(update={"role": "leitor", "oidc_issuer": None})
+        env.spy.before_transaction = lambda _: env.client.put_item(
+            TableName=TABLE_NAME, Item=membership_item(orphan),
+        )
 
-    with pytest.raises(BillingDependencyError):
-        enforce_env.plane.create_billed_tenant(enforce_env.command(reservation_id))
+        with pytest.raises(BillingTenantConflict, match=f"tenant_id={NEW}"):
+            env.plane.create_billed_tenant(env.command(reservation_id))
 
-    assert_nothing_written(enforce_env)
-    assert enforce_env.memberships() == []
+        assert env.membership() == orphan
+        assert env.plane.get_tenant(NEW) is None
+        assert env.reservation(reservation_id).status is ReservationStatus.RESERVED

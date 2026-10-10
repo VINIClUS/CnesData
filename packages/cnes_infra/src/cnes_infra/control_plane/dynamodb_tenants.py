@@ -39,6 +39,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
     put_action,
 )
 from cnes_infra.control_plane.dynamodb_keys import (
+    MEMBERSHIP,
     idempotency_key,
     item_key,
     key_component,
@@ -70,7 +71,7 @@ def membership_item(membership: Membership) -> Item:
         "gsi1sk": f"TENANT#{key_component(membership.tenant_id)}",
     }
     key = membership_key(membership.tenant_id, membership.user_id)
-    return encode_model(membership, "MEMBERSHIP", key, attributes)
+    return encode_model(membership, MEMBERSHIP, key, attributes)
 
 
 def _account_active_check(table: str, billing_account_id: str) -> Action:
@@ -140,7 +141,9 @@ class DynamoBilledTenantMixin:
         prior, live = self._billed_prior(command, now)
         if live is not None:
             return self._replayed_tenant(live)
-        self._raise_if_memberships(command.tenant.tenant_id)
+        raced = self._raced_record(command)
+        if raced is not None:
+            return self._replayed_tenant(raced)
         version = self._billed_entitlement_version(command, now)
         if transact(self._client, self._billed_actions(command, now, prior, version)):
             return command.tenant
@@ -160,6 +163,16 @@ class DynamoBilledTenantMixin:
             raise IdempotencyConflict(f"key={command.idempotency_key}")
         return item, record
 
+    def _raced_record(self, command: CreateBilledTenantCommand) -> IdempotencyRecord | None:
+        try:
+            self._raise_if_memberships(command.tenant.tenant_id)
+        except BillingTenantConflict:
+            _, live = self._billed_prior(command, self._clock())
+            if live is None:
+                raise
+            return live
+        return None
+
     def _raise_if_memberships(self, tenant_id: str) -> None:
         from botocore.exceptions import BotoCoreError, ClientError
 
@@ -169,7 +182,7 @@ class DynamoBilledTenantMixin:
             "TableName": self._table_name,
             "KeyConditionExpression": "pk = :pk AND begins_with(sk, :membership)",
             "ExpressionAttributeValues": {
-                ":pk": {"S": tenant_partition(tenant_id)}, ":membership": {"S": "MEMBERSHIP#"},
+                ":pk": {"S": tenant_partition(tenant_id)}, ":membership": {"S": f"{MEMBERSHIP}#"},
             },
             "ConsistentRead": True,
             "Limit": 1,
