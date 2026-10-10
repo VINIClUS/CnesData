@@ -111,6 +111,43 @@ def test_membership_orfa_do_criador_conflita_sem_sobrescrever(
 
 
 @ALL_MODES
+def test_membership_orfa_de_outro_usuario_conflita_antes_da_transacao(
+    settings: BillingSettings,
+) -> None:
+    with open_env(settings) as env:
+        reservation_id = env.reserve()
+        orphan = EXPECTED.model_copy(update={"user_id": "outro-usuario", "role": "leitor"})
+        env.plane.put_membership(orphan)
+
+        with pytest.raises(BillingTenantConflict, match=f"tenant_id={NEW}"):
+            env.plane.create_billed_tenant(env.command(reservation_id))
+
+        assert env.spy.transactions == []
+        assert env.plane.get_membership(NEW, "outro-usuario") == orphan
+        assert env.membership() is None
+        assert env.plane.get_tenant(NEW) is None
+        assert env.reservation(reservation_id).status is ReservationStatus.RESERVED
+
+
+def test_falha_na_sonda_de_memberships_vira_erro_de_dependencia(enforce_env: Env) -> None:
+    reservation_id = enforce_env.reserve()
+
+    def fail(**_: Any) -> Any:
+        raise ClientError(
+            {"Error": {"Code": "InternalServerError", "Message": "boom"}}, "Query",
+        )
+
+    enforce_env.spy.query = fail
+
+    with pytest.raises(BillingDependencyError):
+        enforce_env.plane.create_billed_tenant(enforce_env.command(reservation_id))
+
+    del enforce_env.spy.query
+    assert enforce_env.spy.transactions == []
+    assert_nothing_written(enforce_env)
+
+
+@ALL_MODES
 def test_issuer_diferente_com_a_mesma_chave_conflita(settings: BillingSettings) -> None:
     with open_env(settings) as env:
         reservation_id = env.reserve()

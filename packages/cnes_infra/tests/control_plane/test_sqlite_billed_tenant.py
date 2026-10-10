@@ -203,3 +203,16 @@ def test_issuer_diferente_com_a_mesma_chave_conflita(plane: SQLiteControlPlane) 
         plane.create_billed_tenant(replace(make_command(), creator_issuer="https://outro"))
 
     assert plane.get_membership(NEW, CREATOR) == EXPECTED
+
+
+def test_membership_orfa_de_outro_usuario_conflita(plane: SQLiteControlPlane) -> None:
+    orphan = EXPECTED.model_copy(update={"user_id": "outro-usuario", "role": "leitor"})
+    plane.put_membership(orphan)
+
+    with pytest.raises(BillingTenantConflict, match=f"tenant_id={NEW}"):
+        plane.create_billed_tenant(make_command())
+
+    assert plane.get_membership(NEW, "outro-usuario") == orphan
+    assert plane.get_membership(NEW, CREATOR) is None
+    assert plane.get_tenant(NEW) is None
+    assert stored_record(plane) is None

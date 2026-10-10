@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from cnes_domain.billing.errors import (
+    BillingDependencyError,
     BillingTenantConflict,
     EntitlementDenied,
     IdempotencyConflict,
@@ -42,6 +43,7 @@ from cnes_infra.control_plane.dynamodb_keys import (
     item_key,
     key_component,
     membership_key,
+    tenant_partition,
 )
 
 if TYPE_CHECKING:
@@ -138,6 +140,7 @@ class DynamoBilledTenantMixin:
         prior, live = self._billed_prior(command, now)
         if live is not None:
             return self._replayed_tenant(live)
+        self._raise_if_memberships(command.tenant.tenant_id)
         version = self._billed_entitlement_version(command, now)
         if transact(self._client, self._billed_actions(command, now, prior, version)):
             return command.tenant
@@ -156,6 +159,27 @@ class DynamoBilledTenantMixin:
         if record.request_hash != billed_tenant_digest(command):
             raise IdempotencyConflict(f"key={command.idempotency_key}")
         return item, record
+
+    def _raise_if_memberships(self, tenant_id: str) -> None:
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        from cnes_infra.billing.dynamodb_items import UNAVAILABLE_CODE
+
+        request = {
+            "TableName": self._table_name,
+            "KeyConditionExpression": "pk = :pk AND begins_with(sk, :membership)",
+            "ExpressionAttributeValues": {
+                ":pk": {"S": tenant_partition(tenant_id)}, ":membership": {"S": "MEMBERSHIP#"},
+            },
+            "ConsistentRead": True,
+            "Limit": 1,
+        }
+        try:
+            items = self._client.query(**request).get("Items", ())
+        except (ClientError, BotoCoreError) as error:
+            raise BillingDependencyError(UNAVAILABLE_CODE) from error
+        if items:
+            raise BillingTenantConflict(f"tenant_id={tenant_id}")
 
     def _replayed_tenant(self, record: IdempotencyRecord) -> Tenant:
         from cnes_infra.billing.dynamodb_items import get_item

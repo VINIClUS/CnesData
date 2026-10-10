@@ -65,11 +65,11 @@ def _insert_tenant(connection: sqlite3.Connection, tenant: Tenant) -> None:
     )
 
 
-def _occupied(connection: sqlite3.Connection, membership: Membership) -> bool:
+def _occupied(connection: sqlite3.Connection, tenant_id: str) -> bool:
     row = connection.execute(
         "SELECT 1 FROM tenants WHERE tenant_id = ? UNION ALL "
-        "SELECT 1 FROM memberships WHERE tenant_id = ? AND user_id = ?",
-        (membership.tenant_id, membership.tenant_id, membership.user_id),
+        "SELECT 1 FROM memberships WHERE tenant_id = ?",
+        (tenant_id, tenant_id),
     ).fetchone()
     return row is not None
 
@@ -110,11 +110,10 @@ class SQLiteBilledTenantMixin:
             live = _live_record(connection, command, now)
             if live is not None:
                 return _replayed_tenant(connection, live)
-            membership = creator_membership(command)
-            if _occupied(connection, membership):
+            if _occupied(connection, tenant.tenant_id):
                 raise BillingTenantConflict(f"tenant_id={tenant.tenant_id}")
             _insert_tenant(connection, tenant)
-            _insert_membership(connection, membership)
+            _insert_membership(connection, creator_membership(command))
             _upsert_record(connection, completed_record(command, now))
             event = audit_outbox_event(tenant_created_event(command))
             self.put_outbox_event(connection, event, event.tenant_id)
