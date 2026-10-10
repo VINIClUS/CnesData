@@ -2250,7 +2250,7 @@
     },
     "/api/v1/billing/accounts": {
       "post": {
-        "description": "Cria a conta de billing do administrador e o customer Stripe de forma idempotente.",
+        "description": "Cria a conta de billing e o customer Stripe de forma idempotente.\n\nSem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);\ncom X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.",
         "operationId": "create_billing_account_api_v1_billing_accounts_post",
         "parameters": [
           {
