@@ -1287,7 +1287,10 @@ type ClientInterface interface {
 
 	// CreateBillingAccountApiV1BillingAccountsPostWithBody Create Billing Account
 	//
-	// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+	// Cria a conta de billing e o customer Stripe de forma idempotente.
+	//
+	// Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+	// com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1296,7 +1299,10 @@ type ClientInterface interface {
 
 	// CreateBillingAccountApiV1BillingAccountsPost Create Billing Account
 	//
-	// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+	// Cria a conta de billing e o customer Stripe de forma idempotente.
+	//
+	// Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+	// com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1853,7 +1859,10 @@ func (c *Client) MeApiV1AuthMeGet(ctx context.Context, reqEditors ...RequestEdit
 
 // CreateBillingAccountApiV1BillingAccountsPostWithBody Create Billing Account
 //
-// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+// Cria a conta de billing e o customer Stripe de forma idempotente.
+//
+// Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+// com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
 //
 // Takes any type of body and a specified content type.
 //
@@ -1872,7 +1881,10 @@ func (c *Client) CreateBillingAccountApiV1BillingAccountsPostWithBody(ctx contex
 
 // CreateBillingAccountApiV1BillingAccountsPost Create Billing Account
 //
-// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+// Cria a conta de billing e o customer Stripe de forma idempotente.
+//
+// Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+// com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -4611,7 +4623,10 @@ type ClientWithResponsesInterface interface {
 
 	// CreateBillingAccountApiV1BillingAccountsPostWithBodyWithResponse Create Billing Account
 	//
-	// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+	// Cria a conta de billing e o customer Stripe de forma idempotente.
+	//
+	// Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+	// com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -4620,7 +4635,10 @@ type ClientWithResponsesInterface interface {
 
 	// CreateBillingAccountApiV1BillingAccountsPostWithResponse Create Billing Account
 	//
-	// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+	// Cria a conta de billing e o customer Stripe de forma idempotente.
+	//
+	// Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+	// com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -7020,7 +7038,10 @@ func (c *ClientWithResponses) MeApiV1AuthMeGetWithResponse(ctx context.Context, 
 
 // CreateBillingAccountApiV1BillingAccountsPostWithBodyWithResponse Create Billing Account
 //
-// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+// Cria a conta de billing e o customer Stripe de forma idempotente.
+//
+// Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+// com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7035,7 +7056,10 @@ func (c *ClientWithResponses) CreateBillingAccountApiV1BillingAccountsPostWithBo
 
 // CreateBillingAccountApiV1BillingAccountsPostWithResponse Create Billing Account
 //
-// Cria a conta de billing do administrador e o customer Stripe de forma idempotente.
+// Cria a conta de billing e o customer Stripe de forma idempotente.
+//
+// Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+// com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
