@@ -299,6 +299,8 @@ dimensão ou unidade fora do contrato é descartada com log `billing_metric_reje
 | `RunsCanceledByRevocation` | Count | Projector e reconcile (`stripe_access_loss`), revoke admin (`admin_revoked`) e revoke-pending (`revocation_resumed`) |
 | `AuditOutboxFailures` | Count | Audit best-effort (gates, callbacks, serving) que falhou ao gravar |
 | `EntitlementSnapshotAgeSeconds` | Seconds | Sem emissor (follow-up) |
+| `ShadowEntitlementDenials` | Count | Observador de shadow dos gates de API, por `Reason` (negação hipotética auditada) |
+| `ShadowObserverFailures` | Count | Observador de shadow: dependência falhou (DynamoDB, timeout, erro inesperado); nunca vira audit |
 
 O sink é `CloudWatchBillingMetrics` (`cnes_infra.billing.metrics`), com `Environment` de
 `BILLING_METRICS_ENVIRONMENT`; sem a variável as métricas são descartadas. O sink escreve no
@@ -346,6 +348,78 @@ Nenhum evento é só log: `run_execution.bind_failed`, `entitlement.shadow_denie
 `serving.denied` são gravados no outbox por um audit best-effort (falha de gravação vira
 `AuditOutboxFailures` e não muda a decisão). `serving.denied` grava um evento por tenant,
 dataset, motivo e hora (id determinístico); negações repetidas na mesma hora são no-op.
+
+## Saída do shadow
+
+Com `BILLING_MODE=stripe` e `BILLING_ENFORCEMENT_MODE=shadow`, a decisão real dos gates de API
+continua sem medição (`execution_mode=disabled`) e um observador de domínio
+(`cnes_domain.billing.shadow`) avalia, depois que a decisão real permitiu, o que o `enforce`
+decidiria, na mesma ordem: conta (explícita ou link reverso com leitura forte), snapshot com
+leitura forte, `EntitlementPolicy(stripe)`, capacidade (`BILLING#<conta>/CAPACITY`,
+`agent_count`/`tenant_count`) e retenção do serving `read_only`. Cada negação hipotética vira
+`entitlement.shadow_denied` (ator `system:shadow_observer`, id
+`entitlement.shadow_denied:{deterministic_id(tenant, ação, motivo, YYYYMMDDHH)}`: um evento por
+tenant, ação, motivo e hora UTC), log `billing_shadow_denied action=... reason=...` e a métrica
+`ShadowEntitlementDenials`. Atributos: `action`, `reason`, `tenant_id`, `billing_account_id`,
+`limit` e `used` (quando houver). Falha de dependência do observador é só log
+`billing_shadow_observer_failed action=... code=...` e `ShadowObserverFailures`; a requisição
+nunca muda. Em `off`, `enforce` e `disabled` o observador é nulo (nenhuma leitura extra).
+
+| Ação | Motivo em shadow | Resposta que o `enforce` daria |
+|---|---|---|
+| Agente novo (`register_agent`) | `billing_account_missing` | 403 `billing_account_missing` |
+| Agente novo | `snapshot_*`, `admin_revoked`, `status_*`, `grace_expired`, `period_ended`, `snapshot_expired`, `quota_missing`, `quota_not_granted` | 403 `agent_entitlement_denied` |
+| Agente novo | `max_agents_exceeded` | 403 `agent_quota_exceeded` |
+| Agente novo | `capacity_not_seeded` | 403 `agent_entitlement_denied` (falha fechado, sem `Retry-After`) |
+| Serving (`serving_access`) | `billing_account_missing`, `snapshot_*`, `admin_revoked`, `status_*`, `feature_missing`, `quota_missing`, `retention_expired` | 403 `serving_entitlement_denied` |
+| Tenant (`tenant_creation`) | `snapshot_*`, `admin_revoked`, `status_*`, `grace_expired`, `period_ended`, `snapshot_expired`, `quota_missing`, `quota_not_granted` | 403 `tenant_entitlement_denied` |
+| Tenant | `max_tenants_exceeded` | 403 `tenant_quota_exceeded` |
+| Tenant | `capacity_not_seeded` | 403 `tenant_entitlement_denied` (falha fechado, sem `Retry-After`) |
+
+`capacity_not_seeded` segue a seção "Capacidade (agentes e tenants)": o `create_account` semeia o
+item, então o motivo indica conta anterior a esta versão ou item apagado. Na criação de tenant já ligado à conta a capacidade não é checada
+(replay idempotente: o `enforce` devolveria a reserva gravada); um repost com outra chave de
+idempotência fica sem sinal de capacidade. `create_run` não tem rota que o chame; a quota de run
+hipotética (`max_runs_per_period_exceeded`) não é observada, e o observador de `create_run`
+recebe a conta explícita do pedido.
+
+Consulta: objetos S3 com prefixo `audit/_billing/<AAAA>/<MM>/<DD>/entitlement.shadow_denied:` (sink
+`S3ObjectLockAuditSink`) ou, antes da entrega, o outbox pendente do tenant `_billing`
+(`gsi6pk = OUTBOX#PENDING`, `event_type = entitlement.shadow_denied`).
+
+Motivos esperados (tenant de teste, canário, conta em cobrança já sabida) são anotados antes da
+janela; qualquer outro é inesperado. Remediação por motivo:
+
+- `billing_account_missing`: vincular o tenant a uma conta via `POST /api/v1/billing/accounts`
+  (#357).
+- `snapshot_missing`, `snapshot_account_mismatch`, `snapshot_expired`: `billing-worker recover`
+  e `billing-worker reconcile`.
+- `capacity_not_seeded`: conta sem item CAPACITY semeado (dado anterior a esta versão ou item
+  apagado); dados legados são apagados, não migrados (seção "Capacidade (agentes e tenants)").
+- `max_agents_exceeded`, `max_tenants_exceeded`, `quota_*`: upgrade de plano ou limpeza de
+  agentes/tenants.
+- `admin_revoked`, `status_*`, `grace_expired`, `period_ended`, `retention_expired`: confirmar
+  com o dono da conta antes da virada; é o corte que o `enforce` aplicaria.
+
+Critério de saída para `enforce`, todos verdadeiros:
+
+1. Janela de 7 dias com zero `entitlement.shadow_denied` inesperado.
+2. `ShadowObserverFailures = 0` e `AuditOutboxFailures = 0` na janela, com
+   `BILLING_METRICS_ENVIRONMENT` definido (sem a variável as métricas são descartadas e o zero
+   não prova nada), e zero linhas `billing_shadow_observer_failed` no log da API.
+3. Canário positivo: um request de serving feito por membro de um tenant sem link gera o
+   evento `billing_account_missing` na janela, para que "nenhum evento" não seja lido como
+   sucesso. Em `PROFILE=aws` só o serving produz esse motivo (agente inalcançável; a criação de
+   tenant sempre passa conta explícita).
+4. Toda ação alcançável exercitada na janela (serving e criação de tenant; agente só fora de
+   `PROFILE=aws`, ver abaixo).
+5. Checagem de capacidade antes da virada (seção "Capacidade (agentes e tenants)") sem
+   divergência.
+
+Limitação: a admissão de agente Edge não é alcançável em `PROFILE=aws` hoje (o lifespan aws
+não compõe a identidade Edge e `billing_deps` responde 503 fora de `/api/v1/billing/`). Em
+produção só serving e criação de tenant geram sinal de shadow; o agente é coberto pela stack de
+integração (`tests/integration/billing/test_api_gates_shadow.py`).
 
 ## Limitação conhecida
 

@@ -14,7 +14,8 @@ from cnes_domain.billing.commands import (
     ReleaseCapacityCommand,
 )
 from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.models import CapacityKind
+from cnes_domain.billing.models import CapacityKind, EntitlementAction
+from cnes_domain.billing.shadow import ShadowObservation
 from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
@@ -103,6 +104,9 @@ class AgentAdmission:
         account = gates.accounts.resolve(identity.tenant_id)
         decision = gates.gate.authorize_register_agent(GateRequest(account, identity.tenant_id))
         if not gates.enforced:
+            gates.observer.observe(
+                ShadowObservation(EntitlementAction.REGISTER_AGENT, identity.tenant_id),
+            )
             return self._upsert(identity, now)
         fence = EntitlementFence(account, decision.entitlement_version)
         pending = self._reserve(gates, decision, _Pending(identity, now, fence, ""))

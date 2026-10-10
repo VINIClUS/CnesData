@@ -202,6 +202,7 @@ def api_billing_gates(
     accounts = TenantAccountResolver(mode, catalog)
     return ApiBillingGates(
         mode, enforcement.gate, enforcement.capacity, accounts, enforcement.audit,
+        enforcement.observer,
     )
 
 

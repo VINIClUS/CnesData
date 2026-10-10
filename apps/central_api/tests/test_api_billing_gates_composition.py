@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock, patch
 
+import pytest
+
 from central_api import composition, deps
 from central_api.composition import (
     api_billing_gates,
@@ -16,6 +18,7 @@ from central_api.services.serving_access import LocalServingAccess
 from central_api.services.serving_entitlement import EntitledServingAccess
 from central_api.serving import S3SignedServingAccess
 from cnes_domain.billing.models import BillingEnforcementMode
+from cnes_domain.billing.shadow import NULL_SHADOW_OBSERVER, ShadowEntitlementObserver
 from cnes_domain.profiles import BillingMode, parse_profile
 from cnes_infra.aws import AwsRuntimeSettings
 from cnes_infra.billing import BillingGateResources, BillingSettings
@@ -88,6 +91,29 @@ def test_api_billing_gates_shadow_nao_mede() -> None:
 
     assert gates.mode is BillingMode.DISABLED
     assert gates.accounts.catalog is None
+
+
+def test_api_billing_gates_shadow_compoe_o_observador_do_gate() -> None:
+    billing = _billing(BillingMode.STRIPE, BillingEnforcementMode.SHADOW)
+
+    gates = api_billing_gates(billing, _resources())
+
+    assert isinstance(gates.observer, ShadowEntitlementObserver)
+    assert cast("Any", gates.gate)._observer is gates.observer
+
+
+@pytest.mark.parametrize(
+    ("mode", "enforcement"),
+    [
+        (BillingMode.STRIPE, BillingEnforcementMode.ENFORCE),
+        (BillingMode.STRIPE, BillingEnforcementMode.OFF),
+        (BillingMode.DISABLED, BillingEnforcementMode.OFF),
+    ],
+)
+def test_api_billing_gates_fora_de_shadow_tem_observador_nulo(mode, enforcement) -> None:
+    gates = api_billing_gates(_billing(mode, enforcement), _resources())
+
+    assert gates.observer is NULL_SHADOW_OBSERVER
 
 
 def test_api_billing_gates_disabled_nao_mede() -> None:

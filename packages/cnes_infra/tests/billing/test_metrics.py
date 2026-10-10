@@ -104,8 +104,8 @@ def test_emite_metrica_com_unidade_correta(
     assert directive["Dimensions"] == [["Environment"]]
 
 
-def test_catalogo_cobre_onze_metricas() -> None:
-    assert len(BillingMetricName) == 11
+def test_catalogo_cobre_treze_metricas() -> None:
+    assert len(BillingMetricName) == 13
     assert set(METRIC_UNITS) == set(BillingMetricName)
 
 

@@ -39,6 +39,8 @@ class BillingMetricName(StrEnum):
     RUNS_CANCELED_BY_REVOCATION = "RunsCanceledByRevocation"
     ENTITLEMENT_SNAPSHOT_AGE_SECONDS = "EntitlementSnapshotAgeSeconds"
     AUDIT_OUTBOX_FAILURES = "AuditOutboxFailures"
+    SHADOW_ENTITLEMENT_DENIALS = "ShadowEntitlementDenials"
+    SHADOW_OBSERVER_FAILURES = "ShadowObserverFailures"
 
 
 _NAMES = MappingProxyType({name.value: name for name in BillingMetricName})
