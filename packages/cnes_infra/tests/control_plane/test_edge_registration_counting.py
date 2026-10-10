@@ -7,6 +7,7 @@ from typing import Any
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from cnes_domain.billing.models import BillingEnforcementMode
@@ -35,6 +36,14 @@ SHADOW = BillingSettings(BillingMode.STRIPE, BillingEnforcementMode.SHADOW, 60)
 ENFORCE = BillingSettings(BillingMode.STRIPE, BillingEnforcementMode.ENFORCE, 60)
 DISABLED = BillingSettings(BillingMode.DISABLED, BillingEnforcementMode.OFF, 60)
 COUNTING = pytest.mark.parametrize("settings", [OFF, SHADOW], ids=["off", "shadow"])
+
+
+def _cancelled(code: str) -> ClientError:
+    response: Any = {
+        "Error": {"Code": "TransactionCanceledException", "Message": "x"},
+        "CancellationReasons": [{"Code": "None"}, {"Code": code}],
+    }
+    return ClientError(response, "TransactWriteItems")
 
 
 class _HookedClient:
@@ -184,3 +193,31 @@ def test_conta_sem_capacidade_semeada_admite_sem_contar(
     assert agent.state is AgentState.ACTIVE
     assert env.agents() is None
     assert "capacity_not_seeded" in caplog.text
+
+
+def test_conflito_transacional_no_contador_e_repetido_e_conta_uma_vez(env: _Env) -> None:
+    plane = env.plane(SHADOW)
+
+    def conflict() -> None:
+        raise _cancelled("TransactionConflict")
+
+    env.hooked.hook = conflict
+
+    _register(plane, LINKED, "agent-1")
+
+    assert env.hooked.transactions == 2
+    assert env.agents() == 1
+
+
+def test_cancelamento_nao_transacional_propaga(env: _Env) -> None:
+    plane = env.plane(SHADOW)
+
+    def throttled() -> None:
+        raise _cancelled("ThrottlingError")
+
+    env.hooked.hook = throttled
+
+    with pytest.raises(ClientError):
+        _register(plane, LINKED, "agent-1")
+
+    assert env.agents() == 0

@@ -61,6 +61,7 @@ from cnes_infra.billing.keys import (
     account_tenant_key,
     billing_account_key,
     billing_account_list_key,
+    capacity_usage_key,
     pending_capacity_key,
     stripe_customer_key,
     tenant_account_key,
@@ -320,6 +321,8 @@ class DynamoBillingCatalog(
         self._raise_tenant_failure(tenant_id)
         if self._exists(billing_account_key(command.account.billing_account_id)):
             raise PermanentBillingError("billing_account_exists")
+        if self._exists(capacity_usage_key(command.account.billing_account_id)):
+            raise PermanentBillingError("capacity_exists")
         raise RetryableBillingError("billing_transaction_conflict")
 
     def _raise_tenant_failure(self, tenant_id: str) -> None:

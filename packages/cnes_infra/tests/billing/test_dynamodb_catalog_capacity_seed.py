@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from cnes_domain.billing.errors import RetryableBillingError
+from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_infra.billing.capacity_counters import PENDING_CAPACITY_ENTITY
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.keys import (
@@ -131,3 +131,14 @@ def test_replay_da_criacao_nao_ressemeia_capacidade(env: Any) -> None:
     catalog.create_account(make_create_command())
 
     assert _counters(client) == (1, 0)
+
+
+def test_capacidade_orfa_sem_conta_falha_permanente(env: Any) -> None:
+    client, _, catalog = env
+    pk, sk = capacity_usage_key("ba_01")
+    put(client, {"pk": {"S": pk}, "sk": {"S": sk}, "entity": {"S": "BILLINGUSAGE"}})
+
+    with pytest.raises(PermanentBillingError, match="capacity_exists"):
+        catalog.create_account(make_create_command())
+
+    assert get_stored(client, billing_account_key("ba_01")) is None

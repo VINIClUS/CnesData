@@ -185,21 +185,37 @@ class DynamoBilledTenantMixin:
             actions.extend(self._billed_link_actions(command))
         if self._billing.enforced:
             actions.extend(self._billed_capacity_actions(command, now, version))
-        elif self._billing.mode is BillingMode.STRIPE:
-            actions.extend(self._unmetered_count_actions(command.link.billing_account_id))
+        if self._billing.mode is BillingMode.STRIPE:
+            actions.extend(self._capacity_count_actions(command))
         return tuple(actions)
 
-    def _unmetered_count_actions(self, billing_account_id: str) -> tuple[Action, ...]:
-        from cnes_infra.billing.capacity_counters import TENANT_COUNTER, log_not_seeded
+    def _capacity_count_actions(self, command: CreateBilledTenantCommand) -> tuple[Action, ...]:
+        from cnes_infra.billing.capacity_counters import (
+            AGENT_COUNTER,
+            TENANT_COUNTER,
+            log_not_seeded,
+            pending_transfer,
+        )
         from cnes_infra.billing.dynamodb_items import get_item
         from cnes_infra.billing.dynamodb_quota_items import settle_usage_update
-        from cnes_infra.billing.keys import capacity_usage_key
+        from cnes_infra.billing.keys import capacity_usage_key, pending_capacity_key
 
-        key = capacity_usage_key(billing_account_id)
-        if get_item(self._client, self._table_name, key, True) is None:
-            log_not_seeded(billing_account_id, CapacityKind.TENANT.value)
+        table, account = self._table_name, command.link.billing_account_id
+        tenant_id, key = command.tenant.tenant_id, capacity_usage_key(account)
+        if get_item(self._client, table, key, True) is None:
+            log_not_seeded(account, CapacityKind.TENANT.value)
             return ()
-        return (settle_usage_update(self._table_name, key, {TENANT_COUNTER: 1}),)
+        pending = get_item(self._client, table, pending_capacity_key(tenant_id), True)
+        cas, agents = pending_transfer(table, tenant_id, pending)
+        tenants = 0 if self._billing.enforced else 1
+        deltas = {
+            name: delta
+            for name, delta in ((AGENT_COUNTER, agents), (TENANT_COUNTER, tenants))
+            if delta
+        }
+        if not deltas:
+            return (cas,)
+        return cas, settle_usage_update(table, key, deltas)
 
     def _billed_link_actions(self, command: CreateBilledTenantCommand) -> tuple[Action, ...]:
         from cnes_infra.billing.dynamodb_items import encode_link, encode_tenant_account, put_new

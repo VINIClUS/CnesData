@@ -7,6 +7,8 @@ from datetime import timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
 
+from botocore.exceptions import ClientError
+
 from cnes_domain.control_plane.entities import Agent, IdempotencyRecord
 from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict
@@ -37,6 +39,11 @@ if TYPE_CHECKING:
 
 EDGE_AGENT_SCOPE = "edge_agent.register"
 _IDEMPOTENCY_TTL = timedelta(days=1)
+
+
+def _transaction_conflict(error: ClientError) -> bool:
+    reasons = error.response.get("CancellationReasons") or ()
+    return any(reason.get("Code") == "TransactionConflict" for reason in reasons)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,15 +116,24 @@ class DynamoEdgeRegistrationMixin:
             current = decode_model(current_item, Agent) if current_item else None
             agent = edge_agent(current, tenant_id, agent_id, fingerprint, now)
             counted = () if current_item else self._unmetered_agent_actions(tenant_id)
-            try:
-                self._transact((put_action(
-                    self._table_name, encode_model(agent, "AGENT", key),
-                    payload(current_item) if current_item else None,
-                ), *counted))
-            except Conflict:
-                continue
-            return agent
+            put = put_action(
+                self._table_name, encode_model(agent, "AGENT", key),
+                payload(current_item) if current_item else None,
+            )
+            if self._write_agent((put, *counted)):
+                return agent
         raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+
+    def _write_agent(self, actions: tuple[Action, ...]) -> bool:
+        try:
+            self._transact(actions)
+        except Conflict:
+            return False
+        except ClientError as error:
+            if not _transaction_conflict(error):
+                raise
+            return False
+        return True
 
     def _unmetered_agent_actions(self, tenant_id: str) -> tuple[Action, ...]:
         from cnes_domain.billing.models import CapacityKind
@@ -139,7 +155,7 @@ class DynamoEdgeRegistrationMixin:
         if self._get_item(capacity_usage_key(account)) is None:
             log_not_seeded(account, CapacityKind.AGENT.value)
             return ()
-        return linked_agent_actions(self._table_name, tenant_id, link)
+        return linked_agent_actions(self._table_name, account, link)
 
     def create_edge_agent(self, command: NewEdgeAgent) -> EdgeAgentCreation:
         """Cria o agente novo e o registro de idempotência da reserva.

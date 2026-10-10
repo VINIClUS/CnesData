@@ -2,8 +2,10 @@
 
 import logging
 
-from cnes_infra.billing.dynamodb_items import decode_tenant_account, put_new
+from cnes_domain.billing.models import CapacityKind
+from cnes_infra.billing.dynamodb_items import put_new
 from cnes_infra.billing.dynamodb_quota_items import (
+    CAPACITY_COUNTERS,
     USAGE_ENTITY,
     settle_usage_update,
     usage_counter,
@@ -19,8 +21,8 @@ from cnes_infra.control_plane.dynamodb_keys import item_key
 
 PENDING_CAPACITY_ENTITY = "BILLINGPENDINGCAPACITY"
 CAPACITY_NOT_SEEDED = "capacity_not_seeded"
-AGENT_COUNTER = "agent_count"
-TENANT_COUNTER = "tenant_count"
+AGENT_COUNTER = CAPACITY_COUNTERS[CapacityKind.AGENT]
+TENANT_COUNTER = CAPACITY_COUNTERS[CapacityKind.TENANT]
 INITIAL_TENANTS = 1
 
 logger = logging.getLogger(__name__)
@@ -71,13 +73,22 @@ def _pending_cas(table: str, tenant_id: str, pending: Item | None, agents: int) 
     }}
 
 
-def linked_agent_actions(table: str, tenant_id: str, link: Item) -> tuple[Action, Action]:
+def pending_transfer(table: str, tenant_id: str, pending: Item | None) -> tuple[Action, int]:
+    """Prepara a transferência do pendente do tenant que passa a ter conta.
+
+    Args: tabela, tenant e item pendente lido (ou None).
+    Returns: CAS do pendente e o número de agentes a somar na conta.
+    """
+    agents = usage_counter(pending, AGENT_COUNTER)
+    return _pending_cas(table, tenant_id, pending, agents), agents
+
+
+def linked_agent_actions(table: str, account: str, link: Item) -> tuple[Action, Action]:
     """Cria a contagem do agente novo na conta do link reverso lido.
 
-    Args: tabela, tenant e item do link reverso TENANT#t/BILLING_ACCOUNT.
+    Args: tabela, conta decodificada e item do link reverso TENANT#t/BILLING_ACCOUNT.
     Returns: ConditionCheck do link inalterado e ADD agent_count no CAPACITY.
     """
-    account = decode_tenant_account(link, tenant_id)
     key = capacity_usage_key(account)
     return check_action(table, link), settle_usage_update(table, key, {AGENT_COUNTER: 1})
 

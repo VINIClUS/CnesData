@@ -276,7 +276,18 @@ def test_shadow_e_enforce_somam_no_mesmo_contador(executor, contenders):
         reserved = [item for item in outcomes if isinstance(item, CapacityReservation)]
         agent_count = _counter(env.client, "CAPACITY", "agent_count")
     assert agent_count == contenders + len(reserved)
-    assert len(reserved) >= 1
+    assert 1 <= len(reserved) <= contenders + 1
+
+
+@pytest.mark.parametrize("contenders", [2, 8])
+def test_mesmo_agente_novo_registrado_em_paralelo_conta_uma_vez(executor, contenders):
+    with _account_env(linked=True) as env:
+        plane = _shadow_plane(env)
+        calls = [lambda: plane.register_edge_agent(TENANT, "agent-1", "a" * 64, NOW)]
+        outcomes = _outcomes(executor, calls * contenders)
+        agent_count = _counter(env.client, "CAPACITY", "agent_count")
+    assert {outcome.agent_id for outcome in outcomes} == {"agent-1"}
+    assert agent_count == 1
 
 
 @pytest.mark.parametrize("contenders", [2, 7])

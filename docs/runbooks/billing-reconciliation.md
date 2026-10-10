@@ -196,9 +196,10 @@ Os contadores são corretos por construção, sem backfill:
   em modos mistos durante a virada mexem no mesmo contador. `put_agent` (agentes sintéticos,
   ex.: `system-datasus`) não conta.
 - Tenant sem conta: em `off`/`shadow` o agente é admitido e contado em
-  `TENANT#<t>/BILLING_PENDING_CAPACITY`. `create_account` transfere o valor para a conta com CAS
-  (Delete condicionado ao valor lido); perder a corrida para uma admissão concorrente devolve
-  `503` retryable e o retry relê o pendente.
+  `TENANT#<t>/BILLING_PENDING_CAPACITY`. `create_account` e `create_billed_tenant` transferem o
+  valor para a conta com CAS (Delete condicionado ao valor lido); perder a corrida para uma
+  admissão concorrente devolve `503` retryable e o retry relê o pendente. CAPACITY órfão (sem
+  a conta) faz `create_account` falhar com `capacity_exists` (apague o item órfão).
 - `capacity_not_seeded`: em `enforce`, conta sem item CAPACITY (ou sem o contador do tipo)
   falha fechado com `EntitlementDenied reason=capacity_not_seeded` (HTTP 403
   `agent_entitlement_denied`/`tenant_entitlement_denied`, sem `Retry-After`) e log
@@ -208,10 +209,17 @@ Os contadores são corretos por construção, sem backfill:
 Checagem antes da virada para `enforce`, por conta:
 
 - links `BILLING#<conta>/TENANT#*` == `tenant_count`;
-- agentes não revogados dos tenants vinculados == `agent_count`;
+- agentes dos tenants vinculados, inclusive revogados e exceto os sintéticos de `put_agent`,
+  == `agent_count`;
 - nenhum `TENANT#*/BILLING_PENDING_CAPACITY` de tenant vinculado.
 
-Sem migração: dados de billing anteriores a esta versão são apagados, não migrados.
+Ordem do rollout: todas as réplicas nesta versão e com `BILLING_MODE=stripe` (`off` basta)
+antes de criar contas, tenants faturados ou agentes que devam contar; agente admitido em
+`disabled` ou por código anterior não é contado. Tenant criado por
+`POST /billing/accounts/{id}/tenants` herda o pendente do mesmo jeito que `create_account`.
+
+Sem migração: dados de billing anteriores a esta versão (e os agentes/tenants que eles
+cobriam) são apagados, não migrados.
 
 ## Replay seguro
 
