@@ -45,12 +45,11 @@ from packages.cnes_infra.tests.billing.quota_support import (
     quota_env,
     seed_snapshot,
 )
-from packages.cnes_infra.tests.billing.shadow_support import shadow_reasons
+from packages.cnes_infra.tests.billing.shadow_support import shadow_events, shadow_reasons
 
 OFF = BillingEnforcementMode.OFF
 SHADOW = BillingEnforcementMode.SHADOW
 ENFORCE = BillingEnforcementMode.ENFORCE
-LOGGER_NAME = "cnes_infra.billing.wiring"
 SHADOW_LOGGER = "cnes_domain.billing.shadow"
 
 
@@ -81,10 +80,6 @@ def _shadow_gate(observer: SpyObserver) -> ShadowEntitlementGate:
     assert isinstance(gate, ShadowEntitlementGate)
     cast("Any", gate)._observer = observer
     return gate
-
-
-def _shadow_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
-    return [r for r in caplog.records if r.name == LOGGER_NAME]
 
 
 @pytest.mark.parametrize("enforcement", [OFF, SHADOW, ENFORCE])
@@ -270,11 +265,13 @@ def test_shadow_le_snapshot_real_do_dynamodb_sem_registrar_quando_permitido(capl
             _settings(BillingMode.STRIPE, SHADOW), _resources(env.client, TABLE_NAME),
         )
 
-        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+        with caplog.at_level(logging.WARNING, logger=SHADOW_LOGGER):
             gate.authorize_create_run(make_run_request())
+        events = shadow_events(env.client)
 
     assert isinstance(gate, ShadowEntitlementGate)
-    assert _shadow_records(caplog) == []
+    assert events == []
+    assert [r for r in caplog.records if r.name == SHADOW_LOGGER] == []
 
 
 class FakeControlPlane:

@@ -191,6 +191,14 @@ def test_serving_read_only_dentro_da_retencao_nao_registra():
     assert harness.reasons() == []
 
 
+def test_serving_read_only_exatamente_no_limite_da_retencao_nao_registra():
+    harness = Harness(projection=FakeProjection(_read_only()))
+
+    observe(harness, _serving(NOW - timedelta(days=30)))
+
+    assert harness.reasons() == []
+
+
 def test_serving_full_nao_le_ancora_de_retencao():
     reads: list[int] = []
     observation = ShadowObservation(

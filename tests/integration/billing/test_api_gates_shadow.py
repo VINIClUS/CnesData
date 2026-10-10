@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from cnes_domain.billing.models import BillingEnforcementMode, SubscriptionStatus
 from cnes_domain.control_plane.entities import Membership, OutboxEvent
+from cnes_infra.billing.keys import tenant_account_key
 from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_infra.tests.billing.quota_support import ACCOUNT, TENANT
 from packages.cnes_infra.tests.billing.shadow_support import (
@@ -49,7 +50,6 @@ def shadow(tmp_path: Path) -> Iterator[ApiStack]:
 
 def _agent(client: TestClient, agent_id: str, tenant: str = TENANT) -> int:
     return client.get(NEXT_JOB_URL, headers=edge_headers(agent_id, tenant=tenant)).status_code
-
 
 
 def _read_serving(stack: ApiStack) -> int:
@@ -115,6 +115,28 @@ def test_tenant_acima_do_limite_e_criado_e_auditado(tmp_path: Path) -> None:
     assert reasons == ["max_tenants_exceeded"]
 
 
+def _unlink_tenant(stack: ApiStack) -> None:
+    pk, sk = tenant_account_key(TENANT)
+    stack.client.delete_item(TableName=TABLE_NAME, Key={"pk": {"S": pk}, "sk": {"S": sk}})
+
+
+def test_canario_serving_de_tenant_sem_link_e_servido_e_auditado(tmp_path: Path) -> None:
+    with open_api_stack(DYNAMO_SHADOW, tmp_path) as stack:
+        _unlink_tenant(stack)
+
+        status = _read_serving(stack)
+        events = shadow_events(stack.client)
+
+    assert status == 200
+    [event] = events
+    assert event.payload["reason_code"] == "billing_account_missing"
+    assert shadow_attributes(event) == {
+        "action": "serving_access",
+        "reason": "billing_account_missing",
+        "tenant_id": TENANT,
+    }
+
+
 def test_serving_admin_revoked_e_servido_e_auditado_uma_vez_por_hora(tmp_path: Path) -> None:
     with open_api_stack(DYNAMO_SHADOW, tmp_path, REVOKED) as stack:
         first = _read_serving(stack)
@@ -158,6 +180,27 @@ def _enforce_reason_serving(tmp_path: Path) -> str:
     return str(denied.payload["reason_code"])
 
 
+def _enforce_reason_canary(tmp_path: Path) -> str:
+    with open_api_stack(DYNAMO_STRIPE, tmp_path / "enforce") as stack:
+        _unlink_tenant(stack)
+        assert _read_serving(stack) == 403
+        items = stack.client.scan(TableName=TABLE_NAME, ConsistentRead=True)["Items"]
+        events = [
+            OutboxEvent.model_validate_json(item["payload"]["S"]) for item in items
+            if item.get("entity", {}).get("S") == "OUTBOXEVENT"
+        ]
+    [denied] = [event for event in events if event.event_type == "serving.denied"]
+    return str(denied.payload["reason_code"])
+
+
+def _shadow_reason_canary(tmp_path: Path) -> str:
+    with open_api_stack(DYNAMO_SHADOW, tmp_path / "shadow") as stack:
+        _unlink_tenant(stack)
+        assert _read_serving(stack) == 200
+        [reason] = shadow_reasons(stack.client)
+    return reason
+
+
 def _shadow_reason_serving(tmp_path: Path) -> str:
     with open_api_stack(DYNAMO_SHADOW, tmp_path / "shadow", REVOKED) as stack:
         assert _read_serving(stack) == 200
@@ -170,8 +213,9 @@ def _shadow_reason_serving(tmp_path: Path) -> str:
     [
         (_enforce_reason_agent, _shadow_reason_agent),
         (_enforce_reason_serving, _shadow_reason_serving),
+        (_enforce_reason_canary, _shadow_reason_canary),
     ],
-    ids=["agente-sem-link", "serving-admin-revoked"],
+    ids=["agente-sem-link", "serving-admin-revoked", "serving-sem-link"],
 )
 def test_paridade_motivo_do_enforce_igual_ao_do_shadow(tmp_path: Path, enforce, shadow) -> None:
     assert enforce(tmp_path) == shadow(tmp_path)

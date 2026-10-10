@@ -324,7 +324,7 @@ idempotência fica sem sinal de capacidade. `create_run` não tem rota que o cha
 hipotética (`max_runs_per_period_exceeded`) não é observada, e o observador de `create_run`
 recebe a conta explícita do pedido.
 
-Consulta: objetos S3 com prefixo `audit/_billing/<data>/entitlement.shadow_denied:` (sink
+Consulta: objetos S3 com prefixo `audit/_billing/<AAAA>/<MM>/<DD>/entitlement.shadow_denied:` (sink
 `S3ObjectLockAuditSink`) ou, antes da entrega, o outbox pendente do tenant `_billing`
 (`gsi6pk = OUTBOX#PENDING`, `event_type = entitlement.shadow_denied`).
 
@@ -345,9 +345,13 @@ janela; qualquer outro é inesperado. Remediação por motivo:
 Critério de saída para `enforce`, todos verdadeiros:
 
 1. Janela de 7 dias com zero `entitlement.shadow_denied` inesperado.
-2. `ShadowObserverFailures = 0` e `AuditOutboxFailures = 0` na janela.
-3. Canário positivo: um tenant sem link gera o evento `billing_account_missing` na janela, para
-   que "nenhum evento" não seja lido como sucesso.
+2. `ShadowObserverFailures = 0` e `AuditOutboxFailures = 0` na janela, com
+   `BILLING_METRICS_ENVIRONMENT` definido (sem a variável as métricas são descartadas e o zero
+   não prova nada), e zero linhas `billing_shadow_observer_failed` no log da API.
+3. Canário positivo: um request de serving feito por membro de um tenant sem link gera o
+   evento `billing_account_missing` na janela, para que "nenhum evento" não seja lido como
+   sucesso. Em `PROFILE=aws` só o serving produz esse motivo (agente inalcançável; a criação de
+   tenant sempre passa conta explícita).
 4. Toda ação alcançável exercitada na janela (serving e criação de tenant; agente só fora de
    `PROFILE=aws`, ver abaixo).
 5. #354 e #355 em `develop`.
