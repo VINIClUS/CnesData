@@ -6,7 +6,6 @@ from typing import Any
 
 from cnes_domain.billing.commands import (
     CreateBillingAccountCommand,
-    LinkBillingTenantCommand,
     SnapshotWrite,
 )
 from cnes_domain.billing.models import (
@@ -115,16 +114,6 @@ def make_create_command(
     return CreateBillingAccountCommand(
         account=make_account(account_id),
         initial_tenant_link=make_link(account_id, tenant_id),
-        idempotency_key=key,
-    )
-
-
-def make_link_command(
-    account_id: str = "ba_01", tenant_id: str = "tenant-b", key: str = "link-01"
-) -> LinkBillingTenantCommand:
-    return LinkBillingTenantCommand(
-        link=make_link(account_id, tenant_id),
-        expected_account_updated_at=NOW,
         idempotency_key=key,
     )
 

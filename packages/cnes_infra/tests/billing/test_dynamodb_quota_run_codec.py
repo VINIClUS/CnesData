@@ -90,7 +90,7 @@ def test_runs_aguardando_sao_encontrados_por_cada_dependencia() -> None:
 
 def test_falha_no_segundo_marcador_desfaz_toda_a_transacao() -> None:
     dependencies = _dependencies(3)
-    with quota_env() as env:
+    with quota_env(seeded=False) as env:
         command = make_reserve_command(dependencies=dependencies)
         run = _expected_run(dependencies)
         second = run_dependency_actions(TABLE_NAME, run, RUN_FIXED_ACTIONS)[1]["Put"]["Item"]

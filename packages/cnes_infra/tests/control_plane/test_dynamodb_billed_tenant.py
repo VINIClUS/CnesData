@@ -113,7 +113,7 @@ def test_cria_tenant_links_e_consome_reserva_em_uma_transacao(enforce_env: Env) 
     reverse = enforce_env.stored(tenant_account_key(NEW))
     assert decode_tenant_account(reverse, NEW) == ACCOUNT
     assert enforce_env.reservation(reservation_id).status is ReservationStatus.CONSUMED
-    assert enforce_env.counter() == before == 1
+    assert enforce_env.counter() == before == 2
     identity = (NEW, TENANT_SCOPE, "bt-01")
     record = decode_idempotency_record(enforce_env.stored(idempotency_key(*identity)), identity)
     assert (record.status, record.resource_id) == ("COMPLETED", NEW)

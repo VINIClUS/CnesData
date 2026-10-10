@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from cnes_domain.billing.commands import CreateBillingAccountCommand, LinkBillingTenantCommand
+from cnes_domain.billing.commands import CreateBillingAccountCommand
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
@@ -358,22 +358,18 @@ def _link_identity(link: BillingAccountTenantLink) -> dict[str, str]:
     }
 
 
-def idempotency_digest(command: CreateBillingAccountCommand | LinkBillingTenantCommand) -> str:
+def idempotency_digest(command: CreateBillingAccountCommand) -> str:
     """Calcula o digest do comando sem os instantes gerados pelo servidor."""
-    if isinstance(command, LinkBillingTenantCommand):
-        expected = utc_attribute(command.expected_account_updated_at)
-        identity = {"link": _link_identity(command.link), "expected_updated_at": expected}
-    else:
-        account = command.account
-        identity = {
-            "link": _link_identity(command.initial_tenant_link),
-            "account": [
-                account.billing_account_id,
-                account.stripe_customer_id,
-                account.owner_user_id,
-                account.status,
-            ],
-        }
+    account = command.account
+    identity = {
+        "link": _link_identity(command.initial_tenant_link),
+        "account": [
+            account.billing_account_id,
+            account.stripe_customer_id,
+            account.owner_user_id,
+            account.status,
+        ],
+    }
     return request_hash([type(command).__name__, command.idempotency_key, identity])
 
 

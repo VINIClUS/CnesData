@@ -64,6 +64,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `billing/keys.py`, `dynamodb_items.py` | Chaves e codec DynamoDB de billing; mapeiam botocore para `BillingDependencyError` |
 | `billing/dynamodb_projection.py`, `dynamodb_catalog*.py`, `cache.py` | Snapshot, catálogo de contas/planos, cache local ≤ 60 s |
 | `billing/dynamodb_quota*.py` | Reservas transacionais de quota/budget (`DynamoQuotaReservations`) |
+| `billing/capacity_counters.py` | Semente `CAPACITY` na criação da conta, pendente de tenant sem conta e contagem em off/shadow |
 | `billing/disabled.py` | Adapters sem medição de `BILLING_MODE=disabled` (sem rede nem secrets) |
 | `billing/composition.py` | `build_secret_provider` (cliente `secretsmanager` só em `stripe`), `StripeRuntimeSettings`, `build_stripe_billing` (API e `billing_worker`) |
 | `billing/audit_outbox.py` | `DynamoBillingAudit`: `BillingAuditPort` no outbox canônico (tenant `_billing`) |
@@ -100,3 +101,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 - **`web_client` mocks retornam pandas, não polars:** `basedosdados.read_sql`
   retorna `pd.DataFrame`; o adapter converte via `pl.from_pandas()`. Mock de
   teste precisa devolver pandas, senão a conversão mascara o erro real.
+- **Capacidade conta em todo modo `stripe`:** `agent_count`/`tenant_count` nascem na
+  criação da conta (`tenant_count=1`); off/shadow somam na escrita do agente/tenant novo e
+  `enforce` falha fechado (`capacity_not_seeded`) sem o item. Ver runbook
+  `billing-reconciliation.md#capacidade-agentes-e-tenants`.

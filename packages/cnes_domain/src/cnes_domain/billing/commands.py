@@ -52,17 +52,6 @@ class CreateBillingAccountCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class LinkBillingTenantCommand:
-    link: BillingAccountTenantLink
-    expected_account_updated_at: datetime
-    idempotency_key: str
-
-    def __post_init__(self) -> None:
-        require_utc(self.expected_account_updated_at, "expected_account_updated_at")
-        require_id(self.idempotency_key, "idempotency_key")
-
-
-@dataclass(frozen=True, slots=True)
 class TransferOwnerCommand:
     billing_account_id: str
     expected_owner_user_id: str

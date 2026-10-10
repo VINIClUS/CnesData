@@ -25,6 +25,7 @@ from cnes_domain.profiles import BillingMode
 from cnes_infra.control_plane.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
+    capacity_marker,
     completed_record,
     creator_membership,
     require_creatable_tenant_id,
@@ -243,7 +244,38 @@ class DynamoBilledTenantMixin:
             actions.extend(self._billed_link_actions(command))
         if self._billing.enforced:
             actions.extend(self._billed_capacity_actions(command, now, version))
+        if self._billing.mode is BillingMode.STRIPE:
+            actions.extend(self._capacity_count_actions(command))
         return tuple(actions)
+
+    def _capacity_count_actions(self, command: CreateBilledTenantCommand) -> tuple[Action, ...]:
+        from cnes_infra.billing.capacity_counters import (
+            AGENT_COUNTER,
+            TENANT_COUNTER,
+            capacity_seeded,
+            log_not_seeded,
+            pending_transfer,
+        )
+        from cnes_infra.billing.dynamodb_items import get_item
+        from cnes_infra.billing.dynamodb_quota_items import settle_usage_update
+        from cnes_infra.billing.keys import capacity_usage_key, pending_capacity_key
+
+        table, account = self._table_name, command.link.billing_account_id
+        tenant_id, key = command.tenant.tenant_id, capacity_usage_key(account)
+        pending = get_item(self._client, table, pending_capacity_key(tenant_id), True)
+        cas, agents = pending_transfer(table, tenant_id, pending)
+        if not capacity_seeded(get_item(self._client, table, key, True)):
+            log_not_seeded(account, CapacityKind.TENANT.value)
+            return (cas,)
+        tenants = 0 if self._billing.enforced else 1
+        deltas = {
+            name: delta
+            for name, delta in ((AGENT_COUNTER, agents), (TENANT_COUNTER, tenants))
+            if delta
+        }
+        if not deltas:
+            return (cas,)
+        return cas, settle_usage_update(table, key, deltas)
 
     def _billed_link_actions(self, command: CreateBilledTenantCommand) -> tuple[Action, ...]:
         from cnes_infra.billing.dynamodb_items import encode_link, encode_tenant_account, put_new
@@ -272,10 +304,13 @@ class DynamoBilledTenantMixin:
         current, owner = decode_capacity_reservation(item)
         consumed = replace(current, status=ReservationStatus.CONSUMED)
         event = quota_event("quota.consumed", owner, _consumed_event_payload(current), now)
+        marker = capacity_marker(command, now)
+        marker_key = idempotency_key(marker.tenant_id, marker.scope, marker.key)
         return (
             snapshot_check(table, SnapshotExpectation(account, version, None), now),
             put_action(table, encode_capacity_reservation(consumed, owner), payload(item)),
             put_new(table, outbox_item(event)),
+            put_new(table, encode_model(marker, "IDEMPOTENCYRECORD", marker_key)),
         )
 
     def _billed_reservation_item(self, command: CreateBilledTenantCommand, now: datetime) -> Item:

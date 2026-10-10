@@ -84,7 +84,7 @@ def test_budget_liberado_entre_cancelamento_e_releitura_e_retentavel() -> None:
 
 def test_unidade_de_run_liberada_entre_cancelamento_e_releitura_e_retentavel() -> None:
     snapshot = make_quota_snapshot(max_runs_per_period=1)
-    with quota_env(snapshot) as env:
+    with quota_env(snapshot, seeded=False) as env:
         env.repo.reserve_and_create_run(make_reserve_command(snapshot))
         usage_key_item = next(
             item for item in env.client.scan(TableName=TABLE_NAME)["Items"]

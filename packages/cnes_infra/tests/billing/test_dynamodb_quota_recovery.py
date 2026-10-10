@@ -27,12 +27,12 @@ from cnes_infra.billing.dynamodb_quota_items import (
     reservation_item_key,
 )
 from cnes_infra.billing.keys import (
-    account_tenant_key,
     capacity_reservation_key,
     capacity_usage_key,
     entitlement_snapshot_key,
     usage_key,
 )
+from cnes_infra.control_plane.billed_tenant import TENANT_CAPACITY_SCOPE
 from cnes_infra.control_plane.dynamodb_codec import item_key
 from cnes_infra.control_plane.dynamodb_keys import idempotency_key, run_entity_key
 from cnes_infra.control_plane.edge_registration import EDGE_AGENT_SCOPE
@@ -182,7 +182,8 @@ def _seed_capacity(env: QuotaEnv, reservation: CapacityReservation) -> None:
 
 def _proof_key(reservation: CapacityReservation) -> tuple[str, str]:
     if reservation.kind is CapacityKind.TENANT:
-        return account_tenant_key(ACCOUNT, reservation.resource_id)
+        scope = TENANT_CAPACITY_SCOPE
+        return idempotency_key(reservation.resource_id, scope, reservation.reservation_id)
     return idempotency_key(TENANT, EDGE_AGENT_SCOPE, reservation.reservation_id)
 
 

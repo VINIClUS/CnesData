@@ -23,7 +23,6 @@ POSITIONAL_HELPERS = frozenset({"_audit", "quota_event"})
 
 AUDIT_EVENT_INVENTORY: Mapping[str, str] = {
     "billing_account.created": "dynamodb_catalog: criação de conta",
-    "billing_account.tenant_linked": "dynamodb_catalog: vínculo de tenant",
     "billing_account.customer_attached": "dynamodb_catalog: Stripe Customer anexado",
     "billing_account.transferred": "dynamodb_catalog: transferência de conta",
     "checkout.session_created": "central_api routes/billing: checkout",
