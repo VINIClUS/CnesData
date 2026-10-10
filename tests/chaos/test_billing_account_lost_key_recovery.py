@@ -148,7 +148,10 @@ def test_chave_nova_apos_queda_no_anexo_recupera_conta_e_mesmo_customer(
     assert response.json()["stripe_customer_id"] == customer_id
     assert response.json()["owner_user_id"] == "user-1"
     _assert_single_customer(env, account_id, customer_id)
-    assert f"billing_account_recovered billing_account_id={account_id}" in caplog.messages
+    assert (
+        f"billing_account_recovered billing_account_id={account_id} tenant_id={TENANT}"
+        in caplog.messages
+    )
 
 
 def test_chave_nova_com_conta_ja_anexada_devolve_conta_sem_chamar_stripe(env: Env) -> None:

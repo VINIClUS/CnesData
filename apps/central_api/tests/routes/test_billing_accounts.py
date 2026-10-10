@@ -142,7 +142,9 @@ def prepare_recovery(env, recovered, link=None):
     env.catalog.get_account.side_effect = [None, recovered]
     env.catalog.create_account.side_effect = BillingTenantConflict("tenant_id=tenant-a")
     env.catalog.get_tenant_account.return_value = link or make_link("tenant-a")
-    env.catalog.attach_customer.return_value = make_account(owner=recovered.owner_user_id)
+    env.catalog.attach_customer.return_value = make_account(
+        owner=recovered.owner_user_id, customer="cus_new",
+    )
 
 
 def test_chave_nova_de_tenant_vinculado_devolve_conta_existente(client, env, caplog):
@@ -155,14 +157,17 @@ def test_chave_nova_de_tenant_vinculado_devolve_conta_existente(client, env, cap
     env.catalog.get_tenant_account.assert_called_once_with("tenant-a", ReadConsistency.STRONG)
     assert env.catalog.get_account.call_args.args == ("ba_01",)
     env.gateway.create_customer.assert_not_called()
-    assert "billing_account_recovered billing_account_id=ba_01" in caplog.messages
+    assert (
+        "billing_account_recovered billing_account_id=ba_01 tenant_id=tenant-a"
+        in caplog.messages
+    )
 
 
 def test_conta_recuperada_sem_customer_reusa_chave_da_conta_e_anexa(client, env):
     prepare_recovery(env, make_account(owner="user-1", customer=None))
     response = post(client, "accounts")
     assert response.status_code == 201
-    assert response.json()["stripe_customer_id"] == "cus_1"
+    assert response.json()["stripe_customer_id"] == "cus_new"
     env.gateway.create_customer.assert_called_once_with(
         CreateStripeCustomerCommand("ba_01", "ba_01"),
     )

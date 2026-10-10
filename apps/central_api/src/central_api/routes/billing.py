@@ -270,7 +270,10 @@ def _recovered_account(ctx: BillingContext, tenant: AuthorizedTenant) -> Billing
     account = None if link is None else ctx.catalog.get_account(link.billing_account_id)
     if account is not None:
         require_billing_owner(account, ctx.principal, tenant, ctx.catalog)
-        logger.info("billing_account_recovered billing_account_id=%s", account.billing_account_id)
+        logger.info(
+            "billing_account_recovered billing_account_id=%s tenant_id=%s",
+            account.billing_account_id, tenant.tenant_id,
+        )
     return account
 
 
