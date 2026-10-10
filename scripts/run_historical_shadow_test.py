@@ -76,15 +76,17 @@ def _aggregate(work: Path) -> dict[str, Any]:
     return json.loads(_aggregate_path(work).read_bytes())
 
 
-def _job_dir(work: Path, dataset: str) -> Path:
-    return work / "candidate" / f"{dataset}-{_COMPETENCIA[dataset]}"
-
-
 def _assert_sem_caminhos_locais(work: Path) -> None:
     for path in (work / "reports").rglob("*.json"):
         text = path.read_text(encoding="utf-8")
         assert str(work) not in text
         assert str(_ROOT) not in text
+
+
+def _assert_falha(work: Path, dataset: str, error: str) -> None:
+    failure = {"dataset": dataset, "competencia": _COMPETENCIA[dataset], "error": error}
+    assert _aggregate(work)["failures"] == [failure]
+    _assert_sem_caminhos_locais(work)
 
 
 @dataclass(frozen=True)
@@ -133,7 +135,7 @@ def test_fonte_retida_sem_mismatch(executed: _Executed, dataset: str) -> None:
 def test_drena_tres_ondas_pelo_ponteiro(executed: _Executed, dataset: str) -> None:
     report = _report(executed.work, dataset)
     run_id = f"mig010-{dataset}-{_COMPETENCIA[dataset]}"
-    job = _job_dir(executed.work, dataset)
+    job = executed.work / "candidate" / f"{dataset}-{_COMPETENCIA[dataset]}"
     pointer = SQLiteControlPlane(job / "state" / "cnesdata.sqlite3", lambda: _NOW)
     published = pointer.get_dataset_pointer(_TENANT, dataset)
     stat = FilesystemObjectStore(job / "objects").stat(report["run_manifest_key"])
@@ -218,6 +220,31 @@ def test_rejeita_competencia_sem_oraculo(
     assert not (tmp_path / "reports").exists()
 
 
+def _usage_error(work: Path, capsys: pytest.CaptureFixture[str], *overrides: str) -> str:
+    with pytest.raises(SystemExit) as raised:
+        main(_argv(work, ("bpa",), *overrides))
+    assert raised.value.code == 2
+    assert not (work / "candidate").exists()
+    return capsys.readouterr().err
+
+
+@pytest.mark.parametrize("override", [
+    ("--from-competencia", "2026-1"), ("--to-competencia", "2026-13"),
+])
+def test_rejeita_competencia_malformada(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], override: tuple[str, str]
+) -> None:
+    assert f"competencia_invalid value={override[1]}" in _usage_error(tmp_path, capsys, *override)
+
+
+def test_rejeita_intervalo_invertido(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    overrides = ("--from-competencia", "2026-12", "--to-competencia", "2026-01")
+
+    assert "competencia_range_invalid from=2026-12 to=2026-01" in _usage_error(
+        tmp_path, capsys, *overrides
+    )
+
+
 def _tampered_legacy(
     work: Path, dataset: str, name: str, mutate: Callable[[Any], None]
 ) -> tuple[Path, Path]:
@@ -247,12 +274,14 @@ def _repinned(work: Path, dataset: str, tampered: Path) -> Path:
     return _mutated_contract(work, repin)
 
 
+def _tampered_argv(work: Path, name: str, mutate: Callable[[Any], None]) -> list[str]:
+    legacy, tampered = _tampered_legacy(work, "bpa", name, mutate)
+    contract = _repinned(work, "bpa", tampered)
+    return _argv(work, ("bpa",), "--legacy-root", str(legacy), "--contract", str(contract))
+
+
 def _bpa_linhas_treze(payload: dict[str, Any]) -> None:
     payload["overview"]["kpis"]["linhas"] = 13
-
-
-def _bpa_sem_qualidade(payload: dict[str, Any]) -> None:
-    payload["BPA_C"]["quality_issues"] = []
 
 
 def test_rejeita_oraculo_adulterado_antes_de_tocar_o_candidato(
@@ -269,13 +298,9 @@ def test_rejeita_oraculo_adulterado_antes_de_tocar_o_candidato(
 
 
 def test_fixture_negativa_retorna_um_e_nomeia_a_metrica_divergente(tmp_path: Path) -> None:
-    legacy, tampered = _tampered_legacy(
-        tmp_path, "bpa", "expected_serving.json", _bpa_linhas_treze
-    )
-    contract = _repinned(tmp_path, "bpa", tampered)
+    argv = _tampered_argv(tmp_path, "expected_serving.json", _bpa_linhas_treze)
 
-    assert main(_argv(tmp_path, ("bpa",), "--legacy-root", str(legacy),
-                      "--contract", str(contract))) == 1
+    assert main(argv) == 1
 
     report = _report(tmp_path, "bpa")
     mismatches = [c for c in report["comparisons"] if c["status"] == "MISMATCH"]
@@ -287,19 +312,13 @@ def test_fixture_negativa_retorna_um_e_nomeia_a_metrica_divergente(tmp_path: Pat
 
 
 def test_documento_sem_metricas_do_oraculo_retorna_um(tmp_path: Path) -> None:
-    legacy, tampered = _tampered_legacy(
-        tmp_path, "bpa", "expected_normalized.json", _bpa_sem_qualidade
+    argv = _tampered_argv(
+        tmp_path, "expected_normalized.json", lambda p: p["BPA_C"].update(quality_issues=[])
     )
-    contract = _repinned(tmp_path, "bpa", tampered)
 
-    assert main(_argv(tmp_path, ("bpa",), "--legacy-root", str(legacy),
-                      "--contract", str(contract))) == 1
+    assert main(argv) == 1
 
-    assert _aggregate(tmp_path)["failures"] == [{
-        "dataset": "bpa", "competencia": "2026-08",
-        "error": "oracle_document_empty doc_id=bpa-normalized-quality-bpa-c",
-    }]
-    _assert_sem_caminhos_locais(tmp_path)
+    _assert_falha(tmp_path, "bpa", "oracle_document_empty doc_id=bpa-normalized-quality-bpa-c")
 
 
 def _sem_nacional(contract: dict[str, Any]) -> None:
@@ -324,11 +343,7 @@ def test_erro_inesperado_e_registrado_sem_expor_a_mensagem_original(tmp_path: Pa
 
     assert main(_argv(tmp_path, ("bpa",), "--contract", str(contract))) == 1
 
-    assert _aggregate(tmp_path)["failures"] == [{
-        "dataset": "bpa", "competencia": "2026-08",
-        "error": "unexpected_error type=ValidationError",
-    }]
-    _assert_sem_caminhos_locais(tmp_path)
+    _assert_falha(tmp_path, "bpa", "unexpected_error type=ValidationError")
 
 
 def test_run_degradado_retorna_um_sem_relatorio_do_dataset(tmp_path: Path) -> None:
@@ -336,12 +351,10 @@ def test_run_degradado_retorna_um_sem_relatorio_do_dataset(tmp_path: Path) -> No
 
     assert main(_argv(tmp_path, ("cnes",), "--contract", str(contract))) == 1
 
-    assert _aggregate(tmp_path)["failures"] == [{
-        "dataset": "cnes", "competencia": "2026-01",
-        "error": "run_not_published run_id=mig010-cnes-2026-01 state=PUBLISHED_DEGRADED",
-    }]
+    _assert_falha(
+        tmp_path, "cnes", "run_not_published run_id=mig010-cnes-2026-01 state=PUBLISHED_DEGRADED"
+    )
     assert not (tmp_path / "reports" / _TENANT / "cnes").exists()
-    _assert_sem_caminhos_locais(tmp_path)
 
 
 def test_folha_do_candidato_ausente_no_run_manifest_retorna_um(tmp_path: Path) -> None:
@@ -349,11 +362,9 @@ def test_folha_do_candidato_ausente_no_run_manifest_retorna_um(tmp_path: Path) -
 
     assert main(_argv(tmp_path, ("bpa",), "--contract", str(contract))) == 1
 
-    assert _aggregate(tmp_path)["failures"] == [{
-        "dataset": "bpa", "competencia": "2026-08",
-        "error": "candidate_leaf_missing layer=serving leaf=inexistente.json matches=0",
-    }]
-    _assert_sem_caminhos_locais(tmp_path)
+    _assert_falha(
+        tmp_path, "bpa", "candidate_leaf_missing layer=serving leaf=inexistente.json matches=0"
+    )
 
 
 def test_contrato_com_campo_de_tolerancia_retorna_um(

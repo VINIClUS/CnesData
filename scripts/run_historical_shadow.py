@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import shutil
 import subprocess
 import sys
@@ -19,7 +20,7 @@ import polars as pl
 from central_api.services.run_planning import RunPlanningDependencies, RunPlanningService
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from cnes_contracts.manifests.raw import RawManifest
-from cnes_contracts.manifests.validation import manifest_sha256
+from cnes_contracts.manifests.validation import COMPETENCIA_PATTERN, manifest_sha256
 from cnes_domain.control_plane.entities import RawManifestRecord, Run
 from cnes_domain.control_plane.enums import RunStage, RunState
 from cnes_domain.orchestration.source_catalog import build_source_catalog
@@ -49,8 +50,6 @@ from data_processor.migration.equivalence import (
 from data_processor.orchestration.coordinator import noop_execution_started
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 
@@ -64,6 +63,7 @@ _CONCURRENCY, _LEASE_SECONDS = 4, 300
 _MAX_ROUNDS, _WAVE_DEADLINE_SECONDS, _POLL_SECONDS = 12, 120.0, 0.002
 _ACTIVE = frozenset({RunState.PROCESSING, RunState.PUBLISHING})
 _DTYPES = {"String": pl.String, "Int64": pl.Int64, "Float64": pl.Float64}
+type _Waves = tuple[tuple[str, ...], ...]
 
 
 class ShadowRunError(Exception):
@@ -97,16 +97,26 @@ class _Published:
     outputs: dict[str, bytes]
 
 
+def _competencia(value: str) -> str:
+    if not re.fullmatch(COMPETENCIA_PATTERN, value):
+        raise argparse.ArgumentTypeError(f"competencia_invalid value={value}")
+    return value
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tenant", required=True)
     parser.add_argument("--source", action="append", choices=_SOURCES, required=True)
-    parser.add_argument("--from-competencia", required=True)
-    parser.add_argument("--to-competencia", required=True)
+    parser.add_argument("--from-competencia", type=_competencia, required=True)
+    parser.add_argument("--to-competencia", type=_competencia, required=True)
     for name in ("legacy-root", "candidate-root", "report-root"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--contract", type=Path, default=_DEFAULT_CONTRACT)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    first, last = args.from_competencia, args.to_competencia
+    if first > last:
+        parser.error(f"competencia_range_invalid from={first} to={last}")
+    return args
 
 
 def _verify_oracle(root: Path, dataset: str, spec: DatasetSpec) -> str:
@@ -151,17 +161,6 @@ def _preflight(settings: _Settings, jobs: list[_Job]) -> None:
             raise ShadowRunError(f"report_exists report={name}")
 
 
-def _prepare(args: argparse.Namespace) -> tuple[_Settings, list[_Job]]:
-    contract = load_contract(args.contract)
-    settings = _Settings(
-        contract, sha256_hex(args.contract.read_bytes()), args.tenant, args.legacy_root,
-        args.candidate_root, args.report_root,
-    )
-    jobs = _plan_jobs(args, settings)
-    _preflight(settings, jobs)
-    return settings, jobs
-
-
 def _dig(node: object, path: tuple[str, ...], label: str) -> object:
     for segment in path:
         if not isinstance(node, dict) or segment not in node:
@@ -192,11 +191,11 @@ class _Driver:
     def __init__(self, job: _Job) -> None:
         settings = job.settings
         self.job, self.tenant, self.moment = job, settings.tenant, settings.contract.clock
+        self.clock = lambda: self.moment
         self.run_id = f"mig010-{job.dataset}-{job.competencia}"
         data_dir = settings.candidate_root / f"{job.dataset}-{job.competencia}"
-        self.runtime = build_local_processor_runtime(
-            ProfileSettings(tenant_id=self.tenant, data_dir=data_dir), self.clock
-        )
+        profile = ProfileSettings(tenant_id=self.tenant, data_dir=data_dir)
+        self.runtime = build_local_processor_runtime(profile, self.clock)
         self.cp = cast("SQLiteControlPlane", self.runtime.control_plane)
         self.catalog = build_source_catalog()
         callbacks = build_execution_callbacks(
@@ -210,9 +209,6 @@ class _Driver:
             ExecutionPolicyConfig(_CONCURRENCY, _LEASE_SECONDS, callbacks), self.clock,
             dispatch_enabled=False,
         )
-
-    def clock(self) -> datetime:
-        return self.moment
 
     def seed(self, raw: RawInput) -> tuple[str, str]:
         body, rows = _raw_body(self.job, raw)
@@ -240,11 +236,10 @@ class _Driver:
         return manifest.file_subtype, record.manifest_sha256
 
     def launch(self) -> None:
-        job = self.job
-        dependencies = self.catalog.for_pipeline(job.dataset).dependencies
+        dependencies = self.catalog.for_pipeline(self.job.dataset).dependencies
         self.cp.put_run(Run(
-            tenant_id=self.tenant, run_id=self.run_id, competencia=job.competencia,
-            dataset_name=job.dataset, state=RunState.PLANNED, dependencies=dependencies,
+            tenant_id=self.tenant, run_id=self.run_id, competencia=self.job.competencia,
+            dataset_name=self.job.dataset, state=RunState.PLANNED, dependencies=dependencies,
             missing_sources=(), created_at=self.moment,
         ))
         self.service.launch(self.tenant, self.run_id)
@@ -270,7 +265,7 @@ class _Driver:
         if self.state() is not RunState.PUBLISHED:
             raise ShadowRunError(f"run_not_published run_id={self.run_id} state={self.state()}")
 
-    def waves(self) -> tuple[tuple[str, ...], ...]:
+    def waves(self) -> _Waves:
         order = list(RunStage)
         grouped: dict[str | None, set[RunStage]] = {}
         for unit in self.cp.list_run_units(self.tenant, self.run_id):
@@ -316,8 +311,7 @@ def read_verified_outputs(
     """
     if manifest.model_dump_json(exclude_none=False, by_alias=False).encode() != stored:
         raise ShadowRunError(f"manifest_not_canonical run_id={manifest.run_id}")
-    prefix = f"serving/{manifest.tenant_id}/{manifest.run_id}"
-    expected = {f"{prefix}/{name}.json" for name in serving}
+    expected = {f"serving/{manifest.tenant_id}/{manifest.run_id}/{name}.json" for name in serving}
     actual = {item.object_key for item in manifest.outputs if item.layer == "serving"}
     if actual != expected:
         raise ShadowRunError(
@@ -376,9 +370,7 @@ def _context(job: _Job, published: _Published, raw_sha256: dict[str, str]) -> di
     return context
 
 
-def _evidence(
-    job: _Job, published: _Published, waves: tuple[tuple[str, ...], ...]
-) -> dict[str, object]:
+def _evidence(job: _Job, published: _Published, waves: _Waves) -> dict[str, object]:
     declared = {(doc.candidate.layer, doc.candidate.leaf) for doc in job.spec.documents}
     outputs = [
         {
@@ -480,8 +472,15 @@ def _write_aggregate(settings: _Settings, entries: list[dict[str, object]]) -> b
 def main(argv: list[str] | None = None) -> int:
     """Roda a orquestracao real por dataset; 0 somente se todos os relatorios forem aceitos."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    args = _parse_args(argv)
     try:
-        settings, jobs = _prepare(_parse_args(argv))
+        contract = load_contract(args.contract)
+        settings = _Settings(
+            contract, sha256_hex(args.contract.read_bytes()), args.tenant, args.legacy_root,
+            args.candidate_root, args.report_root,
+        )
+        jobs = _plan_jobs(args, settings)
+        _preflight(settings, jobs)
     except (ContractInvalid, ShadowRunError, OSError) as error:
         logger.error("shadow_precondition_failed error=%s", error)
         return 1
