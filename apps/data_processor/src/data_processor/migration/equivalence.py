@@ -233,7 +233,7 @@ def parse_contract(data: bytes) -> EquivalenceContract:
     try:
         _reject_forbidden_keys(json.loads(data))
         return EquivalenceContract.model_validate_json(data)
-    except json.JSONDecodeError as error:
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise ContractInvalid("contract_unreadable") from error
     except ValidationError as error:
         first = error.errors()[0]

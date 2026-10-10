@@ -101,12 +101,10 @@ def test_rejeita_contrato_com_dataset_inconsistente(
         parse_contract(_write(tmp_path, document).read_bytes())
 
 
-def test_rejeita_contrato_que_nao_e_json(tmp_path: Path) -> None:
-    path = tmp_path / "contract.json"
-    path.write_text("{nao e json", encoding="utf-8")
-
+@pytest.mark.parametrize("data", [b"{nao e json", b'{"version": "\xff"}'])
+def test_rejeita_contrato_que_nao_e_json_utf8(data: bytes) -> None:
     with pytest.raises(ContractInvalid, match="contract_unreadable"):
-        parse_contract(path.read_bytes())
+        parse_contract(data)
 
 
 def test_contrato_expoe_relogio_nas_duas_formas_e_chaves_por_documento() -> None:
