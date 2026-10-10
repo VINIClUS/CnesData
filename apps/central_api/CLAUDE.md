@@ -39,6 +39,8 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   404 `billing_disabled` (status responde `disabled`; webhook 404 sem ler o body). `stripe`
   (só aws): `billing_deps.install_billing` sobrescreve as dependências dos routers (principal
   OIDC + `MembershipAuthorizer`); segredos só no `StripeClient`/verificador. Legado: 503.
+- `POST /accounts` com chave nova para tenant já vinculado devolve a conta existente (201) via
+  `get_tenant_account` forte + `require_billing_owner`; Customer em `billing_customers.py`.
 - Gates 17B (`ApiBillingGates` de `composition.api_billing_gates`, uma composição por modo):
   `POST /api/v1/billing/accounts/{id}/tenants` (tenant + links + capacidade numa transação),
   `POST /api/v1/admin/billing/{id}/revoke` (fora do router de token legado), gate de agente
