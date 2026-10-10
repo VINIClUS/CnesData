@@ -5,16 +5,20 @@ Uso:
         --python docs/fixtures/golden/cnes_profissionais.parquet \\
         --go /path/to/shadow/<job_id>.parquet.gz [--key CNES --key CBO] [--show-values]
 
-Por padrao o log traz so tipo, coluna e digest curto da chave; `--show-values` expoe chaves e
-valores brutos (dados pessoais em saidas de producao).
+Por padrao o log traz so tipo, coluna e um token da chave (HMAC com segredo aleatorio por
+execucao: agrupa as diferencas da mesma linha, mas nao e reversivel por dicionario nem
+correlacionavel entre execucoes); `--show-values` expoe chaves e valores brutos (dados
+pessoais em saidas de producao).
 """
 from __future__ import annotations
 
 import argparse
 import gzip
+import hmac
 import io
 import logging
 import math
+import secrets
 import sys
 from dataclasses import dataclass
 from hashlib import sha256
@@ -183,11 +187,13 @@ def compare_parquets(a: Path, b: Path, key: Sequence[str] | None = None) -> Diff
     )
 
 
-def _key_digest(key: tuple[str, ...]) -> str:
-    return sha256("\x1f".join(key).encode()).hexdigest()[:_DIGEST_CHARS]
+def _key_token(key: tuple[str, ...], secret: bytes) -> str:
+    return hmac.new(secret, "\x1f".join(key).encode(), sha256).hexdigest()[:_DIGEST_CHARS]
 
 
-def _log_differences(differences: tuple[Difference, ...], show_values: bool) -> None:
+def _log_differences(
+    differences: tuple[Difference, ...], show_values: bool, secret: bytes
+) -> None:
     for item in differences[:_MAX_LOGGED_DIFFERENCES]:
         if show_values:
             logger.info(
@@ -196,8 +202,8 @@ def _log_differences(differences: tuple[Difference, ...], show_values: bool) -> 
             )
         else:
             logger.info(
-                "difference kind=%s column=%s key_sha256=%s",
-                item.kind, item.column, _key_digest(item.key),
+                "difference kind=%s column=%s key_token=%s",
+                item.kind, item.column, _key_token(item.key, secret),
             )
     if len(differences) > _MAX_LOGGED_DIFFERENCES:
         logger.info("differences_truncated shown=%d", _MAX_LOGGED_DIFFERENCES)
@@ -221,7 +227,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "diff_result identical=%s diff=%d summary=%s",
         result.identical, result.diff_rows, result.summary,
     )
-    _log_differences(result.differences, args.show_values)
+    _log_differences(result.differences, args.show_values, secrets.token_bytes(32))
     return 0 if result.identical else 1
 
 

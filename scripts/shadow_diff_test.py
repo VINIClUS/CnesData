@@ -1,5 +1,6 @@
 """Teste do shadow diff."""
 import logging
+import re
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -246,18 +247,41 @@ def _pii_frames() -> tuple[pl.DataFrame, pl.DataFrame]:
     return left, right
 
 
-def test_main_loga_so_tipo_coluna_e_digest_da_chave_por_padrao(
+def _key_tokens(text: str) -> list[tuple[str, str]]:
+    return re.findall(r"difference kind=cell column=(\w+) key_token=([0-9a-f]{12})", text)
+
+
+def test_main_loga_so_tipo_coluna_e_token_da_chave_por_padrao(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO)
 
     assert _run(tmp_path, *_pii_frames(), "--key", "cpf") == 1
 
-    digest = sha256(_CPF_A.encode()).hexdigest()[:12]
-    assert f"difference kind=cell column=nome key_sha256={digest}" in caplog.text
-    assert f"difference kind=cell column=obs key_sha256={digest}" in caplog.text
+    tokens = _key_tokens(caplog.text)
+    assert [column for column, _ in tokens] == ["nome", "obs"]
+    assert len({token for _, token in tokens}) == 1
+    assert sha256(_CPF_A.encode()).hexdigest()[:12] not in caplog.text
     for secret in (_CPF_A, _CPF_B, "88888888888", "Maria", "Silva", "Souza", "Joao"):
         assert secret not in caplog.text
+
+
+def test_main_gera_tokens_de_chave_diferentes_a_cada_execucao(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    first, second = tmp_path / "a", tmp_path / "b"
+    first.mkdir()
+    second.mkdir()
+
+    assert _run(first, *_pii_frames(), "--key", "cpf") == 1
+    earlier = {token for _, token in _key_tokens(caplog.text)}
+    caplog.clear()
+    assert _run(second, *_pii_frames(), "--key", "cpf") == 1
+    later = {token for _, token in _key_tokens(caplog.text)}
+
+    assert len(earlier) == len(later) == 1
+    assert earlier != later
 
 
 def test_main_loga_chaves_e_valores_somente_com_show_values(
@@ -268,7 +292,7 @@ def test_main_loga_chaves_e_valores_somente_com_show_values(
     assert _run(tmp_path, *_pii_frames(), "--key", "cpf", "--show-values") == 1
 
     assert f"key=('{_CPF_A}',) column=nome left='Maria Silva' right='Maria Souza'" in caplog.text
-    assert "key_sha256" not in caplog.text
+    assert "key_token" not in caplog.text
 
 
 def test_main_sem_chave_tambem_nao_loga_valores_por_padrao(
