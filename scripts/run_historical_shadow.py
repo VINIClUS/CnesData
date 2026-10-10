@@ -61,6 +61,7 @@ from data_processor.migration.report import (
     output_evidence,
     report_bytes,
     sha256_hex,
+    window_months,
 )
 from data_processor.orchestration.coordinator import noop_execution_started
 
@@ -141,20 +142,19 @@ def _verify_oracle(root: Path, dataset: str, spec: DatasetSpec) -> tuple[str, di
 
 
 def _plan_jobs(args: argparse.Namespace, settings: _Settings) -> list[_Job]:
+    months = window_months(args.from_competencia, args.to_competencia)
     jobs: list[_Job] = []
     for dataset in sorted(set(cast("list[str]", args.source))):
         spec = settings.contract.datasets.get(dataset)
-        inside = [
-            item for item in (spec.competencias if spec else ())
-            if args.from_competencia <= item <= args.to_competencia
-        ]
-        if spec is None or spec.tenant_id != args.tenant or not inside:
+        if spec is None or spec.tenant_id != args.tenant:
+            raise ShadowRunError(f"missing_oracle source={dataset} tenant={args.tenant}")
+        missing = [month for month in months if month not in spec.competencias]
+        if missing:
             raise ShadowRunError(
-                f"missing_oracle source={dataset} tenant={args.tenant} "
-                f"from={args.from_competencia} to={args.to_competencia}"
+                f"missing_oracle source={dataset} competencia={missing[0]} missing={len(missing)}"
             )
         digest, verified = _verify_oracle(settings.legacy_root, dataset, spec)
-        jobs.extend(_Job(dataset, item, spec, digest, verified, settings) for item in inside)
+        jobs.extend(_Job(dataset, month, spec, digest, verified, settings) for month in months)
     return jobs
 
 

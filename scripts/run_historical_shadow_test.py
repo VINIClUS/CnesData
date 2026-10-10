@@ -32,6 +32,7 @@ _NOW = datetime(2026, 10, 10, 12, tzinfo=UTC)
 _COMPETENCIA = {"cnes": "2026-01", "sihd": "2026-01", "bpa": "2026-08", "sia": "2026-01"}
 _DATASETS = tuple(_COMPETENCIA)
 _WAVES = [["NORMALIZE"], ["RECONCILE"], ["MATERIALIZE"]]
+_RUNS = {"2026-01": ("cnes", "sia", "sihd"), "2026-08": ("bpa",)}
 _APPROVED_RULES = frozenset({
     "MIG010-RUN-ID", "MIG010-GENERATED-AT", "MIG010-NORMALIZED-AT",
     "MIG010-CNES-NORMALIZED-IDS", "MIG010-CNES-DIVERGENCE-TEXT",
@@ -56,8 +57,9 @@ _EVIDENCE = {
 
 
 def _argv(work: Path, sources: tuple[str, ...], *overrides: str) -> list[str]:
+    (month,) = {_COMPETENCIA[source] for source in sources}
     base = [
-        "--tenant", _TENANT, "--from-competencia", "2026-01", "--to-competencia", "2026-12",
+        "--tenant", _TENANT, "--from-competencia", month, "--to-competencia", month,
         "--legacy-root", str(_ROOT), "--contract", str(_CONTRACT),
         "--candidate-root", str(work / "candidate"), "--report-root", str(work / "reports"),
     ]
@@ -102,59 +104,60 @@ def _checkout_identificado(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @dataclass(frozen=True)
 class _Executed:
-    work: Path
-    exit_code: int
+    works: dict[str, Path]
+    exit_codes: dict[str, int]
+
+    def work(self, dataset: str) -> Path:
+        return self.works[_COMPETENCIA[dataset]]
 
 
 @pytest.fixture(scope="module")
 def executed(tmp_path_factory: pytest.TempPathFactory) -> _Executed:
-    work = tmp_path_factory.mktemp("shadow")
+    works = {month: tmp_path_factory.mktemp(f"shadow-{month}") for month in _RUNS}
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("scripts.run_historical_shadow._source_commit", lambda: _COMMIT)
-        return _Executed(work, main(_argv(work, _DATASETS)))
+        codes = {month: main(_argv(works[month], sources)) for month, sources in _RUNS.items()}
+    return _Executed(works, codes)
 
 
 def test_execucao_completa_cobre_as_quatro_fontes_com_relatorios_imutaveis(
     executed: _Executed,
 ) -> None:
-    aggregate = _aggregate(executed.work)
+    for month, sources in _RUNS.items():
+        aggregate = _aggregate(executed.works[month])
+        reports = executed.works[month] / "reports" / _TENANT
 
-    assert executed.exit_code == 0
-    assert aggregate["accepted"] is True
-    assert aggregate["failures"] == []
-    assert [(item["dataset"], item["competencia"]) for item in aggregate["covered"]] == [
-        ("bpa", "2026-08"), ("cnes", "2026-01"), ("sia", "2026-01"), ("sihd", "2026-01"),
-    ]
-    for item in aggregate["covered"]:
-        path = executed.work / "reports" / _TENANT / item["report"]
-        assert sha256(path.read_bytes()).hexdigest() == item["report_sha256"]
-        assert path.stat().st_mode & 0o222 == 0
+        assert executed.exit_codes[month] == 0
+        assert (aggregate["accepted"], aggregate["failures"]) == (True, [])
+        assert [(item["dataset"], item["competencia"]) for item in aggregate["covered"]] == [
+            (source, month) for source in sources
+        ]
+        for item in aggregate["covered"]:
+            assert sha256((reports / item["report"]).read_bytes()).hexdigest() == item[
+                "report_sha256"
+            ]
+            assert (reports / item["report"]).stat().st_mode & 0o222 == 0
 
 
-def test_agregado_registra_o_pedido_e_os_meses_cobertos_e_descobertos(
-    executed: _Executed,
-) -> None:
-    aggregate = _aggregate(executed.work)
-    months = [f"2026-{number:02d}" for number in range(1, 13)]
+def test_agregado_registra_o_pedido_e_a_janela_inteira_coberta(executed: _Executed) -> None:
+    for month, sources in _RUNS.items():
+        aggregate = _aggregate(executed.works[month])
 
-    assert aggregate["requested"] == {
-        "from": "2026-01", "sources": ["bpa", "cnes", "sia", "sihd"], "to": "2026-12",
-    }
-    for dataset, competencia in _COMPETENCIA.items():
-        summary = aggregate["datasets"][dataset]
-        assert summary["covered"] == [competencia]
-        assert summary["uncovered"] == [month for month in months if month != competencia]
+        assert aggregate["requested"] == {"from": month, "sources": list(sources), "to": month}
+        for source in sources:
+            summary = aggregate["datasets"][source]
+            assert (summary["covered"], summary["uncovered"]) == ([month], [])
 
 
 @pytest.mark.parametrize("dataset", _DATASETS)
 def test_agregado_declara_proveniencia_e_saidas_afirmadas_por_dataset(
     executed: _Executed, dataset: str
 ) -> None:
-    summary = _aggregate(executed.work)["datasets"][dataset]
-    outputs = _report(executed.work, dataset)["outputs"]
+    summary = _aggregate(executed.work(dataset))["datasets"][dataset]
+    outputs = _report(executed.work(dataset), dataset)["outputs"]
     asserted = [output["asserted"] for output in outputs]
 
-    assert summary["provenance"] == _report(executed.work, dataset)["provenance"]
+    assert summary["provenance"] == _report(executed.work(dataset), dataset)["provenance"]
     assert summary["provenance"]["data_nature"] == "synthetic"
     assert summary["outputs"] == {
         "asserted": asserted.count(True), "unasserted": asserted.count(False),
@@ -164,7 +167,7 @@ def test_agregado_declara_proveniencia_e_saidas_afirmadas_por_dataset(
 
 @pytest.mark.parametrize("dataset", _DATASETS)
 def test_fonte_retida_sem_mismatch(executed: _Executed, dataset: str) -> None:
-    report = _report(executed.work, dataset)
+    report = _report(executed.work(dataset), dataset)
     matches, explained, _, per_rule = _EVIDENCE[dataset]
     by_rule = Counter(c["rule_id"] for c in report["comparisons"] if c["status"] == "EXPLAINED")
 
@@ -176,9 +179,9 @@ def test_fonte_retida_sem_mismatch(executed: _Executed, dataset: str) -> None:
 
 @pytest.mark.parametrize("dataset", _DATASETS)
 def test_drena_tres_ondas_pelo_ponteiro(executed: _Executed, dataset: str) -> None:
-    report = _report(executed.work, dataset)
+    report = _report(executed.work(dataset), dataset)
     run_id = f"mig010-{dataset}-{_COMPETENCIA[dataset]}"
-    job = executed.work / "candidate" / f"{dataset}-{_COMPETENCIA[dataset]}"
+    job = executed.work(dataset) / "candidate" / f"{dataset}-{_COMPETENCIA[dataset]}"
     pointer = SQLiteControlPlane(job / "state" / "cnesdata.sqlite3", lambda: _NOW)
     published = pointer.get_dataset_pointer(_TENANT, dataset)
     stat = FilesystemObjectStore(job / "objects").stat(report["run_manifest_key"])
@@ -200,7 +203,7 @@ def test_relatorio_marca_so_as_saidas_afirmadas_pelo_contrato(
         (item["candidate"]["layer"], item["candidate"]["leaf"])
         for item in _contract()["datasets"][dataset]["documents"]
     }
-    outputs = _report(executed.work, dataset)["outputs"]
+    outputs = _report(executed.work(dataset), dataset)["outputs"]
     asserted = {
         (output["layer"], output["object_key"].rsplit("/", 1)[-1])
         for output in outputs
@@ -217,7 +220,7 @@ def test_relatorio_marca_so_as_saidas_afirmadas_pelo_contrato(
 def test_relatorio_registra_a_proveniencia_do_oraculo(
     executed: _Executed, dataset: str, kind: str
 ) -> None:
-    provenance = _report(executed.work, dataset)["provenance"]
+    provenance = _report(executed.work(dataset), dataset)["provenance"]
 
     assert (provenance["kind"], provenance["data_nature"]) == (kind, "synthetic")
     assert provenance["frozen_in"]
@@ -343,9 +346,8 @@ def test_documento_vazio_no_oraculo_exige_candidato_vazio(tmp_path: Path) -> Non
     report = _report(tmp_path, "bpa")
     emptied = [c for c in report["comparisons"] if c["metric"].endswith("quality-bpa-c::")]
     assert report["accepted"] is False
-    assert [(c["legacy_value"], c["candidate_value"], c["absent"], c["status"]) for c in emptied] == [
-        ({"empty": "list"}, None, "candidate", "MISMATCH"),
-    ]
+    fields = [(c["legacy_value"], c["candidate_value"], c["absent"], c["status"]) for c in emptied]
+    assert fields == [({"empty": "list"}, None, "candidate", "MISMATCH")]
     assert _aggregate(tmp_path)["failures"] == []
 
 

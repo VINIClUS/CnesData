@@ -1,4 +1,4 @@
-"""Testes de integridade da evidencia MIG-010: fonte identificada e relatorios imutaveis."""
+"""Integridade da evidencia MIG-010: fonte identificada, janela completa, relatorios imutaveis."""
 
 from __future__ import annotations
 
@@ -104,6 +104,15 @@ def test_recusa_execucao_sem_git_disponivel(
     assert main(_argv(tmp_path)) == 1
 
     assert "source_unidentified reason=git_missing" in caplog.text
+    _assert_nada_gravado(tmp_path)
+
+
+def test_recusa_janela_com_competencia_sem_oraculo(
+    tmp_path: Path, checkout: _Checkout, caplog: pytest.LogCaptureFixture
+) -> None:
+    assert main([*_argv(tmp_path), "--from-competencia", "2025-11"]) == 1
+
+    assert "missing_oracle source=sihd competencia=2025-11 missing=2" in caplog.text
     _assert_nada_gravado(tmp_path)
 
 
