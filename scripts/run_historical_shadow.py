@@ -410,10 +410,10 @@ def _git(*args: str) -> str:
     if git is None:
         raise ShadowRunError("source_unidentified reason=git_missing")
     command = [git, "--no-optional-locks", *args]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False, cwd=_ROOT)
+    completed = subprocess.run(command, capture_output=True, check=False, cwd=_ROOT)
     if completed.returncode != 0:
         raise ShadowRunError(f"source_unidentified reason=git_failed command={args[0]}")
-    return completed.stdout
+    return completed.stdout.decode("utf-8", "replace")
 
 
 def _source_commit() -> str:
@@ -451,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
     request = Request(tuple(sorted(set(args.source))), args.from_competencia, args.to_competencia)
     try:
         accepted = _write_aggregate(settings, request, outcomes)
-    except ShadowRunError as error:
+    except (ShadowRunError, OSError) as error:
         logger.error("shadow_aggregate_failed error=%s", error)
         return 1
     logger.info("shadow_finished accepted=%s jobs=%d", accepted, len(jobs))

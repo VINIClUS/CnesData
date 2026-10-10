@@ -2,6 +2,7 @@
 import logging
 import math
 import re
+from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
@@ -193,6 +194,30 @@ def test_main_com_chave_repetivel_detecta_linha_ausente_e_duplicada(tmp_path: Pa
     assert _run(tmp_path, a, a, *keys) == 0
     assert _run(tmp_path, a, missing, *keys) == 1
     assert _run(tmp_path, a, duplicated, *keys) == 1
+
+
+def _gzip_invalido(path: Path) -> Path:
+    target = path.with_suffix(".parquet.gz")
+    target.write_bytes(b"nao e gzip")
+    return target
+
+
+def _parquet_invalido(path: Path) -> Path:
+    path.write_bytes(b"nao e parquet")
+    return path
+
+
+@pytest.mark.parametrize("corrupt", [_gzip_invalido, _parquet_invalido, Path.absolute])
+def test_main_com_entrada_ilegivel_retorna_um_e_loga_o_erro(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, corrupt: Callable[[Path], Path]
+) -> None:
+    good = tmp_path / "bom.parquet"
+    pl.DataFrame({"cnes": ["0001"]}).write_parquet(good)
+    bad = corrupt(tmp_path / "ruim.parquet")
+
+    assert main(["--python", str(good), "--go", str(bad)]) == 1
+
+    assert "diff_error error=" in caplog.text
 
 
 def test_main_retorna_um_quando_as_colunas_diferem(tmp_path: Path) -> None:

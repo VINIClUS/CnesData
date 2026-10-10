@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -82,6 +83,29 @@ def test_recusa_checkout_com_alteracao_nao_commitada(
 
     assert "source_tree_dirty entries=1" in caplog.text
     _assert_nada_gravado(tmp_path)
+
+
+def test_recusa_checkout_com_nome_de_arquivo_fora_do_utf8(
+    tmp_path: Path, checkout: _Checkout, caplog: pytest.LogCaptureFixture
+) -> None:
+    _git(checkout.root, "config", "core.quotePath", "false")
+    (checkout.root / os.fsdecode(b"\xff.py")).write_text("x", encoding="utf-8")
+
+    assert main(_argv(tmp_path)) == 1
+
+    assert "source_tree_dirty entries=1" in caplog.text
+    _assert_nada_gravado(tmp_path)
+
+
+def test_falha_ao_gravar_o_agregado_retorna_um_sem_traceback(
+    tmp_path: Path, checkout: _Checkout, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "reports").write_text("nao e diretorio", encoding="utf-8")
+
+    assert main(_argv(tmp_path)) == 1
+
+    assert "shadow_aggregate_failed error=" in caplog.text
+    assert (tmp_path / "reports").read_text(encoding="utf-8") == "nao e diretorio"
 
 
 def test_recusa_fonte_fora_de_repositorio_git(

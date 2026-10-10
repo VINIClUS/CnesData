@@ -231,7 +231,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         result = compare_parquets(args.python, args.go, args.key)
-    except ValueError as error:
+    except (ValueError, OSError, pl.exceptions.PolarsError) as error:
         logger.error("diff_error error=%s", error)
         return 1
     logger.info(
