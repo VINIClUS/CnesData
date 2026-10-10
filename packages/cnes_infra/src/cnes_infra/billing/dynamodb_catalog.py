@@ -35,8 +35,10 @@ from cnes_infra.billing.dynamodb_catalog_replays import DynamoLateReplayMixin
 from cnes_infra.billing.dynamodb_catalog_tenants import DynamoTenantAccountMixin
 from cnes_infra.billing.dynamodb_items import (
     CUSTOMER_MAP_ENTITY,
+    account_created_event,
     audit_outbox_event,
     corrupt_item,
+    create_scope_tenant,
     decode_account,
     decode_account_list_row,
     decode_customer_map,
@@ -144,9 +146,11 @@ class DynamoBillingCatalog(
         """
         if command.account.stripe_customer_id is not None:
             raise PermanentBillingError("stripe_customer_requires_attach")
-        tenant_id = command.initial_tenant_link.tenant_id
         prior, live = self._prior(
-            tenant_id, CREATE_SCOPE, command.idempotency_key, idempotency_digest(command)
+            create_scope_tenant(command),
+            CREATE_SCOPE,
+            command.idempotency_key,
+            idempotency_digest(command),
         )
         if live is not None:
             return self._replay_account(live)
@@ -325,36 +329,34 @@ class DynamoBillingCatalog(
         self, command: CreateBillingAccountCommand, prior: Item | None
     ) -> tuple[Action, ...]:
         account, link = command.account, command.initial_tenant_link
-        event = BillingAuditEvent(
-            event_id=deterministic_id("billing_account.created", account.billing_account_id),
-            event_type="billing_account.created",
-            aggregate_id=account.billing_account_id,
-            actor_id=account.owner_user_id,
-            reason_code=link.reason_code,
-            occurred_at=account.created_at,
-            attributes={"tenant_id": link.tenant_id},
-        )
-        record = self._record(link.tenant_id, CREATE_SCOPE, command, account.billing_account_id)
-        return (
-            _tenant_check(self._table, link.tenant_id),
+        scope_tenant = create_scope_tenant(command)
+        record = self._record(scope_tenant, CREATE_SCOPE, command, account.billing_account_id)
+        common = (
             put_new(self._table, encode_account(account)),
             put_new(self._table, encode_account_list_row(account)),
+            self._idempotency_action(prior, record),
+            self._outbox(account_created_event(command)),
+        )
+        if link is None:
+            return common
+        return (
+            _tenant_check(self._table, link.tenant_id),
             put_new(self._table, encode_link(link)),
             put_new(self._table, encode_tenant_account(link)),
-            self._idempotency_action(prior, record),
-            self._outbox(event),
+            *common,
         )
 
     def _classify_create(self, command: CreateBillingAccountCommand) -> BillingAccount:
-        tenant_id = command.initial_tenant_link.tenant_id
         digest = idempotency_digest(command)
-        _, live = self._prior(tenant_id, CREATE_SCOPE, command.idempotency_key, digest)
+        scope_tenant = create_scope_tenant(command)
+        _, live = self._prior(scope_tenant, CREATE_SCOPE, command.idempotency_key, digest)
         if live is not None:
             return self._replay_account(live)
         existing = self._created_account(command)
         if existing is not None:
             return existing
-        self._raise_tenant_failure(tenant_id)
+        if command.initial_tenant_link is not None:
+            self._raise_tenant_failure(command.initial_tenant_link.tenant_id)
         if self._exists(billing_account_key(command.account.billing_account_id)):
             raise PermanentBillingError("billing_account_exists")
         raise RetryableBillingError("billing_transaction_conflict")

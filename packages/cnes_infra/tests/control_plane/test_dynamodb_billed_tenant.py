@@ -23,7 +23,8 @@ from cnes_domain.billing.models import (
     ReservationStatus,
     SubscriptionStatus,
 )
-from cnes_domain.control_plane.entities import IdempotencyRecord, Tenant
+from cnes_domain.control_plane.entities import IdempotencyRecord, Membership, Tenant
+from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_infra.billing.dynamodb_items import (
     decode_idempotency_record,
     decode_tenant_account,
@@ -125,6 +126,22 @@ def test_cria_tenant_links_e_consome_reserva_em_uma_transacao(enforce_env: Env) 
     assert created_event.tenant_id == BILLING_AUDIT_TENANT_ID
     assert created_event.aggregate_id == ACCOUNT
     assert events["quota.consumed"].payload["resource_id"] == NEW
+
+
+@ALL_MODES
+def test_criador_do_tenant_recebe_membership_de_gestor(settings: BillingSettings) -> None:
+    with open_env(settings) as env:
+        command = env.command(env.reserve())
+
+        env.plane.create_billed_tenant(command)
+
+        membership = env.plane.get_membership(NEW, "user-owner")
+        assert membership == Membership(
+            tenant_id=NEW, user_id="user-owner", role="gestor",
+            created_at=command.tenant.created_at,
+        )
+        candidates = DynamoDBMembershipCandidates(env.client, TABLE_NAME)
+        assert candidates.list_candidates("user-owner") == (NEW,)
 
 
 def test_criacao_de_tenant_e_link_rollbackam_juntos(enforce_env: Env) -> None:

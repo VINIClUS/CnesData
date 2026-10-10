@@ -136,3 +136,4 @@ def assert_nothing_written(env: Env, tenant_id: str = NEW) -> None:
     assert env.stored(tenant_account_key(tenant_id)) is None
     assert env.stored(idempotency_key(tenant_id, TENANT_SCOPE, "bt-01")) is None
     assert "tenant.created" not in env.outbox_types()
+    assert env.plane.get_membership(tenant_id, "user-owner") is None

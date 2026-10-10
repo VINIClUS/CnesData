@@ -25,6 +25,7 @@ from cnes_infra.control_plane.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
     completed_record,
+    creator_membership,
     require_creatable_tenant_id,
     tenant_created_event,
 )
@@ -36,7 +37,12 @@ from cnes_infra.control_plane.dynamodb_codec import (
     payload,
     put_action,
 )
-from cnes_infra.control_plane.dynamodb_keys import idempotency_key, item_key
+from cnes_infra.control_plane.dynamodb_keys import (
+    entity_key,
+    idempotency_key,
+    item_key,
+    key_component,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -44,11 +50,21 @@ if TYPE_CHECKING:
 
     from cnes_domain.billing.commands import CreateBilledTenantCommand
     from cnes_domain.billing.models import CapacityReservation, EntitlementSnapshot
-    from cnes_domain.control_plane.entities import IdempotencyRecord
+    from cnes_domain.control_plane.entities import IdempotencyRecord, Membership
     from cnes_infra.billing.settings import BillingSettings
 
 type _Prior = tuple[Item | None, IdempotencyRecord | None]
 _NO_VERSION = 0
+
+
+def encode_membership(membership: Membership) -> Item:
+    """Codifica a membership com a projeção esparsa do gsi1 (usuário → tenants)."""
+    key = entity_key(membership.tenant_id, "MEMBERSHIP", membership.user_id)
+    attributes = {
+        "gsi1pk": f"USER#{key_component(membership.user_id)}",
+        "gsi1sk": f"TENANT#{key_component(membership.tenant_id)}",
+    }
+    return encode_model(membership, "MEMBERSHIP", key, attributes)
 
 
 def _account_active_check(table: str, billing_account_id: str) -> Action:
@@ -180,6 +196,7 @@ class DynamoBilledTenantMixin:
             put_new(table, encode_model(tenant, "TENANT", tenant_entity_key(tenant.tenant_id))),
             put_action(table, record, None if prior is None else payload(prior)),
             put_new(table, outbox_item(event)),
+            {"Put": {"TableName": table, "Item": encode_membership(creator_membership(command))}},
         ]
         if self._billing.mode is BillingMode.STRIPE:
             actions.extend(self._billed_link_actions(command))

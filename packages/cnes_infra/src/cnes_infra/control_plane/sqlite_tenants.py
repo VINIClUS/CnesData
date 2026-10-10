@@ -9,11 +9,12 @@ from cnes_domain.billing.errors import (
     IdempotencyConflict,
     RetryableBillingError,
 )
-from cnes_domain.control_plane.entities import IdempotencyRecord, Tenant
+from cnes_domain.control_plane.entities import IdempotencyRecord, Membership, Tenant
 from cnes_infra.control_plane.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
     completed_record,
+    creator_membership,
     require_creatable_tenant_id,
     tenant_created_event,
 )
@@ -64,6 +65,14 @@ def _insert_tenant(connection: sqlite3.Connection, tenant: Tenant) -> None:
     )
 
 
+def _upsert_membership(connection: sqlite3.Connection, membership: Membership) -> None:
+    connection.execute(
+        "INSERT INTO memberships (tenant_id, user_id, data) VALUES (?, ?, ?) "
+        "ON CONFLICT (tenant_id, user_id) DO UPDATE SET data = excluded.data",
+        (membership.tenant_id, membership.user_id, serialize_model(membership)),
+    )
+
+
 def _upsert_record(connection: sqlite3.Connection, record: IdempotencyRecord) -> None:
     connection.execute(
         "INSERT INTO idempotency_records (tenant_id, scope, key, data) VALUES (?, ?, ?, ?) "
@@ -81,7 +90,7 @@ class SQLiteBilledTenantMixin:
         """Cria o tenant, a idempotência e o evento em uma transação (billing desligado).
 
         Args: command: Tenant, link, reserva e chave de idempotência.
-        Returns: O tenant criado ou o tenant de um replay idêntico.
+        Returns: O tenant criado (com membership de gestor do criador) ou o de um replay.
         Raises: BillingTenantConflict, IdempotencyConflict, PermanentBillingError.
         """
         from cnes_infra.billing.dynamodb_items import audit_outbox_event
@@ -96,6 +105,7 @@ class SQLiteBilledTenantMixin:
             if _select_tenant(connection, tenant.tenant_id) is not None:
                 raise BillingTenantConflict(f"tenant_id={tenant.tenant_id}")
             _insert_tenant(connection, tenant)
+            _upsert_membership(connection, creator_membership(command))
             _upsert_record(connection, completed_record(command, now))
             event = audit_outbox_event(tenant_created_event(command))
             self.put_outbox_event(connection, event, event.tenant_id)

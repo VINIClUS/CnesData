@@ -40,7 +40,11 @@ class DynamoLateReplayMixin:
 
     def _created_account(self, command: CreateBillingAccountCommand) -> BillingAccount | None:
         link = command.initial_tenant_link
-        pair = self._stored_pair(link.billing_account_id, link.tenant_id)
+        if link is None:
+            account = self.get_account(command.account.billing_account_id)
+            pair = None if account is None else (account, None)
+        else:
+            pair = self._stored_pair(link.billing_account_id, link.tenant_id)
         if pair is None:
             return None
         stored = CreateBillingAccountCommand(*pair, command.idempotency_key)

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from cnes_domain.billing.errors import PermanentBillingError
 from cnes_domain.billing.models import BillingAuditEvent
-from cnes_domain.control_plane.entities import IdempotencyRecord
+from cnes_domain.control_plane.entities import IdempotencyRecord, Membership
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 TENANT_SCOPE = "tenant.create_billed"
 RESERVED_TENANT_PREFIX = "_"
 IDEMPOTENCY_TTL = timedelta(days=1)
+TENANT_CREATOR_ROLE = "gestor"
 
 
 def require_creatable_tenant_id(tenant_id: str) -> None:
@@ -84,4 +85,18 @@ def completed_record(command: CreateBilledTenantCommand, now: datetime) -> Idemp
         resource_id=command.tenant.tenant_id,
         created_at=now,
         expires_at=now + IDEMPOTENCY_TTL,
+    )
+
+
+def creator_membership(command: CreateBilledTenantCommand) -> Membership:
+    """Cria a membership de gestor de quem criou o tenant.
+
+    Args: command: Comando de criação de tenant faturado.
+    Returns: Membership do autor do link no tenant novo.
+    """
+    return Membership(
+        tenant_id=command.tenant.tenant_id,
+        user_id=command.link.linked_by_user_id,
+        role=TENANT_CREATOR_ROLE,
+        created_at=command.tenant.created_at,
     )

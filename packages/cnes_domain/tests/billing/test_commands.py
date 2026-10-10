@@ -354,6 +354,11 @@ def test_criacao_de_conta_exige_link_da_mesma_conta() -> None:
         _create_account(initial_tenant_link=_link(billing_account_id="acc_2"))
 
 
+def test_criacao_de_conta_aceita_conta_sem_tenant_inicial() -> None:
+    command = _create_account(initial_tenant_link=None)
+    assert command.initial_tenant_link is None
+
+
 def test_tenant_faturado_exige_link_do_mesmo_tenant() -> None:
     with pytest.raises(ValueError, match="reason=tenant_link_mismatch"):
         _billed_tenant(link=_link(tenant_id="999999"))

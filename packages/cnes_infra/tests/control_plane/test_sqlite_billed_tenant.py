@@ -12,7 +12,7 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.control_plane.entities import IdempotencyRecord, Tenant
+from cnes_domain.control_plane.entities import IdempotencyRecord, Membership, Tenant
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.billing.dynamodb_items import audit_outbox_event
 from cnes_infra.control_plane.billed_tenant import (
@@ -75,6 +75,14 @@ def test_cria_tenant_com_idempotencia_e_outbox(plane: SQLiteControlPlane) -> Non
     assert record.expires_at == NOW + timedelta(days=1)
     events = plane.pending_outbox(10)
     assert events == (audit_outbox_event(tenant_created_event(command)),)
+
+
+def test_criador_do_tenant_recebe_membership_de_gestor(plane: SQLiteControlPlane) -> None:
+    plane.create_billed_tenant(make_command())
+
+    assert plane.get_membership(NEW, "user-owner") == Membership(
+        tenant_id=NEW, user_id="user-owner", role="gestor", created_at=NOW,
+    )
 
 
 def test_replay_com_mesmo_comando_devolve_tenant(plane: SQLiteControlPlane) -> None:
@@ -161,4 +169,5 @@ def test_falha_no_outbox_desfaz_tenant_e_idempotencia(plane: SQLiteControlPlane)
 
     assert plane.get_tenant(NEW) is None
     assert stored_record(plane) is None
+    assert plane.get_membership(NEW, "user-owner") is None
     assert len(plane.pending_outbox(10)) == 1

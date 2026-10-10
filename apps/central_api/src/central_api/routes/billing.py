@@ -264,11 +264,16 @@ def _hosted_account(ctx: BillingContext, billing_account_id: str) -> tuple[str, 
     return account.billing_account_id, account.stripe_customer_id
 
 
-def _create_account(ctx: BillingContext, tenant: AuthorizedTenant, id_: str) -> BillingAccount:
+def _create_account(
+    ctx: BillingContext, tenant: AuthorizedTenant | None, id_: str,
+) -> BillingAccount:
     owner = ctx.principal.subject
     now = ctx.clock()
     account = BillingAccount(id_, None, owner, BillingAccountStatus.ACTIVE, now, now)
-    link = BillingAccountTenantLink(id_, tenant.tenant_id, owner, "account_created", now)
+    link = (
+        None if tenant is None
+        else BillingAccountTenantLink(id_, tenant.tenant_id, owner, "account_created", now)
+    )
     return ctx.catalog.create_account(CreateBillingAccountCommand(account, link, id_))
 
 
@@ -289,12 +294,17 @@ def create_billing_account(
     ctx: Annotated[BillingContext, Depends(get_billing_context)],
     gateway: Annotated[StripeGatewayPort, Depends(get_stripe_gateway)],
 ) -> BillingAccountOut:
-    """Cria a conta de billing do administrador e o customer Stripe de forma idempotente."""
+    """Cria a conta de billing e o customer Stripe de forma idempotente.
+
+    Sem X-Tenant-Id cria a conta do próprio usuário (onboarding, sem tenant ainda);
+    com X-Tenant-Id exige gestor do tenant e vincula o tenant à conta.
+    """
     tenant = ctx.authorized_tenant
-    if tenant is None or not _is_billing_admin(ctx.principal, tenant):
+    if tenant is not None and not _is_billing_admin(ctx.principal, tenant):
         raise HTTPException(status_code=403, detail="billing_admin_required")
     owner = ctx.principal.subject
-    digest = _scoped_key(owner, tenant.tenant_id, body.idempotency_key)
+    tenant_scope = "" if tenant is None else tenant.tenant_id
+    digest = _scoped_key(owner, tenant_scope, body.idempotency_key)
     account_id = f"ba_{digest[:32]}"
     with mapped_errors():
         account = ctx.catalog.get_account(account_id)
