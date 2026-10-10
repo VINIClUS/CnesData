@@ -1,6 +1,8 @@
 """Overview KPIs + faturamento chart aggregation for DashboardRepo."""
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -168,8 +170,8 @@ def faturamento_by_establishment_query(
 
 def _build_faturamento_chart(
     comps: list[int],
-    top: list[dict],
-    rows: list[dict],
+    top: Sequence[Mapping[Any, Any]],
+    rows: Sequence[Mapping[Any, Any]],
 ) -> FaturamentoChart:
     top_ids = [r["sk_estabelecimento"] for r in top]
     top_names = [r["nome"] for r in top]

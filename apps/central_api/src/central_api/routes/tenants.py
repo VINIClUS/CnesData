@@ -1,7 +1,7 @@
 """Rota de criação de tenant cobrado pela conta de billing."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from central_api.routes.billing import (
     BillingContext,
-    _scoped_key,
+    _scoped_key,  # pyright: ignore[reportPrivateUsage]
     get_billing_context,
     require_billing_enabled,
     require_billing_owner,
@@ -41,9 +41,11 @@ from cnes_domain.billing.models import (
     BillingAccountTenantLink,
     CapacityKind,
     CapacityReservation,
+    EntitlementAction,
     ReadConsistency,
     ReservationStatus,
 )
+from cnes_domain.billing.shadow import ShadowObservation
 from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.ports.control_plane import ControlPlanePort
 
@@ -122,7 +124,7 @@ def _denial_to_http(error: BillingError) -> HTTPException:
 
 
 @contextmanager
-def _denials() -> Iterator[None]:
+def _denials() -> Generator[None]:
     try:
         yield
     except (EntitlementDenied, QuotaExceeded, PermanentBillingError) as error:
@@ -145,6 +147,9 @@ def _reserve(
     ports: TenantCreationPorts, body: TenantCreate, account_id: str, key: str,
 ) -> CapacityReservation:
     decision = ports.gates.gate.authorize_tenant_creation(GateRequest(account_id, body.tenant_id))
+    ports.gates.observer.observe(
+        ShadowObservation(EntitlementAction.TENANT_CREATION, body.tenant_id, account_id),
+    )
     request_hash = _scoped_key(account_id, body.tenant_id, body.municipality_name)
     command = CapacityReservationCommand(
         account_id, body.tenant_id, body.tenant_id, CapacityKind.TENANT, key,
@@ -173,7 +178,9 @@ def _build_command(
     link = BillingAccountTenantLink(
         account_id, body.tenant_id, ctx.principal.subject, "tenant_created", now,
     )
-    return CreateBilledTenantCommand(tenant, link, reservation.reservation_id, key)
+    return CreateBilledTenantCommand(
+        tenant, link, reservation.reservation_id, key, ctx.principal.issuer,
+    )
 
 
 def _release(ports: TenantCreationPorts, attempt: _Attempt) -> None:

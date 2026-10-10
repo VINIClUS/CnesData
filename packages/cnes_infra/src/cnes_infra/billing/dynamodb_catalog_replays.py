@@ -3,10 +3,9 @@
 from collections.abc import Callable
 from typing import Any
 
-from cnes_domain.billing.commands import CreateBillingAccountCommand, LinkBillingTenantCommand
+from cnes_domain.billing.commands import CreateBillingAccountCommand
 from cnes_domain.billing.models import (
     BillingAccount,
-    BillingAccountStatus,
     BillingAccountTenantLink,
     ReadConsistency,
 )
@@ -14,7 +13,6 @@ from cnes_infra.billing.dynamodb_items import (
     decode_tenant_account,
     get_item,
     idempotency_digest,
-    utc_attribute,
 )
 from cnes_infra.billing.keys import tenant_account_key
 
@@ -49,18 +47,3 @@ class DynamoLateReplayMixin:
             return None
         stored = CreateBillingAccountCommand(*pair, command.idempotency_key)
         return pair[0] if idempotency_digest(stored) == idempotency_digest(command) else None
-
-    def _linked_replay(self, command: LinkBillingTenantCommand) -> BillingAccountTenantLink | None:
-        pair = self._stored_pair(command.link.billing_account_id, command.link.tenant_id)
-        if pair is None:
-            return None
-        account, link = pair
-        expected = utc_attribute(command.expected_account_updated_at)
-        current = account.status is BillingAccountStatus.ACTIVE and (
-            utc_attribute(account.updated_at) == expected
-        )
-        stored = LinkBillingTenantCommand(
-            link, command.expected_account_updated_at, command.idempotency_key
-        )
-        same = current and idempotency_digest(stored) == idempotency_digest(command)
-        return link if same else None

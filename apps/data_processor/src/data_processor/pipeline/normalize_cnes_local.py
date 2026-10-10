@@ -10,7 +10,7 @@ import polars as pl
 
 from cnes_contracts.manifests.outputs import OutputManifest
 from cnes_contracts.manifests.processing import NormalizeResult
-from data_processor.adapters.cnes_local_adapter import _MAP_PROFISSIONAL_RAW, _normalizar_nfkd
+from data_processor.adapters.cnes_local_adapter import MAP_PROFISSIONAL_RAW, normalizar_nfkd
 from data_processor.pipeline.delta_reconstruction import reconstruct_from_deltas
 
 if TYPE_CHECKING:
@@ -79,7 +79,7 @@ def _materialize_missing_columns(frame: pl.DataFrame) -> pl.DataFrame:
 
 
 def _canonicalize(frame: pl.DataFrame) -> pl.DataFrame:
-    frame = frame.rename({k: v for k, v in _MAP_PROFISSIONAL_RAW.items() if k in frame.columns})
+    frame = frame.rename({k: v for k, v in MAP_PROFISSIONAL_RAW.items() if k in frame.columns})
     frame = _materialize_missing_columns(frame)
     frame = frame.with_columns(
         [pl.col(name).cast(dtype) for name, dtype in _FRAME_SCHEMA.items()]
@@ -92,8 +92,8 @@ def _canonicalize(frame: pl.DataFrame) -> pl.DataFrame:
         pl.col("TIPO_VINCULO").str.strip_chars(),
         pl.col("CNES").str.strip_chars().str.pad_start(7, "0"),
         pl.col("CBO").str.strip_chars().str.pad_start(6, "0"),
-        _normalizar_nfkd(pl.col("NOME_PROFISSIONAL")).alias("NOME_PROFISSIONAL"),
-        _normalizar_nfkd(pl.col("NOME_SOCIAL")).alias("NOME_SOCIAL"),
+        normalizar_nfkd(pl.col("NOME_PROFISSIONAL")).alias("NOME_PROFISSIONAL"),
+        normalizar_nfkd(pl.col("NOME_SOCIAL")).alias("NOME_SOCIAL"),
         pl.lit("LOCAL").alias("FONTE"),
     )
     columns = [*_SOURCE_COLUMNS, *(["_op"] if "_op" in frame.columns else [])]

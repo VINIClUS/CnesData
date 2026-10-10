@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 
 from cnes_domain.control_plane.errors import (
@@ -21,12 +23,12 @@ def test_catalogo_preserva_exatamente_os_codigos_legados() -> None:
 @pytest.mark.parametrize("code", LEGACY_CODES)
 @pytest.mark.parametrize("error_type", ERROR_TYPES)
 def test_normaliza_todo_codigo_legado_sem_alterar_texto(
-    error_type: type[Exception], code: str
+    error_type: type[Conflict | NotFound], code: str
 ) -> None:
     error = error_type(code)
 
     assert error.code is ControlPlaneErrorCode(code)
-    assert error.code.name == code.upper()
+    assert cast("ControlPlaneErrorCode", error.code).name == code.upper()
     assert str(error) == code
     assert error.args == (code,)
 
@@ -41,7 +43,9 @@ def test_normaliza_codigo_legado_preservando_mensagem_e_argumentos() -> None:
 
 
 @pytest.mark.parametrize("error_type", ERROR_TYPES)
-def test_aceita_enum_preservando_categoria_e_argumentos(error_type: type[Exception]) -> None:
+def test_aceita_enum_preservando_categoria_e_argumentos(
+    error_type: type[Conflict | NotFound],
+) -> None:
     error = error_type(ControlPlaneErrorCode.JOB_CONFLICT)
 
     assert error.code is ControlPlaneErrorCode.JOB_CONFLICT
@@ -55,7 +59,7 @@ def test_aceita_enum_preservando_categoria_e_argumentos(error_type: type[Excepti
 @pytest.mark.parametrize("error_type", ERROR_TYPES)
 @pytest.mark.parametrize("message", ["external_new_code", "transition=QUEUED->SUCCEEDED", ""])
 def test_preserva_codigos_desconhecidos_e_mensagens_dinamicas(
-    error_type: type[Exception], message: str
+    error_type: type[Conflict | NotFound], message: str
 ) -> None:
     error = error_type(message)
 
@@ -68,7 +72,7 @@ def test_preserva_codigos_desconhecidos_e_mensagens_dinamicas(
 @pytest.mark.parametrize("error_type", ERROR_TYPES)
 @pytest.mark.parametrize("args", [(), (None,), (42,), ("job_conflict", "detail")])
 def test_preserva_construcao_legada_sem_codigo_ou_com_argumentos_adicionais(
-    error_type: type[Exception], args: tuple[object, ...]
+    error_type: type[Conflict | NotFound], args: tuple[object, ...]
 ) -> None:
     error = error_type(*args)
 

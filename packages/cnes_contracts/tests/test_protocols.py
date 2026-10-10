@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from typing import Any, cast
 from uuid import uuid4
 
 from cnes_contracts.fatos import VinculoCNES
@@ -121,32 +122,36 @@ def test_extractor_port_satisfeito():
 
 
 def test_protocol_stubs_invocados_direto():
+    dim_port = cast("Any", DimLookupPort)
+    mapper_port = cast("Any", RowMapperPort)
+    repo_port = cast("Any", ExtractionRepoPort)
+    extractor_port = cast("Any", ExtractorPort)
     lookup = _FakeLookup()
-    assert DimLookupPort.sk_profissional_por_cpf_hash(lookup, "x") is None
-    assert DimLookupPort.sk_estabelecimento_por_cnes(lookup, "x") is None
-    assert DimLookupPort.sk_cbo_por_codigo(lookup, "x") is None
-    assert DimLookupPort.sk_competencia_por_yyyymm(lookup, 1) is None
+    assert dim_port.sk_profissional_por_cpf_hash(lookup, "x") is None
+    assert dim_port.sk_estabelecimento_por_cnes(lookup, "x") is None
+    assert dim_port.sk_cbo_por_codigo(lookup, "x") is None
+    assert dim_port.sk_competencia_por_yyyymm(lookup, 1) is None
     mapper = _FakeMapper()
-    assert RowMapperPort.map_vinculo(mapper, {}) is None
+    assert mapper_port.map_vinculo(mapper, {}) is None
     repo = _FakeRepo()
     engine = object()
-    assert ExtractionRepoPort.enqueue(
+    assert repo_port.enqueue(
         repo, engine, tenant_id="354130", source_type="BPA_MAG",
         competencia=date(2026, 1, 1),
         files=[{"minio_key": "x.parquet.gz"}],
     ) is None
-    assert ExtractionRepoPort.claim_next(repo, engine) is None
-    assert ExtractionRepoPort.register(
+    assert repo_port.claim_next(repo, engine) is None
+    assert repo_port.register(
         repo, engine, job_id=uuid4(), files=[],
     ) is None
-    assert ExtractionRepoPort.mark_completed(
+    assert repo_port.mark_completed(
         repo, engine, job_id=uuid4(),
     ) is None
-    assert ExtractionRepoPort.mark_failed(
+    assert repo_port.mark_failed(
         repo, engine, job_id=uuid4(), reason="e",
     ) is None
-    assert ExtractionRepoPort.reap_expired(repo, engine) is None
+    assert repo_port.reap_expired(repo, engine) is None
     extractor = _FakeExtractor()
-    assert ExtractorPort.extract(
+    assert extractor_port.extract(
         extractor, "S", date(2026, 1, 1), "t",
     ) is None

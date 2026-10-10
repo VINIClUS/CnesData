@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -87,7 +87,7 @@ def test_task_ecs_de_dispatch_antigo_nao_reclama_unit(aws_runtime: AwsTestRuntim
     assert current.dispatch_id != first.dispatch_id
     stale_claim = ClaimRunUnit(
         tenant_id=first.tenant_id, run_id=first.run_id, unit_id=first.unit_ids[0],
-        dispatch_id=first.dispatch_id, owner=first.execution_ref,
+        dispatch_id=first.dispatch_id, owner=cast("str", first.execution_ref),
         now=aws_runtime.clock.now(), lease_seconds=LEASE_SECONDS,
     )
     assert aws_runtime.processor.control_plane.claim_run_unit(stale_claim) is None

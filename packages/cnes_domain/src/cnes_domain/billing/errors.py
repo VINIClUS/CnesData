@@ -1,6 +1,7 @@
 """Stable billing domain errors."""
 
 import re
+from typing import cast
 
 _SANITIZED_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _PAIR = r"[a-z_][a-z0-9_]*=[A-Za-z0-9_.:-]+"
@@ -49,7 +50,7 @@ class StaleInboxClaim(BillingError):
 
 class _SanitizedCodeError(BillingError):
     def __init__(self, code: str, *, detail: str | None = None) -> None:
-        if not isinstance(code, str) or not _SANITIZED_CODE.fullmatch(code):
+        if not isinstance(cast("object", code), str) or not _SANITIZED_CODE.fullmatch(code):
             raise ValueError("reason=unsanitized_error_code")
         if detail is not None and not _SANITIZED_DETAIL.fullmatch(detail):
             raise ValueError("reason=unsanitized_error_detail")

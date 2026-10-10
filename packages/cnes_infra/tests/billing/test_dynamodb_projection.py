@@ -1,7 +1,7 @@
 """Testes do DynamoEntitlementProjection (BIL-012) sobre moto e cliente low-level."""
 
 from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
 import boto3
@@ -17,7 +17,7 @@ from cnes_domain.billing.errors import (
     StaleInboxClaim,
 )
 from cnes_domain.billing.inbox import InboxClaim
-from cnes_domain.billing.models import BillingAuditEvent, ReadConsistency
+from cnes_domain.billing.models import ReadConsistency
 from cnes_domain.billing.ports import EntitlementProjectionPort
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_infra.billing.dynamodb_items import utc_attribute
@@ -38,6 +38,9 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     table_items,
 )
 from packages.cnes_infra.tests.contracts.clock import MutableClock
+
+if TYPE_CHECKING:
+    from cnes_domain.control_plane.entities import OutboxEvent
 
 SNAPSHOT_KEY = item_key(*entitlement_snapshot_key("ba_01"))
 INBOX_KEY = item_key(*stripe_event_key("evt_01"))
@@ -284,7 +287,7 @@ def test_auditoria_de_conta_e_entregue_pelo_dispatcher_uma_vez(context):
     sink = _CollectingSink()
     plane = DynamoDBControlPlane(client, TABLE_NAME, clock.now)
     assert dispatch_once(plane, sink, NOW).delivered == 1
-    event: BillingAuditEvent = sink.events[0]
+    event: OutboxEvent = sink.events[0]
     assert event.tenant_id == BILLING_AUDIT_TENANT_ID
     assert event.event_type == "entitlement.changed"
     assert event.aggregate_id == "ba_01"

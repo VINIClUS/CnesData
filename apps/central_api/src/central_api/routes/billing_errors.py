@@ -1,7 +1,7 @@
 """Mapeamento de erros de billing do domínio para respostas HTTP."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 
 from fastapi import HTTPException
@@ -50,7 +50,7 @@ def _to_http(error: BillingError) -> HTTPException | None:
 
 
 @contextmanager
-def mapped_errors() -> Iterator[None]:
+def mapped_errors() -> Generator[None]:
     """Traduz erros de billing do domínio em HTTPException."""
     try:
         yield

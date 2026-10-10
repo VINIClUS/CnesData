@@ -48,6 +48,7 @@ from cnes_infra.control_plane.dynamodb_keys import (
     entity_key,
     item_key,
     key_component,
+    membership_key,
     raw_manifest_lookup_key,
     raw_partition,
     raw_resync_key,
@@ -60,7 +61,7 @@ from cnes_infra.control_plane.dynamodb_publication import DynamoDBPublication
 from cnes_infra.control_plane.dynamodb_queries import DynamoDBQueries
 from cnes_infra.control_plane.dynamodb_run_codec import RECOVERABLE_RUN_STATES as _RECOVERABLE
 from cnes_infra.control_plane.dynamodb_run_codec import run_dependency_actions, run_item
-from cnes_infra.control_plane.dynamodb_tenants import DynamoBilledTenantMixin, encode_membership
+from cnes_infra.control_plane.dynamodb_tenants import DynamoBilledTenantMixin, membership_item
 from cnes_infra.control_plane.edge_registration import DynamoEdgeRegistrationMixin
 from cnes_infra.control_plane.raw_query_compat import DeprecatedRawQueryMixin
 
@@ -176,10 +177,10 @@ class DynamoDBControlPlane(
         )
     def get_membership(self, tenant_id: str, user_id: str) -> Membership | None:
         """Retorna a associação solicitada."""
-        return self._get_model(entity_key(tenant_id, "MEMBERSHIP", user_id), Membership)
+        return self._get_model(membership_key(tenant_id, user_id), Membership)
     def put_membership(self, membership: Membership) -> None:
         """Persiste uma associação."""
-        self._put_direct(encode_membership(membership))
+        self._put_direct(membership_item(membership))
     def get_agent(self, tenant_id: str, agent_id: str) -> Agent | None:
         """Retorna o agente solicitado."""
         return self._get_model(entity_key(tenant_id, "AGENT", agent_id), Agent)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -66,7 +67,7 @@ def test_vinculo_cnes_rejeita_fonte_sistema_invalida():
             sk_cbo=3,
             sk_competencia=4,
             job_id=uuid4(),
-            fonte_sistema="SIHD",
+            fonte_sistema=cast("Any", "SIHD"),
             extracao_ts=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
@@ -143,7 +144,7 @@ def test_producao_ambulatorial_rejeita_fonte_sistema_invalida():
             qtd=1,
             valor_aprov_cents=100,
             job_id=uuid4(),
-            fonte_sistema="CNES_LOCAL",
+            fonte_sistema=cast("Any", "CNES_LOCAL"),
             extracao_ts=datetime(2026, 1, 1, tzinfo=UTC),
         )
 

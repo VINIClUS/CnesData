@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -27,6 +27,8 @@ from packages.cnes_infra.tests.contracts.clock import MutableClock
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from cnes_domain.ports.control_plane import ControlPlanePort
 
 _TENANT = "354130"
 _OIDC_ISSUER = "https://issuer.example"
@@ -78,7 +80,7 @@ class _AuthContext:
     def service(self) -> LocalAuthService:
         dependencies = LocalAuthDependencies(
             credentials=self.credentials,
-            control_plane=self.control_plane,
+            control_plane=_port(self),
             settings=self.settings,
             hasher=self.hasher,
         )
@@ -100,6 +102,14 @@ def auth_context(tmp_path: Path) -> _AuthContext:
     )
 
 
+def _port(context: _AuthContext) -> ControlPlanePort:
+    return cast("ControlPlanePort", context.control_plane)
+
+
+def _tenant_id(context: _AuthContext) -> str:
+    return cast("str", context.settings.tenant_id)
+
+
 def _seed_user(
     context: _AuthContext, email: str = "gestor@epitacio.sp.gov.br"
 ) -> str:
@@ -110,16 +120,16 @@ def _seed_user(
 
 def _add_oidc_membership(context: _AuthContext, issuer: str = _OIDC_ISSUER) -> None:
     context.control_plane.add_membership(
-        context.settings.tenant_id, "oidc-subject-1", oidc_issuer=issuer
+        _tenant_id(context), "oidc-subject-1", oidc_issuer=issuer
     )
 
 
 def test_dependencias_usam_hash_password_real_por_padrao(auth_context: _AuthContext) -> None:
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     deps = LocalAuthDependencies(
         credentials=auth_context.credentials,
-        control_plane=auth_context.control_plane,
+        control_plane=_port(auth_context),
         settings=auth_context.settings,
     )
     service_with_real_hasher = LocalAuthService(deps, auth_context.clock.now)
@@ -149,7 +159,7 @@ def test_autenticacao_aceita_senha_nos_limites_inclusivos(
         "user-1", "gestor@epitacio.sp.gov.br", password, auth_context.clock.now()
     )
     auth_context.credentials.put_user(user)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user.user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user.user_id)
 
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", password)
 
@@ -158,7 +168,7 @@ def test_autenticacao_aceita_senha_nos_limites_inclusivos(
 
 def test_autenticacao_rejeita_senha_incorreta(auth_context: _AuthContext) -> None:
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
 
     with pytest.raises(AuthenticationRejected) as exc:
         auth_context.service.authenticate("gestor@epitacio.sp.gov.br", "senha-errada-1234")
@@ -179,7 +189,7 @@ def test_autenticacao_rejeita_usuario_desabilitado(auth_context: _AuthContext) -
         disabled_at=auth_context.clock.now(),
     )
     auth_context.credentials.put_user(disabled)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user.user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user.user_id)
 
     with pytest.raises(AuthenticationRejected) as exc:
         auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
@@ -213,7 +223,7 @@ def test_usuario_desconhecido_e_senha_incorreta_chamam_hasher_o_mesmo_numero_de_
     auth_context: _AuthContext,
 ) -> None:
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
 
     with pytest.raises(AuthenticationRejected):
         auth_context.service.authenticate("fantasma@x.com", _PASSWORD)
@@ -239,7 +249,7 @@ def test_sessao_emitida_persiste_apenas_o_hash(auth_context: _AuthContext) -> No
     import sqlite3
 
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
 
     token = auth_context.service.issue_session(principal)
@@ -259,7 +269,7 @@ def test_sessao_emitida_persiste_apenas_o_hash(auth_context: _AuthContext) -> No
 
 def test_emissao_de_sessao_remove_sessoes_expiradas(auth_context: _AuthContext) -> None:
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
     stale_token = auth_context.service.issue_session(principal)
 
@@ -274,7 +284,7 @@ def test_emissao_de_sessao_remove_sessoes_expiradas(auth_context: _AuthContext) 
 def test_sessao_valida_resolve_principal_com_membership(auth_context: _AuthContext) -> None:
     user_id = _seed_user(auth_context)
     auth_context.control_plane.add_membership(
-        auth_context.settings.tenant_id, user_id, role="operador"
+        _tenant_id(auth_context), user_id, role="operador"
     )
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
     token = auth_context.service.issue_session(principal)
@@ -286,7 +296,7 @@ def test_sessao_valida_resolve_principal_com_membership(auth_context: _AuthConte
 
 def test_sessao_rejeitada_quando_profile_muda_de_tenant(auth_context: _AuthContext) -> None:
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
     token = auth_context.service.issue_session(principal)
 
@@ -296,7 +306,7 @@ def test_sessao_rejeitada_quando_profile_muda_de_tenant(auth_context: _AuthConte
     other_service = LocalAuthService(
         LocalAuthDependencies(
             credentials=auth_context.credentials,
-            control_plane=auth_context.control_plane,
+            control_plane=_port(auth_context),
             settings=other_settings,
             hasher=auth_context.hasher,
         ),
@@ -313,7 +323,7 @@ def test_sessao_expirada_e_rejeitada(auth_context: _AuthContext) -> None:
     from cnes_infra.auth.local_auth import SESSION_TTL_SECONDS
 
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
     token = auth_context.service.issue_session(principal)
 
@@ -332,7 +342,7 @@ def test_sessao_desconhecida_e_rejeitada(auth_context: _AuthContext) -> None:
 
 def test_sessao_de_usuario_desabilitado_e_rejeitada(auth_context: _AuthContext) -> None:
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
     token = auth_context.service.issue_session(principal)
 
@@ -358,7 +368,7 @@ def test_sessao_de_usuario_removido_e_rejeitada(auth_context: _AuthContext) -> N
     import sqlite3
 
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
     token = auth_context.service.issue_session(principal)
 
@@ -374,7 +384,7 @@ def test_sessao_de_usuario_removido_e_rejeitada(auth_context: _AuthContext) -> N
 
 def test_sessao_rejeitada_quando_membership_e_revogada(auth_context: _AuthContext) -> None:
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
     token = auth_context.service.issue_session(principal)
 
@@ -387,7 +397,7 @@ def test_sessao_rejeitada_quando_membership_e_revogada(auth_context: _AuthContex
 
 def test_logout_revoga_a_sessao_de_forma_idempotente(auth_context: _AuthContext) -> None:
     user_id = _seed_user(auth_context)
-    auth_context.control_plane.add_membership(auth_context.settings.tenant_id, user_id)
+    auth_context.control_plane.add_membership(_tenant_id(auth_context), user_id)
     principal = auth_context.service.authenticate("gestor@epitacio.sp.gov.br", _PASSWORD)
     token = auth_context.service.issue_session(principal)
 
@@ -404,7 +414,7 @@ def test_resolve_oidc_retorna_principal_com_tenant_do_profile(
 ) -> None:
     _add_oidc_membership(auth_context)
     resolver = OidcMembershipResolver(
-        control_plane=auth_context.control_plane, settings=auth_context.settings
+        control_plane=_port(auth_context), settings=auth_context.settings
     )
 
     principal = resolver.resolve(
@@ -419,7 +429,7 @@ def test_resolve_oidc_retorna_principal_com_tenant_do_profile(
 def test_resolve_oidc_ignora_claim_de_tenant_coincidente(auth_context: _AuthContext) -> None:
     _add_oidc_membership(auth_context)
     resolver = OidcMembershipResolver(
-        control_plane=auth_context.control_plane, settings=auth_context.settings
+        control_plane=_port(auth_context), settings=auth_context.settings
     )
 
     principal = resolver.resolve(
@@ -438,7 +448,7 @@ def test_resolve_oidc_rejeita_tenant_divergente_nas_claims(
     auth_context: _AuthContext,
 ) -> None:
     resolver = OidcMembershipResolver(
-        control_plane=auth_context.control_plane, settings=auth_context.settings
+        control_plane=_port(auth_context), settings=auth_context.settings
     )
 
     with pytest.raises(AuthenticationRejected) as exc:
@@ -463,7 +473,7 @@ def test_resolve_oidc_rejeita_claims_incompletas(
     auth_context: _AuthContext, claims: dict[str, str]
 ) -> None:
     resolver = OidcMembershipResolver(
-        control_plane=auth_context.control_plane, settings=auth_context.settings
+        control_plane=_port(auth_context), settings=auth_context.settings
     )
 
     with pytest.raises(AuthenticationRejected) as exc:
@@ -474,7 +484,7 @@ def test_resolve_oidc_rejeita_claims_incompletas(
 
 def test_resolve_oidc_rejeita_sem_membership(auth_context: _AuthContext) -> None:
     resolver = OidcMembershipResolver(
-        control_plane=auth_context.control_plane, settings=auth_context.settings
+        control_plane=_port(auth_context), settings=auth_context.settings
     )
 
     with pytest.raises(AuthenticationRejected) as exc:
@@ -489,7 +499,7 @@ def test_resolve_oidc_rejeita_membership_de_outro_issuer(
 ) -> None:
     _add_oidc_membership(auth_context, issuer="https://old-issuer.example")
     resolver = OidcMembershipResolver(
-        control_plane=auth_context.control_plane, settings=auth_context.settings
+        control_plane=_port(auth_context), settings=auth_context.settings
     )
 
     with pytest.raises(AuthenticationRejected) as exc:

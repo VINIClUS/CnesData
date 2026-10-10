@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
@@ -13,6 +14,9 @@ from cnes_domain.billing.errors import EntitlementDenied
 from cnes_domain.billing.models import RunAuthorization
 from cnes_domain.control_plane.entities import Run, RunDependency
 from cnes_domain.control_plane.enums import RunState
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.gate import EntitlementGate
 
 _NOW = datetime(2026, 1, 15, 12, tzinfo=UTC)
 _ACCOUNT = "ba_01"
@@ -71,9 +75,8 @@ def _service(
     gate = _FakeGate(authorization, denial)
     control_plane = Mock()
     run_planning = Mock()
-    return RunAuthorizationService(gate, control_plane, run_planning), gate, control_plane, (
-        run_planning
-    )
+    service = RunAuthorizationService(cast("EntitlementGate", gate), control_plane, run_planning)
+    return service, gate, control_plane, run_planning
 
 
 def test_caminho_sem_medicao_cria_run_com_request_e_autorizacao_originais():

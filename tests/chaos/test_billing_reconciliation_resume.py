@@ -301,6 +301,7 @@ def test_queda_entre_cas_e_fence_retoma_enforcement() -> None:
         assert companion(env, "run-01").cancel_requested
         assert stored_run(env, "run-01").state is RunState.CANCELED
         progress = env.store.get_revocation_progress("ba_01")
+        assert progress is not None
         assert (progress.entitlement_version, progress.phase) == (
             resumed.entitlement_version, RevocationPhase.COMPLETE
         )
@@ -352,7 +353,9 @@ def test_queda_no_meio_do_fencing_e_acesso_restaurado_liquida_runs_fenceadas() -
         assert not companion(env, untouched).cancel_requested
         assert stored_run(env, untouched).state is not RunState.CANCELED
         assert {run for run, _ in executor.refs()} == set(fenced)
-        assert env.store.get_revocation_progress("ba_01").phase is RevocationPhase.COMPLETE
+        progress = env.store.get_revocation_progress("ba_01")
+        assert progress is not None
+        assert progress.phase is RevocationPhase.COMPLETE
         assert first.execution_ref is not None
 
 

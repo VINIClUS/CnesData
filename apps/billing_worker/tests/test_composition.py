@@ -1,5 +1,6 @@
 """Testes da composição do worker de billing por modo de enforcement."""
 
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -15,14 +16,14 @@ from cnes_infra.billing.settings import BillingConfigurationError
 ENFORCED = env(BILLING_ENFORCEMENT_MODE="enforce", AWS_STATE_MACHINE_ARN=STATE_MACHINE)
 
 
-def _build(values: dict[str, str]) -> tuple[object, Mock, Mock]:
+def _build(values: dict[str, str]) -> tuple[Any, Mock, Mock]:
     session = Mock()
     with patch("billing_worker.composition.build_stripe_billing") as stripe:
         worker = build_worker(values, Mock(return_value=session))
     return worker, session, stripe
 
 
-def _projector_enforcer(worker: object) -> object:
+def _projector_enforcer(worker: Any) -> object:
     projector = worker._jobs.recovery._deps.projector
     return projector._deps.enforcer
 
@@ -85,7 +86,7 @@ def test_modo_enforce_compoe_revogacao_imediata_com_step_functions() -> None:
     deps = enforcer._deps
     assert deps.projection is stripe.return_value.projection
     assert deps.audit is stripe.return_value.audit
-    assert deps.executor._state_machine_arn == STATE_MACHINE
+    assert cast("Any", deps.executor)._state_machine_arn == STATE_MACHINE
 
 
 def test_enforce_exige_state_machine_antes_da_sessao() -> None:

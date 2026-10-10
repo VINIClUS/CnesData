@@ -117,6 +117,7 @@ def test_fence_diferente_do_esperado_nao_falha_o_run(env: RevEnv) -> None:
 def test_sem_reserva_no_companion_a_transacao_nao_tem_acoes_de_liberacao(env: RevEnv) -> None:
     publishing(env)
     state = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert state is not None
     cleared = replace(state, authorization=replace(state.authorization, budget_reservation_id=None))
     env.client.put_item(TableName=env.table, Item=encode_run_billing_state(cleared))
     env.spy.transactions.clear()
@@ -202,6 +203,7 @@ def test_mudanca_do_payload_do_run_com_publishing_e_retentavel(env: RevEnv) -> N
 def test_reserva_inexistente_e_retentavel(env: RevEnv) -> None:
     publishing(env)
     state = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert state is not None
     unknown = replace(
         state, authorization=replace(state.authorization, budget_reservation_id="res-ghost")
     )

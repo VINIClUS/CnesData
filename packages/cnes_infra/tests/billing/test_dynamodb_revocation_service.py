@@ -3,7 +3,7 @@
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -74,7 +74,7 @@ class RecordingExecutor:
         if self.error is not None:
             raise self.error
 
-    def refs(self) -> set[tuple[str, str]]:
+    def refs(self) -> set[tuple[str, str | None]]:
         return {(request.run_id, request.execution_ref) for request in self.requests}
 
 
@@ -131,6 +131,7 @@ def units_of(env: RevEnv, run_id: str) -> dict[str, Any]:
 
 def dispatch_of(env: RevEnv, run_id: str) -> RunDispatch:
     item = get_raw(env, dispatch_key(TENANT, run_id))
+    assert item is not None
     return RunDispatch.model_validate_json(item["payload"]["S"])
 
 
@@ -266,6 +267,7 @@ def revoke_two_runs_scenario(env: RevEnv) -> None:
     assert_units(env, seeded)
     assert usage_counters(env)["consumed_runs"] == seeded.consumed
     progress = env.store.get_revocation_progress(ACCOUNT)
+    assert progress is not None
     assert (progress.entitlement_version, progress.phase) == (
         after.entitlement_version, RevocationPhase.COMPLETE
     )
@@ -406,11 +408,12 @@ def test_retomada_apos_queda_pelo_cursor_de_revogacao(
         service.revoke(COMMAND)
 
     progress = env.store.get_revocation_progress(ACCOUNT)
+    assert progress is not None
     assert progress.phase is phase
     assert progress.phase is not RevocationPhase.COMPLETE
     service.revoke(COMMAND)
 
-    assert env.store.get_revocation_progress(ACCOUNT).phase is RevocationPhase.COMPLETE
+    assert cast("Any", env.store.get_revocation_progress(ACCOUNT)).phase is RevocationPhase.COMPLETE
     for run_id in (RUN_ID, SECOND_RUN):
         assert stored_run(env, run_id).state is RunState.CANCELED
         assert companion(env, run_id).fencing_token == 1

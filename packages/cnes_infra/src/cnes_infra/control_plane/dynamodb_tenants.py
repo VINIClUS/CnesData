@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from cnes_domain.billing.errors import (
+    BillingDependencyError,
     BillingTenantConflict,
     EntitlementDenied,
     IdempotencyConflict,
@@ -19,11 +20,12 @@ from cnes_domain.billing.models import (
     ReservationStatus,
 )
 from cnes_domain.billing.policy import EntitlementPolicy, require_allowed
-from cnes_domain.control_plane.entities import Tenant
+from cnes_domain.control_plane.entities import Membership, Tenant
 from cnes_domain.profiles import BillingMode
 from cnes_infra.control_plane.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
+    capacity_marker,
     completed_record,
     creator_membership,
     require_creatable_tenant_id,
@@ -38,10 +40,12 @@ from cnes_infra.control_plane.dynamodb_codec import (
     put_action,
 )
 from cnes_infra.control_plane.dynamodb_keys import (
-    entity_key,
+    MEMBERSHIP,
     idempotency_key,
     item_key,
     key_component,
+    membership_key,
+    tenant_partition,
 )
 
 if TYPE_CHECKING:
@@ -50,21 +54,25 @@ if TYPE_CHECKING:
 
     from cnes_domain.billing.commands import CreateBilledTenantCommand
     from cnes_domain.billing.models import CapacityReservation, EntitlementSnapshot
-    from cnes_domain.control_plane.entities import IdempotencyRecord, Membership
+    from cnes_domain.control_plane.entities import IdempotencyRecord
     from cnes_infra.billing.settings import BillingSettings
 
 type _Prior = tuple[Item | None, IdempotencyRecord | None]
 _NO_VERSION = 0
 
 
-def encode_membership(membership: Membership) -> Item:
-    """Codifica a membership com a projeção esparsa do gsi1 (usuário → tenants)."""
-    key = entity_key(membership.tenant_id, "MEMBERSHIP", membership.user_id)
+def membership_item(membership: Membership) -> Item:
+    """Codifica a membership com a chave base e os atributos do índice por usuário.
+
+    Args: membership: Membership a persistir.
+    Returns: Item DynamoDB da entidade `MEMBERSHIP`.
+    """
     attributes = {
         "gsi1pk": f"USER#{key_component(membership.user_id)}",
         "gsi1sk": f"TENANT#{key_component(membership.tenant_id)}",
     }
-    return encode_model(membership, "MEMBERSHIP", key, attributes)
+    key = membership_key(membership.tenant_id, membership.user_id)
+    return encode_model(membership, MEMBERSHIP, key, attributes)
 
 
 def _account_active_check(table: str, billing_account_id: str) -> Action:
@@ -121,9 +129,9 @@ class DynamoBilledTenantMixin:
     _billing: BillingSettings
 
     def create_billed_tenant(self, command: CreateBilledTenantCommand) -> Tenant:
-        """Cria tenant, links, consumo da reserva, idempotência e outbox em uma transação.
+        """Cria tenant, membership, links, consumo, idempotência e outbox em uma transação.
 
-        Args: command: Tenant, link, reserva de capacidade e chave de idempotência.
+        Args: command: Tenant, link, reserva, chave de idempotência e emissor do criador.
         Returns: O tenant criado ou o tenant de um replay idêntico.
         Raises: BillingTenantConflict, IdempotencyConflict, EntitlementDenied, erros de billing.
         """
@@ -134,6 +142,9 @@ class DynamoBilledTenantMixin:
         prior, live = self._billed_prior(command, now)
         if live is not None:
             return self._replayed_tenant(live)
+        raced = self._raced_record(command)
+        if raced is not None:
+            return self._replayed_tenant(raced)
         version = self._billed_entitlement_version(command, now)
         if transact(self._client, self._billed_actions(command, now, prior, version)):
             return command.tenant
@@ -152,6 +163,37 @@ class DynamoBilledTenantMixin:
         if record.request_hash != billed_tenant_digest(command):
             raise IdempotencyConflict(f"key={command.idempotency_key}")
         return item, record
+
+    def _raced_record(self, command: CreateBilledTenantCommand) -> IdempotencyRecord | None:
+        try:
+            self._raise_if_memberships(command.tenant.tenant_id)
+        except BillingTenantConflict:
+            _, live = self._billed_prior(command, self._clock())
+            if live is None:
+                raise
+            return live
+        return None
+
+    def _raise_if_memberships(self, tenant_id: str) -> None:
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        from cnes_infra.billing.dynamodb_items import UNAVAILABLE_CODE
+
+        request = {
+            "TableName": self._table_name,
+            "KeyConditionExpression": "pk = :pk AND begins_with(sk, :membership)",
+            "ExpressionAttributeValues": {
+                ":pk": {"S": tenant_partition(tenant_id)}, ":membership": {"S": f"{MEMBERSHIP}#"},
+            },
+            "ConsistentRead": True,
+            "Limit": 1,
+        }
+        try:
+            items = self._client.query(**request).get("Items", ())
+        except (ClientError, BotoCoreError) as error:
+            raise BillingDependencyError(UNAVAILABLE_CODE) from error
+        if items:
+            raise BillingTenantConflict(f"tenant_id={tenant_id}")
 
     def _replayed_tenant(self, record: IdempotencyRecord) -> Tenant:
         from cnes_infra.billing.dynamodb_items import get_item
@@ -196,13 +238,44 @@ class DynamoBilledTenantMixin:
             put_new(table, encode_model(tenant, "TENANT", tenant_entity_key(tenant.tenant_id))),
             put_action(table, record, None if prior is None else payload(prior)),
             put_new(table, outbox_item(event)),
-            {"Put": {"TableName": table, "Item": encode_membership(creator_membership(command))}},
+            put_new(table, membership_item(creator_membership(command))),
         ]
         if self._billing.mode is BillingMode.STRIPE:
             actions.extend(self._billed_link_actions(command))
         if self._billing.enforced:
             actions.extend(self._billed_capacity_actions(command, now, version))
+        if self._billing.mode is BillingMode.STRIPE:
+            actions.extend(self._capacity_count_actions(command))
         return tuple(actions)
+
+    def _capacity_count_actions(self, command: CreateBilledTenantCommand) -> tuple[Action, ...]:
+        from cnes_infra.billing.capacity_counters import (
+            AGENT_COUNTER,
+            TENANT_COUNTER,
+            capacity_seeded,
+            log_not_seeded,
+            pending_transfer,
+        )
+        from cnes_infra.billing.dynamodb_items import get_item
+        from cnes_infra.billing.dynamodb_quota_items import settle_usage_update
+        from cnes_infra.billing.keys import capacity_usage_key, pending_capacity_key
+
+        table, account = self._table_name, command.link.billing_account_id
+        tenant_id, key = command.tenant.tenant_id, capacity_usage_key(account)
+        pending = get_item(self._client, table, pending_capacity_key(tenant_id), True)
+        cas, agents = pending_transfer(table, tenant_id, pending)
+        if not capacity_seeded(get_item(self._client, table, key, True)):
+            log_not_seeded(account, CapacityKind.TENANT.value)
+            return (cas,)
+        tenants = 0 if self._billing.enforced else 1
+        deltas = {
+            name: delta
+            for name, delta in ((AGENT_COUNTER, agents), (TENANT_COUNTER, tenants))
+            if delta
+        }
+        if not deltas:
+            return (cas,)
+        return cas, settle_usage_update(table, key, deltas)
 
     def _billed_link_actions(self, command: CreateBilledTenantCommand) -> tuple[Action, ...]:
         from cnes_infra.billing.dynamodb_items import encode_link, encode_tenant_account, put_new
@@ -231,10 +304,13 @@ class DynamoBilledTenantMixin:
         current, owner = decode_capacity_reservation(item)
         consumed = replace(current, status=ReservationStatus.CONSUMED)
         event = quota_event("quota.consumed", owner, _consumed_event_payload(current), now)
+        marker = capacity_marker(command, now)
+        marker_key = idempotency_key(marker.tenant_id, marker.scope, marker.key)
         return (
             snapshot_check(table, SnapshotExpectation(account, version, None), now),
             put_action(table, encode_capacity_reservation(consumed, owner), payload(item)),
             put_new(table, outbox_item(event)),
+            put_new(table, encode_model(marker, "IDEMPOTENCYRECORD", marker_key)),
         )
 
     def _billed_reservation_item(self, command: CreateBilledTenantCommand, now: datetime) -> Item:
@@ -266,7 +342,8 @@ class DynamoBilledTenantMixin:
         from cnes_infra.billing.keys import tenant_account_key, tenant_entity_key
 
         tenant_id = command.tenant.tenant_id
-        keys = [tenant_entity_key(tenant_id)]
+        creator = command.link.linked_by_user_id
+        keys = [tenant_entity_key(tenant_id), membership_key(tenant_id, creator)]
         if self._billing.mode is BillingMode.STRIPE:
             keys.append(tenant_account_key(tenant_id))
         for key in keys:

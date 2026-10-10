@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
     from pathlib import Path
 
 SCRYPT_N = 2**14
@@ -113,7 +113,7 @@ def _parse_optional(value: str | None) -> datetime | None:
     return None if value is None else datetime.fromisoformat(value)
 
 
-def _row_to_user(row: tuple) -> LocalUserRecord:
+def _row_to_user(row: tuple[str, str, bytes, bytes, str, str | None]) -> LocalUserRecord:
     user_id, email, password_hash, salt, created_at, disabled_at = row
     return LocalUserRecord(
         user_id=user_id,
@@ -149,7 +149,7 @@ class LocalCredentialStore:
                 )
 
     @contextmanager
-    def _open(self) -> Iterator[sqlite3.Connection]:
+    def _open(self) -> Generator[sqlite3.Connection]:
         connection = self._connect()
         try:
             yield connection

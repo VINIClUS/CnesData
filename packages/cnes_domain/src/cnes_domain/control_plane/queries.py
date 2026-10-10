@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from cnes_domain.control_plane.entities import _require_competencia, _require_key_component
+from cnes_domain.control_plane.entities import require_competencia, require_key_component
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,10 +13,10 @@ class RawIdentity:
     competencia: str
 
     def __post_init__(self) -> None:
-        _require_key_component(self.tenant_id)
-        _require_key_component(self.source_type)
-        _require_key_component(self.file_subtype)
-        _require_competencia(self.competencia)
+        require_key_component(self.tenant_id)
+        require_key_component(self.source_type)
+        require_key_component(self.file_subtype)
+        require_competencia(self.competencia)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +25,7 @@ class LatestSucceededJobQuery:
     agent_id: str
 
     def __post_init__(self) -> None:
-        _require_key_component(self.agent_id)
+        require_key_component(self.agent_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,8 +40,8 @@ class RawManifestByIdQuery:
     manifest_id: str
 
     def __post_init__(self) -> None:
-        _require_key_component(self.tenant_id)
-        _require_key_component(self.manifest_id)
+        require_key_component(self.tenant_id)
+        require_key_component(self.manifest_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +51,7 @@ class AgentRawManifestChainQuery:
     limit: int = 31
 
     def __post_init__(self) -> None:
-        _require_key_component(self.agent_id)
+        require_key_component(self.agent_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +60,7 @@ class RawResyncStateQuery:
     agent_id: str
 
     def __post_init__(self) -> None:
-        _require_key_component(self.agent_id)
+        require_key_component(self.agent_id)
 
 
 @dataclass(frozen=True, slots=True)

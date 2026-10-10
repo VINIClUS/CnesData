@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
 from threading import Barrier
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -211,7 +211,8 @@ def _semear_fence(setup: SQLiteControlPlane, relogio: _Relogio, run_id: str) -> 
     ))
     return _Fence(
         dispatch_stale=dispatch_a.dispatch_id, dispatch_fresh=dispatch_b.dispatch_id,
-        fence_stale=stale.fencing_token, fence_fresh=fresh.fencing_token,
+        fence_stale=cast("RunUnit", stale).fencing_token,
+        fence_fresh=cast("RunUnit", fresh).fencing_token,
     )
 
 

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 import pytest
@@ -266,7 +266,7 @@ def _drive_wave(runtime: _Runtime) -> _Wave:
         unit = runtime.handler.handle(_message(runtime, dispatch, unit_id))
         assert unit.state is RunUnitState.SUCCEEDED
         assert (unit.tenant_id, unit.run_id) == (_TENANT, _RUN_ID)
-    runtime.executor.statuses[dispatch.execution_ref] = ExecutionStatus.SUCCEEDED
+    runtime.executor.statuses[cast("str", dispatch.execution_ref)] = ExecutionStatus.SUCCEEDED
     runtime.coordinator.recover()
     stages = tuple(sorted({by_id[unit_id] for unit_id in dispatch.unit_ids}))
     return _Wave(dispatch.wave_id, dispatch.dispatch_id, stages)

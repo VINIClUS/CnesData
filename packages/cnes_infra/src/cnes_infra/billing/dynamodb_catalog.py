@@ -1,15 +1,14 @@
-"""DynamoDB billing catalog: accounts, tenant links, customers and owners."""
+"""DynamoDB billing catalog: accounts, capacity seed, customers and owners."""
 
 import dataclasses
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import ClientError
 
 from cnes_domain.billing.commands import (
     AttachStripeCustomerCommand,
     CreateBillingAccountCommand,
-    LinkBillingTenantCommand,
     TransferOwnerCommand,
 )
 from cnes_domain.billing.errors import (
@@ -22,13 +21,13 @@ from cnes_domain.billing.errors import (
 from cnes_domain.billing.models import (
     BillingAccount,
     BillingAccountPage,
-    BillingAccountStatus,
     BillingAccountTenantLink,
     BillingAuditEvent,
     ReadConsistency,
 )
 from cnes_domain.billing.ports import ClockPort
 from cnes_domain.control_plane.entities import IdempotencyRecord
+from cnes_infra.billing.capacity_counters import empty_capacity_seed, seed_capacity_actions
 from cnes_infra.billing.dynamodb_catalog_checkout import DynamoPendingCheckoutMixin
 from cnes_infra.billing.dynamodb_catalog_plans import DynamoPlanCatalogMixin
 from cnes_infra.billing.dynamodb_catalog_replays import DynamoLateReplayMixin
@@ -64,6 +63,8 @@ from cnes_infra.billing.keys import (
     account_tenant_key,
     billing_account_key,
     billing_account_list_key,
+    capacity_usage_key,
+    pending_capacity_key,
     stripe_customer_key,
     tenant_account_key,
     tenant_entity_key,
@@ -72,7 +73,6 @@ from cnes_infra.control_plane.dynamodb_codec import Action, Item, payload, put_a
 from cnes_infra.control_plane.dynamodb_keys import idempotency_key, item_key
 
 CREATE_SCOPE = "billing_account.create"
-LINK_SCOPE = "billing_account.link_tenant"
 IDEMPOTENCY_TTL = timedelta(days=1)
 _MIN_ADVANCE = timedelta(microseconds=1)
 MAX_PAGE_LIMIT = 100
@@ -85,23 +85,6 @@ def _tenant_check(table: str, tenant_id: str) -> Action:
             "TableName": table,
             "Key": item_key(*tenant_entity_key(tenant_id)),
             "ConditionExpression": "attribute_exists(pk)",
-        }
-    }
-
-
-def _account_check(table: str, command: LinkBillingTenantCommand) -> Action:
-    key = billing_account_key(command.link.billing_account_id)
-    return {
-        "ConditionCheck": {
-            "TableName": table,
-            "Key": item_key(*key),
-            "ConditionExpression": "attribute_exists(pk) AND #status = :active"
-            " AND updated_at = :expected",
-            "ExpressionAttributeNames": {"#status": "status"},
-            "ExpressionAttributeValues": {
-                ":active": {"S": BillingAccountStatus.ACTIVE.value},
-                ":expected": {"S": utc_attribute(command.expected_account_updated_at)},
-            },
         }
     }
 
@@ -182,7 +165,7 @@ class DynamoBillingCatalog(
         """
         if (
             isinstance(limit, bool)
-            or not isinstance(limit, int)
+            or not isinstance(cast("object", limit), int)
             or not 1 <= limit <= MAX_PAGE_LIMIT
         ):
             raise ValueError("limit=invalid")
@@ -198,23 +181,6 @@ class DynamoBillingCatalog(
         key = account_tenant_key(billing_account_id, tenant_id)
         item = get_item(self._client, self._table, key, consistency is ReadConsistency.STRONG)
         return None if item is None else decode_link(item, billing_account_id, tenant_id)
-
-    def link_tenant(self, command: LinkBillingTenantCommand) -> BillingAccountTenantLink:
-        """Associa um tenant a uma conta ativa e atual em uma transação.
-
-        Args: Comando com link, versão esperada da conta e idempotência.
-        Returns: O link criado ou o link de um replay idêntico.
-        Raises: BillingTenantConflict, IdempotencyConflict, erros de billing.
-        """
-        tenant_id = command.link.tenant_id
-        prior, live = self._prior(
-            tenant_id, LINK_SCOPE, command.idempotency_key, idempotency_digest(command)
-        )
-        if live is not None:
-            return self._replay_link(live, tenant_id)
-        if transact(self._client, self._link_actions(command, prior)):
-            return command.link
-        return self._classify_link(command)
 
     def attach_customer(self, command: AttachStripeCustomerCommand) -> BillingAccount:
         """Anexa um Customer Stripe à conta; um Customer serve a uma só conta.
@@ -319,12 +285,6 @@ class DynamoBillingCatalog(
             raise RetryableBillingError("billing_idempotency_incomplete")
         return account
 
-    def _replay_link(self, record: IdempotencyRecord, tenant_id: str) -> BillingAccountTenantLink:
-        link = self.get_tenant_link(record.resource_id, tenant_id, ReadConsistency.STRONG)
-        if link is None:
-            raise RetryableBillingError("billing_idempotency_incomplete")
-        return link
-
     def _create_actions(
         self, command: CreateBillingAccountCommand, prior: Item | None
     ) -> tuple[Action, ...]:
@@ -338,8 +298,12 @@ class DynamoBillingCatalog(
             self._outbox(account_created_event(command)),
         )
         if link is None:
-            return common
+            return (empty_capacity_seed(self._table, account.billing_account_id), *common)
+        pending = get_item(self._client, self._table, pending_capacity_key(link.tenant_id), True)
         return (
+            *seed_capacity_actions(
+                self._table, account.billing_account_id, link.tenant_id, pending
+            ),
             _tenant_check(self._table, link.tenant_id),
             put_new(self._table, encode_link(link)),
             put_new(self._table, encode_tenant_account(link)),
@@ -359,6 +323,8 @@ class DynamoBillingCatalog(
             self._raise_tenant_failure(command.initial_tenant_link.tenant_id)
         if self._exists(billing_account_key(command.account.billing_account_id)):
             raise PermanentBillingError("billing_account_exists")
+        if self._exists(capacity_usage_key(command.account.billing_account_id)):
+            raise PermanentBillingError("capacity_exists")
         raise RetryableBillingError("billing_transaction_conflict")
 
     def _raise_tenant_failure(self, tenant_id: str) -> None:
@@ -366,53 +332,6 @@ class DynamoBillingCatalog(
             raise BillingTenantConflict(f"tenant_id={tenant_id}")
         if not self._exists(tenant_entity_key(tenant_id)):
             raise PermanentBillingError("tenant_missing")
-
-    def _link_actions(
-        self, command: LinkBillingTenantCommand, prior: Item | None
-    ) -> tuple[Action, ...]:
-        link = command.link
-        event = BillingAuditEvent(
-            event_id=deterministic_id(
-                "billing_account.tenant_linked", link.billing_account_id, link.tenant_id
-            ),
-            event_type="billing_account.tenant_linked",
-            aggregate_id=link.billing_account_id,
-            actor_id=link.linked_by_user_id,
-            reason_code=link.reason_code,
-            occurred_at=link.linked_at,
-            attributes={"tenant_id": link.tenant_id},
-        )
-        record = self._record(link.tenant_id, LINK_SCOPE, command, link.billing_account_id)
-        return (
-            _account_check(self._table, command),
-            _tenant_check(self._table, link.tenant_id),
-            put_new(self._table, encode_link(link)),
-            put_new(self._table, encode_tenant_account(link)),
-            self._idempotency_action(prior, record),
-            self._outbox(event),
-        )
-
-    def _classify_link(self, command: LinkBillingTenantCommand) -> BillingAccountTenantLink:
-        tenant_id = command.link.tenant_id
-        digest = idempotency_digest(command)
-        _, live = self._prior(tenant_id, LINK_SCOPE, command.idempotency_key, digest)
-        if live is not None:
-            return self._replay_link(live, tenant_id)
-        existing = self._linked_replay(command)
-        if existing is not None:
-            return existing
-        self._raise_tenant_failure(tenant_id)
-        self._raise_account_failure(command)
-        raise RetryableBillingError("billing_transaction_conflict")
-
-    def _raise_account_failure(self, command: LinkBillingTenantCommand) -> None:
-        account = self.get_account(command.link.billing_account_id)
-        if account is None:
-            raise PermanentBillingError("billing_account_missing")
-        if account.status is not BillingAccountStatus.ACTIVE:
-            raise PermanentBillingError("billing_account_inactive")
-        if utc_attribute(account.updated_at) != utc_attribute(command.expected_account_updated_at):
-            raise PermanentBillingError("billing_account_stale")
 
     def _attach_actions(self, updated: BillingAccount, current: Item) -> tuple[Action, ...]:
         account_id = updated.billing_account_id

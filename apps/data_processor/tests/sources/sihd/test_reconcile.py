@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import polars as pl
 import pytest
 
@@ -20,6 +22,10 @@ from apps.data_processor.tests.sources.sihd import (
 from cnes_contracts.manifests.raw import SourceType
 from data_processor.sources.sihd.normalize import normalize_sihd
 from data_processor.sources.sihd.reconcile import reconcile_sihd
+
+if TYPE_CHECKING:
+    from cnes_contracts.manifests.processing import ReconcileResult
+    from cnes_domain.ports.object_store import ObjectStat
 
 _INTERNACOES = "normalized-run-1-unit-internacao-1-internacoes"
 _PROCEDIMENTOS = "normalized-run-1-unit-proc-aih-1-procedimentos_aih"
@@ -74,7 +80,7 @@ _EXPECTED_DIVERGENCES = [
 ]
 
 
-def _reconciled() -> tuple[FakeObjectStore, object]:
+def _reconciled() -> tuple[FakeObjectStore, ReconcileResult]:
     store = FakeObjectStore()
     result = reconcile_sihd(reconcile_request(normalize_all(store)), store)
     return store, result
@@ -119,7 +125,7 @@ def test_manifests_de_reconciliacao_apontam_para_os_destinos_do_layout() -> None
     assert result.reconciliation_manifest.object_key == request.reconciliation_key
     assert result.divergence_manifest.object_key == request.divergence_key
     for manifest in (result.reconciliation_manifest, result.divergence_manifest):
-        assert manifest.object_sha256 == store.stat(manifest.object_key).sha256
+        assert manifest.object_sha256 == cast("ObjectStat", store.stat(manifest.object_key)).sha256
 
 
 def test_exige_os_quatro_manifests_normalizados() -> None:
@@ -188,7 +194,9 @@ def test_procedimento_sem_identidade_de_aih_fica_fora_dos_totais_e_e_reportado()
     result = reconcile_sihd(reconcile_request(tuple(manifests)), store)
     totals = json_rows(read_parquet(store, result.reconciliation_manifest.object_key))
     assert totals == _EXPECTED_ROWS[1:]
-    assert result.kpis["valor_total_centavos"] == sum(row["valor_centavos"] for row in totals)
+    assert result.kpis["valor_total_centavos"] == sum(
+        cast("int", row["valor_centavos"]) for row in totals
+    )
     divergences = read_parquet(store, result.divergence_manifest.object_key)
     missing = divergences.filter(pl.col("kind") == "quality:campo_obrigatorio_ausente")
     assert "SEQ_PRINC" in missing["field"].to_list()

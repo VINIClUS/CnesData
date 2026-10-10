@@ -8,7 +8,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 import yaml
@@ -26,6 +26,8 @@ from data_processor.orchestration.attempt_store import attempt_object_key, unit_
 from data_processor.orchestration.publisher import DatasetPublisher, PublishRequest
 
 if TYPE_CHECKING:
+    from fastapi import FastAPI
+
     from cnes_domain.ports.object_store import ObjectStorePort
 
 pytestmark = [pytest.mark.local_profile]
@@ -85,7 +87,12 @@ def _publish_serving_run(control_plane, object_store: ObjectStorePort, run_id: s
         row_count=1, created_at=_NOW,
     )
     prefix = unit_attempt_prefix(
-        SimpleNamespace(tenant_id=_TENANT, run_id=run_id, unit_id="unit-materialize", attempt=1)
+        cast(
+            "RunUnit",
+            SimpleNamespace(
+                tenant_id=_TENANT, run_id=run_id, unit_id="unit-materialize", attempt=1
+            ),
+        )
     )
     source_key = attempt_object_key(prefix, object_key)
     object_store.put(source_key, BytesIO(body), digest)
@@ -167,7 +174,7 @@ def test_serving_composto_usa_store_do_runtime(
     from central_api.routes.serving import get_serving_object_store
 
     with TestClient(create_app()) as client:
-        app = client.app
+        app = cast("FastAPI", client.app)
         _seed_local_user(tmp_path)
         _seed_membership(app.state.control_plane)
         _publish_serving_run(app.state.control_plane, app.state.object_store)
@@ -189,7 +196,7 @@ def test_run_manifest_aberto_antes_do_objeto_de_serving_concedido(
     from central_api.services.serving_access import LocalServingAccess
 
     with TestClient(create_app()) as client:
-        app = client.app
+        app = cast("FastAPI", client.app)
         _seed_local_user(tmp_path)
         _seed_membership(app.state.control_plane)
         result = _publish_serving_run(app.state.control_plane, app.state.object_store)
@@ -217,13 +224,13 @@ def test_restart_preserva_sessao_pointer_e_objetos(
     from central_api.app import create_app
 
     with TestClient(create_app()) as client:
-        app = client.app
+        app = cast("FastAPI", client.app)
         _seed_local_user(tmp_path)
         _seed_membership(app.state.control_plane)
         _publish_serving_run(app.state.control_plane, app.state.object_store)
 
     with TestClient(create_app()) as reopened_client:
-        reopened_app = reopened_client.app
+        reopened_app = cast("FastAPI", reopened_client.app)
         _login(reopened_client)
         pointer = reopened_app.state.control_plane.get_dataset_pointer(_TENANT, "cnes")
         assert pointer is not None

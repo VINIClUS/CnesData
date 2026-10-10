@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
+
+if TYPE_CHECKING:
+    from cnes_domain.ports.control_plane import ControlPlanePort
 
 NOW = datetime(2026, 9, 5, 12, tzinfo=UTC)
 
@@ -52,6 +56,10 @@ class FakeControlPlane:
         self.delivered[event_id] = delivered_at
 
 
+def _port(fake: FakeControlPlane) -> ControlPlanePort:
+    return cast("ControlPlanePort", fake)
+
+
 class FakeAuditSink:
     def __init__(self, timeline: list[str] | None = None) -> None:
         self.timeline = timeline if timeline is not None else []
@@ -72,7 +80,7 @@ def test_rejeita_limite_invalido_sem_consultar_outbox(limit: int) -> None:
     control_plane = FakeControlPlane()
 
     with pytest.raises(ValueError, match=r"^limit=invalid$"):
-        dispatch_once(control_plane, FakeAuditSink(), NOW, limit)
+        dispatch_once(_port(control_plane), FakeAuditSink(), NOW, limit)
 
     assert control_plane.pending_limits == []
 
@@ -80,7 +88,7 @@ def test_rejeita_limite_invalido_sem_consultar_outbox(limit: int) -> None:
 def test_fila_vazia_consulta_limite_padrao() -> None:
     control_plane = FakeControlPlane()
 
-    result = dispatch_once(control_plane, FakeAuditSink(), NOW)
+    result = dispatch_once(_port(control_plane), FakeAuditSink(), NOW)
 
     assert result == DispatchResult(delivered=0, failed=0)
     assert control_plane.pending_limits == [100]
@@ -93,7 +101,7 @@ def test_respeita_limite_e_ordem_do_lote() -> None:
         timeline,
     )
 
-    result = dispatch_once(control_plane, FakeAuditSink(timeline), NOW, limit=2)
+    result = dispatch_once(_port(control_plane), FakeAuditSink(timeline), NOW, limit=2)
 
     assert result == DispatchResult(delivered=2, failed=0)
     assert timeline == [
@@ -114,7 +122,7 @@ def test_falha_do_sink_nao_marca_e_tenta_eventos_seguintes() -> None:
     sink = FakeAuditSink(timeline)
     sink.append_failures["event-1"] = 1
 
-    result = dispatch_once(control_plane, sink, NOW)
+    result = dispatch_once(_port(control_plane), sink, NOW)
 
     assert result == DispatchResult(delivered=1, failed=1)
     assert timeline == [
@@ -130,7 +138,7 @@ def test_falha_da_marcacao_mantem_evento_pendente() -> None:
     control_plane = FakeControlPlane((make_event("event-1"),))
     control_plane.mark_failures["event-1"] = 1
 
-    result = dispatch_once(control_plane, FakeAuditSink(), NOW)
+    result = dispatch_once(_port(control_plane), FakeAuditSink(), NOW)
 
     assert result == DispatchResult(delivered=0, failed=1)
     assert control_plane.delivered == {}
@@ -142,8 +150,8 @@ def test_novo_ciclo_repete_append_com_mesmo_event_id() -> None:
     control_plane.mark_failures["event-1"] = 2
     sink = FakeAuditSink()
 
-    first = dispatch_once(control_plane, sink, NOW)
-    second = dispatch_once(control_plane, sink, NOW)
+    first = dispatch_once(_port(control_plane), sink, NOW)
+    second = dispatch_once(_port(control_plane), sink, NOW)
 
     assert first == second == DispatchResult(delivered=0, failed=1)
     assert [event.event_id for event in sink.appended] == ["event-1", "event-1"]
@@ -153,10 +161,10 @@ def test_reinicio_posterior_conclui_entrega() -> None:
     control_plane = FakeControlPlane((make_event("event-1"),))
     failing_sink = FakeAuditSink()
     failing_sink.append_failures["event-1"] = 1
-    first = dispatch_once(control_plane, failing_sink, NOW)
+    first = dispatch_once(_port(control_plane), failing_sink, NOW)
 
     restarted_sink = FakeAuditSink()
-    second = dispatch_once(control_plane, restarted_sink, NOW)
+    second = dispatch_once(_port(control_plane), restarted_sink, NOW)
 
     assert first == DispatchResult(delivered=0, failed=1)
     assert second == DispatchResult(delivered=1, failed=0)
@@ -171,7 +179,7 @@ def test_isola_falha_entre_eventos_de_tenants_diferentes() -> None:
     sink = FakeAuditSink()
     sink.append_failures["event-a"] = 1
 
-    result = dispatch_once(control_plane, sink, NOW)
+    result = dispatch_once(_port(control_plane), sink, NOW)
 
     assert result == DispatchResult(delivered=1, failed=1)
     assert [(event.tenant_id, event.event_id) for event in sink.appended] == [
@@ -187,6 +195,6 @@ def test_propaga_falha_ao_consultar_outbox() -> None:
     control_plane.pending_error = error
 
     with pytest.raises(RuntimeError, match=r"^pending=failed$") as raised:
-        dispatch_once(control_plane, FakeAuditSink(), NOW)
+        dispatch_once(_port(control_plane), FakeAuditSink(), NOW)
 
     assert raised.value is error

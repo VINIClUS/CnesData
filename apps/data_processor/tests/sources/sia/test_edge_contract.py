@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 import pytest
@@ -39,7 +40,7 @@ def test_bpi_do_edge_canonicaliza(subtype: str, rows: int) -> None:
     assert canonical.height == rows
     assert not canonical["dt_atendimento_invalida"].any()
     assert canonical["folha"].to_list() == [1] * rows
-    assert canonical["dt_atendimento"].min() >= date(2025, 12, 1)
+    assert cast("date", canonical["dt_atendimento"].min()) >= date(2025, 12, 1)
 
 
 def test_sigtap_do_edge_segue_layout_tb_procedimento() -> None:

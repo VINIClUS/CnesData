@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 from pydantic import ValidationError
 
@@ -29,14 +31,14 @@ class TestExtractionParams:
     def test_rejeita_intent_invalido(self):
         with pytest.raises(ValidationError):
             ExtractionParams(
-                intent="inexistente",
+                intent=cast("Any", "inexistente"),
                 competencia="2026-03",
                 cod_municipio="354130",
             )
 
     def test_rejeita_campo_extra(self):
         with pytest.raises(ValidationError, match="extra"):
-            ExtractionParams(
+            cast("Any", ExtractionParams)(
                 intent="profissionais",
                 competencia="2026-03",
                 cod_municipio="354130",
@@ -46,7 +48,7 @@ class TestExtractionParams:
     def test_rejeita_competencia_formato_invalido(self):
         with pytest.raises(ValidationError):
             ExtractionParams(
-                intent="profissionais",
+                intent=cast("Any", "profissionais"),
                 competencia="202603",
                 cod_municipio="354130",
             )
@@ -54,7 +56,7 @@ class TestExtractionParams:
     def test_rejeita_cod_municipio_formato_invalido(self):
         with pytest.raises(ValidationError):
             ExtractionParams(
-                intent="profissionais",
+                intent=cast("Any", "profissionais"),
                 competencia="2026-03",
                 cod_municipio="35",
             )

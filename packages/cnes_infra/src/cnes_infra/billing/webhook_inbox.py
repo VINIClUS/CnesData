@@ -1,7 +1,7 @@
 """Inbox DynamoDB de webhooks Stripe com claim por lease e fila de recovery."""
 
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -97,7 +97,7 @@ def _claim_from(event: StripeEvent, attempt: int | None) -> InboxClaim:
     return InboxClaim(
         event_id=event.event_id,
         event_type=event.event_type,
-        customer_id=event.stripe_customer_id,
+        customer_id=cast("str", event.stripe_customer_id),
         subscription_id=event.stripe_subscription_id,
         attempt=attempt,
         acquired=attempt is not None,
@@ -300,7 +300,7 @@ class WebhookInbox:
             raise BillingDependencyError(UNAVAILABLE_CODE) from error
 
     def _fail_retryable(self, claim: InboxClaim, error_code: str) -> None:
-        due = self._clock() + timedelta(seconds=retry_delay_seconds(claim.attempt))
+        due = self._clock() + timedelta(seconds=retry_delay_seconds(cast("int", claim.attempt)))
         values = {
             ":failed": _state(InboxProcessingState.FAILED_RETRYABLE),
             ":code": {"S": error_code},

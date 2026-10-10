@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing import Protocol
 
+    from pydantic import BaseModel
+
     from central_api.services.raw_ingestion import RawIngestionService
     from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_infra.ingestion import DatasusCnesRawAdapter
@@ -213,7 +215,7 @@ class NationalIngestionService:
         return claimed
 
 
-def _canonical_bytes(manifest: object) -> bytes:
+def _canonical_bytes(manifest: BaseModel) -> bytes:
     return manifest.model_dump_json(exclude_none=False, by_alias=False).encode()
 
 

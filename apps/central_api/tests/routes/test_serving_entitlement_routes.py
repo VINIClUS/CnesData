@@ -1,7 +1,7 @@
 """Negação de entitlement ocorre antes de emitir stream local ou redirect AWS."""
-
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
@@ -35,6 +35,9 @@ from cnes_infra.billing.disabled import DisabledQuotaReservations
 
 from .billing_fakes import QUOTAS, make_snapshot
 
+if TYPE_CHECKING:
+    from cnes_domain.billing.ports import EntitlementProjectionPort
+
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 TENANT = "tenant-a"
 KEY = f"serving/{TENANT}/run-01/overview.json"
@@ -58,7 +61,7 @@ class Projection:
 def _entitled(projection: Projection) -> EntitledServingAccess:
     quotas = DisabledQuotaReservations(lambda: NOW)
     gate = EntitlementGate(EntitlementGateDependencies(
-        projection=projection, quotas=quotas, clock=lambda: NOW,
+        projection=cast("EntitlementProjectionPort", projection), quotas=quotas, clock=lambda: NOW,
         run_settings=RunReservationSettings(1, lambda: "res-1", timedelta(minutes=5)),
         policy=EntitlementPolicy(BillingMode.STRIPE),
     ))

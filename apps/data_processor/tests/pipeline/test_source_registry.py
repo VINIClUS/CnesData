@@ -1,6 +1,8 @@
 """TDD do SourceRegistry: liga cada PipelineDefinition aos stage callables."""
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from cnes_contracts.manifests.raw import SourceType
@@ -14,15 +16,15 @@ from cnes_domain.orchestration.source_catalog import (
 from data_processor.pipeline.source_registry import SourcePipeline, SourceRegistry
 
 
-def _normalize(request: object, store: object) -> str:
+def _normalize(request: object, store: object) -> Any:
     return "normalized"
 
 
-def _reconcile(request: object, store: object) -> str:
+def _reconcile(request: object, store: object) -> Any:
     return "reconciled"
 
 
-def _materialize(request: object, store: object) -> str:
+def _materialize(request: object, store: object) -> Any:
     return "materialized"
 
 
@@ -61,7 +63,7 @@ def test_registry_resolve_por_source_e_por_pipeline() -> None:
     catalog = SourceCatalog((definition,))
     bundle = _bundle(definition)
     registry = SourceRegistry(catalog, (bundle,))
-    assert registry.for_source("SIHD") is bundle
+    assert registry.for_source(cast("Any", "SIHD")) is bundle
     assert registry.for_pipeline("sihd") is bundle
 
 
@@ -70,8 +72,8 @@ def test_registry_expoe_um_bundle_para_multiplas_fontes() -> None:
     catalog = SourceCatalog((definition,))
     bundle = _bundle(definition)
     registry = SourceRegistry(catalog, (bundle,))
-    local = registry.for_source("CNES_LOCAL")
-    nacional = registry.for_source("CNES_NACIONAL")
+    local = registry.for_source(cast("Any", "CNES_LOCAL"))
+    nacional = registry.for_source(cast("Any", "CNES_NACIONAL"))
     assert local is nacional
     assert registry.for_pipeline("cnes") is local
     assert local.pipeline_id == "cnes"
@@ -118,7 +120,7 @@ def test_registry_for_source_desconhecida_levanta_key_error() -> None:
     catalog = SourceCatalog((definition,))
     registry = SourceRegistry(catalog, (_bundle(definition),))
     with pytest.raises(KeyError):
-        registry.for_source("UNKNOWN")
+        registry.for_source(cast("Any", "UNKNOWN"))
 
 
 def test_registry_for_pipeline_desconhecido_levanta_key_error() -> None:

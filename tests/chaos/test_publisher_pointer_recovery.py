@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -81,7 +82,10 @@ def test_crash_durante_promocao_nao_avanca_pointer(tmp_path):
             row_count=10, created_at=_NOW,
         )
         prefix = unit_attempt_prefix(
-            SimpleNamespace(tenant_id=_TENANT, run_id=_RUN_ID, unit_id=unit_id, attempt=1)
+            cast(
+                "RunUnit",
+                SimpleNamespace(tenant_id=_TENANT, run_id=_RUN_ID, unit_id=unit_id, attempt=1),
+            )
         )
         source_key = attempt_object_key(prefix, object_key)
         store.put(source_key, BytesIO(body), digest)
@@ -105,12 +109,16 @@ def test_crash_durante_promocao_nao_avanca_pointer(tmp_path):
         publisher.publish(request)
 
     assert adapter.get_dataset_pointer(_TENANT, "gold") is None
-    assert adapter.get_run(_TENANT, _RUN_ID).state is RunState.PUBLISHING
+    stored = adapter.get_run(_TENANT, _RUN_ID)
+    assert stored is not None
+    assert stored.state is RunState.PUBLISHING
 
     result = publisher.publish(request)
 
     assert result.pointer.version_id == _RUN_ID
-    assert adapter.get_run(_TENANT, _RUN_ID).state is RunState.PUBLISHED
+    stored = adapter.get_run(_TENANT, _RUN_ID)
+    assert stored is not None
+    assert stored.state is RunState.PUBLISHED
 
 
 @pytest.mark.chaos
@@ -159,7 +167,10 @@ def test_crash_apos_cas_permite_replay_sem_republicar(tmp_path):
         row_count=10, created_at=_NOW,
     )
     prefix = unit_attempt_prefix(
-        SimpleNamespace(tenant_id=_TENANT, run_id=_RUN_ID, unit_id="unit-m", attempt=1)
+        cast(
+            "RunUnit",
+            SimpleNamespace(tenant_id=_TENANT, run_id=_RUN_ID, unit_id="unit-m", attempt=1),
+        )
     )
     source_key = attempt_object_key(prefix, object_key)
     store.put(source_key, BytesIO(body), digest)
@@ -182,4 +193,6 @@ def test_crash_apos_cas_permite_replay_sem_republicar(tmp_path):
     second = publisher.publish(request)
 
     assert second.pointer == first.pointer
-    assert adapter.get_run(_TENANT, _RUN_ID).state is RunState.PUBLISHED
+    stored = adapter.get_run(_TENANT, _RUN_ID)
+    assert stored is not None
+    assert stored.state is RunState.PUBLISHED

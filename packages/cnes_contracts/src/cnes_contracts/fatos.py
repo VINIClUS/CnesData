@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime  # noqa: TC003
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID  # noqa: TC003
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,7 +39,7 @@ class ProducaoAmbulatorial(BaseModel):
         "SIA_APA", "SIA_BPI", "SIA_BPIHST", "BPA_C", "BPA_I",
     ]
     extracao_ts: datetime
-    fontes_reportadas: dict[str, dict] | None = None
+    fontes_reportadas: dict[str, dict[Any, Any]] | None = None
 
 
 class Internacao(BaseModel):

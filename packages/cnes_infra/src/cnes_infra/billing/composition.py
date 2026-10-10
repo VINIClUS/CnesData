@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self, cast
 
 from cnes_domain.billing.inbox import RecoveryRequest
 from cnes_domain.profiles import BillingMode
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     )
     from cnes_infra.billing.projector import ProjectorDependencies
     from cnes_infra.billing.recovery import WebhookRecovery
+    from cnes_infra.billing.stripe_gateway import StripeClientProtocol
     from cnes_infra.billing.webhook_verifier import StripeWebhookVerifier
 
 __all__ = [
@@ -35,6 +36,8 @@ __all__ = [
     "build_stripe_billing",
     "build_webhook_recovery",
 ]
+
+STRIPE_NETWORK_RETRIES = 2
 
 
 class SessionProtocol(Protocol):
@@ -178,7 +181,11 @@ def build_stripe_billing(
     catalog = DynamoBillingCatalog(*args)
     projection = DynamoEntitlementProjection(*args)
     inbox = WebhookInbox(*args)
-    gateway = StripeGateway(stripe.StripeClient(api_key), settings.gateway, catalog)
+    client = cast(
+        "StripeClientProtocol",
+        stripe.StripeClient(api_key, max_network_retries=STRIPE_NETWORK_RETRIES),
+    )
+    gateway = StripeGateway(client, settings.gateway, catalog)
     return StripeBillingComponents(
         catalog=catalog,
         projection=projection,

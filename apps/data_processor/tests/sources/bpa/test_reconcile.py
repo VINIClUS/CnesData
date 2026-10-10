@@ -15,7 +15,7 @@ import polars as pl
 import pytest
 
 from cnes_contracts.manifests.outputs import OutputManifest
-from cnes_contracts.manifests.processing import ReconcileRequest
+from cnes_contracts.manifests.processing import ReconcileRequest, ReconcileResult
 from cnes_contracts.manifests.raw import SourceType
 from cnes_domain.ports.object_store import ObjectStat
 from data_processor.adapters.bpa_adapter import NORMALIZED_SCHEMA, QUALITY_SCHEMA
@@ -107,7 +107,7 @@ def _request(manifests: tuple[OutputManifest, ...]) -> ReconcileRequest:
     )
 
 
-def _reconcile() -> tuple[_FakeObjectStore, object]:
+def _reconcile() -> tuple[_FakeObjectStore, ReconcileResult]:
     store = _FakeObjectStore()
     result = reconcile_bpa(_request(_normalized_inputs(store)), store)
     return store, result

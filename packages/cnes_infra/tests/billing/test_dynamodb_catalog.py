@@ -15,7 +15,7 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import BillingAccountStatus, ReadConsistency
+from cnes_domain.billing.models import ReadConsistency
 from cnes_domain.billing.ports import BillingCatalogPort
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
@@ -25,7 +25,6 @@ from cnes_infra.billing.dynamodb_items import (
 )
 from cnes_infra.billing.keys import (
     account_tenant_key,
-    tenant_account_key,
 )
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_keys import item_key
@@ -35,12 +34,10 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     make_account,
     make_create_command,
     make_link,
-    make_link_command,
     table_items,
 )
 from packages.cnes_infra.tests.billing.dynamodb_catalog_support import (
     CREATE_SCOPE,
-    LINK_SCOPE,
     ListSink,
     catalog_env,
     failing,
@@ -126,6 +123,7 @@ def test_cria_conta_grava_todos_os_itens_atomicamente(env: Any) -> None:
         "BILLINGACCOUNT",
         "BILLINGACCOUNTLIST",
         "BILLINGACCOUNTTENANTLINK",
+        "BILLINGUSAGE",
         "IDEMPOTENCYRECORD",
         "OUTBOXEVENT",
         "TENANTBILLINGACCOUNT",
@@ -264,139 +262,9 @@ def test_corrida_de_idempotencia_com_hash_diferente_gera_conflito(env: Any) -> N
         catalog.create_account(command)
 
 
-def test_conta_multi_tenant_aceita_links_distintos(env: Any) -> None:
-    client, _, catalog = env
-    catalog.create_account(make_create_command("ba_01", "tenant-a"))
-
-    link = catalog.link_tenant(make_link_command("ba_01", "tenant-b"))
-
-    assert link == make_link("ba_01", "tenant-b")
-    for tenant in ("tenant-a", "tenant-b"):
-        found = catalog.get_tenant_link("ba_01", tenant, ReadConsistency.STRONG)
-        assert found is not None
-        assert found.tenant_id == tenant
-    assert get_stored(client, tenant_account_key("tenant-b")) is not None
-
-
-def test_link_nao_pode_reassociar_tenant_a_outra_conta(env: Any) -> None:
-    client, _, catalog = env
-    catalog.create_account(make_create_command("ba_01", "tenant-a", "create-01"))
-    catalog.create_account(make_create_command("ba_02", "tenant-c", "create-02"))
-    before = table_items(client)
-
-    with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-a"):
-        catalog.link_tenant(make_link_command("ba_02", "tenant-a"))
-
-    assert table_items(client) == before
-
-
-def test_link_de_conta_inexistente_falha_sem_residuo(env: Any) -> None:
-    client, _, catalog = env
-    before = table_items(client)
-
-    with pytest.raises(PermanentBillingError, match="billing_account_missing"):
-        catalog.link_tenant(make_link_command("ba_99", "tenant-b"))
-
-    assert table_items(client) == before
-
-
-def test_link_de_conta_inativa_falha_sem_residuo(env: Any) -> None:
-    client, _, catalog = env
-    catalog.create_account(make_create_command())
-    closed = make_account(status=BillingAccountStatus.CLOSED)
-    put(client, encode_account(closed))
-    before = table_items(client)
-
-    with pytest.raises(PermanentBillingError, match="billing_account_inactive"):
-        catalog.link_tenant(make_link_command("ba_01", "tenant-b"))
-
-    assert table_items(client) == before
-
-
-def test_link_com_conta_desatualizada_falha_sem_residuo(env: Any) -> None:
-    client, _, catalog = env
-    catalog.create_account(make_create_command())
-    before = table_items(client)
-    stale = replace(make_link_command(), expected_account_updated_at=NOW - timedelta(hours=1))
-
-    with pytest.raises(PermanentBillingError, match="billing_account_stale"):
-        catalog.link_tenant(stale)
-
-    assert table_items(client) == before
-
-
-def test_link_de_tenant_inexistente_falha_sem_residuo(env: Any) -> None:
-    client, _, catalog = env
-    catalog.create_account(make_create_command())
-    before = table_items(client)
-
-    with pytest.raises(PermanentBillingError, match="tenant_missing"):
-        catalog.link_tenant(make_link_command("ba_01", "tenant-zzz"))
-
-    assert table_items(client) == before
-
-
-def test_replay_de_link_nao_escreve_de_novo(env: Any) -> None:
-    client, clock, _ = env
-    spy = ClientSpy(client)
-    catalog = DynamoBillingCatalog(spy, TABLE_NAME, clock.now)
-    catalog.create_account(make_create_command())
-    command = make_link_command()
-
-    first = catalog.link_tenant(command)
-    second = catalog.link_tenant(command)
-
-    assert first == second
-    assert len(spy.transactions) == 2
-
-
-def test_link_com_mesma_chave_e_comando_diferente_gera_conflito(env: Any) -> None:
-    _, _, catalog = env
-    catalog.create_account(make_create_command())
-    catalog.link_tenant(make_link_command())
-    other = replace(make_link_command(), expected_account_updated_at=NOW + timedelta(hours=1))
-
-    with pytest.raises(IdempotencyConflict, match="key=link-01"):
-        catalog.link_tenant(other)
-
-
-def test_replay_de_link_sem_item_e_incompleto(env: Any) -> None:
-    client, _, catalog = env
-    catalog.create_account(make_create_command())
-    command = make_link_command()
-    put(client, idem("tenant-b", LINK_SCOPE, command, "ba_01"))
-
-    with pytest.raises(RetryableBillingError, match="billing_idempotency_incomplete"):
-        catalog.link_tenant(command)
-
-
-def test_cancelamento_inesperado_no_link_e_retryable(env: Any) -> None:
-    client, clock, catalog = env
-    catalog.create_account(make_create_command())
-
-    with pytest.raises(RetryableBillingError, match="billing_transaction_conflict"):
-        failing(client, clock).link_tenant(make_link_command())
-
-
-def test_corrida_de_idempotencia_no_link_retorna_replay(env: Any) -> None:
-    client, clock, catalog = env
-    catalog.create_account(make_create_command())
-    command = make_link_command()
-
-    def winner(_: list[dict[str, Any]]) -> None:
-        put(client, idem("tenant-b", LINK_SCOPE, command, "ba_01"))
-        put(client, encode_link(command.link))
-
-    spy = ClientSpy(client, before_transaction=winner)
-    racing = DynamoBillingCatalog(spy, TABLE_NAME, clock.now)
-
-    assert racing.link_tenant(command) == command.link
-
-
 def test_outbox_de_escopo_de_conta_e_entregue_por_dispatch_once(env: Any) -> None:
     client, clock, catalog = env
     catalog.create_account(make_create_command())
-    catalog.link_tenant(make_link_command())
     sink = ListSink()
     plane = DynamoDBControlPlane(client, TABLE_NAME, clock.now)
 
@@ -404,13 +272,10 @@ def test_outbox_de_escopo_de_conta_e_entregue_por_dispatch_once(env: Any) -> Non
     second = dispatch_once(plane, sink, NOW)
 
     delivered = {event.event_type: event for event in sink.events}
-    assert (first.delivered, second.delivered) == (2, 0)
-    assert set(delivered) == {"billing_account.created", "billing_account.tenant_linked"}
+    assert (first.delivered, second.delivered) == (1, 0)
+    assert set(delivered) == {"billing_account.created"}
     assert {event.tenant_id for event in sink.events} == {"_billing"}
     assert delivered["billing_account.created"].payload["attributes"] == {"tenant_id": "tenant-a"}
-    assert delivered["billing_account.tenant_linked"].payload["attributes"] == {
-        "tenant_id": "tenant-b"
-    }
 
 
 def test_get_account_inexistente_retorna_none(env: Any) -> None:

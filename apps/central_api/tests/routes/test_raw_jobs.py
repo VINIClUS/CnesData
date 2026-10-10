@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from threading import Barrier, Lock
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -22,13 +23,24 @@ from cnes_domain.control_plane.enums import AgentState, JobState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_domain.ports.object_store import ObjectStat
 
+if TYPE_CHECKING:
+    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.object_store import ObjectStorePort
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 FINGERPRINT = sha256(b"certificate").hexdigest()
 KEY = "raw/354130/CNES_LOCAL/2026-07/snapshot-1/data.parquet"
 
 
-def agent(**updates: object) -> Agent:
-    values = {
+def ports(control: object, store: object) -> "tuple[ControlPlanePort, ObjectStorePort]":
+    return cast("ControlPlanePort", control), cast("ObjectStorePort", store)
+
+
+def agent(**updates: Any) -> Agent:
+    values: dict[str, Any] = {
         "tenant_id": "354130",
         "agent_id": "agent-1",
         "state": AgentState.ACTIVE,
@@ -40,8 +52,8 @@ def agent(**updates: object) -> Agent:
     return Agent(**(values | updates))
 
 
-def job(**updates: object) -> Job:
-    values = {
+def job(**updates: Any) -> Job:
+    values: dict[str, Any] = {
         "tenant_id": "354130",
         "job_id": "job-1",
         "agent_id": "agent-1",
@@ -154,7 +166,7 @@ def client(control: ControlPlane, *, upload: RawUploadService | None = None) -> 
     )
     app.dependency_overrides[get_edge_identity] = lambda: identity
     app.dependency_overrides[get_control_plane] = lambda: control
-    upload_service = upload or RawUploadService(control, ObjectStore(), lambda: NOW)
+    upload_service = upload or RawUploadService(*ports(control, ObjectStore()), lambda: NOW)
     app.dependency_overrides[get_raw_upload_service] = lambda: upload_service
     return TestClient(app)
 
@@ -375,16 +387,18 @@ def test_upload_rejeita_media_type_incorreto() -> None:
 @pytest.mark.parametrize("token", ["not-a-number", "-1"])
 def test_raw_upload_body_rejeita_fencing_token_invalido(token: str) -> None:
     with pytest.raises(HTTPException) as captured:
-        raw_jobs._raw_upload_body(None, token, KEY, "application/octet-stream")
+        raw_jobs._raw_upload_body(cast("Request", None), token, KEY, "application/octet-stream")
 
     assert captured.value.status_code == 422
-    assert captured.value.detail[0]["loc"] == ["header", "X-Fencing-Token"]
+    assert cast("list[dict[str, object]]", captured.value.detail)[0]["loc"] == [
+        "header", "X-Fencing-Token",
+    ]
 
 
 def test_fingerprint_rotacionado_atualiza_agente_antes_do_objeto() -> None:
     control = ControlPlane(agent(certificate_fingerprint="b" * 64), (job(),))
     store = ObjectStore()
-    upload = RawUploadService(control, store, lambda: NOW)
+    upload = RawUploadService(*ports(control, store), lambda: NOW)
 
     response = client(control, upload=upload).put(
         "/api/v1/edge/jobs/job-1/raw-object",
@@ -397,7 +411,7 @@ def test_fingerprint_rotacionado_atualiza_agente_antes_do_objeto() -> None:
     )
 
     assert response.status_code == 409
-    assert control.agent.certificate_fingerprint == FINGERPRINT
+    assert cast("Agent", control.agent).certificate_fingerprint == FINGERPRINT
     assert store.calls == []
 
 
@@ -423,7 +437,7 @@ def test_fingerprint_rotacionado_atualiza_agente_antes_do_objeto() -> None:
 )
 def test_upload_mapeia_falhas_do_servico(jobs, key: str, status: int, detail: str) -> None:
     control = ControlPlane(agent(), jobs)
-    upload = RawUploadService(control, ObjectStore(), lambda: NOW)
+    upload = RawUploadService(*ports(control, ObjectStore()), lambda: NOW)
 
     response = client(control, upload=upload).put(
         "/api/v1/edge/jobs/job-1/raw-object",
@@ -465,7 +479,7 @@ def test_upload_mapeia_tamanho_invalido(monkeypatch, case) -> None:
         lease_until=NOW + timedelta(minutes=1),
     )
     control = ControlPlane(agent(), (leased,))
-    upload = RawUploadService(control, ObjectStore(), lambda: NOW)
+    upload = RawUploadService(*ports(control, ObjectStore()), lambda: NOW)
 
     response = client(control, upload=upload).put(
         "/api/v1/edge/jobs/job-1/raw-object",
@@ -507,7 +521,7 @@ def test_replay_pela_rota_preserva_imutabilidade(existing: bytes, body: bytes, s
     control = ControlPlane(agent(), (leased,))
     store = ObjectStore()
     store.objects[KEY] = existing
-    upload = RawUploadService(control, store, lambda: NOW)
+    upload = RawUploadService(*ports(control, store), lambda: NOW)
 
     response = client(control, upload=upload).put(
         "/api/v1/edge/jobs/job-1/raw-object",

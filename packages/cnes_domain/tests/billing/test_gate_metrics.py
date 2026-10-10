@@ -1,7 +1,7 @@
 """Testes da métrica EntitlementChecksDenied emitida pelo EntitlementGate."""
 
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -87,7 +87,9 @@ def test_negacao_por_versao_regredida_emite_metrica() -> None:
 
 def test_negacao_sem_motivo_na_mensagem_usa_motivo_padrao() -> None:
     gate, metrics = _metered_gate(_snapshot())
-    gate._projection.get_snapshot = lambda *_: (_ for _ in ()).throw(EntitlementDenied("x"))
+    gate._projection.get_snapshot = cast(
+        "Any", lambda *_: (_ for _ in ()).throw(EntitlementDenied("x"))
+    )
     with pytest.raises(EntitlementDenied):
         gate.authorize_tenant_creation(_GATE_REQUEST)
     assert [dict(m.dimensions) for m in metrics.emitted] == [{"Reason": "entitlement_denied"}]
@@ -101,8 +103,9 @@ def test_autorizacao_permitida_nao_emite_metrica() -> None:
 
 def test_erro_que_nao_e_negacao_nao_emite_metrica() -> None:
     gate, metrics = _metered_gate(_snapshot())
-    gate._projection.get_snapshot = lambda *_: (_ for _ in ()).throw(
-        BillingDependencyError("dynamodb_unavailable")
+    gate._projection.get_snapshot = cast(
+        "Any",
+        lambda *_: (_ for _ in ()).throw(BillingDependencyError("dynamodb_unavailable")),
     )
     with pytest.raises(BillingDependencyError):
         gate.authorize_register_agent(_GATE_REQUEST)

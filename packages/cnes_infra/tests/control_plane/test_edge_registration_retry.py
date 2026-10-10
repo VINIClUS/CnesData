@@ -6,6 +6,7 @@ import pytest
 
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_infra.billing.settings import LOCAL_BILLING_SETTINGS
 from cnes_infra.control_plane.edge_registration import DynamoEdgeRegistrationMixin
 
 NOW = datetime(2026, 9, 26, tzinfo=UTC)
@@ -13,6 +14,7 @@ NOW = datetime(2026, 9, 26, tzinfo=UTC)
 
 class _FakeDynamoRegistration(DynamoEdgeRegistrationMixin):
     _table_name = "raw-test"
+    _billing = LOCAL_BILLING_SETTINGS
 
     def __init__(self, failures: int) -> None:
         self.failures = failures

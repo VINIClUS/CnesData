@@ -3,7 +3,7 @@
 import json
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
@@ -101,9 +101,9 @@ def bounded_candidates[T: BaseModel](
         return ()
     page_request = dict(request)
     index = request["IndexName"]
-    seen = set()
-    base_items = {}
-    models = []
+    seen: set[tuple[str, ...]] = set()
+    base_items: dict[tuple[str, str], Any] = {}
+    models: list[T] = []
     while True:
         page_request["Limit"] = query.limit - len(models)
         response = client.query(**page_request)
@@ -191,7 +191,8 @@ def aggregate_replay(
     return True
 
 
-def _ancestry_prefix(record: RawManifestRecord, sequence: int, digest: str) -> str:
+def ancestry_prefix(record: RawManifestRecord, sequence: int, digest: str) -> str:
+    """Retorna o prefixo de ancestralidade RAW."""
     base = record.snapshot_id if record.sequence == 1 else record.base_snapshot_id
     values = (record.agent_id, str(base), f"{sequence:020d}", digest)
     return "ANCESTRY#" + "#".join(map(key_component, values)) + "#"
@@ -203,7 +204,7 @@ def _manifest_chain(
     ref = {"manifest_id": record.manifest_id, "manifest_key": record.manifest_key}
     if record.sequence == 1:
         return (ref,)
-    prefix = _ancestry_prefix(record, record.sequence - 1, str(record.previous_manifest_sha256))
+    prefix = ancestry_prefix(record, record.sequence - 1, str(record.previous_manifest_sha256))
     predecessor = unique_partition_item(client, table_name, partition, prefix)
     if predecessor is None or "chain" not in predecessor:
         return None
@@ -214,7 +215,7 @@ def _manifest_chain(
 def _ancestry_item(
     record: RawManifestRecord, raw_item: Item, chain: tuple[dict[str, str], ...] | None
 ) -> Item:
-    prefix = _ancestry_prefix(record, record.sequence, record.manifest_sha256)
+    prefix = ancestry_prefix(record, record.sequence, record.manifest_sha256)
     item = {
         "pk": raw_item["pk"],
         "sk": {"S": prefix + key_component(record.manifest_id)},
@@ -228,7 +229,7 @@ def _ancestry_item(
 
 
 def _waiting_item(record: RawManifestRecord, ancestry: Item) -> Item:
-    prefix = _ancestry_prefix(
+    prefix = ancestry_prefix(
         record, record.sequence - 1, str(record.previous_manifest_sha256)
     ).replace("ANCESTRY#", "WAITING#", 1)
     return {
@@ -263,7 +264,7 @@ def _waiting_children(
     partition = raw_partition(
         record.tenant_id, record.source_type, record.file_subtype, record.competencia
     )
-    prefix = _ancestry_prefix(record, record.sequence, record.manifest_sha256).replace(
+    prefix = ancestry_prefix(record, record.sequence, record.manifest_sha256).replace(
         "ANCESTRY#", "WAITING#", 1
     )
     response = client.query(
@@ -295,7 +296,7 @@ def _repair_descendants(
     client: Any, table_name: str, root: RawManifestRecord, root_chain: tuple[dict[str, str], ...]
 ) -> tuple[tuple[Action, ...], tuple[tuple[RawManifestRecord, tuple[dict[str, str], ...]], ...]]:
     actions: list[Action] = []
-    endpoints = []
+    endpoints: list[tuple[RawManifestRecord, tuple[dict[str, str], ...]]] = []
     pending = [(root, root_chain)]
     visited = 0
     while pending:
@@ -443,7 +444,7 @@ def absent_check_action(table_name: str, key: tuple[str, str]) -> Action:
 
 def _action_key(action: Action) -> tuple[str, str]:
     request = next(iter(action.values()))
-    values = request.get("Item", request.get("Key"))
+    values = cast("Item", request.get("Item", request.get("Key")))
     return str(values["pk"]["S"]), str(values["sk"]["S"])
 
 
@@ -461,7 +462,7 @@ def execute_transaction(
     """Valida e envia uma transação de chaves únicas."""
     normalized = tuple(actions)
     _validate_actions(normalized)
-    request = {"TransactItems": list(normalized)}
+    request: dict[str, Any] = {"TransactItems": list(normalized)}
     if client_request_token is not None:
         request["ClientRequestToken"] = client_request_token
     try:

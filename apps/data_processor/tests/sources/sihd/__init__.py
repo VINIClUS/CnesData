@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
@@ -79,7 +79,7 @@ class TamperedStatStore(FakeObjectStore):
         return ObjectStat(key=key, size_bytes=stat.size_bytes, sha256="0" * 64)
 
 
-def load_json(name: str) -> object:
+def load_json(name: str) -> Any:
     return json.loads((FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 

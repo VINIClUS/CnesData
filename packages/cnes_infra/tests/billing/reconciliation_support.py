@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
 from cnes_domain.billing.models import (
@@ -25,6 +25,13 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     make_snapshot,
 )
 from packages.cnes_infra.tests.contracts.clock import MutableClock
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.ports import (
+        BillingCatalogPort,
+        EntitlementProjectionPort,
+        StripeGatewayPort,
+    )
 
 PRICE = "price_monthly"
 FEATURES = frozenset({"create_run", "serving_access"})
@@ -196,7 +203,10 @@ class Env:
     def reconciler(self) -> BillingReconciler:
         return BillingReconciler(
             ReconciliationDependencies(
-                self.catalog, self.stripe, self.projection, self.cursor,
+                cast("BillingCatalogPort", self.catalog),
+                cast("StripeGatewayPort", self.stripe),
+                cast("EntitlementProjectionPort", self.projection),
+                self.cursor,
                 self.enforcer, self.audit, self.metrics, self.clock.now,
             )
         )

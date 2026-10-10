@@ -121,6 +121,30 @@ Lint everything:
 uv run ruff check .
 ```
 
+Type check (CI gate in `scripts/ci_python_gate.sh`; config in
+`pyproject.toml` `[tool.pyright]` — strict for `packages/*/src` and
+`apps/*/src`, standard for tests and `scripts/`):
+
+```bash
+uv run pyright
+```
+
+`ty` is also in the dev group as a faster, non-blocking second opinion
+(pre-release; not a CI gate):
+
+```bash
+uv run ty check
+```
+
+Git hooks (`.pre-commit-config.yaml`: ruff + pyright on commit, `ty` only
+on demand):
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+uv run pre-commit run ty --hook-stage manual --all-files
+```
+
 Core packages with coverage:
 
 ```bash

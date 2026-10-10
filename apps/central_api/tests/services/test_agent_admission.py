@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from threading import Barrier, Lock, Thread
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -27,6 +28,10 @@ from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.profiles import BillingMode
 from cnes_infra.control_plane.edge_registration import EdgeAgentCreation, EntitlementFence
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.gate import EntitlementGate
+    from cnes_domain.billing.ports import QuotaReservationPort
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 FINGERPRINT = sha256(b"certificate").hexdigest()
@@ -170,7 +175,12 @@ class Rig:
 
     def admission(self, mode: BillingMode = BillingMode.STRIPE) -> AgentAdmission:
         accounts = Resolver()
-        gates = ApiBillingGates(mode, self.gate, self.capacity, accounts)
+        gates = ApiBillingGates(
+            mode,
+            cast("EntitlementGate", self.gate),
+            cast("QuotaReservationPort", self.capacity),
+            cast("TenantAccountResolver", accounts),
+        )
         keys = iter(f"key{i}" for i in range(100))
         return AgentAdmission(self.registry, gates, lambda: next(keys))
 
@@ -267,7 +277,12 @@ def test_sem_gates_mantem_upsert_legado() -> None:
 
 def test_chave_de_reserva_padrao_e_unica() -> None:
     rig = Rig()
-    gates = ApiBillingGates(BillingMode.STRIPE, rig.gate, rig.capacity, Resolver())
+    gates = ApiBillingGates(
+        BillingMode.STRIPE,
+        cast("EntitlementGate", rig.gate),
+        cast("QuotaReservationPort", rig.capacity),
+        cast("TenantAccountResolver", Resolver()),
+    )
     admission = AgentAdmission(rig.registry, gates)
 
     admission.admit(identity("a"), NOW)
@@ -382,7 +397,10 @@ def test_agente_criado_por_outro_pedido_libera_reserva_e_faz_upsert() -> None:
 def test_conta_ausente_em_stripe_falha_fechado_antes_do_gate() -> None:
     rig = Rig()
     gates = ApiBillingGates(
-        BillingMode.STRIPE, rig.gate, rig.capacity, TenantAccountResolver(BillingMode.STRIPE),
+        BillingMode.STRIPE,
+        cast("EntitlementGate", rig.gate),
+        cast("QuotaReservationPort", rig.capacity),
+        TenantAccountResolver(BillingMode.STRIPE),
     )
 
     with pytest.raises(BillingAccountMissing):

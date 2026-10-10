@@ -24,7 +24,6 @@ from packages.cnes_infra.tests.contracts.clock import MutableClock
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import ClientSpy
 
 CREATE_SCOPE = "billing_account.create"
-LINK_SCOPE = "billing_account.link_tenant"
 
 
 def raise_conflict(_: list[dict[str, Any]]) -> None:

@@ -63,6 +63,7 @@ def test_http_503_abre_circuit_breaker_apos_threshold():
     sessao.headers = {}
     breaker = CircuitBreaker(failure_threshold=3, service_name="DATASUS")
     adapter = CnesOficialWebAdapter(session=sessao, circuit_breaker=breaker)
+    result = ""
     for _ in range(3):
         result = adapter.verificar_estabelecimento(_CNES)
     assert result == STATUS_INDISPONIVEL

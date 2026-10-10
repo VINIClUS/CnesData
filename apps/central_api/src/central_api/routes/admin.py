@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends
 
@@ -20,6 +20,6 @@ router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin_token)])
 @router.post("/admin/reap-leases")
 def reap_leases(
     engine: Engine = Depends(get_engine),
-) -> dict:
+) -> dict[Any, Any]:
     count = extractions_repo.reap_expired(engine)
     return {"reaped": count}

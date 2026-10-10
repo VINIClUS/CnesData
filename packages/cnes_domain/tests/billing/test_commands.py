@@ -173,12 +173,8 @@ def _create_account(**o: Any) -> cmd.CreateBillingAccountCommand:
 
 
 def _billed_tenant(**o: Any) -> cmd.CreateBilledTenantCommand:
-    values = {
-        "tenant": _tenant(),
-        "link": _link(),
-        "reservation_id": "res_1",
-        "idempotency_key": "i1",
-    }
+    values = {"tenant": _tenant(), "link": _link(), "reservation_id": "res_1"}
+    values |= {"idempotency_key": "i1", "creator_issuer": "https://issuer"}
     return _build(cmd.CreateBilledTenantCommand, values, o)
 
 
@@ -272,10 +268,6 @@ def _factory(cls: type, **defaults: Any) -> Any:
 
 
 _gate = _factory(cmd.GateRequest, billing_account_id="acc_1", tenant_id="354130")
-_link_cmd = _factory(
-    cmd.LinkBillingTenantCommand, link=_link(), expected_account_updated_at=_NOW,
-    idempotency_key="i1",
-)  # fmt: skip
 _attach = _factory(
     cmd.AttachStripeCustomerCommand, billing_account_id="acc_1", stripe_customer_id="cus_1",
     expected_updated_at=_NOW,
@@ -311,7 +303,7 @@ _state_request = _factory(
 
 
 _FACTORIES = [
-    _transfer, _create_account, _link_cmd, _attach, _billed_tenant, _gate, _run_request,
+    _transfer, _create_account, _attach, _billed_tenant, _gate, _run_request,
     _analytics_request, _publish, _write, _reserve_run, _reserve_analytics, _authorized,
     _capacity, _release_capacity, _consume_capacity, _consume_reservation,
     _release_reservation, _checkout, _create_customer, _customer, _portal, _hosted,
@@ -435,8 +427,6 @@ def test_stripe_billing_state_aceita_fatura_ausente() -> None:
 
 
 _INVALID_FIELDS: list[tuple[Any, dict[str, Any], str]] = [
-    (_link_cmd, {"expected_account_updated_at": _NAIVE}, "datetime_not_utc"),
-    (_link_cmd, {"idempotency_key": ""}, "blank_value"),
     (_create_account, {"idempotency_key": " "}, "blank_value"),
     (_transfer, {"actor_id": ""}, "blank_value"),
     (_transfer, {"transferred_at": _NAIVE}, "datetime_not_utc"),
@@ -444,6 +434,7 @@ _INVALID_FIELDS: list[tuple[Any, dict[str, Any], str]] = [
     (_attach, {"expected_updated_at": _NAIVE}, "datetime_not_utc"),
     (_billed_tenant, {"reservation_id": ""}, "blank_value"),
     (_billed_tenant, {"idempotency_key": ""}, "blank_value"),
+    (_billed_tenant, {"creator_issuer": " "}, "blank_value"),
     (_gate, {"tenant_id": ""}, "blank_value"),
     (_run_request, {"run_id": ""}, "blank_value"),
     (_run_request, {"dataset_name": " "}, "blank_value"),

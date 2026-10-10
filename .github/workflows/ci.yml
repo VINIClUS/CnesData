@@ -15,6 +15,7 @@ on:
       - 'apps/data_processor/**'
       - 'apps/cnes_db_migrator/**'
       - 'pyproject.toml'
+      - 'typings/**'
       - '.coveragerc'
       - 'docs/contracts/openapi.json'
       - 'docs/contracts/schemas/**'

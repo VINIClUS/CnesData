@@ -12,7 +12,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from threading import Event, Thread
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,6 +22,9 @@ from cnes_infra.object_store import filesystem
 from cnes_infra.object_store.filesystem import FilesystemObjectStore, _open_or_create_directory
 from packages.cnes_infra.tests.contracts import object_store_contract as contract
 from packages.cnes_infra.tests.contracts.clock import MutableClock
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _DURABLE_BOUNDARIES = ("temporary_created_before_ownership", "temporary_created", "file_fsynced",
     "destination_linked", "directory_fsynced",
@@ -218,10 +221,10 @@ def test_reabertura_ignora_owner_invalido(tmp_path: Path, monkeypatch: pytest.Mo
         directory / f".cnes-object-store-{mismatch_digest}-.tmp": b"raw/owner.parquet\0writer",
         nul_candidate: None,
     }
-    for candidate, owner in candidates.items():
+    for candidate, owner_bytes in candidates.items():
         candidate.write_bytes(b"preservar")
-        if owner is not None:
-            os.setxattr(candidate, _OWNER_XATTR, owner)
+        if owner_bytes is not None:
+            os.setxattr(candidate, _OWNER_XATTR, owner_bytes)
     fifo = directory / f".cnes-object-store-{'e' * 64}-writer.tmp"
     os.mkfifo(fifo)
     def owner(descriptor: int) -> tuple[str, str] | None:
@@ -263,6 +266,8 @@ def test_inspecao_de_ownership_fecha_fd(
         error = OSError(errno.EIO, "inspection=failed")
         monkeypatch.setattr(os, syscall, MagicMock(side_effect=error))
     descriptor_count = len(os.listdir("/proc/self/fd"))
+    target: Callable[..., object]
+    args: tuple[Any, ...]
     target, args = (
         (FilesystemObjectStore, (tmp_path,)) if caller == "startup"
         else (adapter.put, (key, BytesIO(body), sha256(body).hexdigest())))
@@ -499,5 +504,6 @@ def test_corrida_publica_destino_completo(identical: bool, tmp_path: Path) -> No
     assert (published in bodies, all(content in bodies for content in observed)) == (True, True)
     assert outcomes.count("ok") == (2 if identical else 1)
     assert outcomes.count("conflict") == (0 if identical else 1)
-    assert sha256(published).hexdigest() == FilesystemObjectStore(tmp_path).stat("raw/race").sha256
+    published_stat = cast("Any", FilesystemObjectStore(tmp_path).stat("raw/race"))
+    assert sha256(published).hexdigest() == published_stat.sha256
     assert _adapter_temporaries(tmp_path) == ()

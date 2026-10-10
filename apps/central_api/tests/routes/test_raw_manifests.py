@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from fastapi import FastAPI
@@ -29,13 +30,21 @@ from cnes_domain.control_plane.entities import (
 from cnes_domain.control_plane.enums import AgentState, JobState
 from cnes_domain.ports.object_store import ObjectStat
 
+if TYPE_CHECKING:
+    from central_api.services.raw_ingestion import _ControlPlane
+    from cnes_domain.ports.object_store import ObjectStorePort
+
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 FINGERPRINT = sha256(b"certificate").hexdigest()
 DATA = b"parquet"
 
 
-def raw_manifest(**updates: object) -> RawManifest:
-    values = {
+def ports(control: object, store: object) -> "tuple[_ControlPlane, ObjectStorePort]":
+    return cast("_ControlPlane", control), cast("ObjectStorePort", store)
+
+
+def raw_manifest(**updates: Any) -> RawManifest:
+    values: dict[str, Any] = {
         "manifest_version": 1,
         "manifest_id": "manifest-current",
         "tenant_id": "354130",
@@ -135,8 +144,8 @@ class ControlPlane:
             last_seen_at=NOW,
             created_at=NOW,
         )
-        self.marker = None
-        self.latest = None
+        self.marker: RawResyncState | None = None
+        self.latest: Job | None = None
         self.chain: tuple[ManifestRef, ...] = ()
         self.records: dict[str, RawManifestRecord] = {}
 
@@ -190,7 +199,7 @@ def api_client(control: ControlPlane, store: ObjectStore) -> TestClient:
     identity = EdgeIdentity(
         tenant_id="354130", agent_id="agent-1", certificate_fingerprint=FINGERPRINT
     )
-    service = RawIngestionService(control, store, DeltaPolicy())
+    service = RawIngestionService(*ports(control, store), DeltaPolicy())
     app.dependency_overrides[get_edge_identity] = lambda: identity
     app.dependency_overrides[get_control_plane] = lambda: control
     app.dependency_overrides[get_raw_ingestion_service] = lambda: service
@@ -256,8 +265,8 @@ def test_manifesto_distingue_job_ausente(monkeypatch) -> None:
     assert response.json() == {"detail": "job_missing"}
 
 
-def delta_from(previous: RawManifest, sequence: int, **updates: object) -> RawManifest:
-    values = {
+def delta_from(previous: RawManifest, sequence: int, **updates: Any) -> RawManifest:
+    values: dict[str, Any] = {
         "manifest_id": f"manifest-{sequence}",
         "snapshot_mode": SnapshotMode.DELTA,
         "snapshot_id": f"delta-{sequence}",

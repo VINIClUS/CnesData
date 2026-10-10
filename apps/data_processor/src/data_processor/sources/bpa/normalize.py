@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
@@ -27,10 +27,16 @@ from data_processor.sources.bpa.contract import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from polars._typing import ColumnNameOrSelector, PolarsDataType
+
     from cnes_contracts.manifests.processing import NormalizeRequest
     from cnes_contracts.manifests.raw import RawManifest
     from cnes_domain.orchestration.source_catalog import SubtypeLayout
     from cnes_domain.ports.object_store import ObjectStorePort
+
+    type _CastSchema = Mapping[ColumnNameOrSelector | PolarsDataType, PolarsDataType]
 
 _DATA_SCHEMA_VERSION = "bpa-normalized-v1"
 _QUALITY_SCHEMA_VERSION = "bpa-quality-v1"
@@ -111,7 +117,7 @@ def _with_provenance(frame: pl.DataFrame, request: NormalizeRequest) -> pl.DataF
     return frame.with_columns(
         pl.lit(request.source_type.value).alias("_source_type"),
         pl.lit(request.normalized_at.isoformat()).alias("_normalized_at"),
-    ).cast(PROVENANCE_SCHEMA)
+    ).cast(cast("_CastSchema", PROVENANCE_SCHEMA))
 
 
 def _write(

@@ -121,6 +121,7 @@ def test_backup_restaura_usuarios_memberships_agents_e_access_decisions(tmp_path
     assert restored_runtime.control_plane.get_agent(_TENANT, "agent-a") == agent
     restored_request = restored_runtime.control_plane.get_access_request(_TENANT, "request-a")
     assert restored_request == decided
+    assert restored_request is not None
     assert restored_request.decided_by == "admin-a"
 
     with restored_runtime.object_store.open(object_key) as stream:

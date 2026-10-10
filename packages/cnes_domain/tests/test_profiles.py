@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -56,7 +57,7 @@ def test_impede_mutacao() -> None:
 
 def test_rejeita_campo_extra() -> None:
     with pytest.raises(ValidationError, match="extra_forbidden"):
-        ProfileSettings(tenant_id="354130", unexpected=True)
+        cast("Any", ProfileSettings)(tenant_id="354130", unexpected=True)
 
 
 def test_rejeita_stripe_no_profile_local() -> None:

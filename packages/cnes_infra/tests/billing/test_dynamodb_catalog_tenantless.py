@@ -9,7 +9,7 @@ from cnes_domain.billing.commands import CreateBillingAccountCommand
 from cnes_domain.billing.errors import IdempotencyConflict, PermanentBillingError
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_items import decode_idempotency_record, encode_account
-from cnes_infra.billing.keys import BILLING_AUDIT_TENANT_ID
+from cnes_infra.billing.keys import BILLING_AUDIT_TENANT_ID, capacity_usage_key
 from cnes_infra.control_plane.dynamodb_keys import idempotency_key
 from packages.cnes_infra.tests.billing.billing_factories import (
     TABLE_NAME,
@@ -48,11 +48,17 @@ def test_cria_conta_sem_tenant_grava_conta_lista_idempotencia_e_outbox(env: Any)
     assert sorted(item["entity"]["S"] for item in written) == [
         "BILLINGACCOUNT",
         "BILLINGACCOUNTLIST",
+        "BILLINGUSAGE",
         "IDEMPOTENCYRECORD",
         "OUTBOXEVENT",
     ]
+    usage = get_stored(client, capacity_usage_key("ba_01"))
+    assert usage is not None
+    assert (usage["tenant_count"]["N"], usage["agent_count"]["N"]) == ("0", "0")
     identity = (BILLING_AUDIT_TENANT_ID, CREATE_SCOPE, "create-01")
-    record = decode_idempotency_record(get_stored(client, idempotency_key(*identity)), identity)
+    stored = get_stored(client, idempotency_key(*identity))
+    assert stored is not None
+    record = decode_idempotency_record(stored, identity)
     assert record.resource_id == "ba_01"
     assert catalog.get_account("ba_01") == command.account
 

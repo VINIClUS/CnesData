@@ -1,6 +1,7 @@
 """Testes do BillingReconciler: assinatura substituída, falhas por conta e retomada."""
 
 import logging
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -19,6 +20,13 @@ from packages.cnes_infra.tests.billing.reconciliation_support import (
     make_env,
     make_state,
 )
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.ports import (
+        BillingCatalogPort,
+        EntitlementProjectionPort,
+        StripeGatewayPort,
+    )
 
 REQUEST = ReconciliationRequest(limit=10, cursor=None)
 RUNS_METRIC = "RunsCanceledByRevocation"
@@ -174,7 +182,10 @@ def test_sem_enforcer_modo_off_reconcilia_sem_enforcement():
     env.projection.snapshots["ba_01"] = make_snapshot(subscription_status=canceled)
     env.stripe.states = [make_state(subscription_status=SubscriptionStatus.CANCELED)]
     reconciler = BillingReconciler(ReconciliationDependencies(
-        env.catalog, env.stripe, env.projection, env.cursor,
+        cast("BillingCatalogPort", env.catalog),
+        cast("StripeGatewayPort", env.stripe),
+        cast("EntitlementProjectionPort", env.projection),
+        env.cursor,
         None, env.audit, env.metrics, env.clock.now,
     ))
     result = reconciler.run(REQUEST)

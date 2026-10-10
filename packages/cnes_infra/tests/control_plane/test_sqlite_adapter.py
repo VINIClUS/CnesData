@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import pytest
 
@@ -182,7 +183,8 @@ def test_replay_terminal_exato_e_divergente(sqlite_control_plane, clock, operati
     elif field == "fence":
         replay_command = command.model_copy(update={"fencing_token": 2})
     elif field == "manifest":
-        manifest = command.manifest.model_copy(update={"manifest_sha256": "b" * 64})
+        complete = cast("CompleteJob", command)
+        manifest = complete.manifest.model_copy(update={"manifest_sha256": "b" * 64})
         replay_command = command.model_copy(update={"manifest": manifest})
     elif field == "error":
         replay_command = command.model_copy(update={"error_code": "changed"})

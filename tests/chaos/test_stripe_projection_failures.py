@@ -89,6 +89,7 @@ def test_stripe_503_agenda_retry_com_backoff_e_gate_inalterado(stack: BillingSta
     first = stack.drain()
     record = stack.inbox.get_recovery_record("evt_02", STRONG)
     assert first.failed == 1
+    assert record is not None
     assert record.state is FAILED_RETRYABLE
     assert record.due_at == NOW + timedelta(seconds=retry_delay_seconds(1))
     assert stack.snapshot().entitlement_version == 1
@@ -97,6 +98,7 @@ def test_stripe_503_agenda_retry_com_backoff_e_gate_inalterado(stack: BillingSta
     stack.stripe.failures = [RetryableBillingError(STRIPE_DOWN)]
     stack.drain()
     second = stack.inbox.get_recovery_record("evt_02", STRONG)
+    assert second is not None
     assert second.due_at == stack.clock.now() + timedelta(seconds=retry_delay_seconds(2))
     assert stack.snapshot().entitlement_version == 1
 
@@ -308,7 +310,9 @@ def test_ciclo_antigo_nao_avanca_nem_completa_apos_novo_ciclo(stack: BillingStac
     assert stack.cursor.complete(old, stack.clock.now()) is False
     assert stack.cursor.load(STRONG) == new
     assert stack.cursor.advance(new, new.advance("evt_y")) is True
-    assert stack.cursor.load(STRONG).starting_after == "evt_y"
+    loaded = stack.cursor.load(STRONG)
+    assert loaded is not None
+    assert loaded.starting_after == "evt_y"
 
 
 def test_ultimo_snapshot_valido_governa_somente_ate_valid_until(stack: BillingStack) -> None:
@@ -331,7 +335,9 @@ def test_nenhum_evento_retryable_fica_preso_atras_do_cursor_movido(stack: Billin
     first = stack.recovery.run(request)
     assert first.next_cursor == "evt_a"
     assert stack.inbox_state("evt_a") is FAILED_RETRYABLE
-    assert stack.cursor.load(STRONG).starting_after == "evt_a"
+    loaded = stack.cursor.load(STRONG)
+    assert loaded is not None
+    assert loaded.starting_after == "evt_a"
     stack.clock.advance(timedelta(seconds=retry_delay_seconds(1)))
     second = stack.recovery.run(request)
     assert second.reprocessed == 1

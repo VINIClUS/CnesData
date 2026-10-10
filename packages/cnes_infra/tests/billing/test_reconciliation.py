@@ -3,6 +3,7 @@
 import logging
 from dataclasses import replace
 from datetime import timedelta
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -402,7 +403,7 @@ def test_audit_nao_contem_payload_nem_segredo():
             "subscription_status", "corrected",
         }
         assert all(isinstance(v, str | int | bool | None) for v in event.attributes.values())
-        assert len(event.attributes["new_snapshot_sha256"]) == 64
+        assert len(cast("str", event.attributes["new_snapshot_sha256"])) == 64
         assert event.attributes["stripe_customer_id"] == "cus_01"
         assert event.attributes["latest_invoice_id"] == "in_01"
         assert event.attributes["corrected"] is True

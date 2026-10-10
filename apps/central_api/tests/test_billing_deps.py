@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
@@ -17,6 +18,9 @@ from cnes_domain.billing.revocation import ImmediateRevocationService
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing import BillingStorage
 from cnes_infra.billing.metrics import CloudWatchBillingMetrics, DiscardBillingMetrics
+
+if TYPE_CHECKING:
+    from central_api.composition import RuntimeComponents
 
 TENANT = "354130"
 AGENT = "agent-1"
@@ -84,7 +88,7 @@ def test_install_billing_disabled_instala_admissao_com_gates_do_runtime(monkeypa
     app = _edge_app(registry)
     runtime = SimpleNamespace(billing_gates=gates, control_plane=registry)
 
-    billing_deps.install_billing(app, runtime, Mock())
+    billing_deps.install_billing(app, cast("RuntimeComponents", runtime), Mock())
     response = TestClient(app).get(NEXT_JOB)
 
     assert raw_jobs.get_agent_admission in app.dependency_overrides
@@ -106,7 +110,7 @@ def test_install_billing_admin_compoe_revogacao_sobre_dynamodb() -> None:
     components = Mock(name="components")
     app = FastAPI()
 
-    billing_deps._install_billing_admin(app, runtime, components)
+    billing_deps._install_billing_admin(app, cast("RuntimeComponents", runtime), components)
 
     service = app.dependency_overrides[billing_admin.get_revocation_service]()
     assert isinstance(service, ImmediateRevocationService)
@@ -116,7 +120,9 @@ def test_install_billing_admin_compoe_revogacao_sobre_dynamodb() -> None:
 def test_install_billing_admin_sem_gates_nao_sobrescreve_tenants() -> None:
     app = FastAPI()
 
-    billing_deps._install_billing_admin(app, _admin_runtime(None), Mock())
+    billing_deps._install_billing_admin(
+        app, cast("RuntimeComponents", _admin_runtime(None)), Mock()
+    )
 
     assert billing_admin.get_revocation_service in app.dependency_overrides
     assert tenants.get_tenant_gates not in app.dependency_overrides
@@ -128,7 +134,9 @@ def test_control_plane_de_billing_so_atende_rotas_de_billing() -> None:
 
     @app.get("/{path:path}")
     def _probe(
-        control_plane=billing_deps.Depends(billing_deps._billing_control_plane(runtime)),
+        control_plane=billing_deps.Depends(
+            billing_deps._billing_control_plane(cast("RuntimeComponents", runtime))
+        ),
     ) -> dict[str, bool]:
         return {"ok": control_plane is runtime.control_plane}
 
@@ -157,7 +165,9 @@ def test_install_billing_disabled_rejeita_webhook_com_404(monkeypatch) -> None:
     monkeypatch.setenv("BILLING_MODE", "disabled")
     app = FastAPI()
 
-    billing_deps.install_billing(app, SimpleNamespace(billing_gates=None), Mock())
+    billing_deps.install_billing(
+        app, cast("RuntimeComponents", SimpleNamespace(billing_gates=None)), Mock()
+    )
 
     override = app.dependency_overrides[stripe_webhook.get_stripe_webhook_verifier]
     with pytest.raises(HTTPException) as error:
@@ -171,7 +181,10 @@ def test_install_stripe_billing_sem_storage_falha_fechado() -> None:
 
     with pytest.raises(BillingConfigurationError):
         billing_deps._install_stripe_billing(
-            FastAPI(), _stripe_runtime(None, None), Mock(), DiscardBillingMetrics(),
+            FastAPI(),
+            cast("RuntimeComponents", _stripe_runtime(None, None)),
+            Mock(),
+            DiscardBillingMetrics(),
         )
 
 
@@ -188,7 +201,9 @@ def test_install_stripe_billing_sobrescreve_dependencias_dos_routers(monkeypatch
         patch("cnes_infra.billing.build_stripe_billing", return_value=components),
         patch("cnes_infra.billing.StripeRuntimeSettings.from_mapping"),
     ):
-        billing_deps._install_stripe_billing(app, runtime, Mock(), DiscardBillingMetrics())
+        billing_deps._install_stripe_billing(
+            app, cast("RuntimeComponents", runtime), Mock(), DiscardBillingMetrics()
+        )
 
     overrides = app.dependency_overrides
     assert overrides[billing.get_billing_catalog]() is components.catalog
@@ -212,7 +227,9 @@ def test_install_billing_usa_cloudwatch_quando_ambiente_configurado(monkeypatch)
         patch("cnes_infra.billing.build_secret_provider", return_value=Mock()),
         patch.object(billing_deps, "_install_stripe_billing") as install,
     ):
-        billing_deps.install_billing(FastAPI(), SimpleNamespace(billing_gates=None), Mock())
+        billing_deps.install_billing(
+            FastAPI(), cast("RuntimeComponents", SimpleNamespace(billing_gates=None)), Mock()
+        )
 
     assert isinstance(install.call_args.args[3], CloudWatchBillingMetrics)
 
@@ -229,7 +246,7 @@ def test_install_billing_com_provider_delega_ao_stripe(monkeypatch) -> None:
         patch("cnes_infra.billing.build_secret_provider", return_value=provider),
         patch.object(billing_deps, "_install_stripe_billing") as install,
     ):
-        billing_deps.install_billing(FastAPI(), runtime, Mock())
+        billing_deps.install_billing(FastAPI(), cast("RuntimeComponents", runtime), Mock())
 
     install.assert_called_once()
     assert install.call_args.args[1:3] == (runtime, provider)

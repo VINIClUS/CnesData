@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 import pytest
@@ -232,7 +232,7 @@ def test_parquet_de_divergencia_tem_colunas_e_tipos() -> None:
     assert frame.schema["field"] == pl.String
     assert frame.schema["local_value"] == pl.String
     assert isinstance(frame.schema["natural_key"], pl.Struct)
-    assert {item.name for item in frame.schema["natural_key"].fields} == {
+    assert {item.name for item in cast("pl.Struct", frame.schema["natural_key"]).fields} == {
         "identity", "CNES", "CBO", "COMPETENCIA",
     }
     assert frame.schema["source_manifest_ids"] == pl.List(pl.String)

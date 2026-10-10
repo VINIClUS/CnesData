@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
@@ -17,8 +17,14 @@ from data_processor.sources.sihd.contract import (
 from data_processor.sources.sihd.normalize import persist_verified, serialize_parquet
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from polars._typing import ColumnNameOrSelector, PolarsDataType
+
     from cnes_contracts.manifests.processing import ReconcileRequest
     from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+
+    type _CastSchema = Mapping[ColumnNameOrSelector | PolarsDataType, PolarsDataType]
 
 _GROUP = ("CNES", "PROCEDIMENTO", "COMPETENCIA")
 _AIH_ID = "AIH_ID"
@@ -185,7 +191,7 @@ def _divergences(frames: dict[str, pl.DataFrame], ids: dict[str, str]) -> pl.Dat
         _quality_rows(frames["quality_internacao"], ids["quality_internacao"]),
         _quality_rows(frames["quality_proc_aih"], ids["quality_proc_aih"]),
     ]
-    typed = [part.cast(_DIVERGENCE_SCHEMA) for part in parts]
+    typed = [part.cast(cast("_CastSchema", _DIVERGENCE_SCHEMA)) for part in parts]
     combined = pl.concat([pl.DataFrame(schema=_DIVERGENCE_SCHEMA), *typed])
     return combined.sort(["kind", "SIHD_KEY", "field"], nulls_last=True)
 

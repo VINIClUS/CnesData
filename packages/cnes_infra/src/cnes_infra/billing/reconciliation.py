@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
 from cnes_domain.billing.errors import (
@@ -292,7 +292,7 @@ class BillingReconciler:
         self, account: BillingAccount, current: EntitlementSnapshot
     ) -> StripeBillingState:
         # Stripe is read after the snapshot so a stale state never overwrites a projector fix.
-        customer = account.stripe_customer_id
+        customer = cast("str", account.stripe_customer_id)
         state = self._deps.stripe.get_current_state(
             StripeStateRequest(customer, current.stripe_subscription_id)
         )

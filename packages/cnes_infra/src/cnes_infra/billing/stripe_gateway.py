@@ -27,9 +27,11 @@ from cnes_domain.billing.models import PlanVersion, SubscriptionStatus
 logger = logging.getLogger(__name__)
 
 _DETAIL_VALUE = re_compile(r"^[A-Za-z0-9_.:-]+$")
+_SEARCH_VALUE = re_compile(r"^[A-Za-z0-9_-]+$")
 _TRANSIENT_ERRORS = frozenset({"APIConnectionError", "RateLimitError", "APIError"})
 _ENTITLEMENT_PAGE = 100
 _GUARD_PAGE = 100
+_CUSTOMER_SEARCH_PAGE = 100
 _ENDED_STATUSES = frozenset({"canceled", "incomplete_expired"})
 
 
@@ -64,6 +66,14 @@ class _Expirable(Protocol):
     def expire(self, session: str, /) -> Any: ...  # pragma: no cover
 
 
+class _Searchable(Protocol):
+    def search(self, params: dict[str, Any]) -> Any: ...  # pragma: no cover
+
+
+class _Customers(_Creatable, _Searchable, Protocol):
+    pass
+
+
 class _Sessions(Protocol):
     sessions: _Creatable
 
@@ -85,7 +95,7 @@ class _Entitlements(Protocol):
 
 
 class _V1(Protocol):
-    customers: _Creatable
+    customers: _Customers
     checkout: _Checkout
     billing_portal: _Sessions
     subscriptions: _Subscriptions
@@ -153,6 +163,14 @@ def _invoice_subscription_id(invoice: object) -> str | None:
     parent = getattr(invoice, "parent", None)
     details = getattr(parent, "subscription_details", None)
     return _object_id(getattr(details, "subscription", None))
+
+
+def _reusable(customer: object, account_id: str) -> bool:
+    metadata = getattr(customer, "metadata", None)
+    return (
+        getattr(customer, "deleted", None) is not True
+        and getattr(metadata, "billing_account_id", None) == account_id
+    )
 
 
 def _epoch(seconds: int) -> datetime:
@@ -229,14 +247,43 @@ class StripeGateway:
 
     def create_customer(self, command: CreateStripeCustomerCommand) -> StripeCustomer:
         """Args: command: Conta de billing e chave de idempotencia.
-        Returns: Cliente Stripe criado.
-        Raises: RetryableBillingError, PermanentBillingError: Falha Stripe traduzida.
+        Returns: Customer ja existente da conta (metadata) ou o criado.
+        Raises: ValueError: Conta insegura para a busca; StripeMappingError; erros traduzidos.
         """
+        existing = self._existing_customer(command.billing_account_id)
+        if existing is not None:
+            return existing
         result = _call("customers.create", lambda: self._client.v1.customers.create(
             params={"metadata": {"billing_account_id": command.billing_account_id}},
             options={"idempotency_key": f"customer:{command.idempotency_key}"},
         ))
         return StripeCustomer(result.id)
+
+    def _existing_customer(self, account_id: str) -> StripeCustomer | None:
+        # Why: Stripe prunes idempotency keys after 24h, so a replay whose attach never
+        # committed must find the earlier Customer; search lags writes, the key covers that.
+        if not _SEARCH_VALUE.fullmatch(account_id):
+            raise ValueError("reason=search_value_unsafe field=billing_account_id")
+        params = {
+            "query": f"metadata['billing_account_id']:'{account_id}'",
+            "limit": _CUSTOMER_SEARCH_PAGE,
+        }
+        found = _call("customers.search", lambda: self._client.v1.customers.search(params=params))
+        if found.has_more is True:
+            raise StripeMappingError("stripe_customers_unbounded")
+        matches = sorted(
+            (customer for customer in found.data if _reusable(customer, account_id)),
+            key=lambda customer: (customer.created, customer.id),
+        )
+        if not matches:
+            return None
+        chosen = matches[0].id
+        if len(matches) > 1:
+            logger.warning(
+                "stripe_customer_duplicates billing_account_id=%s count=%d chosen=%s",
+                account_id, len(matches), chosen,
+            )
+        return StripeCustomer(chosen)
 
     def create_checkout(self, command: CheckoutCommand) -> HostedSession:
         """Args: command: Cliente, plano e chave de idempotencia.
@@ -354,10 +401,11 @@ class StripeGateway:
 
     def _subscription(self, request: StripeStateRequest) -> Any:
         subscriptions = self._client.v1.subscriptions
-        if request.stripe_subscription_id is not None:
+        subscription_id = request.stripe_subscription_id
+        if subscription_id is not None:
             return _call(
                 "subscriptions.retrieve",
-                lambda: subscriptions.retrieve(request.stripe_subscription_id),
+                lambda: subscriptions.retrieve(subscription_id),
             )
         params = {"customer": request.stripe_customer_id, "limit": 2}
         found = _call("subscriptions.list", lambda: subscriptions.list(params=params)).data

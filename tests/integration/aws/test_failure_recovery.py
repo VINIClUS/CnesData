@@ -1,7 +1,7 @@
 """Falhas de fronteira do runtime AWS composto: pointer, outbox, outage e runs degradados."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
@@ -49,6 +49,9 @@ from tests.integration.aws._harness import (
 )
 
 if TYPE_CHECKING:
+    from boto3.session import Session
+
+    from central_api.composition import AwsApiServices
     from tests.integration.aws._harness import AwsTestRuntime, EmulatorResources
 
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]
@@ -72,7 +75,9 @@ def test_falha_s3_antes_do_cas_preserva_pointer_anterior(aws_runtime: AwsTestRun
 
     assert aws_runtime.s3.injected_failures == [(data_bucket, run_manifest_key(request.run))]
     assert _pointer_version(aws_runtime) == old.version.version_id
-    assert aws_runtime.api.control_plane.get_run(TENANT, "run-new").state is RunState.PUBLISHING
+    stored = aws_runtime.api.control_plane.get_run(TENANT, "run-new")
+    assert stored is not None
+    assert stored.state is RunState.PUBLISHING
     assert pending_events(aws_runtime) == ((_PUBLISHED, "run-old"),)
 
 
@@ -98,7 +103,9 @@ def test_falha_audit_apos_cas_reexecuta_outbox_sem_republicar(
     assert len(dated) == 1
     assert dated[0].startswith(f"audit/{TENANT}/")
     assert run_manifest_puts(aws_runtime, request.run) == 1
-    version = control_plane.get_dataset_version(TENANT, DATASET, _pointer_version(aws_runtime))
+    version = control_plane.get_dataset_version(
+        TENANT, DATASET, cast("str", _pointer_version(aws_runtime))
+    )
     assert version is not None
     assert version.run_id == "run-new"
 
@@ -113,8 +120,9 @@ def test_dynamodb_indisponivel_falha_fechado(
     outage = dynamodb_outage_runtime
     message = unit_message(dispatch, dispatch.unit_ids[0], outage.clock.now())
 
+    services = cast("AwsApiServices", outage.api.services)
     with pytest.raises(EndpointConnectionError):
-        outage.api.services.membership_authorizer.authorize(principal("user-1"), TENANT)
+        services.membership_authorizer.authorize(principal("user-1"), TENANT)
     with pytest.raises(EndpointConnectionError):
         outage.processor.unit_handler.handle(message)
     with pytest.raises(BillingDependencyError) as denied:
@@ -125,9 +133,9 @@ def test_dynamodb_indisponivel_falha_fechado(
         (RunUnitState.PENDING, 0),
     }
     assert _pointer_version(aws_runtime) is None
-    assert aws_runtime.api.control_plane.get_run(TENANT, "run-publish").state is (
-        RunState.PUBLISHING
-    )
+    stored = aws_runtime.api.control_plane.get_run(TENANT, "run-publish")
+    assert stored is not None
+    assert stored.state is RunState.PUBLISHING
 
 
 def test_throttling_do_step_functions_antes_do_start_reexecuta_o_mesmo_dispatch(
@@ -147,7 +155,7 @@ def test_throttling_do_step_functions_antes_do_start_reexecuta_o_mesmo_dispatch(
     started = active_dispatch(aws_runtime, run)
     assert (started.dispatch_id, started.generation) == (reserved.dispatch_id, reserved.generation)
     assert (started.state, started.execution_ref) == (DispatchState.STARTED, result.execution_ref)
-    assert execution_name(started.execution_ref) == reserved.dispatch_id
+    assert execution_name(cast("str", started.execution_ref)) == reserved.dispatch_id
     assert aws_runtime.step_functions.stopped == []
 
 
@@ -173,8 +181,9 @@ def test_serving_ausente_nao_assina_e_falha_fechado(aws_runtime: AwsTestRuntime)
     aws_runtime.api.object_store.delete(serving_key(TENANT, "run-a"))
     request = serving_request("user-1", TENANT, "overview.json")
 
+    services = cast("AwsApiServices", aws_runtime.api.services)
     with pytest.raises(ServingUnavailable, match="serving_object_unavailable"):
-        aws_runtime.api.services.serving_access.grant(request, aws_runtime.clock.now())
+        services.serving_access.grant(request, aws_runtime.clock.now())
 
     assert aws_runtime.s3.presigned == []
 
@@ -189,7 +198,9 @@ def test_cas_de_pointer_concorrente_tem_um_unico_vencedor(aws_runtime: AwsTestRu
         aws_runtime.processor.publisher.publish(second)
 
     assert _pointer_version(aws_runtime) == winner.version.version_id == "run-a"
-    assert aws_runtime.api.control_plane.get_run(TENANT, "run-b").state is RunState.PUBLISHING
+    stored = aws_runtime.api.control_plane.get_run(TENANT, "run-b")
+    assert stored is not None
+    assert stored.state is RunState.PUBLISHING
     assert pending_events(aws_runtime) == ((_PUBLISHED, "run-a"),)
 
 
@@ -204,9 +215,9 @@ def test_state_machine_express_ou_distributed_falha_fechado(
     values = runtime_values(aws_resources, {"AWS_STATE_MACHINE_ARN": invalid_state_machines[kind]})
 
     with pytest.raises(IncompatibleStateMachine, match=code):
-        build_processor_runtime("aws", values, new_session(aws_resources))
+        build_processor_runtime("aws", values, cast("Session", new_session(aws_resources)))
     with pytest.raises(IncompatibleStateMachine, match=code):
-        build_runtime("aws", values, new_session(aws_resources))
+        build_runtime("aws", values, cast("Session", new_session(aws_resources)))
 
 
 def test_source_obrigatoria_falha_termina_o_run_failed(aws_runtime: AwsTestRuntime) -> None:

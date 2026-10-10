@@ -1,6 +1,7 @@
 """Testes de corrida e classificação de falha da criação de tenant faturado."""
 
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -106,3 +107,27 @@ def test_disputa_pelo_mesmo_tenant_tem_exatamente_um_vencedor(settings: BillingS
         consumed = ReservationStatus.CONSUMED if settings.enforced else ReservationStatus.RESERVED
         assert env.reservation(winner_reservation).status is consumed
         assert env.reservation(loser_reservation).status is ReservationStatus.RESERVED
+
+
+@ALL_MODES
+def test_mesmo_pedido_commitado_durante_a_sonda_de_memberships_devolve_replay(
+    settings: BillingSettings,
+) -> None:
+    with open_env(settings) as env:
+        command = env.command(env.reserve())
+        rival = DynamoDBControlPlane(env.client, TABLE_NAME, env.clock.now, settings)
+        query = env.spy.query
+
+        def commit_then_query(**request: Any) -> Any:
+            del env.spy.query
+            rival.create_billed_tenant(command)
+            return query(**request)
+
+        env.spy.query = commit_then_query
+
+        replayed = env.plane.create_billed_tenant(command)
+
+        assert replayed == command.tenant
+        assert env.spy.transactions == []
+        consumed = ReservationStatus.CONSUMED if settings.enforced else ReservationStatus.RESERVED
+        assert env.reservation(command.reservation_id).status is consumed

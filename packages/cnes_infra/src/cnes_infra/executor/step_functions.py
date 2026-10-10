@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from botocore.exceptions import ClientError
 
@@ -13,6 +13,12 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from cnes_domain.ports.processing import CancelRunExecution
+
+    class _StepFunctionsClient(Protocol):
+        def describe_state_machine(self, **kwargs: str) -> dict[str, Any]: ...
+        def start_execution(self, **kwargs: str) -> dict[str, Any]: ...
+        def stop_execution(self, **kwargs: str) -> dict[str, Any]: ...
+        def describe_execution(self, **kwargs: str) -> dict[str, Any]: ...
 
 _STATUS = {
     "RUNNING": ExecutionStatus.RUNNING,
@@ -39,6 +45,8 @@ _FAILURE_ABSORBING_FIELDS = (
     "ToleratedFailurePercentage",
     "ToleratedFailurePercentagePath",
 )
+
+
 _ITEM_SELECTOR = {
     "tenant_id.$": "$.tenant_id",
     "run_id.$": "$.run_id",
@@ -57,7 +65,7 @@ class ProcessorExecutionUnavailable(Exception):
 
 
 def _error_code(error: ClientError) -> str:
-    return error.response["Error"]["Code"]
+    return cast("dict[str, dict[str, str]]", error.response)["Error"]["Code"]
 
 
 def _payload(request: StartRunExecution) -> str:
@@ -78,7 +86,8 @@ def _payload(request: StartRunExecution) -> str:
 
 def _describe_state_machine(client: BaseClient, state_machine_arn: str) -> dict[str, Any]:
     try:
-        return client.describe_state_machine(stateMachineArn=state_machine_arn)
+        sfn = cast("_StepFunctionsClient", client)
+        return sfn.describe_state_machine(stateMachineArn=state_machine_arn)
     except ClientError as error:
         raise ProcessorExecutionUnavailable(_error_code(error)) from error
 
@@ -196,7 +205,7 @@ class StepFunctionsExecutor:
     def __init__(self, client: BaseClient, state_machine_arn: str) -> None:
         if ":stateMachine:" not in state_machine_arn:
             raise ValueError("state_machine_arn=invalid")
-        self._client = client
+        self._client = cast("_StepFunctionsClient", client)
         self._state_machine_arn = state_machine_arn
 
     def start(self, request: StartRunExecution) -> str:

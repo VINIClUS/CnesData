@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import text
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Connection
+    from collections.abc import Mapping
+
+    from sqlalchemy.engine import Connection, Row
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,7 @@ def _jsonize(obj: object) -> str:
     return json.dumps(obj or {})
 
 
-def upsert_dim_profissional(conn: Connection, payload: dict) -> int:
+def upsert_dim_profissional(conn: Connection, payload: Mapping[str, Any]) -> int:
     row = conn.execute(
         text("""
             INSERT INTO gold.dim_profissional (cpf_hash, nome, cns, fontes)
@@ -89,10 +91,10 @@ def upsert_dim_profissional(conn: Connection, payload: dict) -> int:
             "fontes": _jsonize(payload.get("fontes")),
         },
     ).first()
-    return row[0]
+    return cast("Row[Any]", row)[0]
 
 
-def upsert_dim_estabelecimento(conn: Connection, payload: dict) -> int:
+def upsert_dim_estabelecimento(conn: Connection, payload: Mapping[str, Any]) -> int:
     row = conn.execute(
         text("""
             INSERT INTO gold.dim_estabelecimento (
@@ -123,10 +125,10 @@ def upsert_dim_estabelecimento(conn: Connection, payload: dict) -> int:
             "fontes": _jsonize(payload.get("fontes")),
         },
     ).first()
-    return row[0]
+    return cast("Row[Any]", row)[0]
 
 
-def upsert_dim_cbo(conn: Connection, payload: dict) -> int:
+def upsert_dim_cbo(conn: Connection, payload: Mapping[str, Any]) -> int:
     row = conn.execute(
         text("""
             INSERT INTO gold.dim_cbo (cod_cbo, descricao)
@@ -137,10 +139,10 @@ def upsert_dim_cbo(conn: Connection, payload: dict) -> int:
         """),
         {"cod_cbo": payload["cod_cbo"], "descricao": payload["descricao"]},
     ).first()
-    return row[0]
+    return cast("Row[Any]", row)[0]
 
 
-def upsert_dim_cid10(conn: Connection, payload: dict) -> int:
+def upsert_dim_cid10(conn: Connection, payload: Mapping[str, Any]) -> int:
     row = conn.execute(
         text("""
             INSERT INTO gold.dim_cid10 (cod_cid, descricao, capitulo)
@@ -156,10 +158,10 @@ def upsert_dim_cid10(conn: Connection, payload: dict) -> int:
             "capitulo": payload["capitulo"],
         },
     ).first()
-    return row[0]
+    return cast("Row[Any]", row)[0]
 
 
-def upsert_dim_municipio(conn: Connection, payload: dict) -> int:
+def upsert_dim_municipio(conn: Connection, payload: Mapping[str, Any]) -> int:
     row = conn.execute(
         text("""
             INSERT INTO gold.dim_municipio (
@@ -190,10 +192,10 @@ def upsert_dim_municipio(conn: Connection, payload: dict) -> int:
             "teto_pab_cents": payload.get("teto_pab_cents"),
         },
     ).first()
-    return row[0]
+    return cast("Row[Any]", row)[0]
 
 
-def upsert_dim_procedimento_sus(conn: Connection, payload: dict) -> int:
+def upsert_dim_procedimento_sus(conn: Connection, payload: Mapping[str, Any]) -> int:
     row = conn.execute(
         text("""
             INSERT INTO gold.dim_procedimento_sus (
@@ -230,4 +232,4 @@ def upsert_dim_procedimento_sus(conn: Connection, payload: dict) -> int:
             "competencia_vigencia_fim": payload.get("competencia_vigencia_fim"),
         },
     ).first()
-    return row[0]
+    return cast("Row[Any]", row)[0]

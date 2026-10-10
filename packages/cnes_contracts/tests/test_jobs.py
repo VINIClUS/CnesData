@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -50,7 +51,7 @@ def test_job_transition_event_rejeita_actor_nao_string():
             extraction_id=uuid4(),
             from_status=JobStatus.PENDING,
             to_status=JobStatus.UPLOADED,
-            actor=123,
+            actor=cast("Any", 123),
             at=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
@@ -59,7 +60,7 @@ def test_job_transition_event_rejeita_status_invalido():
     with pytest.raises(ValidationError):
         JobTransitionEvent(
             extraction_id=uuid4(),
-            from_status="FOO",
+            from_status=cast("Any", "FOO"),
             to_status=JobStatus.UPLOADED,
             actor="dump_agent",
             at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -69,7 +70,7 @@ def test_job_transition_event_rejeita_status_invalido():
 def test_job_transition_event_rejeita_extraction_id_invalido():
     with pytest.raises(ValidationError):
         JobTransitionEvent(
-            extraction_id="nao-uuid",
+            extraction_id=cast("Any", "nao-uuid"),
             from_status=JobStatus.PENDING,
             to_status=JobStatus.UPLOADED,
             actor="dump_agent",

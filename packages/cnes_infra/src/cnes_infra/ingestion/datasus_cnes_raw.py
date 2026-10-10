@@ -15,7 +15,7 @@ from cnes_infra.ingestion.datasus_cnes_transport import (
     DatasusCnesError,
     DatasusCnesRequest,
     DatasusCnesTransportPort,
-    _validate_request,
+    _validate_request,  # pyright: ignore[reportPrivateUsage]
 )
 
 if TYPE_CHECKING:

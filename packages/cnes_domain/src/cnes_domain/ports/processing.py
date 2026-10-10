@@ -33,6 +33,14 @@ def _require_hex_id(value: str, name: str) -> str:
     return value
 
 
+def _require_wave_id(value: str) -> str:
+    return _require_hex_id(value, "wave_id")
+
+
+def _require_dispatch_id(value: str) -> str:
+    return _require_hex_id(value, "dispatch_id")
+
+
 def _require_positive(value: int) -> int:
     if value < 1:
         raise ValueError("positive_value_required")
@@ -74,10 +82,8 @@ class StartRunExecution(_ExecutionModel):
     max_concurrency: int
 
     _identities = field_validator("tenant_id", "run_id")(_require_non_blank)
-    _wave = field_validator("wave_id")(lambda value: _require_hex_id(value, "wave_id"))
-    _dispatch = field_validator("dispatch_id")(
-        lambda value: _require_hex_id(value, "dispatch_id")
-    )
+    _wave = field_validator("wave_id")(_require_wave_id)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_id)
     _units = field_validator("unit_ids")(_require_unit_ids)
     _concurrency = field_validator("max_concurrency")(_require_positive)
 
@@ -95,10 +101,8 @@ class RunUnitMessage(_ExecutionModel):
     _identities = field_validator("tenant_id", "run_id", "unit_id", "owner")(
         _require_non_blank
     )
-    _wave = field_validator("wave_id")(lambda value: _require_hex_id(value, "wave_id"))
-    _dispatch = field_validator("dispatch_id")(
-        lambda value: _require_hex_id(value, "dispatch_id")
-    )
+    _wave = field_validator("wave_id")(_require_wave_id)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_id)
     _now = field_validator("now")(_require_utc)
     _lease = field_validator("lease_seconds")(_require_positive)
 

@@ -9,13 +9,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 import pytest
 from pydantic import ValidationError
 
-from cnes_contracts.manifests.processing import NormalizeRequest
+from cnes_contracts.manifests.processing import NormalizeRequest, NormalizeResult
 from cnes_contracts.manifests.raw import RawManifest, SourceType
 from cnes_domain.ports.object_store import ObjectStat
 from data_processor.sources.bpa.contract import BPA_DEPENDENCIES, BPA_LAYOUT
@@ -75,7 +75,7 @@ class _CorruptStatStore(_FakeObjectStore):
         return ObjectStat(key=key, size_bytes=1, sha256="0" * 64)
 
 
-def _load(name: str) -> object:
+def _load(name: str) -> Any:
     return json.loads((_FIXTURES / name).read_text(encoding="utf-8"))
 
 
@@ -90,7 +90,7 @@ def _put_raw(store: _FakeObjectStore, file_subtype: str,
              rows: list[dict[str, object]] | None = None) -> RawManifest:
     template = _load(f"raw_manifest_{file_subtype.lower()}.json")
     if rows is None:
-        rows = _load("raw_rows.json")[file_subtype]
+        rows = cast("list[dict[str, object]]", _load("raw_rows.json")[file_subtype])
     payload = _raw_payload(rows)
     digest = hashlib.sha256(payload).hexdigest()
     store.put(template["object_key"], BytesIO(payload), digest)
@@ -122,7 +122,7 @@ def _read(store: _FakeObjectStore, key: str) -> list[dict[str, object]]:
     ]
 
 
-def _normalize(file_subtype: str) -> tuple[_FakeObjectStore, object]:
+def _normalize(file_subtype: str) -> tuple[_FakeObjectStore, NormalizeResult]:
     store = _FakeObjectStore()
     raw = _put_raw(store, file_subtype)
     unit_id = f"unit-{file_subtype.lower().replace('_', '-')}"
@@ -297,7 +297,7 @@ def test_subtipo_sem_linhas_gera_parquet_vazio_verificado() -> None:
 
     assert [item.row_count for item in result.manifests] == [0, 0]
     for item in result.manifests:
-        assert store.stat(item.object_key).sha256 == item.object_sha256
+        assert cast("ObjectStat", store.stat(item.object_key)).sha256 == item.object_sha256
     frame = pl.read_parquet(BytesIO(store.objects[_target_keys("BPA_I")[0]]))
     assert frame.height == 0
     assert "source_record_id" in frame.columns

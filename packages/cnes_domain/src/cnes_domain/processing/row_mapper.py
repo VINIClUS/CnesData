@@ -1,13 +1,14 @@
 """Row mapper -- converte DataFrames canonicos em dicts prontos para persistencia."""
 
 import math
+from typing import Any
 
 import polars as pl
 
 from cnes_domain.tenant import get_tenant_id
 
 
-def _nan_to_none(rows: list[dict]) -> list[dict]:
+def _nan_to_none(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for row in rows:
         for k, v in row.items():
             if v is not None and isinstance(v, float) and math.isnan(v):
@@ -15,11 +16,11 @@ def _nan_to_none(rows: list[dict]) -> list[dict]:
     return rows
 
 
-def _fonte_jsonb(fonte: str) -> dict:
+def _fonte_jsonb(fonte: str) -> dict[str, bool]:
     return {fonte: True}
 
 
-def mapear_profissionais(df: pl.DataFrame) -> list[dict]:
+def mapear_profissionais(df: pl.DataFrame) -> list[dict[str, Any]]:
     tid = get_tenant_id()
     dedup = df.unique(subset=["CPF"])
     out = dedup.select("CPF", "CNS", "NOME_PROFISSIONAL", "SEXO", "FONTE")
@@ -47,7 +48,7 @@ def mapear_profissionais(df: pl.DataFrame) -> list[dict]:
 def mapear_vinculos(
     competencia: str,
     df: pl.DataFrame,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     tid = get_tenant_id()
     out = df.select(
         "CPF", "CNES", "CBO", "TIPO_VINCULO", "SUS",
@@ -87,7 +88,7 @@ def mapear_vinculos(
     )
 
 
-def mapear_estabelecimentos(df: pl.DataFrame) -> list[dict]:
+def mapear_estabelecimentos(df: pl.DataFrame) -> list[dict[str, Any]]:
     tid = get_tenant_id()
     out = df.select(
         "CNES", "NOME_FANTASIA", "TIPO_UNIDADE",

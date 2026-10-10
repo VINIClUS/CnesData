@@ -7,7 +7,7 @@ import sqlite3
 import stat
 import tarfile
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, cast
 
 import pytest
 
@@ -167,7 +167,7 @@ def test_restore_backup_recusa_hash_corrompido_sem_escrever_nada(tmp_path: Path)
     corrupted = tmp_path / "corrupted.tar"
     with tarfile.open(target, "r") as source_tar, tarfile.open(corrupted, "w") as dest_tar:
         for member in source_tar.getmembers():
-            body = source_tar.extractfile(member).read()
+            body = cast("IO[bytes]", source_tar.extractfile(member)).read()
             if member.name == "objects/raw/a.parquet":
                 body = b"tampered!"
                 member.size = len(body)
@@ -190,7 +190,7 @@ def test_restore_backup_recusa_tenant_divergente(tmp_path: Path) -> None:
     tampered = tmp_path / "tampered.tar"
     with tarfile.open(target, "r") as source_tar, tarfile.open(tampered, "w") as dest_tar:
         for member in source_tar.getmembers():
-            body = source_tar.extractfile(member).read()
+            body = cast("IO[bytes]", source_tar.extractfile(member)).read()
             if member.name == "manifest.json":
                 body = tampered_manifest.model_dump_json().encode()
                 member.size = len(body)
@@ -225,7 +225,7 @@ def test_restore_backup_recusa_versao_de_manifesto_incompativel(tmp_path: Path) 
     tampered = tmp_path / "incompatible.tar"
     with tarfile.open(archive, "r") as source_tar, tarfile.open(tampered, "w") as dest_tar:
         for member in source_tar.getmembers():
-            body = source_tar.extractfile(member).read()
+            body = cast("IO[bytes]", source_tar.extractfile(member)).read()
             if member.name == "manifest.json":
                 body = incompatible_manifest.model_dump_json().encode()
                 member.size = len(body)

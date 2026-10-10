@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Mapping
+from typing import Any, cast
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
@@ -37,7 +38,7 @@ def _client_error(code: str | None) -> ClientError:
     error: dict[str, str] = {"Message": f"{_ARN} secret"}
     if code is not None:
         error["Code"] = code
-    return ClientError({"Error": error}, "GetSecretValue")
+    return ClientError(cast("Any", {"Error": error}), "GetSecretValue")
 
 
 def _failure_cases() -> list[tuple[str, _FakeClient, str]]:

@@ -18,7 +18,7 @@ class OAuthError(Exception):
         *,
         description: str | None = None,
         status_code: int = 400,
-        extra: dict | None = None,
+        extra: dict[str, object] | None = None,
     ) -> None:
         super().__init__(code)
         self.code = code

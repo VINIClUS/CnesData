@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import pytest
@@ -196,7 +196,7 @@ def test_corrida_de_duas_reservas_cria_um_unico_agente() -> None:
         loser = racing.create_edge_agent(_command("res-1"))
 
         assert loser.created is False
-        items = client.scan(TableName=TABLE)["Items"]
+        items = cast("Any", client.scan(TableName=TABLE)["Items"])
         assert sum(1 for item in items if item["entity"]["S"] == "AGENT") == 1
         assert not any(item["entity"]["S"] == "IDEMPOTENCYRECORD"
                        and item["sk"]["S"].endswith("res-1") for item in items)
@@ -248,8 +248,8 @@ def test_marcador_de_posse_do_agente_nao_expira_por_ttl() -> None:
         DynamoDBControlPlane(client, TABLE, lambda: NOW).create_edge_agent(_command())
 
         pk, sk = idempotency_key(TENANT, EDGE_AGENT_SCOPE, "res-1")
-        item = client.get_item(
+        item = cast("Any", client.get_item(
             TableName=TABLE, Key={"pk": {"S": pk}, "sk": {"S": sk}}, ConsistentRead=True,
-        )["Item"]
+        ))["Item"]
 
     assert "expires_at" not in item

@@ -12,7 +12,7 @@ from cnes_domain.processing.transformer import (
 )
 
 
-def _df_minimo(cpf="11716723817", ch_total=40) -> pl.DataFrame:
+def _df_minimo(cpf: str | None = "11716723817", ch_total=40) -> pl.DataFrame:
     return pl.DataFrame({
         "CPF": [cpf],
         "CNS": ["702002887429583"],

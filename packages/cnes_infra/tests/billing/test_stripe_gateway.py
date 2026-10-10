@@ -3,6 +3,7 @@
 import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -213,7 +214,7 @@ def test_registra_apenas_operacao_codigo_e_status_na_falha(caplog) -> None:
 
 
 def _config(**overrides: object) -> StripeGatewayConfig:
-    values: dict[str, object] = {
+    values: dict[str, Any] = {
         "success_url": SUCCESS_URL,
         "cancel_url": CANCEL_URL,
         "portal_return_url": PORTAL_URL,

@@ -6,6 +6,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -78,7 +79,9 @@ def test_serializa_relatorio_com_timestamp_utc_e_cria_diretorio(tmp_path: Path) 
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     recorded_at = datetime.fromisoformat(payload["recorded_at"])
     assert payload["commit_sha"] == APPROVED_SHA
-    assert recorded_at.utcoffset().total_seconds() == 0
+    offset = recorded_at.utcoffset()
+    assert offset is not None
+    assert offset.total_seconds() == 0
     assert payload["suites"] == [
         {
             "name": "python-packages",
@@ -318,7 +321,7 @@ def test_rejeita_assinatura_montada_com_campos_de_blocos_distintos() -> None:
 
 def test_rejeita_fingerprint_como_quinto_argumento_posicional() -> None:
     with pytest.raises(TypeError):
-        SuiteResult("python-fast", "uv run pytest", 2, 0.5, CANONICAL_DIGEST)
+        cast("Any", SuiteResult)("python-fast", "uv run pytest", 2, 0.5, CANONICAL_DIGEST)
 
 
 def test_suite_rapida_nao_seleciona_chaos_infra() -> None:

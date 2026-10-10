@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 import pytest
@@ -26,6 +27,9 @@ from data_processor.sources.sihd.contract import PII_DENY_LIST
 from data_processor.sources.sihd.normalize import normalize_sihd
 from data_processor.sources.sihd.reconcile import reconcile_sihd
 from data_processor.sources.sihd.serving import _assert_no_pii, materialize_sihd
+
+if TYPE_CHECKING:
+    from cnes_domain.ports.object_store import ObjectStat
 
 _TARGET = f"serving/{TENANT}/{RUN_ID}/overview.json"
 
@@ -72,7 +76,7 @@ def test_retorna_documento_overview_do_dataset_sihd() -> None:
     assert document.schema_version == "sihd-serving-v1"
     assert document.payload["dataset"] == "sihd"
     assert manifest.object_key == _TARGET
-    assert manifest.object_sha256 == store.stat(_TARGET).sha256
+    assert manifest.object_sha256 == cast("ObjectStat", store.stat(_TARGET)).sha256
 
 
 def test_serving_nao_contem_pii_nem_identificador_de_linha() -> None:

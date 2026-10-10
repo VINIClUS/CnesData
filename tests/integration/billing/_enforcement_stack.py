@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -62,6 +62,11 @@ from tests.integration.billing._execution_stack import (
     create_processing_run,
     resume,
 )
+
+if TYPE_CHECKING:
+    from cnes_domain.control_plane.entities import RunDispatch
+    from cnes_infra.control_plane.dynamodb_codec import Item
+    from packages.cnes_infra.tests.billing.revocation_support import RevEnv
 
 SQLITE_DISABLED = Case("sqlite-disabled", dynamo=False, stripe=False)
 DYNAMO_DISABLED = Case("dynamodb-disabled", dynamo=True, stripe=False)
@@ -165,21 +170,21 @@ def revoker(stack: Stack, executor: Any = None) -> Callable[[], RevocationResult
 
 
 def reservation_of(stack: Stack) -> QuotaReservation:
-    raw = RawView(stack.client, TABLE_NAME)
+    raw = cast("RevEnv", RawView(stack.client, TABLE_NAME))
     reservation_id = stack.plane.get_run_billing_state(
         TENANT, RUN_ID
     ).authorization.budget_reservation_id
     key = reservation_key(ACCOUNT, lookup_period(raw, RUN_ID), reservation_id)
-    return decode_reservation(get_raw(raw, key))[0]
+    return decode_reservation(cast("Item", get_raw(raw, key)))[0]
 
 
 def consumed_runs(stack: Stack) -> int:
-    return usage_counters(RawView(stack.client, TABLE_NAME))["consumed_runs"]
+    return usage_counters(cast("RevEnv", RawView(stack.client, TABLE_NAME)))["consumed_runs"]
 
 
 def first_wave_claim(stack: Stack) -> tuple[Any, Any]:
     resume(stack)
-    dispatch = active_dispatch(stack)
+    dispatch = cast("RunDispatch", active_dispatch(stack))
     unit = stack.plane.claim_run_unit(claim_command(stack, dispatch, dispatch.unit_ids[0]))
     return dispatch, unit
 

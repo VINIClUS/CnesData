@@ -1,11 +1,16 @@
 """Tests for DashboardRepo."""
 
+from typing import TYPE_CHECKING, cast
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from central_api.repositories.dashboard_repo import DashboardRepo
 from cnes_infra.storage.dim_lookup import upsert_dim_municipio
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 @pytest.fixture
@@ -52,7 +57,7 @@ def test_upsert_user_atualiza_email_e_last_login(
     assert u2.email == "new@m"
     assert u2.display_name == "B"
     assert u2.last_login_at is not None
-    assert u2.last_login_at >= u1.last_login_at
+    assert u2.last_login_at >= cast("datetime", u1.last_login_at)
 
 
 @pytest.mark.postgres

@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from fastapi import HTTPException
 
 from central_api.validation_errors import validation_error
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
 
 
 def test_detail_e_lista_com_loc_msg_type():
@@ -20,7 +24,7 @@ def test_detail_e_lista_com_loc_msg_type():
 
 def test_loc_default_e_body():
     exc = validation_error("sem_loc_explicito")
-    assert exc.detail[0]["loc"] == ["body"]
+    assert cast("list[dict[str, object]]", exc.detail)[0]["loc"] == ["body"]
 
 
 def test_enqueue_rejeita_source_interno_desconhecido():
@@ -31,7 +35,9 @@ def test_enqueue_rejeita_source_interno_desconhecido():
     )
 
     with pytest.raises(HTTPException) as captured:
-        enqueue(request, None, None)
+        enqueue(request, None, cast("Engine", None))
 
     assert captured.value.status_code == 422
-    assert captured.value.detail[0]["loc"] == ["body", "source_type"]
+    assert cast("list[dict[str, object]]", captured.value.detail)[0]["loc"] == [
+        "body", "source_type",
+    ]

@@ -1,6 +1,6 @@
-import pandera as pa
 import polars as pl
 import pytest
+from pandera.errors import SchemaError
 
 from cnes_domain.contracts.schemas import EstabelecimentoContract, ProfissionalContract
 
@@ -49,21 +49,21 @@ def test_profissional_cpf_nulo_nacional_passa():
 
 def test_profissional_coluna_ausente_levanta_schema_error():
     df = _df_prof_valido().drop("CNS")
-    with pytest.raises(pa.errors.SchemaError):
+    with pytest.raises(SchemaError):
         ProfissionalContract.validate(df.to_pandas())
 
 
 def test_profissional_fonte_invalida_levanta_schema_error():
     df = _df_prof_valido().clone()
     df = df.with_columns(pl.lit("DESCONHECIDA").alias("FONTE"))
-    with pytest.raises(pa.errors.SchemaError):
+    with pytest.raises(SchemaError):
         ProfissionalContract.validate(df.to_pandas())
 
 
 def test_profissional_sus_invalido_levanta_schema_error():
     df = _df_prof_valido().clone()
     df = df.with_columns(pl.lit("X").alias("SUS"))
-    with pytest.raises(pa.errors.SchemaError):
+    with pytest.raises(SchemaError):
         ProfissionalContract.validate(df.to_pandas())
 
 
@@ -73,21 +73,21 @@ def test_estabelecimento_valido_passa():
 
 def test_estabelecimento_coluna_ausente_levanta_schema_error():
     df = _df_estab_valido().drop("CNES")
-    with pytest.raises(pa.errors.SchemaError):
+    with pytest.raises(SchemaError):
         EstabelecimentoContract.validate(df.to_pandas())
 
 
 def test_estabelecimento_fonte_invalida_levanta_schema_error():
     df = _df_estab_valido().clone()
     df = df.with_columns(pl.lit("ERRADO").alias("FONTE"))
-    with pytest.raises(pa.errors.SchemaError):
+    with pytest.raises(SchemaError):
         EstabelecimentoContract.validate(df.to_pandas())
 
 
 def test_estabelecimento_vinculo_sus_invalido_levanta_schema_error():
     df = _df_estab_valido().clone()
     df = df.with_columns(pl.lit("Z").alias("VINCULO_SUS"))
-    with pytest.raises(pa.errors.SchemaError):
+    with pytest.raises(SchemaError):
         EstabelecimentoContract.validate(df.to_pandas())
 
 

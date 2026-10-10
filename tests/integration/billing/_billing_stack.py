@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from itertools import count
 from types import ModuleType, SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 import pytest
@@ -71,6 +71,9 @@ from packages.cnes_infra.tests.billing.test_webhook_verifier import (
     construct_event,
 )
 from packages.cnes_infra.tests.contracts.clock import MutableClock
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.ports import QuotaReservationPort, StripeGatewayPort
 
 ENDPOINT = os.getenv("DYNAMODB_ENDPOINT_URL", "http://127.0.0.1:18000")
 REGION = "us-east-1"
@@ -135,7 +138,7 @@ def create_billing_table(client: Any, table_name: str) -> None:
 
 def install_fake_stripe(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Injeta o SDK Stripe simulado em sys.modules."""
-    module = ModuleType("stripe")
+    module: Any = ModuleType("stripe")
     module.StripeError = StripeError
     module.SignatureVerificationError = SignatureVerificationError
     module.Webhook = SimpleNamespace(construct_event=construct_event)
@@ -302,7 +305,7 @@ class FaultyClient:
 
 
 def unavailable_error(operation: str) -> ClientError:
-    response = {"Error": {"Code": "ServiceUnavailable", "Message": "down"}}
+    response: Any = {"Error": {"Code": "ServiceUnavailable", "Message": "down"}}
     return ClientError(response, operation)
 
 
@@ -332,7 +335,7 @@ class BillingStack:
             RecoveryDependencies(
                 inbox=self.inbox,
                 projector=self.projector,
-                stripe=self.stripe,
+                stripe=cast("StripeGatewayPort", self.stripe),
                 cursor=cursor,
                 clock=self.clock.now,
             )
@@ -371,7 +374,7 @@ class BillingStack:
             ProjectorDependencies(
                 inbox=self.inbox,
                 catalog=self.catalog,
-                stripe=self.stripe,
+                stripe=cast("StripeGatewayPort", self.stripe),
                 projection=self.projection,
                 clock=self.clock.now,
             )
@@ -387,7 +390,7 @@ class BillingStack:
         return EntitlementGate(
             EntitlementGateDependencies(
                 projection=self.projection,
-                quotas=self.quotas,
+                quotas=cast("QuotaReservationPort", self.quotas),
                 clock=self.clock.now,
                 run_settings=settings,
             )

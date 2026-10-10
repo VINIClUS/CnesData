@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
 from cnes_contracts.manifests.outputs import OutputManifest, ServingDocument
 from cnes_contracts.manifests.processing import MaterializeResult
-from data_processor.pipeline.materialize_cnes import _render
+from data_processor.pipeline.materialize_cnes import render_serving_document
 from data_processor.sources.sihd.contract import (
     PII_DENY_LIST,
     SERVING_SCHEMA_VERSION,
@@ -18,6 +18,9 @@ from data_processor.sources.sihd.contract import (
 from data_processor.sources.sihd.normalize import persist_verified
 
 if TYPE_CHECKING:
+    from datetime import date
+
+    from cnes_contracts.manifests.outputs import JsonValue
     from cnes_contracts.manifests.processing import MaterializeRequest
     from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
 
@@ -53,9 +56,9 @@ def materialize_sihd(request: MaterializeRequest, store: ObjectStorePort) -> Mat
         tenant_id=request.tenant_id,
         run_id=request.run_id,
         generated_at=request.generated_at,
-        payload=payload,
+        payload=cast("dict[str, JsonValue]", payload),
     )
-    stat = persist_verified(store, target_key, _render(document))
+    stat = persist_verified(store, target_key, render_serving_document(document))
     return MaterializeResult(
         manifests=(_output_manifest(request, target_key, stat),), documents=(document,)
     )
@@ -63,12 +66,12 @@ def materialize_sihd(request: MaterializeRequest, store: ObjectStorePort) -> Mat
 
 def _assert_no_pii(value: object) -> None:
     if isinstance(value, dict):
-        for key, child in value.items():
+        for key, child in cast("dict[str, object]", value).items():
             if key.lower() in _DENIED:
                 raise ValueError(f"pii_field_in_serving field={key}")
             _assert_no_pii(child)
     elif isinstance(value, list):
-        for child in value:
+        for child in cast("list[object]", value):
             _assert_no_pii(child)
 
 
@@ -116,11 +119,11 @@ def _count(kinds: list[str]) -> dict[str, int]:
 
 
 def _bucket(rows: list[Row]) -> dict[str, int]:
-    aihs = {aih for row in rows for aih in row["AIH_IDS"]}
+    aihs = {aih for row in rows for aih in cast("list[object]", row["AIH_IDS"])}
     return {
         "aih_count": len(aihs),
-        "procedimento_qtd": sum(int(row["procedimento_qtd"]) for row in rows),
-        "valor_centavos": sum(int(row["valor_centavos"]) for row in rows),
+        "procedimento_qtd": sum(int(cast("int", row["procedimento_qtd"])) for row in rows),
+        "valor_centavos": sum(int(cast("int", row["valor_centavos"])) for row in rows),
     }
 
 
@@ -133,8 +136,12 @@ def _grouped(rows: list[Row], column: str, label: str) -> list[dict[str, object]
 
 
 def _period(rows: list[Row]) -> dict[str, str | None]:
-    starts = [row["dt_internacao_min"] for row in rows if row["dt_internacao_min"] is not None]
-    ends = [row["dt_saida_max"] for row in rows if row["dt_saida_max"] is not None]
+    starts = [
+        cast("date", row["dt_internacao_min"])
+        for row in rows
+        if row["dt_internacao_min"] is not None
+    ]
+    ends = [cast("date", row["dt_saida_max"]) for row in rows if row["dt_saida_max"] is not None]
     return {
         "dt_internacao_min": min(starts).isoformat() if starts else None,
         "dt_saida_max": max(ends).isoformat() if ends else None,

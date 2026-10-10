@@ -6,9 +6,13 @@ import inspect
 import json
 import logging
 import time
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 AWS_TENANT = "354130"
 AWS_ISSUER = "https://id.example.test"
@@ -228,9 +232,9 @@ def test_aws_stripe_nao_vaza_segredos_em_estado_logs_ou_runtime(
             headers={"Stripe-Signature": "t=1,v1=abc"},
         )
         state_text = "".join(
-            f"{name}={value!r}" for name, value in client.app.state._state.items()
+            f"{name}={value!r}" for name, value in cast("FastAPI", client.app).state._state.items()
         )
-        runtime_text = repr(client.app.state.runtime)
+        runtime_text = repr(cast("FastAPI", client.app).state.runtime)
 
     assert built is not None
     for secret in (SECRET_API, SECRET_WEBHOOK):

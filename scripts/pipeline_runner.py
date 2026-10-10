@@ -5,6 +5,7 @@ import sys
 import threading
 from datetime import date
 from pathlib import Path
+from typing import IO, cast
 
 _MAIN = Path(__file__).parent.parent / "src" / "main.py"
 
@@ -53,7 +54,7 @@ def iniciar_leitor(proc: subprocess.Popen) -> queue.Queue:
     q: queue.Queue = queue.Queue()
 
     def _ler() -> None:
-        for linha in proc.stdout:
+        for linha in cast("IO[str]", proc.stdout):
             q.put(linha)
 
     t = threading.Thread(target=_ler, name="pipeline-leitor", daemon=True)

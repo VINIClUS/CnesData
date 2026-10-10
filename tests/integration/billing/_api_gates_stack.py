@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import boto3
@@ -25,6 +25,7 @@ from central_api.services.billing_gates import ApiBillingGates
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from cnes_domain.billing.models import (
+    BillingEnforcementMode,
     CapacityReservation,
     EntitlementSnapshot,
     QuotaLimits,
@@ -69,6 +70,9 @@ from packages.cnes_infra.tests.contracts.clock import MutableClock
 from tests.integration.billing._enforcement_stack import RawView
 from tests.integration.billing._execution_stack import Case
 
+if TYPE_CHECKING:
+    from packages.cnes_infra.tests.billing.revocation_support import RevEnv
+
 OWNER = "user-owner"
 MANAGER = "manager-1"
 VIEWER = "viewer-1"
@@ -92,9 +96,16 @@ class FaultyClient:
         self._inner = inner
         self.fail_tenant_creation = False
         self.failures = 0
+        self.before_query: Callable[[], None] | None = None
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
+
+    def query(self, **request: Any) -> Any:
+        hook, self.before_query = self.before_query, None
+        if hook is not None:
+            hook()
+        return self._inner.query(**request)
 
     def transact_write_items(self, **request: Any) -> Any:
         if self.fail_tenant_creation and _creates_tenant(request["TransactItems"]):
@@ -260,7 +271,19 @@ def _serving_delivery(stack: ApiStack, redirect: bool) -> serving.ServingDeliver
     return serving.signed_serving_delivery(signed, stack.clock.now)
 
 
-def build_client(stack: ApiStack, redirect: bool = False) -> TestClient:
+def with_enforcement(stack: ApiStack, enforcement: BillingEnforcementMode) -> ApiStack:
+    case = replace(stack.case, enforcement=enforcement)
+    plane = DynamoDBControlPlane(stack.faulty, TABLE_NAME, stack.clock.now, billing=case.settings)
+    resources = BillingGateResources(stack.clock.now, 4, stack.client, TABLE_NAME)
+    gates = api_billing_gates(case.settings, resources)
+    return replace(stack, case=case, plane=plane, gates=gates)
+
+
+def build_client(
+    stack: ApiStack, redirect: bool = False, enforcement: BillingEnforcementMode | None = None,
+) -> TestClient:
+    if enforcement is not None:
+        stack = with_enforcement(stack, enforcement)
     app = FastAPI()
     for module in (raw_jobs, tenants, billing_admin, serving):
         app.include_router(module.router)
@@ -282,13 +305,15 @@ def with_capacity_hook(stack: ApiStack, hook: Callable[[], None]) -> None:
     stack.gates = replace(stack.gates, capacity=InterceptingCapacity(stack.gates.capacity, hook))
 
 
-def create_tenant(client: TestClient, tenant_id: str, key: str = "key-1") -> Any:
+def create_tenant(
+    client: TestClient, tenant_id: str, key: str = "key-1", headers: dict[str, str] | None = None,
+) -> Any:
     body = {"tenant_id": tenant_id, "municipality_name": "Municipio", "idempotency_key": key}
-    return client.post(TENANTS_URL, json=body, headers=user_headers(OWNER))
+    return client.post(TENANTS_URL, json=body, headers=headers or user_headers(OWNER))
 
 
-def capacity_counter(stack: ApiStack, name: str) -> int:
-    item = get_raw(RawView(stack.client, TABLE_NAME), capacity_usage_key(ACCOUNT))
+def capacity_counter(stack: ApiStack, name: str, account: str = ACCOUNT) -> int:
+    item = get_raw(cast("RevEnv", RawView(stack.client, TABLE_NAME)), capacity_usage_key(account))
     return 0 if item is None else int(item.get(name, {"N": "0"})["N"])
 
 
@@ -303,7 +328,7 @@ def stored_keys(stack: ApiStack) -> set[tuple[str, str]]:
 
 def read_snapshot(stack: ApiStack) -> EntitlementSnapshot:
     projection = DynamoEntitlementProjection(stack.client, TABLE_NAME, stack.clock.now)
-    return projection.get_snapshot(ACCOUNT, ReadConsistency.STRONG)
+    return cast("EntitlementSnapshot", projection.get_snapshot(ACCOUNT, ReadConsistency.STRONG))
 
 
 def _put_object(store: FilesystemObjectStore, key: str, body: bytes) -> None:

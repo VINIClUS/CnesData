@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 from cnes_contracts.manifests.raw import RawManifest
 from cnes_domain.control_plane.commands import (
@@ -131,7 +131,7 @@ def _settle_started(
     control_plane: _ControlPlane, executor: ProcessorExecutorPort,
     plan: RunPlan, dispatch: RunDispatch, now: datetime,
 ) -> RunDispatch | None:
-    status = executor.status(dispatch.execution_ref)
+    status = executor.status(cast("str", dispatch.execution_ref))
     if status is ExecutionStatus.RUNNING:
         return dispatch
     control_plane.finish_run_dispatch(FinishRunDispatch(
@@ -180,7 +180,7 @@ def _start_and_bind(
             outcome=DispatchOutcome.CANCELED, finished_at=now,
         ), execution_ref)
         raise
-    return bound.execution_ref
+    return cast("str", bound.execution_ref)
 
 
 def _dispatch_protocol(

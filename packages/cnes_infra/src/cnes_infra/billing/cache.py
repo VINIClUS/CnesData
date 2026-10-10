@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from threading import Lock
+from typing import cast
 
 from cnes_domain.billing.models import EntitlementSnapshot
 from cnes_domain.billing.ports import ClockPort
@@ -154,7 +155,8 @@ def handle_entitlement_changed(change: EntitlementChange, cache: LocalEntitlemen
 
 
 def _validate_ttl(max_ttl_seconds: int) -> None:
-    if isinstance(max_ttl_seconds, bool) or not isinstance(max_ttl_seconds, int):
+    raw_ttl = cast("object", max_ttl_seconds)
+    if isinstance(raw_ttl, bool) or not isinstance(raw_ttl, int):
         raise ValueError("cache_ttl_invalid")
     if max_ttl_seconds <= 0:
         raise ValueError("cache_ttl_invalid")

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -89,7 +89,10 @@ def _semear(store: FilesystemObjectStore, run_id: str) -> _Publicacao:
         row_count=10, created_at=_NOW,
     )
     prefix = unit_attempt_prefix(
-        SimpleNamespace(tenant_id=_TENANT, run_id=run_id, unit_id="unit-m", attempt=1)
+        cast(
+            "RunUnit",
+            SimpleNamespace(tenant_id=_TENANT, run_id=run_id, unit_id="unit-m", attempt=1),
+        )
     )
     source_key = attempt_object_key(prefix, object_key)
     store.put(source_key, BytesIO(body), digest)

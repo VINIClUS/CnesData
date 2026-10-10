@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 
@@ -21,4 +22,4 @@ def test_registra_agente_e_atualiza_fingerprint_sem_reativar_revogado(tmp_path) 
     control.put_agent(rotated.model_copy(update={"state": AgentState.REVOKED}))
     with pytest.raises(Conflict):
         control.register_edge_agent("354130", "agent-1", "c" * 64, NOW)
-    assert control.get_agent("354130", "agent-1").state is AgentState.REVOKED
+    assert cast("Any", control.get_agent("354130", "agent-1")).state is AgentState.REVOKED

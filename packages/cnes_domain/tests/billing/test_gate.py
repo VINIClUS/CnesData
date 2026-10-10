@@ -4,7 +4,7 @@ import inspect
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -433,7 +433,7 @@ def test_spies_satisfazem_os_protocolos_de_porta() -> None:
 def test_protocolo_de_cache_expoe_somente_leitura_por_conta() -> None:
     declared = EntitlementCacheReader.get_latest
     assert tuple(inspect.signature(declared).parameters) == ("self", "billing_account_id")
-    assert declared(_SpyCache(None), _ACCOUNT) is None
+    assert cast("Any", declared)(_SpyCache(None), _ACCOUNT) is None
     assert isinstance(_SpyCache(None), EntitlementCacheReader)
     assert not isinstance(object(), EntitlementCacheReader)
 

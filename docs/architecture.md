@@ -325,7 +325,7 @@ python scripts/fb156_setup.py   # extract FB 1.5.6 client to .cache/
 Single `docker-compose.yml` com 5 profiles:
 
 - **`dev`** — postgres, minio, migrator, central-api, data-processor,
-  web_dashboard, keycloak, pg-seed, minio-init. Portas
+  web_dashboard, keycloak, minio-init. Portas
   5433/9000/9001/8000/5173/8080.
 - **`local`** — central-api-local, data-processor-local, web-dashboard-local.
   SQLite + filesystem, sem Postgres/MinIO/Keycloak/AWS. Volume nomeado

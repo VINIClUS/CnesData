@@ -10,7 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 from re import fullmatch
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Never, Protocol
+from typing import TYPE_CHECKING, Never, Protocol, cast
 
 from datasus_dbc import decompress
 from dbfread import DBF, FieldParser
@@ -18,7 +18,7 @@ from dbfread import DBF, FieldParser
 from cnes_domain.pipeline.circuit_breaker import CircuitBreaker, CircuitBreakerAberto
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping
 
 _HOST = "ftp.datasus.gov.br"
 _ROOT = "/dissemin/publicos/CNES/200508_/Dados/PF"
@@ -176,7 +176,7 @@ def _validate_request(request: DatasusCnesRequest) -> None:
         request.agent_id,
         request.agent_version,
     )
-    if not all(isinstance(value, str) for value in values):
+    if not all(isinstance(cast("object", value), str) for value in values):
         _raise("request_invalid", False)
     valid_tenant = bool(fullmatch(r"[0-9]{6}", request.tenant_id))
     valid_competencia = bool(
@@ -277,7 +277,8 @@ class DatasusCnesFtpTransport:
         modified = ftp.sendcmd(f"MDTM {remote_path}")
         if isinstance(size, bool) or not isinstance(size, int) or size < 0:
             _raise("metadata_invalid", True)
-        if not isinstance(modified, str) or not fullmatch(r"213 [0-9]{14}", modified):
+        raw_modified = cast("object", modified)
+        if not isinstance(raw_modified, str) or not fullmatch(r"213 [0-9]{14}", modified):
             _raise("metadata_invalid", True)
         return _Metadata(size, modified)
 
@@ -334,7 +335,7 @@ class DatasusCnesFtpTransport:
         try:
             layout = tuple(
                 (field.name, field.type, field.length, field.decimal_count)
-                for field in table.fields
+                for field in cast("DBF", table).fields
             )
         except Exception:
             _raise("dbf_invalid", False)
@@ -353,7 +354,7 @@ class DatasusCnesFtpTransport:
         except Exception:
             _raise("dbf_invalid", False)
         finally:
-            _close(iterator)
+            _close(cast("_Closable", iterator))
 
     @staticmethod
     def _municipal_rows(table: object, tenant_id: str) -> Iterator[Mapping[str, object]]:
@@ -369,7 +370,7 @@ class DatasusCnesFtpTransport:
         except Exception:
             _raise("dbf_invalid", False)
         finally:
-            _close(iterator)
+            _close(cast("_Closable", iterator))
         if not found:
             _raise("source_not_published", True)
 
@@ -386,7 +387,7 @@ def _row_text(row: Mapping[str, object], field: str) -> str:
 
 def _table_iterator(table: object) -> Iterator[Mapping[str, object]]:
     try:
-        return iter(table)
+        return iter(cast("Iterable[Mapping[str, object]]", table))
     except Exception:
         _raise("dbf_invalid", False)
 

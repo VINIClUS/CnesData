@@ -3,7 +3,7 @@
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -202,6 +202,7 @@ def test_modo_stripe_repara_companion_nao_vinculado_de_dispatch_iniciado(env: En
 
     assert claim(plane, dispatch) is not None
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     assert (state.execution_dispatch_id, state.execution_ref) == (dispatch.dispatch_id, "exec-1")
 
 
@@ -234,6 +235,7 @@ def test_modo_stripe_nega_claim_com_cancelamento_solicitado(
     start_dispatch(plane, dispatch)
     bind_companion(plane, dispatch)
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     env.client.put_item(
         TableName=TABLE_NAME, Item=encode_run_billing_state(replace(state, cancel_requested=True))
     )
@@ -328,6 +330,7 @@ def test_modo_stripe_aborta_claim_se_companion_muda_antes_da_transacao(env: Env)
     start_dispatch(plane, dispatch)
     bind_companion(plane, dispatch)
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     changed = replace(state, updated_at=NOW + timedelta(seconds=5))
     env.spy.before_transact = lambda: env.client.put_item(
         TableName=TABLE_NAME, Item=encode_run_billing_state(changed)
@@ -341,7 +344,8 @@ def runtime_plane(env: Env, **options: Any) -> DynamoDBControlPlane:
     s3.get_object_lock_configuration.return_value = _LOCKED
     clients = AwsClients(dynamodb=env.client, s3=s3, step_functions=Mock())
     settings = replace(_settings(), control_plane_table=TABLE_NAME)
-    return build_aws_runtime(settings, clients, env.clock.now, **options).control_plane
+    runtime = build_aws_runtime(settings, clients, env.clock.now, **options)
+    return cast("DynamoDBControlPlane", runtime.control_plane)
 
 
 def test_runtime_aws_padrao_nao_exige_companion_no_claim(env: Env) -> None:

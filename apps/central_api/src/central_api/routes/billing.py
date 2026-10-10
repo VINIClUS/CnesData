@@ -2,10 +2,10 @@
 
 import hashlib
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Protocol
+from typing import Annotated, Any, Protocol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -18,6 +18,7 @@ from central_api.routes.billing_checkout import (
     pending_checkout,
     reservation_expiry,
 )
+from central_api.routes.billing_customers import ensure_customer, load_account
 from central_api.routes.billing_errors import mapped_errors
 from central_api.routes.billing_schemas import (
     BillingAccountCreate,
@@ -30,15 +31,15 @@ from central_api.routes.billing_schemas import (
 )
 from central_api.routes.raw_jobs import get_control_plane
 from cnes_domain.billing.commands import (
-    AttachStripeCustomerCommand,
     CheckoutCommand,
     CreateBillingAccountCommand,
-    CreateStripeCustomerCommand,
     HostedSession,
     PortalCommand,
     TransferOwnerCommand,
 )
+from cnes_domain.billing.errors import BillingTenantConflict
 from cnes_domain.billing.models import (
+    BILLING_ADMIN_ROLE,
     BillingAccount,
     BillingAccountStatus,
     BillingAccountTenantLink,
@@ -61,7 +62,7 @@ from cnes_infra.billing.disabled import LOCAL_UNMETERED_PLAN_VERSION_ID
 
 logger = logging.getLogger(__name__)
 
-BILLING_ADMIN_ROLES = frozenset({"gestor"})
+BILLING_ADMIN_ROLES = frozenset({BILLING_ADMIN_ROLE})
 
 _OWNER_REQUIRED = "billing_owner_required"
 _NOT_CONFIGURED = "billing_not_configured"
@@ -72,7 +73,7 @@ class _LocalUnmeteredStatus(Exception):
 
 
 class _BillingRoute(APIRoute):
-    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         handler = super().get_route_handler()
 
         async def wrapped(request: Request) -> Response:
@@ -242,15 +243,8 @@ def require_billing_owner(
     _check_owner(account, principal, authorized_tenant, catalog)
 
 
-def _load_account(catalog: BillingCatalogPort, billing_account_id: str) -> BillingAccount:
-    account = catalog.get_account(billing_account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="billing_account_not_found")
-    return account
-
-
 def _owned_account(ctx: BillingContext, billing_account_id: str) -> BillingAccount:
-    account = _load_account(ctx.catalog, billing_account_id)
+    account = load_account(ctx.catalog, billing_account_id)
     require_billing_owner(account, ctx.principal, ctx.authorized_tenant, ctx.catalog)
     return account
 
@@ -277,15 +271,28 @@ def _create_account(
     return ctx.catalog.create_account(CreateBillingAccountCommand(account, link, id_))
 
 
-def _ensure_customer(
-    ctx: BillingContext, gw: StripeGatewayPort, acc: BillingAccount,
+def _recovered_account(ctx: BillingContext, tenant: AuthorizedTenant) -> BillingAccount | None:
+    link = ctx.catalog.get_tenant_account(tenant.tenant_id, ReadConsistency.STRONG)
+    account = None if link is None else ctx.catalog.get_account(link.billing_account_id)
+    if account is not None:
+        require_billing_owner(account, ctx.principal, tenant, ctx.catalog)
+        logger.info(
+            "billing_account_recovered billing_account_id=%s tenant_id=%s",
+            account.billing_account_id, tenant.tenant_id,
+        )
+    return account
+
+
+def _create_or_recover(
+    ctx: BillingContext, tenant: AuthorizedTenant, id_: str,
 ) -> BillingAccount:
-    if acc.stripe_customer_id is not None:
-        return acc
-    id_ = acc.billing_account_id
-    customer = gw.create_customer(CreateStripeCustomerCommand(id_, id_))
-    command = AttachStripeCustomerCommand(id_, customer.stripe_customer_id, acc.updated_at)
-    return ctx.catalog.attach_customer(command)
+    try:
+        return _create_account(ctx, tenant, id_)
+    except BillingTenantConflict:
+        account = _recovered_account(ctx, tenant)
+        if account is None:
+            raise
+        return account
 
 
 @router.post("/accounts", status_code=201, response_model=BillingAccountOut, dependencies=_ENABLED)
@@ -311,8 +318,11 @@ def create_billing_account(
         if account is not None and account.owner_user_id != owner:
             raise HTTPException(status_code=409, detail="idempotency_conflict")
         if account is None:
-            account = _create_account(ctx, tenant, account_id)
-        account = _ensure_customer(ctx, gateway, account)
+            account = (
+                _create_account(ctx, None, account_id) if tenant is None
+                else _create_or_recover(ctx, tenant, account_id)
+            )
+        account = ensure_customer(ctx.catalog, gateway, account)
     return _dump(BillingAccountOut, account)
 
 
@@ -342,7 +352,7 @@ def transfer_billing_account(
     if tenant is None:
         raise _owner_denied()
     with mapped_errors():
-        account = _load_account(ctx.catalog, billing_account_id)
+        account = load_account(ctx.catalog, billing_account_id)
         if _check_owner(account, ctx.principal, tenant, ctx.catalog) is None:
             _read_link(account, tenant, ctx.catalog)
         _validate_transfer_target(control_plane, tenant.tenant_id, body.new_owner_user_id)

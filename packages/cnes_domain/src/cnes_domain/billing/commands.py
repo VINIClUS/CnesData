@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from cnes_domain.billing.models import (
     BillingAccount,
@@ -52,17 +53,6 @@ class CreateBillingAccountCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class LinkBillingTenantCommand:
-    link: BillingAccountTenantLink
-    expected_account_updated_at: datetime
-    idempotency_key: str
-
-    def __post_init__(self) -> None:
-        require_utc(self.expected_account_updated_at, "expected_account_updated_at")
-        require_id(self.idempotency_key, "idempotency_key")
-
-
-@dataclass(frozen=True, slots=True)
 class TransferOwnerCommand:
     billing_account_id: str
     expected_owner_user_id: str
@@ -102,9 +92,11 @@ class CreateBilledTenantCommand:
     link: BillingAccountTenantLink
     reservation_id: str
     idempotency_key: str
+    creator_issuer: str
 
     def __post_init__(self) -> None:
-        require_fields(self, require_id, ("reservation_id", "idempotency_key"))
+        names = ("reservation_id", "idempotency_key", "creator_issuer")
+        require_fields(self, require_id, names)
         if self.tenant.tenant_id != self.link.tenant_id:
             raise ValueError("reason=tenant_link_mismatch")
 
@@ -187,7 +179,7 @@ class SnapshotWrite:
         require_non_negative(self.expected_version, "expected_version")
         if self.snapshot.entitlement_version != self.expected_version + 1:
             raise ValueError("reason=snapshot_version_not_successor")
-        if not isinstance(self.audit_events, tuple):
+        if not isinstance(cast("object", self.audit_events), tuple):
             raise ValueError("reason=audit_events_not_tuple")
 
 

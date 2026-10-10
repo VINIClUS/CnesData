@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
@@ -13,6 +13,7 @@ from data_processor.sources.sia.contract import read_output, resolve_serving_tar
 from data_processor.sources.sia.reconcile import DIVERGENCE_TYPES, FONTES, KPIS_METADATA_KEY
 
 if TYPE_CHECKING:
+    from cnes_contracts.manifests.outputs import JsonValue
     from cnes_contracts.manifests.processing import MaterializeRequest
     from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
 
@@ -48,7 +49,7 @@ def materialize_sia(request: MaterializeRequest, store: ObjectStorePort) -> Mate
             tenant_id=request.tenant_id,
             run_id=request.run_id,
             generated_at=request.generated_at,
-            payload=payloads[name],
+            payload=cast("dict[str, JsonValue]", payloads[name]),
         )
         for name in sorted(targets)
     )

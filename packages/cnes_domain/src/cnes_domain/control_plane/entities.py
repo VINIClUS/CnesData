@@ -4,9 +4,16 @@ import re
 from copy import deepcopy
 from datetime import datetime, timedelta
 from math import isfinite
-from typing import Literal
+from typing import Literal, cast
 
-from pydantic import BaseModel, ConfigDict, NonNegativeInt, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    NonNegativeInt,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from cnes_domain.control_plane.enums import (
     AccessRequestState,
@@ -20,46 +27,48 @@ from cnes_domain.control_plane.enums import (
 )
 
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
-type _UtcDatetime = datetime
+type UtcDatetime = datetime
 _COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _LOWER_HEX_16 = re.compile(r"^[0-9a-f]{16}$")
 _LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.:-]+$")
-def _require_non_blank(value: str) -> str:
+def require_non_blank(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("blank_value")
     return value
-def _optional_non_blank(value: str | None) -> str | None:
-    return _require_non_blank(value) if value is not None else value
-def _require_key_component(value: str) -> str:
-    _require_non_blank(value)
+def optional_non_blank(value: str | None) -> str | None:
+    return require_non_blank(value) if value is not None else value
+def require_key_component(value: str) -> str:
+    require_non_blank(value)
     if value in {".", ".."} or any(char in value for char in "#/\\"):
         raise ValueError("invalid_key_component")
     return value
-def _require_competencia(value: str) -> str:
+def require_competencia(value: object) -> str:
     if not isinstance(value, str) or not _COMPETENCIA.fullmatch(value):
         raise ValueError("invalid_competencia")
     return value
-def _require_utc(value: datetime) -> datetime:
+def require_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("datetime_not_utc")
     return value
 def _optional_utc(value: datetime | None) -> datetime | None:
-    return _require_utc(value) if value is not None else value
-def _require_sha256(value: str) -> str:
+    return require_utc(value) if value is not None else value
+def require_sha256(value: str) -> str:
     if not _LOWER_HEX_64.fullmatch(value):
         raise ValueError("invalid_sha256")
     return value
-def _optional_sha256(value: str | None) -> str | None:
-    return _require_sha256(value) if value is not None else value
-def _optional_error_code(value: str | None) -> str | None:
+def optional_sha256(value: str | None) -> str | None:
+    return require_sha256(value) if value is not None else value
+def optional_error_code(value: str | None) -> str | None:
     if value is not None and not _ERROR_CODE.fullmatch(value):
         raise ValueError("invalid_error_code")
     return value
-def _require_dispatch_id(value: str, name: str) -> str:
+def require_dispatch_id(value: str, name: str) -> str:
     if not _LOWER_HEX_16.fullmatch(value):
         raise ValueError(f"invalid_{name}")
     return value
+def _optional_key_component(value: str | None) -> str | None:
+    return require_key_component(value) if value is not None else value
 def _require_sidecar_key(value: str) -> str:
     if value.startswith("/") or "//" in value or "\\" in value:
         raise ValueError("invalid_manifest_key")
@@ -78,41 +87,41 @@ def _require_finite_json(value: JsonValue) -> JsonValue:
         for item in value.values():
             _require_finite_json(item)
     return value
-def _unique_non_blank(values: tuple[str, ...], duplicate_message: str) -> tuple[str, ...]:
+def unique_non_blank(values: tuple[str, ...], duplicate_message: str) -> tuple[str, ...]:
     for value in values:
-        _require_non_blank(value)
+        require_non_blank(value)
     if len(set(values)) != len(values):
         raise ValueError(duplicate_message)
     return values
-def _require_unique_refs(refs: tuple[ManifestRef, ...]) -> None:
+def require_unique_refs(refs: tuple[ManifestRef, ...]) -> None:
     ids = {ref.manifest_id for ref in refs}
     keys = {ref.manifest_key for ref in refs}
     if len(ids) != len(refs) or len(keys) != len(refs):
         raise ValueError("duplicate_manifest_ref")
-class _ControlPlaneModel(BaseModel):
+class ControlPlaneModel(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
 
-class Tenant(_ControlPlaneModel):
+class Tenant(ControlPlaneModel):
     tenant_id: str
     municipality_name: str
     created_at: datetime
-    _strings = field_validator("tenant_id", "municipality_name")(_require_non_blank)
-    _created_utc = field_validator("created_at")(_require_utc)
+    _strings = field_validator("tenant_id", "municipality_name")(require_non_blank)
+    _created_utc = field_validator("created_at")(require_utc)
 
 
-class Membership(_ControlPlaneModel):
+class Membership(ControlPlaneModel):
     tenant_id: str
     user_id: str
     role: str
     created_at: datetime
     oidc_issuer: str | None = None
-    _strings = field_validator("tenant_id", "user_id", "role")(_require_non_blank)
-    _oidc_issuer = field_validator("oidc_issuer")(_optional_non_blank)
-    _created_utc = field_validator("created_at")(_require_utc)
+    _strings = field_validator("tenant_id", "user_id", "role")(require_non_blank)
+    _oidc_issuer = field_validator("oidc_issuer")(optional_non_blank)
+    _created_utc = field_validator("created_at")(require_utc)
 
 
-class Agent(_ControlPlaneModel):
+class Agent(ControlPlaneModel):
     tenant_id: str
     agent_id: str
     state: AgentState
@@ -120,12 +129,12 @@ class Agent(_ControlPlaneModel):
     certificate_fingerprint: str
     last_seen_at: datetime | None
     created_at: datetime
-    _strings = field_validator("tenant_id", "agent_id", "version")(_require_non_blank)
-    _fingerprint = field_validator("certificate_fingerprint")(_require_sha256)
+    _strings = field_validator("tenant_id", "agent_id", "version")(require_non_blank)
+    _fingerprint = field_validator("certificate_fingerprint")(require_sha256)
     _datetimes = field_validator("last_seen_at", "created_at")(_optional_utc)
 
 
-class Job(_ControlPlaneModel):
+class Job(ControlPlaneModel):
     tenant_id: str
     job_id: str
     agent_id: str
@@ -144,13 +153,13 @@ class Job(_ControlPlaneModel):
     rejected_manifest_sha256: str | None = None
     created_at: datetime
     _strings = field_validator("tenant_id", "job_id", "agent_id", "source_type", "file_subtype")(
-        _require_key_component
+        require_key_component
     )
-    _competencia_value = field_validator("competencia")(_require_competencia)
+    _competencia_value = field_validator("competencia")(require_competencia)
     _datetimes = field_validator("lease_until", "created_at")(_optional_utc)
-    _optional_ids = field_validator("lease_owner", "result_manifest_id")(_optional_non_blank)
-    _error_value = field_validator("error_code")(_optional_error_code)
-    _rejected_hash = field_validator("rejected_manifest_sha256")(_optional_sha256)
+    _optional_ids = field_validator("lease_owner", "result_manifest_id")(optional_non_blank)
+    _error_value = field_validator("error_code")(optional_error_code)
+    _rejected_hash = field_validator("rejected_manifest_sha256")(optional_sha256)
     @model_validator(mode="after")
     def _validate_consistency(self) -> Job:
         if (self.lease_owner is None) != (self.lease_until is None):
@@ -181,14 +190,14 @@ class Job(_ControlPlaneModel):
             raise ValueError("invalid_result_manifest_key")
 
 
-class RunDependency(_ControlPlaneModel):
+class RunDependency(ControlPlaneModel):
     source_type: str
     file_subtype: str
     required: bool
-    _components = field_validator("source_type", "file_subtype")(_require_key_component)
+    _components = field_validator("source_type", "file_subtype")(require_key_component)
 
 
-class Run(_ControlPlaneModel):
+class Run(ControlPlaneModel):
     tenant_id: str
     run_id: str
     competencia: str
@@ -197,13 +206,13 @@ class Run(_ControlPlaneModel):
     dependencies: tuple[RunDependency, ...]
     missing_sources: tuple[str, ...]
     created_at: datetime
-    _strings = field_validator("tenant_id", "run_id", "dataset_name")(_require_non_blank)
-    _competencia_value = field_validator("competencia")(_require_competencia)
-    _created_utc = field_validator("created_at")(_require_utc)
+    _strings = field_validator("tenant_id", "run_id", "dataset_name")(require_non_blank)
+    _competencia_value = field_validator("competencia")(require_competencia)
+    _created_utc = field_validator("created_at")(require_utc)
     @field_validator("missing_sources")
     @classmethod
     def _missing_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        return _unique_non_blank(values, "duplicate_missing_source")
+        return unique_non_blank(values, "duplicate_missing_source")
 
     @model_validator(mode="after")
     def _dependencies_unique(self) -> Run:
@@ -215,14 +224,14 @@ class Run(_ControlPlaneModel):
         return self
 
 
-class ManifestRef(_ControlPlaneModel):
+class ManifestRef(ControlPlaneModel):
     manifest_id: str
     manifest_key: str
-    _identifier = field_validator("manifest_id")(_require_non_blank)
+    _identifier = field_validator("manifest_id")(require_non_blank)
     _sidecar = field_validator("manifest_key")(_require_sidecar_key)
 
 
-class RawManifestRecord(_ControlPlaneModel):
+class RawManifestRecord(ControlPlaneModel):
     tenant_id: str
     manifest_id: str
     manifest_key: str
@@ -244,15 +253,13 @@ class RawManifestRecord(_ControlPlaneModel):
         "source_type",
         "file_subtype",
         "snapshot_id",
-    )(_require_key_component)
-    _competencia_value = field_validator("competencia")(_require_competencia)
+    )(require_key_component)
+    _competencia_value = field_validator("competencia")(require_competencia)
     _manifest_key_value = field_validator("manifest_key")(_require_sidecar_key)
-    _manifest_hash = field_validator("manifest_sha256")(_require_sha256)
-    _created_utc = field_validator("created_at")(_require_utc)
-    _base_snapshot = field_validator("base_snapshot_id")(
-        lambda value: _require_key_component(value) if value is not None else value
-    )
-    _previous_hash = field_validator("previous_manifest_sha256")(_optional_sha256)
+    _manifest_hash = field_validator("manifest_sha256")(require_sha256)
+    _created_utc = field_validator("created_at")(require_utc)
+    _base_snapshot = field_validator("base_snapshot_id")(_optional_key_component)
+    _previous_hash = field_validator("previous_manifest_sha256")(optional_sha256)
     @model_validator(mode="after")
     def _validate_chain(self) -> RawManifestRecord:
         if self.sequence < 1:
@@ -268,7 +275,7 @@ class RawManifestRecord(_ControlPlaneModel):
         return self
 
 
-class RawResyncState(_ControlPlaneModel):
+class RawResyncState(ControlPlaneModel):
     tenant_id: str
     agent_id: str
     source_type: str
@@ -276,12 +283,12 @@ class RawResyncState(_ControlPlaneModel):
     competencia: str
     required_since: datetime
     _components = field_validator(
-        "tenant_id", "agent_id", "source_type", "file_subtype")(_require_key_component)
-    _competencia_value = field_validator("competencia")(_require_competencia)
-    _required_utc = field_validator("required_since")(_require_utc)
+        "tenant_id", "agent_id", "source_type", "file_subtype")(require_key_component)
+    _competencia_value = field_validator("competencia")(require_competencia)
+    _required_utc = field_validator("required_since")(require_utc)
 
 
-class RunUnit(_ControlPlaneModel):
+class RunUnit(ControlPlaneModel):
     tenant_id: str
     run_id: str
     unit_id: str
@@ -299,23 +306,21 @@ class RunUnit(_ControlPlaneModel):
     dispatch_id: str | None
     output_manifests: tuple[ManifestRef, ...]
     error_code: str | None
-    _strings = field_validator("tenant_id", "run_id", "unit_id", "partition")(_require_non_blank)
-    _optional_components = field_validator("source_type", "file_subtype")(
-        lambda value: _require_key_component(value) if value is not None else value
-    )
-    _lease_owner_value = field_validator("lease_owner")(_optional_non_blank)
+    _strings = field_validator("tenant_id", "run_id", "unit_id", "partition")(require_non_blank)
+    _optional_components = field_validator("source_type", "file_subtype")(_optional_key_component)
+    _lease_owner_value = field_validator("lease_owner")(optional_non_blank)
     _lease_utc = field_validator("lease_until")(_optional_utc)
 
     @field_validator("dispatch_id")
     @classmethod
     def _dispatch_value(cls, value: str | None) -> str | None:
-        return _require_dispatch_id(value, "dispatch_id") if value is not None else value
+        return require_dispatch_id(value, "dispatch_id") if value is not None else value
 
-    _error_value = field_validator("error_code")(_optional_error_code)
+    _error_value = field_validator("error_code")(optional_error_code)
 
     @model_validator(mode="after")
     def _validate_unit(self) -> RunUnit:
-        _unique_non_blank(self.depends_on_unit_ids, "duplicate_dependency_id")
+        unique_non_blank(self.depends_on_unit_ids, "duplicate_dependency_id")
         if self.unit_id in self.depends_on_unit_ids:
             raise ValueError("self_dependency")
         if (self.lease_owner is None) != (self.lease_until is None):
@@ -344,7 +349,7 @@ class RunUnit(_ControlPlaneModel):
 
     def _validate_manifest_refs(self) -> None:
         refs = (*self.input_manifests, *self.output_manifests)
-        _require_unique_refs(refs)
+        require_unique_refs(refs)
 
     def _validate_degraded(self) -> None:
         if self.stage is not RunStage.NORMALIZE or not self.error_code:
@@ -353,7 +358,7 @@ class RunUnit(_ControlPlaneModel):
             raise ValueError("degraded_outputs_forbidden")
 
 
-class RunDispatch(_ControlPlaneModel):
+class RunDispatch(ControlPlaneModel):
     tenant_id: str
     run_id: str
     wave_id: str
@@ -364,13 +369,13 @@ class RunDispatch(_ControlPlaneModel):
     lease_until: datetime
     execution_ref: str | None = None
     terminal_outcome: DispatchOutcome | None = None
-    _strings = field_validator("tenant_id", "run_id")(_require_non_blank)
-    _lease_utc = field_validator("lease_until")(_require_utc)
-    _execution_ref_value = field_validator("execution_ref")(_optional_non_blank)
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
+    _lease_utc = field_validator("lease_until")(require_utc)
+    _execution_ref_value = field_validator("execution_ref")(optional_non_blank)
     @field_validator("wave_id", "dispatch_id")
     @classmethod
-    def _dispatch_ids(cls, value: str, info: object) -> str:
-        return _require_dispatch_id(value, info.field_name)
+    def _dispatch_ids(cls, value: str, info: ValidationInfo) -> str:
+        return require_dispatch_id(value, cast("str", info.field_name))
 
     @model_validator(mode="after")
     def _validate_dispatch(self) -> RunDispatch:
@@ -378,7 +383,7 @@ class RunDispatch(_ControlPlaneModel):
             raise ValueError("generation_positive")
         if not self.unit_ids:
             raise ValueError("unit_ids_required")
-        _unique_non_blank(self.unit_ids, "duplicate_unit_id")
+        unique_non_blank(self.unit_ids, "duplicate_unit_id")
         if self.unit_ids != tuple(sorted(self.unit_ids)):
             raise ValueError("unit_ids_not_ordered")
         if self.state is DispatchState.STARTED and not self.execution_ref:
@@ -392,16 +397,16 @@ class RunDispatch(_ControlPlaneModel):
         return self
 
 
-class DatasetVersion(_ControlPlaneModel):
+class DatasetVersion(ControlPlaneModel):
     tenant_id: str
     dataset_name: str
     version_id: str
     run_id: str
     run_manifest_key: str
     created_at: datetime
-    _components = field_validator("tenant_id", "version_id", "run_id")(_require_key_component)
-    _dataset = field_validator("dataset_name")(_require_non_blank)
-    _created_utc = field_validator("created_at")(_require_utc)
+    _components = field_validator("tenant_id", "version_id", "run_id")(require_key_component)
+    _dataset = field_validator("dataset_name")(require_non_blank)
+    _created_utc = field_validator("created_at")(require_utc)
 
     @model_validator(mode="after")
     def _validate_version(self) -> DatasetVersion:
@@ -416,28 +421,28 @@ class DatasetVersion(_ControlPlaneModel):
         return self
 
 
-class DatasetPointer(_ControlPlaneModel):
+class DatasetPointer(ControlPlaneModel):
     tenant_id: str
     dataset_name: str
     pointer_name: str
     version_id: str
     updated_at: datetime
     _strings = field_validator("tenant_id", "dataset_name", "pointer_name", "version_id")(
-        _require_non_blank
+        require_non_blank
     )
-    _updated_utc = field_validator("updated_at")(_require_utc)
+    _updated_utc = field_validator("updated_at")(require_utc)
 
 
-class AccessRequest(_ControlPlaneModel):
+class AccessRequest(ControlPlaneModel):
     tenant_id: str
     request_id: str
     user_id: str
     state: AccessRequestState
     decided_by: str | None
     decided_at: datetime | None
-    _strings = field_validator("tenant_id", "request_id", "user_id")(_require_non_blank)
+    _strings = field_validator("tenant_id", "request_id", "user_id")(require_non_blank)
 
-    _decided_by_value = field_validator("decided_by")(_optional_non_blank)
+    _decided_by_value = field_validator("decided_by")(optional_non_blank)
     _decided_utc = field_validator("decided_at")(_optional_utc)
 
     @model_validator(mode="after")
@@ -453,7 +458,7 @@ class AccessRequest(_ControlPlaneModel):
         return self
 
 
-class IdempotencyRecord(_ControlPlaneModel):
+class IdempotencyRecord(ControlPlaneModel):
     tenant_id: str
     scope: str
     key: str
@@ -463,10 +468,10 @@ class IdempotencyRecord(_ControlPlaneModel):
     created_at: datetime
     expires_at: datetime
     _strings = field_validator("tenant_id", "scope", "key", "status", "resource_id")(
-        _require_non_blank
+        require_non_blank
     )
-    _request_hash = field_validator("request_hash")(_require_sha256)
-    _datetimes = field_validator("created_at", "expires_at")(_require_utc)
+    _request_hash = field_validator("request_hash")(require_sha256)
+    _datetimes = field_validator("created_at", "expires_at")(require_utc)
 
     @model_validator(mode="after")
     def _validate_expiry(self) -> IdempotencyRecord:
@@ -475,7 +480,7 @@ class IdempotencyRecord(_ControlPlaneModel):
         return self
 
 
-class OutboxEvent(_ControlPlaneModel):
+class OutboxEvent(ControlPlaneModel):
     tenant_id: str
     event_id: str
     event_type: str
@@ -484,7 +489,7 @@ class OutboxEvent(_ControlPlaneModel):
     created_at: datetime
     delivered_at: datetime | None
     _strings = field_validator("tenant_id", "event_id", "event_type", "aggregate_id")(
-        _require_non_blank
+        require_non_blank
     )
     _payload_value = field_validator("payload")(_require_finite_json)
     _datetimes = field_validator("created_at", "delivered_at")(_optional_utc)

@@ -92,6 +92,7 @@ def publish_command(binding_context: object | None = None, token: int = 0) -> Pu
 
 def put_companion(env: RevEnv, **changes: Any) -> None:
     state = env.store.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     env.client.put_item(
         TableName=TABLE_NAME, Item=encode_run_billing_state(replace(state, **changes))
     )
@@ -276,6 +277,7 @@ def test_stripe_sem_reserva_de_orcamento_publica_sem_liquidar(env: RevEnv) -> No
     plane = plane_of(env, STRIPE)
     publishing(env)
     state = env.store.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     put_companion(env, authorization=replace(state.authorization, budget_reservation_id=None))
 
     result = plane.publish_dataset(publish_command(guard()))

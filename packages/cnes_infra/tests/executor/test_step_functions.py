@@ -6,7 +6,7 @@ import copy
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import boto3
@@ -261,7 +261,7 @@ def test_status_mapeia_estado_terminal(service_status: str, expected: ExecutionS
 
 
 def test_rejeita_status_desconhecido() -> None:
-    executor = StepFunctionsExecutor(_DescribeStub("UNKNOWN"), _STATE_MACHINE_ARN)
+    executor = StepFunctionsExecutor(cast("Any", _DescribeStub("UNKNOWN")), _STATE_MACHINE_ARN)
 
     with pytest.raises(ValueError, match="execution_status=UNKNOWN"):
         executor.status(_EXECUTION_ARN)

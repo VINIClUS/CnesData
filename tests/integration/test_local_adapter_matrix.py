@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 import pytest
@@ -17,6 +17,8 @@ from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from cnes_domain.ports.control_plane import ControlPlanePort
 
 NOW = datetime(2026, 9, 6, 12, tzinfo=UTC)
 DELIVERED_AT = NOW + timedelta(seconds=1)
@@ -125,7 +127,9 @@ def test_reabre_adapters_e_conclui_replay_sem_duplicar_efeitos(tmp_path: Path) -
     )
     sink = LocalAuditSink(audit_root, parquet_batch_size=1)
 
-    first = dispatch_once(_InterruptedControlPlane(control_plane), sink, DELIVERED_AT)
+    first = dispatch_once(
+        cast("ControlPlanePort", _InterruptedControlPlane(control_plane)), sink, DELIVERED_AT
+    )
 
     reopened_control_plane = SQLiteControlPlane(database_path, lambda: DELIVERED_AT)
     reopened_control_plane.initialize()

@@ -1,6 +1,6 @@
 import logging
 
-import pandas as pd
+import pandas as pd  # pyright: ignore[reportMissingTypeStubs]
 from sqlalchemy import create_engine
 
 
@@ -8,7 +8,7 @@ def load_from_sql(query: str, connection_string: str) -> pd.DataFrame:
     """Executa consulta SQL e retorna DataFrame."""
     try:
         engine = create_engine(connection_string)
-        df = pd.read_sql(query, engine)
+        df = pd.read_sql(query, engine)  # pyright: ignore[reportUnknownMemberType]
         logging.getLogger(__name__).info(
             "sql_ok rows=%d", len(df),
         )

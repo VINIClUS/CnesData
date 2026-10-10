@@ -6,13 +6,15 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from central_api.services.billing_gates import BillingAccountMissing
 from central_api.services.serving_access import ServingUnavailable
 from cnes_domain.billing.commands import GateRequest
 from cnes_domain.billing.errors import BillingError, EntitlementDenied
-from cnes_domain.billing.models import AccessLevel, BillingAuditEvent
+from cnes_domain.billing.models import AccessLevel, BillingAuditEvent, EntitlementAction
+from cnes_domain.billing.shadow import ShadowObservation
 from cnes_infra.billing.dynamodb_items import deterministic_id
 
 if TYPE_CHECKING:
@@ -80,6 +82,10 @@ class EntitledServingAccess:
         account, decision = self._decide(request)
         if decision.access_level is AccessLevel.READ_ONLY and decision.quota_limit is not None:
             self._require_retention(request, (account, grant), decision.quota_limit)
+        anchor = partial(self._version_created_at, request, grant)
+        self._gates.observer.observe(ShadowObservation(
+            EntitlementAction.SERVING_ACCESS, request.tenant_id, retention_anchor=anchor,
+        ))
         return grant
 
     def _decide(self, request: ServingRequest) -> tuple[str, EntitlementDecision]:
@@ -130,11 +136,17 @@ class EntitledServingAccess:
         self, request: ServingRequest, resolved: tuple[str, ServingGrant], retention_days: int
     ) -> None:
         account, grant = resolved
+        created_at = self._version_created_at(request, grant)
+        if created_at is None:
+            raise _unavailable("serving_version_unavailable")
+        if created_at < self._clock() - timedelta(days=retention_days):
+            denial = _Denial("retention_expired", AccessLevel.READ_ONLY.value)
+            raise self._deny(request, account, denial)
+
+    def _version_created_at(
+        self, request: ServingRequest, grant: ServingGrant,
+    ) -> datetime | None:
         version = self._versions.get_dataset_version(
             grant.tenant_id, request.dataset_name, grant.version_id
         )
-        if version is None:
-            raise _unavailable("serving_version_unavailable")
-        if version.created_at < self._clock() - timedelta(days=retention_days):
-            denial = _Denial("retention_expired", AccessLevel.READ_ONLY.value)
-            raise self._deny(request, account, denial)
+        return None if version is None else version.created_at

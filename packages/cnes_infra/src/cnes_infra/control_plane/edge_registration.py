@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
+
+from botocore.exceptions import ClientError
 
 from cnes_domain.control_plane.entities import Agent, IdempotencyRecord
 from cnes_domain.control_plane.enums import AgentState
@@ -27,10 +29,21 @@ from cnes_infra.control_plane.edge_capacity import (
 from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_model
 
 if TYPE_CHECKING:
+    import sqlite3
+    from collections.abc import Callable
+    from contextlib import AbstractContextManager
     from datetime import datetime
+
+    from cnes_infra.billing.settings import BillingSettings
+    from cnes_infra.control_plane.dynamodb_codec import Action
 
 EDGE_AGENT_SCOPE = "edge_agent.register"
 _IDEMPOTENCY_TTL = timedelta(days=1)
+
+
+def _transaction_conflict(error: ClientError) -> bool:
+    reasons = error.response.get("CancellationReasons") or ()
+    return any(reason.get("Code") == "TransactionConflict" for reason in reasons)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +99,14 @@ def edge_agent(current: Agent | None, tenant_id: str, agent_id: str,
 
 
 class DynamoEdgeRegistrationMixin:
+    if TYPE_CHECKING:
+        _table_name: str
+        _clock: Callable[[], datetime]
+        _billing: BillingSettings
+
+        def _get_item(self, key: tuple[str, str], /) -> Item | None: ...
+        def _transact(self, actions: tuple[Action, ...], /) -> None: ...
+
     def register_edge_agent(
         self, tenant_id: str, agent_id: str, fingerprint: str, now: datetime
     ) -> Agent:
@@ -94,15 +115,48 @@ class DynamoEdgeRegistrationMixin:
             current_item = self._get_item(key)
             current = decode_model(current_item, Agent) if current_item else None
             agent = edge_agent(current, tenant_id, agent_id, fingerprint, now)
-            try:
-                self._transact((put_action(
-                    self._table_name, encode_model(agent, "AGENT", key),
-                    payload(current_item) if current_item else None,
-                ),))
-            except Conflict:
-                continue
-            return agent
+            counted = () if current_item else self._unmetered_agent_actions(tenant_id)
+            put = put_action(
+                self._table_name, encode_model(agent, "AGENT", key),
+                payload(current_item) if current_item else None,
+            )
+            if self._write_agent((put, *counted)):
+                return agent
         raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+
+    def _write_agent(self, actions: tuple[Action, ...]) -> bool:
+        try:
+            self._transact(actions)
+        except Conflict:
+            return False
+        except ClientError as error:
+            if not _transaction_conflict(error):
+                raise
+            return False
+        return True
+
+    def _unmetered_agent_actions(self, tenant_id: str) -> tuple[Action, ...]:
+        from cnes_domain.billing.models import CapacityKind
+        from cnes_domain.profiles import BillingMode
+        from cnes_infra.billing.capacity_counters import (
+            capacity_seeded,
+            linked_agent_actions,
+            log_not_seeded,
+            unlinked_agent_actions,
+        )
+        from cnes_infra.billing.dynamodb_items import decode_tenant_account
+        from cnes_infra.billing.keys import capacity_usage_key, tenant_account_key
+
+        if self._billing.mode is not BillingMode.STRIPE or self._billing.enforced:
+            return ()
+        link = self._get_item(tenant_account_key(tenant_id))
+        if link is None:
+            return unlinked_agent_actions(self._table_name, tenant_id)
+        account = decode_tenant_account(link, tenant_id)
+        if not capacity_seeded(self._get_item(capacity_usage_key(account))):
+            log_not_seeded(account, CapacityKind.AGENT.value)
+            return ()
+        return linked_agent_actions(self._table_name, account, link)
 
     def create_edge_agent(self, command: NewEdgeAgent) -> EdgeAgentCreation:
         """Cria o agente novo e o registro de idempotência da reserva.
@@ -141,12 +195,12 @@ class DynamoEdgeRegistrationMixin:
         from cnes_domain.billing.errors import RetryableBillingError
         from cnes_infra.billing.keys import capacity_reservation_key
 
-        fence = command.fence
+        fence = cast("EntitlementFence", command.fence)
         item = self._get_item(capacity_reservation_key(fence.billing_account_id,
                                                        command.reservation_id))
         if not usable_agent_reservation(item, command, now):
             raise RetryableBillingError(RESERVATION_EXPIRED)
-        return item
+        return cast("Item", item)
 
     def _creation_item(self, command: NewEdgeAgent) -> Item:
         record = _creation_record(command)
@@ -190,6 +244,12 @@ class DynamoEdgeRegistrationMixin:
 
 
 class SQLiteEdgeRegistrationMixin:
+    if TYPE_CHECKING:
+        def write_transaction(self) -> AbstractContextManager[sqlite3.Connection]: ...
+        def get_agent_record(
+            self, connection: sqlite3.Connection, tenant_id: str, agent_id: str
+        ) -> Agent | None: ...
+
     def register_edge_agent(
         self, tenant_id: str, agent_id: str, fingerprint: str, now: datetime
     ) -> Agent:

@@ -12,21 +12,35 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from cnes_domain.billing.errors import QuotaExceeded
+from cnes_domain.billing.errors import QuotaExceeded, RetryableBillingError
 from cnes_domain.billing.models import (
     AnalyticsAuthorization,
+    BillingEnforcementMode,
     CapacityKind,
     CapacityReservation,
     RunAuthorization,
 )
+from cnes_domain.profiles import BillingMode
+from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME, create_table
+from cnes_infra.billing.keys import pending_capacity_key
+from cnes_infra.billing.settings import BillingSettings
+from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
+from packages.cnes_infra.tests.billing.billing_factories import (
+    NOW,
+    TABLE_NAME,
+    create_table,
+    make_create_command,
+    put_tenant,
+)
 from packages.cnes_infra.tests.billing.quota_support import (
     ACCOUNT,
+    TENANT,
     make_analytics_command,
     make_capacity_command,
     make_quota_snapshot,
     make_reserve_command,
+    seed_capacity,
     seed_snapshot,
     table_items,
 )
@@ -64,6 +78,7 @@ def _env(snapshot: Any) -> Iterator[_Env]:
         client = _AtomicClient(boto3.client("dynamodb", region_name="us-east-1"))
         create_table(client)
         seed_snapshot(client, snapshot)
+        seed_capacity(client)
         yield _Env(client, DynamoQuotaReservations(client, TABLE_NAME, MutableClock(NOW).now))
 
 
@@ -211,3 +226,83 @@ def test_mesma_chave_concorrente_reserva_uma_vez(executor, contenders):
     assert consumed == 1
     assert len(reservations) == 1
     assert outcomes[0].billing_account_id == ACCOUNT
+
+
+_SHADOW = BillingSettings(BillingMode.STRIPE, BillingEnforcementMode.SHADOW, 0)
+
+
+def _shadow_plane(env: _Env) -> DynamoDBControlPlane:
+    return DynamoDBControlPlane(env.client, TABLE_NAME, MutableClock(NOW).now, _SHADOW)
+
+
+@contextmanager
+def _account_env(linked: bool) -> Iterator[_Env]:
+    with mock_aws():
+        client = _AtomicClient(boto3.client("dynamodb", region_name="us-east-1"))
+        create_table(client)
+        seed_snapshot(client, make_quota_snapshot())
+        put_tenant(client, TENANT)
+        env = _Env(client, DynamoQuotaReservations(client, TABLE_NAME, MutableClock(NOW).now))
+        if linked:
+            _create_account(env)
+        yield env
+
+
+def _create_account(env: _Env) -> Any:
+    catalog = DynamoBillingCatalog(env.client, TABLE_NAME, MutableClock(NOW).now)
+    for _ in range(20):
+        try:
+            return catalog.create_account(make_create_command(ACCOUNT, TENANT))
+        except RetryableBillingError:
+            continue
+    raise AssertionError("create_account_never_won")
+
+
+@pytest.mark.parametrize("contenders", [2, 4])
+def test_shadow_e_enforce_somam_no_mesmo_contador(executor, contenders):
+    with _account_env(linked=True) as env:
+        plane = _shadow_plane(env)
+        shadow = [
+            lambda i=i: plane.register_edge_agent(TENANT, f"shadow-{i}", "a" * 64, NOW)
+            for i in range(contenders)
+        ]
+        enforce = [
+            lambda i=i: env.repo.reserve_capacity(make_capacity_command(
+                limit=None, resource_id=f"enf-{i}", idempotency_key=f"cap-{i}",
+            ))
+            for i in range(contenders)
+        ]
+        outcomes = _outcomes(executor, [*shadow, *enforce])
+        reserved = [item for item in outcomes if isinstance(item, CapacityReservation)]
+        agent_count = _counter(env.client, "CAPACITY", "agent_count")
+    assert len(reserved) == contenders
+    assert agent_count == 2 * contenders
+
+
+@pytest.mark.parametrize("contenders", [2, 8])
+def test_mesmo_agente_novo_registrado_em_paralelo_conta_uma_vez(executor, contenders):
+    with _account_env(linked=True) as env:
+        plane = _shadow_plane(env)
+        calls = [lambda: plane.register_edge_agent(TENANT, "agent-1", "a" * 64, NOW)]
+        outcomes = _outcomes(executor, calls * contenders)
+        agent_count = _counter(env.client, "CAPACITY", "agent_count")
+    assert {outcome.agent_id for outcome in outcomes} == {"agent-1"}
+    assert agent_count == 1
+
+
+@pytest.mark.parametrize("contenders", [2, 7])
+def test_criacao_da_conta_e_agentes_sem_conta_nao_perdem_contagem(executor, contenders):
+    with _account_env(linked=False) as env:
+        plane = _shadow_plane(env)
+        agents = [
+            lambda i=i: plane.register_edge_agent(TENANT, f"agent-{i}", "a" * 64, NOW)
+            for i in range(contenders)
+        ]
+        _outcomes(executor, [lambda: _create_account(env), *agents])
+        agent_count = _counter(env.client, "CAPACITY", "agent_count")
+        tenant_count = _counter(env.client, "CAPACITY", "tenant_count")
+        pending = [item for item in table_items(env.client)
+                   if (item["pk"]["S"], item["sk"]["S"]) == pending_capacity_key(TENANT)]
+    assert agent_count == contenders
+    assert tenant_count == 1
+    assert pending == []

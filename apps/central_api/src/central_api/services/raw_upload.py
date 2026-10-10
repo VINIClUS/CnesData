@@ -7,7 +7,7 @@ from asyncio import to_thread
 from dataclasses import dataclass
 from hashlib import sha256
 from tempfile import SpooledTemporaryFile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO, cast
 
 from cnes_domain.control_plane.enums import JobState
 from cnes_domain.control_plane.errors import Conflict
@@ -111,7 +111,8 @@ class RawUploadService:
             current = await to_thread(self._validate_request, request)
             self._validate_state(current, False)
             try:
-                return await to_thread(self._object_store.put, request.object_key, spool, digest)
+                body = cast("BinaryIO", spool)
+                return await to_thread(self._object_store.put, request.object_key, body, digest)
             except Conflict:
                 return await self._resolve_publish_race(request, digest, size)
         finally:
@@ -143,7 +144,9 @@ class RawUploadService:
             raise RawUploadLeaseRejected("job_lease_expired")
 
     @staticmethod
-    async def _spool(stream: AsyncIterable[bytes], spool) -> tuple[str, int]:
+    async def _spool(
+        stream: AsyncIterable[bytes], spool: SpooledTemporaryFile[bytes],
+    ) -> tuple[str, int]:
         digest = sha256()
         size = 0
         async for chunk in stream:

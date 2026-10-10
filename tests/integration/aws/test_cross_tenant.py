@@ -1,7 +1,7 @@
 """Negação cross-tenant do serving AWS composto: membership antes de qualquer assinatura."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from fastapi.testclient import TestClient
     from httpx import Response
 
+    from central_api.composition import AwsApiServices
     from tests.integration.aws._harness import AwsTestRuntime
 
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]
@@ -56,7 +57,7 @@ def test_request_nao_assina_raw_normalized_reconciliation_ou_audit(
 ) -> None:
     seed_membership(aws_runtime, "tenant-a", "user-a")
     publish_version(aws_runtime, "run-a", tenant_id="tenant-a")
-    access = aws_runtime.api.services.serving_access
+    access = cast("AwsApiServices", aws_runtime.api.services).serving_access
 
     for relative_name in _FORBIDDEN_NAMES:
         request = serving_request("user-a", "tenant-a", relative_name)

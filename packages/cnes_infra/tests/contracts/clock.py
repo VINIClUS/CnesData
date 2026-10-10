@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
-from typing import Any
+from typing import Any, cast
 
 from cnes_domain.control_plane.commands import (
     ClaimJob,
@@ -440,7 +440,7 @@ class _HarnessState:
         return tuple(sorted(values, key=lambda item: item.unit_id))
 
     def get_dataset_version(self, *args: str) -> Any | None:
-        return self.versions.get(tuple(args))
+        return self.versions.get(cast("tuple[str, str, str]", tuple(args)))
 
     def get_dataset_pointer(self, tenant_id: str, dataset_name: str) -> Any | None:
         return self.pointers.get((tenant_id, dataset_name, "current"))
@@ -467,7 +467,7 @@ class _HarnessState:
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> Any | None:
         dispatch = self.dispatches.get((tenant_id, run_id))
         active = dispatch and dispatch.state.value != "TERMINAL"
-        return dispatch if active and dispatch.lease_until > self.clock.now() else None
+        return dispatch if active and cast("Any", dispatch).lease_until > self.clock.now() else None
 
     @staticmethod
     def _select_raw_chain(records: list[Any]) -> list[Any]:

@@ -2,7 +2,7 @@
 
 from collections.abc import Iterator
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -49,13 +49,14 @@ def env() -> Iterator[Env]:
 
 def overwrite(env: Env, plane: DynamoDBControlPlane, **changes: Any) -> None:
     state = plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     env.client.put_item(
         TableName=TABLE_NAME, Item=encode_run_billing_state(replace(state, **changes))
     )
 
 
 def bind_other_dispatch(env: Env, plane: DynamoDBControlPlane) -> None:
-    if plane.get_run_billing_state(TENANT, "run-01").execution_generation == 0:
+    if cast("Any", plane.get_run_billing_state(TENANT, "run-01")).execution_generation == 0:
         plane.bind_run_execution(binding(dispatch_id=OTHER_DISPATCH, wave_id="d" * 16))
     else:
         overwrite(env, plane, execution_dispatch_id=OTHER_DISPATCH)
@@ -91,7 +92,8 @@ def event() -> OutboxEvent:
 def commit(plane: DynamoDBControlPlane, unit: RunUnit) -> RunUnit:
     return plane.commit_run_unit(
         CommitRunUnit(
-            tenant_id=TENANT, run_id="run-01", unit_id=UNIT_ID, dispatch_id=unit.dispatch_id,
+            tenant_id=TENANT, run_id="run-01", unit_id=UNIT_ID,
+            dispatch_id=cast("str", unit.dispatch_id),
             owner="worker-a", fencing_token=unit.fencing_token, output_manifests=(OUTPUT,),
         ),
         event(),
@@ -101,7 +103,8 @@ def commit(plane: DynamoDBControlPlane, unit: RunUnit) -> RunUnit:
 def fail(plane: DynamoDBControlPlane, unit: RunUnit) -> RunUnit:
     return plane.fail_run_unit(
         FailRunUnit(
-            tenant_id=TENANT, run_id="run-01", unit_id=UNIT_ID, dispatch_id=unit.dispatch_id,
+            tenant_id=TENANT, run_id="run-01", unit_id=UNIT_ID,
+            dispatch_id=cast("str", unit.dispatch_id),
             owner="worker-a", fencing_token=unit.fencing_token, error_code="boom",
             retryable=True,
         ),

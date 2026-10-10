@@ -6,7 +6,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 import pytest
@@ -17,6 +17,9 @@ from cnes_domain.control_plane.enums import JobState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
 
+if TYPE_CHECKING:
+    from cnes_domain.ports.control_plane import ControlPlanePort
+
 NOW = datetime(2026, 9, 6, 12, tzinfo=UTC)
 DELIVERED_AT = NOW + timedelta(seconds=1)
 TABLE_NAME = "cnesdata-control-plane"
@@ -26,7 +29,7 @@ AUDIT_BUCKET = "cnesdata-audit-test"
 
 def _client(service: str, endpoint: str) -> Any:
     return boto3.client(
-        service,
+        cast("Any", service),
         endpoint_url=endpoint,
         region_name="us-east-1",
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "test"),
@@ -131,7 +134,9 @@ def test_replay_integrado_preserva_objetos_e_evidencia_de_retencao() -> None:
     published = _publish_object(S3ObjectStore(s3, OBJECT_BUCKET))
 
     sink = S3ObjectLockAuditSink(s3, AUDIT_BUCKET, retention_days=30)
-    first = dispatch_once(_InterruptedControlPlane(control_plane), sink, DELIVERED_AT)
+    first = dispatch_once(
+        cast("ControlPlanePort", _InterruptedControlPlane(control_plane)), sink, DELIVERED_AT
+    )
     keys_after_interruption = _audit_keys(s3)
 
     reopened_control_plane = DynamoDBControlPlane(dynamodb, TABLE_NAME, lambda: DELIVERED_AT)

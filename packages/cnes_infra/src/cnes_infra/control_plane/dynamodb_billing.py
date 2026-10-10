@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
 from time import sleep
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_domain.billing.execution import RunExecutionBindingCommand
@@ -65,14 +65,14 @@ def authorized_run_records(command: AuthorizedRunCommand, now: datetime) -> Auth
     """Monta Run canônico, companion, idempotência e evento de um run autorizado."""
     from cnes_infra.billing.dynamodb_items import deterministic_id
     from cnes_infra.billing.dynamodb_quota import (
-        _canonical_run,
-        _idempotency_record,
-        _run_billing_state,
+        canonical_run,
+        idempotency_record,
+        run_billing_state,
     )
     from cnes_infra.billing.dynamodb_quota_items import RUN_SCOPE
 
     request, authorization = command.request, command.authorization
-    run = _canonical_run(request, now)
+    run = canonical_run(request, now)
     identity = (request.tenant_id, RUN_SCOPE, request.idempotency_key)
     event = OutboxEvent(
         tenant_id=request.tenant_id,
@@ -90,8 +90,8 @@ def authorized_run_records(command: AuthorizedRunCommand, now: datetime) -> Auth
     )
     return AuthorizedRunRecords(
         run=run,
-        state=_run_billing_state(request, authorization, now),
-        idempotency=_idempotency_record(identity, request.request_hash, run.run_id, now),
+        state=run_billing_state(request, authorization, now),
+        idempotency=idempotency_record(identity, request.request_hash, run.run_id, now),
         event=event,
     )
 
@@ -206,9 +206,10 @@ class DynamoBillingMixin(DynamoBillingFencesMixin):
             state = None if item is None else decode_run_billing_state(item)
             updated = apply_execution_binding(state, command)
             if updated is state:
-                return state
+                return updated
             encoded = encode_run_billing_state(updated)
-            if transact(self._client, (put_action(self._table_name, encoded, payload(item)),)):
+            expected = payload(cast("Item", item))
+            if transact(self._client, (put_action(self._table_name, encoded, expected),)):
                 return updated
         raise RetryableBillingError("run_execution_contended")
 
@@ -259,10 +260,11 @@ class DynamoBillingMixin(DynamoBillingFencesMixin):
         except RetryableBillingError:
             return ClaimDeferred.BIND_PENDING
         item = self._billing_item(dispatch.tenant_id, dispatch.run_id)
-        repaired = decode_run_billing_state(item)
+        repaired_item = cast("Item", item)
+        repaired = decode_run_billing_state(repaired_item)
         if repaired.cancel_requested or _binding_verdict(repaired, dispatch) is not True:
             return None
-        return [check_action(self._table_name, item)]
+        return [check_action(self._table_name, repaired_item)]
 
     def list_revocable_runs(
         self, billing_account_id: str, limit: int, cursor: str | None
@@ -306,7 +308,7 @@ def _repair_command(
         wave_id=dispatch.wave_id,
         dispatch_id=dispatch.dispatch_id,
         generation=dispatch.generation,
-        execution_ref=dispatch.execution_ref,
+        execution_ref=cast("str", dispatch.execution_ref),
         unit_ids=dispatch.unit_ids,
         expected_previous_dispatch_id=None if first else state.execution_dispatch_id,
         expected_previous_execution_ref=None if first else state.execution_ref,

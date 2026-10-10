@@ -2,8 +2,16 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from polars._typing import ColumnNameOrSelector, PolarsDataType
+
+    type _CastSchema = Mapping[ColumnNameOrSelector | PolarsDataType, PolarsDataType]
 
 RAW_ROW_KEY = ("prd_uid", "prd_cmp", "prd_flh", "prd_seq")
 RAW_STRING_COLUMNS = (
@@ -115,7 +123,7 @@ def quality_issues(frame: pl.DataFrame, file_subtype: str, competencia: str) -> 
         )
         for field, code, column, invalid in _rules(file_subtype, competencia)
     ]
-    issues = pl.concat(parts, how="vertical").cast(QUALITY_SCHEMA)
+    issues = pl.concat(parts, how="vertical").cast(cast("_CastSchema", QUALITY_SCHEMA))
     return issues.sort(["source_record_id", "field", "code"])
 
 
@@ -148,7 +156,7 @@ def canonicalize(frame: pl.DataFrame, file_subtype: str, competencia: str,
         pl.when(_valid_quantity()).then(pl.col(RAW_QUANTITY_COLUMN)).alias("quantidade"),
         _matches("prd_cnsmed", _CNS).alias("tem_cns_profissional"),
         (~pl.col("source_record_id").is_in(invalid_ids.implode())).alias("valido"),
-    ).cast(NORMALIZED_SCHEMA)
+    ).cast(cast("_CastSchema", NORMALIZED_SCHEMA))
 
 
 def _digest(seed: str) -> str:

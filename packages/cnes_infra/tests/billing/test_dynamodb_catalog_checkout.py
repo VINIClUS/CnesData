@@ -114,6 +114,7 @@ def test_reserva_checkout_pendente_grava_item_com_ttl() -> None:
             ReservePendingCheckoutCommand(ACCOUNT, KEY_A, expires)
         )
         item = get_stored(client, KEY)
+        assert item is not None
     assert (pending.request_key, pending.reserved_at, pending.expires_at) == (KEY_A, NOW, expires)
     assert pending.replayed is False
     assert item == {
@@ -135,6 +136,7 @@ def test_replay_com_mesma_chave_proximo_da_expiracao_estende_a_reserva() -> None
         extended_to = clock.now() + TTL
         replay = catalog.reserve_pending_checkout(reserve_until(extended_to))
         item = get_stored(client, KEY)
+        assert item is not None
     assert (replay.reserved_at, replay.expires_at) == (first.reserved_at, extended_to)
     assert replay.replayed is True
     assert item["reserved_at"] == {"S": utc_attribute(NOW)}
@@ -247,6 +249,7 @@ def test_reserva_com_outra_chave_apos_expirar_substitui() -> None:
         clock.advance(TTL)
         pending = catalog.reserve_pending_checkout(reserve(KEY_B, TTL * 2))
         item = get_stored(client, KEY)
+        assert item is not None
     assert pending.request_key == KEY_B
     assert pending.reserved_at == NOW + TTL
     assert item["request_key"] == {"S": KEY_B}

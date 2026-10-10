@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cnes_domain.control_plane.entities import RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import (
@@ -38,6 +38,8 @@ from cnes_infra.control_plane.sqlite_schema import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from cnes_domain.control_plane.commands import (
         BindRunDispatch,
         CancelJob,
@@ -253,7 +255,7 @@ def _put_dispatch(connection: Any, dispatch: RunDispatch) -> None:
     )
 def _has_live_unit_lease(connection: Any, command: Any, dispatch: RunDispatch | None) -> bool:
     units = _list_run_units(connection, command.tenant_id, command.run_id)
-    affected = set(command.unit_ids) | (set(dispatch.unit_ids) if dispatch else set())
+    affected: set[str] = set(command.unit_ids) | (set(dispatch.unit_ids) if dispatch else set())
     return any(
         unit.unit_id in affected
         and unit.state is RunUnitState.LEASED
@@ -275,11 +277,12 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
         same_wave = current is not None and current.wave_id == command.wave_id
         replay = (
             same_wave
-            and current.lease_until > command.now
-            and current.state in {DispatchState.RESERVED, DispatchState.STARTED}
+            and cast("RunDispatch", current).lease_until > command.now
+            and cast("RunDispatch", current).state
+            in {DispatchState.RESERVED, DispatchState.STARTED}
         )
         if replay:
-            return current
+            return cast("RunDispatch", current)
         live = current and current.state is not DispatchState.TERMINAL
         lease_live = current is not None and current.lease_until > command.now
         if _has_live_unit_lease(connection, command, current) or (live and lease_live):
@@ -373,9 +376,11 @@ def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:
         invalid = invalid or not store.unit_companion_allows(connection, *ids)
         if invalid or not valid_dispatch:
             return None
+        unit = cast("RunUnit", unit)
         claimable = unit.state in {RunUnitState.PENDING, RunUnitState.FAILED_RETRYABLE}
         claimable |= unit.state is RunUnitState.LEASED and (
-            unit.dispatch_id != command.dispatch_id or unit.lease_until <= command.now
+            unit.dispatch_id != command.dispatch_id
+            or cast("datetime", unit.lease_until) <= command.now
         )
         if not claimable:
             return None

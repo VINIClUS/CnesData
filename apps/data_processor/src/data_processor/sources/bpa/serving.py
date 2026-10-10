@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
@@ -18,6 +18,7 @@ from data_processor.sources.bpa.contract import (
 )
 
 if TYPE_CHECKING:
+    from cnes_contracts.manifests.outputs import JsonValue
     from cnes_contracts.manifests.processing import MaterializeRequest
     from cnes_domain.ports.object_store import ObjectStorePort
 
@@ -54,7 +55,8 @@ def materialize_bpa(request: MaterializeRequest, store: ObjectStorePort) -> Mate
     for name in sorted(payloads):
         document = ServingDocument(
             schema_version=_SCHEMA_VERSION, document_name=name, tenant_id=request.tenant_id,
-            run_id=request.run_id, generated_at=request.generated_at, payload=payloads[name],
+            run_id=request.run_id, generated_at=request.generated_at,
+            payload=cast("dict[str, JsonValue]", payloads[name]),
         )
         manifests.append(_write(store, request, keys[name], document))
         documents.append(document)

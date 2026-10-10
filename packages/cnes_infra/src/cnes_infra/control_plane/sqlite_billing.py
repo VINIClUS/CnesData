@@ -24,6 +24,8 @@ from cnes_infra.control_plane.sqlite_schema import deserialize_model, serialize_
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Callable
+    from contextlib import AbstractContextManager
     from datetime import datetime
 
     from cnes_domain.billing.commands import (
@@ -58,6 +60,19 @@ def _dump_state(state: RunBillingState) -> str:
 
 
 class SQLiteBillingMixin:
+    if TYPE_CHECKING:
+        _clock: Callable[[], datetime]
+
+        def read_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
+        def write_transaction(self) -> AbstractContextManager[sqlite3.Connection]: ...
+        def get_run_record(
+            self, connection: sqlite3.Connection, tenant_id: str, run_id: str
+        ) -> Run | None: ...
+        def put_run_record(self, connection: sqlite3.Connection, run: Run) -> None: ...
+        def put_outbox_event(
+            self, connection: sqlite3.Connection, event: OutboxEvent, tenant_id: str,
+        ) -> None: ...
+
     def reserve_and_create_run(self, command: ReserveRunCommand) -> RunAuthorization:
         """Indisponível: o SQLite opera apenas com billing desabilitado."""
         raise BillingDisabledError("billing_mode=disabled operation=reserve_and_create_run")

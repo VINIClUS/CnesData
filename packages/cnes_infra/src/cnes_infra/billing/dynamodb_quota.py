@@ -104,7 +104,8 @@ def _run_authorization(command: ReserveRunCommand, now: datetime) -> RunAuthoriz
     )
 
 
-def _canonical_run(request: CreateRunRequest, now: datetime) -> Run:
+def canonical_run(request: CreateRunRequest, now: datetime) -> Run:
+    """Monta o Run canônico da solicitação."""
     missing = sorted(
         f"{item.source_type}/{item.file_subtype}" for item in request.dependencies if item.required
     )
@@ -138,9 +139,10 @@ def _run_reservation(command: ReserveRunCommand, now: datetime) -> QuotaReservat
     )
 
 
-def _run_billing_state(
+def run_billing_state(
     request: CreateRunRequest, authorization: RunAuthorization, now: datetime
 ) -> RunBillingState:
+    """Monta o companion de billing inicial do Run."""
     return RunBillingState(
         billing_account_id=request.billing_account_id,
         tenant_id=request.tenant_id,
@@ -164,17 +166,18 @@ def _run_plan(command: ReserveRunCommand, now: datetime, expired: Item | None) -
     return _RunPlan(
         command,
         authorization,
-        _canonical_run(command.request, now),
+        canonical_run(command.request, now),
         _run_reservation(command, now),
-        _run_billing_state(command.request, authorization, now),
+        run_billing_state(command.request, authorization, now),
         now,
         expired,
     )
 
 
-def _idempotency_record(
+def idempotency_record(
     identity: tuple[str, str, str], request_hash: str, resource_id: str, now: datetime
 ) -> IdempotencyRecord:
+    """Monta o registro de idempotência concluído."""
     return IdempotencyRecord(
         tenant_id=identity[0],
         scope=identity[1],
@@ -210,7 +213,7 @@ def _run_actions(table: str, plan: _RunPlan) -> tuple[Action, ...]:
     estimate = request.estimated_scan_bytes
     guard = None if max_runs is None else UsageGuard(CONSUMED_RUNS, max_runs - 1)
     identity = (request.tenant_id, RUN_SCOPE, request.idempotency_key)
-    record = _idempotency_record(identity, request.request_hash, run.run_id, now)
+    record = idempotency_record(identity, request.request_hash, run.run_id, now)
     extra = {"run_id": run.run_id, "entitlement_version": snapshot.entitlement_version}
     dependencies = run_dependency_actions(table, run, RUN_FIXED_ACTIONS)
     return (
@@ -247,8 +250,8 @@ def _analytics_actions(
     scan = scan_attributes(ReservationKind.ANALYTICS)
     guard = None if budget is None else UsageGuard(scan.committed, budget - estimate)
     identity = (request.tenant_id, ANALYTICS_SCOPE, request.idempotency_key)
-    record = _idempotency_record(identity, request.request_hash, command.reservation_id, now)
-    extra = {"query_id": request.query_id}
+    record = idempotency_record(identity, request.request_hash, command.reservation_id, now)
+    extra: dict[str, str | int] = {"query_id": request.query_id}
     expected = SnapshotExpectation(
         account, snapshot.entitlement_version, snapshot.subscription_status
     )

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
         FailJob,
         RenewJobLease,
     )
-    from cnes_domain.control_plane.entities import Job
+    from cnes_domain.control_plane.entities import Job, JsonValue
     from cnes_domain.ports.control_plane import ControlPlanePort
 
 DEFAULT_MAX_ATTEMPTS = 5
@@ -115,7 +115,9 @@ class JobLifecycle:
             return command
         return command.model_validate(command.model_dump() | {"retryable": False})
 
-    def _event(self, command: _JobCommand, event_type: str, payload: dict) -> OutboxEvent:
+    def _event(
+        self, command: _JobCommand, event_type: str, payload: dict[str, JsonValue],
+    ) -> OutboxEvent:
         job_id = command.job_id
         event_id = _event_id(event_type, command.tenant_id, job_id, payload)
         return OutboxEvent(
@@ -134,7 +136,7 @@ def _validate_error_code(error_code: str) -> None:
         raise ValueError("invalid_error_code")
 
 
-def _claim_payload(job: Job) -> dict:
+def _claim_payload(job: Job) -> dict[str, JsonValue]:
     return {
         "agent_id": job.lease_owner,
         "attempt": job.attempt,
@@ -142,11 +144,11 @@ def _claim_payload(job: Job) -> dict:
     }
 
 
-def _lease_payload(job: Job) -> dict:
+def _lease_payload(job: Job) -> dict[str, JsonValue]:
     return {"agent_id": job.lease_owner, "fencing_token": job.fencing_token}
 
 
-def _complete_payload(command: CompleteJob) -> dict:
+def _complete_payload(command: CompleteJob) -> dict[str, JsonValue]:
     return {
         "agent_id": command.owner,
         "fencing_token": command.fencing_token,
@@ -154,7 +156,7 @@ def _complete_payload(command: CompleteJob) -> dict:
     }
 
 
-def _fail_payload(command: FailJob) -> dict:
+def _fail_payload(command: FailJob) -> dict[str, JsonValue]:
     return {
         "agent_id": command.owner,
         "fencing_token": command.fencing_token,
@@ -163,11 +165,11 @@ def _fail_payload(command: FailJob) -> dict:
     }
 
 
-def _cancel_payload(command: CancelJob) -> dict:
+def _cancel_payload(command: CancelJob) -> dict[str, JsonValue]:
     return {"requested_by": command.requested_by}
 
 
-def _event_id(event_type: str, tenant_id: str, job_id: str, payload: dict) -> str:
+def _event_id(event_type: str, tenant_id: str, job_id: str, payload: dict[str, JsonValue]) -> str:
     fields = sorted(f"{key}={value}" for key, value in payload.items())
     identity = "\x1f".join((event_type, tenant_id, job_id, *fields))
     return sha256(identity.encode()).hexdigest()

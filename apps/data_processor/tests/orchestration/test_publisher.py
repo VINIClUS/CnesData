@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
@@ -25,8 +25,8 @@ from data_processor.orchestration.attempt_store import attempt_object_key, unit_
 from data_processor.orchestration.publisher import DatasetPublisher, PublishRequest
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
 
 _TENANT = "354130"
 _RUN_ID = "run-a"
@@ -169,7 +169,10 @@ def _seed_manifest(
         row_count=10, created_at=_NOW,
     )
     prefix = unit_attempt_prefix(
-        SimpleNamespace(tenant_id=_TENANT, run_id=run_id, unit_id=unit_id, attempt=attempt)
+        cast(
+            "RunUnit",
+            SimpleNamespace(tenant_id=_TENANT, run_id=run_id, unit_id=unit_id, attempt=attempt),
+        )
     )
     store.objects[attempt_object_key(prefix, manifest.object_key)] = body
     stored = manifest

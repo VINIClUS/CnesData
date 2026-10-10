@@ -3,16 +3,17 @@
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, RowMapping
 
 from central_api.repositories.dashboard_repo_overview import (
     FaturamentoChart,
     OverviewKpis,
-    _format_competencia,
-    _previous_competencia,
+    _format_competencia,  # pyright: ignore[reportPrivateUsage]
+    _previous_competencia,  # pyright: ignore[reportPrivateUsage]
     faturamento_by_establishment_query,
     overview_kpis_query,
 )
@@ -265,7 +266,7 @@ class DashboardRepo:
         user_id: UUID,
         tenant_id: str | None,
         action: str,
-        metadata: dict | None,
+        metadata: dict[str, Any] | None,
     ) -> None:
         with self._engine.begin() as conn:
             conn.execute(
@@ -292,7 +293,7 @@ class DashboardRepo:
         ]
 
     def _build_source_status(
-        self, src: str, row: dict | None, current_competencia: int,
+        self, src: str, row: RowMapping | None, current_competencia: int,
     ) -> SourceStatus:
         if row is None:
             return SourceStatus(
