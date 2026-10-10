@@ -139,6 +139,7 @@ class DynamoEdgeRegistrationMixin:
         from cnes_domain.billing.models import CapacityKind
         from cnes_domain.profiles import BillingMode
         from cnes_infra.billing.capacity_counters import (
+            capacity_seeded,
             linked_agent_actions,
             log_not_seeded,
             unlinked_agent_actions,
@@ -152,7 +153,7 @@ class DynamoEdgeRegistrationMixin:
         if link is None:
             return unlinked_agent_actions(self._table_name, tenant_id)
         account = decode_tenant_account(link, tenant_id)
-        if self._get_item(capacity_usage_key(account)) is None:
+        if not capacity_seeded(self._get_item(capacity_usage_key(account))):
             log_not_seeded(account, CapacityKind.AGENT.value)
             return ()
         return linked_agent_actions(self._table_name, account, link)

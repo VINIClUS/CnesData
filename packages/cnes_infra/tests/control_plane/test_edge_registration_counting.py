@@ -221,3 +221,22 @@ def test_cancelamento_nao_transacional_propaga(env: _Env) -> None:
         _register(plane, LINKED, "agent-1")
 
     assert env.agents() == 0
+
+
+def test_capacidade_parcial_sem_agent_count_nao_e_tratada_como_semeada(
+    env: _Env, caplog: pytest.LogCaptureFixture
+) -> None:
+    pk, sk = capacity_usage_key("ba_01")
+    env.client.put_item(TableName=TABLE_NAME, Item={
+        "pk": {"S": pk}, "sk": {"S": sk}, "entity": {"S": "BILLINGUSAGE"},
+        "tenant_count": {"N": "1"},
+    })
+    plane = env.plane(SHADOW)
+
+    with caplog.at_level(logging.WARNING):
+        _register(plane, LINKED, "agent-1")
+
+    item = get_stored(env.client, capacity_usage_key("ba_01"))
+    assert item is not None
+    assert "agent_count" not in item
+    assert "capacity_not_seeded" in caplog.text

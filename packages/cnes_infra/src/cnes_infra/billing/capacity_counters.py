@@ -32,6 +32,11 @@ def _number(value: int) -> dict[str, str]:
     return {"N": str(value)}
 
 
+def capacity_seeded(item: Item | None) -> bool:
+    """Returns: True se o item CAPACITY existe com os dois contadores semeados."""
+    return item is not None and TENANT_COUNTER in item and AGENT_COUNTER in item
+
+
 def log_not_seeded(billing_account_id: str, kind: str) -> None:
     """Registra a conta sem contador de capacidade semeado."""
     logger.warning(

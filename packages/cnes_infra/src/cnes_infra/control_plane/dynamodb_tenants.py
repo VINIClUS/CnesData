@@ -194,6 +194,7 @@ class DynamoBilledTenantMixin:
         from cnes_infra.billing.capacity_counters import (
             AGENT_COUNTER,
             TENANT_COUNTER,
+            capacity_seeded,
             log_not_seeded,
             pending_transfer,
         )
@@ -205,7 +206,7 @@ class DynamoBilledTenantMixin:
         tenant_id, key = command.tenant.tenant_id, capacity_usage_key(account)
         pending = get_item(self._client, table, pending_capacity_key(tenant_id), True)
         cas, agents = pending_transfer(table, tenant_id, pending)
-        if get_item(self._client, table, key, True) is None:
+        if not capacity_seeded(get_item(self._client, table, key, True)):
             log_not_seeded(account, CapacityKind.TENANT.value)
             return (cas,)
         tenants = 0 if self._billing.enforced else 1

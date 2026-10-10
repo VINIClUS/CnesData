@@ -168,3 +168,19 @@ def test_criacao_em_enforce_grava_marcador_duravel_da_reserva() -> None:
         marker = env.stored(idempotency_key(NEW, TENANT_CAPACITY_SCOPE, reservation_id))
         assert marker is not None
         assert "expires_at" not in marker
+
+
+def test_capacidade_parcial_sem_tenant_count_nao_e_tratada_como_semeada(
+    env: Env, caplog: pytest.LogCaptureFixture
+) -> None:
+    pk, sk = capacity_usage_key(ACCOUNT)
+    env.client.put_item(TableName=TABLE_NAME, Item={
+        "pk": {"S": pk}, "sk": {"S": sk}, "entity": {"S": "BILLINGUSAGE"},
+        "agent_count": {"N": "0"},
+    })
+
+    with caplog.at_level(logging.WARNING):
+        env.plane.create_billed_tenant(env.command("unmetered"))
+
+    assert "tenant_count" not in env.stored(capacity_usage_key(ACCOUNT))
+    assert "capacity_not_seeded" in caplog.text
