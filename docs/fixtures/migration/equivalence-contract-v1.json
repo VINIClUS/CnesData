@@ -1,6 +1,7 @@
 {
   "contract_version": 1,
   "clock": "2026-10-10T12:00:00Z",
+  "normalizations": ["date_iso8601"],
   "datasets": {
     "cnes": {
       "tenant_id": "354130",
@@ -552,6 +553,7 @@
       "check": "candidate_equals_context",
       "context": "version_id",
       "absent_ok": false,
+      "legacy_form": "text",
       "rationale": "O oraculo congelou o run_id de outra execucao; o candidato deve carregar o version_id do DatasetPointer ativo."
     },
     {
@@ -560,6 +562,7 @@
       "check": "candidate_equals_context",
       "context": "clock_z",
       "absent_ok": false,
+      "legacy_form": "utc_instant_z",
       "rationale": "CND-002 declara run_id e generated_at volateis; o candidato deve carregar o relogio injetado na forma Z."
     },
     {
@@ -568,6 +571,7 @@
       "check": "candidate_equals_context",
       "context": "clock_offset",
       "absent_ok": false,
+      "legacy_form": "utc_instant_offset",
       "rationale": "Os oraculos congelaram relogios proprios (o bpa tem 12:00 no normalizado e 14:00 no serving); o candidato deve carregar o relogio injetado em +00:00."
     },
     {
@@ -599,7 +603,7 @@
       "check": "candidate_equals_context",
       "context": "raw_manifest_sha256/{doc}",
       "absent_ok": true,
-      "rationale": "O oraculo sia declara _source_manifest_sha256 volatil e o omite; o candidato deve carregar o sha256 do manifest raw semeado para o subtipo do documento."
+      "rationale": "O oraculo sia declara _source_manifest_sha256 volatil e o omite; o candidato deve carregar o sha256 do manifest raw semeado para o subtipo do documento em toda linha; linha sem o campo e MISMATCH."
     }
   ]
 }

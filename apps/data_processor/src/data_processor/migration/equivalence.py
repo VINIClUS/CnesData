@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import StrEnum
 from functools import lru_cache
-from hashlib import sha256
 from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
 
 from pydantic import (
@@ -21,12 +20,14 @@ from pydantic import (
     model_validator,
 )
 
+from data_processor.migration.flatten import APPLIED_NORMALIZATIONS, Leaf
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
-Scalar = bool | int | str | None
 Absent = Literal["legacy", "candidate"]
+LegacyForm = Literal["text", "utc_instant_z", "utc_instant_offset"]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 CheckKind = Literal[
     "candidate_equals_context",
@@ -35,6 +36,12 @@ CheckKind = Literal[
 ]
 
 _FORBIDDEN_KEY = re.compile(r"tolerance|percent|epsilon", re.IGNORECASE)
+_ROW_FIELD_PATTERN = re.compile(r"[^:\[\]]+::\[\*\][^*?\[\]]+")
+_ROW_PREFIX = re.compile(r"[^:]+::\[[^\]]*\](?=\.)")
+_UTC_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(Z|\+00:00)")
+_INSTANT_SUFFIX = {"utc_instant_z": "Z", "utc_instant_offset": "+00:00"}
+_GLOB_TOKEN = re.compile(r"\[\*\]|.", re.DOTALL)
+_GLOB_REGEX = {"[*]": r"\[[^\]]*\]", "*": ".*", "?": "."}
 _CONTEXT_SHAPE: dict[str, type] = {
     "candidate_equals_context": str,
     "candidate_equals_context_by_legacy": dict,
@@ -51,28 +58,11 @@ class ComparisonStatus(StrEnum):
 @dataclass(frozen=True, slots=True)
 class MetricComparison:
     metric: str
-    legacy_value: Scalar
-    candidate_value: Scalar
+    legacy_value: Leaf
+    candidate_value: Leaf
     status: ComparisonStatus
     rule_id: str | None
     absent: Absent | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class SourceEquivalenceReport:
-    tenant_id: str
-    dataset: str
-    source_types: tuple[str, ...]
-    competencia: str
-    legacy_sha256: str
-    candidate_version_id: str
-    comparisons: tuple[MetricComparison, ...]
-
-    @property
-    def accepted(self) -> bool:
-        return bool(self.comparisons) and all(
-            item.status is not ComparisonStatus.MISMATCH for item in self.comparisons
-        )
 
 
 class ContractInvalid(ValueError):
@@ -157,6 +147,7 @@ class Rule(_Model):
     check: CheckKind
     context: str | dict[str, str] | None = None
     absent_ok: bool
+    legacy_form: LegacyForm | None = None
     rationale: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -165,12 +156,33 @@ class Rule(_Model):
             raise ValueError(f"rule_context_invalid rule_id={self.rule_id}")
         return self
 
+    @model_validator(mode="after")
+    def _legacy_form_matches_check(self) -> Self:
+        needs_form = self.check == "candidate_equals_context" and not self.absent_ok
+        if (self.legacy_form is not None) != needs_form:
+            raise ValueError(f"rule_legacy_form_invalid rule_id={self.rule_id}")
+        return self
+
+    @model_validator(mode="after")
+    def _absent_ok_declares_row_fields(self) -> Self:
+        if self.absent_ok and not all(_ROW_FIELD_PATTERN.fullmatch(p) for p in self.metrics):
+            raise ValueError(f"rule_absent_ok_pattern_invalid rule_id={self.rule_id}")
+        return self
+
 
 class EquivalenceContract(_Model):
     contract_version: Literal[1]
+    normalizations: tuple[str, ...]
     clock: datetime
     datasets: dict[str, DatasetSpec]
     rules: tuple[Rule, ...]
+
+    @field_validator("normalizations")
+    @classmethod
+    def _normalizations_are_the_applied_set(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if tuple(sorted(value)) != APPLIED_NORMALIZATIONS:
+            raise ValueError("normalizations_invalid")
+        return value
 
     @field_validator("clock")
     @classmethod
@@ -231,121 +243,29 @@ def load_contract(path: Path) -> EquivalenceContract:
         raise ContractInvalid(f"contract_invalid loc={location} msg={first['msg']}") from error
 
 
-def _child(node: object, segment: str, column: str) -> object:
-    children: dict[str, object] = cast("dict[str, object]", node) if isinstance(node, dict) else {}
-    if segment not in children:
-        raise ValueError(f"key_missing column={column}")
-    return children[segment]
-
-
-def _dig(row: Mapping[str, object], column: str) -> object:
-    current: object = row
-    for segment in column.split("."):
-        current = _child(current, segment, column)
-    return current
-
-
-def _key_text(row: Mapping[str, object], key: Sequence[str]) -> str:
-    values = [_scalar(_dig(row, column), f"key:{column}") for column in key]
-    return "|".join("" if value is None else str(value) for value in values)
-
-
-def canonical_rows(
-    rows: Iterable[Mapping[str, object]], key: Sequence[str]
-) -> dict[str, Mapping[str, object]]:
-    """Indexa as linhas pela chave composta, em ordem canonica.
-
-    Args: rows: linhas em qualquer ordem. key: colunas (caminhos pontuados) da chave.
-    Returns: mapa chave -> linha, ordenado pela chave.
-    Raises: ValueError: coluna da chave ausente ou chave duplicada.
-    """
-    indexed: dict[str, Mapping[str, object]] = {}
-    for row in rows:
-        text = _key_text(row, key)
-        if text in indexed:
-            raise ValueError(f"duplicate_key key={text}")
-        indexed[text] = row
-    return dict(sorted(indexed.items()))
-
-
-def _scalar(value: object, metric: str) -> Scalar:
-    if value is None or isinstance(value, bool | int | str):
-        return value
-    if isinstance(value, date):
-        return value.isoformat()
-    if isinstance(value, float):
-        raise ValueError(f"float_not_allowed metric={metric}")
-    raise ValueError(f"unsupported_value metric={metric} type={type(value).__name__}")
-
-
-def _join(prefix: str, name: str) -> str:
-    return f"{prefix}.{name}" if prefix else name
-
-
-@dataclass(slots=True)
-class _Flattener:
-    doc_id: str
-    list_keys: Mapping[str, Sequence[str]]
-    metrics: dict[str, Scalar] = field(default_factory=dict[str, Scalar])
-
-    def walk(self, value: object, path: str, schema: str) -> None:
-        if isinstance(value, dict):
-            for name, child in cast("dict[str, object]", value).items():
-                self.walk(child, _join(path, name), _join(schema, name))
-        elif isinstance(value, list):
-            self._walk_list(cast("list[object]", value), path, schema)
-        else:
-            metric = f"{self.doc_id}::{path}"
-            if metric in self.metrics:
-                raise ValueError(f"duplicate_metric metric={metric}")
-            self.metrics[metric] = _scalar(value, metric)
-
-    def _walk_list(self, items: list[object], path: str, schema: str) -> None:
-        key = self.list_keys.get(schema)
-        if not key:
-            for index, item in enumerate(items):
-                self.walk(item, f"{path}[{index}]", schema)
-            return
-        rows = canonical_rows(cast("list[Mapping[str, object]]", items), key)
-        for text, row in rows.items():
-            for name, child in row.items():
-                self.walk(child, _join(f"{path}[{text}]", name), _join(schema, name))
-
-
-def flatten_payload(
-    doc_id: str, value: object, list_keys: Mapping[str, Sequence[str]]
-) -> dict[str, Scalar]:
-    """Achata um documento em metricas `doc_id::caminho` -> escalar, sem depender da ordem.
-
-    Args: doc_id: prefixo das metricas. value: documento. list_keys: caminho da lista -> colunas
-        da chave (`""` e a lista raiz); listas sem chave sao posicionais.
-    Returns: metricas ordenadas pelo nome.
-    Raises: ValueError: float, tipo nao suportado, chave ausente ou duplicada.
-    """
-    flattener = _Flattener(doc_id, list_keys)
-    flattener.walk(value, "", "")
-    return dict(sorted(flattener.metrics.items()))
-
-
 @dataclass(frozen=True, slots=True)
 class _Observation:
     metric: str
-    legacy: Scalar
-    candidate: Scalar
+    legacy: Leaf
+    candidate: Leaf
     absent: Absent | None
 
 
 type _Predicate = Callable[[Rule, _Observation, Mapping[str, str]], bool]
 
 
-def _scalar_equal(left: Scalar, right: Scalar) -> bool:
+def _scalar_equal(left: Leaf, right: Leaf) -> bool:
     return type(left) is type(right) and left == right
+
+
+def _glob_part(token: str) -> str:
+    return _GLOB_REGEX.get(token, re.escape(token))
 
 
 @lru_cache(maxsize=256)
 def _glob_regex(pattern: str) -> re.Pattern[str]:
-    tokens = {"*": ".*", "?": "."}
-    return re.compile("".join(tokens.get(char, re.escape(char)) for char in pattern), re.DOTALL)
+    parts = [_glob_part(token) for token in _GLOB_TOKEN.findall(pattern)]
+    return re.compile("".join(parts), re.DOTALL)
 
 
 def _covers(rule: Rule, metric: str) -> bool:
@@ -357,8 +277,26 @@ def _candidate_is_context(key: str, seen: _Observation, context: Mapping[str, st
     return resolved in context and _scalar_equal(seen.candidate, context[resolved])
 
 
+def _is_utc_instant(text: str, suffix: str) -> bool:
+    found = _UTC_INSTANT.fullmatch(text)
+    if found is None or found.group(1) != suffix:
+        return False
+    try:
+        datetime.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _has_form(value: Leaf, form: LegacyForm | None) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    return form == "text" or _is_utc_instant(value, _INSTANT_SUFFIX[cast("LegacyForm", form)])
+
+
 def _equals_context(rule: Rule, seen: _Observation, context: Mapping[str, str]) -> bool:
-    return _candidate_is_context(cast("str", rule.context), seen, context)
+    legacy_fits = rule.absent_ok or _has_form(seen.legacy, rule.legacy_form)
+    return legacy_fits and _candidate_is_context(cast("str", rule.context), seen, context)
 
 
 def _equals_context_by_legacy(rule: Rule, seen: _Observation, context: Mapping[str, str]) -> bool:
@@ -396,7 +334,7 @@ def _explaining_rule(
 
 
 def _observe(
-    name: str, legacy: Mapping[str, Scalar], candidate: Mapping[str, Scalar]
+    name: str, legacy: Mapping[str, Leaf], candidate: Mapping[str, Leaf]
 ) -> _Observation:
     absent: Absent | None = None
     if name not in legacy:
@@ -419,63 +357,54 @@ def _compare_metric(
     )
 
 
+def _row_of(metric: str) -> str | None:
+    found = _ROW_PREFIX.match(metric)
+    return found.group() if found else None
+
+
+def _required_fields(rules: Sequence[Rule], rows: Iterable[str]) -> set[str]:
+    required: set[str] = set()
+    for rule in rules:
+        for pattern in rule.metrics if rule.absent_ok else ():
+            doc_glob, _, rest = pattern.partition("::")
+            matcher = _glob_regex(doc_glob)
+            tail = rest.removeprefix("[*]")
+            required.update(
+                f"{row}{tail}" for row in rows if matcher.fullmatch(row.partition("::")[0])
+            )
+    return required
+
+
+def _missing_required(
+    rules: Sequence[Rule], items: Sequence[MetricComparison]
+) -> tuple[MetricComparison, ...]:
+    rows = {row for item in items if item.absent != "candidate" and (row := _row_of(item.metric))}
+    known = {item.metric for item in items}
+    return tuple(
+        MetricComparison(name, None, None, ComparisonStatus.MISMATCH, None, "candidate")
+        for name in sorted(_required_fields(rules, rows) - known)
+    )
+
+
 def compare_shadow_run(
     *,
     contract: EquivalenceContract,
-    legacy: Mapping[str, Scalar],
-    candidate: Mapping[str, Scalar],
+    legacy: Mapping[str, Leaf],
+    candidate: Mapping[str, Leaf],
     context: Mapping[str, str] | None = None,
 ) -> tuple[MetricComparison, ...]:
     """Compara metrica a metrica, sem tolerancia; so uma regra do contrato explica diferenca.
 
     Args: contract: regras aprovadas. legacy/candidate: metricas achatadas. context: valores
         observados do candidato que as regras podem exigir (run, relogio, ids, hashes).
-    Returns: uma comparacao por metrica da uniao, ordenadas pelo nome.
+    Returns: uma comparacao por metrica da uniao, ordenadas pelo nome; campo exigido por regra
+        `absent_ok` e ausente numa linha do candidato vira MISMATCH.
     """
     known: Mapping[str, str] = {} if context is None else context
     names = sorted(legacy.keys() | candidate.keys())
-    return tuple(
+    items = tuple(
         _compare_metric(contract.rules, known, _observe(name, legacy, candidate))
         for name in names
     )
-
-
-def _dump(payload: Mapping[str, object]) -> bytes:
-    text = json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False)
-    return f"{text}\n".encode()
-
-
-def report_bytes(report: SourceEquivalenceReport, evidence: Mapping[str, object]) -> bytes:
-    """Serializa o relatorio por dataset em JSON de chaves ordenadas.
-
-    Args: report: comparacoes do dataset. evidence: proveniencia, saidas e hashes do candidato.
-    Returns: bytes canonicos (UTF-8, chaves ordenadas, newline final).
-    """
-    counts = [item.status.value for item in report.comparisons]
-    payload: dict[str, object] = {
-        **evidence,
-        "tenant_id": report.tenant_id,
-        "dataset": report.dataset,
-        "source_types": list(report.source_types),
-        "competencia": report.competencia,
-        "legacy_sha256": report.legacy_sha256,
-        "candidate_version_id": report.candidate_version_id,
-        "accepted": report.accepted,
-        "summary": {status.value: counts.count(status.value) for status in ComparisonStatus},
-        "comparisons": [asdict(item) for item in report.comparisons],
-    }
-    return _dump(payload)
-
-
-def aggregate_bytes(payload: Mapping[str, object]) -> bytes:
-    """Serializa o agregado em JSON de chaves ordenadas.
-
-    Args: payload: hashes dos relatorios, cobertura, falhas, contrato e commit.
-    Returns: bytes canonicos (UTF-8, chaves ordenadas, newline final).
-    """
-    return _dump(payload)
-
-
-def sha256_hex(data: bytes) -> str:
-    """Args: data: bytes a resumir. Returns: SHA-256 hexadecimal minusculo."""
-    return sha256(data).hexdigest()
+    missing = _missing_required(contract.rules, items)
+    return tuple(sorted((*items, *missing), key=lambda item: item.metric))

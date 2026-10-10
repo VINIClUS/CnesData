@@ -5,31 +5,24 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from contextlib import nullcontext
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
-from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_domain.ports.processing import ExecutionStatus
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
+from cnes_infra.executor.local_pool import LocalWorkerPool
 from cnes_infra.object_store import FilesystemObjectStore
-from scripts.run_historical_shadow import (
-    ShadowRunError,
-    main,
-    read_verified_outputs,
-    write_report,
-)
+from data_processor.migration.publication import Expected, ShadowRunError
+from scripts.run_historical_shadow import main, write_report
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from contextlib import AbstractContextManager
-    from typing import BinaryIO
 
 _ROOT = Path(__file__).resolve().parents[1]
 _CONTRACT = _ROOT / "docs/fixtures/migration/equivalence-contract-v1.json"
@@ -43,10 +36,22 @@ _APPROVED_RULES = frozenset({
     "MIG010-CNES-NORMALIZED-IDS", "MIG010-CNES-DIVERGENCE-TEXT",
     "MIG010-SIA-RAW-MANIFEST-SHA256",
 })
-_RUN_ID = "r1"
-_KEY = f"serving/{_TENANT}/{_RUN_ID}/overview.json"
-_BODY = b'{"valor": 1}'
-_BODY_SHA = sha256(_BODY).hexdigest()
+_EVIDENCE = {
+    "cnes": (125, 19, "normalized", {
+        "MIG010-CNES-DIVERGENCE-TEXT": 3, "MIG010-CNES-NORMALIZED-IDS": 14,
+        "MIG010-GENERATED-AT": 1, "MIG010-RUN-ID": 1,
+    }),
+    "sihd": (248, 13, "reconciliation", {
+        "MIG010-GENERATED-AT": 1, "MIG010-NORMALIZED-AT": 11, "MIG010-RUN-ID": 1,
+    }),
+    "bpa": (319, 16, "reconciliation", {
+        "MIG010-GENERATED-AT": 2, "MIG010-NORMALIZED-AT": 12, "MIG010-RUN-ID": 2,
+    }),
+    "sia": (301, 54, "reconciliation", {
+        "MIG010-GENERATED-AT": 2, "MIG010-NORMALIZED-AT": 25, "MIG010-RUN-ID": 2,
+        "MIG010-SIA-RAW-MANIFEST-SHA256": 25,
+    }),
+}
 
 
 def _argv(work: Path, sources: tuple[str, ...], *overrides: str) -> list[str]:
@@ -101,7 +106,9 @@ def executed(tmp_path_factory: pytest.TempPathFactory) -> _Executed:
     return _Executed(work, main(_argv(work, _DATASETS)))
 
 
-def test_execucao_completa_cobre_as_quatro_fontes_sem_falhas(executed: _Executed) -> None:
+def test_execucao_completa_cobre_as_quatro_fontes_com_relatorios_imutaveis(
+    executed: _Executed,
+) -> None:
     aggregate = _aggregate(executed.work)
 
     assert executed.exit_code == 0
@@ -110,25 +117,53 @@ def test_execucao_completa_cobre_as_quatro_fontes_sem_falhas(executed: _Executed
     assert [(item["dataset"], item["competencia"]) for item in aggregate["covered"]] == [
         ("bpa", "2026-08"), ("cnes", "2026-01"), ("sia", "2026-01"), ("sihd", "2026-01"),
     ]
-
-
-def test_agregado_lista_o_hash_de_cada_relatorio_imutavel(executed: _Executed) -> None:
-    for item in _aggregate(executed.work)["covered"]:
+    for item in aggregate["covered"]:
         path = executed.work / "reports" / _TENANT / item["report"]
-
         assert sha256(path.read_bytes()).hexdigest() == item["report_sha256"]
         assert path.stat().st_mode & 0o222 == 0
+
+
+def test_agregado_registra_o_pedido_e_os_meses_cobertos_e_descobertos(
+    executed: _Executed,
+) -> None:
+    aggregate = _aggregate(executed.work)
+    months = [f"2026-{number:02d}" for number in range(1, 13)]
+
+    assert aggregate["requested"] == {
+        "from": "2026-01", "sources": ["bpa", "cnes", "sia", "sihd"], "to": "2026-12",
+    }
+    for dataset, competencia in _COMPETENCIA.items():
+        summary = aggregate["datasets"][dataset]
+        assert summary["covered"] == [competencia]
+        assert summary["uncovered"] == [month for month in months if month != competencia]
+
+
+@pytest.mark.parametrize("dataset", _DATASETS)
+def test_agregado_declara_proveniencia_e_saidas_afirmadas_por_dataset(
+    executed: _Executed, dataset: str
+) -> None:
+    summary = _aggregate(executed.work)["datasets"][dataset]
+    outputs = _report(executed.work, dataset)["outputs"]
+    asserted = [output["asserted"] for output in outputs]
+
+    assert summary["provenance"] == _report(executed.work, dataset)["provenance"]
+    assert summary["provenance"]["data_nature"] == "synthetic"
+    assert summary["outputs"] == {
+        "asserted": asserted.count(True), "unasserted": asserted.count(False),
+        "unasserted_layers": [_EVIDENCE[dataset][2]],
+    }
 
 
 @pytest.mark.parametrize("dataset", _DATASETS)
 def test_fonte_retida_sem_mismatch(executed: _Executed, dataset: str) -> None:
     report = _report(executed.work, dataset)
-    explained = {c["rule_id"] for c in report["comparisons"] if c["status"] == "EXPLAINED"}
+    matches, explained, _, per_rule = _EVIDENCE[dataset]
+    by_rule = Counter(c["rule_id"] for c in report["comparisons"] if c["status"] == "EXPLAINED")
 
     assert report["accepted"] is True
-    assert report["summary"]["MISMATCH"] == 0
-    assert report["summary"]["MATCH"] > 0
-    assert explained <= _APPROVED_RULES
+    assert report["summary"] == {"MATCH": matches, "EXPLAINED": explained, "MISMATCH": 0}
+    assert dict(by_rule) == per_rule
+    assert set(by_rule) <= _APPROVED_RULES
 
 
 @pytest.mark.parametrize("dataset", _DATASETS)
@@ -165,19 +200,6 @@ def test_relatorio_marca_so_as_saidas_afirmadas_pelo_contrato(
     }
 
     assert asserted == declared
-
-
-@pytest.mark.parametrize(("dataset", "layer"), [
-    ("sihd", "reconciliation"), ("bpa", "reconciliation"), ("sia", "reconciliation"),
-    ("cnes", "normalized"),
-])
-def test_camada_nao_afirmada_aparece_sem_marca(
-    executed: _Executed, dataset: str, layer: str
-) -> None:
-    outputs = [o for o in _report(executed.work, dataset)["outputs"] if o["layer"] == layer]
-
-    assert outputs
-    assert not any(output["asserted"] for output in outputs)
 
 
 @pytest.mark.parametrize(("dataset", "kind"), [
@@ -220,29 +242,21 @@ def test_rejeita_competencia_sem_oraculo(
     assert not (tmp_path / "reports").exists()
 
 
-def _usage_error(work: Path, capsys: pytest.CaptureFixture[str], *overrides: str) -> str:
-    with pytest.raises(SystemExit) as raised:
-        main(_argv(work, ("bpa",), *overrides))
-    assert raised.value.code == 2
-    assert not (work / "candidate").exists()
-    return capsys.readouterr().err
-
-
-@pytest.mark.parametrize("override", [
-    ("--from-competencia", "2026-1"), ("--to-competencia", "2026-13"),
+@pytest.mark.parametrize(("overrides", "message"), [
+    (("--from-competencia", "2026-1"), "competencia_invalid value=2026-1"),
+    (("--to-competencia", "2026-13"), "competencia_invalid value=2026-13"),
+    (("--from-competencia", "2026-12", "--to-competencia", "2026-01"),
+     "competencia_range_invalid from=2026-12 to=2026-01"),
 ])
-def test_rejeita_competencia_malformada(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], override: tuple[str, str]
+def test_rejeita_competencia_malformada_ou_intervalo_invertido(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], overrides: tuple[str, ...], message: str
 ) -> None:
-    assert f"competencia_invalid value={override[1]}" in _usage_error(tmp_path, capsys, *override)
+    with pytest.raises(SystemExit) as raised:
+        main(_argv(tmp_path, ("bpa",), *overrides))
 
-
-def test_rejeita_intervalo_invertido(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    overrides = ("--from-competencia", "2026-12", "--to-competencia", "2026-01")
-
-    assert "competencia_range_invalid from=2026-12 to=2026-01" in _usage_error(
-        tmp_path, capsys, *overrides
-    )
+    assert raised.value.code == 2
+    assert message in capsys.readouterr().err
+    assert not (tmp_path / "candidate").exists()
 
 
 def _tampered_legacy(
@@ -311,14 +325,20 @@ def test_fixture_negativa_retorna_um_e_nomeia_a_metrica_divergente(tmp_path: Pat
     assert _aggregate(tmp_path)["accepted"] is False
 
 
-def test_documento_sem_metricas_do_oraculo_retorna_um(tmp_path: Path) -> None:
+def test_documento_vazio_no_oraculo_exige_candidato_vazio(tmp_path: Path) -> None:
     argv = _tampered_argv(
         tmp_path, "expected_normalized.json", lambda p: p["BPA_C"].update(quality_issues=[])
     )
 
     assert main(argv) == 1
 
-    _assert_falha(tmp_path, "bpa", "oracle_document_empty doc_id=bpa-normalized-quality-bpa-c")
+    report = _report(tmp_path, "bpa")
+    emptied = [c for c in report["comparisons"] if c["metric"].endswith("quality-bpa-c::")]
+    assert report["accepted"] is False
+    assert [(c["legacy_value"], c["candidate_value"], c["absent"], c["status"]) for c in emptied] == [
+        ({"empty": "list"}, None, "candidate", "MISMATCH"),
+    ]
+    assert _aggregate(tmp_path)["failures"] == []
 
 
 def _sem_nacional(contract: dict[str, Any]) -> None:
@@ -328,22 +348,36 @@ def _sem_nacional(contract: dict[str, Any]) -> None:
     ]
 
 
+def _bpa_overview(contract: dict[str, Any]) -> dict[str, Any]:
+    documents = contract["datasets"]["bpa"]["documents"]
+    return next(item for item in documents if item["doc_id"] == "bpa-serving-overview")
+
+
 def _folha_inexistente(contract: dict[str, Any]) -> None:
-    for item in contract["datasets"]["bpa"]["documents"]:
-        if item["doc_id"] == "bpa-serving-overview":
-            item["candidate"]["leaf"] = "inexistente.json"
+    _bpa_overview(contract)["candidate"]["leaf"] = "inexistente.json"
+
+
+def _caminho_inexistente(contract: dict[str, Any]) -> None:
+    _bpa_overview(contract)["oracle"]["path"] = ["inexistente"]
 
 
 def _manifest_invalido(contract: dict[str, Any]) -> None:
     contract["datasets"]["bpa"]["raw_inputs"][0]["manifest"]["manifest_version"] = 2
 
 
-def test_erro_inesperado_e_registrado_sem_expor_a_mensagem_original(tmp_path: Path) -> None:
-    contract = _mutated_contract(tmp_path, _manifest_invalido)
+@pytest.mark.parametrize(("mutate", "error"), [
+    (_manifest_invalido, "unexpected_error type=ValidationError"),
+    (_folha_inexistente, "candidate_leaf_missing layer=serving leaf=inexistente.json matches=0"),
+    (_caminho_inexistente, "oracle_path_missing file=expected_serving.json path=inexistente"),
+])
+def test_falha_do_job_e_registrada_sem_expor_a_mensagem_original(
+    tmp_path: Path, mutate: Callable[[dict[str, Any]], None], error: str
+) -> None:
+    contract = _mutated_contract(tmp_path, mutate)
 
     assert main(_argv(tmp_path, ("bpa",), "--contract", str(contract))) == 1
 
-    _assert_falha(tmp_path, "bpa", "unexpected_error type=ValidationError")
+    _assert_falha(tmp_path, "bpa", error)
 
 
 def test_run_degradado_retorna_um_sem_relatorio_do_dataset(tmp_path: Path) -> None:
@@ -357,14 +391,59 @@ def test_run_degradado_retorna_um_sem_relatorio_do_dataset(tmp_path: Path) -> No
     assert not (tmp_path / "reports" / _TENANT / "cnes").exists()
 
 
-def test_folha_do_candidato_ausente_no_run_manifest_retorna_um(tmp_path: Path) -> None:
-    contract = _mutated_contract(tmp_path, _folha_inexistente)
+def test_oraculo_com_float_falha_no_achatamento(tmp_path: Path) -> None:
+    argv = _tampered_argv(
+        tmp_path, "expected_serving.json", lambda p: p["overview"]["kpis"].update(linhas=1.5)
+    )
 
-    assert main(_argv(tmp_path, ("bpa",), "--contract", str(contract))) == 1
+    assert main(argv) == 1
 
     _assert_falha(
-        tmp_path, "bpa", "candidate_leaf_missing layer=serving leaf=inexistente.json matches=0"
+        tmp_path, "bpa",
+        "flatten_failed doc_id=bpa-serving-overview "
+        "error=float_not_allowed metric=bpa-serving-overview::kpis.linhas",
     )
+
+
+def test_onda_que_nao_termina_no_prazo_retorna_um(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(LocalWorkerPool, "status", lambda *_: ExecutionStatus.RUNNING)
+    monkeypatch.setattr("scripts.run_historical_shadow._WAVE_DEADLINE_SECONDS", 0.0)
+
+    assert main(_argv(tmp_path, ("bpa",))) == 1
+
+    _assert_falha(tmp_path, "bpa", "wave_timeout run_id=mig010-bpa-2026-08")
+
+
+def test_publicacao_de_outro_run_retorna_um(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def other_run(tenant: str, dataset: str, competencia: str, run_id: str) -> Expected:
+        return Expected(tenant, dataset, competencia, "outro-run")
+
+    monkeypatch.setattr("scripts.run_historical_shadow.Expected", other_run)
+
+    assert main(_argv(tmp_path, ("sihd",))) == 1
+
+    _assert_falha(tmp_path, "sihd", "publication_mismatch dataset=sihd run_id=outro-run")
+
+
+def test_agregado_criado_por_outro_processo_retorna_um(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    aggregate = _aggregate_path(tmp_path)
+
+    def concurrent_commit() -> str:
+        aggregate.write_bytes(b"outro processo")
+        return "0" * 40
+
+    monkeypatch.setattr("scripts.run_historical_shadow._git_commit", concurrent_commit)
+
+    assert main(_argv(tmp_path, ("sihd",))) == 1
+
+    assert aggregate.read_bytes() == b"outro processo"
+    assert "shadow_aggregate_failed error=report_exists report=aggregate.json" in caplog.text
 
 
 def test_contrato_com_campo_de_tolerancia_retorna_um(
@@ -417,82 +496,3 @@ def test_write_report_cria_somente_leitura_e_recusa_sobrescrever(tmp_path: Path)
     with pytest.raises(ShadowRunError, match=r"report_exists report=relatorio\.json"):
         write_report(target, b"outro")
     assert target.read_bytes() == b"{}\n"
-
-
-@dataclass
-class _FakeStore:
-    objects: dict[str, bytes]
-    stat_sha: dict[str, str] = field(default_factory=dict[str, str])
-
-    def put(self, key: str, body: BinaryIO, expected_sha256: str) -> ObjectStat:
-        raise AssertionError(f"put_unexpected key={key}")
-
-    def open(self, key: str) -> AbstractContextManager[BinaryIO]:
-        return nullcontext(BytesIO(self.objects[key]))
-
-    def stat(self, key: str) -> ObjectStat | None:
-        data = self.objects.get(key)
-        if data is None:
-            return None
-        return ObjectStat(key, len(data), self.stat_sha.get(key, sha256(data).hexdigest()))
-
-    def promote(self, source_key: str, destination_key: str, expected_sha256: str) -> ObjectStat:
-        raise AssertionError(f"promote_unexpected key={source_key}")
-
-    def delete(self, key: str) -> None:
-        raise AssertionError(f"delete_unexpected key={key}")
-
-
-def _run_manifest(object_sha256: str = _BODY_SHA) -> tuple[RunManifest, bytes]:
-    output = OutputManifest(
-        manifest_version=1, manifest_id="serving-overview", tenant_id=_TENANT,
-        layer="serving", source_type=None, competencia="2026-01", run_id=_RUN_ID,
-        unit_id="unit-1", attempt=1, schema_version="demo-v1", object_key=_KEY,
-        object_sha256=object_sha256, row_count=1, created_at=_NOW,
-    )
-    manifest = RunManifest(
-        manifest_version=1, tenant_id=_TENANT, dataset_name="demo", run_id=_RUN_ID,
-        competencia="2026-01", outputs=(output,), missing_sources=(), published_at=_NOW,
-    )
-    return manifest, manifest.model_dump_json(exclude_none=False, by_alias=False).encode()
-
-
-def test_le_as_saidas_quando_hash_e_bytes_conferem() -> None:
-    manifest, stored = _run_manifest()
-
-    outputs = read_verified_outputs(_FakeStore({_KEY: _BODY}), manifest, stored, ("overview",))
-
-    assert outputs == {_KEY: _BODY}
-
-
-@pytest.mark.parametrize("adulterado", ["manifest", "objeto"])
-def test_rejeita_hash_de_manifest_adulterado(adulterado: str) -> None:
-    manifest, stored = _run_manifest("0" * 64 if adulterado == "manifest" else _BODY_SHA)
-    body = b"adulterado" if adulterado == "objeto" else _BODY
-
-    with pytest.raises(ShadowRunError, match=r"output_sha256_mismatch key=serving/354130/r1/"):
-        read_verified_outputs(_FakeStore({_KEY: body}), manifest, stored, ("overview",))
-
-
-def test_rejeita_hash_do_stat_divergente_do_manifest() -> None:
-    manifest, stored = _run_manifest()
-    store = _FakeStore({_KEY: _BODY}, {_KEY: "f" * 64})
-
-    with pytest.raises(ShadowRunError, match=r"output_stat_mismatch key=serving/354130/r1/"):
-        read_verified_outputs(store, manifest, stored, ("overview",))
-
-
-def test_rejeita_run_manifest_nao_canonico() -> None:
-    manifest, stored = _run_manifest()
-    pretty = json.dumps(json.loads(stored), indent=2).encode()
-
-    with pytest.raises(ShadowRunError, match=r"manifest_not_canonical run_id=r1"):
-        read_verified_outputs(_FakeStore({_KEY: _BODY}), manifest, pretty, ("overview",))
-
-
-def test_rejeita_chaves_de_serving_fora_do_catalogo() -> None:
-    manifest, stored = _run_manifest()
-    documents = ("overview", "by-establishment")
-
-    with pytest.raises(ShadowRunError, match=r"serving_keys_mismatch run_id=r1"):
-        read_verified_outputs(_FakeStore({_KEY: _BODY}), manifest, stored, documents)

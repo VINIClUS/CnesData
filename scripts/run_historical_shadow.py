@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Literal, cast
 import polars as pl
 
 from central_api.services.run_planning import RunPlanningDependencies, RunPlanningService
-from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from cnes_contracts.manifests.raw import RawManifest
 from cnes_contracts.manifests.validation import COMPETENCIA_PATTERN, manifest_sha256
 from cnes_domain.control_plane.entities import RawManifestRecord, Run
@@ -38,19 +37,34 @@ from data_processor.migration.equivalence import (
     DocumentSpec,
     EquivalenceContract,
     RawInput,
-    Scalar,
-    SourceEquivalenceReport,
-    aggregate_bytes,
     compare_shadow_run,
-    flatten_payload,
     load_contract,
+)
+from data_processor.migration.flatten import Leaf, flatten_payload
+from data_processor.migration.publication import (
+    Expected,
+    PublishedRun,
+    ShadowRunError,
+    read_published,
+)
+from data_processor.migration.report import (
+    Covered,
+    Failure,
+    Outcome,
+    OutputEvidence,
+    Request,
+    SourceEquivalenceReport,
+    Stamp,
+    aggregate_accepted,
+    aggregate_bytes,
+    build_aggregate,
+    output_evidence,
     report_bytes,
     sha256_hex,
 )
 from data_processor.orchestration.coordinator import noop_execution_started
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 
 logger = logging.getLogger(__name__)
@@ -64,10 +78,6 @@ _MAX_ROUNDS, _WAVE_DEADLINE_SECONDS, _POLL_SECONDS = 12, 120.0, 0.002
 _ACTIVE = frozenset({RunState.PROCESSING, RunState.PUBLISHING})
 _DTYPES = {"String": pl.String, "Int64": pl.Int64, "Float64": pl.Float64}
 type _Waves = tuple[tuple[str, ...], ...]
-
-
-class ShadowRunError(Exception):
-    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,14 +97,6 @@ class _Job:
     spec: DatasetSpec
     legacy_sha256: str
     settings: _Settings
-
-
-@dataclass(frozen=True, slots=True)
-class _Published:
-    manifest_key: str
-    manifest_sha256: str
-    manifest: RunManifest
-    outputs: dict[str, bytes]
 
 
 def _competencia(value: str) -> str:
@@ -274,69 +276,27 @@ class _Driver:
         waves.sort(key=lambda wave: order.index(wave[0]))
         return tuple(tuple(stage.value for stage in wave) for wave in waves)
 
-    def read_published(self) -> _Published:
-        dataset = self.job.dataset
-        pointer = self.cp.get_dataset_pointer(self.tenant, dataset)
-        version = pointer and self.cp.get_dataset_version(self.tenant, dataset, pointer.version_id)
-        if not (pointer and version) or {pointer.version_id, version.run_id} != {self.run_id}:
-            raise ShadowRunError(f"publication_mismatch dataset={dataset} run_id={self.run_id}")
-        store = self.runtime.object_store
-        with store.open(version.run_manifest_key) as stream:
-            stored = stream.read()
-        manifest = RunManifest.model_validate_json(stored)
-        serving = self.catalog.for_pipeline(dataset).layout.serving_documents
-        outputs = read_verified_outputs(store, manifest, stored, serving)
-        return _Published(version.run_manifest_key, sha256_hex(stored), manifest, outputs)
+    def published(self) -> PublishedRun:
+        job = self.job
+        expected = Expected(self.tenant, job.dataset, job.competencia, self.run_id)
+        serving = self.catalog.for_pipeline(job.dataset).layout.serving_documents
+        return read_published(self.cp, self.runtime.object_store, expected, serving)
 
 
-def _read_checked(store: ObjectStorePort, output: OutputManifest) -> bytes:
-    with store.open(output.object_key) as stream:
-        data = stream.read()
-    if sha256_hex(data) != output.object_sha256:
-        raise ShadowRunError(f"output_sha256_mismatch key={output.object_key}")
-    stat = store.stat(output.object_key)
-    if stat is None or stat.sha256 != output.object_sha256:
-        raise ShadowRunError(f"output_stat_mismatch key={output.object_key}")
-    return data
-
-
-def read_verified_outputs(
-    store: ObjectStorePort, manifest: RunManifest, stored: bytes, serving: tuple[str, ...]
-) -> dict[str, bytes]:
-    """Valida o RunManifest publicado e le cada saida conferindo o hash.
-
-    Args: store: object store. manifest: interpretado. stored: bytes gravados. serving: catalogo.
-    Returns: bytes de cada saida por chave de objeto.
-    Raises: ShadowRunError: manifest nao canonico, serving fora do catalogo ou hash divergente.
-    """
-    if manifest.model_dump_json(exclude_none=False, by_alias=False).encode() != stored:
-        raise ShadowRunError(f"manifest_not_canonical run_id={manifest.run_id}")
-    expected = {f"serving/{manifest.tenant_id}/{manifest.run_id}/{name}.json" for name in serving}
-    actual = {item.object_key for item in manifest.outputs if item.layer == "serving"}
-    if actual != expected:
-        raise ShadowRunError(
-            f"serving_keys_mismatch run_id={manifest.run_id} "
-            f"missing={sorted(expected - actual)} extra={sorted(actual - expected)}"
-        )
-    return {item.object_key: _read_checked(store, item) for item in manifest.outputs}
-
-
-def _metrics(doc: DocumentSpec, value: object) -> dict[str, Scalar]:
+def _metrics(doc: DocumentSpec, value: object) -> dict[str, Leaf]:
     try:
         return flatten_payload(doc.doc_id, value, doc.key_paths)
     except ValueError as error:
         raise ShadowRunError(f"flatten_failed doc_id={doc.doc_id} error={error}") from error
 
 
-def _collect(job: _Job, published: _Published) -> tuple[dict[str, Scalar], dict[str, Scalar]]:
-    legacy: dict[str, Scalar] = {}
-    candidate: dict[str, Scalar] = {}
+def _collect(job: _Job, published: PublishedRun) -> tuple[dict[str, Leaf], dict[str, Leaf]]:
+    legacy: dict[str, Leaf] = {}
+    candidate: dict[str, Leaf] = {}
     for doc in job.spec.documents:
         path = job.settings.legacy_root / job.spec.oracle_dir / doc.oracle.file
         document = _dig(_decode(path.name, path.read_bytes()), doc.oracle.path, doc.oracle.file)
         expected = _metrics(doc, document)
-        if not expected:
-            raise ShadowRunError(f"oracle_document_empty doc_id={doc.doc_id}")
         found = [o for o in published.manifest.outputs if o.layer == doc.candidate.layer
                  and o.object_key.endswith(f"/{doc.candidate.leaf}")]
         if len(found) != 1:
@@ -350,9 +310,9 @@ def _collect(job: _Job, published: _Published) -> tuple[dict[str, Scalar], dict[
     return legacy, candidate
 
 
-def _context(job: _Job, published: _Published, raw_sha256: dict[str, str]) -> dict[str, str]:
+def _context(job: _Job, published: PublishedRun, raw_sha256: dict[str, str]) -> dict[str, str]:
     context = {
-        "version_id": published.manifest.run_id,
+        "version_id": published.version_id,
         "clock_z": job.settings.contract.clock_z,
         "clock_offset": job.settings.contract.clock_offset,
     }
@@ -370,18 +330,11 @@ def _context(job: _Job, published: _Published, raw_sha256: dict[str, str]) -> di
     return context
 
 
-def _evidence(job: _Job, published: _Published, waves: _Waves) -> dict[str, object]:
-    declared = {(doc.candidate.layer, doc.candidate.leaf) for doc in job.spec.documents}
-    outputs = [
-        {
-            "asserted": (item.layer, item.object_key.rpartition("/")[2]) in declared,
-            "layer": item.layer, "object_key": item.object_key,
-            "object_sha256": item.object_sha256, "row_count": item.row_count,
-        }
-        for item in published.manifest.outputs
-    ]
+def _evidence(
+    job: _Job, published: PublishedRun, outputs: tuple[OutputEvidence, ...], waves: _Waves
+) -> dict[str, object]:
     return {
-        "contract_sha256": job.settings.contract_sha256, "outputs": outputs,
+        "contract_sha256": job.settings.contract_sha256, "outputs": [asdict(o) for o in outputs],
         "provenance": job.spec.provenance.model_dump(), "run_manifest_key": published.manifest_key,
         "run_manifest_sha256": published.manifest_sha256, "run_state": RunState.PUBLISHED.value,
         "waves": [list(wave) for wave in waves],
@@ -403,14 +356,14 @@ def write_report(path: Path, data: bytes) -> None:
     path.chmod(0o444)
 
 
-def _attempt(job: _Job) -> dict[str, object]:
+def _attempt(job: _Job) -> Covered:
     driver = _Driver(job)
     try:
         raw_sha256 = dict(driver.seed(raw) for raw in job.spec.raw_inputs)
         driver.launch()
         driver.drain()
         waves = driver.waves()
-        published = driver.read_published()
+        published = driver.published()
     finally:
         driver.runtime.executor.close()
     legacy, candidate = _collect(job, published)
@@ -424,27 +377,29 @@ def _attempt(job: _Job) -> dict[str, object]:
             context=_context(job, published, raw_sha256),
         ),
     )
-    data = report_bytes(report, _evidence(job, published, waves))
+    outputs = output_evidence(published.manifest.outputs, job.spec.documents)
+    data = report_bytes(report, _evidence(job, published, outputs, waves))
     name = f"{job.dataset}/{job.competencia}.json"
     write_report(job.settings.report_root / driver.tenant / name, data)
     logger.info(
         "shadow_job dataset=%s competencia=%s accepted=%s metrics=%d",
         job.dataset, job.competencia, report.accepted, len(report.comparisons),
     )
-    return {"accepted": report.accepted, "report": name, "report_sha256": sha256_hex(data)}
+    return Covered(
+        job.dataset, job.competencia, report.accepted, name, sha256_hex(data), outputs
+    )
 
 
-def _execute_job(job: _Job) -> dict[str, object]:
-    identity: dict[str, object] = {"competencia": job.competencia, "dataset": job.dataset}
+def _execute_job(job: _Job) -> Outcome:
     try:
-        return {**identity, **_attempt(job)}
+        return _attempt(job)
     except ShadowRunError as error:
         message = str(error)
     except Exception as error:
         logger.exception("shadow_job_unexpected dataset=%s", job.dataset)
         message = f"unexpected_error type={type(error).__name__}"
     logger.error("shadow_job_failed dataset=%s error=%s", job.dataset, message)
-    return {**identity, "error": message}
+    return Failure(job.dataset, job.competencia, message)
 
 
 def _git_commit() -> str:
@@ -456,17 +411,11 @@ def _git_commit() -> str:
     return completed.stdout.strip() or "unknown"
 
 
-def _write_aggregate(settings: _Settings, entries: list[dict[str, object]]) -> bool:
-    covered = [item for item in entries if "error" not in item]
-    failures = [item for item in entries if "error" in item]
-    accepted = bool(covered) and not failures and all(item["accepted"] for item in covered)
-    payload: dict[str, object] = {
-        "accepted": accepted, "contract_sha256": settings.contract_sha256,
-        "contract_version": settings.contract.contract_version, "covered": covered,
-        "failures": failures, "git_commit": _git_commit(), "tenant_id": settings.tenant,
-    }
+def _write_aggregate(settings: _Settings, request: Request, outcomes: list[Outcome]) -> bool:
+    stamp = Stamp(settings.tenant, settings.contract_sha256, _git_commit())
+    payload = build_aggregate(stamp, settings.contract, request, outcomes)
     write_report(settings.report_root / settings.tenant / _AGGREGATE, aggregate_bytes(payload))
-    return accepted
+    return aggregate_accepted(outcomes)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -484,9 +433,10 @@ def main(argv: list[str] | None = None) -> int:
     except (ContractInvalid, ShadowRunError, OSError) as error:
         logger.error("shadow_precondition_failed error=%s", error)
         return 1
-    entries = [_execute_job(job) for job in jobs]
+    outcomes = [_execute_job(job) for job in jobs]
+    request = Request(tuple(sorted(set(args.source))), args.from_competencia, args.to_competencia)
     try:
-        accepted = _write_aggregate(settings, entries)
+        accepted = _write_aggregate(settings, request, outcomes)
     except ShadowRunError as error:
         logger.error("shadow_aggregate_failed error=%s", error)
         return 1

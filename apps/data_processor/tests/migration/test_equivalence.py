@@ -1,61 +1,46 @@
-"""Comparacao exata de equivalencia: contrato, achatamento, regras aprovadas e serializacao."""
+"""Comparacao exata: regras fechadas, ausencias, formas do legado e presenca por linha."""
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from cnes_domain.orchestration.source_catalog import build_source_catalog
 from data_processor.migration.equivalence import (
     ComparisonStatus,
-    ContractInvalid,
     EquivalenceContract,
     MetricComparison,
-    SourceEquivalenceReport,
-    aggregate_bytes,
-    canonical_rows,
     compare_shadow_run,
-    flatten_payload,
     load_contract,
-    report_bytes,
-    sha256_hex,
 )
+from data_processor.migration.flatten import flatten_payload
 
 _ROOT = Path(__file__).resolve().parents[4]
 _CONTRACT = _ROOT / "docs" / "fixtures" / "migration" / "equivalence-contract-v1.json"
-_APPROVED = {
-    "MIG010-RUN-ID", "MIG010-GENERATED-AT", "MIG010-NORMALIZED-AT",
-    "MIG010-CNES-NORMALIZED-IDS", "MIG010-CNES-DIVERGENCE-TEXT",
-    "MIG010-SIA-RAW-MANIFEST-SHA256",
-}
 _MATCH, _EXPLAINED, _MISMATCH = (
     ComparisonStatus.MATCH, ComparisonStatus.EXPLAINED, ComparisonStatus.MISMATCH,
 )
 
 
 def _rule(rule_id: str = "R-1", **overrides: Any) -> dict[str, Any]:
-    return {
+    rule: dict[str, Any] = {
         "rule_id": rule_id, "metrics": ["d::x"], "check": "candidate_equals_context",
         "context": "key", "absent_ok": False, "rationale": "teste", **overrides,
     }
+    needs_form = rule["check"] == "candidate_equals_context" and not rule["absent_ok"]
+    return {**rule, "legacy_form": rule.get("legacy_form", "text" if needs_form else None)}
 
 
 def _document(rules: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"contract_version": 1, "clock": "2026-10-10T12:00:00Z", "datasets": {}, "rules": rules}
+    return {
+        "contract_version": 1, "normalizations": ["date_iso8601"],
+        "clock": "2026-10-10T12:00:00Z", "datasets": {}, "rules": rules,
+    }
 
 
 def _contract(*rules: dict[str, Any]) -> EquivalenceContract:
     return EquivalenceContract.model_validate_json(json.dumps(_document(list(rules))))
-
-
-def _write(tmp_path: Path, document: dict[str, Any]) -> Path:
-    path = tmp_path / "contract.json"
-    path.write_text(json.dumps(document), encoding="utf-8")
-    return path
 
 
 def _compare(
@@ -65,85 +50,6 @@ def _compare(
     return compare_shadow_run(
         contract=contract, legacy=legacy, candidate=candidate, context=context,
     )
-
-
-@pytest.mark.parametrize("name", ["tolerance", "percent", "epsilon", "max_percent", "Epsilon"])
-def test_rejeita_campos_de_tolerancia_estatistica(tmp_path: Path, name: str) -> None:
-    document = _document([{**_rule(), name: 0}])
-
-    with pytest.raises(ContractInvalid, match=f"forbidden_field key={name}"):
-        load_contract(_write(tmp_path, document))
-
-
-def test_rejeita_campo_de_tolerancia_aninhado_fora_das_regras(tmp_path: Path) -> None:
-    document = _document([])
-    document["datasets"] = {"cnes": {"provenance": {"tolerance_rows": 1}}}
-
-    with pytest.raises(ContractInvalid, match="forbidden_field key=tolerance_rows"):
-        load_contract(_write(tmp_path, document))
-
-
-def test_rejeita_rule_id_duplicado(tmp_path: Path) -> None:
-    with pytest.raises(ContractInvalid, match="contract_invalid"):
-        load_contract(_write(tmp_path, _document([_rule("R-1"), _rule("R-1")])))
-
-
-def test_rejeita_predicado_fora_do_conjunto_fechado(tmp_path: Path) -> None:
-    document = _document([_rule(check="candidate_within_percentage")])
-
-    with pytest.raises(ContractInvalid, match="contract_invalid"):
-        load_contract(_write(tmp_path, document))
-
-
-def _real_document() -> dict[str, Any]:
-    return json.loads(_CONTRACT.read_text(encoding="utf-8"))
-
-
-def _drop(mapping: dict[str, Any], key: str) -> None:
-    mapping.pop(key)
-
-
-@pytest.mark.parametrize(("mutate", "code"), [
-    (lambda d: _drop(d["datasets"]["sihd"]["raw_inputs"][0], "rows"), "raw_input_body_required"),
-    (lambda d: d["datasets"]["sihd"]["raw_inputs"][0]["manifest"].update(competencia="2026-02"),
-     "raw_manifest_competencia_mismatch"),
-    (lambda d: _drop(d["datasets"]["sihd"]["oracle_files"], "expected_serving.json"),
-     "file_not_pinned file=expected_serving.json"),
-    (lambda d: d["rules"][0].update(context={"a": "b"}), "rule_context_invalid"),
-    (lambda d: d.update(clock="2026-10-10T12:00:00-03:00"), "clock_utc_required"),
-    (lambda d: d["datasets"]["sihd"]["documents"].append(d["datasets"]["sihd"]["documents"][0]),
-     "duplicate_doc_id"),
-    (lambda d: d["datasets"]["sihd"]["documents"][0].update(doc_id="bpa-outro"),
-     "doc_id_prefix_invalid dataset=sihd"),
-])
-def test_rejeita_contrato_com_dataset_inconsistente(
-    tmp_path: Path, mutate: Any, code: str
-) -> None:
-    document = _real_document()
-    mutate(document)
-
-    with pytest.raises(ContractInvalid, match=code):
-        load_contract(_write(tmp_path, document))
-
-
-def test_rejeita_contrato_que_nao_e_json(tmp_path: Path) -> None:
-    path = tmp_path / "contract.json"
-    path.write_text("{nao e json", encoding="utf-8")
-
-    with pytest.raises(ContractInvalid, match=r"contract_unreadable path=contract\.json"):
-        load_contract(path)
-
-
-def test_contrato_expoe_relogio_nas_duas_formas_e_chaves_por_documento() -> None:
-    contract = load_contract(_CONTRACT)
-    documents = {item.doc_id: item for item in contract.datasets["sihd"].documents}
-
-    assert contract.clock_z == "2026-10-10T12:00:00Z"
-    assert contract.clock_offset == "2026-10-10T12:00:00+00:00"
-    assert documents["sihd-serving-overview"].key_paths == {
-        "por_cnes": ("cnes",), "por_procedimento": ("procedimento",),
-    }
-    assert documents["sihd-normalized-internacoes"].key_paths == {"": ("SIHD_KEY",)}
 
 
 def test_compara_valores_identicos_como_match() -> None:
@@ -212,12 +118,12 @@ def test_metrica_ausente_e_distinta_de_nulo() -> None:
 
 
 def test_regra_absent_ok_explica_somente_ausencia_no_legado() -> None:
-    contract = _contract(_rule("R-SHA", absent_ok=True))
+    contract = _contract(_rule("R-SHA", absent_ok=True, metrics=["d::[*].x"]))
     context = {"key": "sha"}
 
-    absent_legacy = _compare(contract, {}, {"d::x": "sha"}, context)
-    other_value = _compare(contract, {"d::x": "old"}, {"d::x": "sha"}, context)
-    absent_candidate = _compare(contract, {"d::x": "sha"}, {}, context)
+    absent_legacy = _compare(contract, {}, {"d::[1].x": "sha"}, context)
+    other_value = _compare(contract, {"d::[1].x": "old"}, {"d::[1].x": "sha"}, context)
+    absent_candidate = _compare(contract, {"d::[1].x": "sha"}, {}, context)
 
     assert [(item.status, item.rule_id, item.absent) for item in absent_legacy] == [
         (_EXPLAINED, "R-SHA", "legacy"),
@@ -301,176 +207,172 @@ def test_glob_asterisco_cobre_chaves_da_linha() -> None:
     assert result[0].status is _EXPLAINED
 
 
-def test_achata_objetos_com_chaves_pontuadas() -> None:
-    value = {"kpis": {"linhas": 3, "ok": True}, "nota": None, "lista": []}
-
-    flat = flatten_payload("serving", value, {})
-
-    assert flat == {"serving::kpis.linhas": 3, "serving::kpis.ok": True, "serving::nota": None}
-
-
-def test_achata_linhas_chaveadas_sem_depender_da_ordem() -> None:
-    rows = [{"cnes": "B", "n": 2}, {"cnes": "A", "n": 1}]
-
-    forward = flatten_payload("gold", rows, {"": ("cnes",)})
-    backward = flatten_payload("gold", rows[::-1], {"": ("cnes",)})
-
-    assert forward == backward == {
-        "gold::[A].cnes": "A", "gold::[A].n": 1, "gold::[B].cnes": "B", "gold::[B].n": 2,
-    }
-
-
-def test_achata_chave_composta_com_caminho_pontuado_e_nulo() -> None:
-    rows = [{"natural_key": {"identity": "I"}, "field": None, "v": 1}]
-
-    flat = flatten_payload("div", rows, {"": ("natural_key.identity", "field")})
-
-    assert flat["div::[I|].natural_key.identity"] == "I"
-    assert flat["div::[I|].v"] == 1
-
-
-def test_achata_listas_aninhadas_chaveadas_e_posicionais() -> None:
-    value = {"estabelecimentos": [{"cnes": "X", "n": 1}], "missing_sources": ["a", "b"]}
-
-    flat = flatten_payload("d", value, {"estabelecimentos": ("cnes",)})
-
-    assert flat == {
-        "d::estabelecimentos[X].cnes": "X", "d::estabelecimentos[X].n": 1,
-        "d::missing_sources[0]": "a", "d::missing_sources[1]": "b",
-    }
-
-
-def test_achata_datas_como_iso() -> None:
-    value = {"dia": date(2026, 1, 3), "instante": datetime(2026, 1, 3, 12, tzinfo=UTC)}
-
-    flat = flatten_payload("d", value, {})
-
-    assert flat == {"d::dia": "2026-01-03", "d::instante": "2026-01-03T12:00:00+00:00"}
-
-
-@pytest.mark.parametrize("value", [{"x": 1.5}, [{"k": "a", "x": 0.0}]])
-def test_rejeita_float(value: Any) -> None:
-    with pytest.raises(ValueError, match="float_not_allowed"):
-        flatten_payload("d", value, {"": ("k",)})
-
-
-def test_rejeita_metricas_com_o_mesmo_nome() -> None:
-    with pytest.raises(ValueError, match=r"duplicate_metric metric=d::a\.b"):
-        flatten_payload("d", {"a.b": 1, "a": {"b": 2}}, {})
-
-
-def test_rejeita_valor_de_tipo_nao_suportado() -> None:
-    with pytest.raises(ValueError, match="unsupported_value"):
-        flatten_payload("d", {"x": b"bytes"}, {})
-
-
-def test_rejeita_chave_duplicada() -> None:
-    rows = [{"k": "a", "v": 1}, {"k": "a", "v": 2}]
-
-    with pytest.raises(ValueError, match=r"duplicate_key key=a"):
-        canonical_rows(rows, ("k",))
-    with pytest.raises(ValueError, match="duplicate_key"):
-        flatten_payload("d", rows, {"": ("k",)})
-
-
-def test_rejeita_linha_sem_a_coluna_da_chave() -> None:
-    with pytest.raises(ValueError, match="key_missing column=k"):
-        canonical_rows([{"outra": 1}], ("k",))
-
-
-def test_linhas_canonicas_independem_da_ordem() -> None:
-    rows = [{"k": "b", "v": 2}, {"k": "a", "v": 1}, {"k": "c", "v": 3}]
-
-    forward = canonical_rows(rows, ("k",))
-    backward = canonical_rows(rows[::-1], ("k",))
-
-    assert list(forward) == list(backward) == ["a", "b", "c"]
-    assert forward == backward
-
-
-def _report(*comparisons: MetricComparison) -> SourceEquivalenceReport:
-    return SourceEquivalenceReport(
-        tenant_id="354130", dataset="sihd", source_types=("SIHD",), competencia="2026-01",
-        legacy_sha256="a" * 64, candidate_version_id="run-1", comparisons=comparisons,
+def _flat_compare(
+    legacy: Any, candidate: Any, keys: dict[str, tuple[str, ...]] | None = None
+) -> tuple[MetricComparison, ...]:
+    schema = keys or {}
+    return _compare(
+        _contract(), flatten_payload("d", legacy, schema), flatten_payload("d", candidate, schema)
     )
 
 
-def test_relatorio_vazio_ou_com_mismatch_nao_e_aceito() -> None:
-    match = MetricComparison("d::x", 1, 1, _MATCH, None)
-    explained = MetricComparison("d::y", "a", "b", _EXPLAINED, "R-1")
-    mismatch = MetricComparison("d::z", 1, 2, _MISMATCH, None)
+@pytest.mark.parametrize(("legacy", "candidate"), [
+    ({"total": 3, "missing_sources": []}, {"total": 3}),
+    ({"total": 3, "missing_sources": []}, {"total": 3, "missing_sources": {}}),
+    ({"total": 3, "missing_sources": {}}, {"total": 3, "missing_sources": []}),
+    ({"total": 3, "missing_sources": []}, {"total": 3, "missing_sources": None}),
+    ({"total": 3, "missing_sources": []}, {"total": 3, "missing_sources": ["CNES"]}),
+    ({"total": 3}, {"total": 3, "missing_sources": []}),
+    ({"a": {}}, {"a": {"b": 1}}),
+])
+def test_container_vazio_so_equivale_a_container_vazio_do_mesmo_tipo(
+    legacy: Any, candidate: Any
+) -> None:
+    result = _flat_compare(legacy, candidate)
 
-    assert _report().accepted is False
-    assert _report(match, mismatch).accepted is False
-    assert _report(match, explained).accepted is True
+    assert _MISMATCH in {item.status for item in result}
 
 
-def test_serializa_relatorio_e_agregado_com_sha256_estavel() -> None:
-    comparisons = (
-        MetricComparison("d::x", 1, 1, _MATCH, None),
-        MetricComparison("d::y", "a", "b", _EXPLAINED, "R-1"),
-        MetricComparison("d::z", None, "c", _MISMATCH, None, "legacy"),
+@pytest.mark.parametrize("value", [{"a": []}, {"a": {}}, {"a": {"b": []}}])
+def test_container_vazio_identico_nos_dois_lados_e_match(value: Any) -> None:
+    result = _flat_compare(value, value)
+
+    assert result
+    assert {item.status for item in result} == {_MATCH}
+
+
+@pytest.mark.parametrize("rows", [[{"k": "a"}], [{"k": "a"}, {"k": "b"}]])
+def test_oraculo_com_lista_chaveada_vazia_exige_candidato_vazio(rows: Any) -> None:
+    keys = {"": ("k",)}
+
+    divergent = _flat_compare([], rows, keys)
+    reverse = _flat_compare(rows, [], keys)
+    same = _flat_compare([], [], keys)
+
+    assert _MISMATCH in {item.status for item in divergent}
+    assert _MISMATCH in {item.status for item in reverse}
+    assert same
+    assert {item.status for item in same} == {_MATCH}
+
+
+def test_lista_chaveada_aninhada_vazia_exige_candidato_vazio() -> None:
+    keys = {"por_cnes": ("cnes",)}
+
+    result = _flat_compare({"por_cnes": []}, {"por_cnes": [{"cnes": "1"}]}, keys)
+
+    assert _MISMATCH in {item.status for item in result}
+
+
+_VOLATILE_CONTEXT = {
+    "version_id": "mig010-sihd-2026-01",
+    "clock_z": "2026-10-10T12:00:00Z",
+    "clock_offset": "2026-10-10T12:00:00+00:00",
+}
+_VOLATILE = {
+    "MIG010-RUN-ID": ("sihd-serving-overview::run_id", "version_id"),
+    "MIG010-GENERATED-AT": ("sihd-serving-overview::generated_at", "clock_z"),
+    "MIG010-NORMALIZED-AT": ("sihd-normalized-internacoes::[K1]._normalized_at", "clock_offset"),
+}
+_NOT_TEXT = (None, 42, True, "")
+_NOT_AN_INSTANT = (
+    *_NOT_TEXT, "not-a-timestamp", "2026-01-15", "2026-01-15T12:00:00",
+    "2026-01-15T12:00:00-03:00",
+)
+_BAD_LEGACY = [
+    *(("MIG010-RUN-ID", value) for value in _NOT_TEXT),
+    *(("MIG010-GENERATED-AT", value) for value in (
+        *_NOT_AN_INSTANT, "2026-01-15T12:00:00+00:00", "2026-13-45T00:00:00Z",
+    )),
+    *(("MIG010-NORMALIZED-AT", value) for value in (
+        *_NOT_AN_INSTANT, "2026-01-15T12:00:00Z", "2026-13-45T00:00:00+00:00",
+    )),
+]
+
+
+def _volatile(rule_id: str, legacy: Any) -> tuple[ComparisonStatus, str | None]:
+    metric, key = _VOLATILE[rule_id]
+    item = compare_shadow_run(
+        contract=load_contract(_CONTRACT), legacy={metric: legacy},
+        candidate={metric: _VOLATILE_CONTEXT[key]}, context=_VOLATILE_CONTEXT,
+    )[0]
+    return item.status, item.rule_id
+
+
+@pytest.mark.parametrize(("rule_id", "legacy"), _BAD_LEGACY)
+def test_regra_volatil_nao_explica_legado_fora_da_forma(rule_id: str, legacy: Any) -> None:
+    assert _volatile(rule_id, legacy) == (_MISMATCH, None)
+
+
+@pytest.mark.parametrize(("rule_id", "legacy"), [
+    ("MIG010-RUN-ID", "fixture-run-v1"),
+    ("MIG010-GENERATED-AT", "2026-01-31T23:59:59Z"),
+    ("MIG010-NORMALIZED-AT", "2026-01-15T12:00:00+00:00"),
+])
+def test_regra_volatil_explica_legado_na_forma_esperada(rule_id: str, legacy: Any) -> None:
+    assert _volatile(rule_id, legacy) == (_EXPLAINED, rule_id)
+
+
+_SIA_DOC = "sia-normalized-sia-apa"
+_SIA_KEYS = {"": ("_source_row",)}
+_RAW_SHA = "ab" * 32
+
+
+def _sia_run(candidate_rows: list[dict[str, Any]]) -> tuple[MetricComparison, ...]:
+    legacy_rows = [{"_source_row": 1, "v": "a"}, {"_source_row": 2, "v": "b"}]
+    return compare_shadow_run(
+        contract=load_contract(_CONTRACT),
+        legacy=flatten_payload(_SIA_DOC, legacy_rows, _SIA_KEYS),
+        candidate=flatten_payload(_SIA_DOC, candidate_rows, _SIA_KEYS),
+        context={f"raw_manifest_sha256/{_SIA_DOC}": _RAW_SHA},
     )
-    evidence: dict[str, object] = {"run_manifest_sha256": "b" * 64, "outputs": [{"asserted": True}]}
-
-    first = report_bytes(_report(*comparisons), evidence)
-    second = report_bytes(_report(*comparisons), dict(reversed(list(evidence.items()))))
-    payload = json.loads(first)
-
-    assert first == second
-    assert list(payload) == sorted(payload)
-    assert payload["accepted"] is False
-    assert payload["summary"] == {"EXPLAINED": 1, "MATCH": 1, "MISMATCH": 1}
-    assert payload["comparisons"][2]["absent"] == "legacy"
-    assert sha256_hex(first) == sha256(first).hexdigest()
-    shuffled = {"reports": {"b": "2", "a": "1"}, "commit": "abc"}
-    ordered = {"commit": "abc", "reports": {"a": "1", "b": "2"}}
-    assert aggregate_bytes(shuffled) == aggregate_bytes(ordered)
 
 
-def _digest(path: Path) -> str:
-    data = path.read_bytes()
-    if path.suffix == ".json":
-        data = data.replace(b"\r\n", b"\n")
-    return sha256(data).hexdigest()
+def _row(number: int, **extra: Any) -> dict[str, Any]:
+    return {"_source_row": number, "v": "ab"[number - 1], **extra}
 
 
-def _catalog_leaves(dataset: str) -> dict[str, set[str]]:
-    layout = build_source_catalog().for_pipeline(dataset).layout
-    return {
-        "normalized": {n for item in layout.normalized for n in item.normalized_filenames},
-        "reconciliation": {layout.reconciliation_filename, layout.divergence_filename},
-        "serving": {f"{name}.json" for name in layout.serving_documents},
-    }
+def test_candidato_com_o_hash_do_manifest_raw_em_toda_linha_nao_tem_mismatch() -> None:
+    rows = [_row(1, _source_manifest_sha256=_RAW_SHA), _row(2, _source_manifest_sha256=_RAW_SHA)]
+
+    result = _sia_run(rows)
+
+    assert [item.status for item in result].count(_EXPLAINED) == 2
+    assert _MISMATCH not in {item.status for item in result}
 
 
-def test_contrato_versionado_fixa_hashes_e_layout_do_catalogo() -> None:
-    contract = load_contract(_CONTRACT)
+@pytest.mark.parametrize(("rows", "missing"), [
+    ([_row(1, _source_manifest_sha256=_RAW_SHA), _row(2)], [2]),
+    ([_row(1), _row(2)], [1, 2]),
+])
+def test_linha_do_candidato_sem_o_hash_do_manifest_raw_vira_mismatch(
+    rows: list[dict[str, Any]], missing: list[int]
+) -> None:
+    result = _sia_run(rows)
 
-    assert set(contract.datasets) == {"cnes", "sihd", "bpa", "sia"}
-    assert {rule.rule_id for rule in contract.rules} == _APPROVED
-    for name, spec in contract.datasets.items():
-        pinned = {file: _digest(_ROOT / spec.oracle_dir / file) for file in spec.oracle_files}
-        assert pinned == spec.oracle_files
-        leaves = _catalog_leaves(name)
-        for document in spec.documents:
-            assert document.candidate.leaf in leaves[document.candidate.layer]
-            assert document.oracle.file in spec.oracle_files
+    mismatches = [item for item in result if item.status is _MISMATCH]
+    assert [item.metric for item in mismatches] == [
+        f"{_SIA_DOC}::[{number}]._source_manifest_sha256" for number in missing
+    ]
+    assert {(item.absent, item.rule_id) for item in mismatches} == {("candidate", None)}
 
 
-def test_contrato_versionado_cobre_as_dependencias_requeridas_e_a_proveniencia() -> None:
-    contract = load_contract(_CONTRACT)
+def test_hash_do_manifest_raw_divergente_gera_um_unico_mismatch_por_linha() -> None:
+    rows = [_row(1, _source_manifest_sha256="00" * 32), _row(2, _source_manifest_sha256=_RAW_SHA)]
 
-    for name, spec in contract.datasets.items():
-        seeded = {(i.manifest["source_type"], i.manifest["file_subtype"]) for i in spec.raw_inputs}
-        required = {
-            (dep.source_type, dep.file_subtype)
-            for dep in build_source_catalog().for_pipeline(name).dependencies if dep.required
-        }
-        assert required <= seeded
-        assert spec.provenance.data_nature == "synthetic"
-    kinds = {name: spec.provenance.kind for name, spec in contract.datasets.items()}
-    assert kinds == {
-        "cnes": "independent_frozen", "sihd": "reproduction", "bpa": "reproduction",
-        "sia": "reproduction",
+    result = _sia_run(rows)
+
+    assert [item.metric for item in result if item.status is _MISMATCH] == [
+        f"{_SIA_DOC}::[1]._source_manifest_sha256",
+    ]
+
+
+def test_glob_de_colchetes_curinga_cobre_um_unico_segmento() -> None:
+    rule = _rule(metrics=["d::[*].x"], context="key")
+    legacy = {"d::[A].x": "o", "d::[A].y[B].x": "o", "d::[A].y[B].z[C].x": "o"}
+    candidate = {"d::[A].x": "n", "d::[A].y[B].x": "n", "d::[A].y[B].z[C].x": "n"}
+
+    result = _compare(_contract(rule), legacy, candidate, {"key": "n"})
+
+    assert {item.metric: item.status for item in result} == {
+        "d::[A].x": _EXPLAINED, "d::[A].y[B].x": _MISMATCH, "d::[A].y[B].z[C].x": _MISMATCH,
     }
