@@ -109,10 +109,16 @@ def _same(left: object, right: object) -> bool:
     return left == right
 
 
+def _key_part(value: object) -> object:
+    if isinstance(value, float) and math.isnan(value):
+        return math.nan
+    return value
+
+
 def _group(frame: pl.DataFrame, key: Sequence[str]) -> dict[tuple[object, ...], list[_Row]]:
     groups: dict[tuple[object, ...], list[_Row]] = {}
     for row in frame.to_dicts():
-        groups.setdefault(tuple(row[name] for name in key), []).append(row)
+        groups.setdefault(tuple(_key_part(row[name]) for name in key), []).append(row)
     return groups
 
 
@@ -151,7 +157,7 @@ def diff_frames(
 
     Args: a/b: frames com as mesmas colunas. key: colunas da chave; None compara por posição.
     Returns: diferenças ordenadas por chave; nulo contra valor conta como diferença.
-    Raises: ValueError: colunas distintas ou coluna da chave ausente.
+    Raises: ValueError: colunas distintas, coluna da chave ausente ou aninhada.
     """
     if set(a.columns) != set(b.columns):
         raise ValueError(f"column_mismatch left={sorted(a.columns)} right={sorted(b.columns)}")
@@ -160,6 +166,9 @@ def diff_frames(
     missing = [name for name in key if name not in a.columns]
     if missing:
         raise ValueError(f"key_missing column={missing[0]}")
+    nested = [name for name in key if a.schema[name].is_nested() or b.schema[name].is_nested()]
+    if nested:
+        raise ValueError(f"key_not_scalar column={nested[0]}")
     return tuple(_keyed_differences(a, b, key))
 
 

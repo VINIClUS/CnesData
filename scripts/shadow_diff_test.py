@@ -1,9 +1,10 @@
 """Teste do shadow diff."""
 import logging
+import math
 import re
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 import pytest
@@ -110,6 +111,18 @@ def test_diff_frames_com_chave_composta_identifica_a_linha() -> None:
     assert diff_frames(a, b, ["k1", "k2"]) == (Difference("cell", ("a", 2), "v", "y", "z"),)
 
 
+def test_diff_frames_com_chave_nan_casa_as_linhas_dos_dois_lados() -> None:
+    a = pl.DataFrame({"k": [float("nan"), 1.0], "v": ["x", "y"]})
+    b = pl.DataFrame({"k": [float("nan"), 1.0], "v": ["X", "y"]})
+
+    found = diff_frames(a, b, ["k"])
+
+    assert [(item.kind, item.column, item.left, item.right) for item in found] == [
+        ("cell", "v", "x", "X"),
+    ]
+    assert math.isnan(cast("float", found[0].key[0]))
+
+
 def test_diff_frames_com_chave_nao_funde_nulo_com_o_texto_none(tmp_path: Path) -> None:
     a = pl.DataFrame({"k": [None, "None"], "v": ["x", "y"]})
     b = pl.DataFrame({"k": [None, "None"], "v": ["X", "Y"]})
@@ -147,6 +160,7 @@ def test_diff_frames_sem_chave_aponta_linhas_excedentes() -> None:
 @pytest.mark.parametrize(("right", "key", "code"), [
     (pl.DataFrame({"cnes": ["0001"], "outra": [1]}), ["cnes"], "column_mismatch"),
     (pl.DataFrame({"cnes": ["0001"], "nome": ["A"]}), ["inexistente"], "key_missing"),
+    (pl.DataFrame({"cnes": [["0001"]], "nome": ["A"]}), ["cnes"], "key_not_scalar column=cnes"),
 ])
 def test_diff_frames_rejeita_colunas_ou_chave_invalidas(
     right: pl.DataFrame, key: list[str], code: str
