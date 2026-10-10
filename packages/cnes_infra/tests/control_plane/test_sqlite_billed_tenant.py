@@ -1,5 +1,6 @@
 """Testes da criação transacional de tenant faturado no plano de controle SQLite."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -13,7 +14,7 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.control_plane.entities import IdempotencyRecord, Tenant
+from cnes_domain.control_plane.entities import IdempotencyRecord, Membership, Tenant
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.billing.dynamodb_items import audit_outbox_event
 from cnes_infra.control_plane.billed_tenant import (
@@ -29,6 +30,11 @@ from packages.cnes_infra.tests.contracts.clock import MutableClock
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 ACCOUNT = "ba_01"
 NEW = "tenant-new"
+CREATOR = "user-owner"
+ISSUER = "https://issuer"
+EXPECTED = Membership(
+    tenant_id=NEW, user_id=CREATOR, role="gestor", created_at=NOW, oidc_issuer=ISSUER,
+)
 
 
 @pytest.fixture
@@ -51,7 +57,13 @@ def make_command(
         link=make_link(ACCOUNT, tenant_id),
         reservation_id="res-01",
         idempotency_key=key,
+        creator_issuer=ISSUER,
     )
+
+
+def membership_count(plane: SQLiteControlPlane) -> int:
+    with plane.read_connection() as connection:
+        return connection.execute("SELECT COUNT(*) FROM memberships").fetchone()[0]
 
 
 def stored_record(plane: SQLiteControlPlane, tenant_id: str = NEW) -> str | None:
@@ -76,6 +88,7 @@ def test_cria_tenant_com_idempotencia_e_outbox(plane: SQLiteControlPlane) -> Non
     assert record.expires_at == NOW + timedelta(days=1)
     events = plane.pending_outbox(10)
     assert events == (audit_outbox_event(tenant_created_event(command)),)
+    assert plane.get_membership(NEW, CREATOR) == EXPECTED
 
 
 def test_replay_com_mesmo_comando_devolve_tenant(plane: SQLiteControlPlane) -> None:
@@ -85,6 +98,8 @@ def test_replay_com_mesmo_comando_devolve_tenant(plane: SQLiteControlPlane) -> N
 
     assert replayed == first
     assert len(plane.pending_outbox(10)) == 1
+    assert membership_count(plane) == 1
+    assert plane.get_membership(NEW, CREATOR) == EXPECTED
 
 
 def test_replay_sem_tenant_gravado_pede_nova_tentativa(plane: SQLiteControlPlane) -> None:
@@ -123,6 +138,7 @@ def test_idempotencia_expirada_e_sobrescrita(
     clock.advance(timedelta(days=2))
     with plane.write_transaction() as connection:
         connection.execute("DELETE FROM tenants WHERE tenant_id = ?", (NEW,))
+        connection.execute("DELETE FROM memberships WHERE tenant_id = ?", (NEW,))
         connection.execute("DELETE FROM outbox_events")
 
     plane.create_billed_tenant(make_command(name="Outro Municipio"))
@@ -141,6 +157,7 @@ def test_tenant_existente_conflita(plane: SQLiteControlPlane) -> None:
     assert cast("Any", plane.get_tenant(NEW)).municipality_name == "Antigo"
     assert stored_record(plane) is None
     assert plane.pending_outbox(10) == ()
+    assert membership_count(plane) == 0
 
 
 def test_tenant_reservado_e_rejeitado(plane: SQLiteControlPlane) -> None:
@@ -163,3 +180,39 @@ def test_falha_no_outbox_desfaz_tenant_e_idempotencia(plane: SQLiteControlPlane)
     assert plane.get_tenant(NEW) is None
     assert stored_record(plane) is None
     assert len(plane.pending_outbox(10)) == 1
+    assert membership_count(plane) == 0
+
+
+def test_membership_orfa_do_criador_conflita_sem_sobrescrever(plane: SQLiteControlPlane) -> None:
+    orphan = EXPECTED.model_copy(update={"role": "leitor", "oidc_issuer": None})
+    plane.put_membership(orphan)
+
+    with pytest.raises(BillingTenantConflict, match=f"tenant_id={NEW}"):
+        plane.create_billed_tenant(make_command())
+
+    assert plane.get_membership(NEW, CREATOR) == orphan
+    assert plane.get_tenant(NEW) is None
+    assert stored_record(plane) is None
+    assert plane.pending_outbox(10) == ()
+
+
+def test_issuer_diferente_com_a_mesma_chave_conflita(plane: SQLiteControlPlane) -> None:
+    plane.create_billed_tenant(make_command())
+
+    with pytest.raises(IdempotencyConflict, match="key=bt-01"):
+        plane.create_billed_tenant(replace(make_command(), creator_issuer="https://outro"))
+
+    assert plane.get_membership(NEW, CREATOR) == EXPECTED
+
+
+def test_membership_orfa_de_outro_usuario_conflita(plane: SQLiteControlPlane) -> None:
+    orphan = EXPECTED.model_copy(update={"user_id": "outro-usuario", "role": "leitor"})
+    plane.put_membership(orphan)
+
+    with pytest.raises(BillingTenantConflict, match=f"tenant_id={NEW}"):
+        plane.create_billed_tenant(make_command())
+
+    assert plane.get_membership(NEW, "outro-usuario") == orphan
+    assert plane.get_membership(NEW, CREATOR) is None
+    assert plane.get_tenant(NEW) is None
+    assert stored_record(plane) is None

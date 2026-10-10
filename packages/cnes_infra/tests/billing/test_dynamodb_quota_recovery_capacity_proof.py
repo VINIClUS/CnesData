@@ -3,7 +3,15 @@
 from cnes_domain.billing.models import CapacityKind, ReservationStatus
 from cnes_domain.control_plane.entities import Agent, Tenant
 from cnes_domain.control_plane.enums import AgentState
-from packages.cnes_infra.tests.billing.quota_support import HASH_A, NOW, TENANT, quota_env
+from cnes_infra.billing.dynamodb_items import encode_link
+from packages.cnes_infra.tests.billing.billing_factories import TABLE_NAME, make_link
+from packages.cnes_infra.tests.billing.quota_support import (
+    ACCOUNT,
+    HASH_A,
+    NOW,
+    TENANT,
+    quota_env,
+)
 from packages.cnes_infra.tests.billing.test_dynamodb_quota_recovery import (
     _capacity,
     _capacity_counter,
@@ -71,7 +79,7 @@ def test_tenant_sem_link_da_conta_libera() -> None:
         assert _capacity_counter(env, "tenant_count") == 0
 
 
-def test_link_da_conta_consome_tenant() -> None:
+def test_marcador_da_reserva_consome_tenant() -> None:
     with quota_env() as env:
         capacity = _capacity(CapacityKind.TENANT, TENANT)
         _seed_capacity(env, capacity)
@@ -83,3 +91,18 @@ def test_link_da_conta_consome_tenant() -> None:
         assert result.released == 0
         assert _stored_capacity(env, capacity).status is ReservationStatus.CONSUMED
         assert _capacity_counter(env, "tenant_count") == 1
+
+
+def test_tenant_com_link_sem_marcador_da_reserva_libera() -> None:
+    with quota_env() as env:
+        capacity = _capacity(CapacityKind.TENANT, TENANT)
+        _seed_capacity(env, capacity)
+        link = encode_link(make_link(ACCOUNT, TENANT))
+        env.client.put_item(TableName=TABLE_NAME, Item=link)
+        _expire(env)
+
+        result = _reconcile(env.repo, env)
+
+        assert result.released == 1
+        assert _stored_capacity(env, capacity).status is ReservationStatus.RELEASED
+        assert _capacity_counter(env, "tenant_count") == 0

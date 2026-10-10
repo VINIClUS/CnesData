@@ -182,6 +182,54 @@ Lê uma página do índice de reservas vencidas (`QUOTA_RESERVATION#DUE`) e, com
 
 Emite `QuotaReservationsExpired` com o número de liberadas.
 
+## Capacidade (agentes e tenants)
+
+`BILLING#<conta>/CAPACITY` (entidade `BILLINGUSAGE`) guarda `tenant_count` e `agent_count`.
+Os contadores são corretos por construção, sem backfill:
+
+- Semente: `create_account` grava o item na mesma transação da conta, com `tenant_count=1` (o
+  tenant inicial consome `max_tenants`; plano de um município é `max_tenants=1`) e
+  `agent_count` igual ao contador pendente do tenant inicial (0 se não houver).
+- Contagem em todo modo `stripe`: em `enforce` a reserva soma (teto aplicado) e o consumo
+  confirma; em `off`/`shadow` o agente novo (`register_edge_agent`, ramo de criação) e o tenant
+  novo (`create_billed_tenant`) somam `+1` na mesma transação da escrita, sem teto. Réplicas
+  em modos mistos durante a virada mexem no mesmo contador. `put_agent` (agentes sintéticos,
+  ex.: `system-datasus`) não conta.
+- Tenant sem conta: em `off`/`shadow` o agente é admitido e contado em
+  `TENANT#<t>/BILLING_PENDING_CAPACITY`. `create_account` e `create_billed_tenant` transferem o
+  valor para a conta com CAS (Delete condicionado ao valor lido); perder a corrida para uma
+  admissão concorrente devolve `503` retryable e o retry relê o pendente. CAPACITY órfão (sem
+  a conta) faz `create_account` falhar com `capacity_exists` (HTTP 500 + log
+  `billing_request_failed code=capacity_exists`; só com dado legado: apague o item órfão).
+- Recuperação de reserva de tenant: a prova de consumo é o marcador sem TTL
+  `TENANT#<t>/IDEMPOTENCY#tenant.capacity#<reservation_id>`, gravado na transação de criação
+  em `enforce` (igual ao marcador `edge_agent.register` do agente). Reserva órfã de um tenant
+  criado por outra reserva ou em `off`/`shadow` é liberada, sem contar o tenant duas vezes.
+- `capacity_not_seeded`: em `enforce`, conta sem item CAPACITY (ou sem o contador do tipo)
+  falha fechado com `EntitlementDenied reason=capacity_not_seeded` (HTTP 403
+  `agent_entitlement_denied`/`tenant_entitlement_denied`, sem `Retry-After`) e log
+  `capacity_counter_missing reason=capacity_not_seeded`. Em `off`/`shadow` a escrita segue sem
+  contar e o mesmo log é emitido.
+
+Checagem antes da virada para `enforce`, por conta:
+
+- links `BILLING#<conta>/TENANT#*` == `tenant_count`;
+- agentes dos tenants vinculados, inclusive revogados e exceto os sintéticos de `put_agent`,
+  == `agent_count`;
+- nenhum `TENANT#*/BILLING_PENDING_CAPACITY` de tenant vinculado.
+
+Ordem do rollout: todas as réplicas nesta versão e com `BILLING_MODE=stripe` (`off` basta)
+antes de criar contas, tenants faturados ou agentes que devam contar; agente admitido em
+`disabled` ou por código anterior não é contado. Tenant criado por
+`POST /billing/accounts/{id}/tenants` herda o pendente do mesmo jeito que `create_account`.
+
+Janela da virada: um replay de `POST /billing/accounts/{id}/tenants` com a mesma chave que
+atravessa a troca de modo responde `409 idempotency_conflict` (o digest inclui o id da reserva,
+sintético em `off`/`shadow`); os contadores ficam corretos e o tenant já existe.
+
+Sem migração: dados de billing anteriores a esta versão (e os agentes/tenants que eles
+cobriam) são apagados, não migrados.
+
 ## Replay seguro
 
 - inbox: ids de evento Stripe; o inbox usa fence por claim.
@@ -204,6 +252,17 @@ entre os dois deixa o Customer órfão. O replay com a mesma `idempotency_key` o
 - busca com mais de uma página falha fechado (`stripe_customers_unbounded`, 503) sem criar;
 - o `StripeClient` repete falhas de rede até 2 vezes com a mesma chave, o que evita a maior
   parte dos órfãos por resposta perdida.
+
+Cliente que perdeu a `idempotency_key`: uma chave nova devolve a mesma conta (201). Quem chama
+precisa ser `gestor` do tenant vinculado informado no `X-Tenant-Id`, o que inclui o dono quando
+ele é `gestor`; um dono que deixou de ser `gestor` recebe 403 `billing_admin_required`. A rota resolve o link reverso
+`TENANT#<t>/BILLING_ACCOUNT` com leitura forte, aplica o mesmo controle de dono/`gestor` com link
+direto forte e segue o mesmo caminho do Customer acima (chave `customer:<conta>` + busca por
+metadata), sem criar outro Customer. Sinal em log:
+`billing_account_recovered billing_account_id=... tenant_id=...`. Após essa recuperação, 409
+`billing_tenant_conflict` no `POST /accounts` só ocorre com `TENANT#<t>/BILLING_ACCOUNT`
+pendente, divergente do link direto ou apontando para conta inexistente: investigue o índice
+antes de qualquer correção manual.
 
 Sinais em log, sem ação automática (o Customer sobra no Stripe, sem anexo):
 
@@ -271,7 +330,7 @@ Eventos duráveis (outbox), iguais ao `AUDIT_EVENT_INVENTORY` de
 
 | Categoria | Eventos |
 |---|---|
-| Conta | `billing_account.created`, `billing_account.tenant_linked`, `billing_account.customer_attached` |
+| Conta | `billing_account.created`, `billing_account.customer_attached` |
 | Transferência | `billing_account.transferred` |
 | Checkout | `checkout.session_created` |
 | Webhook | `billing.webhook_failed_final` |
@@ -311,14 +370,14 @@ nunca muda. Em `off`, `enforce` e `disabled` o observador é nulo (nenhuma leitu
 | Agente novo (`register_agent`) | `billing_account_missing` | 403 `billing_account_missing` |
 | Agente novo | `snapshot_*`, `admin_revoked`, `status_*`, `grace_expired`, `period_ended`, `snapshot_expired`, `quota_missing`, `quota_not_granted` | 403 `agent_entitlement_denied` |
 | Agente novo | `max_agents_exceeded` | 403 `agent_quota_exceeded` |
-| Agente novo | `capacity_not_seeded` | Hoje: permitido (contador ausente vale 0 e é criado); com a #354: falha fechado |
+| Agente novo | `capacity_not_seeded` | 403 `agent_entitlement_denied` (falha fechado, sem `Retry-After`) |
 | Serving (`serving_access`) | `billing_account_missing`, `snapshot_*`, `admin_revoked`, `status_*`, `feature_missing`, `quota_missing`, `retention_expired` | 403 `serving_entitlement_denied` |
 | Tenant (`tenant_creation`) | `snapshot_*`, `admin_revoked`, `status_*`, `grace_expired`, `period_ended`, `snapshot_expired`, `quota_missing`, `quota_not_granted` | 403 `tenant_entitlement_denied` |
 | Tenant | `max_tenants_exceeded` | 403 `tenant_quota_exceeded` |
-| Tenant | `capacity_not_seeded` | Hoje: permitido (contador ausente vale 0 e é criado); com a #354: falha fechado |
+| Tenant | `capacity_not_seeded` | 403 `tenant_entitlement_denied` (falha fechado, sem `Retry-After`) |
 
-`capacity_not_seeded` antecipa o contrato da #354: sem ela, o `enforce` atual trata contador
-ausente como 0 e permite. Na criação de tenant já ligado à conta a capacidade não é checada
+`capacity_not_seeded` segue a seção "Capacidade (agentes e tenants)": o `create_account` semeia o
+item, então o motivo indica conta anterior a esta versão ou item apagado. Na criação de tenant já ligado à conta a capacidade não é checada
 (replay idempotente: o `enforce` devolveria a reserva gravada); um repost com outra chave de
 idempotência fica sem sinal de capacidade. `create_run` não tem rota que o chame; a quota de run
 hipotética (`max_runs_per_period_exceeded`) não é observada, e o observador de `create_run`
@@ -335,8 +394,8 @@ janela; qualquer outro é inesperado. Remediação por motivo:
   (#357).
 - `snapshot_missing`, `snapshot_account_mismatch`, `snapshot_expired`: `billing-worker recover`
   e `billing-worker reconcile`.
-- `capacity_not_seeded`: semear o item de capacidade (seção de capacidade da #354). Até a #354
-  entrar em `develop`, shadow não mantém contadores e toda criação real reporta esse motivo.
+- `capacity_not_seeded`: conta sem item CAPACITY semeado (dado anterior a esta versão ou item
+  apagado); dados legados são apagados, não migrados (seção "Capacidade (agentes e tenants)").
 - `max_agents_exceeded`, `max_tenants_exceeded`, `quota_*`: upgrade de plano ou limpeza de
   agentes/tenants.
 - `admin_revoked`, `status_*`, `grace_expired`, `period_ended`, `retention_expired`: confirmar
@@ -354,7 +413,8 @@ Critério de saída para `enforce`, todos verdadeiros:
    tenant sempre passa conta explícita).
 4. Toda ação alcançável exercitada na janela (serving e criação de tenant; agente só fora de
    `PROFILE=aws`, ver abaixo).
-5. #354 e #355 em `develop`.
+5. Checagem de capacidade antes da virada (seção "Capacidade (agentes e tenants)") sem
+   divergência.
 
 Limitação: a admissão de agente Edge não é alcançável em `PROFILE=aws` hoje (o lifespan aws
 não compõe a identidade Edge e `billing_deps` responde 503 fora de `/api/v1/billing/`). Em
@@ -367,3 +427,6 @@ Com `BILLING_MODE=stripe` e `BILLING_ENFORCEMENT_MODE` em `off` ou `shadow`,
 `create_unmetered_run` não confere o snapshot. Runs criados após uma revogação ou perda de
 acesso não são fenceados: não há enforcement nesses modos. Use `enforce` onde o corte de
 acesso for requisito.
+
+Revogar um agente ainda não libera a vaga: `agent_count` só diminui pela liberação de uma
+reserva de capacidade.

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from cnes_domain.billing.models import BillingEnforcementMode, SubscriptionStatus
 from cnes_domain.control_plane.entities import Membership, OutboxEvent
-from cnes_infra.billing.keys import tenant_account_key
+from cnes_infra.billing.keys import capacity_usage_key, tenant_account_key
 from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_infra.tests.billing.quota_support import ACCOUNT, TENANT
 from packages.cnes_infra.tests.billing.shadow_support import (
@@ -97,6 +97,9 @@ def test_agentes_acima_do_limite_sao_admitidos_e_auditados(shadow: ApiStack) -> 
 
 
 def test_agente_sem_contador_semeado_e_auditado_como_nao_semeado(shadow: ApiStack) -> None:
+    pk, sk = capacity_usage_key(ACCOUNT)
+    shadow.client.delete_item(TableName=TABLE_NAME, Key={"pk": {"S": pk}, "sk": {"S": sk}})
+
     assert _agent(build_client(shadow), "agent-1") == 204
 
     assert shadow_reasons(shadow.client) == ["capacity_not_seeded"]

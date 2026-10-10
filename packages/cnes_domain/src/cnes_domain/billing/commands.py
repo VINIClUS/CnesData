@@ -52,17 +52,6 @@ class CreateBillingAccountCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class LinkBillingTenantCommand:
-    link: BillingAccountTenantLink
-    expected_account_updated_at: datetime
-    idempotency_key: str
-
-    def __post_init__(self) -> None:
-        require_utc(self.expected_account_updated_at, "expected_account_updated_at")
-        require_id(self.idempotency_key, "idempotency_key")
-
-
-@dataclass(frozen=True, slots=True)
 class TransferOwnerCommand:
     billing_account_id: str
     expected_owner_user_id: str
@@ -102,9 +91,11 @@ class CreateBilledTenantCommand:
     link: BillingAccountTenantLink
     reservation_id: str
     idempotency_key: str
+    creator_issuer: str
 
     def __post_init__(self) -> None:
-        require_fields(self, require_id, ("reservation_id", "idempotency_key"))
+        names = ("reservation_id", "idempotency_key", "creator_issuer")
+        require_fields(self, require_id, names)
         if self.tenant.tenant_id != self.link.tenant_id:
             raise ValueError("reason=tenant_link_mismatch")
 

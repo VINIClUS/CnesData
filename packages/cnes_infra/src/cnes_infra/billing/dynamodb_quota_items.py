@@ -337,6 +337,19 @@ def usage_update(
     return {"Update": request}
 
 
+def capacity_update(table_name: str, key: Key, attribute: str, ceiling: int | None) -> Action:
+    """Cria o ADD de capacidade; exige contador semeado e, com teto, <= teto."""
+    action = usage_update(table_name, key, {attribute: 1}, None)
+    request = action["Update"]
+    request["ExpressionAttributeNames"]["#guard"] = attribute
+    condition = "attribute_exists(#guard)"
+    if ceiling is not None:
+        request["ExpressionAttributeValues"][":ceiling"] = _number(ceiling)
+        condition += " AND #guard <= :ceiling"
+    request["ConditionExpression"] = condition
+    return action
+
+
 def settle_usage_update(table_name: str, key: Key, deltas: Mapping[str, int]) -> Action:
     """Cria o Update de liquidação, que exige o item de uso existente."""
     action = usage_update(table_name, key, deltas, None)

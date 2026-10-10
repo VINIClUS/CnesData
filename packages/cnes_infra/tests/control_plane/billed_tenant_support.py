@@ -13,7 +13,7 @@ from cnes_domain.billing.commands import CreateBilledTenantCommand
 from cnes_domain.billing.models import (
     CapacityKind,
 )
-from cnes_domain.control_plane.entities import Tenant
+from cnes_domain.control_plane.entities import Membership, Tenant
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
@@ -41,6 +41,7 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     make_create_command,
     make_link,
     put_tenant,
+    table_items,
 )
 from packages.cnes_infra.tests.billing.dynamodb_catalog_support import (
     get_stored,
@@ -55,6 +56,8 @@ from packages.cnes_infra.tests.contracts.clock import MutableClock
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import ClientSpy
 
 NEW = "tenant-new"
+CREATOR = "user-owner"
+ISSUER = "https://issuer"
 OTHER = "tenant-other"
 ENFORCE = BillingSettings(BillingMode.STRIPE, BillingEnforcementMode.ENFORCE, 60)
 DISABLED = BillingSettings(BillingMode.DISABLED, BillingEnforcementMode.OFF, 60)
@@ -88,13 +91,21 @@ class Env:
         self, reservation_id: str, tenant_id: str = NEW, key: str = "bt-01", **changes: Any
     ) -> CreateBilledTenantCommand:
         tenant = Tenant(tenant_id=tenant_id, municipality_name="Epitacio", created_at=NOW)
-        command = CreateBilledTenantCommand(
+        issuer = changes.pop("creator_issuer", ISSUER)
+        return CreateBilledTenantCommand(
             tenant=tenant.model_copy(update=changes),
             link=make_link(ACCOUNT, tenant_id),
             reservation_id=reservation_id,
             idempotency_key=key,
+            creator_issuer=issuer,
         )
-        return command
+
+    def membership(self, tenant_id: str = NEW) -> Membership | None:
+        return self.plane.get_membership(tenant_id, CREATOR)
+
+    def memberships(self) -> list[Any]:
+        items = table_items(self.client)
+        return [i for i in items if i.get("entity", {}).get("S") == "MEMBERSHIP"]
 
     def stored(self, key: tuple[str, str]) -> Any:
         return get_stored(self.client, key)
@@ -135,4 +146,5 @@ def assert_nothing_written(env: Env, tenant_id: str = NEW) -> None:
     assert env.stored(account_tenant_key(ACCOUNT, tenant_id)) is None
     assert env.stored(tenant_account_key(tenant_id)) is None
     assert env.stored(idempotency_key(tenant_id, TENANT_SCOPE, "bt-01")) is None
+    assert env.membership(tenant_id) is None
     assert "tenant.created" not in env.outbox_types()

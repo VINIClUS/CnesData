@@ -26,6 +26,7 @@ from cnes_infra.billing import (
 from cnes_infra.billing.dynamodb_capacity_counters import DynamoCapacityCounters
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_items import deterministic_id
+from cnes_infra.billing.keys import capacity_usage_key
 from packages.cnes_infra.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,
@@ -98,8 +99,13 @@ def _link_account(env) -> None:
     )
 
 
+def _drop_capacity(env) -> None:
+    pk, sk = capacity_usage_key(ACCOUNT)
+    env.client.delete_item(TableName=TABLE_NAME, Key={"pk": {"S": pk}, "sk": {"S": sk}})
+
+
 def test_link_real_e_capacidade_semeada_no_limite_registram_excedido():
-    with quota_env() as env:
+    with quota_env(seeded=False) as env:
         _link_account(env)
         seed_capacity(env.client, ACCOUNT, agent_count=5, tenant_count=1)
         observer = _shadow_observer(env.client)
@@ -111,8 +117,9 @@ def test_link_real_e_capacidade_semeada_no_limite_registram_excedido():
 
 
 def test_link_real_sem_contador_registra_capacity_not_seeded():
-    with quota_env() as env:
+    with quota_env(seeded=False) as env:
         _link_account(env)
+        _drop_capacity(env)
         observer = _shadow_observer(env.client)
 
         observer.observe(AGENT)
