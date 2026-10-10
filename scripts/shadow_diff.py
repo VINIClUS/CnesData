@@ -42,7 +42,7 @@ type _Row = dict[str, object]
 @dataclass(frozen=True)
 class Difference:
     kind: DifferenceKind
-    key: tuple[str, ...]
+    key: tuple[object, ...]
     column: str | None
     left: object
     right: object
@@ -117,28 +117,30 @@ def _group(frame: pl.DataFrame, key: Sequence[str]) -> dict[tuple[object, ...], 
 
 
 def _key_differences(
-    label: tuple[str, ...], left: list[_Row], right: list[_Row]
+    name: tuple[object, ...], left: list[_Row], right: list[_Row]
 ) -> list[Difference]:
     if len(left) > 1 or len(right) > 1:
-        return [Difference("duplicate_key", label, None, len(left), len(right))]
+        return [Difference("duplicate_key", name, None, len(left), len(right))]
     if not right:
-        return [Difference("left_only", label, None, None, None)]
+        return [Difference("left_only", name, None, None, None)]
     if not left:
-        return [Difference("right_only", label, None, None, None)]
+        return [Difference("right_only", name, None, None, None)]
     return [
-        Difference("cell", label, column, left[0][column], right[0][column])
+        Difference("cell", name, column, left[0][column], right[0][column])
         for column in sorted(left[0])
         if not _same(left[0][column], right[0][column])
     ]
 
 
+def _key_order(name: tuple[object, ...]) -> tuple[tuple[str, str], ...]:
+    return tuple((str(part), type(part).__name__) for part in name)
+
+
 def _keyed_differences(a: pl.DataFrame, b: pl.DataFrame, key: Sequence[str]) -> list[Difference]:
     left, right = _group(a, key), _group(b, key)
-    labelled = {tuple(str(part) for part in name): name for name in left.keys() | right.keys()}
     found: list[Difference] = []
-    for label in sorted(labelled):
-        name = labelled[label]
-        found.extend(_key_differences(label, left.get(name, []), right.get(name, [])))
+    for name in sorted(left.keys() | right.keys(), key=_key_order):
+        found.extend(_key_differences(name, left.get(name, []), right.get(name, [])))
     return found
 
 
@@ -187,8 +189,8 @@ def compare_parquets(a: Path, b: Path, key: Sequence[str] | None = None) -> Diff
     )
 
 
-def _key_token(key: tuple[str, ...], secret: bytes) -> str:
-    return hmac.new(secret, "\x1f".join(key).encode(), sha256).hexdigest()[:_DIGEST_CHARS]
+def _key_token(key: tuple[object, ...], secret: bytes) -> str:
+    return hmac.new(secret, repr(key).encode(), sha256).hexdigest()[:_DIGEST_CHARS]
 
 
 def _log_differences(

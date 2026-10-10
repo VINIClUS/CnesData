@@ -107,7 +107,18 @@ def test_diff_frames_com_chave_composta_identifica_a_linha() -> None:
     a = pl.DataFrame({"k1": ["a", "a"], "k2": [1, 2], "v": ["x", "y"]})
     b = pl.DataFrame({"k1": ["a", "a"], "k2": [1, 2], "v": ["x", "z"]})
 
-    assert diff_frames(a, b, ["k1", "k2"]) == (Difference("cell", ("a", "2"), "v", "y", "z"),)
+    assert diff_frames(a, b, ["k1", "k2"]) == (Difference("cell", ("a", 2), "v", "y", "z"),)
+
+
+def test_diff_frames_com_chave_nao_funde_nulo_com_o_texto_none(tmp_path: Path) -> None:
+    a = pl.DataFrame({"k": [None, "None"], "v": ["x", "y"]})
+    b = pl.DataFrame({"k": [None, "None"], "v": ["X", "Y"]})
+
+    assert diff_frames(a, b, ["k"]) == (
+        Difference("cell", (None,), "v", "x", "X"),
+        Difference("cell", ("None",), "v", "y", "Y"),
+    )
+    assert compare_parquets(*_write_pair(tmp_path, a, b), key=["k"]).diff_rows == 2
 
 
 def test_diff_frames_sem_chave_compara_por_posicao_apos_normalizar() -> None:
