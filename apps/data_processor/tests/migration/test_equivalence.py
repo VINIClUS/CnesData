@@ -12,7 +12,7 @@ from data_processor.migration.equivalence import (
     EquivalenceContract,
     MetricComparison,
     compare_shadow_run,
-    load_contract,
+    parse_contract,
 )
 from data_processor.migration.flatten import flatten_payload
 
@@ -292,7 +292,7 @@ _BAD_LEGACY = [
 def _volatile(rule_id: str, legacy: Any) -> tuple[ComparisonStatus, str | None]:
     metric, key = _VOLATILE[rule_id]
     item = compare_shadow_run(
-        contract=load_contract(_CONTRACT), legacy={metric: legacy},
+        contract=parse_contract(_CONTRACT.read_bytes()), legacy={metric: legacy},
         candidate={metric: _VOLATILE_CONTEXT[key]}, context=_VOLATILE_CONTEXT,
     )[0]
     return item.status, item.rule_id
@@ -320,7 +320,7 @@ _RAW_SHA = "ab" * 32
 def _sia_run(candidate_rows: list[dict[str, Any]]) -> tuple[MetricComparison, ...]:
     legacy_rows = [{"_source_row": 1, "v": "a"}, {"_source_row": 2, "v": "b"}]
     return compare_shadow_run(
-        contract=load_contract(_CONTRACT),
+        contract=parse_contract(_CONTRACT.read_bytes()),
         legacy=flatten_payload(_SIA_DOC, legacy_rows, _SIA_KEYS),
         candidate=flatten_payload(_SIA_DOC, candidate_rows, _SIA_KEYS),
         context={f"raw_manifest_sha256/{_SIA_DOC}": _RAW_SHA},

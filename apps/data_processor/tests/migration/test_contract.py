@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from cnes_domain.orchestration.source_catalog import build_source_catalog
-from data_processor.migration.equivalence import ContractInvalid, load_contract
+from data_processor.migration.equivalence import ContractInvalid, parse_contract
 
 _ROOT = Path(__file__).resolve().parents[4]
 _CONTRACT = _ROOT / "docs" / "fixtures" / "migration" / "equivalence-contract-v1.json"
@@ -47,7 +47,7 @@ def test_rejeita_campos_de_tolerancia_estatistica(tmp_path: Path, name: str) -> 
     document = _document([{**_rule(), name: 0}])
 
     with pytest.raises(ContractInvalid, match=f"forbidden_field key={name}"):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())
 
 
 def test_rejeita_campo_de_tolerancia_aninhado_fora_das_regras(tmp_path: Path) -> None:
@@ -55,19 +55,19 @@ def test_rejeita_campo_de_tolerancia_aninhado_fora_das_regras(tmp_path: Path) ->
     document["datasets"] = {"cnes": {"provenance": {"tolerance_rows": 1}}}
 
     with pytest.raises(ContractInvalid, match="forbidden_field key=tolerance_rows"):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())
 
 
 def test_rejeita_rule_id_duplicado(tmp_path: Path) -> None:
     with pytest.raises(ContractInvalid, match="contract_invalid"):
-        load_contract(_write(tmp_path, _document([_rule("R-1"), _rule("R-1")])))
+        parse_contract(_write(tmp_path, _document([_rule("R-1"), _rule("R-1")])).read_bytes())
 
 
 def test_rejeita_predicado_fora_do_conjunto_fechado(tmp_path: Path) -> None:
     document = _document([_rule(check="candidate_within_percentage")])
 
     with pytest.raises(ContractInvalid, match="contract_invalid"):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())
 
 
 def _real_document() -> dict[str, Any]:
@@ -98,19 +98,19 @@ def test_rejeita_contrato_com_dataset_inconsistente(
     mutate(document)
 
     with pytest.raises(ContractInvalid, match=code):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())
 
 
 def test_rejeita_contrato_que_nao_e_json(tmp_path: Path) -> None:
     path = tmp_path / "contract.json"
     path.write_text("{nao e json", encoding="utf-8")
 
-    with pytest.raises(ContractInvalid, match=r"contract_unreadable path=contract\.json"):
-        load_contract(path)
+    with pytest.raises(ContractInvalid, match="contract_unreadable"):
+        parse_contract(path.read_bytes())
 
 
 def test_contrato_expoe_relogio_nas_duas_formas_e_chaves_por_documento() -> None:
-    contract = load_contract(_CONTRACT)
+    contract = parse_contract(_CONTRACT.read_bytes())
     documents = {item.doc_id: item for item in contract.datasets["sihd"].documents}
 
     assert contract.clock_z == "2026-10-10T12:00:00Z"
@@ -138,7 +138,7 @@ def _catalog_leaves(dataset: str) -> dict[str, set[str]]:
 
 
 def test_contrato_versionado_fixa_hashes_e_layout_do_catalogo() -> None:
-    contract = load_contract(_CONTRACT)
+    contract = parse_contract(_CONTRACT.read_bytes())
 
     assert set(contract.datasets) == {"cnes", "sihd", "bpa", "sia"}
     assert {rule.rule_id for rule in contract.rules} == _APPROVED
@@ -152,7 +152,7 @@ def test_contrato_versionado_fixa_hashes_e_layout_do_catalogo() -> None:
 
 
 def test_contrato_versionado_cobre_as_dependencias_requeridas_e_a_proveniencia() -> None:
-    contract = load_contract(_CONTRACT)
+    contract = parse_contract(_CONTRACT.read_bytes())
 
     for name, spec in contract.datasets.items():
         seeded = {(i.manifest["source_type"], i.manifest["file_subtype"]) for i in spec.raw_inputs}
@@ -178,11 +178,11 @@ def test_rejeita_regra_absent_ok_que_nao_declara_campo_por_linha(
     document = _document([_rule(absent_ok=True, metrics=metrics)])
 
     with pytest.raises(ContractInvalid, match="rule_absent_ok_pattern_invalid rule_id=R-1"):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())
 
 
 def test_contrato_versionado_declara_as_normalizacoes_aplicadas() -> None:
-    assert load_contract(_CONTRACT).normalizations == ("date_iso8601",)
+    assert parse_contract(_CONTRACT.read_bytes()).normalizations == ("date_iso8601",)
 
 
 def test_rejeita_contrato_sem_normalizacoes_declaradas(tmp_path: Path) -> None:
@@ -190,7 +190,7 @@ def test_rejeita_contrato_sem_normalizacoes_declaradas(tmp_path: Path) -> None:
     document.pop("normalizations", None)
 
     with pytest.raises(ContractInvalid, match=r"loc=normalizations msg=Field required"):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())
 
 
 @pytest.mark.parametrize("declared", [[], ["trim"], ["date_iso8601", "trim"], ["date_iso8601"] * 2])
@@ -201,7 +201,7 @@ def test_rejeita_normalizacoes_diferentes_das_aplicadas(
     document["normalizations"] = declared
 
     with pytest.raises(ContractInvalid, match="normalizations_invalid"):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())
 
 
 @pytest.mark.parametrize("overrides", [
@@ -215,11 +215,11 @@ def test_rejeita_forma_do_legado_incoerente_com_o_predicado(
     document = _document([_rule(**{"legacy_form": "text", **overrides})])
 
     with pytest.raises(ContractInvalid, match="rule_legacy_form_invalid rule_id=R-1"):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())
 
 
 def test_rejeita_forma_do_legado_fora_do_conjunto_fechado(tmp_path: Path) -> None:
     document = _document([_rule(legacy_form="iso")])
 
     with pytest.raises(ContractInvalid, match="Input should be"):
-        load_contract(_write(tmp_path, document))
+        parse_contract(_write(tmp_path, document).read_bytes())

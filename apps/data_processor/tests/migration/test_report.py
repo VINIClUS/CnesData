@@ -14,7 +14,7 @@ from data_processor.migration.equivalence import (
     ComparisonStatus,
     DocumentSpec,
     MetricComparison,
-    load_contract,
+    parse_contract,
 )
 from data_processor.migration.flatten import EMPTY_LIST
 from data_processor.migration.report import (
@@ -150,7 +150,7 @@ def test_aceita_o_agregado_somente_com_job_e_sem_falha_ou_mismatch() -> None:
 
 
 def test_agregado_registra_pedido_cobertura_proveniencia_e_saidas_por_dataset() -> None:
-    contract = load_contract(_CONTRACT)
+    contract = parse_contract(_CONTRACT.read_bytes())
     outcomes = [
         _covered("bpa", "2026-08", True, True, False), Failure("sihd", "2026-01", "erro key=v"),
     ]

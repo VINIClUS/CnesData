@@ -24,7 +24,6 @@ from data_processor.migration.flatten import APPLIED_NORMALIZATIONS, Leaf
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
-    from pathlib import Path
 
 Absent = Literal["legacy", "candidate"]
 LegacyForm = Literal["text", "utc_instant_z", "utc_instant_offset"]
@@ -224,19 +223,18 @@ def _reject_forbidden_keys(node: object) -> None:
             _reject_forbidden_keys(child)
 
 
-def load_contract(path: Path) -> EquivalenceContract:
-    """Carrega o contrato e rejeita tolerancia estatistica, ids repetidos e checks abertos.
+def parse_contract(data: bytes) -> EquivalenceContract:
+    """Valida o contrato e rejeita tolerancia estatistica, ids repetidos e checks abertos.
 
-    Args: path: arquivo JSON do contrato.
+    Args: data: bytes do JSON do contrato.
     Returns: contrato validado e imutavel.
     Raises: ContractInvalid: JSON ilegivel, campo proibido ou violacao de schema.
     """
-    data = path.read_bytes()
     try:
         _reject_forbidden_keys(json.loads(data))
         return EquivalenceContract.model_validate_json(data)
     except json.JSONDecodeError as error:
-        raise ContractInvalid(f"contract_unreadable path={path.name}") from error
+        raise ContractInvalid("contract_unreadable") from error
     except ValidationError as error:
         first = error.errors()[0]
         location = ".".join(str(part) for part in first["loc"])

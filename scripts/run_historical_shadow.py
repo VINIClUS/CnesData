@@ -38,7 +38,7 @@ from data_processor.migration.equivalence import (
     EquivalenceContract,
     RawInput,
     compare_shadow_run,
-    load_contract,
+    parse_contract,
 )
 from data_processor.migration.flatten import Leaf, flatten_payload
 from data_processor.migration.publication import (
@@ -423,9 +423,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
     try:
-        contract = load_contract(args.contract)
+        data = cast("Path", args.contract).read_bytes()
         settings = _Settings(
-            contract, sha256_hex(args.contract.read_bytes()), args.tenant, args.legacy_root,
+            parse_contract(data), sha256_hex(data), args.tenant, args.legacy_root,
             args.candidate_root, args.report_root,
         )
         jobs = _plan_jobs(args, settings)
