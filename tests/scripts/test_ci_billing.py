@@ -28,6 +28,7 @@ _ACCEPTANCE_PATHS = (
     "tests/chaos/test_revocation_publish_fence.py",
     "tests/chaos/test_billing_reconciliation_resume.py",
     "tests/chaos/test_stripe_customer_orphan_recovery.py",
+    "tests/chaos/test_billing_account_lost_key_recovery.py",
     "packages/cnes_infra/tests/control_plane/test_edge_registration_counting.py",
     "packages/cnes_infra/tests/control_plane/test_dynamodb_billed_tenant_counting.py",
     "tests/integration/billing",

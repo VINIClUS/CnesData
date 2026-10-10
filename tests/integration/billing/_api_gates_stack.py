@@ -96,9 +96,16 @@ class FaultyClient:
         self._inner = inner
         self.fail_tenant_creation = False
         self.failures = 0
+        self.before_query: Callable[[], None] | None = None
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
+
+    def query(self, **request: Any) -> Any:
+        hook, self.before_query = self.before_query, None
+        if hook is not None:
+            hook()
+        return self._inner.query(**request)
 
     def transact_write_items(self, **request: Any) -> Any:
         if self.fail_tenant_creation and _creates_tenant(request["TransactItems"]):
@@ -298,9 +305,11 @@ def with_capacity_hook(stack: ApiStack, hook: Callable[[], None]) -> None:
     stack.gates = replace(stack.gates, capacity=InterceptingCapacity(stack.gates.capacity, hook))
 
 
-def create_tenant(client: TestClient, tenant_id: str, key: str = "key-1") -> Any:
+def create_tenant(
+    client: TestClient, tenant_id: str, key: str = "key-1", headers: dict[str, str] | None = None,
+) -> Any:
     body = {"tenant_id": tenant_id, "municipality_name": "Municipio", "idempotency_key": key}
-    return client.post(TENANTS_URL, json=body, headers=user_headers(OWNER))
+    return client.post(TENANTS_URL, json=body, headers=headers or user_headers(OWNER))
 
 
 def capacity_counter(stack: ApiStack, name: str, account: str = ACCOUNT) -> int:
