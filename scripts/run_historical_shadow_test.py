@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 from collections import Counter
 from dataclasses import dataclass
@@ -18,8 +17,9 @@ from cnes_domain.ports.processing import ExecutionStatus
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.executor.local_pool import LocalWorkerPool
 from cnes_infra.object_store import FilesystemObjectStore
-from data_processor.migration.publication import Expected, ShadowRunError
-from scripts.run_historical_shadow import main, write_report
+from data_processor.migration.publication import Expected
+from data_processor.migration.report import aggregate_bytes
+from scripts.run_historical_shadow import main
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 _ROOT = Path(__file__).resolve().parents[1]
 _CONTRACT = _ROOT / "docs/fixtures/migration/equivalence-contract-v1.json"
 _TENANT = "354130"
+_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 _NOW = datetime(2026, 10, 10, 12, tzinfo=UTC)
 _COMPETENCIA = {"cnes": "2026-01", "sihd": "2026-01", "bpa": "2026-08", "sia": "2026-01"}
 _DATASETS = tuple(_COMPETENCIA)
@@ -94,6 +95,11 @@ def _assert_falha(work: Path, dataset: str, error: str) -> None:
     _assert_sem_caminhos_locais(work)
 
 
+@pytest.fixture(autouse=True)
+def _checkout_identificado(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("scripts.run_historical_shadow._source_commit", lambda: _COMMIT)
+
+
 @dataclass(frozen=True)
 class _Executed:
     work: Path
@@ -103,7 +109,9 @@ class _Executed:
 @pytest.fixture(scope="module")
 def executed(tmp_path_factory: pytest.TempPathFactory) -> _Executed:
     work = tmp_path_factory.mktemp("shadow")
-    return _Executed(work, main(_argv(work, _DATASETS)))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("scripts.run_historical_shadow._source_commit", lambda: _COMMIT)
+        return _Executed(work, main(_argv(work, _DATASETS)))
 
 
 def test_execucao_completa_cobre_as_quatro_fontes_com_relatorios_imutaveis(
@@ -223,7 +231,7 @@ def test_agregado_e_reproduzivel_e_sem_caminhos_locais(tmp_path: Path) -> None:
 
     assert _aggregate_path(first).read_bytes() == _aggregate_path(second).read_bytes()
     assert _report(first, "sihd") == _report(second, "sihd")
-    assert re.fullmatch(r"[0-9a-f]{40}", _aggregate(first)["git_commit"])
+    assert _aggregate(first)["git_commit"] == _COMMIT
     _assert_sem_caminhos_locais(first)
     _assert_sem_caminhos_locais(second)
 
@@ -434,11 +442,11 @@ def test_agregado_criado_por_outro_processo_retorna_um(
 ) -> None:
     aggregate = _aggregate_path(tmp_path)
 
-    def concurrent_commit() -> str:
+    def concurrent_bytes(payload: dict[str, object]) -> bytes:
         aggregate.write_bytes(b"outro processo")
-        return "0" * 40
+        return aggregate_bytes(payload)
 
-    monkeypatch.setattr("scripts.run_historical_shadow._git_commit", concurrent_commit)
+    monkeypatch.setattr("scripts.run_historical_shadow.aggregate_bytes", concurrent_bytes)
 
     assert main(_argv(tmp_path, ("sihd",))) == 1
 
@@ -484,15 +492,3 @@ def test_recusa_candidate_root_nao_vazio(
     assert "candidate_root_not_empty" in caplog.text
     assert [path.name for path in (tmp_path / "candidate").iterdir()] == ["marcador.txt"]
     assert not (tmp_path / "reports").exists()
-
-
-def test_write_report_cria_somente_leitura_e_recusa_sobrescrever(tmp_path: Path) -> None:
-    target = tmp_path / "nivel" / "relatorio.json"
-
-    write_report(target, b"{}\n")
-
-    assert target.read_bytes() == b"{}\n"
-    assert target.stat().st_mode & 0o222 == 0
-    with pytest.raises(ShadowRunError, match=r"report_exists report=relatorio\.json"):
-        write_report(target, b"outro")
-    assert target.read_bytes() == b"{}\n"

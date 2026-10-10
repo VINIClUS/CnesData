@@ -84,6 +84,7 @@ type _Waves = tuple[tuple[str, ...], ...]
 class _Settings:
     contract: EquivalenceContract
     contract_sha256: str
+    source_commit: str
     tenant: str
     legacy_root: Path
     candidate_root: Path
@@ -402,17 +403,27 @@ def _execute_job(job: _Job) -> Outcome:
     return Failure(job.dataset, job.competencia, message)
 
 
-def _git_commit() -> str:
+def _git(*args: str) -> str:
     git = shutil.which("git")
     if git is None:
-        return "unknown"
-    args = [git, "rev-parse", "HEAD"]
-    completed = subprocess.run(args, capture_output=True, text=True, check=False, cwd=_ROOT)
-    return completed.stdout.strip() or "unknown"
+        raise ShadowRunError("source_unidentified reason=git_missing")
+    command = [git, "--no-optional-locks", *args]
+    completed = subprocess.run(command, capture_output=True, text=True, check=False, cwd=_ROOT)
+    if completed.returncode != 0:
+        raise ShadowRunError(f"source_unidentified reason=git_failed command={args[0]}")
+    return completed.stdout
+
+
+def _source_commit() -> str:
+    commit = _git("rev-parse", "--verify", "HEAD").strip()
+    changes = _git("status", "--porcelain", "--untracked-files=normal").splitlines()
+    if changes:
+        raise ShadowRunError(f"source_tree_dirty entries={len(changes)}")
+    return commit
 
 
 def _write_aggregate(settings: _Settings, request: Request, outcomes: list[Outcome]) -> bool:
-    stamp = Stamp(settings.tenant, settings.contract_sha256, _git_commit())
+    stamp = Stamp(settings.tenant, settings.contract_sha256, settings.source_commit)
     payload = build_aggregate(stamp, settings.contract, request, outcomes)
     write_report(settings.report_root / settings.tenant / _AGGREGATE, aggregate_bytes(payload))
     return aggregate_accepted(outcomes)
@@ -423,9 +434,10 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
     try:
+        commit = _source_commit()
         data = cast("Path", args.contract).read_bytes()
         settings = _Settings(
-            parse_contract(data), sha256_hex(data), args.tenant, args.legacy_root,
+            parse_contract(data), sha256_hex(data), commit, args.tenant, args.legacy_root,
             args.candidate_root, args.report_root,
         )
         jobs = _plan_jobs(args, settings)
