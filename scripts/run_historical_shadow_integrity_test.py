@@ -17,6 +17,8 @@ from data_processor.migration.publication import ShadowRunError
 from scripts.run_historical_shadow import main, write_report
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from cnes_domain.ports.object_store import ObjectStat
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -37,17 +39,21 @@ def _git(root: Path, *args: str) -> str:
     return subprocess.run(command, capture_output=True, text=True, check=True).stdout.strip()
 
 
-@pytest.fixture
-def checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Checkout:
-    root = tmp_path / "fonte"
-    root.mkdir()
-    _git(root, "init", "--quiet")
-    (root / "fonte.py").write_text("VERSAO = 1\n", encoding="utf-8")
+def _commit(root: Path, version: int) -> None:
+    (root / "fonte.py").write_text(f"VERSAO = {version}\n", encoding="utf-8")
     _git(root, "add", "fonte.py")
     _git(
         root, "-c", "user.name=mig010", "-c", "user.email=mig010@example.invalid",
         "-c", "commit.gpgsign=false", "commit", "--quiet", "--no-verify", "--message", "fonte",
     )
+
+
+@pytest.fixture
+def checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Checkout:
+    root = tmp_path / "fonte"
+    root.mkdir()
+    _git(root, "init", "--quiet")
+    _commit(root, 1)
     monkeypatch.setattr("scripts.run_historical_shadow._ROOT", root)
     return _Checkout(root, _git(root, "rev-parse", "HEAD"))
 
@@ -138,6 +144,41 @@ def test_recusa_janela_com_competencia_sem_oraculo(
 
     assert "missing_oracle source=sihd competencia=2025-11 missing=2" in caplog.text
     _assert_nada_gravado(tmp_path)
+
+
+def _editado(checkout: _Checkout) -> str:
+    (checkout.root / "fonte.py").write_text("VERSAO = 2\n", encoding="utf-8")
+    return "source_tree_dirty entries=1"
+
+
+def _commitado(checkout: _Checkout) -> str:
+    _commit(checkout.root, 2)
+    head = _git(checkout.root, "rev-parse", "HEAD")
+    return f"source_changed expected={checkout.commit} actual={head}"
+
+
+@pytest.mark.parametrize("change", [_editado, _commitado])
+def test_recusa_agregado_se_o_checkout_mudar_durante_a_execucao(
+    checkout: _Checkout, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    change: Callable[[_Checkout], str],
+) -> None:
+    work = checkout.root.parent
+    put = FilesystemObjectStore.put
+    errors: list[str] = []
+
+    def put_after_change(
+        store: FilesystemObjectStore, key: str, body: BinaryIO, expected_sha256: str
+    ) -> ObjectStat:
+        if not errors:
+            errors.append(change(checkout))
+        return put(store, key, body, expected_sha256)
+
+    monkeypatch.setattr(FilesystemObjectStore, "put", put_after_change)
+
+    assert main(_argv(work)) == 1
+
+    assert f"shadow_aggregate_failed error={errors[0]}" in caplog.text
+    assert not (work / "reports" / _TENANT / "aggregate.json").exists()
 
 
 def test_compara_os_bytes_verificados_mesmo_se_o_oraculo_mudar_no_disco(

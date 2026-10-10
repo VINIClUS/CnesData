@@ -425,6 +425,11 @@ def _source_commit() -> str:
 
 
 def _write_aggregate(settings: _Settings, request: Request, outcomes: list[Outcome]) -> bool:
+    current = _source_commit()
+    if current != settings.source_commit:
+        raise ShadowRunError(
+            f"source_changed expected={settings.source_commit} actual={current}"
+        )
     stamp = Stamp(settings.tenant, settings.contract_sha256, settings.source_commit)
     payload = build_aggregate(stamp, settings.contract, request, outcomes)
     write_report(settings.report_root / settings.tenant / _AGGREGATE, aggregate_bytes(payload))
