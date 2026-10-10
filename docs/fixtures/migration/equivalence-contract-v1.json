@@ -1,0 +1,463 @@
+{
+  "contract_version": 1,
+  "clock": "2026-10-10T12:00:00Z",
+  "normalizations": ["date_iso8601"],
+  "datasets": {
+    "cnes": {
+      "tenant_id": "354130",
+      "competencias": ["2026-01"],
+      "oracle_dir": "docs/fixtures/data-plane",
+      "oracle_files": {
+        "cnes-gold-v2.parquet": "4eeaf4d62ae7132f9980e7e0e7f3372c6b97308b2aef9c21a7721a51171c07a8",
+        "cnes-local-v1.parquet": "4bf011da987e2b6d0666a10c97cdd37626ca9b123050c9ce77e155e7197237fb",
+        "cnes-nacional-v1.parquet": "30a60a84af9b06c568fe6170ce72365ee33cb1a706f130cc5bc7e197aef348ec",
+        "cnes-serving-v1.json": "694dc2555d4f662640be26868c4104cc2c4dbd4e3d2f8a365a8ebbad1161053c",
+        "fixture-manifest.json": "daa151dd563e1513b5c45670c6340a79dc6b82fef46f6c06d1529f7f389cc392"
+      },
+      "provenance": {
+        "kind": "independent_frozen",
+        "frozen_in": "5e5193fb (CND-002, Phase 0, antes da implementacao)",
+        "data_nature": "synthetic"
+      },
+      "raw_inputs": [
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "fixture-cnes-local-v1", "tenant_id": "354130",
+            "source_type": "CNES_LOCAL", "file_subtype": "CNES_VINCULO", "competencia": "2026-01",
+            "agent_id": "compare-cnes-data-plane", "agent_version": "1.0.0",
+            "schema_version": "cnes-profissional-v1", "snapshot_mode": "FULL",
+            "snapshot_id": "fixture-cnes-local-v1", "base_snapshot_id": null, "sequence": 1,
+            "previous_manifest_sha256": null,
+            "object_key": "raw/354130/CNES_LOCAL/2026-01/fixture-cnes-local-v1/data.parquet",
+            "created_at": "2026-01-31T23:59:59Z"
+          },
+          "parquet_file": "cnes-local-v1.parquet"
+        },
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "fixture-cnes-nacional-v1", "tenant_id": "354130",
+            "source_type": "CNES_NACIONAL", "file_subtype": "CNES_VINCULO",
+            "competencia": "2026-01", "agent_id": "compare-cnes-data-plane",
+            "agent_version": "1.0.0", "schema_version": "cnes-profissional-v1",
+            "snapshot_mode": "FULL", "snapshot_id": "fixture-cnes-nacional-v1",
+            "base_snapshot_id": null, "sequence": 1, "previous_manifest_sha256": null,
+            "object_key": "raw/354130/CNES_NACIONAL/2026-01/fixture-cnes-nacional-v1/data.parquet",
+            "created_at": "2026-01-31T23:59:59Z"
+          },
+          "parquet_file": "cnes-nacional-v1.parquet"
+        }
+      ],
+      "documents": [
+        {
+          "doc_id": "cnes-gold", "oracle": {"file": "cnes-gold-v2.parquet", "path": []},
+          "candidate": {"layer": "reconciliation", "leaf": "cnes.parquet"},
+          "row_key": ["CPF", "CNS", "CNES", "CBO", "COMPETENCIA"]
+        },
+        {
+          "doc_id": "cnes-divergences",
+          "oracle": {"file": "fixture-manifest.json", "path": ["divergences"]},
+          "candidate": {"layer": "reconciliation", "leaf": "cnes_divergences.parquet"},
+          "row_key": [
+            "natural_key.identity", "natural_key.CNES", "natural_key.CBO",
+            "natural_key.COMPETENCIA", "field"
+          ]
+        },
+        {
+          "doc_id": "cnes-serving-overview", "oracle": {"file": "cnes-serving-v1.json", "path": []},
+          "candidate": {"layer": "serving", "leaf": "overview.json"}
+        }
+      ]
+    },
+    "sihd": {
+      "tenant_id": "354130",
+      "competencias": ["2026-01"],
+      "oracle_dir": "apps/data_processor/tests/fixtures/sihd",
+      "oracle_files": {
+        "expected_normalized.json": "36865173fe297eb9224355c8f126d41fd23929e100f696d15a411431959b65fb",
+        "expected_serving.json": "6c6306986f9c537ec5dd8ab190cb79adbfc4c9b6deda34e83c29f1bdf3f7539f",
+        "raw_internacao_rows.json": "7e6ef8d6aeb06fe05c661fd9fdaf52ca6daad9835c88b1b4ee599724bd5e4712",
+        "raw_proc_aih_rows.json": "515a77983a8d6a271638a06ae28aa3e6d63135e67b8bc97f7889386a68c64cc3"
+      },
+      "provenance": {
+        "kind": "reproduction",
+        "frozen_in": "71a8dc68 (SRC-010 #282), realinhada em dfc91f5a (#295)",
+        "data_nature": "synthetic"
+      },
+      "raw_inputs": [
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "raw-sihd-internacao-1", "tenant_id": "354130",
+            "source_type": "SIHD", "file_subtype": "SIHD_INTERNACAO", "competencia": "2026-01",
+            "agent_id": "agent-fixture", "agent_version": "0.0.0-fixture",
+            "schema_version": "sihd-raw-v1", "snapshot_mode": "FULL",
+            "snapshot_id": "snap-internacao-1", "base_snapshot_id": null, "sequence": 1,
+            "previous_manifest_sha256": null,
+            "object_key": "raw/354130/SIHD/2026-01/snap-internacao-1/internacao.parquet",
+            "created_at": "2026-01-15T11:00:00Z"
+          },
+          "rows": {"file": "raw_internacao_rows.json", "path": []}
+        },
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "raw-sihd-proc-aih-1", "tenant_id": "354130",
+            "source_type": "SIHD", "file_subtype": "SIHD_PROC_AIH", "competencia": "2026-01",
+            "agent_id": "agent-fixture", "agent_version": "0.0.0-fixture",
+            "schema_version": "sihd-raw-v1", "snapshot_mode": "FULL",
+            "snapshot_id": "snap-proc-aih-1", "base_snapshot_id": null, "sequence": 1,
+            "previous_manifest_sha256": null,
+            "object_key": "raw/354130/SIHD/2026-01/snap-proc-aih-1/proc_aih.parquet",
+            "created_at": "2026-01-15T11:00:00Z"
+          },
+          "rows": {"file": "raw_proc_aih_rows.json", "path": []}
+        }
+      ],
+      "documents": [
+        {
+          "doc_id": "sihd-normalized-internacoes",
+          "oracle": {"file": "expected_normalized.json", "path": ["internacoes.parquet"]},
+          "candidate": {"layer": "normalized", "leaf": "internacoes.parquet"},
+          "row_key": ["SIHD_KEY"], "raw_subtype": "SIHD_INTERNACAO"
+        },
+        {
+          "doc_id": "sihd-normalized-quality-internacao",
+          "oracle": {
+            "file": "expected_normalized.json", "path": ["quality_issues_internacao.parquet"]
+          },
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_internacao.parquet"},
+          "row_key": ["SIHD_KEY", "field", "issue_code"],
+          "raw_subtype": "SIHD_INTERNACAO"
+        },
+        {
+          "doc_id": "sihd-normalized-procedimentos-aih",
+          "oracle": {"file": "expected_normalized.json", "path": ["procedimentos_aih.parquet"]},
+          "candidate": {"layer": "normalized", "leaf": "procedimentos_aih.parquet"},
+          "row_key": ["SIHD_KEY"], "raw_subtype": "SIHD_PROC_AIH"
+        },
+        {
+          "doc_id": "sihd-normalized-quality-proc-aih",
+          "oracle": {
+            "file": "expected_normalized.json", "path": ["quality_issues_proc_aih.parquet"]
+          },
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_proc_aih.parquet"},
+          "row_key": ["SIHD_KEY", "field", "issue_code"],
+          "raw_subtype": "SIHD_PROC_AIH"
+        },
+        {
+          "doc_id": "sihd-serving-overview",
+          "oracle": {"file": "expected_serving.json", "path": []},
+          "candidate": {"layer": "serving", "leaf": "overview.json"},
+          "list_keys": {"por_cnes": ["cnes"], "por_procedimento": ["procedimento"]}
+        }
+      ]
+    },
+    "bpa": {
+      "tenant_id": "354130",
+      "competencias": ["2026-08"],
+      "oracle_dir": "apps/data_processor/tests/fixtures/bpa",
+      "oracle_files": {
+        "expected_normalized.json": "80db95b1423894a65b649b7b8a82eebc7e11f7969e61d8073eca52d7eeab14c2",
+        "expected_serving.json": "c5d951a87d2c631b879f3b20c53ed53c6f2195ab3b9f9eb087fe26118bf2b1e5",
+        "raw_rows.json": "1ba1943f96925da12d51b862682fbf94792ceeb35df103dc8a09f95950a7fb92"
+      },
+      "provenance": {
+        "kind": "reproduction", "frozen_in": "3b544c53 (SRC-011 #287)", "data_nature": "synthetic"
+      },
+      "raw_inputs": [
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "fixture-bpa-c-v1", "tenant_id": "354130",
+            "source_type": "BPA_MAG", "file_subtype": "BPA_C", "competencia": "2026-08",
+            "agent_id": "fixture-agent", "agent_version": "1.0.0",
+            "schema_version": "bpa-s-prd-raw-v1", "snapshot_mode": "FULL",
+            "snapshot_id": "fixture-bpa-c-v1", "base_snapshot_id": null, "sequence": 1,
+            "previous_manifest_sha256": null,
+            "object_key": "raw/354130/BPA_MAG/2026-08/fixture-bpa-c-v1/data.parquet",
+            "created_at": "2026-09-01T00:00:00Z"
+          },
+          "rows": {"file": "raw_rows.json", "path": ["BPA_C"]},
+          "dtypes": {"prd_qt_p": "Float64"}
+        },
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "fixture-bpa-i-v1", "tenant_id": "354130",
+            "source_type": "BPA_MAG", "file_subtype": "BPA_I", "competencia": "2026-08",
+            "agent_id": "fixture-agent", "agent_version": "1.0.0",
+            "schema_version": "bpa-s-prd-raw-v1", "snapshot_mode": "FULL",
+            "snapshot_id": "fixture-bpa-i-v1", "base_snapshot_id": null, "sequence": 1,
+            "previous_manifest_sha256": null,
+            "object_key": "raw/354130/BPA_MAG/2026-08/fixture-bpa-i-v1/data.parquet",
+            "created_at": "2026-09-01T00:00:00Z"
+          },
+          "rows": {"file": "raw_rows.json", "path": ["BPA_I"]},
+          "dtypes": {"prd_qt_p": "Float64"}
+        }
+      ],
+      "documents": [
+        {
+          "doc_id": "bpa-normalized-bpa-c",
+          "oracle": {"file": "expected_normalized.json", "path": ["BPA_C", "rows"]},
+          "candidate": {"layer": "normalized", "leaf": "bpa_c.parquet"},
+          "row_key": ["source_record_id"], "raw_subtype": "BPA_C"
+        },
+        {
+          "doc_id": "bpa-normalized-quality-bpa-c",
+          "oracle": {"file": "expected_normalized.json", "path": ["BPA_C", "quality_issues"]},
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_bpa_c.parquet"},
+          "row_key": ["source_record_id", "field", "code"], "raw_subtype": "BPA_C"
+        },
+        {
+          "doc_id": "bpa-normalized-bpa-i",
+          "oracle": {"file": "expected_normalized.json", "path": ["BPA_I", "rows"]},
+          "candidate": {"layer": "normalized", "leaf": "bpa_i.parquet"},
+          "row_key": ["source_record_id"], "raw_subtype": "BPA_I"
+        },
+        {
+          "doc_id": "bpa-normalized-quality-bpa-i",
+          "oracle": {"file": "expected_normalized.json", "path": ["BPA_I", "quality_issues"]},
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_bpa_i.parquet"},
+          "row_key": ["source_record_id", "field", "code"], "raw_subtype": "BPA_I"
+        },
+        {
+          "doc_id": "bpa-serving-overview",
+          "oracle": {"file": "expected_serving.json", "path": ["overview"]},
+          "candidate": {"layer": "serving", "leaf": "overview.json"},
+          "list_keys": {"por_subtipo": ["file_subtype"]}
+        },
+        {
+          "doc_id": "bpa-serving-by-establishment",
+          "oracle": {"file": "expected_serving.json", "path": ["by-establishment"]},
+          "candidate": {"layer": "serving", "leaf": "by-establishment.json"},
+          "list_keys": {"estabelecimentos": ["cnes"]}
+        }
+      ]
+    },
+    "sia": {
+      "tenant_id": "354130",
+      "competencias": ["2026-01"],
+      "oracle_dir": "apps/data_processor/tests/fixtures/sia",
+      "oracle_files": {
+        "expected_normalized.json": "4674057e299f0d13a5aaf34d112d612232390578dcedf3d54c50a75baed14b15",
+        "expected_serving.json": "b3775940670c1dd71bacf5e25fd8188a8d1dc3f32f7340220501b5c9197bba9a",
+        "raw_rows.json": "7f2c2c1dd25dbfa9dccc46436e929f91e6f60bfd3d399978474abbe7a32c6500"
+      },
+      "provenance": {
+        "kind": "reproduction",
+        "frozen_in": "2716f63f (SRC-012 #283), realinhada em d8027fc4 (#290)",
+        "data_nature": "synthetic"
+      },
+      "raw_inputs": [
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "raw-sia-apa-1", "tenant_id": "354130",
+            "source_type": "SIA_LOCAL", "file_subtype": "SIA_APA", "competencia": "2026-01",
+            "agent_id": "agent-sia-1", "agent_version": "1.0.0", "schema_version": "sia-apa-raw-v1",
+            "snapshot_mode": "FULL", "snapshot_id": "sia-apa-full-1", "base_snapshot_id": null,
+            "sequence": 1, "previous_manifest_sha256": null,
+            "object_key": "raw/354130/SIA_LOCAL/2026-01/sia-apa-full-1/S_APA.parquet",
+            "created_at": "2026-02-01T03:00:00Z"
+          },
+          "rows": {"file": "raw_rows.json", "path": ["SIA_APA"]},
+          "dtypes": {
+            "prd_uid": "String", "prd_cmp": "String", "prd_apanum": "String", "prd_pa": "String",
+            "prd_cbo": "String", "prd_cidpri": "String", "apa_dtinic": "String",
+            "apa_dtfim": "String", "apa_cnsexe": "String", "prd_qt_p": "Int64", "prd_qt_a": "Int64",
+            "prd_vl_p": "Int64", "prd_vl_a": "Int64"
+          }
+        },
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "raw-sia-bpi-1", "tenant_id": "354130",
+            "source_type": "SIA_LOCAL", "file_subtype": "SIA_BPI", "competencia": "2026-01",
+            "agent_id": "agent-sia-1", "agent_version": "1.0.0", "schema_version": "sia-bpi-raw-v1",
+            "snapshot_mode": "FULL", "snapshot_id": "sia-bpi-full-1", "base_snapshot_id": null,
+            "sequence": 1, "previous_manifest_sha256": null,
+            "object_key": "raw/354130/SIA_LOCAL/2026-01/sia-bpi-full-1/S_BPI.parquet",
+            "created_at": "2026-02-01T03:00:00Z"
+          },
+          "rows": {"file": "raw_rows.json", "path": ["SIA_BPI"]},
+          "dtypes": {
+            "bpi_uid": "String", "bpi_cmp": "String", "bpi_cnsmed": "String", "bpi_cbo": "String",
+            "bpi_flh": "String", "bpi_seq": "String", "bpi_pa": "String", "bpi_cid": "String",
+            "bpi_dtaten": "String", "bpi_qt_p": "Int64", "bpi_qt_a": "Int64"
+          }
+        },
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "raw-sia-bpihst-1", "tenant_id": "354130",
+            "source_type": "SIA_LOCAL", "file_subtype": "SIA_BPIHST", "competencia": "2026-01",
+            "agent_id": "agent-sia-1", "agent_version": "1.0.0",
+            "schema_version": "sia-bpihst-raw-v1", "snapshot_mode": "FULL",
+            "snapshot_id": "sia-bpihst-full-1", "base_snapshot_id": null, "sequence": 1,
+            "previous_manifest_sha256": null,
+            "object_key": "raw/354130/SIA_LOCAL/2026-01/sia-bpihst-full-1/S_BPIHST.parquet",
+            "created_at": "2026-02-01T03:00:00Z"
+          },
+          "rows": {"file": "raw_rows.json", "path": ["SIA_BPIHST"]},
+          "dtypes": {
+            "bpi_uid": "String", "bpi_cmp": "String", "bpi_cnsmed": "String", "bpi_cbo": "String",
+            "bpi_flh": "String", "bpi_seq": "String", "bpi_pa": "String", "bpi_cid": "String",
+            "bpi_dtaten": "String", "bpi_qt_p": "Int64", "bpi_qt_a": "Int64"
+          }
+        },
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "raw-sia-sigtap-1", "tenant_id": "354130",
+            "source_type": "SIA_LOCAL", "file_subtype": "DIM_SIGTAP", "competencia": "2026-01",
+            "agent_id": "agent-sia-1", "agent_version": "1.0.0",
+            "schema_version": "sia-sigtap-raw-v1", "snapshot_mode": "FULL",
+            "snapshot_id": "sia-sigtap-full-1", "base_snapshot_id": null, "sequence": 1,
+            "previous_manifest_sha256": null,
+            "object_key": "raw/354130/SIA_LOCAL/2026-01/sia-sigtap-full-1/S_CDN.parquet",
+            "created_at": "2026-02-01T03:00:00Z"
+          },
+          "rows": {"file": "raw_rows.json", "path": ["DIM_SIGTAP"]},
+          "dtypes": {
+            "co_procedimento": "String", "no_procedimento": "String", "tp_complexidade": "String",
+            "co_financiamento": "String", "dt_competencia": "String"
+          }
+        },
+        {
+          "manifest": {
+            "manifest_version": 1, "manifest_id": "raw-sia-municipio-1", "tenant_id": "354130",
+            "source_type": "SIA_LOCAL", "file_subtype": "DIM_MUNICIPIO", "competencia": "2026-01",
+            "agent_id": "agent-sia-1", "agent_version": "1.0.0",
+            "schema_version": "sia-municipio-raw-v1", "snapshot_mode": "FULL",
+            "snapshot_id": "sia-municipio-full-1", "base_snapshot_id": null, "sequence": 1,
+            "previous_manifest_sha256": null,
+            "object_key": "raw/354130/SIA_LOCAL/2026-01/sia-municipio-full-1/CADMUN.parquet",
+            "created_at": "2026-02-01T03:00:00Z"
+          },
+          "rows": {"file": "raw_rows.json", "path": ["DIM_MUNICIPIO"]},
+          "dtypes": {
+            "coduf": "String", "codmunic": "String", "nome": "String", "condic": "String",
+            "tetopab": "Float64", "calcpab": "Float64"
+          }
+        }
+      ],
+      "documents": [
+        {
+          "doc_id": "sia-normalized-sia-apa",
+          "oracle": {"file": "expected_normalized.json", "path": ["SIA_APA", "data"]},
+          "candidate": {"layer": "normalized", "leaf": "apa.parquet"}, "row_key": ["_source_row"],
+          "raw_subtype": "SIA_APA"
+        },
+        {
+          "doc_id": "sia-normalized-quality-sia-apa",
+          "oracle": {"file": "expected_normalized.json", "path": ["SIA_APA", "quality"]},
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_sia_apa.parquet"},
+          "row_key": ["_source_row", "issue_code"], "raw_subtype": "SIA_APA"
+        },
+        {
+          "doc_id": "sia-normalized-sia-bpi",
+          "oracle": {"file": "expected_normalized.json", "path": ["SIA_BPI", "data"]},
+          "candidate": {"layer": "normalized", "leaf": "bpi.parquet"}, "row_key": ["_source_row"],
+          "raw_subtype": "SIA_BPI"
+        },
+        {
+          "doc_id": "sia-normalized-quality-sia-bpi",
+          "oracle": {"file": "expected_normalized.json", "path": ["SIA_BPI", "quality"]},
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_sia_bpi.parquet"},
+          "row_key": ["_source_row", "issue_code"], "raw_subtype": "SIA_BPI"
+        },
+        {
+          "doc_id": "sia-normalized-sia-bpihst",
+          "oracle": {"file": "expected_normalized.json", "path": ["SIA_BPIHST", "data"]},
+          "candidate": {"layer": "normalized", "leaf": "bpihst.parquet"},
+          "row_key": ["_source_row"], "raw_subtype": "SIA_BPIHST"
+        },
+        {
+          "doc_id": "sia-normalized-quality-sia-bpihst",
+          "oracle": {"file": "expected_normalized.json", "path": ["SIA_BPIHST", "quality"]},
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_sia_bpihst.parquet"},
+          "row_key": ["_source_row", "issue_code"], "raw_subtype": "SIA_BPIHST"
+        },
+        {
+          "doc_id": "sia-normalized-dim-sigtap",
+          "oracle": {"file": "expected_normalized.json", "path": ["DIM_SIGTAP", "data"]},
+          "candidate": {"layer": "normalized", "leaf": "reference_sigtap.parquet"},
+          "row_key": ["_source_row"], "raw_subtype": "DIM_SIGTAP"
+        },
+        {
+          "doc_id": "sia-normalized-quality-dim-sigtap",
+          "oracle": {"file": "expected_normalized.json", "path": ["DIM_SIGTAP", "quality"]},
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_dim_sigtap.parquet"},
+          "row_key": ["_source_row", "issue_code"], "raw_subtype": "DIM_SIGTAP"
+        },
+        {
+          "doc_id": "sia-normalized-dim-municipio",
+          "oracle": {"file": "expected_normalized.json", "path": ["DIM_MUNICIPIO", "data"]},
+          "candidate": {"layer": "normalized", "leaf": "reference_municipio.parquet"},
+          "row_key": ["_source_row"], "raw_subtype": "DIM_MUNICIPIO"
+        },
+        {
+          "doc_id": "sia-normalized-quality-dim-municipio",
+          "oracle": {"file": "expected_normalized.json", "path": ["DIM_MUNICIPIO", "quality"]},
+          "candidate": {"layer": "normalized", "leaf": "quality_issues_dim_municipio.parquet"},
+          "row_key": ["_source_row", "issue_code"], "raw_subtype": "DIM_MUNICIPIO"
+        },
+        {
+          "doc_id": "sia-serving-overview",
+          "oracle": {"file": "expected_serving.json", "path": ["overview"]},
+          "candidate": {"layer": "serving", "leaf": "overview.json"}
+        },
+        {
+          "doc_id": "sia-serving-by-establishment",
+          "oracle": {"file": "expected_serving.json", "path": ["by-establishment"]},
+          "candidate": {"layer": "serving", "leaf": "by-establishment.json"},
+          "list_keys": {"estabelecimentos": ["cnes"]}
+        }
+      ]
+    }
+  },
+  "rules": [
+    {
+      "rule_id": "MIG010-RUN-ID", "metrics": ["*-serving-*::run_id"],
+      "check": "candidate_equals_context", "context": "version_id", "absent_ok": false,
+      "legacy_form": "text",
+      "rationale": "O oraculo congelou o run_id de outra execucao; o candidato deve carregar o version_id do DatasetPointer ativo."
+    },
+    {
+      "rule_id": "MIG010-GENERATED-AT", "metrics": ["*-serving-*::generated_at"],
+      "check": "candidate_equals_context", "context": "clock_z", "absent_ok": false,
+      "legacy_form": "utc_instant_z",
+      "rationale": "CND-002 declara run_id e generated_at volateis; o candidato deve carregar o relogio injetado na forma Z."
+    },
+    {
+      "rule_id": "MIG010-NORMALIZED-AT", "metrics": ["*-normalized-*::[*]._normalized_at"],
+      "check": "candidate_equals_context", "context": "clock_offset", "absent_ok": false,
+      "legacy_form": "utc_instant_offset",
+      "rationale": "Os oraculos congelaram relogios proprios (o bpa tem 12:00 no normalizado e 14:00 no serving); o candidato deve carregar o relogio injetado em +00:00."
+    },
+    {
+      "rule_id": "MIG010-CNES-NORMALIZED-IDS",
+      "metrics": [
+        "cnes-gold::[*]._source_manifest_ids[*]", "cnes-divergences::[*].source_manifest_ids[*]"
+      ],
+      "check": "candidate_equals_context_by_legacy",
+      "context": {
+        "fixture-cnes-local-v1": "normalized_id/CNES_LOCAL",
+        "fixture-cnes-nacional-v1": "normalized_id/CNES_NACIONAL"
+      },
+      "absent_ok": false,
+      "rationale": "CND-054 manifest_ids_are_normalized_layer: o pipeline referencia o manifest normalizado de cada fonte, nao o raw congelado na fixture."
+    },
+    {
+      "rule_id": "MIG010-CNES-DIVERGENCE-TEXT",
+      "metrics": [
+        "cnes-divergences::[*].local_value", "cnes-divergences::[*].national_value",
+        "cnes-divergences::[*].selected_value"
+      ],
+      "check": "candidate_is_text_of_legacy_int",
+      "context": null,
+      "absent_ok": false,
+      "rationale": "CND-054 divergence_values_are_strings: o Parquet de divergencias tem colunas String; o valor legado inteiro deve aparecer como seu texto decimal."
+    },
+    {
+      "rule_id": "MIG010-SIA-RAW-MANIFEST-SHA256",
+      "metrics": ["sia-normalized-*::[*]._source_manifest_sha256"],
+      "check": "candidate_equals_context", "context": "raw_manifest_sha256/{doc}",
+      "absent_ok": true,
+      "rationale": "O oraculo sia declara _source_manifest_sha256 volatil e o omite; o candidato deve carregar o sha256 do manifest raw semeado para o subtipo do documento em toda linha; linha sem o campo e MISMATCH."
+    }
+  ]
+}
