@@ -97,6 +97,7 @@ class _Job:
     competencia: str
     spec: DatasetSpec
     legacy_sha256: str
+    oracle: dict[str, bytes]
     settings: _Settings
 
 
@@ -122,8 +123,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return args
 
 
-def _verify_oracle(root: Path, dataset: str, spec: DatasetSpec) -> str:
+def _verify_oracle(root: Path, dataset: str, spec: DatasetSpec) -> tuple[str, dict[str, bytes]]:
     pairs: list[str] = []
+    verified: dict[str, bytes] = {}
     for name, expected in sorted(spec.oracle_files.items()):
         relative = f"{spec.oracle_dir}/{name}"
         data = (root / relative).read_bytes()
@@ -134,7 +136,8 @@ def _verify_oracle(root: Path, dataset: str, spec: DatasetSpec) -> str:
                 f"expected={expected} actual={actual}"
             )
         pairs.append(f"{relative} {expected}")
-    return sha256_hex("\n".join(pairs).encode())
+        verified[name] = data
+    return sha256_hex("\n".join(pairs).encode()), verified
 
 
 def _plan_jobs(args: argparse.Namespace, settings: _Settings) -> list[_Job]:
@@ -150,8 +153,8 @@ def _plan_jobs(args: argparse.Namespace, settings: _Settings) -> list[_Job]:
                 f"missing_oracle source={dataset} tenant={args.tenant} "
                 f"from={args.from_competencia} to={args.to_competencia}"
             )
-        digest = _verify_oracle(settings.legacy_root, dataset, spec)
-        jobs.extend(_Job(dataset, item, spec, digest, settings) for item in inside)
+        digest, verified = _verify_oracle(settings.legacy_root, dataset, spec)
+        jobs.extend(_Job(dataset, item, spec, digest, verified, settings) for item in inside)
     return jobs
 
 
@@ -179,11 +182,10 @@ def _decode(name: str, data: bytes) -> object:
 
 
 def _raw_body(job: _Job, raw: RawInput) -> tuple[bytes, int]:
-    base = job.settings.legacy_root / job.spec.oracle_dir
     if raw.rows is None:
-        body = (base / cast("str", raw.parquet_file)).read_bytes()
+        body = job.oracle[cast("str", raw.parquet_file)]
         return body, pl.read_parquet(BytesIO(body)).height
-    rows = _dig(_decode(raw.rows.file, (base / raw.rows.file).read_bytes()), raw.rows.path, "rows")
+    rows = _dig(_decode(raw.rows.file, job.oracle[raw.rows.file]), raw.rows.path, "rows")
     frame = pl.DataFrame(rows, schema_overrides={k: _DTYPES[v] for k, v in raw.dtypes.items()})
     buffer = BytesIO()
     frame.write_parquet(buffer, compression="zstd", compression_level=3)
@@ -295,8 +297,8 @@ def _collect(job: _Job, published: PublishedRun) -> tuple[dict[str, Leaf], dict[
     legacy: dict[str, Leaf] = {}
     candidate: dict[str, Leaf] = {}
     for doc in job.spec.documents:
-        path = job.settings.legacy_root / job.spec.oracle_dir / doc.oracle.file
-        document = _dig(_decode(path.name, path.read_bytes()), doc.oracle.path, doc.oracle.file)
+        name = doc.oracle.file
+        document = _dig(_decode(name, job.oracle[name]), doc.oracle.path, name)
         expected = _metrics(doc, document)
         found = [o for o in published.manifest.outputs if o.layer == doc.candidate.layer
                  and o.object_key.endswith(f"/{doc.candidate.leaf}")]

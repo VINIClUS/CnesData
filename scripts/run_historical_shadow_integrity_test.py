@@ -7,14 +7,20 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, BinaryIO
 
 import pytest
 
+from cnes_infra.object_store import FilesystemObjectStore
 from data_processor.migration.publication import ShadowRunError
 from scripts.run_historical_shadow import main, write_report
 
+if TYPE_CHECKING:
+    from cnes_domain.ports.object_store import ObjectStat
+
 _ROOT = Path(__file__).resolve().parents[1]
 _TENANT = "354130"
+_SIHD_ORACLE = "apps/data_processor/tests/fixtures/sihd"
 
 
 @dataclass(frozen=True)
@@ -99,6 +105,25 @@ def test_recusa_execucao_sem_git_disponivel(
 
     assert "source_unidentified reason=git_missing" in caplog.text
     _assert_nada_gravado(tmp_path)
+
+
+def test_compara_os_bytes_verificados_mesmo_se_o_oraculo_mudar_no_disco(
+    tmp_path: Path, checkout: _Checkout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    oracle = tmp_path / "legacy" / _SIHD_ORACLE
+    shutil.copytree(_ROOT / _SIHD_ORACLE, oracle)
+    put = FilesystemObjectStore.put
+
+    def put_after_tampering(
+        store: FilesystemObjectStore, key: str, body: BinaryIO, expected_sha256: str
+    ) -> ObjectStat:
+        for path in oracle.glob("*.json"):
+            path.write_bytes(b"adulterado")
+        return put(store, key, body, expected_sha256)
+
+    monkeypatch.setattr(FilesystemObjectStore, "put", put_after_tampering)
+
+    assert main([*_argv(tmp_path), "--legacy-root", str(tmp_path / "legacy")]) == 0
 
 
 def test_write_report_cria_somente_leitura_e_recusa_sobrescrever(tmp_path: Path) -> None:
