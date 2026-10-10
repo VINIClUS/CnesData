@@ -90,6 +90,8 @@ def _drop(mapping: dict[str, Any], key: str) -> None:
      "duplicate_doc_id"),
     (lambda d: d["datasets"]["sihd"]["documents"][0].update(doc_id="bpa-outro"),
      "doc_id_prefix_invalid dataset=sihd"),
+    (lambda d: d["datasets"]["cnes"]["provenance"].update(data_nature="real"),
+     "contract_invalid loc=datasets.cnes.provenance.data_nature"),
 ])
 def test_rejeita_contrato_com_dataset_inconsistente(
     tmp_path: Path, mutate: Any, code: str

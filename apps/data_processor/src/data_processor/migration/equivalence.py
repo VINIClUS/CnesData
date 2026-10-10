@@ -115,7 +115,8 @@ class RawInput(_Model):
 class Provenance(_Model):
     kind: Literal["independent_frozen", "reproduction"]
     frozen_in: str = Field(min_length=1)
-    data_nature: Literal["synthetic", "real"]
+    # Reports serialize raw values and row keys (CPF/CNS); real data needs a redacting format.
+    data_nature: Literal["synthetic"]
 
 
 class DatasetSpec(_Model):
