@@ -199,7 +199,12 @@ Os contadores são corretos por construção, sem backfill:
   `TENANT#<t>/BILLING_PENDING_CAPACITY`. `create_account` e `create_billed_tenant` transferem o
   valor para a conta com CAS (Delete condicionado ao valor lido); perder a corrida para uma
   admissão concorrente devolve `503` retryable e o retry relê o pendente. CAPACITY órfão (sem
-  a conta) faz `create_account` falhar com `capacity_exists` (apague o item órfão).
+  a conta) faz `create_account` falhar com `capacity_exists` (HTTP 500 + log
+  `billing_request_failed code=capacity_exists`; só com dado legado: apague o item órfão).
+- Recuperação de reserva de tenant: a prova de consumo é o marcador sem TTL
+  `TENANT#<t>/IDEMPOTENCY#tenant.capacity#<reservation_id>`, gravado na transação de criação
+  em `enforce` (igual ao marcador `edge_agent.register` do agente). Reserva órfã de um tenant
+  criado por outra reserva ou em `off`/`shadow` é liberada, sem contar o tenant duas vezes.
 - `capacity_not_seeded`: em `enforce`, conta sem item CAPACITY (ou sem o contador do tipo)
   falha fechado com `EntitlementDenied reason=capacity_not_seeded` (HTTP 403
   `agent_entitlement_denied`/`tenant_entitlement_denied`, sem `Retry-After`) e log
@@ -217,6 +222,10 @@ Ordem do rollout: todas as réplicas nesta versão e com `BILLING_MODE=stripe` (
 antes de criar contas, tenants faturados ou agentes que devam contar; agente admitido em
 `disabled` ou por código anterior não é contado. Tenant criado por
 `POST /billing/accounts/{id}/tenants` herda o pendente do mesmo jeito que `create_account`.
+
+Janela da virada: um replay de `POST /billing/accounts/{id}/tenants` com a mesma chave que
+atravessa a troca de modo responde `409 idempotency_conflict` (o digest inclui o id da reserva,
+sintético em `off`/`shadow`); os contadores ficam corretos e o tenant já existe.
 
 Sem migração: dados de billing anteriores a esta versão (e os agentes/tenants que eles
 cobriam) são apagados, não migrados.

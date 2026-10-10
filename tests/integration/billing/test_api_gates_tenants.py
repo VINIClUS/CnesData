@@ -12,7 +12,12 @@ from cnes_domain.billing.models import (
     ReservationStatus,
 )
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.keys import account_tenant_key, tenant_account_key, tenant_entity_key
+from cnes_infra.billing.keys import (
+    account_tenant_key,
+    capacity_usage_key,
+    tenant_account_key,
+    tenant_entity_key,
+)
 from cnes_infra.control_plane.billed_tenant import TENANT_SCOPE
 from cnes_infra.control_plane.dynamodb_keys import idempotency_key
 from packages.cnes_infra.tests.billing.billing_factories import TABLE_NAME
@@ -156,3 +161,16 @@ def test_replay_da_criacao_devolve_o_mesmo_tenant(stack: ApiStack) -> None:
     assert replay.json() == first.json()
     assert len(capacity_reservations(stack)) == 1
     assert capacity_counter(stack, "tenant_count") == 2
+
+
+def test_conta_sem_capacidade_semeada_nega_tenant_sem_retry_after(stack: ApiStack) -> None:
+    pk, sk = capacity_usage_key(ACCOUNT)
+    stack.client.delete_item(TableName=TABLE_NAME, Key={"pk": {"S": pk}, "sk": {"S": sk}})
+
+    response = create_tenant(build_client(stack), "novo-tenant")
+
+    assert (response.status_code, response.json()["detail"]) == (
+        403, "tenant_entitlement_denied",
+    )
+    assert "Retry-After" not in response.headers
+    assert stack.plane.get_tenant("novo-tenant") is None

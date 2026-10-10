@@ -11,13 +11,19 @@ from cnes_domain.billing.models import BillingEnforcementMode, ReservationStatus
 from cnes_domain.control_plane.entities import Agent
 from cnes_domain.control_plane.enums import AgentState
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_infra.billing.keys import capacity_usage_key
 from packages.cnes_infra.tests.billing.billing_factories import (
     TABLE_NAME,
     make_create_command,
     make_snapshot,
     put_tenant,
 )
-from packages.cnes_infra.tests.billing.quota_support import TENANT, make_limits, seed_snapshot
+from packages.cnes_infra.tests.billing.quota_support import (
+    ACCOUNT,
+    TENANT,
+    make_limits,
+    seed_snapshot,
+)
 from tests.integration.billing._api_gates_stack import (
     FINGERPRINT,
     NEXT_JOB_URL,
@@ -175,3 +181,17 @@ def test_agente_de_tenant_sem_conta_conta_depois_da_criacao_da_conta(
 
         assert _denial(enforced, "a2", "sem-conta") == (403, "agent_quota_exceeded")
         assert capacity_counter(stack, "agent_count", "ba_02") == 1
+
+
+def test_conta_sem_capacidade_semeada_nega_agente_novo_sem_retry_after(
+    single_slot: ApiStack,
+) -> None:
+    pk, sk = capacity_usage_key(ACCOUNT)
+    single_slot.client.delete_item(TableName=TABLE_NAME, Key={"pk": {"S": pk}, "sk": {"S": sk}})
+    client = build_client(single_slot)
+
+    response = client.get(NEXT_JOB_URL, headers=edge_headers("agent-1"))
+
+    assert (response.status_code, response.json()["detail"]) == (403, "agent_entitlement_denied")
+    assert "Retry-After" not in response.headers
+    assert single_slot.plane.get_agent(TENANT, "agent-1") is None

@@ -24,6 +24,7 @@ from cnes_domain.profiles import BillingMode
 from cnes_infra.control_plane.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
+    capacity_marker,
     completed_record,
     require_creatable_tenant_id,
     tenant_created_event,
@@ -202,11 +203,11 @@ class DynamoBilledTenantMixin:
 
         table, account = self._table_name, command.link.billing_account_id
         tenant_id, key = command.tenant.tenant_id, capacity_usage_key(account)
-        if get_item(self._client, table, key, True) is None:
-            log_not_seeded(account, CapacityKind.TENANT.value)
-            return ()
         pending = get_item(self._client, table, pending_capacity_key(tenant_id), True)
         cas, agents = pending_transfer(table, tenant_id, pending)
+        if get_item(self._client, table, key, True) is None:
+            log_not_seeded(account, CapacityKind.TENANT.value)
+            return (cas,)
         tenants = 0 if self._billing.enforced else 1
         deltas = {
             name: delta
@@ -244,10 +245,13 @@ class DynamoBilledTenantMixin:
         current, owner = decode_capacity_reservation(item)
         consumed = replace(current, status=ReservationStatus.CONSUMED)
         event = quota_event("quota.consumed", owner, _consumed_event_payload(current), now)
+        marker = capacity_marker(command, now)
+        marker_key = idempotency_key(marker.tenant_id, marker.scope, marker.key)
         return (
             snapshot_check(table, SnapshotExpectation(account, version, None), now),
             put_action(table, encode_capacity_reservation(consumed, owner), payload(item)),
             put_new(table, outbox_item(event)),
+            put_new(table, encode_model(marker, "IDEMPOTENCYRECORD", marker_key)),
         )
 
     def _billed_reservation_item(self, command: CreateBilledTenantCommand, now: datetime) -> Item:

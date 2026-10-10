@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from cnes_domain.billing.commands import CreateBilledTenantCommand
 
 TENANT_SCOPE = "tenant.create_billed"
+TENANT_CAPACITY_SCOPE = "tenant.capacity"
 RESERVED_TENANT_PREFIX = "_"
 IDEMPOTENCY_TTL = timedelta(days=1)
 
@@ -66,6 +67,24 @@ def tenant_created_event(command: CreateBilledTenantCommand) -> BillingAuditEven
         reason_code=command.link.reason_code,
         occurred_at=command.tenant.created_at,
         attributes={"tenant_id": tenant_id},
+    )
+
+
+def capacity_marker(command: CreateBilledTenantCommand, now: datetime) -> IdempotencyRecord:
+    """Cria o marcador durável de que esta reserva criou o tenant.
+
+    Args: command: Comando de criação; now: Instante da gravação.
+    Returns: Registro por reservation id, prova de consumo da recuperação de reservas.
+    """
+    return IdempotencyRecord(
+        tenant_id=command.tenant.tenant_id,
+        scope=TENANT_CAPACITY_SCOPE,
+        key=command.reservation_id,
+        request_hash=billed_tenant_digest(command),
+        status="COMPLETED",
+        resource_id=command.tenant.tenant_id,
+        created_at=now,
+        expires_at=now + IDEMPOTENCY_TTL,
     )
 
 

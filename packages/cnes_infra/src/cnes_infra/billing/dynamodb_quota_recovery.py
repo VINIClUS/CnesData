@@ -40,8 +40,8 @@ from cnes_infra.billing.keys import (
     QUOTA_RESERVATION_DUE_INDEX,
     QUOTA_RESERVATION_DUE_PARTITION,
     Key,
-    account_tenant_key,
 )
+from cnes_infra.control_plane.billed_tenant import TENANT_CAPACITY_SCOPE
 from cnes_infra.control_plane.dynamodb_codec import (
     Item,
     absent_check_action,
@@ -94,7 +94,8 @@ def _is_due(reservation: QuotaReservation | CapacityReservation, now: datetime) 
 
 def _capacity_proof_key(reservation: CapacityReservation, tenant_id: str) -> Key:
     if reservation.kind is CapacityKind.TENANT:
-        return account_tenant_key(reservation.billing_account_id, reservation.resource_id)
+        scope = TENANT_CAPACITY_SCOPE
+        return idempotency_key(reservation.resource_id, scope, reservation.reservation_id)
     return idempotency_key(tenant_id, EDGE_AGENT_SCOPE, reservation.reservation_id)
 
 

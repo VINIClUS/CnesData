@@ -2,16 +2,20 @@
 
 import logging
 from collections.abc import Iterator
+from datetime import timedelta
 
 import pytest
 
 from cnes_domain.billing.errors import RetryableBillingError
+from cnes_domain.billing.inbox import ReservationRecoveryRequest
 from cnes_domain.billing.models import BillingEnforcementMode
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.capacity_counters import PENDING_CAPACITY_ENTITY
 from cnes_infra.billing.dynamodb_quota_items import usage_counter
 from cnes_infra.billing.keys import capacity_usage_key, pending_capacity_key
 from cnes_infra.billing.settings import BillingSettings
+from cnes_infra.control_plane.billed_tenant import TENANT_CAPACITY_SCOPE
+from cnes_infra.control_plane.dynamodb_keys import idempotency_key
 from packages.cnes_infra.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_infra.tests.billing.quota_support import ACCOUNT
 from packages.cnes_infra.tests.control_plane.billed_tenant_support import (
@@ -66,6 +70,16 @@ def test_conta_sem_capacidade_semeada_cria_sem_contar(
     assert "capacity_not_seeded" in caplog.text
 
 
+def test_conta_sem_semente_ainda_remove_o_pendente_do_tenant_vinculado(env: Env) -> None:
+    pk, sk = capacity_usage_key(ACCOUNT)
+    env.client.delete_item(TableName=TABLE_NAME, Key={"pk": {"S": pk}, "sk": {"S": sk}})
+    _pending(env, 2)
+
+    env.plane.create_billed_tenant(env.command("unmetered"))
+
+    assert env.stored(pending_capacity_key(NEW)) is None
+
+
 def test_disabled_nao_toca_o_contador() -> None:
     with open_env(DISABLED) as env:
         env.plane.create_billed_tenant(env.command("unmetered"))
@@ -113,3 +127,44 @@ def test_pendente_criado_durante_a_criacao_do_tenant_e_retentavel(env: Env) -> N
 
     assert_nothing_written(env)
     assert env.counter() == 1
+
+
+def _recover(env: Env) -> int:
+    env.clock.advance(timedelta(minutes=16))
+    request = ReservationRecoveryRequest(now=env.clock.now(), limit=10, cursor=None)
+    return env.repo.reconcile_expired_reservations(request).released
+
+
+def test_reserva_orfa_de_enforce_e_liberada_apos_criacao_em_shadow() -> None:
+    with open_env(SHADOW) as env:
+        env.reserve(key="orphan")
+        env.plane.create_billed_tenant(env.command("unmetered"))
+        assert env.counter() == 3
+
+        assert _recover(env) == 1
+
+        assert env.counter() == 2
+
+
+def test_reserva_orfa_com_outra_chave_e_liberada_em_enforce() -> None:
+    with open_env(ENFORCE) as env:
+        env.reserve(key="orphan")
+        used = env.reserve(key="used")
+        env.plane.create_billed_tenant(env.command(used))
+        assert env.counter() == 3
+
+        assert _recover(env) == 1
+
+        assert env.counter() == 2
+        assert env.reservation(used).status.value == "consumed"
+
+
+def test_criacao_em_enforce_grava_marcador_duravel_da_reserva() -> None:
+    with open_env(ENFORCE) as env:
+        reservation_id = env.reserve()
+
+        env.plane.create_billed_tenant(env.command(reservation_id))
+
+        marker = env.stored(idempotency_key(NEW, TENANT_CAPACITY_SCOPE, reservation_id))
+        assert marker is not None
+        assert "expires_at" not in marker

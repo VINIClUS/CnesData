@@ -268,15 +268,15 @@ def test_shadow_e_enforce_somam_no_mesmo_contador(executor, contenders):
         ]
         enforce = [
             lambda i=i: env.repo.reserve_capacity(make_capacity_command(
-                limit=contenders + 1, resource_id=f"enf-{i}", idempotency_key=f"cap-{i}",
+                limit=None, resource_id=f"enf-{i}", idempotency_key=f"cap-{i}",
             ))
             for i in range(contenders)
         ]
         outcomes = _outcomes(executor, [*shadow, *enforce])
         reserved = [item for item in outcomes if isinstance(item, CapacityReservation)]
         agent_count = _counter(env.client, "CAPACITY", "agent_count")
-    assert agent_count == contenders + len(reserved)
-    assert 1 <= len(reserved) <= contenders + 1
+    assert len(reserved) == contenders
+    assert agent_count == 2 * contenders
 
 
 @pytest.mark.parametrize("contenders", [2, 8])
