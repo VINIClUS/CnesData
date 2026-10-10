@@ -58,6 +58,28 @@ def test_criacao_de_conta_anexa_customer_idempotente(client, env):
     assert command.account.created_at == NOW
 
 
+def test_usuario_sem_tenant_cria_conta_propria_sem_link_inicial(client, env):
+    prepare_creation(env)
+    response = post(client, "accounts", headers={})
+    assert response.status_code == 201
+    env.authorizer.authorize.assert_not_called()
+    command = env.catalog.create_account.call_args.args[0]
+    assert command.initial_tenant_link is None
+    assert command.account.owner_user_id == "user-1"
+    assert command.account.billing_account_id.startswith("ba_")
+    assert command.idempotency_key == command.account.billing_account_id
+    env.catalog.attach_customer.assert_called_once()
+
+
+def test_conta_sem_tenant_nao_colide_com_conta_de_tenant(client, env):
+    prepare_creation(env)
+    post(client, "accounts", headers={})
+    post(client, "accounts")
+    calls = env.catalog.create_account.call_args_list
+    first, second = (call.args[0].account.billing_account_id for call in calls)
+    assert first != second
+
+
 def test_replay_de_conta_com_customer_nao_recria_nada(client, env):
     prepare_creation(env, existing=make_account(owner="user-1"))
     response = post(client, "accounts")

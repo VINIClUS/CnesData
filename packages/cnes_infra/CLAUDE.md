@@ -102,6 +102,6 @@ importam classes concretas diretamente (exceto factories no bootstrap).
   retorna `pd.DataFrame`; o adapter converte via `pl.from_pandas()`. Mock de
   teste precisa devolver pandas, senão a conversão mascara o erro real.
 - **Capacidade conta em todo modo `stripe`:** `agent_count`/`tenant_count` nascem na
-  criação da conta (`tenant_count=1`); off/shadow somam na escrita do agente/tenant novo e
-  `enforce` falha fechado (`capacity_not_seeded`) sem o item. Ver runbook
+  criação da conta (`tenant_count=1`; 0 sem tenant inicial); off/shadow somam na escrita
+  do agente/tenant novo e `enforce` falha fechado (`capacity_not_seeded`) sem o item. Ver runbook
   `billing-reconciliation.md#capacidade-agentes-e-tenants`.

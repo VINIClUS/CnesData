@@ -42,12 +42,13 @@ def _check_dependencies(dependencies: tuple[RunDependency, ...]) -> None:
 @dataclass(frozen=True, slots=True)
 class CreateBillingAccountCommand:
     account: BillingAccount
-    initial_tenant_link: BillingAccountTenantLink
+    initial_tenant_link: BillingAccountTenantLink | None
     idempotency_key: str
 
     def __post_init__(self) -> None:
         require_id(self.idempotency_key, "idempotency_key")
-        if self.account.billing_account_id != self.initial_tenant_link.billing_account_id:
+        link = self.initial_tenant_link
+        if link is not None and self.account.billing_account_id != link.billing_account_id:
             raise ValueError("reason=account_link_mismatch")
 
 

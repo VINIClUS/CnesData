@@ -67,6 +67,7 @@ PRICE_MAP_ENTITY = "STRIPEPRICEMAP"
 IDEMPOTENCY_ENTITY = "IDEMPOTENCYRECORD"
 CORRUPT_CODE = "billing_item_corrupt"
 UNAVAILABLE_CODE = "dynamodb_unavailable"
+_ACCOUNT_CREATED_REASON = "account_created"
 _TRANSACTION_ERRORS = (KeyError, TypeError, ValueError, AttributeError)
 _LIMIT_CODES = {
     ErrorCode.TRANSACTION_LIMIT: "billing_transaction_too_large",
@@ -361,8 +362,9 @@ def _link_identity(link: BillingAccountTenantLink) -> dict[str, str]:
 def idempotency_digest(command: CreateBillingAccountCommand) -> str:
     """Calcula o digest do comando sem os instantes gerados pelo servidor."""
     account = command.account
+    link = command.initial_tenant_link
     identity = {
-        "link": _link_identity(command.initial_tenant_link),
+        "link": None if link is None else _link_identity(link),
         "account": [
             account.billing_account_id,
             account.stripe_customer_id,
@@ -371,6 +373,26 @@ def idempotency_digest(command: CreateBillingAccountCommand) -> str:
         ],
     }
     return request_hash([type(command).__name__, command.idempotency_key, identity])
+
+
+def create_scope_tenant(command: CreateBillingAccountCommand) -> str:
+    """Escopo de idempotência da criação: tenant inicial ou o escopo de billing."""
+    link = command.initial_tenant_link
+    return BILLING_AUDIT_TENANT_ID if link is None else link.tenant_id
+
+
+def account_created_event(command: CreateBillingAccountCommand) -> BillingAuditEvent:
+    """Cria o evento determinístico de conta criada, com ou sem tenant inicial."""
+    account, link = command.account, command.initial_tenant_link
+    return BillingAuditEvent(
+        event_id=deterministic_id("billing_account.created", account.billing_account_id),
+        event_type="billing_account.created",
+        aggregate_id=account.billing_account_id,
+        actor_id=account.owner_user_id,
+        reason_code=_ACCOUNT_CREATED_REASON if link is None else link.reason_code,
+        occurred_at=account.created_at,
+        attributes={} if link is None else {"tenant_id": link.tenant_id},
+    )
 
 
 def audit_outbox_event(audit: BillingAuditEvent) -> OutboxEvent:

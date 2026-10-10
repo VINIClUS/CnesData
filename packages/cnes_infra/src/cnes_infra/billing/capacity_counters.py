@@ -54,15 +54,24 @@ def seed_capacity_actions(
     Returns: Put da semente e Delete/ConditionCheck do pendente.
     """
     agents = usage_counter(pending, AGENT_COUNTER)
+    seed = _seed_item(billing_account_id, INITIAL_TENANTS, agents)
+    return put_new(table, seed), _pending_cas(table, tenant_id, pending, agents)
+
+
+def empty_capacity_seed(table: str, billing_account_id: str) -> Action:
+    """Cria a semente CAPACITY zerada da conta criada sem tenant inicial."""
+    return put_new(table, _seed_item(billing_account_id, 0, 0))
+
+
+def _seed_item(billing_account_id: str, tenants: int, agents: int) -> Item:
     pk, sk = capacity_usage_key(billing_account_id)
-    seed: Item = {
+    return {
         "pk": {"S": pk},
         "sk": {"S": sk},
         "entity": {"S": USAGE_ENTITY},
-        TENANT_COUNTER: _number(INITIAL_TENANTS),
+        TENANT_COUNTER: _number(tenants),
         AGENT_COUNTER: _number(agents),
     }
-    return put_new(table, seed), _pending_cas(table, tenant_id, pending, agents)
 
 
 def _pending_cas(table: str, tenant_id: str, pending: Item | None, agents: int) -> Action:

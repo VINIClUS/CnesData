@@ -48,6 +48,9 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   novo em `require_edge_agent` e gate de serving antes de emitir URL/stream (leitura forte).
 - Shadow (`stripe`+`shadow`): `ApiBillingGates.observer` audita `entitlement.shadow_denied`
   sem mudar a resposta (agente novo, serving, tenant); fora disso é nulo. Ver runbook.
+- Onboarding (conta nova): `POST /billing/accounts` sem `X-Tenant-Id` cria conta do próprio
+  usuário sem link (capacidade semeada zerada) → checkout → `POST /accounts/{id}/tenants`
+  como dono. Com `X-Tenant-Id`, exige `gestor` e vincula o tenant.
 - `POST /api/v1/public/leads` — captação pública do formulário de contato (sem auth).
   Persiste em `marketing.leads` (migração 019), responde `202 {"status":"received"}`,
   `422` payload inválido, `429` + `Retry-After` acima de `LEADS_RATE_LIMIT` (slowapi, chave =

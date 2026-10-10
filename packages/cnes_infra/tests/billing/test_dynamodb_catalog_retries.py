@@ -17,6 +17,7 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     TABLE_NAME,
     make_account,
     make_create_command,
+    make_link,
     table_items,
 )
 from packages.cnes_infra.tests.billing.dynamodb_catalog_support import (
@@ -89,7 +90,7 @@ def test_retry_com_timestamps_novos_do_servidor_e_replay(env: Any) -> None:
     retried = replace(
         command,
         account=replace(command.account, created_at=later, updated_at=later),
-        initial_tenant_link=replace(command.initial_tenant_link, linked_at=later),
+        initial_tenant_link=replace(make_link(), linked_at=later),
     )
 
     assert catalog.create_account(retried) == command.account
@@ -157,7 +158,7 @@ def test_replay_tardio_com_motivo_do_link_alterado_gera_conflito(env: Any) -> No
     command = make_create_command()
     catalog.create_account(command)
     clock.advance(timedelta(days=2))
-    link = replace(command.initial_tenant_link, reason_code="other_reason")
+    link = replace(make_link(), reason_code="other_reason")
 
     with pytest.raises(BillingTenantConflict, match="tenant_id=tenant-a"):
         catalog.create_account(replace(command, initial_tenant_link=link))
