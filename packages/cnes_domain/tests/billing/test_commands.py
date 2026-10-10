@@ -173,12 +173,8 @@ def _create_account(**o: Any) -> cmd.CreateBillingAccountCommand:
 
 
 def _billed_tenant(**o: Any) -> cmd.CreateBilledTenantCommand:
-    values = {
-        "tenant": _tenant(),
-        "link": _link(),
-        "reservation_id": "res_1",
-        "idempotency_key": "i1",
-    }
+    values = {"tenant": _tenant(), "link": _link(), "reservation_id": "res_1"}
+    values |= {"idempotency_key": "i1", "creator_issuer": "https://issuer"}
     return _build(cmd.CreateBilledTenantCommand, values, o)
 
 
@@ -439,6 +435,7 @@ _INVALID_FIELDS: list[tuple[Any, dict[str, Any], str]] = [
     (_attach, {"expected_updated_at": _NAIVE}, "datetime_not_utc"),
     (_billed_tenant, {"reservation_id": ""}, "blank_value"),
     (_billed_tenant, {"idempotency_key": ""}, "blank_value"),
+    (_billed_tenant, {"creator_issuer": " "}, "blank_value"),
     (_gate, {"tenant_id": ""}, "blank_value"),
     (_run_request, {"run_id": ""}, "blank_value"),
     (_run_request, {"dataset_name": " "}, "blank_value"),

@@ -22,6 +22,7 @@ from cnes_domain.billing.validation import (
 )
 
 LOCAL_UNMETERED_PLAN_KEY = "local-unmetered"
+BILLING_ADMIN_ROLE = "gestor"
 
 
 class SubscriptionStatus(StrEnum):

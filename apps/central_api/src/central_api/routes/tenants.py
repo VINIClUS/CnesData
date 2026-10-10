@@ -173,7 +173,9 @@ def _build_command(
     link = BillingAccountTenantLink(
         account_id, body.tenant_id, ctx.principal.subject, "tenant_created", now,
     )
-    return CreateBilledTenantCommand(tenant, link, reservation.reservation_id, key)
+    return CreateBilledTenantCommand(
+        tenant, link, reservation.reservation_id, key, ctx.principal.issuer,
+    )
 
 
 def _release(ports: TenantCreationPorts, attempt: _Attempt) -> None:

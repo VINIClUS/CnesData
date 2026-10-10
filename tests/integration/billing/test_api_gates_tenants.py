@@ -5,14 +5,21 @@ from pathlib import Path
 
 import pytest
 
+from central_api.auth.aws_oidc import MembershipAuthorizer
 from cnes_domain.billing.models import ReadConsistency, ReservationStatus
+from cnes_domain.control_plane.entities import Membership
+from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
+from cnes_infra.auth.oidc import OidcPrincipal
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.keys import account_tenant_key, tenant_account_key, tenant_entity_key
 from cnes_infra.control_plane.billed_tenant import TENANT_SCOPE
-from cnes_infra.control_plane.dynamodb_keys import idempotency_key
-from packages.cnes_infra.tests.billing.billing_factories import TABLE_NAME
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT
+from cnes_infra.control_plane.dynamodb_keys import idempotency_key, membership_key
+from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
+from packages.cnes_infra.tests.billing.quota_support import ACCOUNT, TENANT
 from tests.integration.billing._api_gates_stack import (
+    ISSUER,
+    MANAGER,
+    OWNER,
     ApiStack,
     build_client,
     capacity_counter,
@@ -21,6 +28,7 @@ from tests.integration.billing._api_gates_stack import (
     default_snapshot,
     open_api_stack,
     stored_keys,
+    user_headers,
 )
 from tests.integration.billing._enforcement_stack import DYNAMO_STRIPE
 
@@ -40,7 +48,7 @@ def single_slot(tmp_path: Path) -> Iterator[ApiStack]:
 def _tenant_keys(tenant_id: str) -> set[tuple[str, str]]:
     return {
         tenant_entity_key(tenant_id), tenant_account_key(tenant_id),
-        account_tenant_key(ACCOUNT, tenant_id),
+        account_tenant_key(ACCOUNT, tenant_id), membership_key(tenant_id, OWNER),
     }
 
 
@@ -125,3 +133,44 @@ def test_replay_da_criacao_devolve_o_mesmo_tenant(stack: ApiStack) -> None:
     assert replay.json() == first.json()
     assert len(capacity_reservations(stack)) == 1
     assert capacity_counter(stack, "tenant_count") == 1
+    partition, _ = membership_key("novo-tenant", OWNER)
+    memberships = {k for k in stored_keys(stack) if k[0] == partition and "MEMBERSHIP#" in k[1]}
+    assert memberships == {membership_key("novo-tenant", OWNER)}
+
+
+def test_gestor_criador_acessa_o_tenant_novo(stack: ApiStack) -> None:
+    stack.plane.put_membership(Membership(
+        tenant_id=TENANT, user_id=MANAGER, role="gestor", created_at=NOW, oidc_issuer=ISSUER,
+    ))
+    client = build_client(stack)
+
+    created = create_tenant(client, "novo-tenant", "key-1", user_headers(MANAGER, TENANT))
+    via_new = create_tenant(client, "outro-tenant", "key-2", user_headers(MANAGER, "novo-tenant"))
+
+    assert created.status_code == 201
+    assert via_new.status_code == 201, via_new.json()
+    membership = stack.plane.get_membership("novo-tenant", MANAGER)
+    assert (membership.role, membership.oidc_issuer) == ("gestor", ISSUER)
+    candidates = DynamoDBMembershipCandidates(stack.client, TABLE_NAME)
+    authorizer = MembershipAuthorizer(stack.plane, candidates)
+    principal = OidcPrincipal(ISSUER, MANAGER, None, None)
+    granted = {grant.tenant_id for grant in authorizer.list_authorized(principal)}
+    assert {TENANT, "novo-tenant"} <= granted
+
+
+def test_retry_concorrente_commitado_na_sonda_nao_libera_a_vaga(single_slot: ApiStack) -> None:
+    assert single_slot.faulty is not None
+    client = build_client(single_slot)
+
+    def commit_identical_request() -> None:
+        assert create_tenant(client, "novo-tenant", "key-1").status_code == 201
+
+    single_slot.faulty.before_query = commit_identical_request
+
+    retry = create_tenant(client, "novo-tenant", "key-1")
+    later = create_tenant(client, "outro-tenant", "key-2")
+
+    assert retry.status_code == 201
+    assert [r.status for r in capacity_reservations(single_slot)] == [ReservationStatus.CONSUMED]
+    assert capacity_counter(single_slot, "tenant_count") == 1
+    assert (later.status_code, later.json()["detail"]) == (403, "tenant_quota_exceeded")
