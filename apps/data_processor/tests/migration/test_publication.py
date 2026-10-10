@@ -22,6 +22,7 @@ from data_processor.migration.publication import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from contextlib import AbstractContextManager
     from typing import BinaryIO
 
@@ -41,6 +42,7 @@ _EXPECTED = Expected(_TENANT, "demo", "2026-01", _RUN_ID)
 class _FakeStore:
     objects: dict[str, bytes]
     stat_sha: dict[str, str] = field(default_factory=dict[str, str])
+    stat_size: dict[str, int] = field(default_factory=dict[str, int])
 
     def put(self, key: str, body: BinaryIO, expected_sha256: str) -> ObjectStat:
         raise AssertionError(f"put_unexpected key={key}")
@@ -52,7 +54,8 @@ class _FakeStore:
         data = self.objects.get(key)
         if data is None:
             return None
-        return ObjectStat(key, len(data), self.stat_sha.get(key, sha256(data).hexdigest()))
+        digest = self.stat_sha.get(key, sha256(data).hexdigest())
+        return ObjectStat(key, self.stat_size.get(key, len(data)), digest)
 
     def promote(self, source_key: str, destination_key: str, expected_sha256: str) -> ObjectStat:
         raise AssertionError(f"promote_unexpected key={source_key}")
@@ -163,6 +166,31 @@ def test_rejeita_manifest_com_identidade_diferente_do_job(
         read_published(
             _reader(_pointer(), _version()), _published_store(stored), _EXPECTED, ("overview",)
         )
+
+
+def _manifest_sem_stat(store: _FakeStore) -> None:
+    store.stat = lambda key: None  # type: ignore[method-assign]
+
+
+def _manifest_com_digest_divergente(store: _FakeStore) -> None:
+    store.stat_sha[_MANIFEST_KEY] = "f" * 64
+
+
+def _manifest_com_tamanho_divergente(store: _FakeStore) -> None:
+    store.stat_size[_MANIFEST_KEY] = 1
+
+
+@pytest.mark.parametrize("diverge", [
+    _manifest_sem_stat, _manifest_com_digest_divergente, _manifest_com_tamanho_divergente,
+])
+def test_rejeita_run_manifest_que_diverge_do_stat_do_object_store(
+    diverge: Callable[[_FakeStore], None],
+) -> None:
+    store = _published_store(_manifest()[1])
+    diverge(store)
+
+    with pytest.raises(ShadowRunError, match=r"manifest_stat_mismatch key=reconciliation/354130/"):
+        read_published(_reader(_pointer(), _version()), store, _EXPECTED, ("overview",))
 
 
 def test_le_as_saidas_quando_hash_e_bytes_conferem() -> None:

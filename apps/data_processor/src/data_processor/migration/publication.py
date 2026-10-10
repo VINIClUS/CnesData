@@ -97,7 +97,8 @@ def read_published(
     Args: reader: ponteiro e versao. store: object store. expected: identidade do job.
         serving: documentos de serving do catalogo.
     Returns: run publicado, com o version_id do ponteiro e os bytes de cada saida.
-    Raises: ShadowRunError: ponteiro, versao ou manifest com identidade diferente do job.
+    Raises: ShadowRunError: ponteiro, versao ou manifest com identidade diferente do job, ou
+        bytes do manifest divergentes do stat do object store.
     """
     pointer = reader.get_dataset_pointer(expected.tenant_id, expected.dataset)
     version = (
@@ -110,6 +111,9 @@ def read_published(
         raise _publication_mismatch(expected)
     with store.open(version.run_manifest_key) as stream:
         stored = stream.read()
+    stat = store.stat(version.run_manifest_key)
+    if stat is None or (stat.sha256, stat.size_bytes) != (sha256_hex(stored), len(stored)):
+        raise ShadowRunError(f"manifest_stat_mismatch key={version.run_manifest_key}")
     manifest = RunManifest.model_validate_json(stored)
     _verify_identity(manifest, expected)
     outputs = read_verified_outputs(store, manifest, stored, serving)
