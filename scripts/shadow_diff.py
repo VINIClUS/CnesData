@@ -3,7 +3,10 @@
 Uso:
     python scripts/shadow_diff.py \\
         --python docs/fixtures/golden/cnes_profissionais.parquet \\
-        --go /path/to/shadow/<job_id>.parquet.gz [--key CNES --key CBO]
+        --go /path/to/shadow/<job_id>.parquet.gz [--key CNES --key CBO] [--show-values]
+
+Por padrao o log traz so tipo, coluna e digest curto da chave; `--show-values` expoe chaves e
+valores brutos (dados pessoais em saidas de producao).
 """
 from __future__ import annotations
 
@@ -11,10 +14,12 @@ import argparse
 import gzip
 import io
 import logging
+import math
 import sys
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import polars as pl
 
@@ -24,6 +29,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_LOGGED_DIFFERENCES = 100
+_DIGEST_CHARS = 12
 
 type DifferenceKind = Literal["cell", "left_only", "right_only", "duplicate_key"]
 type _Row = dict[str, object]
@@ -79,6 +85,26 @@ def _positional_differences(a: pl.DataFrame, b: pl.DataFrame) -> list[Difference
     return found + _extra_rows(a, b)
 
 
+def _same_items(left: list[object], right: list[object]) -> bool:
+    return len(left) == len(right) and all(_same(a, b) for a, b in zip(left, right, strict=True))
+
+
+def _same_fields(left: dict[str, object], right: dict[str, object]) -> bool:
+    return left.keys() == right.keys() and all(_same(left[name], right[name]) for name in left)
+
+
+def _same(left: object, right: object) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, float):
+        return left == right or (math.isnan(left) and math.isnan(cast("float", right)))
+    if isinstance(left, list):
+        return _same_items(cast("list[object]", left), cast("list[object]", right))
+    if isinstance(left, dict):
+        return _same_fields(cast("dict[str, object]", left), cast("dict[str, object]", right))
+    return left == right
+
+
 def _group(frame: pl.DataFrame, key: Sequence[str]) -> dict[tuple[object, ...], list[_Row]]:
     groups: dict[tuple[object, ...], list[_Row]] = {}
     for row in frame.to_dicts():
@@ -98,7 +124,7 @@ def _key_differences(
     return [
         Difference("cell", label, column, left[0][column], right[0][column])
         for column in sorted(left[0])
-        if left[0][column] != right[0][column]
+        if not _same(left[0][column], right[0][column])
     ]
 
 
@@ -150,18 +176,29 @@ def compare_parquets(a: Path, b: Path, key: Sequence[str] | None = None) -> Diff
     differences = diff_frames(df_a, df_b, key)
     if not differences:
         return DiffResult(identical=True, diff_rows=0, summary="identical")
+    count = len(differences) if key is None else len({item.key for item in differences})
+    unit = "cell" if key is None else "row"
     return DiffResult(
-        identical=False, diff_rows=len(differences),
-        summary=f"{len(differences)} cell diffs", differences=differences,
+        identical=False, diff_rows=count, summary=f"{count} {unit} diffs", differences=differences,
     )
 
 
-def _log_differences(differences: tuple[Difference, ...]) -> None:
+def _key_digest(key: tuple[str, ...]) -> str:
+    return sha256("\x1f".join(key).encode()).hexdigest()[:_DIGEST_CHARS]
+
+
+def _log_differences(differences: tuple[Difference, ...], show_values: bool) -> None:
     for item in differences[:_MAX_LOGGED_DIFFERENCES]:
-        logger.info(
-            "difference kind=%s key=%s column=%s left=%r right=%r",
-            item.kind, item.key, item.column, item.left, item.right,
-        )
+        if show_values:
+            logger.info(
+                "difference kind=%s key=%s column=%s left=%r right=%r",
+                item.kind, item.key, item.column, item.left, item.right,
+            )
+        else:
+            logger.info(
+                "difference kind=%s column=%s key_sha256=%s",
+                item.kind, item.column, _key_digest(item.key),
+            )
     if len(differences) > _MAX_LOGGED_DIFFERENCES:
         logger.info("differences_truncated shown=%d", _MAX_LOGGED_DIFFERENCES)
 
@@ -172,6 +209,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--python", type=Path, required=True)
     parser.add_argument("--go", type=Path, required=True)
     parser.add_argument("--key", action="append", default=None)
+    parser.add_argument("--show-values", action="store_true")
     args = parser.parse_args(argv)
 
     try:
@@ -183,7 +221,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "diff_result identical=%s diff=%d summary=%s",
         result.identical, result.diff_rows, result.summary,
     )
-    _log_differences(result.differences)
+    _log_differences(result.differences, args.show_values)
     return 0 if result.identical else 1
 
 

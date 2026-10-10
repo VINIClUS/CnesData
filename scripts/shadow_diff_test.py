@@ -1,5 +1,8 @@
 """Teste do shadow diff."""
+import logging
+from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
@@ -171,3 +174,110 @@ def test_main_retorna_um_quando_as_colunas_diferem(tmp_path: Path) -> None:
     b = pl.DataFrame({"cnes": ["0001"], "nome": ["A"]})
 
     assert _run(tmp_path, a, b, "--key", "cnes") == 1
+
+
+@pytest.mark.parametrize(("left", "right"), [
+    (pl.Series("v", [1]), pl.Series("v", [True])),
+    (pl.Series("v", [1]), pl.Series("v", [1.0])),
+    (pl.Series("v", [True]), pl.Series("v", [1.0])),
+])
+def test_diff_frames_com_chave_distingue_inteiro_booleano_e_ponto_flutuante(
+    left: pl.Series, right: pl.Series
+) -> None:
+    a = pl.DataFrame({"k": ["a"]}).with_columns(left)
+    b = pl.DataFrame({"k": ["a"]}).with_columns(right)
+
+    found = diff_frames(a, b, ["k"])
+
+    assert [(item.kind, item.key, item.column) for item in found] == [("cell", ("a",), "v")]
+    assert [type(found[0].left), type(found[0].right)] == [type(left[0]), type(right[0])]
+
+
+@pytest.mark.parametrize(("left", "right", "different"), [
+    ([[1, 2]], [[1, 2]], False),
+    ([[1, 2]], [[1, 3]], True),
+    ([[1]], [[1, 2]], True),
+    ([[1]], [[True]], True),
+    ([{"a": 1}], [{"a": 1}], False),
+    ([{"a": 1}], [{"a": True}], True),
+    ([{"a": 1}], [{"b": 1}], True),
+])
+def test_diff_frames_com_chave_compara_listas_e_structs_com_tipos_estritos(
+    left: list[Any], right: list[Any], different: bool
+) -> None:
+    a = pl.DataFrame({"k": ["a"], "v": left})
+    b = pl.DataFrame({"k": ["a"], "v": right})
+
+    assert bool(diff_frames(a, b, ["k"])) is different
+
+
+def test_diff_frames_com_chave_trata_nan_como_igual_a_nan_igual_ao_modo_posicional() -> None:
+    nan = float("nan")
+    a = pl.DataFrame({"k": ["a", "b"], "v": [nan, 1.0]})
+    b = pl.DataFrame({"k": ["a", "b"], "v": [nan, nan]})
+
+    assert diff_frames(a.head(1), b.head(1)) == ()
+    assert diff_frames(a.head(1), b.head(1), ["k"]) == ()
+    assert [item.key for item in diff_frames(a, b, ["k"])] == [("b",)]
+
+
+def test_compare_parquets_com_chave_resume_em_linhas_e_sem_celulas(tmp_path: Path) -> None:
+    a = pl.DataFrame({"k": ["a", "b", "c"], "v": [1, 2, 3], "w": ["x", "y", "z"]})
+    b = pl.DataFrame({"k": ["a", "b", "d"], "v": [9, 8, 3], "w": ["x", "q", "z"]})
+
+    keyed = compare_parquets(*_write_pair(tmp_path, a, b), key=["k"])
+    positional = compare_parquets(*_write_pair(tmp_path, a, b))
+
+    assert (keyed.identical, keyed.diff_rows, keyed.summary) == (False, 4, "4 row diffs")
+    assert len(keyed.differences) == 5
+    assert positional.summary.endswith("cell diffs")
+
+
+_CPF_A, _CPF_B = "12345678901", "99999999999"
+
+
+def _pii_frames() -> tuple[pl.DataFrame, pl.DataFrame]:
+    left = pl.DataFrame({
+        "cpf": [_CPF_A, _CPF_B], "nome": ["Maria Silva", "Joao Souza"], "obs": ["x", "y"],
+    })
+    right = pl.DataFrame({
+        "cpf": [_CPF_A, "88888888888"], "nome": ["Maria Souza", "Joao Souza"], "obs": ["z", "y"],
+    })
+    return left, right
+
+
+def test_main_loga_so_tipo_coluna_e_digest_da_chave_por_padrao(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    assert _run(tmp_path, *_pii_frames(), "--key", "cpf") == 1
+
+    digest = sha256(_CPF_A.encode()).hexdigest()[:12]
+    assert f"difference kind=cell column=nome key_sha256={digest}" in caplog.text
+    assert f"difference kind=cell column=obs key_sha256={digest}" in caplog.text
+    for secret in (_CPF_A, _CPF_B, "88888888888", "Maria", "Silva", "Souza", "Joao"):
+        assert secret not in caplog.text
+
+
+def test_main_loga_chaves_e_valores_somente_com_show_values(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    assert _run(tmp_path, *_pii_frames(), "--key", "cpf", "--show-values") == 1
+
+    assert f"key=('{_CPF_A}',) column=nome left='Maria Silva' right='Maria Souza'" in caplog.text
+    assert "key_sha256" not in caplog.text
+
+
+def test_main_sem_chave_tambem_nao_loga_valores_por_padrao(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    assert _run(tmp_path, *_pii_frames()) == 1
+
+    assert "difference kind=cell column=" in caplog.text
+    assert "Maria" not in caplog.text
+    assert _CPF_A not in caplog.text
