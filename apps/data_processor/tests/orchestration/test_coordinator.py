@@ -6,7 +6,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
 
@@ -62,8 +62,8 @@ from data_processor.orchestration.unit_worker import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
 
     from cnes_domain.control_plane.commands import BindRunDispatch
 
@@ -228,7 +228,7 @@ def _object_key(layer: str, unit: RunUnit, suffix: str) -> str:
     return f"serving/{_TENANT}/{unit.run_id}/{suffix}.json"
 
 
-def _layer_for_stage(stage: RunStage) -> str:
+def _layer_for_stage(stage: RunStage) -> Literal["normalized", "reconciliation", "serving"]:
     if stage is RunStage.NORMALIZE:
         return "normalized"
     if stage is RunStage.RECONCILE:
@@ -252,7 +252,7 @@ def _manifest_for_unit(unit: RunUnit, store: _FakeObjectStore, suffix: str) -> O
 
 
 def _processor(unit: RunUnit, store: object) -> tuple[OutputManifest, ...]:
-    return (_manifest_for_unit(unit, store, "a"),)
+    return (_manifest_for_unit(unit, cast("_FakeObjectStore", store), "a"),)
 
 
 def _fails_always(unit: RunUnit, store: object) -> tuple[OutputManifest, ...]:
@@ -280,7 +280,7 @@ def _complete_dispatch(
     adapter: SQLiteControlPlane, executor: _FakeExecutor, store: _FakeObjectStore,
     clock: _MutableClock, *, processor=_processor, max_attempts: int = 3,
 ) -> None:
-    dispatch = adapter.get_active_run_dispatch(_TENANT, _RUN_ID)
+    dispatch = cast("RunDispatch", adapter.get_active_run_dispatch(_TENANT, _RUN_ID))
     policy = UnitWorkerPolicy(max_attempts=max_attempts)
     for unit_id in dispatch.unit_ids:
         claim = ClaimRunUnit(
@@ -291,7 +291,7 @@ def _complete_dispatch(
             control_plane=adapter, store=store, processor=processor, clock=clock.now,
         ), policy)
         worker.execute(claim)
-    executor.set_status(dispatch.execution_ref, ExecutionStatus.SUCCEEDED)
+    executor.set_status(cast("str", dispatch.execution_ref), ExecutionStatus.SUCCEEDED)
 
 
 def test_tres_ondas_do_executor_ate_publicar(adapter, executor, store, clock):

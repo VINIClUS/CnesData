@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hmac import compare_digest
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
@@ -17,7 +17,7 @@ from central_api.schemas.raw_api import (
     HeartbeatResponse,
     RawUploadResponse,
 )
-from central_api.services.agent_admission import AgentAdmission
+from central_api.services.agent_admission import AgentAdmission, EdgeAgentRegistry
 from central_api.services.billing_gates import BillingAccountMissing
 from central_api.services.raw_ingestion import RawIngestionService  # noqa: TC001
 from central_api.services.raw_upload import (
@@ -125,7 +125,7 @@ def get_agent_admission(
 ) -> AgentAdmission:
     """Admissão legada sem gates; a composição sobrescreve com billing."""
 
-    return AgentAdmission(control_plane)
+    return AgentAdmission(cast("EdgeAgentRegistry", control_plane))
 
 
 _BILLING_DENIALS: tuple[tuple[type[Exception], int, str], ...] = (
@@ -139,7 +139,7 @@ _BILLING_DENIALS: tuple[tuple[type[Exception], int, str], ...] = (
 )
 
 
-_BILLING_ERRORS = tuple(kind for kind, _, _ in _BILLING_DENIALS)
+_BILLING_ERRORS: tuple[type[Exception], ...] = tuple(kind for kind, _, _ in _BILLING_DENIALS)
 
 
 def _billing_rejection(error: Exception) -> HTTPException:

@@ -50,4 +50,6 @@ async def test_dois_tokens_geram_agent_ids_distintos():
     t2 = await store.issue(tenant_id="t")
     a1 = await store.consume(t1)
     a2 = await store.consume(t2)
+    assert a1 is not None
+    assert a2 is not None
     assert a1.agent_id != a2.agent_id

@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
 from threading import Barrier
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, BinaryIO, cast
 
 import polars as pl
 import pytest
@@ -84,7 +84,7 @@ class _BlockPyArrowImport:
     def __init__(self) -> None:
         self._original = builtins.__import__
 
-    def __call__(self, name: str, *args: object, **kwargs: object) -> object:
+    def __call__(self, name: str, *args: Any, **kwargs: Any) -> object:
         if name == "pyarrow" or name.startswith("pyarrow."):
             raise ModuleNotFoundError(name)
         return self._original(name, *args, **kwargs)
@@ -150,14 +150,14 @@ def test_recupera_orfao_antes_do_append_de_sink_ja_instanciado(tmp_path: Path) -
 def test_repete_escrita_curta_ate_persistir_registro_completo() -> None:
     writer = _ShortWriter()
 
-    local_sink_module._write_all(writer, b"registro-completo")
+    local_sink_module._write_all(cast("BinaryIO", writer), b"registro-completo")
 
     assert writer.content == b"registro-completo"
 
 
 def test_rejeita_escrita_sem_progresso() -> None:
     with pytest.raises(OSError, match="audit_write=incomplete"):
-        local_sink_module._write_all(_StoppedWriter(), b"registro")
+        local_sink_module._write_all(cast("BinaryIO", _StoppedWriter()), b"registro")
 
 
 def test_sincroniza_orfao_recuperado_antes_do_commit(
@@ -296,7 +296,7 @@ def test_tolera_criacao_concorrente_da_raiz(
     barrier = Barrier(2)
     original_mkdir = Path.mkdir
 
-    def synchronized_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+    def synchronized_mkdir(path: Path, *args: Any, **kwargs: Any) -> None:
         if path == first_directory:
             barrier.wait(timeout=5)
         original_mkdir(path, *args, **kwargs)

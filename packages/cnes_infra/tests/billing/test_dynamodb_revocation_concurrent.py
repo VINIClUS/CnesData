@@ -1,6 +1,6 @@
 """Revogação com finalização concorrente do Run e quedas antes da auditoria."""
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -86,7 +86,7 @@ def test_run_finalizado_pelo_coordenador_durante_a_revogacao_e_liquidado(env: Re
     assert result.fenced_run_ids == (RUN_ID,)
     assert_run_canceled(env, RUN_ID, dispatch)
     assert audited_run_ids(env) == [RUN_ID]
-    assert env.store.get_revocation_progress(ACCOUNT).phase is RevocationPhase.COMPLETE
+    assert cast("Any", env.store.get_revocation_progress(ACCOUNT)).phase is RevocationPhase.COMPLETE
 
 
 def test_queda_na_auditoria_apos_cancelar_run_e_reauditado_na_retentativa(env: RevEnv) -> None:
@@ -101,7 +101,7 @@ def test_queda_na_auditoria_apos_cancelar_run_e_reauditado_na_retentativa(env: R
     service.revoke(COMMAND)
 
     assert audited_run_ids(env) == [RUN_ID]
-    assert env.store.get_revocation_progress(ACCOUNT).phase is RevocationPhase.COMPLETE
+    assert cast("Any", env.store.get_revocation_progress(ACCOUNT)).phase is RevocationPhase.COMPLETE
 
 
 def test_queda_ao_salvar_progresso_apos_cancelar_run_e_reauditado_na_retentativa(
@@ -124,4 +124,4 @@ def test_queda_ao_salvar_progresso_apos_cancelar_run_e_reauditado_na_retentativa
     service.revoke(COMMAND)
 
     assert audited_run_ids(env) == [RUN_ID]
-    assert env.store.get_revocation_progress(ACCOUNT).phase is RevocationPhase.COMPLETE
+    assert cast("Any", env.store.get_revocation_progress(ACCOUNT)).phase is RevocationPhase.COMPLETE

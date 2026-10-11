@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from inspect import currentframe
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 from warnings import catch_warnings, simplefilter
 
 import pytest
@@ -15,6 +16,9 @@ from cnes_domain.control_plane.queries import (
 from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from packages.cnes_infra.tests.contracts.clock import MutableClock, _job, _raw_record, _run
+
+if TYPE_CHECKING:
+    from types import FrameType
 
 _IDENTITY = RawIdentity("354130", "CNES", "ST", "2026-07")
 _FIELDS = ("tenant_id", "source_type", "file_subtype", "competencia")
@@ -44,7 +48,7 @@ def adapter(tmp_path):
     return store
 
 
-def _arguments(legacy, form):
+def _arguments(legacy: str, form: str) -> tuple[tuple[str, ...], dict[str, Any]]:
     values = _VALUES
     fields = _FIELDS
     if legacy == "latest_succeeded_job":
@@ -54,7 +58,7 @@ def _arguments(legacy, form):
     return values[:split], dict(zip(fields[split:], values[split:], strict=True))
 
 
-def _query(legacy):
+def _query(legacy: str) -> Any:
     if legacy == "latest_succeeded_job":
         return LatestSucceededJobQuery(_IDENTITY, "agent-a")
     if legacy == "list_raw_manifest_chain":
@@ -73,7 +77,7 @@ def test_shim_preserva_resultado_e_avisa_no_chamador(adapter, legacy, typed, for
     args, kwargs = _arguments(legacy, form)
     with catch_warnings(record=True) as warnings:
         simplefilter("always")
-        line = currentframe().f_lineno + 1
+        line = cast("FrameType", currentframe()).f_lineno + 1
         result = getattr(adapter, legacy)(*args, **kwargs)
     assert len(warnings) == 1
     assert warnings[0].category is DeprecationWarning
@@ -147,7 +151,7 @@ def test_shim_sqlite_preserva_limite_negativo_ilimitado_da_versao_legada(adapter
 def test_shim_sqlite_com_limite_negativo_avisa_apenas_no_chamador(adapter):
     with catch_warnings(record=True) as warnings:
         simplefilter("always")
-        line = currentframe().f_lineno + 1
+        line = cast("FrameType", currentframe()).f_lineno + 1
         adapter.list_waiting_runs_for_dependency(*_VALUES, limit=-1)
         adapter.query_waiting_runs_for_dependency(WaitingRunsForDependencyQuery(_IDENTITY, -1))
     assert len(warnings) == 1
@@ -161,7 +165,7 @@ def test_shim_sqlite_com_limite_negativo_avisa_apenas_no_chamador(adapter):
 
 @pytest.mark.parametrize("field", _FIELDS)
 def test_shim_sqlite_valida_identidade_antes_do_limite_negativo(adapter, field):
-    values = dict(zip(_FIELDS, _VALUES, strict=True))
+    values: dict[str, str] = dict(zip(_FIELDS, _VALUES, strict=True))
     values[field] = ""
     with pytest.warns(DeprecationWarning, match="method=list_waiting_runs_for_dependency"):
         with pytest.raises(ValueError):
@@ -171,6 +175,7 @@ def test_shim_sqlite_valida_identidade_antes_do_limite_negativo(adapter, field):
 def test_consultas_preservam_ordem_isolamento_e_persistencia(adapter):
     reopened = SQLiteControlPlane(adapter._database_path, adapter.now)
     latest = reopened.query_latest_succeeded_job(LatestSucceededJobQuery(_IDENTITY, "agent-a"))
+    assert latest is not None
     assert latest.job_id == "job-b"
     waiting = reopened.query_waiting_runs_for_dependency(WaitingRunsForDependencyQuery(_IDENTITY))
     assert tuple(run.run_id for run in waiting) == ("waiting-a", "waiting-b")

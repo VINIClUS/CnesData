@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
 
 import polars as pl
@@ -122,7 +122,7 @@ def national_service(app: Any, transport: FakeTransport) -> NationalIngestionSer
     control_plane = SpyControlPlane(app.state.control_plane)
     adapter = DatasusCnesRawAdapter(transport, app.state.object_store, now)
     return NationalIngestionService(
-        control_plane, adapter, app.state.raw_ingestion, now
+        cast("Any", control_plane), adapter, app.state.raw_ingestion, now
     )
 
 
@@ -178,7 +178,7 @@ def test_refresh_nacional_registra_apenas_via_raw_ingestion(tmp_path: Path) -> N
         control_plane = SpyControlPlane(app.state.control_plane)
         adapter = DatasusCnesRawAdapter(transport, app.state.object_store, now)
         service = NationalIngestionService(
-            control_plane, adapter, app.state.raw_ingestion, now
+            cast("Any", control_plane), adapter, app.state.raw_ingestion, now
         )
 
         service.refresh(refresh_request())

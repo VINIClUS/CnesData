@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -55,6 +55,9 @@ from packages.cnes_infra.tests.billing.test_dynamodb_revocation_service import (
     seed_simple_run,
     snapshot_of,
 )
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.execution import RunBillingState
 
 PAST_EXPIRY = RESERVATION_TTL + timedelta(minutes=1)
 PAGE_OF_ONE = RevocationSettings(run_page_size=1)
@@ -139,7 +142,10 @@ def interrupt_admin_revocation(env: RevEnv, run_count: int = 3) -> Interrupted:
 
 
 def fenced_runs(env: RevEnv, run_ids: tuple[str, ...]) -> tuple[str, ...]:
-    states = {run_id: env.store.get_run_billing_state(TENANT, run_id) for run_id in run_ids}
+    states = {
+        run_id: cast("RunBillingState", env.store.get_run_billing_state(TENANT, run_id))
+        for run_id in run_ids
+    }
     return tuple(run_id for run_id, state in states.items() if state.cancel_requested)
 
 

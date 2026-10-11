@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from typing import ClassVar
+from typing import Any, ClassVar, cast
 from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from cnes_contracts.jobs import JobStatus
-from cnes_contracts.landing import Extraction, FileManifest
+from cnes_contracts.landing import FATO_SUBTYPE, Extraction, FileManifest
 
 
-def _file(subtype: str) -> FileManifest:
+def _file(subtype: FATO_SUBTYPE) -> FileManifest:
     return FileManifest(
         minio_key=f"x/y/{subtype.lower()}.parquet.gz",
         fato_subtype=subtype, size_bytes=1024, sha256="a" * 64,
@@ -41,7 +41,7 @@ class TestExtraction:
     def test_rejeita_source_type_desconhecido(self) -> None:
         with pytest.raises(ValidationError):
             Extraction(
-                job_id=uuid4(), tenant_id="t", source_type="UNKNOWN",
+                job_id=uuid4(), tenant_id="t", source_type=cast("Any", "UNKNOWN"),
                 competencia=date(2026, 1, 1), files=[_file("BPA_C")],
                 status=JobStatus.PENDING,
                 created_at=datetime.now(UTC),

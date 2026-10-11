@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -183,7 +184,7 @@ def test_procedimento_sus_rejeita_complexidade_invalida():
             sk_procedimento=1,
             cod_sigtap="0101010010",
             descricao="Consulta",
-            complexidade=9,
+            complexidade=cast("Any", 9),
         )
 
 
@@ -193,7 +194,7 @@ def test_procedimento_sus_rejeita_financiamento_invalido():
             sk_procedimento=1,
             cod_sigtap="0101010010",
             descricao="Consulta",
-            financiamento="XYZ",
+            financiamento=cast("Any", "XYZ"),
         )
 
 
@@ -203,7 +204,7 @@ def test_procedimento_sus_rejeita_modalidade_invalida():
             sk_procedimento=1,
             cod_sigtap="0101010010",
             descricao="Consulta",
-            modalidade="FOO",
+            modalidade=cast("Any", "FOO"),
         )
 
 

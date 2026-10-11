@@ -7,6 +7,7 @@ import logging
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import NoReturn, cast
 
 import polars as pl
 
@@ -92,7 +93,7 @@ class FixtureError(Exception):
     """Indica violação no contrato das fixtures."""
 
 
-def _fail(field: str, detail: str = "invalid") -> None:
+def _fail(field: str, detail: str = "invalid") -> NoReturn:
     raise FixtureError(f"field={field} status={detail}")
 
 
@@ -295,15 +296,18 @@ def _derived_divergences(
             if local_value is None or national_value is None or local_value == national_value:
                 continue
             divergences.append(
-                {
-                    "natural_key": _natural_key_payload(key),
-                    "field": field,
-                    "local_value": local_value,
-                    "national_value": national_value,
-                    "selected_value": local_value,
-                    "selected_source": "LOCAL",
-                    "source_manifest_ids": SOURCE_MANIFEST_IDS,
-                }
+                cast(
+                    "JsonValue",
+                    {
+                        "natural_key": _natural_key_payload(key),
+                        "field": field,
+                        "local_value": local_value,
+                        "national_value": national_value,
+                        "selected_value": local_value,
+                        "selected_source": "LOCAL",
+                        "source_manifest_ids": SOURCE_MANIFEST_IDS,
+                    },
+                )
             )
     return divergences
 

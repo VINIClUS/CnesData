@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -14,6 +15,11 @@ from cnes_domain.control_plane.enums import AgentState, JobState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.ingestion import DatasusCnesRequest
+
+if TYPE_CHECKING:
+    from central_api.services.national_ingestion import _ControlPlane
+    from central_api.services.raw_ingestion import RawIngestionService
+    from cnes_infra.ingestion.datasus_cnes_raw import DatasusCnesRawAdapter
 
 NOW = datetime(2026, 1, 20, 9, tzinfo=UTC)
 TENANT = "354130"
@@ -136,7 +142,10 @@ def service(
     ingestion: RawIngestion | None = None,
 ) -> NationalIngestionService:
     return NationalIngestionService(
-        control, adapter or RawAdapter(), ingestion or RawIngestion(), lambda: NOW
+        cast("_ControlPlane", control),
+        cast("DatasusCnesRawAdapter", adapter or RawAdapter()),
+        cast("RawIngestionService", ingestion or RawIngestion()),
+        lambda: NOW,
     )
 
 

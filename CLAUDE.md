@@ -78,7 +78,7 @@ don't fork it. Load on demand, never eagerly.
 
 - Build only what was requested. No speculative features, no premature abstractions.
 - Read before writing. Never assume file contents from memory.
-- Verify every change: `ruff check .` → `pytest` → self-review.
+- Verify every change: `ruff check .` → `pyright` → `pytest` → self-review.
 - Test names describe behavior in Portuguese: `test_rejeita_cpf_invalido`.
 - Mock at boundary (DB / HTTP / object store). Never deep inside code under test.
 - Parameterized queries only. No string interpolation into SQL, ever.
@@ -118,8 +118,9 @@ Before code: wrap analysis in `<thinking>`. Tests first, implementation second.
 ## Commands
 
 ```bash
-# Lint (global)
+# Lint + type check (global; pyright strict em packages/*/src e apps/*/src)
 .venv/Scripts/ruff.exe check .
+.venv/Scripts/pyright.exe
 
 # Tests — rápidos (sem docker)
 .venv/Scripts/python.exe -m pytest \

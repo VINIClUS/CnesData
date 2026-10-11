@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from fastapi import FastAPI
@@ -24,6 +25,15 @@ from cnes_domain.billing.errors import (
 )
 from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
 from cnes_domain.profiles import BillingMode
+
+if TYPE_CHECKING:
+    from central_api.services.agent_admission import EdgeAgentRegistry
+    from central_api.services.billing_gates import TenantAccountResolver
+    from cnes_domain.billing.gate import EntitlementGate
+    from cnes_domain.ports.control_plane import ControlPlanePort
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.ports import QuotaReservationPort
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 
@@ -56,10 +66,17 @@ def client(control: ControlPlane, resolver: Resolver, gate: Gate) -> TestClient:
     identity = EdgeIdentity(
         tenant_id="354130", agent_id="agent-1", certificate_fingerprint=FINGERPRINT,
     )
-    gates = ApiBillingGates(BillingMode.STRIPE, gate, object(), resolver)
+    gates = ApiBillingGates(
+        BillingMode.STRIPE,
+        cast("EntitlementGate", gate),
+        cast("QuotaReservationPort", object()),
+        cast("TenantAccountResolver", resolver),
+    )
     app.dependency_overrides[get_edge_identity] = lambda: identity
     app.dependency_overrides[get_control_plane] = lambda: control
-    app.dependency_overrides[get_agent_admission] = lambda: AgentAdmission(control, gates)
+    app.dependency_overrides[get_agent_admission] = lambda: AgentAdmission(
+        cast("EdgeAgentRegistry", control), gates
+    )
     return TestClient(app)
 
 
@@ -110,7 +127,7 @@ def test_agente_existente_nao_consulta_gate_pela_rota() -> None:
 def test_dependencia_padrao_usa_control_plane_sem_gates() -> None:
     control = ControlPlane(None)
 
-    admission = get_agent_admission(control)
+    admission = get_agent_admission(cast("ControlPlanePort", control))
 
     assert admission.admit(
         EdgeIdentity(tenant_id="354130", agent_id="agent-1", certificate_fingerprint=FINGERPRINT),

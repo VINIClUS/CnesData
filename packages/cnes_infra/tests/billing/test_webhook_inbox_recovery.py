@@ -61,7 +61,7 @@ def _set(name: str, value: str, kind: str = "S") -> Callable[[dict[str, Any]], N
     return lambda item: item.__setitem__(name, {kind: value})
 
 
-def _drop(*names: str) -> Callable[[dict[str, Any]], None]:
+def _drop(*names: str) -> Callable[[dict[str, Any]], object]:
     return lambda item: [item.pop(name) for name in names]
 
 
@@ -108,6 +108,7 @@ def test_decoder_estrito_rejeita_item_corrompido(context: Context, name: str) ->
     prepare, mutate = CORRUPTIONS[name]
     PREPARE[prepare](context)
     item = context.raw()
+    assert item is not None
     mutate(item)
     context.put_raw(item)
     with pytest.raises(PermanentBillingError, match="billing_item_corrupt"):
@@ -288,6 +289,7 @@ def test_candidato_com_chave_de_indice_invalida_e_corrupto(
 def test_lista_rejeita_evento_com_created_at_corrompido(context: Context) -> None:
     _pending(context)
     item = context.raw()
+    assert item is not None
     item["created_at"] = {"S": "nao-e-data"}
     context.put_raw(item)
     with pytest.raises(PermanentBillingError, match="billing_item_corrupt"):

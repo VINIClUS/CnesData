@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -52,7 +53,7 @@ def runtime() -> ProcessorRuntimeComponents:
 
 
 def test_entrypoint_ecs_converte_env_em_claim_canonico(
-    runtime: ProcessorRuntimeComponents,
+    runtime: Any,
 ) -> None:
     assert run_aws_entrypoint(runtime, ENVELOPE, ()) == 0
 
@@ -64,14 +65,14 @@ def test_envelope_gera_mensagem_exata_no_instante_informado() -> None:
     assert EcsUnitEnvelope.from_mapping(ENVELOPE).message(NOW) == EXPECTED_MESSAGE
 
 
-def test_entrypoint_sem_unit_executa_recovery_once(runtime: ProcessorRuntimeComponents) -> None:
+def test_entrypoint_sem_unit_executa_recovery_once(runtime: Any) -> None:
     assert run_aws_entrypoint(runtime, {}, ("recover-once",)) == 0
 
     runtime.services.recovery.run_once.assert_called_once_with(limit=100)
     runtime.unit_handler.handle.assert_not_called()
 
 
-def test_entrypoint_propaga_falha_do_handler(runtime: ProcessorRuntimeComponents) -> None:
+def test_entrypoint_propaga_falha_do_handler(runtime: Any) -> None:
     runtime.unit_handler.handle.side_effect = RuntimeError("lease=lost")
 
     with pytest.raises(RuntimeError, match="lease=lost"):
@@ -98,7 +99,7 @@ def test_entrypoint_propaga_falha_do_handler(runtime: ProcessorRuntimeComponents
     ],
 )
 def test_envelope_invalido_falha_sem_chamar_handler(
-    runtime: ProcessorRuntimeComponents, overrides: dict[str, str], message: str,
+    runtime: Any, overrides: dict[str, str], message: str,
 ) -> None:
     with pytest.raises(EntrypointConfigurationError, match=message):
         run_aws_entrypoint(runtime, ENVELOPE | overrides, ())
@@ -110,7 +111,7 @@ def test_envelope_invalido_falha_sem_chamar_handler(
     "name", ["TENANT_ID", "RUN_ID", "WAVE_ID", "DISPATCH_ID", "EXECUTION_OWNER", "LEASE_SECONDS"],
 )
 def test_envelope_parcial_sem_unit_falha(
-    runtime: ProcessorRuntimeComponents, name: str,
+    runtime: Any, name: str,
 ) -> None:
     with pytest.raises(EntrypointConfigurationError, match="unit_envelope=partial"):
         run_aws_entrypoint(runtime, {name: ENVELOPE[name]}, ("recover-once",))
@@ -118,7 +119,7 @@ def test_envelope_parcial_sem_unit_falha(
     runtime.services.recovery.run_once.assert_not_called()
 
 
-def test_modo_unit_rejeita_argumentos(runtime: ProcessorRuntimeComponents) -> None:
+def test_modo_unit_rejeita_argumentos(runtime: Any) -> None:
     with pytest.raises(EntrypointConfigurationError, match="unit_mode=argv_forbidden"):
         run_aws_entrypoint(runtime, ENVELOPE, ("recover-once",))
 
@@ -129,7 +130,7 @@ def test_modo_unit_rejeita_argumentos(runtime: ProcessorRuntimeComponents) -> No
     "argv", [(), ("recover",), ("recover-once", "--verbose")], ids=["vazio", "outro", "extra"],
 )
 def test_modo_recovery_exige_somente_recover_once(
-    runtime: ProcessorRuntimeComponents, argv: tuple[str, ...],
+    runtime: Any, argv: tuple[str, ...],
 ) -> None:
     with pytest.raises(EntrypointConfigurationError, match="command=recover_once_required"):
         run_aws_entrypoint(runtime, {}, argv)
@@ -138,7 +139,7 @@ def test_modo_recovery_exige_somente_recover_once(
 
 
 def test_runtime_local_e_rejeitado_na_fronteira_aws(
-    runtime: ProcessorRuntimeComponents,
+    runtime: Any,
 ) -> None:
     local = replace(runtime, services=None)
 

@@ -3,6 +3,7 @@
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
 import pytest
@@ -18,6 +19,9 @@ from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.control_plane.entities import RunDependency
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.disabled import DisabledEntitlementProjection, DisabledQuotaReservations
+
+if TYPE_CHECKING:
+    from cnes_domain.billing.models import EntitlementSnapshot
 
 _NOW = datetime(2026, 9, 1, 12, tzinfo=UTC)
 _REMOTE_MODULES = ("stripe", "boto3", "botocore")
@@ -51,7 +55,9 @@ def test_local_disabled_nao_le_secrets_nem_abre_rede(monkeypatch: pytest.MonkeyP
         snapshot = DisabledEntitlementProjection(lambda: _NOW).get_snapshot(
             "local", ReadConsistency.STRONG,
         )
-        command = ReserveRunCommand(_create_run_request(), snapshot, 4, "r-1", _NOW)
+        command = ReserveRunCommand(
+            _create_run_request(), cast("EntitlementSnapshot", snapshot), 4, "r-1", _NOW
+        )
         result = DisabledQuotaReservations(lambda: _NOW).reserve_and_create_run(command)
     assert result.plan_version_id == "local-unmetered-v1"
     assert result.budget_reservation_id is None

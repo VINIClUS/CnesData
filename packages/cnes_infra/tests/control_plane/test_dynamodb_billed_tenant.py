@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from botocore.exceptions import ClientError
@@ -113,7 +113,7 @@ def test_cria_tenant_links_e_consome_reserva_em_uma_transacao(enforce_env: Env) 
     reverse = enforce_env.stored(tenant_account_key(NEW))
     assert decode_tenant_account(reverse, NEW) == ACCOUNT
     assert enforce_env.reservation(reservation_id).status is ReservationStatus.CONSUMED
-    assert enforce_env.counter() == before == 1
+    assert enforce_env.counter() == before == 2
     identity = (NEW, TENANT_SCOPE, "bt-01")
     record = decode_idempotency_record(enforce_env.stored(idempotency_key(*identity)), identity)
     assert (record.status, record.resource_id) == ("COMPLETED", NEW)
@@ -223,7 +223,7 @@ def test_tenant_existente_conflita(env: Env) -> None:
         env.plane.create_billed_tenant(env.command(reservation_id))
 
     assert env.reservation(reservation_id).status is ReservationStatus.RESERVED
-    assert env.plane.get_tenant(NEW).municipality_name == "Antigo"
+    assert cast("Any", env.plane.get_tenant(NEW)).municipality_name == "Antigo"
     assert env.stored(idempotency_key(NEW, TENANT_SCOPE, "bt-01")) is None
 
 

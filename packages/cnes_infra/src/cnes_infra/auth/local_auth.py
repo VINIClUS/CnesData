@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from cnes_infra.auth.local_credentials import (
     MAX_PASSWORD_LENGTH,
@@ -77,7 +77,7 @@ def _principal_for(
     return AuthenticatedPrincipal(
         user_id=user_id,
         email=email,
-        tenant_id=settings.tenant_id,
+        tenant_id=cast("str", settings.tenant_id),
         role=membership.role,
     )
 
@@ -85,7 +85,7 @@ def _principal_for(
 def _require_membership(
     control_plane: ControlPlanePort, settings: ProfileSettings, user_id: str
 ) -> Membership:
-    membership = control_plane.get_membership(settings.tenant_id, user_id)
+    membership = control_plane.get_membership(cast("str", settings.tenant_id), user_id)
     if membership is None:
         raise AuthenticationRejected(AuthRejectionCode.MEMBERSHIP_MISSING)
     return membership
@@ -139,7 +139,7 @@ class LocalAuthService:
         session = SessionRecord(
             session_hash=hash_session_token(token),
             user_id=principal.user_id,
-            tenant_id=self._deps.settings.tenant_id,
+            tenant_id=cast("str", self._deps.settings.tenant_id),
             expires_at=expires_at,
         )
         self._deps.credentials.put_session(session, now)

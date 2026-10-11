@@ -1,5 +1,7 @@
 """Testes do contexto de tenant — ContextVar."""
 
+from typing import cast
+
 from cnes_domain.tenant import get_tenant_id, set_tenant_id
 
 
@@ -17,7 +19,7 @@ class TestSetGetTenantId:
         def _get_sem_set():
             from cnes_domain.tenant import tenant_id_ctx
 
-            tenant_id_ctx.set(None)
+            tenant_id_ctx.set(cast("str", None))
             try:
                 token = tenant_id_ctx.get(None)
                 if token is None:

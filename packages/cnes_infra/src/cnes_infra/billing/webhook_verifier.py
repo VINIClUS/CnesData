@@ -2,7 +2,7 @@
 
 import hashlib
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from cnes_domain.billing.errors import PermanentBillingError
 from cnes_domain.billing.inbox import StripeEvent
@@ -62,7 +62,7 @@ class StripeWebhookVerifier:
     """Valida a assinatura do webhook Stripe e mapeia o evento mínimo."""
 
     def __init__(self, webhook_secret: str) -> None:
-        if not isinstance(webhook_secret, str) or not webhook_secret.strip():
+        if not isinstance(cast("object", webhook_secret), str) or not webhook_secret.strip():
             raise ValueError("reason=blank_webhook_secret")
         self._secret = webhook_secret
 

@@ -6,7 +6,7 @@ from base64 import b64encode
 from datetime import timedelta
 from hashlib import sha256
 from io import BytesIO
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 import pytest
@@ -24,6 +24,9 @@ from packages.cnes_infra.tests.contracts.audit_sink_contract import (
     audit_sink_cases,
     canonical_body,
 )
+
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
 
 
 def _client() -> Any:
@@ -64,7 +67,7 @@ class _MemoryS3:
 class _S3Probe:
     def __init__(self) -> None:
         self.client = _MemoryS3()
-        self.sink = S3ObjectLockAuditSink(self.client, "audit-bucket", 30)
+        self.sink = S3ObjectLockAuditSink(cast("BaseClient", self.client), "audit-bucket", 30)
 
     def expected_location(self, event: Any) -> str:
         return f"audit/{event.tenant_id}/2026/07/15/{event.event_id}.json"
@@ -87,7 +90,7 @@ def test_cumpre_contrato_compartilhado(case: AuditSinkCase) -> None:
 
 def test_rejeita_mesmo_event_id_em_particao_s3_divergente() -> None:
     client = _MemoryS3()
-    sink = S3ObjectLockAuditSink(client, "audit-bucket", 30)
+    sink = S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30)
     event = audit_event()
     sink.append(event)
     changed = event.model_copy(update={"tenant_id": "tenant-b"})
@@ -98,7 +101,13 @@ def test_rejeita_mesmo_event_id_em_particao_s3_divergente() -> None:
 
 def _client_error(code: str, status: int, operation: str) -> ClientError:
     return ClientError(
-        {"Error": {"Code": code, "Message": code}, "ResponseMetadata": {"HTTPStatusCode": status}},
+        cast(
+            "Any",
+            {
+                "Error": {"Code": code, "Message": code},
+                "ResponseMetadata": {"HTTPStatusCode": status},
+            },
+        ),
         operation,
     )
 
@@ -149,7 +158,7 @@ def test_envia_requisicao_exata_sem_newline() -> None:
         stubber.add_response(
             "put_object", {"ChecksumSHA256": params["ChecksumSHA256"]}, params
         )
-        S3ObjectLockAuditSink(client, "audit-bucket", 30).append(event)
+        S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30).append(event)
         stubber.assert_no_pending_responses()
 
 
@@ -163,7 +172,7 @@ def test_rejeita_bucket_sem_object_lock(configuration: dict[str, str]) -> None:
             {"Bucket": "audit-bucket"},
         )
         with pytest.raises(ValueError, match="object_lock=disabled"):
-            S3ObjectLockAuditSink(client, "audit-bucket", 30)
+            S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30)
 
 
 def test_propaga_erro_ao_consultar_object_lock() -> None:
@@ -176,7 +185,7 @@ def test_propaga_erro_ao_consultar_object_lock() -> None:
             expected_params={"Bucket": "audit-bucket"},
         )
         with pytest.raises(ClientError, match="AccessDenied"):
-            S3ObjectLockAuditSink(client, "audit-bucket", 30)
+            S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30)
 
 
 @pytest.mark.parametrize(
@@ -191,7 +200,7 @@ def test_rejeita_checksum_ausente_ou_divergente(
         _enabled(stubber)
         _identity(stubber, event)
         stubber.add_response("put_object", response, _put_params(event))
-        sink = S3ObjectLockAuditSink(client, "audit-bucket", 30)
+        sink = S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30)
         with pytest.raises(ValueError, match=f"checksum_response={message}"):
             sink.append(event)
 
@@ -207,7 +216,7 @@ def test_rejeita_baddigest() -> None:
             http_status_code=400,
             expected_params=_put_params(event),
         )
-        sink = S3ObjectLockAuditSink(client, "audit-bucket", 30)
+        sink = S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30)
         with pytest.raises(ValueError, match="checksum=rejected"):
             sink.append(event)
 
@@ -243,7 +252,7 @@ def test_aceita_replay_412_com_conteudo_e_retencao_integrais() -> None:
             },
             {"Bucket": "audit-bucket", "Key": params["Key"], "VersionId": "version-1"},
         )
-        S3ObjectLockAuditSink(client, "audit-bucket", 30).append(event)
+        S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30).append(event)
 
 
 def test_rejeita_replay_412_com_conteudo_divergente() -> None:
@@ -259,7 +268,7 @@ def test_rejeita_replay_412_com_conteudo_divergente() -> None:
         stubber.add_response(
             "get_object", _object_response(different, sha256(different).hexdigest()),
             {"Bucket": "audit-bucket", "Key": params["Key"]})
-        sink = S3ObjectLockAuditSink(client, "audit-bucket", 30)
+        sink = S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30)
         with pytest.raises(Conflict, match="object=immutable"):
             sink.append(event)
 
@@ -281,7 +290,7 @@ def test_limita_retry_409_e_releitura(attempts: int) -> None:
         if attempts == 1:
             stubber.add_response(
                 "put_object", {"ChecksumSHA256": params["ChecksumSHA256"]}, params)
-        sink = S3ObjectLockAuditSink(client, "audit-bucket", 30)
+        sink = S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30)
         if attempts == 1:
             sink.append(event)
         else:
@@ -292,11 +301,11 @@ def test_limita_retry_409_e_releitura(attempts: int) -> None:
 def test_rejeita_parametros_e_componentes_inseguros() -> None:
     client = _MemoryS3()
     with pytest.raises(ValueError, match="retention_days=invalid"):
-        S3ObjectLockAuditSink(client, "audit-bucket", 0)
+        S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 0)
     with pytest.raises(ValueError, match="bucket=invalid"):
-        S3ObjectLockAuditSink(client, "", 30)
+        S3ObjectLockAuditSink(cast("BaseClient", client), "", 30)
     unsafe = audit_event().model_copy()
     object.__setattr__(unsafe, "event_id", "../event")
-    sink = S3ObjectLockAuditSink(client, "audit-bucket", 30)
+    sink = S3ObjectLockAuditSink(cast("BaseClient", client), "audit-bucket", 30)
     with pytest.raises(ValueError, match="audit_path=invalid"):
         sink.append(unsafe)

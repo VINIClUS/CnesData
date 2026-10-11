@@ -36,7 +36,7 @@ _MAP_AIH_RAW: dict[str, str] = {
 # SIHD2 real (#295): AH_DIAG_SEC is legacy ('0000') and AH_PACIENTE_MUN_ORIGEM is always NULL.
 _LEGACY_INTERNACAO_RAW = frozenset({"AH_DIAG_SEC", "AH_PACIENTE_MUN_ORIGEM"})
 
-_MAP_INTERNACAO_RAW: dict[str, str] = {
+MAP_INTERNACAO_RAW: dict[str, str] = {
     **{k: v for k, v in _MAP_AIH_RAW.items() if k not in _LEGACY_INTERNACAO_RAW},
     "AH_DIAG_SEC_1": "DIAG_SEC",
     "AH_PACIENTE_LOGR_MUNICIPIO": "PACIENTE_MUN_ORIGEM",
@@ -46,7 +46,7 @@ _MAP_INTERNACAO_RAW: dict[str, str] = {
     "AH_MODALIDADE_INTERNACAO": "MODALIDADE",
 }
 
-_MAP_PROC_AIH_RAW: dict[str, str] = {
+MAP_PROC_AIH_RAW: dict[str, str] = {
     "PA_NUM_AIH": "NUM_AIH",
     "PA_OE_GESTOR": "OE_GESTOR",
     "PA_SEQ_PRINC": "SEQ_PRINC",

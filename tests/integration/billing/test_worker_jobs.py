@@ -190,8 +190,11 @@ def test_worker_revoke_pending_e_release_expired_com_componentes_reais(env: RevE
 
     revoked = worker.run_revoke_pending(10)
 
+    assert revoked is not None
     assert (revoked.examined, revoked.resumed, revoked.fenced) == (1, 1, 1)
-    assert env.store.get_revocation_progress(ACCOUNT).phase is RevocationPhase.COMPLETE
+    progress = env.store.get_revocation_progress(ACCOUNT)
+    assert progress is not None
+    assert progress.phase is RevocationPhase.COMPLETE
     for run_id in interrupted.run_ids:
         assert stored_run(env, run_id).state is RunState.CANCELED
     assert metrics.named("QuotaReservationsExpired") == []

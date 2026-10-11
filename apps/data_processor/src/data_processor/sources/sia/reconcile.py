@@ -98,7 +98,7 @@ def reconcile_sia(request: ReconcileRequest, store: ObjectStorePort) -> Reconcil
 
 
 def _facts(frames: Frames) -> pl.DataFrame:
-    parts = []
+    parts: list[pl.DataFrame] = []
     for leaf, fonte in FONTES:
         frame = frames[leaf][0]
         value = (

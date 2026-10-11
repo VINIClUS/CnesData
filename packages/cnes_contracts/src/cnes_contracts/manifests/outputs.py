@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
 from math import isfinite
-from typing import Literal, Self
+from typing import Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from cnes_contracts.manifests.raw import SourceType  # noqa: TC001
 from cnes_contracts.manifests.validation import (
-    _COMPETENCIA_PATTERN,
-    _HASH_PATTERN,
-    _validate_utc,
+    COMPETENCIA_PATTERN,
+    HASH_PATTERN,
     validate_object_key,
+    validate_utc,
 )
 
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
@@ -28,9 +28,10 @@ def _is_json_value(value: object) -> bool:
     if isinstance(value, float):
         return isfinite(value)
     if isinstance(value, list):
-        return all(_is_json_value(item) for item in value)
+        return all(_is_json_value(item) for item in cast("list[object]", value))
     if isinstance(value, dict):
-        return all(isinstance(key, str) and _is_json_value(item) for key, item in value.items())
+        items = cast("dict[object, object]", value).items()
+        return all(isinstance(key, str) and _is_json_value(item) for key, item in items)
     return False
 
 
@@ -42,20 +43,20 @@ class OutputManifest(BaseModel):
     tenant_id: str = Field(min_length=1)
     layer: Literal["normalized", "reconciliation", "serving"]
     source_type: SourceType | None
-    competencia: str = Field(pattern=_COMPETENCIA_PATTERN)
+    competencia: str = Field(pattern=COMPETENCIA_PATTERN)
     run_id: str = Field(min_length=1)
     unit_id: str = Field(min_length=1)
     attempt: int = Field(gt=0)
     schema_version: str = Field(min_length=1)
     object_key: str = Field(min_length=1)
-    object_sha256: str = Field(pattern=_HASH_PATTERN)
+    object_sha256: str = Field(pattern=HASH_PATTERN)
     row_count: int = Field(ge=0)
     created_at: datetime
 
     @field_validator("created_at")
     @classmethod
     def validate_created_at(cls, value: datetime) -> datetime:
-        return _validate_utc(value)
+        return validate_utc(value)
 
     @model_validator(mode="after")
     def validate_layer(self) -> Self:
@@ -74,7 +75,7 @@ class RunManifest(BaseModel):
     tenant_id: str = Field(min_length=1)
     dataset_name: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
-    competencia: str = Field(pattern=_COMPETENCIA_PATTERN)
+    competencia: str = Field(pattern=COMPETENCIA_PATTERN)
     outputs: tuple[OutputManifest, ...]
     missing_sources: tuple[str, ...]
     published_at: datetime
@@ -82,7 +83,7 @@ class RunManifest(BaseModel):
     @field_validator("published_at")
     @classmethod
     def validate_published_at(cls, value: datetime) -> datetime:
-        return _validate_utc(value)
+        return validate_utc(value)
 
     @model_validator(mode="after")
     def validate_outputs(self) -> Self:
@@ -115,11 +116,12 @@ class ServingDocument(BaseModel):
     @field_validator("generated_at")
     @classmethod
     def validate_generated_at(cls, value: datetime) -> datetime:
-        return _validate_utc(value)
+        return validate_utc(value)
 
     @field_validator("payload", mode="before")
     @classmethod
     def validate_payload(cls, value: object) -> object:
-        if not isinstance(value, dict) or not _is_json_value(value):
+        payload: object = value
+        if not isinstance(value, dict) or not _is_json_value(payload):
             raise ValueError("payload_json_required")
-        return value
+        return payload

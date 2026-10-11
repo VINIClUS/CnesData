@@ -32,6 +32,7 @@ def test_evento_repetido_sem_mudanca_mantem_versao_e_conclui_inbox():
         audits = len(env.all_audit_payloads())
         state = env.inbox_state("evt_02")
         record = env.inbox.get_recovery_record("evt_02", STRONG)
+        assert record is not None
         skipped = env.audit_rows("entitlement.changed", "evt_02", 2)
     assert (first.entitlement_version, second.entitlement_version) == (1, 1)
     assert second.applied is True

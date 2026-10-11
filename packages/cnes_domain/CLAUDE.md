@@ -53,6 +53,7 @@ os apps deployáveis.
 | `config.py` | `validar_formato` (regex) + `_exigir` / `_exigir_inteiro` (usados por `cnes_infra`) |
 | `billing/models.py`, `commands.py`, `execution.py` | Domínio de billing imutável (snapshot, quotas, companion `RunBillingState`) |
 | `billing/policy.py`, `gate.py` | `EntitlementPolicy(mode)` + `EntitlementGate` (leitura forte, nega com `EntitlementDenied`) |
+| `billing/shadow.py` | `ShadowEntitlementObserver`: negação hipotética de shadow vira audit; nunca levanta |
 | `billing/execution_policy.py` | `BillingConcurrencyPolicy`, `BillingExecutionStarted`, `apply_execution_binding` (CAS do companion) |
 
 ## Gotchas

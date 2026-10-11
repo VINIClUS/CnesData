@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from cnes_domain.billing.errors import EntitlementDenied, PermanentBillingError
 from cnes_domain.billing.execution import (
@@ -102,6 +102,7 @@ def apply_execution_binding(
     Raises: PermanentBillingError: Estado ausente, divergente ou obsoleto.
     """
     _check_identity(state, command)
+    state = cast("RunBillingState", state)
     if _already_bound(state, command):
         _check_idempotent(state, command)
         return state

@@ -16,12 +16,15 @@ from data_processor.sources.sia.contract import SiaContractError
 from data_processor.sources.sia.reference_data import normalize_reference
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from types import ModuleType
+
     from .conftest import SiaHarness
 
 _SQL_MODULES = ("sqlalchemy", "psycopg", "psycopg2")
 
 
-def _imported_modules(module: object) -> set[str]:
+def _imported_modules(module: ModuleType) -> set[str]:
     tree = ast.parse(Path(inspect.getfile(module)).read_text(encoding="utf-8"))
     names: set[str] = set()
     for node in ast.walk(tree):
@@ -33,7 +36,7 @@ def _imported_modules(module: object) -> set[str]:
 
 
 @pytest.mark.parametrize("module", [sia_dim_sync, reference_data])
-def test_adapter_de_referencia_nao_importa_sql(module: object) -> None:
+def test_adapter_de_referencia_nao_importa_sql(module: ModuleType) -> None:
     imported = _imported_modules(module)
 
     assert not any(name.split(".")[0] in _SQL_MODULES for name in imported)
@@ -47,7 +50,7 @@ def test_adapter_de_referencia_nao_importa_sql(module: object) -> None:
         normalize_reference,
     ],
 )
-def test_adapter_de_referencia_nao_aceita_engine(function: object) -> None:
+def test_adapter_de_referencia_nao_aceita_engine(function: Callable[..., object]) -> None:
     parameters = inspect.signature(function).parameters
 
     assert all("engine" not in name.lower() for name in parameters)

@@ -64,14 +64,14 @@ def _validate_outputs(
 class UnitWorkerDependencies:
     control_plane: ControlPlanePort
     store: ObjectStorePort
-    processor: Callable[[RunUnit, ObjectStorePort], tuple[OutputManifest, ...]]
+    processor: Callable[[RunUnit, AttemptObjectStore], tuple[OutputManifest, ...]]
     clock: Callable[[], datetime]
 
 
 @dataclass(frozen=True, slots=True)
 class UnitWorkerPolicy:
     max_attempts: int = 3
-    after_persist: Callable[[RunUnit], None] = _noop
+    after_persist: Callable[[RunUnit], object] = _noop
 
     def __post_init__(self) -> None:
         if self.max_attempts < 1:

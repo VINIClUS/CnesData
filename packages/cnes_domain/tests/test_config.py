@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -17,10 +18,10 @@ class TestVariaveisEager:
         assert config.CNPJ_MANTENEDORA == "55293427000117"
 
     def test_cnpj_mantenedora_somente_digitos(self):
-        assert config.CNPJ_MANTENEDORA.isdigit()
+        assert cast("str", config.CNPJ_MANTENEDORA).isdigit()
 
     def test_cnpj_mantenedora_comprimento(self):
-        assert len(config.CNPJ_MANTENEDORA) == 14
+        assert len(cast("str", config.CNPJ_MANTENEDORA)) == 14
 
 
 class TestCaminhosDoProjeto:
@@ -57,8 +58,8 @@ class TestVariaveisLazy:
         not os.getenv("DB_PATH"), reason="DB_PATH não configurado"
     )
     def test_db_dsn_formato_correto(self):
-        assert ":" in config.DB_DSN
-        host, caminho = config.DB_DSN.split(":", 1)
+        assert ":" in cast("str", config.DB_DSN)
+        host, caminho = cast("str", config.DB_DSN).split(":", 1)
         assert len(host) > 0
         assert len(caminho) > 0
 

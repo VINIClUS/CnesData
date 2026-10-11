@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 import pytest
 
@@ -170,8 +171,9 @@ def test_rejeita_normalized_filename_inseguro(filename: str) -> None:
 
 @pytest.mark.parametrize("field", ["reconciliation_filename", "divergence_filename"])
 def test_rejeita_nome_de_reconciliacao_inseguro(field: str) -> None:
+    overrides: dict[str, Any] = {field: "bad/name.parquet"}
     definition = _definition(layout=_layout(
-        (SubtypeLayout("SIHD", "SIH", ("sihd.parquet",)),), **{field: "bad/name.parquet"}
+        (SubtypeLayout("SIHD", "SIH", ("sihd.parquet",)),), **overrides
     ))
     with pytest.raises(CatalogConflict, match="unsafe_filename"):
         SourceCatalog((definition,))

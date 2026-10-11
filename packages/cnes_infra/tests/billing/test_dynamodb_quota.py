@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
 from functools import partial
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -53,7 +53,7 @@ USAGE = usage_key(ACCOUNT, NOW)
 
 
 class _RacingClient:
-    def __init__(self, inner: Any, before_transact: Callable[[], None]) -> None:
+    def __init__(self, inner: Any, before_transact: Callable[[], object]) -> None:
         self._inner = inner
         self._before = before_transact
 
@@ -75,7 +75,7 @@ def _usage(client: Any, attribute: str) -> int:
     return usage_counter(_get(client, USAGE), attribute)
 
 
-def _racing(env: Any, before: Callable[[], None]) -> Any:
+def _racing(env: Any, before: Callable[[], object]) -> Any:
     racing = _RacingClient(env.client, before)
     return type(env.repo)(racing, TABLE_NAME, env.clock.now)
 
@@ -99,6 +99,7 @@ def test_reserva_persistida_consome_uma_unidade_e_reserva_scan() -> None:
     with quota_env() as env:
         env.repo.reserve_and_create_run(make_reserve_command())
         item = _get(env.client, reservation_key(ACCOUNT, NOW, "res-run-01"))
+        assert item is not None
         reservation, tenant = decode_reservation(item)
         assert tenant == TENANT
         assert reservation.kind is ReservationKind.RUN
@@ -122,7 +123,9 @@ def test_contadores_de_uso_refletem_a_reserva() -> None:
 def test_companion_de_billing_nasce_sem_execucao_vinculada() -> None:
     with quota_env() as env:
         authorization = env.repo.reserve_and_create_run(make_reserve_command())
-        state = decode_run_billing_state(_get(env.client, run_billing_key(TENANT, "run-01")))
+        state = decode_run_billing_state(
+            cast("dict[str, Any]", _get(env.client, run_billing_key(TENANT, "run-01")))
+        )
         assert state.authorization == authorization
         assert state.execution_generation == 0
         assert state.fencing_token == 0
@@ -146,6 +149,7 @@ def test_registro_de_idempotencia_guarda_resultado_do_run() -> None:
     with quota_env() as env:
         authorization = env.repo.reserve_and_create_run(make_reserve_command())
         item = _get(env.client, idempotency_key(TENANT, RUN_SCOPE, "req-01"))
+        assert item is not None
         record = decode_idempotency_record(item, (TENANT, RUN_SCOPE, "req-01"))
         assert record.resource_id == "run-01"
         assert record.status == "COMPLETED"
@@ -157,6 +161,7 @@ def test_outbox_quota_reserved_fica_pendente() -> None:
         env.repo.reserve_and_create_run(make_reserve_command())
         event_id = deterministic_id("quota.reserved", ACCOUNT, "res-run-01")
         item = _get(env.client, outbox_key(event_id))
+        assert item is not None
         assert item["gsi6pk"]["S"] == "OUTBOX#PENDING"
         payload = item["payload"]["S"]
         for fragment in ('"kind":"run"', '"run_id":"run-01"', '"estimated_scan_bytes":1000'):
@@ -284,7 +289,7 @@ def test_analytics_reserva_budget_e_grava_evento() -> None:
         assert authorization.budget_reservation_id == "res-query-01"
         assert authorization.authorized_at == NOW
         reservation, _ = decode_reservation(
-            _get(env.client, reservation_key(ACCOUNT, NOW, "res-query-01"))
+            cast("dict[str, Any]", _get(env.client, reservation_key(ACCOUNT, NOW, "res-query-01")))
         )
         assert reservation.kind is ReservationKind.ANALYTICS
         assert reservation.resource_id == "query-01"
@@ -294,7 +299,7 @@ def test_analytics_reserva_budget_e_grava_evento() -> None:
         assert _usage(env.client, ANALYTICS_SCAN.committed) == 1_000
         assert _usage(env.client, "consumed_runs") == 0
         event_id = deterministic_id("quota.reserved", ACCOUNT, "res-query-01")
-        payload = _get(env.client, outbox_key(event_id))["payload"]["S"]
+        payload = cast("dict[str, Any]", _get(env.client, outbox_key(event_id)))["payload"]["S"]
         assert '"kind":"analytics"' in payload
         assert '"query_id":"query-01"' in payload
 
@@ -305,6 +310,7 @@ def test_analytics_repetida_retorna_mesma_autorizacao() -> None:
         assert env.repo.reserve_analytics(make_analytics_command()) == first
         assert _usage(env.client, ANALYTICS_SCAN.committed) == 1_000
         item = _get(env.client, idempotency_key(TENANT, ANALYTICS_SCOPE, "aq-01"))
+        assert item is not None
         assert decode_analytics_result(item) == first
 
 

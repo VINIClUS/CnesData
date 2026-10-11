@@ -45,8 +45,8 @@ def build_raw_aws_runtime(config: RawAWSConfig, clock: Callable[[], datetime]):
         aws_secret_access_key=config.secret_key,
         region_name=config.region,
     )
-    dynamodb = session.client("dynamodb")
-    s3 = session.client("s3")
+    dynamodb = session.client("dynamodb")  # pyright: ignore[reportUnknownMemberType]
+    s3 = session.client("s3")  # pyright: ignore[reportUnknownMemberType]
     dynamodb.describe_table(TableName=config.table)
     s3.head_bucket(Bucket=config.bucket, ExpectedBucketOwner=_RAW_BUCKET_OWNER)
     control = DynamoDBControlPlane(dynamodb, config.table, clock)

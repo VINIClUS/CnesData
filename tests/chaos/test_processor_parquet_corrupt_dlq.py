@@ -7,7 +7,9 @@ import pytest
 @pytest.mark.chaos
 def test_parquet_corrupto_vai_para_dlq(tmp_path):
     try:
-        from data_processor.ingest import ingest_parquet_or_dlq
+        from data_processor.ingest import (  # pyright: ignore[reportMissingImports]
+            ingest_parquet_or_dlq,
+        )
     except ImportError:
         pytest.skip("ingest_parquet_or_dlq not yet implemented")
 

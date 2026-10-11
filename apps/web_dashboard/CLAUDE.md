@@ -26,7 +26,8 @@ Persona secundária: técnico hospitalar redimindo `user_code` na rota
 - `/auth/callback` — redirect handler
 - `/agentes` — status edge agents do tenant + últimas 20 execuções (Task 24)
 - `/activate` — RFC 8628 device code redemption (Task 20)
-- `/overview` — KPIs do tenant + faturamento area chart 12m por estabelecimento (v1.1)
+- `/overview` — KPIs da reconciliação CNES lidos só do serving ativo (`useServingOverview`);
+  503 vira "dados ainda não publicados" (MIG-011)
 - `/access-pending` — solicitação de acesso a um município, fluxo JIT (v1.1)
 - Dark mode 3-state (light/dark/system) — toggle no header, persiste em localStorage (v1.1)
 - Auto-refresh 30s em /agentes via TanStack Query
@@ -44,7 +45,7 @@ Persona secundária: técnico hospitalar redimindo `user_code` na rota
 - Desktop primary; mobile best-effort
 - Sem WebSocket — apenas polling
 - Aprovação de signup via SQL admin manual em v1.1 (UI em v1.2)
-- Tremor v3 lazy-loaded só em /overview; outras rotas seguem shadcn nativo
+- Tremor v3 sem consumidor desde MIG-011 (gráfico de faturamento removido); rotas seguem shadcn nativo
 
 ## Requirements
 
@@ -70,10 +71,10 @@ manager) — SPA carrega mas login falha controladamente.
 | `src/App.tsx`                   | providers (Theme + Query + Auth + Router)                                                                                      |
 | `src/routes/`                   | TanStack Router file-based                                                                                                     |
 | `src/routes/access-pending.tsx` | top-level (fora `_app` guard) — formulário de signup                                                                           |
-| `src/routes/_app.overview.tsx`  | /overview KPIs + lazy faturamento chart (v1.1)                                                                                 |
+| `src/routes/_app.overview.tsx`  | /overview KPIs do serving ativo (`useServingOverview`)                                                                         |
 | `src/api/client.ts`             | fetch wrapper, anexa Bearer + X-Tenant-Id                                                                                      |
 | `src/api/generated.ts`          | types gerados via openapi-typescript (gitignored)                                                                              |
-| `src/api/hooks/`                | TanStack Query hooks (inclui useOverview, useFaturamentoChart, useAccessRequests, useSubmitAccessRequest, useAvailableTenants) |
+| `src/api/hooks/`                | TanStack Query hooks (inclui useServingOverview, useAccessRequests, useSubmitAccessRequest, useAvailableTenants)               |
 | `src/auth/oidc.ts`              | UserManager config (lazy)                                                                                                      |
 | `src/auth/AuthProvider.tsx`     | context user                                                                                                                   |
 | `src/theme/ThemeProvider.tsx`   | 3-state (light/dark/system) + localStorage + matchMedia (v1.1)                                                                 |
@@ -89,7 +90,7 @@ manager) — SPA carrega mas login falha controladamente.
 | `src/components/contact/`       | ContactPage (`/contato`) + LeadForm/useLeadForm/leadSchema; `contactInterest.ts` valida `?interesse`                          |
 | `src/components/login/`         | LoginPage + LoginForm (senha renderizada, nunca enviada)                                                                       |
 | `src/components/signup/`        | AccessRequestForm + PendingRequestsList (v1.1)                                                                                 |
-| `src/components/overview/`      | KpiCard + KpiGrid + FaturamentoAreaChart (Tremor lazy) (v1.1)                                                                  |
+| `src/components/overview/`      | KpiCard + KpiGrid (v1.1)                                                                                                       |
 | `src/lib/env.ts`                | Zod-validated env                                                                                                              |
 | `src/lib/format.ts`             | BRL, datas pt-BR, lag                                                                                                          |
 | `src/i18n/pt-BR.ts`             | strings do painel; `marketing.ts`, `landing.ts`, `pricing.ts`, `login.ts` para páginas públicas                                |
@@ -147,7 +148,7 @@ bun run typecheck
   via POST /api/v1/access-requests; admin executa SQL em
   `docs/runbooks/access-request-approval.md` para approve/reject (UI em v1.2).
 - **`@tremor/react` lazy-loaded**: importar via `lazy(() => import(...))`
-  apenas em rotas que usam charts (hoje só /overview). Tremor entra em chunk
+  apenas em rotas que usam charts (hoje nenhuma: gráfico removido em MIG-011). Tremor entra em chunk
   próprio no `manualChunks` do `vite.config.ts`; bundle main fica fora.
 - **Páginas públicas (`/`, `/recursos`, `/sobre`, `/contato`, `/precos`, `/login`) usam `HeroSurface`** com classe `dark`
   literal: hero/footer/CTA ficam navy em qualquer tema; seções claras seguem o toggle.
@@ -177,5 +178,9 @@ bun run typecheck
 - **`/access-pending` fica FORA do `_app` guard**: usuário sem tenant pode
   acessar mesmo após login (caso JIT user sem aprovação). `_app.tsx`
   redireciona para lá quando `tenant_ids` é vazio.
+- **Leitura de produto é pointer-only (MIG-011):** `/overview` consome só
+  `/dashboard/serving/cnes/overview`; `/dashboard/overview` e `/dashboard/faturamento/*` respondem
+  410 — não reintroduzir. `useServingOverview` não refaz busca no foco da janela e repete 1x,
+  nunca em 503 `active_serving_unavailable`.
 - **Per-chunk bundle budget**: main ≤ 200KB gzipped, tremor ≤ 100KB,
   recharts ≤ 100KB, qualquer rota ≤ 100KB (gate em `scripts/bundle-check.ts`).

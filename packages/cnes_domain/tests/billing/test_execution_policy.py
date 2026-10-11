@@ -2,7 +2,7 @@
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -53,7 +53,7 @@ class FakeControlPlane:
         if self.bind_error is not None:
             raise self.bind_error
         self.bound.append(command)
-        return self.state
+        return cast("RunBillingState", self.state)
 
 
 def _run() -> Run:

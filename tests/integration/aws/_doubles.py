@@ -6,7 +6,7 @@ import os
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 from botocore.exceptions import ClientError
@@ -171,7 +171,7 @@ class RecordingSession:
 
     def client(self, service_name: str, **options: Any) -> Any:
         if service_name not in self._clients:
-            client = self._delegate.client(service_name, **options)
+            client = self._delegate.client(cast("Any", service_name), **options)
             self._clients[service_name] = self._wrap(service_name, client)
         return self._clients[service_name]
 

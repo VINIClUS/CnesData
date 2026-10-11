@@ -13,20 +13,21 @@ from cnes_domain.billing.publication import (
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.control_plane.errors import FenceRejected
 from cnes_domain.profiles import BillingMode
-from cnes_infra.control_plane.dynamodb_codec import Action, check_action
+from cnes_infra.control_plane.dynamodb_codec import Action, Item, check_action
+from cnes_infra.control_plane.dynamodb_host import DynamoDBHost
 
 if TYPE_CHECKING:
     from cnes_domain.billing.execution import RunBillingState
     from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit, PublishDataset
 
 
-def _decode_companion(item: dict | None) -> RunBillingState | None:
+def _decode_companion(item: Item | None) -> RunBillingState | None:
     from cnes_infra.billing.dynamodb_quota_items import decode_run_billing_state
 
     return None if item is None else decode_run_billing_state(item)
 
 
-class DynamoBillingFencesMixin:
+class DynamoBillingFencesMixin(DynamoDBHost):
     def _unit_billing_checks(self, command: CommitRunUnit | FailRunUnit) -> list[Action]:
         item = self._billing_item(command.tenant_id, command.run_id)
         state = _decode_companion(item)

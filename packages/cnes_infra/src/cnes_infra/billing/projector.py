@@ -3,6 +3,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
 from cnes_domain.billing.errors import (
@@ -160,7 +161,7 @@ class StripeEventProjector:
         if not claim.acquired:
             return _not_applied(event_id)
         try:
-            if claim.attempt > STRIPE_INBOX_MAX_ATTEMPTS:
+            if cast("int", claim.attempt) > STRIPE_INBOX_MAX_ATTEMPTS:
                 self._fail(claim, _ATTEMPTS_EXHAUSTED, retryable=False)
                 return _not_applied(event_id)
             return self._project_or_fail(claim)

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from hmac import compare_digest
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 import httpx
 from boto3.session import Session
@@ -33,14 +33,19 @@ from cnes_infra.telemetry import instrument_engine
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 
+    from fastapi import FastAPI
     from sqlalchemy.engine import Connection, Engine
 
-    from central_api.composition import RuntimeComponents
+    from central_api.composition import AwsApiServices, RuntimeComponents
     from central_api.routes.serving import ServingPrincipal
     from cnes_domain.outbox_dispatcher import DispatchResult
+    from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_domain.ports.object_storage import ObjectStoragePort
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.auth.local_auth import LocalAuthService
+
+    class _RawQueryControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +154,7 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _build_local_state(app: object) -> None:
+def _build_local_state(app: FastAPI) -> None:
     """Compõe uma única vez o grafo SQLite/filesystem do profile local."""
 
     from central_api.services.national_ingestion import NationalIngestionService
@@ -172,7 +177,7 @@ def _build_local_state(app: object) -> None:
     app.state.executor = runtime.executor
     app.state.raw_upload = RawUploadService(runtime.control_plane, runtime.object_store, _utc_now)
     app.state.national_ingestion = NationalIngestionService(
-        runtime.control_plane,
+        cast("_RawQueryControlPlane", runtime.control_plane),
         DatasusCnesRawAdapter(DatasusCnesFtpTransport(), runtime.object_store, _utc_now),
         runtime.raw_ingestion,
         _utc_now,
@@ -190,7 +195,7 @@ def _build_local_state(app: object) -> None:
     )
 
 
-def _install_edge_overrides(app: object) -> None:
+def _install_edge_overrides(app: FastAPI) -> None:
     from central_api.routes.raw_jobs import (
         get_control_plane,
         get_raw_ingestion_service,
@@ -222,7 +227,7 @@ def _serving_principal_resolver(
     return _resolve
 
 
-def _install_edge_identity(app: object) -> None:
+def _install_edge_identity(app: FastAPI) -> None:
     from central_api.agent_auth import edge_identity_from_cert
     from central_api.routes.raw_jobs import get_edge_identity
 
@@ -248,7 +253,7 @@ def local_edge_identity(request: Request):
     )
 
 
-def _build_aws_raw_state(app: object) -> None:
+def _build_aws_raw_state(app: FastAPI) -> None:
     from central_api.raw_aws_runtime import RawAWSConfig, build_raw_aws_runtime
 
     if os.environ.get("RAW_BACKEND", "").lower() != "aws":
@@ -262,7 +267,7 @@ def _build_aws_raw_state(app: object) -> None:
 
 
 def _install_local_auth_and_serving(
-    app: object, runtime: RuntimeComponents, settings: ProfileSettings
+    app: FastAPI, runtime: RuntimeComponents, settings: ProfileSettings
 ) -> None:
     from central_api.composition import entitled_serving_access
     from central_api.routes import local_auth, serving
@@ -290,7 +295,7 @@ def _install_local_auth_and_serving(
     )
 
 
-def _install_cert_authority(app: object) -> None:
+def _install_cert_authority(app: FastAPI) -> None:
     ca_cert_path = os.environ.get("AUTH_CA_CERT_PATH", "")
     ca_key_path = os.environ.get("AUTH_CA_KEY_PATH", "")
     if ca_cert_path and ca_key_path:
@@ -323,10 +328,11 @@ def _serving_principal_from_state(request: Request) -> ServingPrincipal:
     return ServingPrincipal(tenant_id=authorized.tenant_id, user_id=principal.subject)
 
 
-def _install_aws_serving(app: object, runtime: RuntimeComponents) -> None:
+def _install_aws_serving(app: FastAPI, runtime: RuntimeComponents) -> None:
     from central_api.routes import serving
 
-    delivery = serving.signed_serving_delivery(runtime.services.serving_access, _utc_now)
+    services = cast("AwsApiServices", runtime.services)
+    delivery = serving.signed_serving_delivery(services.serving_access, _utc_now)
     app.dependency_overrides[serving.get_serving_principal] = _serving_principal_from_state
     app.dependency_overrides[serving.get_serving_delivery] = lambda: delivery
 
@@ -351,7 +357,7 @@ async def _outbox_dispatch_loop(runtime: RuntimeComponents) -> None:
 
 
 @asynccontextmanager
-async def _aws_lifespan(app: object) -> AsyncGenerator[None]:
+async def _aws_lifespan(app: FastAPI) -> AsyncGenerator[None]:
     _reject_raw_backend(os.environ)
     settings = AwsRuntimeSettings.from_mapping(os.environ)
     session = Session(region_name=settings.region)
@@ -372,7 +378,7 @@ async def _aws_lifespan(app: object) -> AsyncGenerator[None]:
         http_client.close()
 
 
-def _build_legacy_state(app: object) -> Engine:
+def _build_legacy_state(app: FastAPI) -> Engine:
     _db_url = os.environ.get("DB_URL") or config.DB_URL
     engine = create_engine(_db_url)
     install_rls_listener(engine)
@@ -414,7 +420,7 @@ def _build_legacy_state(app: object) -> Engine:
 
 
 @asynccontextmanager
-async def lifespan(app: object) -> AsyncGenerator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     global _engine
     if _local_profile_requested():
         _build_local_state(app)
@@ -428,6 +434,11 @@ async def lifespan(app: object) -> AsyncGenerator[None]:
     reaper = asyncio.create_task(_lease_reaper_loop(_engine))
     yield
     reaper.cancel()
+    _dispose_engine()
+
+
+def _dispose_engine() -> None:
+    global _engine
     if _engine is not None:
         _engine.dispose()
         _engine = None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cnes_domain.control_plane.commands import (
     BeginIdempotency,
@@ -28,6 +28,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
     payload,
     put_action,
 )
+from cnes_infra.control_plane.dynamodb_host import DynamoDBHost
 from cnes_infra.control_plane.dynamodb_keys import (
     idempotency_key,
     key_component,
@@ -42,7 +43,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
-class DynamoDBPublication:
+class DynamoDBPublication(DynamoDBHost):
     """Implementa idempotência, publicação atômica e entrega de outbox."""
 
     def _idempotency_item(self, record: IdempotencyRecord) -> Item:
@@ -256,15 +257,15 @@ class DynamoDBPublication:
         """Lista eventos pendentes globalmente."""
         if limit <= 0:
             return ()
-        request = {
+        request: dict[str, Any] = {
             "TableName": self._table_name,
             "IndexName": "gsi6",
             "KeyConditionExpression": "gsi6pk = :partition",
             "ExpressionAttributeValues": {":partition": {"S": "OUTBOX#PENDING"}},
             "ScanIndexForward": True,
         }
-        events = []
-        seen = set()
+        events: list[OutboxEvent] = []
+        seen: set[tuple[str, str]] = set()
         while True:
             request["Limit"] = limit - len(events)
             response = self._client.query(**request)

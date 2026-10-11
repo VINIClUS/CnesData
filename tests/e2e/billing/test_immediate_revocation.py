@@ -1,6 +1,6 @@
 """E2E da revogação administrativa imediata que a Stripe não consegue desfazer."""
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -24,7 +24,7 @@ from cnes_domain.control_plane.commands import CommitRunUnit
 from cnes_domain.control_plane.entities import ManifestRef, RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
-from cnes_domain.ports.processing import CancelRunExecution
+from cnes_domain.ports.processing import CancelRunExecution, ProcessorExecutorPort
 from cnes_domain.profiles import BillingMode
 from cnes_infra.billing.settings import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
@@ -77,14 +77,14 @@ def _claim_first_unit(runtime: Any) -> tuple[RunDispatch, RunUnit]:
     move_to_processing(env)
     put_units(env, (make_unit("unit-a"), make_unit("unit-b")))
     dispatch = start_wave(env, ("unit-a",), None)
-    return dispatch, claim_unit(env, dispatch, "unit-a")
+    return dispatch, cast("RunUnit", claim_unit(env, dispatch, "unit-a"))
 
 
 def _revoke(runtime: Any, executor: FenceObservingExecutor) -> RevocationResult:
     dependencies = RevocationDependencies(
         projection=runtime.projection,
         store=runtime.env.store,
-        executor=executor,
+        executor=cast("ProcessorExecutorPort", executor),
         audit=runtime.audit,
         clock=runtime.clock.now,
     )

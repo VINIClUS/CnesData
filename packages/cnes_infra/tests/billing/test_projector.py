@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import boto3
@@ -46,6 +46,9 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     make_snapshot,
 )
 from packages.cnes_infra.tests.contracts.clock import MutableClock
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 STRONG = ReadConsistency.STRONG
 ACCOUNT_ID = "ba_01"
@@ -207,9 +210,10 @@ def test_falha_retryable_persiste_estado_recuperavel():
         with pytest.raises(RetryableBillingError) as raised:
             env.projector().process("evt_01")
         record = env.inbox.get_recovery_record("evt_01", STRONG)
+        assert record is not None
     assert raised.value.code == "stripe_unavailable"
     assert record.state is InboxProcessingState.FAILED_RETRYABLE
-    assert record.due_at > NOW
+    assert cast("datetime", record.due_at) > NOW
 
 
 def test_falha_permanente_e_fenced_e_auditada():

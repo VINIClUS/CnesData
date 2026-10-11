@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from cnes_domain.control_plane.commands import (
     BindRunDispatch,
@@ -137,7 +137,7 @@ def _settle_started(
     plan: RunPlan, dispatch: RunDispatch, now: datetime,
 ) -> RunDispatch | None:
     try:
-        status = executor.status(dispatch.execution_ref)
+        status = executor.status(cast("str", dispatch.execution_ref))
     except ValueError as error:
         if "execution_ref=unknown" not in str(error):
             raise
@@ -196,7 +196,7 @@ def _start_and_bind(
             outcome=DispatchOutcome.CANCELED, finished_at=now,
         ), execution_ref)
         raise
-    return bound.execution_ref
+    return cast("str", bound.execution_ref)
 
 
 def _dispatch_protocol(
@@ -244,7 +244,7 @@ def _publish_now(
     dependencies.publisher.publish(PublishRequest(
         run=run, units=units, expected_version_id=expected_version_id, now=now,
     ))
-    published_run = control_plane.get_run(run.tenant_id, run.run_id)
+    published_run = cast("Run", control_plane.get_run(run.tenant_id, run.run_id))
     return CoordinatorResult(state=published_run.state, execution_ref=None, published=True)
 
 

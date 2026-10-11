@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -39,7 +40,7 @@ def _fato(
         qtd=5,
         valor_aprov_cents=1000,
         job_id=job_id,
-        fonte_sistema=fonte,
+        fonte_sistema=cast("Any", fonte),
         extracao_ts=datetime.now(UTC),
         fontes_reportadas={"BPA_MAG": {"qtd": 5}},
     )

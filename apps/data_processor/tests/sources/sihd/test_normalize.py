@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 import pytest
@@ -35,6 +36,9 @@ from data_processor.sources.sihd.contract import (
     SUBTYPE_FILES,
 )
 from data_processor.sources.sihd.normalize import normalize_sihd
+
+if TYPE_CHECKING:
+    from cnes_domain.ports.object_store import ObjectStat
 
 _SUBTYPES = ("SIHD_INTERNACAO", "SIHD_PROC_AIH")
 
@@ -115,7 +119,7 @@ def test_manifests_verificados_e_ordenados_por_chave(subtype: str) -> None:
     assert tuple(item.object_key for item in result.manifests) == target_keys(subtype)
     assert len({item.manifest_id for item in result.manifests}) == 2
     for manifest in result.manifests:
-        assert manifest.object_sha256 == store.stat(manifest.object_key).sha256
+        assert manifest.object_sha256 == cast("ObjectStat", store.stat(manifest.object_key)).sha256
         assert manifest.row_count == read_parquet(store, manifest.object_key).height
 
 

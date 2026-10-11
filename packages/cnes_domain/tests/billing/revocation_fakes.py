@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cnes_domain.billing.errors import BillingDisabledError, RetryableBillingError
 from cnes_domain.billing.execution import RunBillingState
@@ -35,6 +35,9 @@ from cnes_domain.control_plane.enums import DispatchState, RunState
 from cnes_domain.control_plane.transitions import transition_run
 from cnes_domain.ports.processing import CancelRunExecution
 
+if TYPE_CHECKING:
+    from cnes_domain.billing.ports import EntitlementProjectionPort
+
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 LATER = datetime(2026, 10, 30, 12, tzinfo=UTC)
 TENANT = "tenant-1"
@@ -42,6 +45,11 @@ ACCOUNT = "acct-1"
 WAVE = "0123456789abcdef"
 DISPATCH = "fedcba9876543210"
 REASON = "fraud_review"
+
+
+def present[T](value: T | None) -> T:
+    assert value is not None
+    return value
 
 
 def _snapshot(**overrides: Any) -> EntitlementSnapshot:
@@ -131,7 +139,8 @@ class FakeProjection:
         if self.lose_cas > 0:
             self.lose_cas -= 1
             return False
-        if command.expected_version != self.snapshot.entitlement_version:
+        current = cast("EntitlementSnapshot", self.snapshot)
+        if command.expected_version != current.entitlement_version:
             return False
         self.snapshot = command.snapshot
         self.writes.append(command)
@@ -164,7 +173,7 @@ class FakeStore:
         self.fail_stale_times = 0
         self.failed_commands: list[FailDeniedPublicationCommand] = []
         self.failed_events: list[OutboxEvent] = []
-        self.released_reservations: list[str] = []
+        self.released_reservations: list[str | None] = []
 
     def add_run(self, run_id: str, state: RunState = RunState.PROCESSING, ref: str | None = None):
         self.runs[run_id] = _run(run_id, state)
@@ -319,7 +328,11 @@ class Harness:
         self.executor = FakeExecutor(self.calls)
         self.audit = FakeAudit(self.calls)
         deps = RevocationDependencies(
-            self.projection, self.store, self.executor, self.audit, lambda: NOW
+            cast("EntitlementProjectionPort", self.projection),
+            self.store,
+            self.executor,
+            self.audit,
+            lambda: NOW,
         )
         self.service = ImmediateRevocationService(deps, RevocationSettings(run_page_size=page))
 

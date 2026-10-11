@@ -23,8 +23,8 @@ from data_processor.pipeline.normalize_cnes_local import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
 
 _TENANT = "354130"
 _COMPETENCIA = "2026-01"

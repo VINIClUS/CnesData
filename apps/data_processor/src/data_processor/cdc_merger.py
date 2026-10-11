@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 from sqlalchemy import text
@@ -111,7 +111,7 @@ def merge_delta(
 
 
 def _apply_iu(
-    inserts: list[dict], updates: list[dict], apply_iu_fn: ApplyIU | None,
+    inserts: list[dict[str, Any]], updates: list[dict[str, Any]], apply_iu_fn: ApplyIU | None,
 ) -> int:
     if apply_iu_fn is None:
         return 0
@@ -124,10 +124,10 @@ def _apply_iu(
 
 def _bucket_by_op(
     df: pl.DataFrame,
-) -> tuple[list[dict], list[dict], list[dict]]:
-    inserts: list[dict] = []
-    updates: list[dict] = []
-    deletes: list[dict] = []
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    inserts: list[dict[str, Any]] = []
+    updates: list[dict[str, Any]] = []
+    deletes: list[dict[str, Any]] = []
     for row in df.to_dicts():
         op = row.pop("_op", None)
         if op == "I":
@@ -141,8 +141,20 @@ def _bucket_by_op(
     return inserts, updates, deletes
 
 
+def _delete_params(
+    key: tuple[str, str], row: dict[str, Any], pk_cols: tuple[str, ...],
+) -> dict[str, Any]:
+    pk = {c: row.get(c) for c in pk_cols}
+    if key == ("cnes", "profissionais"):
+        cpf = pk["CPF_PROF"]
+        if not isinstance(cpf, str):
+            raise FatalError("invalid_pk column=CPF_PROF")
+        pk["CPF_PROF"] = _cpf_hash(cpf)
+    return pk
+
+
 def _apply_deletes(
-    conn: Connection, deletes: list[dict], source: str, intent: str,
+    conn: Connection, deletes: list[dict[str, Any]], source: str, intent: str,
 ) -> int:
     if not deletes:
         return 0
@@ -153,11 +165,9 @@ def _apply_deletes(
         raise FatalError(
             f"unknown_source_intent source={source} intent={intent}",
         )
+    params = [_delete_params(key, row, pk_cols) for row in deletes]
     deleted = 0
-    for row in deletes:
-        pk = {c: row.get(c) for c in pk_cols}
-        if key == ("cnes", "profissionais"):
-            pk["CPF_PROF"] = _cpf_hash(pk["CPF_PROF"])
+    for pk in params:
         result = conn.execute(text(sql), pk)
         if result.rowcount == 0:
             logger.info(

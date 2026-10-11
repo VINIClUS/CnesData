@@ -44,20 +44,23 @@ def create_aws_clients(settings: AwsRuntimeSettings, session: Session) -> AwsCli
     Returns: Clientes DynamoDB, S3 (SigV4) e Step Functions.
     """
     return AwsClients(
-        dynamodb=cast("BaseClient", session.client(
+        dynamodb=cast("BaseClient", session.client(  # pyright: ignore[reportUnknownMemberType]
             "dynamodb", region_name=settings.region,
             endpoint_url=settings.dynamodb_endpoint_url,
         )),
         # With endpoint_url set, boto3 may fall back to SigV2 presigning.
-        s3=cast("BaseClient", session.client(
+        s3=cast("BaseClient", session.client(  # pyright: ignore[reportUnknownMemberType]
             "s3", region_name=settings.region,
             endpoint_url=settings.service_endpoint_url,
             config=Config(signature_version="s3v4"),
         )),
-        step_functions=cast("BaseClient", session.client(
-            "stepfunctions", region_name=settings.region,
-            endpoint_url=settings.service_endpoint_url,
-        )),
+        step_functions=cast(
+            "BaseClient",
+            session.client(  # pyright: ignore[reportUnknownMemberType]
+                "stepfunctions", region_name=settings.region,
+                endpoint_url=settings.service_endpoint_url,
+            ),
+        ),
     )
 
 

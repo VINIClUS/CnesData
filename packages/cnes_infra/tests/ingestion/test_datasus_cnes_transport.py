@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from ftplib import error_perm, error_proto, error_reply, error_temp
 from pathlib import Path
 from traceback import format_exception
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -16,6 +16,10 @@ from cnes_infra.ingestion.datasus_cnes_transport import (
     DatasusCnesFtpTransport,
     DatasusCnesRequest,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from ftplib import FTP
 
 _PATH = "/dissemin/publicos/CNES/200508_/Dados/PF/PFSP2601.dbc"
 _DBC_HEADER = (
@@ -193,7 +197,7 @@ def _record(municipio: str = "354130", competencia: str = "202601") -> dict[str,
     return {"CODUFMUN": municipio, "COMPETEN": competencia, "CPF_PROF": "90000000001"}
 
 
-def _install_table(monkeypatch: pytest.MonkeyPatch, table: _Table) -> list[tuple[str, str]]:
+def _install_table(monkeypatch: pytest.MonkeyPatch, table: object) -> list[tuple[str, str]]:
     conversions: list[tuple[str, str]] = []
 
     def decompress(source: str, destination: str) -> None:
@@ -213,7 +217,17 @@ def _install_table(monkeypatch: pytest.MonkeyPatch, table: _Table) -> list[tuple
 def _error_code(action: Any) -> tuple[str, bool]:
     with pytest.raises(Exception) as captured:
         action()
-    return captured.value.code, captured.value.retryable
+    failure = cast("Any", captured.value)
+    return failure.code, failure.retryable
+
+
+def _failure(error: BaseException) -> tuple[str, bool]:
+    failure = cast("Any", error)
+    return failure.code, failure.retryable
+
+
+def _ftp(factory: Callable[[], _Ftp]) -> Callable[[], FTP]:
+    return cast("Callable[[], FTP]", factory)
 
 
 def _ftp_error(error_type: type[Exception], message: str) -> Exception:
@@ -224,7 +238,7 @@ def test_resolve_uf_e_yymm_em_url_unica(monkeypatch: pytest.MonkeyPatch):
     ftp = _Ftp()
     table = _Table([_record(), _record("330455")])
     conversions = _install_table(monkeypatch, table)
-    adapter = DatasusCnesFtpTransport(lambda: ftp, CircuitBreaker(base_delay=0))
+    adapter = DatasusCnesFtpTransport(_ftp(lambda: ftp), CircuitBreaker(base_delay=0))
     assert list(adapter.fetch(_request())) == [_record()]
     assert ftp.calls.index(("voidcmd", "TYPE I")) < ftp.calls.index(("size", _PATH))
     assert ("retrbinary", (f"RETR {_PATH}", 64 * 1024)) in ftp.calls
@@ -256,7 +270,9 @@ def test_rejeita_request_invalido_sem_abrir_ftp(updates: dict[str, str], code: s
         nonlocal opened
         opened = True
         return _Ftp()
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(factory).fetch(_request(**updates))))
+    error = _error_code(
+        lambda: list(DatasusCnesFtpTransport(_ftp(factory)).fetch(_request(**updates)))
+    )
     assert error == (code, False)
     assert opened is False
 
@@ -272,7 +288,7 @@ def test_ftp_550_retorna_source_not_published_sem_abrir_circuito(
         opened.append(ftp)
         return ftp
     _install_table(monkeypatch, _Table([_record()]))
-    adapter = DatasusCnesFtpTransport(factory, CircuitBreaker(base_delay=0))
+    adapter = DatasusCnesFtpTransport(_ftp(factory), CircuitBreaker(base_delay=0))
     assert [_error_code(lambda: list(adapter.fetch(_request()))) for _ in range(3)] == [
         ("source_not_published", True)
     ] * 3
@@ -285,7 +301,7 @@ def test_falha_temporaria_e_retryable_e_limpa_ftp(monkeypatch: pytest.MonkeyPatc
     ftp.retrieval_error = _ftp_error(error_temp, "421 unavailable")
     ftp.close_error = OSError("close unavailable")
     _install_table(monkeypatch, _Table([]))
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(lambda: ftp)).fetch(_request())))
     assert error == ("source_unavailable", True)
 
 
@@ -299,8 +315,8 @@ def test_falha_de_resposta_ftp_e_retryable(
         raise _ftp_error(error_type, "sensitive-12345678901")
     ftp.connect = fail_connect
     with pytest.raises(Exception) as captured:
-        list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request()))
-    assert (captured.value.code, captured.value.retryable) == ("source_unavailable", True)
+        list(DatasusCnesFtpTransport(_ftp(lambda: ftp)).fetch(_request()))
+    assert _failure(captured.value) == ("source_unavailable", True)
     assert "sensitive-12345678901" not in "".join(format_exception(captured.value))
 
 
@@ -314,7 +330,7 @@ def test_circuito_aberto_falha_sem_abrir_ftp():
         opened = True
         return _Ftp()
     error = _error_code(
-        lambda: list(DatasusCnesFtpTransport(factory, breaker).fetch(_request()))
+        lambda: list(DatasusCnesFtpTransport(_ftp(factory), breaker).fetch(_request()))
     )
     assert error == ("circuit_open", True)
     assert opened is False
@@ -340,7 +356,7 @@ def test_rejeita_metadados_instaveis_ou_invalidos(
     ftp.sizes = sizes
     ftp.mdtms = mdtms
     _install_table(monkeypatch, _Table([]))
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(lambda: ftp)).fetch(_request())))
     assert error == (code, True)
     assert ftp.close_called is True
 
@@ -359,28 +375,28 @@ def test_rejeita_dbc_ou_dbf_invalido(
     monkeypatch.setattr(transport_module, "decompress", converter)
     monkeypatch.setattr(transport_module, "DBF", reader)
     with pytest.raises(Exception) as captured:
-        list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request()))
-    assert (captured.value.code, captured.value.retryable) == (code, False)
+        list(DatasusCnesFtpTransport(_ftp(lambda: ftp)).fetch(_request()))
+    assert _failure(captured.value) == (code, False)
     assert "sensitive-data-must-not-leak" not in "".join(format_exception(captured.value))
 
 
 def test_rejeita_layout_dbf_divergente(monkeypatch: pytest.MonkeyPatch):
     layout = _LAYOUT[:-1] + (("CAMPO_ERRADO", "C", 4, 0),)
     _install_table(monkeypatch, _Table([_record()], layout))
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(_Ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(_Ftp)).fetch(_request())))
     assert error == ("schema_invalid", False)
 
 
 def test_valida_competencia_antes_da_ausencia_municipal(monkeypatch: pytest.MonkeyPatch):
     _install_table(monkeypatch, _Table([_record("330455", "202512")]))
-    adapter = DatasusCnesFtpTransport(_Ftp)
+    adapter = DatasusCnesFtpTransport(_ftp(_Ftp))
     error = _error_code(lambda: list(adapter.fetch(_request())))
     assert error == ("competencia_invalid", False)
 
 
 def test_ausencia_municipal_e_source_not_published(monkeypatch: pytest.MonkeyPatch):
     _install_table(monkeypatch, _Table([_record("330455")]))
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(_Ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(_Ftp)).fetch(_request())))
     assert error == ("source_not_published", True)
 
 
@@ -389,12 +405,12 @@ def test_leitura_incremental_fecha_iteradores_e_temporarios_no_cancelamento(
 ):
     table = _Table([_record(), _record()])
     conversions = _install_table(monkeypatch, table)
-    rows = DatasusCnesFtpTransport(_Ftp).fetch(_request())
+    rows = DatasusCnesFtpTransport(_ftp(_Ftp)).fetch(_request())
     assert next(rows) == _record()
     assert len(table.iterators) == 2
     assert table.iterators[0].closed is True
     temporary_root = Path(conversions[0][0]).parent
-    rows.close()
+    cast("Any", rows).close()
     assert all(iterator.closed for iterator in table.iterators)
     assert temporary_root.exists() is False
 
@@ -411,7 +427,7 @@ def test_falha_ao_criar_ftp_e_retryable(monkeypatch: pytest.MonkeyPatch):
     _install_table(monkeypatch, _Table([]))
     def factory() -> _Ftp:
         raise OSError("offline")
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(factory).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(factory)).fetch(_request())))
     assert error == ("source_unavailable", True)
 
 
@@ -423,7 +439,7 @@ def test_limpa_ftp_quando_quit_falha(monkeypatch: pytest.MonkeyPatch):
     ftp.quit = broken_quit
     ftp.close_error = OSError("close unavailable")
     _install_table(monkeypatch, _Table([_record()]))
-    assert list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request())) == [_record()]
+    assert list(DatasusCnesFtpTransport(_ftp(lambda: ftp)).fetch(_request())) == [_record()]
     assert ftp.quit_called is True
     assert ftp.close_called is True
 
@@ -442,7 +458,7 @@ def test_preserva_erro_do_transporte_quando_limpeza_temporaria_falha(
     ftp = _Ftp()
     ftp.retrieval_error = _ftp_error(error_temp, "421 unavailable")
     monkeypatch.setattr(transport_module, "TemporaryDirectory", lambda prefix: BrokenTemporary())
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(lambda: ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(lambda: ftp)).fetch(_request())))
     assert error == ("source_unavailable", True)
 
 
@@ -452,27 +468,27 @@ def test_rejeita_layout_dbf_ilegivel(monkeypatch: pytest.MonkeyPatch):
         def fields(self):
             raise RuntimeError("broken-dbf")
     _install_table(monkeypatch, BrokenLayout())
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(_Ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(_Ftp)).fetch(_request())))
     assert error == ("dbf_invalid", False)
 
 
 @pytest.mark.parametrize("iteration", [1, 2])
 def test_rejeita_iteracao_dbf_ilegivel(monkeypatch: pytest.MonkeyPatch, iteration: int):
     _install_table(monkeypatch, _BrokenTable(iteration))
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(_Ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(_Ftp)).fetch(_request())))
     assert error == ("dbf_invalid", False)
 
 
 @pytest.mark.parametrize("iteration", [1, 2])
 def test_rejeita_leitura_dbf_ilegivel(monkeypatch: pytest.MonkeyPatch, iteration: int):
     _install_table(monkeypatch, _BrokenRowsTable(iteration))
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(_Ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(_Ftp)).fetch(_request())))
     assert error == ("dbf_invalid", False)
 
 
 def test_rejeita_campo_dbf_invalido_com_falha_final(monkeypatch: pytest.MonkeyPatch):
-    _install_table(monkeypatch, _Table([_record(competencia=202601)]))
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(_Ftp).fetch(_request())))
+    _install_table(monkeypatch, _Table([_record(competencia=cast("Any", 202601))]))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(_Ftp)).fetch(_request())))
     assert error == ("field_invalid", False)
 
 
@@ -483,5 +499,5 @@ def test_rejeita_campo_dbf_ausente_com_falha_final(
     row = _record()
     row.pop(field)
     _install_table(monkeypatch, _Table([row]))
-    error = _error_code(lambda: list(DatasusCnesFtpTransport(_Ftp).fetch(_request())))
+    error = _error_code(lambda: list(DatasusCnesFtpTransport(_ftp(_Ftp)).fetch(_request())))
     assert error == ("field_invalid", False)

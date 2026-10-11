@@ -23,11 +23,16 @@ export type ServingOverview = {
 };
 
 const SERVING_OVERVIEW_PATH = "/dashboard/serving/cnes/overview";
+const MAX_RETRIES = 1;
 
 export function isServingUnavailable(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
   const body = error.body as { detail?: string } | null;
   return error.status === 503 && body?.detail === "active_serving_unavailable";
+}
+
+export function shouldRetryServing(failureCount: number, error: unknown): boolean {
+  return failureCount < MAX_RETRIES && !isServingUnavailable(error);
 }
 
 export function useServingOverview() {
@@ -38,5 +43,7 @@ export function useServingOverview() {
       return apiFetch<ServingOverview>(SERVING_OVERVIEW_PATH, options);
     },
     staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: shouldRetryServing,
   });
 }

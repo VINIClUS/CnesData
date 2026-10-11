@@ -20,7 +20,7 @@ class ProfissionalContract(pa.DataFrameModel):
     CH_HOSPITALAR: Series[int]
     FONTE: Series[str] = pa.Field(isin=["LOCAL", "NACIONAL"])
 
-    class Config:
+    class Config:  # pyright: ignore[reportIncompatibleVariableOverride]
         strict = False
         coerce = False
 
@@ -37,6 +37,6 @@ class EstabelecimentoContract(pa.DataFrameModel):
     VINCULO_SUS: Series[str] = pa.Field(isin=["S", "N"], nullable=True)
     FONTE: Series[str] = pa.Field(isin=["LOCAL", "NACIONAL"])
 
-    class Config:
+    class Config:  # pyright: ignore[reportIncompatibleVariableOverride]
         strict = False
         coerce = False

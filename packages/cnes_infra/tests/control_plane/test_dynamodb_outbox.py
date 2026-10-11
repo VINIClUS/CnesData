@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import pytest
@@ -45,6 +45,8 @@ type _DynamoContext = tuple[Any, MutableClock, DynamoDBControlPlane]
 
 
 class OneItemPageClient(ClientSpy):
+    hidden_gsi2sk: dict[str, Any]
+
     def query(self, **kwargs: Any) -> dict[str, Any]:
         kwargs.setdefault("Limit", 1)
         response = super().query(**kwargs)
@@ -205,6 +207,7 @@ def test_claims_rejeitam_ausencia_e_manifesto_de_outra_identidade(ctx: _DynamoCo
     with pytest.raises(LeaseLost, match="job_not_leased"):
         adapter.renew_job_lease(renewal.model_copy(update={"job_id": "job-a"}))
     claimed = adapter.claim_job(_claim_job("job-a", "worker-a", clock))
+    assert claimed is not None
     client = adapter._client
     contender = DynamoDBControlPlane(client, _TABLE_NAME, clock.now)
 
@@ -293,7 +296,13 @@ def test_codec_propaga_cancelamento_sem_falha_condicional(reason: str | None) ->
         def transact_write_items(**kwargs: Any) -> None:
             reasons = [] if reason is None else [{"Code": reason}]
             raise ClientError(
-                {"Error": {"Code": "TransactionCanceledException"}, "CancellationReasons": reasons},
+                cast(
+                    "Any",
+                    {
+                        "Error": {"Code": "TransactionCanceledException"},
+                        "CancellationReasons": reasons,
+                    },
+                ),
                 "TransactWriteItems",
             )
 

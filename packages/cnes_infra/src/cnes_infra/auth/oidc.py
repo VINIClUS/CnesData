@@ -7,7 +7,12 @@ import httpx
 from jose import jwt as jose_jwt
 from jose.exceptions import ExpiredSignatureError, JWKError, JWTClaimsError, JWTError
 
-from cnes_infra.auth.jwt import FetchStage, TokenInvalid, _JwksCache, discovery_url
+from cnes_infra.auth.jwt import (
+    FetchStage,
+    TokenInvalid,
+    _JwksCache,  # pyright: ignore[reportPrivateUsage]
+    discovery_url,
+)
 
 _REQUIRED_CLAIMS = ("exp", "iat")
 

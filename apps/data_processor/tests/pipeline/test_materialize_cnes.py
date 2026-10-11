@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 import pytest
@@ -264,9 +264,9 @@ def test_missing_sources_reflete_o_request() -> None:
 
     payload = result.documents[0].payload
     assert payload["missing_sources"] == ["CNES_NACIONAL/CNES_VINCULO"]
-    assert payload["kpis"]["match_count"] == 0
-    assert payload["kpis"]["national_only_count"] == 0
-    assert payload["kpis"]["local_only_count"] == local_only.height
+    assert cast("dict[str, Any]", payload["kpis"])["match_count"] == 0
+    assert cast("dict[str, Any]", payload["kpis"])["national_only_count"] == 0
+    assert cast("dict[str, Any]", payload["kpis"])["local_only_count"] == local_only.height
 
 
 def test_json_serializado_e_deterministico() -> None:

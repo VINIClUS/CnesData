@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -15,13 +16,16 @@ from cnes_domain.control_plane.enums import AgentState, JobState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
+if TYPE_CHECKING:
+    from cnes_domain.ports.control_plane import ControlPlanePort
+
 NOW = datetime(2026, 1, 20, 9, tzinfo=UTC)
 TENANT = "354130"
 COMPETENCIA = "2026-01"
 
 
-def agent(**updates: object) -> Agent:
-    values = {
+def agent(**updates: Any) -> Agent:
+    values: dict[str, Any] = {
         "tenant_id": TENANT,
         "agent_id": "agent-1",
         "state": AgentState.ACTIVE,
@@ -33,8 +37,8 @@ def agent(**updates: object) -> Agent:
     return Agent(**(values | updates))
 
 
-def pending_job(**updates: object) -> Job:
-    values = {
+def pending_job(**updates: Any) -> Job:
+    values: dict[str, Any] = {
         "tenant_id": TENANT,
         "job_id": "job-1",
         "agent_id": "agent-1",
@@ -55,8 +59,8 @@ def pending_job(**updates: object) -> Job:
     return Job(**(values | updates))
 
 
-def leased_job(**updates: object) -> Job:
-    values = {
+def leased_job(**updates: Any) -> Job:
+    values: dict[str, Any] = {
         "state": JobState.LEASED,
         "fencing_token": 1,
         "lease_owner": "agent-1",
@@ -65,8 +69,8 @@ def leased_job(**updates: object) -> Job:
     return pending_job(**(values | updates))
 
 
-def claim_for(job: Job, owner: Agent, **updates: object) -> ClaimJob:
-    values = {
+def claim_for(job: Job, owner: Agent, **updates: Any) -> ClaimJob:
+    values: dict[str, Any] = {
         "tenant_id": job.tenant_id,
         "job_id": job.job_id,
         "owner": owner.agent_id,
@@ -76,8 +80,8 @@ def claim_for(job: Job, owner: Agent, **updates: object) -> ClaimJob:
     return ClaimJob(**(values | updates))
 
 
-def renew_for(job: Job, **updates: object) -> RenewJobLease:
-    values = {
+def renew_for(job: Job, **updates: Any) -> RenewJobLease:
+    values: dict[str, Any] = {
         "tenant_id": job.tenant_id,
         "job_id": job.job_id,
         "owner": job.lease_owner,
@@ -88,8 +92,8 @@ def renew_for(job: Job, **updates: object) -> RenewJobLease:
     return RenewJobLease(**(values | updates))
 
 
-def _manifest_for(job: Job, **updates: object) -> RawManifestRecord:
-    values = {
+def _manifest_for(job: Job, **updates: Any) -> RawManifestRecord:
+    values: dict[str, Any] = {
         "tenant_id": job.tenant_id,
         "manifest_id": "manifest-1",
         "manifest_key": (
@@ -110,8 +114,8 @@ def _manifest_for(job: Job, **updates: object) -> RawManifestRecord:
     return RawManifestRecord(**(values | updates))
 
 
-def complete_for(job: Job, fencing_token: int | None = None, **updates: object) -> CompleteJob:
-    values = {
+def complete_for(job: Job, fencing_token: int | None = None, **updates: Any) -> CompleteJob:
+    values: dict[str, Any] = {
         "tenant_id": job.tenant_id,
         "job_id": job.job_id,
         "owner": job.lease_owner,
@@ -121,8 +125,8 @@ def complete_for(job: Job, fencing_token: int | None = None, **updates: object) 
     return CompleteJob(**(values | updates))
 
 
-def fail_for(job: Job, **updates: object) -> FailJob:
-    values = {
+def fail_for(job: Job, **updates: Any) -> FailJob:
+    values: dict[str, Any] = {
         "tenant_id": job.tenant_id,
         "job_id": job.job_id,
         "owner": job.lease_owner,
@@ -133,8 +137,8 @@ def fail_for(job: Job, **updates: object) -> FailJob:
     return FailJob(**(values | updates))
 
 
-def cancel_for(job: Job, **updates: object) -> CancelJob:
-    values = {
+def cancel_for(job: Job, **updates: Any) -> CancelJob:
+    values: dict[str, Any] = {
         "tenant_id": job.tenant_id,
         "job_id": job.job_id,
         "requested_by": "operator-1",
@@ -237,9 +241,9 @@ class ControlPlane:
         return canceled
 
 
-def service(control: ControlPlane, **updates: object) -> JobLifecycle:
-    values = {"max_attempts": DEFAULT_MAX_ATTEMPTS}
-    return JobLifecycle(control, lambda: NOW, **(values | updates))
+def service(control: ControlPlane, **updates: Any) -> JobLifecycle:
+    values: dict[str, Any] = {"max_attempts": DEFAULT_MAX_ATTEMPTS}
+    return JobLifecycle(cast("ControlPlanePort", control), lambda: NOW, **(values | updates))
 
 
 def test_agente_revogado_nao_reclama_job() -> None:
@@ -440,7 +444,7 @@ def test_max_attempts_invalido_rejeitado() -> None:
     control = ControlPlane()
 
     with pytest.raises(ValueError, match="positive_value_required"):
-        JobLifecycle(control, lambda: NOW, max_attempts=0)
+        JobLifecycle(cast("ControlPlanePort", control), lambda: NOW, max_attempts=0)
 
 
 def test_event_id_e_deterministico() -> None:

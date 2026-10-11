@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from pydantic import ValidationError
 
@@ -40,7 +42,7 @@ class TestFileManifest:
     def test_rejeita_fato_subtype_desconhecido(self) -> None:
         with pytest.raises(ValidationError):
             FileManifest(
-                minio_key="x.parquet.gz", fato_subtype="UNKNOWN",
+                minio_key="x.parquet.gz", fato_subtype=cast("Any", "UNKNOWN"),
                 size_bytes=1024, sha256="a" * 64,
             )
 

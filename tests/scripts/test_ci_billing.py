@@ -5,7 +5,7 @@ import configparser
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -27,6 +27,11 @@ _ACCEPTANCE_PATHS = (
     "tests/chaos/test_quota_reservation_recovery.py",
     "tests/chaos/test_revocation_publish_fence.py",
     "tests/chaos/test_billing_reconciliation_resume.py",
+    "tests/chaos/test_stripe_customer_orphan_recovery.py",
+    "tests/chaos/test_billing_account_lost_key_recovery.py",
+    "tests/chaos/test_shadow_observer_failures.py",
+    "packages/cnes_infra/tests/control_plane/test_edge_registration_counting.py",
+    "packages/cnes_infra/tests/control_plane/test_dynamodb_billed_tenant_counting.py",
     "tests/integration/billing",
     "tests/scripts/test_ci_billing.py",
 )
@@ -65,8 +70,8 @@ def _load(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _triggers(workflow: dict[str, Any]) -> dict[str, Any]:
-    return workflow.get("on", workflow.get(True))
+def _triggers(workflow: dict[Any, Any]) -> dict[str, Any]:
+    return cast("dict[str, Any]", workflow.get("on", workflow.get(True)))
 
 
 def _steps(job: dict[str, Any]) -> list[dict[str, Any]]:

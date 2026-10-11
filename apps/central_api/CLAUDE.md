@@ -28,7 +28,11 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
 - AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
 - /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
-- /api/v1/dashboard/overview, /faturamento/by-establishment
+- /api/v1/dashboard/overview, /faturamento/by-establishment — aposentadas (MIG-011): 410
+  `legacy_route_retired`, sem tocar o `DashboardRepo`
+- `GET /api/v1/dashboard/serving/{dataset_name}/{document_name}` — única leitura de produto: só o
+  pointer `current`; dataset fora de `build_source_catalog()` → 404 `dataset_unknown`; conteúdo
+  ativo ausente → 503 `active_serving_unavailable`, sem fallback a versão anterior nem a Postgres
 - /api/v1/dashboard/access-requests/*
 - /activate/confirm — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit 10/min)
 - /oauth/device_authorization, /oauth/token — device flow
@@ -39,10 +43,18 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
   404 `billing_disabled` (status responde `disabled`; webhook 404 sem ler o body). `stripe`
   (só aws): `billing_deps.install_billing` sobrescreve as dependências dos routers (principal
   OIDC + `MembershipAuthorizer`); segredos só no `StripeClient`/verificador. Legado: 503.
+- `POST /accounts` com chave nova para tenant já vinculado devolve a conta existente (201) via
+  `get_tenant_account` forte + `require_billing_owner`; Customer em `billing_customers.py`.
 - Gates 17B (`ApiBillingGates` de `composition.api_billing_gates`, uma composição por modo):
-  `POST /api/v1/billing/accounts/{id}/tenants` (tenant + links + capacidade numa transação),
+  `POST /api/v1/billing/accounts/{id}/tenants` (tenant + links + capacidade + membership
+  `gestor` do criador, com o `oidc_issuer` do token, numa transação; membership órfã → 409),
   `POST /api/v1/admin/billing/{id}/revoke` (fora do router de token legado), gate de agente
   novo em `require_edge_agent` e gate de serving antes de emitir URL/stream (leitura forte).
+- Shadow (`stripe`+`shadow`): `ApiBillingGates.observer` audita `entitlement.shadow_denied`
+  sem mudar a resposta (agente novo, serving, tenant); fora disso é nulo. Ver runbook.
+- Onboarding (conta nova): `POST /billing/accounts` sem `X-Tenant-Id` cria conta do próprio
+  usuário sem link (capacidade semeada zerada) → checkout → `POST /accounts/{id}/tenants`
+  como dono. Com `X-Tenant-Id`, exige `gestor` e vincula o tenant.
 - `POST /api/v1/public/leads` — captação pública do formulário de contato (sem auth).
   Persiste em `marketing.leads` (migração 019), responde `202 {"status":"received"}`,
   `422` payload inválido, `429` + `Retry-After` acima de `LEADS_RATE_LIMIT` (slowapi, chave =
@@ -130,7 +142,8 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `src/central_api/routes/extractions.py` | `/api/v1/extractions/enqueue` — enqueue admin |
 | `src/central_api/routes/admin.py` | `/api/v1/admin/*` — reap-leases, ops |
 | `src/central_api/routes/dashboard.py` | `/api/v1/dashboard/auth/me`, tenants, agents |
-| `src/central_api/routes/overview.py` | `/api/v1/dashboard/overview`, faturamento |
+| `src/central_api/routes/overview.py` | rotas legadas `/overview` e `/faturamento/by-establishment` aposentadas (410) |
+| `src/central_api/routes/serving.py` | `/api/v1/dashboard/serving/{dataset}/{doc}` — leitura pointer-only (stream local ou 307 aws) |
 | `src/central_api/routes/access_requests.py` | signup JIT access request |
 | `src/central_api/routes/oauth.py` | device flow + `/activate/confirm` |
 | `src/central_api/routes/provision.py` | cert enrollment |

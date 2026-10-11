@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TextIO
 
 from cnes_domain.billing.models import BillingMetric, SubscriptionStatus
 from cnes_domain.billing.ports import BillingMetricsPort
@@ -39,6 +39,8 @@ class BillingMetricName(StrEnum):
     RUNS_CANCELED_BY_REVOCATION = "RunsCanceledByRevocation"
     ENTITLEMENT_SNAPSHOT_AGE_SECONDS = "EntitlementSnapshotAgeSeconds"
     AUDIT_OUTBOX_FAILURES = "AuditOutboxFailures"
+    SHADOW_ENTITLEMENT_DENIALS = "ShadowEntitlementDenials"
+    SHADOW_OBSERVER_FAILURES = "ShadowObserverFailures"
 
 
 _NAMES = MappingProxyType({name.value: name for name in BillingMetricName})
@@ -129,7 +131,7 @@ class DiscardBillingMetrics:
         """Args: metric: Métrica ignorada."""
 
 
-class _StdoutHandler(logging.StreamHandler):
+class _StdoutHandler(logging.StreamHandler[TextIO]):
     def emit(self, record: logging.LogRecord) -> None:
         self.stream = sys.stdout
         super().emit(record)

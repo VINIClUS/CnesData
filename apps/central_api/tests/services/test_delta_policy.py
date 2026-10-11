@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -50,8 +51,8 @@ def context(
     return _DeltaContext(current, chain, marker, now)
 
 
-def linked_delta(chain: tuple[RawManifest, ...], **updates: object) -> RawManifest:
-    values = {
+def linked_delta(chain: tuple[RawManifest, ...], **updates: Any) -> RawManifest:
+    values: dict[str, Any] = {
         "sequence": chain[-1].sequence + 1,
         "previous": manifest_sha256(chain[-1]),
         "created_at": NOW,
@@ -136,6 +137,6 @@ def test_rejeita_base_com_data_futura() -> None:
         {"max_chain_length": 31},
     ],
 )
-def test_rejeita_limites_fora_dos_tetos(values: dict[str, object]) -> None:
+def test_rejeita_limites_fora_dos_tetos(values: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match="delta_policy_limit"):
         DeltaPolicy(**values)

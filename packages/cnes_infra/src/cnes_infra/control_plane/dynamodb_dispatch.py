@@ -18,6 +18,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
     payload,
     put_action,
 )
+from cnes_infra.control_plane.dynamodb_host import DynamoDBHost
 from cnes_infra.control_plane.dynamodb_keys import (
     dispatch_key,
     key_component,
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
     )
 
 
-class DynamoDBDispatch:
+class DynamoDBDispatch(DynamoDBHost):
     """Reserva, vincula e finaliza gerações de dispatch."""
 
     def _dispatch_item(self, dispatch: RunDispatch) -> Item:
@@ -104,7 +105,7 @@ class DynamoDBDispatch:
         return current
 
     def _replacement_unit_items(self, dispatch: RunDispatch, now: Any) -> tuple[Item, ...]:
-        items = []
+        items: list[Item] = []
         for unit_id in dispatch.unit_ids:
             item = self._get_item(unit_key(dispatch.tenant_id, dispatch.run_id, unit_id))
             if item is None:
@@ -121,7 +122,7 @@ class DynamoDBDispatch:
         return tuple(items)
 
     def _dispatch_unit_items(self, command: ReserveRunDispatch) -> tuple[Item, ...]:
-        items = []
+        items: list[Item] = []
         for unit_id in command.unit_ids:
             item = self._get_item(unit_key(command.tenant_id, command.run_id, unit_id))
             if item is None:

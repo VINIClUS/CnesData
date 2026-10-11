@@ -15,7 +15,7 @@ from cnes_domain.ports.object_store import ObjectStat
 from cnes_infra.object_store._common import require_digest, stream_with_digest, validate_key
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
     from contextlib import AbstractContextManager as ContextManager
     from typing import BinaryIO
 
@@ -32,7 +32,7 @@ class WindowsFilesystemObjectStore:
         return valid, sha256(valid.encode()).hexdigest()
 
     @contextmanager
-    def _write_lock(self) -> Iterator[None]:
+    def _write_lock(self) -> Generator[None]:
         database = sqlite3.connect(self._lock_path, timeout=30)
         try:
             database.execute("BEGIN IMMEDIATE")

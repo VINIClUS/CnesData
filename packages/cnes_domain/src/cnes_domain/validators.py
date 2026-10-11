@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 
 class InvalidCPFError(ValueError):
     pass
@@ -32,20 +34,20 @@ _CPF_SEQUENTIAL_INVALID = frozenset(
 
 
 def validate_cpf(cpf: str) -> None:
-    if not isinstance(cpf, str) or len(cpf) != 11 or not cpf.isdigit():
+    if not isinstance(cast("object", cpf), str) or len(cpf) != 11 or not cpf.isdigit():
         raise InvalidCPFError(f"cpf_invalid cpf={cpf!r}")
     if cpf in _CPF_SEQUENTIAL_INVALID:
         raise InvalidCPFError(f"cpf_sequential cpf={cpf!r}")
 
 
 def validate_cns(cns: str) -> None:
-    if not isinstance(cns, str) or len(cns) != 15 or not cns.isdigit():
+    if not isinstance(cast("object", cns), str) or len(cns) != 15 or not cns.isdigit():
         raise InvalidCNSError(f"cns_invalid cns={cns!r}")
 
 
 def validate_competencia(c: int) -> None:
     if (
-        not isinstance(c, int)
+        not isinstance(cast("object", c), int)
         or isinstance(c, bool)
         or c < 200001
         or c > 209912

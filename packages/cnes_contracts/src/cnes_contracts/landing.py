@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime  # noqa: TC003
-from typing import Literal
-from uuid import UUID  # noqa: TC003
+from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,7 +39,7 @@ class Extraction(BaseModel):
     source_type: SOURCE_TYPE
     competencia: date
     files: list[FileManifest] = Field(min_length=1)
-    depends_on: list[UUID] = Field(default_factory=list)
+    depends_on: list[UUID] = Field(default_factory=list[UUID])
     status: JobStatus
     lease_until: datetime | None = None
     created_at: datetime
@@ -90,5 +90,5 @@ class ClaimedExtraction:
     tenant_id: str
     source_type: str
     competencia: date
-    files: list[dict]
+    files: list[dict[str, Any]]
     depends_on: list[UUID]

@@ -5,11 +5,11 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import fields
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from cnes_domain.billing.commands import CreateBillingAccountCommand, LinkBillingTenantCommand
+from cnes_domain.billing.commands import CreateBillingAccountCommand
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
@@ -67,6 +67,7 @@ PRICE_MAP_ENTITY = "STRIPEPRICEMAP"
 IDEMPOTENCY_ENTITY = "IDEMPOTENCYRECORD"
 CORRUPT_CODE = "billing_item_corrupt"
 UNAVAILABLE_CODE = "dynamodb_unavailable"
+_ACCOUNT_CREATED_REASON = "account_created"
 _TRANSACTION_ERRORS = (KeyError, TypeError, ValueError, AttributeError)
 _LIMIT_CODES = {
     ErrorCode.TRANSACTION_LIMIT: "billing_transaction_too_large",
@@ -78,7 +79,7 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, frozenset):
-        return sorted(value)
+        return sorted(cast("frozenset[Any]", value))
     return {field.name: getattr(value, field.name) for field in fields(value)}
 
 
@@ -150,46 +151,44 @@ def _pair(first: str, second: str) -> Callable[[Any], tuple[Any, Any]]:
 
 
 def _snapshot(data: dict[str, Any]) -> EntitlementSnapshot:
-    return EntitlementSnapshot(
-        **{
-            **data,
-            "subscription_status": SubscriptionStatus(data["subscription_status"]),
-            "features": frozenset(data["features"]),
-            "quotas": QuotaLimits(**data["quotas"]),
-            "period_start": _when(data, "period_start"),
-            "period_end": _when(data, "period_end"),
-            "grace_until": _optional_when(data, "grace_until"),
-            "valid_until": _when(data, "valid_until"),
-            "updated_at": _when(data, "updated_at"),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "subscription_status": SubscriptionStatus(data["subscription_status"]),
+        "features": frozenset(data["features"]),
+        "quotas": QuotaLimits(**data["quotas"]),
+        "period_start": _when(data, "period_start"),
+        "period_end": _when(data, "period_end"),
+        "grace_until": _optional_when(data, "grace_until"),
+        "valid_until": _when(data, "valid_until"),
+        "updated_at": _when(data, "updated_at"),
+    }
+    return EntitlementSnapshot(**values)
 
 
 def _account(data: dict[str, Any]) -> BillingAccount:
-    return BillingAccount(
-        **{
-            **data,
-            "status": BillingAccountStatus(data["status"]),
-            "created_at": _when(data, "created_at"),
-            "updated_at": _when(data, "updated_at"),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "status": BillingAccountStatus(data["status"]),
+        "created_at": _when(data, "created_at"),
+        "updated_at": _when(data, "updated_at"),
+    }
+    return BillingAccount(**values)
 
 
 def _link(data: dict[str, Any]) -> BillingAccountTenantLink:
-    return BillingAccountTenantLink(**{**data, "linked_at": _when(data, "linked_at")})
+    values: dict[str, Any] = {**data, "linked_at": _when(data, "linked_at")}
+    return BillingAccountTenantLink(**values)
 
 
 def _plan(data: dict[str, Any]) -> PlanVersion:
-    return PlanVersion(
-        **{
-            **data,
-            "stripe_price_ids": tuple(data["stripe_price_ids"]),
-            "features": frozenset(data["features"]),
-            "quotas": QuotaLimits(**data["quotas"]),
-            "effective_from": _when(data, "effective_from"),
-        }
-    )
+    values: dict[str, Any] = {
+        **data,
+        "stripe_price_ids": tuple(data["stripe_price_ids"]),
+        "features": frozenset(data["features"]),
+        "quotas": QuotaLimits(**data["quotas"]),
+        "effective_from": _when(data, "effective_from"),
+    }
+    return PlanVersion(**values)
 
 
 def _idempotency_record(data: Any) -> IdempotencyRecord:
@@ -360,23 +359,40 @@ def _link_identity(link: BillingAccountTenantLink) -> dict[str, str]:
     }
 
 
-def idempotency_digest(command: CreateBillingAccountCommand | LinkBillingTenantCommand) -> str:
+def idempotency_digest(command: CreateBillingAccountCommand) -> str:
     """Calcula o digest do comando sem os instantes gerados pelo servidor."""
-    if isinstance(command, LinkBillingTenantCommand):
-        expected = utc_attribute(command.expected_account_updated_at)
-        identity = {"link": _link_identity(command.link), "expected_updated_at": expected}
-    else:
-        account = command.account
-        identity = {
-            "link": _link_identity(command.initial_tenant_link),
-            "account": [
-                account.billing_account_id,
-                account.stripe_customer_id,
-                account.owner_user_id,
-                account.status,
-            ],
-        }
+    account = command.account
+    link = command.initial_tenant_link
+    identity = {
+        "link": None if link is None else _link_identity(link),
+        "account": [
+            account.billing_account_id,
+            account.stripe_customer_id,
+            account.owner_user_id,
+            account.status,
+        ],
+    }
     return request_hash([type(command).__name__, command.idempotency_key, identity])
+
+
+def create_scope_tenant(command: CreateBillingAccountCommand) -> str:
+    """Escopo de idempotência da criação: tenant inicial ou o escopo de billing."""
+    link = command.initial_tenant_link
+    return BILLING_AUDIT_TENANT_ID if link is None else link.tenant_id
+
+
+def account_created_event(command: CreateBillingAccountCommand) -> BillingAuditEvent:
+    """Cria o evento determinístico de conta criada, com ou sem tenant inicial."""
+    account, link = command.account, command.initial_tenant_link
+    return BillingAuditEvent(
+        event_id=deterministic_id("billing_account.created", account.billing_account_id),
+        event_type="billing_account.created",
+        aggregate_id=account.billing_account_id,
+        actor_id=account.owner_user_id,
+        reason_code=_ACCOUNT_CREATED_REASON if link is None else link.reason_code,
+        occurred_at=account.created_at,
+        attributes={} if link is None else {"tenant_id": link.tenant_id},
+    )
 
 
 def audit_outbox_event(audit: BillingAuditEvent) -> OutboxEvent:
@@ -437,7 +453,8 @@ def transact(client: Any, actions: tuple[Action, ...]) -> bool:
         execute_transaction(client, actions)
     except Conflict as error:
         if error.code in _LIMIT_CODES:
-            raise PermanentBillingError(_LIMIT_CODES[error.code]) from error
+            code = cast("ErrorCode", error.code)
+            raise PermanentBillingError(_LIMIT_CODES[code]) from error
         return False
     except (ClientError, BotoCoreError) as error:
         raise BillingDependencyError(UNAVAILABLE_CODE) from error

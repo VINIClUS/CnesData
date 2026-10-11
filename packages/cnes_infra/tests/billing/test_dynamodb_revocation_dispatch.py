@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from datetime import timedelta
+from typing import Any, cast
 
 import pytest
 
@@ -47,6 +48,7 @@ def test_le_dispatch_started_com_lease_expirado(env: RevEnv) -> None:
 
     assert env.store.get_active_run_dispatch(TENANT, RUN_ID) is None
     dispatch = env.store.get_run_dispatch(TENANT, RUN_ID)
+    assert dispatch is not None
 
     assert dispatch.dispatch_id == started.dispatch_id
     assert dispatch.execution_ref == "exec-1"
@@ -58,7 +60,7 @@ def test_le_dispatch_terminal(env: RevEnv) -> None:
     put_units(env, (make_unit("unit-a"),))
     finish_wave(env, start_wave(env, ("unit-a",), None))
 
-    assert env.store.get_run_dispatch(TENANT, RUN_ID).state is DispatchState.TERMINAL
+    assert cast("Any", env.store.get_run_dispatch(TENANT, RUN_ID)).state is DispatchState.TERMINAL
 
 
 def test_dispatch_ausente_retorna_none(env: RevEnv) -> None:

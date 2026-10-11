@@ -6,7 +6,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
@@ -29,8 +29,8 @@ from data_processor.orchestration.unit_worker import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import BinaryIO
     from contextlib import AbstractContextManager as ContextManager
+    from typing import BinaryIO
 
 _TENANT = "354130"
 _RUN_ID = "run-a"
@@ -250,7 +250,7 @@ def test_attempt_object_store_confina_escritas_ao_prefixo_da_tentativa(store):
 
     assert stat.key == "normalized/output.parquet"
     assert f"tmp/{_TENANT}/{_RUN_ID}/unit-a/1/normalized/output.parquet" in store.objects
-    assert wrapped.stat("normalized/output.parquet").sha256 == digest
+    assert cast("ObjectStat", wrapped.stat("normalized/output.parquet")).sha256 == digest
 
 
 def test_attempt_object_store_rejeita_leitura_nao_allowlisted(store):

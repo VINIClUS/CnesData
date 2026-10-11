@@ -1,0 +1,22 @@
+default_install_hook_types: [pre-commit]
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: uv run --no-build ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+      - id: pyright
+        name: pyright
+        entry: uv run --no-build pyright
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+      - id: ty
+        name: ty check
+        entry: uv run --no-build ty check
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        stages: [manual]

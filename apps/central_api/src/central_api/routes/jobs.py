@@ -13,6 +13,7 @@ from central_api.agent_auth import AgentCertIdentity, agent_identity_if_required
 from central_api.deps import get_engine, get_object_storage
 from central_api.validation_errors import validation_error
 from cnes_contracts.landing import (
+    FATO_SUBTYPE,
     ExtractionFailPayload,
     ExtractionRegisterPayload,
     UploadUrlRequest,
@@ -53,7 +54,7 @@ def _job_caller(
 _Caller = Annotated[_JobCaller, Depends(_job_caller)]
 
 
-_FATO_SUBTYPE_FOR: dict[tuple[str, str], str] = {
+_FATO_SUBTYPE_FOR: dict[tuple[str, str], FATO_SUBTYPE] = {
     ("CNES_LOCAL", "cnes_profissionais"): "CNES_VINCULO",
     ("CNES_LOCAL", "cnes_estabelecimentos"): "CNES_VINCULO",
     ("CNES_LOCAL", "cnes_equipes"): "CNES_VINCULO",
@@ -68,7 +69,7 @@ def _object_storage():
     return get_object_storage()
 
 
-def _resolve_fato_subtype(source_type: str, intent: str) -> str:
+def _resolve_fato_subtype(source_type: str, intent: str) -> FATO_SUBTYPE:
     subtype = _FATO_SUBTYPE_FOR.get((source_type, intent))
     if subtype is None:
         raise validation_error(
@@ -117,7 +118,7 @@ def mint_upload_url(
     body: Annotated[dict[str, Any], Body()],
     caller: _Caller,
     engine: Engine = Depends(get_engine),
-) -> dict:
+) -> dict[Any, Any]:
     try:
         payload = UploadUrlRequest.model_validate(body, strict=False)
     except ValidationError as exc:
@@ -159,7 +160,7 @@ def register_job(
     body: Annotated[dict[str, Any], Body()],
     caller: _Caller,
     engine: Engine = Depends(get_engine),
-) -> dict:
+) -> dict[Any, Any]:
     try:
         payload = ExtractionRegisterPayload.model_validate(
             body, strict=False,
@@ -191,7 +192,7 @@ def fail_job(
     body: Annotated[dict[str, Any], Body()],
     caller: _Caller,
     engine: Engine = Depends(get_engine),
-) -> dict:
+) -> dict[Any, Any]:
     try:
         payload = ExtractionFailPayload.model_validate(body, strict=False)
     except ValidationError as exc:

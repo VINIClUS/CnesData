@@ -1,6 +1,7 @@
 """Configuração centralizada — lê .env e expõe atributos tipados."""
 
 import os
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
@@ -8,9 +9,9 @@ from urllib.parse import quote, urlparse, urlunparse
 from dotenv import load_dotenv
 
 from cnes_domain.config import (
-    _RE_CNPJ_14,
-    _RE_COD_MUN_6,
-    _RE_IBGE7,
+    _RE_CNPJ_14,  # pyright: ignore[reportPrivateUsage]
+    _RE_COD_MUN_6,  # pyright: ignore[reportPrivateUsage]
+    _RE_IBGE7,  # pyright: ignore[reportPrivateUsage]
     validar_formato,
 )
 
@@ -144,7 +145,7 @@ def _gcp_project_id() -> str:
     return _exigir("GCP_PROJECT_ID")
 
 
-_LAZY_ATTRS: dict[str, object] = {
+_LAZY_ATTRS: dict[str, Callable[[], object]] = {
     "DB_PATH": _firebird_db_path,
     "DB_PASSWORD": _firebird_db_password,
     "DB_DSN": lambda: f"{DB_HOST}:{_firebird_db_path()}",

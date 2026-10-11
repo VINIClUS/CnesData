@@ -1,7 +1,9 @@
 """Contrato do bundle de clientes e adapters do profile aws."""
 
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Any, cast
 from unittest.mock import Mock, call, sentinel
 
 import pytest
@@ -44,10 +46,14 @@ def _settings(
     )
 
 
-def _clients(lock_configuration: dict[str, object]) -> AwsClients:
+def _clients(lock_configuration: Mapping[str, object]) -> AwsClients:
     s3 = Mock()
     s3.get_object_lock_configuration.return_value = lock_configuration
     return AwsClients(dynamodb=Mock(), s3=s3, step_functions=Mock())
+
+
+def _mock(client: object) -> Mock:
+    return cast("Mock", client)
 
 
 def _session() -> Mock:
@@ -102,27 +108,27 @@ def test_compoe_adapters_com_recursos_configurados() -> None:
     assert isinstance(components.control_plane, DynamoDBControlPlane)
     assert isinstance(components.object_store, S3ObjectStore)
     assert isinstance(components.audit_sink, S3ObjectLockAuditSink)
-    assert clients.dynamodb.mock_calls == []
-    assert clients.step_functions.mock_calls == []
-    assert clients.s3.mock_calls == [
+    assert _mock(clients.dynamodb).mock_calls == []
+    assert _mock(clients.step_functions).mock_calls == []
+    assert _mock(clients.s3).mock_calls == [
         call.get_object_lock_configuration(Bucket="cnesdata-test-audit"),
     ]
 
 
 def test_encaminha_tabela_e_bucket_configurados_aos_adapters() -> None:
     clients = _clients(_LOCKED)
-    clients.dynamodb.get_item.return_value = {}
-    clients.s3.get_object.side_effect = ClientError(
-        {"Error": {"Code": "NoSuchKey"}}, "GetObject",
+    _mock(clients.dynamodb).get_item.return_value = {}
+    _mock(clients.s3).get_object.side_effect = ClientError(
+        cast("Any", {"Error": {"Code": "NoSuchKey"}}), "GetObject",
     )
     components = build_aws_runtime(_settings(), clients, clock=lambda: _NOW)
 
     assert components.control_plane.get_membership("354130", "user-1") is None
     assert components.object_store.stat("serving/354130/run-1/a.parquet") is None
-    assert clients.dynamodb.get_item.call_args.kwargs["TableName"] == (
+    assert _mock(clients.dynamodb).get_item.call_args.kwargs["TableName"] == (
         "cnesdata-test-control-plane"
     )
-    clients.s3.get_object.assert_called_once_with(
+    _mock(clients.s3).get_object.assert_called_once_with(
         Bucket="cnesdata-test-data", Key="serving/354130/run-1/a.parquet",
     )
 

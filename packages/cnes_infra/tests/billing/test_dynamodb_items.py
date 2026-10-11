@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 from unittest.mock import Mock
 
 import boto3
@@ -57,7 +57,7 @@ def _client_error(code: str, reasons: list[dict[str, str]] | None = None) -> Cli
     response: dict[str, Any] = {"Error": {"Code": code, "Message": "x"}}
     if reasons is not None:
         response["CancellationReasons"] = reasons
-    return ClientError(response, "TransactWriteItems")
+    return ClientError(cast("Any", response), "TransactWriteItems")
 
 
 def _assert_corrupt(error: pytest.ExceptionInfo[PermanentBillingError], entity: str) -> None:

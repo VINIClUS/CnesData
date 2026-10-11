@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from datetime import timedelta
 from inspect import currentframe
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 from warnings import catch_warnings, simplefilter
 
 import boto3
@@ -38,6 +39,9 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_completion_retries im
 )
 from packages.cnes_infra.tests.control_plane.test_dynamodb_stale_gsi import OneItemPageClient
 
+if TYPE_CHECKING:
+    from types import FrameType
+
 _IDENTITY = RawIdentity("354130", "CNES", "ST", "2026-07")
 _VALUES = ("354130", "CNES", "ST", "2026-07")
 _FIELDS = ("tenant_id", "source_type", "file_subtype", "competencia")
@@ -69,7 +73,7 @@ def adapter(ctx: _DynamoContext) -> DynamoDBControlPlane:
     return store
 
 
-def _arguments(legacy, form):
+def _arguments(legacy: str, form: str) -> tuple[tuple[str, ...], dict[str, Any]]:
     values, fields = _VALUES, _FIELDS
     if legacy == "latest_succeeded_job":
         values = (_VALUES[0], "agent-a", *_VALUES[1:])
@@ -78,7 +82,7 @@ def _arguments(legacy, form):
     return values[:split], dict(zip(fields[split:], values[split:], strict=True))
 
 
-def _query(legacy):
+def _query(legacy: str) -> Any:
     if legacy == "latest_succeeded_job":
         return LatestSucceededJobQuery(_IDENTITY, "agent-a")
     if legacy == "list_raw_manifest_chain":
@@ -97,7 +101,7 @@ def test_shim_preserva_resultado_e_avisa_no_chamador(adapter, legacy, typed, for
     args, kwargs = _arguments(legacy, form)
     with catch_warnings(record=True) as warnings:
         simplefilter("always")
-        line = currentframe().f_lineno + 1
+        line = cast("FrameType", currentframe()).f_lineno + 1
         result = getattr(adapter, legacy)(*args, **kwargs)
     assert len(warnings) == 1
     assert warnings[0].category is DeprecationWarning
@@ -127,6 +131,7 @@ def test_limite_nao_positivo_retorna_vazio_sem_consultar_dynamodb(adapter, limit
 def test_consultas_preservam_ordem_isolamento_e_persistencia(adapter):
     reopened = DynamoDBControlPlane(adapter._client, _TABLE_NAME, adapter._clock)
     latest = reopened.query_latest_succeeded_job(LatestSucceededJobQuery(_IDENTITY, "agent-a"))
+    assert latest is not None
     assert latest.job_id == "job-a"
     waiting = reopened.query_waiting_runs_for_dependency(WaitingRunsForDependencyQuery(_IDENTITY))
     assert tuple(run.run_id for run in waiting) == ("waiting-a", "waiting-b")
@@ -213,7 +218,7 @@ def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext)
     assert head["ConditionExpression"] == "payload = :expected"
     completed = adapter.get_job(_TENANT, "job-agent-a-zeta")
     adapter._client = stale = OneItemPageClient(spy.client)
-    stale.hidden_gsi2sk = adapter._job_item(completed)["gsi2sk"]
+    stale.hidden_gsi2sk = adapter._job_item(cast("Any", completed))["gsi2sk"]
     result = adapter.query_latest_succeeded_job(LatestSucceededJobQuery(_IDENTITY, "agent-a"))
     assert (result, stale.query_requests) == (completed, [])
     adapter._client = spy.client

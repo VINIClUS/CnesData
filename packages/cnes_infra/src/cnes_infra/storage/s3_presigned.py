@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 from botocore.exceptions import ClientError
 
@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_AddressingStyle = Literal["auto", "virtual", "path"]
 
 
 def build_s3_client(
@@ -53,11 +55,11 @@ def build_s3_client(
     # que o certificado wildcard da AWS não cobre, falhando TLS; quem pedir
     # "path" para esse caso continua recebendo path. LocalStack/AIStor não são
     # afetados — só chegam com endpoint_url setado.
-    resolved_addressing_style = addressing_style
+    resolved_addressing_style = cast("_AddressingStyle", addressing_style)
     if endpoint_url is None and addressing_style == "auto":
         resolved_addressing_style = "virtual"
 
-    return boto3.client(
+    return boto3.client(  # pyright: ignore[reportUnknownMemberType]
         "s3",
         region_name=region_name,
         endpoint_url=endpoint_url,

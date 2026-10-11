@@ -52,6 +52,7 @@ def test_revogacao_administrativa_interrompida_e_bump_de_versao_fenceia_todas_as
     with open_env() as env:
         interrupted = interrupt_admin_revocation(env)
         stale = env.store.get_revocation_progress(ACCOUNT)
+        assert stale is not None
         assert stale.phase is RevocationPhase.FENCING
         assert len(interrupted.pending) == 2
         bumped = rewrite_snapshot(env)
@@ -66,6 +67,7 @@ def test_revogacao_administrativa_interrompida_e_bump_de_versao_fenceia_todas_as
         for run_id in interrupted.pending:
             assert stored_run(env, run_id).state is RunState.CANCELED
         progress = env.store.get_revocation_progress(ACCOUNT)
+        assert progress is not None
         assert progress.phase is RevocationPhase.COMPLETE
         assert progress.entitlement_version == stale.entitlement_version
         assert snapshot_of(env).entitlement_version == bumped.entitlement_version
@@ -89,5 +91,6 @@ def test_retomada_com_acesso_restaurado_nao_fenceia_runs_novas() -> None:
             assert stored_run(env, run_id).state is not RunState.CANCELED
             assert stored_reservation(env, run_id).status is ReservationStatus.RESERVED
         progress = env.store.get_revocation_progress(ACCOUNT)
+        assert progress is not None
         assert progress.phase is RevocationPhase.COMPLETE
         assert {run_id for run_id, _ in interrupted.executor.refs()} == {interrupted.fenced}

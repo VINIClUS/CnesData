@@ -8,6 +8,7 @@ import random
 import struct
 import sys
 from pathlib import Path
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ def _encode(ftype: str, size: int, decimals: int, value: object) -> bytes:
     if value is None or value == "":
         return b" " * size
     if ftype == "N":
-        text = f"{value:.{decimals}f}" if decimals else str(int(value))
+        text = f"{value:.{decimals}f}" if decimals else str(int(cast("int", value)))
         return text.encode("ascii").rjust(size, b" ")[:size]
     return str(value).encode("cp1252")[:size].ljust(size, b" ")
 

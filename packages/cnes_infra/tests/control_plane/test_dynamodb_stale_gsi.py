@@ -1,6 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import pytest
@@ -60,6 +60,8 @@ type _DynamoContext = tuple[Any, MutableClock, DynamoDBControlPlane]
 
 
 class OneItemPageClient(ClientSpy):
+    hidden_gsi2sk: dict[str, Any]
+
     def query(self, **kwargs: Any) -> dict[str, Any]:
         kwargs.setdefault("Limit", 1)
         response = super().query(**kwargs)
@@ -171,7 +173,7 @@ def test_cadeia_raw_serializa_corrida(ctx: _DynamoContext) -> None:
     adapter._raw_actions(full)
     for record in (head, sibling_a):
         _store_record(adapter, record, clock)
-    assert adapter.get_job(_TENANT, "job-agent-a-base").state is JobState.SUCCEEDED
+    assert cast("Any", adapter.get_job(_TENANT, "job-agent-a-base")).state is JobState.SUCCEEDED
     adapter._client = stale = OneItemPageClient(adapter._client)
     stale.hidden_gsi2sk = adapter._raw_item(head)["gsi2sk"]
     chain = adapter.query_raw_manifest_chain(RawManifestChainQuery(_IDENTITY, 3))
@@ -283,7 +285,7 @@ def test_colisao_global_de_evento_rejeita_segundo_tenant_sem_mutacao(ctx: _Dynam
     with pytest.raises(Conflict, match="event_id_conflict"):
         adapter.create_job(other_job, other_event)
     assert adapter.get_job("other", "job-b") is None
-    assert adapter.get_outbox_event("shared-event").tenant_id == _TENANT
+    assert cast("Any", adapter.get_outbox_event("shared-event")).tenant_id == _TENANT
     with pytest.raises(Conflict, match="event_tenant_conflict"):
         adapter.create_job(_job("job-c"), _event("fresh-other", tenant_id="other"))
     assert adapter.get_job(_TENANT, "job-c") is None

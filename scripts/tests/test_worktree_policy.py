@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -62,7 +63,7 @@ A phase is done only when its final gate is green on integrated `develop`, not w
 individual worktrees pass in isolation."""
 
 
-def _load_issue_form() -> dict[str, object]:
+def _load_issue_form() -> dict[str, Any]:
     return yaml.safe_load(ISSUE_FORM.read_text(encoding="utf-8"))
 
 

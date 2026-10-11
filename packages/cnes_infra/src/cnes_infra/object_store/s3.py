@@ -91,7 +91,7 @@ class S3ObjectStore:
         return None if stored is None else stored.stat
 
     def _put_request(self, key: str, staged: BinaryIO, expected_sha256: str) -> dict[str, Any]:
-        request = {
+        request: dict[str, Any] = {
             "Body": staged,
             "Bucket": self._bucket,
             "IfNoneMatch": "*",

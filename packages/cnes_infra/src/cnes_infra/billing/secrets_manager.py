@@ -3,7 +3,7 @@
 import logging
 import re
 from collections.abc import Mapping
-from typing import Protocol
+from typing import Protocol, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -49,7 +49,7 @@ class SecretsManagerSecretProvider:
         Returns: SecretString não vazio, sem alteração.
         Raises: SecretProviderError: falha sanitizada, sem ARN nem valor.
         """
-        if not isinstance(secret_arn, str) or not secret_arn.strip():
+        if not isinstance(cast("object", secret_arn), str) or not secret_arn.strip():
             raise _fail("secret_arn_empty", False)
         response = self._fetch(secret_arn)
         if "SecretBinary" in response:

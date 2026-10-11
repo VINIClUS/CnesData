@@ -4,7 +4,7 @@ import math
 import re
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
-from typing import NoReturn
+from typing import NoReturn, TypeGuard, cast
 
 _LOWER_HEX_16 = re.compile(r"^[0-9a-f]{16}$")
 _LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
@@ -15,13 +15,13 @@ _ATTRIBUTE_TYPES = (str, int, bool, type(None))
 class FrozenMapping(dict[str, object]):
     __slots__ = ()
 
-    def _immutable(self, *args: object, **kwargs: object) -> NoReturn:
+    def _immutable(self: object, *args: object, **kwargs: object) -> NoReturn:
         raise TypeError("reason=immutable_mapping")
 
     __setitem__ = __delitem__ = __ior__ = _immutable
     clear = pop = popitem = setdefault = update = _immutable
 
-    def __hash__(self) -> int:
+    def __hash__(self) -> int:  # pyright: ignore[reportIncompatibleVariableOverride]
         return hash(frozenset(self.items()))
 
     def __reduce__(self) -> tuple[type["FrozenMapping"], tuple[dict[str, object]]]:
@@ -31,7 +31,7 @@ class FrozenMapping(dict[str, object]):
         return f"FrozenMapping({dict(self)!r})"
 
 
-def require_id(value: str, name: str) -> None:
+def require_id(value: object, name: str) -> None:
     """Args: value: Identificador opaco; name: Campo validado.
     Raises: ValueError: Valor vazio ou não textual.
     """
@@ -39,7 +39,7 @@ def require_id(value: str, name: str) -> None:
         raise ValueError(f"reason=blank_value field={name}")
 
 
-def optional_id(value: str | None, name: str) -> None:
+def optional_id(value: object, name: str) -> None:
     """Args: value: Identificador opcional; name: Campo validado.
     Raises: ValueError: Valor presente e vazio.
     """
@@ -47,7 +47,7 @@ def optional_id(value: str | None, name: str) -> None:
         require_id(value, name)
 
 
-def require_utc(value: datetime, name: str) -> None:
+def require_utc(value: object, name: str) -> None:
     """Args: value: Instante; name: Campo validado.
     Raises: ValueError: Instante sem timezone UTC.
     """
@@ -59,7 +59,7 @@ def require_utc(value: datetime, name: str) -> None:
         raise ValueError(f"reason=datetime_not_utc field={name}")
 
 
-def optional_utc(value: datetime | None, name: str) -> None:
+def optional_utc(value: object, name: str) -> None:
     """Args: value: Instante opcional; name: Campo validado.
     Raises: ValueError: Instante presente sem timezone UTC.
     """
@@ -67,7 +67,7 @@ def optional_utc(value: datetime | None, name: str) -> None:
         require_utc(value, name)
 
 
-def require_non_negative(value: int, name: str) -> None:
+def require_non_negative(value: object, name: str) -> None:
     """Args: value: Contador; name: Campo validado.
     Raises: ValueError: Valor negativo ou não inteiro.
     """
@@ -75,7 +75,7 @@ def require_non_negative(value: int, name: str) -> None:
         raise ValueError(f"reason=negative_value field={name}")
 
 
-def optional_non_negative(value: int | None, name: str) -> None:
+def optional_non_negative(value: object, name: str) -> None:
     """Args: value: Contador opcional; name: Campo validado.
     Raises: ValueError: Valor presente negativo ou não inteiro.
     """
@@ -83,7 +83,7 @@ def optional_non_negative(value: int | None, name: str) -> None:
         require_non_negative(value, name)
 
 
-def require_positive(value: int, name: str) -> None:
+def require_positive(value: object, name: str) -> None:
     """Args: value: Inteiro; name: Campo validado.
     Raises: ValueError: Valor menor que 1 ou não inteiro.
     """
@@ -91,7 +91,7 @@ def require_positive(value: int, name: str) -> None:
         raise ValueError(f"reason=positive_value_required field={name}")
 
 
-def require_hex16(value: str, name: str) -> None:
+def require_hex16(value: object, name: str) -> None:
     """Args: value: Identificador de wave/dispatch; name: Campo validado.
     Raises: ValueError: Valor fora de hex minúsculo com 16 caracteres.
     """
@@ -99,7 +99,7 @@ def require_hex16(value: str, name: str) -> None:
         raise ValueError(f"reason=invalid_hex16 field={name}")
 
 
-def require_sha256(value: str, name: str) -> None:
+def require_sha256(value: object, name: str) -> None:
     """Args: value: Digest; name: Campo validado.
     Raises: ValueError: Valor fora de hex minúsculo com 64 caracteres.
     """
@@ -107,7 +107,7 @@ def require_sha256(value: str, name: str) -> None:
         raise ValueError(f"reason=invalid_sha256 field={name}")
 
 
-def require_competencia(value: str, name: str) -> None:
+def require_competencia(value: object, name: str) -> None:
     """Args: value: Competência; name: Campo validado.
     Raises: ValueError: Valor fora de YYYY-MM.
     """
@@ -144,9 +144,9 @@ def freeze_attributes(
     copied = dict(values)
     for key, value in copied.items():
         require_id(key, name)
-        if not isinstance(value, _ATTRIBUTE_TYPES):
+        if not isinstance(cast("object", value), _ATTRIBUTE_TYPES):
             raise ValueError(f"reason=invalid_attribute field={name}")
-    return FrozenMapping(copied)
+    return cast("Mapping[str, str | int | bool | None]", FrozenMapping(copied))
 
 
 def freeze_dimensions(values: Mapping[str, str], name: str) -> Mapping[str, str]:
@@ -158,10 +158,10 @@ def freeze_dimensions(values: Mapping[str, str], name: str) -> Mapping[str, str]
     for key, value in copied.items():
         require_id(key, name)
         require_id(value, name)
-    return FrozenMapping(copied)
+    return cast("Mapping[str, str]", FrozenMapping(copied))
 
 
-def require_finite(value: float, name: str) -> None:
+def require_finite(value: object, name: str) -> None:
     """Args: value: Número; name: Campo validado.
     Raises: ValueError: Valor não numérico, infinito ou NaN.
     """
@@ -187,5 +187,5 @@ def require_bool(value: object, reason: str) -> None:
         raise ValueError(f"reason={reason}")
 
 
-def _is_int(value: object) -> bool:
+def _is_int(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)

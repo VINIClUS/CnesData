@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -28,7 +29,7 @@ def test_rejeita_source_type_desconhecido():
         UploadUrlRequest(
             job_id=uuid4(),
             tenant_id="354130",
-            source_type="UNKNOWN_SOURCE",
+            source_type=cast("Any", "UNKNOWN_SOURCE"),
             tipo_extracao="profissionais",
             competencia=date(2026, 1, 1),
             intent="cnes_profissionais",
@@ -76,7 +77,7 @@ def test_rejeita_fato_subtype_desconhecido():
             extraction_id=uuid4(),
             upload_url="https://minio.example/key?sig=abc",
             minio_key="354130/CNES_VINCULO/2026-01-01/foo.parquet.gz",
-            fato_subtype="UNKNOWN_SUBTYPE",
+            fato_subtype=cast("Any", "UNKNOWN_SUBTYPE"),
         )
 
 

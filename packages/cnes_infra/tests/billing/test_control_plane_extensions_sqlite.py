@@ -1,7 +1,6 @@
 """Extensões de billing do control plane SQLite: run sem medição e vinculação."""
 
 import sqlite3
-from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -104,7 +103,7 @@ def clock() -> MutableClock:
 
 
 @pytest.fixture
-def adapter(database: Path, clock: MutableClock) -> Iterator[SQLiteControlPlane]:
+def adapter(database: Path, clock: MutableClock) -> SQLiteControlPlane:
     plane = SQLiteControlPlane(database, clock.now)
     plane.initialize()
     return plane

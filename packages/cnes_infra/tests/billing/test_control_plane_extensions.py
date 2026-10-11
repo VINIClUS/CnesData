@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import boto3
@@ -58,14 +58,14 @@ def cancellation() -> ClientError:
         "Error": {"Code": "TransactionCanceledException", "Message": "canceled"},
         "CancellationReasons": [{"Code": "ConditionalCheckFailed"}],
     }
-    return ClientError(response, "TransactWriteItems")
+    return ClientError(cast("Any", response), "TransactWriteItems")
 
 
 class SpyClient:
     def __init__(self, client: Any) -> None:
         self.inner = client
         self.transactions: list[list[dict[str, Any]]] = []
-        self.before_transact: Callable[[], None] | None = None
+        self.before_transact: Callable[[], object] | None = None
         self.fail_transact = False
 
     def __getattr__(self, name: str) -> Any:
@@ -129,6 +129,7 @@ def read_item(env: Env, key: tuple[str, str]) -> dict[str, Any] | None:
 
 def overwrite_companion(env: Env, **changes: Any) -> None:
     state = env.plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     env.client.put_item(
         TableName=TABLE_NAME, Item=encode_run_billing_state(replace(state, **changes))
     )
@@ -150,6 +151,7 @@ def test_grava_companion_nao_vinculado_com_autorizacao(env: Env) -> None:
     env.plane.create_unmetered_run(command)
 
     state = env.plane.get_run_billing_state(TENANT, "run-01")
+    assert state is not None
     assert state.authorization == command.authorization
     assert (state.execution_generation, state.fencing_token) == (0, 0)
     assert state.execution_dispatch_id is None
@@ -253,6 +255,7 @@ def test_estado_de_billing_decodifica_o_companion(env: Env) -> None:
     env.plane.create_unmetered_run(authorized())
 
     item = read_item(env, run_billing_key(TENANT, "run-01"))
+    assert item is not None
 
     assert env.plane.get_run_billing_state(TENANT, "run-01") == decode_run_billing_state(item)
 
@@ -377,7 +380,7 @@ def test_reserva_e_criacao_do_run_delegam_a_quota_dynamodb(env: Env) -> None:
     authorization = env.plane.reserve_and_create_run(make_reserve_command())
 
     assert authorization.billing_account_id == ACCOUNT
-    assert env.plane.get_run(TENANT, "run-01").state is RunState.WAITING_INPUTS
+    assert cast("Any", env.plane.get_run(TENANT, "run-01")).state is RunState.WAITING_INPUTS
     assert isinstance(env.plane.get_run_billing_state(TENANT, "run-01"), RunBillingState)
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -14,6 +16,9 @@ from cnes_infra.auth.local_auth import (
     AuthenticationRejected,
     AuthRejectionCode,
 )
+
+if TYPE_CHECKING:
+    from starlette.types import ExceptionHandler
 
 _PASSWORD = "correct-horse-battery"  # noqa: S105
 _PRINCIPAL = AuthenticatedPrincipal(
@@ -67,7 +72,7 @@ def _build(
 ) -> TestClient:
     app = FastAPI()
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+    app.add_exception_handler(RateLimitExceeded, cast("ExceptionHandler", rate_limit_handler))
     app.include_router(local_auth.router)
     if service is not None:
         app.dependency_overrides[local_auth.get_local_auth_service] = lambda: service

@@ -3,6 +3,7 @@
 import logging
 import subprocess
 import sys
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -74,7 +75,7 @@ def test_stripe_cria_provider_com_client_secrets_manager(session_spy) -> None:
 
 def test_modo_desconhecido_rejeita_sem_chamar_sessao(session_spy) -> None:
     with pytest.raises(BillingConfigurationError) as caught:
-        build_secret_provider("other", session_spy)
+        build_secret_provider(cast("BillingMode", "other"), session_spy)
     assert caught.value.code == "billing_mode_unknown"
     session_spy.client.assert_not_called()
 
@@ -155,9 +156,9 @@ def test_build_stripe_busca_ambos_os_segredos_pelos_arns() -> None:
     assert [c.args for c in secrets.get_secret.call_args_list] == [(KEY_ARN,), (WEBHOOK_ARN,)]
 
 
-def test_build_stripe_entrega_api_key_somente_ao_client_stripe() -> None:
+def test_build_stripe_entrega_api_key_somente_ao_client_stripe_com_retries_de_rede() -> None:
     components, _, stripe_client, _, _ = _build()
-    stripe_client.assert_called_once_with(API_KEY)
+    stripe_client.assert_called_once_with(API_KEY, max_network_retries=2)
     assert isinstance(components.gateway, StripeGateway)
     assert components.gateway._client is stripe_client.return_value
 
@@ -167,7 +168,7 @@ def test_build_stripe_monta_adapters_com_mesmo_storage_e_clock() -> None:
     assert isinstance(components.catalog, DynamoBillingCatalog)
     assert isinstance(components.projection, DynamoEntitlementProjection)
     assert isinstance(components.inbox, WebhookInbox)
-    assert components.gateway._plans is components.catalog
+    assert cast("Any", components.gateway)._plans is components.catalog
     for adapter in (components.catalog, components.projection, components.inbox):
         assert adapter._client is storage.client
         assert adapter._clock is clock
@@ -175,10 +176,10 @@ def test_build_stripe_monta_adapters_com_mesmo_storage_e_clock() -> None:
     assert deps.clock is clock
     assert deps.inbox is components.inbox
     assert deps.stripe is components.gateway
-    assert deps.cursor._clock is clock
-    assert deps.cursor._client is storage.client
-    assert deps.projector._deps.clock is clock
-    assert deps.projector._deps.projection is components.projection
+    assert cast("Any", deps.cursor)._clock is clock
+    assert cast("Any", deps.cursor)._client is storage.client
+    assert cast("Any", deps.projector)._deps.clock is clock
+    assert cast("Any", deps.projector)._deps.projection is components.projection
     assert isinstance(components.audit, DynamoBillingAudit)
     assert components.audit._client is storage.client
     assert components.audit._table_name == storage.table_name
@@ -225,5 +226,5 @@ def test_build_webhook_recovery_propaga_o_enforcer_ao_projetor() -> None:
         components.projection, clock, enforcer,
     )
     recovery = build_webhook_recovery(storage, dependencies)
-    assert recovery._deps.projector._deps.enforcer is enforcer
-    assert recovery._deps.cursor._client is storage.client
+    assert cast("Any", recovery._deps.projector)._deps.enforcer is enforcer
+    assert cast("Any", recovery._deps.cursor)._client is storage.client

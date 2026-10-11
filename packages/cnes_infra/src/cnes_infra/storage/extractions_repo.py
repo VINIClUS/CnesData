@@ -126,7 +126,7 @@ def register(
     engine: Engine,
     *,
     job_id: UUID,
-    files: list[dict],
+    files: list[dict[str, Any]],
     agent_version: str | None = None,
     machine_id: str | None = None,
     sha256: str | None = None,

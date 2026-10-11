@@ -20,6 +20,7 @@ from cnes_domain.billing.models import CapacityKind, EntitlementSnapshot, QuotaL
 from cnes_domain.control_plane.entities import RunDependency
 from cnes_infra.billing.dynamodb_items import encode_snapshot
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_infra.billing.keys import capacity_usage_key
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from packages.cnes_infra.tests.billing.billing_factories import (
     NOW,
@@ -71,12 +72,24 @@ def seed_snapshot(client: Any, snapshot: EntitlementSnapshot) -> None:
     client.put_item(TableName=TABLE_NAME, Item=encode_snapshot(snapshot))
 
 
+def seed_capacity(client: Any, tenants: int = 0, agents: int = 0, account: str = ACCOUNT) -> None:
+    pk, sk = capacity_usage_key(account)
+    client.put_item(TableName=TABLE_NAME, Item={
+        "pk": {"S": pk}, "sk": {"S": sk}, "entity": {"S": "BILLINGUSAGE"},
+        "tenant_count": {"N": str(tenants)}, "agent_count": {"N": str(agents)},
+    })
+
+
 @contextmanager
-def quota_env(snapshot: EntitlementSnapshot | None = None) -> Iterator[QuotaEnv]:
+def quota_env(
+    snapshot: EntitlementSnapshot | None = None, seeded: bool = True
+) -> Iterator[QuotaEnv]:
     with mock_aws():
         client = boto3.client("dynamodb", region_name="us-east-1")
         create_table(client)
         seed_snapshot(client, snapshot or make_quota_snapshot())
+        if seeded:
+            seed_capacity(client)
         clock = MutableClock(NOW)
         repo = DynamoQuotaReservations(client, TABLE_NAME, clock.now)
         control_plane = DynamoDBControlPlane(client, TABLE_NAME, clock.now)

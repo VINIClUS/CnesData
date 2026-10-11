@@ -1,5 +1,6 @@
 """Pydantic OAuth response models."""
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -56,12 +57,12 @@ def test_device_authorization_request_aceita_payload_valido():
 
 def test_device_authorization_request_rejeita_client_id_invalido():
     with pytest.raises(ValidationError):
-        DeviceAuthorizationRequest(client_id="x", scope="agent.provision")
+        DeviceAuthorizationRequest(client_id=cast("Any", "x"), scope="agent.provision")
 
 
 def test_device_authorization_request_rejeita_scope_invalido():
     with pytest.raises(ValidationError):
-        DeviceAuthorizationRequest(client_id="agent", scope="other")
+        DeviceAuthorizationRequest(client_id="agent", scope=cast("Any", "other"))
 
 
 def test_token_response_aceita_refresh_token_none():

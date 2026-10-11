@@ -48,6 +48,8 @@ def gravar(conn: Connection, p: ProducaoAmbulatorial) -> None:
             "job": str(p.job_id),
             "fonte": p.fonte_sistema,
             "ts": p.extracao_ts,
-            "fontes": json.dumps(p.fontes_reportadas or {}),
+            "fontes": json.dumps(
+                p.fontes_reportadas or {},  # pyright: ignore[reportUnknownMemberType]
+            ),
         },
     )

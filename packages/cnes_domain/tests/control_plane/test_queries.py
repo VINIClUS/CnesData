@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 from inspect import signature
+from typing import Any, cast
 
 import pytest
 
@@ -92,7 +93,7 @@ def test_identidade_raw_e_imutavel_e_sem_dicionario() -> None:
     identity = RawIdentity("354130", "CNES_LOCAL", "CNES_VINCULO", "2026-07")
 
     with pytest.raises(FrozenInstanceError):
-        identity.tenant_id = "outro"
+        cast("Any", identity).tenant_id = "outro"
     with pytest.raises(TypeError):
         vars(identity)
 
@@ -145,7 +146,7 @@ def test_consultas_de_lista_aceitam_limite_nao_positivo() -> None:
         ),
     ],
 )
-def test_consultas_raw_sao_imutaveis_e_sem_dicionario(query: object) -> None:
+def test_consultas_raw_sao_imutaveis_e_sem_dicionario(query: Any) -> None:
     with pytest.raises(FrozenInstanceError):
         query.identity = RawIdentity("outro", "CNES_LOCAL", "CNES_VINCULO", "2026-07")
     with pytest.raises(TypeError):

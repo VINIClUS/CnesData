@@ -6,6 +6,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -49,7 +50,7 @@ def construct_event(payload: bytes, sig_header: str, secret: str):
 
 @pytest.fixture
 def fake_stripe(monkeypatch):
-    module = ModuleType("stripe")
+    module: Any = ModuleType("stripe")
     module.StripeError = StripeError
     module.SignatureVerificationError = SignatureVerificationError
     module.Webhook = SimpleNamespace(construct_event=construct_event)

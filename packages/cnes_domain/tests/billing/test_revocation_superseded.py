@@ -12,6 +12,7 @@ from packages.cnes_domain.tests.billing.revocation_fakes import (
     Harness,
     _snapshot,
     _two_runs,
+    present,
 )
 
 ACTOR = "admin-1"
@@ -32,12 +33,12 @@ def _interrupted(newer: EntitlementSnapshot | None) -> Harness:
 
 def _assert_all_fenced(harness: Harness) -> None:
     assert all(state.cancel_requested for state in harness.store.states.values())
-    assert harness.store.progress.phase is RevocationPhase.COMPLETE
+    assert present(harness.store.progress).phase is RevocationPhase.COMPLETE
 
 
 def test_revogacao_administrativa_continua_fenceando_apos_bump_de_versao() -> None:
     harness = _interrupted(_with_status(5, SubscriptionStatus.ADMIN_REVOKED))
-    result = harness.service.resume_pending(ACCOUNT, ACTOR)
+    result = present(harness.service.resume_pending(ACCOUNT, ACTOR))
     assert result.fenced_run_ids == ("run_02",)
     assert result.entitlement_version == 4
     _assert_all_fenced(harness)
@@ -45,22 +46,22 @@ def test_revogacao_administrativa_continua_fenceando_apos_bump_de_versao() -> No
 
 def test_versao_nova_negada_nao_plena_continua_fenceando_sob_progresso_armazenado() -> None:
     harness = _interrupted(_with_status(5, SubscriptionStatus.CANCELED))
-    result = harness.service.resume_pending(ACCOUNT, ACTOR)
+    result = present(harness.service.resume_pending(ACCOUNT, ACTOR))
     assert result.fenced_run_ids == ("run_02",)
     _assert_all_fenced(harness)
 
 
 def test_versao_nova_plena_pula_o_fencing() -> None:
     harness = _interrupted(_with_status(5, SubscriptionStatus.ACTIVE))
-    result = harness.service.resume_pending(ACCOUNT, ACTOR)
+    result = present(harness.service.resume_pending(ACCOUNT, ACTOR))
     assert result.fenced_run_ids == ()
     assert not harness.store.states["run_02"].cancel_requested
-    assert harness.store.progress.phase is RevocationPhase.COMPLETE
+    assert present(harness.store.progress).phase is RevocationPhase.COMPLETE
 
 
 def test_snapshot_ausente_pula_o_fencing() -> None:
     harness = _interrupted(None)
-    result = harness.service.resume_pending(ACCOUNT, ACTOR)
+    result = present(harness.service.resume_pending(ACCOUNT, ACTOR))
     assert result.fenced_run_ids == ()
     assert harness.store.fence_requests == 0
 
@@ -68,5 +69,5 @@ def test_snapshot_ausente_pula_o_fencing() -> None:
 @pytest.mark.parametrize("status", [SubscriptionStatus.ADMIN_REVOKED, SubscriptionStatus.ACTIVE])
 def test_mesma_versao_continua_fenceando_independente_do_status(status: SubscriptionStatus) -> None:
     harness = _interrupted(_with_status(4, status))
-    result = harness.service.resume_pending(ACCOUNT, ACTOR)
+    result = present(harness.service.resume_pending(ACCOUNT, ACTOR))
     assert result.fenced_run_ids == ("run_02",)

@@ -92,7 +92,9 @@ def test_publicacao_com_policy_composta_avanca_pointer_nos_tres_casos(stack: Sta
 
     result = publish(stack, composed_policy(stack))
 
-    assert pointer_of(stack).version_id == result.version.version_id
+    pointer = pointer_of(stack)
+    assert pointer is not None
+    assert pointer.version_id == result.version.version_id
     assert stack.plane.get_run(TENANT, RUN_ID).state is RunState.PUBLISHED
     if stack.case.stripe:
         assert reservation_of(stack).status is ReservationStatus.CONSUMED
@@ -167,4 +169,6 @@ def test_claim_repara_bind_do_companion_quando_dispatch_foi_iniciado_sem_ele(
     assert claimed is not None
     assert claimed.lease_owner == "worker-a"
     assert billing_state(stripe).execution_dispatch_id == dispatch.dispatch_id
-    assert active_dispatch(stripe).dispatch_id == dispatch.dispatch_id
+    current = active_dispatch(stripe)
+    assert current is not None
+    assert current.dispatch_id == dispatch.dispatch_id

@@ -11,6 +11,7 @@ diff -u docs/contracts/openapi.json "$gate_openapi"
 uv run --no-build python scripts/gen_contracts.py --output "$gate_contracts/"
 diff -ru docs/contracts/schemas/ "$gate_contracts/"
 uv run --no-build ruff check .
+uv run --no-build pyright
 (
   cd packages/cnes_infra
   uv run alembic -c alembic.ini upgrade head

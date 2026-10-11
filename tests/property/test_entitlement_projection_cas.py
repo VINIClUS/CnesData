@@ -76,6 +76,7 @@ def test_exatamente_um_cas_vence_por_versao_esperada(executor, contenders):
     assert results.count(True) == 1
     assert results.count(False) == contenders - 1
     winner = writes[results.index(True)].snapshot
+    assert stored is not None
     assert stored.entitlement_version == 2
     assert stored.source_event_id == winner.source_event_id
 

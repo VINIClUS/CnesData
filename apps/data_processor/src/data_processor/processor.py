@@ -24,6 +24,8 @@ from data_processor.cdc_merger import (
 from data_processor.integrity_check import IntegrityError, verify_parquet
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
+
     from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
@@ -31,7 +33,9 @@ logger = logging.getLogger(__name__)
 _DOWNLOAD_CHUNK: int = 64 * 1024
 
 
-def _download_parquet(url: str, breaker: CircuitBreaker) -> pl.DataFrame:
+def _download_parquet(  # pyright: ignore[reportUnusedFunction]
+    url: str, breaker: CircuitBreaker,
+) -> pl.DataFrame:
     if url.startswith("null://"):
         raise ValueError("null_storage url_not_downloadable")
 
@@ -65,7 +69,7 @@ def _download_parquet(url: str, breaker: CircuitBreaker) -> pl.DataFrame:
 
 def route_delta(
     df: pl.DataFrame,
-    conn: object,
+    conn: Connection,
     source: str,
     intent: str,
     apply_iu_fn: ApplyIU | None = None,
@@ -84,7 +88,7 @@ def route_delta(
 def verify_and_route_delta(
     parquet_path: str,
     expected_sha256: str | None,
-    conn: object,
+    conn: Connection,
     source: str,
     intent: str,
     apply_iu_fn: ApplyIU | None = None,

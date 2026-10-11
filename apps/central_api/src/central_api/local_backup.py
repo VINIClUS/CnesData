@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from secrets import token_hex
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -121,7 +121,7 @@ def _read_single_tenant(database_path: Path) -> str:
 
 
 def _collect_manifest_files(staging: Path) -> tuple[BackupFile, ...]:
-    files = []
+    files: list[BackupFile] = []
     for item in sorted(staging.rglob("*")):
         if item.is_dir():
             continue
@@ -292,7 +292,7 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
     logging.basicConfig(level=logging.INFO)
     if args.command == "create":
         return _cli_create(settings.data_dir, Path(args.target))
-    return _cli_restore(settings.data_dir, Path(args.archive), settings.tenant_id)
+    return _cli_restore(settings.data_dir, Path(args.archive), cast("str", settings.tenant_id))
 
 
 __all__ = [

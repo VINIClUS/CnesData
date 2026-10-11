@@ -459,7 +459,7 @@ def test_rejeita_evento_de_audit_invalido(overrides: dict[str, Any]) -> None:
 
 
 def test_atributos_de_audit_sao_imutaveis() -> None:
-    source = {"version": 1}
+    source: dict[str, Any] = {"version": 1}
     event = _audit(attributes=source)
     source["version"] = 2
     source["extra"] = "x"

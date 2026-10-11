@@ -5,6 +5,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
+from cnes_domain.billing.revocation_models import REASON_CODE_PATTERN
+
 _Key = Annotated[str, Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 _Id = Annotated[str, Field(min_length=1, max_length=128)]
 
@@ -19,7 +21,7 @@ class BillingAccountCreate(_Request):
 
 class BillingAccountTransfer(_Request):
     new_owner_user_id: _Id
-    reason_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    reason_code: str = Field(pattern=REASON_CODE_PATTERN)
 
 
 class CheckoutCreate(_Request):

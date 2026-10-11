@@ -1,5 +1,6 @@
 """Métrica de runs cancelados pela revogação administrativa."""
 
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
@@ -10,6 +11,9 @@ from apps.central_api.tests.routes.test_billing_admin import BODY, URL, AdminEnv
 from central_api.routes.billing_admin import get_revocation_service
 from central_api.routes.stripe_webhook import get_billing_metrics
 from cnes_domain.billing.revocation_models import RevocationResult
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 
 @pytest.fixture
@@ -48,7 +52,7 @@ def test_revogacao_sem_runs_cancelados_nao_emite_metrica(env) -> None:
 def test_revogacao_rejeitada_nao_emite_metrica(env) -> None:
     metrics = Mock()
     app_client = _client(env, metrics)
-    app_client.app.dependency_overrides.pop(get_revocation_service)
+    cast("FastAPI", app_client.app).dependency_overrides.pop(get_revocation_service)
 
     response = app_client.post(URL, json=BODY, headers=HEADERS)
 

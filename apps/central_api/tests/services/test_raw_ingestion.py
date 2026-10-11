@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from io import BytesIO
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -13,9 +14,17 @@ from cnes_domain.control_plane.enums import JobState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.ports.object_store import ObjectStat
 
+if TYPE_CHECKING:
+    from central_api.services.raw_ingestion import _ControlPlane
+    from cnes_domain.ports.object_store import ObjectStorePort
+
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 DATA = b"parquet"
 DATA_HASH = sha256(DATA).hexdigest()
+
+
+def ports(control: object, store: object) -> "tuple[_ControlPlane, ObjectStorePort]":
+    return cast("_ControlPlane", control), cast("ObjectStorePort", store)
 
 
 def manifest(mode: SnapshotMode = SnapshotMode.FULL) -> RawManifest:
@@ -112,9 +121,9 @@ class ControlPlane:
     def __init__(self, current: Job) -> None:
         self.job = current
         self.records: dict[str, RawManifestRecord] = {}
-        self.marker = None
-        self.latest = None
-        self.chain = ()
+        self.marker: RawResyncState | None = None
+        self.latest: Job | None = None
+        self.chain: tuple[ManifestRef, ...] = ()
         self.mutations: list[str] = []
         self.query_calls: list[str] = []
         self.events = []
@@ -166,8 +175,8 @@ class ControlPlane:
         return self.job
 
 
-def command(raw: RawManifest, **updates: object) -> RegisterRawManifest:
-    values = {
+def command(raw: RawManifest, **updates: Any) -> RegisterRawManifest:
+    values: dict[str, Any] = {
         "tenant_id": "354130",
         "agent_id": "agent-1",
         "job_id": "job-1",
@@ -215,7 +224,9 @@ def test_registra_manifesto_raw_de_fontes_retidas(
     raw = retained(source_type, file_subtype)
     control = ControlPlane(retained_job(raw))
 
-    result = RawIngestionService(control, ObjectStore(raw), DeltaPolicy()).register(command(raw))
+    result = RawIngestionService(*ports(control, ObjectStore(raw)), DeltaPolicy()).register(
+        command(raw)
+    )
 
     assert result.accepted
     assert control.mutations == ["complete"]
@@ -228,7 +239,9 @@ def test_registra_slot_zero_row_de_fonte_retida() -> None:
     raw = retained(SourceType.SIA_LOCAL, "SIA_BPIHST", row_count=0)
     control = ControlPlane(retained_job(raw))
 
-    result = RawIngestionService(control, ObjectStore(raw), DeltaPolicy()).register(command(raw))
+    result = RawIngestionService(*ports(control, ObjectStore(raw)), DeltaPolicy()).register(
+        command(raw)
+    )
 
     assert result.accepted
     assert control.mutations == ["complete"]
@@ -244,7 +257,9 @@ def test_aceite_grava_sidecar_antes_do_commit_atomico_e_callback() -> None:
         assert control.mutations == ["complete"]
         order.append(item.manifest_id)
 
-    result = RawIngestionService(control, store, DeltaPolicy(), accepted).register(command(raw))
+    result = RawIngestionService(*ports(control, store), DeltaPolicy(), accepted).register(
+        command(raw)
+    )
 
     assert result.accepted
     assert control.mutations == ["complete"]
@@ -258,7 +273,7 @@ def test_identidade_divergente_falha_antes_de_acessar_objeto() -> None:
     control = ControlPlane(job())
 
     with pytest.raises(Conflict, match="manifest_identity"):
-        RawIngestionService(control, store, DeltaPolicy()).register(
+        RawIngestionService(*ports(control, store), DeltaPolicy()).register(
             command(raw, agent_id="other")
         )
 
@@ -284,7 +299,7 @@ def test_conflito_vivo_nao_altera_control_plane(mode, raw_updates, updates, erro
     control = ControlPlane(job(mode))
 
     with pytest.raises((Conflict, ValueError), match=error):
-        RawIngestionService(control, store, DeltaPolicy()).register(command(raw, **updates))
+        RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(raw, **updates))
 
     assert control.mutations == []
     assert all(not call.startswith("put:") for call in store.calls)
@@ -297,7 +312,7 @@ def test_objeto_divergente_vence_rejeicao_delta_potencial() -> None:
     control = ControlPlane(job(SnapshotMode.DELTA))
 
     with pytest.raises(Conflict, match="object=divergent"):
-        RawIngestionService(control, store, DeltaPolicy()).register(command(raw))
+        RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(raw))
 
     assert control.query_calls == []
     assert control.mutations == []
@@ -308,7 +323,7 @@ def test_rejeicao_delta_finaliza_job_sem_sidecar() -> None:
     store = ObjectStore(raw)
     control = ControlPlane(job(SnapshotMode.DELTA))
 
-    result = RawIngestionService(control, store, DeltaPolicy()).register(command(raw))
+    result = RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(raw))
 
     assert result.reason is ResyncReason.BASE_UNKNOWN
     assert control.job.rejected_manifest_sha256 == manifest_sha256(raw)
@@ -338,7 +353,7 @@ def test_replay_terminal_rejeitado_sem_lease_nao_acessa_objeto() -> None:
     store = ObjectStore(raw)
     control = ControlPlane(failed)
 
-    result = RawIngestionService(control, store, DeltaPolicy()).register(command(raw))
+    result = RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(raw))
 
     assert result.reason is ResyncReason.BASE_UNKNOWN
     assert store.calls == []
@@ -361,7 +376,7 @@ def test_replay_terminal_aceito_carrega_por_id_sem_cadeia() -> None:
     control = ControlPlane(succeeded)
     control.records[raw.manifest_id] = projection
 
-    result = RawIngestionService(control, store, DeltaPolicy()).register(command(raw))
+    result = RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(raw))
 
     assert result.accepted
     assert control.query_calls == ["by-id"]
@@ -377,7 +392,7 @@ def test_replay_terminal_divergente_nao_muta_estado() -> None:
     control = ControlPlane(failed)
 
     with pytest.raises(Conflict, match="terminal_replay=conflict"):
-        RawIngestionService(control, ObjectStore(raw), DeltaPolicy()).register(command(raw))
+        RawIngestionService(*ports(control, ObjectStore(raw)), DeltaPolicy()).register(command(raw))
 
     assert control.mutations == []
 
@@ -389,7 +404,7 @@ def test_callback_falha_depois_do_aceite_duravel(caplog) -> None:
     def fail(_: RawManifestRecord) -> None:
         raise RuntimeError("cpf=12345678900")
 
-    result = RawIngestionService(control, ObjectStore(raw), DeltaPolicy(), fail).register(
+    result = RawIngestionService(*ports(control, ObjectStore(raw)), DeltaPolicy(), fail).register(
         command(raw)
     )
 
@@ -427,9 +442,9 @@ def test_delta_valida_chave_do_ultimo_job(latest_key_matches: bool) -> None:
 
     if not latest_key_matches:
         with pytest.raises(Conflict, match="raw_history=divergent"):
-            RawIngestionService(control, store, DeltaPolicy()).register(command(current))
+            RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(current))
         return
-    result = RawIngestionService(control, store, DeltaPolicy()).register(command(current))
+    result = RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(current))
 
     assert result.accepted
     assert control.query_calls == ["resync", "latest", "agent-chain", "by-id"]
@@ -448,7 +463,9 @@ def test_marcador_existente_tem_precedencia_sem_consultar_cadeia() -> None:
         required_since=NOW,
     )
 
-    result = RawIngestionService(control, ObjectStore(raw), DeltaPolicy()).register(command(raw))
+    result = RawIngestionService(*ports(control, ObjectStore(raw)), DeltaPolicy()).register(
+        command(raw)
+    )
 
     assert result.reason is ResyncReason.AGENT_RESYNC_REQUIRED
     assert control.query_calls == ["resync"]
@@ -475,7 +492,7 @@ def test_job_invalido_nao_acessa_objeto(current, updates, error) -> None:
     store = ObjectStore(raw)
 
     with pytest.raises((Conflict, LookupError), match=error):
-        RawIngestionService(control, store, DeltaPolicy()).register(command(raw, **updates))
+        RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(raw, **updates))
 
     assert store.calls == []
 
@@ -500,7 +517,7 @@ def test_objeto_ausente_nao_muta_estado() -> None:
     control = ControlPlane(job())
 
     with pytest.raises(Conflict, match="object=missing"):
-        RawIngestionService(control, store, DeltaPolicy()).register(command(raw))
+        RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(raw))
 
     assert control.mutations == []
 
@@ -531,7 +548,7 @@ def test_replay_aceito_corrompido_falha_fechado(corruption: str) -> None:
         store.objects[projection.manifest_key] = b"divergent"
 
     with pytest.raises(Conflict, match="terminal_replay=conflict"):
-        RawIngestionService(control, store, DeltaPolicy()).register(command(raw))
+        RawIngestionService(*ports(control, store), DeltaPolicy()).register(command(raw))
 
     assert control.mutations == []
 
@@ -548,6 +565,6 @@ def test_historico_corrompido_nao_finaliza_job() -> None:
     })
 
     with pytest.raises(Conflict, match="raw_history=divergent"):
-        RawIngestionService(control, ObjectStore(raw), DeltaPolicy()).register(command(raw))
+        RawIngestionService(*ports(control, ObjectStore(raw)), DeltaPolicy()).register(command(raw))
 
     assert control.mutations == []

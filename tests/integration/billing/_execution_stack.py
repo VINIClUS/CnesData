@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import boto3
 from moto import mock_aws
@@ -70,10 +70,13 @@ class Case:
     name: str
     dynamo: bool
     stripe: bool
+    enforcement: BillingEnforcementMode = BillingEnforcementMode.ENFORCE
 
     @property
     def settings(self) -> BillingSettings:
-        return STRIPE_SETTINGS if self.stripe else DISABLED_SETTINGS
+        if not self.stripe:
+            return DISABLED_SETTINGS
+        return replace(STRIPE_SETTINGS, enforcement_mode=self.enforcement)
 
 
 @dataclass
@@ -232,13 +235,13 @@ def claim_command(stack: Stack, dispatch: RunDispatch, unit_id: str) -> ClaimRun
 
 
 def complete_wave(stack: Stack) -> RunDispatch:
-    dispatch = active_dispatch(stack)
+    dispatch = cast("RunDispatch", active_dispatch(stack))
     dependencies = UnitWorkerDependencies(
         control_plane=stack.plane, store=stack.store, processor=_processor, clock=stack.clock.now,
     )
     for unit_id in dispatch.unit_ids:
         UnitWorker(dependencies).execute(claim_command(stack, dispatch, unit_id))
-    stack.executor.set_status(dispatch.execution_ref, ExecutionStatus.SUCCEEDED)
+    stack.executor.set_status(cast("str", dispatch.execution_ref), ExecutionStatus.SUCCEEDED)
     return dispatch
 
 

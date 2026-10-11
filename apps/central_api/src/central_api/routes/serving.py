@@ -16,6 +16,7 @@ from central_api.serving.aws_signed import (
     ServingSigningUnavailable,
     SignedServingRequest,
 )
+from cnes_domain.orchestration.source_catalog import build_source_catalog
 from cnes_domain.ports.object_store import ObjectStorePort  # noqa: TC001
 from cnes_domain.ports.serving import ServingAccessPort, ServingRequest
 
@@ -32,6 +33,9 @@ _SAFE_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _CHUNK_SIZE = 1024 * 1024
 _ENTITLEMENT_DENIED_CODES = frozenset(
     {"billing_account_missing", "entitlement_denied", "retention_expired"}
+)
+_KNOWN_DATASETS = frozenset(
+    definition.pipeline_id for definition in build_source_catalog().definitions
 )
 
 
@@ -87,6 +91,8 @@ def signed_serving_delivery(
 
 
 def _validated_document(dataset_name: str, document_name: str) -> _DocumentPath:
+    if dataset_name not in _KNOWN_DATASETS:
+        raise HTTPException(status_code=404, detail="dataset_unknown")
     if not _SAFE_SEGMENT.fullmatch(document_name):
         raise HTTPException(status_code=422, detail="document_name_invalid")
     return _DocumentPath(dataset_name=dataset_name, document_name=document_name)

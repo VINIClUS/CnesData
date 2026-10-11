@@ -7,7 +7,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from central_api.services.raw_ingestion import RegisterRawManifest
 from central_api.serving.aws_signed import SignedServingRequest
@@ -227,7 +227,7 @@ def accept_raw_job(runtime: AwsTestRuntime, submission: RawSubmission) -> Job:
         manifest_bytes=manifest.model_dump_json(exclude_none=False, by_alias=False).encode(),
         now=now,
     ))
-    return control_plane.get_job(job.tenant_id, job.job_id)
+    return cast("Job", control_plane.get_job(job.tenant_id, job.job_id))
 
 
 def submit_frozen_raw(runtime: AwsTestRuntime) -> None:
@@ -311,7 +311,8 @@ def stages(runtime: AwsTestRuntime, run: Run, unit_ids: tuple[str, ...]) -> tupl
 def unit_message(dispatch: RunDispatch, unit_id: str, now: datetime) -> RunUnitMessage:
     return RunUnitMessage(
         tenant_id=dispatch.tenant_id, run_id=dispatch.run_id, wave_id=dispatch.wave_id,
-        dispatch_id=dispatch.dispatch_id, unit_id=unit_id, owner=dispatch.execution_ref,
+        dispatch_id=dispatch.dispatch_id, unit_id=unit_id,
+        owner=cast("str", dispatch.execution_ref),
         now=now, lease_seconds=LEASE_SECONDS,
     )
 
@@ -323,7 +324,7 @@ def drive_dispatch_units(
         runtime.processor.unit_handler.handle(unit_message(dispatch, unit_id, runtime.clock.now()))
         for unit_id in dispatch.unit_ids
     )
-    runtime.step_functions.set_status(dispatch.execution_ref, status)
+    runtime.step_functions.set_status(cast("str", dispatch.execution_ref), status)
     return handled
 
 
@@ -336,7 +337,7 @@ def drive_run_to_terminal(runtime: AwsTestRuntime, run: Run) -> Run:
     for _ in range(_MAX_WAVES):
         result = runtime.processor.coordinator.resume(run.tenant_id, run.run_id)
         if result.state is not RunState.PROCESSING:
-            return runtime.processor.control_plane.get_run(run.tenant_id, run.run_id)
+            return cast("Run", runtime.processor.control_plane.get_run(run.tenant_id, run.run_id))
         drive_dispatch_units(runtime, active_dispatch(runtime, run))
     raise AssertionError("run_terminal=unreached")
 
@@ -374,7 +375,8 @@ def commit_unit(runtime: AwsTestRuntime, unit: RunUnit, manifest_id: str) -> Run
     key = attempt_object_key(unit_attempt_prefix(unit), f"manifests/{manifest_id}/manifest.json")
     command = CommitRunUnit(
         tenant_id=unit.tenant_id, run_id=unit.run_id, unit_id=unit.unit_id,
-        dispatch_id=unit.dispatch_id, owner=unit.lease_owner, fencing_token=unit.fencing_token,
+        dispatch_id=cast("str", unit.dispatch_id), owner=cast("str", unit.lease_owner),
+        fencing_token=unit.fencing_token,
         output_manifests=(ManifestRef(manifest_id=manifest_id, manifest_key=key),),
     )
     event_id = f"run_unit.succeeded:{unit.unit_id}:{unit.attempt}:{manifest_id}"
@@ -412,9 +414,9 @@ def _materialized_unit(runtime: AwsTestRuntime, run: Run) -> RunUnit:
     body = b'{"schema_version": "cnes-serving-v1"}'
     digest = sha256(body).hexdigest()
     object_key = serving_key(run.tenant_id, run.run_id)
-    prefix = unit_attempt_prefix(SimpleNamespace(
+    prefix = unit_attempt_prefix(cast("RunUnit", SimpleNamespace(
         tenant_id=run.tenant_id, run_id=run.run_id, unit_id="unit-materialize", attempt=1,
-    ))
+    )))
     manifest = OutputManifest(
         manifest_version=1, manifest_id=f"serving-{run.run_id}", tenant_id=run.tenant_id,
         layer="serving", source_type=None, competencia=COMPETENCIA, run_id=run.run_id,

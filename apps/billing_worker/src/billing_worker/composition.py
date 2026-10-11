@@ -3,7 +3,7 @@
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from billing_worker.worker import BillingWorker, WorkerJobs
 from cnes_domain.billing.ports import BillingMetricsPort
@@ -71,7 +71,7 @@ def _revocation_service(runtime: _Runtime, components: StripeBillingComponents) 
         RevocationDependencies(
             components.projection,
             DynamoRevocationStore(storage.client, storage.table_name, _utc_now),
-            StepFunctionsExecutor(client, runtime.state_machine_arn),
+            StepFunctionsExecutor(client, cast("str", runtime.state_machine_arn)),
             components.audit,
             _utc_now,
         )

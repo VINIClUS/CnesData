@@ -1,6 +1,7 @@
 """Tenant context — ContextVar para isolamento multi-tenant."""
 
 from contextvars import ContextVar
+from typing import cast
 
 tenant_id_ctx: ContextVar[str] = ContextVar("tenant_id")
 
@@ -21,5 +22,5 @@ class InvalidTenantError(ValueError):
 
 
 def validate_tenant_id(tid: str) -> None:
-    if not isinstance(tid, str) or len(tid) != 6 or not tid.isdigit():
+    if not isinstance(cast("object", tid), str) or len(tid) != 6 or not tid.isdigit():
         raise InvalidTenantError(f"tenant_invalid value={tid!r}")

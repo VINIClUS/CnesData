@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Path
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from central_api.routes.billing import (
     BillingContext,
@@ -18,7 +18,7 @@ from central_api.routes.stripe_webhook import get_billing_metrics
 from cnes_domain.billing.errors import BillingDisabledError, PermanentBillingError
 from cnes_domain.billing.ports import BillingMetricsPort
 from cnes_domain.billing.revocation_models import (
-    MAX_REASON_CODE_LENGTH,
+    REASON_CODE_PATTERN,
     ImmediateRevocationCommand,
     RevocationResult,
 )
@@ -41,14 +41,7 @@ def get_revocation_service() -> RevocationService:
 class RevocationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason_code: str = Field(min_length=1, max_length=MAX_REASON_CODE_LENGTH)
-
-    @field_validator("reason_code")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("reason_code=blank")
-        return value
+    reason_code: str = Field(pattern=REASON_CODE_PATTERN)
 
 
 class RevocationOut(BaseModel):

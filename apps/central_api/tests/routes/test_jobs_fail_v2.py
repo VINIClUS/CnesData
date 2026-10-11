@@ -18,6 +18,8 @@ from sqlalchemy import text
 from cnes_infra.storage import extractions_repo
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from fastapi.testclient import TestClient
 
 pytestmark = pytest.mark.postgres
@@ -25,7 +27,7 @@ pytestmark = pytest.mark.postgres
 _TENANT = "354130"
 
 
-def _enqueue(pg_engine, **overrides) -> object:
+def _enqueue(pg_engine, **overrides) -> UUID:
     defaults = {
         "tenant_id": _TENANT,
         "source_type": "BPA_MAG",

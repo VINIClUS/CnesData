@@ -15,6 +15,7 @@ on:
       - 'apps/data_processor/**'
       - 'apps/cnes_db_migrator/**'
       - 'pyproject.toml'
+      - 'typings/**'
       - '.coveragerc'
       - 'docs/contracts/openapi.json'
       - 'docs/contracts/schemas/**'
@@ -24,6 +25,10 @@ on:
       - 'scripts/ci_phase2_adapters.sh'
       - 'scripts/local_backup.py'
       - 'scripts/local_backup_test.py'
+      - 'scripts/run_historical_shadow*.py'
+      - 'scripts/shadow_diff*.py'
+      - 'docs/fixtures/migration/**'
+      - 'docs/fixtures/data-plane/**'
       - 'scripts/gen_sia_dbf_fixtures.py'
       - 'scripts/tests/test_gen_sia_dbf.py'
       - 'docs/data-dictionary-sia.md'
@@ -82,6 +87,11 @@ jobs:
 
       - name: Run backup script unit tests
         run: uv run --no-build pytest -q scripts/local_backup_test.py
+
+      - name: Run MIG-010 historical shadow evidence tests
+        run: >-
+          uv run --no-build pytest -q scripts/run_historical_shadow_test.py
+          scripts/run_historical_shadow_integrity_test.py scripts/shadow_diff_test.py
 
       - name: Check SIA DBF fixtures against the real SIASUS layout
         run: uv run --no-build pytest -q scripts/tests/test_gen_sia_dbf.py

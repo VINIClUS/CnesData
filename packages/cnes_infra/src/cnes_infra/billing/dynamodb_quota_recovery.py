@@ -4,7 +4,7 @@ import base64
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -40,8 +40,8 @@ from cnes_infra.billing.keys import (
     QUOTA_RESERVATION_DUE_INDEX,
     QUOTA_RESERVATION_DUE_PARTITION,
     Key,
-    account_tenant_key,
 )
+from cnes_infra.control_plane.billed_tenant import TENANT_CAPACITY_SCOPE
 from cnes_infra.control_plane.dynamodb_codec import (
     Item,
     absent_check_action,
@@ -69,11 +69,12 @@ def _encode_cursor(last_key: dict[str, Any] | None) -> str | None:
 
 
 def _is_due_key(values: Any) -> bool:
-    if not isinstance(values, dict) or set(values) != _CURSOR_ATTRIBUTES:
+    mapping = cast("dict[str, object]", values)
+    if not isinstance(values, dict) or frozenset(mapping) != _CURSOR_ATTRIBUTES:
         return False
-    if not all(isinstance(value, str) and value for value in values.values()):
+    if not all(isinstance(value, str) and value for value in mapping.values()):
         return False
-    return values["gsi1pk"] == QUOTA_RESERVATION_DUE_PARTITION
+    return mapping["gsi1pk"] == QUOTA_RESERVATION_DUE_PARTITION
 
 
 def _decode_cursor(cursor: str) -> dict[str, dict[str, str]]:
@@ -93,7 +94,8 @@ def _is_due(reservation: QuotaReservation | CapacityReservation, now: datetime) 
 
 def _capacity_proof_key(reservation: CapacityReservation, tenant_id: str) -> Key:
     if reservation.kind is CapacityKind.TENANT:
-        return account_tenant_key(reservation.billing_account_id, reservation.resource_id)
+        scope = TENANT_CAPACITY_SCOPE
+        return idempotency_key(reservation.resource_id, scope, reservation.reservation_id)
     return idempotency_key(tenant_id, EDGE_AGENT_SCOPE, reservation.reservation_id)
 
 
@@ -101,6 +103,10 @@ class DynamoQuotaRecoveryMixin:
     _client: Any
     _table: str
     _clock: ClockPort
+
+    if TYPE_CHECKING:
+        def _transition_reservation(self, item: Item, change: ReservationTransition) -> bool: ...
+        def _transition_capacity(self, item: Item, change: CapacityTransition) -> bool: ...
 
     def reconcile_expired_reservations(
         self, request: ReservationRecoveryRequest

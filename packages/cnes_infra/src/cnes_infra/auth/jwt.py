@@ -2,7 +2,7 @@
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import httpx
 from jose import jwt as jose_jwt
@@ -27,7 +27,9 @@ class _JwksCache:
     ttl_seconds: int
     resolve_jwks_uri: Callable[[dict[str, Any]], str]
     error: Callable[[FetchStage, Exception], TokenInvalid]
-    _keys: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False)
+    _keys: list[dict[str, Any]] = field(
+        default_factory=list[dict[str, Any]], init=False, repr=False,
+    )
     _fetched_at: float = field(default=0.0, init=False, repr=False)
     _jwks_uri: str = field(default="", init=False, repr=False)
 
@@ -70,14 +72,15 @@ class _JwksCache:
         document = resp.json()
         if not isinstance(document, dict):
             raise ValueError("document_not_object")
-        return document
+        return cast("dict[str, Any]", document)
 
 
 def _keys_from(document: dict[str, Any]) -> list[dict[str, Any]]:
     keys = document.get("keys", [])
     if not isinstance(keys, list):
         raise ValueError("keys_not_list")
-    return [key for key in keys if isinstance(key, dict)]
+    items = cast("list[object]", keys)
+    return [cast("dict[str, Any]", key) for key in items if isinstance(key, dict)]
 
 
 def discovery_url(issuer: str) -> str:

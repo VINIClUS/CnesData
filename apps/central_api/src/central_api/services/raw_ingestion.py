@@ -11,7 +11,11 @@ from io import BytesIO
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from central_api.services.delta_policy import DeltaPolicy, ResyncReason, _DeltaContext
+from central_api.services.delta_policy import (
+    DeltaPolicy,
+    ResyncReason,
+    _DeltaContext,  # pyright: ignore[reportPrivateUsage]
+)
 from cnes_contracts import RawManifest, SnapshotMode, manifest_sha256
 from cnes_domain.control_plane.commands import CompleteJob, FailJob
 from cnes_domain.control_plane.entities import Job, ManifestRef, OutboxEvent, RawManifestRecord
@@ -29,6 +33,7 @@ from cnes_domain.control_plane.queries import (
 if TYPE_CHECKING:
     from typing import Protocol
 
+    from cnes_domain.control_plane.entities import JsonValue
     from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_domain.ports.object_store import ObjectStorePort
 
@@ -246,7 +251,7 @@ class RawIngestionService:
     def _load_chain(
         self, command: RegisterRawManifest, refs: tuple[ManifestRef, ...]
     ) -> tuple[RawManifest, ...]:
-        manifests = []
+        manifests: list[RawManifest] = []
         try:
             for reference in refs:
                 query = RawManifestByIdQuery(command.tenant_id, reference.manifest_id)
@@ -409,7 +414,7 @@ def _event(
 ) -> OutboxEvent:
     manifest = command.manifest
     identity = "\x1f".join((event_type, command.tenant_id, command.job_id, digest))
-    payload = {
+    payload: dict[str, JsonValue] = {
         "job_id": command.job_id,
         "agent_id": command.agent_id,
         "manifest_id": manifest.manifest_id,

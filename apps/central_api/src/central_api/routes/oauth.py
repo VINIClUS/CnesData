@@ -84,7 +84,7 @@ async def token(
 
 
 @router.post("/activate/confirm", response_model=ActivateConfirmResponse)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute")  # pyright: ignore[reportUnknownMemberType, reportUntypedFunctionDecorator]
 async def activate_confirm(
     body: ActivateConfirmRequest,
     request: Request,

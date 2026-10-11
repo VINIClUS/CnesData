@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -155,7 +155,7 @@ class ClockRuntime:
         if trial_days:
             params["trial_period_days"] = trial_days
         self.subscription_id = self.stripe.v1.subscriptions.create(params=params).id
-        return self.subscription_id
+        return cast("str", self.subscription_id)
 
     def period(self) -> tuple[datetime, datetime]:
         subscription = self.stripe.v1.subscriptions.retrieve(self._subscription())

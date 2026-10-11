@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from botocore.exceptions import ClientError
@@ -92,6 +92,7 @@ def test_delega_leituras_ao_control_plane_canonico(env: RevEnv) -> None:
         TENANT, RUN_ID
     )
     active = env.store.get_active_run_dispatch(TENANT, RUN_ID)
+    assert active is not None
     assert active.dispatch_id == dispatch.dispatch_id
 
 
@@ -226,6 +227,7 @@ def test_fence_marca_run_e_companion_e_grava_evento_em_uma_transacao(env: RevEnv
     put_units(env, (make_unit("unit-a"),))
     dispatch = start_wave(env, ("unit-a",), None)
     before = env.store.get_run_billing_state(TENANT, RUN_ID)
+    assert before is not None
     env.spy.transactions.clear()
 
     fenced = fence(env)
@@ -236,7 +238,7 @@ def test_fence_marca_run_e_companion_e_grava_evento_em_uma_transacao(env: RevEnv
         dispatch.dispatch_id, "exec-1"
     )
     assert fenced.execution_status == before.execution_status
-    assert env.store.get_run(TENANT, RUN_ID).state is RunState.CANCEL_REQUESTED
+    assert cast("Any", env.store.get_run(TENANT, RUN_ID)).state is RunState.CANCEL_REQUESTED
     assert len(env.spy.transactions) == 1
     assert len(env.spy.transactions[0]) == 3
     assert "run.revocation_requested:run-01" in stored_event_ids(env)
@@ -266,8 +268,8 @@ def test_expectativa_obsoleta_do_fence_e_retentavel(env: RevEnv, changes: Any) -
     with pytest.raises(RetryableBillingError, match="run_revocation_stale"):
         env.store.request_run_revocation(revoke_command(env, **changes), revocation_event())
 
-    assert env.store.get_run(TENANT, RUN_ID).state is RunState.PROCESSING
-    assert env.store.get_run_billing_state(TENANT, RUN_ID).cancel_requested is False
+    assert cast("Any", env.store.get_run(TENANT, RUN_ID)).state is RunState.PROCESSING
+    assert cast("Any", env.store.get_run_billing_state(TENANT, RUN_ID)).cancel_requested is False
 
 
 def test_mudanca_concorrente_antes_da_transacao_e_retentavel(env: RevEnv) -> None:
@@ -276,6 +278,7 @@ def test_mudanca_concorrente_antes_da_transacao_e_retentavel(env: RevEnv) -> Non
 
     def mutate() -> None:
         state = env.store.get_run_billing_state(TENANT, RUN_ID)
+        assert state is not None
         changed = replace(state, updated_at=state.updated_at + timedelta(seconds=1))
         env.client.put_item(TableName=env.table, Item=encode_run_billing_state(changed))
 
@@ -284,7 +287,7 @@ def test_mudanca_concorrente_antes_da_transacao_e_retentavel(env: RevEnv) -> Non
     with pytest.raises(RetryableBillingError, match="run_revocation_stale"):
         env.store.request_run_revocation(command, revocation_event())
 
-    assert env.store.get_run(TENANT, RUN_ID).state is RunState.PROCESSING
+    assert cast("Any", env.store.get_run(TENANT, RUN_ID)).state is RunState.PROCESSING
     assert "run.revocation_requested:run-01" not in stored_event_ids(env)
 
 
@@ -300,7 +303,7 @@ def test_run_ja_em_cancel_requested_e_fenceado_com_condition_check(env: RevEnv) 
     kinds = sorted(next(iter(action)) for action in env.spy.transactions[0])
     assert kinds == ["ConditionCheck", "Put", "Put"]
     assert (fenced.cancel_requested, fenced.fencing_token) == (True, 1)
-    assert env.store.get_run(TENANT, RUN_ID).state is RunState.CANCEL_REQUESTED
+    assert cast("Any", env.store.get_run(TENANT, RUN_ID)).state is RunState.CANCEL_REQUESTED
 
 
 def test_run_waiting_inputs_e_fenceado_para_cancel_requested(env: RevEnv) -> None:
@@ -309,6 +312,7 @@ def test_run_waiting_inputs_e_fenceado_para_cancel_requested(env: RevEnv) -> Non
     fence(env)
 
     run = env.store.get_run(TENANT, RUN_ID)
+    assert run is not None
     assert run.state is RunState.CANCEL_REQUESTED
     assert get_raw(env, run_entity_key(TENANT, RUN_ID)) == run_item(run)
 
@@ -395,7 +399,7 @@ def test_retorna_a_versao_mais_recente_do_progresso(env: RevEnv) -> None:
     env.store.save_revocation_progress(None, progress(entitlement_version=2))
     env.store.save_revocation_progress(None, progress(entitlement_version=10))
 
-    assert env.store.get_revocation_progress(ACCOUNT).entitlement_version == 10
+    assert cast("Any", env.store.get_revocation_progress(ACCOUNT)).entitlement_version == 10
 
 
 @pytest.mark.parametrize("changes", [{"entitlement_version": 2}, {"billing_account_id": "ba_99"}])

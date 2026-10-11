@@ -7,7 +7,7 @@ import logging
 import re
 from datetime import date
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -288,6 +288,6 @@ def test_contexto_malformado_nunca_derruba_nem_vaza(capsys: pytest.CaptureFixtur
     assert "secret-value" not in stream.getvalue() + capsys.readouterr().err
     first, second, third = _linhas(stream)
     assert first["ctx"] == {"['a', 'b']": 1, "RuntimeError": 2, "['ValueError']": 3}
-    assert "[TRUNCATED]" in second["event"]
+    assert "[TRUNCATED]" in cast("str", second["event"])
     assert (third["event"], third["error_type"]) == ("log_format_failed", "RuntimeError")
     assert third["service"] == "worker"

@@ -20,7 +20,7 @@ from cnes_domain.ports.object_store import ObjectStat
 from cnes_infra.object_store._common import require_digest, stream_with_digest, validate_key
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
     from contextlib import AbstractContextManager as ContextManager
     from typing import BinaryIO
 
@@ -175,7 +175,7 @@ class FilesystemObjectStore:
             stack.pop_all()
 
     @contextmanager
-    def _layout(self) -> Iterator[_Layout]:
+    def _layout(self) -> Generator[_Layout]:
         with ExitStack() as stack:
             objects = os.dup(self._objects_descriptor)
             stack.callback(os.close, objects)
@@ -205,7 +205,7 @@ class FilesystemObjectStore:
         return cls._stat_descriptor(key, descriptor)
 
     @contextmanager
-    def _namespace_lock(self, locks: int, digest: str, *, blocking: bool = True) -> Iterator[bool]:
+    def _namespace_lock(self, locks: int, digest: str, *, blocking: bool = True) -> Generator[bool]:
         descriptor = os.open(
             f"{digest}.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=locks
         )

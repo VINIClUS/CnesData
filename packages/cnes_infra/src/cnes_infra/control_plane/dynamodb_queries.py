@@ -16,11 +16,12 @@ from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.queries import RawManifestByIdQuery
 from cnes_infra.control_plane.dynamodb_codec import (
     CandidateQuery,
-    _ancestry_prefix,
+    ancestry_prefix,
     bounded_candidates,
     raw_head_chain,
     unique_partition_item,
 )
+from cnes_infra.control_plane.dynamodb_host import DynamoDBHost
 from cnes_infra.control_plane.dynamodb_keys import (
     key_component,
     raw_manifest_lookup_key,
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
     )
 
 
-class DynamoDBQueries:
+class DynamoDBQueries(DynamoDBHost):
     """Consulta identidades RAW e relê candidatos dos índices."""
 
     def _query[T: BaseModel](
@@ -88,7 +89,7 @@ class DynamoDBQueries:
         )
         if record is None or record.agent_id != query.agent_id:
             return ()
-        prefix = _ancestry_prefix(record, record.sequence, record.manifest_sha256)
+        prefix = ancestry_prefix(record, record.sequence, record.manifest_sha256)
         ancestry = unique_partition_item(self._client, self._table_name, partition, prefix)
         if ancestry is None or "chain" not in ancestry:
             return ()
