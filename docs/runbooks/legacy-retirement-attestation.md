@@ -176,9 +176,12 @@ def put(key, body):
     digest = hashlib.sha256(body)
     resp = s3.put_object(Bucket=bucket, Key=key, Body=body, IfNoneMatch="*",
                          ChecksumSHA256=base64.b64encode(digest.digest()).decode())
+    version = resp.get("VersionId")
     print(f"uploaded key={key} bytes={len(body)} sha256={digest.hexdigest()} "
-          f"version_id={resp.get('VersionId')}")
-    return resp.get("VersionId")
+          f"version_id={version}")
+    if not version or version == "null":
+        raise SystemExit(f"version_id_missing key={key}: versionamento desligado ou suspenso")
+    return version
 
 
 dump_key = f"{prefix}cnesdata-{e['SNAP_ENV']}.dump"
@@ -234,6 +237,8 @@ expected = (
      hashlib.sha256(local).hexdigest()),
 )
 for key, version, size, sha in expected:
+    if not version or version == "null":
+        errors.append(f"version_missing key={key}")
     head = s3.head_object(Bucket=bucket, Key=key, ChecksumMode="ENABLED")
     checksum = base64.b64encode(bytes.fromhex(sha)).decode()
     if head.get("VersionId") != version:
@@ -257,11 +262,13 @@ except ClientError as exc:
     if exc.response["Error"]["Code"] != "PreconditionFailed":
         errors.append(f"probe_error code={exc.response['Error']['Code']}")
 print(f"verified dump_sha256={digest.hexdigest()} errors={len(errors)} {' '.join(errors)}")
+raise SystemExit(1 if errors else 0)
 PY
 rm -f "$envf"
 ```
 
-O script confere cinco coisas:
+O script sai com código diferente de zero se qualquer checagem falhar. Nesse caso não apague as
+cópias locais e não siga para o MIG-014. Ele confere cinco coisas:
 1. A versão corrente de cada chave é a registrada (`VersionId`).
 2. `HeadObject` com `ChecksumMode=ENABLED`: `ContentLength` e `ChecksumSHA256` batem com o
    manifest.
@@ -299,18 +306,21 @@ s3 = Session(e["RAW_AWS_ACCESS_KEY_ID"], e["RAW_AWS_SECRET_ACCESS_KEY"],
 s3.download_file(e["RAW_S3_BUCKET"], e["KEY"], "/out/cnesdata.dump")
 PY
 rm -f "$envf"
-sha256sum "$restore_dir/cnesdata.dump"   # tem de ser igual ao sha256 do manifest
-docker run -d --name restore-check --network none -e POSTGRES_HOST_AUTH_METHOD=trust \
-  postgres:16-alpine
-until docker exec restore-check pg_isready -U postgres -q; do sleep 1; done
-docker exec restore-check createdb -U postgres restore_check
-docker exec -i restore-check pg_restore -U postgres -d restore_check --no-owner \
-  < "$restore_dir/cnesdata.dump"
+(
+  set -euo pipefail
+  echo "<sha256 do manifest>  $restore_dir/cnesdata.dump" | sha256sum -c -
+  docker run -d --name restore-check --network none -e POSTGRES_HOST_AUTH_METHOD=trust \
+    postgres:16-alpine
+  until docker exec restore-check pg_isready -U postgres -q; do sleep 1; done
+  docker exec restore-check createdb -U postgres restore_check
+  docker exec -i restore-check pg_restore -U postgres -d restore_check --no-owner \
+    < "$restore_dir/cnesdata.dump"
+) || echo "restore_aborted: confira o hash e o VersionId registrados na #279"
 ```
 
-Se o SHA-256 não bater, a chave foi sobrescrita depois do snapshot. Nesse caso, recupere o
-`VersionId` registrado na #279 com uma credencial administrativa, porque a credencial raw não lê
-versões antigas.
+O `sha256sum -c` barra a restauração antes de subir o container se o hash não bater. Isso
+significa que a chave foi sobrescrita depois do snapshot. Recupere então o `VersionId` registrado
+na #279 com uma credencial administrativa, porque a credencial raw não lê versões antigas.
 
 A restauração serve para auditoria e consulta. Ela não religa `data-processor`, rotas legadas nem
 storage de landing. Apague o container e o diretório ao terminar (`docker rm -f restore-check`,
