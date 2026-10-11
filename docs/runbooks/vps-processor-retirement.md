@@ -102,12 +102,15 @@ Com o serviço removido e a imagem com o fence ativa, registre na #278:
 - `n_tup_ins`, `n_tup_upd` e `n_tup_del` de `pg_stat_user_tables` para os schemas `landing` e
   `gold`;
 - contagens, `max(created_at)` e `max(registered_at)` de `landing.extractions`;
-- o último `LastModified` e o total de objetos do storage legado de landing:
-  - prod: bucket S3 `cnesdata-landing`;
-  - dev: bucket do AIStor.
-
-  Liste-o de dentro do container `central-api`, com as credenciais que ele já tem, sem imprimir
-  segredos.
+- o último `LastModified` e o total de objetos do storage legado de landing, sem imprimir
+  segredos:
+  - dev: bucket do AIStor, listado de dentro do container `central-api` com as credenciais que
+    ele já tem;
+  - prod: bucket S3 `cnesdata-landing`. As credenciais do storage legado na VPS não têm
+    `s3:ListBucket` nele (`AccessDenied` em 2026-10-11), então a listagem exige uma identidade
+    que não seja root e tenha esse direito. Sem ela, registre a prova indireta: zero linhas em
+    `landing.extractions` e o presign cercado, já que todo upload legado dependia do presign de
+    `/api/v1/jobs/upload-url`.
 
 O `xact_commit` do banco continua subindo, porque auth, leads e health ainda escrevem em `public`.
 Por isso a prova de ausência de escrita usa os contadores por tabela de `landing` e `gold`.
@@ -130,16 +133,20 @@ Publique T0, T1 e o veredito na #278.
   `up -d` recriaria o worker com escrita legada em `landing.*` e `gold.*`. O backup serve só
   para auditoria e `diff`. Se o passo 3 falhar, corrija para frente a partir do Compose
   versionado, sem o serviço.
-- **Imagem:** troque só a tag e mantenha o Compose atual. É o mesmo caminho do rollback
+- **Imagem:** volte só para uma tag que já tenha o fence (a do merge do MIG-012 em `develop` ou
+  posterior). Troque só a tag e mantenha o Compose atual, o mesmo caminho do rollback
   automático do `deploy.sh`:
 
   ```bash
-  cd "$STACK" && echo "IMAGE_TAG=<tag-anterior>" > .env.image
+  cd "$STACK" && echo "IMAGE_TAG=<tag-com-fence>" > .env.image
   $COMPOSE pull && $COMPOSE up -d --remove-orphans
   ```
 
-  Uma tag anterior ao fence reabre as rotas legadas e o reaper no `central_api`. Só faça isso se
-  a API estiver indisponível, e colete o T0 de novo após o próximo deploy com o fence.
+  Nunca volte manualmente para uma tag anterior ao fence: ela reabre as rotas legadas e o reaper
+  no `central_api`. Se nenhuma tag com o fence funcionar, corrija para frente. Na primeira
+  implantação do fence, o rollback automático do `deploy.sh` volta sozinho para a tag anterior,
+  sem o fence (passo 4). Trate isso como incidente: corrija e refaça o deploy antes de qualquer
+  outra ação, e colete o T0 de novo.
 - **Escritas legadas:** nunca reative. Ou seja:
   - não religue o `data-processor`;
   - não crie flag de runtime que desfaça o fence.

@@ -46,13 +46,14 @@ instalar explicitamente Compose e variáveis raw na VPS. Para cada stack:
    `workflow_dispatch` com `version=v0.1.2` para dry-run; a tag
    `dumpagent-go-v0.1.2` faz a publicação real depois do servidor.
 
-Em rollback, manter o Compose versionado atual, sem o `data-processor`. O
-Compose salvo no passo 1 pode ser anterior ao MIG-012, e o `up -d` religaria
-as escritas legadas. Restaurar só o `.env` salvo e, se preciso, trocar apenas
-`IMAGE_TAG` em `.env.image`, como no rollback de `vps-processor-retirement.md`.
-Depois rodar `docker compose ... up -d --remove-orphans`. Para o agente,
-restaurar o canal anterior no manifesto de release. Manter tabelas e objetos
-raw para replay posterior.
+Em rollback, não restaurar o Compose nem o `.env` salvos no passo 1. O Compose
+salvo pode ser anterior ao MIG-012, e o `up -d` religaria o `data-processor` e
+as escritas legadas. O Compose atual fixa `RAW_BACKEND=aws`: sem as seis
+variáveis raw, o `central-api` não sobe (`raw_aws_config_missing`). No `.env`,
+reverter só valores pré-existentes alterados de propósito e manter as
+variáveis raw. Para a imagem, seguir o rollback de
+`vps-processor-retirement.md`. Para o agente, restaurar o canal anterior no
+manifesto de release. Manter tabelas e objetos raw para replay posterior.
 
 ## Enqueue e smoke local
 
