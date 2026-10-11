@@ -171,5 +171,7 @@ minio.license
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+*.tfvars.json
+!*.tfvars.json.example
 *.tfplan
 *.tfplan.*

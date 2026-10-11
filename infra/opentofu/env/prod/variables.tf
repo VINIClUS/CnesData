@@ -60,7 +60,7 @@ variable "shared_outputs" {
         var.shared_outputs.storage.state_bucket_arn,
         var.shared_outputs.storage.evidence_bucket_arn,
         ] : can(regex(
-          "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$",
+          "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$",
           arn,
       ))
     ])
@@ -73,6 +73,11 @@ variable "shared_outputs" {
       can(regex("^[0-9a-f]{64}$", var.shared_outputs.roles_anywhere.crl.sha256))
     )
     error_message = "Roles Anywhere CRL evidence requires an ID and lowercase SHA-256."
+  }
+
+  validation {
+    condition     = var.shared_outputs.roles_anywhere.crl.enabled != null
+    error_message = "Roles Anywhere CRL enabled status must be a boolean."
   }
 
   validation {

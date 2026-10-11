@@ -201,6 +201,24 @@ def repo_root() -> Path:
 
 
 @pytest.fixture(scope="session")
+def git_ignored_paths() -> Callable[[Sequence[str]], set[str]]:
+    git_bin = require_tool("git")
+
+    def check(paths: Sequence[str]) -> set[str]:
+        result = subprocess.run(  # noqa: S603
+            [git_bin, "check-ignore", "--no-index", "--stdin"],
+            check=False,
+            capture_output=True,
+            cwd=REPO_ROOT,
+            input="\n".join(paths),
+            text=True,
+        )
+        return set(result.stdout.splitlines())
+
+    return check
+
+
+@pytest.fixture(scope="session")
 def prod_root() -> Path:
     return PROD_ROOT
 
