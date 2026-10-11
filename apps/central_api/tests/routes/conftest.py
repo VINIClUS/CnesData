@@ -1,13 +1,11 @@
-"""Fixtures para testes de /api/v1/jobs com Postgres real."""
+"""Fixtures das rotas: Postgres real (pg_engine) e CA de teste."""
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
 _PG_URL = os.getenv(
@@ -33,33 +31,6 @@ def pg_engine():
     command.upgrade(cfg, "head")
     yield engine
     engine.dispose()
-
-
-@pytest.fixture
-def api_client(pg_engine):
-    from central_api.agent_auth import agent_identity_if_required
-    from central_api.deps import get_conn, get_engine
-
-    with (
-        patch("central_api.app.init_telemetry"),
-        patch("central_api.deps.install_rls_listener"),
-        patch("central_api.deps.instrument_engine"),
-        patch("central_api.deps.install_query_counter"),
-        patch("central_api.deps.create_engine", return_value=pg_engine),
-    ):
-        from central_api.app import create_app
-        app = create_app()
-
-    def _override_conn():
-        with pg_engine.begin() as conn:
-            yield conn
-
-    app.dependency_overrides[get_engine] = lambda: pg_engine
-    app.dependency_overrides[get_conn] = _override_conn
-    app.dependency_overrides[agent_identity_if_required] = lambda: None
-    with TestClient(app, raise_server_exceptions=True) as client:
-        yield client
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="session")

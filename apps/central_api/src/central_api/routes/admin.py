@@ -1,25 +1,15 @@
-"""Rotas administrativas — reaper de leases, diagnóstico."""
+"""Rotas administrativas — reap-leases aposentada (MIG-012): responde 410."""
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from central_api.deps import get_engine, require_admin_token
-from cnes_infra.storage import extractions_repo
-
-if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
-
-logger = logging.getLogger(__name__)
+from central_api.deps import require_admin_token
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin_token)])
 
 
 @router.post("/admin/reap-leases")
-def reap_leases(
-    engine: Engine = Depends(get_engine),
-) -> dict[Any, Any]:
-    count = extractions_repo.reap_expired(engine)
-    return {"reaped": count}
+def reap_leases() -> dict[Any, Any]:
+    raise HTTPException(status_code=410, detail="legacy_ingestion_retired")

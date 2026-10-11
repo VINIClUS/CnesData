@@ -184,57 +184,17 @@ def admin_token(monkeypatch):
     return _ADMIN_KEY
 
 
-class TestAdminEndpoint:
-    def test_reap_leases_retorna_contagem(self, app, admin_token, assert_query_limit):
-        from central_api.deps import get_conn
-        fake_conn = MagicMock()
-        app.dependency_overrides[get_conn] = lambda: fake_conn
-        with (
-            TestClient(app) as c,
-            patch(
-                "central_api.routes.admin.extractions_repo.reap_expired",
-                return_value=3,
-            ),
-        ):
-            resp = c.post(
-                "/api/v1/admin/reap-leases", headers={"X-Admin-Token": admin_token},
-            )
-        app.dependency_overrides.clear()
-        assert resp.status_code == 200
-        assert resp.json() == {"reaped": 3}
-        assert_query_limit(resp, 15)
-
-    def test_reap_leases_retorna_zero_quando_sem_leases(self, app, admin_token):
-        from central_api.deps import get_conn
-        fake_conn = MagicMock()
-        app.dependency_overrides[get_conn] = lambda: fake_conn
-        with (
-            TestClient(app) as c,
-            patch(
-                "central_api.routes.admin.extractions_repo.reap_expired",
-                return_value=0,
-            ),
-        ):
-            resp = c.post(
-                "/api/v1/admin/reap-leases", headers={"X-Admin-Token": admin_token},
-            )
-        app.dependency_overrides.clear()
-        assert resp.json() == {"reaped": 0}
-
-
 class TestAdminTokenGuard:
     @pytest.fixture
     def reap_expired(self):
         with patch(
-            "central_api.routes.admin.extractions_repo.reap_expired", return_value=0,
+            "cnes_infra.storage.extractions_repo.reap_expired", return_value=0,
         ) as m:
             yield m
 
     @pytest.fixture
     def enqueue(self):
-        with patch(
-            "central_api.routes.extractions.extractions_repo.enqueue",
-        ) as m:
+        with patch("cnes_infra.storage.extractions_repo.enqueue") as m:
             yield m
 
     @pytest.mark.parametrize("headers", [
