@@ -31,7 +31,7 @@ Monorepo uv workspace. 3 shared packages + 5 apps.
   via SSH forced-command) ou AWS (alvo, EPIC #94: Step Functions/ECS
   Fargate/DynamoDB/Cognito) — ver `docs/architecture.md#deploy-target`.
   On-prem edge agents (Windows Service / systemd) em ambos os perfis. Local
-  dev via `docker-compose.yml` (profiles: aws-test, dev, local, perf,
+  dev via `docker-compose.yml` (profiles: aws-test, dev, floci, local, perf,
   shadow) — bring-up do profile `local`: `docs/runbooks/local-profile.md`.
 </project_architecture>
 
@@ -125,7 +125,8 @@ Before code: wrap analysis in `<thinking>`. Tests first, implementation second.
 # Tests — rápidos (sem docker)
 .venv/Scripts/python.exe -m pytest \
   -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak \
-  and not spike and not windows_only and not s3_integration and not dynamodb_local" -q
+  and not spike and not windows_only and not s3_integration and not dynamodb_local \
+  and not floci" -q
 
 # Tests — single package/app
 .venv/Scripts/python.exe -m pytest packages/cnes_domain -q

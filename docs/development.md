@@ -77,6 +77,19 @@ happens.
 and `--profile shadow` (`minio-shadow`, now also LocalStack — see
 `docker-compose.yml`) need no license.
 
+`--profile floci` runs the pinned Floci emulator (MIT, no license file) on
+`127.0.0.1:4577` only, for the PROD-013 Cognito/DynamoDB/S3 Object Lock/IAM
+suite (marker `floci`, excluded from the fast suite with `not floci`):
+
+```bash
+docker compose --profile floci up -d --wait floci
+FLOCI_ENDPOINT_URL=http://127.0.0.1:4577 uv run --no-build pytest -rs -m floci tests/integration/floci
+docker compose --profile floci down -v
+```
+
+Isolation rules, the real-AWS check procedure and the divergence matrix:
+`docs/runbooks/floci-and-aws-capability.md`.
+
 Run only the API from the workspace:
 
 ```bash
