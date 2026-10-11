@@ -2,30 +2,30 @@
 
 ## Executive Summary
 
-Worker assíncrono Gold v2 que consome `landing.extractions` diretamente no
-Postgres, define o tenant do job reclamado e marca conclusão/falha. Mantém
-rotas auxiliares para validar SHA-256, ler Parquet delta (`_op`) e delegar
-I/U para callbacks/upserts específicos quando uma ingestão usa esse caminho.
+Worker que compõe só os perfis `PROFILE=local` (SQLite/filesystem) e
+`PROFILE=aws` (DynamoDB, S3, Step Functions). Qualquer outro valor, inclusive
+ausente, falha fechado: loga `profile_required profile=<valor>` e sai com 1. A
+fila legada `landing.extractions` (claim/mark no Postgres) foi aposentada
+(MIG-012). Mantém helpers para validar SHA-256, ler Parquet delta (`_op`) e
+delegar I/U para callbacks/upserts específicos.
 
 ## Role
 
-**Central worker**. Stateless entre jobs; estado inteiramente em Postgres.
-Horizontalmente escalável — múltiplas réplicas puxam da mesma fila sem
-colisão (lease-based).
+**Central worker**. Stateless entre execuções; o estado vive no control plane
+do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 
 ## Functionalities
 
-- Claim global de `landing.extractions` via `extractions_repo.claim_next`
-- `set_tenant_id(claimed.tenant_id)` antes de mutar estado do job
-- `mark_completed` / `mark_failed` no mesmo storage repository
+- `local`: `build_local_processor_runtime` + loop de recuperação (`_poll_until_shutdown`)
+- `aws`: `build_processor_runtime("aws", ...)` + `run_aws_entrypoint` (ex.: `recover-once`)
 - `integrity_check.verify_parquet` para SHA-256 quando esperado
 - `cdc_merger.merge_delta` para linhas `_op ∈ {I,U,D}`
 - Adapters CNES/SIHD/BPA/SIA preservados para rotas de ingestão específicas
 
 ## Objectives
 
-- Claim idempotente e seguro entre réplicas horizontais
-- Zero cross-tenant leak em marcação de jobs
+- Nenhum caminho de escrita no Postgres nem no storage legado de landing
+- Zero cross-tenant leak (tenant vem do perfil/envelope do task, nunca de fila global)
 - Integridade verificável quando `sha256` vem do edge agent
 
 ## Limitations
@@ -46,25 +46,20 @@ colisão (lease-based).
 
 | Var | Obrigatória | Descrição |
 |---|---|---|
-| `DB_URL` | sim | Postgres Gold (mesmo cluster do `central_api`) |
-| `CENTRAL_API_URL` | sim | Para polling da fila |
-| `AWS_ACCESS_KEY_ID` | sim (endpoint não-AWS) | Cadeia padrão do boto3; obrigatório se `S3_ENDPOINT_URL` setado |
-| `AWS_SECRET_ACCESS_KEY` | sim (endpoint não-AWS) | Idem |
-| `S3_ENDPOINT_URL` | opcional | Vazio = S3 real; `http://minio:9000` em dev, LocalStack em CI |
-| `S3_PUBLIC_ENDPOINT_URL` | opcional | Host usado nas URLs presigned (B4); default = `S3_ENDPOINT_URL` |
-| `S3_REGION` | opcional | Default `sa-east-1` |
-| `S3_BUCKET` | opcional | Default `cnesdata-landing` |
-| `WORKER_POLL_INTERVAL` | opcional | Default `5s` |
+| `PROFILE` | sim | `local` ou `aws`; ausente/outro valor sai com 1 (`profile_required`) |
+| `DB_URL` | sim (import) | Exigida por `cnes_infra.config` no import; placeholder, nunca conectada |
+| `TENANT_ID` | sim (`local`) | Tenant semeado no control plane SQLite |
+| `DATA_DIR` | opcional (`local`) | Raiz do SQLite/filesystem; default em `cnes_domain.profiles` |
+| `PROCESSOR_POLL_INTERVAL` | opcional | Intervalo do loop de recuperação local, default `5.0` s |
+| `AWS_*` | sim (`aws`) | Recursos e envelope do task: ver `.env.example` (seção Perfil aws) |
 
 ## Module Map
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `src/data_processor/main.py` | Entrypoint async + `_setup_logging` + `_create_storage` + run_processor |
-| `src/data_processor/consumer.py` | Compat wrapper para `poll.loop` |
-| `src/data_processor/poll.py` | Claim `landing.extractions` + mark completed/failed |
+| `src/data_processor/main.py` | Entrypoint async + `_setup_logging` + perfis `local`/`aws`; fail-closed nos demais |
 | `src/data_processor/processor.py` | SHA-256 + delta route helpers |
-| `src/data_processor/config.py` | Config do worker (bucket, intervalos) |
+| `src/data_processor/config.py` | Config do worker (`POLL_INTERVAL`) |
 | `src/data_processor/adapters/cnes_local_adapter.py` | Parquet CNES raw → DataFrame canônico |
 | `src/data_processor/adapters/cnes_nacional_adapter.py` | Parquet BigQuery nacional → canônico |
 | `src/data_processor/adapters/sihd_local_adapter.py` | Parquet SIHD/AIH → canônico |
@@ -95,12 +90,10 @@ colisão (lease-based).
 - **Column names do BigQuery nacional** (confirmados empiricamente):
   `cbo_2002` (não `id_cbo`), `indicador_atende_sus` inteiro 1/0 (não
   `indicador_sus` string "S"/"N"). Ver `docs/data-dictionary-firebird-bigquery.md`.
-- **Worker é global (multi-tenant):** poll varre `landing.extractions`
-  de todos os tenants via `SET LOCAL row_security = off` scoped à
-  transação do `claim_next`. A cada job reclamado, `process_one` chama
-  `set_tenant_id(claimed.tenant_id)` antes de qualquer
-  `mark_completed`/`mark_failed`/escrita Gold subsequente. Sem env
-  `TENANT_ID`; o tenant vem do row reclamado.
+- **Sem perfil legado (MIG-012):** `PROFILE` ausente, `legacy` ou `vps` não sobe
+  worker nenhum; não há flag que reative `claim_next`/`mark_*` em
+  `landing.extractions`. Um container sem `PROFILE` reinicia em loop se o
+  compose o mantiver (`restart`), então remova o serviço junto.
 - **Streaming download gzip:** parquet baixado chunk a chunk via httpx
   stream para evitar OOM em arquivos grandes. Marcado `# pragma: no cover`
   nos fallbacks de tempfile.

@@ -2,7 +2,3 @@
 import os
 
 POLL_INTERVAL: float = float(os.getenv("PROCESSOR_POLL_INTERVAL", "5.0"))
-IDLE_POLL_INTERVAL: float = float(
-    os.getenv("PROCESSOR_IDLE_POLL_INTERVAL", "60.0"),
-)
-PROCESSOR_ID: str = os.getenv("PROCESSOR_ID", "processor-01")

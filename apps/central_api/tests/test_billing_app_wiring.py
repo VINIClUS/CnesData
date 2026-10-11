@@ -276,7 +276,6 @@ def test_legado_billing_responde_503_nao_configurado(monkeypatch) -> None:
         patch("central_api.deps.install_rls_listener"),
         patch("central_api.deps.instrument_engine"),
         patch("central_api.deps.install_query_counter"),
-        patch("central_api.deps._lease_reaper_loop", new=Mock(side_effect=lambda e: _idle())),
         TestClient(_make_app()) as client,
     ):
         status = client.get("/api/v1/billing/status?billing_account_id=x")
@@ -286,10 +285,6 @@ def test_legado_billing_responde_503_nao_configurado(monkeypatch) -> None:
     assert (webhook.status_code, webhook.json()) == (
         503, {"detail": "billing_not_configured"},
     )
-
-
-async def _idle() -> None:
-    return None
 
 
 def test_install_billing_local_disabled_nao_toca_secrets_manager(monkeypatch) -> None:

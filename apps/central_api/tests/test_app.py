@@ -184,57 +184,17 @@ def admin_token(monkeypatch):
     return _ADMIN_KEY
 
 
-class TestAdminEndpoint:
-    def test_reap_leases_retorna_contagem(self, app, admin_token, assert_query_limit):
-        from central_api.deps import get_conn
-        fake_conn = MagicMock()
-        app.dependency_overrides[get_conn] = lambda: fake_conn
-        with (
-            TestClient(app) as c,
-            patch(
-                "central_api.routes.admin.extractions_repo.reap_expired",
-                return_value=3,
-            ),
-        ):
-            resp = c.post(
-                "/api/v1/admin/reap-leases", headers={"X-Admin-Token": admin_token},
-            )
-        app.dependency_overrides.clear()
-        assert resp.status_code == 200
-        assert resp.json() == {"reaped": 3}
-        assert_query_limit(resp, 15)
-
-    def test_reap_leases_retorna_zero_quando_sem_leases(self, app, admin_token):
-        from central_api.deps import get_conn
-        fake_conn = MagicMock()
-        app.dependency_overrides[get_conn] = lambda: fake_conn
-        with (
-            TestClient(app) as c,
-            patch(
-                "central_api.routes.admin.extractions_repo.reap_expired",
-                return_value=0,
-            ),
-        ):
-            resp = c.post(
-                "/api/v1/admin/reap-leases", headers={"X-Admin-Token": admin_token},
-            )
-        app.dependency_overrides.clear()
-        assert resp.json() == {"reaped": 0}
-
-
 class TestAdminTokenGuard:
     @pytest.fixture
     def reap_expired(self):
         with patch(
-            "central_api.routes.admin.extractions_repo.reap_expired", return_value=0,
+            "cnes_infra.storage.extractions_repo.reap_expired", return_value=0,
         ) as m:
             yield m
 
     @pytest.fixture
     def enqueue(self):
-        with patch(
-            "central_api.routes.extractions.extractions_repo.enqueue",
-        ) as m:
+        with patch("cnes_infra.storage.extractions_repo.enqueue") as m:
             yield m
 
     @pytest.mark.parametrize("headers", [
@@ -314,117 +274,3 @@ class TestGetEngine:
         assert e1 is e2
         mock_create.assert_called_once()
         deps_mod._engine = None
-
-
-class TestGetObjectStorage:
-    def test_get_object_storage_expoe_object_storage_port(self, monkeypatch):
-        from central_api import deps as deps_mod
-        from cnes_infra import config as config_mod
-
-        monkeypatch.setattr(config_mod, "S3_ENDPOINT_URL", "")
-        monkeypatch.setattr(config_mod, "S3_PUBLIC_ENDPOINT_URL", "")
-        deps_mod._object_storage_instance = None
-        storage = deps_mod.get_object_storage()
-        assert hasattr(storage, "generate_presigned_upload_url")
-        assert hasattr(storage, "object_exists")
-        assert hasattr(storage, "get_presigned_download_url")
-        deps_mod._object_storage_instance = None
-
-    def test_get_object_storage_e_singleton(self, monkeypatch):
-        """Regressão: o antigo MinioWrapper construía um client novo a cada
-        chamada de presigned_put. O factory tem que reusar o mesmo client."""
-        from central_api import deps as deps_mod
-        from cnes_infra import config as config_mod
-
-        monkeypatch.setattr(config_mod, "S3_ENDPOINT_URL", "")
-        monkeypatch.setattr(config_mod, "S3_PUBLIC_ENDPOINT_URL", "")
-        deps_mod._object_storage_instance = None
-        first = deps_mod.get_object_storage()
-        second = deps_mod.get_object_storage()
-        assert first is second
-        deps_mod._object_storage_instance = None
-
-    def test_get_object_storage_usa_client_publico_quando_diverge_do_interno(
-        self, monkeypatch,
-    ):
-        """Porta o split endpoint/public_endpoint do antigo MinioWrapper
-        (PR #230, H9): a URL presigned entregue ao edge agent precisa de um
-        host diferente do usado internamente (alias Docker "minio:9000",
-        inalcançável fora do host)."""
-        from central_api import deps as deps_mod
-        from cnes_infra import config as config_mod
-
-        monkeypatch.setattr(config_mod, "S3_ENDPOINT_URL", "http://minio:9000")
-        monkeypatch.setattr(
-            config_mod, "S3_PUBLIC_ENDPOINT_URL", "https://storage.dev.example.com",
-        )
-        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
-        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
-        deps_mod._object_storage_instance = None
-        storage = deps_mod.get_object_storage()
-        url = storage.generate_presigned_upload_url("bucket", "key")
-        assert url.startswith("https://storage.dev.example.com/")
-        deps_mod._object_storage_instance = None
-
-    def test_get_object_storage_sem_client_publico_quando_igual_ao_interno(
-        self, monkeypatch,
-    ):
-        from central_api import deps as deps_mod
-        from cnes_infra import config as config_mod
-
-        monkeypatch.setattr(config_mod, "S3_ENDPOINT_URL", "")
-        monkeypatch.setattr(config_mod, "S3_PUBLIC_ENDPOINT_URL", "")
-        deps_mod._object_storage_instance = None
-        with patch("central_api.deps.build_s3_client") as fake_build:
-            fake_build.return_value = MagicMock()
-            deps_mod.get_object_storage()
-        fake_build.assert_called_once()
-        deps_mod._object_storage_instance = None
-
-
-class TestLeaseReaperLoop:
-    @pytest.mark.asyncio
-    async def test_reaper_loop_registra_leases_reaped(self):
-        import asyncio
-
-        from central_api.deps import _lease_reaper_loop
-        engine = MagicMock()
-
-        with (
-            patch("central_api.deps._REAPER_INTERVAL", 0.01),
-            patch(
-                "central_api.deps._reap_expired_sync", return_value=5,
-            ),
-        ):
-            task = asyncio.create_task(_lease_reaper_loop(engine))
-            await asyncio.sleep(0.05)
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-    @pytest.mark.asyncio
-    async def test_reaper_loop_captura_excecao(self):
-        import asyncio
-
-        import central_api.deps as deps_mod
-
-        engine = MagicMock()
-
-        with (
-            patch.object(deps_mod, "_REAPER_INTERVAL", 0.01),
-            patch(
-                "central_api.deps._reap_expired_sync",
-                side_effect=Exception("db_error"),
-            ),
-        ):
-            task = asyncio.create_task(
-                deps_mod._lease_reaper_loop(engine),
-            )
-            await asyncio.sleep(0.05)
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass

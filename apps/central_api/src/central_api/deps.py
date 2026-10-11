@@ -1,4 +1,4 @@
-"""Dependências compartilhadas da API (engine, object storage, reaper)."""
+"""Dependências compartilhadas da API (engine, autenticação, composição por perfil)."""
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from hmac import compare_digest
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, NoReturn, Protocol, cast
 
 import httpx
 from boto3.session import Session
@@ -24,10 +24,8 @@ from cnes_domain.tenant import set_tenant_id
 from cnes_infra import config
 from cnes_infra.auth.oidc import OidcVerifier
 from cnes_infra.aws import AwsRuntimeConfigurationError, AwsRuntimeSettings
-from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.query_counter import install_query_counter
 from cnes_infra.storage.rls import install_rls_listener
-from cnes_infra.storage.s3_presigned import S3PresignedStorage, build_s3_client
 from cnes_infra.telemetry import instrument_engine
 
 if TYPE_CHECKING:
@@ -40,7 +38,6 @@ if TYPE_CHECKING:
     from central_api.routes.serving import ServingPrincipal
     from cnes_domain.outbox_dispatcher import DispatchResult
     from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
-    from cnes_domain.ports.object_storage import ObjectStoragePort
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.auth.local_auth import LocalAuthService
 
@@ -50,7 +47,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _engine: Engine | None = None
-_REAPER_INTERVAL = 60
 _OUTBOX_INTERVAL = 30
 _OIDC_HTTP_TIMEOUT_SECONDS = 5.0
 
@@ -74,44 +70,6 @@ def get_conn() -> Iterator[Connection]:
         yield conn
 
 
-_object_storage_instance: ObjectStoragePort | None = None
-
-
-def get_object_storage() -> ObjectStoragePort:
-    global _object_storage_instance
-    if _object_storage_instance is None:
-        client = build_s3_client(
-            config.S3_REGION, config.S3_ENDPOINT_URL or None, config.S3_ADDRESSING_STYLE,
-        )
-        public_client = None
-        if config.S3_PUBLIC_ENDPOINT_URL != config.S3_ENDPOINT_URL:
-            public_client = build_s3_client(
-                config.S3_REGION,
-                config.S3_PUBLIC_ENDPOINT_URL or None,
-                config.S3_ADDRESSING_STYLE,
-            )
-        _object_storage_instance = S3PresignedStorage(client, public_client=public_client)
-    return _object_storage_instance
-
-
-async def _lease_reaper_loop(engine: Engine) -> None:
-    loop = asyncio.get_running_loop()
-    while True:
-        await asyncio.sleep(_REAPER_INTERVAL)
-        try:
-            count = await loop.run_in_executor(
-                None, _reap_expired_sync, engine,
-            )
-            if count > 0:
-                logger.info("leases_reaped count=%d", count)
-        except Exception:
-            logger.exception("reaper_error")
-
-
-def _reap_expired_sync(engine: Engine) -> int:
-    return extractions_repo.reap_expired(engine)
-
-
 def require_auth(request: Request) -> AuthenticatedUser:
     user = getattr(request.state, "user", None)
     if not isinstance(user, AuthenticatedUser):
@@ -126,6 +84,11 @@ def require_admin_token(x_admin_token: str | None = Header(None)) -> None:
         (x_admin_token or "").encode(), config.ADMIN_TOKEN.encode(),
     ):
         raise HTTPException(status_code=401, detail="admin_token_required")
+
+
+def legacy_ingestion_retired() -> NoReturn:
+    """Raises: HTTPException 410 legacy_ingestion_retired, antes de validar o corpo."""
+    raise HTTPException(status_code=410, detail="legacy_ingestion_retired")
 
 
 async def require_tenant_header(
@@ -431,9 +394,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             yield
         return
     _engine = _build_legacy_state(app)
-    reaper = asyncio.create_task(_lease_reaper_loop(_engine))
     yield
-    reaper.cancel()
     _dispose_engine()
 
 
