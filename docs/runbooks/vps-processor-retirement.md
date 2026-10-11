@@ -56,6 +56,15 @@ chmod 600 "$dest/.env"
 
 ## 3. Remover o serviço
 
+Entre este passo e o deploy do passo 4, o `central_api` antigo ainda aceita as rotas legadas e
+roda o reaper, sem worker para drenar. Por isso:
+- rode este passo só com a imagem do passo 4 pronta para implantar, logo antes dele;
+- confirme que nenhum chamador alcança as rotas legadas no intervalo: zero certificados de agente
+  ativos com `AGENT_MTLS_REQUIRED` ligado (as rotas de jobs exigem mTLS) e nenhum uso do
+  `X-Admin-Token` até o fim do passo 4;
+- no T0, repita a checagem do passo 1. Linha não terminal criada no intervalo é registrada na
+  issue e abandonada.
+
 1. Instale no host o Compose versionado da PR que remove o serviço, preservando dono e modo
    (`cnesdeploy` em dev, `cnesdeployprod` em prod; modo 644):
 
@@ -101,7 +110,12 @@ Com o serviço removido e a imagem com o fence ativa, registre na #278:
 - `pg_current_snapshot()` e `pg_current_wal_lsn()`;
 - `n_tup_ins`, `n_tup_upd` e `n_tup_del` de `pg_stat_user_tables` para os schemas `landing` e
   `gold`;
-- contagens, `max(created_at)` e `max(registered_at)` de `landing.extractions`;
+- contagens, `max(created_at)` e `max(registered_at)` de `landing.extractions`, e zero linhas
+  nos estados não terminais do passo 1;
+- o prazo das URLs de upload legadas. Cada URL nasceu com uma linha nova em
+  `landing.extractions` e vale 3600 s, e o fence não revoga URL já emitida. A listagem do
+  storage legado só entra no T0 depois de `max(created_at)` + 1 h. Se o prazo ainda não passou,
+  espere-o antes de listar;
 - o último `LastModified` e o total de objetos do storage legado de landing, sem imprimir
   segredos:
   - dev: bucket do AIStor, listado de dentro do container `central-api` com as credenciais que
