@@ -280,13 +280,14 @@ Não é Kubernetes. Dois perfis, sem sobreposição:
   runners` abaixo. Pipeline aponta para `cnesdata.com.br` /
   `api.cnesdata.com.br`; status do piloto (produção real vs. infra pronta)
   segue `CLAUDE.md` ("Not yet in production").
-- **AWS (alvo, EPIC #94):** S3+CloudFront (frontend), FastAPI seguindo no
-  mesmo VPS, Step Functions Standard + ECS Fargate (processamento
-  on-demand), DynamoDB (control plane), Cognito (OIDC). Ver
+- **AWS (runtime integrado, ainda não ativo, EPIC #94):** S3+CloudFront
+  (frontend), FastAPI seguindo no mesmo VPS, Step Functions Standard + ECS
+  Fargate (processamento on-demand), DynamoDB (control plane), Cognito (OIDC).
+  Ver
   `docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-design.md`
-  e `docs/superpowers/plans/2026-08-31-cnesdata-production-*.md`. Gate de
-  entrada: `AWS-010…014` (EPIC #94), atualmente sem código, atrás de
-  `CND-064`.
+  e `docs/superpowers/plans/2026-08-31-cnesdata-production-*.md`. O runtime e
+  o gate de entrada `AWS-010…014` estão integrados; a evidência do SHA e dos
+  testes fica em `docs/production-readiness.md`.
 
 Edge (on-prem, ambos os perfis): `dump_agent_go` como Windows Service
 (municípios) ou systemd (servidores Linux) — não muda com o perfil de
