@@ -12,24 +12,19 @@ from logging.handlers import RotatingFileHandler
 from typing import TYPE_CHECKING
 
 from boto3.session import Session
-from sqlalchemy import create_engine
 
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_infra import config
 from cnes_infra.observability import configure_json_stdout
-from cnes_infra.storage.rls import install_rls_listener
-from cnes_infra.storage.s3_presigned import S3PresignedStorage, build_s3_client
 from cnes_infra.telemetry import init_telemetry
 from data_processor.aws_entrypoint import run_aws_entrypoint
 from data_processor.composition import build_processor_runtime
-from data_processor.consumer import run_processor
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_storage import ObjectStoragePort
     from data_processor.orchestration.coordinator import PipelineCoordinator
 
 fmt = logging.Formatter(
@@ -55,18 +50,6 @@ def _setup_logging(verbose: bool = False) -> None:
     root.setLevel(logging.DEBUG)
     root.addHandler(console)
     root.addHandler(arquivo)
-
-
-def _create_storage() -> ObjectStoragePort:
-    client = build_s3_client(
-        config.S3_REGION, config.S3_ENDPOINT_URL or None, config.S3_ADDRESSING_STYLE,
-    )
-    public_client = None
-    if config.S3_PUBLIC_ENDPOINT_URL != config.S3_ENDPOINT_URL:
-        public_client = build_s3_client(
-            config.S3_REGION, config.S3_PUBLIC_ENDPOINT_URL or None, config.S3_ADDRESSING_STYLE,
-        )
-    return S3PresignedStorage(client, public_client=public_client)
 
 
 def _profile_is_local() -> bool:
@@ -172,12 +155,10 @@ async def main() -> int:
         await _run_local_profile()
         return 0
 
-    engine = create_engine(config.DB_URL)
-    install_rls_listener(engine)
-    storage = _create_storage()
-
-    await run_processor(engine, storage)
-    return 0
+    logging.getLogger(__name__).error(
+        "profile_required profile=%s", os.environ.get("PROFILE", "").strip().lower(),
+    )
+    return 1
 
 
 if __name__ == "__main__":
