@@ -62,9 +62,10 @@ The AWS runtime chain and serial acceptance gate are also closed and merged:
 Historical checks prove the dependency changes at their own reviewed or integrated heads, not at
 the current SHA:
 
-- CND-025 PR run
-  [34031786531](https://github.com/VINIClUS/CnesData/actions/runs/34031786531) and integrated
-  `develop` conformance run
+- CND-025 PR #138 run
+  [34031786531](https://github.com/VINIClUS/CnesData/actions/runs/34031786531) covered PR head SHA
+  `7e04e27776053b568819e64c5f2e2b909a8c00bf`.
+- The integrated `develop` conformance run
   [34031957092](https://github.com/VINIClUS/CnesData/actions/runs/34031957092) covered merge SHA
   `80e59f218031891c9aedd5d338bd69c3b57c9f09`.
 - AWS-014 PR CI run
