@@ -200,7 +200,10 @@ with open("/snap/manifest.json", "xb") as f:
     f.write(manifest)
 put(f"{prefix}manifest.json", manifest)
 PY
+status=$?
 rm -f "$envf"
+[ "$status" -eq 0 ] || echo "upload_failed status=$status: não siga para o passo 5"
+(exit "$status")
 ```
 
 O `t0` copia o marcador T0 que a #278 publicou para a stack. Guarde a saída: o `version_id` do
@@ -264,11 +267,15 @@ except ClientError as exc:
 print(f"verified dump_sha256={digest.hexdigest()} errors={len(errors)} {' '.join(errors)}")
 raise SystemExit(1 if errors else 0)
 PY
+status=$?
 rm -f "$envf"
+[ "$status" -eq 0 ] || echo "verification_failed status=$status: não apague as cópias locais"
+(exit "$status")
 ```
 
-O script sai com código diferente de zero se qualquer checagem falhar. Nesse caso não apague as
-cópias locais e não siga para o MIG-014. Ele confere cinco coisas:
+O script sai com código diferente de zero se qualquer checagem falhar, e o bloco preserva esse
+código depois de apagar o env-file. Nesse caso não apague as cópias locais e não siga para o
+MIG-014. O script confere cinco coisas:
 1. A versão corrente de cada chave é a registrada (`VersionId`).
 2. `HeadObject` com `ChecksumMode=ENABLED`: `ContentLength` e `ChecksumSHA256` batem com o
    manifest.
