@@ -1,0 +1,3 @@
+bucket     = "<STATE_BUCKET_NAME>"
+region     = "<AWS_REGION>"
+kms_key_id = "<KMS_KEY_ARN>"

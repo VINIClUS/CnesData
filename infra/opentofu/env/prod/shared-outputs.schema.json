@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cnesdata.com.br/schemas/shared-outputs-v1.schema.json",
+  "title": "CnesData shared infrastructure outputs v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "account_id",
+    "kms_key_arn",
+    "roles_anywhere",
+    "github",
+    "budget_freeze",
+    "storage"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^[0-9]{12}$"
+    },
+    "kms_key_arn": {
+      "type": "string",
+      "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+    },
+    "roles_anywhere": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_role_arn",
+        "profile_arn",
+        "trust_anchor_arn",
+        "crl"
+      ],
+      "properties": {
+        "api_role_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        "profile_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        "trust_anchor_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        "crl": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "crl_id",
+            "enabled",
+            "next_update",
+            "sha256"
+          ],
+          "properties": {
+            "crl_id": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "next_update": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "infrastructure_plan_role_arn",
+        "infrastructure_deploy_role_arn",
+        "host_deploy_role_arn"
+      ],
+      "properties": {
+        "infrastructure_plan_role_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        "infrastructure_deploy_role_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        "host_deploy_role_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        }
+      }
+    },
+    "budget_freeze": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "budget_arn",
+        "action_arn",
+        "policy_arn"
+      ],
+      "properties": {
+        "budget_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        "action_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        "policy_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state_bucket_name",
+        "state_bucket_arn",
+        "evidence_bucket_name",
+        "evidence_bucket_arn"
+      ],
+      "properties": {
+        "state_bucket_name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 63,
+          "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+        },
+        "state_bucket_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        "evidence_bucket_name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 63,
+          "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+        },
+        "evidence_bucket_arn": {
+          "type": "string",
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        }
+      }
+    }
+  }
+}
