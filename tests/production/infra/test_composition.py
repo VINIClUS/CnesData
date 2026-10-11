@@ -2,6 +2,7 @@ import json
 from collections.abc import Callable, Iterator, Sequence
 from copy import deepcopy
 from pathlib import Path
+from re import fullmatch
 from subprocess import CompletedProcess
 from typing import cast
 
@@ -12,24 +13,19 @@ ValidationCase = tuple[str, object, bool]
 SharedValidator = Callable[[Sequence[ValidationCase]], CompletedProcess[str]]
 
 ARN_PATHS = (
-    ("kms_key_arn",),
-    ("roles_anywhere", "api_role_arn"),
-    ("roles_anywhere", "profile_arn"),
-    ("roles_anywhere", "trust_anchor_arn"),
-    ("github", "infrastructure_plan_role_arn"),
-    ("github", "infrastructure_deploy_role_arn"),
-    ("github", "host_deploy_role_arn"),
-    ("budget_freeze", "budget_arn"),
-    ("budget_freeze", "action_arn"),
-    ("budget_freeze", "policy_arn"),
-    ("storage", "state_bucket_arn"),
-    ("storage", "evidence_bucket_arn"),
+    ("kms_key_arn",), ("roles_anywhere", "api_role_arn"),
+    ("roles_anywhere", "profile_arn"), ("roles_anywhere", "trust_anchor_arn"),
+    ("github", "infrastructure_plan_role_arn"), ("github", "host_deploy_role_arn"),
+    ("github", "infrastructure_deploy_role_arn"), ("budget_freeze", "budget_arn"),
+    ("budget_freeze", "action_arn"), ("budget_freeze", "policy_arn"),
+    ("storage", "state_bucket_arn"), ("storage", "evidence_bucket_arn"),
 )
 
 INVALID_SHARED_VALUES = (
-    (("schema_version",), 2),
-    (("account_id",), "123"),
+    (("schema_version",), 2), (("account_id",), "123"),
+    (("kms_key_arn",), "arn:aws:kms:us-east-2:1:key/example"),
     (("roles_anywhere", "crl", "crl_id"), "   "),
+    (("roles_anywhere", "crl", "enabled"), None),
     (("roles_anywhere", "crl", "next_update"), "not-a-timestamp"),
     (("roles_anywhere", "crl", "sha256"), "ABC123"),
     (("storage", "state_bucket_name"), "INVALID_BUCKET"),
@@ -38,33 +34,17 @@ INVALID_SHARED_VALUES = (
 )
 
 PROHIBITED_RESOURCE_TYPES = (
-    "aws_kms_key",
-    "aws_kms_alias",
-    "aws_ssm_parameter",
-    "aws_rolesanywhere_profile",
-    "aws_iam_openid_connect_provider",
-    "aws_budgets_budget",
-    "cloudflare_record",
-    "hostinger_dns_record",
-    "aws_iam_user",
-    "aws_iam_user_policy",
-    "aws_iam_access_key",
+    "aws_kms_key", "aws_kms_alias", "aws_ssm_parameter", "aws_budgets_budget",
+    "aws_rolesanywhere_profile", "aws_iam_openid_connect_provider", "cloudflare_record",
+    "hostinger_dns_record", "aws_iam_user", "aws_iam_user_policy", "aws_iam_access_key",
 )
 
 SHARED_RESOURCE_PREFIXES = (
-    "aws_kms_",
-    "aws_ssm_",
-    "aws_rolesanywhere_",
-    "aws_budgets_",
-    "cloudflare_",
-    "hostinger_",
-    "aws_iam_user",
+    "aws_kms_", "aws_ssm_", "aws_rolesanywhere_", "aws_budgets_",
+    "cloudflare_", "hostinger_", "aws_iam_user",
 )
 
-SHARED_RESOURCE_EXACT = {
-    "aws_iam_access_key",
-    "aws_iam_openid_connect_provider",
-}
+SHARED_RESOURCE_EXACT = {"aws_iam_access_key", "aws_iam_openid_connect_provider"}
 
 
 def _compact_assignments(source: str) -> set[str]:
@@ -193,14 +173,14 @@ def _assert_resource_region(resource: dict[str, object]) -> None:
         f"region_contract address={resource['address']} provider={provider}"
     )
     is_global = provider == "aws.global_edge"
+    expressions = cast("dict[str, dict[str, object]]", resource.get("expressions", {}))
     if is_global:
         allowed = resource_type.startswith(("aws_acm_", "aws_wafv2_"))
         assert allowed, f"region_contract address={resource['address']} global_type={resource_type}"
-    expressions = cast("dict[str, dict[str, object]]", resource.get("expressions", {}))
-    if is_global and resource_type.startswith("aws_wafv2_"):
+    if resource_type.startswith("aws_wafv2_"):
         scope = expressions.get("scope", {}).get("constant_value")
-        assert scope == "CLOUDFRONT", (
-            f"region_contract address={resource['address']} waf_scope={scope}"
+        assert is_global == (scope == "CLOUDFRONT"), (
+            f"region_contract address={resource['address']} provider={provider} waf_scope={scope}"
         )
     if "region" in expressions:
         expected = "us-east-1" if is_global else "us-east-2"
@@ -337,6 +317,7 @@ def test_schema_shared_outputs_e_fechado_versionado_e_formatado(prod_root: Path)
         pattern = _schema_property(schema, *path)["pattern"]
         assert isinstance(pattern, str)
         assert pattern.startswith("^arn:")
+        assert fullmatch(pattern, "arn:aws:kms:us-east-2:1:key/example") is None
     _assert_objects_are_closed(schema)
 
 
@@ -344,10 +325,18 @@ def test_validacao_nativa_aceita_shared_outputs_valido(
     validate_shared_outputs: SharedValidator,
     valid_shared_outputs: dict[str, object],
 ) -> None:
-    result = validate_shared_outputs((("valid", valid_shared_outputs, False),))
+    cases = (
+        ("enabled_true", valid_shared_outputs, False),
+        (
+            "enabled_false",
+            _replace_value(valid_shared_outputs, ("roles_anywhere", "crl", "enabled"), False),
+            False,
+        ),
+    )
+    result = validate_shared_outputs(cases)
 
     assert result.returncode == 0
-    assert "1 passed, 0 failed" in result.stdout
+    assert "2 passed, 0 failed" in result.stdout
 
 
 def test_validacao_nativa_rejeita_shared_outputs_invalido(
@@ -444,6 +433,11 @@ def test_guardrail_de_ownership_aceita_recurso_do_produto() -> None:
             "aws.global_edge",
             {"scope": {"constant_value": "REGIONAL"}},
         ),
+        _synthetic_resource(
+            "aws_wafv2_web_acl",
+            "aws",
+            {"scope": {"constant_value": "CLOUDFRONT"}},
+        ),
     ],
 )
 def test_guardrail_de_regiao_rejeita_provider_ou_regiao_incorreta(
@@ -467,8 +461,17 @@ def test_guardrail_de_regiao_aceita_default_e_borda_global() -> None:
     _assert_resource_regions(configuration)
 
 
-def test_gitignore_protege_artefatos_opentofu_sem_ocultar_raiz_prod(repo_root: Path) -> None:
+def test_gitignore_protege_artefatos_opentofu_sem_ocultar_raiz_prod(
+    repo_root: Path,
+    git_ignored_paths: Callable[[Sequence[str]], set[str]],
+) -> None:
     lines = _configuration_lines((repo_root / ".gitignore").read_text(encoding="utf-8"))
+    candidates = (
+        "terraform.tfvars.json",
+        "prod.auto.tfvars.json",
+        "terraform.tfvars.json.example",
+        "prod.auto.tfvars.json.example",
+    )
 
     assert "/env/" in lines
     assert "env/" not in lines
@@ -477,9 +480,12 @@ def test_gitignore_protege_artefatos_opentofu_sem_ocultar_raiz_prod(repo_root: P
         "*.tfstate.*",
         "*.tfvars",
         "!*.tfvars.example",
+        "*.tfvars.json",
+        "!*.tfvars.json.example",
         "*.tfplan",
         "*.tfplan.*",
     } <= lines
+    assert git_ignored_paths(candidates) == set(candidates[:2])
 
 
 def test_codeowners_define_ownership_de_infra_e_policies(repo_root: Path) -> None:

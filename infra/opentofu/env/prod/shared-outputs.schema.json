@@ -24,7 +24,7 @@
     },
     "kms_key_arn": {
       "type": "string",
-      "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+      "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
     },
     "roles_anywhere": {
       "type": "object",
@@ -38,15 +38,15 @@
       "properties": {
         "api_role_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         },
         "profile_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         },
         "trust_anchor_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         },
         "crl": {
           "type": "object",
@@ -89,15 +89,15 @@
       "properties": {
         "infrastructure_plan_role_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         },
         "infrastructure_deploy_role_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         },
         "host_deploy_role_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         }
       }
     },
@@ -112,15 +112,15 @@
       "properties": {
         "budget_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         },
         "action_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         },
         "policy_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         }
       }
     },
@@ -142,7 +142,7 @@
         },
         "state_bucket_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         },
         "evidence_bucket_name": {
           "type": "string",
@@ -152,7 +152,7 @@
         },
         "evidence_bucket_arn": {
           "type": "string",
-          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+          "pattern": "^arn:(aws|aws-us-gov|aws-cn):[a-z0-9-]+:[a-z0-9-]*:([0-9]{12})?:.+$"
         }
       }
     }
