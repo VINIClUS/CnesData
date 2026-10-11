@@ -157,7 +157,9 @@ nem escreve `.env`** (isso é `bootstrap.sh`, que só roda uma vez; seu guard
 ação manual sobe a imagem nova contra o compose/`.env` antigos: `S3_ENDPOINT_URL` fica vazio
 (`None` → S3 real), o guard de credencial em `build_s3_client` não dispara porque
 `endpoint_url is None` é o caso de produção, e `/api/v1/system/health` não toca storage — o
-deploy reporta sucesso e `POST /jobs/upload-url` só falha depois, em uso.
+deploy reporta sucesso e o primeiro presign só falha depois, em uso. (A rota legada
+`POST /jobs/upload-url` já não exercita o storage: responde 410 `legacy_ingestion_retired`
+desde MIG-012.)
 
 Antes (ou junto) do merge para `develop`:
 

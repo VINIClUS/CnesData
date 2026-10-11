@@ -2,30 +2,28 @@
 
 ## Executive Summary
 
-Servidor FastAPI que recebe registros de manifests do `dump_agent_go`, expõe
-dashboard API, device flow, provisionamento mTLS e rotas administrativas.
-Gerencia `landing.extractions` em Postgres, expõe OpenAPI em `/openapi.json`
-e mantém MinIO como conteúdo referenciado, não estado transacional.
+Servidor FastAPI que recebe manifests raw do `dump_agent_go` (`/api/v1/edge/*`),
+expõe dashboard API, device flow, provisionamento mTLS e rotas administrativas.
+A ingestão legada em `landing.extractions` está aposentada (MIG-012): sem escrita
+de landing nem URL presigned. Expõe OpenAPI em `/openapi.json`.
 
 ## Role
 
 **Central orchestrator**. Único ponto de entrada HTTP do sistema.
-Horizontalmente escalável, com cuidado: reaper background task só deve rodar
-em 1 réplica (gate via env `ENABLE_REAPER`).
+Horizontalmente escalável; o lifespan não agenda nenhuma background task de
+lease (reaper removido em MIG-012).
 
 ## Functionalities
 
 - `GET /api/v1/system/health` — healthcheck + ping Postgres
-- `POST /api/v1/jobs/upload-url` — cria row PENDING + URL presigned PUT
-- `POST /api/v1/jobs/register` — registra manifest N-file em `landing.extractions`
-- `POST /api/v1/jobs/{job_id}/fail` — marca FAILED + persiste `error_detail`
-  (status-guarded, `PENDING`/`CLAIMED` apenas — idempotente em retry)
-- `POST /api/v1/extractions/enqueue` — cria extractions por fonte/competência (`X-Admin-Token`)
+- `POST /api/v1/jobs/upload-url`, `/jobs/register`, `/jobs/{job_id}/fail`,
+  `POST /api/v1/extractions/enqueue` e `POST /api/v1/admin/reap-leases` — aposentadas
+  (MIG-012): 410 `legacy_ingestion_retired` incondicional (sem checar `PROFILE`, sem flag
+  de runtime), antes de validar corpo, abrir engine ou tocar S3. A auth roda antes: sem cert
+  mTLS (jobs) ou token (admin) segue 401; `ADMIN_TOKEN` vazio segue 503 `admin_disabled`
 - `POST /api/v1/admin/raw-jobs/enqueue` — cria até dez jobs raw idempotentes por competência
-- `POST /api/v1/admin/reap-leases` — libera jobs com lease expirado (`X-Admin-Token`)
 - `GET /api/v1/agents/status` — status agregado do agent (Bearer + `require_tenant_header`)
 - `GET /api/v1/agents/whoami` — identidade do cert mTLS (`require_agent_cert`); smoke do `register`
-- Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
 - AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
 - /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
 - /api/v1/dashboard/overview, /faturamento/by-establishment — aposentadas (MIG-011): 410
@@ -80,7 +78,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - **mTLS termina no Caddy** — `client_auth verify_if_given` nos vhosts `api.*`
   repassa o cert em `X-SSL-Client-Cert` (DER base64); `agent_auth.py` só aceita
   o header de `TRUSTED_PROXY_CIDRS`, revalida cadeia/serial/refresh e vincula
-  o tenant (e grava o CN como machine_id) em `/api/v1/jobs/*`; rotação idem.
+  o tenant; `/api/v1/jobs/*` (aposentadas) só exigem o cert antes do 410; rotação idem.
   `AGENT_MTLS_REQUIRED=false` só no stack local sem Caddy. Fora do profile
   local, o lifespan sobrescreve `raw_jobs.get_edge_identity` com
   `edge_identity_from_cert` (fingerprint = SHA-256 do DER).
@@ -95,13 +93,7 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | Var | Obrigatória | Descrição |
 |---|---|---|
 | `DB_URL` | sim | Postgres URL (`postgresql+psycopg://...`) |
-| `AWS_ACCESS_KEY_ID` | sim (endpoint não-AWS) | Cadeia padrão do boto3; obrigatório se `S3_ENDPOINT_URL` setado |
-| `AWS_SECRET_ACCESS_KEY` | sim (endpoint não-AWS) | Idem |
-| `S3_ENDPOINT_URL` | opcional | Vazio = S3 real; `http://minio:9000` em dev, LocalStack em CI |
-| `S3_PUBLIC_ENDPOINT_URL` | opcional | Host usado nas URLs presigned entregues ao edge agent; default = `S3_ENDPOINT_URL`. Só relevante em dev (self-hosted); S3 real já é público, prod não seta |
-| `S3_REGION` | opcional | Default `sa-east-1` |
-| `S3_BUCKET` | opcional | Default `cnesdata-landing` |
-| `S3_ADDRESSING_STYLE` | opcional | `auto`\|`path`\|`virtual`, default `auto`. Sem `S3_ENDPOINT_URL`, só o default `auto` é normalizado para `virtual` (`auto` quebra presign com 307 fora de `us-east-1` — ver `s3_presigned.py`); um `path`/`virtual` explícito passa direto — necessário setar `path` se `S3_BUCKET` tiver ponto no nome, senão virtual-hosted falha TLS |
+| `S3_*` (`S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ADDRESSING_STYLE`) | não | Sem leitor em `central_api` desde MIG-012 (presign legado removido); seguem definidas em `cnes_infra.config` |
 | `API_HOST` | opcional | Default `0.0.0.0` |
 | `API_PORT` | opcional | Default `8000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | opcional | Tracing (se OTel SDK instalado) |
@@ -114,7 +106,6 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 | `RAW_AWS_REGION` | sim (`RAW_BACKEND=aws`) | Região dos recursos raw |
 | `RAW_AWS_ACCESS_KEY_ID` | sim (`RAW_BACKEND=aws`) | IAM raw do ambiente |
 | `RAW_AWS_SECRET_ACCESS_KEY` | sim (`RAW_BACKEND=aws`) | Segredo IAM raw |
-| `ENABLE_REAPER` | opcional | `true` em 1 réplica para reaper rodar (futuro) |
 | `AUTH_CA_CERT_PATH` | sim (no boot) | Path to PEM root CA cert |
 | `AUTH_CA_KEY_PATH` | sim (no boot) | Path to PEM root CA private key |
 | `AUTH_DEVICE_VERIFICATION_URI` | sim (no boot) | Public URL of dashboard /activate page |
@@ -135,12 +126,12 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | Arquivo | Responsabilidade |
 |---|---|
 | `src/central_api/app.py` | `create_app()` factory — FastAPI + lifespan + middleware + routers |
-| `src/central_api/deps.py` | `get_engine()`, `lifespan`, `_lease_reaper_loop`, RLS listener install |
+| `src/central_api/deps.py` | `get_engine()`, `lifespan` (perfis legado/local/aws), RLS listener install |
 | `src/central_api/middleware.py` | `AuthMiddleware` (Bearer JWT) + `QueryCounterMiddleware` |
 | `src/central_api/routes/health.py` | `/api/v1/system/health` — ping DB |
-| `src/central_api/routes/jobs.py` | `/api/v1/jobs/upload-url` + `/api/v1/jobs/register` + `/api/v1/jobs/{id}/fail` |
-| `src/central_api/routes/extractions.py` | `/api/v1/extractions/enqueue` — enqueue admin |
-| `src/central_api/routes/admin.py` | `/api/v1/admin/*` — reap-leases, ops |
+| `src/central_api/routes/jobs.py` | `/api/v1/jobs/upload-url` + `/register` + `/{id}/fail` — aposentadas (410) |
+| `src/central_api/routes/extractions.py` | `/api/v1/extractions/enqueue` — aposentada (410) |
+| `src/central_api/routes/admin.py` | `/api/v1/admin/reap-leases` — aposentada (410) |
 | `src/central_api/routes/dashboard.py` | `/api/v1/dashboard/auth/me`, tenants, agents |
 | `src/central_api/routes/overview.py` | rotas legadas `/overview` e `/faturamento/by-establishment` aposentadas (410) |
 | `src/central_api/routes/serving.py` | `/api/v1/dashboard/serving/{dataset}/{doc}` — leitura pointer-only (stream local ou 307 aws) |
@@ -168,11 +159,11 @@ uv run uvicorn central_api.app:create_app --factory --reload
   tenant. `require_tenant_header` (async, Bearer + membership) ou o cert mTLS
   (`require_agent_cert`) chamam `set_tenant_id()`. Dependência que define
   tenant precisa ser `async` — dep sync roda no threadpool e o ContextVar não
-  chega ao endpoint (por isso `jobs.py` redefine no corpo da rota).
-- **Lease reaper é background task, não worker:** roda no mesmo processo do
-  uvicorn via `lifespan`. Em deploy k8s com 2+ réplicas, só 1 deve rodar
-  reaper — o padrão recomendado é flag `ENABLE_REAPER=true` em uma só
-  (atualmente todas rodam; limitação conhecida do single-replica dev).
+  chega ao endpoint.
+- **410, nunca 503, nas rotas aposentadas (MIG-012):** o outbox do agent descarta o envelope
+  em 4xx (exceto 429) e reenvia 5xx para sempre. O corpo é `{"detail":"legacy_ingestion_retired"}`
+  (string, fora do schema `HTTPValidationError`); o snapshot OpenAPI não declara o 410 — não
+  adicione `responses=` nem docstring nessas rotas, senão o gate de diff do `openapi.json` quebra.
 - **`test_smoke.py`** requer docker-compose completo (API + MinIO + DB) —
   marcado `[e2e, postgres]` e pulado no filtro padrão de CI. `conftest.py`
   sobe o profile `dev` (`docker compose --profile dev`); sem licença AIStor
@@ -182,8 +173,3 @@ uv run uvicorn central_api.app:create_app --factory --reload
   Sem isso, queries via SQLAlchemy não setam `app.tenant_id` e RLS bloqueia
   tudo. Teste de regressão: qualquer query em integration test deve passar
   (se bloquear, listener não foi instalado).
-- **`/jobs/{id}/complete` does not exist** — edge no longer calls it (FU1
-  dropped). `/jobs/{id}/fail` now exists (A1,
-  `docs/edge-agent-audit-2026-09-20.md`) — before it did, every agent-side
-  extraction failure 404'd, the outbox terminal-dropped the envelope, and
-  the row orphaned at `PENDING` with the real error lost.
