@@ -13,24 +13,51 @@ The CND Phase 2 chain is closed and merged:
 
 | Logical ID | Issue | Implementation PR |
 |---|---|---|
-| CND-020 | [#122](https://github.com/VINIClUS/CnesData/issues/122) | [#131](https://github.com/VINIClUS/CnesData/pull/131) |
-| CND-021 | [#123](https://github.com/VINIClUS/CnesData/issues/123) | [#132](https://github.com/VINIClUS/CnesData/pull/132) |
-| CND-022 | [#124](https://github.com/VINIClUS/CnesData/issues/124) | [#130](https://github.com/VINIClUS/CnesData/pull/130) |
-| CND-023 | [#125](https://github.com/VINIClUS/CnesData/issues/125) | [#135](https://github.com/VINIClUS/CnesData/pull/135) |
-| CND-024 | [#126](https://github.com/VINIClUS/CnesData/issues/126) | [#136](https://github.com/VINIClUS/CnesData/pull/136) |
-| CND-025 | [#127](https://github.com/VINIClUS/CnesData/issues/127) | [#138](https://github.com/VINIClUS/CnesData/pull/138) |
+| CND-020 | [#122][issue-122] | [#131][pr-131] |
+| CND-021 | [#123][issue-123] | [#132][pr-132] |
+| CND-022 | [#124][issue-124] | [#130][pr-130] |
+| CND-023 | [#125][issue-125] | [#135][pr-135] |
+| CND-024 | [#126][issue-126] | [#136][pr-136] |
+| CND-025 | [#127][issue-127] | [#138][pr-138] |
 
 The AWS runtime chain and serial acceptance gate are also closed and merged:
 
 | Logical ID | Issue | Implementation PR |
 |---|---|---|
-| AWS-010 | [#302](https://github.com/VINIClUS/CnesData/issues/302) | [#311](https://github.com/VINIClUS/CnesData/pull/311) |
-| AWS-011 | [#303](https://github.com/VINIClUS/CnesData/issues/303) | [#312](https://github.com/VINIClUS/CnesData/pull/312) |
-| AWS-012 | [#304](https://github.com/VINIClUS/CnesData/issues/304) | [#309](https://github.com/VINIClUS/CnesData/pull/309) |
-| AWS-013 | [#305](https://github.com/VINIClUS/CnesData/issues/305) | [#310](https://github.com/VINIClUS/CnesData/pull/310) |
-| AWS composition | [#306](https://github.com/VINIClUS/CnesData/issues/306) | [#313](https://github.com/VINIClUS/CnesData/pull/313) |
-| AWS-014 | [#307](https://github.com/VINIClUS/CnesData/issues/307) | [#315](https://github.com/VINIClUS/CnesData/pull/315) |
-| AWS Gate | [#308](https://github.com/VINIClUS/CnesData/issues/308) | [#316](https://github.com/VINIClUS/CnesData/pull/316) |
+| AWS-010 | [#302][issue-302] | [#311][pr-311] |
+| AWS-011 | [#303][issue-303] | [#312][pr-312] |
+| AWS-012 | [#304][issue-304] | [#309][pr-309] |
+| AWS-013 | [#305][issue-305] | [#310][pr-310] |
+| AWS composition | [#306][issue-306] | [#313][pr-313] |
+| AWS-014 | [#307][issue-307] | [#315][pr-315] |
+| AWS Gate | [#308][issue-308] | [#316][pr-316] |
+
+[issue-122]: https://github.com/VINIClUS/CnesData/issues/122
+[issue-123]: https://github.com/VINIClUS/CnesData/issues/123
+[issue-124]: https://github.com/VINIClUS/CnesData/issues/124
+[issue-125]: https://github.com/VINIClUS/CnesData/issues/125
+[issue-126]: https://github.com/VINIClUS/CnesData/issues/126
+[issue-127]: https://github.com/VINIClUS/CnesData/issues/127
+[issue-302]: https://github.com/VINIClUS/CnesData/issues/302
+[issue-303]: https://github.com/VINIClUS/CnesData/issues/303
+[issue-304]: https://github.com/VINIClUS/CnesData/issues/304
+[issue-305]: https://github.com/VINIClUS/CnesData/issues/305
+[issue-306]: https://github.com/VINIClUS/CnesData/issues/306
+[issue-307]: https://github.com/VINIClUS/CnesData/issues/307
+[issue-308]: https://github.com/VINIClUS/CnesData/issues/308
+[pr-130]: https://github.com/VINIClUS/CnesData/pull/130
+[pr-131]: https://github.com/VINIClUS/CnesData/pull/131
+[pr-132]: https://github.com/VINIClUS/CnesData/pull/132
+[pr-135]: https://github.com/VINIClUS/CnesData/pull/135
+[pr-136]: https://github.com/VINIClUS/CnesData/pull/136
+[pr-138]: https://github.com/VINIClUS/CnesData/pull/138
+[pr-309]: https://github.com/VINIClUS/CnesData/pull/309
+[pr-310]: https://github.com/VINIClUS/CnesData/pull/310
+[pr-311]: https://github.com/VINIClUS/CnesData/pull/311
+[pr-312]: https://github.com/VINIClUS/CnesData/pull/312
+[pr-313]: https://github.com/VINIClUS/CnesData/pull/313
+[pr-315]: https://github.com/VINIClUS/CnesData/pull/315
+[pr-316]: https://github.com/VINIClUS/CnesData/pull/316
 
 Historical checks prove the dependency changes at their own reviewed or integrated heads, not at
 the current SHA:
