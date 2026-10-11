@@ -314,12 +314,15 @@ def release_permit(permit: UnitPermit | None, command: ReleaseUnitPermit) -> boo
 def close_fence(fence: PromotionFence, command: ClosePromotionFence) -> PromotionFence | None:
     """Fecha o fence para a promoção; replay da mesma promoção é idempotente.
 
-    Returns: Fence resultante, ou None se outra promoção o mantém fechado.
+    Returns: Fence resultante, ou None se outra promoção o mantém fechado ou se a
+        promoção já o reabriu.
     Raises: ValueError: Comando de outro ambiente.
     """
     _require_environment_match(fence.environment, command.environment)
+    if fence.promotion_id == command.promotion_id:
+        return fence if fence.state is FenceState.CLOSED else None
     if fence.state is FenceState.CLOSED:
-        return fence if fence.promotion_id == command.promotion_id else None
+        return None
     return PromotionFence(
         fence.environment, FenceState.CLOSED, command.promotion_id, fence.version + 1, command.now,
     )

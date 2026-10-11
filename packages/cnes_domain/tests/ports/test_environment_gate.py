@@ -210,6 +210,10 @@ def test_fechar_fence_so_e_idempotente_para_a_mesma_promocao() -> None:
     )
 
 
+def test_close_atrasado_apos_reabertura_da_mesma_promocao_e_rejeitado() -> None:
+    assert close_fence(_reopened(), ClosePromotionFence(ENV, PROMOTION, LATER)) is None
+
+
 @pytest.mark.parametrize(
     "value", ["", "Prod", "1prod", "prod_1", "prod#fence", "prod ", "a" * 33, None, 7],
 )

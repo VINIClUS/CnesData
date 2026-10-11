@@ -290,6 +290,19 @@ def test_replay_de_close_e_reopen_nao_regrava_o_fence(gate: _Gate) -> None:
     assert len(client.requests("update_item")) == 2
 
 
+def test_close_atrasado_apos_reopen_da_mesma_promocao_nao_refecha(gate: _Gate) -> None:
+    adapter, client = gate
+    close = ClosePromotionFence(ENV, PROMOTION, NOW)
+
+    assert adapter.close_promotion_fence(close) is True
+    assert adapter.reopen_promotion_fence(ReopenPromotionFence(ENV, PROMOTION, LATER)) is True
+    assert adapter.close_promotion_fence(close) is False
+    assert adapter.observe_environment_gate(ENV).fence == PromotionFence(
+        ENV, FenceState.OPEN, PROMOTION, 2, LATER,
+    )
+    assert len(client.requests("update_item")) == 2
+
+
 def test_reopen_de_fence_nunca_fechado_e_rejeitado_sem_escrita(gate: _Gate) -> None:
     adapter, client = gate
 

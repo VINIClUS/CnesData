@@ -296,7 +296,10 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         return self._gate_semaphore(command.environment, _release(command))
 
     def close_promotion_fence(self, command: ClosePromotionFence) -> bool:
-        """Fecha o fence por CAS de versão; False se outra promoção o mantém fechado."""
+        """Fecha o fence por CAS de versão.
+
+        Returns: False se outra promoção o mantém fechado ou se a promoção já o reabriu.
+        """
         return self._gate_fence(command.environment, lambda fence: close_fence(fence, command))
 
     def reopen_promotion_fence(self, command: ReopenPromotionFence) -> bool:
