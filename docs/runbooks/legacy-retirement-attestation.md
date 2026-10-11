@@ -19,8 +19,9 @@ caso o exportador do plano volta, e a decisão precisa ser reaberta na #279.
 - **Acesso.** Há acesso root à VPS. As stacks ficam em:
   - prod: `/opt/cnesdata`, arquivo `docker-compose.prod.yml`;
   - dev: `/opt/cnesdata-dev`, arquivo `docker-compose.dev.yml`.
-- **Variável `COMPOSE`.** Nos comandos abaixo, `COMPOSE` vale `docker compose --env-file .env
-  --env-file .env.image -f <arquivo>` e é executado no diretório da stack.
+- **Variáveis `STACK` e `COMPOSE`.** Nos comandos abaixo, `STACK` é o diretório da stack e
+  `COMPOSE` vale `docker compose --env-file .env --env-file .env.image -f <arquivo>`, executado
+  nesse diretório.
 
 ## 1. Consultas somente leitura
 
@@ -298,6 +299,8 @@ versão da stack (`postgres:16-alpine`; 16.15 em 2026-10-10). A fonte é a cópi
 alvo, porque o passo 5 apaga a local:
 
 ```bash
+cd "$STACK"
+img=ghcr.io/viniclus/cnesdata/central_api:$(grep -oP '(?<=^IMAGE_TAG=).*' .env.image)
 restore_dir=$(mktemp -d) && chmod 700 "$restore_dir"
 envf=$(mktemp) && chmod 600 "$envf"
 grep -E '^RAW_(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_REGION|S3_BUCKET)=' .env > "$envf"
@@ -318,7 +321,7 @@ rm -f "$envf"
   echo "<sha256 do manifest>  $restore_dir/cnesdata.dump" | sha256sum -c -
   docker run -d --name restore-check --network none -e POSTGRES_HOST_AUTH_METHOD=trust \
     postgres:16-alpine
-  until docker exec restore-check pg_isready -U postgres -q; do sleep 1; done
+  until docker exec restore-check pg_isready -h 127.0.0.1 -U postgres -q; do sleep 1; done
   docker exec restore-check createdb -U postgres restore_check
   docker exec -i restore-check pg_restore -U postgres -d restore_check --no-owner \
     < "$restore_dir/cnesdata.dump"
