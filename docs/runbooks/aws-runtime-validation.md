@@ -156,6 +156,13 @@ Não são validados `Cluster`, `SecurityGroups`, conteúdo e revisão da task de
 Definição de referência:
 `packages/cnes_infra/tests/fixtures/step_functions/standard_inline_ecs.json`.
 
+Com `AWS_PRODUCTION_POLICY=true`, API e processor usam `validate_production_state_machine`: as
+checagens acima, mas `AssignPublicIp` `ENABLED`, `Subnets`/`SecurityGroups` idênticos a
+`AWS_PUBLIC_SUBNET_IDS`/`[AWS_SECURITY_GROUP_ID]`, só `Cluster`, `TaskDefinition`, `LaunchType`,
+`NetworkConfiguration` e `Overrides` (nenhuma chave `.$`) e um único estado por nível
+(referência: `production_public_ip.json`). Zero ingress, NAT e ALB não aparecem na ASL: ficam com
+os testes de plano OpenTofu e a política OPA.
+
 O input da execução carrega só `tenant_id`, `run_id`, `wave_id`, `dispatch_id`, `unit_ids` e
 `max_concurrency`. O nome da execução é o `dispatch_id`: um replay com o mesmo input recebe
 `ExecutionAlreadyExists` e reaproveita o ARN, e input diferente falha com

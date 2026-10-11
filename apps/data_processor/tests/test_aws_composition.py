@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -11,10 +12,10 @@ import pytest
 from cnes_domain.billing import BillingConcurrencyPolicy
 from cnes_domain.orchestration.source_catalog import SourceCatalog
 from cnes_domain.profiles import parse_profile
-from cnes_infra.aws import AwsRuntimeConfigurationError
+from cnes_infra.aws import AwsClients, AwsRuntimeConfigurationError, AwsRuntimeSettings
 from cnes_infra.billing import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.executor.step_functions import StepFunctionsExecutor
+from cnes_infra.executor.step_functions import IncompatibleStateMachine, StepFunctionsExecutor
 from cnes_infra.object_store import S3ObjectStore
 from data_processor import composition
 from data_processor.composition import (
@@ -32,6 +33,13 @@ from data_processor.orchestration.unit_worker import UnitWorker
 from data_processor.pipeline.source_registry import SourceRegistry
 from data_processor.pipeline.stage_processor import StageProcessor
 from data_processor.recovery import ProcessorRecovery
+from packages.cnes_infra.tests.aws.production_values import (
+    PRODUCTION_STATE_MACHINE_ARN,
+    PRODUCTION_VALUES,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
 EXECUTION_ARN = "arn:aws:states:us-east-1:000000000000:execution:cnesdata-test:2222222222222222"
@@ -39,6 +47,7 @@ STATE_MACHINE_FIXTURE = (
     Path(__file__).parents[3]
     / "packages/cnes_infra/tests/fixtures/step_functions/standard_inline_ecs.json"
 )
+PRODUCTION_FIXTURE = STATE_MACHINE_FIXTURE.with_name("production_public_ip.json")
 PROCESSOR_COMPOSITION = Path(composition.__file__)
 PROCESSOR_FIELDS = (
     "control_plane", "object_store", "executor", "publisher", "source_registry",
@@ -80,10 +89,14 @@ def _local_values() -> dict[str, str]:
 
 @pytest.fixture
 def session() -> Mock:
+    return _session()
+
+
+def _session(fixture: Path = STATE_MACHINE_FIXTURE) -> Mock:
     step_functions = Mock(name="stepfunctions")
     step_functions.describe_state_machine.return_value = {
         "type": "STANDARD",
-        "definition": STATE_MACHINE_FIXTURE.read_text(encoding="utf-8"),
+        "definition": fixture.read_text(encoding="utf-8"),
     }
     s3 = Mock(name="s3")
     s3.get_object_lock_configuration.return_value = {
@@ -192,6 +205,45 @@ def test_processor_aws_falha_fechado_sem_oidc(session: Mock) -> None:
         build_processor_runtime("aws", _aws_values() | {"AUTH_MODE": "local"}, session)
 
     session.client.assert_not_called()
+
+
+def test_processor_aws_producao_valida_rede_publica_exata() -> None:
+    session = _session(PRODUCTION_FIXTURE)
+
+    runtime = build_processor_runtime("aws", PRODUCTION_VALUES, session)
+
+    execution = runtime.coordinator._execution
+    assert (execution.deployment_limit, execution.dispatch_lease_seconds) == (1, 3600)
+    session.clients["stepfunctions"].describe_state_machine.assert_called_once_with(
+        stateMachineArn=PRODUCTION_STATE_MACHINE_ARN,
+    )
+
+
+@pytest.mark.parametrize(
+    ("values", "fixture"),
+    [(PRODUCTION_VALUES, STATE_MACHINE_FIXTURE), (_aws_values(), PRODUCTION_FIXTURE)],
+    ids=["producao-com-ip-privado", "generico-com-ip-publico"],
+)
+def test_processor_aws_nao_aceita_o_modo_de_rede_do_outro_perfil(
+    values: Mapping[str, str], fixture: Path,
+) -> None:
+    with pytest.raises(IncompatibleStateMachine, match=r"^assign_public_ip_mismatch$"):
+        build_processor_runtime("aws", values, _session(fixture))
+
+
+def test_processor_aws_producao_sem_security_group_falha_antes_da_aws() -> None:
+    settings = replace(
+        AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES), security_group_id=None,
+    )
+    step_functions = Mock(name="stepfunctions")
+    clients = AwsClients(dynamodb=Mock(), s3=Mock(), step_functions=step_functions)
+
+    with pytest.raises(
+        AwsRuntimeConfigurationError, match=r"^production_security_group_required$",
+    ):
+        composition._validate_runtime(settings, clients)
+
+    step_functions.describe_state_machine.assert_not_called()
 
 
 @pytest.mark.parametrize("profile", ["", "gcp", "AWS"])

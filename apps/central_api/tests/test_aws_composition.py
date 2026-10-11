@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import os
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -30,13 +31,19 @@ from cnes_domain.outbox_dispatcher import DispatchResult
 from cnes_domain.profiles import parse_profile
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_infra.auth import OidcVerifier
-from cnes_infra.aws import AwsRuntimeConfigurationError
+from cnes_infra.aws import AwsClients, AwsRuntimeConfigurationError, AwsRuntimeSettings
 from cnes_infra.billing import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.executor.step_functions import IncompatibleStateMachine, StepFunctionsExecutor
 from cnes_infra.object_store import S3ObjectStore
+from packages.cnes_infra.tests.aws.production_values import (
+    PRODUCTION_STATE_MACHINE_ARN,
+    PRODUCTION_VALUES,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from starlette.requests import Request
 
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
@@ -44,6 +51,7 @@ STATE_MACHINE_FIXTURE = (
     Path(__file__).parents[3]
     / "packages/cnes_infra/tests/fixtures/step_functions/standard_inline_ecs.json"
 )
+PRODUCTION_FIXTURE = STATE_MACHINE_FIXTURE.with_name("production_public_ip.json")
 API_COMPOSITION = Path(composition.__file__)
 LOCAL_FIELDS = (
     "control_plane", "object_store", "executor", "audit_sink", "raw_ingestion",
@@ -75,11 +83,13 @@ def _local_values() -> dict[str, str]:
     return {"PROFILE": "local", "TENANT_ID": "354130", "DATA_DIR": "/srv/cnesdata"}
 
 
-def _step_functions_client(workflow_type: str = "STANDARD") -> Mock:
+def _step_functions_client(
+    workflow_type: str = "STANDARD", fixture: Path = STATE_MACHINE_FIXTURE,
+) -> Mock:
     client = Mock(name="stepfunctions")
     client.describe_state_machine.return_value = {
         "type": workflow_type,
-        "definition": STATE_MACHINE_FIXTURE.read_text(encoding="utf-8"),
+        "definition": fixture.read_text(encoding="utf-8"),
     }
     return client
 
@@ -218,6 +228,48 @@ def test_api_aws_falha_no_startup_com_state_machine_incompativel() -> None:
 
     with pytest.raises(IncompatibleStateMachine, match="workflow_must_be_standard"):
         build_runtime("aws", _aws_values(), session)
+
+
+def test_api_aws_producao_valida_rede_publica_exata() -> None:
+    session = _session(_step_functions_client(fixture=PRODUCTION_FIXTURE))
+
+    runtime = build_runtime("aws", PRODUCTION_VALUES, session)
+
+    assert isinstance(runtime.executor, StepFunctionsExecutor)
+    execution = runtime.run_planning._execution
+    assert (execution.deployment_limit, execution.dispatch_lease_seconds) == (1, 3600)
+    session.clients["stepfunctions"].describe_state_machine.assert_called_once_with(
+        stateMachineArn=PRODUCTION_STATE_MACHINE_ARN,
+    )
+
+
+@pytest.mark.parametrize(
+    ("values", "fixture"),
+    [(PRODUCTION_VALUES, STATE_MACHINE_FIXTURE), (_aws_values(), PRODUCTION_FIXTURE)],
+    ids=["producao-com-ip-privado", "generico-com-ip-publico"],
+)
+def test_api_aws_nao_aceita_o_modo_de_rede_do_outro_perfil(
+    values: Mapping[str, str], fixture: Path,
+) -> None:
+    session = _session(_step_functions_client(fixture=fixture))
+
+    with pytest.raises(IncompatibleStateMachine, match=r"^assign_public_ip_mismatch$"):
+        build_runtime("aws", values, session)
+
+
+def test_api_aws_producao_sem_security_group_falha_antes_da_aws() -> None:
+    settings = replace(
+        AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES), security_group_id=None,
+    )
+    step_functions = _step_functions_client(fixture=PRODUCTION_FIXTURE)
+    clients = AwsClients(dynamodb=Mock(), s3=Mock(), step_functions=step_functions)
+
+    with pytest.raises(
+        AwsRuntimeConfigurationError, match=r"^production_security_group_required$",
+    ):
+        composition._validate_runtime(settings, clients)
+
+    step_functions.describe_state_machine.assert_not_called()
 
 
 @pytest.mark.parametrize("profile", ["", "gcp", "AWS"])
