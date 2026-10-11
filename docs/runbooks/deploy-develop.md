@@ -175,8 +175,8 @@ ssh root@103.199.184.166 \
 
 `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` já existem em `/opt/cnesdata-dev/.env` e alimentam
 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` via `docker-compose.dev.yml` — nenhuma chave nova
-ali. Sem a licença AIStor (`secrets/minio.license`), `central-api`/`data-processor` não
-sobem de jeito nenhum (ver `docs/development.md#object-storage-license`) — o deploy falha
+ali. Sem a licença AIStor (`secrets/minio.license`), o `central-api` não
+sobe de jeito nenhum (ver `docs/development.md#object-storage-license`) — o deploy falha
 alto no healthcheck de 120s do `deploy.sh`, não silenciosamente.
 
 ## Migração de domínio (vinisantana.com → cnesdata.com.br, concluída — dev já migrado)
