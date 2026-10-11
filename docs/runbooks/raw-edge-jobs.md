@@ -1,7 +1,12 @@
 # Edge Jobs raw (#294)
 
-O caminho raw é opt-in no agente (`dumpagent run --raw` ou `AGENT_RAW_MODE=true`).
-Sem a opção, `dumpagent run` continua no protocolo legado `/api/v1/jobs`.
+O caminho raw (`/api/v1/edge/*`) é o padrão do agente: `dumpagent run`, o serviço
+Windows e a execução sem argumentos usam raw. Somente `AGENT_RAW_MODE=false` (qualquer
+caixa) ou `dumpagent run --raw=false` seleciona o protocolo legado `/api/v1/jobs`, que o
+servidor recusa com 410 `legacy_ingestion_retired` a partir do MIG-012 e que o MIG-014
+remove. Variável ausente, vazia ou com outro valor (`0`, `no`) mantém raw. `--raw` e
+`--raw=false` na linha de comando prevalecem sobre a variável. Na inicialização o agente
+registra o evento `run_mode` com o protocolo escolhido e o valor lido de `AGENT_RAW_MODE`.
 O upload raw passa sempre por `central_api`; o agente não recebe chaves AWS.
 
 ## Infraestrutura AWS
@@ -41,8 +46,13 @@ instalar explicitamente Compose e variáveis raw na VPS. Para cada stack:
    `workflow_dispatch` com `version=v0.1.2` para dry-run; a tag
    `dumpagent-go-v0.1.2` faz a publicação real depois do servidor.
 
-Em rollback, restaurar os arquivos Compose, `.env` e `.env.image` salvos e
-rodar `docker compose up -d`. Para o agente, restaurar o canal anterior no
+Em rollback, não restaurar o Compose nem o `.env` salvos no passo 1. O Compose
+salvo pode ser anterior ao MIG-012, e o `up -d` religaria o `data-processor` e
+as escritas legadas. O Compose atual fixa `RAW_BACKEND=aws`: sem as seis
+variáveis raw, o `central-api` não sobe (`raw_aws_config_missing`). No `.env`,
+reverter só valores pré-existentes alterados de propósito e manter as
+variáveis raw. Para a imagem, seguir o rollback de
+`vps-processor-retirement.md`. Para o agente, restaurar o canal anterior no
 manifesto de release. Manter tabelas e objetos raw para replay posterior.
 
 ## Enqueue e smoke local

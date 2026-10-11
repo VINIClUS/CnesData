@@ -117,8 +117,12 @@ check / self-update no agente ainda não existe (roadmap `Next`).
   (`NewRawPayloadExtractor`): SIHD = `TB_HAIH`/`TB_HPA` cru `AH_*`/`PA_*` em Parquet
   puro; BPA/SIA = mesmos bytes gzip do legado. Slot vazio e `S_BPIHST.DBF` ausente →
   Parquet zero-row; demais DBFs ausentes falham. Chave delta store: CNES mantém
-  `cnes/profissionais`, demais `lower(source)/lower(subtype)`. O modo raw exige
-  `dumpagent run --raw` ou `AGENT_RAW_MODE=true`; legado `/api/v1/jobs` segue padrão.
+  `cnes/profissionais`, demais `lower(source)/lower(subtype)`. Raw é o padrão de
+  `dumpagent run`, do serviço e da execução sem argumentos (`rawModeDefault` em
+  `cmd/dumpagent/cmd_run_mode.go`). Só `AGENT_RAW_MODE=false` (qualquer caixa) ou
+  `--raw=false` seleciona o legado `/api/v1/jobs` (servidor devolve 410 desde MIG-012;
+  MIG-014 remove). Ausente, vazio ou outro valor (`0`, `no`) mantém raw; a flag da CLI
+  prevalece sobre a variável; o evento `run_mode` loga protocolo e valor lido no boot.
   Ver `docs/runbooks/raw-edge-jobs.md`.
 - **Audit trail HMAC-JSONL:** `%PROGRAMDATA%\dumpagent\audit\events-*.jsonl`,
   lifecycle extracted→uploaded→committed/aborted. Verificar com

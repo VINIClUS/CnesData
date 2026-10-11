@@ -44,151 +44,9 @@ class TestSetupLogging:
                     root.removeHandler(h)
 
 
-class TestCreateStorage:
-    def test_retorna_s3_presigned_storage(self):
-        mock_instance = MagicMock()
-        with (
-            patch("cnes_infra.config.S3_REGION", "sa-east-1"),
-            patch("cnes_infra.config.S3_ENDPOINT_URL", "http://minio:9000"),
-            patch("cnes_infra.config.S3_ADDRESSING_STYLE", "path"),
-            patch("data_processor.main.build_s3_client", return_value=MagicMock()),
-            patch(
-                "data_processor.main.S3PresignedStorage",
-                return_value=mock_instance,
-            ),
-        ):
-            from data_processor.main import _create_storage
-            storage = _create_storage()
-        assert storage is mock_instance
-
-    def test_propaga_erro_de_construcao_do_client_em_vez_de_engolir(self):
-        """Falha ao construir o client de storage tem que subir alto — em S3,
-        engolir e cair para um storage nulo vira perda silenciosa de dado."""
-        with patch(
-            "data_processor.main.build_s3_client",
-            side_effect=RuntimeError("s3_client_unavailable"),
-        ):
-            from data_processor.main import _create_storage
-            with pytest.raises(RuntimeError, match="s3_client_unavailable"):
-                _create_storage()
-
-    def test_usa_client_publico_quando_diverge_do_interno(self, monkeypatch):
-        """Mesmo split de central_api/deps.py (H9): a URL presigned
-        entregue ao worker precisa de um host diferente do usado
-        internamente quando S3_PUBLIC_ENDPOINT_URL diverge."""
-        from cnes_infra import config as infra_config
-        monkeypatch.setattr(infra_config, "S3_ENDPOINT_URL", "http://minio:9000")
-        monkeypatch.setattr(
-            infra_config, "S3_PUBLIC_ENDPOINT_URL", "https://storage.dev.example.com",
-        )
-        with (
-            patch(
-                "data_processor.main.build_s3_client", return_value=MagicMock(),
-            ) as fake_build,
-            patch("data_processor.main.S3PresignedStorage") as fake_storage_cls,
-        ):
-            from data_processor.main import _create_storage
-            _create_storage()
-        assert fake_build.call_count == 2
-        _, kwargs = fake_storage_cls.call_args
-        assert kwargs["public_client"] is not None
-
-    def test_sem_client_publico_quando_igual_ao_interno(self, monkeypatch):
-        from cnes_infra import config as infra_config
-        monkeypatch.setattr(infra_config, "S3_ENDPOINT_URL", "http://minio:9000")
-        monkeypatch.setattr(infra_config, "S3_PUBLIC_ENDPOINT_URL", "http://minio:9000")
-        with (
-            patch(
-                "data_processor.main.build_s3_client", return_value=MagicMock(),
-            ) as fake_build,
-            patch("data_processor.main.S3PresignedStorage") as fake_storage_cls,
-        ):
-            from data_processor.main import _create_storage
-            _create_storage()
-        assert fake_build.call_count == 1
-        _, kwargs = fake_storage_cls.call_args
-        assert kwargs["public_client"] is None
-
-
-class TestMain:
-    @pytest.mark.asyncio
-    async def test_main_executa_run_processor(self, tmp_path, monkeypatch):
-        import sys
-
-        from cnes_infra import config as infra_config
-        monkeypatch.delenv("PROFILE", raising=False)
-        monkeypatch.setattr(infra_config, "LOGS_DIR", tmp_path)
-        monkeypatch.setattr(
-            infra_config, "LOG_FILE", tmp_path / "test.log",
-        )
-        monkeypatch.setattr(sys, "argv", ["data_processor"])
-
-        mock_engine = MagicMock()
-        with (
-            patch("data_processor.main._setup_logging"),
-            patch("data_processor.main.init_telemetry"),
-            patch("data_processor.main.create_engine", return_value=mock_engine),
-            patch("data_processor.main._create_storage"),
-            patch("data_processor.main.install_rls_listener") as mock_rls,
-            patch("data_processor.main.run_processor") as mock_run,
-        ):
-            mock_run.return_value = None
-            mock_run.side_effect = None
-
-            async def _fake_run(*a, **kw):
-                pass
-
-            mock_run.side_effect = _fake_run
-            from data_processor.main import main
-            rc = await main()
-
-        assert rc == 0
-        mock_run.assert_called_once()
-        mock_rls.assert_called_once_with(mock_engine)
-
-    @pytest.mark.asyncio
-    async def test_main_instala_rls_listener_antes_de_rodar_o_processor(
-        self, tmp_path, monkeypatch,
-    ):
-        """B1: sem o listener, set_tenant_id() vira no-op e RLS bloqueia/vaza
-        entre tenants. install_rls_listener() precisa rodar antes de
-        run_processor() usar o engine."""
-        import sys
-
-        from cnes_infra import config as infra_config
-        monkeypatch.delenv("PROFILE", raising=False)
-        monkeypatch.setattr(infra_config, "LOGS_DIR", tmp_path)
-        monkeypatch.setattr(
-            infra_config, "LOG_FILE", tmp_path / "test.log",
-        )
-        monkeypatch.setattr(sys, "argv", ["data_processor"])
-
-        calls = []
-        mock_engine = MagicMock()
-
-        async def _fake_run(*a, **kw):
-            calls.append("run_processor")
-
-        with (
-            patch("data_processor.main._setup_logging"),
-            patch("data_processor.main.init_telemetry"),
-            patch("data_processor.main.create_engine", return_value=mock_engine),
-            patch("data_processor.main._create_storage"),
-            patch(
-                "data_processor.main.install_rls_listener",
-                side_effect=lambda _e: calls.append("install_rls_listener"),
-            ),
-            patch("data_processor.main.run_processor", side_effect=_fake_run),
-        ):
-            from data_processor.main import main
-            await main()
-
-        assert calls == ["install_rls_listener", "run_processor"]
-
-
 class TestMainProfileLocal:
     @pytest.mark.asyncio
-    async def test_main_profile_local_compoe_runtime_sem_run_processor(
+    async def test_main_profile_local_compoe_runtime_e_drena_runs_recuperaveis(
         self, tmp_path, monkeypatch
     ):
         from unittest.mock import AsyncMock, patch
@@ -203,14 +61,15 @@ class TestMainProfileLocal:
         with (
             patch("data_processor.main._setup_logging"),
             patch("data_processor.main.init_telemetry"),
-            patch("data_processor.main.run_processor") as mock_run,
-            patch("data_processor.main._poll_until_shutdown", new_callable=AsyncMock),
+            patch(
+                "data_processor.main._poll_until_shutdown", new_callable=AsyncMock,
+            ) as poll,
         ):
             from data_processor.main import main
             rc = await main()
 
         assert rc == 0
-        mock_run.assert_not_called()
+        poll.assert_awaited_once()
 
 
 class TestPollUntilShutdown:
@@ -437,16 +296,12 @@ class TestMainProfileAws:
             patch("data_processor.main.Session"),
             patch("data_processor.main.build_processor_runtime"),
             patch("data_processor.main.run_aws_entrypoint", return_value=0),
-            patch("data_processor.main.create_engine") as create_engine,
-            patch("data_processor.main.run_processor") as run_processor,
         ):
             from data_processor.main import main
             await main()
 
         configure.assert_called_once_with("data-processor")
         setup.assert_not_called()
-        create_engine.assert_not_called()
-        run_processor.assert_not_called()
         assert root.handlers == handlers_before
         assert not any(isinstance(h, RotatingFileHandler) for h in root.handlers)
 

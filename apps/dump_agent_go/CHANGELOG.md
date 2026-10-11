@@ -136,3 +136,17 @@ without `--ca-pin` reverts to the system trust store rather than keeping an
 old private CA pinned). `run`'s `initMTLSClient` loads that file via
 `auth.LoadCAPin`: absent → nil (system trust store); present-but-corrupt →
 fails closed via `ErrCAPinInvalid`, same as any other init error.
+
+## Raw Edge jobs by default (2026-10-10, MIG-012 #278)
+
+`dumpagent run`, the Windows service and the no-argument launch now run raw
+mode (`/api/v1/edge/*`) by default. The server retires the legacy
+`/api/v1/jobs/*` routes with 410 `legacy_ingestion_retired` (MIG-012), so an
+agent defaulting to them would fail every cycle. Only `AGENT_RAW_MODE=false`
+(any case) or `run --raw=false` selects the legacy protocol until MIG-014
+deletes it; unset, empty or any other value (`0`, `no`) keeps raw, and
+`--raw`/`--raw=false` on the command line override the variable.
+`defaultRunFlags` (service) and `parseRunFlags` (CLI) share `rawModeDefault`
+in `cmd/dumpagent/cmd_run_mode.go`. Boot logs one `run_mode` event with the
+selected `protocol` and the `agent_raw_mode` value read. No agents were
+deployed, so no release was cut.
