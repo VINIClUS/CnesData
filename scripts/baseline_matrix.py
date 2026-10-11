@@ -40,7 +40,7 @@ Suite = tuple[str, Command]
 
 PYTHON_FAST_MARKERS = (
     "not integration and not postgres and not bigquery and not e2e and not stress and "
-    "not soak and not spike and not windows_only and not chaos_infra"
+    "not soak and not spike and not windows_only and not chaos_infra and not floci"
 )
 PYTHON_PACKAGE_MARKERS = "not bigquery and not e2e and not stress and not soak and not spike"
 PYTHON_APP_MARKERS = (
