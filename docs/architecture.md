@@ -273,7 +273,8 @@ Não é Kubernetes. Dois perfis, sem sobreposição:
 
 - **VPS (perfil ativo):** Hostinger VPS via Docker Compose
   (`deploy/prod/docker-compose.prod.yml` — postgres, minio, migrator,
-  central-api, data-processor, web-dashboard, keycloak, caddy). Deploy via
+  central-api, web-dashboard, keycloak, caddy; o `data-processor` legado saiu no
+  MIG-012, ver `docs/runbooks/vps-processor-retirement.md`). Deploy via
   `deploy-main.yml`/`deploy-develop.yml` em self-hosted runners (homelab
   Proxmox) que fazem SSH forced-command para o VPS; ver `### Self-hosted
   runners` abaixo. Pipeline aponta para `cnesdata.com.br` /
@@ -324,8 +325,8 @@ python scripts/fb156_setup.py   # extract FB 1.5.6 client to .cache/
 
 Single `docker-compose.yml` com 5 profiles:
 
-- **`dev`** — postgres, minio, migrator, central-api, data-processor,
-  web_dashboard, keycloak, minio-init. Portas
+- **`dev`** — postgres, minio, migrator, central-api, web_dashboard,
+  keycloak, minio-init. Portas
   5433/9000/9001/8000/5173/8080.
 - **`local`** — central-api-local, data-processor-local, web-dashboard-local.
   SQLite + filesystem, sem Postgres/MinIO/Keycloak/AWS. Volume nomeado
