@@ -1,6 +1,7 @@
 """Write-fence MIG-012: rotas de ingestão legada respondem 410 sem tocar Postgres nem S3."""
 from __future__ import annotations
 
+import asyncio
 import inspect
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -199,3 +200,23 @@ def test_admin_com_token_invalido_continua_401_antes_do_fence(
 
     assert (resp.status_code, resp.json()) == (401, {"detail": "admin_token_required"})
     spies.assert_untouched()
+
+
+async def test_startup_legado_nao_agenda_reaper_de_leases(
+    spies: _Spies, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from central_api.app import create_app
+    from central_api.deps import lifespan
+
+    monkeypatch.delenv("PROFILE", raising=False)
+    app = create_app()
+    before = asyncio.all_tasks()
+    with ExitStack() as stack:
+        for target in _STARTUP_PATCHES:
+            stack.enter_context(patch(target))
+        stack.enter_context(patch("central_api.deps.create_engine", spies.create_engine))
+        async with lifespan(app):
+            scheduled = asyncio.all_tasks() - before
+
+    assert scheduled == set()
+    assert spies.named["extractions_repo.reap_expired"].call_count == 0
