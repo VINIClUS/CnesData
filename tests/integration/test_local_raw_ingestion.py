@@ -307,12 +307,13 @@ def test_full_solicitado_reinicia_so_a_source_key(tmp_path: Path) -> None:
 def test_profile_local_nao_constroi_postgres_minio_ou_gcp(tmp_path: Path) -> None:
     from cnes_infra.control_plane import SQLiteControlPlane
     from cnes_infra.object_store import FilesystemObjectStore
+    from cnes_infra.storage.s3_presigned import S3PresignedStorage
 
     def explode(*args: object, **kwargs: object) -> None:
         raise AssertionError("local_profile_built_legacy_backend")
 
-    with patch("central_api.deps.create_engine", explode), patch(
-        "central_api.deps.S3PresignedStorage", explode
+    with patch("central_api.deps.create_engine", explode), patch.object(
+        S3PresignedStorage, "__init__", explode
     ), local_stack(tmp_path) as stack:
         seed_agent(stack)
         deliver_full(stack, "job-full", "base", b"full-payload")

@@ -176,11 +176,10 @@ aws iam create-access-key --user-name cnesdata-prod
 Policy mínima — só `Get`/`Put` em `cnesdata-landing/*`, sem `s3:ListBucket` nem
 `s3:DeleteObject`. Acesso é sempre por URL presignada; a role da aplicação nunca
 lista/cria buckets, e `object_exists` (`s3_presigned.py`) já trata o 403 que
-`head_object` devolve para uma chave ausente sem `s3:ListBucket` na raiz. O único
-adapter S3 conectado a essa credencial em prod é `S3PresignedStorage`
-(`central_api/deps.py:get_object_storage`), que não expõe delete — o `.delete()` de
-`ObjectStorePort`/`S3ObjectStore` é de um port separado, hoje ligado a
-`FilesystemObjectStore`, não a esse bucket. Conceder list/delete além do necessário só
+`head_object` devolve para uma chave ausente sem `s3:ListBucket` na raiz. Desde o
+MIG-012 nenhum código usa essa credencial: `/api/v1/jobs/upload-url` responde 410 e o
+`S3PresignedStorage` saiu do `central_api`. Credencial e bucket são aposentados no
+MIG-014. Conceder list/delete além do necessário só
 aumenta o raio de dano de uma credencial comprometida (enumerar ou apagar objetos de
 qualquer tenant):
 

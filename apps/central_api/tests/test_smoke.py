@@ -5,8 +5,6 @@ import urllib.request
 
 import pytest
 
-from cnes_infra import config
-
 pytestmark = [pytest.mark.e2e, pytest.mark.postgres]
 
 
@@ -22,16 +20,3 @@ def test_openapi_schema_disponivel(api_url):
     schema = json.loads(resp.read())
     assert "paths" in schema
     assert "/api/v1/system/health" in schema["paths"]
-
-
-def test_reap_leases_retorna_contagem(api_url):
-    req = urllib.request.Request(
-        f"{api_url}/api/v1/admin/reap-leases",
-        method="POST",
-        data=b"",
-        headers={"X-Admin-Token": config.ADMIN_TOKEN or "local-admin"},
-    )
-    resp = urllib.request.urlopen(req)
-    body = json.loads(resp.read())
-    assert "reaped" in body
-    assert isinstance(body["reaped"], int)

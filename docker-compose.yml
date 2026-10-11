@@ -101,28 +101,6 @@ services:
       start_period: 10s
     profiles:
     - dev
-  data-processor:
-    build:
-      context: .
-      dockerfile: apps/data_processor/Dockerfile
-    container_name: cnesdata_data_processor
-    depends_on:
-      central-api:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    environment:
-      DB_URL: postgresql+psycopg://cnesdata:cnesdata_test@postgres:5432/cnesdata_test
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_BUCKET: cnesdata-landing
-      S3_ADDRESSING_STYLE: path
-      PROCESSOR_ID: docker-processor-01
-      PROCESSOR_POLL_INTERVAL: '5.0'
-    profiles:
-    - dev
-    restart: on-failure
   postgres_perf:
     image: postgres:16-alpine
     container_name: cnesdata_pg_perf

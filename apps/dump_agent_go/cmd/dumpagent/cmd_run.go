@@ -40,7 +40,7 @@ type RunFlags struct {
 
 func defaultRunFlags() RunFlags {
 	return RunFlags{
-		Raw:          os.Getenv("AGENT_RAW_MODE") == "true",
+		Raw:          rawModeDefault(),
 		BPAGDBPath:   os.Getenv("BPA_GDB_PATH"),
 		SIADir:       os.Getenv("SIA_DIR"),
 		FBClientPath: os.Getenv("FBCLIENT_PATH"),
@@ -50,7 +50,9 @@ func defaultRunFlags() RunFlags {
 func parseRunFlags(args []string) RunFlags {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	raw := fs.Bool("raw", os.Getenv("AGENT_RAW_MODE") == "true", "run raw Edge jobs")
+	raw := fs.Bool(
+		"raw", rawModeDefault(), "run raw Edge jobs; --raw=false selects the legacy protocol",
+	)
 	bpaGdb := fs.String("bpa-gdb", os.Getenv("BPA_GDB_PATH"), "BPAMAG.GDB absolute path")
 	siaDir := fs.String("sia-dir", os.Getenv("SIA_DIR"), "SIA DBF directory")
 	fbClient := fs.String(
@@ -159,6 +161,7 @@ func runForeground(ctx context.Context, verbose bool, flags RunFlags) int {
 		return 1
 	}
 	defer closer()
+	logRunMode(slog.Default(), flags)
 
 	boot, ok := initializeRun(ctx, flags)
 	if !ok {
