@@ -1,6 +1,8 @@
 """Invariantes das settings aws sob a política de produção."""
 
+import re
 from collections.abc import Mapping
+from dataclasses import fields
 
 import pytest
 
@@ -10,10 +12,14 @@ from cnes_infra.aws.settings import (
     production_policy_enabled,
 )
 from packages.cnes_infra.tests.aws.production_values import (
+    PRODUCTION_OIDC_DOMAIN,
     PRODUCTION_SECURITY_GROUP_ID,
     PRODUCTION_SUBNET_IDS,
     PRODUCTION_VALUES,
 )
+
+_ISSUER_ERROR = "production_oidc_issuer_must_be_cognito_us_east_2"
+_STATIC_KEY_FIELD = re.compile(r"key|secret|token|credential")
 
 
 def _without(key: str) -> dict[str, str]:
@@ -177,3 +183,143 @@ def test_producao_aceita_ids_de_rede_curtos_e_longos() -> None:
 
     assert settings.public_subnet_ids == ("subnet-0123456789abcdef0", "subnet-89abcdef")
     assert settings.security_group_id == "sg-89abcdef"
+
+
+def test_producao_expoe_dominio_e_endpoints_padrao_do_cognito() -> None:
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+
+    assert settings.oidc_audience == "https://api.cnesdata.com.br"
+    assert settings.oidc_issuer == PRODUCTION_VALUES["OIDC_ISSUER"]
+    assert settings.oidc_domain == PRODUCTION_OIDC_DOMAIN
+    assert settings.oidc_authorize_url == f"{PRODUCTION_OIDC_DOMAIN}/oauth2/authorize"
+    assert settings.oidc_token_url == f"{PRODUCTION_OIDC_DOMAIN}/oauth2/token"
+    assert settings.oidc_logout_url == f"{PRODUCTION_OIDC_DOMAIN}/logout"
+
+
+def test_producao_nao_expoe_campo_de_chave_estatica() -> None:
+    values = PRODUCTION_VALUES | {
+        "AWS_ACCESS_KEY_ID": "test-access",
+        "AWS_SECRET_ACCESS_KEY": "test-secret",
+        "AWS_SESSION_TOKEN": "test-token",
+    }
+
+    settings = AwsRuntimeSettings.from_mapping(values)
+
+    assert [field.name for field in fields(settings) if _STATIC_KEY_FIELD.search(field.name)] == []
+
+
+@pytest.mark.parametrize(
+    "audience",
+    [
+        "cnesdata-dashboard",
+        "https://api.cnesdata.com.br/",
+        "https://api.cnesdata.com.br/api/v1",
+        "http://api.cnesdata.com.br",
+        "https://api.dev.cnesdata.com.br",
+        "https://API.cnesdata.com.br",
+    ],
+    ids=["client_id", "barra_final", "base_da_api", "http", "dev", "maiusculas"],
+)
+def test_producao_exige_audience_igual_a_origem_da_api(audience: str) -> None:
+    values = PRODUCTION_VALUES | {"OIDC_AUDIENCE": audience}
+
+    _assert_rejected(values, "production_oidc_audience_must_be_api_origin")
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "error"),
+    [
+        (
+            "OIDC_ISSUER",
+            "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Example1",
+            _ISSUER_ERROR,
+        ),
+        (
+            "OIDC_ISSUER",
+            "https://cognito-idp.us-east-2.amazonaws.com/us-east-1_Example1",
+            _ISSUER_ERROR,
+        ),
+        (
+            "OIDC_ISSUER",
+            "https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_Example1",
+            _ISSUER_ERROR,
+        ),
+        (
+            "OIDC_DOMAIN",
+            "https://cnesdata-prod-example.auth.us-east-1.amazoncognito.com",
+            "oidc_domain_invalid",
+        ),
+    ],
+    ids=["pool_us_east_1", "pool_de_outra_regiao", "issuer_sa_east_1", "dominio_us_east_1"],
+)
+def test_producao_exige_regiao_us_east_2(key: str, value: str, error: str) -> None:
+    _assert_rejected(PRODUCTION_VALUES | {key: value}, error)
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        "https://id.example.test/realms/cnes",
+        "https://cognito-idp.us-east-2.amazonaws.com",
+        "https://cognito-idp.us-east-2.amazonaws.com/us-east-2_",
+        "https://cognito-idp.us-east-2.amazonaws.com/us-east-2_Example-1",
+        "https://cognito-idp.us-east-2.amazonaws.com/us-east-2_Example1/extra",
+        "https://cognito-idp.us-east-2.amazonaws.com:443/us-east-2_Example1",
+        "https://cnesdata-prod-example.auth.us-east-2.amazoncognito.com",
+    ],
+    ids=[
+        "keycloak", "sem_pool", "pool_vazio", "pool_com_hifen", "caminho_extra", "porta",
+        "dominio_no_lugar_do_issuer",
+    ],
+)
+def test_producao_exige_issuer_de_user_pool_cognito(issuer: str) -> None:
+    _assert_rejected(PRODUCTION_VALUES | {"OIDC_ISSUER": issuer}, _ISSUER_ERROR)
+
+
+@pytest.mark.parametrize("value", [None, ""], ids=["ausente", "vazio"])
+def test_producao_exige_oidc_domain(value: str | None) -> None:
+    _assert_rejected(_with("OIDC_DOMAIN", value), "production_oidc_domain_required")
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [
+        " ",
+        "cnesdata-prod-example.auth.us-east-2.amazoncognito.com",
+        "https://auth.cnesdata.com.br",
+        "http://cnesdata-prod-example.auth.us-east-2.amazoncognito.com",
+        "https://cnesdata-prod-example.auth.us-east-2.amazoncognito.com/",
+        "https://cnesdata-prod-example.auth.us-east-2.amazoncognito.com/oauth2/authorize",
+        "https://cnesdata-prod-example.auth.us-east-2.amazoncognito.com:443",
+        "https://cnesdata-prod-example.auth-fips.us-east-2.amazoncognito.com",
+        "https://CNESDATA.auth.us-east-2.amazoncognito.com",
+        "https://-cnesdata.auth.us-east-2.amazoncognito.com",
+        "https://cnesdata-.auth.us-east-2.amazoncognito.com",
+        "https://cnes_data.auth.us-east-2.amazoncognito.com",
+        "https://cnes.data.auth.us-east-2.amazoncognito.com",
+        "https://.auth.us-east-2.amazoncognito.com",
+        f"https://{'a' * 64}.auth.us-east-2.amazoncognito.com",
+        "https://cnesdata-prod-example.auth.us-east-2.amazoncognito.com\n",
+    ],
+    ids=[
+        "em_branco", "sem_esquema", "dominio_customizado", "http", "barra_final", "caminho",
+        "porta", "fips", "maiusculas", "inicia_com_hifen", "termina_com_hifen", "underscore",
+        "subdominio", "prefixo_vazio", "prefixo_longo", "quebra_de_linha",
+    ],
+)
+def test_producao_rejeita_oidc_domain_invalido(domain: str) -> None:
+    _assert_rejected(PRODUCTION_VALUES | {"OIDC_DOMAIN": domain}, "oidc_domain_invalid")
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["a", "0", "cnesdata-prod-1a2b", "a" + "b" * 61 + "c"],
+    ids=["um_caractere", "digito", "com_hifen", "sessenta_e_tres_caracteres"],
+)
+def test_producao_aceita_prefixo_de_dominio_cognito(prefix: str) -> None:
+    domain = f"https://{prefix}.auth.us-east-2.amazoncognito.com"
+
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES | {"OIDC_DOMAIN": domain})
+
+    assert settings.oidc_domain == domain
+    assert settings.oidc_logout_url == f"{domain}/logout"
