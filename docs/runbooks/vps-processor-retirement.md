@@ -21,8 +21,8 @@ segue esta ordem:
 
 | Stack | Diretório | Arquivo | Quando |
 |---|---|---|---|
-| dev | `/opt/cnesdata-dev` | `docker-compose.dev.yml` | antes do merge do MIG-012 em `develop` |
-| prod | `/opt/cnesdata` | `docker-compose.prod.yml` | antes do `deploy-main` da promoção |
+| dev | `/opt/cnesdata-dev` | `docker-compose.dev.yml` | logo antes do merge em `develop` |
+| prod | `/opt/cnesdata` | `docker-compose.prod.yml` | com o `deploy-main` aguardando aprovação |
 
 Nos comandos abaixo, use os valores da stack:
 - `STACK`: o diretório da stack.
@@ -58,7 +58,8 @@ chmod 600 "$dest/.env"
 
 Entre este passo e o deploy do passo 4, o `central_api` antigo ainda aceita as rotas legadas e
 roda o reaper, sem worker para drenar. Por isso:
-- rode este passo só com a imagem do passo 4 pronta para implantar, logo antes dele;
+- rode este passo só com a imagem do passo 4 a caminho: em dev, logo antes do merge, com o CI
+  da PR verde; em prod, com o job `deploy` do `deploy-main` aguardando aprovação;
 - confirme que nenhum chamador alcança as rotas legadas no intervalo: zero certificados de agente
   ativos com `AGENT_MTLS_REQUIRED` ligado (as rotas de jobs exigem mTLS) e nenhum uso do
   `X-Admin-Token` até o fim do passo 4;
@@ -89,9 +90,12 @@ roda o reaper, sem worker para drenar. Por isso:
 
 - **dev:** merge em `develop`. O `Deploy develop` faz gate, deploy e smoke.
 - **prod:**
-  1. Abra a PR de promoção `develop` → `main`.
-  2. Rode `gh workflow run deploy-main.yml --ref main`.
-  3. Aprove o environment `production`.
+  1. Faça o merge da PR de promoção `develop` → `main` e confirme que `main` contém o merge do
+     MIG-012 (`git merge-base --is-ancestor <sha-do-merge> origin/main`).
+  2. Rode `gh workflow run deploy-main.yml --ref main` e espere o build. O job `deploy` fica
+     aguardando a aprovação do environment `production`.
+  3. Rode o passo 3 nesse momento.
+  4. Aprove o environment `production`.
 
 Depois do deploy, confirme no host que a tag nova está ativa (`cat .env.image`, `$COMPOSE ps`). Se
 o `deploy.sh` restaurou a tag anterior sozinho (health do `central-api` falhou), o fence **não**
