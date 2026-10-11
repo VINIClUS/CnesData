@@ -21,7 +21,12 @@ from cnes_domain.ports.processing import ExecutionPolicyConfig
 from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_profile
 from cnes_infra.audit.local_sink import LocalAuditSink
 from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
-from cnes_infra.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
+from cnes_infra.aws import (
+    AwsRuntimeConfigurationError,
+    AwsRuntimeSettings,
+    build_aws_runtime,
+    create_aws_clients,
+)
 from cnes_infra.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingGateResources,
@@ -33,7 +38,12 @@ from cnes_infra.billing import (
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.executor.local_pool import LocalWorkerPool
-from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
+from cnes_infra.executor.step_functions import (
+    ProductionNetworkPolicy,
+    StepFunctionsExecutor,
+    validate_production_state_machine,
+    validate_state_machine,
+)
 from cnes_infra.object_store import FilesystemObjectStore
 
 if TYPE_CHECKING:
@@ -288,9 +298,20 @@ def _notify_accepted(run_planning: RunPlanningService, record: RawManifestRecord
 
 
 def _validate_runtime(settings: AwsRuntimeSettings, clients: AwsClients) -> None:
-    validate_state_machine(
+    if not settings.production_policy:
+        validate_state_machine(
+            clients.step_functions, settings.state_machine_arn,
+            settings.processor_container_name, settings.processor_lease_seconds,
+        )
+        return
+    if settings.security_group_id is None:
+        raise AwsRuntimeConfigurationError("production_security_group_required")
+    validate_production_state_machine(
         clients.step_functions, settings.state_machine_arn,
-        settings.processor_container_name, settings.processor_lease_seconds,
+        ProductionNetworkPolicy(
+            settings.processor_container_name, settings.processor_lease_seconds,
+            settings.public_subnet_ids, settings.security_group_id,
+        ),
     )
 
 

@@ -4,7 +4,11 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from cnes_infra.aws.settings import AwsRuntimeConfigurationError, AwsRuntimeSettings
+from cnes_infra.aws.settings import (
+    AwsRuntimeConfigurationError,
+    AwsRuntimeSettings,
+    production_policy_enabled,
+)
 
 
 def _valid_values() -> dict[str, str]:
@@ -275,3 +279,103 @@ def test_rejeita_issuer_ftp_mesmo_com_emulador() -> None:
 
 def test_erro_de_configuracao_e_value_error() -> None:
     assert issubclass(AwsRuntimeConfigurationError, ValueError)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {},
+        {"AWS_PRODUCTION_POLICY": "false"},
+        {"AWS_PUBLIC_SUBNET_IDS": "", "AWS_SECURITY_GROUP_ID": ""},
+    ],
+    ids=["politica_ausente", "politica_falsa", "rede_vazia"],
+)
+def test_perfil_generico_nao_exige_rede_de_producao(overrides: dict[str, str]) -> None:
+    settings = AwsRuntimeSettings.from_mapping(_valid_values() | overrides)
+
+    assert settings.production_policy is False
+    assert settings.environment == "default"
+    assert settings.public_subnet_ids == ()
+    assert settings.security_group_id is None
+    assert (settings.region, settings.processor_max_concurrency) == ("us-east-1", 8)
+    assert settings.processor_lease_seconds == 300
+
+
+@pytest.mark.parametrize(
+    "policy", [{}, {"AWS_PRODUCTION_POLICY": "false"}], ids=["politica_ausente", "politica_falsa"],
+)
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("AWS_PUBLIC_SUBNET_IDS", "subnet-00000000000000001"),
+        ("AWS_SECURITY_GROUP_ID", "sg-00000000000000001"),
+        ("AWS_SECURITY_GROUP_ID", " "),
+    ],
+    ids=["subnets", "security_group", "valor_em_branco"],
+)
+def test_perfil_generico_rejeita_rede_de_producao_sem_a_politica(
+    policy: dict[str, str], key: str, value: str,
+) -> None:
+    values = _valid_values() | policy | {key: value}
+
+    with pytest.raises(
+        AwsRuntimeConfigurationError, match=f"^production_setting_forbidden={key}$",
+    ):
+        AwsRuntimeSettings.from_mapping(values)
+
+
+@pytest.mark.parametrize("environment", ["dev", "prod-2", "p", "a" * 32])
+def test_aceita_environment_explicito_no_perfil_generico(environment: str) -> None:
+    settings = AwsRuntimeSettings.from_mapping(_valid_values() | {"AWS_ENVIRONMENT": environment})
+
+    assert settings.environment == environment
+    assert settings.production_policy is False
+
+
+@pytest.mark.parametrize(
+    "environment",
+    ["", "Prod", "1prod", "-prod", "prod_1", "prod.1", " prod", "prod\n", "a" * 33],
+    ids=[
+        "vazio", "maiuscula", "inicia_com_digito", "inicia_com_hifen", "underscore", "ponto",
+        "espaco", "quebra_de_linha", "longo_demais",
+    ],
+)
+def test_rejeita_environment_invalido(environment: str) -> None:
+    values = _valid_values() | {"AWS_ENVIRONMENT": environment}
+
+    with pytest.raises(AwsRuntimeConfigurationError, match=r"^environment_invalid$"):
+        AwsRuntimeSettings.from_mapping(values)
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ({}, False),
+        ({"AWS_PRODUCTION_POLICY": "false"}, False),
+        ({"AWS_PRODUCTION_POLICY": "true"}, True),
+    ],
+    ids=["ausente", "falsa", "verdadeira"],
+)
+def test_politica_de_producao_aceita_so_true_ou_false(
+    values: dict[str, str], expected: bool,
+) -> None:
+    assert production_policy_enabled(values) is expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "TRUE", "True", "1", "yes", "on", " true", "true\n"],
+    ids=[
+        "vazio", "maiusculo", "capitalizado", "um", "yes", "on", "espaco", "quebra_de_linha",
+    ],
+)
+def test_politica_de_producao_rejeita_valor_ambiguo(raw: str) -> None:
+    with pytest.raises(AwsRuntimeConfigurationError, match=r"^production_policy_invalid$"):
+        production_policy_enabled({"AWS_PRODUCTION_POLICY": raw})
+
+
+def test_settings_falham_fechado_com_politica_ambigua() -> None:
+    values = _valid_values() | {"AWS_PRODUCTION_POLICY": "True"}
+
+    with pytest.raises(AwsRuntimeConfigurationError, match=r"^production_policy_invalid$"):
+        AwsRuntimeSettings.from_mapping(values)

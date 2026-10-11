@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from botocore.exceptions import ClientError
@@ -30,6 +31,13 @@ _STATUS = {
 }
 _ECS_RUN_TASK_SYNC = "arn:aws:states:::ecs:runTask.sync"
 _ASSIGN_PUBLIC_IP = "DISABLED"
+_PRODUCTION_ASSIGN_PUBLIC_IP = "ENABLED"
+_PRODUCTION_ECS_PARAMETERS = frozenset(
+    {"Cluster", "TaskDefinition", "LaunchType", "NetworkConfiguration", "Overrides"},
+)
+_PRODUCTION_NETWORK_KEYS = frozenset({"AwsvpcConfiguration"})
+_PRODUCTION_AWSVPC_KEYS = frozenset({"AssignPublicIp", "Subnets", "SecurityGroups"})
+_PRODUCTION_OVERRIDE_KEYS = frozenset({"ContainerOverrides"})
 _ENVIRONMENT_PATHS = {
     "TENANT_ID": "$.tenant_id",
     "RUN_ID": "$.run_id",
@@ -62,6 +70,16 @@ class IncompatibleStateMachine(Exception):
 
 class ProcessorExecutionUnavailable(Exception):
     """Falha AWS normalizada ou conflito de nome de execução."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProductionNetworkPolicy:
+    """Contrato exato do perfil de produção: IP público efêmero, subnets e SG fixos."""
+
+    processor_container_name: str
+    lease_seconds: int
+    subnet_ids: tuple[str, ...]
+    security_group_id: str
 
 
 def _error_code(error: ClientError) -> str:
@@ -142,12 +160,50 @@ def _ecs_parameters(processor: dict[str, Any]) -> dict[str, Any]:
     return parameters
 
 
-def _validate_network(parameters: dict[str, Any]) -> None:
+def _awsvpc_configuration(parameters: dict[str, Any]) -> dict[str, Any]:
     network = parameters.get("NetworkConfiguration", {}).get("AwsvpcConfiguration", {})
     if not network.get("Subnets"):
         raise IncompatibleStateMachine("subnets_required")
-    if network.get("AssignPublicIp") != _ASSIGN_PUBLIC_IP:
+    return network
+
+
+def _validate_network(parameters: dict[str, Any]) -> None:
+    if _awsvpc_configuration(parameters).get("AssignPublicIp") != _ASSIGN_PUBLIC_IP:
         raise IncompatibleStateMachine("assign_public_ip_mismatch")
+
+
+def _validate_production_network(
+    parameters: dict[str, Any], policy: ProductionNetworkPolicy,
+) -> None:
+    network = _awsvpc_configuration(parameters)
+    if network.get("AssignPublicIp") != _PRODUCTION_ASSIGN_PUBLIC_IP:
+        raise IncompatibleStateMachine("assign_public_ip_mismatch")
+    if network.get("Subnets") != list(policy.subnet_ids):
+        raise IncompatibleStateMachine("subnets_mismatch")
+    if network.get("SecurityGroups") != [policy.security_group_id]:
+        raise IncompatibleStateMachine("security_groups_mismatch")
+    if network.keys() != _PRODUCTION_AWSVPC_KEYS:
+        raise IncompatibleStateMachine("network_parameter_forbidden")
+    if parameters["NetworkConfiguration"].keys() != _PRODUCTION_NETWORK_KEYS:
+        raise IncompatibleStateMachine("network_parameter_forbidden")
+
+
+def _validate_production_parameters(parameters: dict[str, Any]) -> None:
+    if parameters.keys() - _PRODUCTION_ECS_PARAMETERS:
+        raise IncompatibleStateMachine("ecs_parameter_forbidden")
+    overrides = parameters.get("Overrides", {})
+    container_overrides = overrides.get("ContainerOverrides", [])
+    if overrides.keys() - _PRODUCTION_OVERRIDE_KEYS or len(container_overrides) > 1:
+        raise IncompatibleStateMachine("ecs_override_forbidden")
+
+
+def _validate_production_topology(definition: dict[str, Any]) -> None:
+    run_map = definition["States"][definition["StartAt"]]
+    processor = run_map["ItemProcessor"]
+    task = processor["States"][processor["StartAt"]]
+    single = len(definition["States"]) == 1 and len(processor["States"]) == 1
+    if not single or run_map.get("End") is not True or task.get("End") is not True:
+        raise IncompatibleStateMachine("production_topology_mismatch")
 
 
 def _container_environment(
@@ -178,6 +234,19 @@ def _validate_environment(environment: dict[str, dict[str, Any]], lease_seconds:
         raise IncompatibleStateMachine("environment_bindings_mismatch")
 
 
+def _validate_processor(
+    parameters: dict[str, Any], container_name: str, lease_seconds: int,
+) -> None:
+    _validate_environment(_container_environment(parameters, container_name), lease_seconds)
+
+
+def _standard_definition(client: BaseClient, state_machine_arn: str) -> dict[str, Any]:
+    described = _describe_state_machine(client, state_machine_arn)
+    if described["type"] != "STANDARD":
+        raise IncompatibleStateMachine("workflow_must_be_standard")
+    return json.loads(described["definition"])
+
+
 def validate_state_machine(
     client: BaseClient,
     state_machine_arn: str,
@@ -190,13 +259,26 @@ def validate_state_machine(
         IncompatibleStateMachine: definição fora do contrato.
         ProcessorExecutionUnavailable: falha AWS ao descrever a state machine.
     """
-    described = _describe_state_machine(client, state_machine_arn)
-    if described["type"] != "STANDARD":
-        raise IncompatibleStateMachine("workflow_must_be_standard")
-    parameters = _ecs_parameters(_inline_map(json.loads(described["definition"])))
+    parameters = _ecs_parameters(_inline_map(_standard_definition(client, state_machine_arn)))
     _validate_network(parameters)
-    environment = _container_environment(parameters, processor_container_name)
-    _validate_environment(environment, lease_seconds)
+    _validate_processor(parameters, processor_container_name, lease_seconds)
+
+
+def validate_production_state_machine(
+    client: BaseClient, state_machine_arn: str, policy: ProductionNetworkPolicy,
+) -> None:
+    """Valida o contrato genérico com o override de rede exato do perfil de produção.
+
+    Raises:
+        IncompatibleStateMachine: definição fora do contrato de produção.
+        ProcessorExecutionUnavailable: falha AWS ao descrever a state machine.
+    """
+    definition = _standard_definition(client, state_machine_arn)
+    parameters = _ecs_parameters(_inline_map(definition))
+    _validate_production_topology(definition)
+    _validate_production_parameters(parameters)
+    _validate_production_network(parameters, policy)
+    _validate_processor(parameters, policy.processor_container_name, policy.lease_seconds)
 
 
 class StepFunctionsExecutor:
