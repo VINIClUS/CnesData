@@ -1,7 +1,12 @@
 # Edge Jobs raw (#294)
 
-O caminho raw é opt-in no agente (`dumpagent run --raw` ou `AGENT_RAW_MODE=true`).
-Sem a opção, `dumpagent run` continua no protocolo legado `/api/v1/jobs`.
+O caminho raw (`/api/v1/edge/*`) é o padrão do agente: `dumpagent run`, o serviço
+Windows e a execução sem argumentos usam raw. Somente `AGENT_RAW_MODE=false` (qualquer
+caixa) ou `dumpagent run --raw=false` seleciona o protocolo legado `/api/v1/jobs`, que o
+servidor recusa com 410 `legacy_ingestion_retired` a partir do MIG-012 e que o MIG-014
+remove. Variável ausente, vazia ou com outro valor (`0`, `no`) mantém raw. `--raw` e
+`--raw=false` na linha de comando prevalecem sobre a variável. Na inicialização o agente
+registra o evento `run_mode` com o protocolo escolhido e o valor lido de `AGENT_RAW_MODE`.
 O upload raw passa sempre por `central_api`; o agente não recebe chaves AWS.
 
 ## Infraestrutura AWS
