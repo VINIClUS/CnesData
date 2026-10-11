@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from central_api.agent_auth import AgentCertIdentity, agent_identity_if_required
-from central_api.deps import get_engine
+from central_api.deps import get_engine, legacy_ingestion_retired
 from cnes_infra import config
 from cnes_infra.storage import extractions_repo
 from cnes_infra.storage.s3_presigned import S3PresignedStorage
@@ -178,6 +178,18 @@ def test_rota_com_corpo_responde_410_antes_de_validar_o_payload(
     body: dict[str, Any] = {} if payload is None else {"json": payload}
 
     resp = client.post(route.path, headers=headers, **body)
+
+    assert (resp.status_code, resp.json()) == (410, _RETIRED)
+    spies.assert_untouched()
+
+
+@pytest.mark.parametrize("route", _BODY_ROUTES.values(), ids=_BODY_ROUTES.keys())
+def test_handler_responde_410_mesmo_sem_a_dependencia_do_fence(
+    client: TestClient, spies: _Spies, route: _Route,
+) -> None:
+    cast("FastAPI", client.app).dependency_overrides[legacy_ingestion_retired] = lambda: None
+
+    resp = _post(client, route)
 
     assert (resp.status_code, resp.json()) == (410, _RETIRED)
     spies.assert_untouched()
