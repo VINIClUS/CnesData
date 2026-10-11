@@ -126,9 +126,20 @@ Publique T0, T1 e o veredito na #278.
 
 ## Rollback
 
-- **Compose:** restaure os arquivos do passo 2 e rode `$COMPOSE up -d --remove-orphans`.
+- **Compose:** nunca restaure o arquivo do passo 2. Ele ainda define o `data-processor`, e o
+  `up -d` recriaria o worker com escrita legada em `landing.*` e `gold.*`. O backup serve só
+  para auditoria e `diff`. Se o passo 3 falhar, corrija para frente a partir do Compose
+  versionado, sem o serviço.
+- **Imagem:** troque só a tag e mantenha o Compose atual. É o mesmo caminho do rollback
+  automático do `deploy.sh`:
+
+  ```bash
+  cd "$STACK" && echo "IMAGE_TAG=<tag-anterior>" > .env.image
+  $COMPOSE pull && $COMPOSE up -d --remove-orphans
+  ```
+
+  Uma tag anterior ao fence reabre as rotas legadas e o reaper no `central_api`. Só faça isso se
+  a API estiver indisponível, e colete o T0 de novo após o próximo deploy com o fence.
 - **Escritas legadas:** nunca reative. Ou seja:
   - não religue o `data-processor`;
   - não crie flag de runtime que desfaça o fence.
-- **Imagem:** voltar a uma tag anterior ao fence reabre as rotas legadas no `central_api`. Só faça
-  isso se a API estiver indisponível, e colete o T0 de novo após o próximo deploy com o fence.
