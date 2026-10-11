@@ -1,4 +1,4 @@
-"""Adapter AWS Step Functions do executor do processador."""
+"""Adapter AWS Step Functions do executor do processador e do probe de execução."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from botocore.exceptions import ClientError
 
+from cnes_domain.control_plane.entities import require_dispatch_id
+from cnes_domain.ports.environment_gate import ExecutionObservation, ExecutionPresence
 from cnes_domain.ports.processing import ExecutionStatus, StartRunExecution
 
 if TYPE_CHECKING:
@@ -28,6 +30,12 @@ _STATUS = {
     "FAILED": ExecutionStatus.FAILED,
     "TIMED_OUT": ExecutionStatus.FAILED,
     "ABORTED": ExecutionStatus.CANCELED,
+}
+_PRESENCE = {
+    ExecutionStatus.RUNNING: ExecutionPresence.RUNNING,
+    ExecutionStatus.SUCCEEDED: ExecutionPresence.TERMINAL,
+    ExecutionStatus.FAILED: ExecutionPresence.TERMINAL,
+    ExecutionStatus.CANCELED: ExecutionPresence.TERMINAL,
 }
 _ECS_RUN_TASK_SYNC = "arn:aws:states:::ecs:runTask.sync"
 _ASSIGN_PUBLIC_IP = "DISABLED"
@@ -281,14 +289,29 @@ def validate_production_state_machine(
     _validate_processor(parameters, policy.processor_container_name, policy.lease_seconds)
 
 
+def _require_state_machine_arn(state_machine_arn: str) -> str:
+    if ":stateMachine:" not in state_machine_arn:
+        raise ValueError("state_machine_arn=invalid")
+    return state_machine_arn
+
+
+def _execution_arn(state_machine_arn: str, execution_name: str) -> str:
+    prefix, _, machine = state_machine_arn.rpartition(":stateMachine:")
+    return f"{prefix}:execution:{machine}:{execution_name}"
+
+
+def _execution_status(state: str) -> ExecutionStatus:
+    if state not in _STATUS:
+        raise ValueError(f"execution_status={state}")
+    return _STATUS[state]
+
+
 class StepFunctionsExecutor:
     """Delega a execução de um dispatch a uma state machine do Step Functions."""
 
     def __init__(self, client: BaseClient, state_machine_arn: str) -> None:
-        if ":stateMachine:" not in state_machine_arn:
-            raise ValueError("state_machine_arn=invalid")
         self._client = cast("_StepFunctionsClient", client)
-        self._state_machine_arn = state_machine_arn
+        self._state_machine_arn = _require_state_machine_arn(state_machine_arn)
 
     def start(self, request: StartRunExecution) -> str:
         """Inicia a execução; reaproveita a existente em replay do mesmo dispatch."""
@@ -317,10 +340,7 @@ class StepFunctionsExecutor:
 
     def status(self, execution_ref: str) -> ExecutionStatus:
         """Traduz o status da execução para `ExecutionStatus`, falhando fechado."""
-        state = self._describe_execution(execution_ref)["status"]
-        if state not in _STATUS:
-            raise ValueError(f"execution_status={state}")
-        return _STATUS[state]
+        return _execution_status(self._describe_execution(execution_ref)["status"])
 
     def _describe_execution(self, execution_ref: str) -> dict[str, Any]:
         try:
@@ -329,11 +349,42 @@ class StepFunctionsExecutor:
             raise ProcessorExecutionUnavailable(_error_code(error)) from error
 
     def _confirm_existing(self, execution_name: str, payload: str) -> str:
-        execution_ref = self._existing_execution_arn(execution_name)
+        execution_ref = _execution_arn(self._state_machine_arn, execution_name)
         if self._describe_execution(execution_ref).get("input") != payload:
             raise ProcessorExecutionUnavailable("execution_name_conflict")
         return execution_ref
 
-    def _existing_execution_arn(self, execution_name: str) -> str:
-        prefix, _, machine = self._state_machine_arn.rpartition(":stateMachine:")
-        return f"{prefix}:execution:{machine}:{execution_name}"
+
+def _require_unqualified_state_machine_arn(state_machine_arn: str) -> str:
+    _, _, machine = _require_state_machine_arn(state_machine_arn).rpartition(":stateMachine:")
+    # A version/alias ARN derives an execution ARN that never exists: a false absence proof.
+    if ":" in machine:
+        raise ValueError("state_machine_arn=qualified")
+    return state_machine_arn
+
+
+class StepFunctionsExecutionProbe:
+    """`ExecutionProbePort` da execução Step Functions nomeada pelo dispatch_id."""
+
+    def __init__(self, client: BaseClient, state_machine_arn: str) -> None:
+        self._client = cast("_StepFunctionsClient", client)
+        self._state_machine_arn = _require_unqualified_state_machine_arn(state_machine_arn)
+
+    def probe(self, dispatch_id: str) -> ExecutionObservation:
+        """Classifica a execução do dispatch; só `ExecutionDoesNotExist` vira ABSENT.
+
+        Raises:
+            ValueError: dispatch_id fora de hex16 ou status desconhecido.
+            ProcessorExecutionUnavailable: outra falha AWS ao descrever a execução.
+        """
+        execution_arn = _execution_arn(
+            self._state_machine_arn, require_dispatch_id(dispatch_id, "dispatch_id"),
+        )
+        try:
+            described = self._client.describe_execution(executionArn=execution_arn)
+        except ClientError as error:
+            if _error_code(error) != "ExecutionDoesNotExist":
+                raise ProcessorExecutionUnavailable(_error_code(error)) from error
+            return ExecutionObservation(ExecutionPresence.ABSENT, None)
+        presence = _PRESENCE[_execution_status(described["status"])]
+        return ExecutionObservation(presence, execution_arn)
