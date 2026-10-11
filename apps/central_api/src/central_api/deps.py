@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from hmac import compare_digest
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, NoReturn, Protocol, cast
 
 import httpx
 from boto3.session import Session
@@ -84,6 +84,11 @@ def require_admin_token(x_admin_token: str | None = Header(None)) -> None:
         (x_admin_token or "").encode(), config.ADMIN_TOKEN.encode(),
     ):
         raise HTTPException(status_code=401, detail="admin_token_required")
+
+
+def legacy_ingestion_retired() -> NoReturn:
+    """Raises: HTTPException 410 legacy_ingestion_retired, antes de validar o corpo."""
+    raise HTTPException(status_code=410, detail="legacy_ingestion_retired")
 
 
 async def require_tenant_header(

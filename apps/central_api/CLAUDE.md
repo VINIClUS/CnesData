@@ -19,8 +19,10 @@ lease (reaper removido em MIG-012).
 - `POST /api/v1/jobs/upload-url`, `/jobs/register`, `/jobs/{job_id}/fail`,
   `POST /api/v1/extractions/enqueue` e `POST /api/v1/admin/reap-leases` — aposentadas
   (MIG-012): 410 `legacy_ingestion_retired` incondicional (sem checar `PROFILE`, sem flag
-  de runtime), antes de validar corpo, abrir engine ou tocar S3. A auth roda antes: sem cert
-  mTLS (jobs) ou token (admin) segue 401; `ADMIN_TOKEN` vazio segue 503 `admin_disabled`
+  de runtime), antes de validar corpo, abrir engine ou tocar S3. O fence é a dependência
+  `deps.legacy_ingestion_retired`, declarada depois da auth: sem cert mTLS (jobs) ou token
+  (admin) segue 401; `ADMIN_TOKEN` vazio segue 503 `admin_disabled`. JSON malformado segue
+  422, porque o parse do corpo precede as dependências
 - `POST /api/v1/admin/raw-jobs/enqueue` — cria até dez jobs raw idempotentes por competência
 - `GET /api/v1/agents/status` — status agregado do agent (Bearer + `require_tenant_header`)
 - `GET /api/v1/agents/whoami` — identidade do cert mTLS (`require_agent_cert`); smoke do `register`

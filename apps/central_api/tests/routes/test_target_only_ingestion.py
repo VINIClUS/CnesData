@@ -72,6 +72,7 @@ _ADMIN_ROUTES = {
     "reap-leases": _Route("/api/v1/admin/reap-leases", {}, admin=True),
 }
 _ALL_ROUTES = _JOBS_ROUTES | _ADMIN_ROUTES
+_BODY_ROUTES = _JOBS_ROUTES | {"enqueue": _ADMIN_ROUTES["enqueue"]}
 
 
 def _tripwire(label: str) -> MagicMock:
@@ -168,11 +169,15 @@ def test_rota_legada_responde_410_sem_tocar_postgres_nem_s3(
     spies.assert_untouched()
 
 
-@pytest.mark.parametrize("route", _JOBS_ROUTES.values(), ids=_JOBS_ROUTES.keys())
-def test_rota_de_jobs_responde_410_antes_de_validar_o_corpo(
-    client: TestClient, spies: _Spies, route: _Route,
+@pytest.mark.parametrize("payload", [{}, [], None], ids=["objeto_vazio", "lista", "sem_corpo"])
+@pytest.mark.parametrize("route", _BODY_ROUTES.values(), ids=_BODY_ROUTES.keys())
+def test_rota_com_corpo_responde_410_antes_de_validar_o_payload(
+    client: TestClient, spies: _Spies, route: _Route, payload: object,
 ) -> None:
-    resp = _post(client, route, body={})
+    headers = {"X-Admin-Token": _ADMIN_KEY} if route.admin else {}
+    body: dict[str, Any] = {} if payload is None else {"json": payload}
+
+    resp = client.post(route.path, headers=headers, **body)
 
     assert (resp.status_code, resp.json()) == (410, _RETIRED)
     spies.assert_untouched()
