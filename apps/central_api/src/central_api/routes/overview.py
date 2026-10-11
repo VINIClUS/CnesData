@@ -1,10 +1,9 @@
 """Overview routes — /overview, /faturamento/by-establishment."""
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from central_api.deps import require_auth, require_tenant_header
 from central_api.middleware import AuthenticatedUser
-from cnes_infra import config
 
 router = APIRouter(tags=["overview"])
 
@@ -34,15 +33,7 @@ def get_overview(
     user: AuthenticatedUser = Depends(require_auth),
     tenant_id: str = Depends(require_tenant_header),
 ) -> OverviewResponse:
-    response.headers["Cache-Control"] = "private, max-age=30"
-    repo = request.app.state.dashboard_repo
-    target = config.COMPETENCIA_ANO * 100 + config.COMPETENCIA_MES
-    kpis = repo.overview_kpis(tenant_id=tenant_id, current_competencia=target)
-    repo.log_action(
-        user_id=user.user_id, tenant_id=tenant_id,
-        action="view_overview", metadata=None,
-    )
-    return OverviewResponse(**kpis.__dict__)
+    raise HTTPException(status_code=410, detail="legacy_route_retired")
 
 
 @router.get(
@@ -55,16 +46,4 @@ def get_faturamento_chart(
     tenant_id: str = Depends(require_tenant_header),
     months: int = Query(12, ge=1, le=24),
 ) -> FaturamentoResponse:
-    response.headers["Cache-Control"] = "private, max-age=60"
-    repo = request.app.state.dashboard_repo
-    target = config.COMPETENCIA_ANO * 100 + config.COMPETENCIA_MES
-    chart = repo.faturamento_by_establishment(
-        tenant_id=tenant_id, months=months, current_competencia=target,
-    )
-    repo.log_action(
-        user_id=user.user_id, tenant_id=tenant_id,
-        action="view_faturamento", metadata={"months": months},
-    )
-    return FaturamentoResponse(
-        series=chart.series, categories=chart.categories,
-    )
+    raise HTTPException(status_code=410, detail="legacy_route_retired")
