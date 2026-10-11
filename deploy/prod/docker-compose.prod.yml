@@ -85,29 +85,6 @@ services:
       start_period: 15s
     working_dir: /
 
-  data-processor:
-    image: ghcr.io/viniclus/cnesdata/data_processor:${IMAGE_TAG}
-    restart: on-failure
-    depends_on:
-      central-api:
-        condition: service_healthy
-    environment:
-      DB_URL: ${DB_URL}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      S3_REGION: ${S3_REGION:-sa-east-1}
-      S3_BUCKET: ${S3_BUCKET}
-      PROCESSOR_ID: ${PROCESSOR_ID}
-      PROCESSOR_POLL_INTERVAL: ${PROCESSOR_POLL_INTERVAL}
-      PROCESSOR_IDLE_POLL_INTERVAL: ${PROCESSOR_IDLE_POLL_INTERVAL}
-      COD_MUN_IBGE: ${COD_MUN_IBGE}
-      ID_MUNICIPIO_IBGE7: ${ID_MUNICIPIO_IBGE7}
-      CNPJ_MANTENEDORA: ${CNPJ_MANTENEDORA}
-      COMPETENCIA_ANO: ${COMPETENCIA_ANO}
-      COMPETENCIA_MES: ${COMPETENCIA_MES}
-      TZ: America/Sao_Paulo
-    working_dir: /
-
   web-dashboard:
     image: ghcr.io/viniclus/cnesdata/web_dashboard:${IMAGE_TAG}
     restart: unless-stopped
