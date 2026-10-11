@@ -16,10 +16,17 @@ _DEFAULT_ENVIRONMENT = "default"
 _ENVIRONMENT_NAME = re.compile(r"[a-z][a-z0-9-]{0,31}")
 _SUBNET_ID = re.compile(r"subnet-[0-9a-f]{8,17}")
 _SECURITY_GROUP_ID = re.compile(r"sg-[0-9a-f]{8,17}")
-_PRODUCTION_ONLY_KEYS = ("AWS_PUBLIC_SUBNET_IDS", "AWS_SECURITY_GROUP_ID")
+_OIDC_DOMAIN = re.compile(
+    r"https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.auth\.us-east-2\.amazoncognito\.com"
+)
+_PRODUCTION_ONLY_KEYS = ("AWS_PUBLIC_SUBNET_IDS", "AWS_SECURITY_GROUP_ID", "OIDC_DOMAIN")
 _PRODUCTION_REGION = "us-east-2"
 _PRODUCTION_LEASE_SECONDS = 3600
 _PRODUCTION_SERVING_TTL_SECONDS = 300
+_PRODUCTION_OIDC_AUDIENCE = "https://api.cnesdata.com.br"
+_PRODUCTION_OIDC_ISSUER = re.compile(
+    r"https://cognito-idp\.us-east-2\.amazonaws\.com/us-east-2_[0-9A-Za-z]+"
+)
 
 
 class AwsRuntimeConfigurationError(ValueError):
@@ -80,6 +87,22 @@ class AwsRuntimeSettings:
     environment: str
     public_subnet_ids: tuple[str, ...]
     security_group_id: str | None
+    oidc_domain: str | None
+
+    @property
+    def oidc_authorize_url(self) -> str | None:
+        """Returns: <oidc_domain>/oauth2/authorize; None fora da política de produção."""
+        return _oidc_endpoint(self.oidc_domain, "/oauth2/authorize")
+
+    @property
+    def oidc_token_url(self) -> str | None:
+        """Returns: <oidc_domain>/oauth2/token; None fora da política de produção."""
+        return _oidc_endpoint(self.oidc_domain, "/oauth2/token")
+
+    @property
+    def oidc_logout_url(self) -> str | None:
+        """Returns: <oidc_domain>/logout; None fora da política de produção."""
+        return _oidc_endpoint(self.oidc_domain, "/logout")
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, str]) -> Self:
@@ -109,6 +132,7 @@ class AwsRuntimeSettings:
             environment=_environment(values, production),
             public_subnet_ids=_subnet_ids(values),
             security_group_id=_security_group_id(values),
+            oidc_domain=_oidc_domain(values),
             **{limit.field: _bounded(values, limit) for limit in _LIMITS},
         )
         if production:
@@ -214,6 +238,19 @@ def _security_group_id(values: Mapping[str, str]) -> str | None:
     return raw
 
 
+def _oidc_domain(values: Mapping[str, str]) -> str | None:
+    raw = values.get("OIDC_DOMAIN")
+    if not raw:
+        return None
+    if not _OIDC_DOMAIN.fullmatch(raw):
+        raise AwsRuntimeConfigurationError("oidc_domain_invalid")
+    return raw
+
+
+def _oidc_endpoint(domain: str | None, path: str) -> str | None:
+    return None if domain is None else f"{domain}{path}"
+
+
 def _validate_production(settings: AwsRuntimeSettings) -> None:
     violations = (
         (settings.region != _PRODUCTION_REGION, "production_region_must_be_us_east_2"),
@@ -228,6 +265,15 @@ def _validate_production(settings: AwsRuntimeSettings) -> None:
         ),
         (not settings.public_subnet_ids, "production_subnets_required"),
         (settings.security_group_id is None, "production_security_group_required"),
+        (
+            settings.oidc_audience != _PRODUCTION_OIDC_AUDIENCE,
+            "production_oidc_audience_must_be_api_origin",
+        ),
+        (
+            _PRODUCTION_OIDC_ISSUER.fullmatch(settings.oidc_issuer) is None,
+            "production_oidc_issuer_must_be_cognito_us_east_2",
+        ),
+        (settings.oidc_domain is None, "production_oidc_domain_required"),
     )
     for violated, error in violations:
         if violated:

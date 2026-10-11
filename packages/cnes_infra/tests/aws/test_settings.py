@@ -324,6 +324,45 @@ def test_perfil_generico_rejeita_rede_de_producao_sem_a_politica(
         AwsRuntimeSettings.from_mapping(values)
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [{}, {"AWS_PRODUCTION_POLICY": "false"}, {"OIDC_DOMAIN": ""}],
+    ids=["politica_ausente", "politica_falsa", "dominio_vazio"],
+)
+def test_fixture_de_emulador_continua_valido(overrides: dict[str, str]) -> None:
+    settings = AwsRuntimeSettings.from_mapping(_valid_values() | overrides)
+
+    assert (settings.region, settings.oidc_audience) == ("us-east-1", "cnesdata-dashboard")
+    assert settings.oidc_issuer == "https://id.example.test"
+    assert settings.oidc_domain is None
+    assert settings.oidc_authorize_url is None
+    assert settings.oidc_token_url is None
+    assert settings.oidc_logout_url is None
+
+
+@pytest.mark.parametrize(
+    "policy", [{}, {"AWS_PRODUCTION_POLICY": "false"}], ids=["politica_ausente", "politica_falsa"],
+)
+@pytest.mark.parametrize(
+    "domain",
+    [
+        "https://cnesdata-prod-example.auth.us-east-2.amazoncognito.com",
+        "https://id.example.test",
+        " ",
+    ],
+    ids=["dominio_cognito", "dominio_qualquer", "valor_em_branco"],
+)
+def test_perfil_generico_rejeita_oidc_domain_sem_a_politica(
+    policy: dict[str, str], domain: str,
+) -> None:
+    values = _valid_values() | policy | {"OIDC_DOMAIN": domain}
+
+    with pytest.raises(
+        AwsRuntimeConfigurationError, match=r"^production_setting_forbidden=OIDC_DOMAIN$",
+    ):
+        AwsRuntimeSettings.from_mapping(values)
+
+
 @pytest.mark.parametrize("environment", ["dev", "prod-2", "p", "a" * 32])
 def test_aceita_environment_explicito_no_perfil_generico(environment: str) -> None:
     settings = AwsRuntimeSettings.from_mapping(_valid_values() | {"AWS_ENVIRONMENT": environment})

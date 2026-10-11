@@ -7,6 +7,7 @@ PRODUCTION_SECURITY_GROUP_ID = "sg-00000000000000001"
 PRODUCTION_STATE_MACHINE_ARN = (
     "arn:aws:states:us-east-2:000000000000:stateMachine:cnesdata-prod"
 )
+PRODUCTION_OIDC_DOMAIN = "https://cnesdata-prod-example.auth.us-east-2.amazoncognito.com"
 PRODUCTION_VALUES = MappingProxyType({
     "PROFILE": "aws",
     "AUTH_MODE": "oidc",
@@ -27,4 +28,5 @@ PRODUCTION_VALUES = MappingProxyType({
     "AWS_SECURITY_GROUP_ID": PRODUCTION_SECURITY_GROUP_ID,
     "OIDC_ISSUER": "https://cognito-idp.us-east-2.amazonaws.com/us-east-2_Example1",
     "OIDC_AUDIENCE": "https://api.cnesdata.com.br",
+    "OIDC_DOMAIN": PRODUCTION_OIDC_DOMAIN,
 })
