@@ -44,14 +44,14 @@ select format('select %L, %L, count(*) from %I.%I', 'count', schemaname || '.' |
 select 'landing.extractions', tenant_id, source_type, status, min(competencia)::text,
   max(competencia)::text, count(*)
   from landing.extractions group by 2, 3, 4 order by 2, 3, 4;
-select format('select %L, %L, tenant_id::text, min(competencia)::text, max(competencia)::text, '
-  'count(*) from %I.%I group by 3 order by 3', 'gold_by_tenant', schemaname || '.' || tablename,
-  schemaname, tablename)
-  from pg_tables t where schemaname = 'gold' and tablename like 'fato%'
-  and exists (select 1 from information_schema.columns c where c.table_schema = t.schemaname
-    and c.table_name = t.tablename and c.column_name = 'competencia')
-  and exists (select 1 from information_schema.columns c where c.table_schema = t.schemaname
-    and c.table_name = t.tablename and c.column_name = 'tenant_id')
+select format('select %L, %L, coalesce(e.tenant_id::text, %L), min(d.competencia)::text, '
+  'max(d.competencia)::text, count(*) from %I.%I f '
+  'left join gold.dim_competencia d using (sk_competencia) '
+  'left join landing.extractions e using (job_id) group by 3 order by 3',
+  'gold_by_tenant', schemaname || '.' || tablename, 'sem_job', schemaname, tablename)
+  from pg_tables where schemaname = 'gold' and tablename like 'fato%'
+  and not exists (select 1 from pg_inherits
+    where inhrelid = format('%I.%I', schemaname, tablename)::regclass)
 \gexec
 rollback;
 SQL
@@ -60,7 +60,10 @@ docker volume ls --format '{{.Name}}'
 
 O que conferir na saída:
 - **Gold e landing:** contagem exata por tabela, e por tenant e range de competência em
-  `landing.extractions` e em cada `gold.fato_*` com linhas.
+  `landing.extractions` e em cada `gold.fato_*` com linhas. Os fatos do Gold v2 não têm
+  `tenant_id` nem `competencia`. A competência vem de `gold.dim_competencia` (`sk_competencia`)
+  e o tenant vem de `landing.extractions` (`job_id`). Fato sem job correspondente sai como
+  `sem_job`. As partições entram pela tabela-mãe.
 - **Dado pessoal:** `dashboard.users`, `dashboard.user_tenants`, `dashboard.access_requests`,
   `dashboard.audit_log`, `marketing.leads`, `public.auth_provisioned_certs` e
   `public.auth_refresh_tokens` aparecem só como contagem, nunca por conteúdo. Em prod, `leads`
