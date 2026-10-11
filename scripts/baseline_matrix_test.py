@@ -345,6 +345,27 @@ def test_suite_rapida_nao_seleciona_chaos_infra() -> None:
     assert "test_central_api_sobrevive_pg_restart" not in completed.stdout
 
 
+def test_suite_rapida_nao_seleciona_floci() -> None:
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests/integration/floci/test_isolation.py",
+            "--collect-only",
+            "-m",
+            baseline_matrix.PYTHON_FAST_MARKERS,
+            "-q",
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 5
+    assert "test_isolation.py::" not in completed.stdout
+
+
 def test_suite_integracao_coleta_packages_apps_sem_e2e() -> None:
     command = baseline_matrix.INTEGRATION_SCRIPT.removeprefix(
         "docker compose -p cnesdata up -d --wait postgres && "
