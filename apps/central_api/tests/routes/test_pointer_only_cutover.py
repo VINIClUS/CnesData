@@ -38,6 +38,7 @@ COMPETENCIA = "2026-07"
 DOCUMENT = "overview"
 NOW = datetime(2026, 7, 2, tzinfo=UTC)
 CATALOG_DATASETS = ("cnes", "sihd", "bpa", "sia")
+UNKNOWN_DATASETS = ("demo", "gold", "CNES", "cnes-v2")
 LEGACY_PATHS = (
     "/api/v1/dashboard/overview",
     "/api/v1/dashboard/faturamento/by-establishment",
@@ -225,4 +226,18 @@ def test_rotas_legadas_retornam_410_sem_tocar_o_repositorio_sql(
 
     assert response.status_code == 410
     assert response.json() == {"detail": "legacy_route_retired"}
+    assert cutover.repo.calls == []
+
+
+@pytest.mark.parametrize("dataset", UNKNOWN_DATASETS)
+def test_dataset_fora_do_catalogo_retorna_404_mesmo_com_pointer_publicado(
+    cutover: Cutover, dataset: str
+) -> None:
+    cutover.publish(Publication(dataset, f"{dataset}-current", expected=None))
+
+    response = cutover.read_serving(dataset)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "dataset_unknown"}
+    assert cutover.access.requests == []
     assert cutover.repo.calls == []

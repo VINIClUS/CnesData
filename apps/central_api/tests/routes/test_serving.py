@@ -164,6 +164,21 @@ def test_document_name_com_traversal_nao_abre_objeto() -> None:
     assert store.opened == []
 
 
+@pytest.mark.parametrize("dataset", ["demo", "test", "CNES"])
+def test_dataset_fora_do_catalogo_retorna_404_antes_de_autorizar(dataset: str) -> None:
+    access_double = Access(grant=grant())
+    store = ObjectStore({KEY: b"{}"})
+
+    response = client(access_double, store, principal()).get(
+        f"/api/v1/dashboard/serving/{dataset}/{DOCUMENT}"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "dataset_unknown"}
+    assert access_double.requests == []
+    assert (store.stat_calls, store.opened) == ([], [])
+
+
 def test_documento_fora_do_grant_retorna_404_sem_abrir() -> None:
     other_key = f"serving/{TENANT}/{RUN_ID}/other.json"
     access_double = Access(grant=grant(object_keys=(other_key,)))
@@ -294,6 +309,20 @@ def test_rota_aws_valida_documento_antes_de_assinar() -> None:
     )
 
     assert response.status_code == 422
+    assert signed.calls == []
+
+
+@pytest.mark.parametrize("dataset", ["demo", "test", "CNES"])
+def test_rota_aws_dataset_fora_do_catalogo_retorna_404_antes_de_assinar(dataset: str) -> None:
+    signed = Signed()
+
+    response = signed_client(signed, principal()).get(
+        f"/api/v1/dashboard/serving/{dataset}/{DOCUMENT}", follow_redirects=False,
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "dataset_unknown"}
+    assert "location" not in response.headers
     assert signed.calls == []
 
 
