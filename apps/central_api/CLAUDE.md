@@ -28,7 +28,11 @@ em 1 réplica (gate via env `ENABLE_REAPER`).
 - Background task: `_lease_reaper_loop` (a cada `_REAPER_INTERVAL=60s`) no lifespan
 - AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
 - /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
-- /api/v1/dashboard/overview, /faturamento/by-establishment
+- /api/v1/dashboard/overview, /faturamento/by-establishment — aposentadas (MIG-011): 410
+  `legacy_route_retired`, sem tocar o `DashboardRepo`
+- `GET /api/v1/dashboard/serving/{dataset_name}/{document_name}` — única leitura de produto: só o
+  pointer `current`; dataset fora de `build_source_catalog()` → 404 `dataset_unknown`; conteúdo
+  ativo ausente → 503 `active_serving_unavailable`, sem fallback a versão anterior nem a Postgres
 - /api/v1/dashboard/access-requests/*
 - /activate/confirm — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit 10/min)
 - /oauth/device_authorization, /oauth/token — device flow
@@ -138,7 +142,8 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `src/central_api/routes/extractions.py` | `/api/v1/extractions/enqueue` — enqueue admin |
 | `src/central_api/routes/admin.py` | `/api/v1/admin/*` — reap-leases, ops |
 | `src/central_api/routes/dashboard.py` | `/api/v1/dashboard/auth/me`, tenants, agents |
-| `src/central_api/routes/overview.py` | `/api/v1/dashboard/overview`, faturamento |
+| `src/central_api/routes/overview.py` | rotas legadas `/overview` e `/faturamento/by-establishment` aposentadas (410) |
+| `src/central_api/routes/serving.py` | `/api/v1/dashboard/serving/{dataset}/{doc}` — leitura pointer-only (stream local ou 307 aws) |
 | `src/central_api/routes/access_requests.py` | signup JIT access request |
 | `src/central_api/routes/oauth.py` | device flow + `/activate/confirm` |
 | `src/central_api/routes/provision.py` | cert enrollment |
