@@ -112,6 +112,40 @@ describe("useActivate", () => {
     await expect(result.current.mutateAsync(BODY)).rejects.toThrow(new Error("activate_failed"));
   });
 
+  test.each([
+    [
+      "500 texto puro",
+      () =>
+        new HttpResponse("Internal Server Error", {
+          status: 500,
+          headers: { "Content-Type": "text/plain" },
+        }),
+    ],
+    [
+      "502 html",
+      () =>
+        new HttpResponse("<html><body>Bad Gateway</body></html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+    ],
+  ])("erro http com corpo nao json (%s) vira activate_failed", async (_caso, respond) => {
+    server.use(http.post(ACTIVATE_URL, respond));
+    const result = renderActivate();
+
+    await expect(result.current.mutateAsync(BODY)).rejects.toThrow(new Error("activate_failed"));
+  });
+
+  test.each([
+    ["sem corpo", () => new HttpResponse(null, { status: 200 })],
+    ["sem status approved", () => HttpResponse.json({ status: "pending" })],
+  ])("resposta 2xx %s nao aprova", async (_caso, respond: () => Response) => {
+    server.use(http.post(ACTIVATE_URL, respond));
+    const result = renderActivate();
+
+    await expect(result.current.mutateAsync(BODY)).rejects.toThrow(new Error("activate_failed"));
+  });
+
   test("erro de fronteira do cliente propaga sem traducao", async () => {
     const boundary = new ApiBoundaryError("api_origin_mismatch");
     mockApiFetch.mockRejectedValueOnce(boundary);

@@ -158,10 +158,11 @@ def test_respostas_de_erro_seguem_a_politica_exata(
     assert "access-control-allow-credentials" not in denied.headers
 
 
-def test_cors_policy_de_producao_e_exata() -> None:
+@pytest.mark.parametrize("profile", ["aws", " AWS ", "Aws"])
+def test_cors_policy_de_producao_e_exata(profile: str) -> None:
     from central_api.app import CorsPolicy, cors_policy
 
-    policy = cors_policy({"PROFILE": "aws", "AWS_PRODUCTION_POLICY": "true"})
+    policy = cors_policy({"PROFILE": profile, "AWS_PRODUCTION_POLICY": "true"})
 
     assert policy == CorsPolicy(
         allow_origins=(PRODUCTION_ORIGIN,),
@@ -178,6 +179,7 @@ def test_cors_policy_de_producao_e_exata() -> None:
     {"PROFILE": "local", "AWS_PRODUCTION_POLICY": "true"},
     {"PROFILE": "aws"},
     {"PROFILE": "aws", "AWS_PRODUCTION_POLICY": "false"},
+    {"PROFILE": "awss", "AWS_PRODUCTION_POLICY": "true"},
 ])
 def test_fora_de_producao_aws_mantem_a_politica_atual(
     monkeypatch: pytest.MonkeyPatch, values: dict[str, str],

@@ -1,12 +1,20 @@
 """Tests for /api/v1/activate/confirm — Bearer JWT + tenant gate + audit + rate limit."""
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from slowapi.errors import RateLimitExceeded
 
 from central_api.middleware import AuthenticatedUser
+from central_api.ratelimit import rate_limit_handler
 from central_api.routes import oauth
+
+if TYPE_CHECKING:
+    from starlette.types import ExceptionHandler
 
 _ACTIVATE = "/api/v1/activate/confirm"
 
@@ -16,6 +24,7 @@ def _build(user, store, repo) -> TestClient:
     app.state.device_code_store = store
     app.state.dashboard_repo = repo
     app.state.limiter = oauth.limiter
+    app.add_exception_handler(RateLimitExceeded, cast("ExceptionHandler", rate_limit_handler))
 
     @app.middleware("http")
     async def inject(request: Request, call_next):
@@ -111,3 +120,26 @@ def test_vincula_tenant_do_corpo_antes_de_auditar() -> None:
         tenant_id_ctx.reset(token)
     assert r.status_code == 200
     assert seen == ["354130"]
+
+
+@pytest.fixture
+def _limiter_zerado() -> Iterator[None]:
+    oauth.limiter.reset()
+    yield
+    oauth.limiter.reset()
+
+
+@pytest.mark.usefixtures("_limiter_zerado")
+def test_rota_versionada_aplica_rate_limit_de_10_por_minuto() -> None:
+    store = MagicMock()
+    store.redeem_user_code = AsyncMock(return_value=False)
+    c = _build(_user(["354130"]), store, MagicMock())
+    payload = {"user_code": "WDJB-MJHT", "tenant_id": "354130"}
+
+    statuses = [c.post(_ACTIVATE, json=payload).status_code for _ in range(10)]
+    blocked = c.post(_ACTIVATE, json=payload)
+
+    assert statuses == [400] * 10
+    assert blocked.status_code == 429
+    assert blocked.json() == {"detail": "rate_limited", "retry_after": 60}
+    assert blocked.headers["retry-after"] == "60"
