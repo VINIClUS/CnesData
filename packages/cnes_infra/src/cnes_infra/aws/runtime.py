@@ -48,11 +48,18 @@ def create_aws_clients(settings: AwsRuntimeSettings, session: Session) -> AwsCli
             "dynamodb", region_name=settings.region,
             endpoint_url=settings.dynamodb_endpoint_url,
         )),
-        # With endpoint_url set, boto3 may fall back to SigV2 presigning.
+        # With endpoint_url set, boto3 may fall back to SigV2 presigning. Without it, "auto"
+        # addressing presigns on the global host, which answers 307 outside us-east-1.
         s3=cast("BaseClient", session.client(  # pyright: ignore[reportUnknownMemberType]
             "s3", region_name=settings.region,
             endpoint_url=settings.service_endpoint_url,
-            config=Config(signature_version="s3v4"),
+            config=Config(
+                signature_version="s3v4",
+                s3=(
+                    {"addressing_style": "virtual"}
+                    if settings.service_endpoint_url is None else None
+                ),
+            ),
         )),
         step_functions=cast(
             "BaseClient",

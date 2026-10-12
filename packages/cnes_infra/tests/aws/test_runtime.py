@@ -3,9 +3,11 @@
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock, call, sentinel
+from urllib.parse import urlsplit
 
+import boto3
 import pytest
 from botocore.exceptions import ClientError
 
@@ -14,9 +16,14 @@ from cnes_infra.aws.runtime import AwsClients, build_aws_runtime, create_aws_cli
 from cnes_infra.aws.settings import AwsRuntimeSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.object_store.s3 import S3ObjectStore
+from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+
+if TYPE_CHECKING:
+    from types_boto3_s3.client import S3Client
 
 _NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 _LOCKED = {"ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}}
+_SERVING_KEY = "serving/354130/run-01/overview.json"
 
 
 def _settings(
@@ -84,6 +91,7 @@ def test_cria_clientes_na_regiao_e_endpoint_configurados() -> None:
     assert s3.kwargs["region_name"] == "us-east-1"
     assert s3.kwargs["endpoint_url"] == "http://aws-emulator:4566"
     assert s3.kwargs["config"].signature_version == "s3v4"
+    assert s3.kwargs["config"].s3 is None
     assert set(s3.kwargs) == {"region_name", "endpoint_url", "config"}
     assert sfn == call(
         "stepfunctions", region_name="us-east-1", endpoint_url="http://aws-emulator:4566",
@@ -97,7 +105,32 @@ def test_usa_endpoints_padrao_da_aws_em_producao() -> None:
 
     assert session.client.call_count == 3
     assert [c.kwargs["endpoint_url"] for c in session.client.call_args_list] == [None] * 3
-    assert session.client.call_args_list[1].kwargs["config"].signature_version == "s3v4"
+    config = session.client.call_args_list[1].kwargs["config"]
+    assert config.signature_version == "s3v4"
+    assert config.s3 == {"addressing_style": "virtual"}
+
+
+def test_url_assinada_de_serving_usa_host_regional_do_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_S3"):
+        monkeypatch.delenv(name, raising=False)
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+    session = boto3.Session(
+        aws_access_key_id="test", aws_secret_access_key="test",  # noqa: S106
+    )
+
+    signer = cast("S3Client", create_aws_clients(settings, session).s3)
+
+    url = signer.generate_presigned_url(
+        "get_object", Params={"Bucket": settings.data_bucket, "Key": _SERVING_KEY},
+        ExpiresIn=settings.serving_url_ttl_seconds,
+    )
+
+    parts = urlsplit(url)
+    assert (parts.scheme, parts.netloc, parts.path) == (
+        "https", "cnesdata-prod-data.s3.us-east-2.amazonaws.com", f"/{_SERVING_KEY}",
+    )
 
 
 def test_compoe_adapters_com_recursos_configurados() -> None:
