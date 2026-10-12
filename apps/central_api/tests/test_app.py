@@ -6,8 +6,10 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.engine import Engine
 
+from central_api.ratelimit import rate_limit_handler
 from cnes_infra.auth import TokenInvalid
 
 if TYPE_CHECKING:
@@ -312,6 +314,9 @@ class TestRotasDeAtivacao:
 
         assert [path for path in paths if "activate" in path] == ["/api/v1/activate/confirm"]
         assert set(paths["/api/v1/activate/confirm"]) == {"post"}
+
+    def test_app_registra_handler_de_rate_limit_com_retry_after(self, app):
+        assert app.exception_handlers[RateLimitExceeded] is rate_limit_handler
 
     def test_device_flow_continua_na_raiz(self, app):
         paths = app.openapi()["paths"]

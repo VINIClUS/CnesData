@@ -146,6 +146,13 @@ describe("useActivate", () => {
     await expect(result.current.mutateAsync(BODY)).rejects.toThrow(new Error("activate_failed"));
   });
 
+  test("falha de rede propaga sem traducao", async () => {
+    server.use(http.post(ACTIVATE_URL, () => HttpResponse.error()));
+    const result = renderActivate();
+
+    await expect(result.current.mutateAsync(BODY)).rejects.toBeInstanceOf(TypeError);
+  });
+
   test("erro de fronteira do cliente propaga sem traducao", async () => {
     const boundary = new ApiBoundaryError("api_origin_mismatch");
     mockApiFetch.mockRejectedValueOnce(boundary);
