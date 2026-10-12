@@ -94,9 +94,10 @@ def test_preflight_permite_get_e_post_com_headers_do_contrato(
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == PRODUCTION_ORIGIN
     assert _listed(response, "access-control-allow-methods") == {"get", "post"}
-    assert {"authorization", "content-type", "x-tenant-id"} <= _listed(
-        response, "access-control-allow-headers",
-    )
+    assert _listed(response, "access-control-allow-headers") == {
+        "authorization", "content-type", "x-tenant-id",
+        "accept", "accept-language", "content-language",
+    }
     assert response.headers["access-control-max-age"] == "600"
     assert "access-control-allow-credentials" not in response.headers
 

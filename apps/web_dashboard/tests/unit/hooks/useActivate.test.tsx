@@ -150,7 +150,10 @@ describe("useActivate", () => {
     server.use(http.post(ACTIVATE_URL, () => HttpResponse.error()));
     const result = renderActivate();
 
-    await expect(result.current.mutateAsync(BODY)).rejects.toBeInstanceOf(TypeError);
+    const error = await result.current.mutateAsync(BODY).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(TypeError);
+    expect((error as Error).message).not.toBe("activate_failed");
   });
 
   test("erro de fronteira do cliente propaga sem traducao", async () => {
