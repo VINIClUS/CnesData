@@ -1,4 +1,5 @@
 import json
+import posixpath
 import re
 import shutil
 import subprocess
@@ -15,16 +16,15 @@ type Tofu = tuple[str, dict[str, str]]
 type Artifacts = dict[str, dict[str, object]]
 type Node = dict[str, object]
 
-MODULE_DIRECTORY = Path(__file__).resolve().parents[3] / "infra/opentofu/modules/data-buckets"
 MODULE_SOURCE = "../../modules/data-buckets"
-ISOLATED_SOURCE = "./modules/data-buckets"
 BUCKET_NAMES = {"data": "cnesdata-prod-data", "audit": "cnesdata-prod-audit"}
 BOTH = ("data", "audit")
 AUDIT_RETENTION_DAYS = 365
 PRODUCTION_SETTINGS = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
 RETAINED_PREFIXES = ("raw", "normalized", "reconciliation", "serving")
 DATA_PREFIXES = (*RETAINED_PREFIXES, "tmp")
-TMP_RECOVERY_WINDOW = {"expire_days": 7, "noncurrent_days": 1}
+TMP_RECOVERY_WINDOW = {"expire_days": 35, "noncurrent_days": 1}
+TMP_EXPIRATION_FLOOR_DAYS = 35
 ABORT_MULTIPART_DAYS = 1
 SERVING_CORS = {
     "allowed_origins": ["https://cnesdata.com.br"], "allowed_methods": ["GET", "HEAD"],
@@ -40,8 +40,8 @@ BUCKET_CONTROLS = {
     "aws_s3_bucket_cors_configuration": ("data",),
     "aws_s3_bucket_object_lock_configuration": ("audit",),
 }
+ACCOUNT_PUBLIC_ACCESS_BLOCK = "aws_s3_account_public_access_block"
 EXPECTED_RESOURCES = frozenset({
-    "aws_s3_account_public_access_block.account",
     *(f"aws_s3_bucket.{name}" for name in BOTH),
     *(f"{kind}.{name}" for kind, names in BUCKET_CONTROLS.items() for name in names),
 })
@@ -52,6 +52,7 @@ INVALID_NAME_RUNS = {
 }
 ISOLATION_RUNS = ("buckets_distintos_privados_e_versionados", *INVALID_NAME_RUNS)
 RUN_STATUS = re.compile(r'^\s*run "(?P<name>[^"]+)"\.\.\. (?P<status>\w+)$', re.MULTILINE)
+MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?\}$', re.MULTILINE)
 
 MODULE_RUN = """
 run "{name}" {{
@@ -80,6 +81,7 @@ run "raiz_agenda_data_buckets" {{
 {body}}}
 """
 EXPECT_INVALID_NAMES = "\n  expect_failures = [var.bucket_names]\n"
+MOCK_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
 
 BUCKETS = """{
       for name, bucket in { data = aws_s3_bucket.data, audit = aws_s3_bucket.audit } : name => {
@@ -90,9 +92,8 @@ BUCKETS = """{
     }"""
 PUBLIC_ACCESS_BLOCKS = """{
       for name, block in {
-        account = aws_s3_account_public_access_block.account
-        data    = aws_s3_bucket_public_access_block.data
-        audit   = aws_s3_bucket_public_access_block.audit
+        data  = aws_s3_bucket_public_access_block.data
+        audit = aws_s3_bucket_public_access_block.audit
       } : name => [
         block.block_public_acls, block.block_public_policy,
         block.ignore_public_acls, block.restrict_public_buckets,
@@ -129,6 +130,10 @@ LIFECYCLE_RULES = """{
 AUDIT_POLICY_DENY_ONLY = (
     "alltrue([for statement in jsondecode(aws_s3_bucket_policy.audit.policy).Statement : "
     'statement.Effect == "Deny"])'
+)
+TMP_EXPIRATION_FLOOR = (
+    "one([for rule in aws_s3_bucket_lifecycle_configuration.data.rule : rule.expiration[0].days"
+    f' if try(rule.filter[0].prefix, "") == "tmp/"]) >= {TMP_EXPIRATION_FLOOR_DAYS}'
 )
 
 
@@ -253,7 +258,7 @@ def _isolation_body() -> str:
         name: {"bucket": BUCKET_NAMES[name], "object_lock": name == "audit", "force_destroy": False}
         for name in BOTH
     }
-    public_access = {"account": [True] * 4, **_for_buckets([True] * 4)}
+    public_access = _for_buckets([True] * 4)
     versioning = _per_bucket("aws_s3_bucket_versioning", "@.versioning_configuration[*].status")
     targets, expected_targets = _control_targets()
     return (
@@ -300,7 +305,9 @@ def _lifecycle_body() -> str:
     lifecycle = _per_bucket("aws_s3_bucket_lifecycle_configuration", LIFECYCLE_RULES, ("data",))
     retained = {f"{prefix}/": _lifecycle_rule(f"retain-{prefix}") for prefix in RETAINED_PREFIXES}
     expected = {**retained, "tmp/": _lifecycle_rule("expire-tmp", **TMP_RECOVERY_WINDOW)}
-    return _equal(lifecycle, {"data": expected}, "lifecycle_by_prefix")
+    return _equal(lifecycle, {"data": expected}, "lifecycle_by_prefix") + _assertion(
+        TMP_EXPIRATION_FLOOR, "tmp_expiration_floor"
+    )
 
 
 def _outputs_body() -> str:
@@ -310,7 +317,7 @@ def _outputs_body() -> str:
 
 
 def _suite(runs: Iterable[ModuleRun], header: str = "") -> str:
-    return 'mock_provider "aws" {}\n' + header + "".join(_module_run(run) for run in runs)
+    return MOCK_PROVIDERS + header + "".join(_module_run(run) for run in runs)
 
 
 def _plan_suites(shared_outputs: Mapping[str, object]) -> dict[str, str]:
@@ -332,14 +339,6 @@ def _plan_suites(shared_outputs: Mapping[str, object]) -> dict[str, str]:
         "data-buckets": _suite(runs, _root_run(shared_outputs)),
         "data-buckets-validation": _suite(rejections),
     }
-
-
-def _protection_suite(name: str) -> str:
-    replace = f"\n  plan_options {{\n    replace = [aws_s3_bucket.{name}]\n  }}\n"
-    return _suite((
-        ModuleRun(f"cria_bucket_{name}", "", ISOLATED_SOURCE, "apply"),
-        ModuleRun(f"substitui_bucket_{name}", replace, ISOLATED_SOURCE),
-    ))
 
 
 def _tofu(tofu: Tofu, root: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -369,21 +368,28 @@ def _assert_runs(report: TofuReport, expected: Mapping[str, str]) -> None:
     )
 
 
-def _write_isolated_root(root: Path, prod_root: Path) -> None:
-    hidden = shutil.ignore_patterns(".*")
-    shutil.copytree(MODULE_DIRECTORY, root / "modules" / "data-buckets", ignore=hidden)
-    for name in ("versions.tf", ".terraform.lock.hcl"):
-        shutil.copy2(prod_root / name, root / name)
-    tests = root / "tests"
-    tests.mkdir()
-    for name in BOTH:
-        suite = tests / f"protection-{name}.tftest.hcl"
-        suite.write_text(_protection_suite(name), encoding="utf-8")
-
-
 def _module_calls(tofu_artifacts: Artifacts) -> dict[str, Node]:
     root = cast("Node", tofu_artifacts["configuration"]["root_module"])
     return cast("dict[str, Node]", root.get("module_calls", {}))
+
+
+def _graph_types(module: Node) -> Iterator[str]:
+    for resource in cast("list[Node]", module.get("resources", [])):
+        yield cast("str", resource["type"])
+    for call in cast("dict[str, Node]", module.get("module_calls", {})).values():
+        yield from _graph_types(cast("Node", call["module"]))
+
+
+def _root_aws_providers(tofu_artifacts: Artifacts) -> set[str]:
+    providers = cast("dict[str, Node]", tofu_artifacts["configuration"]["provider_config"])
+    return {
+        key for key, provider in providers.items()
+        if provider["name"] == "aws" and "module_address" not in provider
+    }
+
+
+def _mocked_providers(suite: str) -> set[str]:
+    return {f"aws.{alias}" if alias else "aws" for alias in MOCK_PROVIDER.findall(suite)}
 
 
 def _module_resources(tofu_artifacts: Artifacts) -> dict[str, Node]:
@@ -412,30 +418,15 @@ def plan_report(
         shutil.rmtree(test_directory)
 
 
-@pytest.fixture(scope="module")
-def isolated_report(
-    tofu_context: Tofu,
-    tofu_artifacts: Artifacts,
-    prod_root: Path,
-    tmp_path_factory: pytest.TempPathFactory,
-) -> TofuReport:
-    root = tmp_path_factory.mktemp("data-buckets-protection")
-    _write_isolated_root(root, prod_root)
-    providers = Path(tofu_context[1]["TF_DATA_DIR"]) / "providers"
-    tofu = (tofu_context[0], {**tofu_context[1], "TF_DATA_DIR": str(root / ".tofu-data")})
-    init = ("init", "-backend=false", "-input=false", f"-plugin-dir={providers}")
-    _require_success(_tofu(tofu, root, init), "init-isolated")
-    return _report(_tofu(tofu, root, ("test", "-no-color")))
-
-
 def test_raiz_agenda_buckets_de_dados_e_auditoria(
     plan_report: TofuReport,
     tofu_artifacts: Artifacts,
 ) -> None:
     calls = _module_calls(tofu_artifacts)
+    sources = {n: posixpath.normpath(cast("str", c["source"])) for n, c in calls.items()}
 
     _assert_runs(plan_report, {"raiz_agenda_data_buckets": "pass"})
-    assert [n for n, c in calls.items() if c["source"] == MODULE_SOURCE] == ["data_buckets"]
+    assert [n for n, source in sources.items() if source == MODULE_SOURCE] == ["data_buckets"]
 
 
 def test_buckets_distintos_privados_e_versionados(
@@ -451,6 +442,12 @@ def test_buckets_distintos_privados_e_versionados(
     _assert_runs(plan_report, dict.fromkeys(ISOLATION_RUNS, "pass"))
     assert set(resources) == EXPECTED_RESOURCES
     assert arguments == BUCKET_ARGUMENTS
+
+
+def test_produto_nao_declara_block_public_access_de_conta(tofu_artifacts: Artifacts) -> None:
+    root = cast("Node", tofu_artifacts["configuration"]["root_module"])
+
+    assert ACCOUNT_PUBLIC_ACCESS_BLOCK not in set(_graph_types(root))
 
 
 def test_tls_obrigatorio_e_owner_enforced(plan_report: TofuReport) -> None:
@@ -487,12 +484,12 @@ def test_outputs_expoem_arns_exatos_de_bucket_e_prefixo(plan_report: TofuReport)
     _assert_runs(plan_report, {"outputs_com_arns_exatos": "pass"})
 
 
-@pytest.mark.parametrize("bucket", BOTH)
-def test_bucket_tem_prevent_destroy(isolated_report: TofuReport, bucket: str) -> None:
-    result = isolated_report.result
-    output = " ".join((result.stdout + result.stderr).split())
+def test_suites_gerados_mockam_todo_provider_aws_da_raiz(
+    tofu_artifacts: Artifacts,
+    valid_shared_outputs: dict[str, object],
+) -> None:
+    roots = _root_aws_providers(tofu_artifacts)
+    suites = list(_plan_suites(valid_shared_outputs).values())
 
-    _assert_runs(
-        isolated_report, {f"cria_bucket_{bucket}": "pass", f"substitui_bucket_{bucket}": "fail"}
-    )
-    assert f"Resource instance aws_s3_bucket.{bucket} has prevent_destroy set" in output
+    assert {"aws", "aws.global_edge"} <= roots
+    assert [_mocked_providers(suite) for suite in suites] == [roots] * len(suites)

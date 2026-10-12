@@ -23,6 +23,7 @@ _PRODUCTION_ONLY_KEYS = ("AWS_PUBLIC_SUBNET_IDS", "AWS_SECURITY_GROUP_ID", "OIDC
 _PRODUCTION_REGION = "us-east-2"
 _PRODUCTION_LEASE_SECONDS = 3600
 _PRODUCTION_SERVING_TTL_SECONDS = 300
+_PRODUCTION_AUDIT_RETENTION_DAYS = 365
 _PRODUCTION_OIDC_AUDIENCE = "https://api.cnesdata.com.br"
 _PRODUCTION_OIDC_ISSUER = re.compile(
     r"https://cognito-idp\.us-east-2\.amazonaws\.com/us-east-2_[0-9A-Za-z]+"
@@ -262,6 +263,10 @@ def _validate_production(settings: AwsRuntimeSettings) -> None:
         (
             settings.serving_url_ttl_seconds != _PRODUCTION_SERVING_TTL_SECONDS,
             "production_serving_ttl_must_be_300",
+        ),
+        (
+            settings.audit_retention_days != _PRODUCTION_AUDIT_RETENTION_DAYS,
+            "production_audit_retention_must_be_365_days",
         ),
         (not settings.public_subnet_ids, "production_subnets_required"),
         (settings.security_group_id is None, "production_security_group_required"),

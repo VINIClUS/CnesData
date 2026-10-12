@@ -21,19 +21,13 @@ locals {
     max_age_seconds = 300
   }
   abort_incomplete_multipart_days = 1
-  # tmp/ holds unit attempt outputs read by later waves and by publication; seven days outlast
-  # the 3600 s lease, the 30-minute recovery cadence and operator pauses (fence or cost freeze).
-  tmp_expiration_days            = 7
+  # tmp/ holds unit attempt outputs that later waves and publication read, so it must outlast the
+  # pauses built into the product: the monthly StartExecution quota defers a start to the next UTC
+  # month (31 days at most) and a cost freeze lasts until the reviewed cost-clear. 35 days cover a
+  # whole quota deferral plus the 3600 s lease; a cost freeze must be cleared within that window,
+  # or paused runs lose their tmp/ outputs.
+  tmp_expiration_days            = 35
   tmp_noncurrent_expiration_days = 1
-}
-
-# Task 3 of the infrastructure plan requires Block Public Access at account and bucket level; the
-# shared-state ownership list omits the account-wide setting, so the product state owns it.
-resource "aws_s3_account_public_access_block" "account" {
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
 }
 
 resource "aws_s3_bucket" "data" {

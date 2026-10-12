@@ -11,6 +11,8 @@ import pytest
 ToolLookup = Callable[[str], str | None]
 ValidationCase = tuple[str, object, bool]
 SharedValidator = Callable[[Sequence[ValidationCase]], CompletedProcess[str]]
+ACCOUNT_BPA = "aws_s3_account_public_access_block"
+BPA = ("account_baseline", "s3_public_access_block")
 
 ARN_PATHS = (
     ("kms_key_arn",), ("roles_anywhere", "api_role_arn"),
@@ -22,7 +24,7 @@ ARN_PATHS = (
 )
 
 INVALID_SHARED_VALUES = (
-    (("schema_version",), 2), (("account_id",), "123"),
+    (("schema_version",), 1), (("account_id",), "123"),
     (("kms_key_arn",), "arn:aws:kms:us-east-2:1:key/example"),
     (("roles_anywhere", "crl", "crl_id"), "   "),
     (("roles_anywhere", "crl", "enabled"), None),
@@ -31,10 +33,12 @@ INVALID_SHARED_VALUES = (
     (("storage", "state_bucket_name"), "INVALID_BUCKET"),
     (("storage", "evidence_bucket_name"), "ab"),
     *((path, "not-an-arn") for path in ARN_PATHS),
+    ((*BPA, "block_public_acls"), False), ((*BPA, "block_public_policy"), False),
+    ((*BPA, "ignore_public_acls"), False), ((*BPA, "restrict_public_buckets"), False),
 )
 
 PROHIBITED_RESOURCE_TYPES = (
-    "aws_kms_key", "aws_kms_alias", "aws_ssm_parameter", "aws_budgets_budget",
+    "aws_kms_key", "aws_kms_alias", "aws_ssm_parameter", "aws_budgets_budget", ACCOUNT_BPA,
     "aws_rolesanywhere_profile", "aws_iam_openid_connect_provider", "cloudflare_record",
     "hostinger_dns_record", "aws_iam_user", "aws_iam_user_policy", "aws_iam_access_key",
 )
@@ -44,7 +48,7 @@ SHARED_RESOURCE_PREFIXES = (
     "cloudflare_", "hostinger_", "aws_iam_user",
 )
 
-SHARED_RESOURCE_EXACT = {"aws_iam_access_key", "aws_iam_openid_connect_provider"}
+SHARED_RESOURCE_EXACT = {"aws_iam_access_key", "aws_iam_openid_connect_provider", ACCOUNT_BPA}
 
 
 def _compact_assignments(source: str) -> set[str]:
@@ -59,10 +63,7 @@ def _configuration_lines(source: str) -> set[str]:
     }
 
 
-def _provider(
-    tofu_artifacts: dict[str, dict[str, object]],
-    name: str,
-) -> dict[str, object]:
+def _provider(tofu_artifacts: dict[str, dict[str, object]], name: str) -> dict[str, object]:
     configuration = tofu_artifacts["configuration"]
     providers = cast("dict[str, object]", configuration["provider_config"])
     return cast("dict[str, object]", providers[name])
@@ -108,17 +109,8 @@ def _replace_value(
 
 
 def _synthetic_configuration(*resources: dict[str, object]) -> dict[str, object]:
-    return {
-        "root_module": {
-            "module_calls": {
-                "synthetic": {
-                    "module": {
-                        "resources": list(resources),
-                    }
-                }
-            }
-        }
-    }
+    return {"root_module": {"module_calls": {"synthetic": {
+        "module": {"resources": list(resources)}}}}}
 
 
 def _synthetic_resource(
@@ -146,9 +138,7 @@ def _walk_resources(module: dict[str, object]) -> Iterator[dict[str, object]]:
             yield from _walk_resources(child)
 
 
-def _configuration_resources(
-    configuration: dict[str, object],
-) -> Iterator[dict[str, object]]:
+def _configuration_resources(configuration: dict[str, object]) -> Iterator[dict[str, object]]:
     root_module = cast("dict[str, object]", configuration["root_module"])
     yield from _walk_resources(root_module)
 
@@ -303,8 +293,8 @@ def test_schema_shared_outputs_e_fechado_versionado_e_formatado(prod_root: Path)
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     schema_id = schema["$id"]
     assert isinstance(schema_id, str)
-    assert schema_id.endswith("shared-outputs-v1.schema.json")
-    assert _schema_property(schema, "schema_version")["const"] == 1
+    assert schema_id.endswith("shared-outputs-v2.schema.json")
+    assert _schema_property(schema, "schema_version")["const"] == 2
     assert _schema_property(schema, "account_id")["pattern"] == "^[0-9]{12}$"
     assert _schema_property(schema, "roles_anywhere", "crl", "sha256")["pattern"] == (
         "^[0-9a-f]{64}$"
@@ -365,6 +355,16 @@ def test_validacao_nativa_rejeita_shared_outputs_nulo(
     assert result.returncode != 0
     assert "0 passed, 1 failed" in result.stdout
     assert "required variable may not be set to null" in result.stderr
+
+
+def test_validacao_nativa_rejeita_shared_outputs_sem_account_baseline(
+    validate_shared_outputs: SharedValidator, valid_shared_outputs: dict[str, object]
+) -> None:
+    absent = {key: value for key, value in valid_shared_outputs.items() if key != BPA[0]}
+    result = validate_shared_outputs((("account_baseline_ausente", absent, False),))
+
+    assert result.returncode != 0
+    assert 'attribute "account_baseline" is required' in result.stderr
 
 
 def test_inventario_de_outputs_publica_placeholders_nulos(

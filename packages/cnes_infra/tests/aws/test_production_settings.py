@@ -48,6 +48,7 @@ def test_producao_aceita_valores_canonicos() -> None:
     assert settings.security_group_id == PRODUCTION_SECURITY_GROUP_ID
     assert (settings.processor_max_concurrency, settings.processor_lease_seconds) == (1, 3600)
     assert settings.serving_url_ttl_seconds == 300
+    assert settings.audit_retention_days == 365
 
 
 def test_producao_aceita_ttl_padrao_de_300() -> None:
@@ -96,6 +97,13 @@ def test_producao_exige_lease_3600(value: str | None) -> None:
 )
 def test_producao_exige_ttl_300_e_regiao_us_east_2(key: str, value: str, error: str) -> None:
     _assert_rejected(PRODUCTION_VALUES | {key: value}, error)
+
+
+@pytest.mark.parametrize("days", [1, 30, 364, 366, 36500])
+def test_producao_rejeita_retencao_de_audit_diferente_de_365(days: int) -> None:
+    values = PRODUCTION_VALUES | {"AWS_AUDIT_RETENTION_DAYS": str(days)}
+
+    _assert_rejected(values, "production_audit_retention_must_be_365_days")
 
 
 def test_producao_exige_environment_explicito() -> None:

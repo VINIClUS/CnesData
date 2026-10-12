@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 import subprocess
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple, TypedDict
 
@@ -28,7 +28,7 @@ class TofuContext(NamedTuple):
 
 
 VALID_SHARED_OUTPUTS: dict[str, object] = {
-    "schema_version": 1,
+    "schema_version": 2,
     "account_id": "123456789012",
     "kms_key_arn": "arn:aws:kms:us-east-2:123456789012:key/example",
     "roles_anywhere": {
@@ -65,6 +65,14 @@ VALID_SHARED_OUTPUTS: dict[str, object] = {
         "state_bucket_arn": "arn:aws:s3:::shared-opentofu-state-example",
         "evidence_bucket_name": "shared-infra-evidence-example",
         "evidence_bucket_arn": "arn:aws:s3:::shared-infra-evidence-example",
+    },
+    "account_baseline": {
+        "s3_public_access_block": {
+            "block_public_acls": True,
+            "block_public_policy": True,
+            "ignore_public_acls": True,
+            "restrict_public_buckets": True,
+        },
     },
 }
 
@@ -117,8 +125,30 @@ EXPECTED_SHARED_TYPE: list[object] = [
                 "evidence_bucket_arn": "string",
             },
         ],
+        "account_baseline": [
+            "object",
+            {
+                "s3_public_access_block": [
+                    "object",
+                    {
+                        "block_public_acls": "bool",
+                        "block_public_policy": "bool",
+                        "ignore_public_acls": "bool",
+                        "restrict_public_buckets": "bool",
+                    },
+                ],
+            },
+        ],
     },
 ]
+
+
+# No AWS_* variable of the caller reaches tofu: an unmocked provider gets no credential or profile
+# from the environment, instance metadata is off and every AWS request goes to a dead endpoint.
+TOFU_AWS_ENVIRONMENT = {
+    "AWS_EC2_METADATA_DISABLED": "true",
+    "AWS_ENDPOINT_URL": "http://127.0.0.1:9",
+}
 
 
 NATIVE_CONTRACT_TEST = """
@@ -153,6 +183,11 @@ def require_tool(name: str, lookup: ToolLookup = shutil.which) -> str:
     if "CI" in os.environ:
         pytest.fail(message)
     pytest.skip(message)
+
+
+def tofu_environment(source: Mapping[str, str]) -> dict[str, str]:
+    environment = {key: value for key, value in source.items() if not key.startswith("AWS_")}
+    return environment | TOFU_AWS_ENVIRONMENT
 
 
 def _run_tofu(
@@ -193,6 +228,11 @@ def _shared_validation_run(case: ValidationCase) -> str:
 @pytest.fixture(name="require_tool")
 def fixture_require_tool() -> Callable[[str, ToolLookup], str]:
     return require_tool
+
+
+@pytest.fixture(name="tofu_environment")
+def fixture_tofu_environment() -> Callable[[Mapping[str, str]], dict[str, str]]:
+    return tofu_environment
 
 
 @pytest.fixture(scope="session")
@@ -236,7 +276,7 @@ def expected_shared_type() -> list[object]:
 @pytest.fixture(scope="session")
 def tofu_context(tmp_path_factory: pytest.TempPathFactory) -> TofuContext:
     tofu_bin = require_tool("tofu")
-    environment = os.environ.copy()
+    environment = tofu_environment(os.environ)
     environment["TF_DATA_DIR"] = str(tmp_path_factory.mktemp("tofu-data"))
     return TofuContext(tofu_bin, environment)
 
