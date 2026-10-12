@@ -106,6 +106,15 @@ def test_producao_rejeita_retencao_de_audit_diferente_de_365(days: int) -> None:
     _assert_rejected(values, "production_audit_retention_must_be_365_days")
 
 
+@pytest.mark.parametrize("days", [1, 30, 730])
+def test_fora_da_producao_aceita_retencao_de_audit_diferente_de_365(days: int) -> None:
+    production_only = {"AWS_PUBLIC_SUBNET_IDS", "AWS_SECURITY_GROUP_ID", "OIDC_DOMAIN"}
+    generic = {k: v for k, v in PRODUCTION_VALUES.items() if k not in production_only}
+    values = generic | {"AWS_PRODUCTION_POLICY": "false", "AWS_AUDIT_RETENTION_DAYS": str(days)}
+
+    assert AwsRuntimeSettings.from_mapping(values).audit_retention_days == days
+
+
 def test_producao_exige_environment_explicito() -> None:
     _assert_rejected(_without("AWS_ENVIRONMENT"), "environment_required")
 

@@ -64,20 +64,21 @@ def test_gate_rejeita_ignore_com_colchetes_sem_exp_ou_vencido(
 
 
 def test_descoberta_de_ignores_percorre_subdiretorios_e_pula_ocultos(tmp_path: Path) -> None:
-    nested = tmp_path / "modules" / "x" / "main.tf"
-    hidden = tmp_path / "env" / ".terraform" / "modules" / "y" / "main.tf"
+    root = tmp_path / ".worktrees" / "feat-x" / "opentofu"
+    nested = root / "modules" / "x" / "main.tf"
+    hidden = root / "env" / ".terraform" / "modules" / "y" / "main.tf"
     for path in (nested, hidden):
         path.parent.mkdir(parents=True)
         path.write_text('#trivy:ignore:AVD-AWS-0132[exp:2027-04-11]\n', encoding="utf-8")
 
-    assert [where for where, _ in _ignore_lines(tmp_path)] == ["modules/x/main.tf:1"]
+    assert [where for where, _ in _ignore_lines(root)] == ["modules/x/main.tf:1"]
 
 
 def test_ignores_inline_do_trivy_expiram_em_data_futura() -> None:
     today = datetime.now(UTC).date()
     violations = {where: _violation(line, today) for where, line in _ignore_lines()}
 
-    assert any(OPENTOFU_ROOT.rglob("*.tf"))
+    assert any(where.startswith("modules/data-buckets/main.tf:") for where in violations)
     assert {where: reason for where, reason in violations.items() if reason} == {}
 
 

@@ -227,6 +227,10 @@ def _shared_validation_run(case: ValidationCase) -> str:
 '''
 
 
+def shared_validation_suite(cases: Sequence[ValidationCase]) -> str:
+    return MOCK_AWS_PROVIDERS + "\n" + "\n".join(_shared_validation_run(case) for case in cases)
+
+
 @pytest.fixture(name="require_tool")
 def fixture_require_tool() -> Callable[[str, ToolLookup], str]:
     return require_tool
@@ -234,7 +238,7 @@ def fixture_require_tool() -> Callable[[str, ToolLookup], str]:
 
 @pytest.fixture(name="generated_suite_headers")
 def fixture_generated_suite_headers() -> tuple[str, ...]:
-    return (NATIVE_CONTRACT_TEST, MOCK_AWS_PROVIDERS)
+    return (NATIVE_CONTRACT_TEST, shared_validation_suite(()))
 
 
 @pytest.fixture(name="tofu_environment")
@@ -346,10 +350,7 @@ def validate_shared_outputs(
     test_file = test_directory / "shared-outputs.tftest.hcl"
 
     def validate(cases: Sequence[ValidationCase]) -> subprocess.CompletedProcess[str]:
-        source = MOCK_AWS_PROVIDERS + "\n" + "\n".join(
-            _shared_validation_run(case) for case in cases
-        )
-        test_file.write_text(source, encoding="utf-8")
+        test_file.write_text(shared_validation_suite(cases), encoding="utf-8")
         return _run_tofu(
             tofu_context.executable,
             ("test", "-no-color", "-test-directory=.terraform/shared-output-tests"),

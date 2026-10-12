@@ -66,9 +66,12 @@ Fonte: `packages/cnes_infra/src/cnes_infra/aws/settings.py`. Valor inválido der
 | `DYNAMODB_ENDPOINT_URL`, `AWS_ENDPOINT_URL` | só em emulador; produção deixa vazias | — |
 
 - Variável numérica presente e vazia não usa o default: falha com `integer_invalid=<VAR>`.
-- Com `AWS_PRODUCTION_POLICY=true`, `settings.py` impõe invariantes extras de região, rede,
-  OIDC, concorrência, lease, TTL do serving e retenção do audit. Os códigos começam com
-  `production_` (por exemplo `production_serving_ttl_must_be_300`).
+- Com `AWS_PRODUCTION_POLICY=true`, `settings.py` exige `AWS_ENVIRONMENT` explícito
+  (`environment_required`), valida o formato de subnets, security group e `OIDC_DOMAIN`
+  (`public_subnet_invalid`, `public_subnets_not_normalized`, `security_group_invalid`,
+  `oidc_domain_invalid`) e impõe as invariantes de região, rede, OIDC, concorrência, lease,
+  TTL do serving e retenção do audit, com códigos `production_*` (por exemplo
+  `production_serving_ttl_must_be_300`).
 - `DB_URL` segue obrigatório no import de `cnes_infra.config` (placeholder, não usado).
 - Credenciais vêm só da provider chain (role da task). A task definition não define
   `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY`: o boto3 prefere as variáveis à role.
