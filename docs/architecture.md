@@ -115,7 +115,7 @@ Current `dump_agent_go` production path includes:
 |---|---|---|
 | `POST /oauth/device_authorization` | device flow init | `{device_code, user_code, verification_uri}` |
 | `POST /oauth/token` | device code grant | access token ou pending/denied |
-| `POST /activate/confirm` | Bearer JWT + user code | activation confirmation |
+| `POST /api/v1/activate/confirm` | Bearer JWT + user code (dashboard via `apiFetch`) | activation confirmation; sem rota na raiz nem redirect |
 | `POST /provision/cert` | CSR + registration token | client certificate |
 | `POST /provision/cert/rotate` | mTLS + CSR | renewed client certificate |
 | `POST /api/v1/jobs/upload-url` | mTLS; `tenant_id` deve bater com o cert (`machine_id` gravado = CN do cert) | presigned PUT URL |

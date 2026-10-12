@@ -17,12 +17,13 @@ function wrap(ui: React.ReactNode) {
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
+const ACTIVATE_URL = "/api/v1/activate/confirm";
 const _TENANT = { ibge6: "354130", ibge7: "3541308", nome: "Presidente Epitácio", uf: "SP" };
 
 describe("ActivateForm", () => {
   test("envia_user_code_e_mostra_sucesso", async () => {
     server.use(
-      http.post("/activate/confirm", () =>
+      http.post(ACTIVATE_URL, () =>
         HttpResponse.json({ status: "approved", expires_in_seconds: 300 }),
       ),
     );
@@ -36,7 +37,7 @@ describe("ActivateForm", () => {
 
   test("mostra_erro_quando_codigo_invalido", async () => {
     server.use(
-      http.post("/activate/confirm", () =>
+      http.post(ACTIVATE_URL, () =>
         HttpResponse.json({ detail: "invalid_or_expired_user_code" }, { status: 400 }),
       ),
     );

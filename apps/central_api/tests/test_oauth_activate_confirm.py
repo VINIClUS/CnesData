@@ -1,4 +1,4 @@
-"""Tests for /activate/confirm — Bearer JWT + tenant gate + audit + rate limit."""
+"""Tests for /api/v1/activate/confirm — Bearer JWT + tenant gate + audit + rate limit."""
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 from central_api.middleware import AuthenticatedUser
 from central_api.routes import oauth
+
+_ACTIVATE = "/api/v1/activate/confirm"
 
 
 def _build(user, store, repo) -> TestClient:
@@ -21,7 +23,7 @@ def _build(user, store, repo) -> TestClient:
             request.state.user = user
         return await call_next(request)
 
-    app.include_router(oauth.router)
+    app.include_router(oauth.activation_router, prefix="/api/v1")
     return TestClient(app)
 
 
@@ -38,7 +40,7 @@ def test_aprova_user_code_valido_e_grava_audit() -> None:
     repo = MagicMock()
     user = _user(["354130"])
     c = _build(user, store, repo)
-    r = c.post("/activate/confirm", json={
+    r = c.post(_ACTIVATE, json={
         "user_code": "WDJB-MJHT", "tenant_id": "354130",
     })
     assert r.status_code == 200
@@ -53,7 +55,7 @@ def test_responde_403_se_tenant_nao_pertence_ao_user() -> None:
     store = MagicMock()
     store.redeem_user_code = AsyncMock(return_value=True)
     c = _build(user, store, MagicMock())
-    r = c.post("/activate/confirm", json={
+    r = c.post(_ACTIVATE, json={
         "user_code": "WDJB-MJHT", "tenant_id": "999999",
     })
     assert r.status_code == 403
@@ -64,7 +66,7 @@ def test_responde_400_se_user_code_invalido_ou_expirado() -> None:
     store.redeem_user_code = AsyncMock(return_value=False)
     user = _user(["354130"])
     c = _build(user, store, MagicMock())
-    r = c.post("/activate/confirm", json={
+    r = c.post(_ACTIVATE, json={
         "user_code": "EXPIRED1", "tenant_id": "354130",
     })
     assert r.status_code == 400
@@ -75,7 +77,7 @@ def test_responde_401_sem_user() -> None:
     store = MagicMock()
     store.redeem_user_code = AsyncMock(return_value=True)
     c = _build(None, store, MagicMock())
-    r = c.post("/activate/confirm", json={
+    r = c.post(_ACTIVATE, json={
         "user_code": "WDJB-MJHT", "tenant_id": "354130",
     })
     assert r.status_code == 401
@@ -86,7 +88,7 @@ def test_valida_formato_user_code() -> None:
     store = MagicMock()
     store.redeem_user_code = AsyncMock(return_value=True)
     c = _build(user, store, MagicMock())
-    r = c.post("/activate/confirm", json={
+    r = c.post(_ACTIVATE, json={
         "user_code": "TOO-SHORT-12345", "tenant_id": "354130",
     })
     assert r.status_code == 422
@@ -102,7 +104,7 @@ def test_vincula_tenant_do_corpo_antes_de_auditar() -> None:
     repo.log_action.side_effect = lambda **_kw: seen.append(tenant_id_ctx.get(None))
     token = tenant_id_ctx.set("000000")
     try:
-        r = _build(_user(["354130"]), store, repo).post("/activate/confirm", json={
+        r = _build(_user(["354130"]), store, repo).post(_ACTIVATE, json={
             "user_code": "WDJB-MJHT", "tenant_id": "354130",
         })
     finally:

@@ -1,10 +1,14 @@
 """Testes de integração leve para central_api via TestClient (Gold v2)."""
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
+
+from cnes_infra.auth import TokenInvalid
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -274,3 +278,80 @@ class TestGetEngine:
         assert e1 is e2
         mock_create.assert_called_once()
         deps_mod._engine = None
+
+
+_ACTIVATION_TENANT = "354130"
+_ACCEPTED_JWT = "gestor-jwt"
+_GESTOR_BEARER = {"Authorization": f"Bearer {_ACCEPTED_JWT}"}
+_DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+
+
+class _GestorJwtValidator:
+    def verify(self, credential: str) -> dict[str, str]:
+        if credential != _ACCEPTED_JWT:
+            raise TokenInvalid("signature")
+        return {"sub": "gestor-1", "iss": "https://idp.example.test", "email": "g@m"}
+
+
+@pytest.fixture
+def legacy_client(app):
+    repo = MagicMock()
+    repo.upsert_user.return_value = SimpleNamespace(
+        user_id=uuid4(), email="g@m", display_name=None, role="gestor",
+        tenant_ids=[_ACTIVATION_TENANT],
+    )
+    with TestClient(app) as client:
+        app.state.jwt_validator = _GestorJwtValidator()
+        app.state.dashboard_repo = repo
+        yield client
+
+
+class TestRotasDeAtivacao:
+    def test_ativacao_existe_so_em_api_v1(self, app):
+        paths = app.openapi()["paths"]
+
+        assert [path for path in paths if "activate" in path] == ["/api/v1/activate/confirm"]
+        assert set(paths["/api/v1/activate/confirm"]) == {"post"}
+
+    def test_device_flow_continua_na_raiz(self, app):
+        paths = app.openapi()["paths"]
+
+        assert {path for path in paths if "oauth" in path} == {
+            "/oauth/device_authorization", "/oauth/token",
+        }
+        assert set(paths["/oauth/device_authorization"]) == {"post"}
+        assert set(paths["/oauth/token"]) == {"post"}
+
+    def test_rota_de_ativacao_na_origem_nao_existe(self, app, legacy_client):
+        response = legacy_client.post(
+            "/activate/confirm",
+            json={"user_code": "WDJB-MJHT", "tenant_id": _ACTIVATION_TENANT},
+            headers=_GESTOR_BEARER,
+        )
+
+        assert response.status_code == 404
+        app.state.dashboard_repo.log_action.assert_not_called()
+
+    def test_composicao_legada_ativa_device_flow_pela_rota_versionada(
+        self, app, legacy_client,
+    ):
+        device = legacy_client.post(
+            "/oauth/device_authorization",
+            json={"client_id": "agent", "scope": "agent.provision"},
+        ).json()
+        confirm = legacy_client.post(
+            "/api/v1/activate/confirm",
+            json={"user_code": device["user_code"], "tenant_id": _ACTIVATION_TENANT},
+            headers=_GESTOR_BEARER,
+        )
+        grant = legacy_client.post("/oauth/token", data={
+            "grant_type": _DEVICE_GRANT, "device_code": device["device_code"],
+            "client_id": "agent",
+        })
+
+        assert confirm.status_code == 200
+        assert confirm.json() == {"status": "approved", "expires_in_seconds": 300}
+        assert grant.status_code == 200
+        assert "access_token" in grant.json()
+        audit = app.state.dashboard_repo.log_action.call_args.kwargs
+        assert (audit["action"], audit["tenant_id"]) == ("activate_agent", _ACTIVATION_TENANT)
