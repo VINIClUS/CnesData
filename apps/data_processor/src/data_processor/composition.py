@@ -21,6 +21,7 @@ from cnes_infra.aws import (
     build_aws_runtime,
     create_aws_clients,
 )
+from cnes_infra.aws.runtime import build_dispatch_admission
 from cnes_infra.billing import LOCAL_BILLING_SETTINGS, BillingSettings, build_execution_callbacks
 from cnes_infra.billing.wiring import BillingGateResources, build_entitlement_gate
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
@@ -304,7 +305,7 @@ def _build_aws_processor_runtime(
         ),
         ExecutionPolicyConfig(
             settings.processor_max_concurrency, settings.processor_lease_seconds,
-            billing.callbacks,
+            billing.callbacks, build_dispatch_admission(settings, clients, core.control_plane),
         ),
     )
     unit_worker = UnitWorker(

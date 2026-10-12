@@ -10,12 +10,18 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cnes_domain.billing import BillingConcurrencyPolicy
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.orchestration.source_catalog import SourceCatalog
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
 from cnes_domain.profiles import parse_profile
 from cnes_infra.aws import AwsClients, AwsRuntimeConfigurationError, AwsRuntimeSettings
 from cnes_infra.billing import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.executor.step_functions import IncompatibleStateMachine, StepFunctionsExecutor
+from cnes_infra.executor.step_functions import (
+    IncompatibleStateMachine,
+    StepFunctionsExecutionProbe,
+    StepFunctionsExecutor,
+)
 from cnes_infra.object_store import S3ObjectStore
 from data_processor import composition
 from data_processor.composition import (
@@ -217,6 +223,29 @@ def test_processor_aws_producao_valida_rede_publica_exata() -> None:
     session.clients["stepfunctions"].describe_state_machine.assert_called_once_with(
         stateMachineArn=PRODUCTION_STATE_MACHINE_ARN,
     )
+
+
+def test_processor_aws_generico_coordena_sem_gate_de_ambiente(session: Mock) -> None:
+    runtime = build_processor_runtime("aws", _aws_values(), session)
+
+    assert runtime.coordinator._execution.admission is UNGATED_ADMISSION
+
+
+def test_processor_aws_producao_admite_pelo_gate_e_probe_do_executor() -> None:
+    session = _session(PRODUCTION_FIXTURE)
+
+    runtime = build_processor_runtime("aws", PRODUCTION_VALUES, session)
+
+    admission = runtime.coordinator._execution.admission
+    assert isinstance(admission, EnvironmentAdmission)
+    assert admission._gate is runtime.control_plane
+    assert (admission._environment, admission._lease_seconds) == ("prod", 3600)
+    probe, executor = admission._probe, runtime.executor
+    assert isinstance(probe, StepFunctionsExecutionProbe)
+    assert isinstance(executor, StepFunctionsExecutor)
+    assert probe._client is executor._client
+    assert probe._state_machine_arn == executor._state_machine_arn
+    assert probe._state_machine_arn == PRODUCTION_STATE_MACHINE_ARN
 
 
 @pytest.mark.parametrize(
