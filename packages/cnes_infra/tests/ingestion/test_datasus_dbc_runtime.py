@@ -136,14 +136,19 @@ def _project(path: str) -> dict[str, Any]:
     return load_toml((_ROOT / path).read_text(encoding="utf-8"))["project"]
 
 
-def _assert_toolchain_isolated(dockerfile: str) -> None:
-    stages = regex_split(r"(?m)^FROM ", dockerfile)[1:]
+_RUNTIME_STAGE_HEADERS = ["python:3.13-slim AS production", "python:3.13-slim"]
+_RUNTIME_BUILDER_COPIES = (
+    (
+        "copy",
+        "--from=builder",
+        "/usr/local/lib/python3.13/site-packages",
+        "/usr/local/lib/python3.13/site-packages",
+    ),
+    ("copy", "--from=builder", "/usr/local/bin/uvicorn", "/usr/local/bin/uvicorn"),
+)
 
-    assert len(stages) == 2
-    builder, runtime = stages
-    assert builder.startswith("python:3.13-slim AS builder")
-    assert all(regex_search(rf"\b{tool}\b", builder) for tool in ("cargo", "rustc", "gcc"))
-    assert builder.index("apt-get install") < builder.index("uv pip install")
+
+def _assert_runtime_isolated(runtime: str) -> None:
     assert "apt-get install" not in runtime
     assert regex_search(r"\b(?:cargo|rustc|gcc)\b", runtime) is None
     logical_runtime = runtime.replace("\\\n", " ")
@@ -155,15 +160,18 @@ def _assert_toolchain_isolated(dockerfile: str) -> None:
         and tokens[0].casefold() == "copy"
         and "--from=builder" in (token.casefold() for token in tokens[1:])
     )
-    assert builder_copies == (
-        (
-            "copy",
-            "--from=builder",
-            "/usr/local/lib/python3.13/site-packages",
-            "/usr/local/lib/python3.13/site-packages",
-        ),
-        ("copy", "--from=builder", "/usr/local/bin/uvicorn", "/usr/local/bin/uvicorn"),
-    )
+    assert builder_copies == _RUNTIME_BUILDER_COPIES
+
+
+def _assert_toolchain_isolated(dockerfile: str) -> None:
+    builder, *runtimes = regex_split(r"(?m)^FROM ", dockerfile)[1:]
+
+    assert builder.startswith("python:3.13-slim AS builder")
+    assert all(regex_search(rf"\b{tool}\b", builder) for tool in ("cargo", "rustc", "gcc"))
+    assert builder.index("apt-get install") < builder.index("uv pip install")
+    assert [runtime.splitlines()[0] for runtime in runtimes] == _RUNTIME_STAGE_HEADERS
+    for runtime in runtimes:
+        _assert_runtime_isolated(runtime)
 
 
 def _assert_toolchain_isolation_fails(dockerfile: str) -> None:
