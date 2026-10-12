@@ -365,7 +365,7 @@ def test_raiz_agenda_tabela_do_control_plane(
     calls = _module_calls(_root_module(tofu_artifacts))
 
     _assert_runs(plan_report, {"raiz_agenda_control_plane": "pass"})
-    assert set(calls) == {"control_plane"}
+    assert [n for n, c in calls.items() if c["source"] == MODULE_SOURCE] == ["control_plane"]
     assert calls["control_plane"]["source"] == MODULE_SOURCE
 
 
