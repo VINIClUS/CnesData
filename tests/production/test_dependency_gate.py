@@ -237,15 +237,19 @@ def _pipeline_coordinator(control_plane: _RecoveryControlPlane) -> PipelineCoord
         publisher=cast("DatasetPublisher", object()),
         clock=lambda: NOW,
     )
-    return PipelineCoordinator(dependencies, cast("ExecutionPolicyConfig", object()))
+    callbacks = ExecutionCallbacks(allow_execution, noop_execution_started)
+    return PipelineCoordinator(
+        dependencies, ExecutionPolicyConfig(1, 300, callbacks, UNGATED_ADMISSION)
+    )
 
 
 def test_pipeline_recovery_limita_control_plane_e_agrega_falha() -> None:
     control_plane = _RecoveryControlPlane((_RecoverableRun(),))
 
-    with pytest.raises(RecoveryFailed, match=r"^failed=1 recovered=0$"):
+    with pytest.raises(RecoveryFailed, match=r"^failed=1 recovered=0$") as failure:
         _pipeline_coordinator(control_plane).recover()
 
+    assert failure.value.__cause__ is None
     assert control_plane.calls == [(NOW, 100), (NOW, 100)]
 
 

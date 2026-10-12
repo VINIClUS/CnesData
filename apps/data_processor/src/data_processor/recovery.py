@@ -51,7 +51,7 @@ class ProcessorRecovery:
         """Args: limit: máximo de runs da passada, entre 1 e 1000.
         Returns: Runs candidatos lidos e runs revalidados pelo coordinator.
         Raises: ValueError para limite inválido; RecoveryFailed se algum run da passada
-            falhou; erros do control plane e do coordinator.
+            falhou ou o reconcile do gate falhou; erros do control plane e do coordinator.
         """
         if not 1 <= limit <= _MAX_LIMIT:
             raise ValueError("limit=invalid")
