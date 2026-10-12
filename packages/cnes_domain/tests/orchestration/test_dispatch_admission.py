@@ -19,6 +19,7 @@ from cnes_domain.control_plane.environment_gate import (
     PermitAcquisition,
     PermitHolder,
     PromotionFence,
+    ReanchorUnitPermit,
     ReleaseUnitPermit,
     RenewUnitPermit,
     ReopenPromotionFence,
@@ -28,6 +29,7 @@ from cnes_domain.control_plane.environment_gate import (
     decide_acquisition,
     issue_permit,
     open_fence,
+    reanchor_permit,
     release_permit,
     renew_permit,
     reopen_fence,
@@ -97,6 +99,10 @@ class _MemoryGate:
         self.calls.append("renew")
         return self._replace(renew_permit(self.permit, command))
 
+    def reanchor_unit_permit(self, command: ReanchorUnitPermit) -> bool:
+        self.calls.append("reanchor")
+        return self._replace(reanchor_permit(self.permit, command))
+
     def release_unit_permit(self, command: ReleaseUnitPermit) -> bool:
         self.calls.append("release")
         if not release_permit(self.permit, command):
@@ -160,6 +166,9 @@ class _SettleRecorder:
     def settle(self, holder: PermitHolder, now: datetime) -> None:
         self.settled.append((holder, now))
 
+    def reconcile(self, now: datetime) -> None:
+        raise AssertionError(now)
+
 
 @pytest.fixture
 def gate() -> _MemoryGate:
@@ -199,7 +208,7 @@ def test_reentrada_do_mesmo_holder_segue_sem_probe(gate: _MemoryGate, probe: _Pr
     admission = _service(gate, probe).admit(HOLDER, NOW + GRACE * 2)
 
     assert admission == UnitAdmission(ENV, 1)
-    assert gate.calls == ["acquire"]
+    assert gate.calls == ["acquire", "reanchor"]
     assert probe.calls == []
 
 

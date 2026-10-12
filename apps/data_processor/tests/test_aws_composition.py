@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock, patch
@@ -27,6 +28,7 @@ from data_processor import composition
 from data_processor.composition import (
     AwsProcessorServices,
     LocalProcessorRuntime,
+    build_local_processor_runtime,
     build_processor_runtime,
 )
 from data_processor.orchestration.coordinator import (
@@ -203,7 +205,18 @@ def test_processor_aws_retoma_o_coordinator_apos_persistir_unidade(session: Mock
     with patch.object(PipelineCoordinator, "resume") as resume:
         runtime.unit_worker._policy.after_persist(unit)
 
-    resume.assert_called_once_with("354130", "run-01")
+    resume.assert_called_once_with("354130", "run-01", settle=False)
+
+
+def test_processor_local_retoma_sem_liquidar_apos_persistir_unidade(tmp_path: Path) -> None:
+    settings = parse_profile({"TENANT_ID": "354130", "DATA_DIR": str(tmp_path)})
+    runtime = build_local_processor_runtime(settings, lambda: datetime(2026, 10, 12, tzinfo=UTC))
+    unit = Mock(tenant_id="354130", run_id="run-01")
+
+    with patch.object(PipelineCoordinator, "resume") as resume:
+        runtime.unit_worker._policy.after_persist(unit)
+
+    resume.assert_called_once_with("354130", "run-01", settle=False)
 
 
 def test_processor_aws_falha_fechado_sem_oidc(session: Mock) -> None:

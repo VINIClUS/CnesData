@@ -461,7 +461,7 @@ def test_cancelamento_sem_execution_ref_libera_o_permit_da_execucao_encerrada(
     assert _next_acquire(gate, clock) is AcquisitionStatus.ACQUIRED
 
 
-def test_after_persist_dentro_da_execucao_mantem_o_permit_ate_a_prova(
+def test_after_persist_dentro_da_execucao_publica_sem_probe_e_mantem_o_permit(
     adapter: SQLiteControlPlane, executor: _StepFunctions, gate: DynamoDBControlPlane,
     coordinator: PipelineCoordinator, store: _FakeObjectStore, clock: _MutableClock,
 ) -> None:
@@ -470,20 +470,20 @@ def test_after_persist_dentro_da_execucao_mantem_o_permit_ate_a_prova(
         coordinator.resume(_TENANT, _RUN_ID)
         _complete_dispatch(adapter, executor, store, clock)
     coordinator.resume(_TENANT, _RUN_ID)
-    last = _active(adapter)
+    last, probes = _active(adapter), executor.calls.count("probe")
     worker = UnitWorker(
         UnitWorkerDependencies(
             control_plane=adapter, store=store, processor=_processor, clock=clock.now,
         ),
-        UnitWorkerPolicy(
-            after_persist=lambda unit: coordinator.resume(unit.tenant_id, unit.run_id),
-        ),
+        UnitWorkerPolicy(after_persist=lambda unit: coordinator.resume(
+            unit.tenant_id, unit.run_id, settle=False,
+        )),
     )
 
     worker.execute(_claim(last, clock))
 
     assert cast("Run", adapter.get_run(_TENANT, _RUN_ID)).state is RunState.PUBLISHED
-    assert _held(gate).holder == _holder(last)
+    assert (executor.calls.count("probe"), _held(gate).holder) == (probes, _holder(last))
     executor.set_status(f"exec-{last.dispatch_id}", ExecutionStatus.SUCCEEDED)
     assert _rival(gate, executor).admit(_NEXT, clock.now()) == UnitAdmission(_ENVIRONMENT, 4)
 

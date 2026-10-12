@@ -31,7 +31,7 @@ from cnes_domain.orchestration.planner import (
     plan_run,
     ready_units,
 )
-from cnes_domain.ports.environment_gate import DispatchDeferred
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
 from cnes_domain.ports.processing import CancelRunExecution, ExecutionStatus
 
 if TYPE_CHECKING:
@@ -326,17 +326,27 @@ class RunPlanningService:
         return RunLaunchResult(run=canceled, plan=None, execution_ref=None)
 
     def _settle_run(self, run: Run, now: datetime) -> None:
-        if not self._dispatch_enabled:
+        admission = self._execution.admission
+        if not self._dispatch_enabled or admission is UNGATED_ADMISSION:
             return
-        # Units keep the dispatch_id that claimed them, the only durable dispatch record once
-        # the Run leaves PROCESSING; a dispatch that never claimed a unit waits for the acquire.
+        # The units name the dispatches that ran; settling them releases a finished execution's
+        # permit as the Run ends. Any other holder waits for the periodic reconcile.
         units = self._dependencies.control_plane.list_run_units(run.tenant_id, run.run_id)
-        settle_run_dispatches(self._execution.admission, units, now)
+        settle_run_dispatches(admission, units, now)
 
     def recover(self, limit: int = 100) -> tuple[RunLaunchResult, ...]:
         now = self._clock()
+        if self._dispatch_enabled:
+            self._reconcile_admission(now)
         candidates = self._dependencies.control_plane.list_recoverable_runs(now, limit)
         return tuple(self.launch(run.tenant_id, run.run_id) for run in candidates)
+
+    def _reconcile_admission(self, now: datetime) -> None:
+        # Best effort here: the processor's recover-once is the pass that fails on this error.
+        try:
+            self._execution.admission.reconcile(now)
+        except Exception:
+            logger.exception("unit_permit_reconcile_failed")
 
     def on_raw_manifest_accepted(self, record: RawManifestRecord, limit: int = 100) -> None:
         identity = RawIdentity(

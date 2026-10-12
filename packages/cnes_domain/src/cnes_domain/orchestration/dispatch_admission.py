@@ -11,6 +11,7 @@ from cnes_domain.control_plane.environment_gate import (
     AcquisitionStatus,
     BindUnitPermit,
     PermitHolder,
+    ReanchorUnitPermit,
     ReleaseUnitPermit,
     RenewUnitPermit,
     require_environment,
@@ -78,8 +79,10 @@ def _require_lease(value: object) -> int:
 def _proves_end(observation: ExecutionObservation, permit: UnitPermit, now: datetime) -> bool:
     if observation.presence is ExecutionPresence.TERMINAL:
         return True
-    absent = observation.presence is ExecutionPresence.ABSENT
-    return absent and now - permit.acquired_at >= _ABSENCE_PROOF_GRACE
+    # A bound permit names an execution that existed: only a terminal status ends it.
+    if observation.presence is not ExecutionPresence.ABSENT or permit.execution_ref is not None:
+        return False
+    return now - permit.acquired_at >= _ABSENCE_PROOF_GRACE
 
 
 class EnvironmentAdmission:
@@ -98,7 +101,8 @@ class EnvironmentAdmission:
     def admit(self, holder: PermitHolder, now: datetime) -> UnitAdmission | DispatchDeferred:
         """Adquire o permit; o de outro holder só cede com a prova do probe.
 
-        Returns: UnitAdmission com o token; DispatchDeferred com fence fechado ou permit ocupado.
+        Returns: UnitAdmission com o token; DispatchDeferred com fence fechado, permit ocupado
+            ou reentrada sem bind que não reancorou a carência.
         Raises: Erro do gate ou do probe, sem liberar nada.
         """
         command = AcquireUnitPermit(self._environment, holder, now, self._lease_seconds)
@@ -106,7 +110,7 @@ class EnvironmentAdmission:
         held = acquisition.status is AcquisitionStatus.HELD
         if held and self._reconcile(cast("UnitPermit", acquisition.permit), now):
             acquisition = self._gate.acquire_unit_permit(command)
-        return self._admission(holder, acquisition)
+        return self._admission(holder, acquisition, now)
 
     def confirm(self, admission: UnitAdmission, execution_ref: str, now: datetime) -> None:
         """Vincula a execução iniciada ao permit admitido e renova o lease.
@@ -131,17 +135,42 @@ class EnvironmentAdmission:
         if permit is not None and permit.holder == holder:
             self._reconcile(permit, now)
 
+    def reconcile(self, now: datetime) -> None:
+        """Libera o permit do detentor atual só com a prova do probe; independe do fence.
+
+        Nunca adquire nem inicia execução; execução viva sem bind é vinculada.
+        Raises: Erro do gate ou do probe, sem liberar nada.
+        """
+        permit = self._gate.observe_environment_gate(self._environment).permit
+        if permit is not None:
+            self._reconcile(permit, now)
+
     def _admission(
-        self, holder: PermitHolder, acquisition: PermitAcquisition,
+        self, holder: PermitHolder, acquisition: PermitAcquisition, now: datetime,
     ) -> UnitAdmission | DispatchDeferred:
         reason = _DEFERRALS.get(acquisition.status)
+        permit = cast("UnitPermit", acquisition.permit)
+        if reason is None and not self._anchored(acquisition.status, permit, now):
+            reason = DeferralReason.PERMIT_HELD
         if reason is None:
-            return UnitAdmission(self._environment, cast("UnitPermit", acquisition.permit).token)
+            return UnitAdmission(self._environment, permit.token)
         logger.info(
             "dispatch_deferred environment=%s tenant_id=%s run_id=%s dispatch_id=%s reason=%s",
             self._environment, holder.tenant_id, holder.run_id, holder.dispatch_id, reason,
         )
         return DispatchDeferred(reason)
+
+    def _anchored(self, status: AcquisitionStatus, permit: UnitPermit, now: datetime) -> bool:
+        # A late re-entry may start the execution only now: the absence grace restarts here.
+        if status is not AcquisitionStatus.REENTERED or permit.execution_ref is not None:
+            return True
+        reanchor = ReanchorUnitPermit(self._environment, permit.token, now)
+        applied = self._gate.reanchor_unit_permit(reanchor)
+        logger.info(
+            "unit_permit_reanchored environment=%s dispatch_id=%s token=%d applied=%s",
+            self._environment, permit.holder.dispatch_id, permit.token, applied,
+        )
+        return applied
 
     def _reconcile(self, permit: UnitPermit, now: datetime) -> bool:
         observation = self._probe.probe(permit.holder.dispatch_id)
@@ -153,7 +182,9 @@ class EnvironmentAdmission:
         return False
 
     def _release(self, permit: UnitPermit, presence: ExecutionPresence, now: datetime) -> None:
-        command = ReleaseUnitPermit(self._environment, permit.token, now)
+        # An absence proof holds only for the anchor and the unbound state it was measured on.
+        anchor = permit.acquired_at if presence is ExecutionPresence.ABSENT else None
+        command = ReleaseUnitPermit(self._environment, permit.token, now, anchor)
         applied = self._gate.release_unit_permit(command)
         logger.info(
             "unit_permit_released environment=%s dispatch_id=%s token=%d presence=%s applied=%s",

@@ -234,7 +234,7 @@ def build_local_processor_runtime(
     )
 
     def _after_persist(unit: RunUnit) -> None:
-        coordinator.resume(unit.tenant_id, unit.run_id)
+        coordinator.resume(unit.tenant_id, unit.run_id, settle=False)
 
     unit_worker = UnitWorker(
         UnitWorkerDependencies(
@@ -314,7 +314,9 @@ def _build_aws_processor_runtime(
             processor=stage_processor, clock=_utc_now,
         ),
         UnitWorkerPolicy(
-            after_persist=lambda unit: coordinator.resume(unit.tenant_id, unit.run_id),
+            after_persist=lambda unit: coordinator.resume(
+                unit.tenant_id, unit.run_id, settle=False,
+            ),
         ),
     )
     return ProcessorRuntimeComponents(

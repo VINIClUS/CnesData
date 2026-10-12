@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         EnvironmentGateState,
         PermitAcquisition,
         PermitHolder,
+        ReanchorUnitPermit,
         ReleaseUnitPermit,
         RenewUnitPermit,
         ReopenPromotionFence,
@@ -33,6 +34,7 @@ class EnvironmentGatePort(Protocol):
     def bind_unit_permit(self, command: BindUnitPermit) -> bool: ...
     def renew_unit_permit(self, command: RenewUnitPermit) -> bool: ...
     def release_unit_permit(self, command: ReleaseUnitPermit) -> bool: ...
+    def reanchor_unit_permit(self, command: ReanchorUnitPermit) -> bool: ...
     def close_promotion_fence(self, command: ClosePromotionFence) -> bool: ...
     def reopen_promotion_fence(self, command: ReopenPromotionFence) -> bool: ...
 
@@ -90,11 +92,15 @@ class UnitAdmission:
 
 @runtime_checkable
 class DispatchAdmissionPort(Protocol):
-    """Admissão do dispatch no gate do ambiente em volta do start do executor."""
+    """Admissão do dispatch no gate do ambiente em volta do start do executor.
+
+    `reconcile` liquida o detentor atual na passada de recovery, sem adquirir nem iniciar.
+    """
 
     def admit(self, holder: PermitHolder, now: datetime) -> UnitAdmission | DispatchDeferred: ...
     def confirm(self, admission: UnitAdmission, execution_ref: str, now: datetime) -> None: ...
     def settle(self, holder: PermitHolder, now: datetime) -> None: ...
+    def reconcile(self, now: datetime) -> None: ...
 
 
 class _UngatedAdmission:
@@ -105,6 +111,9 @@ class _UngatedAdmission:
         pass
 
     def settle(self, holder: PermitHolder, now: datetime) -> None:
+        pass
+
+    def reconcile(self, now: datetime) -> None:
         pass
 
 

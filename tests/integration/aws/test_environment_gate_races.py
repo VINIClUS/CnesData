@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from threading import Barrier
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
@@ -16,6 +17,17 @@ from cnes_domain.control_plane.environment_gate import (
     FenceState,
     PermitAcquisition,
     PermitHolder,
+    ReanchorUnitPermit,
+    ReleaseUnitPermit,
+    UnitPermit,
+)
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_domain.ports.environment_gate import (
+    DeferralReason,
+    DispatchDeferred,
+    ExecutionObservation,
+    ExecutionPresence,
+    UnitAdmission,
 )
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from tests.integration.aws.conftest import _client, _create_table
@@ -26,6 +38,7 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]
 
 NOW = datetime(2026, 10, 11, 12, tzinfo=UTC)
+LATE = NOW + timedelta(minutes=30)
 PROMOTION = "release-race"
 _ROUNDS = 12
 _CONTENDERS = 8
@@ -72,6 +85,31 @@ def _acquire_against_close(
     return cast("PermitAcquisition", acquisition), cast("bool", closed)
 
 
+class _AbsentProbe:
+    def probe(self, dispatch_id: str) -> ExecutionObservation:
+        return ExecutionObservation(ExecutionPresence.ABSENT, None)
+
+
+def _reanchor_against_absence_release(
+    gate: DynamoDBControlPlane, environment: str,
+) -> tuple[UnitPermit, bool, bool]:
+    permit = cast("UnitPermit", gate.acquire_unit_permit(_acquire(environment, 1)).permit)
+    reanchor = ReanchorUnitPermit(environment, permit.token, LATE)
+    release = ReleaseUnitPermit(environment, permit.token, LATE, permit.acquired_at)
+    reanchored, released = _race(
+        lambda: gate.reanchor_unit_permit(reanchor), lambda: gate.release_unit_permit(release),
+    )
+    return permit, cast("bool", reanchored), cast("bool", released)
+
+
+def _late_reentry_against_rival(gate: DynamoDBControlPlane, environment: str) -> list[object]:
+    gate.acquire_unit_permit(_acquire(environment, 1))
+    admission = EnvironmentAdmission(gate, _AbsentProbe(), environment, 300)
+    return _race(
+        lambda: admission.admit(_holder(1), LATE), lambda: admission.admit(_holder(2), LATE),
+    )
+
+
 def test_acquires_concorrentes_tem_no_maximo_um_vencedor(gate: DynamoDBControlPlane) -> None:
     for round_index in range(_ROUNDS):
         environment = f"race-acquire-{round_index}"
@@ -111,3 +149,34 @@ def test_fence_em_corrida_com_acquire_nunca_libera_start_sem_bind(
         else:
             assert acquisition == PermitAcquisition(AcquisitionStatus.FENCE_CLOSED, None)
             assert drain.permit is None
+
+
+def test_reanchor_em_corrida_com_liberacao_por_ausencia_tem_um_vencedor(
+    gate: DynamoDBControlPlane,
+) -> None:
+    for round_index in range(_ROUNDS):
+        environment = f"race-reanchor-{round_index}"
+
+        permit, reanchored, released = _reanchor_against_absence_release(gate, environment)
+
+        current = gate.observe_environment_gate(environment).permit
+        assert reanchored is not released
+        assert current == (replace(permit, acquired_at=LATE) if reanchored else None)
+
+
+def test_reentrada_tardia_em_corrida_com_rival_admite_no_maximo_um(
+    gate: DynamoDBControlPlane,
+) -> None:
+    for round_index in range(_ROUNDS):
+        environment = f"race-reentry-{round_index}"
+
+        results = _late_reentry_against_rival(gate, environment)
+
+        admitted = [result for result in results if isinstance(result, UnitAdmission)]
+        deferred = [result for result in results if not isinstance(result, UnitAdmission)]
+        current = gate.observe_environment_gate(environment).permit
+        assert len(admitted) == 1, results
+        assert deferred == [DispatchDeferred(DeferralReason.PERMIT_HELD)]
+        assert current is not None
+        assert current.token == admitted[0].token
+        assert current.holder == _holder(results.index(admitted[0]) + 1)

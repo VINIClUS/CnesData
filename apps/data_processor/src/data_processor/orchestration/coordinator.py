@@ -22,7 +22,7 @@ from cnes_domain.orchestration.planner import (
     logical_wave_id,
     ready_units,
 )
-from cnes_domain.ports.environment_gate import DispatchDeferred
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
 from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit, ExecutionStatus
 from data_processor.orchestration.publisher import PublishRequest
 
@@ -278,6 +278,16 @@ def _cancel(dependencies: CoordinatorDependencies, run: Run, now: datetime) -> C
     return CoordinatorResult(state=canceled.state, execution_ref=None, published=False)
 
 
+def _reconcile_admission(execution: ExecutionPolicyConfig, now: datetime) -> Exception | None:
+    # The pass still recovers the runs; the caller raises this error once they are done.
+    try:
+        execution.admission.reconcile(now)
+    except Exception as error:
+        logger.exception("unit_permit_reconcile_failed")
+        return error
+    return None
+
+
 def _processing_result(outcome: str | DispatchDeferred | None) -> CoordinatorResult:
     if isinstance(outcome, DispatchDeferred):
         return CoordinatorResult(
@@ -294,7 +304,12 @@ class PipelineCoordinator:
         self._dependencies = dependencies
         self._execution = execution
 
-    def resume(self, tenant_id: str, run_id: str) -> CoordinatorResult:
+    def resume(self, tenant_id: str, run_id: str, *, settle: bool = True) -> CoordinatorResult:
+        """Args: settle: False no after_persist, que roda dentro da própria execução.
+
+        Returns: Estado do Run; com settle, o Run que termina liquida o permit dos dispatches.
+        Raises: ValueError: Run inexistente ou em estado não suportado.
+        """
         run = self._dependencies.control_plane.get_run(tenant_id, run_id)
         if run is None:
             raise ValueError("run_not_found")
@@ -302,7 +317,7 @@ class PipelineCoordinator:
             return CoordinatorResult(state=run.state, execution_ref=None, published=False)
         now = self._dependencies.clock()
         result = self._advance(run, now)
-        if result.state in _TERMINAL_RUN_STATES:
+        if settle and result.state in _TERMINAL_RUN_STATES:
             self._settle_run(run, now)
         return result
 
@@ -317,10 +332,13 @@ class PipelineCoordinator:
         raise ValueError(f"unsupported_run_state:{run.state}")
 
     def _settle_run(self, run: Run, now: datetime) -> None:
-        # Units keep the dispatch_id that claimed them, the only durable dispatch record once
-        # the Run leaves PROCESSING; a dispatch that never claimed a unit waits for the acquire.
+        admission = self._execution.admission
+        if admission is UNGATED_ADMISSION:
+            return
+        # The units name the dispatches that ran; settling them releases a finished execution's
+        # permit as the Run ends. Any other holder waits for the periodic reconcile.
         units = self._dependencies.control_plane.list_run_units(run.tenant_id, run.run_id)
-        settle_run_dispatches(self._execution.admission, units, now)
+        settle_run_dispatches(admission, units, now)
 
     def _resume_processing(self, run: Run, now: datetime) -> CoordinatorResult:
         control_plane = self._dependencies.control_plane
@@ -346,6 +364,7 @@ class PipelineCoordinator:
     def recover(self, limit: int = 100) -> tuple[CoordinatorResult, ...]:
         control_plane = self._dependencies.control_plane
         now = self._dependencies.clock()
+        reconcile_error = _reconcile_admission(self._execution, now)
         skipped: set[tuple[str, str]] = set()
         results: list[CoordinatorResult] = []
         failed = 0
@@ -368,6 +387,8 @@ class PipelineCoordinator:
                     )
         if failed:
             raise RecoveryFailed(tuple(results), failed)
+        if reconcile_error is not None:
+            raise reconcile_error
         return tuple(results)
 
 
