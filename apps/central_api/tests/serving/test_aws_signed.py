@@ -91,12 +91,47 @@ def test_assina_somente_objeto_serving_do_pointer_ativo() -> None:
             "Bucket": "data-bucket",
             "Key": SERVING_KEY,
             "ResponseContentType": "application/json",
+            "ResponseCacheControl": "private, no-store",
         },
         ExpiresIn=300,
     )
     assert grant.object_key == SERVING_KEY
     assert (grant.version_id, grant.run_id, grant.url) == ("run-01", "run-01", SIGNED_URL)
     assert grant.expires_at == NOW + timedelta(seconds=300)
+    assert grant.expires_in == 300
+
+
+def test_grant_nao_vaza_chave_no_repr() -> None:
+    grant = _access().grant(_request(), NOW)
+
+    for rendered in (repr(grant), str(grant)):
+        assert SERVING_KEY not in rendered
+        assert SIGNED_URL not in rendered
+        assert "X-Amz-Signature" not in rendered
+    assert repr(grant).startswith("SignedServingGrant(version_id='run-01', run_id='run-01'")
+
+
+@pytest.mark.parametrize(
+    ("relative_name", "stat", "failure", "code"),
+    [
+        ("../../raw/data.parquet", None, None, "serving_key_forbidden"),
+        ("overview.json", None, None, "serving_object_missing"),
+        ("overview.json", ObjectStat(SERVING_KEY, 10, "a" * 64), NoCredentialsError(),
+         "serving_signing_failed"),
+    ],
+    ids=["chave-proibida", "objeto-ausente", "assinatura"],
+)
+def test_erro_de_assinatura_carrega_so_o_codigo(
+    relative_name: str, stat: ObjectStat | None, failure: Exception | None, code: str,
+) -> None:
+    signer = _signer()
+    signer.generate_presigned_url.side_effect = failure
+
+    with pytest.raises((ServingKeyForbidden, ServingSigningUnavailable)) as error:
+        _access(store=_store(stat=stat), signer=signer).grant(_request(relative_name), NOW)
+
+    assert error.value.args == (code,)
+    assert SERVING_KEY not in f"{error.value!s} {error.value!r}"
 
 
 @pytest.mark.parametrize(

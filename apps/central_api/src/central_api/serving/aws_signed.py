@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRequest
+
+
+_NO_STORE = "private, no-store"
 
 
 class ServingKeyForbidden(Exception):
@@ -48,9 +51,10 @@ class SignedServingSettings:
 class SignedServingGrant:
     version_id: str
     run_id: str
-    object_key: str
-    url: str
+    object_key: str = field(repr=False)
+    url: str = field(repr=False)
     expires_at: datetime
+    expires_in: int
 
 
 def _resolve_key(authorized: ServingGrant, relative_name: str) -> str:
@@ -94,6 +98,7 @@ class S3SignedServingAccess:
             object_key=key,
             url=self._sign(key),
             expires_at=now + timedelta(seconds=self._settings.ttl_seconds),
+            expires_in=self._settings.ttl_seconds,
         )
 
     def _require_object(self, key: str) -> None:
@@ -112,6 +117,7 @@ class S3SignedServingAccess:
                     "Bucket": self._settings.bucket,
                     "Key": key,
                     "ResponseContentType": "application/json",
+                    "ResponseCacheControl": _NO_STORE,
                 },
                 ExpiresIn=self._settings.ttl_seconds,
             )
