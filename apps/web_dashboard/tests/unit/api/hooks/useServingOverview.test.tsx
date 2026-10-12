@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse, type JsonBodyType } from "msw";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import type { MockInstance } from "vitest";
 
 import { server } from "../../../mocks/server";
@@ -27,6 +27,8 @@ const TENANTS_PATH = "/api/v1/dashboard/tenants";
 const LEGACY_OVERVIEW_PATH = "/api/v1/dashboard/overview";
 const LEGACY_FATURAMENTO_PATH = "/api/v1/dashboard/faturamento/by-establishment";
 const TENANT = "354130";
+const OTHER_TENANT = "350950";
+const TENANT_ROW = { ibge6: TENANT, ibge7: "3541308", nome: "Presidente Epitácio", uf: "SP" };
 const S3_ORIGIN = "https://cnesdata-prod-data.s3.us-east-2.amazonaws.com";
 const S3_PATH = `/serving/${TENANT}/run-1/overview.json`;
 const S3_URL = `${S3_ORIGIN}${S3_PATH}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=abc`;
@@ -41,9 +43,7 @@ const S3_REQUEST_INIT = {
 const AUTH_MODE = env.VITE_AUTH_MODE;
 
 function wrap({ children }: { children: React.ReactNode }) {
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
 
@@ -97,13 +97,7 @@ let fetchSpy: MockInstance<typeof fetch>;
 
 beforeEach(() => {
   fetchSpy = vi.spyOn(globalThis, "fetch");
-  server.use(
-    http.get(TENANTS_PATH, () =>
-      HttpResponse.json([
-        { ibge6: TENANT, ibge7: "3541308", nome: "Presidente Epitácio", uf: "SP" },
-      ]),
-    ),
-  );
+  server.use(http.get(TENANTS_PATH, () => HttpResponse.json([TENANT_ROW])));
 });
 
 afterEach(() => {
@@ -111,8 +105,27 @@ afterEach(() => {
   fetchSpy.mockRestore();
 });
 
-function serveEnvelope(body: JsonBodyType = ENVELOPE) {
-  server.use(http.get(SERVING_PATH, () => HttpResponse.json(body)));
+function serveOverview(body: JsonBodyType = FIXTURE, init?: ResponseInit) {
+  const tenants: (string | null)[] = [];
+  server.use(
+    http.get(SERVING_PATH, ({ request }) => {
+      tenants.push(request.headers.get("x-tenant-id"));
+      return HttpResponse.json(body, init);
+    }),
+  );
+  return tenants;
+}
+
+function recordPaths() {
+  const paths: string[] = [];
+  const record = ({ request }: { request: Request }) => {
+    paths.push(new URL(request.url, "http://localhost").pathname);
+  };
+  server.events.on("request:start", record);
+  onTestFinished(() => {
+    server.events.removeListener("request:start", record);
+  });
+  return paths;
 }
 
 function serveS3(document: JsonBodyType = FIXTURE) {
@@ -204,7 +217,7 @@ describe("fetchServingOverview", () => {
     ["relativa", S3_PATH],
     ["javascript", "javascript:alert(1)"],
   ])("rejeita_url_assinada_fora_do_padrao_%s", async (_case, url) => {
-    serveEnvelope({ ...ENVELOPE, url });
+    serveOverview({ ...ENVELOPE, url });
 
     const error = await expectDeliveryError(fetchServingOverview(TENANT), "serving_url_invalid");
 
@@ -221,7 +234,7 @@ describe("fetchServingOverview", () => {
     ["expires_in_fracionado", { ...ENVELOPE, expires_in: 1.5 }],
     ["expires_in_texto", { ...ENVELOPE, expires_in: "300" }],
   ])("rejeita_envelope_fora_do_contrato_%s", async (_case, body) => {
-    serveEnvelope(body);
+    serveOverview(body);
 
     await expectDeliveryError(fetchServingOverview(TENANT), "serving_envelope_invalid");
 
@@ -229,7 +242,7 @@ describe("fetchServingOverview", () => {
   });
 
   test("falha_do_s3_vira_erro_de_download_sem_url", async () => {
-    serveEnvelope();
+    serveOverview(ENVELOPE);
     server.use(
       http.get(`${S3_ORIGIN}${S3_PATH}`, () =>
         HttpResponse.text("<Error>AccessDenied</Error>", { status: 403 }),
@@ -246,7 +259,7 @@ describe("fetchServingOverview", () => {
 
   test("redirect_do_s3_e_recusado", async () => {
     const followed = vi.fn();
-    serveEnvelope();
+    serveOverview(ENVELOPE);
     server.use(
       http.get(`${S3_ORIGIN}${S3_PATH}`, () =>
         HttpResponse.redirect("https://evil.example/copia.json", 307),
@@ -263,48 +276,31 @@ describe("fetchServingOverview", () => {
   });
 
   test("perfil_local_le_o_documento_direto_sem_tenant", async () => {
-    let header: string | null = "header-was-not-captured";
-    server.use(
-      http.get(SERVING_PATH, ({ request }) => {
-        header = request.headers.get("x-tenant-id");
-        return HttpResponse.json(FIXTURE);
-      }),
-    );
+    const tenants = serveOverview();
 
     const overview = await fetchServingOverview(undefined);
 
     expect(overview).toEqual(FIXTURE);
-    expect(header).toBeNull();
+    expect(tenants).toEqual([null]);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("useServingOverview", () => {
   test("primeira_chamada_leva_o_tenant_selecionado", async () => {
-    let header: string | null = "header-was-not-captured";
-    const seenPaths: string[] = [];
-    const record = ({ request }: { request: Request }) => {
-      seenPaths.push(new URL(request.url, "http://localhost").pathname);
-    };
-    server.events.on("request:start", record);
-    server.use(
-      http.get(SERVING_PATH, ({ request }) => {
-        header = request.headers.get("x-tenant-id");
-        return HttpResponse.json(FIXTURE);
-      }),
-    );
+    const paths = recordPaths();
+    const tenants = serveOverview();
 
     const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
     await waitFor(() => expect(result.current.data).toBeDefined());
-    server.events.removeListener("request:start", record);
 
-    expect(header).toBe(TENANT);
-    expect(seenPaths).toEqual([TENANTS_PATH, SERVING_PATH]);
+    expect(tenants).toEqual([TENANT]);
+    expect(paths).toEqual([TENANTS_PATH, SERVING_PATH]);
     expect(result.current.data?.kpis.match_count).toBe(3);
   });
 
   test("envelope_assinado_entrega_o_documento_do_s3", async () => {
-    serveEnvelope();
+    serveOverview(ENVELOPE);
     const s3Requests = serveS3(NEXT_FIXTURE);
 
     const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
@@ -316,34 +312,88 @@ describe("useServingOverview", () => {
 
   test("perfil_local_busca_sem_esperar_tenant", async () => {
     env.VITE_AUTH_MODE = "local";
-    let header: string | null = "header-was-not-captured";
-    const seenPaths: string[] = [];
-    const record = ({ request }: { request: Request }) => {
-      seenPaths.push(new URL(request.url, "http://localhost").pathname);
-    };
-    server.events.on("request:start", record);
-    server.use(
-      http.get(SERVING_PATH, ({ request }) => {
-        header = request.headers.get("x-tenant-id");
-        return HttpResponse.json(FIXTURE);
-      }),
-    );
+    const paths = recordPaths();
+    const tenants = serveOverview();
 
     const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
     await waitFor(() => expect(result.current.data).toBeDefined());
-    server.events.removeListener("request:start", record);
 
-    expect(header).toBeNull();
-    expect(seenPaths).toEqual([SERVING_PATH]);
+    expect(tenants).toEqual([null]);
+    expect(paths).toEqual([SERVING_PATH]);
     expect(result.current.data).toEqual(FIXTURE);
   });
 
-  test("estado_503_indisponivel_nao_e_silencioso", async () => {
+  test("tenants_pendentes_mostram_carregando", async () => {
+    let listTenants: (response: Response) => void = () => undefined;
+    const listed = new Promise<Response>((resolve) => {
+      listTenants = resolve;
+    });
+    server.use(http.get(TENANTS_PATH, () => listed));
+    const tenants = serveOverview();
+
+    const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(result.current).toMatchObject({ isLoading: true, isError: false, data: undefined });
+    expect(tenants).toEqual([]);
+
+    listTenants(HttpResponse.json([TENANT_ROW]));
+    await waitFor(() => expect(result.current.data).toEqual(FIXTURE));
+    expect(tenants).toEqual([TENANT]);
+  });
+
+  test.each([
+    [400, "tenant_header_required"],
+    [500, "boom"],
+  ])("falha_ao_listar_tenants_vira_erro_visivel_%i", async (status, detail) => {
+    server.use(http.get(TENANTS_PATH, () => HttpResponse.json({ detail }, { status })));
+    const tenants = serveOverview();
+
+    const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toBeInstanceOf(ApiError);
+    expect(result.current.error).toMatchObject({ status, body: { detail } });
+    expect(result.current).toMatchObject({ isLoading: false, data: undefined });
+    expect(tenants).toEqual([]);
+  });
+
+  test("lista_de_tenants_vazia_vira_erro_visivel", async () => {
+    server.use(http.get(TENANTS_PATH, () => HttpResponse.json([])));
+    const tenants = serveOverview();
+
+    const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toBeInstanceOf(ServingDeliveryError);
+    expect(result.current.error).toMatchObject({ message: "serving_tenant_missing=empty" });
+    expect(result.current).toMatchObject({ isLoading: false, data: undefined });
+    expect(tenants).toEqual([]);
+  });
+
+  test("troca_de_tenant_busca_de_novo_sem_reusar_cache_do_outro_tenant", async () => {
+    let selected = TENANT;
+    const seen: (string | null)[] = [];
     server.use(
-      http.get(SERVING_PATH, () =>
-        HttpResponse.json({ detail: "active_serving_unavailable" }, { status: 503 }),
-      ),
+      http.get(TENANTS_PATH, () => HttpResponse.json([{ ...TENANT_ROW, ibge6: selected }])),
+      http.get(SERVING_PATH, ({ request }) => {
+        const tenant = request.headers.get("x-tenant-id");
+        seen.push(tenant);
+        return HttpResponse.json({ ...FIXTURE, tenant_id: tenant });
+      }),
     );
+    const client = productionClient();
+    const { result } = renderHook(() => useServingOverview(), { wrapper: withClient(client) });
+    await waitFor(() => expect(result.current.data?.tenant_id).toBe(TENANT));
+
+    selected = OTHER_TENANT;
+    await act(() => client.invalidateQueries({ queryKey: ["tenants"] }));
+
+    await waitFor(() => expect(result.current.data?.tenant_id).toBe(OTHER_TENANT));
+    expect(seen).toEqual([TENANT, OTHER_TENANT]);
+  });
+
+  test("estado_503_indisponivel_nao_e_silencioso", async () => {
+    serveOverview({ detail: "active_serving_unavailable" }, { status: 503 });
 
     const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
     await waitFor(() => expect(result.current.isError).toBe(true));
@@ -353,9 +403,7 @@ describe("useServingOverview", () => {
   });
 
   test("erro_generico_nao_e_confundido_com_indisponivel", async () => {
-    server.use(
-      http.get(SERVING_PATH, () => HttpResponse.json({ detail: "boom" }, { status: 500 })),
-    );
+    serveOverview({ detail: "boom" }, { status: 500 });
 
     const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
     await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 4000 });
@@ -364,47 +412,29 @@ describe("useServingOverview", () => {
   });
 
   test("serving_indisponivel_503_nao_e_repetido_pelo_hook", async () => {
-    let requests = 0;
-    server.use(
-      http.get(SERVING_PATH, () => {
-        requests += 1;
-        return HttpResponse.json({ detail: "active_serving_unavailable" }, { status: 503 });
-      }),
-    );
+    const requests = serveOverview({ detail: "active_serving_unavailable" }, { status: 503 });
 
     const { result } = renderHook(() => useServingOverview(), {
       wrapper: withClient(productionClient()),
     });
     await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 4000 });
 
-    expect(requests).toBe(1);
+    expect(requests).toHaveLength(1);
   });
 
   test("falha_generica_e_repetida_no_maximo_uma_vez", async () => {
-    let requests = 0;
-    server.use(
-      http.get(SERVING_PATH, () => {
-        requests += 1;
-        return HttpResponse.json({ detail: "boom" }, { status: 500 });
-      }),
-    );
+    const requests = serveOverview({ detail: "boom" }, { status: 500 });
 
     const { result } = renderHook(() => useServingOverview(), {
       wrapper: withClient(productionClient()),
     });
     await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 4000 });
 
-    expect(requests).toBe(2);
+    expect(requests).toHaveLength(2);
   });
 
   test("nao_refaz_a_busca_ao_focar_a_janela_com_dado_obsoleto", async () => {
-    let requests = 0;
-    server.use(
-      http.get(SERVING_PATH, () => {
-        requests += 1;
-        return HttpResponse.json(FIXTURE);
-      }),
-    );
+    const requests = serveOverview();
     const client = productionClient();
     const { result } = renderHook(() => useServingOverview(), { wrapper: withClient(client) });
     await waitFor(() => expect(result.current.data).toBeDefined());
@@ -416,7 +446,7 @@ describe("useServingOverview", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(requests).toBe(1);
+    expect(requests).toHaveLength(1);
   });
 
   test("troca_de_pointer_substitui_o_payload_inteiro_sem_misturar_runs", async () => {
@@ -436,45 +466,26 @@ describe("useServingOverview", () => {
   });
 
   test("payload_vazio_e_payload_com_fontes_ausentes", async () => {
-    server.use(
-      http.get(SERVING_PATH, () =>
-        HttpResponse.json({ ...FIXTURE, divergence_counts: {}, missing_sources: [] }),
-      ),
-    );
+    serveOverview({ ...FIXTURE, divergence_counts: {}, missing_sources: [] });
     const empty = renderHook(() => useServingOverview(), { wrapper: wrap });
     await waitFor(() => expect(empty.result.current.data).toBeDefined());
     expect(empty.result.current.data?.missing_sources).toEqual([]);
     expect(empty.result.current.data?.divergence_counts).toEqual({});
 
-    server.use(
-      http.get(SERVING_PATH, () =>
-        HttpResponse.json({ ...FIXTURE, missing_sources: ["CNES_NACIONAL"] }),
-      ),
-    );
+    serveOverview({ ...FIXTURE, missing_sources: ["CNES_NACIONAL"] });
     const partial = renderHook(() => useServingOverview(), { wrapper: wrap });
     await waitFor(() => expect(partial.result.current.data).toBeDefined());
     expect(partial.result.current.data?.missing_sources).toEqual(["CNES_NACIONAL"]);
   });
 
   test("nunca_chama_rotas_legadas_de_overview_ou_faturamento", async () => {
-    const legacyOverview = vi.fn();
-    const legacyFaturamento = vi.fn();
-    server.use(
-      http.get(SERVING_PATH, () => HttpResponse.json(FIXTURE)),
-      http.get(LEGACY_OVERVIEW_PATH, () => {
-        legacyOverview();
-        return HttpResponse.json({});
-      }),
-      http.get(LEGACY_FATURAMENTO_PATH, () => {
-        legacyFaturamento();
-        return HttpResponse.json({});
-      }),
-    );
+    const paths = recordPaths();
+    serveOverview();
 
     const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
     await waitFor(() => expect(result.current.data).toBeDefined());
 
-    expect(legacyOverview).not.toHaveBeenCalled();
-    expect(legacyFaturamento).not.toHaveBeenCalled();
+    expect(paths).not.toContain(LEGACY_OVERVIEW_PATH);
+    expect(paths).not.toContain(LEGACY_FATURAMENTO_PATH);
   });
 });

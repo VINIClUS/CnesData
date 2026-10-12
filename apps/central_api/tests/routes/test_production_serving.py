@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import boto3
 import pytest
+from botocore.exceptions import EndpointConnectionError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -51,6 +52,7 @@ REGIONAL_HOST = "cnesdata-prod-data.s3.us-east-2.amazonaws.com"
 NO_STORE = "private, no-store"
 SETTINGS = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
 ACCESS_REQUEST = ServingRequest(user_id=USER, tenant_id=TENANT, dataset_name="cnes")
+LOGGERS = ("central_api", "cnes_domain", "cnes_infra", "uvicorn", "uvicorn.error")
 
 
 class Policy:
@@ -100,12 +102,13 @@ def signer(monkeypatch: pytest.MonkeyPatch) -> RecordingSigner:
 
 def _access(
     signer: RecordingSigner, policy: Policy | None = None, store: Store | None = None,
+    ttl: int = SETTINGS.serving_url_ttl_seconds,
 ) -> S3SignedServingAccess:
     return S3SignedServingAccess(
         cast("ServingAccessPort", policy or Policy()),
         cast("ObjectStorePort", store or Store()),
         cast("BaseClient", signer),
-        SignedServingSettings(SETTINGS.data_bucket, SETTINGS.serving_url_ttl_seconds),
+        SignedServingSettings(SETTINGS.data_bucket, ttl),
     )
 
 
@@ -122,6 +125,13 @@ def _get(access: S3SignedServingAccess) -> Response:
 def _secrets(url: str) -> tuple[str, ...]:
     query = urlsplit(url).query
     return url, query, parse_qs(query)["X-Amz-Signature"][0], KEY
+
+
+def _capture_logs(caplog: pytest.LogCaptureFixture) -> None:
+    # botocore's own DEBUG lines print the canonical request; the API never enables them.
+    caplog.set_level(logging.INFO)
+    for name in LOGGERS:
+        caplog.set_level(logging.DEBUG, logger=name)
 
 
 def test_envelope_tem_so_url_version_e_expires(signer: RecordingSigner) -> None:
@@ -192,13 +202,48 @@ def test_nega_prefixos_nao_serving(signer: RecordingSigner, prefix: str) -> None
     assert (store.stats, signer.calls) == ([], [])
 
 
+@pytest.mark.parametrize("ttl", [30, 900])
+def test_envelope_declara_o_ttl_configurado_fora_da_producao(
+    signer: RecordingSigner, ttl: int,
+) -> None:
+    body = _get(_access(signer, ttl=ttl)).json()
+
+    assert body["expires_in"] == ttl
+    assert parse_qs(urlsplit(body["url"]).query)["X-Amz-Expires"] == [str(ttl)]
+
+
+def test_falha_de_transporte_s3_na_autorizacao_vira_503_sem_chave_no_log(
+    signer: RecordingSigner, caplog: pytest.LogCaptureFixture,
+) -> None:
+    _capture_logs(caplog)
+    endpoint = f"https://{REGIONAL_HOST}/{KEY}"
+    store = Store()
+    policy = Policy(error=EndpointConnectionError(endpoint_url=endpoint))
+
+    response = _get(_access(signer, policy, store))
+
+    assert (response.status_code, response.json()) == (
+        503, {"detail": "active_serving_unavailable"},
+    )
+    assert ROUTE in caplog.text
+    for secret in (endpoint, KEY, SETTINGS.data_bucket):
+        assert secret not in caplog.text
+    assert [
+        (record.name, record.levelname, record.getMessage(), record.exc_info)
+        for record in caplog.records
+        if record.levelno >= logging.WARNING
+    ] == [(
+        "central_api.serving.aws_signed", "WARNING",
+        "serving_authorization_lookup_failed error=EndpointConnectionError", None,
+    )]
+    assert policy.requests == [ACCESS_REQUEST]
+    assert (store.stats, signer.calls) == ([], [])
+
+
 def test_url_assinada_nunca_aparece_em_log(
     signer: RecordingSigner, caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # botocore's own DEBUG lines print the canonical request; the API never enables them.
-    caplog.set_level(logging.INFO)
-    for name in ("central_api", "cnes_domain", "cnes_infra"):
-        caplog.set_level(logging.DEBUG, logger=name)
+    _capture_logs(caplog)
 
     granted = _get(_access(signer))
     denied = _get(_access(signer, Policy(error=ServingUnavailable("entitlement_unavailable"))))

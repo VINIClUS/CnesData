@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
@@ -195,6 +196,34 @@ def test_erro_da_policy_propaga_sem_stat_nem_assinatura(code: str) -> None:
         _access(policy, store, signer).grant(_request(), NOW)
 
     assert error.value.code == code
+    _assert_nada_lido(store, signer)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        EndpointConnectionError(endpoint_url=f"https://data-bucket.s3.amazonaws.com/{SERVING_KEY}"),
+        ClientError({"Error": {"Code": "SlowDown", "Message": SERVING_KEY}}, "HeadObject"),
+        OSError(SERVING_KEY),
+    ],
+    ids=["transporte", "cliente", "sistema"],
+)
+def test_falha_de_transporte_na_policy_gera_indisponivel_sem_causa_nem_chave(
+    failure: Exception, caplog: pytest.LogCaptureFixture,
+) -> None:
+    policy, store, signer = _policy(), _store(), _signer()
+    policy.authorize.side_effect = failure
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(ServingSigningUnavailable) as error:
+        _access(policy, store, signer).grant(_request(), NOW)
+
+    assert error.value.code == "serving_authorization_lookup_failed"
+    assert (error.value.__cause__, error.value.__suppress_context__) == (None, True)
+    assert [(record.levelname, record.getMessage()) for record in caplog.records] == [
+        ("WARNING", f"serving_authorization_lookup_failed error={type(failure).__name__}"),
+    ]
+    assert SERVING_KEY not in caplog.text
     _assert_nada_lido(store, signer)
 
 

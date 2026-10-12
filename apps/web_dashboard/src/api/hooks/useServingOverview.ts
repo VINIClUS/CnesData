@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/api/client";
-import { useTenants } from "@/api/hooks/useTenants";
+import { type Tenant, useTenants } from "@/api/hooks/useTenants";
 import { env } from "@/lib/env";
 
 export type ServingKpis = {
@@ -33,7 +33,8 @@ export type ServingEnvelope = {
 export type ServingDeliveryCode =
   | "serving_envelope_invalid"
   | "serving_url_invalid"
-  | "serving_download_failed";
+  | "serving_download_failed"
+  | "serving_tenant_missing";
 
 export class ServingDeliveryError extends Error {
   constructor(
@@ -119,14 +120,35 @@ export async function fetchServingOverview(tenantId: string | undefined): Promis
   return downloadSigned(signedUrl(parseEnvelope(body).url));
 }
 
-export function useServingOverview() {
-  const tenantId = useTenants().data?.[0]?.ibge6;
-  return useQuery({
+type ServingOverviewResult = Pick<
+  UseQueryResult<ServingOverview, unknown>,
+  "data" | "error" | "isError" | "isLoading" | "refetch"
+>;
+
+function withoutTenant(
+  tenants: UseQueryResult<Tenant[]>,
+  refetch: ServingOverviewResult["refetch"],
+): ServingOverviewResult {
+  const base = { data: undefined, refetch };
+  if (tenants.data !== undefined) {
+    const error = new ServingDeliveryError("serving_tenant_missing", "empty");
+    return { ...base, error, isError: true, isLoading: false };
+  }
+  if (tenants.isError) return { ...base, error: tenants.error, isError: true, isLoading: false };
+  return { ...base, error: null, isError: false, isLoading: true };
+}
+
+export function useServingOverview(): ServingOverviewResult {
+  const tenants = useTenants();
+  const tenantId = tenants.data?.[0]?.ibge6;
+  const ready = env.VITE_AUTH_MODE === "local" || tenantId !== undefined;
+  const { data, error, isError, isLoading, refetch } = useQuery({
     queryKey: ["serving-overview", tenantId ?? null],
     queryFn: () => fetchServingOverview(tenantId),
-    enabled: env.VITE_AUTH_MODE === "local" || tenantId !== undefined,
+    enabled: ready,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: shouldRetryServing,
   });
+  return ready ? { data, error, isError, isLoading, refetch } : withoutTenant(tenants, refetch);
 }

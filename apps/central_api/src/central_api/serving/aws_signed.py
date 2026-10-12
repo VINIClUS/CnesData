@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRequest
 
+logger = logging.getLogger(__name__)
 
 _NO_STORE = "private, no-store"
 
@@ -85,9 +87,9 @@ class S3SignedServingAccess:
 
         Args: Requisição com identidade e nome relativo; instante de emissão.
         Returns: URL assinada com expiração ``now + ttl``.
-        Raises: ServingKeyForbidden, ServingSigningUnavailable, erros da policy.
+        Raises: ServingKeyForbidden, ServingSigningUnavailable, ServingUnavailable da policy.
         """
-        authorized = self._access_policy.authorize(request.access)
+        authorized = self._authorize(request.access)
         if authorized.tenant_id != request.access.tenant_id:
             raise ServingKeyForbidden("serving_key_forbidden")
         key = _resolve_key(authorized, request.relative_name)
@@ -100,6 +102,14 @@ class S3SignedServingAccess:
             expires_at=now + timedelta(seconds=self._settings.ttl_seconds),
             expires_in=self._settings.ttl_seconds,
         )
+
+    def _authorize(self, access: ServingRequest) -> ServingGrant:
+        try:
+            return self._access_policy.authorize(access)
+        except (BotoCoreError, ClientError, OSError) as error:
+            # botocore messages carry the endpoint URL, which names the bucket and the object key.
+            logger.warning("serving_authorization_lookup_failed error=%s", type(error).__name__)
+            raise ServingSigningUnavailable("serving_authorization_lookup_failed") from None
 
     def _require_object(self, key: str) -> None:
         try:
