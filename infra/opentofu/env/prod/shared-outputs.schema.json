@@ -175,16 +175,20 @@
           ],
           "properties": {
             "block_public_acls": {
-              "type": "boolean"
+              "type": "boolean",
+              "const": true
             },
             "block_public_policy": {
-              "type": "boolean"
+              "type": "boolean",
+              "const": true
             },
             "ignore_public_acls": {
-              "type": "boolean"
+              "type": "boolean",
+              "const": true
             },
             "restrict_public_buckets": {
-              "type": "boolean"
+              "type": "boolean",
+              "const": true
             }
           }
         }

@@ -1,5 +1,4 @@
 import json
-import posixpath
 import re
 import shutil
 import subprocess
@@ -419,14 +418,14 @@ def plan_report(
 
 
 def test_raiz_agenda_buckets_de_dados_e_auditoria(
-    plan_report: TofuReport,
-    tofu_artifacts: Artifacts,
+    plan_report: TofuReport, tofu_artifacts: Artifacts, prod_root: Path
 ) -> None:
     calls = _module_calls(tofu_artifacts)
-    sources = {n: posixpath.normpath(cast("str", c["source"])) for n, c in calls.items()}
+    module = (prod_root / MODULE_SOURCE).resolve()
+    targets = {n: (prod_root / cast("str", c["source"])).resolve() for n, c in calls.items()}
 
     _assert_runs(plan_report, {"raiz_agenda_data_buckets": "pass"})
-    assert [n for n, source in sources.items() if source == MODULE_SOURCE] == ["data_buckets"]
+    assert [n for n, target in targets.items() if target == module] == ["data_buckets"]
 
 
 def test_buckets_distintos_privados_e_versionados(

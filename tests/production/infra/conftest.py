@@ -154,9 +154,8 @@ TOFU_AWS_ENVIRONMENT = {
 }
 
 
-NATIVE_CONTRACT_TEST = """
-mock_provider "aws" {}
-
+MOCK_AWS_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
+NATIVE_CONTRACT_TEST = MOCK_AWS_PROVIDERS + """
 run "evaluate_composition_contract" {
   command = plan
 
@@ -231,6 +230,11 @@ def _shared_validation_run(case: ValidationCase) -> str:
 @pytest.fixture(name="require_tool")
 def fixture_require_tool() -> Callable[[str, ToolLookup], str]:
     return require_tool
+
+
+@pytest.fixture(name="generated_suite_headers")
+def fixture_generated_suite_headers() -> tuple[str, ...]:
+    return (NATIVE_CONTRACT_TEST, MOCK_AWS_PROVIDERS)
 
 
 @pytest.fixture(name="tofu_environment")
@@ -342,7 +346,7 @@ def validate_shared_outputs(
     test_file = test_directory / "shared-outputs.tftest.hcl"
 
     def validate(cases: Sequence[ValidationCase]) -> subprocess.CompletedProcess[str]:
-        source = 'mock_provider "aws" {}\n\n' + "\n".join(
+        source = MOCK_AWS_PROVIDERS + "\n" + "\n".join(
             _shared_validation_run(case) for case in cases
         )
         test_file.write_text(source, encoding="utf-8")

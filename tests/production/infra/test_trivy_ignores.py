@@ -29,9 +29,9 @@ def _violation(line: str, today: date) -> str | None:
     return None if expiry > today else "ignore_vencido"
 
 
-def _ignore_lines() -> Iterator[tuple[str, str]]:
-    for path in sorted(OPENTOFU_ROOT.rglob("*.tf")):
-        relative = path.relative_to(OPENTOFU_ROOT)
+def _ignore_lines(root: Path = OPENTOFU_ROOT) -> Iterator[tuple[str, str]]:
+    for path in sorted(root.rglob("*.tf")):
+        relative = path.relative_to(root)
         if any(part.startswith(".") for part in relative.parts):
             continue
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -61,6 +61,16 @@ def test_gate_rejeita_ignore_com_colchetes_sem_exp_ou_vencido(
     line: str, violation: str | None
 ) -> None:
     assert _violation(line, REFERENCE_DAY) == violation
+
+
+def test_descoberta_de_ignores_percorre_subdiretorios_e_pula_ocultos(tmp_path: Path) -> None:
+    nested = tmp_path / "modules" / "x" / "main.tf"
+    hidden = tmp_path / "env" / ".terraform" / "modules" / "y" / "main.tf"
+    for path in (nested, hidden):
+        path.parent.mkdir(parents=True)
+        path.write_text('#trivy:ignore:AVD-AWS-0132[exp:2027-04-11]\n', encoding="utf-8")
+
+    assert [where for where, _ in _ignore_lines(tmp_path)] == ["modules/x/main.tf:1"]
 
 
 def test_ignores_inline_do_trivy_expiram_em_data_futura() -> None:

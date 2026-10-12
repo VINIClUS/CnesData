@@ -1,5 +1,4 @@
 import json
-import posixpath
 import re
 import shutil
 import subprocess
@@ -375,14 +374,14 @@ def isolated_report(
 
 
 def test_raiz_agenda_tabela_do_control_plane(
-    plan_report: TofuReport,
-    tofu_artifacts: Artifacts,
+    plan_report: TofuReport, tofu_artifacts: Artifacts, prod_root: Path
 ) -> None:
     calls = _module_calls(_root_module(tofu_artifacts))
-    sources = {n: posixpath.normpath(cast("str", c["source"])) for n, c in calls.items()}
+    module = (prod_root / MODULE_SOURCE).resolve()
+    targets = {n: (prod_root / cast("str", c["source"])).resolve() for n, c in calls.items()}
 
     _assert_runs(plan_report, {"raiz_agenda_control_plane": "pass"})
-    assert [n for n, source in sources.items() if source == MODULE_SOURCE] == ["control_plane"]
+    assert [n for n, target in targets.items() if target == module] == ["control_plane"]
     assert calls["control_plane"]["source"] == MODULE_SOURCE
 
 

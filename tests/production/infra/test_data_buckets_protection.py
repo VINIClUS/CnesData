@@ -17,6 +17,9 @@ type TofuEnvironment = Callable[[Mapping[str, str]], dict[str, str]]
 MODULE_DIRECTORY = Path(__file__).resolve().parents[3] / "infra/opentofu/modules/data-buckets"
 BUCKET_NAMES = {"data": "cnesdata-prod-data", "audit": "cnesdata-prod-audit"}
 BOTH = ("data", "audit")
+BPA_FLAGS = (
+    "block_public_acls", "block_public_policy", "ignore_public_acls", "restrict_public_buckets",
+)
 FAIL_CLOSED_AWS = {
     "AWS_CONFIG_FILE": os.devnull, "AWS_EC2_METADATA_DISABLED": "true",
     "AWS_ENDPOINT_URL": "http://127.0.0.1:9", "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
@@ -182,3 +185,22 @@ def test_suites_de_protecao_mockam_todo_provider_aws_da_raiz(tofu_artifacts: Art
 
     assert {"aws", "aws.global_edge"} <= roots
     assert [_mocked_providers(suite) for suite in suites] == [roots] * len(suites)
+
+
+def test_suites_do_conftest_mockam_todo_provider_aws_da_raiz(
+    tofu_artifacts: Artifacts, generated_suite_headers: tuple[str, ...]
+) -> None:
+    roots = _root_aws_providers(tofu_artifacts)
+    mocked = [_mocked_providers(suite) for suite in generated_suite_headers]
+
+    assert mocked == [roots] * len(generated_suite_headers)
+
+
+def test_schema_v2_exige_os_quatro_flags_de_bpa_verdadeiros(prod_root: Path) -> None:
+    node = cast("Node", json.loads((prod_root / "shared-outputs.schema.json").read_text("utf-8")))
+    for key in ("account_baseline", "s3_public_access_block"):
+        node = cast("Node", cast("Node", node["properties"])[key])
+    flags = cast("dict[str, Node]", node["properties"])
+    consts = {name: flag.get("const") for name, flag in flags.items()}
+
+    assert consts == dict.fromkeys(BPA_FLAGS, True)
