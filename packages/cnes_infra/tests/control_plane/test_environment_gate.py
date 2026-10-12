@@ -257,8 +257,23 @@ def test_reanchor_e_condicional_no_token_e_no_permit_sem_bind(gate: _Gate) -> No
     assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, token, LATER)) is False
     write = client.requests("update_item")[1]
     assert write["UpdateExpression"] == "SET #acquired = :now, #updated = :now"
-    assert write["ConditionExpression"].endswith(" AND attribute_not_exists(#execution_ref)")
+    assert write["ConditionExpression"] == (
+        "#token = :token AND attribute_exists(#holder_dispatch) "
+        "AND attribute_not_exists(#execution_ref) AND #acquired <= :now"
+    )
     assert {"put_item", "delete_item", "scan"}.isdisjoint(client.operations())
+
+
+def test_reanchor_nunca_recua_o_anchor(gate: _Gate) -> None:
+    adapter, _ = gate
+    permit = _permit(adapter.acquire_unit_permit(_acquire(now=LATER)))
+    later = LATER + timedelta(minutes=5)
+
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, permit.token, NOW)) is False
+    assert adapter.observe_environment_gate(ENV).permit == permit
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, permit.token, LATER)) is True
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, permit.token, later)) is True
+    assert adapter.observe_environment_gate(ENV).permit == replace(permit, acquired_at=later)
 
 
 def test_release_por_ausencia_exige_o_anchor_e_o_permit_sem_bind(gate: _Gate) -> None:

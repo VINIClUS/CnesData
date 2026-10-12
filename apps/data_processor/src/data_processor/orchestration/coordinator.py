@@ -106,7 +106,7 @@ class CoordinatorResult:
 
 
 class RecoveryFailed(RuntimeError):
-    """Passada de recovery com runs que falharam; carrega os resultados dos demais."""
+    """Passada de recovery que falhou em runs ou no reconcile (a causa); carrega os resultados."""
 
     def __init__(self, results: tuple[CoordinatorResult, ...], failed: int) -> None:
         super().__init__(f"failed={failed} recovered={len(results)}")
@@ -279,7 +279,7 @@ def _cancel(dependencies: CoordinatorDependencies, run: Run, now: datetime) -> C
 
 
 def _reconcile_admission(execution: ExecutionPolicyConfig, now: datetime) -> Exception | None:
-    # The pass still recovers the runs; the caller raises this error once they are done.
+    # The pass still recovers the runs and then fails chained to this error, keeping its summary.
     try:
         execution.admission.reconcile(now)
     except Exception as error:
@@ -385,10 +385,8 @@ class PipelineCoordinator:
                         run.tenant_id,
                         run.run_id,
                     )
-        if failed:
-            raise RecoveryFailed(tuple(results), failed)
-        if reconcile_error is not None:
-            raise reconcile_error
+        if failed or reconcile_error is not None:
+            raise RecoveryFailed(tuple(results), failed) from reconcile_error
         return tuple(results)
 
 

@@ -322,10 +322,14 @@ def renew_permit(permit: UnitPermit | None, command: RenewUnitPermit) -> UnitPer
 def reanchor_permit(permit: UnitPermit | None, command: ReanchorUnitPermit) -> UnitPermit | None:
     """Reancora no instante do comando a carência do permit do token ainda sem bind.
 
-    Returns: Permit reancorado, ou None com token divergente ou execução já vinculada.
+    Returns: Permit reancorado, ou None com token divergente, execução já vinculada ou
+        instante anterior ao anchor atual.
     Raises: ValueError: Permit de outro ambiente.
     """
-    if not _holds(permit, command.environment, command.token) or permit.execution_ref is not None:
+    if not _holds(permit, command.environment, command.token):
+        return None
+    # The anchor only advances: a stale clock must never shorten the absence grace.
+    if permit.execution_ref is not None or command.now < permit.acquired_at:
         return None
     return replace(permit, acquired_at=command.now)
 

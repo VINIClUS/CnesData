@@ -208,7 +208,7 @@ def test_reentrada_do_mesmo_holder_segue_sem_probe(gate: _MemoryGate, probe: _Pr
     admission = _service(gate, probe).admit(HOLDER, NOW + GRACE * 2)
 
     assert admission == UnitAdmission(ENV, 1)
-    assert gate.calls == ["acquire", "reanchor"]
+    assert gate.calls == ["acquire", "observe", "reanchor"]
     assert probe.calls == []
 
 

@@ -203,6 +203,17 @@ def test_reancora_so_o_permit_do_token_sem_bind() -> None:
     assert reanchor_permit(None, command) is None
 
 
+def test_reancoragem_nunca_recua_o_anchor() -> None:
+    permit = issue_permit(_acquire(now=LATER), 2)
+    later = LATER + timedelta(minutes=5)
+
+    assert reanchor_permit(permit, ReanchorUnitPermit(ENV, 2, NOW)) is None
+    assert reanchor_permit(permit, ReanchorUnitPermit(ENV, 2, LATER)) == permit
+    assert reanchor_permit(permit, ReanchorUnitPermit(ENV, 2, later)) == replace(
+        permit, acquired_at=later,
+    )
+
+
 def test_liberacao_por_ausencia_exige_o_anchor_e_o_permit_sem_bind() -> None:
     permit = issue_permit(_acquire(), 2)
     reanchored = replace(permit, acquired_at=LATER)

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from cnes_domain.control_plane.environment_gate import BindUnitPermit, ClosePromotionFence
+from cnes_domain.control_plane.environment_gate import (
+    BindUnitPermit,
+    ClosePromotionFence,
+    PermitHolder,
+)
 from cnes_domain.ports.environment_gate import (
     DeferralReason,
     DispatchDeferred,
@@ -41,11 +46,37 @@ if TYPE_CHECKING:
 
 __all__ = ["gate", "probe"]
 LATE = NOW + timedelta(minutes=30)
+MINUTE = timedelta(minutes=1)
 PERMIT_HELD = DispatchDeferred(DeferralReason.PERMIT_HELD)
+FENCE_CLOSED = DispatchDeferred(DeferralReason.FENCE_CLOSED)
+_LOGGER = "cnes_domain.orchestration.dispatch_admission"
 
 
 def _nothing() -> None:
     return None
+
+
+def _close_fence(gate: _MemoryGate, at: timedelta = timedelta(0)) -> None:
+    assert gate.close_promotion_fence(ClosePromotionFence(ENV, "release-9", NOW + at))
+
+
+@dataclass(frozen=True)
+class _Common:
+    """Gate antes do admit de HOLDER num caminho comum: tudo menos a reentrada sem bind."""
+
+    owner: PermitHolder | None
+    bound: bool = False
+    presence: ExecutionPresence = ExecutionPresence.ABSENT
+    fenced: bool = False
+
+
+def _arrange(gate: _MemoryGate, probe: _Probe, common: _Common) -> None:
+    if common.fenced:
+        _close_fence(gate)
+    if common.owner is not None:
+        execution_ref = _ref(common.owner.dispatch_id) if common.bound else None
+        gate.hold(common.owner, at=LATE, execution_ref=execution_ref)
+        probe.presence[common.owner.dispatch_id] = common.presence
 
 
 @dataclass
@@ -68,10 +99,88 @@ def test_reentrada_tardia_sem_bind_reancora_a_carencia(gate: _MemoryGate, probe:
     service.settle(HOLDER, LATE)
 
     assert _current(gate).acquired_at == LATE
-    assert gate.calls == ["acquire", "reanchor", "observe"]
+    assert gate.calls == ["acquire", "observe", "reanchor", "observe"]
     assert probe.calls == [HOLDER.dispatch_id]
     assert service.admit(OTHER, LATE + GRACE - SECOND) == PERMIT_HELD
     assert service.admit(OTHER, LATE + GRACE) == UnitAdmission(ENV, 2)
+
+
+def test_reentrada_sem_bind_com_fence_fechado_e_execucao_ausente_adia_sem_reancorar(
+    gate: _MemoryGate, probe: _Probe,
+) -> None:
+    gate.hold(HOLDER, at=NOW)
+    _close_fence(gate, at=5 * MINUTE)
+    service = _service(gate, probe)
+
+    assert service.admit(HOLDER, NOW + 6 * MINUTE) == FENCE_CLOSED
+
+    assert gate.calls == ["acquire", "observe"]
+    assert probe.calls == [HOLDER.dispatch_id]
+    assert _current(gate).acquired_at == NOW
+    service.reconcile(NOW + GRACE)
+    assert gate.permit is None
+
+
+@pytest.mark.parametrize("presence", [ExecutionPresence.RUNNING, ExecutionPresence.TERMINAL])
+def test_reentrada_sem_bind_com_fence_fechado_e_execucao_existente_reancora_e_segue(
+    gate: _MemoryGate, probe: _Probe, presence: ExecutionPresence,
+) -> None:
+    gate.hold(HOLDER, at=NOW)
+    _close_fence(gate)
+    probe.presence[HOLDER.dispatch_id] = presence
+
+    assert _service(gate, probe).admit(HOLDER, LATE) == UnitAdmission(ENV, 1)
+
+    assert gate.calls == ["acquire", "observe", "reanchor"]
+    assert probe.calls == [HOLDER.dispatch_id]
+    assert _current(gate).acquired_at == LATE
+
+
+def test_erro_do_probe_na_reentrada_com_fence_fechado_propaga_sem_reancorar(
+    gate: _MemoryGate, probe: _Probe,
+) -> None:
+    permit = gate.hold(HOLDER, at=NOW)
+    _close_fence(gate)
+    probe.error = TimeoutError("probe=throttled")
+
+    with pytest.raises(TimeoutError, match="probe=throttled"):
+        _service(gate, probe).admit(HOLDER, LATE)
+
+    assert gate.permit == permit
+    assert gate.calls == ["acquire", "observe"]
+
+
+@pytest.mark.parametrize(
+    ("common", "expected", "calls", "probes"),
+    [
+        pytest.param(_Common(None), UnitAdmission(ENV, 1), ["acquire"], [], id="acquired"),
+        pytest.param(_Common(OTHER), PERMIT_HELD, ["acquire"], [OTHER], id="held"),
+        pytest.param(
+            _Common(OTHER, bound=True, presence=ExecutionPresence.TERMINAL),
+            UnitAdmission(ENV, 2), ["acquire", "release", "acquire"], [OTHER], id="held-terminal",
+        ),
+        pytest.param(
+            _Common(OTHER, bound=True, presence=ExecutionPresence.RUNNING),
+            PERMIT_HELD, ["acquire", "renew"], [OTHER], id="held-vivo",
+        ),
+        pytest.param(_Common(None, fenced=True), FENCE_CLOSED, ["acquire"], [], id="fence"),
+        pytest.param(_Common(OTHER, fenced=True), FENCE_CLOSED, ["acquire"], [], id="fence-held"),
+        pytest.param(
+            _Common(HOLDER, bound=True, fenced=True), UnitAdmission(ENV, 1), ["acquire"], [],
+            id="reentrada-com-bind",
+        ),
+    ],
+)
+def test_caminho_comum_do_admit_nao_ganha_leitura_nem_probe(
+    gate: _MemoryGate, probe: _Probe, common: _Common, expected: object, calls: list[str],
+    probes: list[PermitHolder],
+) -> None:
+    _arrange(gate, probe, common)
+
+    assert _service(gate, probe).admit(HOLDER, LATE) == expected
+
+    assert gate.calls == calls
+    assert probe.calls == [holder.dispatch_id for holder in probes]
 
 
 def test_reentrada_com_bind_segue_sem_reancorar(gate: _MemoryGate, probe: _Probe) -> None:
@@ -115,6 +224,32 @@ def test_permit_vinculado_nao_e_liberado_por_ausencia(gate: _MemoryGate, probe: 
     assert probe.calls == [OTHER.dispatch_id] * 3
 
 
+@pytest.mark.parametrize(
+    ("execution_ref", "alerts"),
+    [(_ref(OTHER.dispatch_id), 3), (None, 0)],
+    ids=["bind", "sem-bind"],
+)
+def test_cada_observacao_de_permit_vinculado_sem_execucao_gera_alerta(
+    gate: _MemoryGate, probe: _Probe, caplog: pytest.LogCaptureFixture,
+    execution_ref: str | None, alerts: int,
+) -> None:
+    permit = gate.hold(OTHER, at=LATE, execution_ref=execution_ref)
+    service = _service(gate, probe)
+    caplog.set_level(logging.WARNING, logger=_LOGGER)
+
+    assert service.admit(HOLDER, LATE) == PERMIT_HELD
+    service.settle(OTHER, LATE)
+    service.reconcile(LATE)
+
+    alert = (
+        f"unit_permit_bound_absent environment={ENV} dispatch_id={OTHER.dispatch_id} "
+        f"token={permit.token}"
+    )
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert [record.getMessage() for record in warnings] == [alert] * alerts
+    assert gate.permit == permit
+
+
 def test_rival_nao_libera_o_permit_reancorado_durante_o_probe(gate: _MemoryGate) -> None:
     gate.hold(HOLDER, at=NOW)
     holder = _service(gate, _Probe())
@@ -126,7 +261,7 @@ def test_rival_nao_libera_o_permit_reancorado_durante_o_probe(gate: _MemoryGate)
 
     assert reentries == [UnitAdmission(ENV, 1)]
     assert (_current(gate).holder, _current(gate).acquired_at) == (HOLDER, LATE)
-    assert gate.calls == ["acquire", "acquire", "reanchor", "release", "acquire"]
+    assert gate.calls == ["acquire", "acquire", "observe", "reanchor", "release", "acquire"]
 
 
 def test_rival_nao_libera_o_permit_vinculado_durante_o_probe(gate: _MemoryGate) -> None:

@@ -9,6 +9,8 @@ import pytest
 from botocore.exceptions import ReadTimeoutError
 
 from apps.central_api.tests.services.test_run_planning import (
+    _COMPETENCIA,
+    _NOW,
     _RUN_ID,
     _TENANT,
     _run,
@@ -17,6 +19,7 @@ from apps.central_api.tests.services.test_run_planning import (
 from apps.central_api.tests.services.test_run_planning_environment_gate import (
     _ENDPOINT,
     _ENVIRONMENT,
+    _GRACE,
     _LEASE_SECONDS,
     _NEXT,
     _ORPHAN,
@@ -36,7 +39,8 @@ from apps.central_api.tests.services.test_run_planning_environment_gate import (
     store,
 )
 from central_api.services.run_planning import RunPlanningService
-from cnes_domain.control_plane.enums import RunState
+from cnes_domain.control_plane.entities import RawManifestRecord
+from cnes_domain.control_plane.enums import DispatchState, RunState
 from cnes_domain.control_plane.environment_gate import ClosePromotionFence
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.ports.environment_gate import (
@@ -67,6 +71,7 @@ if TYPE_CHECKING:
 
 __all__ = ["adapter", "clock", "executor", "gate", "service", "store"]
 _FENCE_DEFERRED = [(RunState.PROCESSING, DeferralReason.FENCE_CLOSED)]
+_WAITING_RUN_IDS = ("run-1", "run-2", "run-3")
 
 
 @dataclass
@@ -124,6 +129,33 @@ def _with_execution(service: RunPlanningService, **changes: Any) -> RunPlanningS
     return RunPlanningService(service._dependencies, execution, service._clock)
 
 
+def _ambiguous_launch(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
+    production: RunPlanningService,
+) -> RunDispatch:
+    _planned(adapter, store)
+    executor.start_error = ReadTimeoutError(endpoint_url=_ENDPOINT)
+    with pytest.raises(ReadTimeoutError):
+        production.launch(_TENANT, _RUN_ID)
+    executor.start_error = None
+    return _active(adapter)
+
+
+def _close_fence(gate: DynamoDBControlPlane, clock: _MutableClock) -> None:
+    assert gate.close_promotion_fence(ClosePromotionFence(_ENVIRONMENT, "release-3", clock.now()))
+
+
+def _accepted_local_manifest() -> RawManifestRecord:
+    return RawManifestRecord(
+        tenant_id=_TENANT, manifest_id="manifest-trigger",
+        manifest_key=f"raw/{_TENANT}/CNES_LOCAL/{_COMPETENCIA}/local-1/manifest.json",
+        agent_id="agent-1", source_type="CNES_LOCAL", file_subtype="CNES_VINCULO",
+        competencia=_COMPETENCIA, snapshot_mode="FULL", snapshot_id="local-1",
+        base_snapshot_id=None, sequence=1, previous_manifest_sha256=None,
+        manifest_sha256="a" * 64, created_at=_NOW,
+    )
+
+
 def test_identidade_divergente_nao_adquire_o_permit(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
     gate: DynamoDBControlPlane, service: RunPlanningService,
@@ -162,6 +194,98 @@ def test_erro_ambiguo_na_reentrada_tardia_nao_libera(
     assert rival.admit(_NEXT, clock.now()) == DispatchDeferred(DeferralReason.PERMIT_HELD)
 
 
+def test_reentrada_sem_bind_com_fence_fechado_nao_inicia_execucao_nova(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
+    gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
+) -> None:
+    production = _with_execution(service, dispatch_lease_seconds=3600)
+    dispatch = _ambiguous_launch(adapter, store, executor, production)
+    anchor = _held(gate).acquired_at
+    clock.advance(timedelta(minutes=5))
+    _close_fence(gate, clock)
+    clock.advance(timedelta(minutes=1))
+
+    results = production.recover(limit=10)
+
+    assert [(result.run.state, result.execution_ref, result.deferred) for result in results] == [
+        (RunState.PROCESSING, None, DeferralReason.FENCE_CLOSED),
+    ]
+    assert (executor.calls.count("start"), executor.statuses) == (1, {})
+    assert (_held(gate).holder, _held(gate).acquired_at) == (_holder(dispatch), anchor)
+    clock.advance(anchor + _GRACE - clock.now())
+    assert [result.deferred for result in production.recover(limit=10)] == [
+        DeferralReason.FENCE_CLOSED,
+    ]
+    assert _permit(gate) is None
+
+
+def test_reentrada_sem_bind_com_execucao_viva_e_fence_fechado_retoma_a_mesma_execucao(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
+    gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
+) -> None:
+    production = _with_execution(service, dispatch_lease_seconds=3600)
+    dispatch = _ambiguous_launch(adapter, store, executor, production)
+    reference = f"exec-{dispatch.dispatch_id}"
+    executor.statuses[reference] = ExecutionStatus.RUNNING
+    _close_fence(gate, clock)
+    clock.advance(timedelta(minutes=1))
+
+    result = production.launch(_TENANT, _RUN_ID)
+
+    assert (result.execution_ref, result.deferred) == (reference, None)
+    assert executor.calls == ["start", "probe", "probe", "start"]
+    assert executor.statuses == {reference: ExecutionStatus.RUNNING}
+    assert (_held(gate).holder, _held(gate).execution_ref) == (_holder(dispatch), reference)
+
+
+def test_erro_de_probe_num_run_nao_deixa_os_seguintes_em_waiting_inputs(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
+    service: RunPlanningService, monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    for run_id in _WAITING_RUN_IDS:
+        adapter.put_run(_run(state=RunState.WAITING_INPUTS, run_id=run_id))
+    _seed_full_chain(adapter, store)
+    monkeypatch.setattr(executor, "probe", _throttled)
+
+    service.on_raw_manifest_accepted(_accepted_local_manifest())
+
+    runs = [cast("Run", adapter.get_run(_TENANT, run_id)) for run_id in _WAITING_RUN_IDS]
+    assert [run.state for run in runs] == [RunState.PROCESSING] * 3
+    assert executor.calls == ["start"]
+    failures = [
+        record for record in caplog.records
+        if record.getMessage().startswith("accepted_manifest_launch_failed")
+    ]
+    assert [record.getMessage() for record in failures] == [
+        f"accepted_manifest_launch_failed tenant_id={_TENANT} run_id={run_id}"
+        for run_id in _WAITING_RUN_IDS[1:]
+    ]
+    assert all(
+        cast("Any", record.exc_info)[0] is ProcessorExecutionUnavailable for record in failures
+    )
+
+
+def test_reconcile_abre_a_passada_da_api_antes_de_listar_os_runs(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, service: RunPlanningService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = _AdmissionRecorder()
+    list_recoverable_runs = adapter.list_recoverable_runs
+
+    def _list(now: datetime, limit: int) -> tuple[Run, ...]:
+        recorder.calls.append("list")
+        return list_recoverable_runs(now, limit)
+
+    monkeypatch.setattr(adapter, "list_recoverable_runs", _list)
+    adapter.put_run(_run(state=RunState.WAITING_INPUTS))
+    _seed_full_chain(adapter, store)
+
+    _with_execution(service, admission=recorder).recover(limit=10)
+
+    assert recorder.calls == ["reconcile", "list", "admit", "confirm"]
+
+
 def test_recover_libera_o_permit_da_execucao_encerrada_com_fence_fechado(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
     gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
@@ -176,7 +300,7 @@ def test_recover_libera_o_permit_da_execucao_encerrada_com_fence_fechado(
     assert _permit(gate) is None
 
 
-def test_erro_do_reconcile_nao_impede_o_recover_da_api(
+def test_erro_do_reconcile_falha_o_recover_da_api_depois_de_lancar_os_runs(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
     gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
@@ -184,9 +308,11 @@ def test_erro_do_reconcile_nao_impede_o_recover_da_api(
     _waiting_with_closed_fence(adapter, store, gate, clock)
     monkeypatch.setattr(executor, "probe", _throttled)
 
-    results = service.recover(limit=10)
+    with pytest.raises(ProcessorExecutionUnavailable, match="ThrottlingException"):
+        service.recover(limit=10)
 
-    assert [(result.run.state, result.deferred) for result in results] == _FENCE_DEFERRED
+    assert cast("Run", adapter.get_run(_TENANT, _RUN_ID)).state is RunState.PROCESSING
+    assert _active(adapter).state is DispatchState.RESERVED
     assert _held(gate).holder == _ORPHAN
     assert "unit_permit_reconcile_failed" in caplog.text
 

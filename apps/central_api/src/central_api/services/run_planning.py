@@ -335,18 +335,26 @@ class RunPlanningService:
         settle_run_dispatches(admission, units, now)
 
     def recover(self, limit: int = 100) -> tuple[RunLaunchResult, ...]:
-        now = self._clock()
-        if self._dispatch_enabled:
-            self._reconcile_admission(now)
-        candidates = self._dependencies.control_plane.list_recoverable_runs(now, limit)
-        return tuple(self.launch(run.tenant_id, run.run_id) for run in candidates)
+        """Returns: Resultado de cada run recuperável lançado na passada.
 
-    def _reconcile_admission(self, now: datetime) -> None:
-        # Best effort here: the processor's recover-once is the pass that fails on this error.
+        Raises: Erro do reconcile do gate, depois de lançar os runs da passada.
+        """
+        now = self._clock()
+        reconcile_error = self._reconcile_admission(now) if self._dispatch_enabled else None
+        candidates = self._dependencies.control_plane.list_recoverable_runs(now, limit)
+        results = tuple(self.launch(run.tenant_id, run.run_id) for run in candidates)
+        if reconcile_error is not None:
+            raise reconcile_error
+        return results
+
+    def _reconcile_admission(self, now: datetime) -> Exception | None:
+        # The pass still launches the runs; recover raises this error once they are done.
         try:
             self._execution.admission.reconcile(now)
-        except Exception:
+        except Exception as error:
             logger.exception("unit_permit_reconcile_failed")
+            return error
+        return None
 
     def on_raw_manifest_accepted(self, record: RawManifestRecord, limit: int = 100) -> None:
         identity = RawIdentity(
@@ -355,7 +363,16 @@ class RunPlanningService:
         query = WaitingRunsForDependencyQuery(identity, limit)
         candidates = self._dependencies.control_plane.query_waiting_runs_for_dependency(query)
         for run in candidates:
+            self._launch_accepted(run)
+
+    def _launch_accepted(self, run: Run) -> None:
+        # Nothing retries a waiting run after this callback: one failure must not strand the rest.
+        try:
             self.launch(run.tenant_id, run.run_id)
+        except Exception:
+            logger.exception(
+                "accepted_manifest_launch_failed tenant_id=%s run_id=%s", run.tenant_id, run.run_id,
+            )
 
 
 __all__ = ["RunLaunchResult", "RunPlanningDependencies", "RunPlanningService"]

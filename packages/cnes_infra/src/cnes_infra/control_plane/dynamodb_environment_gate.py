@@ -216,8 +216,10 @@ def _renew(command: RenewUnitPermit) -> _Update:
 
 
 def _reanchor(command: ReanchorUnitPermit) -> _Update:
+    # The anchor only advances: a stale clock must never shorten the absence grace.
     return _Update(
-        "SET #acquired = :now, #updated = :now", f"{_HELD_CONDITION} AND {_UNBOUND_CONDITION}",
+        "SET #acquired = :now, #updated = :now",
+        f"{_HELD_CONDITION} AND {_UNBOUND_CONDITION} AND #acquired <= :now",
         {":token": _number(command.token), ":now": _text(timestamp(command.now))},
     )
 
@@ -312,7 +314,7 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         return self._gate_semaphore(command.environment, _release(command))
 
     def reanchor_unit_permit(self, command: ReanchorUnitPermit) -> bool:
-        """Reancora a carência do permit do token; False com token divergente ou bind."""
+        """Reancora a carência do permit do token; False com token divergente, bind ou recuo."""
         return self._gate_semaphore(command.environment, _reanchor(command))
 
     def close_promotion_fence(self, command: ClosePromotionFence) -> bool:

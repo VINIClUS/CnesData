@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]
 
 NOW = datetime(2026, 10, 11, 12, tzinfo=UTC)
+MIDDLE = NOW + timedelta(minutes=10)
 LATE = NOW + timedelta(minutes=30)
 PROMOTION = "release-race"
 _ROUNDS = 12
@@ -100,6 +101,18 @@ def _reanchor_against_absence_release(
         lambda: gate.reanchor_unit_permit(reanchor), lambda: gate.release_unit_permit(release),
     )
     return permit, cast("bool", reanchored), cast("bool", released)
+
+
+def _reanchors_out_of_order(
+    gate: DynamoDBControlPlane, environment: str,
+) -> tuple[UnitPermit, list[object]]:
+    permit = cast("UnitPermit", gate.acquire_unit_permit(_acquire(environment, 1)).permit)
+    late = ReanchorUnitPermit(environment, permit.token, LATE)
+    middle = ReanchorUnitPermit(environment, permit.token, MIDDLE)
+    results = _race(
+        lambda: gate.reanchor_unit_permit(late), lambda: gate.reanchor_unit_permit(middle),
+    )
+    return permit, results
 
 
 def _late_reentry_against_rival(gate: DynamoDBControlPlane, environment: str) -> list[object]:
@@ -180,3 +193,16 @@ def test_reentrada_tardia_em_corrida_com_rival_admite_no_maximo_um(
         assert current is not None
         assert current.token == admitted[0].token
         assert current.holder == _holder(results.index(admitted[0]) + 1)
+
+
+def test_reanchors_concorrentes_nunca_recuam_o_anchor(gate: DynamoDBControlPlane) -> None:
+    for round_index in range(_ROUNDS):
+        environment = f"race-monotonic-{round_index}"
+
+        permit, (late, _) = _reanchors_out_of_order(gate, environment)
+
+        stale = ReanchorUnitPermit(environment, permit.token, NOW)
+        assert late is True
+        assert gate.reanchor_unit_permit(stale) is False
+        current = gate.observe_environment_gate(environment).permit
+        assert current == replace(permit, acquired_at=LATE)
