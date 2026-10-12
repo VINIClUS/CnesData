@@ -143,11 +143,14 @@ EXPECTED_SHARED_TYPE: list[object] = [
 ]
 
 
-# No AWS_* variable of the caller reaches tofu: an unmocked provider gets no credential or profile
-# from the environment, instance metadata is off and every AWS request goes to a dead endpoint.
+# No AWS_* variable of the caller reaches tofu and the shared files are empty: an unmocked provider
+# gets no credential, profile or ~/.aws setting (ignore_configured_endpoint_urls included),
+# instance metadata is off and every AWS request goes to a dead endpoint.
 TOFU_AWS_ENVIRONMENT = {
+    "AWS_CONFIG_FILE": os.devnull,
     "AWS_EC2_METADATA_DISABLED": "true",
     "AWS_ENDPOINT_URL": "http://127.0.0.1:9",
+    "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
 }
 
 

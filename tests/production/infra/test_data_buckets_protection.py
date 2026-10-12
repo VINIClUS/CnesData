@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -16,7 +17,10 @@ type TofuEnvironment = Callable[[Mapping[str, str]], dict[str, str]]
 MODULE_DIRECTORY = Path(__file__).resolve().parents[3] / "infra/opentofu/modules/data-buckets"
 BUCKET_NAMES = {"data": "cnesdata-prod-data", "audit": "cnesdata-prod-audit"}
 BOTH = ("data", "audit")
-FAIL_CLOSED_AWS = {"AWS_EC2_METADATA_DISABLED": "true", "AWS_ENDPOINT_URL": "http://127.0.0.1:9"}
+FAIL_CLOSED_AWS = {
+    "AWS_CONFIG_FILE": os.devnull, "AWS_EC2_METADATA_DISABLED": "true",
+    "AWS_ENDPOINT_URL": "http://127.0.0.1:9", "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
+}
 CALLER_AWS_VARIABLES = (
     "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE",
     "AWS_DEFAULT_PROFILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE", "AWS_ROLE_ARN",
