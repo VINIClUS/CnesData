@@ -32,7 +32,7 @@ server {
     }
 
     # Reverse-proxy API surface
-    location ~ ^/(api|oauth|activate)/ {
+    location ~ ^/(api|oauth)/ {
         proxy_pass         http://${UPSTREAM_API};
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;

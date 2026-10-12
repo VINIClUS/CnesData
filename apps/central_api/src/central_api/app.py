@@ -1,5 +1,8 @@
 """Factory da aplicação FastAPI."""
 
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from fastapi import FastAPI, Request
@@ -33,14 +36,37 @@ from central_api.routes import (
     stripe_webhook,
     tenants,
 )
+from cnes_domain.profiles import RuntimeProfile
 from cnes_infra import config
 from cnes_infra.auth.errors import OAuthError
+from cnes_infra.aws.settings import production_policy_enabled
 from cnes_infra.telemetry import init_telemetry
 
 if TYPE_CHECKING:
     from starlette.types import ExceptionHandler
 
 init_telemetry("central-api")
+
+_CORS_HEADERS = ("Authorization", "Content-Type", "X-Tenant-Id")
+_CORS_MAX_AGE_SECONDS = 600
+
+
+@dataclass(frozen=True, slots=True)
+class CorsPolicy:
+    allow_origins: tuple[str, ...]
+    allow_methods: tuple[str, ...]
+    allow_headers: tuple[str, ...]
+    allow_credentials: bool
+    max_age: int
+
+
+_PRODUCTION_CORS = CorsPolicy(
+    allow_origins=("https://cnesdata.com.br",),
+    allow_methods=("GET", "POST"),
+    allow_headers=_CORS_HEADERS,
+    allow_credentials=False,
+    max_age=_CORS_MAX_AGE_SECONDS,
+)
 
 
 async def _oauth_error_handler(
@@ -59,8 +85,40 @@ def cors_origins() -> list[str]:
     return [o for o in origins if o and o != "*"]
 
 
+def cors_policy(values: Mapping[str, str]) -> CorsPolicy:
+    """Args: values: Variáveis ambientais disponíveis.
+    Returns: Política exata sob PROFILE=aws com AWS_PRODUCTION_POLICY=true; senão a atual.
+    Raises: AwsRuntimeConfigurationError: AWS_PRODUCTION_POLICY inválido sob PROFILE=aws.
+    """
+    if _aws_profile(values) and production_policy_enabled(values):
+        return _PRODUCTION_CORS
+    return CorsPolicy(
+        allow_origins=tuple(cors_origins()),
+        allow_methods=("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"),
+        allow_headers=_CORS_HEADERS,
+        allow_credentials=True,
+        max_age=_CORS_MAX_AGE_SECONDS,
+    )
+
+
+def _aws_profile(values: Mapping[str, str]) -> bool:
+    return values.get("PROFILE", "").strip().lower() == RuntimeProfile.AWS
+
+
+def _install_cors(app: FastAPI, policy: CorsPolicy) -> None:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=policy.allow_origins,
+        allow_credentials=policy.allow_credentials,
+        allow_methods=policy.allow_methods,
+        allow_headers=policy.allow_headers,
+        max_age=policy.max_age,
+    )
+
+
 def create_app() -> FastAPI:
     """Cria e configura a aplicação FastAPI."""
+    policy = cors_policy(os.environ)
     app = FastAPI(
         title="CnesData Processing Engine",
         version="1.0.0",
@@ -68,14 +126,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(QueryCounterMiddleware)
     app.add_middleware(AuthMiddleware)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins(),
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Tenant-Id"],
-        max_age=600,
-    )
+    _install_cors(app, policy)
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, cast("ExceptionHandler", rate_limit_handler))
     app.add_exception_handler(OAuthError, cast("ExceptionHandler", _oauth_error_handler))
@@ -92,6 +143,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(public_leads.router, prefix="/api/v1/public")
     app.include_router(oauth.router)
+    app.include_router(oauth.activation_router, prefix="/api/v1")
     app.include_router(provision.router)
     app.include_router(provision_rotate.router)
     app.include_router(raw_jobs.router)

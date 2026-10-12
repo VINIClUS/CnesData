@@ -26,7 +26,7 @@ lease (reaper removido em MIG-012).
 - `POST /api/v1/admin/raw-jobs/enqueue` — cria até dez jobs raw idempotentes por competência
 - `GET /api/v1/agents/status` — status agregado do agent (Bearer + `require_tenant_header`)
 - `GET /api/v1/agents/whoami` — identidade do cert mTLS (`require_agent_cert`); smoke do `register`
-- AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
+- AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /api/v1/activate/confirm
 - /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
 - /api/v1/dashboard/overview, /faturamento/by-establishment — aposentadas (MIG-011): 410
   `legacy_route_retired`, sem tocar o `DashboardRepo`
@@ -34,8 +34,11 @@ lease (reaper removido em MIG-012).
   pointer `current`; dataset fora de `build_source_catalog()` → 404 `dataset_unknown`; conteúdo
   ativo ausente → 503 `active_serving_unavailable`, sem fallback a versão anterior nem a Postgres
 - /api/v1/dashboard/access-requests/*
-- /activate/confirm — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit 10/min)
-- /oauth/device_authorization, /oauth/token — device flow
+- `POST /api/v1/activate/confirm` — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit
+  10/min); `oauth.activation_router` montado em `/api/v1`, sem rota na raiz nem redirect.
+  Composta só no perfil legado: `PROFILE=local|aws` não setam `device_code_store`/`dashboard_repo`
+- /oauth/device_authorization, /oauth/token — device flow, na raiz (o `dumpagent register` fixa
+  esses paths)
 - /provision/cert, /provision/cert/rotate — cert enrollment + rotation
 
 - `/api/v1/billing/{accounts,accounts/{id}/transfer,checkout,portal,status}` + `POST
@@ -63,6 +66,11 @@ lease (reaper removido em MIG-012).
   `503 leads_unavailable` se o banco falhar.
 - CORS explícito: `CORS_ALLOWED_ORIGINS` (lista separada por vírgula; `*` é ignorado).
   `CORSMiddleware` é o middleware mais externo para responder preflight antes do Auth.
+  `cors_policy(os.environ)` decide em `create_app()`: só com `PROFILE=aws` e
+  `AWS_PRODUCTION_POLICY=true` vale a política exata (origem `https://cnesdata.com.br`,
+  GET/POST, `Authorization`/`Content-Type`/`X-Tenant-Id`, sem credentials, `max_age=600`,
+  ignora `CORS_ALLOWED_ORIGINS`); flag inválida sob `PROFILE=aws` falha no boot. Fora disso,
+  a lista acima com credentials (cookie HttpOnly do perfil local).
 
 ## Objectives
 
@@ -138,7 +146,7 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `src/central_api/routes/overview.py` | rotas legadas `/overview` e `/faturamento/by-establishment` aposentadas (410) |
 | `src/central_api/routes/serving.py` | `/api/v1/dashboard/serving/{dataset}/{doc}` — leitura pointer-only (stream local ou 307 aws) |
 | `src/central_api/routes/access_requests.py` | signup JIT access request |
-| `src/central_api/routes/oauth.py` | device flow + `/activate/confirm` |
+| `src/central_api/routes/oauth.py` | device flow na raiz + `activation_router` em `/api/v1` |
 | `src/central_api/routes/provision.py` | cert enrollment |
 | `src/central_api/routes/provision_rotate.py` | cert rotation |
 | `src/central_api/routes/billing*.py`, `stripe_webhook.py` | Billing Owner API + webhook Stripe (BIL-020/021); composição em `billing_deps.install_billing` |

@@ -873,8 +873,8 @@ type EnqueueApiV1ExtractionsEnqueuePostParams struct {
 // FailJobApiV1JobsJobIdFailPostJSONBody defines parameters for FailJobApiV1JobsJobIdFailPost.
 type FailJobApiV1JobsJobIdFailPostJSONBody map[string]interface{}
 
-// ActivateConfirmActivateConfirmPostJSONRequestBody defines body for ActivateConfirmActivateConfirmPost for application/json ContentType.
-type ActivateConfirmActivateConfirmPostJSONRequestBody = ActivateConfirmRequest
+// ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody defines body for ActivateConfirmApiV1ActivateConfirmPost for application/json ContentType.
+type ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody = ActivateConfirmRequest
 
 // RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody defines body for RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost for application/json ContentType.
 type RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody = RevocationCreate
@@ -1196,19 +1196,19 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
-	// ActivateConfirmActivateConfirmPostWithBody Activate Confirm
+	// ActivateConfirmApiV1ActivateConfirmPostWithBody Activate Confirm
 	//
 	// Takes any type of body and a specified content type.
 	//
-	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-	ActivateConfirmActivateConfirmPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+	ActivateConfirmApiV1ActivateConfirmPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ActivateConfirmActivateConfirmPost Activate Confirm
+	// ActivateConfirmApiV1ActivateConfirmPost Activate Confirm
 	//
 	// Takes a body of the `application/json` content type.
 	//
-	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-	ActivateConfirmActivateConfirmPost(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+	ActivateConfirmApiV1ActivateConfirmPost(ctx context.Context, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBody Revoke Billing Account
 	//
@@ -1638,13 +1638,13 @@ type ClientInterface interface {
 	ProvisionCertRotateProvisionCertRotatePost(ctx context.Context, body ProvisionCertRotateProvisionCertRotatePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-// ActivateConfirmActivateConfirmPostWithBody Activate Confirm
+// ActivateConfirmApiV1ActivateConfirmPostWithBody Activate Confirm
 //
 // Takes any type of body and a specified content type.
 //
-// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-func (c *Client) ActivateConfirmActivateConfirmPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewActivateConfirmActivateConfirmPostRequestWithBody(c.Server, contentType, body)
+// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+func (c *Client) ActivateConfirmApiV1ActivateConfirmPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewActivateConfirmApiV1ActivateConfirmPostRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1655,13 +1655,13 @@ func (c *Client) ActivateConfirmActivateConfirmPostWithBody(ctx context.Context,
 	return c.Client.Do(req)
 }
 
-// ActivateConfirmActivateConfirmPost Activate Confirm
+// ActivateConfirmApiV1ActivateConfirmPost Activate Confirm
 //
 // Takes a body of the `application/json` content type.
 //
-// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-func (c *Client) ActivateConfirmActivateConfirmPost(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewActivateConfirmActivateConfirmPostRequest(c.Server, body)
+// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+func (c *Client) ActivateConfirmApiV1ActivateConfirmPost(ctx context.Context, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewActivateConfirmApiV1ActivateConfirmPostRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2689,19 +2689,19 @@ func (c *Client) ProvisionCertRotateProvisionCertRotatePost(ctx context.Context,
 	return c.Client.Do(req)
 }
 
-// NewActivateConfirmActivateConfirmPostRequest calls the generic ActivateConfirmActivateConfirmPost builder with application/json body
-func NewActivateConfirmActivateConfirmPostRequest(server string, body ActivateConfirmActivateConfirmPostJSONRequestBody) (*http.Request, error) {
+// NewActivateConfirmApiV1ActivateConfirmPostRequest calls the generic ActivateConfirmApiV1ActivateConfirmPost builder with application/json body
+func NewActivateConfirmApiV1ActivateConfirmPostRequest(server string, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewActivateConfirmActivateConfirmPostRequestWithBody(server, "application/json", bodyReader)
+	return NewActivateConfirmApiV1ActivateConfirmPostRequestWithBody(server, "application/json", bodyReader)
 }
 
-// NewActivateConfirmActivateConfirmPostRequestWithBody constructs an http.Request for the ActivateConfirmActivateConfirmPost method, with any body, and a specified content type
-func NewActivateConfirmActivateConfirmPostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewActivateConfirmApiV1ActivateConfirmPostRequestWithBody constructs an http.Request for the ActivateConfirmApiV1ActivateConfirmPost method, with any body, and a specified content type
+func NewActivateConfirmApiV1ActivateConfirmPostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -2709,7 +2709,7 @@ func NewActivateConfirmActivateConfirmPostRequestWithBody(server string, content
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/activate/confirm")
+	operationPath := fmt.Sprintf("/api/v1/activate/confirm")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4522,19 +4522,19 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
-	// ActivateConfirmActivateConfirmPostWithBodyWithResponse Activate Confirm
+	// ActivateConfirmApiV1ActivateConfirmPostWithBodyWithResponse Activate Confirm
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-	ActivateConfirmActivateConfirmPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error)
+	// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+	ActivateConfirmApiV1ActivateConfirmPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error)
 
-	// ActivateConfirmActivateConfirmPostWithResponse Activate Confirm
+	// ActivateConfirmApiV1ActivateConfirmPostWithResponse Activate Confirm
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-	ActivateConfirmActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error)
+	// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+	ActivateConfirmApiV1ActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error)
 
 	// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBodyWithResponse Revoke Billing Account
 	//
@@ -5002,7 +5002,7 @@ type ClientWithResponsesInterface interface {
 	ProvisionCertRotateProvisionCertRotatePostWithResponse(ctx context.Context, body ProvisionCertRotateProvisionCertRotatePostJSONRequestBody, reqEditors ...RequestEditorFn) (*ProvisionCertRotateProvisionCertRotatePostResponse, error)
 }
 
-type ActivateConfirmActivateConfirmPostResponse struct {
+type ActivateConfirmApiV1ActivateConfirmPostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
@@ -5012,22 +5012,22 @@ type ActivateConfirmActivateConfirmPostResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ActivateConfirmActivateConfirmPostResponse) GetJSON200() *ActivateConfirmResponse {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) GetJSON200() *ActivateConfirmResponse {
 	return r.JSON200
 }
 
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
-func (r ActivateConfirmActivateConfirmPostResponse) GetJSON422() *HTTPValidationError {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) GetJSON422() *HTTPValidationError {
 	return r.JSON422
 }
 
 // GetBody returns the raw response body bytes
-func (r ActivateConfirmActivateConfirmPostResponse) GetBody() []byte {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r ActivateConfirmActivateConfirmPostResponse) Status() string {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5035,7 +5035,7 @@ func (r ActivateConfirmActivateConfirmPostResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ActivateConfirmActivateConfirmPostResponse) StatusCode() int {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5043,7 +5043,7 @@ func (r ActivateConfirmActivateConfirmPostResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ActivateConfirmActivateConfirmPostResponse) ContentType() string {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -6859,30 +6859,30 @@ func (r ProvisionCertRotateProvisionCertRotatePostResponse) ContentType() string
 	return ""
 }
 
-// ActivateConfirmActivateConfirmPostWithBodyWithResponse Activate Confirm
+// ActivateConfirmApiV1ActivateConfirmPostWithBodyWithResponse Activate Confirm
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-func (c *ClientWithResponses) ActivateConfirmActivateConfirmPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error) {
-	rsp, err := c.ActivateConfirmActivateConfirmPostWithBody(ctx, contentType, body, reqEditors...)
+// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+func (c *ClientWithResponses) ActivateConfirmApiV1ActivateConfirmPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error) {
+	rsp, err := c.ActivateConfirmApiV1ActivateConfirmPostWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseActivateConfirmActivateConfirmPostResponse(rsp)
+	return ParseActivateConfirmApiV1ActivateConfirmPostResponse(rsp)
 }
 
-// ActivateConfirmActivateConfirmPostWithResponse Activate Confirm
+// ActivateConfirmApiV1ActivateConfirmPostWithResponse Activate Confirm
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-func (c *ClientWithResponses) ActivateConfirmActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error) {
-	rsp, err := c.ActivateConfirmActivateConfirmPost(ctx, body, reqEditors...)
+// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+func (c *ClientWithResponses) ActivateConfirmApiV1ActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error) {
+	rsp, err := c.ActivateConfirmApiV1ActivateConfirmPost(ctx, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseActivateConfirmActivateConfirmPostResponse(rsp)
+	return ParseActivateConfirmApiV1ActivateConfirmPostResponse(rsp)
 }
 
 // RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBodyWithResponse Revoke Billing Account
@@ -7704,15 +7704,15 @@ func (c *ClientWithResponses) ProvisionCertRotateProvisionCertRotatePostWithResp
 	return ParseProvisionCertRotateProvisionCertRotatePostResponse(rsp)
 }
 
-// ParseActivateConfirmActivateConfirmPostResponse parses an HTTP response from a ActivateConfirmActivateConfirmPostWithResponse call
-func ParseActivateConfirmActivateConfirmPostResponse(rsp *http.Response) (*ActivateConfirmActivateConfirmPostResponse, error) {
+// ParseActivateConfirmApiV1ActivateConfirmPostResponse parses an HTTP response from a ActivateConfirmApiV1ActivateConfirmPostWithResponse call
+func ParseActivateConfirmApiV1ActivateConfirmPostResponse(rsp *http.Response) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ActivateConfirmActivateConfirmPostResponse{
+	response := &ActivateConfirmApiV1ActivateConfirmPostResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
