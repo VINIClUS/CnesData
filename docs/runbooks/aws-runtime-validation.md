@@ -58,7 +58,7 @@ Fonte: `packages/cnes_infra/src/cnes_infra/aws/settings.py`. Valor inválido der
 | `AWS_AUDIT_BUCKET` | obrigatória | `missing=AWS_AUDIT_BUCKET` |
 | `AWS_STATE_MACHINE_ARN` | obrigatória | `missing=AWS_STATE_MACHINE_ARN` |
 | `AWS_PROCESSOR_CONTAINER_NAME` | obrigatória | `missing=AWS_PROCESSOR_CONTAINER_NAME` |
-| `AWS_AUDIT_RETENTION_DAYS` | obrigatória, ≥ 1, sem teto | `audit_retention_days_invalid` |
+| `AWS_AUDIT_RETENTION_DAYS` | obrigatória, ≥ 1, sem teto; com `AWS_PRODUCTION_POLICY=true`, exatamente 365 | `audit_retention_days_invalid`, `production_audit_retention_must_be_365_days` |
 | `AWS_SERVING_URL_TTL_SECONDS` | default 300, 30–900 | `serving_ttl_out_of_range` |
 | `AWS_PROCESSOR_MAX_CONCURRENCY` | default 8, 1–40 | `processor_concurrency_invalid` |
 | `AWS_PROCESSOR_LEASE_SECONDS` | default 300, 30–3600 | `processor_lease_invalid` |
@@ -66,6 +66,9 @@ Fonte: `packages/cnes_infra/src/cnes_infra/aws/settings.py`. Valor inválido der
 | `DYNAMODB_ENDPOINT_URL`, `AWS_ENDPOINT_URL` | só em emulador; produção deixa vazias | — |
 
 - Variável numérica presente e vazia não usa o default: falha com `integer_invalid=<VAR>`.
+- Com `AWS_PRODUCTION_POLICY=true`, `settings.py` impõe invariantes extras de região, rede,
+  OIDC, concorrência, lease, TTL do serving e retenção do audit. Os códigos começam com
+  `production_` (por exemplo `production_serving_ttl_must_be_300`).
 - `DB_URL` segue obrigatório no import de `cnes_infra.config` (placeholder, não usado).
 - Credenciais vêm só da provider chain (role da task). A task definition não define
   `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY`: o boto3 prefere as variáveis à role.
