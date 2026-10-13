@@ -26,7 +26,9 @@ class RecoveryResult:
     recovered: int
 
 
-def _log_pass(results: tuple[CoordinatorResult, ...], scanned: int, failed: int) -> None:
+def _log_pass(
+    results: tuple[CoordinatorResult, ...], scanned: int, failed: int, *, reconcile_failed: bool,
+) -> None:
     for result in results:
         logger.info(
             "processor_execution_observed",
@@ -34,7 +36,10 @@ def _log_pass(results: tuple[CoordinatorResult, ...], scanned: int, failed: int)
         )
     logger.info(
         "processor_recovery_completed",
-        extra={"scanned": scanned, "recovered": len(results), "failed": failed},
+        extra={
+            "scanned": scanned, "recovered": len(results), "failed": failed,
+            "reconcile_failed": reconcile_failed,
+        },
     )
 
 
@@ -64,12 +69,14 @@ class ProcessorRecovery:
         try:
             results = self._coordinator.recover(limit=limit)
         except RecoveryFailed as error:
-            _log_pass(error.results, len(runs), error.failed)
+            _log_pass(
+                error.results, len(runs), error.failed, reconcile_failed=error.reconcile_failed,
+            )
             raise
         except Exception as error:
             logger.error("processor_execution_probe_failed", extra={"reason": type(error).__name__})
             raise
-        _log_pass(results, len(runs), 0)
+        _log_pass(results, len(runs), 0, reconcile_failed=False)
         return RecoveryResult(scanned=len(runs), recovered=len(results))
 
 

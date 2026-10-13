@@ -153,6 +153,7 @@ def test_recovery_emite_eventos_json_sem_dados_sensiveis(
     assert lines[0]["run_states"] == {"PROCESSING": 1, "PUBLISHING": 1}
     assert (lines[1]["run_state"], lines[1]["published"]) == ("PUBLISHED", True)
     assert (lines[3]["scanned"], lines[3]["recovered"], lines[3]["failed"]) == (2, 2, 0)
+    assert lines[3]["reconcile_failed"] is False
     assert lines[5]["reason"] == "ProcessorExecutionUnavailable"
     rendered = "\n".join(json.dumps(line) for line in lines)
     for forbidden in ("arn:", "serving/", "raw/", "manifest", "https://", "Bearer"):
@@ -199,6 +200,7 @@ def test_recovery_falha_a_passada_depois_de_retomar_os_demais_runs(
     assert [line["event"] for line in lines] == [EVENTS[0], EVENTS[1], EVENTS[3]]
     assert (lines[1]["run_state"], lines[1]["published"]) == ("PUBLISHED", False)
     assert (lines[2]["scanned"], lines[2]["recovered"], lines[2]["failed"]) == (2, 1, 1)
+    assert lines[2]["reconcile_failed"] is False
     rendered = "\n".join(json.dumps(line) for line in lines)
     for forbidden in ("arn:", "serving/", "raw/", "manifest", "https://", "Bearer"):
         assert forbidden not in rendered
@@ -235,3 +237,4 @@ def test_reconcile_falho_mantem_o_resumo_da_passada_e_falha_a_passada(
     assert [line["event"] for line in lines] == [EVENTS[0], EVENTS[1], EVENTS[3]]
     assert (lines[1]["run_state"], lines[1]["published"]) == ("PUBLISHED", False)
     assert (lines[2]["scanned"], lines[2]["recovered"], lines[2]["failed"]) == (1, 1, 0)
+    assert lines[2]["reconcile_failed"] is True

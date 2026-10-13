@@ -108,10 +108,14 @@ class CoordinatorResult:
 class RecoveryFailed(RuntimeError):
     """Passada de recovery que falhou em runs ou no reconcile (a causa); carrega os resultados."""
 
-    def __init__(self, results: tuple[CoordinatorResult, ...], failed: int) -> None:
+    def __init__(
+        self, results: tuple[CoordinatorResult, ...], failed: int, *,
+        reconcile_failed: bool = False,
+    ) -> None:
         super().__init__(f"failed={failed} recovered={len(results)}")
         self.results = results
         self.failed = failed
+        self.reconcile_failed = reconcile_failed
 
 
 def _build_event(run: Run, event_type: str, now: datetime) -> OutboxEvent:
@@ -386,7 +390,10 @@ class PipelineCoordinator:
                         run.run_id,
                     )
         if failed or reconcile_error is not None:
-            raise RecoveryFailed(tuple(results), failed) from reconcile_error
+            reconciled = reconcile_error is None
+            raise RecoveryFailed(
+                tuple(results), failed, reconcile_failed=not reconciled,
+            ) from reconcile_error
         return tuple(results)
 
 
