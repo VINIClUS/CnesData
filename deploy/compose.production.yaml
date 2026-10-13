@@ -1,0 +1,64 @@
+name: cnesdata-production
+
+services:
+  central-api:
+    image: cnesdata-api:production
+    build:
+      context: ..
+      dockerfile: apps/central_api/Dockerfile
+      target: production
+    restart: unless-stopped
+    env_file:
+      - path: /run/cnesdata-production/api.env
+        required: true
+        format: raw
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 1.0
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 256
+    ports:
+      - "127.0.0.1:18080:8000"
+    volumes:
+      - type: bind
+        source: /etc/cnesdata-production/aws/config
+        target: /etc/cnesdata/aws/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/cnesdata-production/aws/leaf-certificate.pem
+        target: /etc/cnesdata/aws/leaf-certificate.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/cnesdata-production/aws/leaf-private-key.pem
+        target: /etc/cnesdata/aws/leaf-private-key.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/api/v1/system/health', timeout=10)
+      interval: 15s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
