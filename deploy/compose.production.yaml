@@ -8,6 +8,9 @@ services:
       dockerfile: apps/central_api/Dockerfile
       target: production
     restart: unless-stopped
+    env_file:
+      - path: /run/cnesdata-production/api.env
+        required: true
     user: "10001:10001"
     read_only: true
     tmpfs:

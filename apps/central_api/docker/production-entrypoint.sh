@@ -27,7 +27,7 @@ forbid_credential_source() {
 
 require_setting() {
     if [ "$2" != "$3" ]; then
-        printf 'credential_setting_mismatch name=%s\n' "$1" >&2
+        printf 'setting_mismatch name=%s\n' "$1" >&2
         exit 2
     fi
 }
@@ -55,6 +55,8 @@ forbid_static_credential AWS_SECURITY_TOKEN "${AWS_SECURITY_TOKEN+set}"
 forbid_credential_source AWS_WEB_IDENTITY_TOKEN_FILE "${AWS_WEB_IDENTITY_TOKEN_FILE+set}"
 forbid_credential_source AWS_ROLE_ARN "${AWS_ROLE_ARN+set}"
 forbid_credential_source AWS_DEFAULT_PROFILE "${AWS_DEFAULT_PROFILE+set}"
+require_setting PROFILE "${PROFILE:-}" aws
+require_setting AWS_PRODUCTION_POLICY "${AWS_PRODUCTION_POLICY:-}" true
 require_setting AWS_PROFILE "${AWS_PROFILE:-}" cnesdata-production
 require_setting AWS_CONFIG_FILE "${AWS_CONFIG_FILE:-}" /etc/cnesdata/aws/config
 require_setting AWS_SHARED_CREDENTIALS_FILE "${AWS_SHARED_CREDENTIALS_FILE:-}" /dev/null

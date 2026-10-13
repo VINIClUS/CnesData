@@ -34,9 +34,10 @@ API_KEYS = frozenset(
     {
         "image", "build", "restart", "user", "read_only", "tmpfs", "cap_drop", "security_opt",
         "cpus", "mem_limit", "memswap_limit", "pids_limit", "ports", "volumes", "healthcheck",
-        "logging",
+        "logging", "env_file",
     }
 )
+RUNTIME_ENV_FILE = [{"path": "/run/cnesdata-production/api.env", "required": True}]
 NO_NEW_PRIVILEGES = "no-new-privileges:true"
 DATA_PROCESSOR = re.compile(r"data[-_ ]?processor", re.IGNORECASE)
 
@@ -195,6 +196,8 @@ VIOLATIONS: dict[str, Callable[[Document], bool]] = {
     "unbounded_tmpfs": _unbounded_tmpfs,
     "unexpected_mount": _unexpected_mount,
     "unsafe_mount": _unsafe_mount,
+    "runtime_env_file_mismatch": lambda document: _api(document).get("env_file")
+    != RUNTIME_ENV_FILE,
 }
 
 
@@ -438,7 +441,6 @@ def test_compose_nao_tem_chave_estatica(compose: Document) -> None:
 
     assert not _has_static_key(compose)
     assert "environment" not in api
-    assert "env_file" not in api
 
 
 def test_compose_nao_usa_rede_do_host_nem_do_limnopulse(compose: Document) -> None:

@@ -68,6 +68,8 @@ STATIC_CREDENTIAL_NAMES = (
 )
 CREDENTIAL_SOURCE_NAMES = ("AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN", "AWS_DEFAULT_PROFILE")
 FIXED_SETTINGS = {
+    "PROFILE": "aws",
+    "AWS_PRODUCTION_POLICY": "true",
     "AWS_PROFILE": "cnesdata-production",
     "AWS_CONFIG_FILE": CONFIG_PATH,
     "AWS_SHARED_CREDENTIALS_FILE": "/dev/null",
@@ -410,7 +412,7 @@ def test_entrypoint_recusa_outra_fonte_de_credencial_antes_de_checar_arquivos(
 
 @pytest.mark.parametrize("name", list(FIXED_SETTINGS))
 @pytest.mark.parametrize("value", ["outro", "", None], ids=["outro", "vazio", "ausente"])
-def test_entrypoint_exige_perfil_e_arquivos_de_credencial_fixos_antes_de_checar_arquivos(
+def test_entrypoint_exige_settings_fixos_de_producao_antes_de_checar_arquivos(
     entrypoint: _Entrypoint, name: str, value: str | None,
 ) -> None:
     environment = entrypoint.environment()
@@ -420,7 +422,7 @@ def test_entrypoint_exige_perfil_e_arquivos_de_credencial_fixos_antes_de_checar_
     result = entrypoint.run(environment | overrides)
 
     assert (result.returncode, result.stdout, result.stderr) == (
-        CONFIGURATION_EXIT, "", f"credential_setting_mismatch name={name}\n",
+        CONFIGURATION_EXIT, "", f"setting_mismatch name={name}\n",
     )
 
 
