@@ -37,7 +37,9 @@ API_KEYS = frozenset(
         "logging", "env_file",
     }
 )
-RUNTIME_ENV_FILE = [{"path": "/run/cnesdata-production/api.env", "required": True}]
+RUNTIME_ENV_FILE = [
+    {"path": "/run/cnesdata-production/api.env", "required": True, "format": "raw"},
+]
 NO_NEW_PRIVILEGES = "no-new-privileges:true"
 DATA_PROCESSOR = re.compile(r"data[-_ ]?processor", re.IGNORECASE)
 

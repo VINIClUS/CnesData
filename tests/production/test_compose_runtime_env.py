@@ -38,7 +38,11 @@ def _relative_env_file(document: Document) -> None:
 
 
 def _optional_env_file(document: Document) -> None:
-    _api(document)["env_file"] = [{"path": RENDERED_ENV, "required": False}]
+    _api(document)["env_file"][0]["required"] = False
+
+
+def _interpolated_env_file(document: Document) -> None:
+    del _api(document)["env_file"][0]["format"]
 
 
 def _second_env_file(document: Document) -> None:
@@ -54,7 +58,8 @@ def test_compose_le_a_configuracao_de_runtime_so_do_arquivo_renderizado_em_run(
 ) -> None:
     api = _api(document)
 
-    assert api["env_file"] == RUNTIME_ENV_FILE == [{"path": RENDERED_ENV, "required": True}]
+    assert api["env_file"] == RUNTIME_ENV_FILE
+    assert RUNTIME_ENV_FILE == [{"path": RENDERED_ENV, "required": True, "format": "raw"}]
     assert "environment" not in api
     assert _violations(document) == set()
 
@@ -64,6 +69,7 @@ def test_compose_le_a_configuracao_de_runtime_so_do_arquivo_renderizado_em_run(
     [
         pytest.param(_relative_env_file, "runtime_env_file_mismatch", id="env-relativo"),
         pytest.param(_optional_env_file, "runtime_env_file_mismatch", id="env-opcional"),
+        pytest.param(_interpolated_env_file, "runtime_env_file_mismatch", id="env-interpolado"),
         pytest.param(_second_env_file, "runtime_env_file_mismatch", id="segundo-env"),
         pytest.param(_inline_environment, "unexpected_service_key", id="environment-inline"),
     ],
