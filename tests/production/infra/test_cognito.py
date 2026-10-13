@@ -65,9 +65,14 @@ MODULE_RESOURCES = {
     "aws_cognito_user_pool.this", "aws_cognito_resource_server.api",
     "aws_cognito_user_pool_client.dashboard", "aws_cognito_user_pool_domain.this",
 }
+# Besides SMS and Lambda: add-ons need PLUS, while email MFA, passkeys and choice-based sign-in need
+# ESSENTIALS, so any of them makes the apply of a LITE pool fail.
 FORBIDDEN_POOL_ARGUMENTS = {
     "sms_configuration", "sms_authentication_message", "sms_verification_message", "lambda_config",
+    "user_pool_add_ons", "email_mfa_configuration", "web_authn_configuration", "sign_in_policy",
 }
+EMAIL_RECOVERY = [{"recovery_mechanism": [{"name": "verified_email", "priority": 1}]}]
+PREVENT_DESTROY = "aws_cognito_user_pool.this has prevent_destroy set"
 MODULE_RUN, ROOT_RUN = "modulo_cognito", "raiz_agenda_cognito"
 VALID_SUFFIXES = {
     "sufixo_de_6_caracteres_e_aceito": "a1b2c3",
@@ -101,7 +106,7 @@ class Run(NamedTuple):
 class TofuReport(NamedTuple):
     statuses: dict[str, str]
     plans: dict[str, Node]
-    diagnostics: list[str]
+    diagnostics: list[tuple[str | None, str]]
     result: subprocess.CompletedProcess[str]
 
 
@@ -169,7 +174,8 @@ def _report(result: subprocess.CompletedProcess[str]) -> TofuReport:
             report.plans[message["@testrun"]] = message["test_plan"]
         elif kind == "diagnostic":
             diagnostic = message["diagnostic"]
-            report.diagnostics.append(f"{diagnostic['summary']}: {diagnostic.get('detail')}")
+            text = f"{diagnostic['summary']}: {diagnostic.get('detail')}"
+            report.diagnostics.append((message.get("@testrun"), " ".join(text.split())))
     return report
 
 
@@ -414,11 +420,18 @@ def test_pool_tem_deletion_protection_e_prevent_destroy(
     plan_report: TofuReport, protection_report: TofuReport
 ) -> None:
     pool = _single(_planned(plan_report, MODULE_RUN), "aws_cognito_user_pool")
-    diagnostics = " ".join(" ".join(protection_report.diagnostics).split())
+    # The cleanup of cria_pool reports the same prevent_destroy error: only substitui_pool counts.
+    replaced = [text for run, text in protection_report.diagnostics if run == "substitui_pool"]
 
     _assert_runs(protection_report, {"cria_pool": "pass", "substitui_pool": "error"})
     assert pool["deletion_protection"] == "ACTIVE"
-    assert "aws_cognito_user_pool.this has prevent_destroy set" in diagnostics
+    assert [PREVENT_DESTROY in text for text in replaced] == [True], replaced
+
+
+def test_recuperacao_de_conta_so_por_email_verificado(plan_report: TofuReport) -> None:
+    pool = _single(_planned(plan_report, MODULE_RUN), "aws_cognito_user_pool")
+
+    assert pool["account_recovery_setting"] == EMAIL_RECOVERY
 
 
 def test_sufixo_de_prefixo_invalido_e_rejeitado(plan_report: TofuReport) -> None:
