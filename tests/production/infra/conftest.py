@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 import subprocess
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple, TypedDict
 
@@ -28,7 +28,7 @@ class TofuContext(NamedTuple):
 
 
 VALID_SHARED_OUTPUTS: dict[str, object] = {
-    "schema_version": 1,
+    "schema_version": 2,
     "account_id": "123456789012",
     "kms_key_arn": "arn:aws:kms:us-east-2:123456789012:key/example",
     "roles_anywhere": {
@@ -65,6 +65,14 @@ VALID_SHARED_OUTPUTS: dict[str, object] = {
         "state_bucket_arn": "arn:aws:s3:::shared-opentofu-state-example",
         "evidence_bucket_name": "shared-infra-evidence-example",
         "evidence_bucket_arn": "arn:aws:s3:::shared-infra-evidence-example",
+    },
+    "account_baseline": {
+        "s3_public_access_block": {
+            "block_public_acls": True,
+            "block_public_policy": True,
+            "ignore_public_acls": True,
+            "restrict_public_buckets": True,
+        },
     },
 }
 
@@ -117,13 +125,37 @@ EXPECTED_SHARED_TYPE: list[object] = [
                 "evidence_bucket_arn": "string",
             },
         ],
+        "account_baseline": [
+            "object",
+            {
+                "s3_public_access_block": [
+                    "object",
+                    {
+                        "block_public_acls": "bool",
+                        "block_public_policy": "bool",
+                        "ignore_public_acls": "bool",
+                        "restrict_public_buckets": "bool",
+                    },
+                ],
+            },
+        ],
     },
 ]
 
 
-NATIVE_CONTRACT_TEST = """
-mock_provider "aws" {}
+# No AWS_* variable of the caller reaches tofu and the shared files are empty: an unmocked provider
+# gets no credential, profile or ~/.aws setting (ignore_configured_endpoint_urls included),
+# instance metadata is off and every AWS request goes to a dead endpoint.
+TOFU_AWS_ENVIRONMENT = {
+    "AWS_CONFIG_FILE": os.devnull,
+    "AWS_EC2_METADATA_DISABLED": "true",
+    "AWS_ENDPOINT_URL": "http://127.0.0.1:9",
+    "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
+}
 
+
+MOCK_AWS_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
+NATIVE_CONTRACT_TEST = MOCK_AWS_PROVIDERS + """
 run "evaluate_composition_contract" {
   command = plan
 
@@ -153,6 +185,11 @@ def require_tool(name: str, lookup: ToolLookup = shutil.which) -> str:
     if "CI" in os.environ:
         pytest.fail(message)
     pytest.skip(message)
+
+
+def tofu_environment(source: Mapping[str, str]) -> dict[str, str]:
+    environment = {key: value for key, value in source.items() if not key.startswith("AWS_")}
+    return environment | TOFU_AWS_ENVIRONMENT
 
 
 def _run_tofu(
@@ -190,9 +227,23 @@ def _shared_validation_run(case: ValidationCase) -> str:
 '''
 
 
+def shared_validation_suite(cases: Sequence[ValidationCase]) -> str:
+    return MOCK_AWS_PROVIDERS + "\n" + "\n".join(_shared_validation_run(case) for case in cases)
+
+
 @pytest.fixture(name="require_tool")
 def fixture_require_tool() -> Callable[[str, ToolLookup], str]:
     return require_tool
+
+
+@pytest.fixture(name="generated_suite_headers")
+def fixture_generated_suite_headers() -> tuple[str, ...]:
+    return (NATIVE_CONTRACT_TEST, shared_validation_suite(()))
+
+
+@pytest.fixture(name="tofu_environment")
+def fixture_tofu_environment() -> Callable[[Mapping[str, str]], dict[str, str]]:
+    return tofu_environment
 
 
 @pytest.fixture(scope="session")
@@ -236,7 +287,7 @@ def expected_shared_type() -> list[object]:
 @pytest.fixture(scope="session")
 def tofu_context(tmp_path_factory: pytest.TempPathFactory) -> TofuContext:
     tofu_bin = require_tool("tofu")
-    environment = os.environ.copy()
+    environment = tofu_environment(os.environ)
     environment["TF_DATA_DIR"] = str(tmp_path_factory.mktemp("tofu-data"))
     return TofuContext(tofu_bin, environment)
 
@@ -299,10 +350,7 @@ def validate_shared_outputs(
     test_file = test_directory / "shared-outputs.tftest.hcl"
 
     def validate(cases: Sequence[ValidationCase]) -> subprocess.CompletedProcess[str]:
-        source = 'mock_provider "aws" {}\n\n' + "\n".join(
-            _shared_validation_run(case) for case in cases
-        )
-        test_file.write_text(source, encoding="utf-8")
+        test_file.write_text(shared_validation_suite(cases), encoding="utf-8")
         return _run_tofu(
             tofu_context.executable,
             ("test", "-no-color", "-test-directory=.terraform/shared-output-tests"),

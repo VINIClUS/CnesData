@@ -39,6 +39,7 @@ FORBIDDEN_TABLE_ARGUMENTS = frozenset({
     "write_capacity",
 })
 RUN_STATUS = re.compile(r'^\s*run "(?P<name>[^"]+)"\.\.\. (?P<status>\w+)$', re.MULTILINE)
+MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?\}$', re.MULTILINE)
 
 ACTUAL_TABLE = f"""{{
       hash_key   = {TABLE}.hash_key
@@ -66,6 +67,8 @@ ACTUAL_OUTPUTS = (
     "{ table_name = output.table_name, table_arn = output.table_arn, "
     "index_arns = output.index_arns }"
 )
+
+MOCK_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
 
 MODULE_RUN = """
 run "{name}" {{
@@ -213,7 +216,7 @@ def _plan_suite(shared_outputs: Mapping[str, object]) -> str:
     }}
   }}
 """
-    return 'mock_provider "aws" {}\n' + "".join((
+    return MOCK_PROVIDERS + "".join((
         _root_run(shared_outputs),
         _module_run(
             "inventario_de_chaves_e_indices",
@@ -236,13 +239,13 @@ def _policy_suite() -> str:
         for mutation in KEY_SCHEMA_MUTATIONS
     )
     canonical = _module_run("esquema_canonico", "", ISOLATED_SOURCE)
-    return 'mock_provider "aws" {}\n' + canonical + "".join(mutated)
+    return MOCK_PROVIDERS + canonical + "".join(mutated)
 
 
 def _protection_suite() -> str:
     replace = f"\n  plan_options {{\n    replace = [{TABLE}]\n  }}\n"
     return (
-        'mock_provider "aws" {}\n'
+        MOCK_PROVIDERS
         + _module_run("cria_tabela", "", ISOLATED_SOURCE, "apply")
         + _module_run("substitui_tabela", replace, ISOLATED_SOURCE)
     )
@@ -321,6 +324,18 @@ def _graph_types(module: Node) -> Iterator[str]:
         yield from _graph_types(cast("Node", call["module"]))
 
 
+def _root_aws_providers(tofu_artifacts: Artifacts) -> set[str]:
+    providers = cast("dict[str, Node]", tofu_artifacts["configuration"]["provider_config"])
+    return {
+        key for key, provider in providers.items()
+        if provider["name"] == "aws" and "module_address" not in provider
+    }
+
+
+def _mocked_providers(suite: str) -> set[str]:
+    return {f"aws.{alias}" if alias else "aws" for alias in MOCK_PROVIDER.findall(suite)}
+
+
 @pytest.fixture(scope="module")
 def plan_report(
     tofu_context: Tofu,
@@ -359,13 +374,14 @@ def isolated_report(
 
 
 def test_raiz_agenda_tabela_do_control_plane(
-    plan_report: TofuReport,
-    tofu_artifacts: Artifacts,
+    plan_report: TofuReport, tofu_artifacts: Artifacts, prod_root: Path
 ) -> None:
     calls = _module_calls(_root_module(tofu_artifacts))
+    module = (prod_root / MODULE_SOURCE).resolve()
+    targets = {n: (prod_root / cast("str", c["source"])).resolve() for n, c in calls.items()}
 
     _assert_runs(plan_report, {"raiz_agenda_control_plane": "pass"})
-    assert set(calls) == {"control_plane"}
+    assert [n for n, target in targets.items() if target == module] == ["control_plane"]
     assert calls["control_plane"]["source"] == MODULE_SOURCE
 
 
@@ -409,3 +425,14 @@ def test_mudanca_de_key_schema_falha_politica(
     mutation: Mutation,
 ) -> None:
     _assert_runs(isolated_report, {"esquema_canonico": "pass", mutation.name: "pass"})
+
+
+def test_suites_gerados_mockam_todo_provider_aws_da_raiz(
+    tofu_artifacts: Artifacts,
+    valid_shared_outputs: dict[str, object],
+) -> None:
+    roots = _root_aws_providers(tofu_artifacts)
+    suites = (_plan_suite(valid_shared_outputs), _policy_suite(), _protection_suite())
+
+    assert {"aws", "aws.global_edge"} <= roots
+    assert [_mocked_providers(suite) for suite in suites] == [roots] * len(suites)

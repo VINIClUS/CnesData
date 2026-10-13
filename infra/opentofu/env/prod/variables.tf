@@ -31,12 +31,20 @@ variable "shared_outputs" {
       evidence_bucket_name = string
       evidence_bucket_arn  = string
     })
+    account_baseline = object({
+      s3_public_access_block = object({
+        block_public_acls       = bool
+        block_public_policy     = bool
+        ignore_public_acls      = bool
+        restrict_public_buckets = bool
+      })
+    })
   })
   nullable = false
 
   validation {
-    condition     = var.shared_outputs.schema_version == 1
-    error_message = "shared_outputs.schema_version must be 1."
+    condition     = var.shared_outputs.schema_version == 2
+    error_message = "shared_outputs.schema_version must be 2."
   }
 
   validation {
@@ -95,5 +103,17 @@ variable "shared_outputs" {
       ] : can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", bucket))
     ])
     error_message = "Shared storage bucket names must use the approved S3 name shape."
+  }
+
+  validation {
+    condition = try(alltrue([
+      for enabled in [
+        var.shared_outputs.account_baseline.s3_public_access_block.block_public_acls,
+        var.shared_outputs.account_baseline.s3_public_access_block.block_public_policy,
+        var.shared_outputs.account_baseline.s3_public_access_block.ignore_public_acls,
+        var.shared_outputs.account_baseline.s3_public_access_block.restrict_public_buckets,
+      ] : enabled == true
+    ]), false)
+    error_message = "Account S3 Block Public Access evidence must enable all four flags."
   }
 }
