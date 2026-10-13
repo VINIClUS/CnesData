@@ -282,16 +282,6 @@ def _cancel(dependencies: CoordinatorDependencies, run: Run, now: datetime) -> C
     return CoordinatorResult(state=canceled.state, execution_ref=None, published=False)
 
 
-def _reconcile_admission(execution: ExecutionPolicyConfig, now: datetime) -> Exception | None:
-    # The pass still recovers the runs and then fails chained to this error, keeping its summary.
-    try:
-        execution.admission.reconcile(now)
-    except Exception as error:
-        logger.exception("unit_permit_reconcile_failed")
-        return error
-    return None
-
-
 def _processing_result(outcome: str | DispatchDeferred | None) -> CoordinatorResult:
     if isinstance(outcome, DispatchDeferred):
         return CoordinatorResult(
@@ -366,9 +356,23 @@ class PipelineCoordinator:
         return _processing_result(outcome)
 
     def recover(self, limit: int = 100) -> tuple[CoordinatorResult, ...]:
-        control_plane = self._dependencies.control_plane
         now = self._dependencies.clock()
-        reconcile_error = _reconcile_admission(self._execution, now)
+        try:
+            self._execution.admission.reconcile(now)
+        except Exception as error:
+            # The pass still recovers the runs, then fails chained to this error with its summary.
+            logger.exception("unit_permit_reconcile_failed")
+            results, failed = self._recover_runs(now, limit)
+            raise RecoveryFailed(results, failed, reconcile_failed=True) from error
+        results, failed = self._recover_runs(now, limit)
+        if failed:
+            raise RecoveryFailed(results, failed)
+        return results
+
+    def _recover_runs(
+        self, now: datetime, limit: int,
+    ) -> tuple[tuple[CoordinatorResult, ...], int]:
+        control_plane = self._dependencies.control_plane
         skipped: set[tuple[str, str]] = set()
         results: list[CoordinatorResult] = []
         failed = 0
@@ -389,13 +393,7 @@ class PipelineCoordinator:
                         run.tenant_id,
                         run.run_id,
                     )
-        if reconcile_error is not None:
-            raise RecoveryFailed(
-                tuple(results), failed, reconcile_failed=True,
-            ) from reconcile_error
-        if failed:
-            raise RecoveryFailed(tuple(results), failed)
-        return tuple(results)
+        return tuple(results), failed
 
 
 __all__ = [
