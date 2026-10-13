@@ -42,7 +42,8 @@ RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
     apt-get upgrade -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 ENV AWS_PROFILE=cnesdata-production \
-    AWS_CONFIG_FILE=/etc/cnesdata/aws/config
+    AWS_CONFIG_FILE=/etc/cnesdata/aws/config \
+    AWS_SHARED_CREDENTIALS_FILE=/dev/null
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=15s --retries=3 --start-period=60s \

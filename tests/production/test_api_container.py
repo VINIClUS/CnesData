@@ -12,6 +12,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import yaml
@@ -65,6 +66,18 @@ STATIC_CREDENTIAL_NAMES = (
     "AWS_SESSION_TOKEN",
     "AWS_SECURITY_TOKEN",
 )
+CREDENTIAL_SOURCE_NAMES = ("AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN", "AWS_DEFAULT_PROFILE")
+FIXED_SETTINGS = {
+    "AWS_PROFILE": "cnesdata-production",
+    "AWS_CONFIG_FILE": CONFIG_PATH,
+    "AWS_SHARED_CREDENTIALS_FILE": "/dev/null",
+}
+HEALTHCHECK = (
+    "--interval=15s --timeout=15s --retries=3 --start-period=60s CMD python -c "
+    '"import sys, urllib.request; urllib.request.urlopen(sys.argv[1])" '
+    "http://localhost:8000/api/v1/system/health"
+)
+COMPOSE_HEALTH_URL = re.compile(r"http://[^']+")
 CREDENTIAL_FILES = {
     "aws_config": "config",
     "leaf_certificate": "leaf-certificate.pem",
@@ -191,7 +204,10 @@ class _Entrypoint:
             self.path(name).chmod(PROVISIONED_MODES[name])
 
     def environment(self) -> dict[str, str]:
-        return {"PATH": os.environ.get("PATH", ""), "AWS_CONFIG_FILE": str(self.path("aws_config"))}
+        return FIXED_SETTINGS | {
+            "PATH": os.environ.get("PATH", ""),
+            "AWS_CONFIG_FILE": str(self.path("aws_config")),
+        }
 
     def run(self, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # noqa: S603
@@ -244,10 +260,7 @@ def test_estagio_de_producao_roda_sem_root_e_read_only(production: Stage) -> Non
 def test_estagio_de_producao_usa_perfil_roles_anywhere(production: Stage) -> None:
     entrypoints = [json.loads(argument) for argument in production.arguments("ENTRYPOINT")]
 
-    assert _key_values(production.arguments("ENV")) == {
-        "AWS_PROFILE": "cnesdata-production",
-        "AWS_CONFIG_FILE": CONFIG_PATH,
-    }
+    assert _key_values(production.arguments("ENV")) == FIXED_SETTINGS
     assert entrypoints == [[ENTRYPOINT_TARGET]]
     assert (
         f"--chmod=0555 apps/central_api/docker/production-entrypoint.sh {ENTRYPOINT_TARGET}"
@@ -299,6 +312,20 @@ def test_arquivos_de_producao_cabem_em_100_colunas(production: Stage) -> None:
     assert [line for text in texts for line in text.splitlines() if len(line) > MAX_COLUMNS] == []
 
 
+def test_healthcheck_de_producao_usa_porta_rota_e_tempos_do_compose(production: Stage) -> None:
+    compose = _compose_api()["healthcheck"]
+    [healthcheck] = production.arguments("HEALTHCHECK")
+    [compose_target] = COMPOSE_HEALTH_URL.findall(compose["test"][-1])
+    image_url = urlsplit(shlex.split(healthcheck)[-1])
+    compose_url = urlsplit(compose_target)
+    timings = {f"--{key.replace('_', '-')}={value}" for key, value in compose.items()}
+
+    assert healthcheck == HEALTHCHECK
+    assert (image_url.port, image_url.path) == (compose_url.port, compose_url.path)
+    assert UVICORN_EXEC.endswith(f"--port {image_url.port}")
+    assert timings - {f"--test={compose['test']}"} <= set(healthcheck.split())
+
+
 def test_config_mounts_entrypoint_e_env_apontam_os_mesmos_paths(production: Stage) -> None:
     profile = load_config(str(AWS_CONFIG_SOURCE))["profiles"]["cnesdata-production"]
     argv = compat_shell_split(profile["credential_process"])
@@ -338,9 +365,23 @@ def test_entrypoint_versionado_com_lf_mesmo_em_checkout_windows() -> None:
     attributes = GITATTRIBUTES.read_text(encoding="utf-8").splitlines()
     pattern, *_ = ENTRYPOINT_ATTRIBUTES.split()
 
+    effective = subprocess.run(  # noqa: S603
+        [_require_tool("git"), "-c", "safe.directory=*", "check-attr", "eol", "text", "--",
+         ENTRYPOINT_PATH],
+        check=True,
+        capture_output=True,
+        cwd=REPO_ROOT,
+        text=True,
+        timeout=30,
+    )
+
     assert b"\r" not in ENTRYPOINT_SOURCE.read_bytes()
     assert ENTRYPOINT_ATTRIBUTES in attributes
     assert PurePosixPath(ENTRYPOINT_PATH).full_match(pattern)
+    assert effective.stdout.splitlines() == [
+        f"{ENTRYPOINT_PATH}: eol: lf",
+        f"{ENTRYPOINT_PATH}: text: set",
+    ]
 
 
 @pytest.mark.parametrize("name", STATIC_CREDENTIAL_NAMES)
@@ -355,6 +396,34 @@ def test_entrypoint_recusa_credencial_estatica_antes_de_checar_arquivos(
     )
 
 
+@pytest.mark.parametrize("name", CREDENTIAL_SOURCE_NAMES)
+@pytest.mark.parametrize("value", ["placeholder", ""], ids=["com-valor", "vazia"])
+def test_entrypoint_recusa_outra_fonte_de_credencial_antes_de_checar_arquivos(
+    entrypoint: _Entrypoint, name: str, value: str,
+) -> None:
+    result = entrypoint.run(entrypoint.environment() | {name: value})
+
+    assert (result.returncode, result.stdout, result.stderr) == (
+        CONFIGURATION_EXIT, "", f"credential_source_forbidden name={name}\n",
+    )
+
+
+@pytest.mark.parametrize("name", list(FIXED_SETTINGS))
+@pytest.mark.parametrize("value", ["outro", "", None], ids=["outro", "vazio", "ausente"])
+def test_entrypoint_exige_perfil_e_arquivos_de_credencial_fixos_antes_de_checar_arquivos(
+    entrypoint: _Entrypoint, name: str, value: str | None,
+) -> None:
+    environment = entrypoint.environment()
+    environment.pop(name)
+    overrides = {} if value is None else {name: value}
+
+    result = entrypoint.run(environment | overrides)
+
+    assert (result.returncode, result.stdout, result.stderr) == (
+        CONFIGURATION_EXIT, "", f"credential_setting_mismatch name={name}\n",
+    )
+
+
 @pytest.mark.parametrize("missing", list(CREDENTIAL_FILES))
 def test_entrypoint_recusa_cada_arquivo_ausente(entrypoint: _Entrypoint, missing: str) -> None:
     entrypoint.provision(*(name for name in CREDENTIAL_FILES if name != missing))
@@ -363,18 +432,6 @@ def test_entrypoint_recusa_cada_arquivo_ausente(entrypoint: _Entrypoint, missing
 
     assert (result.returncode, result.stdout, result.stderr) == (
         CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_missing", missing),
-    )
-
-
-def test_entrypoint_recusa_sem_aws_config_file(entrypoint: _Entrypoint) -> None:
-    entrypoint.provision(*CREDENTIAL_FILES)
-    environment = entrypoint.environment()
-    del environment["AWS_CONFIG_FILE"]
-
-    result = entrypoint.run(environment)
-
-    assert (result.returncode, result.stdout, result.stderr) == (
-        CONFIGURATION_EXIT, "", "credential_file_missing name=aws_config path=\n",
     )
 
 
