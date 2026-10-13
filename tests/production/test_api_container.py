@@ -67,6 +67,7 @@ STATIC_CREDENTIAL_NAMES = (
     "AWS_SECURITY_TOKEN",
 )
 CREDENTIAL_SOURCE_NAMES = ("AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN", "AWS_DEFAULT_PROFILE")
+SOURCE_AND_SETTING_DRIFT = {"AWS_DEFAULT_PROFILE": "placeholder", "PROFILE": "legacy"}
 FIXED_SETTINGS = {
     "PROFILE": "aws",
     "AWS_PRODUCTION_POLICY": "true",
@@ -391,7 +392,7 @@ def test_entrypoint_versionado_com_lf_mesmo_em_checkout_windows() -> None:
 def test_entrypoint_recusa_credencial_estatica_antes_de_checar_arquivos(
     entrypoint: _Entrypoint, name: str, value: str,
 ) -> None:
-    result = entrypoint.run(entrypoint.environment() | {name: value})
+    result = entrypoint.run(entrypoint.environment() | SOURCE_AND_SETTING_DRIFT | {name: value})
 
     assert (result.returncode, result.stdout, result.stderr) == (
         CONFIGURATION_EXIT, "", f"static_credential_forbidden name={name}\n",
@@ -403,7 +404,7 @@ def test_entrypoint_recusa_credencial_estatica_antes_de_checar_arquivos(
 def test_entrypoint_recusa_outra_fonte_de_credencial_antes_de_checar_arquivos(
     entrypoint: _Entrypoint, name: str, value: str,
 ) -> None:
-    result = entrypoint.run(entrypoint.environment() | {name: value})
+    result = entrypoint.run(entrypoint.environment() | {"PROFILE": "legacy", name: value})
 
     assert (result.returncode, result.stdout, result.stderr) == (
         CONFIGURATION_EXIT, "", f"credential_source_forbidden name={name}\n",
