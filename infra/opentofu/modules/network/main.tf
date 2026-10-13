@@ -7,10 +7,7 @@ terraform {
 }
 
 locals {
-  # The Amazon-provided DNS resolver always answers at the primary VPC CIDR base plus two.
-  amazon_dns_resolver = "${cidrhost(var.vpc_cidr, 2)}/32"
-  dns_protocols       = toset(["tcp", "udp"])
-  gateway_services    = toset([for service, enabled in var.gateway_endpoints : service if enabled])
+  gateway_services = toset([for service, enabled in var.gateway_endpoints : service if enabled])
 }
 
 data "aws_region" "current" {}
@@ -25,15 +22,22 @@ resource "aws_vpc" "this" {
 }
 
 # Adopting the default group strips its allow-from-self ingress and allow-all egress: the VPC keeps
-# no ingress rule at all, and a task launched without an explicit group reaches nothing.
+# no ingress rule at all, and a task launched without an explicit group reaches nothing. Both lists
+# are optional and computed, so only these explicit empty values make plan and apply remove a rule
+# added outside OpenTofu.
 resource "aws_default_security_group" "this" {
-  vpc_id = aws_vpc.this.id
+  vpc_id  = aws_vpc.this.id
+  ingress = []
+  egress  = []
 
   tags = {
     Name = "${var.name_prefix}-default-closed"
   }
 }
 
+# This gateway is the tasks' only route to ECR, CloudWatch Logs, Step Functions and STS. Either VPC
+# Block Public Access mode cuts that public IPv4 path, so the network needs BPA off in this Region
+# or an exclusion for this VPC.
 resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
 
@@ -92,25 +96,19 @@ resource "aws_vpc_endpoint" "gateway" {
   }
 }
 
+# The explicit empty ingress makes plan and apply remove an inbound rule added outside OpenTofu.
+# Egress lives in the rule resources below, which an inline list would fight, so an egress rule
+# added outside OpenTofu survives here: the refreshed-plan policy of PROD-INFRA-011 must pin it.
+# No rule opens DNS: security groups never filter the Amazon-provided resolver (VPC+2).
 resource "aws_security_group" "tasks" {
   name        = "${var.name_prefix}-tasks"
   description = "Zero-ingress group of the CnesData Fargate tasks"
   vpc_id      = aws_vpc.this.id
+  ingress     = []
 
   tags = {
     Name = "${var.name_prefix}-tasks"
   }
-}
-
-resource "aws_vpc_security_group_egress_rule" "dns" {
-  for_each = local.dns_protocols
-
-  security_group_id = aws_security_group.tasks.id
-  description       = "DNS over ${upper(each.key)} to the Amazon VPC resolver"
-  ip_protocol       = each.key
-  from_port         = 53
-  to_port           = 53
-  cidr_ipv4         = local.amazon_dns_resolver
 }
 
 resource "aws_vpc_security_group_egress_rule" "gateway_tls" {

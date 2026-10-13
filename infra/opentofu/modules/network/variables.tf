@@ -5,7 +5,7 @@ variable "name_prefix" {
 }
 
 variable "vpc_cidr" {
-  description = "Primary IPv4 CIDR of the VPC; the Amazon DNS resolver answers at its base plus two."
+  description = "Primary IPv4 CIDR of the VPC, from /16 to /28."
   type        = string
   nullable    = false
 

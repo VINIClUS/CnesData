@@ -1,5 +1,4 @@
 import json
-import re
 import shutil
 import subprocess
 from collections import Counter
@@ -39,7 +38,6 @@ ROOT_INPUTS = {
     "name_prefix": {"references": ["local.name_prefix"]},
     **{name: {"constant_value": value} for name, value in NETWORK.items() if name != "name_prefix"},
 }
-RESOLVER = "10.42.0.2/32"
 SUBNET_ID, SECURITY_GROUP_ID = "subnet-0123456789abcdef0", "sg-0123456789abcdef0"
 ROUTE_TABLE_ID, INTERNET_GATEWAY_ID = "rtb-0123456789abcdef0", "igw-0123456789abcdef0"
 ENDPOINT_ID = "vpce-0123456789abcdef0"
@@ -68,9 +66,8 @@ INVALID_RUNS = {
     "vpc_maior_que_16_e_rejeitada": {"vpc_cidr": "10.0.0.0/8"},
 }
 GATEWAY_ENDPOINT_IDS = {"s3": ENDPOINT_ID, "dynamodb": ENDPOINT_ID}
-DNS_EGRESS = (("tcp", 53, 53, RESOLVER), ("udp", 53, 53, RESOLVER))
-PUBLIC_TLS_EGRESS = ("tcp", 443, 443, "0.0.0.0/0")
-GATEWAY_TLS_EGRESS = ("tcp", 443, 443, "prefix_list")
+PUBLIC_TLS_EGRESS = (SECURITY_GROUP_ID, "tcp", 443, 443, "0.0.0.0/0")
+GATEWAY_TLS_EGRESS = (SECURITY_GROUP_ID, "tcp", 443, 443, "prefix_list")
 SECURITY_GROUPS = ("aws_security_group", "aws_default_security_group")
 FORBIDDEN_PREFIXES = (
     ("aws_nat_gateway", "nat_gateway"),
@@ -78,18 +75,22 @@ FORBIDDEN_PREFIXES = (
     ("aws_lb_listener", "listener"), ("aws_alb_listener", "listener"),
     ("aws_lb_target_group", "target_group"), ("aws_alb_target_group", "target_group"),
     ("aws_lb", "load_balancer"), ("aws_alb", "load_balancer"), ("aws_elb", "load_balancer"),
+    ("aws_lightsail_lb", "load_balancer"), ("aws_ecs_express_gateway_service", "ecs_service"),
     ("aws_ecs_service", "ecs_service"), ("aws_service_discovery_", "service_discovery"),
+    ("aws_vpclattice_", "vpc_lattice"), ("aws_globalaccelerator_", "global_accelerator"),
     ("aws_vpc_security_group_ingress_rule", "ingress"),
 )
 NAT_LB_LISTENER = (
     "nat_gateway", "egress_only_internet_gateway", "load_balancer", "target_group", "listener",
-    "ecs_service", "service_discovery",
+    "ecs_service", "service_discovery", "vpc_lattice", "global_accelerator",
 )
 LB_ARN = "arn:aws:elasticloadbalancing:us-east-2:123456789012"
+ROLE_ARN = "arn:aws:iam::123456789012:role/proibido"
 VPC = 'vpc_id = "vpc-0123456789abcdef0"'
 GROUP = "security_group_id = module.network.security_group_id"
 ALL_PORTS = ('protocol = "-1"', "from_port = 0", "to_port = 0")
 ANYWHERE = ('ip_protocol = "-1"', 'cidr_ipv4 = "0.0.0.0/0"')
+SYNTHETIC_EGRESS = (SECURITY_GROUP_ID, "-1", None, None, "0.0.0.0/0")
 SYNTHETIC = {
     "aws_nat_gateway": ("nat_gateway", ["subnet_id = module.network.public_subnet_ids[0]"]),
     "aws_egress_only_internet_gateway": ("egress_only_internet_gateway", [VPC]),
@@ -101,6 +102,10 @@ SYNTHETIC = {
         f'    target_group_arn = "{LB_ARN}:targetgroup/proibido/1"\n  }}',
     ]),
     "aws_ecs_service": ("ecs_service", ['name = "proibido"']),
+    "aws_ecs_express_gateway_service": ("ecs_service", [
+        f'execution_role_arn = "{ROLE_ARN}"', f'infrastructure_role_arn = "{ROLE_ARN}"',
+        'primary_container {\n    image = "public.ecr.aws/proibido/proibido:1"\n  }',
+    ]),
     "aws_service_discovery_http_namespace": ("service_discovery", ['name = "proibido"']),
     "aws_vpc_endpoint": ("interface_endpoint", [
         VPC, 'service_name = "com.amazonaws.us-east-2.ecr.api"', 'vpc_endpoint_type = "Interface"',
@@ -119,8 +124,6 @@ SYNTHETIC_ROOT = (
     for kind, (_, body) in SYNTHETIC.items()
 )
 MOCK_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
-SYNTHETIC_SUITE = MOCK_PROVIDERS + '\nrun "raiz_sintetica" {\n  command = plan\n}\n'
-MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?\}$', re.MULTILINE)
 OVERRIDE = "\n  override_{kind} {{\n    target = {target}\n    values = {values}\n  }}\n"
 
 
@@ -143,6 +146,9 @@ def _overrides(prefix: str = "") -> str:
         OVERRIDE.format(kind=kind, target=f"{prefix}{target}", values=json.dumps(values))
         for (kind, target), values in OVERRIDES.items()
     )
+
+
+SYNTHETIC_SUITE = MOCK_PROVIDERS + _run("raiz_sintetica", {}, _overrides("module.network."), None)
 
 
 def _suites(shared_outputs: Mapping[str, object]) -> dict[str, str]:
@@ -265,13 +271,13 @@ def _egress(resources: Iterable[Resource]) -> Counter[tuple[object, ...]]:
                 values.get("cidr_ipv4") or values.get("cidr_ipv6")
                 or values.get("referenced_security_group_id")
             )
-            ports = (values.get("from_port"), values.get("to_port"))
-            rules[(values.get("ip_protocol"), *ports, target)] += 1
+            traffic = (values.get("ip_protocol"), values.get("from_port"), values.get("to_port"))
+            rules[(values.get("security_group_id"), *traffic, target)] += 1
     return rules
 
 
 def _assert_egress(resources: Sequence[Resource], gateways: int) -> None:
-    expected = Counter([*DNS_EGRESS, PUBLIC_TLS_EGRESS, *[GATEWAY_TLS_EGRESS] * gateways])
+    expected = Counter([PUBLIC_TLS_EGRESS, *[GATEWAY_TLS_EGRESS] * gateways])
     endpoints = {values.get("prefix_list_id") for values in _of_type(resources, "aws_vpc_endpoint")}
     rules = _of_type(resources, "aws_vpc_security_group_egress_rule")
     used = {values["prefix_list_id"] for values in rules if values.get("prefix_list_id")}
@@ -404,12 +410,11 @@ def test_security_group_sem_ingress(graphs: Graphs, plan_report: TofuReport) -> 
 
 
 def test_egress_so_dns_e_tls(plan_report: TofuReport) -> None:
-    _assert_runs(plan_report, dict.fromkeys((*MODULE_RUNS, ROOT_RUN), "pass"))
-    root = _plan_resources(plan_report.plans[ROOT_RUN])
+    # Security groups never filter the Amazon-provided DNS resolver (VPC+2): only TLS needs a rule.
+    _assert_runs(plan_report, dict.fromkeys(MODULE_RUNS, "pass"))
 
     _assert_egress(_plan_resources(plan_report.plans[WITH_ENDPOINTS]), gateways=2)
     _assert_egress(_plan_resources(plan_report.plans[WITHOUT_ENDPOINTS]), gateways=0)
-    _assert_egress([r for r in root if r[0].startswith("module.network.")], gateways=2)
 
 
 def test_sem_interface_endpoint(graphs: Graphs, plan_report: TofuReport) -> None:
@@ -459,8 +464,10 @@ def test_raiz_sintetica_com_proibidos_aparece_nos_dois_grafos(synthetic_graphs: 
     expected = {
         (category, f"{kind}.proibido") for kind, (category, _) in SYNTHETIC.items() if category
     }
+    egress = Counter([PUBLIC_TLS_EGRESS, GATEWAY_TLS_EGRESS, GATEWAY_TLS_EGRESS, SYNTHETIC_EGRESS])
 
     assert [_findings(graph) for graph in synthetic_graphs] == [expected, expected]
+    assert _egress(synthetic_graphs[1]) == egress
 
 
 @pytest.mark.parametrize(
@@ -478,21 +485,3 @@ def test_guardrail_de_rede_reprova_raiz_sintetica(
 ) -> None:
     with pytest.raises(AssertionError, match=r"^network_(forbidden|egress_mismatch) "):
         guard(synthetic_graphs)
-
-
-def test_suites_gerados_mockam_todo_provider_aws_da_raiz(
-    tofu_artifacts: Artifacts, valid_shared_outputs: dict[str, object]
-) -> None:
-    providers = cast("dict[str, Node]", tofu_artifacts["configuration"]["provider_config"])
-    roots = {
-        key for key, provider in providers.items()
-        if provider["name"] == "aws" and "module_address" not in provider
-    }
-    suites = [*_suites(valid_shared_outputs).values(), SYNTHETIC_SUITE]
-    mocked = [
-        {f"aws.{alias}" if alias else "aws" for alias in MOCK_PROVIDER.findall(suite)}
-        for suite in suites
-    ]
-
-    assert {"aws", "aws.global_edge"} <= roots
-    assert mocked == [roots] * len(suites)

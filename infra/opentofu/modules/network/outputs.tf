@@ -9,7 +9,6 @@ output "security_group_id" {
   description = "Zero-ingress task group: AWS_SECURITY_GROUP_ID and the only ASL SecurityGroups ID."
   value       = aws_security_group.tasks.id
   depends_on = [
-    aws_vpc_security_group_egress_rule.dns,
     aws_vpc_security_group_egress_rule.gateway_tls,
     aws_vpc_security_group_egress_rule.aws_api_tls,
   ]
