@@ -18,6 +18,7 @@ from cnes_domain.control_plane.environment_gate import (
     PermitAcquisition,
     PermitHolder,
     PromotionFence,
+    ReanchorUnitPermit,
     ReleaseUnitPermit,
     RenewUnitPermit,
     ReopenPromotionFence,
@@ -27,6 +28,7 @@ from cnes_domain.control_plane.environment_gate import (
     decide_acquisition,
     issue_permit,
     open_fence,
+    reanchor_permit,
     release_permit,
     renew_permit,
     reopen_fence,
@@ -60,6 +62,7 @@ PORT_SIGNATURES = {
         "bind_unit_permit": ((("command", "BindUnitPermit"),), "bool"),
         "renew_unit_permit": ((("command", "RenewUnitPermit"),), "bool"),
         "release_unit_permit": ((("command", "ReleaseUnitPermit"),), "bool"),
+        "reanchor_unit_permit": ((("command", "ReanchorUnitPermit"),), "bool"),
         "close_promotion_fence": ((("command", "ClosePromotionFence"),), "bool"),
         "reopen_promotion_fence": ((("command", "ReopenPromotionFence"),), "bool"),
     },
@@ -76,6 +79,7 @@ PORT_SIGNATURES = {
             "None",
         ),
         "settle": ((("holder", "PermitHolder"), ("now", "datetime")), "None"),
+        "reconcile": ((("now", "datetime"),), "None"),
     },
 }
 
@@ -189,6 +193,38 @@ def test_ttl_nao_e_autoridade() -> None:
     assert release_permit(permit, ReleaseUnitPermit(ENV, 1, expired)) is True
 
 
+def test_reancora_so_o_permit_do_token_sem_bind() -> None:
+    permit = issue_permit(_acquire(), 2)
+    command = ReanchorUnitPermit(ENV, 2, LATER)
+
+    assert reanchor_permit(permit, command) == replace(permit, acquired_at=LATER)
+    assert reanchor_permit(_bound(permit), command) is None
+    assert reanchor_permit(permit, ReanchorUnitPermit(ENV, 3, LATER)) is None
+    assert reanchor_permit(None, command) is None
+
+
+def test_reancoragem_nunca_recua_o_anchor() -> None:
+    permit = issue_permit(_acquire(now=LATER), 2)
+    later = LATER + timedelta(minutes=5)
+
+    assert reanchor_permit(permit, ReanchorUnitPermit(ENV, 2, NOW)) is None
+    assert reanchor_permit(permit, ReanchorUnitPermit(ENV, 2, LATER)) == permit
+    assert reanchor_permit(permit, ReanchorUnitPermit(ENV, 2, later)) == replace(
+        permit, acquired_at=later,
+    )
+
+
+def test_liberacao_por_ausencia_exige_o_anchor_e_o_permit_sem_bind() -> None:
+    permit = issue_permit(_acquire(), 2)
+    reanchored = replace(permit, acquired_at=LATER)
+
+    assert release_permit(permit, ReleaseUnitPermit(ENV, 2, LATER, NOW)) is True
+    assert release_permit(reanchored, ReleaseUnitPermit(ENV, 2, LATER, NOW)) is False
+    assert release_permit(_bound(permit), ReleaseUnitPermit(ENV, 2, LATER, NOW)) is False
+    assert release_permit(_bound(permit), ReleaseUnitPermit(ENV, 2, LATER)) is True
+    assert release_permit(permit, ReleaseUnitPermit(ENV, 3, LATER, NOW)) is False
+
+
 def test_reabrir_so_com_a_promocao_correspondente() -> None:
     fence = _closed()
 
@@ -235,6 +271,8 @@ def test_ambiente_no_padrao_e_aceito(value: str) -> None:
         lambda at: BindUnitPermit(ENV, 1, "exec-1", at),
         lambda at: RenewUnitPermit(ENV, 1, at, 300),
         lambda at: ReleaseUnitPermit(ENV, 1, at),
+        lambda at: ReleaseUnitPermit(ENV, 1, NOW, at),
+        lambda at: ReanchorUnitPermit(ENV, 1, at),
         lambda at: ClosePromotionFence(ENV, PROMOTION, at),
         lambda at: ReopenPromotionFence(ENV, PROMOTION, at),
         lambda at: PromotionFence(ENV, FenceState.CLOSED, PROMOTION, 1, at),
@@ -272,6 +310,7 @@ def test_instantes_sem_utc_sao_rejeitados(
         (lambda: RenewUnitPermit(ENV, 0, NOW, 300), "out_of_range field=token"),
         (lambda: RenewUnitPermit(ENV, 1, NOW, 0), "out_of_range field=lease_seconds"),
         (lambda: ReleaseUnitPermit("prod#x", 1, NOW), "invalid_environment"),
+        (lambda: ReanchorUnitPermit(ENV, 0, NOW), "out_of_range field=token"),
         (lambda: ClosePromotionFence(ENV, " ", NOW), "blank_value field=promotion_id"),
         (lambda: ReopenPromotionFence(ENV, "", NOW), "blank_value field=promotion_id"),
         (lambda: EnvironmentGateState(ENV, open_fence("dev"), None), "environment_mismatch"),
@@ -300,6 +339,7 @@ def test_fence_fechado_dispensa_permit_no_resultado() -> None:
         lambda: bind_permit(issue_permit(_acquire(), 1), BindUnitPermit("dev", 1, "x", NOW)),
         lambda: renew_permit(issue_permit(_acquire(), 1), RenewUnitPermit("dev", 1, NOW, 1)),
         lambda: release_permit(issue_permit(_acquire(), 1), ReleaseUnitPermit("dev", 1, NOW)),
+        lambda: reanchor_permit(issue_permit(_acquire(), 1), ReanchorUnitPermit("dev", 1, NOW)),
     ],
 )
 def test_transicao_com_comando_de_outro_ambiente_e_rejeitada(apply: Callable[[], object]) -> None:
@@ -358,6 +398,7 @@ def test_admissao_sem_gate_admite_sem_persistir_nada() -> None:
     assert admission == UnitAdmission(None, None)
     assert UNGATED_ADMISSION.confirm(UnitAdmission(None, None), "exec-1", NOW) is None
     assert UNGATED_ADMISSION.settle(HOLDER, NOW) is None
+    assert UNGATED_ADMISSION.reconcile(NOW) is None
 
 
 def test_adiamento_e_resultado_imutavel_e_nao_excecao() -> None:

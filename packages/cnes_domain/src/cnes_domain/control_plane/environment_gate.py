@@ -208,13 +208,29 @@ class RenewUnitPermit:
 
 
 @dataclass(frozen=True, slots=True)
-class ReleaseUnitPermit:
+class ReanchorUnitPermit:
+    """Reinicia a carência da prova de ausência no permit do token ainda sem bind."""
+
     environment: str
     token: int
     now: datetime
 
     def __post_init__(self) -> None:
         _require_token_command(self.environment, self.token, self.now)
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseUnitPermit:
+    """Libera o permit do token; com anchor, só o permit sem bind ainda ancorado nele."""
+
+    environment: str
+    token: int
+    now: datetime
+    anchor: datetime | None = None
+
+    def __post_init__(self) -> None:
+        _require_token_command(self.environment, self.token, self.now)
+        _optional_utc(self.anchor, "anchor")
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,12 +319,31 @@ def renew_permit(permit: UnitPermit | None, command: RenewUnitPermit) -> UnitPer
     return replace(permit, lease_until=command.lease_until)
 
 
+def reanchor_permit(permit: UnitPermit | None, command: ReanchorUnitPermit) -> UnitPermit | None:
+    """Reancora no instante do comando a carência do permit do token ainda sem bind.
+
+    Returns: Permit reancorado, ou None com token divergente, execução já vinculada ou
+        instante anterior ao anchor atual.
+    Raises: ValueError: Permit de outro ambiente.
+    """
+    if not _holds(permit, command.environment, command.token):
+        return None
+    # The anchor only advances: a stale clock must never shorten the absence grace.
+    if permit.execution_ref is not None or command.now < permit.acquired_at:
+        return None
+    return replace(permit, acquired_at=command.now)
+
+
 def release_permit(permit: UnitPermit | None, command: ReleaseUnitPermit) -> bool:
-    """Indica se o token detém o permit e pode liberá-lo.
+    """Indica se o token detém o permit e pode liberá-lo; o anchor exige o permit sem bind.
 
     Raises: ValueError: Permit de outro ambiente.
     """
-    return _holds(permit, command.environment, command.token)
+    if not _holds(permit, command.environment, command.token):
+        return False
+    if command.anchor is None:
+        return True
+    return permit.execution_ref is None and permit.acquired_at == command.anchor
 
 
 def close_fence(fence: PromotionFence, command: ClosePromotionFence) -> PromotionFence | None:

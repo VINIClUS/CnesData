@@ -20,6 +20,7 @@ from cnes_domain.control_plane.environment_gate import (
     PermitAcquisition,
     PermitHolder,
     PromotionFence,
+    ReanchorUnitPermit,
     ReleaseUnitPermit,
     RenewUnitPermit,
     ReopenPromotionFence,
@@ -240,6 +241,52 @@ def test_bind_renew_release_sao_condicionais_no_token(gate: _Gate) -> None:
     assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, token, LATER)) is False
     assert adapter.renew_unit_permit(RenewUnitPermit(ENV, token, LATER, 600)) is False
     assert adapter.observe_environment_gate(ENV).permit is None
+
+
+def test_reanchor_e_condicional_no_token_e_no_permit_sem_bind(gate: _Gate) -> None:
+    adapter, client = gate
+    permit = _permit(adapter.acquire_unit_permit(_acquire()))
+    token = permit.token
+
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, token + 1, LATER)) is False
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, token, LATER)) is True
+    assert adapter.observe_environment_gate(ENV).permit == replace(permit, acquired_at=LATER)
+    adapter.bind_unit_permit(BindUnitPermit(ENV, token, "exec-1", LATER))
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, token, LATER)) is False
+    adapter.release_unit_permit(ReleaseUnitPermit(ENV, token, LATER))
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, token, LATER)) is False
+    write = client.requests("update_item")[1]
+    assert write["UpdateExpression"] == "SET #acquired = :now, #updated = :now"
+    assert write["ConditionExpression"] == (
+        "#token = :token AND attribute_exists(#holder_dispatch) "
+        "AND attribute_not_exists(#execution_ref) AND #acquired <= :now"
+    )
+    assert {"put_item", "delete_item", "scan"}.isdisjoint(client.operations())
+
+
+def test_reanchor_nunca_recua_o_anchor(gate: _Gate) -> None:
+    adapter, _ = gate
+    permit = _permit(adapter.acquire_unit_permit(_acquire(now=LATER)))
+    later = LATER + timedelta(minutes=5)
+
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, permit.token, NOW)) is False
+    assert adapter.observe_environment_gate(ENV).permit == permit
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, permit.token, LATER)) is True
+    assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, permit.token, later)) is True
+    assert adapter.observe_environment_gate(ENV).permit == replace(permit, acquired_at=later)
+
+
+def test_release_por_ausencia_exige_o_anchor_e_o_permit_sem_bind(gate: _Gate) -> None:
+    adapter, _ = gate
+    token = _permit(adapter.acquire_unit_permit(_acquire())).token
+    adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, token, LATER))
+
+    assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, token, LATER, NOW)) is False
+    assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, token, LATER, LATER)) is True
+    bound = _permit(adapter.acquire_unit_permit(_acquire(OTHER)))
+    adapter.bind_unit_permit(BindUnitPermit(ENV, bound.token, "exec-2", NOW))
+    assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, bound.token, LATER, NOW)) is False
+    assert adapter.observe_environment_gate(ENV).permit == replace(bound, execution_ref="exec-2")
 
 
 def test_release_preserva_item_e_token_monotonico_sem_ttl(gate: _Gate) -> None:

@@ -14,6 +14,7 @@ from cnes_domain.control_plane.commands import (
 )
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
+from cnes_domain.orchestration.dispatch_admission import dispatch_holder, settle_run_dispatches
 from cnes_domain.orchestration.fan_in import decide_fan_in
 from cnes_domain.orchestration.planner import (
     RunPlan,
@@ -21,6 +22,7 @@ from cnes_domain.orchestration.planner import (
     logical_wave_id,
     ready_units,
 )
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
 from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit, ExecutionStatus
 from data_processor.orchestration.publisher import PublishRequest
 
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
 
     from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
     from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.environment_gate import DeferralReason
     from cnes_domain.ports.processing import (
         ExecutionPolicyConfig,
         ProcessorExecutorPort,
@@ -99,15 +102,20 @@ class CoordinatorResult:
     state: RunState
     execution_ref: str | None
     published: bool
+    deferred: DeferralReason | None = None
 
 
 class RecoveryFailed(RuntimeError):
-    """Passada de recovery com runs que falharam; carrega os resultados dos demais."""
+    """Passada de recovery que falhou em runs ou no reconcile (a causa); carrega os resultados."""
 
-    def __init__(self, results: tuple[CoordinatorResult, ...], failed: int) -> None:
+    def __init__(
+        self, results: tuple[CoordinatorResult, ...], failed: int, *,
+        reconcile_failed: bool = False,
+    ) -> None:
         super().__init__(f"failed={failed} recovered={len(results)}")
         self.results = results
         self.failed = failed
+        self.reconcile_failed = reconcile_failed
 
 
 def _build_event(run: Run, event_type: str, now: datetime) -> OutboxEvent:
@@ -176,25 +184,35 @@ def _compensate_start(
 def _start_and_bind(
     control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
     execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
-) -> str:
+) -> str | DispatchDeferred:
     run = plan.run
     requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
     permit = execution.callbacks.policy(run, dispatch, requested_limit)
     if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
         raise ValueError("execution_permit_identity_mismatch")
     request = execution_request(plan, dispatch, permit.max_concurrency)
-    execution_ref = executor.start(request)
+    holder = dispatch_holder(dispatch)
+    admission = execution.admission.admit(holder, now)
+    if isinstance(admission, DispatchDeferred):
+        return admission
+    try:
+        execution_ref = executor.start(request)
+    except Exception:
+        execution.admission.settle(holder, now)
+        raise
     try:
         bound = control_plane.bind_run_dispatch(BindRunDispatch(
             tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
             execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
         ))
+        execution.admission.confirm(admission, execution_ref, now)
         execution.callbacks.started(run, request, execution_ref, permit)
     except Exception:
         _compensate_start(control_plane, executor, FinishRunDispatch(
             tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
             outcome=DispatchOutcome.CANCELED, finished_at=now,
         ), execution_ref)
+        execution.admission.settle(holder, now)
         raise
     return cast("str", bound.execution_ref)
 
@@ -202,12 +220,13 @@ def _start_and_bind(
 def _dispatch_protocol(
     control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
     execution: ExecutionPolicyConfig, plan: RunPlan, now: datetime,
-) -> str | None:
+) -> str | DispatchDeferred | None:
     active = control_plane.get_active_run_dispatch(plan.run.tenant_id, plan.run.run_id)
     if active is not None and active.state is DispatchState.STARTED:
-        active = _settle_started(control_plane, executor, plan, active, now)
-        if active is not None:
+        if _settle_started(control_plane, executor, plan, active, now) is not None:
             return active.execution_ref
+        execution.admission.settle(dispatch_holder(active), now)
+        active = None
     if active is None:
         active = _reserve_next_wave(control_plane, plan, execution, now)
         if active is None:
@@ -263,6 +282,15 @@ def _cancel(dependencies: CoordinatorDependencies, run: Run, now: datetime) -> C
     return CoordinatorResult(state=canceled.state, execution_ref=None, published=False)
 
 
+def _processing_result(outcome: str | DispatchDeferred | None) -> CoordinatorResult:
+    if isinstance(outcome, DispatchDeferred):
+        return CoordinatorResult(
+            state=RunState.PROCESSING, execution_ref=None, published=False,
+            deferred=outcome.reason,
+        )
+    return CoordinatorResult(state=RunState.PROCESSING, execution_ref=outcome, published=False)
+
+
 class PipelineCoordinator:
     def __init__(
         self, dependencies: CoordinatorDependencies, execution: ExecutionPolicyConfig
@@ -270,22 +298,41 @@ class PipelineCoordinator:
         self._dependencies = dependencies
         self._execution = execution
 
-    def resume(self, tenant_id: str, run_id: str) -> CoordinatorResult:
-        control_plane = self._dependencies.control_plane
-        run = control_plane.get_run(tenant_id, run_id)
+    def resume(self, tenant_id: str, run_id: str, *, settle: bool = True) -> CoordinatorResult:
+        """Args: settle: False no after_persist, que roda dentro da própria execução.
+
+        Returns: Estado do Run; com settle, o Run que termina liquida o permit dos dispatches.
+        Raises: ValueError: Run inexistente ou em estado não suportado.
+        """
+        run = self._dependencies.control_plane.get_run(tenant_id, run_id)
         if run is None:
             raise ValueError("run_not_found")
         if run.state in _TERMINAL_RUN_STATES:
             return CoordinatorResult(state=run.state, execution_ref=None, published=False)
         now = self._dependencies.clock()
+        result = self._advance(run, now)
+        if settle and result.state in _TERMINAL_RUN_STATES:
+            self._settle_run(run, now)
+        return result
+
+    def _advance(self, run: Run, now: datetime) -> CoordinatorResult:
         if run.state is RunState.CANCEL_REQUESTED:
             return _cancel(self._dependencies, run, now)
         if run.state is RunState.PUBLISHING:
-            units = control_plane.list_run_units(tenant_id, run_id)
+            units = self._dependencies.control_plane.list_run_units(run.tenant_id, run.run_id)
             return _publish_now(self._dependencies, run, units, now)
         if run.state is RunState.PROCESSING:
             return self._resume_processing(run, now)
         raise ValueError(f"unsupported_run_state:{run.state}")
+
+    def _settle_run(self, run: Run, now: datetime) -> None:
+        admission = self._execution.admission
+        if admission is UNGATED_ADMISSION:
+            return
+        # The units name the dispatches that ran; settling them releases a finished execution's
+        # permit as the Run ends. Any other holder waits for the periodic reconcile.
+        units = self._dependencies.control_plane.list_run_units(run.tenant_id, run.run_id)
+        settle_run_dispatches(admission, units, now)
 
     def _resume_processing(self, run: Run, now: datetime) -> CoordinatorResult:
         control_plane = self._dependencies.control_plane
@@ -303,16 +350,29 @@ class PipelineCoordinator:
                 control_plane, run, decision.missing_sources, now
             )
             return _publish_now(self._dependencies, publishing, units, now)
-        execution_ref = _dispatch_protocol(
+        outcome = _dispatch_protocol(
             control_plane, self._dependencies.executor, self._execution, plan, now
         )
-        return CoordinatorResult(
-            state=RunState.PROCESSING, execution_ref=execution_ref, published=False
-        )
+        return _processing_result(outcome)
 
     def recover(self, limit: int = 100) -> tuple[CoordinatorResult, ...]:
-        control_plane = self._dependencies.control_plane
         now = self._dependencies.clock()
+        try:
+            self._execution.admission.reconcile(now)
+        except Exception as error:
+            # The pass still recovers the runs, then fails chained to this error with its summary.
+            logger.exception("unit_permit_reconcile_failed")
+            results, failed = self._recover_runs(now, limit)
+            raise RecoveryFailed(results, failed, reconcile_failed=True) from error
+        results, failed = self._recover_runs(now, limit)
+        if failed:
+            raise RecoveryFailed(results, failed)
+        return results
+
+    def _recover_runs(
+        self, now: datetime, limit: int,
+    ) -> tuple[tuple[CoordinatorResult, ...], int]:
+        control_plane = self._dependencies.control_plane
         skipped: set[tuple[str, str]] = set()
         results: list[CoordinatorResult] = []
         failed = 0
@@ -333,9 +393,7 @@ class PipelineCoordinator:
                         run.tenant_id,
                         run.run_id,
                     )
-        if failed:
-            raise RecoveryFailed(tuple(results), failed)
-        return tuple(results)
+        return tuple(results), failed
 
 
 __all__ = [

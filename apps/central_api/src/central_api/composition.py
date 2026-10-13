@@ -27,6 +27,7 @@ from cnes_infra.aws import (
     build_aws_runtime,
     create_aws_clients,
 )
+from cnes_infra.aws.runtime import build_dispatch_admission
 from cnes_infra.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingGateResources,
@@ -332,6 +333,7 @@ def _execution_config(
             billing.settings, core.control_plane, _gate_resources(settings, clients),
             billing.execution_started,
         ),
+        build_dispatch_admission(settings, clients, core.control_plane),
     )
 
 

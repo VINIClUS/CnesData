@@ -1,7 +1,7 @@
 """Testes dos ports alvo do data plane."""
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields
 from datetime import UTC, datetime, timedelta, timezone
 from inspect import Parameter, signature
 from typing import Any, cast
@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from cnes_domain.ports.audit import AuditSinkPort
 from cnes_domain.ports.control_plane import ControlPlanePort
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
 from cnes_domain.ports.object_storage import NullObjectStoragePort, ObjectStoragePort
 from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
 from cnes_domain.ports.processing import (
@@ -437,12 +438,12 @@ def test_callbacks_e_config_preservam_callables_e_sao_imutaveis():
 
     callbacks = ExecutionCallbacks(policy=cast("Any", policy), started=started)
     config = ExecutionPolicyConfig(
-        deployment_limit=2,
-        dispatch_lease_seconds=30,
-        callbacks=callbacks,
+        deployment_limit=2, dispatch_lease_seconds=30, callbacks=callbacks,
     )
     assert config.callbacks.policy is policy
     assert config.callbacks.started is started
+    assert config.admission is UNGATED_ADMISSION
+    assert [item.name for item in fields(config)][-1] == "admission"
     with pytest.raises(FrozenInstanceError):
         cast("Any", config).deployment_limit = 3
 
@@ -451,11 +452,7 @@ def test_callbacks_e_config_preservam_callables_e_sao_imutaveis():
 @pytest.mark.parametrize("value", [0, -1])
 def test_config_rejeita_limites_nao_positivos(field, value):
     callbacks = ExecutionCallbacks(cast("Any", lambda *args: None), lambda *args: None)
-    values = {
-        "deployment_limit": 2,
-        "dispatch_lease_seconds": 30,
-        "callbacks": callbacks,
-    }
+    values = {"deployment_limit": 2, "dispatch_lease_seconds": 30, "callbacks": callbacks}
     with pytest.raises(ValueError, match="positive_value_required"):
         ExecutionPolicyConfig(**(values | {field: value}))
 

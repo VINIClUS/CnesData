@@ -17,6 +17,8 @@ from central_api.serving.aws_signed import S3SignedServingAccess
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
+from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_infra.aws import AwsClients, AwsRuntimeComponents, AwsRuntimeSettings, build_aws_runtime
 from cnes_infra.billing import LOCAL_BILLING_SETTINGS
@@ -26,6 +28,8 @@ from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     PipelineCoordinator,
     RecoveryFailed,
+    allow_execution,
+    noop_execution_started,
 )
 
 if TYPE_CHECKING:
@@ -35,7 +39,7 @@ if TYPE_CHECKING:
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.processing import ExecutionPolicyConfig, ProcessorExecutorPort
+    from cnes_domain.ports.processing import ProcessorExecutorPort
     from data_processor.orchestration.publisher import DatasetPublisher
 
 NOW = datetime(2026, 10, 10, 12, tzinfo=UTC)
@@ -233,15 +237,19 @@ def _pipeline_coordinator(control_plane: _RecoveryControlPlane) -> PipelineCoord
         publisher=cast("DatasetPublisher", object()),
         clock=lambda: NOW,
     )
-    return PipelineCoordinator(dependencies, cast("ExecutionPolicyConfig", object()))
+    callbacks = ExecutionCallbacks(allow_execution, noop_execution_started)
+    return PipelineCoordinator(
+        dependencies, ExecutionPolicyConfig(1, 300, callbacks, UNGATED_ADMISSION)
+    )
 
 
 def test_pipeline_recovery_limita_control_plane_e_agrega_falha() -> None:
     control_plane = _RecoveryControlPlane((_RecoverableRun(),))
 
-    with pytest.raises(RecoveryFailed, match=r"^failed=1 recovered=0$"):
+    with pytest.raises(RecoveryFailed, match=r"^failed=1 recovered=0$") as failure:
         _pipeline_coordinator(control_plane).recover()
 
+    assert failure.value.__cause__ is None
     assert control_plane.calls == [(NOW, 100), (NOW, 100)]
 
 
@@ -253,9 +261,10 @@ def test_run_planning_recovery_limita_control_plane() -> None:
         executor=cast("ProcessorExecutorPort", object()),
         source_catalog=cast("Any", object()),
     )
+    callbacks = ExecutionCallbacks(allow_execution, noop_execution_started)
     service = RunPlanningService(
         dependencies,
-        cast("ExecutionPolicyConfig", object()),
+        ExecutionPolicyConfig(1, 300, callbacks, UNGATED_ADMISSION),
         lambda: NOW,
     )
 

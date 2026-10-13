@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         AcquireUnitPermit,
         BindUnitPermit,
         ClosePromotionFence,
+        ReanchorUnitPermit,
         ReleaseUnitPermit,
         RenewUnitPermit,
         ReopenPromotionFence,
@@ -48,6 +49,7 @@ _FENCE_ENTITY = "PROMOTIONFENCE"
 _SEMAPHORE_ENTITY = "UNITSEMAPHORE"
 _HOLDER_DISPATCH = "holder_dispatch_id"
 _HELD_CONDITION = "#token = :token AND attribute_exists(#holder_dispatch)"
+_UNBOUND_CONDITION = "attribute_not_exists(#execution_ref)"
 _NAMES: Final = {
     "#entity": "entity",
     "#token": "token",
@@ -213,11 +215,24 @@ def _renew(command: RenewUnitPermit) -> _Update:
     )
 
 
+def _reanchor(command: ReanchorUnitPermit) -> _Update:
+    # The anchor only advances: a stale clock must never shorten the absence grace.
+    return _Update(
+        "SET #acquired = :now, #updated = :now",
+        f"{_HELD_CONDITION} AND {_UNBOUND_CONDITION} AND #acquired <= :now",
+        {":token": _number(command.token), ":now": _text(timestamp(command.now))},
+    )
+
+
 def _release(command: ReleaseUnitPermit) -> _Update:
     holder = "#holder_tenant, #holder_run, #holder_dispatch, #acquired, #lease"
+    condition = _HELD_CONDITION
+    values = {":token": _number(command.token), ":now": _text(timestamp(command.now))}
+    if command.anchor is not None:
+        condition += f" AND #acquired = :anchor AND {_UNBOUND_CONDITION}"
+        values[":anchor"] = _text(timestamp(command.anchor))
     return _Update(
-        f"REMOVE {holder}, #execution_ref, #canary SET #updated = :now", _HELD_CONDITION,
-        {":token": _number(command.token), ":now": _text(timestamp(command.now))},
+        f"REMOVE {holder}, #execution_ref, #canary SET #updated = :now", condition, values,
     )
 
 
@@ -292,8 +307,15 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         return self._gate_semaphore(command.environment, _renew(command))
 
     def release_unit_permit(self, command: ReleaseUnitPermit) -> bool:
-        """Remove o detentor sem apagar o item; False com token divergente ou já liberado."""
+        """Remove o detentor sem apagar o item; False com token divergente ou já liberado.
+
+        Com anchor, False também se o permit foi vinculado ou reancorado depois da prova.
+        """
         return self._gate_semaphore(command.environment, _release(command))
+
+    def reanchor_unit_permit(self, command: ReanchorUnitPermit) -> bool:
+        """Reancora a carência do permit do token; False com token divergente, bind ou recuo."""
+        return self._gate_semaphore(command.environment, _reanchor(command))
 
     def close_promotion_fence(self, command: ClosePromotionFence) -> bool:
         """Fecha o fence por CAS de versão.

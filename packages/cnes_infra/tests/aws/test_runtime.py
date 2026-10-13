@@ -11,15 +11,27 @@ import boto3
 import pytest
 from botocore.exceptions import ClientError
 
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, ExecutionPresence
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
-from cnes_infra.aws.runtime import AwsClients, build_aws_runtime, create_aws_clients
-from cnes_infra.aws.settings import AwsRuntimeSettings
+from cnes_infra.aws.runtime import (
+    AwsClients,
+    build_aws_runtime,
+    build_dispatch_admission,
+    create_aws_clients,
+)
+from cnes_infra.aws.settings import AwsRuntimeConfigurationError, AwsRuntimeSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.object_store.s3 import S3ObjectStore
-from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from packages.cnes_infra.tests.aws.production_values import (
+    PRODUCTION_STATE_MACHINE_ARN,
+    PRODUCTION_VALUES,
+)
 
 if TYPE_CHECKING:
     from types_boto3_s3.client import S3Client
+
+    from cnes_domain.ports.control_plane import ControlPlanePort
 
 _NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 _LOCKED = {"ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}}
@@ -171,3 +183,46 @@ def test_rejeita_bucket_de_auditoria_sem_object_lock() -> None:
 
     with pytest.raises(ValueError, match="object_lock=disabled"):
         build_aws_runtime(_settings(), clients, clock=lambda: _NOW)
+
+
+def test_admissao_fora_da_politica_de_producao_e_sem_gate() -> None:
+    clients = _clients(_LOCKED)
+
+    admission = build_dispatch_admission(
+        _settings(), clients, cast("ControlPlanePort", object()),
+    )
+
+    assert admission is UNGATED_ADMISSION
+    assert _mock(clients.step_functions).mock_calls == []
+
+
+def test_admissao_de_producao_usa_o_gate_e_o_probe_do_executor() -> None:
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+    clients = _clients(_LOCKED)
+    control_plane = DynamoDBControlPlane(
+        clients.dynamodb, settings.control_plane_table, lambda: _NOW,
+    )
+    _mock(clients.step_functions).describe_execution.return_value = {"status": "RUNNING"}
+
+    admission = build_dispatch_admission(settings, clients, control_plane)
+
+    assert isinstance(admission, EnvironmentAdmission)
+    assert admission._gate is control_plane
+    assert (admission._environment, admission._lease_seconds) == ("prod", 3600)
+    observation = admission._probe.probe("0123456789abcdef")
+    assert observation.presence is ExecutionPresence.RUNNING
+    prefix = PRODUCTION_STATE_MACHINE_ARN.replace(":stateMachine:", ":execution:")
+    _mock(clients.step_functions).describe_execution.assert_called_once_with(
+        executionArn=f"{prefix}:0123456789abcdef",
+    )
+    assert _mock(clients.dynamodb).mock_calls == []
+
+
+def test_admissao_de_producao_exige_control_plane_com_gate() -> None:
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+    clients = _clients(_LOCKED)
+
+    with pytest.raises(AwsRuntimeConfigurationError, match=r"^environment_gate_unsupported$"):
+        build_dispatch_admission(settings, clients, cast("ControlPlanePort", object()))
+
+    assert _mock(clients.step_functions).mock_calls == []

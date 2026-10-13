@@ -7,9 +7,13 @@ from typing import TYPE_CHECKING, cast
 
 from botocore.config import Config
 
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, EnvironmentGatePort
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
+from cnes_infra.aws.settings import AwsRuntimeConfigurationError
 from cnes_infra.billing.settings import LOCAL_BILLING_SETTINGS, BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
+from cnes_infra.executor.step_functions import StepFunctionsExecutionProbe
 from cnes_infra.object_store.s3 import S3ObjectStore
 
 if TYPE_CHECKING:
@@ -21,6 +25,7 @@ if TYPE_CHECKING:
 
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.environment_gate import DispatchAdmissionPort
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_infra.aws.settings import AwsRuntimeSettings
 
@@ -94,4 +99,28 @@ def build_aws_runtime(
     )
 
 
-__all__ = ["AwsClients", "AwsRuntimeComponents", "build_aws_runtime", "create_aws_clients"]
+def build_dispatch_admission(
+    settings: AwsRuntimeSettings, clients: AwsClients, control_plane: ControlPlanePort,
+) -> DispatchAdmissionPort:
+    """Args: settings: Configuração. clients: Clientes boto3. control_plane: Do runtime.
+    Returns: Gate do ambiente com o probe do executor sob a política de produção; sem gate
+        fora dela.
+    Raises: AwsRuntimeConfigurationError: Produção com control plane sem gate de ambiente.
+    """
+    if not settings.production_policy:
+        return UNGATED_ADMISSION
+    if not isinstance(control_plane, EnvironmentGatePort):
+        raise AwsRuntimeConfigurationError("environment_gate_unsupported")
+    probe = StepFunctionsExecutionProbe(clients.step_functions, settings.state_machine_arn)
+    return EnvironmentAdmission(
+        control_plane, probe, settings.environment, settings.processor_lease_seconds,
+    )
+
+
+__all__ = [
+    "AwsClients",
+    "AwsRuntimeComponents",
+    "build_aws_runtime",
+    "build_dispatch_admission",
+    "create_aws_clients",
+]

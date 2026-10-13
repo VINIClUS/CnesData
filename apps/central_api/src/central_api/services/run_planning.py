@@ -21,6 +21,7 @@ from cnes_domain.control_plane.queries import (
     RawManifestChainQuery,
     WaitingRunsForDependencyQuery,
 )
+from cnes_domain.orchestration.dispatch_admission import dispatch_holder, settle_run_dispatches
 from cnes_domain.orchestration.planner import (
     PlanRequest,
     RawManifestRef,
@@ -30,6 +31,7 @@ from cnes_domain.orchestration.planner import (
     plan_run,
     ready_units,
 )
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
 from cnes_domain.ports.processing import CancelRunExecution, ExecutionStatus
 
 if TYPE_CHECKING:
@@ -39,6 +41,7 @@ if TYPE_CHECKING:
     from cnes_domain.control_plane.entities import ManifestRef, RawManifestRecord, Run, RunDispatch
     from cnes_domain.orchestration.source_catalog import SourceCatalog
     from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
+    from cnes_domain.ports.environment_gate import DeferralReason
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.processing import (
         ExecutionPolicyConfig,
@@ -75,6 +78,15 @@ class RunLaunchResult:
     run: Run
     plan: RunPlan | None
     execution_ref: str | None
+    deferred: DeferralReason | None = None
+
+
+def _launch_result(
+    run: Run, plan: RunPlan, outcome: str | DispatchDeferred | None,
+) -> RunLaunchResult:
+    if isinstance(outcome, DispatchDeferred):
+        return RunLaunchResult(run=run, plan=plan, execution_ref=None, deferred=outcome.reason)
+    return RunLaunchResult(run=run, plan=plan, execution_ref=outcome)
 
 
 def _build_event(run: Run, event_type: str, now: datetime) -> OutboxEvent:
@@ -160,25 +172,35 @@ def _compensate_start(
 def _start_and_bind(
     control_plane: _ControlPlane, executor: ProcessorExecutorPort,
     execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
-) -> str:
+) -> str | DispatchDeferred:
     run = plan.run
     requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
     permit = execution.callbacks.policy(run, dispatch, requested_limit)
     if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
         raise ValueError("execution_permit_identity_mismatch")
     request: StartRunExecution = execution_request(plan, dispatch, permit.max_concurrency)
-    execution_ref = executor.start(request)
+    holder = dispatch_holder(dispatch)
+    admission = execution.admission.admit(holder, now)
+    if isinstance(admission, DispatchDeferred):
+        return admission
+    try:
+        execution_ref = executor.start(request)
+    except Exception:
+        execution.admission.settle(holder, now)
+        raise
     try:
         bound = control_plane.bind_run_dispatch(BindRunDispatch(
             tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
             execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
         ))
+        execution.admission.confirm(admission, execution_ref, now)
         execution.callbacks.started(run, request, execution_ref, permit)
     except Exception:
         _compensate_start(control_plane, executor, FinishRunDispatch(
             tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
             outcome=DispatchOutcome.CANCELED, finished_at=now,
         ), execution_ref)
+        execution.admission.settle(holder, now)
         raise
     return cast("str", bound.execution_ref)
 
@@ -186,12 +208,13 @@ def _start_and_bind(
 def _dispatch_protocol(
     control_plane: _ControlPlane, executor: ProcessorExecutorPort,
     execution: ExecutionPolicyConfig, plan: RunPlan, now: datetime,
-) -> str | None:
+) -> str | DispatchDeferred | None:
     active = control_plane.get_active_run_dispatch(plan.run.tenant_id, plan.run.run_id)
     if active is not None and active.state is DispatchState.STARTED:
-        active = _settle_started(control_plane, executor, plan, active, now)
-        if active is not None:
+        if _settle_started(control_plane, executor, plan, active, now) is not None:
             return active.execution_ref
+        execution.admission.settle(dispatch_holder(active), now)
+        active = None
     if active is None:
         active = _reserve_next_wave(control_plane, plan, execution, now)
         if active is None:
@@ -263,10 +286,8 @@ class RunPlanningService:
             missing_optional=plan.missing_optional,
             deployment_limit=self._execution.deployment_limit,
         )
-        execution_ref = self._dispatch(
-            control_plane, full_plan, now,
-        )
-        return RunLaunchResult(run=processing, plan=full_plan, execution_ref=execution_ref)
+        outcome = self._dispatch(control_plane, full_plan, now)
+        return _launch_result(processing, full_plan, outcome)
 
     def _resume_processing(self, run: Run, now: datetime) -> RunLaunchResult:
         control_plane = self._dependencies.control_plane
@@ -275,12 +296,12 @@ class RunPlanningService:
             run=run, units=units, missing_required=(), missing_optional=run.missing_sources,
             deployment_limit=self._execution.deployment_limit,
         )
-        execution_ref = self._dispatch(control_plane, plan, now)
-        return RunLaunchResult(run=run, plan=plan, execution_ref=execution_ref)
+        outcome = self._dispatch(control_plane, plan, now)
+        return _launch_result(run, plan, outcome)
 
     def _dispatch(
         self, control_plane: _ControlPlane, plan: RunPlan, now: datetime
-    ) -> str | None:
+    ) -> str | DispatchDeferred | None:
         if not self._dispatch_enabled:
             return None
         return _dispatch_protocol(
@@ -301,12 +322,39 @@ class RunPlanningService:
                 expected_state=RunState.CANCEL_REQUESTED, canceled_at=now,
             ), event,
         )
+        self._settle_run(canceled, now)
         return RunLaunchResult(run=canceled, plan=None, execution_ref=None)
 
+    def _settle_run(self, run: Run, now: datetime) -> None:
+        admission = self._execution.admission
+        if not self._dispatch_enabled or admission is UNGATED_ADMISSION:
+            return
+        # The units name the dispatches that ran; settling them releases a finished execution's
+        # permit as the Run ends. Any other holder waits for the periodic reconcile.
+        units = self._dependencies.control_plane.list_run_units(run.tenant_id, run.run_id)
+        settle_run_dispatches(admission, units, now)
+
     def recover(self, limit: int = 100) -> tuple[RunLaunchResult, ...]:
+        """Returns: Resultado de cada run recuperável lançado na passada.
+
+        Raises: Erro do reconcile do gate, depois de lançar os runs da passada.
+        """
         now = self._clock()
+        reconcile_error = self._reconcile_admission(now) if self._dispatch_enabled else None
         candidates = self._dependencies.control_plane.list_recoverable_runs(now, limit)
-        return tuple(self.launch(run.tenant_id, run.run_id) for run in candidates)
+        results = tuple(self.launch(run.tenant_id, run.run_id) for run in candidates)
+        if reconcile_error is not None:
+            raise reconcile_error
+        return results
+
+    def _reconcile_admission(self, now: datetime) -> Exception | None:
+        # The pass still launches the runs; recover raises this error once they are done.
+        try:
+            self._execution.admission.reconcile(now)
+        except Exception as error:
+            logger.exception("unit_permit_reconcile_failed")
+            return error
+        return None
 
     def on_raw_manifest_accepted(self, record: RawManifestRecord, limit: int = 100) -> None:
         identity = RawIdentity(
@@ -315,7 +363,16 @@ class RunPlanningService:
         query = WaitingRunsForDependencyQuery(identity, limit)
         candidates = self._dependencies.control_plane.query_waiting_runs_for_dependency(query)
         for run in candidates:
+            self._launch_accepted(run)
+
+    def _launch_accepted(self, run: Run) -> None:
+        # Nothing retries a waiting run after this callback: one failure must not strand the rest.
+        try:
             self.launch(run.tenant_id, run.run_id)
+        except Exception:
+            logger.exception(
+                "accepted_manifest_launch_failed tenant_id=%s run_id=%s", run.tenant_id, run.run_id,
+            )
 
 
 __all__ = ["RunLaunchResult", "RunPlanningDependencies", "RunPlanningService"]
