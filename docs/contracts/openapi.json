@@ -3017,7 +3017,7 @@
     },
     "/api/v1/dashboard/serving/{dataset_name}/{document_name}": {
       "get": {
-        "description": "Transmite o documento serving concedido, sem fallback e sem URL assinada.",
+        "description": "Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.",
         "operationId": "read_serving_document_api_v1_dashboard_serving__dataset_name___document_name__get",
         "parameters": [
           {

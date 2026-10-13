@@ -306,7 +306,7 @@ def test_aws_bearer_valido_fora_do_dashboard_nao_exige_tenant(monkeypatch) -> No
     assert response.json() == {"ok": True}
 
 
-def test_aws_serving_redireciona_com_principal_e_tenant_autorizados(monkeypatch) -> None:
+def test_aws_serving_entrega_envelope_com_principal_e_tenant_autorizados(monkeypatch) -> None:
     from datetime import UTC, datetime
     from unittest.mock import Mock
 
@@ -316,7 +316,7 @@ def test_aws_serving_redireciona_com_principal_e_tenant_autorizados(monkeypatch)
     signed.grant.return_value = SignedServingGrant(
         version_id="run-01", run_id="run-01",
         object_key="serving/354130/run-01/overview.json", url=SIGNED_URL,
-        expires_at=datetime(2026, 9, 27, 12, 5, tzinfo=UTC),
+        expires_at=datetime(2026, 9, 27, 12, 5, tzinfo=UTC), expires_in=300,
     )
     build, verifier, client = _aws_client(monkeypatch, signed)
     with build, verifier, client:
@@ -325,8 +325,10 @@ def test_aws_serving_redireciona_com_principal_e_tenant_autorizados(monkeypatch)
             follow_redirects=False,
         )
 
-    assert response.status_code == 307
-    assert response.headers["location"] == SIGNED_URL
+    assert response.status_code == 200
+    assert response.json() == {"url": SIGNED_URL, "version_id": "run-01", "expires_in": 300}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert "location" not in response.headers
     request = signed.grant.call_args.args[0]
     assert (request.access.user_id, request.access.tenant_id) == ("user-1", AWS_TENANT)
     assert request.relative_name == "overview.json"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
@@ -91,12 +92,47 @@ def test_assina_somente_objeto_serving_do_pointer_ativo() -> None:
             "Bucket": "data-bucket",
             "Key": SERVING_KEY,
             "ResponseContentType": "application/json",
+            "ResponseCacheControl": "private, no-store",
         },
         ExpiresIn=300,
     )
     assert grant.object_key == SERVING_KEY
     assert (grant.version_id, grant.run_id, grant.url) == ("run-01", "run-01", SIGNED_URL)
     assert grant.expires_at == NOW + timedelta(seconds=300)
+    assert grant.expires_in == 300
+
+
+def test_grant_nao_vaza_chave_no_repr() -> None:
+    grant = _access().grant(_request(), NOW)
+
+    for rendered in (repr(grant), str(grant)):
+        assert SERVING_KEY not in rendered
+        assert SIGNED_URL not in rendered
+        assert "X-Amz-Signature" not in rendered
+    assert repr(grant).startswith("SignedServingGrant(version_id='run-01', run_id='run-01'")
+
+
+@pytest.mark.parametrize(
+    ("relative_name", "stat", "failure", "code"),
+    [
+        ("../../raw/data.parquet", None, None, "serving_key_forbidden"),
+        ("overview.json", None, None, "serving_object_missing"),
+        ("overview.json", ObjectStat(SERVING_KEY, 10, "a" * 64), NoCredentialsError(),
+         "serving_signing_failed"),
+    ],
+    ids=["chave-proibida", "objeto-ausente", "assinatura"],
+)
+def test_erro_de_assinatura_carrega_so_o_codigo(
+    relative_name: str, stat: ObjectStat | None, failure: Exception | None, code: str,
+) -> None:
+    signer = _signer()
+    signer.generate_presigned_url.side_effect = failure
+
+    with pytest.raises((ServingKeyForbidden, ServingSigningUnavailable)) as error:
+        _access(store=_store(stat=stat), signer=signer).grant(_request(relative_name), NOW)
+
+    assert error.value.args == (code,)
+    assert SERVING_KEY not in f"{error.value!s} {error.value!r}"
 
 
 @pytest.mark.parametrize(
@@ -160,6 +196,34 @@ def test_erro_da_policy_propaga_sem_stat_nem_assinatura(code: str) -> None:
         _access(policy, store, signer).grant(_request(), NOW)
 
     assert error.value.code == code
+    _assert_nada_lido(store, signer)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        EndpointConnectionError(endpoint_url=f"https://data-bucket.s3.amazonaws.com/{SERVING_KEY}"),
+        ClientError({"Error": {"Code": "SlowDown", "Message": SERVING_KEY}}, "HeadObject"),
+        OSError(SERVING_KEY),
+    ],
+    ids=["transporte", "cliente", "sistema"],
+)
+def test_falha_de_transporte_na_policy_gera_indisponivel_sem_causa_nem_chave(
+    failure: Exception, caplog: pytest.LogCaptureFixture,
+) -> None:
+    policy, store, signer = _policy(), _store(), _signer()
+    policy.authorize.side_effect = failure
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(ServingSigningUnavailable) as error:
+        _access(policy, store, signer).grant(_request(), NOW)
+
+    assert error.value.code == "serving_authorization_lookup_failed"
+    assert (error.value.__cause__, error.value.__suppress_context__) == (None, True)
+    assert [(record.levelname, record.getMessage()) for record in caplog.records] == [
+        ("WARNING", f"serving_authorization_lookup_failed error={type(failure).__name__}"),
+    ]
+    assert SERVING_KEY not in caplog.text
     _assert_nada_lido(store, signer)
 
 
