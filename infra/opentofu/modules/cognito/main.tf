@@ -35,6 +35,14 @@ resource "aws_cognito_user_pool" "this" {
     allow_admin_create_user_only = true
   }
 
+  # Without this setting Cognito keeps the legacy recovery order, which prefers SMS over email.
+  account_recovery_setting {
+    recovery_mechanism {
+      name     = "verified_email"
+      priority = 1
+    }
+  }
+
   password_policy {
     minimum_length    = 14
     require_lowercase = true
