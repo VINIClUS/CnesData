@@ -65,6 +65,9 @@ PORT_SIGNATURES = {
         "reanchor_unit_permit": ((("command", "ReanchorUnitPermit"),), "bool"),
         "close_promotion_fence": ((("command", "ClosePromotionFence"),), "bool"),
         "reopen_promotion_fence": ((("command", "ReopenPromotionFence"),), "bool"),
+        "consume_execution_attempt": (
+            (("command", "ConsumeExecutionAttempt"),), "AttemptOutcome",
+        ),
     },
     ExecutionProbePort: {
         "probe": ((("dispatch_id", "str"),), "ExecutionObservation"),
@@ -404,7 +407,9 @@ def test_admissao_sem_gate_admite_sem_persistir_nada() -> None:
 def test_adiamento_e_resultado_imutavel_e_nao_excecao() -> None:
     deferred = DispatchDeferred(DeferralReason.PERMIT_HELD)
 
-    assert {reason.value for reason in DeferralReason} == {"fence_closed", "permit_held"}
+    assert {reason.value for reason in DeferralReason} == {
+        "fence_closed", "permit_held", "monthly_attempts_exhausted",
+    }
     assert not isinstance(deferred, BaseException)
     assert deferred == DispatchDeferred(DeferralReason.PERMIT_HELD)
     with pytest.raises(FrozenInstanceError):

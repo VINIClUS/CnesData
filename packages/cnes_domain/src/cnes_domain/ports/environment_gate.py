@@ -1,4 +1,4 @@
-"""Portas do gate de ambiente: fence e semáforo, probe de execução e admissão de dispatch."""
+"""Portas do gate de ambiente: fence, semáforo e quota mensal, probe e admissão de dispatch."""
 
 from __future__ import annotations
 
@@ -23,11 +23,15 @@ if TYPE_CHECKING:
         RenewUnitPermit,
         ReopenPromotionFence,
     )
+    from cnes_domain.control_plane.execution_quota import (
+        AttemptOutcome,
+        ConsumeExecutionAttempt,
+    )
 
 
 @runtime_checkable
 class EnvironmentGatePort(Protocol):
-    """Fence de promoção e semáforo de unidade: leitura forte e mutações condicionais."""
+    """Fence, semáforo de unidade e tentativas do mês: leitura forte e mutações condicionais."""
 
     def observe_environment_gate(self, environment: str) -> EnvironmentGateState: ...
     def acquire_unit_permit(self, command: AcquireUnitPermit) -> PermitAcquisition: ...
@@ -37,6 +41,7 @@ class EnvironmentGatePort(Protocol):
     def reanchor_unit_permit(self, command: ReanchorUnitPermit) -> bool: ...
     def close_promotion_fence(self, command: ClosePromotionFence) -> bool: ...
     def reopen_promotion_fence(self, command: ReopenPromotionFence) -> bool: ...
+    def consume_execution_attempt(self, command: ConsumeExecutionAttempt) -> AttemptOutcome: ...
 
 
 class ExecutionPresence(StrEnum):
@@ -65,6 +70,7 @@ class ExecutionProbePort(Protocol):
 class DeferralReason(StrEnum):
     FENCE_CLOSED = "fence_closed"
     PERMIT_HELD = "permit_held"
+    MONTHLY_ATTEMPTS_EXHAUSTED = "monthly_attempts_exhausted"
 
 
 @dataclass(frozen=True, slots=True)

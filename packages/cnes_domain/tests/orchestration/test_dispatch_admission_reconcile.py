@@ -99,7 +99,7 @@ def test_reentrada_tardia_sem_bind_reancora_a_carencia(gate: _MemoryGate, probe:
     service.settle(HOLDER, LATE)
 
     assert _current(gate).acquired_at == LATE
-    assert gate.calls == ["acquire", "observe", "reanchor", "observe"]
+    assert gate.calls == ["acquire", "observe", "reanchor", "consume", "observe"]
     assert probe.calls == [HOLDER.dispatch_id]
     assert service.admit(OTHER, LATE + GRACE - SECOND) == PERMIT_HELD
     assert service.admit(OTHER, LATE + GRACE) == UnitAdmission(ENV, 2)
@@ -131,7 +131,7 @@ def test_reentrada_sem_bind_com_fence_fechado_e_execucao_existente_reancora_e_se
 
     assert _service(gate, probe).admit(HOLDER, LATE) == UnitAdmission(ENV, 1)
 
-    assert gate.calls == ["acquire", "observe", "reanchor"]
+    assert gate.calls == ["acquire", "observe", "reanchor", "consume"]
     assert probe.calls == [HOLDER.dispatch_id]
     assert _current(gate).acquired_at == LATE
 
@@ -153,11 +153,14 @@ def test_erro_do_probe_na_reentrada_com_fence_fechado_propaga_sem_reancorar(
 @pytest.mark.parametrize(
     ("common", "expected", "calls", "probes"),
     [
-        pytest.param(_Common(None), UnitAdmission(ENV, 1), ["acquire"], [], id="acquired"),
+        pytest.param(
+            _Common(None), UnitAdmission(ENV, 1), ["acquire", "consume"], [], id="acquired",
+        ),
         pytest.param(_Common(OTHER), PERMIT_HELD, ["acquire"], [OTHER], id="held"),
         pytest.param(
             _Common(OTHER, bound=True, presence=ExecutionPresence.TERMINAL),
-            UnitAdmission(ENV, 2), ["acquire", "release", "acquire"], [OTHER], id="held-terminal",
+            UnitAdmission(ENV, 2), ["acquire", "release", "acquire", "consume"], [OTHER],
+            id="held-terminal",
         ),
         pytest.param(
             _Common(OTHER, bound=True, presence=ExecutionPresence.RUNNING),
@@ -166,8 +169,8 @@ def test_erro_do_probe_na_reentrada_com_fence_fechado_propaga_sem_reancorar(
         pytest.param(_Common(None, fenced=True), FENCE_CLOSED, ["acquire"], [], id="fence"),
         pytest.param(_Common(OTHER, fenced=True), FENCE_CLOSED, ["acquire"], [], id="fence-held"),
         pytest.param(
-            _Common(HOLDER, bound=True, fenced=True), UnitAdmission(ENV, 1), ["acquire"], [],
-            id="reentrada-com-bind",
+            _Common(HOLDER, bound=True, fenced=True), UnitAdmission(ENV, 1),
+            ["acquire", "consume"], [], id="reentrada-com-bind",
         ),
     ],
 )
@@ -190,7 +193,7 @@ def test_reentrada_com_bind_segue_sem_reancorar(gate: _MemoryGate, probe: _Probe
 
     assert admission == UnitAdmission(ENV, 1)
     assert gate.permit == permit
-    assert gate.calls == ["acquire"]
+    assert gate.calls == ["acquire", "consume"]
 
 
 @pytest.mark.parametrize("lose", [_released, _taken_by_rival, _bound_elsewhere])
@@ -261,7 +264,9 @@ def test_rival_nao_libera_o_permit_reancorado_durante_o_probe(gate: _MemoryGate)
 
     assert reentries == [UnitAdmission(ENV, 1)]
     assert (_current(gate).holder, _current(gate).acquired_at) == (HOLDER, LATE)
-    assert gate.calls == ["acquire", "acquire", "observe", "reanchor", "release", "acquire"]
+    assert gate.calls == [
+        "acquire", "acquire", "observe", "reanchor", "consume", "release", "acquire",
+    ]
 
 
 def test_rival_nao_libera_o_permit_vinculado_durante_o_probe(gate: _MemoryGate) -> None:

@@ -1,4 +1,4 @@
-"""Guardas do dispatch no RunPlanningService: identidade, reentrada, reconcile e perfis."""
+"""Guardas do dispatch: identidade, reentrada, reconcile, perfis e quota mensal dos dois callers."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
@@ -31,6 +31,7 @@ from apps.central_api.tests.services.test_run_planning_environment_gate import (
     _holder,
     _permit,
     _planned,
+    _variant,
     adapter,
     clock,
     executor,
@@ -41,7 +42,12 @@ from apps.central_api.tests.services.test_run_planning_environment_gate import (
 from central_api.services.run_planning import RunPlanningService
 from cnes_domain.control_plane.entities import RawManifestRecord
 from cnes_domain.control_plane.enums import DispatchState, RunState
-from cnes_domain.control_plane.environment_gate import ClosePromotionFence
+from cnes_domain.control_plane.environment_gate import (
+    AcquireUnitPermit,
+    AcquisitionStatus,
+    ClosePromotionFence,
+)
+from cnes_domain.control_plane.execution_quota import execution_period
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.ports.environment_gate import (
     UNGATED_ADMISSION,
@@ -50,10 +56,18 @@ from cnes_domain.ports.environment_gate import (
     UnitAdmission,
 )
 from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPermit, ExecutionStatus
+from cnes_infra.control_plane.dynamodb_environment_gate import attempts_key
+from cnes_infra.control_plane.dynamodb_keys import item_key
 from cnes_infra.executor.step_functions import ProcessorExecutionUnavailable
-from data_processor.orchestration.coordinator import noop_execution_started
+from data_processor.orchestration.coordinator import (
+    CoordinatorDependencies,
+    PipelineCoordinator,
+    noop_execution_started,
+)
+from data_processor.orchestration.publisher import DatasetPublisher
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import datetime
 
     from apps.central_api.tests.services.test_run_planning import (
@@ -63,15 +77,21 @@ if TYPE_CHECKING:
     from apps.central_api.tests.services.test_run_planning_environment_gate import (
         _StepFunctions,
     )
+    from central_api.services.run_planning import RunLaunchResult
     from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
-    from cnes_domain.control_plane.environment_gate import PermitHolder
+    from cnes_domain.control_plane.environment_gate import PermitHolder, UnitPermit
     from cnes_domain.ports.environment_gate import ExecutionObservation
     from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
     from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
+    from data_processor.orchestration.coordinator import CoordinatorResult
+
+type _Pass = Callable[[], RunLaunchResult | CoordinatorResult]
+type _Caller = Callable[[RunPlanningService], _Pass]
 
 __all__ = ["adapter", "clock", "executor", "gate", "service", "store"]
 _FENCE_DEFERRED = [(RunState.PROCESSING, DeferralReason.FENCE_CLOSED)]
 _WAITING_RUN_IDS = ("run-1", "run-2", "run-3")
+_CALLER_IDS = ["inicial", "recovery"]
 
 
 @dataclass
@@ -143,6 +163,44 @@ def _ambiguous_launch(
 
 def _close_fence(gate: DynamoDBControlPlane, clock: _MutableClock) -> None:
     assert gate.close_promotion_fence(ClosePromotionFence(_ENVIRONMENT, "release-3", clock.now()))
+
+
+def _initial(service: RunPlanningService) -> _Pass:
+    return lambda: service.launch(_TENANT, _RUN_ID)
+
+
+def _recovery(service: RunPlanningService) -> _Pass:
+    # The processor resumes only PROCESSING runs: the API plans this one without dispatching.
+    _variant(service, noop_execution_started, dispatch_enabled=False).launch(_TENANT, _RUN_ID)
+    dependencies = service._dependencies
+    publisher = DatasetPublisher(
+        store=dependencies.object_store, control_plane=dependencies.control_plane,
+    )
+    coordinator = PipelineCoordinator(CoordinatorDependencies(
+        control_plane=dependencies.control_plane, executor=dependencies.executor,
+        publisher=publisher, clock=service._clock,
+    ), service._execution)
+    return lambda: coordinator.recover(limit=10)[0]
+
+
+_CALLERS: list[_Caller] = [_initial, _recovery]
+
+
+def _exhaust(gate: DynamoDBControlPlane, clock: _MutableClock) -> None:
+    # Lazy: the n-plus-1 CI job collects these tests without moto installed.
+    from packages.cnes_infra.tests.control_plane.test_execution_quota import (
+        EXHAUSTING_IDS,
+        attempts_item,
+    )
+
+    item = attempts_item(_ENVIRONMENT, clock.now(), EXHAUSTING_IDS)
+    gate._client.put_item(TableName=gate._table_name, Item=item)
+
+
+def _attempts(gate: DynamoDBControlPlane, clock: _MutableClock) -> int:
+    key = item_key(*attempts_key(_ENVIRONMENT, execution_period(clock.now())))
+    item = gate._client.get_item(TableName=gate._table_name, Key=key, ConsistentRead=True)["Item"]
+    return int(item["attempts"]["N"])
 
 
 def _accepted_local_manifest() -> RawManifestRecord:
@@ -362,3 +420,64 @@ def test_cancelamento_sem_gate_nao_rele_as_unidades(
 
     assert ungated.launch(_TENANT, _RUN_ID).run.state is RunState.CANCELED
     assert reads == []
+
+
+@pytest.mark.parametrize("caller", _CALLERS, ids=_CALLER_IDS)
+def test_quota_esgotada_nao_chama_executor(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
+    gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
+    caller: _Caller,
+) -> None:
+    _planned(adapter, store)
+    _exhaust(gate, clock)
+    run_pass = caller(service)
+
+    result = run_pass()
+
+    assert (result.execution_ref, result.deferred) == (
+        None, DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED,
+    )
+    assert (executor.calls, executor.started) == ([], [])
+    assert _active(adapter).state is DispatchState.RESERVED
+    assert _attempts(gate, clock) == 200
+
+
+@pytest.mark.parametrize("caller", _CALLERS, ids=_CALLER_IDS)
+def test_quota_esgotada_libera_permit_de_unidade(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, gate: DynamoDBControlPlane,
+    service: RunPlanningService, clock: _MutableClock, caller: _Caller,
+) -> None:
+    _planned(adapter, store)
+    _exhaust(gate, clock)
+
+    caller(service)()
+
+    assert _permit(gate) is None
+    successor = gate.acquire_unit_permit(
+        AcquireUnitPermit(_ENVIRONMENT, _NEXT, clock.now(), _LEASE_SECONDS),
+    )
+    assert (successor.status, cast("UnitPermit", successor.permit).token) == (
+        AcquisitionStatus.ACQUIRED, 2,
+    )
+
+
+@pytest.mark.parametrize("caller", _CALLERS, ids=_CALLER_IDS)
+def test_task_hours_fora_do_caminho_de_decisao(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
+    gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
+    caller: _Caller,
+) -> None:
+    _planned(adapter, store)
+    run_pass = caller(service)
+    first = run_pass()
+    # The execution held its task for 101 hours, past the 100 task-hour monitoring budget.
+    clock.advance(timedelta(hours=101))
+    executor.set_status(cast("str", first.execution_ref), ExecutionStatus.FAILED)
+
+    retry = run_pass()
+
+    current = _active(adapter)
+    assert (retry.execution_ref, retry.deferred) == (f"exec-{current.dispatch_id}", None)
+    assert current.generation == 2
+    assert executor.calls == ["start", "probe", "start"]
+    assert _attempts(gate, clock) == 2

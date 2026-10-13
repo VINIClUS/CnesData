@@ -21,6 +21,12 @@ from cnes_domain.control_plane.environment_gate import (
     ReleaseUnitPermit,
     UnitPermit,
 )
+from cnes_domain.control_plane.execution_quota import (
+    AttemptOutcome,
+    AttemptStatus,
+    ConsumeExecutionAttempt,
+    execution_period,
+)
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.ports.environment_gate import (
     DeferralReason,
@@ -30,6 +36,8 @@ from cnes_domain.ports.environment_gate import (
     UnitAdmission,
 )
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
+from cnes_infra.control_plane.dynamodb_environment_gate import attempts_key
+from cnes_infra.control_plane.dynamodb_keys import item_key
 from tests.integration.aws.conftest import _client, _create_table
 
 if TYPE_CHECKING:
@@ -44,6 +52,8 @@ PROMOTION = "release-race"
 _ROUNDS = 12
 _CONTENDERS = 8
 _BARRIER_SECONDS = 30
+_ATTEMPT_LIMIT = 200
+_ATTEMPT_CONTENDERS = 120
 
 
 @pytest.fixture
@@ -123,6 +133,19 @@ def _late_reentry_against_rival(gate: DynamoDBControlPlane, environment: str) ->
     )
 
 
+def _attempt(
+    caller: DynamoDBControlPlane, environment: str, index: int,
+) -> Callable[[], AttemptOutcome]:
+    command = ConsumeExecutionAttempt(environment, execution_period(NOW), f"{index:016x}", NOW)
+    return lambda: caller.consume_execution_attempt(command)
+
+
+def _stored_attempts(gate: DynamoDBControlPlane, environment: str) -> tuple[int, int]:
+    key = item_key(*attempts_key(environment, execution_period(NOW)))
+    item = gate._client.get_item(TableName=gate._table_name, Key=key, ConsistentRead=True)["Item"]
+    return int(item["attempts"]["N"]), len(item["dispatch_ids"]["SS"])
+
+
 def test_acquires_concorrentes_tem_no_maximo_um_vencedor(gate: DynamoDBControlPlane) -> None:
     for round_index in range(_ROUNDS):
         environment = f"race-acquire-{round_index}"
@@ -193,6 +216,25 @@ def test_reentrada_tardia_em_corrida_com_rival_admite_no_maximo_um(
         assert current is not None
         assert current.token == admitted[0].token
         assert current.holder == _holder(results.index(admitted[0]) + 1)
+
+
+def test_inicial_e_recovery_somam_exatamente_200(
+    gate: DynamoDBControlPlane, emulator_endpoints: Any,
+) -> None:
+    recovery = DynamoDBControlPlane(
+        _client("dynamodb", emulator_endpoints.dynamodb), gate._table_name, lambda: NOW,
+    )
+    callers = (gate, recovery) * _ATTEMPT_CONTENDERS
+    environment = "race-attempts"
+
+    results = _race(*(_attempt(caller, environment, index) for index, caller in enumerate(callers)))
+
+    outcomes = [cast("AttemptOutcome", result) for result in results]
+    counted = [item.attempts for item in outcomes if item.status is AttemptStatus.COUNTED]
+    exhausted = [item.attempts for item in outcomes if item.status is AttemptStatus.EXHAUSTED]
+    assert sorted(counted) == list(range(1, _ATTEMPT_LIMIT + 1))
+    assert exhausted == [_ATTEMPT_LIMIT] * (len(callers) - _ATTEMPT_LIMIT)
+    assert _stored_attempts(gate, environment) == (_ATTEMPT_LIMIT, _ATTEMPT_LIMIT)
 
 
 def test_reanchors_concorrentes_nunca_recuam_o_anchor(gate: DynamoDBControlPlane) -> None:

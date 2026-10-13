@@ -44,6 +44,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
 )
 from cnes_infra.control_plane.dynamodb_dispatch import DynamoDBDispatch
 from cnes_infra.control_plane.dynamodb_environment_gate import DynamoDBEnvironmentGate
+from cnes_infra.control_plane.dynamodb_execution_quota import DynamoDBExecutionQuota
 from cnes_infra.control_plane.dynamodb_keys import (
     dependency_marker_key,
     entity_key,
@@ -83,7 +84,7 @@ _NONTERMINAL_UNITS = {RunUnitState.PENDING, RunUnitState.LEASED, RunUnitState.FA
 class DynamoDBControlPlane(
     DynamoBillingMixin, DynamoBilledTenantMixin, DynamoEdgeRegistrationMixin,
     DeprecatedRawQueryMixin, DynamoDBQueries, DynamoDBClaims, DynamoDBDispatch,
-    DynamoDBPublication, DynamoDBEnvironmentGate
+    DynamoDBPublication, DynamoDBEnvironmentGate, DynamoDBExecutionQuota
 ):
     """Persiste o plano de controle em uma tabela DynamoDB."""
     def __init__(
