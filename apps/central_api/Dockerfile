@@ -20,10 +20,11 @@ RUN groupadd --system --gid 10001 app && \
     useradd --system --uid 10001 --gid 10001 --no-create-home \
             --home-dir /nonexistent --shell /usr/sbin/nologin app
 RUN mkdir -p /opt/aws && \
+    release="https://rolesanywhere.amazonaws.com/releases/${AWS_SIGNING_HELPER_VERSION}" && \
     python -c "import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" \
-        "https://rolesanywhere.amazonaws.com/releases/${AWS_SIGNING_HELPER_VERSION}/X86_64/Linux/Amzn2023/aws_signing_helper" \
-        /opt/aws/aws_signing_helper && \
-    echo "${AWS_SIGNING_HELPER_SHA256}  /opt/aws/aws_signing_helper" | sha256sum --check --strict - && \
+        "${release}/X86_64/Linux/Amzn2023/aws_signing_helper" /opt/aws/aws_signing_helper && \
+    echo "${AWS_SIGNING_HELPER_SHA256}  /opt/aws/aws_signing_helper" \
+        | sha256sum --check --strict - && \
     chmod 0555 /opt/aws/aws_signing_helper
 COPY --from=builder /usr/local/lib/python3.13/site-packages \
      /usr/local/lib/python3.13/site-packages
@@ -45,7 +46,8 @@ ENV AWS_PROFILE=cnesdata-production \
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=15s --retries=3 --start-period=60s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/system/health')"
+    CMD python -c "import sys, urllib.request; urllib.request.urlopen(sys.argv[1])" \
+        http://localhost:8000/api/v1/system/health
 ENTRYPOINT ["/usr/local/bin/production-entrypoint"]
 
 FROM python:3.13-slim

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -30,8 +32,12 @@ SESSION_SECONDS = 3600
 # the still-valid session; with < 10 min left it is mandatory and the failure propagates.
 ADVISORY_SECONDS = 15 * 60
 MANDATORY_SECONDS = 10 * 60
-EXPECTED_ARGV = [
-    "/opt/aws/aws_signing_helper",
+TIMEOUT_BINARY = "/usr/bin/timeout"
+TIMEOUT_SECONDS = 60
+TEST_TIMEOUT_SECONDS = 3
+HUNG_HELPER_SECONDS = 20
+HELPER_PATH = "/opt/aws/aws_signing_helper"
+HELPER_ARGUMENTS = [
     "credential-process",
     "--certificate",
     "/etc/cnesdata/aws/leaf-certificate.pem",
@@ -46,6 +52,8 @@ EXPECTED_ARGV = [
     "--session-duration",
     str(SESSION_SECONDS),
 ]
+EXPECTED_ARGV = [TIMEOUT_BINARY, str(TIMEOUT_SECONDS), HELPER_PATH, *HELPER_ARGUMENTS]
+TIMED_OUT = "Error when retrieving credentials from custom-process: "
 SHELL_SYNTAX = re.compile(r"[$`;|&\\'\"\n]")
 SIGNED_ACCESS_KEY = re.compile(r"Credential=(?P<key>[^/]+)/")
 CREDENTIAL_ENVIRONMENT = (
@@ -69,6 +77,7 @@ CREDENTIAL_ENVIRONMENT = (
 FAKE_HELPER = """\
 import json
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -76,6 +85,8 @@ state = Path(sys.argv[1])
 arguments = sys.argv[2:]
 with (state / "invocations").open("a", encoding="utf-8") as log:
     log.write(json.dumps(arguments) + "\\n")
+if (state / "hang").exists():
+    time.sleep(float((state / "hang").read_text(encoding="utf-8")))
 if (state / "fail").exists():
     sys.stderr.write("helper_failed\\n")
     raise SystemExit(1)
@@ -119,6 +130,8 @@ class _Body:
 class _RolesAnywhere:
     state: Path
     clock: _Clock
+    helper: Path
+    config: Path
     signed: list[str] = field(default_factory=list[str])
 
     def invocations(self) -> list[list[str]]:
@@ -129,6 +142,13 @@ class _RolesAnywhere:
 
     def fail_helper(self) -> None:
         (self.state / "fail").touch()
+
+    def hang_helper(self, seconds: int) -> None:
+        (self.state / "hang").write_text(str(seconds), encoding="utf-8")
+
+    def bound_by_timeout(self, seconds: int) -> None:
+        _require_executable(TIMEOUT_BINARY)
+        self.config.write_text(_fake_config(self.helper, self.state, seconds), encoding="utf-8")
 
     def connect(self) -> Any:
         session = Session()
@@ -147,13 +167,29 @@ class _RolesAnywhere:
         return AWSResponse(request.url, 200, HTTPHeaders(), _Body(b'{"TableNames": []}'))
 
 
+def _require_executable(path: str) -> None:
+    if os.access(path, os.X_OK):
+        return
+    message = f"tool_missing path={path}"
+    if "CI" in os.environ:
+        pytest.fail(message)
+    pytest.skip(message)
+
+
 def _production_profile() -> dict[str, str]:
     return load_config(str(CONFIG_PATH))["profiles"][PROFILE_NAME]
 
 
-def _fake_config(helper: Path, state: Path) -> str:
-    production_argv = compat_shell_split(_production_profile()["credential_process"])
-    command = shlex.join([sys.executable, "-I", str(helper), str(state), *production_argv[1:]])
+def _shortened(wrapper: list[str], seconds: int) -> list[str]:
+    return [str(seconds) if token == str(TIMEOUT_SECONDS) else token for token in wrapper]
+
+
+def _fake_config(helper: Path, state: Path, timeout_seconds: int | None) -> str:
+    argv = compat_shell_split(_production_profile()["credential_process"])
+    helper_at = argv.index(HELPER_PATH)
+    wrapper = [] if timeout_seconds is None else _shortened(argv[:helper_at], timeout_seconds)
+    fake = [sys.executable, "-I", str(helper), str(state)]
+    command = shlex.join([*wrapper, *fake, *argv[helper_at + 1 :]])
     return f"[profile {PROFILE_NAME}]\ncredential_process = {command}\n"
 
 
@@ -164,14 +200,15 @@ def roles_anywhere(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _RolesAny
     helper = tmp_path / "fake_aws_signing_helper.py"
     helper.write_text(FAKE_HELPER, encoding="utf-8")
     config = tmp_path / "config"
-    config.write_text(_fake_config(helper, state), encoding="utf-8")
+    config.write_text(_fake_config(helper, state, None), encoding="utf-8")
     for name in CREDENTIAL_ENVIRONMENT:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("AWS_CONFIG_FILE", str(config))
     monkeypatch.setenv("AWS_PROFILE", PROFILE_NAME)
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "credentials-ausente"))
     monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
-    return _RolesAnywhere(state, _Clock(state, datetime.now(UTC).replace(microsecond=0)))
+    clock = _Clock(state, datetime.now(UTC).replace(microsecond=0))
+    return _RolesAnywhere(state, clock, helper, config)
 
 
 def test_config_de_producao_chama_helper_sem_shell_com_sessao_de_3600() -> None:
@@ -209,7 +246,7 @@ def test_primeira_chamada_invoca_helper(roles_anywhere: _RolesAnywhere) -> None:
     client.list_tables()
 
     assert resolved_on_client_creation == 1
-    assert roles_anywhere.invocations() == [EXPECTED_ARGV[1:]]
+    assert roles_anywhere.invocations() == [HELPER_ARGUMENTS]
     assert roles_anywhere.signed == ["fake-access-1"]
 
 
@@ -236,7 +273,7 @@ def test_renova_uma_vez_na_janela_advisory(roles_anywhere: _RolesAnywhere) -> No
     roles_anywhere.clock.elapse(refreshed_at + SESSION_SECONDS - ADVISORY_SECONDS)
     client.list_tables()
 
-    assert roles_anywhere.invocations() == [EXPECTED_ARGV[1:]] * 2
+    assert roles_anywhere.invocations() == [HELPER_ARGUMENTS] * 2
     assert roles_anywhere.signed == ["fake-access-2"] * 4
 
 
@@ -289,3 +326,34 @@ def test_falha_na_janela_advisory_segue_com_sessao_valida_ate_a_mandatoria(
     assert advisory_attempts >= 1
     assert len(roles_anywhere.invocations()) == advisory_attempts + 2
     assert roles_anywhere.signed == ["fake-access-1"]
+
+
+def test_helper_travado_no_boot_falha_dentro_do_timeout(roles_anywhere: _RolesAnywhere) -> None:
+    roles_anywhere.bound_by_timeout(TEST_TIMEOUT_SECONDS)
+    roles_anywhere.hang_helper(HUNG_HELPER_SECONDS)
+    started = time.monotonic()
+
+    with pytest.raises(CredentialRetrievalError) as error:
+        roles_anywhere.connect()
+
+    assert TEST_TIMEOUT_SECONDS <= time.monotonic() - started < HUNG_HELPER_SECONDS
+    assert str(error.value) == TIMED_OUT
+    assert roles_anywhere.invocations() == [HELPER_ARGUMENTS]
+
+
+def test_helper_travado_na_renovacao_mandatoria_falha_dentro_do_timeout(
+    roles_anywhere: _RolesAnywhere,
+) -> None:
+    roles_anywhere.bound_by_timeout(TEST_TIMEOUT_SECONDS)
+    client = roles_anywhere.connect()
+    roles_anywhere.hang_helper(HUNG_HELPER_SECONDS)
+    roles_anywhere.clock.elapse(SESSION_SECONDS - MANDATORY_SECONDS + 1)
+    started = time.monotonic()
+
+    with pytest.raises(CredentialRetrievalError) as error:
+        client.list_tables()
+
+    assert TEST_TIMEOUT_SECONDS <= time.monotonic() - started < HUNG_HELPER_SECONDS
+    assert str(error.value) == TIMED_OUT
+    assert roles_anywhere.invocations() == [HELPER_ARGUMENTS] * 2
+    assert roles_anywhere.signed == []

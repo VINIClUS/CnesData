@@ -29,6 +29,14 @@ CREDENTIAL_MOUNTS = frozenset(
 )
 STATIC_KEY_NAMES = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")
 RESOURCE_LIMITS = ("cpus", "mem_limit", "memswap_limit", "pids_limit")
+TOP_LEVEL_KEYS = frozenset({"name", "services"})
+API_KEYS = frozenset(
+    {
+        "image", "build", "restart", "user", "read_only", "tmpfs", "cap_drop", "security_opt",
+        "cpus", "mem_limit", "memswap_limit", "pids_limit", "ports", "volumes", "healthcheck",
+        "logging",
+    }
+)
 NO_NEW_PRIVILEGES = "no-new-privileges:true"
 DATA_PROCESSOR = re.compile(r"data[-_ ]?processor", re.IGNORECASE)
 
@@ -164,6 +172,9 @@ def _unsafe_mount(document: Document) -> bool:
 
 
 VIOLATIONS: dict[str, Callable[[Document], bool]] = {
+    "unexpected_top_level_key": lambda document: not set(document) <= TOP_LEVEL_KEYS,
+    "unexpected_service_key": lambda document: not set(_api(document)) <= API_KEYS,
+    "interpolation": lambda document: _mentions(document, "$"),
     "data_processor_service": _has_data_processor,
     "unexpected_service": lambda document: set(_services(document)) != {API_SERVICE},
     "public_port": _has_public_port,
@@ -337,6 +348,26 @@ def _relative_config_source(document: Document) -> None:
     _api_of(document)["volumes"][0]["source"] = "./aws/config"
 
 
+def _include_vps_compose(document: Document) -> None:
+    document["include"] = ["prod/docker-compose.prod.yml"]
+
+
+def _extend_vps_service(document: Document) -> None:
+    _api_of(document)["extends"] = {"file": "prod/docker-compose.prod.yml", "service": API_SERVICE}
+
+
+def _privileged_from_environment(document: Document) -> None:
+    _api_of(document)["privileged"] = "${CNESDATA_PRIVILEGED:-true}"
+
+
+def _share_host_pid(document: Document) -> None:
+    _api_of(document)["pid"] = "host"
+
+
+def _share_volumes_from(document: Document) -> None:
+    _api_of(document)["volumes_from"] = ["container:portainer"]
+
+
 MUTATIONS = [
     pytest.param(_add_data_processor, "data_processor_service", id="data-processor"),
     pytest.param(_add_data_processor, "unexpected_service", id="segundo-service"),
@@ -375,6 +406,11 @@ MUTATIONS = [
     pytest.param(_writable_private_key, "unsafe_mount", id="chave-gravavel"),
     pytest.param(_auto_created_private_key, "unsafe_mount", id="chave-criada-pelo-docker"),
     pytest.param(_relative_config_source, "unsafe_mount", id="config-relativa"),
+    pytest.param(_include_vps_compose, "unexpected_top_level_key", id="include"),
+    pytest.param(_extend_vps_service, "unexpected_service_key", id="extends"),
+    pytest.param(_privileged_from_environment, "interpolation", id="privileged-interpolado"),
+    pytest.param(_share_host_pid, "unexpected_service_key", id="pid-host"),
+    pytest.param(_share_volumes_from, "unexpected_service_key", id="volumes-from"),
 ]
 
 

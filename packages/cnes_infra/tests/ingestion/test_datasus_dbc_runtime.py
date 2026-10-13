@@ -10,6 +10,7 @@ from sys import version_info
 from tomllib import loads as load_toml
 from typing import Any
 
+import pytest
 from dbfread import DBF
 
 from cnes_contracts import RawManifest
@@ -137,6 +138,7 @@ def _project(path: str) -> dict[str, Any]:
 
 
 _RUNTIME_STAGE_HEADERS = ["python:3.13-slim AS production", "python:3.13-slim"]
+_RUNTIME_FROM_LINES = ["FROM python:3.13-slim AS production\n", "FROM python:3.13-slim\n"]
 _RUNTIME_BUILDER_COPIES = (
     (
         "copy",
@@ -277,17 +279,32 @@ def test_imagem_runtime_importa_dbc_sem_cargo():
     _assert_toolchain_isolated(dockerfile)
 
 
-def test_imagem_runtime_rejeita_copy_amplo_com_formatacao_alternativa():
-    copy_instructions = (
+@pytest.mark.parametrize("header", _RUNTIME_FROM_LINES, ids=["production", "final"])
+@pytest.mark.parametrize(
+    "instruction",
+    [
         "    COPY --from=builder /usr/local/bin /usr/local/bin",
         "copy --from=builder /usr/local/bin /usr/local/bin",
-    )
+        "RUN apt-get update && apt-get install -y gcc",
+        "RUN cargo --version",
+    ],
+    ids=["copy-amplo-indentado", "copy-amplo-minusculo", "apt-get-install", "toolchain"],
+)
+def test_imagem_runtime_rejeita_copy_amplo_e_toolchain_em_cada_estagio(
+    header: str, instruction: str
+):
     dockerfile = (_ROOT / "apps" / "central_api" / "Dockerfile").read_text(encoding="utf-8")
-    runtime = "FROM python:3.13-slim\n"
 
-    for copy_instruction in copy_instructions:
-        mutated = dockerfile.replace(runtime, f"{runtime}{copy_instruction}\n", 1)
-        _assert_toolchain_isolation_fails(mutated)
+    assert dockerfile.count(header) == 1
+    _assert_toolchain_isolation_fails(dockerfile.replace(header, f"{header}{instruction}\n", 1))
+
+
+@pytest.mark.parametrize("header", _RUNTIME_FROM_LINES, ids=["production", "final"])
+def test_imagem_runtime_rejeita_base_com_toolchain_em_cada_estagio(header: str):
+    dockerfile = (_ROOT / "apps" / "central_api" / "Dockerfile").read_text(encoding="utf-8")
+
+    assert dockerfile.count(header) == 1
+    _assert_toolchain_isolation_fails(dockerfile.replace(header, header.replace("-slim", ""), 1))
 
 
 def test_manifesto_raw_golden_preserva_bytes_canonicos():
