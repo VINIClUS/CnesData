@@ -117,9 +117,6 @@ def test_periodo_exige_instante_utc(instant: object) -> None:
         (lambda: ConsumeExecutionAttempt(ENV, "2026-10-13", DISPATCH, NOW), "period_mismatch"),
         (lambda: ConsumeExecutionAttempt(ENV, PERIOD, DISPATCH, NAIVE), "datetime_not_utc"),
         (lambda: ConsumeExecutionAttempt(ENV, PERIOD, DISPATCH, OFFSET), "datetime_not_utc"),
-        (lambda: ConsumeExecutionAttempt(ENV, PERIOD, "", NOW), "blank_value"),
-        (lambda: ConsumeExecutionAttempt(ENV, PERIOD, "  ", NOW), "blank_value"),
-        (lambda: ConsumeExecutionAttempt(ENV, PERIOD, cast("str", None), NOW), "blank_value"),
         (lambda: ConsumeExecutionAttempt(ENV, PERIOD, DISPATCH, NOW, 0), "out_of_range"),
         (lambda: ConsumeExecutionAttempt(ENV, PERIOD, DISPATCH, NOW, True), "out_of_range"),
         (lambda: ConsumeExecutionAttempt(ENV, PERIOD, DISPATCH, NOW, cast("int", "200")),
@@ -145,6 +142,22 @@ def test_comando_valida_ambiente_periodo_instante_dispatch_e_limite(
 def test_erro_de_validacao_nomeia_o_campo(build: Callable[[], object], field: str) -> None:
     with pytest.raises(ValueError, match=f"field={field}$"):
         build()
+
+
+@pytest.mark.parametrize(
+    "dispatch_id",
+    [
+        " " * 16, "0123456789ABCDEF", "0123456789abcde", "0123456789abcdef0", "a" * 1024,
+        "", " 123456789abcdef", "0123456789abcdef\n", "0123456789abcdeg", None,
+    ],
+    ids=[
+        "espacos", "maiusculas", "15-chars", "17-chars", "1024-chars", "vazio", "espaco-inicial",
+        "quebra-de-linha", "nao-hex", "nao-texto",
+    ],
+)
+def test_rejeita_dispatch_id_fora_do_formato_hex16(dispatch_id: object) -> None:
+    with pytest.raises(ValueError, match=r"reason=invalid_hex16 field=dispatch_id$"):
+        ConsumeExecutionAttempt(ENV, PERIOD, cast("str", dispatch_id), NOW)
 
 
 def test_comando_e_resultado_sao_imutaveis() -> None:

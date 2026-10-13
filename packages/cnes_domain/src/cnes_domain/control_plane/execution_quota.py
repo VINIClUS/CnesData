@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from collections.abc import Set
 
 MONTHLY_ATTEMPT_LIMIT: Final = 200
+# Same rule as PermitHolder: the dispatch_id names the execution and enters the counted set.
+_DISPATCH_ID: Final = re.compile(r"^[0-9a-f]{16}$")
 
 
 class AttemptStatus(StrEnum):
@@ -26,9 +29,9 @@ def _require_utc(value: object) -> None:
         raise ValueError("reason=datetime_not_utc field=now")
 
 
-def _require_text(value: object, name: str) -> None:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"reason=blank_value field={name}")
+def _require_dispatch_id(value: object) -> None:
+    if not isinstance(value, str) or not _DISPATCH_ID.fullmatch(value):
+        raise ValueError("reason=invalid_hex16 field=dispatch_id")
 
 
 def _require_positive(value: object, name: str) -> None:
@@ -59,7 +62,7 @@ class ConsumeExecutionAttempt:
         require_environment(self.environment)
         if self.period != execution_period(self.now):
             raise ValueError("reason=period_mismatch field=period")
-        _require_text(self.dispatch_id, "dispatch_id")
+        _require_dispatch_id(self.dispatch_id)
         _require_positive(self.limit, "limit")
 
 

@@ -1,15 +1,15 @@
 """Mixin DynamoDB da quota mensal sobre moto: um ADD condicional, item antigo e erros do gate."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import boto3
 import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from cnes_domain.control_plane.environment_gate import PermitHolder
+from cnes_domain.control_plane.environment_gate import PermitHolder, ReanchorUnitPermit
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.control_plane.execution_quota import (
@@ -20,6 +20,8 @@ from cnes_domain.control_plane.execution_quota import (
 )
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.ports.environment_gate import (
+    DeferralReason,
+    DispatchDeferred,
     ExecutionObservation,
     ExecutionPresence,
     UnitAdmission,
@@ -33,6 +35,7 @@ from packages.cnes_infra.tests.control_plane.test_environment_gate import Script
 NOW = datetime(2026, 10, 13, 12, tzinfo=UTC)
 ENV = "prod"
 DISPATCH = "0123456789abcdef"
+HOLDER = PermitHolder("354130", "run-01", DISPATCH)
 LIMIT = 200
 EXHAUSTING_IDS = tuple(f"{index:016x}" for index in range(LIMIT))
 _UPDATE = "SET #entity = :entity, #expires = :expires ADD #count :one, #ids :idset"
@@ -85,6 +88,17 @@ def _ledger(client: ScriptedClient, now: datetime = NOW) -> tuple[int, set[str]]
     return int(item["attempts"]["N"]), set(item["dispatch_ids"]["SS"])
 
 
+def _rejected_with(item: dict[str, Any]) -> Callable[[], object]:
+    def effect() -> object:
+        response = {
+            "Error": {"Code": "ConditionalCheckFailedException", "Message": "rejected"},
+            "Item": item,
+        }
+        raise ClientError(cast("Any", response), "UpdateItem")
+
+    return effect
+
+
 def test_tentativa_199_para_200_passa(quota: _Quota) -> None:
     adapter, client = quota
     _seed(client, EXHAUSTING_IDS[:199])
@@ -109,15 +123,33 @@ def test_tentativa_200_para_201_rejeita(quota: _Quota) -> None:
 def test_falha_de_start_conta_como_tentativa(quota: _Quota) -> None:
     adapter, client = quota
     admission = EnvironmentAdmission(adapter, _AbsentProbe(), ENV, 300)
-    holder = PermitHolder("354130", "run-01", DISPATCH)
-    assert admission.admit(holder, NOW) == UnitAdmission(ENV, 1)
+    assert admission.admit(HOLDER, NOW) == UnitAdmission(ENV, 1)
 
     # StartExecution raised: the caller only settles the permit, nothing refunds the attempt.
-    admission.settle(holder, NOW)
+    admission.settle(HOLDER, NOW)
 
     assert _ledger(client) == (1, {DISPATCH})
-    assert admission.admit(holder, NOW + timedelta(seconds=1)) == UnitAdmission(ENV, 1)
+    assert admission.admit(HOLDER, NOW + timedelta(seconds=1)) == UnitAdmission(ENV, 1)
     assert _ledger(client) == (1, {DISPATCH})
+
+
+def test_quota_esgotada_nao_libera_o_permit_reancorado_entre_claim_e_leitura(
+    quota: _Quota,
+) -> None:
+    adapter, client = quota
+    _seed(client, EXHAUSTING_IDS)
+    rival = DynamoDBControlPlane(client.client, _TABLE_NAME, lambda: NOW)
+    later = NOW + timedelta(seconds=1)
+    # The rival re-entry re-anchors after this acquire's claim and before its strong read.
+    client.inject("get_item", lambda: rival.reanchor_unit_permit(ReanchorUnitPermit(ENV, 1, later)))
+    admission = EnvironmentAdmission(adapter, _AbsentProbe(), ENV, 300)
+
+    deferred = admission.admit(HOLDER, NOW)
+
+    permit = adapter.observe_environment_gate(ENV).permit
+    assert deferred == DispatchDeferred(DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED)
+    assert permit is not None
+    assert (permit.holder, permit.acquired_at) == (HOLDER, later)
 
 
 def test_replay_do_mesmo_dispatch_nao_conta_de_novo(quota: _Quota) -> None:
@@ -220,6 +252,24 @@ def test_conflito_transacional_persistente_esgota_tentativas(quota: _Quota) -> N
         adapter.consume_execution_attempt(_attempt())
 
     assert error.value.code is ErrorCode.TRANSACTION_CONFLICT
+    assert _stored(client) is None
+
+
+@pytest.mark.parametrize(
+    ("dispatch_ids", "status"),
+    [(["x"], AttemptStatus.EXHAUSTED), (["x", DISPATCH], AttemptStatus.ALREADY_COUNTED)],
+    ids=["fora-do-conjunto", "no-conjunto"],
+)
+def test_falha_condicional_nunca_vira_counted(
+    quota: _Quota, dispatch_ids: list[str], status: AttemptStatus,
+) -> None:
+    adapter, client = quota
+    unexplained = {"attempts": {"N": "3"}, "dispatch_ids": {"SS": dispatch_ids}}
+    client.inject("update_item", _rejected_with(unexplained))
+
+    outcome = adapter.consume_execution_attempt(_attempt())
+
+    assert outcome == AttemptOutcome(status, 3, LIMIT)
     assert _stored(client) is None
 
 

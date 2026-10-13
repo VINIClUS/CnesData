@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from botocore.exceptions import ReadTimeoutError
+from botocore.exceptions import ClientError, ReadTimeoutError
 
 from apps.central_api.tests.services.test_run_planning import (
     _COMPETENCIA,
@@ -29,6 +29,7 @@ from apps.central_api.tests.services.test_run_planning_environment_gate import (
     _held,
     _hold,
     _holder,
+    _next_acquire,
     _permit,
     _planned,
     _variant,
@@ -42,11 +43,7 @@ from apps.central_api.tests.services.test_run_planning_environment_gate import (
 from central_api.services.run_planning import RunPlanningService
 from cnes_domain.control_plane.entities import RawManifestRecord
 from cnes_domain.control_plane.enums import DispatchState, RunState
-from cnes_domain.control_plane.environment_gate import (
-    AcquireUnitPermit,
-    AcquisitionStatus,
-    ClosePromotionFence,
-)
+from cnes_domain.control_plane.environment_gate import AcquisitionStatus, ClosePromotionFence
 from cnes_domain.control_plane.execution_quota import execution_period
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.ports.environment_gate import (
@@ -79,7 +76,7 @@ if TYPE_CHECKING:
     )
     from central_api.services.run_planning import RunLaunchResult
     from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
-    from cnes_domain.control_plane.environment_gate import PermitHolder, UnitPermit
+    from cnes_domain.control_plane.environment_gate import PermitHolder
     from cnes_domain.ports.environment_gate import ExecutionObservation
     from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
     from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
@@ -91,7 +88,7 @@ type _Caller = Callable[[RunPlanningService], _Pass]
 __all__ = ["adapter", "clock", "executor", "gate", "service", "store"]
 _FENCE_DEFERRED = [(RunState.PROCESSING, DeferralReason.FENCE_CLOSED)]
 _WAITING_RUN_IDS = ("run-1", "run-2", "run-3")
-_CALLER_IDS = ["inicial", "recovery"]
+_QUOTA_DEFERRED = DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED
 
 
 @dataclass
@@ -165,6 +162,15 @@ def _close_fence(gate: DynamoDBControlPlane, clock: _MutableClock) -> None:
     assert gate.close_promotion_fence(ClosePromotionFence(_ENVIRONMENT, "release-3", clock.now()))
 
 
+def _coordinator(service: RunPlanningService) -> PipelineCoordinator:
+    deps = service._dependencies
+    publisher = DatasetPublisher(store=deps.object_store, control_plane=deps.control_plane)
+    return PipelineCoordinator(CoordinatorDependencies(
+        control_plane=deps.control_plane, executor=deps.executor, publisher=publisher,
+        clock=service._clock,
+    ), service._execution)
+
+
 def _initial(service: RunPlanningService) -> _Pass:
     return lambda: service.launch(_TENANT, _RUN_ID)
 
@@ -172,14 +178,7 @@ def _initial(service: RunPlanningService) -> _Pass:
 def _recovery(service: RunPlanningService) -> _Pass:
     # The processor resumes only PROCESSING runs: the API plans this one without dispatching.
     _variant(service, noop_execution_started, dispatch_enabled=False).launch(_TENANT, _RUN_ID)
-    dependencies = service._dependencies
-    publisher = DatasetPublisher(
-        store=dependencies.object_store, control_plane=dependencies.control_plane,
-    )
-    coordinator = PipelineCoordinator(CoordinatorDependencies(
-        control_plane=dependencies.control_plane, executor=dependencies.executor,
-        publisher=publisher, clock=service._clock,
-    ), service._execution)
+    coordinator = _coordinator(service)
     return lambda: coordinator.recover(limit=10)[0]
 
 
@@ -188,13 +187,14 @@ _CALLERS: list[_Caller] = [_initial, _recovery]
 
 def _exhaust(gate: DynamoDBControlPlane, clock: _MutableClock) -> None:
     # Lazy: the n-plus-1 CI job collects these tests without moto installed.
-    from packages.cnes_infra.tests.control_plane.test_execution_quota import (
-        EXHAUSTING_IDS,
-        attempts_item,
-    )
+    from packages.cnes_infra.tests.control_plane import test_execution_quota as quota
 
-    item = attempts_item(_ENVIRONMENT, clock.now(), EXHAUSTING_IDS)
+    item = quota.attempts_item(_ENVIRONMENT, clock.now(), quota.EXHAUSTING_IDS)
     gate._client.put_item(TableName=gate._table_name, Item=item)
+
+
+def _throttled_write(**request: Any) -> Any:
+    raise ClientError(cast("Any", {"Error": {"Code": "ThrottlingException"}}), "UpdateItem")
 
 
 def _attempts(gate: DynamoDBControlPlane, clock: _MutableClock) -> int:
@@ -422,7 +422,7 @@ def test_cancelamento_sem_gate_nao_rele_as_unidades(
     assert reads == []
 
 
-@pytest.mark.parametrize("caller", _CALLERS, ids=_CALLER_IDS)
+@pytest.mark.parametrize("caller", _CALLERS, ids=["inicial", "recovery"])
 def test_quota_esgotada_nao_chama_executor(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
     gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
@@ -430,19 +430,16 @@ def test_quota_esgotada_nao_chama_executor(
 ) -> None:
     _planned(adapter, store)
     _exhaust(gate, clock)
-    run_pass = caller(service)
 
-    result = run_pass()
+    result = caller(service)()
 
-    assert (result.execution_ref, result.deferred) == (
-        None, DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED,
-    )
+    assert (result.execution_ref, result.deferred) == (None, _QUOTA_DEFERRED)
     assert (executor.calls, executor.started) == ([], [])
     assert _active(adapter).state is DispatchState.RESERVED
     assert _attempts(gate, clock) == 200
 
 
-@pytest.mark.parametrize("caller", _CALLERS, ids=_CALLER_IDS)
+@pytest.mark.parametrize("caller", _CALLERS, ids=["inicial", "recovery"])
 def test_quota_esgotada_libera_permit_de_unidade(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, gate: DynamoDBControlPlane,
     service: RunPlanningService, clock: _MutableClock, caller: _Caller,
@@ -452,16 +449,11 @@ def test_quota_esgotada_libera_permit_de_unidade(
 
     caller(service)()
 
-    assert _permit(gate) is None
-    successor = gate.acquire_unit_permit(
-        AcquireUnitPermit(_ENVIRONMENT, _NEXT, clock.now(), _LEASE_SECONDS),
-    )
-    assert (successor.status, cast("UnitPermit", successor.permit).token) == (
-        AcquisitionStatus.ACQUIRED, 2,
-    )
+    assert (_permit(gate), _next_acquire(gate, clock)) == (None, AcquisitionStatus.ACQUIRED)
+    assert _held(gate).token == 2
 
 
-@pytest.mark.parametrize("caller", _CALLERS, ids=_CALLER_IDS)
+@pytest.mark.parametrize("caller", _CALLERS, ids=["inicial", "recovery"])
 def test_task_hours_fora_do_caminho_de_decisao(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
     gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
@@ -481,3 +473,28 @@ def test_task_hours_fora_do_caminho_de_decisao(
     assert current.generation == 2
     assert executor.calls == ["start", "probe", "start"]
     assert _attempts(gate, clock) == 2
+
+
+@pytest.mark.parametrize(
+    "recover", [RunPlanningService.recover, lambda service: _coordinator(service).recover()],
+    ids=["api", "processor"],
+)
+def test_reconcile_do_recover_libera_o_permit_preso_por_erro_na_quota(
+    adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
+    gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
+    monkeypatch: pytest.MonkeyPatch, recover: Callable[[RunPlanningService], tuple[Any, ...]],
+) -> None:
+    production = _with_execution(service, dispatch_lease_seconds=3600)
+    _planned(adapter, store)
+    _exhaust(gate, clock)
+    monkeypatch.setattr(gate._client, "update_item", _throttled_write)
+    with pytest.raises(ClientError, match="ThrottlingException"):
+        production.launch(_TENANT, _RUN_ID)
+    monkeypatch.undo()
+    assert _held(gate).holder == _holder(_active(adapter))
+    clock.advance(timedelta(minutes=30))
+
+    results = recover(production)
+
+    assert [result.deferred for result in results] == [_QUOTA_DEFERRED]
+    assert (_permit(gate), executor.calls) == (None, ["probe"])

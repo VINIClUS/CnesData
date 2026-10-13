@@ -209,8 +209,9 @@ class EnvironmentAdmission:
         return DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED
 
     def _release_unstarted(self, permit: UnitPermit, now: datetime) -> None:
-        # Anchored on this acquire: a concurrent re-entry that already re-anchored keeps it.
-        command = ReleaseUnitPermit(self._environment, permit.token, now, permit.acquired_at)
+        # The claim of this call wrote `now` as the anchor, while the permit read afterwards may
+        # already carry a rival re-entry's re-anchor: only the untouched claim is released.
+        command = ReleaseUnitPermit(self._environment, permit.token, now, now)
         applied = self._gate.release_unit_permit(command)
         logger.info(
             "unit_permit_released environment=%s dispatch_id=%s token=%d reason=%s applied=%s",

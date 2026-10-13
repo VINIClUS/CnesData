@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from cnes_domain.control_plane.environment_gate import ReanchorUnitPermit
+from cnes_domain.control_plane.environment_gate import (
+    AcquisitionStatus,
+    PermitAcquisition,
+    ReanchorUnitPermit,
+)
 from cnes_domain.control_plane.execution_quota import execution_period
 from cnes_domain.ports.environment_gate import (
     DeferralReason,
@@ -36,6 +40,7 @@ from packages.cnes_domain.tests.orchestration.test_dispatch_admission import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from cnes_domain.control_plane.environment_gate import AcquireUnitPermit
     from cnes_domain.control_plane.execution_quota import AttemptOutcome, ConsumeExecutionAttempt
 
 __all__ = ["gate", "probe"]
@@ -187,6 +192,24 @@ def test_quota_esgotada_nao_libera_o_permit_reancorado_por_reentrada_concorrente
 
     assert (_current(gate).holder, _current(gate).acquired_at) == (HOLDER, NOW + SECOND)
     assert gate.calls == ["acquire", "reanchor", "consume", "release"]
+
+
+def test_quota_esgotada_nao_libera_permit_reancorado_entre_claim_e_leitura(
+    gate: _MemoryGate, probe: _Probe,
+) -> None:
+    _fill(gate)
+    acquire = gate.acquire_unit_permit
+
+    def _rival_reanchor_before_read(command: AcquireUnitPermit) -> PermitAcquisition:
+        acquire(command)
+        assert gate.reanchor_unit_permit(ReanchorUnitPermit(ENV, 1, NOW + SECOND))
+        return PermitAcquisition(AcquisitionStatus.ACQUIRED, _current(gate))
+
+    cast("Any", gate).acquire_unit_permit = _rival_reanchor_before_read
+
+    assert _service(gate, probe).admit(HOLDER, NOW) == EXHAUSTED
+
+    assert (_current(gate).holder, _current(gate).acquired_at) == (HOLDER, NOW + SECOND)
 
 
 def test_cada_decisao_da_quota_gera_um_evento(
