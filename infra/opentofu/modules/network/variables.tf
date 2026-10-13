@@ -41,6 +41,34 @@ variable "public_subnets" {
     ])
     error_message = "public_subnets keys must be AZ IDs and values canonical IPv4 CIDRs."
   }
+
+  validation {
+    condition = alltrue([
+      for cidr in values(var.public_subnets) : can(regex("/(1[6-9]|2[0-8])$", cidr)) && try(
+        tonumber(split("/", cidr)[1]) >= tonumber(split("/", var.vpc_cidr)[1]) &&
+        cidrhost("${split("/", cidr)[0]}/${split("/", var.vpc_cidr)[1]}", 0) ==
+        cidrhost(var.vpc_cidr, 0),
+        false
+      )
+    ])
+    error_message = "public_subnets must be /16 to /28 CIDRs inside vpc_cidr."
+  }
+
+  # Two ranges overlap exactly when their networks match under the shorter of their prefixes.
+  validation {
+    condition = try(
+      length(distinct([
+        for cidr in values(var.public_subnets) : cidrhost(
+          "${split("/", cidr)[0]}/${min([
+            for other in values(var.public_subnets) : tonumber(split("/", other)[1])
+          ]...)}",
+          0
+        )
+      ])) == length(var.public_subnets),
+      false
+    )
+    error_message = "public_subnets must not overlap."
+  }
 }
 
 variable "gateway_endpoints" {

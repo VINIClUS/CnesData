@@ -31,6 +31,7 @@ MODULE_DIRECTORY = REPO_ROOT / "infra/opentofu/modules/network"
 ASL_FIXTURES = REPO_ROOT / "packages/cnes_infra/tests/fixtures/step_functions"
 MODULE_SOURCE = "../../modules/network"
 PUBLIC_SUBNETS = {"use2-az1": "10.42.0.0/26"}
+OVERLAPPING_SUBNETS = {"use2-az1": "10.42.0.0/26", "use2-az2": "10.42.0.32/27"}
 NETWORK = {
     "name_prefix": "cnesdata-prod", "vpc_cidr": "10.42.0.0/24", "public_subnets": PUBLIC_SUBNETS,
 }
@@ -62,6 +63,9 @@ INVALID_RUNS = {
     "nome_de_az_no_lugar_do_id_e_rejeitado": {"public_subnets": {"us-east-2a": "10.42.0.0/26"}},
     "subnet_ipv6_e_rejeitada": {"public_subnets": {"use2-az1": "2600:1f16::/64"}},
     "subnet_nao_canonica_e_rejeitada": {"public_subnets": {"use2-az1": "10.42.0.1/26"}},
+    "subnet_menor_que_28_e_rejeitada": {"public_subnets": {"use2-az1": "10.42.0.0/29"}},
+    "subnet_fora_da_vpc_e_rejeitada": {"public_subnets": {"use2-az1": "10.43.0.0/26"}},
+    "subnets_sobrepostas_sao_rejeitadas": {"public_subnets": OVERLAPPING_SUBNETS},
     "vpc_nao_canonica_e_rejeitada": {"vpc_cidr": "10.42.0.1/24"},
     "vpc_maior_que_16_e_rejeitada": {"vpc_cidr": "10.0.0.0/8"},
 }

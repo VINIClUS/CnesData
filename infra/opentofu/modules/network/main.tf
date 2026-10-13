@@ -12,9 +12,11 @@ locals {
 
 data "aws_region" "current" {}
 
+# The S3 gateway endpoint requires both DNS attributes when tasks use the Amazon DNS servers.
 resource "aws_vpc" "this" {
-  cidr_block         = var.vpc_cidr
-  enable_dns_support = true
+  cidr_block           = var.vpc_cidr
+  enable_dns_support   = true
+  enable_dns_hostnames = true
 
   tags = {
     Name = "${var.name_prefix}-vpc"
