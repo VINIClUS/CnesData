@@ -12,3 +12,13 @@ module "data_buckets" {
     audit = "${local.name_prefix}-audit"
   }
 }
+
+module "network" {
+  source = "../../modules/network"
+
+  name_prefix = local.name_prefix
+  vpc_cidr    = "10.42.0.0/24"
+  public_subnets = {
+    "use2-az1" = "10.42.0.0/26"
+  }
+}
