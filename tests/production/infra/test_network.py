@@ -66,8 +66,15 @@ INVALID_RUNS = {
     "subnet_menor_que_28_e_rejeitada": {"public_subnets": {"use2-az1": "10.42.0.0/29"}},
     "subnet_fora_da_vpc_e_rejeitada": {"public_subnets": {"use2-az1": "10.43.0.0/26"}},
     "subnets_sobrepostas_sao_rejeitadas": {"public_subnets": OVERLAPPING_SUBNETS},
+    "subnet_maior_que_a_vpc_e_rejeitada": {"public_subnets": {"use2-az1": "10.42.0.0/23"}},
     "vpc_nao_canonica_e_rejeitada": {"vpc_cidr": "10.42.0.1/24"},
     "vpc_maior_que_16_e_rejeitada": {"vpc_cidr": "10.0.0.0/8"},
+}
+ADJACENT_REVERSED = {"use2-az1": "10.42.0.128/26", "use2-az2": "10.42.0.0/25"}
+VALID_RUNS = {
+    "azs_adjacentes_em_ordem_inversa_passam": {"public_subnets": ADJACENT_REVERSED},
+    "vpc_16_passa": {"vpc_cidr": "10.42.0.0/16", "public_subnets": {"use2-az1": "10.42.0.0/16"}},
+    "subnet_28_passa": {"public_subnets": {"use2-az1": "10.42.0.0/28"}},
 }
 GATEWAY_ENDPOINT_IDS = {"s3": ENDPOINT_ID, "dynamodb": ENDPOINT_ID}
 PUBLIC_TLS_EGRESS = (SECURITY_GROUP_ID, "tcp", 443, 443, "0.0.0.0/0")
@@ -165,10 +172,11 @@ def _suites(shared_outputs: Mapping[str, object]) -> dict[str, str]:
         _run(name, NETWORK | bad, f"\n  expect_failures = [var.{next(iter(bad))}]\n", MODULE_SOURCE)
         for name, bad in INVALID_RUNS.items()
     )
+    accepted = "".join(_run(n, NETWORK | v, "", MODULE_SOURCE) for n, v in VALID_RUNS.items())
     # A missing expected failure errors its whole file and skips every later run in it.
     return {
         "network": MOCK_PROVIDERS + modules + root,
-        "network-validation": MOCK_PROVIDERS + rejections,
+        "network-validation": MOCK_PROVIDERS + accepted + rejections,
     }
 
 
@@ -462,7 +470,7 @@ def test_tupla_de_rede_passa_no_validador_de_producao(plan_report: TofuReport) -
 
 
 def test_variaveis_de_rede_rejeitam_entrada_invalida(plan_report: TofuReport) -> None:
-    _assert_runs(plan_report, dict.fromkeys(INVALID_RUNS, "pass"))
+    _assert_runs(plan_report, dict.fromkeys((*VALID_RUNS, *INVALID_RUNS), "pass"))
 
 
 def test_raiz_sintetica_com_proibidos_aparece_nos_dois_grafos(synthetic_graphs: Graphs) -> None:
