@@ -32,7 +32,10 @@ lease (reaper removido em MIG-012).
   `legacy_route_retired`, sem tocar o `DashboardRepo`
 - `GET /api/v1/dashboard/serving/{dataset_name}/{document_name}` — única leitura de produto: só o
   pointer `current`; dataset fora de `build_source_catalog()` → 404 `dataset_unknown`; conteúdo
-  ativo ausente → 503 `active_serving_unavailable`, sem fallback a versão anterior nem a Postgres
+  ativo ausente → 503 `active_serving_unavailable`, sem fallback a versão anterior nem a Postgres.
+  `PROFILE=aws`: 200 `{url, version_id, expires_in}` com `Cache-Control: private, no-store`, sem
+  `Location`; URL assinada e object key nunca em log nem `repr` (`ServingEnvelope`,
+  `SignedServingGrant`)
 - /api/v1/dashboard/access-requests/*
 - `POST /api/v1/activate/confirm` — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit
   10/min); `oauth.activation_router` montado em `/api/v1`, sem rota na raiz nem redirect.
@@ -144,7 +147,7 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `src/central_api/routes/admin.py` | `/api/v1/admin/reap-leases` — aposentada (410) |
 | `src/central_api/routes/dashboard.py` | `/api/v1/dashboard/auth/me`, tenants, agents |
 | `src/central_api/routes/overview.py` | rotas legadas `/overview` e `/faturamento/by-establishment` aposentadas (410) |
-| `src/central_api/routes/serving.py` | `/api/v1/dashboard/serving/{dataset}/{doc}` — leitura pointer-only (stream local ou 307 aws) |
+| `src/central_api/routes/serving.py` | `/api/v1/dashboard/serving/{dataset}/{doc}` — leitura pointer-only (stream local ou envelope 200 aws) |
 | `src/central_api/routes/access_requests.py` | signup JIT access request |
 | `src/central_api/routes/oauth.py` | device flow na raiz + `activation_router` em `/api/v1` |
 | `src/central_api/routes/provision.py` | cert enrollment |

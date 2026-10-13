@@ -272,11 +272,20 @@ de hoje; ninguém na aplicação chama ECS.
   token inválido, 401 `token_invalid`; sem header, 400 `tenant_header_required`; sem
   membership, 403 `tenant_not_allowed`. Do token só saem `iss` e `sub`. O tenant é autorizado
   por leitura consistente da membership na chave base; o índice `gsi1` só lista candidatos.
-- `GET /api/v1/dashboard/serving/{dataset}/{documento}` responde 307 para uma URL assinada de
-  `serving/<tenant>/<run_id>/<documento>.json`, com `X-Dataset-Version` e
-  `Cache-Control: private, no-store`, válida por `AWS_SERVING_URL_TTL_SECONDS`. Só chaves do
-  grant ativo são assinadas. Fora do grant, 404 `serving_document_not_found`; objeto ausente ou
-  falha de assinatura, 503 `active_serving_unavailable`.
+- `GET /api/v1/dashboard/serving/{dataset}/{documento}` responde 200 com o envelope exato
+  `{url, version_id, expires_in}`, `X-Dataset-Version` e `Cache-Control: private, no-store`, sem
+  redirect nem `Location`. `url` é o GET assinado de `serving/<tenant>/<run_id>/<documento>.json`
+  no host regional `<bucket>.s3.<região>.amazonaws.com`, com o override
+  `response-cache-control` em `private, no-store`; `expires_in` é o
+  `AWS_SERVING_URL_TTL_SECONDS` efetivo (300 em produção). Só chaves do grant ativo são
+  assinadas. Fora do grant, 404 `serving_document_not_found`; objeto ausente ou falha de
+  assinatura, 503 `active_serving_unavailable`. Falha de transporte do S3 ou do DynamoDB nas
+  leituras da policy de serving (pointer, versão, manifest e stat), depois da membership do
+  middleware, também vira 503 `active_serving_unavailable`, com só o WARNING
+  `serving_authorization_lookup_failed error=<tipo>`, sem mensagem nem causa. Falha nas leituras
+  de billing segue como 503 `billing_dependency_unavailable`. URL assinada e object key não vão
+  para log nem `repr`; o dashboard faz a segunda chamada direto ao S3, sem credenciais nem
+  headers.
 
 ## Logs e métricas
 
@@ -382,9 +391,9 @@ são o que impede replay de execução terminal, e a edição manual os contorna
 
 ## Fora do escopo deste gate
 
-- O plano de runtime-amendments troca o serving 307 por um envelope 200 (Task 5) e exige
-  `AssignPublicIp=ENABLED` com subnets públicas exatas em produção (Task 6). Hoje o validador
-  exige `DISABLED`. O mesmo plano introduz `dispatch-outbox-once`, o deadline no PID 1 e o
-  runbook `runtime-acceptance.md`, que ainda não existem.
+- O plano de runtime-amendments exige `AssignPublicIp=ENABLED` com subnets públicas exatas em
+  produção (Task 6). Hoje o validador exige `DISABLED`. O mesmo plano introduz
+  `dispatch-outbox-once`, o deadline no PID 1 e o runbook `runtime-acceptance.md`, que ainda
+  não existem.
 - Tabela, buckets, state machine, roles, KMS, rede, agendador e alarmes: plano de
   infraestrutura de 2026-08-31.

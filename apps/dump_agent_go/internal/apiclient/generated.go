@@ -1446,7 +1446,7 @@ type ClientInterface interface {
 
 	// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet Read Serving Document
 	//
-	// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+	// Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.
 	//
 	// Corresponds with GET /api/v1/dashboard/serving/{dataset_name}/{document_name} (the `ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet` operationId).
 	ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet(ctx context.Context, datasetName string, documentName string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2228,7 +2228,7 @@ func (c *Client) GetOverviewApiV1DashboardOverviewGet(ctx context.Context, param
 
 // ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet Read Serving Document
 //
-// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+// Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.
 //
 // Corresponds with GET /api/v1/dashboard/serving/{dataset_name}/{document_name} (the `ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet` operationId).
 func (c *Client) ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet(ctx context.Context, datasetName string, documentName string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -4800,7 +4800,7 @@ type ClientWithResponsesInterface interface {
 
 	// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse Read Serving Document
 	//
-	// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+	// Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -7341,7 +7341,7 @@ func (c *ClientWithResponses) GetOverviewApiV1DashboardOverviewGetWithResponse(c
 
 // ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse Read Serving Document
 //
-// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+// Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.
 //
 // Returns a wrapper object for the known response body format(s).
 //
