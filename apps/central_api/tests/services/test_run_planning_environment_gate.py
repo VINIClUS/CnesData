@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, cast
 import boto3
 import pytest
 from botocore.exceptions import ReadTimeoutError
-from moto import mock_aws
 
 from apps.central_api.tests.services.test_run_planning import (
     _NOW,
@@ -58,10 +57,6 @@ from cnes_domain.profiles import parse_profile
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.coordinator import allow_execution, noop_execution_started
-from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
-    _TABLE_NAME,
-    _create_table,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -142,6 +137,14 @@ def executor() -> _StepFunctions:
 
 @pytest.fixture
 def gate(clock: _MutableClock) -> Iterator[DynamoDBControlPlane]:
+    # Lazy: the n-plus-1 CI job collects these tests without moto installed.
+    from moto import mock_aws
+
+    from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
+        _TABLE_NAME,
+        _create_table,
+    )
+
     with mock_aws():
         client = boto3.client("dynamodb", region_name="us-east-1")
         _create_table(client)
