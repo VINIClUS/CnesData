@@ -278,12 +278,14 @@ de hoje; ninguém na aplicação chama ECS.
   no host regional `<bucket>.s3.<região>.amazonaws.com`, com o override
   `response-cache-control` em `private, no-store`; `expires_in` é o
   `AWS_SERVING_URL_TTL_SECONDS` efetivo (300 em produção). Só chaves do grant ativo são
-  assinadas. Fora do grant, 404 `serving_document_not_found`; objeto ausente, falha de
-  transporte do S3 ou do DynamoDB na autorização ou falha de assinatura, 503
-  `active_serving_unavailable`. A falha de transporte gera só o WARNING
-  `serving_authorization_lookup_failed error=<tipo>`, sem mensagem nem causa. URL assinada e
-  object key não vão para log nem `repr`; o dashboard faz a segunda chamada direto ao S3, sem
-  credenciais nem headers.
+  assinadas. Fora do grant, 404 `serving_document_not_found`; objeto ausente ou falha de
+  assinatura, 503 `active_serving_unavailable`. Falha de transporte do S3 ou do DynamoDB nas
+  leituras da policy de serving (pointer, versão, manifest e stat), depois da membership do
+  middleware, também vira 503 `active_serving_unavailable`, com só o WARNING
+  `serving_authorization_lookup_failed error=<tipo>`, sem mensagem nem causa. Falha nas leituras
+  de billing segue como 503 `billing_dependency_unavailable`. URL assinada e object key não vão
+  para log nem `repr`; o dashboard faz a segunda chamada direto ao S3, sem credenciais nem
+  headers.
 
 ## Logs e métricas
 

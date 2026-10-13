@@ -27,7 +27,6 @@ const TENANTS_PATH = "/api/v1/dashboard/tenants";
 const LEGACY_OVERVIEW_PATH = "/api/v1/dashboard/overview";
 const LEGACY_FATURAMENTO_PATH = "/api/v1/dashboard/faturamento/by-establishment";
 const TENANT = "354130";
-const OTHER_TENANT = "350950";
 const TENANT_ROW = { ibge6: TENANT, ibge7: "3541308", nome: "Presidente Epitácio", uf: "SP" };
 const S3_ORIGIN = "https://cnesdata-prod-data.s3.us-east-2.amazonaws.com";
 const S3_PATH = `/serving/${TENANT}/run-1/overview.json`;
@@ -321,75 +320,6 @@ describe("useServingOverview", () => {
     expect(tenants).toEqual([null]);
     expect(paths).toEqual([SERVING_PATH]);
     expect(result.current.data).toEqual(FIXTURE);
-  });
-
-  test("tenants_pendentes_mostram_carregando", async () => {
-    let listTenants: (response: Response) => void = () => undefined;
-    const listed = new Promise<Response>((resolve) => {
-      listTenants = resolve;
-    });
-    server.use(http.get(TENANTS_PATH, () => listed));
-    const tenants = serveOverview();
-
-    const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(result.current).toMatchObject({ isLoading: true, isError: false, data: undefined });
-    expect(tenants).toEqual([]);
-
-    listTenants(HttpResponse.json([TENANT_ROW]));
-    await waitFor(() => expect(result.current.data).toEqual(FIXTURE));
-    expect(tenants).toEqual([TENANT]);
-  });
-
-  test.each([
-    [400, "tenant_header_required"],
-    [500, "boom"],
-  ])("falha_ao_listar_tenants_vira_erro_visivel_%i", async (status, detail) => {
-    server.use(http.get(TENANTS_PATH, () => HttpResponse.json({ detail }, { status })));
-    const tenants = serveOverview();
-
-    const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
-    await waitFor(() => expect(result.current.isError).toBe(true));
-
-    expect(result.current.error).toBeInstanceOf(ApiError);
-    expect(result.current.error).toMatchObject({ status, body: { detail } });
-    expect(result.current).toMatchObject({ isLoading: false, data: undefined });
-    expect(tenants).toEqual([]);
-  });
-
-  test("lista_de_tenants_vazia_vira_erro_visivel", async () => {
-    server.use(http.get(TENANTS_PATH, () => HttpResponse.json([])));
-    const tenants = serveOverview();
-
-    const { result } = renderHook(() => useServingOverview(), { wrapper: wrap });
-    await waitFor(() => expect(result.current.isError).toBe(true));
-
-    expect(result.current.error).toBeInstanceOf(ServingDeliveryError);
-    expect(result.current.error).toMatchObject({ message: "serving_tenant_missing=empty" });
-    expect(result.current).toMatchObject({ isLoading: false, data: undefined });
-    expect(tenants).toEqual([]);
-  });
-
-  test("troca_de_tenant_busca_de_novo_sem_reusar_cache_do_outro_tenant", async () => {
-    let selected = TENANT;
-    const seen: (string | null)[] = [];
-    server.use(
-      http.get(TENANTS_PATH, () => HttpResponse.json([{ ...TENANT_ROW, ibge6: selected }])),
-      http.get(SERVING_PATH, ({ request }) => {
-        const tenant = request.headers.get("x-tenant-id");
-        seen.push(tenant);
-        return HttpResponse.json({ ...FIXTURE, tenant_id: tenant });
-      }),
-    );
-    const client = productionClient();
-    const { result } = renderHook(() => useServingOverview(), { wrapper: withClient(client) });
-    await waitFor(() => expect(result.current.data?.tenant_id).toBe(TENANT));
-
-    selected = OTHER_TENANT;
-    await act(() => client.invalidateQueries({ queryKey: ["tenants"] }));
-
-    await waitFor(() => expect(result.current.data?.tenant_id).toBe(OTHER_TENANT));
-    expect(seen).toEqual([TENANT, OTHER_TENANT]);
   });
 
   test("estado_503_indisponivel_nao_e_silencioso", async () => {

@@ -127,8 +127,13 @@ type ServingOverviewResult = Pick<
 
 function withoutTenant(
   tenants: UseQueryResult<Tenant[]>,
-  refetch: ServingOverviewResult["refetch"],
+  serving: UseQueryResult<ServingOverview, unknown>,
 ): ServingOverviewResult {
+  // The serving refetch ignores `enabled` and would go out without X-Tenant-Id.
+  const refetch: ServingOverviewResult["refetch"] = async (options) => {
+    await tenants.refetch(options);
+    return serving;
+  };
   const base = { data: undefined, refetch };
   if (tenants.data !== undefined) {
     const error = new ServingDeliveryError("serving_tenant_missing", "empty");
@@ -142,7 +147,7 @@ export function useServingOverview(): ServingOverviewResult {
   const tenants = useTenants();
   const tenantId = tenants.data?.[0]?.ibge6;
   const ready = env.VITE_AUTH_MODE === "local" || tenantId !== undefined;
-  const { data, error, isError, isLoading, refetch } = useQuery({
+  const serving = useQuery({
     queryKey: ["serving-overview", tenantId ?? null],
     queryFn: () => fetchServingOverview(tenantId),
     enabled: ready,
@@ -150,5 +155,6 @@ export function useServingOverview(): ServingOverviewResult {
     refetchOnWindowFocus: false,
     retry: shouldRetryServing,
   });
-  return ready ? { data, error, isError, isLoading, refetch } : withoutTenant(tenants, refetch);
+  const { data, error, isError, isLoading, refetch } = serving;
+  return ready ? { data, error, isError, isLoading, refetch } : withoutTenant(tenants, serving);
 }
