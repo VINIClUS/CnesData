@@ -389,11 +389,12 @@ class PipelineCoordinator:
                         run.tenant_id,
                         run.run_id,
                     )
-        if failed or reconcile_error is not None:
-            reconciled = reconcile_error is None
+        if reconcile_error is not None:
             raise RecoveryFailed(
-                tuple(results), failed, reconcile_failed=not reconciled,
+                tuple(results), failed, reconcile_failed=True,
             ) from reconcile_error
+        if failed:
+            raise RecoveryFailed(tuple(results), failed)
         return tuple(results)
 
 
