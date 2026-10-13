@@ -3,21 +3,15 @@ from typing import cast
 
 import pytest
 
-from tests.production.infra import test_network as network
 from tests.production.infra.test_network import (
     MODULE_DIRECTORY,
     NAT_LB_LISTENER,
-    ROOT_RUN,
     SECURITY_GROUPS,
     SYNTHETIC_SUITE,
     Artifacts,
     Node,
-    TofuReport,
-    _assert_egress,
-    _assert_runs,
     _category,
     _config_resources,
-    _plan_resources,
     _suites,
 )
 
@@ -26,15 +20,6 @@ SORTED_UNIQUE_SUBNETS = "sort(distinct([for subnet in aws_subnet.public : subnet
 SUBNET_OUTPUT = re.compile(
     r'^output "public_subnet_ids" \{\n(?:  .*\n)*?  value\s*=\s*(?P<value>.+)$', re.MULTILINE
 )
-
-# Binding the fixture registers it in this module; an import of it would read as unused.
-plan_report = network.plan_report
-
-
-def test_egress_do_sg_das_tasks_na_raiz_inteira(plan_report: TofuReport) -> None:
-    _assert_runs(plan_report, {ROOT_RUN: "pass"})
-
-    _assert_egress(_plan_resources(plan_report.plans[ROOT_RUN]), gateways=2)
 
 
 def test_grupos_declaram_listas_vazias_para_remover_regra_externa(

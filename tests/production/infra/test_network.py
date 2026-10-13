@@ -411,10 +411,11 @@ def test_security_group_sem_ingress(graphs: Graphs, plan_report: TofuReport) -> 
 
 def test_egress_so_dns_e_tls(plan_report: TofuReport) -> None:
     # Security groups never filter the Amazon-provided DNS resolver (VPC+2): only TLS needs a rule.
-    _assert_runs(plan_report, dict.fromkeys(MODULE_RUNS, "pass"))
+    _assert_runs(plan_report, dict.fromkeys((*MODULE_RUNS, ROOT_RUN), "pass"))
 
     _assert_egress(_plan_resources(plan_report.plans[WITH_ENDPOINTS]), gateways=2)
     _assert_egress(_plan_resources(plan_report.plans[WITHOUT_ENDPOINTS]), gateways=0)
+    _assert_egress(_plan_resources(plan_report.plans[ROOT_RUN]), gateways=2)
 
 
 def test_sem_interface_endpoint(graphs: Graphs, plan_report: TofuReport) -> None:
