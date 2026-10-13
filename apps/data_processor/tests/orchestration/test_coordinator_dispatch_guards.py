@@ -81,6 +81,7 @@ if TYPE_CHECKING:
 __all__ = ["adapter", "clock", "coordinator", "executor", "gate", "store"]
 _PERMIT_HELD = DispatchDeferred(DeferralReason.PERMIT_HELD)
 _FENCE_DEFERRED = [(RunState.PROCESSING, None, DeferralReason.FENCE_CLOSED)]
+_RECONCILE_FAILED = "unit_permit_reconcile_failed"
 
 
 @dataclass
@@ -384,6 +385,7 @@ def test_throttling_no_probe_nao_derruba_o_after_persist(
 def test_erro_do_reconcile_nao_impede_a_recuperacao_e_falha_a_passada(
     adapter: SQLiteControlPlane, executor: _StepFunctions, gate: DynamoDBControlPlane,
     coordinator: PipelineCoordinator, clock: _MutableClock, monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     run = _seed(adapter, manifests=_full_manifests())
     adapter.put_run(run.model_copy(update={"state": RunState.CANCEL_REQUESTED}))
@@ -397,6 +399,12 @@ def test_erro_do_reconcile_nao_impede_a_recuperacao_e_falha_a_passada(
     assert [result.state for result in failure.value.results] == [RunState.CANCELED]
     assert cast("Run", adapter.get_run(_TENANT, _RUN_ID)).state is RunState.CANCELED
     assert _permit(gate) == orphan
+    [record] = [
+        record for record in caplog.records if record.getMessage() == _RECONCILE_FAILED
+    ]
+    assert record.name == "data_processor.orchestration.coordinator"
+    assert record.exc_info is not None
+    assert record.exc_info[0] is ProcessorExecutionUnavailable
 
 
 def test_run_falho_prevalece_sobre_o_erro_do_reconcile(
