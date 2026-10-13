@@ -34,6 +34,7 @@ from cnes_domain.control_plane.environment_gate import (
     renew_permit,
     reopen_fence,
 )
+from cnes_domain.control_plane.execution_quota import AttemptStatus, decide_attempt
 from cnes_domain.orchestration.dispatch_admission import (
     ABSENCE_PROOF_GRACE_SECONDS,
     EnvironmentAdmission,
@@ -52,6 +53,8 @@ from cnes_domain.ports.environment_gate import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from cnes_domain.control_plane.execution_quota import AttemptOutcome, ConsumeExecutionAttempt
 
 NOW = datetime(2026, 10, 11, 12, tzinfo=UTC)
 GRACE = timedelta(seconds=ABSENCE_PROOF_GRACE_SECONDS)
@@ -76,6 +79,7 @@ class _MemoryGate:
         self.tokens = 0
         self.calls: list[str] = []
         self.on_release: Callable[[], object] = lambda: None
+        self.counted: dict[str, set[str]] = {}
 
     def observe_environment_gate(self, environment: str) -> EnvironmentGateState:
         self.calls.append("observe")
@@ -120,6 +124,14 @@ class _MemoryGate:
         reopened = reopen_fence(self.fence, command)
         self.fence = reopened or self.fence
         return reopened is not None
+
+    def consume_execution_attempt(self, command: ConsumeExecutionAttempt) -> AttemptOutcome:
+        self.calls.append("consume")
+        counted = self.counted.setdefault(command.period, set())
+        outcome = decide_attempt(len(counted), counted, command)
+        if outcome.status is AttemptStatus.COUNTED:
+            counted.add(command.dispatch_id)
+        return outcome
 
     def hold(
         self, holder: PermitHolder, *, at: datetime = NOW, execution_ref: str | None = None,
@@ -198,7 +210,7 @@ def test_admite_o_dispatch_com_o_permit_livre(gate: _MemoryGate, probe: _Probe) 
 
     assert admission == UnitAdmission(ENV, 1)
     assert gate.permit == issue_permit(AcquireUnitPermit(ENV, HOLDER, NOW, LEASE), 1)
-    assert gate.calls == ["acquire"]
+    assert gate.calls == ["acquire", "consume"]
     assert probe.calls == []
 
 
@@ -208,7 +220,7 @@ def test_reentrada_do_mesmo_holder_segue_sem_probe(gate: _MemoryGate, probe: _Pr
     admission = _service(gate, probe).admit(HOLDER, NOW + GRACE * 2)
 
     assert admission == UnitAdmission(ENV, 1)
-    assert gate.calls == ["acquire", "observe", "reanchor"]
+    assert gate.calls == ["acquire", "observe", "reanchor", "consume"]
     assert probe.calls == []
 
 
@@ -237,7 +249,7 @@ def test_permit_de_execucao_terminal_e_liberado_e_readquirido(
 
     assert admission == UnitAdmission(ENV, 2)
     assert _current(gate).holder == HOLDER
-    assert gate.calls == ["acquire", "release", "acquire"]
+    assert gate.calls == ["acquire", "release", "acquire", "consume"]
     assert probe.calls == [OTHER.dispatch_id]
 
 
@@ -251,7 +263,7 @@ def test_ausencia_provada_apos_a_carencia_libera_o_permit(
 
     assert admission == UnitAdmission(ENV, 2)
     assert _current(gate).holder == HOLDER
-    assert gate.calls == ["acquire", "release", "acquire"]
+    assert gate.calls == ["acquire", "release", "acquire", "consume"]
 
 
 def test_ausencia_dentro_da_carencia_nao_libera_o_permit(gate: _MemoryGate, probe: _Probe) -> None:
@@ -323,7 +335,7 @@ def test_confirm_vincula_a_execucao_e_renova_o_lease(gate: _MemoryGate, probe: _
     permit = _current(gate)
     assert permit.execution_ref == _ref(HOLDER.dispatch_id)
     assert permit.lease_until == started + timedelta(seconds=LEASE)
-    assert gate.calls == ["acquire", "bind", "renew"]
+    assert gate.calls == ["acquire", "consume", "bind", "renew"]
 
 
 def _released(gate: _MemoryGate) -> None:

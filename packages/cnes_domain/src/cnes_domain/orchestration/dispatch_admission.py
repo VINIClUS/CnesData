@@ -1,4 +1,4 @@
-"""Admissão do dispatch no gate do ambiente: acquire, reconciliação por probe e liquidação."""
+"""Admissão do dispatch no gate do ambiente: acquire, quota mensal, probe e liquidação."""
 
 from __future__ import annotations
 
@@ -16,6 +16,11 @@ from cnes_domain.control_plane.environment_gate import (
     ReleaseUnitPermit,
     RenewUnitPermit,
     require_environment,
+)
+from cnes_domain.control_plane.execution_quota import (
+    AttemptStatus,
+    ConsumeExecutionAttempt,
+    execution_period,
 )
 from cnes_domain.ports.environment_gate import (
     DeferralReason,
@@ -91,7 +96,7 @@ def _unbound_reentry(status: AcquisitionStatus, permit: UnitPermit) -> bool:
 
 
 class EnvironmentAdmission:
-    """`DispatchAdmissionPort` sobre o gate do ambiente e o probe do executor."""
+    """`DispatchAdmissionPort` sobre o gate do ambiente, sua quota mensal e o probe do executor."""
 
     def __init__(
         self, gate: EnvironmentGatePort, probe: ExecutionProbePort, environment: str,
@@ -104,10 +109,11 @@ class EnvironmentAdmission:
         self._lease_seconds = _require_lease(lease_seconds)
 
     def admit(self, holder: PermitHolder, now: datetime) -> UnitAdmission | DispatchDeferred:
-        """Adquire o permit; o de outro holder só cede com a prova do probe.
+        """Adquire o permit e só então conta a tentativa do mês; outro holder cede pelo probe.
 
         Returns: UnitAdmission com o token; DispatchDeferred com fence fechado (inclusive na
-            reentrada sem bind sem execução), permit ocupado ou reancoragem recusada.
+            reentrada sem bind sem execução), permit ocupado, reancoragem recusada ou quota
+            mensal esgotada, que libera o permit adquirido nesta chamada.
         Raises: Erro do gate ou do probe, sem liberar nada.
         """
         command = AcquireUnitPermit(self._environment, holder, now, self._lease_seconds)
@@ -158,6 +164,8 @@ class EnvironmentAdmission:
         if reason is None and _unbound_reentry(acquisition.status, permit):
             reason = self._reentry_deferral(permit, now)
         if reason is None:
+            reason = self._attempt_deferral(acquisition.status, permit, now)
+        if reason is None:
             return UnitAdmission(self._environment, permit.token)
         logger.info(
             "dispatch_deferred environment=%s tenant_id=%s run_id=%s dispatch_id=%s reason=%s",
@@ -178,6 +186,38 @@ class EnvironmentAdmission:
             self._environment, permit.holder.dispatch_id, permit.token, applied,
         )
         return None if applied else DeferralReason.PERMIT_HELD
+
+    def _attempt_deferral(
+        self, status: AcquisitionStatus, permit: UnitPermit, now: datetime,
+    ) -> DeferralReason | None:
+        # Only a held permit spends an attempt: every gate deferral above leaves the month intact.
+        command = ConsumeExecutionAttempt(
+            self._environment, execution_period(now), permit.holder.dispatch_id, now,
+        )
+        outcome = self._gate.consume_execution_attempt(command)
+        logger.info(
+            "execution_attempt_consumed environment=%s dispatch_id=%s period=%s status=%s "
+            "attempts=%d limit=%d",
+            self._environment, command.dispatch_id, command.period, outcome.status,
+            outcome.attempts, outcome.limit,
+        )
+        if outcome.status is not AttemptStatus.EXHAUSTED:
+            return None
+        # A re-entered permit may cover a start still in flight: only the reconcile settles it.
+        if status is AcquisitionStatus.ACQUIRED:
+            self._release_unstarted(permit, now)
+        return DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED
+
+    def _release_unstarted(self, permit: UnitPermit, now: datetime) -> None:
+        # The claim of this call wrote `now` as the anchor, while the permit read afterwards may
+        # already carry a rival re-entry's re-anchor: only the untouched claim is released.
+        command = ReleaseUnitPermit(self._environment, permit.token, now, now)
+        applied = self._gate.release_unit_permit(command)
+        logger.info(
+            "unit_permit_released environment=%s dispatch_id=%s token=%d reason=%s applied=%s",
+            self._environment, permit.holder.dispatch_id, permit.token,
+            DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED, applied,
+        )
 
     def _fence_closed(self) -> bool:
         fence = self._gate.observe_environment_gate(self._environment).fence
