@@ -65,11 +65,14 @@ MODULE_RESOURCES = {
     "aws_cognito_user_pool.this", "aws_cognito_resource_server.api",
     "aws_cognito_user_pool_client.dashboard", "aws_cognito_user_pool_domain.this",
 }
-# Besides SMS and Lambda: add-ons need PLUS, while email MFA, passkeys and choice-based sign-in need
-# ESSENTIALS, so any of them makes the apply of a LITE pool fail.
+# Enabled add-ons need PLUS, and email MFA, passkeys and choice-based sign-in need ESSENTIALS:
+# the LITE pool declares none of these blocks, statically or through `dynamic`.
+TIER_BLOCKS = (
+    "user_pool_add_ons", "email_mfa_configuration", "web_authn_configuration", "sign_in_policy",
+)
 FORBIDDEN_POOL_ARGUMENTS = {
     "sms_configuration", "sms_authentication_message", "sms_verification_message", "lambda_config",
-    "user_pool_add_ons", "email_mfa_configuration", "web_authn_configuration", "sign_in_policy",
+    *TIER_BLOCKS,
 }
 EMAIL_RECOVERY = [{"recovery_mechanism": [{"name": "verified_email", "priority": 1}]}]
 PREVENT_DESTROY = "aws_cognito_user_pool.this has prevent_destroy set"
@@ -401,6 +404,7 @@ def test_sem_custom_domain_sms_social_ou_m2m(
         "OFF", [], [],
     )
     assert not FORBIDDEN_POOL_ARGUMENTS & set(_single(configured, "aws_cognito_user_pool"))
+    assert {block: pool[block] for block in TIER_BLOCKS} == {block: [] for block in TIER_BLOCKS}
     assert flows == [["code"]]
 
 
@@ -408,9 +412,12 @@ def test_so_admin_cria_contas_por_email_com_senha_forte(plan_report: TofuReport)
     pool = _single(_planned(plan_report, MODULE_RUN), "aws_cognito_user_pool")
     admin = [entry["allow_admin_create_user_only"] for entry in pool["admin_create_user_config"]]
     passwords = [{key: entry[key] for key in STRONG_PASSWORD} for entry in pool["password_policy"]]
+    # Password history needs ESSENTIALS; the provider sends 0, which leaves it off.
+    history = [entry["password_history_size"] for entry in pool["password_policy"]]
 
     assert admin == [True]
     assert passwords == [STRONG_PASSWORD]
+    assert history in ([None], [0])
     assert (pool["username_attributes"], pool["username_configuration"]) == (
         ["email"], [{"case_sensitive": False}],
     )
