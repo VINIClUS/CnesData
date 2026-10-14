@@ -13,6 +13,15 @@ module "data_buckets" {
   }
 }
 
+module "cognito" {
+  source = "../../modules/cognito"
+
+  name_prefix = local.name_prefix
+  # Reviewed, non-secret suffix of cnesdata-<suffix>.auth.us-east-2.amazoncognito.com: a taken
+  # prefix blocks the apply until a new suffix is reviewed here.
+  domain_suffix = "prod54qgag"
+}
+
 module "network" {
   source = "../../modules/network"
 
