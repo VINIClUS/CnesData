@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiFetch } from "@/api/client";
+import { useAuth } from "@/auth/useAuth";
 
 export type SourceStatus = {
   fonte_sistema: "CNES_LOCAL" | "CNES_NACIONAL" | "SIHD" | "BPA_MAG" | "SIA_LOCAL";
@@ -18,9 +19,16 @@ export type AgentStatusResponse = {
 };
 
 export function useAgentStatus(tenantId: string) {
+  const session = useAuth();
   return useQuery({
-    queryKey: ["agent-status", tenantId],
-    queryFn: () => apiFetch<AgentStatusResponse>("/dashboard/agents/status", { tenantId }),
+    queryKey: ["agent-status", session.scope, tenantId],
+    queryFn: ({ signal }) =>
+      apiFetch<AgentStatusResponse>("/dashboard/agents/status", {
+        tenantId,
+        signal,
+        accessToken: session.accessToken,
+      }),
+    enabled: session.status === "authenticated",
     refetchInterval: 30_000,
     staleTime: 15_000,
   });

@@ -311,6 +311,14 @@ type AgentWhoamiResponse struct {
 	TenantId  string `json:"tenant_id"`
 }
 
+// AwsMeResponse defines model for AwsMeResponse.
+type AwsMeResponse struct {
+	DisplayName *string `json:"display_name"`
+	Email       *string `json:"email"`
+	Issuer      string  `json:"issuer"`
+	Subject     string  `json:"subject"`
+}
+
 // BillingAccountCreate defines model for BillingAccountCreate.
 type BillingAccountCreate struct {
 	IdempotencyKey string `json:"idempotency_key"`
@@ -524,6 +532,13 @@ type MeResponse struct {
 	Role              string             `json:"role"`
 	TenantIds         []string           `json:"tenant_ids"`
 	UserId            openapi_types.UUID `json:"user_id"`
+}
+
+// MembershipResponse defines model for MembershipResponse.
+type MembershipResponse struct {
+	MunicipalityName string `json:"municipality_name"`
+	Role             string `json:"role"`
+	TenantId         string `json:"tenant_id"`
 }
 
 // OverviewResponse defines model for OverviewResponse.
@@ -837,6 +852,11 @@ type AgentsStatusApiV1DashboardAgentsStatusGetParams struct {
 	XTenantId *string `json:"X-Tenant-Id,omitempty"`
 }
 
+// AuthMeApiV1DashboardAuthMeGet200JSONResponseBody defines parameters for AuthMeApiV1DashboardAuthMeGet.
+type AuthMeApiV1DashboardAuthMeGet200JSONResponseBody struct {
+	union json.RawMessage
+}
+
 // GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams defines parameters for GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet.
 type GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams struct {
 	Months    *int    `form:"months,omitempty" json:"months,omitempty"`
@@ -1056,6 +1076,68 @@ func (t ValidationError_Loc_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ValidationError_Loc_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsMeResponse returns the union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody as a MeResponse
+func (t AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) AsMeResponse() (MeResponse, error) {
+	var body MeResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMeResponse overwrites any union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody as the provided MeResponse
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) FromMeResponse(v MeResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMeResponse performs a merge with any union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody, using the provided MeResponse
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) MergeMeResponse(v MeResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAwsMeResponse returns the union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody as a AwsMeResponse
+func (t AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) AsAwsMeResponse() (AwsMeResponse, error) {
+	var body AwsMeResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAwsMeResponse overwrites any union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody as the provided AwsMeResponse
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) FromAwsMeResponse(v AwsMeResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAwsMeResponse performs a merge with any union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody, using the provided AwsMeResponse
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) MergeAwsMeResponse(v AwsMeResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -1438,6 +1520,11 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/v1/dashboard/faturamento/by-establishment (the `GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet` operationId).
 	GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet(ctx context.Context, params *GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MembershipsApiV1DashboardMembershipsGet Memberships
+	//
+	// Corresponds with GET /api/v1/dashboard/memberships (the `MembershipsApiV1DashboardMembershipsGet` operationId).
+	MembershipsApiV1DashboardMembershipsGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetOverviewApiV1DashboardOverviewGet Get Overview
 	//
@@ -2201,6 +2288,21 @@ func (c *Client) AuthMeApiV1DashboardAuthMeGet(ctx context.Context, reqEditors .
 // Corresponds with GET /api/v1/dashboard/faturamento/by-establishment (the `GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet` operationId).
 func (c *Client) GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet(ctx context.Context, params *GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MembershipsApiV1DashboardMembershipsGet Memberships
+//
+// Corresponds with GET /api/v1/dashboard/memberships (the `MembershipsApiV1DashboardMembershipsGet` operationId).
+func (c *Client) MembershipsApiV1DashboardMembershipsGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMembershipsApiV1DashboardMembershipsGetRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -3780,6 +3882,33 @@ func NewGetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetRequest(se
 	return req, nil
 }
 
+// NewMembershipsApiV1DashboardMembershipsGetRequest constructs an http.Request for the MembershipsApiV1DashboardMembershipsGet method
+func NewMembershipsApiV1DashboardMembershipsGetRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/dashboard/memberships")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetOverviewApiV1DashboardOverviewGetRequest constructs an http.Request for the GetOverviewApiV1DashboardOverviewGet method
 func NewGetOverviewApiV1DashboardOverviewGetRequest(server string, params *GetOverviewApiV1DashboardOverviewGetParams) (*http.Request, error) {
 	var err error
@@ -4790,6 +4919,13 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /api/v1/dashboard/faturamento/by-establishment (the `GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet` operationId).
 	GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetWithResponse(ctx context.Context, params *GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams, reqEditors ...RequestEditorFn) (*GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse, error)
+
+	// MembershipsApiV1DashboardMembershipsGetWithResponse Memberships
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/dashboard/memberships (the `MembershipsApiV1DashboardMembershipsGet` operationId).
+	MembershipsApiV1DashboardMembershipsGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MembershipsApiV1DashboardMembershipsGetResponse, error)
 
 	// GetOverviewApiV1DashboardOverviewGetWithResponse Get Overview
 	//
@@ -5972,11 +6108,11 @@ type AuthMeApiV1DashboardAuthMeGetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *MeResponse
+	JSON200 *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r AuthMeApiV1DashboardAuthMeGetResponse) GetJSON200() *MeResponse {
+func (r AuthMeApiV1DashboardAuthMeGetResponse) GetJSON200() *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody {
 	return r.JSON200
 }
 
@@ -6051,6 +6187,47 @@ func (r GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse) 
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MembershipsApiV1DashboardMembershipsGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]MembershipResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MembershipsApiV1DashboardMembershipsGetResponse) GetJSON200() *[]MembershipResponse {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r MembershipsApiV1DashboardMembershipsGetResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MembershipsApiV1DashboardMembershipsGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MembershipsApiV1DashboardMembershipsGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MembershipsApiV1DashboardMembershipsGetResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7326,6 +7503,19 @@ func (c *ClientWithResponses) GetFaturamentoChartApiV1DashboardFaturamentoByEsta
 	return ParseGetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse(rsp)
 }
 
+// MembershipsApiV1DashboardMembershipsGetWithResponse Memberships
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/dashboard/memberships (the `MembershipsApiV1DashboardMembershipsGet` operationId).
+func (c *ClientWithResponses) MembershipsApiV1DashboardMembershipsGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MembershipsApiV1DashboardMembershipsGetResponse, error) {
+	rsp, err := c.MembershipsApiV1DashboardMembershipsGet(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMembershipsApiV1DashboardMembershipsGetResponse(rsp)
+}
+
 // GetOverviewApiV1DashboardOverviewGetWithResponse Get Overview
 //
 // Returns a wrapper object for the known response body format(s).
@@ -8367,7 +8557,7 @@ func ParseAuthMeApiV1DashboardAuthMeGetResponse(rsp *http.Response) (*AuthMeApiV
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest MeResponse
+		var dest AuthMeApiV1DashboardAuthMeGet200JSONResponseBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8405,6 +8595,32 @@ func ParseGetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMembershipsApiV1DashboardMembershipsGetResponse parses an HTTP response from a MembershipsApiV1DashboardMembershipsGetWithResponse call
+func ParseMembershipsApiV1DashboardMembershipsGetResponse(rsp *http.Response) (*MembershipsApiV1DashboardMembershipsGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MembershipsApiV1DashboardMembershipsGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []MembershipResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { authenticatedJson } from "./fixtures/api";
+import { expect, test } from "./fixtures/oidc";
 
 const SERVING_PATH = "/api/v1/dashboard/serving/cnes/overview";
 const LEGACY_PATHS = ["/api/v1/dashboard/overview", "/api/v1/dashboard/faturamento"];
@@ -39,9 +40,9 @@ const V2 = {
   missing_sources: ["CNES_NACIONAL"],
 };
 
-test.beforeEach(async ({ context }) => {
+test.beforeEach(async ({ context, page, oidc }) => {
   await context.route("**/api/v1/dashboard/auth/me", (r) =>
-    r.fulfill({
+    authenticatedJson(r, {
       json: {
         user_id: "u-1",
         email: "g@m",
@@ -53,10 +54,12 @@ test.beforeEach(async ({ context }) => {
     }),
   );
   await context.route("**/api/v1/dashboard/tenants", (r) =>
-    r.fulfill({
+    authenticatedJson(r, {
       json: [{ ibge6: "354130", ibge7: "3541308", nome: "Presidente Epitácio", uf: "SP" }],
     }),
   );
+  await oidc.login(page);
+  await expect(page).toHaveURL(/\/agentes$/);
 });
 
 test("troca_atomica_do_pointer_renderiza_somente_a_nova_versao_sem_rotas_legadas", async ({
@@ -69,8 +72,9 @@ test("troca_atomica_do_pointer_renderiza_somente_a_nova_versao_sem_rotas_legadas
     requested.push(new URL(request.url()).pathname);
   });
   await context.route(`**${SERVING_PATH}`, (r) =>
-    r.fulfill({
+    authenticatedJson(r, {
       json: pointer.current,
+      tenantId: "354130",
       headers: { "X-Dataset-Version": pointer.current.run_id },
     }),
   );

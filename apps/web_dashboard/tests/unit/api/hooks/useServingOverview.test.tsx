@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } fro
 import type { MockInstance } from "vitest";
 
 import { server } from "../../../mocks/server";
+import { LegacySession } from "../../helpers/LegacySession";
 
 import { ApiError } from "@/api/client";
 import {
@@ -43,7 +44,11 @@ const AUTH_MODE = env.VITE_AUTH_MODE;
 
 function wrap({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={qc}>
+      <LegacySession>{children}</LegacySession>
+    </QueryClientProvider>
+  );
 }
 
 const FIXTURE: ServingOverview = {
@@ -88,7 +93,11 @@ function productionClient() {
 
 function withClient(client: QueryClient) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    return (
+      <QueryClientProvider client={client}>
+        <LegacySession>{children}</LegacySession>
+      </QueryClientProvider>
+    );
   };
 }
 

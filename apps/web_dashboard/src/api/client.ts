@@ -2,7 +2,7 @@ import { getAccessToken } from "@/auth/oidc";
 import { env, stripTrailingSlash } from "@/lib/env";
 import type { Env } from "@/lib/env";
 
-export type ApiOptions = RequestInit & { tenantId?: string };
+export type ApiOptions = RequestInit & { tenantId?: string; accessToken?: string | null };
 
 export type ApiClientConfig = Pick<Env, "VITE_API_BASE_URL" | "VITE_AUTH_MODE">;
 
@@ -107,8 +107,13 @@ export function createApiFetch(config: ApiClientConfig): ApiFetch {
   return async <T = unknown>(path: string, opts: ApiOptions = {}): Promise<T> => {
     const url = resolveEndpoint(config.VITE_API_BASE_URL, path);
     const credentials = credentialsFor(config.VITE_AUTH_MODE, opts.credentials);
-    const token = config.VITE_AUTH_MODE === "oidc" ? await getAccessToken() : null;
-    const { tenantId: _tenantId, ...init } = opts;
+    const token =
+      config.VITE_AUTH_MODE === "oidc"
+        ? opts.accessToken === undefined
+          ? await getAccessToken()
+          : opts.accessToken
+        : null;
+    const { tenantId: _tenantId, accessToken: _accessToken, ...init } = opts;
     const res = await fetch(url.href, { ...init, credentials, headers: headersFor(opts, token) });
     return readBody<T>(res);
   };
