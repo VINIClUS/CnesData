@@ -3,6 +3,7 @@
 import math
 import re
 
+from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability.contracts import Ownership, Ports, Resource, RunSpec
 
 SERVICES = ("cognito", "dynamodb", "s3", "iam")
@@ -27,6 +28,7 @@ def validate(spec: RunSpec, ports: Ports, *, recovery: bool = False) -> None:
     for valid, reason in checks:
         if not valid:
             raise SafetyFailure(reason)
+    validate_profile(spec, ports, recovery=recovery)
     limits = ports.policy.limits
     if not 0 < limits.cleanup_reserve < limits.calls:
         raise SafetyFailure("cleanup_reserve_unavailable")
@@ -34,6 +36,20 @@ def validate(spec: RunSpec, ports: Ports, *, recovery: bool = False) -> None:
         raise SafetyFailure("invalid_limits")
     if not math.isfinite(limits.cleanup_seconds) or limits.cleanup_seconds <= 0:
         raise SafetyFailure("invalid_limits")
+
+
+def validate_profile(spec: RunSpec, ports: Ports, *, recovery: bool) -> None:
+    profile = PROFILES.get(spec.probe)
+    if profile is None:
+        raise SafetyFailure("invalid_profile")
+    if spec.probe == "all":
+        return
+    if profile.limits != ports.policy.limits or profile.limits != ports.budget.limits:
+        raise SafetyFailure("profile_limits_mismatch")
+    if ports.budget.deadline != spec.deadline:
+        raise SafetyFailure("invalid_deadline")
+    if not recovery and spec.deadline - ports.now() > 180:
+        raise SafetyFailure("invalid_deadline")
 
 
 def run_name(spec: RunSpec) -> str:

@@ -125,6 +125,7 @@ def parse(argv: Sequence[str]) -> tuple[str, RunSpec, int | None]:
     parser.add_argument("--deadline", required=True, type=float)
     parser.add_argument("--worker-pid", type=int, required=argv[0] == "monitor")
     parser.add_argument("--allow-governance-bypass", action="store_true")
+    parser.add_argument("--probe", default="all")
     args = parser.parse_args(argv)
     spec = RunSpec(
         args.account,
@@ -134,6 +135,7 @@ def parse(argv: Sequence[str]) -> tuple[str, RunSpec, int | None]:
         Path(args.journal_dir),
         args.retention,
         args.allow_governance_bypass,
+        args.probe,
     )
     return args.command, spec, args.worker_pid
 

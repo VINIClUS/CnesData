@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._safety import SERVICES, SafetyFailure
 from tests.integration.aws_capability.contracts import Resource, RunSpec
 
@@ -40,6 +41,8 @@ class Journal:
             "pending_service": self.pending_service,
             "operation_state": self.operation_state,
         }
+        if self.spec.probe != "all":
+            data.update(schema_version=2, **PROFILES[self.spec.probe].snapshot(self.spec.probe))
         return json.dumps(data, allow_nan=False).encode("utf-8")
 
     def save(self) -> None:
@@ -74,12 +77,17 @@ class Journal:
         if not isinstance(data, dict):
             raise SafetyFailure("journal_corrupt")
         expected = {
-            "schema_version": 1,
+            "schema_version": 1 if self.spec.probe == "all" else 2,
             "account": self.spec.account,
             "region": self.spec.region,
             "run_id": self.spec.run_id,
             "deadline": self.spec.deadline,
         }
+        if self.spec.probe == "all":
+            if data.get("probe", "all") != "all":
+                raise SafetyFailure("journal_mismatch")
+        else:
+            expected.update(PROFILES[self.spec.probe].snapshot(self.spec.probe))
         if any(data.get(key) != value for key, value in expected.items()):
             raise SafetyFailure("journal_mismatch")
         self.phase = data["phase"]

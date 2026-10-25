@@ -5,7 +5,8 @@ import sys
 from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._journal import Journal
-from tests.integration.aws_capability._safety import SERVICES, SafetyFailure, run_name, tags
+from tests.integration.aws_capability._profiles import PROFILES
+from tests.integration.aws_capability._safety import SafetyFailure, run_name, tags
 from tests.integration.aws_capability.contracts import (
     BudgetExhausted,
     Creation,
@@ -47,6 +48,8 @@ def supervisor_arguments(spec: RunSpec) -> list[str]:
         "--retention",
         spec.retention,
         "--allow-governance-bypass",
+        "--probe",
+        spec.probe,
     ]
 
 
@@ -100,7 +103,7 @@ class Worker:
 
     def execute(self) -> str | None:
         try:
-            for service in SERVICES:
+            for service in PROFILES[self.journal.spec.probe].services:
                 self.create(service)
             self.guard()
             self.journal.phase = "probing"
