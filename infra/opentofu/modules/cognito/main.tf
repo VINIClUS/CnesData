@@ -20,13 +20,10 @@ locals {
 
 data "aws_region" "current" {}
 
-# An omitted tier creates ESSENTIALS, so LITE is explicit. Resource binding, which puts the API
-# origin in the access token aud, is documented as exclusive to managed login: whether the classic
-# hosted UI of a LITE pool honours it is the capability check recorded for PROD-INFRA-012, and its
-# failure is an owner decision (ESSENTIALS or a verifier change), never a silent tier change.
+# ESSENTIALS enables managed login v2 for the API audience resource binding contract.
 resource "aws_cognito_user_pool" "this" {
   name                = "${var.name_prefix}-users"
-  user_pool_tier      = "LITE"
+  user_pool_tier      = "ESSENTIALS"
   deletion_protection = "ACTIVE"
   mfa_configuration   = "OFF"
   username_attributes = ["email"]
@@ -95,9 +92,14 @@ resource "aws_cognito_user_pool_client" "dashboard" {
   enable_token_revocation       = true
 }
 
-# Version 1 is the classic hosted UI, the only login UI of a LITE pool.
 resource "aws_cognito_user_pool_domain" "this" {
   domain                = "cnesdata-${var.domain_suffix}"
   user_pool_id          = aws_cognito_user_pool.this.id
-  managed_login_version = 1
+  managed_login_version = 2
+}
+
+resource "aws_cognito_managed_login_branding" "dashboard" {
+  client_id                   = aws_cognito_user_pool_client.dashboard.id
+  user_pool_id                = aws_cognito_user_pool.this.id
+  use_cognito_provided_values = true
 }
