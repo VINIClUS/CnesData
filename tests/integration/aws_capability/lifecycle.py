@@ -99,9 +99,9 @@ def monitor(spec: RunSpec, ports: Ports, worker_pid: int) -> Outcome:
         journal.load()
         if journal.phase == "complete":
             return Outcome("stopped", "worker_complete")
-        ports.processes.send(worker_pid, acknowledgement(spec, worker_pid))
         active = ports.processes.alive(worker_pid) and ports.now() < spec.deadline
         if active and journal.phase != "cleanup_requested":
+            ports.processes.send(worker_pid, acknowledgement(spec, worker_pid))
             return Outcome("waiting", "worker_active")
         return janitor(spec, ports)
     except SafetyFailure as error:
