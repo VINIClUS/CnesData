@@ -15,11 +15,11 @@ variable "domain_suffix" {
 
   validation {
     condition     = can(regex("^[a-z0-9]{6,16}$", var.domain_suffix))
-    error_message = "domain_suffix must have 6 to 16 lowercase letters or digits."
+    error_message = "domain_suffix_invalid expected=lowercase_alphanumeric length=6..16"
   }
 
   validation {
     condition     = !can(regex("aws|amazon|cognito", var.domain_suffix))
-    error_message = "domain_suffix must not contain aws, amazon or cognito."
+    error_message = "domain_suffix_reserved forbidden=aws,amazon,cognito"
   }
 }
