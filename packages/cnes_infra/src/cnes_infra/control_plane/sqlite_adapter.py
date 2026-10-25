@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,12 +18,13 @@ from cnes_domain.control_plane.entities import (
     Tenant,
 )
 from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.errors import Conflict, NotFound
+from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane import (
     sqlite_claims,
     sqlite_idempotency,
     sqlite_job,
+    sqlite_outbox,
     sqlite_publication,
 )
 from cnes_infra.control_plane.edge_registration import SQLiteEdgeRegistrationMixin
@@ -42,6 +42,7 @@ from cnes_infra.control_plane.sqlite_tenants import SQLiteBilledTenantMixin
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
+    from datetime import datetime
 
     from cnes_domain.control_plane.commands import (
         BeginIdempotency,
@@ -70,6 +71,7 @@ if TYPE_CHECKING:
         RunDispatch,
         RunUnit,
     )
+    from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage
     from cnes_domain.control_plane.queries import (
         LatestSucceededJobQuery,
         RawManifestChainQuery,
@@ -340,33 +342,19 @@ class SQLiteControlPlane(
     def fail_job(self, command: FailJob, event: OutboxEvent) -> Job:
         return sqlite_claims.fail_job(self, command, event)
 
-    def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]:
-        with self.read_connection() as connection:
-            return _fetch_all(
-                connection,
-                "SELECT data FROM outbox_events WHERE delivered_at IS NULL "
-                "ORDER BY created_at, event_id LIMIT ?",
-                (limit,),
-                OutboxEvent,
-            )
+    def read_outbox_page(self, cursor: OutboxCursor | None, limit: int) -> OutboxPage:
+        return sqlite_outbox.read_outbox_page(self, cursor, limit)
+
+    def advance_outbox_cursor(
+        self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
+    ) -> bool:
+        return sqlite_outbox.advance_outbox_cursor(self, expected, next_cursor)
+
+    def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
+        return sqlite_outbox.get_outbox_event(self, event_id)
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
-        if delivered_at.tzinfo is None or delivered_at.utcoffset() != timedelta(0):
-            raise ValueError("datetime_not_utc")
-        with self.write_transaction() as connection:
-            event = _fetch_one(
-                connection,
-                "SELECT data FROM outbox_events WHERE event_id = ?",
-                (event_id,),
-                OutboxEvent,
-            )
-            if event is None:
-                raise NotFound(ErrorCode.OUTBOX_EVENT_MISSING)
-            delivered = event.model_copy(update={"delivered_at": delivered_at})
-            connection.execute(
-                "UPDATE outbox_events SET delivered_at = ?, data = ? WHERE event_id = ?",
-                (delivered_at.isoformat(), serialize_model(delivered), event_id),
-            )
+        sqlite_outbox.mark_outbox_delivered(self, event_id, delivered_at)
 
     def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Job | None:
         return sqlite_publication.query_latest_succeeded_job(self, query)

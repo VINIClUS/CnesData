@@ -86,7 +86,7 @@ def test_cria_tenant_com_idempotencia_e_outbox(plane: SQLiteControlPlane) -> Non
     assert (record.status, record.resource_id) == ("COMPLETED", NEW)
     assert record.request_hash == billed_tenant_digest(command)
     assert record.expires_at == NOW + timedelta(days=1)
-    events = plane.pending_outbox(10)
+    events = plane.read_outbox_page(None, 10).events
     assert events == (audit_outbox_event(tenant_created_event(command)),)
     assert plane.get_membership(NEW, CREATOR) == EXPECTED
 
@@ -97,7 +97,7 @@ def test_replay_com_mesmo_comando_devolve_tenant(plane: SQLiteControlPlane) -> N
     replayed = plane.create_billed_tenant(make_command(at=NOW + timedelta(hours=3)))
 
     assert replayed == first
-    assert len(plane.pending_outbox(10)) == 1
+    assert len(plane.read_outbox_page(None, 10).events) == 1
     assert membership_count(plane) == 1
     assert plane.get_membership(NEW, CREATOR) == EXPECTED
 
@@ -156,7 +156,7 @@ def test_tenant_existente_conflita(plane: SQLiteControlPlane) -> None:
 
     assert cast("Any", plane.get_tenant(NEW)).municipality_name == "Antigo"
     assert stored_record(plane) is None
-    assert plane.pending_outbox(10) == ()
+    assert plane.read_outbox_page(None, 10).events == ()
     assert membership_count(plane) == 0
 
 
@@ -165,7 +165,7 @@ def test_tenant_reservado_e_rejeitado(plane: SQLiteControlPlane) -> None:
         plane.create_billed_tenant(make_command("_billing"))
 
     assert plane.get_tenant("_billing") is None
-    assert plane.pending_outbox(10) == ()
+    assert plane.read_outbox_page(None, 10).events == ()
 
 
 def test_falha_no_outbox_desfaz_tenant_e_idempotencia(plane: SQLiteControlPlane) -> None:
@@ -179,7 +179,7 @@ def test_falha_no_outbox_desfaz_tenant_e_idempotencia(plane: SQLiteControlPlane)
 
     assert plane.get_tenant(NEW) is None
     assert stored_record(plane) is None
-    assert len(plane.pending_outbox(10)) == 1
+    assert len(plane.read_outbox_page(None, 10).events) == 1
     assert membership_count(plane) == 0
 
 
@@ -193,7 +193,7 @@ def test_membership_orfa_do_criador_conflita_sem_sobrescrever(plane: SQLiteContr
     assert plane.get_membership(NEW, CREATOR) == orphan
     assert plane.get_tenant(NEW) is None
     assert stored_record(plane) is None
-    assert plane.pending_outbox(10) == ()
+    assert plane.read_outbox_page(None, 10).events == ()
 
 
 def test_issuer_diferente_com_a_mesma_chave_conflita(plane: SQLiteControlPlane) -> None:

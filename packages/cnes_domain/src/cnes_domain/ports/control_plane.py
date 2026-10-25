@@ -52,6 +52,7 @@ if TYPE_CHECKING:
         RunUnit,
         Tenant,
     )
+    from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage
     from cnes_domain.control_plane.queries import (
         AgentRawManifestChainQuery,
         LatestSucceededJobQuery,
@@ -148,7 +149,11 @@ class ControlPlanePort(Protocol):
     def decide_access_request(
         self, request: AccessRequest, event: OutboxEvent
     ) -> AccessRequest: ...
-    def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]: ...
+    def read_outbox_page(self, cursor: OutboxCursor | None, limit: int) -> OutboxPage: ...
+    def advance_outbox_cursor(
+        self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
+    ) -> bool: ...
+    def get_outbox_event(self, event_id: str) -> OutboxEvent | None: ...
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None: ...
 
 

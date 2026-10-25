@@ -94,7 +94,9 @@ def test_revogacao_cancela_processing_e_falha_publishing_liberando_a_reserva(env
     assert stored_reservation(env, PUBLISHING_RUN).status is ReservationStatus.RELEASED
     assert stored_reservation(env, RUN_ID).status is ReservationStatus.RELEASED
     assert usage_counters(env)["consumed_runs"] == consumed
-    failed = [e for e in env.plane.pending_outbox(500) if e.event_type == "run.failed"]
+    failed = [
+        e for e in env.plane.read_outbox_page(None, 500).events if e.event_type == "run.failed"
+    ]
     assert [event.aggregate_id for event in failed] == [PUBLISHING_RUN]
 
 

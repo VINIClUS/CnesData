@@ -97,7 +97,7 @@ def test_companion_cancelado_apos_claim_rejeita_commit_na_mesma_transacao(
     with pytest.raises(FenceRejected, match="dispatch_fence_rejected"):
         adapter.commit_run_unit(command, _event("unit-done"))
     assert units(adapter) == before
-    assert adapter.pending_outbox(10) == ()
+    assert adapter.read_outbox_page(None, 10).events == ()
 
 
 def test_companion_cancelado_rejeita_falha_de_unidade(adapter, clock) -> None:
@@ -139,7 +139,7 @@ def test_publicacao_negada_com_cancelamento_nao_grava_nada(adapter) -> None:
     assert adapter.get_dataset_pointer(TENANT, "gold") is None
     assert adapter.get_dataset_version(TENANT, "gold", RUN_ID) is None
     assert adapter.get_run(TENANT, RUN_ID).state is RunState.PUBLISHING
-    assert adapter.pending_outbox(10) == ()
+    assert adapter.read_outbox_page(None, 10).events == ()
 
 
 def test_publicacao_negada_com_fence_obsoleto(adapter) -> None:

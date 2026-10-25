@@ -140,7 +140,7 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(ctx: _DynamoContext
     adapter.create_job(_job("job-a"), _event("job-created"))
     delivered_at = clock.now() + timedelta(seconds=1)
     adapter.mark_outbox_delivered("job-created", delivered_at)
-    assert adapter.pending_outbox(10) == ()
+    assert adapter.read_outbox_page(None, 10).events == ()
     assert adapter.create_job(_job("job-a"), _event("job-created")) == _job("job-a")
     divergent = _event("job-created").model_copy(update={"payload": {"changed": True}})
     with pytest.raises(Conflict, match="event_id_conflict"):
@@ -170,13 +170,31 @@ def test_outbox_entrega_remove_pendencia_e_rejeita_redecisao(ctx: _DynamoContext
             },
         )
         client.put_item(TableName=_TABLE_NAME, Item=marker)
+    _assert_raw_outbox_pages(adapter, client, events)
+
+
+def _assert_raw_outbox_pages(
+    adapter: DynamoDBControlPlane, client: Any, events: tuple[Any, ...],
+) -> None:
     paginated = OneItemPageClient(client)
     adapter._client = paginated
-    assert (adapter.pending_outbox(0), adapter.pending_outbox(1)) == ((), events[:1])
+    cursor = None
+    pages = []
+    for _ in range(4):
+        before = len(paginated.query_requests)
+        page = adapter.read_outbox_page(cursor, 1)
+        assert len(paginated.query_requests) == before + 1
+        pages.append(page.events)
+        cursor = page.next_cursor
+    assert pages == [(), (), (), events[:1]]
+    assert [request["Limit"] for request in paginated.query_requests] == [1, 1, 1, 1]
     paginated = OneItemPageClient(client)
     adapter._client = paginated
-    assert adapter.pending_outbox(2) == events[:2]
-    assert [request.get("Limit") for request in paginated.query_requests] == [2, 2, 1]
+    first = adapter.read_outbox_page(None, 2)
+    second = adapter.read_outbox_page(first.next_cursor, 2)
+    assert first.events == ()
+    assert second.events == events[:1]
+    assert [request["Limit"] for request in paginated.query_requests] == [2, 2]
 
 
 def test_replay_de_evento_entregue_rejeita_timestamp_forjado(ctx: _DynamoContext) -> None:

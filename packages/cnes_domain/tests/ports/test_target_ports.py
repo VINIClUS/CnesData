@@ -113,7 +113,11 @@ CONTROL_PLANE_SIGNATURES = {
     "put_access_request": (("request", "AccessRequest"), ("event", "OutboxEvent")),
     "get_access_request": (("tenant_id", str), ("request_id", str)),
     "decide_access_request": (("request", "AccessRequest"), ("event", "OutboxEvent")),
-    "pending_outbox": (("limit", int),),
+    "read_outbox_page": (("cursor", "OutboxCursor | None"), ("limit", int)),
+    "advance_outbox_cursor": (
+        ("expected", "OutboxCursor | None"), ("next_cursor", "OutboxCursor | None"),
+    ),
+    "get_outbox_event": (("event_id", str),),
     "mark_outbox_delivered": (("event_id", str), ("delivered_at", datetime)),
 }
 OTHER_SIGNATURES = {
@@ -121,11 +125,7 @@ OTHER_SIGNATURES = {
         "put": (("key", str), ("body", "BinaryIO"), ("expected_sha256", str)),
         "open": (("key", str),),
         "stat": (("key", str),),
-        "promote": (
-            ("source_key", str),
-            ("destination_key", str),
-            ("expected_sha256", str),
-        ),
+        "promote": (("source_key", str), ("destination_key", str), ("expected_sha256", str)),
         "delete": (("key", str),),
     },
     ProcessorExecutorPort: {
@@ -160,7 +160,8 @@ CONTROL_PLANE_RETURNS = {
     "begin_idempotency": "IdempotencyOutcome", "publish_dataset": "DatasetPointer",
     "get_dataset_pointer": "DatasetPointer | None", "put_access_request": "None",
     "get_dataset_version": "DatasetVersion | None", "decide_access_request": "AccessRequest",
-    "get_access_request": "AccessRequest | None", "pending_outbox": "tuple[OutboxEvent, ...]",
+    "get_access_request": "AccessRequest | None", "read_outbox_page": "OutboxPage",
+    "advance_outbox_cursor": "bool", "get_outbox_event": "OutboxEvent | None",
     "mark_outbox_delivered": "None",
 }
 OTHER_RETURNS = {

@@ -142,7 +142,7 @@ def test_crash_apos_pointer_antes_do_sink_reenvia_sem_republicar(tmp_path: Path)
 
     assert segundo == DispatchResult(delivered=1, failed=0)
     assert terceiro == DispatchResult(delivered=0, failed=0)
-    assert reopened_adapter.pending_outbox(10) == ()
+    assert reopened_adapter.read_outbox_page(None, 10).events == ()
 
     log_path = audit_root / "audit" / _TENANT / "2026" / "01" / "15" / "events.jsonl"
     linhas = log_path.read_text(encoding="utf-8").splitlines()
@@ -170,6 +170,6 @@ def test_log_parcial_do_sink_nao_duplica_evento_apos_reabertura(tmp_path: Path) 
     segunda = dispatch_once(reopened_adapter, LocalAuditSink(audit_root), _NOW)
 
     assert segunda == DispatchResult(delivered=1, failed=0)
-    assert reopened_adapter.pending_outbox(10) == ()
+    assert reopened_adapter.read_outbox_page(None, 10).events == ()
     log_path = audit_root / "audit" / _TENANT / "2026" / "01" / "15" / "events.jsonl"
     assert len(log_path.read_text(encoding="utf-8").splitlines()) == 1
