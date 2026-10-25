@@ -49,4 +49,3 @@ class MemoryOutbox:
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
         event = self.outbox[event_id]
         self.outbox[event_id] = event.model_copy(update={"delivered_at": delivered_at})
-

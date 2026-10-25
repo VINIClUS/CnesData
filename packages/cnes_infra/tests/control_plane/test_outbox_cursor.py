@@ -318,5 +318,3 @@ def test_dispatch_perde_cas_e_retoma_cursor_vencedor_na_proxima_chamada(
     assert harness.stored("second").delivered_at is None
     assert dispatch_once(harness.adapter, sink, _NOW, 1) == DispatchResult(1, 0)
     assert [record.event_id for record in harness.local_records()] == ["first", "second"]
-
-
