@@ -21,8 +21,7 @@ class Cleanup:
     journal: Journal
     ports: Ports
     attempted: set[Resource] = field(default_factory=set, init=False)
-    removed: set[Resource] = field(default_factory=set, init=False)
-    omitted: set[Resource] = field(default_factory=set, init=False)
+    absent: set[Resource] = field(default_factory=set, init=False)
 
     @property
     def context(self) -> RequestContext:
@@ -38,8 +37,7 @@ class Cleanup:
 
     def retire_confirmed(self, rows: list[tuple[Resource, Ownership]]) -> None:
         visible = {(ref.service, ref.resource_id) for ref, _ in rows}
-        omitted = {(ref.service, ref.resource_id) for ref in self.omitted}
-        retired = {(ref.service, ref.resource_id) for ref in self.removed} - omitted - visible
+        retired = {(ref.service, ref.resource_id) for ref in self.absent} - visible
         retained = [
             ref for ref in self.journal.created if (ref.service, ref.resource_id) not in retired
         ]
@@ -53,10 +51,16 @@ class Cleanup:
         for ref in self.journal.created:
             if ref in self.attempted or (ref.service, ref.resource_id) in visible:
                 continue
-            self.omitted.add(ref)
             try:
-                owner = self.ports.services.inspect(ref, self.context)
-                reason = self.remove([(ref, owner)]) or reason
+                if self.journal.is_baseline(ref):
+                    raise SafetyFailure("ownership_mismatch")
+                owner = self.ports.services.lookup(ref, self.context)
+                if owner is None:
+                    self.absent.add(ref)
+                else:
+                    reason = self.remove([(ref, owner)]) or reason
+            except SafetyFailure as error:
+                reason = error.reason
             except ServiceFailure:
                 reason = "ownership_mismatch"
         return reason
@@ -73,7 +77,6 @@ class Cleanup:
         reason = None
         for _ in range(self.ports.policy.limits.pages):
             rows = self.relevant(inventory(self.ports, self.context))
-            self.retire_confirmed(rows)
             self.confirm_pending(rows)
             reason = self.remove(rows) or reason
             reason = self.remove_omitted(rows) or reason
@@ -108,9 +111,16 @@ class Cleanup:
         for _ in range(self.ports.policy.limits.attempts):
             try:
                 self.ports.services.delete(resource, True, self.context)
-                return
             except ServiceFailure:
-                continue
+                owner = self.ports.services.lookup(resource, self.context)
+                if owner is None:
+                    return
+                if not owned(resource, owner, self.journal.spec):
+                    raise SafetyFailure("ownership_mismatch") from None
+            else:
+                if self.ports.services.lookup(resource, self.context) is None:
+                    return
+                raise SafetyFailure("cleanup_failed")
         raise SafetyFailure("cleanup_failed")
 
     def remove(self, rows: list[tuple[Resource, Ownership]]) -> str | None:
@@ -123,7 +133,7 @@ class Cleanup:
                 if self.journal.is_baseline(ref) or not owned(ref, owner, self.journal.spec):
                     raise SafetyFailure("ownership_mismatch")
                 self.remove_tree(ref)
-                self.removed.add(ref)
+                self.absent.add(ref)
             except SafetyFailure as error:
                 reason = error.reason
             except ServiceFailure:
@@ -141,8 +151,6 @@ class Cleanup:
             reason = self.reconcile()
             final = self.relevant(inventory(self.ports, self.context))
             self.retire_confirmed(final)
-            if self.omitted:
-                raise SafetyFailure(reason or "inventory_incomplete")
             remaining = tuple(ref for ref, _ in final)
             evidence = {
                 "inventory_complete": True,
@@ -151,7 +159,7 @@ class Cleanup:
                     for service in SERVICES
                 },
             }
-            if remaining or reason:
+            if remaining or reason or self.journal.created:
                 return Outcome("incomplete", reason or "cleanup_failed", remaining, evidence)
             self.journal.phase = "complete"
             self.journal.pending_service = None

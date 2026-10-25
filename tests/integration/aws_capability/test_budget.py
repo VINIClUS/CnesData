@@ -48,14 +48,14 @@ def test_trabalho_esgotado_apos_primeira_criacao_ainda_limpa_com_reserva(lab: La
 
 
 def test_probe_opaco_compartilha_limite_por_request_e_nao_por_metodo(lab: Lab) -> None:
-    ports = configured(lab, Limits(calls=50, cleanup_reserve=30))
+    ports = configured(lab, Limits(calls=54, cleanup_reserve=34))
     lab.remote.probe_requests = 100
     outcome = lifecycle.run(lab.spec, ports)
     assert outcome.status == "failed"
     assert outcome.reason == "request_budget_exhausted"
     assert len([event for event in lab.events if event[0] == "probe"]) == 1
     assert lab.remote.request_lanes.count("work") == 20
-    assert lab.remote.calls <= 50
+    assert lab.remote.calls <= 54
     assert lab.remote.resources == {}
     assert outcome.remaining == ()
     assert_fresh_inventory(lab.events)

@@ -114,6 +114,16 @@ class Remote:
             raise ServiceFailure("ownership=unavailable")
         return self.ownership[resource.resource_id]
 
+    def lookup(self, resource: Resource, context: RequestContext) -> Ownership | None:
+        self.request(context)
+        self.touch("lookup", resource.service, resource.resource_id)
+        if resource.resource_id in self.inspect_errors:
+            raise ServiceFailure("ownership=unavailable")
+        present = self.resources.get(resource.resource_id)
+        if present is None or present.service != resource.service:
+            return None
+        return self.ownership[resource.resource_id]
+
     def create(self, service: str, creation: Creation, context: RequestContext) -> Resource:
         self.request(context)
         self.touch("create", service, creation)
