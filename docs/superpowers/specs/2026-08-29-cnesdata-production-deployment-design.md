@@ -246,8 +246,8 @@ The application remains the authority for:
 
 ## 8. Authentication and demo tenancy
 
-Production sets `PROFILE=aws` and `AUTH_MODE=oidc`. Cognito Lite is the selected
-issuer preset, but application/domain interfaces remain provider-neutral.
+Production sets `PROFILE=aws` and `AUTH_MODE=oidc`. Cognito Essentials is the selected
+issuer preset (owner decision 2026-10-25); application/domain interfaces remain provider-neutral.
 
 The deployment creates:
 
@@ -276,8 +276,8 @@ to send the `access_token`; the verifier remains provider-neutral.
 Authorization Code + PKCE requires the AWS-managed prefix domain. Its public
 dashboard configuration and OpenTofu outputs include `COGNITO_DOMAIN` plus the
 absolute `COGNITO_AUTHORIZE_URL`, `COGNITO_TOKEN_URL` and `COGNITO_LOGOUT_URL`
-for `/oauth2/authorize`, `/oauth2/token` and `/logout`. Cognito Lite uses these
-standard endpoints without depending on managed login v2 branding or features.
+for `/oauth2/authorize`, `/oauth2/token` and `/logout`. These endpoints use
+managed login v2 with Cognito-provided branding; resource binding preserves the API audience.
 
 Tokens establish issuer, audience and subject only. Tenant membership is
 resolved server-side through canonical DynamoDB keys. A tenant claim, header,

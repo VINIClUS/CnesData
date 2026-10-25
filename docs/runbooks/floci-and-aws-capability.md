@@ -52,18 +52,18 @@ se `skipped > 0` e `down -v` sob `if: always()`. Herda os gatilhos do workflow; 
 
 ## Checks na AWS real (PR 13b)
 
-Executados pelo conector AWS MCP, em `us-east-2`, sem `apply` de produção e com custo ~US$0.
+Executar pela AWS CLI autorizada, em `us-east-2`, sem `apply` de produção. Recursos efêmeros
+entram no envelope de USD 8 do produto; inventário final deve estar vazio.
 
 1. **Identificação.** Run id `<uuid8>`; nomes `cnesdata-cap-<uuid8>[-sufixo]`; tags
    `Project=cnesdata`, `Purpose=capability-check` e `Run=<uuid8>` onde o serviço aceita tag.
 2. **Inventário inicial.** Listar `cnesdata-cap-*` em DynamoDB, S3, IAM (usuários e roles) e
    Cognito (pools e domínios) e registrar as contagens.
-3. **Cenários.** Os mesmos da suíte Floci. Reaproveitar `_cognito.provision` (tier em
-   `pool_options`), `_dynamodb.create_canonical_table`, `_iam` e `_oauth_pkce` com
-   `HostedUi("https://<prefixo>.auth.us-east-2.amazoncognito.com")` sem prefixo de caminho. O
-   helper PKCE lê formulário HTML: se o login gerenciado v2 não expuser um, criar o domínio com
-   `ManagedLoginVersion=1`. D-B: se o tier LITE não transformar `resource` em `aud`, a escolha
-   volta ao usuário.
+3. **Cenários.** Espelhar o módulo aprovado: Essentials, managed login v2, branding padrão,
+   client público, code/PKCE, scopes e callbacks exatos. A decisão D-B foi fixada pelo dono em
+   2026-10-25; não rebaixar para UI1 nem ampliar flows para acomodar helpers do emulador.
+   Usar navegador descartável se o login exigir JS; conferir `aud` do access token e sua
+   preservação após refresh, além de issuer/JWKS HTTPS reais. Manter códigos e senhas em memória.
 4. **Object Lock só GOVERNANCE**, com retenção curta, removida no teardown com
    `x-amz-bypass-governance-retention`. COMPLIANCE nunca; por isso o `S3ObjectLockAuditSink`
    (COMPLIANCE fixo) só é exercitado no Floci.
@@ -71,7 +71,8 @@ Executados pelo conector AWS MCP, em `us-east-2`, sem `apply` de produção e co
    `DeletionProtection` e apagar a tabela; chaves, políticas inline e usuários; políticas inline e
    roles.
 6. **Inventário final vazio.** Repetir a listagem; qualquer `cnesdata-cap-*` remanescente reprova
-   o check.
+   o check. Preparar journal e janitor independente com deadline antes de criar recursos;
+   `finally` sozinho não cobre interrupção abrupta ou perda do worker.
 7. **Redação da evidência.** Registrar só status, códigos de erro, contagens e claims não
    sensíveis (`token_use`, `scope`, presença de `aud`). Trocar account ID, ARNs, IDs de pool e
    client e domínios por `<conta>`, `<arn>`, `<pool>`. Nunca registrar access key, secret, session
@@ -87,10 +88,10 @@ texto entre parênteses é a expectativa pela documentação AWS.
 | Cenário | Floci | AWS (a preencher na 13b) | Impacto | Mitigação |
 |---|---|---|---|---|
 | `aud` do access token (SDK e PKCE) | ausente; ID token traz `aud=client_id` | pendente (sem `aud` salvo resource binding) | `OidcVerifier` exige `aud`: recusa access token | check real com `resource`; D-B |
-| `resource` (RFC 8707) no authorize/token | ignorado em silêncio; escopos iguais | pendente (D-B, tier LITE) | não dá para provar binding no emulador | só a 13b decide |
+| `resource` (RFC 8707) no authorize/token | ignorado em silêncio; escopos iguais | pendente (Essentials/UI2 escolhidos) | binding não é provado pelo emulador | check real de code e refresh |
 | issuer e `jwks_uri` | `http://127.0.0.1:4577/<pool>` | pendente (`https://cognito-idp.us-east-2.amazonaws.com/<pool>`) | `OidcVerifier` recusa `jwks_uri` http | teste reescreve só o esquema via `MockTransport` |
 | domínio de prefixo | `ACTIVE`, não roteado; discovery segue em `/cognito-idp/oauth2/*` | pendente (`https://<prefixo>.auth…/oauth2/*`) | URL do login gerenciado difere | `HostedUi(base_url, path_prefix)` |
-| login gerenciado | form HTML com `_csrf` + cookie `XSRF-TOKEN`; senha errada = 400 | pendente (v1 HTML; v2 SPA) | scraping depende do formulário | `ManagedLoginVersion=1` na 13b |
+| login gerenciado | form HTML com `_csrf` + cookie `XSRF-TOKEN`; senha errada = 400 | pendente (managed login v2) | helper HTML não espelha produção | navegador descartável se houver JS |
 | PKCE e callback | só S256; verifier errado consome o código; código não reutilizável; callback exato | pendente (igual) | nenhum | — |
 
 ### DynamoDB (`test_dynamodb_semantics.py`)

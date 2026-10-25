@@ -5,12 +5,12 @@ import subprocess
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, cast
-from urllib.parse import urlsplit
 
 import pytest
 
 from cnes_infra.aws import AwsRuntimeSettings
 from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from tests.production.infra._cognito_dashboard import _assert_dashboard_env, _dashboard_scopes
 
 type Tofu = tuple[str, dict[str, str]]
 type Artifacts = dict[str, dict[str, object]]
@@ -19,9 +19,6 @@ type Resource = tuple[str, str, Mapping[str, object]]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MODULE_DIRECTORY = REPO_ROOT / "infra/opentofu/modules/cognito"
-OIDC_SETTINGS = REPO_ROOT / "apps/web_dashboard/src/auth/oidcSettings.ts"
-DASHBOARD_ENV = REPO_ROOT / "apps/web_dashboard/src/lib/env.ts"
-DEPLOY_MAIN = REPO_ROOT / ".github/workflows/deploy-main.yml"
 MODULE_SOURCE, ISOLATED_SOURCE = "../../modules/cognito", "./modules/cognito"
 REVIEWED_SUFFIX = "prod54qgag"
 COGNITO = {"name_prefix": "cnesdata-prod", "domain_suffix": REVIEWED_SUFFIX}
@@ -53,10 +50,6 @@ EXPECTED_OUTPUTS = {
     "authorize_url": f"{DOMAIN}/oauth2/authorize", "token_url": f"{DOMAIN}/oauth2/token",
     "logout_url": f"{DOMAIN}/logout",
 }
-DASHBOARD_ENDPOINTS = {
-    "authorization_endpoint": "authorize_url", "token_endpoint": "token_url",
-    "end_session_endpoint": "logout_url",
-}
 STRONG_PASSWORD = {
     "minimum_length": 14, "require_lowercase": True, "require_numbers": True,
     "require_symbols": True, "require_uppercase": True,
@@ -64,9 +57,8 @@ STRONG_PASSWORD = {
 MODULE_RESOURCES = {
     "aws_cognito_user_pool.this", "aws_cognito_resource_server.api",
     "aws_cognito_user_pool_client.dashboard", "aws_cognito_user_pool_domain.this",
+    "aws_cognito_managed_login_branding.dashboard",
 }
-# Enabled add-ons need PLUS, and email MFA, passkeys and choice-based sign-in need ESSENTIALS:
-# the LITE pool declares none of these blocks, statically or through `dynamic`.
 TIER_BLOCKS = (
     "user_pool_add_ons", "email_mfa_configuration", "web_authn_configuration", "sign_in_policy",
 )
@@ -241,56 +233,6 @@ def _sorted(value: object) -> object:
     return sorted(cast("list[str]", value)) if isinstance(value, list) else value
 
 
-def _contract(path: Path, pattern: str, name: str) -> re.Match[str]:
-    match = re.search(pattern, path.read_text(encoding="utf-8"), re.MULTILINE)
-    if match is None:
-        pytest.fail(f"dashboard_contract_missing name={name}")
-    return match
-
-
-def _dashboard_constant(name: str) -> str:
-    return _contract(OIDC_SETTINGS, rf'^const {name} = (["`])(?P<value>[^"`]+)\1;$', name)["value"]
-
-
-def _dashboard_scopes() -> tuple[str, list[str]]:
-    resource = _dashboard_constant("API_RESOURCE")
-    api_scope = _dashboard_constant("API_SCOPE").replace("${API_RESOURCE}", resource)
-    return resource, sorted([*_dashboard_constant("OIDC_SCOPE").split(), api_scope])
-
-
-def _dashboard_schema() -> tuple[set[str], re.Pattern[str], dict[str, str]]:
-    shape = r"^const PRODUCTION_OIDC_DOMAIN =\s*/(?P<pattern>[^\n]+)/;$"
-    domain = _contract(DASHBOARD_ENV, shape, "PRODUCTION_OIDC_DOMAIN")["pattern"]
-    env, settings = (path.read_text(encoding="utf-8") for path in (DASHBOARD_ENV, OIDC_SETTINGS))
-    return (
-        set(re.findall(r"^\s+(VITE_OIDC_[A-Z_]+):", env, re.MULTILINE)),
-        re.compile(domain.replace("\\/", "/")),
-        dict(re.findall(r"(\w+): `\$\{domain\}(/[^`]+)`", settings)),
-    )
-
-
-def _deployed_redirect_uri() -> str:
-    pattern = r"VITE_OIDC_REDIRECT_URI=\$\{\{ matrix\.app == 'web_dashboard' && '(?P<uri>[^']+)'"
-    return _contract(DEPLOY_MAIN, pattern, "VITE_OIDC_REDIRECT_URI")["uri"]
-
-
-def _assert_dashboard_env(outputs: Mapping[str, str], client: Mapping[str, Any]) -> None:
-    keys, domain_shape, endpoints = _dashboard_schema()
-    redirect = urlsplit(_deployed_redirect_uri())
-    public_env = {
-        "VITE_OIDC_AUTHORITY": outputs["issuer"], "VITE_OIDC_CLIENT_ID": outputs["client_id"],
-        "VITE_OIDC_REDIRECT_URI": client["callback_urls"][0], "VITE_OIDC_DOMAIN": outputs["domain"],
-    }
-
-    assert set(public_env) == keys
-    assert domain_shape.fullmatch(public_env["VITE_OIDC_DOMAIN"])
-    assert client["callback_urls"] == [redirect.geturl()]
-    assert client["logout_urls"] == [f"{redirect.scheme}://{redirect.netloc}"]
-    assert {name: outputs["domain"] + endpoints[name] for name in DASHBOARD_ENDPOINTS} == {
-        name: outputs[output] for name, output in DASHBOARD_ENDPOINTS.items()
-    }
-
-
 @pytest.fixture(scope="module")
 def plan_report(
     tofu_context: Tofu,
@@ -380,8 +322,40 @@ def test_tier_do_pool_fixado_explicitamente(
         for run in (MODULE_RUN, ROOT_RUN)
     ]
 
-    assert [pool.get("user_pool_tier") for pool in configured] == ["LITE"]
-    assert [[pool["user_pool_tier"] for pool in pools] for pools in planned] == [["LITE"]] * 2
+    assert [pool.get("user_pool_tier") for pool in configured] == ["ESSENTIALS"]
+    assert [[pool["user_pool_tier"] for pool in pools] for pools in planned] == [["ESSENTIALS"]] * 2
+
+
+@pytest.mark.parametrize("run", [MODULE_RUN, ROOT_RUN])
+def test_dominio_usa_login_gerenciado_v2(plan_report: TofuReport, run: str) -> None:
+    domain = _single(_planned(plan_report, run), "aws_cognito_user_pool_domain")
+
+    assert domain["managed_login_version"] == 2
+
+
+def test_login_gerenciado_v2_tem_branding_do_client_publico(
+    plan_report: TofuReport, tofu_artifacts: Artifacts
+) -> None:
+    configured = _single(_config(tofu_artifacts), "aws_cognito_managed_login_branding")
+    targets = {
+        "client_id": "aws_cognito_user_pool_client.dashboard",
+        "user_pool_id": "aws_cognito_user_pool.this",
+    }
+
+    for attribute, target in targets.items():
+        assert set(configured[attribute]["references"]) == {target, f"{target}.id"}
+    assert configured["use_cognito_provided_values"] is True
+    assert not {"assets", "settings"} & set(configured)
+    for run in (MODULE_RUN, ROOT_RUN):
+        planned = _planned(plan_report, run)
+        branding = _single(planned, "aws_cognito_managed_login_branding")
+        client = _single(planned, "aws_cognito_user_pool_client")
+        pool = _single(planned, "aws_cognito_user_pool")
+        assert branding["client_id"] == client["id"]
+        assert branding["user_pool_id"] == pool["id"] == client["user_pool_id"]
+        assert branding["use_cognito_provided_values"] is True
+        assert branding.get("assets") in (None, [])
+        assert branding.get("settings") is None
 
 
 def test_sem_custom_domain_sms_social_ou_m2m(
@@ -397,9 +371,7 @@ def test_sem_custom_domain_sms_social_ou_m2m(
 
     assert cognito == {f"module.cognito.{address}" for address in MODULE_RESOURCES}
     assert owned == {address.split(".")[0] for address in MODULE_RESOURCES}
-    assert (domain["domain"], domain["certificate_arn"], domain["managed_login_version"]) == (
-        f"cnesdata-{REVIEWED_SUFFIX}", None, 1,
-    )
+    assert (domain["domain"], domain["certificate_arn"]) == (f"cnesdata-{REVIEWED_SUFFIX}", None)
     assert (pool["mfa_configuration"], pool["sms_configuration"], pool["lambda_config"]) == (
         "OFF", [], [],
     )
