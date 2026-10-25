@@ -231,14 +231,18 @@ def _start_and_bind(
     except Exception:
         execution.admission.settle(holder, now)
         raise
+    completed_before_binding = False
     try:
         bound = _bind_dispatch(control_plane, BindRunDispatch(
             tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
             execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
         ), dispatch.unit_ids)
+        completed_before_binding = bound is None
         execution.admission.confirm(admission, execution_ref, now)
         execution.callbacks.started(run, request, execution_ref, permit)
     except Exception:
+        if completed_before_binding:
+            raise
         _compensate_start(control_plane, executor, FinishRunDispatch(
             tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
             outcome=DispatchOutcome.CANCELED, finished_at=now,

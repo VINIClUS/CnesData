@@ -33,7 +33,8 @@ specifications remain binding except where the explicit decisions below amend th
 - Membership discovery must not broaden authorization or leak another principal/tenant's cache.
 - Freeze must preserve audit, backup and health and never affect another project's roles.
 - Ephemeral AWS resources need cleanup after abrupt interruption as well as ordinary failures.
-- Legacy deletion requires fresh write-fence, active-data inventory and restorable snapshot evidence.
+- Legacy deletion requires fresh write-fence, active-data inventory and restorable
+  snapshot evidence.
 
 ## Execution tasks
 

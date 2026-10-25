@@ -32,23 +32,49 @@ está integrado; infraestrutura parcial em código não significa promoção AWS
 
 | Item | Prioridade | Bloqueio / Pré-req |
 |---|---|---|
-| Corrida entre execução e bind do dispatch (#413) | Alta | Regressão determinística, auditoria dos testes e correção antes de avançar o runtime |
-| Evidências MIG-012/013 (#278/#279, concluídas) | Aceitas | Listagem não root de 2026-10-25 publicada e auditada; write-fence/snapshots atestados, sem antecipar remoção do legado |
-| Identidade e descoberta AWS (#398/#381/#410) | Alta | Capability checks reais; Cognito Essentials/managed login v2; memberships e sessão sem tenant selecionado |
-| Outbox e workers isolados (#374/#375) | Alta | Cursor/CAS antes de separar unit/recovery/audit; gate de runtime #377 |
-| Infraestrutura AWS e gates (#365) | Alta | #382, #384–#389; custos até USD 8/produto e freeze na previsão agregada USD 15 |
-| Cutover final (#280/#281) | Alta | Promoção AWS, equivalentes das features vivas e evidências atuais antes de remover PostgreSQL/MinIO/BigQuery/Keycloak |
-| PEN IANA dos certificados (#60) | Pré-produção | Ainda sem atribuição; bloqueia emissão/rollout de certificados de produção |
+| Corrida entre execução e bind do dispatch (#413) | Alta | [^b413] |
+| Evidências MIG-012/013 (#278/#279, concluídas) | Aceitas | [^bmig] |
+| Identidade e descoberta AWS (#398/#381/#410) | Alta | [^bidentidade] |
+| Outbox e workers isolados (#374/#375) | Alta | [^bworkers] |
+| Infraestrutura AWS e gates (#365) | Alta | [^binfra] |
+| Cutover final (#280/#281) | Alta | [^bcutover] |
+| PEN IANA dos certificados (#60) | Pré-produção | [^bpen] |
 | Rules service externo | Média | Repo separado; consome Gold/landing via SQL JOINs |
 | HR PIS->CPF cross-walking | Média | Reativar/reescrever fluxo em monorepo |
 | Esus PEC | Alta | Acesso ao DB municipal varia; negociação política |
 | Automated DATASUS submission check | Baixa | Alertar quando competência local > nacional por mais de 2 meses |
 | Web dashboard v1.2 | Média | Faturamento+regressão, drill estabelecimento, admin UI approve/reject |
-| Billing e entitlements (#95, concluída) | Implementado | Manter `BILLING_MODE=disabled` neste rollout; ativação comercial exige seus próprios pré-requisitos |
-| Perfil AWS (#94, concluída) | Implementado | Runtime/gate integrados; promoção de produção pertence ao backlog #365; ver [readiness](production-readiness.md). |
+| Billing e entitlements (#95, concluída) | Implementado | [^bbilling] |
+| Perfil AWS (#94, concluída) | Implementado | [^baws] |
 | PII em logs (CPF/nome/PIS em WARNING) | Média | `transformer.py`, `hr_client.py` logam CPF/nome/PIS crus — mascarar antes de logar |
 | Update check + self-update no edge agent | Média | Contrato de manifesto já publicado (distribuição acima); falta `internal/updater` no dumpagent, fix do bug `AGENT_VERSION` sempre `dev` (`internal/apiclient/adapter.go`), e assinatura de código para AV estrito |
-| Rebase de trabalho ativo | Em execução | Base `develop`; reaproveitar branches antigas somente quando ligadas a issues/PRs pendentes, preservando os demais worktrees |
+| Rebase de trabalho ativo | Em execução | [^brebase] |
+
+[^b413]: Regressão determinística, auditoria dos testes e correção antes de avançar o runtime
+
+[^bmig]: Listagem não root de 2026-10-25 publicada e auditada; write-fence/snapshots atestados, sem
+    antecipar remoção do legado
+
+[^bidentidade]: Capability checks reais; Cognito Essentials/managed login v2; memberships e sessão
+    sem tenant selecionado
+
+[^bworkers]: Cursor/CAS antes de separar unit/recovery/audit; gate de runtime #377
+
+[^binfra]: #382, #384–#389; custos até USD 8/produto e freeze na previsão agregada USD 15
+
+[^bcutover]: Promoção AWS, equivalentes das features vivas e evidências atuais antes de remover
+    PostgreSQL/MinIO/BigQuery/Keycloak
+
+[^bpen]: Ainda sem atribuição; bloqueia emissão/rollout de certificados de produção
+
+[^bbilling]: Manter `BILLING_MODE=disabled` neste rollout; ativação comercial exige seus próprios
+    pré-requisitos
+
+[^baws]: Runtime/gate integrados; promoção de produção pertence ao backlog #365; ver
+    [readiness](production-readiness.md).
+
+[^brebase]: Base `develop`; reaproveitar branches antigas somente quando ligadas a issues/PRs
+    pendentes, preservando os demais worktrees
 
 ## Later (conceitual)
 
