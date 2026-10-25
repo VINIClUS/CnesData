@@ -37,9 +37,12 @@ class Cleanup:
         ]
 
     def retire_confirmed(self, rows: list[tuple[Resource, Ownership]]) -> None:
-        visible = {ref for ref, _ in rows}
-        retired = self.removed - self.omitted - visible
-        retained = [ref for ref in self.journal.created if ref not in retired]
+        visible = {(ref.service, ref.resource_id) for ref, _ in rows}
+        omitted = {(ref.service, ref.resource_id) for ref in self.omitted}
+        retired = {(ref.service, ref.resource_id) for ref in self.removed} - omitted - visible
+        retained = [
+            ref for ref in self.journal.created if (ref.service, ref.resource_id) not in retired
+        ]
         if retained != self.journal.created:
             self.journal.created = retained
             self.journal.save()
