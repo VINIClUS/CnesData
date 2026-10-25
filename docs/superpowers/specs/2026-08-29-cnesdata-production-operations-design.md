@@ -357,8 +357,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - API is unreachable at the VPS address/ports and healthy through Tunnel;
 - the collision-safe AWS-managed Cognito prefix domain serves real
   `/oauth2/authorize`, `/oauth2/token` and `/logout` endpoints; the PKCE code
-  exchange and configured logout URL succeed, with no custom Cognito domain or
-  managed login v2 dependency;
+  exchange, audience-preserving refresh and logout succeed using Essentials,
+  managed login v2 and Cognito-provided branding, with no custom Cognito domain;
 - demo user authenticates with PKCE and resolves only the demo tenant;
 - a real constrained API/VPS leaf from the external CA assumes the Roles
   Anywhere profile; a CRL-revoked leaf is denied, alerts and remains failed
