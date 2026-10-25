@@ -1,11 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { authenticatedJson } from "./fixtures/api";
+import { expect, test } from "./fixtures/oidc";
 
 const ACTIVATE_PATH = "/api/v1/activate/confirm";
 const LEGACY_PATH = "/activate/confirm";
 
-test.beforeEach(async ({ context }) => {
+test.beforeEach(async ({ context, page, oidc }) => {
   await context.route("**/api/v1/dashboard/auth/me", (r) =>
-    r.fulfill({
+    authenticatedJson(r, {
       json: {
         user_id: "u-1",
         email: "g@m",
@@ -16,15 +17,18 @@ test.beforeEach(async ({ context }) => {
     }),
   );
   await context.route("**/api/v1/dashboard/tenants", (r) =>
-    r.fulfill({
+    authenticatedJson(r, {
       json: [{ ibge6: "354130", ibge7: "3541308", nome: "Presidente Epitácio", uf: "SP" }],
     }),
   );
   await context.route(`**${ACTIVATE_PATH}`, (r) =>
-    r.fulfill({
+    authenticatedJson(r, {
       json: { status: "approved", expires_in_seconds: 300 },
+      tenantId: "354130",
     }),
   );
+  await oidc.login(page);
+  await expect(page).toHaveURL(/\/agentes$/);
 });
 
 test("gestor_aprova_user_code_e_ve_sucesso", async ({ page }) => {
