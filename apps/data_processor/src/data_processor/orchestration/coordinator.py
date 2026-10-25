@@ -13,7 +13,8 @@ from cnes_domain.control_plane.commands import (
     TransitionRun,
 )
 from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
+from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
+from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
 from cnes_domain.orchestration.dispatch_admission import dispatch_holder, settle_run_dispatches
 from cnes_domain.orchestration.fan_in import decide_fan_in
 from cnes_domain.orchestration.planner import (
@@ -181,6 +182,36 @@ def _compensate_start(
     control_plane.finish_run_dispatch(finish)
 
 
+def _completed_before_bind(
+    control_plane: ControlPlanePort, command: BindRunDispatch, unit_ids: tuple[str, ...],
+) -> bool:
+    run = control_plane.get_run(command.tenant_id, command.run_id)
+    if run is None or run.state not in _TERMINAL_RUN_STATES:
+        return False
+    units = control_plane.list_run_units(command.tenant_id, command.run_id)
+    completed = {
+        unit.unit_id for unit in units
+        if unit.dispatch_id == command.dispatch_id
+        and unit.state in {
+            RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED, RunUnitState.FAILED_FINAL,
+        }
+    }
+    return bool(unit_ids) and set(unit_ids) <= completed
+
+
+def _bind_dispatch(
+    control_plane: ControlPlanePort, command: BindRunDispatch, unit_ids: tuple[str, ...],
+) -> RunDispatch | None:
+    try:
+        return control_plane.bind_run_dispatch(command)
+    except Conflict as error:
+        if error.code != ControlPlaneErrorCode.PARENT_NOT_PROCESSING:
+            raise
+        if not _completed_before_bind(control_plane, command, unit_ids):
+            raise
+    return None
+
+
 def _start_and_bind(
     control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
     execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
@@ -200,20 +231,27 @@ def _start_and_bind(
     except Exception:
         execution.admission.settle(holder, now)
         raise
+    completed_before_binding = False
     try:
-        bound = control_plane.bind_run_dispatch(BindRunDispatch(
+        bound = _bind_dispatch(control_plane, BindRunDispatch(
             tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
             execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
-        ))
+        ), dispatch.unit_ids)
+        completed_before_binding = bound is None
         execution.admission.confirm(admission, execution_ref, now)
         execution.callbacks.started(run, request, execution_ref, permit)
     except Exception:
+        if completed_before_binding:
+            raise
         _compensate_start(control_plane, executor, FinishRunDispatch(
             tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
             outcome=DispatchOutcome.CANCELED, finished_at=now,
         ), execution_ref)
         execution.admission.settle(holder, now)
         raise
+    if bound is None:
+        execution.admission.settle(holder, now)
+        return execution_ref
     return cast("str", bound.execution_ref)
 
 
