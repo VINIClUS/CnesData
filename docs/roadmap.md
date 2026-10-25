@@ -24,22 +24,31 @@
 | Delta + integridade | Ativo | `_op` delta Parquet, `delta.db`, SHA-256 em `landing.extractions.sha256`, HMAC audit JSONL |
 | Distribuição do edge agent (GitHub Releases + R2) | Ativo | `.github/workflows/dump-agent-go-release.yml`, `docs/contracts/dumpagent-update-manifest.schema.json`, `docs/runbooks/dumpagent-release.md` |
 
-## Next (planejado, sem código ainda)
+## Next (backlog ativo, atualizado em 2026-10-25)
+
+Ordem de execução e auditorias em
+`docs/superpowers/plans/2026-10-25-backlog-execution-plan.md`. O runtime AWS já
+está integrado; infraestrutura parcial em código não significa promoção AWS concluída.
 
 | Item | Prioridade | Bloqueio / Pré-req |
 |---|---|---|
-| Completar `data_processor` landing -> Gold | Alta | Implementar heartbeat/upload e ligar download/adapters/repos |
-| End-to-end extraction lifecycle | Alta | Reconciliar status `PENDING/CLAIMED/REGISTERED/UPLOADED/PROCESSING/INGESTED` e presigned URL ownership |
+| Corrida entre execução e bind do dispatch (#413) | Alta | Regressão determinística, auditoria dos testes e correção antes de avançar o runtime |
+| Evidências MIG-012/013 (#278/#279, concluídas) | Aceitas | Listagem não root de 2026-10-25 publicada e auditada; write-fence/snapshots atestados, sem antecipar remoção do legado |
+| Identidade e descoberta AWS (#398/#381/#410) | Alta | Capability checks reais; Cognito Essentials/managed login v2; memberships e sessão sem tenant selecionado |
+| Outbox e workers isolados (#374/#375) | Alta | Cursor/CAS antes de separar unit/recovery/audit; gate de runtime #377 |
+| Infraestrutura AWS e gates (#365) | Alta | #382, #384–#389; custos até USD 8/produto e freeze na previsão agregada USD 15 |
+| Cutover final (#280/#281) | Alta | Promoção AWS, equivalentes das features vivas e evidências atuais antes de remover PostgreSQL/MinIO/BigQuery/Keycloak |
+| PEN IANA dos certificados (#60) | Pré-produção | Ainda sem atribuição; bloqueia emissão/rollout de certificados de produção |
 | Rules service externo | Média | Repo separado; consome Gold/landing via SQL JOINs |
 | HR PIS->CPF cross-walking | Média | Reativar/reescrever fluxo em monorepo |
 | Esus PEC | Alta | Acesso ao DB municipal varia; negociação política |
 | Automated DATASUS submission check | Baixa | Alertar quando competência local > nacional por mais de 2 meses |
 | Web dashboard v1.2 | Média | Faturamento+regressão, drill estabelecimento, admin UI approve/reject |
-| Billing, Entitlements e Stripe (EPIC #95) | Alta | Código completo e testado sem rede Stripe (BIL-010…023, Tasks 6/13/17; gate CI `python-quality.yml` job `billing-acceptance` + `tests/scripts/test_ci_billing.py`), enforcement desligado em produção. Go-live pendente de: environment `stripe-sandbox` e run `5 passed` do `stripe-billing-e2e.yml` (BIL-024 #328), secrets Stripe no Secrets Manager (D2), IaC dos alarmes, deploy do `billing_worker`, `PlanVersion`/Price reais e aceite de termos; rollout em `shadow` antes de `enforce` |
-| Perfil AWS (#94) | Média | Runtime/gate integrados; ver [readiness](production-readiness.md). |
+| Billing e entitlements (#95, concluída) | Implementado | Manter `BILLING_MODE=disabled` neste rollout; ativação comercial exige seus próprios pré-requisitos |
+| Perfil AWS (#94, concluída) | Implementado | Runtime/gate integrados; promoção de produção pertence ao backlog #365; ver [readiness](production-readiness.md). |
 | PII em logs (CPF/nome/PIS em WARNING) | Média | `transformer.py`, `hr_client.py` logam CPF/nome/PIS crus — mascarar antes de logar |
 | Update check + self-update no edge agent | Média | Contrato de manifesto já publicado (distribuição acima); falta `internal/updater` no dumpagent, fix do bug `AGENT_VERSION` sempre `dev` (`internal/apiclient/adapter.go`), e assinatura de código para AV estrito |
-| Rebase de `.worktrees/*` na reestruturação de context routing (2026-09-19) | Alta | 4 worktrees (`cnd-050-normalize-cnes-local`, `cnd-052-reconcile-cnes`, `marketing-public-pages`, `minio-quay-digest`) ainda servem o `CLAUDE.md` raiz pré-reestruturação (335 L) até serem rebaseados no commit desta mudança |
+| Rebase de trabalho ativo | Em execução | Base `develop`; reaproveitar branches antigas somente quando ligadas a issues/PRs pendentes, preservando os demais worktrees |
 
 ## Later (conceitual)
 

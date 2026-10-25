@@ -1,5 +1,17 @@
 # Production readiness dependency gate
 
+## Current execution baseline — 2026-10-25
+
+Backlog execution starts from integrated `develop` at
+`f87d42bdb56ff10e755c67d7ad26b46528889379`. The plan is
+`docs/superpowers/plans/2026-10-25-backlog-execution-plan.md`.
+The historical runs below prove their named SHAs only; each new change requires fresh checks.
+
+Production infrastructure currently includes control-plane, data-bucket and network modules.
+The remaining runtime/infra gates and target promotion are still pending under epic #365.
+Cognito is approved for Essentials/managed login v2, preserving the API audience; this decision
+must be implemented and capability-tested before the production pool is created.
+
 ## Tested dependency head
 
 The dependency gate was materialized against the exact integrated `develop` SHA
