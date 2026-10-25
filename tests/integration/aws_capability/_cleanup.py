@@ -1,6 +1,6 @@
 """Reconciliação conservadora e remoção limitada com prova final fresca."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._inventory import dependents, inventory
 from tests.integration.aws_capability._journal import Journal
@@ -20,6 +20,9 @@ from tests.integration.aws_capability.contracts import (
 class Cleanup:
     journal: Journal
     ports: Ports
+    attempted: set[Resource] = field(default_factory=set, init=False)
+    removed: set[Resource] = field(default_factory=set, init=False)
+    omitted: set[Resource] = field(default_factory=set, init=False)
 
     @property
     def context(self) -> RequestContext:
@@ -33,16 +36,46 @@ class Cleanup:
             if matches_name(ref, self.journal.spec) or (ref.service, ref.resource_id) in references
         ]
 
-    def reconcile(self) -> list[tuple[Resource, Ownership]]:
+    def retire_confirmed(self, rows: list[tuple[Resource, Ownership]]) -> None:
+        visible = {ref for ref, _ in rows}
+        retired = self.removed - self.omitted - visible
+        retained = [ref for ref in self.journal.created if ref not in retired]
+        if retained != self.journal.created:
+            self.journal.created = retained
+            self.journal.save()
+
+    def remove_omitted(self, rows: list[tuple[Resource, Ownership]]) -> str | None:
+        visible = {(ref.service, ref.resource_id) for ref, _ in rows}
+        reason = None
+        for ref in self.journal.created:
+            if ref in self.attempted or (ref.service, ref.resource_id) in visible:
+                continue
+            self.omitted.add(ref)
+            try:
+                owner = self.ports.services.inspect(ref, self.context)
+                reason = self.remove([(ref, owner)]) or reason
+            except ServiceFailure:
+                reason = "ownership_mismatch"
+        return reason
+
+    def confirm_pending(self, rows: list[tuple[Resource, Ownership]]) -> None:
+        resolved = [ref for ref, owner in rows if self.resolves(ref, owner)]
+        if self.journal.operation_state == "unknown" and resolved:
+            self.journal.created.extend(ref for ref in resolved if ref not in self.journal.created)
+            self.journal.pending_service = None
+            self.journal.operation_state = "confirmed"
+            self.journal.save()
+
+    def reconcile(self) -> str | None:
+        reason = None
         for _ in range(self.ports.policy.limits.pages):
             rows = self.relevant(inventory(self.ports, self.context))
+            self.retire_confirmed(rows)
+            self.confirm_pending(rows)
+            reason = self.remove(rows) or reason
+            reason = self.remove_omitted(rows) or reason
             if self.journal.operation_state != "unknown":
-                return rows
-            if any(self.resolves(ref, owner) for ref, owner in rows):
-                self.journal.pending_service = None
-                self.journal.operation_state = "confirmed"
-                self.journal.save()
-                return rows
+                return reason
         raise SafetyFailure("creation_uncertain")
 
     def resolves(self, ref: Resource, owner: Ownership) -> bool:
@@ -80,10 +113,14 @@ class Cleanup:
     def remove(self, rows: list[tuple[Resource, Ownership]]) -> str | None:
         reason = None
         for ref, owner in rows:
+            if ref in self.attempted:
+                continue
+            self.attempted.add(ref)
             try:
                 if self.journal.is_baseline(ref) or not owned(ref, owner, self.journal.spec):
                     raise SafetyFailure("ownership_mismatch")
                 self.remove_tree(ref)
+                self.removed.add(ref)
             except SafetyFailure as error:
                 reason = error.reason
             except ServiceFailure:
@@ -98,9 +135,11 @@ class Cleanup:
 
     def execute(self) -> Outcome:
         try:
-            rows = self.reconcile()
-            reason = self.remove(rows)
+            reason = self.reconcile()
             final = self.relevant(inventory(self.ports, self.context))
+            self.retire_confirmed(final)
+            if self.omitted:
+                raise SafetyFailure(reason or "inventory_incomplete")
             remaining = tuple(ref for ref, _ in final)
             evidence = {
                 "inventory_complete": True,
