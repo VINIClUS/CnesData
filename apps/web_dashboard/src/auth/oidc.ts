@@ -1,6 +1,7 @@
 import { UserManager, WebStorageStateStore } from "oidc-client-ts";
 
 import { buildOidcSettings, buildSignoutArgs } from "@/auth/oidcSettings";
+import { notifySessionChange } from "@/auth/sessionEvents";
 import { env } from "@/lib/env";
 
 let _userManager: UserManager | null = null;
@@ -11,6 +12,9 @@ function _manager(): UserManager {
       ...buildOidcSettings(env, window.location.origin),
       userStore: new WebStorageStateStore({ store: window.sessionStorage }),
     });
+    _userManager.events.addUserLoaded(notifySessionChange);
+    _userManager.events.addUserUnloaded(notifySessionChange);
+    _userManager.events.addAccessTokenExpired(notifySessionChange);
   }
   return _userManager;
 }

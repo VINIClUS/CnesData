@@ -4,6 +4,7 @@ import { http, HttpResponse, type JsonBodyType } from "msw";
 import { describe, expect, test, vi } from "vitest";
 
 import { server } from "../../../mocks/server";
+import { LEGACY_SCOPE, LegacySession } from "../../helpers/LegacySession";
 
 import { ApiError } from "@/api/client";
 import {
@@ -24,7 +25,11 @@ const TENANT_ROW = { ibge6: TENANT, ibge7: "3541308", nome: "Presidente Epitáci
 
 function wrap({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={qc}>
+      <LegacySession>{children}</LegacySession>
+    </QueryClientProvider>
+  );
 }
 
 const FIXTURE: ServingOverview = {
@@ -51,7 +56,11 @@ function productionClient() {
 
 function withClient(client: QueryClient) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    return (
+      <QueryClientProvider client={client}>
+        <LegacySession>{children}</LegacySession>
+      </QueryClientProvider>
+    );
   };
 }
 
@@ -152,7 +161,9 @@ describe("useServingOverview", () => {
 
     failing = true;
     await act(() => client.invalidateQueries({ queryKey: ["tenants"] }));
-    await waitFor(() => expect(client.getQueryState(["tenants"])?.status).toBe("error"));
+    await waitFor(() =>
+      expect(client.getQueryState(["tenants", LEGACY_SCOPE, false])?.status).toBe("error"),
+    );
 
     expect(result.current).toMatchObject({ data: FIXTURE, isError: false, error: null });
   });

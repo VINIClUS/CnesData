@@ -189,6 +189,48 @@
         "title": "AgentWhoamiResponse",
         "type": "object"
       },
+      "AwsMeResponse": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "issuer",
+          "email",
+          "display_name"
+        ],
+        "title": "AwsMeResponse",
+        "type": "object"
+      },
       "BillingAccountCreate": {
         "additionalProperties": false,
         "properties": {
@@ -943,6 +985,29 @@
           "has_pending_request"
         ],
         "title": "MeResponse",
+        "type": "object"
+      },
+      "MembershipResponse": {
+        "properties": {
+          "municipality_name": {
+            "title": "Municipality Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "municipality_name",
+          "role"
+        ],
+        "title": "MembershipResponse",
         "type": "object"
       },
       "OverviewResponse": {
@@ -2892,7 +2957,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MeResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MeResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AwsMeResponse"
+                    }
+                  ],
+                  "title": "Response Auth Me Api V1 Dashboard Auth Me Get"
                 }
               }
             },
@@ -2963,6 +3036,31 @@
         "summary": "Get Faturamento Chart",
         "tags": [
           "overview"
+        ]
+      }
+    },
+    "/api/v1/dashboard/memberships": {
+      "get": {
+        "operationId": "memberships_api_v1_dashboard_memberships_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MembershipResponse"
+                  },
+                  "title": "Response Memberships Api V1 Dashboard Memberships Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Memberships",
+        "tags": [
+          "dashboard"
         ]
       }
     },

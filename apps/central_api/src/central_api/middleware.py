@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 _HEALTH_PATH = "/api/v1/system/health"
 _TENANT_SCOPED_PREFIX = "/api/v1/dashboard/"
+_DISCOVERY_PATHS = frozenset({
+    "/api/v1/dashboard/auth/me", "/api/v1/dashboard/memberships",
+})
 
 _query_count: ContextVar[list[int] | None] = ContextVar(
     "query_count", default=None,
@@ -46,7 +49,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         verifier = getattr(request.app.state, "oidc_verifier", None)
         if verifier is not None:
-            return await self._dispatch_oidc(request, call_next, verifier)
+            response = await self._dispatch_oidc(request, call_next, verifier)
+            if request.method == "GET" and path in _DISCOVERY_PATHS:
+                response.headers["Cache-Control"] = "private, no-store"
+            return response
         header = request.headers.get("Authorization", "")
         if not header.lower().startswith("bearer "):
             return await call_next(request)
@@ -106,7 +112,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             logger.warning("oidc_token_invalid reason=%s", e)
             return _deny(401, "token_invalid")
         request.state.principal = principal
-        if tenant_scoped:
+        discovery = request.method == "GET" and path in _DISCOVERY_PATHS
+        if tenant_scoped and not discovery:
             return await self._authorize_tenant(request, call_next, principal)
         return await call_next(request)
 

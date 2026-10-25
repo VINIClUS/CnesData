@@ -1,7 +1,12 @@
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/api/client";
-import { type Tenant, useTenants } from "@/api/hooks/useTenants";
+import {
+  type AuthorizedMunicipality,
+  tenantId as municipalityId,
+  useSelectedTenant,
+} from "@/api/hooks/useTenants";
+import { useAuth } from "@/auth/useAuth";
 import { env } from "@/lib/env";
 
 export type ServingKpis = {
@@ -114,8 +119,11 @@ async function downloadSigned(url: URL): Promise<ServingOverview> {
   return (await res.json()) as ServingOverview;
 }
 
-export async function fetchServingOverview(tenantId: string | undefined): Promise<ServingOverview> {
-  const body = await apiFetch<unknown>(SERVING_OVERVIEW_PATH, { tenantId });
+export async function fetchServingOverview(
+  tenantId: string | undefined,
+  accessToken?: string | null,
+): Promise<ServingOverview> {
+  const body = await apiFetch<unknown>(SERVING_OVERVIEW_PATH, { tenantId, accessToken });
   if (!isEnvelope(body)) return body as ServingOverview;
   return downloadSigned(signedUrl(parseEnvelope(body).url));
 }
@@ -126,7 +134,7 @@ type ServingOverviewResult = Pick<
 >;
 
 function withoutTenant(
-  tenants: UseQueryResult<Tenant[]>,
+  tenants: UseQueryResult<AuthorizedMunicipality[]>,
   serving: UseQueryResult<ServingOverview, unknown>,
 ): ServingOverviewResult {
   // The serving refetch ignores `enabled` and would go out without X-Tenant-Id.
@@ -144,12 +152,15 @@ function withoutTenant(
 }
 
 export function useServingOverview(): ServingOverviewResult {
-  const tenants = useTenants();
-  const tenantId = tenants.data?.[0]?.ibge6;
-  const ready = env.VITE_AUTH_MODE === "local" || tenantId !== undefined;
+  const session = useAuth();
+  const { tenants, selected } = useSelectedTenant();
+  const tenantId = selected ? municipalityId(selected) : undefined;
+  const ready =
+    session.status === "authenticated" &&
+    (env.VITE_AUTH_MODE === "local" || tenantId !== undefined);
   const serving = useQuery({
-    queryKey: ["serving-overview", tenantId ?? null],
-    queryFn: () => fetchServingOverview(tenantId),
+    queryKey: ["serving-overview", session.scope, tenantId ?? null],
+    queryFn: () => fetchServingOverview(tenantId, session.accessToken),
     enabled: ready,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
