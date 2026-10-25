@@ -1,6 +1,6 @@
 import { type ReactNode, createContext, useCallback, useEffect, useRef, useState } from "react";
 
-import { apiFetch } from "@/api/client";
+import { ApiError, apiFetch } from "@/api/client";
 import { getLocalPrincipal } from "@/auth/local";
 import { getAccessToken } from "@/auth/oidc";
 import { SESSION_CHANGED } from "@/auth/sessionEvents";
@@ -9,7 +9,7 @@ import { env } from "@/lib/env";
 
 export type { Me } from "@/auth/types";
 
-export type AuthStatus = "loading" | "authenticated" | "anonymous";
+export type AuthStatus = "loading" | "authenticated" | "anonymous" | "unavailable";
 
 export type AuthContextValue = {
   status: AuthStatus;
@@ -26,10 +26,11 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 
 type Session = { status: AuthStatus; user: Me | null; token: string | null; version: number };
 
-async function loadSession(): Promise<Pick<Session, "user" | "token">> {
+async function loadSession(): Promise<Pick<Session, "status" | "user" | "token">> {
   if (env.VITE_AUTH_MODE === "local") {
     const principal = await getLocalPrincipal();
     return {
+      status: "authenticated",
       token: null,
       user: {
         user_id: principal.user_id,
@@ -42,10 +43,18 @@ async function loadSession(): Promise<Pick<Session, "user" | "token">> {
     };
   }
   const token = await getAccessToken();
-  return {
-    token,
-    user: token ? await apiFetch<Me>("/dashboard/auth/me", { accessToken: token }) : null,
-  };
+  try {
+    const user = token ? await apiFetch<Me>("/dashboard/auth/me", { accessToken: token }) : null;
+    return { status: user ? "authenticated" : "anonymous", token, user };
+  } catch (error) {
+    if (
+      env.VITE_RUNTIME_POLICY === "production" &&
+      ((error instanceof ApiError && error.status === 503) || error instanceof TypeError)
+    ) {
+      return { status: "unavailable", token: null, user: null };
+    }
+    throw error;
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -67,7 +76,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (current !== version.current) return;
       setSession({
         ...loaded,
-        status: loaded.user ? "authenticated" : "anonymous",
         version: current,
       });
     } catch {

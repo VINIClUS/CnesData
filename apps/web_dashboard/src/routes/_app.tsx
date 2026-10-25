@@ -1,6 +1,6 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 
-import { apiFetch } from "@/api/client";
+import { ApiError, apiFetch } from "@/api/client";
 import type { Membership } from "@/api/hooks/useTenants";
 import { getLocalPrincipal } from "@/auth/local";
 import { getAccessToken } from "@/auth/oidc";
@@ -61,7 +61,13 @@ async function tenantAccess(accessToken: string) {
 async function identity(accessToken: string): Promise<Me> {
   try {
     return await apiFetch<Me>("/dashboard/auth/me", { accessToken });
-  } catch {
+  } catch (error) {
+    if (
+      env.VITE_RUNTIME_POLICY === "production" &&
+      ((error instanceof ApiError && error.status === 503) || error instanceof TypeError)
+    ) {
+      throw error;
+    }
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router pattern
     throw redirect({ to: "/login" });
   }
