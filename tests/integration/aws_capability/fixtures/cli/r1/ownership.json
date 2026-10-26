@@ -1,0 +1,293 @@
+{
+  "describe": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableArn": "arn:aws:dynamodb:us-east-2:111111111111:table/cnesdata-cap-a1b2c3d4",
+      "TableStatus": "ACTIVE",
+      "GlobalSecondaryIndexes": [
+        {
+          "IndexName": "synthetic-gsi",
+          "IndexStatus": "ACTIVE"
+        }
+      ]
+    }
+  },
+  "wrong_account": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableArn": "arn:aws:dynamodb:us-east-2:222222222222:table/cnesdata-cap-a1b2c3d4",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "wrong_region": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableArn": "arn:aws:dynamodb:us-west-2:111111111111:table/cnesdata-cap-a1b2c3d4",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "wrong_name": {
+    "Table": {
+      "TableName": "different-table",
+      "TableArn": "arn:aws:dynamodb:us-east-2:111111111111:table/cnesdata-cap-a1b2c3d4",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "wrong_arn_name": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableArn": "arn:aws:dynamodb:us-east-2:111111111111:table/different-table",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "wrong_service": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableArn": "arn:aws:s3:us-east-2:111111111111:table/cnesdata-cap-a1b2c3d4",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "missing_region": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableArn": "arn:aws:dynamodb::111111111111:table/cnesdata-cap-a1b2c3d4",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "missing_arn": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "empty": {},
+  "bad_table_type": {
+    "Table": []
+  },
+  "tags_first": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      }
+    ],
+    "NextToken": "tags-next"
+  },
+  "tags_last": {
+    "Tags": [
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060"
+      }
+    ]
+  },
+  "tags_complete": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      },
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060"
+      }
+    ]
+  },
+  "tags_removed": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      }
+    ]
+  },
+  "tags_duplicate": {
+    "Tags": [
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      }
+    ]
+  },
+  "tags_conflict": {
+    "Tags": [
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "Run",
+        "Value": "eeeeffff"
+      }
+    ]
+  },
+  "tags_repeat": {
+    "Tags": [],
+    "NextToken": "tags-next"
+  },
+  "tags_empty_token": {
+    "Tags": [],
+    "NextToken": ""
+  },
+  "tags_missing": {},
+  "tags_shape_object": {
+    "Tags": {}
+  },
+  "tags_shape_null": {
+    "Tags": null
+  },
+  "tags_shape_string": {
+    "Tags": "R1_PRIVATE_CANARY"
+  },
+  "tag_missing_key": {
+    "Tags": [
+      {
+        "Value": "R1_PRIVATE_CANARY"
+      }
+    ]
+  },
+  "tag_missing_value": {
+    "Tags": [
+      {
+        "Key": "Project"
+      }
+    ]
+  },
+  "tag_not_object": {
+    "Tags": [
+      "R1_PRIVATE_CANARY"
+    ]
+  },
+  "tag_key_number": {
+    "Tags": [
+      {
+        "Key": 1,
+        "Value": "value"
+      }
+    ]
+  },
+  "tag_key_bool": {
+    "Tags": [
+      {
+        "Key": true,
+        "Value": "value"
+      }
+    ]
+  },
+  "tag_key_null": {
+    "Tags": [
+      {
+        "Key": null,
+        "Value": "value"
+      }
+    ]
+  },
+  "tag_value_number": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": 1
+      }
+    ]
+  },
+  "tag_value_object": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": {
+          "private": "R1_PRIVATE_CANARY"
+        }
+      }
+    ]
+  },
+  "tag_value_null": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": null
+      }
+    ]
+  },
+  "tags_token_number": {
+    "Tags": [],
+    "NextToken": 1
+  },
+  "tags_token_null": {
+    "Tags": [],
+    "NextToken": null
+  },
+  "tags_token_list": {
+    "Tags": [],
+    "NextToken": [
+      "R1_PRIVATE_CANARY"
+    ]
+  },
+  "private_name": {
+    "Table": {
+      "TableName": "R1_PRIVATE_CANARY",
+      "TableArn": "arn:aws:dynamodb:us-east-2:111111111111:table/cnesdata-cap-a1b2c3d4",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "private_arn": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableArn": "arn:aws:dynamodb:us-east-2:111111111111:table/R1_PRIVATE_CANARY",
+      "TableStatus": "ACTIVE"
+    }
+  },
+  "private_tag": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": {
+          "private": "R1_PRIVATE_CANARY"
+        }
+      }
+    ]
+  },
+  "tags_empty_value": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      },
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060"
+      },
+      {
+        "Key": "Optional",
+        "Value": ""
+      }
+    ]
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "valid": {
+    "v": 1,
+    "run": "a1b2c3d4",
+    "service": "dynamodb",
+    "parent": null,
+    "kind": "dynamodb.tables",
+    "markers": {
+      "ExclusiveStartTableName": "legacy-table"
+    },
+    "seen": [
+      "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+    ]
+  },
+  "digest_legacy": "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84",
+  "invalid": {
+    "wrong_version": {
+      "v": 2,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "boolean_version": {
+      "v": true,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "other_run": {
+      "v": 1,
+      "run": "eeeeffff",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "other_service": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "other_parent": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": "foreign-parent",
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "other_kind": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "cognito.pools",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "extra_field": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ],
+      "extra": "R1_PRIVATE_CANARY"
+    },
+    "other_marker": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "NextToken": "R1_PRIVATE_CANARY"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "empty_marker": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": ""
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "extra_marker": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table",
+        "NextToken": "R1_PRIVATE_CANARY"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    }
+  }
+}
