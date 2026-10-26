@@ -56,6 +56,8 @@ class Cleanup:
                     raise SafetyFailure("ownership_mismatch")
                 owner = self.ports.services.lookup(ref, self.context)
                 if owner is None:
+                    if ref.service == "dynamodb":
+                        raise SafetyFailure("creation_uncertain")
                     self.absent.add(ref)
                 else:
                     reason = self.remove([(ref, owner)]) or reason

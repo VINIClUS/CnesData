@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 
+from tests.integration.aws_capability._safety import tags
 from tests.integration.aws_capability._service_commands import (
     call_command,
     is_remote_not_found,
@@ -51,12 +52,7 @@ def leaf_dependents(
     commands: CommandPort, spec: RunSpec, resource: Resource, context: RequestContext
 ) -> Page:
     owner = inspect_table(commands, spec, resource, context)
-    required = {
-        "Project": "CnesData",
-        "Purpose": "aws-capability",
-        "Run": spec.run_id,
-        "ExpiresAt": str(int(spec.deadline)),
-    }
+    required = tags(spec)
     if any(owner.tags.get(key) != value for key, value in required.items()):
         raise ServiceFailure("service=not_owned")
     return Page()
