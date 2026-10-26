@@ -144,6 +144,7 @@ class LocalProcessorRuntime:
 class AwsProcessorServices:
     recovery: ProcessorRecovery
     recovery_batch_size: int
+    processor_lease_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,6 +328,7 @@ def _build_aws_processor_runtime(
         services=AwsProcessorServices(
             recovery=ProcessorRecovery(core.control_plane, coordinator, _utc_now),
             recovery_batch_size=settings.processor_recovery_batch_size,
+            processor_lease_seconds=settings.processor_lease_seconds,
         ),
     )
 

@@ -173,9 +173,11 @@ def test_processor_aws_expoe_recovery_limitado(session: Mock) -> None:
 
     assert isinstance(runtime.services, AwsProcessorServices)
     assert isinstance(runtime.services.recovery, ProcessorRecovery)
-    assert runtime.services.recovery_batch_size == 100
-    assert runtime.services.recovery._coordinator is runtime.coordinator
-    assert runtime.services.recovery._control_plane is runtime.control_plane
+    services = cast("Any", runtime.services)
+    assert services.recovery_batch_size == 100
+    assert services.processor_lease_seconds == 300
+    assert services.recovery._coordinator is runtime.coordinator
+    assert services.recovery._control_plane is runtime.control_plane
 
 
 def test_processor_aws_encadeia_execution_started_apos_o_binding(session: Mock) -> None:

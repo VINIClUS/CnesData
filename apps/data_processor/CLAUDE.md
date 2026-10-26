@@ -18,6 +18,10 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 
 - `local`: `build_local_processor_runtime` + loop de recuperação (`_poll_until_shutdown`)
 - `aws`: `build_processor_runtime("aws", ...)` + `run_aws_entrypoint` (ex.: `recover-once`)
+- Cada unidade AWS arma `DeadlinePolicy("run-unit", LEASE_SECONDS)` antes do handler;
+  `recover-once` usa `processor_lease_seconds` da composição. O watchdog agenda o timer
+  principal em `D-0.1`, o fallback em `0.1` e encerra com exit 3; o evento de expiração é
+  best-effort e não pode atrasar o fallback. Sucesso e erro normal desarmam o timer.
 - `integrity_check.verify_parquet` para SHA-256 quando esperado
 - `cdc_merger.merge_delta` para linhas `_op ∈ {I,U,D}`
 - Adapters CNES/SIHD/BPA/SIA preservados para rotas de ingestão específicas
@@ -81,6 +85,10 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 | `src/data_processor/sources/sihd/serving.py` | `materialize_sihd` (sem PII) |
 
 ## Gotchas
+
+- **Deadline AWS:** `run_aws_entrypoint` valida envelope e composição antes de armar o
+  watchdog. O `os._exit(3)` não executa `finally`, `atexit` nem flush de telemetria; a
+  observabilidade de `processor_deadline_exceeded` é best-effort.
 
 - **`fontes` JSONB merge + `vinculo_repo` upsert:** ver
   `packages/cnes_infra/CLAUDE.md` (Gotchas) — regras únicas, não duplicar aqui.

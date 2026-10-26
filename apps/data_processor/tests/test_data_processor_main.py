@@ -1,5 +1,6 @@
 """Testes do ponto de entrada main do data_processor."""
 import logging
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
@@ -7,6 +8,16 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 _NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _guard_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "DB_URL", "postgresql+psycopg://offline:offline@127.0.0.1:1/offline",
+    )
+    monkeypatch.setattr(
+        "data_processor.aws_entrypoint.processor_deadline", nullcontext, raising=False,
+    )
 
 
 class TestSetupLogging:
@@ -247,6 +258,7 @@ def _runtime_com_run_falho():
         services=AwsProcessorServices(
             recovery=ProcessorRecovery(control_plane, coordinator, clock=lambda: _NOW),
             recovery_batch_size=10,
+            processor_lease_seconds=300,
         ),
     )
     return runtime, control_plane

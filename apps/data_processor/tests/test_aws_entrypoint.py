@@ -1,8 +1,10 @@
 """Fronteira ECS: envelope de sete variáveis e modo recover-once."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
@@ -15,6 +17,7 @@ from data_processor.aws_entrypoint import (
     run_aws_entrypoint,
 )
 from data_processor.composition import AwsProcessorServices, ProcessorRuntimeComponents
+from data_processor.deadline import DeadlinePolicy
 from data_processor.recovery import ProcessorRecovery
 
 NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
@@ -48,7 +51,34 @@ def runtime() -> ProcessorRuntimeComponents:
         unit_worker=Mock(), unit_handler=Mock(),
         services=AwsProcessorServices(
             recovery=Mock(spec=ProcessorRecovery), recovery_batch_size=100,
+            processor_lease_seconds=300,
         ),
+    )
+
+
+@pytest.fixture
+def runtime_with_lease() -> Any:
+    return SimpleNamespace(
+        unit_handler=Mock(),
+        services=SimpleNamespace(
+            recovery=Mock(spec=ProcessorRecovery),
+            recovery_batch_size=100,
+            processor_lease_seconds=3600,
+        ),
+    )
+
+
+def _record_deadline(monkeypatch: pytest.MonkeyPatch, calls: list[object]) -> None:
+    @contextmanager
+    def fake_deadline(policy: DeadlinePolicy):
+        calls.append(("arm", policy))
+        try:
+            yield
+        finally:
+            calls.append(("disarm", policy))
+
+    monkeypatch.setattr(
+        "data_processor.aws_entrypoint.processor_deadline", fake_deadline, raising=False,
     )
 
 
@@ -59,6 +89,58 @@ def test_entrypoint_ecs_converte_env_em_claim_canonico(
 
     runtime.unit_handler.handle.assert_called_once_with(EXPECTED_MESSAGE)
     runtime.services.recovery.run_once.assert_not_called()
+
+
+def test_unit_arma_deadline_do_envelope_antes_do_handler(
+    runtime_with_lease: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[Any] = []
+    _record_deadline(monkeypatch, calls)
+    runtime_with_lease.unit_handler.handle.side_effect = lambda _: calls.append("handle")
+
+    assert run_aws_entrypoint(runtime_with_lease, ENVELOPE, ()) == 0
+
+    assert calls == [
+        ("arm", DeadlinePolicy("run-unit", 300)), "handle",
+        ("disarm", DeadlinePolicy("run-unit", 300)),
+    ]
+    runtime_with_lease.unit_handler.handle.assert_called_once_with(EXPECTED_MESSAGE)
+
+
+def test_recover_arma_deadline_do_lease_da_composicao_antes_da_passada(
+    runtime_with_lease: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[Any] = []
+    _record_deadline(monkeypatch, calls)
+    runtime_with_lease.services.recovery.run_once.side_effect = (
+        lambda *, limit: calls.append(("recovery", limit))
+    )
+
+    assert run_aws_entrypoint(runtime_with_lease, {}, ("recover-once",)) == 0
+
+    assert calls == [
+        ("arm", DeadlinePolicy("recover-once", 3600)), ("recovery", 100),
+        ("disarm", DeadlinePolicy("recover-once", 3600)),
+    ]
+
+
+@pytest.mark.parametrize("raises", [False, True], ids=["sucesso", "erro"])
+def test_entrypoint_desarma_deadline_apos_trabalho(
+    runtime_with_lease: Any, monkeypatch: pytest.MonkeyPatch, raises: bool,
+) -> None:
+    calls: list[Any] = []
+    _record_deadline(monkeypatch, calls)
+    if raises:
+        runtime_with_lease.unit_handler.handle.side_effect = RuntimeError("work=failed")
+
+    if raises:
+        with pytest.raises(RuntimeError, match="work=failed"):
+            run_aws_entrypoint(runtime_with_lease, ENVELOPE, ())
+    else:
+        assert run_aws_entrypoint(runtime_with_lease, ENVELOPE, ()) == 0
+
+    assert calls[0][0] == "arm"
+    assert calls[-1][0] == "disarm"
 
 
 def test_envelope_gera_mensagem_exata_no_instante_informado() -> None:
