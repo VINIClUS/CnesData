@@ -145,6 +145,53 @@
       "seen": [
         "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
       ]
+    },
+    "empty_markers": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {},
+      "seen": []
+    },
+    "empty_seen": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": []
+    },
+    "fingerprint_missing": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "omega-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84"
+      ]
+    },
+    "fingerprint_not_last": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "dynamodb",
+      "parent": null,
+      "kind": "dynamodb.tables",
+      "markers": {
+        "ExclusiveStartTableName": "legacy-table"
+      },
+      "seen": [
+        "46305bf78be4f8cc569041ac15f0f85dbc5903c628324f1b76b407adde92ac84",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
     }
   }
 }
