@@ -1,4 +1,4 @@
-"""Leituras frescas de filhos S3 por enumeração conservadora."""
+"""Leituras frescas de filhos S3 por identidade pontual ou enumeração conservadora."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,9 +26,9 @@ from tests.integration.aws_capability.contracts import (
 
 def lookup_s3_child(
     commands: CommandPort, spec: RunSpec, resource: Resource, context: RequestContext
-) -> Ownership:
+) -> Ownership | None:
     """Returns:
-    Posse fresca após encontrar o par exato em até oito páginas.
+    Posse fresca ou None para NoSuchUpload remoto após prova do root.
     Raises:
     ServiceFailure: identidade, posse ou leitura inconclusiva.
     """
@@ -38,6 +38,9 @@ def lookup_s3_child(
         raise ServiceFailure("service=lookup_inconclusive")
     if not owned(root, owner, spec):
         raise ServiceFailure("service=not_owned")
+    if kind == "s3.upload":
+        request = _upload_request(spec, root, child)
+        return owner if _upload_present(commands, request, context) else None
     state = S3ChildrenCursor(_collection(kind), {}, ())
     seen: set[str] = set()
     for _ in range(Limits().pages):
@@ -63,7 +66,47 @@ def inspect_s3_child(
     Raises:
     ServiceFailure: filho ausente ou leitura inválida.
     """
-    return lookup_s3_child(commands, spec, resource, context)
+    owner = lookup_s3_child(commands, spec, resource, context)
+    if owner is None:
+        raise ServiceFailure("service=not_found")
+    return owner
+
+
+def _upload_request(spec: RunSpec, root: Resource, child: Mapping[str, str]) -> Request:
+    return Request(
+        "s3api",
+        "list-parts",
+        {
+            "Bucket": root.resource_id,
+            "Key": child["key"],
+            "UploadId": child["upload_id"],
+            "ExpectedBucketOwner": spec.account,
+            "MaxParts": 1,
+        },
+    )
+
+
+def _upload_present(commands: CommandPort, request: Request, context: RequestContext) -> bool:
+    reply = call_command(commands, request, context)
+    if (
+        not reply.ok
+        and reply.error is not None
+        and reply.error.origin == "service"
+        and reply.error.code == "NoSuchUpload"
+    ):
+        return False
+    data = require_data(reply)
+    fields = ("Bucket", "Key", "UploadId")
+    if any(not isinstance(data.get(field), str) or not data[field] for field in fields):
+        raise ServiceFailure("service=inventory_invalid")
+    if "IsTruncated" in data and type(data["IsTruncated"]) is not bool:
+        raise ServiceFailure("service=inventory_invalid")
+    parts = data.get("Parts", [])
+    if not isinstance(parts, list) or any(not isinstance(part, Mapping) for part in parts):
+        raise ServiceFailure("service=inventory_invalid")
+    if any(data[field] != request.payload[field] for field in fields):
+        raise ServiceFailure("service=lookup_inconclusive")
+    return True
 
 
 @dataclass(frozen=True)

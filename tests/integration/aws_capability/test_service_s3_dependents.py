@@ -102,7 +102,7 @@ def test_key_unicode_e_ids_com_separadores_preservam_envelope_literal(read_lab: 
 
 @pytest.mark.parametrize("kind", ["version", "marker", "upload"])
 def test_folha_repete_busca_fresca_antes_de_devolver_vazio(read_lab: ReadLab, kind: str) -> None:
-    collection = "uploads" if kind == "upload" else "versions"
+    collection = "parts" if kind == "upload" else "versions"
     enqueue(read_lab, "location", "tags", collection)
     assert read_lab.services.dependents(resource(kind), None, read_lab.context) == Page()
     assert_process(read_lab, trace("location", "tags", collection))

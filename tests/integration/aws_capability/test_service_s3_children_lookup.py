@@ -124,7 +124,7 @@ def assert_prefix(lab: ReadLab, expected: Sequence[ExpectedCall], offset: int = 
 def test_par_exato_exige_root_fresco_e_colecao_correta(
     read_lab: ReadLab, kind: str, method: str
 ) -> None:
-    collection = "uploads" if kind == "upload" else "versions"
+    collection = "parts" if kind == "upload" else "versions"
     enqueue(read_lab, "location", "tags", collection)
     assert getattr(read_lab.services, method)(resource(kind), read_lab.context) == owner()
     assert_process(read_lab, trace("location", "tags", collection))
@@ -147,10 +147,11 @@ def test_lista_terminal_vazia_nao_autoriza_none_do_par(read_lab: ReadLab, kind: 
     enqueue(read_lab, "location", "tags", "empty")
     with pytest.raises(ServiceFailure) as error:
         read_lab.services.lookup(resource(kind), read_lab.context)
-    assert error.value.args == ("service=lookup_inconclusive",)
+    reason = "service=inventory_invalid" if kind == "upload" else "service=lookup_inconclusive"
+    assert error.value.args == (reason,)
     assert_failure(error.value, read_lab)
     assert_process(
-        read_lab, trace("location", "tags", "uploads" if kind == "upload" else "versions")
+        read_lab, trace("location", "tags", "parts" if kind == "upload" else "versions")
     )
 
 
@@ -161,9 +162,9 @@ def test_lookup_consume_segunda_pagina_com_os_dois_markers(read_lab: ReadLab) ->
 
 
 def test_lookup_upload_consume_sua_segunda_pagina_sem_enumerar_versions(read_lab: ReadLab) -> None:
-    enqueue(read_lab, "location", "tags", "uploads_first", "uploads")
+    enqueue(read_lab, "location", "tags", "parts_truncated")
     assert read_lab.services.lookup(resource("upload"), read_lab.context) == owner()
-    assert_process(read_lab, trace("location", "tags", "uploads", "uploads_next"))
+    assert_process(read_lab, trace("location", "tags", "parts"))
 
 
 def test_lookup_preserva_key_unicode_aspas_e_separadores_sem_normalizar(read_lab: ReadLab) -> None:
@@ -330,7 +331,7 @@ def test_mesma_key_nao_substitui_versionid_ou_uploadid_exato(
     assert error.value.args == ("service=lookup_inconclusive",)
     assert_failure(error.value, read_lab)
     assert_process(
-        read_lab, trace("location", "tags", "uploads" if kind == "upload" else "versions")
+        read_lab, trace("location", "tags", "parts" if kind == "upload" else "versions")
     )
 
 
@@ -452,8 +453,14 @@ def test_target_presente_nao_autoriza_pagina_parcialmente_malformada(
 ) -> None:
     enqueue(read_lab, "location", "tags")
     respond(read_lab, reply)
+    arguments = (
+        (resource("bucket"), CURSORS["cursors"]["uploads_start"], read_lab.context)
+        if kind == "upload"
+        else (resource(kind), read_lab.context)
+    )
+    method = "dependents" if kind == "upload" else method
     with pytest.raises(ServiceFailure) as error:
-        getattr(read_lab.services, method)(resource(kind), read_lab.context)
+        getattr(read_lab.services, method)(*arguments)
     assert error.value.args == ("service=inventory_invalid",)
     assert_failure(error.value, read_lab)
     assert_process(
