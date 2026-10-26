@@ -40,6 +40,11 @@ function unwrapExpression(source) {
   return trimmed.slice(3, -2).trim();
 }
 
+function normalizeContext(context) {
+  if (Object.hasOwn(context, "inputs")) return context;
+  return { ...context, inputs: {} };
+}
+
 function extensionInfo(name) {
   return { name, minArgs: 0, maxArgs: 0 };
 }
@@ -88,6 +93,7 @@ function evaluateExpression(source, context, runtime) {
   if (!context || Array.isArray(context) || typeof context !== "object") {
     fail("context must be an object");
   }
+  const normalizedContext = normalizeContext(context);
   const tokens = new api.Lexer(unwrapExpression(source)).lex().tokens;
   const parser = new api.Parser(
     tokens,
@@ -107,14 +113,14 @@ function evaluateExpression(source, context, runtime) {
   if (statusFunctions.has("failure")) {
     fail("unsupported status function: failure; scheduler not modeled");
   }
-  if (context.needs && !["always", "cancelled", "success", "failure"].some(
+  if (normalizedContext.needs && !["always", "cancelled", "success", "failure"].some(
     (name) => statusFunctions.has(name),
   )) {
     fail("implicit success() is not modeled for jobs with needs");
   }
   const value = new api.Evaluator(
     tree,
-    toExpressionData(context, api.data),
+    toExpressionData(normalizedContext, api.data),
     extensionFunctions(cancelled, api.data),
   ).evaluate();
   if (requireBoolean && value.kind !== api.data.Kind.Boolean) {

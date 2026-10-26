@@ -1,4 +1,4 @@
-"""Scratch oracle tests for deploy admission and concurrency."""
+"""Testes do oráculo de admissão de deploy e da concorrência."""
 
 from __future__ import annotations
 
@@ -140,7 +140,11 @@ GROUP_CASES = (
     GroupCase("ci.yml", "deploy DEVELOP", "refs/heads/develop"),
 )
 
-
+PUSH_ADMISSION_CASES = (
+    ({"tag": "illegal-push-tag"}, "success", "success", False), ({}, "success", "success", True),
+    (None, "success", "success", True), ({}, "failure", "success", False),
+    (None, "success", "failure", False),
+)
 def _as_needs(value: Any, path: str) -> tuple[str, ...]:
     if isinstance(value, list):
         return tuple(str(item) for item in value)
@@ -209,6 +213,13 @@ def _context(case: AdmissionCase) -> dict[str, object]:
 def _group_context(case: GroupCase) -> dict[str, object]:
     return {"github": {"workflow": case.caller, "ref": case.ref}}
 
+
+def _push_context(inputs: dict[str, object] | None, gate: str, build: str) -> dict[str, object]:
+    return {
+        "github": {"event_name": "push"},
+        **({"inputs": inputs} if inputs is not None else {}),
+        "needs": {"gate": {"result": gate}, "build": {"result": build}},
+    }
 
 def _safe_extract(fixture: Path, destination: Path) -> Path:
     with tarfile.open(fixture, mode="r:gz") as archive:
@@ -439,6 +450,19 @@ def test_admissao_avalia_if_real(
         ],
     )[0]
     assert result is case.expected
+
+
+@pytest.mark.parametrize("case", PUSH_ADMISSION_CASES)
+def test_push_rejeita_tag_indevida_e_modela_inputs_ausente(
+    case: tuple[dict[str, object] | None, str, str, bool],
+    oracle_package: tuple[Path, Path, str],
+) -> None:
+    inputs, gate, build, expected = case
+    snapshot = load_workflow(WORKFLOW_ROOT / "deploy-develop.yml")
+    request = {"mode": "expression", "source": snapshot.deploy_if,
+               "context": _push_context(inputs, gate, build), "cancelled": False}
+    result = run_oracle(oracle_package, [request])[0]
+    assert result is expected
 
 
 def test_concurrency_compara_grupos_resolvidos_casefold(
