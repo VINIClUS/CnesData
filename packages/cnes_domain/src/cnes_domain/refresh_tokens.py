@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from re import DOTALL, fullmatch
+from typing import cast
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,6 +13,12 @@ class RefreshTokenInput:
     machine_fingerprint: str
     issued_at: datetime
     expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshTokenContext:
+    tenant_id: str
+    now: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +54,17 @@ def validate_refresh_token(value: RefreshTokenInput | RefreshTokenRecord) -> Non
             _validate_record(value)
     except (AttributeError, TypeError, ValueError):
         raise RefreshTokenInvalid("field=refresh_token") from None
+
+
+def validate_refresh_token_context(token: str, context: RefreshTokenContext) -> None:
+    """Raises: RefreshTokenInvalid para segredo ou contexto inválido."""
+    try:
+        _require(isinstance(cast("object", token), str) and bool(token))
+        _require(bool(fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", context.tenant_id)))
+        _require(isinstance(cast("object", context.now), datetime))
+        _require(context.now.utcoffset() == timedelta(0))
+    except (AttributeError, TypeError, ValueError):
+        raise RefreshTokenInvalid("field=refresh_context") from None
 
 
 def _require(valid: bool) -> None:
