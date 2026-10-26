@@ -14,8 +14,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class DeadlinePolicy:
-    """Política de prazo.
-    Args:
+    """Args:
         mode: Modo de execução.
         seconds: Orçamento em segundos.
     """
@@ -26,8 +25,7 @@ class DeadlinePolicy:
 
 @dataclass(slots=True)
 class DeadlineWatchdog:
-    """Watchdog de prazo.
-    Args:
+    """Args:
         policy: Política de prazo.
         exit_process: Callback para encerrar o processo.
     """
@@ -39,8 +37,7 @@ class DeadlineWatchdog:
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def arm(self) -> None:
-        """Arma o watchdog.
-        Returns:
+        """Returns:
             None.
         """
         with self._lock:
@@ -51,8 +48,7 @@ class DeadlineWatchdog:
             timer.start()
 
     def disarm(self) -> None:
-        """Desarma o watchdog pendente.
-        Returns:
+        """Returns:
             None.
         """
         with self._lock:
@@ -86,8 +82,7 @@ class DeadlineWatchdog:
 
 @contextmanager
 def processor_deadline(policy: DeadlinePolicy) -> Generator[None]:
-    """Contexto com prazo.
-    Args:
+    """Args:
         policy: Política de prazo.
     Yields:
         None durante o bloco protegido.
