@@ -117,6 +117,25 @@ def test_revogacao_individual_e_replay_preservam_outro_serial(
     assert register.get(_key()) == _certificate(revoked_at=_NOW)
 
 
+@pytest.mark.parametrize("revoked_at", [
+    pytest.param(_NOW.replace(tzinfo=None), id="naive"),
+    pytest.param(datetime(2026, 10, 26, 13, tzinfo=timezone(timedelta(hours=1))),
+                 id="offset_nao_zero"),
+])
+def test_revogacao_rejeita_instante_nao_utc_e_preserva_registro(
+    register: CertificateRegisterPort, revoked_at: datetime,
+) -> None:
+    original = _certificate()
+    register.record(original)
+
+    with pytest.raises(ValueError) as failure:
+        register.revoke(_key(), revoked_at)
+
+    assert str(failure.value) == "code=certificate_instant_not_utc"
+    assert register.get(_key()) == original
+    assert register.is_active(_key(), _FINGERPRINT, _NOW) is True
+
+
 def test_revogacao_de_chave_ausente_ou_outro_agente_nao_muda_registro(
     register: CertificateRegisterPort,
 ) -> None:

@@ -8,6 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 Nonempty = Annotated[str, Field(min_length=1)]
 
 
+def validate_certificate_instant_utc(value: datetime) -> None:
+    """Args:
+        value: instante a validar.
+    Raises:
+        ValueError: instante sem UTC.
+    """
+    if value.utcoffset() != timedelta(0):
+        raise ValueError("code=certificate_instant_not_utc")
+
+
 class CertificateRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -24,8 +34,8 @@ class CertificateRecord(BaseModel):
     @field_validator("issued_at", "expires_at", "revoked_at")
     @classmethod
     def _require_utc(cls, value: datetime | None) -> datetime | None:
-        if value is not None and value.utcoffset() != timedelta(0):
-            raise ValueError("code=certificate_instant_not_utc")
+        if value is not None:
+            validate_certificate_instant_utc(value)
         return value
 
     @model_validator(mode="after")

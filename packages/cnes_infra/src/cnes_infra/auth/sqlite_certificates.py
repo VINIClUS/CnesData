@@ -9,6 +9,7 @@ from cnes_domain.auth.certificates import (
     CertificateConflict,
     CertificateRecord,
     CertificateStoreUnavailable,
+    validate_certificate_instant_utc,
 )
 
 if TYPE_CHECKING:
@@ -71,6 +72,7 @@ class SQLiteCertificateRegister:
         )
 
     def revoke(self, key: CertificateKey, revoked_at: datetime) -> bool:
+        validate_certificate_instant_utc(revoked_at)
         try:
             with self._control_plane.write_transaction() as connection:
                 result = connection.execute(

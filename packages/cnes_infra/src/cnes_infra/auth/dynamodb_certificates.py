@@ -10,6 +10,7 @@ from cnes_domain.auth.certificates import (
     CertificateConflict,
     CertificateRecord,
     CertificateStoreUnavailable,
+    validate_certificate_instant_utc,
 )
 from cnes_domain.control_plane.errors import Conflict
 from cnes_infra.control_plane.dynamodb_codec import (
@@ -64,6 +65,7 @@ class DynamoDBCertificateRegister:
         )
 
     def revoke(self, key: CertificateKey, revoked_at: datetime) -> bool:
+        validate_certificate_instant_utc(revoked_at)
         prior_item = self._read(key)
         if prior_item is None:
             return False
