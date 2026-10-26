@@ -2,10 +2,14 @@
 
 from typing import Protocol
 
-from cnes_domain.refresh_tokens import RefreshTokenInput, RefreshTokenRecord
+from cnes_domain.refresh_tokens import RefreshTokenContext, RefreshTokenInput, RefreshTokenRecord
 
 
 class RefreshTokenStore(Protocol):
     def create(self, token_input: RefreshTokenInput) -> str: ...  # pragma: no cover - Protocol
 
     def import_hashed(self, record: RefreshTokenRecord) -> None: ...  # pragma: no cover - Protocol
+
+    def validate(
+        self, token: str, context: RefreshTokenContext,
+    ) -> RefreshTokenRecord | None: ...  # pragma: no cover - Protocol
