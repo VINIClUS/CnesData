@@ -8,7 +8,11 @@ from tests.integration.aws_capability._service_cognito import (
     list_pools,
     lookup_pool,
 )
-from tests.integration.aws_capability._service_cognito_children import inspect_client, lookup_client
+from tests.integration.aws_capability._service_cognito_children import (
+    inspect_cognito_child,
+    lookup_cognito_child,
+)
+from tests.integration.aws_capability._service_cognito_dependents import cognito_dependents
 from tests.integration.aws_capability._service_commands import call_cli
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb import (
@@ -70,7 +74,7 @@ class AwsServices:
             if isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith(
                 "{"
             ):
-                return inspect_client(self.ports.commands, self.spec, resource, context)
+                return inspect_cognito_child(self.ports.commands, self.spec, resource, context)
             return inspect_pool(self.ports.commands, self.spec, resource, context)
         _require_dynamodb(resource)
         return inspect_table(self.ports.commands, self.spec, resource, context)
@@ -84,12 +88,14 @@ class AwsServices:
             if isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith(
                 "{"
             ):
-                return lookup_client(self.ports.commands, self.spec, resource, context)
+                return lookup_cognito_child(self.ports.commands, self.spec, resource, context)
             return lookup_pool(self.ports.commands, self.spec, resource, context)
         _require_dynamodb(resource)
         return lookup_table(self.ports.commands, self.spec, resource, context)
 
     def dependents(self, resource: Resource, cursor: str | None, context: RequestContext) -> Page:
+        if resource.service == "cognito":
+            return cognito_dependents(resource, cursor, self, context)
         _require_dynamodb(resource)
         if cursor is not None:
             raise ServiceFailure("service=cursor_invalid")
