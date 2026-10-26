@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from cnes_domain.ports.processing import RunUnitMessage
@@ -103,8 +104,31 @@ def _required_aws_services(runtime: ProcessorRuntimeComponents) -> AwsProcessorS
     return runtime.services
 
 
-def _has_partial_unit_envelope(values: Mapping[str, str]) -> bool:
-    return any(values.get(name, "").strip() for name in _ENVELOPE_NAMES)
+class AwsMode(StrEnum):
+    RUN_UNIT = "run-unit"
+    RECOVER_ONCE = "recover-once"
+
+
+@dataclass(frozen=True, slots=True)
+class AwsInvocation:
+    mode: AwsMode
+    envelope: EcsUnitEnvelope | None
+
+
+def select_aws_invocation(values: Mapping[str, str], argv: Sequence[str]) -> AwsInvocation:
+    """Args: values: ambiente; argv: argumentos do comando.
+    Returns: Invocação validada sem executar I/O.
+    Raises: EntrypointConfigurationError: envelope ou argumentos inválidos.
+    """
+    if "UNIT_ID" in values:
+        if argv:
+            raise EntrypointConfigurationError("unit_mode=argv_forbidden")
+        return AwsInvocation(AwsMode.RUN_UNIT, EcsUnitEnvelope.from_mapping(values))
+    if any(name in values for name in _ENVELOPE_NAMES):
+        raise EntrypointConfigurationError("unit_envelope=partial")
+    if tuple(argv) != _RECOVER_ONCE:
+        raise EntrypointConfigurationError("command=recover_once_required")
+    return AwsInvocation(AwsMode.RECOVER_ONCE, None)
 
 
 def run_aws_entrypoint(
@@ -114,18 +138,13 @@ def run_aws_entrypoint(
     Returns: 0 após exatamente uma unidade ou uma passada de recovery.
     Raises: EntrypointConfigurationError; erros do handler ou do recovery propagam.
     """
+    invocation = select_aws_invocation(values, argv)
     services = _required_aws_services(runtime)
-    if values.get("UNIT_ID"):
-        if argv:
-            raise EntrypointConfigurationError("unit_mode=argv_forbidden")
-        envelope = EcsUnitEnvelope.from_mapping(values)
+    if invocation.envelope is not None:
+        envelope = invocation.envelope
         with processor_deadline(DeadlinePolicy("run-unit", envelope.lease_seconds)):
             runtime.unit_handler.handle(envelope.message(_utc_now()))
         return 0
-    if _has_partial_unit_envelope(values):
-        raise EntrypointConfigurationError("unit_envelope=partial")
-    if tuple(argv) != _RECOVER_ONCE:
-        raise EntrypointConfigurationError("command=recover_once_required")
     with processor_deadline(
         DeadlinePolicy("recover-once", services.processor_lease_seconds),
     ):
@@ -133,4 +152,7 @@ def run_aws_entrypoint(
     return 0
 
 
-__all__ = ["EcsUnitEnvelope", "EntrypointConfigurationError", "run_aws_entrypoint"]
+__all__ = [
+    "AwsInvocation", "AwsMode", "EcsUnitEnvelope", "EntrypointConfigurationError",
+    "run_aws_entrypoint", "select_aws_invocation",
+]

@@ -20,7 +20,11 @@ from cnes_infra.billing.settings import BillingConfigurationError
 from cnes_infra.executor.step_functions import IncompatibleStateMachine
 from cnes_infra.observability import configure_json_stdout
 from cnes_infra.telemetry import init_telemetry
-from data_processor.aws_entrypoint import EntrypointConfigurationError, run_aws_entrypoint
+from data_processor.aws_entrypoint import (
+    EntrypointConfigurationError,
+    run_aws_entrypoint,
+    select_aws_invocation,
+)
 from data_processor.composition import build_processor_runtime
 
 if TYPE_CHECKING:
@@ -150,6 +154,7 @@ def _run_aws_profile() -> int:
     configure_json_stdout("data-processor")
     init_telemetry("data-processor")
     try:
+        select_aws_invocation(os.environ, sys.argv[1:])
         runtime = build_processor_runtime("aws", os.environ, Session())
         return run_aws_entrypoint(runtime, os.environ, sys.argv[1:])
     except Exception as error:
