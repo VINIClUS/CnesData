@@ -47,7 +47,12 @@ def entity_key(tenant_id: str, entity: str, identifier: str) -> tuple[str, str]:
 
 
 def certificate_key(tenant_id: str, serial: str) -> tuple[str, str]:
-    """Cria a chave base do certificado no tenant."""
+    """Args:
+        tenant_id: identificador do tenant.
+        serial: serial opaco do certificado.
+    Returns:
+        Chave base (partição, ordenação) do certificado.
+    """
     return entity_key(tenant_id, "CERT", serial)
 
 
