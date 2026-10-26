@@ -269,7 +269,30 @@ class TestMainProfileAws:
     def _aws_profile(self, monkeypatch):
         import sys
 
-        monkeypatch.setenv("PROFILE", "aws")
+        values = {
+            "PROFILE": "aws",
+            "AWS_REGION": "us-east-2",
+            "AWS_CONTROL_PLANE_TABLE": "cnesdata-control-plane",
+            "AWS_DATA_BUCKET": "cnesdata-data",
+            "AWS_STATE_MACHINE_ARN": (
+                "arn:aws:states:us-east-2:000000000000:stateMachine:cnesdata-processor"
+            ),
+            "AWS_PROCESSOR_CONTAINER_NAME": "processor",
+            "AWS_PROCESSOR_MAX_CONCURRENCY": "1",
+            "AWS_PROCESSOR_LEASE_SECONDS": "3600",
+            "AWS_PROCESSOR_RECOVERY_BATCH_SIZE": "100",
+            "AWS_PRODUCTION_POLICY": "true",
+            "AWS_ENVIRONMENT": "prod",
+            "AWS_PUBLIC_SUBNET_IDS": "subnet-00000000000000001,subnet-00000000000000002",
+            "AWS_SECURITY_GROUP_ID": "sg-00000000000000001",
+        }
+        for name, value in values.items():
+            monkeypatch.setenv(name, value)
+        for name in (
+            "TENANT_ID", "RUN_ID", "WAVE_ID", "DISPATCH_ID", "UNIT_ID", "EXECUTION_OWNER",
+            "LEASE_SECONDS",
+        ):
+            monkeypatch.delenv(name, raising=False)
         monkeypatch.setattr(sys, "argv", ["data_processor", "recover-once"])
 
     @pytest.mark.asyncio
