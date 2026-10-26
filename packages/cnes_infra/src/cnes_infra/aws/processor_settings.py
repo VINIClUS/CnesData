@@ -23,11 +23,11 @@ from cnes_infra.executor.step_functions import (
 
 _CONCURRENCY = _Limit(
     "AWS_PROCESSOR_MAX_CONCURRENCY", "processor_max_concurrency", 8, 1, 40,
-    "processor_concurrency_invalid",
+    "processor_max_concurrency=invalid",
 )
 _UNIT_LEASE = _Limit(
     "AWS_PROCESSOR_LEASE_SECONDS", "processor_lease_seconds", 300, 30, 3600,
-    "processor_lease_invalid",
+    "processor_lease_seconds=invalid",
 )
 _RECOVERY_BATCH_SIZE = 100
 
@@ -35,9 +35,12 @@ _RECOVERY_BATCH_SIZE = 100
 def _state_machine_arn(values: Mapping[str, str]) -> str:
     value = _required(values, "AWS_STATE_MACHINE_ARN")
     try:
-        return _require_unqualified_state_machine_arn(value)
+        _require_unqualified_state_machine_arn(value)
     except ValueError as error:
         raise AwsRuntimeConfigurationError(str(error)) from error
+    if value.split(":", 3)[2:3] != ["states"]:
+        raise AwsRuntimeConfigurationError("state_machine_arn=invalid_service")
+    return value
 
 
 def _fixed(values: Mapping[str, str], name: str, expected: int) -> int:
@@ -114,14 +117,14 @@ class AwsRecoverySettings(AwsUnitSettings):
 
 def _validate_production(settings: AwsUnitSettings) -> None:
     violations = (
-        (settings.region != _PRODUCTION_REGION, "production_region_must_be_us_east_2"),
-        (settings.processor_max_concurrency != 1, "production_concurrency_must_be_one"),
+        (settings.region != _PRODUCTION_REGION, "production_region=invalid"),
+        (settings.processor_max_concurrency != 1, "production_processor_max_concurrency=invalid"),
         (
             settings.processor_lease_seconds != _PRODUCTION_LEASE_SECONDS,
-            "production_lease_must_be_3600",
+            "production_processor_lease_seconds=invalid",
         ),
-        (not settings.public_subnet_ids, "production_subnets_required"),
-        (settings.security_group_id is None, "production_security_group_required"),
+        (not settings.public_subnet_ids, "production_public_subnet_ids=required"),
+        (settings.security_group_id is None, "production_security_group_id=required"),
     )
     for violated, error in violations:
         if violated:
