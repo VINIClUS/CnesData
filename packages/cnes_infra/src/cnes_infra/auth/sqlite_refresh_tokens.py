@@ -4,7 +4,7 @@ from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime
 from hashlib import sha256
-from sqlite3 import SQLITE_CONSTRAINT_PRIMARYKEY, Connection, IntegrityError
+from sqlite3 import Connection
 
 from cnes_domain.refresh_tokens import (
     RefreshTokenConflict,
@@ -17,7 +17,8 @@ from cnes_domain.refresh_tokens import (
 _INSERT = (
     "INSERT INTO auth_refresh_tokens "
     "(token_sha256, agent_id, tenant_id, machine_fingerprint, issued_at, expires_at, "
-    "last_used_at, revoked_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "last_used_at, revoked_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+    "ON CONFLICT (tenant_id, token_sha256) DO NOTHING"
 )
 
 
@@ -60,16 +61,15 @@ class SQLiteRefreshTokenStore:
 
     def _insert(self, record: RefreshTokenRecord) -> None:
         try:
-            with closing(self._connection_factory()) as connection:
+            with closing(self._connection_factory()) as connection, connection:
                 connection.autocommit = False
-                with connection:
-                    connection.execute(_INSERT, _parameters(record))
-        except IntegrityError as error:
-            if error.sqlite_errorcode == SQLITE_CONSTRAINT_PRIMARYKEY:
-                raise RefreshTokenConflict("operation=insert_refresh") from None
-            raise RefreshTokenUnavailable("operation=insert_refresh") from None
+                inserted = connection.execute(_INSERT, _parameters(record)).rowcount
+                if inserted == 0:
+                    connection.rollback()
         except Exception:
             raise RefreshTokenUnavailable("operation=insert_refresh") from None
+        if inserted == 0:
+            raise RefreshTokenConflict("operation=insert_refresh") from None
 
 
 def _timestamp(value: datetime | None) -> str | None:
