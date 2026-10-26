@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from tests.integration.aws_capability._resource_ids import s3_logical_identity
 from tests.integration.aws_capability._safety import SERVICES, SafetyFailure
 from tests.integration.aws_capability.contracts import (
     Ownership,
@@ -16,12 +17,21 @@ from tests.integration.aws_capability.contracts import (
 def pages(fetch: Callable[[str | None], Page], limit: int) -> list[Resource]:
     cursor = None
     seen: set[str] = set()
+    seen_resources: set[Resource] = set()
+    seen_identities: set[object] = set()
     resources: list[Resource] = []
     for _ in range(limit):
         page = fetch(cursor)
-        resources.extend(page.resources)
+        for resource in page.resources:
+            identity = s3_logical_identity(resource)
+            if not isinstance(identity, Resource) and identity in seen_identities:
+                raise SafetyFailure("inventory_incomplete")
+            seen_resources.add(resource)
+            if not isinstance(identity, Resource):
+                seen_identities.add(identity)
+            resources.append(resource)
         if page.cursor is None:
-            if len(set(resources)) != len(resources):
+            if len(seen_resources) != len(resources):
                 raise SafetyFailure("inventory_incomplete")
             return resources
         if not isinstance(page.cursor, str) or not page.cursor or page.cursor in seen:

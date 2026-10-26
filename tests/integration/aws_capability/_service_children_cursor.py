@@ -23,6 +23,19 @@ class ChildrenCursor:
     seen: tuple[str, ...] = field(repr=False)
 
 
+@dataclass(frozen=True)
+class S3ChildrenCursor:
+    kind: str
+    markers: Mapping[str, str] = field(repr=False)
+    seen: tuple[str, ...] = field(repr=False)
+
+
+_S3_MARKERS = {
+    "s3.versions": ("KeyMarker", "VersionIdMarker"),
+    "s3.uploads": ("KeyMarker", "UploadIdMarker"),
+}
+
+
 def parse_children_cursor(value: str | None, parent: Resource, spec: RunSpec) -> ChildrenCursor:
     """Returns:
     Estado da coleção corrente após validar escopo, markers e histórico.
@@ -71,6 +84,62 @@ def next_children_cursor(state: ChildrenCursor, parent: Resource, spec: RunSpec)
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
+def parse_s3_children_cursor(
+    value: str | None, parent: Resource, spec: RunSpec
+) -> S3ChildrenCursor:
+    """Returns:
+    Estado da coleção S3 após validar escopo, markers e histórico.
+    Raises:
+    ServiceFailure: cursor inválido.
+    """
+    if value is None:
+        return S3ChildrenCursor("s3.versions", {}, ())
+    payload = _decode(value)
+    if type(payload["v"]) is not int or payload["v"] != 1:
+        raise ServiceFailure("service=cursor_invalid")
+    if payload["run"] != spec.run_id or payload["service"] != "s3":
+        raise ServiceFailure("service=cursor_invalid")
+    if payload["parent"] != parent.resource_id:
+        raise ServiceFailure("service=cursor_invalid")
+    kind = payload["kind"]
+    if not isinstance(kind, str) or kind not in _S3_MARKERS:
+        raise ServiceFailure("service=cursor_invalid")
+    markers = _parse_s3_markers(payload["markers"], kind)
+    seen = _parse_seen(payload["seen"])
+    if _s3_digest(kind, markers) != seen[-1]:
+        raise ServiceFailure("service=cursor_invalid")
+    return S3ChildrenCursor(kind, markers, seen)
+
+
+def next_s3_children_cursor(state: S3ChildrenCursor, parent: Resource, spec: RunSpec) -> str:
+    """Returns:
+    Cursor S3 da próxima coleção ou página, sem consumir leitura antecipada.
+    Raises:
+    ServiceFailure: ciclo ou histórico excessivo.
+    """
+    digest = _s3_digest(state.kind, state.markers)
+    if digest in state.seen:
+        raise ServiceFailure("service=cursor_cycle")
+    if len(state.seen) >= Limits().pages:
+        raise ServiceFailure("service=cursor_invalid")
+    payload = {
+        "v": 1,
+        "run": spec.run_id,
+        "service": "s3",
+        "parent": parent.resource_id,
+        "kind": state.kind,
+        "markers": dict(state.markers),
+        "seen": [*state.seen, digest],
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def s3_marker_digest(kind: str, markers: Mapping[str, str]) -> str:
+    if kind not in _S3_MARKERS:
+        raise ServiceFailure("service=cursor_invalid")
+    return _s3_digest(kind, markers)
+
+
 def _decode(value: str) -> Mapping[str, object]:
     try:
         payload = json.loads(value, object_pairs_hook=_object)
@@ -101,6 +170,22 @@ def _parse_markers(raw: object, kind: str) -> dict[str, str]:
     return markers
 
 
+def _parse_s3_markers(raw: object, kind: str) -> dict[str, str]:
+    keys = _S3_MARKERS[kind]
+    if not isinstance(raw, Mapping) or set(raw) not in (
+        set(),
+        {keys[0]},
+        set(keys),
+    ):
+        raise ServiceFailure("service=cursor_invalid")
+    markers: dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(value, str) or not value:
+            raise ServiceFailure("service=cursor_invalid")
+        markers[key] = value
+    return markers
+
+
 def _parse_seen(raw: object) -> tuple[str, ...]:
     if not isinstance(raw, list) or not 1 <= len(raw) <= Limits().pages:
         raise ServiceFailure("service=cursor_invalid")
@@ -115,5 +200,10 @@ def _parse_seen(raw: object) -> tuple[str, ...]:
 
 
 def _digest(kind: str, markers: Mapping[str, str]) -> str:
+    encoded = json.dumps(dict(markers), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256((kind + encoded).encode()).hexdigest()
+
+
+def _s3_digest(kind: str, markers: Mapping[str, str]) -> str:
     encoded = json.dumps(dict(markers), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256((kind + encoded).encode()).hexdigest()

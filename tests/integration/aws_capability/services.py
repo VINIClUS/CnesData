@@ -24,6 +24,11 @@ from tests.integration.aws_capability._service_iam import inspect_role, list_rol
 from tests.integration.aws_capability._service_identity import read_identity
 from tests.integration.aws_capability._service_inventory import list_tables
 from tests.integration.aws_capability._service_s3 import inspect_bucket, list_buckets, lookup_bucket
+from tests.integration.aws_capability._service_s3_children import (
+    inspect_s3_child,
+    lookup_s3_child,
+)
+from tests.integration.aws_capability._service_s3_dependents import s3_dependents
 from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import (
     Creation,
@@ -69,6 +74,8 @@ class AwsServices:
         if resource.service == "iam":
             return inspect_role(self.ports.commands, self.spec, resource, context)
         if resource.service == "s3":
+            if _is_s3_child(resource):
+                return inspect_s3_child(self.ports.commands, self.spec, resource, context)
             return inspect_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":
             if isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith(
@@ -83,6 +90,8 @@ class AwsServices:
         if resource.service == "iam":
             return lookup_role(self.ports.commands, self.spec, resource, context)
         if resource.service == "s3":
+            if _is_s3_child(resource):
+                return lookup_s3_child(self.ports.commands, self.spec, resource, context)
             return lookup_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":
             if isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith(
@@ -94,6 +103,8 @@ class AwsServices:
         return lookup_table(self.ports.commands, self.spec, resource, context)
 
     def dependents(self, resource: Resource, cursor: str | None, context: RequestContext) -> Page:
+        if resource.service == "s3":
+            return s3_dependents(resource, cursor, self, context)
         if resource.service == "cognito":
             return cognito_dependents(resource, cursor, self, context)
         _require_dynamodb(resource)
@@ -116,3 +127,7 @@ def _require_dynamodb(resource: Resource) -> None:
         raise ServiceFailure("service=service_unavailable")
     if resource.resource_id != resource.name:
         raise ServiceFailure("service=resource_invalid")
+
+
+def _is_s3_child(resource: Resource) -> bool:
+    return resource.resource_id != resource.name
