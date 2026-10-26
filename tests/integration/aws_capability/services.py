@@ -15,6 +15,7 @@ from tests.integration.aws_capability._service_dynamodb import (
     leaf_dependents,
     lookup_table,
 )
+from tests.integration.aws_capability._service_iam import inspect_role, list_roles, lookup_role
 from tests.integration.aws_capability._service_identity import read_identity
 from tests.integration.aws_capability._service_inventory import list_tables
 from tests.integration.aws_capability._service_s3 import inspect_bucket, list_buckets, lookup_bucket
@@ -49,6 +50,8 @@ class AwsServices:
         return read_identity(self.ports.commands, self.spec, context)
 
     def inventory(self, service: str, cursor: str | None, context: RequestContext) -> Page:
+        if service == "iam":
+            return list_roles(self.ports.commands, self.spec, cursor, context)
         if service == "s3":
             return list_buckets(self.ports.commands, self.spec, cursor, context)
         if service == "cognito":
@@ -58,6 +61,8 @@ class AwsServices:
         return list_tables(self.ports.commands, self.spec, cursor, context)
 
     def inspect(self, resource: Resource, context: RequestContext) -> Ownership:
+        if resource.service == "iam":
+            return inspect_role(self.ports.commands, self.spec, resource, context)
         if resource.service == "s3":
             return inspect_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":
@@ -66,6 +71,8 @@ class AwsServices:
         return inspect_table(self.ports.commands, self.spec, resource, context)
 
     def lookup(self, resource: Resource, context: RequestContext) -> Ownership | None:
+        if resource.service == "iam":
+            return lookup_role(self.ports.commands, self.spec, resource, context)
         if resource.service == "s3":
             return lookup_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":

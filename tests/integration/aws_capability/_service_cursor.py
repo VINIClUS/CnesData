@@ -12,6 +12,7 @@ _FIELDS = {"v", "run", "service", "parent", "kind", "markers", "seen"}
 _DDB_SCOPE = ("dynamodb", "dynamodb.tables", "ExclusiveStartTableName")
 _COGNITO_SCOPE = ("cognito", "cognito.pools", "NextToken")
 _S3_SCOPE = ("s3", "s3.buckets", "ContinuationToken")
+_IAM_SCOPE = ("iam", "iam.roles", "Marker")
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,13 @@ def parse_s3_cursor(value: str | None, spec: RunSpec) -> Cursor:
     Cursor fechado do inventário de buckets S3.
     """
     return _parse_cursor(value, spec, _S3_SCOPE)
+
+
+def parse_iam_cursor(value: str | None, spec: RunSpec) -> Cursor:
+    """Returns:
+    Cursor fechado do inventário de roles IAM.
+    """
+    return _parse_cursor(value, spec, _IAM_SCOPE)
 
 
 def _parse_cursor(value: str | None, spec: RunSpec, scope: tuple[str, str, str]) -> Cursor:
@@ -99,6 +107,13 @@ def next_s3_cursor(marker: str | None, seen: tuple[str, ...], run_id: str) -> st
     Continuação S3 com fingerprint e histórico preservados.
     """
     return _next_cursor(marker, seen, run_id, _S3_SCOPE)
+
+
+def next_iam_cursor(marker: str | None, seen: tuple[str, ...], run_id: str) -> str | None:
+    """Returns:
+    Continuação IAM com fingerprint e histórico preservados.
+    """
+    return _next_cursor(marker, seen, run_id, _IAM_SCOPE)
 
 
 def _next_cursor(
