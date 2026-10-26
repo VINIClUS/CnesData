@@ -16,6 +16,12 @@ from central_api.services.serving_entitlement import EntitledServingAccess
 from central_api.serving.aws_signed import S3SignedServingAccess
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.enums import RunState
+from cnes_domain.control_plane.outbox import (
+    OutboxCursor,
+    OutboxPage,
+    next_outbox_cursor,
+    validate_outbox_advance,
+)
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
 from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
 from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig
@@ -276,14 +282,32 @@ class _OutboxControlPlane:
     def __init__(self, event: OutboxEvent, timeline: list[str]) -> None:
         self.event = event
         self.timeline = timeline
+        self.cursor: OutboxCursor | None = None
 
-    def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]:
+    def read_outbox_page(self, cursor: OutboxCursor | None, limit: int) -> OutboxPage:
+        if limit < 1:
+            raise ValueError("limit=invalid")
         self.timeline.append(f"pending:{limit}")
-        return (self.event,)
+        expected = self.cursor if cursor is None else cursor
+        events = (self.event,) if self.event.delivered_at is None else ()
+        return OutboxPage(events, expected, next_outbox_cursor(expected, None))
+
+    def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
+        return self.event if event_id == self.event.event_id else None
+
+    def advance_outbox_cursor(
+        self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
+    ) -> bool:
+        following = validate_outbox_advance(expected, next_cursor)
+        if expected != self.cursor:
+            return False
+        self.cursor = following
+        return True
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
         assert delivered_at == NOW
         self.timeline.append(f"mark:{event_id}")
+        self.event = self.event.model_copy(update={"delivered_at": delivered_at})
 
 
 class _AuditSink:

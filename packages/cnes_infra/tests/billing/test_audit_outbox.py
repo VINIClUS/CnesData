@@ -70,7 +70,7 @@ def test_append_aparece_na_listagem_de_outbox_pendente(client: Any) -> None:
 
     control_plane = DynamoDBControlPlane(client, TABLE_NAME, lambda: NOW)
 
-    pending = control_plane.pending_outbox(10)
+    pending = control_plane.read_outbox_page(None, 10).events
 
     assert [event.event_id for event in pending] == ["checkout:cs_2"]
 

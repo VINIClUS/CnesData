@@ -73,7 +73,7 @@ def _reject_twice(adapter: Any, clock: MutableClock, identity: RawIdentity) -> N
     assert failed.rejected_manifest_sha256 == _HASH_B
     assert marker is not None
     assert marker.required_since == clock.now()
-    assert adapter.pending_outbox(100).count(event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(event) == 1
 
     repeated = _job("job-repeated")
     adapter.create_job(repeated, _event("repeated-created"))

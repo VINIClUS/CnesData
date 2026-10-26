@@ -18,6 +18,7 @@ from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage
     from cnes_domain.ports.control_plane import ControlPlanePort
 
 NOW = datetime(2026, 9, 6, 12, tzinfo=UTC)
@@ -61,8 +62,16 @@ class _InterruptedControlPlane:
     def __init__(self, control_plane: Any) -> None:
         self._control_plane = control_plane
 
-    def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]:
-        return self._control_plane.pending_outbox(limit)
+    def read_outbox_page(self, cursor: OutboxCursor | None, limit: int) -> OutboxPage:
+        return self._control_plane.read_outbox_page(cursor, limit)
+
+    def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
+        return self._control_plane.get_outbox_event(event_id)
+
+    def advance_outbox_cursor(
+        self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
+    ) -> bool:
+        return self._control_plane.advance_outbox_cursor(expected, next_cursor)
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
         raise OSError("dispatch=interrupted")
@@ -145,7 +154,7 @@ def test_reabre_adapters_e_conclui_replay_sem_duplicar_efeitos(tmp_path: Path) -
 
     assert first == DispatchResult(delivered=0, failed=1)
     assert second == DispatchResult(delivered=1, failed=0)
-    assert reopened_control_plane.pending_outbox(10) == ()
+    assert reopened_control_plane.read_outbox_page(None, 10).events == ()
     assert published == replayed
     assert stored_body == body
     assert len(log_path.read_text(encoding="utf-8").splitlines()) == 1

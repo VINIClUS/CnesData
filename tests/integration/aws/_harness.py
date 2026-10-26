@@ -477,7 +477,7 @@ def read_run_manifest(runtime: AwsTestRuntime, run: Run) -> RunManifest:
 
 
 def pending_events(runtime: AwsTestRuntime) -> tuple[tuple[str, str], ...]:
-    events = runtime.api.control_plane.pending_outbox(100)
+    events = runtime.api.control_plane.read_outbox_page(None, 100).events
     return tuple((event.event_type, event.aggregate_id) for event in events)
 
 

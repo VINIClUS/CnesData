@@ -253,7 +253,7 @@ class ClockRuntime:
         return {k: int(v["N"]) for k, v in (item or {}).items() if "N" in v}
 
     def outbox_events(self, event_type: str) -> list[OutboxEvent]:
-        pending = self.env.plane.pending_outbox(1000)
+        pending = self.env.plane.read_outbox_page(None, 1000).events
         return [event for event in pending if event.event_type == event_type]
 
     def _wire(self) -> None:

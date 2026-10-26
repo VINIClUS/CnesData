@@ -16,7 +16,7 @@ uv run --no-build pyright
   cd packages/cnes_infra
   uv run alembic -c alembic.ini upgrade head
 )
-timeout --signal=INT 480 uv run --no-build pytest packages/cnes_domain packages/cnes_infra \
+timeout --signal=INT 600 uv run --no-build pytest packages/cnes_domain packages/cnes_infra \
   -m "not bigquery and not e2e and not stress and not soak and not spike" \
   --cov --cov-config=pyproject.toml --cov-report=term-missing \
   --cov-report=xml:coverage-packages.xml

@@ -264,6 +264,11 @@ CREATE TABLE IF NOT EXISTS access_request_decision_writes (
     FOREIGN KEY (tenant_id, request_id)
         REFERENCES access_requests (tenant_id, request_id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS outbox_cursor (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    version INTEGER NOT NULL CHECK (version >= 0),
+    position TEXT
+);
 CREATE TABLE IF NOT EXISTS outbox_events (
     event_id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,

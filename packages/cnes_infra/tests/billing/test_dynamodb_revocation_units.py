@@ -298,7 +298,7 @@ def test_evento_de_finalizacao_da_revogacao_nao_colide_com_o_do_coordenador(
 
     cancel_until_done(env, fenced)
 
-    ids = {event.event_id for event in env.plane.pending_outbox(100)}
+    ids = {event.event_id for event in env.plane.read_outbox_page(None, 100).events}
     assert f"run.canceled.revoked:{TENANT}:{RUN_ID}" in ids
     assert f"run.canceled:{TENANT}:{RUN_ID}" not in ids
 
