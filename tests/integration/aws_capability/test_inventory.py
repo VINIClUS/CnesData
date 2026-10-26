@@ -21,7 +21,9 @@ from tests.integration.aws_capability.contracts import Ownership, Page, Resource
 def test_pagina_posterior_com_colisao_impede_toda_criacao(lab: Lab, service: str) -> None:
     unrelated = Resource(service, "preexisting-other", "cnesdata-cap-eeeeffff")
     collision = Resource(service, "preexisting-collision", NAME)
-    lab.remote.add(unrelated, Ownership("111111111111", {"Project": "other"}))
+    lab.remote.add(unrelated, Ownership(
+        "111111111111", {"Project": "other"}, "aws-global" if service == "iam" else "us-east-2"
+    ))
     lab.remote.add(collision)
     outcome = lifecycle.run(lab.spec, lab.ports())
     assert outcome.reason == "run_collision"
@@ -90,7 +92,7 @@ def test_janitor_preserva_recurso_com_qualquer_prova_de_ownership_divergente(
     else:
         key = {"project": "Project", "purpose": "Purpose", "run": "Run", "expiry": "ExpiresAt"}
         tags[key[mismatch]] = "foreign"
-    lab.remote.add(item, Ownership(account, tags))
+    lab.remote.add(item, Ownership(account, tags, "us-east-2"))
     seed_journal(lab, [item])
     outcome = lifecycle.janitor(lab.spec, lab.ports())
     assert outcome.status == "incomplete"
@@ -102,7 +104,7 @@ def test_janitor_preserva_recurso_com_qualquer_prova_de_ownership_divergente(
 def test_recursos_preexistentes_de_outros_runs_sao_preservados(lab: Lab) -> None:
     item = Resource("s3", "other-run", "cnesdata-cap-eeeeffff")
     tags = {**owned_tags(), "Run": "eeeeffff"}
-    lab.remote.add(item, Ownership("111111111111", tags))
+    lab.remote.add(item, Ownership("111111111111", tags, "us-east-2"))
     outcome = lifecycle.run(lab.spec, lab.ports())
     assert_complete(outcome, lab.events)
     assert set(lab.remote.resources) == {"other-run"}
@@ -151,7 +153,7 @@ def test_dependente_estrangeiro_bloqueia_exclusao_do_pai(lab: Lab) -> None:
     parent = Resource("iam", "role", NAME)
     child = Resource("iam", "foreign-policy", NAME)
     lab.remote.add(parent)
-    lab.remote.add(child, Ownership(OTHER_ACCOUNT, owned_tags()))
+    lab.remote.add(child, Ownership(OTHER_ACCOUNT, owned_tags(), "aws-global"))
     lab.remote.children["role"] = [child]
     seed_journal(lab, [parent])
     outcome = lifecycle.janitor(lab.spec, lab.ports())

@@ -77,7 +77,7 @@ def test_janitor_retoma_id_confirmado_omitido_do_inventario(lab: Lab) -> None:
 @pytest.mark.parametrize("protected", ["foreign", "baseline"])
 def test_id_confirmado_omitido_nao_contorna_ownership_ou_baseline(lab: Lab, protected: str) -> None:
     resource = Resource("s3", "protected", NAME)
-    owner = Ownership("222222222222", owned_tags()) if protected == "foreign" else None
+    owner = Ownership("222222222222", owned_tags(), "us-east-2") if protected == "foreign" else None
     lab.remote.add(resource, owner)
     seed_journal(lab, [resource])
     if protected == "baseline":
@@ -169,7 +169,7 @@ def test_intencao_incerta_limpa_so_conhecidos_sem_tocar_foreign_ou_baseline(lab:
     foreign = Resource("dynamodb", "foreign", NAME)
     lab.remote.add(known)
     lab.remote.add(baseline)
-    lab.remote.add(foreign, Ownership("222222222222", owned_tags()))
+    lab.remote.add(foreign, Ownership("222222222222", owned_tags(), "us-east-2"))
     pending_journal(lab, [known, baseline, foreign], [baseline])
     outcome = lifecycle.janitor(lab.spec, lab.ports())
     assert outcome.status == "incomplete"
@@ -210,7 +210,7 @@ def test_controle_run_visivel_nao_pode_retornar_sempre_incomplete(lab: Lab) -> N
 
 def test_controle_recurso_estrangeiro_visivel_nao_pode_ser_apagado(lab: Lab) -> None:
     foreign = Resource("s3", "foreign", NAME)
-    lab.remote.add(foreign, Ownership("222222222222", owned_tags()))
+    lab.remote.add(foreign, Ownership("222222222222", owned_tags(), "us-east-2"))
     seed_journal(lab, [foreign])
     outcome = lifecycle.janitor(lab.spec, lab.ports())
     assert outcome.status == "incomplete"

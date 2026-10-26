@@ -88,6 +88,7 @@ class Resource:
 class Ownership:
     account: str
     tags: Mapping[str, str]
+    region: str
 
 
 @dataclass(frozen=True)

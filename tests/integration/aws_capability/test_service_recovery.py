@@ -41,7 +41,9 @@ class RecoveryRemote(Remote):
 
     def store(self, resource: Resource, owner: Ownership | None = None) -> None:
         self.rows[(resource.service, resource.resource_id)] = (
-            resource, owner or Ownership(ACCOUNT, owned_tags())
+            resource, owner or Ownership(
+                ACCOUNT, owned_tags(), "aws-global" if resource.service == "iam" else "us-east-2"
+            )
         )
 
     def inventory(self, service: str, cursor: str | None, context: RequestContext) -> Page:
@@ -78,7 +80,10 @@ class RecoveryRemote(Remote):
         result = row[1] if row else None
         self.touch("lookup_result", *key, result)
         if self.appear_after_lookup is not None:
-            self.store(self.appear_after_lookup, Ownership(OTHER_ACCOUNT, {}))
+            self.store(self.appear_after_lookup, Ownership(
+                OTHER_ACCOUNT, {},
+                "aws-global" if self.appear_after_lookup.service == "iam" else "us-east-2",
+            ))
         return result
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
@@ -213,7 +218,9 @@ def test_delete_sem_resposta_exige_lookup_e_recupera_id_ausente(lab: Lab) -> Non
 def test_id_visivel_com_outro_nome_nao_e_aposentado(lab: Lab) -> None:
     resource = Resource("s3", "renamed-bucket", NAME)
     remote = recovery(lab, resource)
-    remote.store(replace(resource, name="foreign-name"), Ownership(OTHER_ACCOUNT, {}))
+    remote.store(
+        replace(resource, name="foreign-name"), Ownership(OTHER_ACCOUNT, {}, "us-east-2")
+    )
     outcome = lifecycle.janitor(lab.spec, lab.ports())
     assert outcome.status == "incomplete"
     assert_reference_retained(lab, resource)
@@ -224,7 +231,7 @@ def test_id_visivel_com_outro_nome_nao_e_aposentado(lab: Lab) -> None:
 def test_lookup_de_ownership_divergente_preserva_referencia_omitida(lab: Lab) -> None:
     resource = Resource("iam", "foreign-role", NAME)
     remote = recovery(lab, resource)
-    remote.store(resource, Ownership(OTHER_ACCOUNT, owned_tags()))
+    remote.store(resource, Ownership(OTHER_ACCOUNT, owned_tags(), "aws-global"))
     remote.hidden.add(("iam", "foreign-role"))
     outcome = lifecycle.janitor(lab.spec, lab.ports())
     assert outcome.status == "incomplete"
@@ -238,7 +245,9 @@ def test_mesmo_id_em_outro_servico_nao_confirma_ausencia(lab: Lab) -> None:
     remote = recovery(lab, resource)
     remote.store(resource)
     remote.hidden.add(("s3", "shared-id"))
-    remote.store(Resource("iam", "shared-id", "unrelated"), Ownership(OTHER_ACCOUNT, {}))
+    remote.store(
+        Resource("iam", "shared-id", "unrelated"), Ownership(OTHER_ACCOUNT, {}, "aws-global")
+    )
     remote.lookup_errors[("s3", "shared-id")] = "AccessDenied"
     outcome = lifecycle.janitor(lab.spec, lab.ports())
     assert outcome.status == "incomplete"
@@ -252,7 +261,7 @@ def test_ausencia_de_um_servico_nao_aposenta_outro_com_mesmo_id(lab: Lab) -> Non
     absent = Resource("s3", "shared-id", NAME)
     present = Resource("iam", "shared-id", NAME)
     remote = recovery(lab, absent)
-    remote.store(present, Ownership(OTHER_ACCOUNT, {}))
+    remote.store(present, Ownership(OTHER_ACCOUNT, {}, "aws-global"))
     journal = Journal(lab.spec, phase="cleanup_requested", created=[absent, present])
     journal.save()
     outcome = lifecycle.janitor(lab.spec, lab.ports())
@@ -371,7 +380,7 @@ def test_delete_aceito_com_residuo_omitido_exige_lookup_e_novo_janitor(
     assert 1 <= len(deletes) <= 2
     assert ("delete_accepted", *key) in lab.events
     result = (
-        ("lookup_result", *key, Ownership(ACCOUNT, owned_tags()))
+        ("lookup_result", *key, Ownership(ACCOUNT, owned_tags(), "us-east-2"))
         if lookup_state == "present" else ("lookup_error", *key, lookup_state)
     )
     lookups = [i for i, e in enumerate(lab.events) if i > max(deletes) and e == result]

@@ -75,5 +75,7 @@ def owned(resource: Resource, owner: Ownership, spec: RunSpec) -> bool:
         resource.service in SERVICES
         and matches_name(resource, spec)
         and owner.account == spec.account
+        and getattr(owner, "region", None)
+        == ("aws-global" if resource.service == "iam" else spec.region)
         and all(owner.tags.get(key) == value for key, value in tags(spec).items())
     )
