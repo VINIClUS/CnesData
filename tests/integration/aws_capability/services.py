@@ -3,6 +3,11 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from tests.integration.aws_capability._service_cognito import (
+    inspect_pool,
+    list_pools,
+    lookup_pool,
+)
 from tests.integration.aws_capability._service_commands import call_cli
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb import (
@@ -43,15 +48,21 @@ class AwsServices:
         return read_identity(self.ports.commands, self.spec, context)
 
     def inventory(self, service: str, cursor: str | None, context: RequestContext) -> Page:
+        if service == "cognito":
+            return list_pools(self.ports.commands, self.spec, cursor, context)
         if service != "dynamodb":
             raise ServiceFailure("service=service_unavailable")
         return list_tables(self.ports.commands, self.spec, cursor, context)
 
     def inspect(self, resource: Resource, context: RequestContext) -> Ownership:
+        if resource.service == "cognito":
+            return inspect_pool(self.ports.commands, self.spec, resource, context)
         _require_dynamodb(resource)
         return inspect_table(self.ports.commands, self.spec, resource, context)
 
     def lookup(self, resource: Resource, context: RequestContext) -> Ownership | None:
+        if resource.service == "cognito":
+            return lookup_pool(self.ports.commands, self.spec, resource, context)
         _require_dynamodb(resource)
         return lookup_table(self.ports.commands, self.spec, resource, context)
 
@@ -74,3 +85,5 @@ class AwsServices:
 def _require_dynamodb(resource: Resource) -> None:
     if resource.service != "dynamodb":
         raise ServiceFailure("service=service_unavailable")
+    if resource.resource_id != resource.name:
+        raise ServiceFailure("service=resource_invalid")
