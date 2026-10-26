@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 
 from central_api import deps
-from packages.cnes_infra.tests.control_plane.outbox_cursor_support import OutboxHarness, evento
 
 
 class _SchedulerFinished(Exception):
@@ -18,6 +17,8 @@ class _SchedulerFinished(Exception):
 async def test_loop_da_api_supera_poison_com_dispatcher_e_sqlite_reais(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from packages.cnes_infra.tests.control_plane.outbox_cursor_support import OutboxHarness, evento
+
     harness = OutboxHarness("sqlite", tmp_path)
     for index in range(100):
         harness.put(evento(f"poison-{index:03}", index))
