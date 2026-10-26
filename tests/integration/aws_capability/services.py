@@ -21,6 +21,11 @@ from tests.integration.aws_capability._service_dynamodb import (
     lookup_table,
 )
 from tests.integration.aws_capability._service_iam import inspect_role, list_roles, lookup_role
+from tests.integration.aws_capability._service_iam_children import (
+    inspect_iam_child,
+    lookup_iam_child,
+)
+from tests.integration.aws_capability._service_iam_dependents import iam_dependents
 from tests.integration.aws_capability._service_identity import read_identity
 from tests.integration.aws_capability._service_inventory import list_tables
 from tests.integration.aws_capability._service_s3 import inspect_bucket, list_buckets, lookup_bucket
@@ -72,7 +77,8 @@ class AwsServices:
 
     def inspect(self, resource: Resource, context: RequestContext) -> Ownership:
         if resource.service == "iam":
-            return inspect_role(self.ports.commands, self.spec, resource, context)
+            inspect = inspect_iam_child if resource.resource_id != resource.name else inspect_role
+            return inspect(self.ports.commands, self.spec, resource, context)
         if resource.service == "s3":
             if _is_s3_child(resource):
                 return inspect_s3_child(self.ports.commands, self.spec, resource, context)
@@ -88,7 +94,8 @@ class AwsServices:
 
     def lookup(self, resource: Resource, context: RequestContext) -> Ownership | None:
         if resource.service == "iam":
-            return lookup_role(self.ports.commands, self.spec, resource, context)
+            lookup = lookup_iam_child if resource.resource_id != resource.name else lookup_role
+            return lookup(self.ports.commands, self.spec, resource, context)
         if resource.service == "s3":
             if _is_s3_child(resource):
                 return lookup_s3_child(self.ports.commands, self.spec, resource, context)
@@ -103,6 +110,8 @@ class AwsServices:
         return lookup_table(self.ports.commands, self.spec, resource, context)
 
     def dependents(self, resource: Resource, cursor: str | None, context: RequestContext) -> Page:
+        if resource.service == "iam":
+            return iam_dependents(resource, cursor, self, context)
         if resource.service == "s3":
             return s3_dependents(resource, cursor, self, context)
         if resource.service == "cognito":

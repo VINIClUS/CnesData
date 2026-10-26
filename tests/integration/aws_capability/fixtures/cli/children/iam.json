@@ -1,0 +1,225 @@
+{
+  "provenance": {
+    "model": "task-3-services-b2-source-iam.json",
+    "sha256": "c38893871dbb08aabc02ffae18d5a3a59187f58603a642b46458c6ccddc132e5",
+    "operations": [
+      "GetRolePolicy",
+      "ListRolePolicies",
+      "ListAttachedRolePolicies",
+      "ListInstanceProfilesForRole"
+    ]
+  },
+  "resources": {
+    "role": {
+      "service": "iam",
+      "resource_id": "cnesdata-cap-a1b2c3d4",
+      "name": "cnesdata-cap-a1b2c3d4"
+    },
+    "policy": {
+      "service": "iam",
+      "resource_id": "{\"child_id\":{\"policy_name\":\"Read_Private+=,.@-\"},\"kind\":\"iam.inline-policy\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"iam\",\"v\":1}",
+      "name": "cnesdata-cap-a1b2c3d4"
+    },
+    "second": {
+      "service": "iam",
+      "resource_id": "{\"child_id\":{\"policy_name\":\"OtherPolicy\"},\"kind\":\"iam.inline-policy\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"iam\",\"v\":1}",
+      "name": "cnesdata-cap-a1b2c3d4"
+    },
+    "minimum": {
+      "service": "iam",
+      "resource_id": "{\"child_id\":{\"policy_name\":\"P\"},\"kind\":\"iam.inline-policy\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"iam\",\"v\":1}",
+      "name": "cnesdata-cap-a1b2c3d4"
+    },
+    "maximum": {
+      "service": "iam",
+      "resource_id": "{\"child_id\":{\"policy_name\":\"PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP\"},\"kind\":\"iam.inline-policy\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"iam\",\"v\":1}",
+      "name": "cnesdata-cap-a1b2c3d4"
+    }
+  },
+  "replies": {
+    "root": {
+      "Role": {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "Path": "/cnesdata-cap/",
+        "Arn": "arn:aws:iam::111111111111:role/cnesdata-cap/cnesdata-cap-a1b2c3d4"
+      }
+    },
+    "tags": {
+      "Tags": [
+        {
+          "Key": "Project",
+          "Value": "CnesData"
+        },
+        {
+          "Key": "Purpose",
+          "Value": "aws-capability"
+        },
+        {
+          "Key": "Run",
+          "Value": "a1b2c3d4"
+        },
+        {
+          "Key": "ExpiresAt",
+          "Value": "1060"
+        }
+      ]
+    },
+    "policy": {
+      "RoleName": "cnesdata-cap-a1b2c3d4",
+      "PolicyName": "Read_Private+=,.@-",
+      "PolicyDocument": "%7B%22Statement%22%3A%22C4_PRIVATE_DOCUMENT%22%7D"
+    },
+    "policies": {
+      "PolicyNames": [
+        "Read_Private+=,.@-"
+      ]
+    },
+    "policies_empty": {
+      "PolicyNames": []
+    },
+    "attachments_empty": {
+      "AttachedPolicies": []
+    },
+    "profiles_empty": {
+      "InstanceProfiles": []
+    },
+    "tags_first": {
+      "Tags": [
+        {
+          "Key": "Project",
+          "Value": "CnesData"
+        },
+        {
+          "Key": "Purpose",
+          "Value": "aws-capability"
+        }
+      ],
+      "IsTruncated": true,
+      "Marker": "tag-C4-private"
+    },
+    "tags_last": {
+      "Tags": [
+        {
+          "Key": "Run",
+          "Value": "a1b2c3d4"
+        },
+        {
+          "Key": "ExpiresAt",
+          "Value": "1060"
+        }
+      ]
+    },
+    "attachment": {
+      "AttachedPolicies": [
+        {
+          "PolicyName": "ExternalPolicy",
+          "PolicyArn": "arn:aws:iam::111111111111:policy/ExternalPolicy"
+        }
+      ]
+    },
+    "profile": {
+      "InstanceProfiles": [
+        {
+          "Path": "/",
+          "InstanceProfileName": "ExternalProfile",
+          "InstanceProfileId": "AIPAXXXXXXXXXXXXXXXXX",
+          "Arn": "arn:aws:iam::111111111111:instance-profile/ExternalProfile",
+          "CreateDate": "2026-10-25T00:00:00Z",
+          "Roles": [
+            {
+              "RoleName": "cnesdata-cap-a1b2c3d4",
+              "Path": "/cnesdata-cap/",
+              "Arn": "arn:aws:iam::111111111111:role/cnesdata-cap/cnesdata-cap-a1b2c3d4"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "calls": {
+    "root": [
+      "iam",
+      "get-role",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4"
+      }
+    ],
+    "tags": [
+      "iam",
+      "list-role-tags",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100
+      }
+    ],
+    "tags_next": [
+      "iam",
+      "list-role-tags",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "tag-C4-private"
+      }
+    ],
+    "policy": [
+      "iam",
+      "get-role-policy",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "PolicyName": "Read_Private+=,.@-"
+      }
+    ],
+    "policies": [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100
+      }
+    ],
+    "attachments": [
+      "iam",
+      "list-attached-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100
+      }
+    ],
+    "profiles": [
+      "iam",
+      "list-instance-profiles-for-role",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100
+      }
+    ]
+  },
+  "private_values": [
+    "Read_Private+=,.@-",
+    "C4_PRIVATE_DOCUMENT",
+    "%7B%22Statement%22%3A%22C4_PRIVATE_DOCUMENT%22%7D",
+    "tag-C4-private",
+    "policy-C4-private",
+    "attach-C4-private",
+    "profile-C4-private",
+    "{\"child_id\":{\"policy_name\":\"Read_Private+=,.@-\"},\"kind\":\"iam.inline-policy\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"iam\",\"v\":1}",
+    "cnesdata-cap-a1b2c3d4",
+    "arn:aws:iam::111111111111:role/cnesdata-cap/cnesdata-cap-a1b2c3d4",
+    "policy-C4-B",
+    "limit-1",
+    "limit-2",
+    "limit-3",
+    "limit-4",
+    "limit-5",
+    "limit-6",
+    "limit-7",
+    "limit-8"
+  ]
+}
