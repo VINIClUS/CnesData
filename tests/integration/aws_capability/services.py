@@ -20,6 +20,7 @@ from tests.integration.aws_capability._service_dynamodb import (
     leaf_dependents,
     lookup_table,
 )
+from tests.integration.aws_capability._service_dynamodb_create import create_table
 from tests.integration.aws_capability._service_iam import inspect_role, list_roles, lookup_role
 from tests.integration.aws_capability._service_iam_children import (
     inspect_iam_child,
@@ -122,7 +123,9 @@ class AwsServices:
         return leaf_dependents(self.ports.commands, self.spec, resource, context)
 
     def create(self, service: str, creation: Creation, context: RequestContext) -> Resource:
-        raise ServiceFailure("service=not_implemented")
+        if service != "dynamodb":
+            raise ServiceFailure("service=not_implemented")
+        return create_table(self.ports.commands, self.spec, creation, context)
 
     def probe(self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext) -> None:
         raise ServiceFailure("service=not_implemented")
