@@ -8,6 +8,7 @@ from tests.integration.aws_capability._service_cognito import (
     list_pools,
     lookup_pool,
 )
+from tests.integration.aws_capability._service_cognito_children import inspect_client, lookup_client
 from tests.integration.aws_capability._service_commands import call_cli
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb import (
@@ -66,6 +67,10 @@ class AwsServices:
         if resource.service == "s3":
             return inspect_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":
+            if isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith(
+                "{"
+            ):
+                return inspect_client(self.ports.commands, self.spec, resource, context)
             return inspect_pool(self.ports.commands, self.spec, resource, context)
         _require_dynamodb(resource)
         return inspect_table(self.ports.commands, self.spec, resource, context)
@@ -76,6 +81,10 @@ class AwsServices:
         if resource.service == "s3":
             return lookup_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":
+            if isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith(
+                "{"
+            ):
+                return lookup_client(self.ports.commands, self.spec, resource, context)
             return lookup_pool(self.ports.commands, self.spec, resource, context)
         _require_dynamodb(resource)
         return lookup_table(self.ports.commands, self.spec, resource, context)
