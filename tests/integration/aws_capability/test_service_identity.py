@@ -24,7 +24,7 @@ def read_lab(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ReadLab:
     return make_read_lab(monkeypatch, tmp_path)
 
 
-@pytest.mark.parametrize("principal", ["sts", "iam"])
+@pytest.mark.parametrize("principal", ["sts", "iam", "iam_root"])
 def test_identity_confere_account_e_principal_em_memoria(read_lab: ReadLab, principal: str) -> None:
     respond(read_lab, fixture_data("identity")[principal])
     assert read_lab.services.identity(read_lab.context) == "111111111111"

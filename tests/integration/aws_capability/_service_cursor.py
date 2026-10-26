@@ -25,13 +25,15 @@ def parse_cursor(value: str | None, spec: RunSpec) -> Cursor:
     _validate_scope(payload, spec)
     marker = _parse_marker(payload["markers"])
     seen = _parse_seen(payload["seen"])
+    if marker is None or not seen or marker_digest(marker) != seen[-1]:
+        raise ServiceFailure("service=cursor_invalid")
     return Cursor(marker, seen)
 
 
 def _decode(value: str) -> Mapping[str, Any]:
     try:
         payload = json.loads(value, object_pairs_hook=_object)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         raise ServiceFailure("service=cursor_invalid") from None
     if not isinstance(payload, Mapping) or set(payload) != _FIELDS:
         raise ServiceFailure("service=cursor_invalid")

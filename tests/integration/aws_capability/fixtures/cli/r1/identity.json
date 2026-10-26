@@ -9,6 +9,11 @@
     "Arn": "arn:aws:iam::111111111111:user/capability",
     "UserId": "SYNTHETICUSER"
   },
+  "iam_root": {
+    "Account": "111111111111",
+    "Arn": "arn:aws:iam::111111111111:root",
+    "UserId": "SYNTHETICROOT"
+  },
   "wrong_account": {
     "Account": "222222222222",
     "Arn": "arn:aws:sts::222222222222:assumed-role/capability/session",

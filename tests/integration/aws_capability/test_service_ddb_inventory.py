@@ -101,6 +101,40 @@ def test_cursor_de_outro_escopo_ou_schema_nao_inicia_processo(read_lab: ReadLab,
     assert_process(read_lab, [])
 
 
+@pytest.mark.parametrize(
+    "case", ["empty_markers", "empty_seen", "fingerprint_missing", "fingerprint_not_last"]
+)
+def test_cursor_sem_fingerprint_atual_nao_inicia_processo(
+    read_lab: ReadLab,
+    case: str,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cursor = json.dumps(fixture_data("cursors")["invalid"][case])
+    with pytest.raises(ServiceFailure) as error:
+        read_lab.services.inventory("dynamodb", cursor, read_lab.context)
+    assert_rejected(error.value)
+    assert error.value.args == ("service=cursor_invalid",)
+    captured = capsys.readouterr()
+    assert_private(error.value, read_lab, caplog.text + captured.out + captured.err)
+    assert_process(read_lab, [])
+
+
+def test_json_profundo_invalido_e_sanitizado_sem_io(
+    read_lab: ReadLab,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cursor = "[" * 10_000 + "0" + "]" * 10_000
+    with pytest.raises(ServiceFailure) as error:
+        read_lab.services.inventory("dynamodb", cursor, read_lab.context)
+    assert_rejected(error.value)
+    assert error.value.args == ("service=cursor_invalid",)
+    captured = capsys.readouterr()
+    assert_private(error.value, read_lab, caplog.text + captured.out + captured.err)
+    assert_process(read_lab, [])
+
+
 @pytest.mark.parametrize("cursor", ["", "{", '{"v":1,"v":1}'])
 def test_cursor_malformado_nao_inicia_processo(read_lab: ReadLab, cursor: str) -> None:
     with pytest.raises(ServiceFailure) as error:

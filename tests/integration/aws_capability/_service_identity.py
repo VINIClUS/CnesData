@@ -8,6 +8,7 @@ from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import RequestContext, RunSpec, ServiceFailure
 
 _ARN = re.compile(r"arn:aws:(sts|iam)::([0-9]{12}):[^:]+/.+")
+_ROOT_ARN = re.compile(r"arn:aws:iam::([0-9]{12}):root")
 
 
 def read_identity(commands: CommandPort, spec: RunSpec, context: RequestContext) -> str:
@@ -30,4 +31,7 @@ def _valid_identity(account: object, arn: object, expected: str) -> bool:
     if not isinstance(arn, str):
         return False
     match = _ARN.fullmatch(arn)
-    return match is not None and match.group(2) == expected
+    if match is not None:
+        return match.group(2) == expected
+    root_match = _ROOT_ARN.fullmatch(arn)
+    return root_match is not None and root_match.group(1) == expected
