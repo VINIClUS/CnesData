@@ -25,6 +25,10 @@ class ChildrenCursor:
 
 @dataclass(frozen=True)
 class S3ChildrenCursor:
+    """Args:
+    kind: coleção; markers: continuação; seen: histórico de digests.
+    """
+
     kind: str
     markers: Mapping[str, str] = field(repr=False)
     seen: tuple[str, ...] = field(repr=False)
@@ -106,7 +110,7 @@ def parse_s3_children_cursor(
         raise ServiceFailure("service=cursor_invalid")
     markers = _parse_s3_markers(payload["markers"], kind)
     seen = _parse_seen(payload["seen"])
-    if _s3_digest(kind, markers) != seen[-1]:
+    if _digest(kind, markers) != seen[-1]:
         raise ServiceFailure("service=cursor_invalid")
     return S3ChildrenCursor(kind, markers, seen)
 
@@ -117,7 +121,7 @@ def next_s3_children_cursor(state: S3ChildrenCursor, parent: Resource, spec: Run
     Raises:
     ServiceFailure: ciclo ou histórico excessivo.
     """
-    digest = _s3_digest(state.kind, state.markers)
+    digest = _digest(state.kind, state.markers)
     if digest in state.seen:
         raise ServiceFailure("service=cursor_cycle")
     if len(state.seen) >= Limits().pages:
@@ -135,9 +139,14 @@ def next_s3_children_cursor(state: S3ChildrenCursor, parent: Resource, spec: Run
 
 
 def s3_marker_digest(kind: str, markers: Mapping[str, str]) -> str:
+    """Returns:
+    Digest canônico da coleção e dos markers S3.
+    Raises:
+    ServiceFailure: coleção inválida.
+    """
     if kind not in _S3_MARKERS:
         raise ServiceFailure("service=cursor_invalid")
-    return _s3_digest(kind, markers)
+    return _digest(kind, markers)
 
 
 def _decode(value: str) -> Mapping[str, object]:
@@ -200,10 +209,5 @@ def _parse_seen(raw: object) -> tuple[str, ...]:
 
 
 def _digest(kind: str, markers: Mapping[str, str]) -> str:
-    encoded = json.dumps(dict(markers), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256((kind + encoded).encode()).hexdigest()
-
-
-def _s3_digest(kind: str, markers: Mapping[str, str]) -> str:
     encoded = json.dumps(dict(markers), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256((kind + encoded).encode()).hexdigest()

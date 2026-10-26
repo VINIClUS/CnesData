@@ -68,6 +68,10 @@ def inspect_s3_child(
 
 @dataclass(frozen=True)
 class S3Page:
+    """Args:
+    spec: escopo da execução; root: bucket; state: coleção e continuação.
+    """
+
     spec: RunSpec
     root: Resource
     state: S3ChildrenCursor
@@ -91,6 +95,10 @@ def _read_page(
     field = "Bucket" if page.state.kind == "s3.uploads" else "Name"
     if field in data and data[field] != page.root.resource_id:
         raise ServiceFailure("service=inventory_invalid")
+    _validate_page(data, page.state.kind)
+    groups = ("Uploads",) if page.state.kind == "s3.uploads" else ("Versions", "DeleteMarkers")
+    for group in groups:
+        _group_rows(data, group)
     return data
 
 
@@ -123,21 +131,10 @@ def _group_rows(data: Mapping[str, object], group: str) -> tuple[Mapping[str, ob
     for row in value:
         if not isinstance(row, Mapping):
             raise ServiceFailure("service=inventory_invalid")
-        rows.append(row)
-    return tuple(rows)
-
-
-def _rows(data: Mapping[str, object], kind: str) -> tuple[Mapping[str, object], ...]:
-    groups = ("Uploads",) if kind == "s3.uploads" else ("Versions", "DeleteMarkers")
-    rows: list[Mapping[str, object]] = []
-    for group in groups:
-        value = data.get(group, [])
-        if not isinstance(value, list):
+        fields = ("Key", "UploadId") if group == "Uploads" else ("Key", "VersionId")
+        if any(not isinstance(row.get(field), str) or not row[field] for field in fields):
             raise ServiceFailure("service=inventory_invalid")
-        for row in value:
-            if not isinstance(row, Mapping):
-                raise ServiceFailure("service=inventory_invalid")
-            rows.append(row)
+        rows.append(row)
     return tuple(rows)
 
 

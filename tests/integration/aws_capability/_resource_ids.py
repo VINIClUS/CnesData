@@ -101,7 +101,11 @@ def parse_s3_child(resource: Resource, spec: RunSpec) -> tuple[Resource, str, di
 
 
 def s3_logical_identity(resource: Resource) -> tuple[str, ...] | Resource:
-    """Returns the closed logical key used to guard S3 child collections."""
+    """Returns:
+    Chave lógica fechada para o guard das coleções S3.
+    Raises:
+    ServiceFailure: identidade inválida.
+    """
     if (
         resource.service != "s3"
         or not isinstance(resource.resource_id, str)

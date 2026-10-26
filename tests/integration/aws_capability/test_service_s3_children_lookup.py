@@ -377,3 +377,85 @@ def test_campo_estrutural_ou_membro_obrigatorio_ausente_recusa_sem_io(
     assert error.value.args == ("service=resource_invalid",)
     assert_failure(error.value, read_lab)
     assert_process(read_lab, [])
+
+
+@pytest.mark.parametrize(
+    ("kind", "method", "reply"),
+    [
+        (
+            "version",
+            "lookup",
+            {
+                "IsTruncated": False,
+                "Versions": [{"Key": "private/key|one", "VersionId": "version-private-1"}],
+                "DeleteMarkers": "bad",
+            },
+        ),
+        (
+            "marker",
+            "lookup",
+            {
+                "IsTruncated": False,
+                "DeleteMarkers": [{"Key": "private/deleted", "VersionId": "null"}],
+                "Versions": "bad",
+            },
+        ),
+        (
+            "version",
+            "lookup",
+            {
+                "IsTruncated": False,
+                "Versions": [
+                    {"Key": "private/key|one", "VersionId": "version-private-1"},
+                    {"Key": "private/key|one"},
+                ],
+            },
+        ),
+        (
+            "upload",
+            "lookup",
+            {
+                "IsTruncated": False,
+                "Uploads": [
+                    {"Key": "private/upload", "UploadId": "upload-private-1"},
+                    {"Key": 1, "UploadId": None},
+                ],
+            },
+        ),
+        (
+            "version",
+            "inspect",
+            {"Versions": [{"Key": "private/key|one", "VersionId": "version-private-1"}]},
+        ),
+        (
+            "upload",
+            "lookup",
+            {
+                "IsTruncated": True,
+                "Uploads": [{"Key": "private/upload", "UploadId": "upload-private-1"}],
+                "NextKeyMarker": "key-U",
+                "NextUploadIdMarker": None,
+            },
+        ),
+    ],
+    ids=[
+        "version_grupo_marker",
+        "marker_grupo_version",
+        "version_linha_posterior",
+        "upload_linha_posterior",
+        "inspect_flag_ausente",
+        "upload_next_invalido",
+    ],
+)
+def test_target_presente_nao_autoriza_pagina_parcialmente_malformada(
+    read_lab: ReadLab, kind: str, method: str, reply: object
+) -> None:
+    enqueue(read_lab, "location", "tags")
+    respond(read_lab, reply)
+    with pytest.raises(ServiceFailure) as error:
+        getattr(read_lab.services, method)(resource(kind), read_lab.context)
+    assert error.value.args == ("service=inventory_invalid",)
+    assert_failure(error.value, read_lab)
+    assert_process(
+        read_lab, trace("location", "tags", "uploads" if kind == "upload" else "versions")
+    )

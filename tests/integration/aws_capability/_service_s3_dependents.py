@@ -11,6 +11,7 @@ from tests.integration.aws_capability._service_children_cursor import (
 )
 from tests.integration.aws_capability._service_s3_children import (
     S3Page,
+    _group_rows,
     _next_state,
     _read_page,
 )
@@ -63,7 +64,7 @@ def _resources(
     groups = ("Uploads",) if kind == "s3.uploads" else ("Versions", "DeleteMarkers")
     output: list[Resource] = []
     for group in groups:
-        for row in _rows(data, group):
+        for row in _group_rows(data, group):
             if kind == "s3.uploads":
                 child_kind = "s3.upload"
                 child = {"key": cast("str", row["Key"]), "upload_id": cast("str", row["UploadId"])}
@@ -75,21 +76,6 @@ def _resources(
                 }
             output.append(s3_child(parent, spec, child_kind, child))
     return tuple(output)
-
-
-def _rows(data: Mapping[str, object], group: str) -> tuple[Mapping[str, object], ...]:
-    value = data.get(group, [])
-    if not isinstance(value, list):
-        raise ServiceFailure("service=inventory_invalid")
-    rows: list[Mapping[str, object]] = []
-    for row in value:
-        if not isinstance(row, Mapping):
-            raise ServiceFailure("service=inventory_invalid")
-        fields = ("Key", "UploadId") if group == "Uploads" else ("Key", "VersionId")
-        if any(not isinstance(row.get(field), str) or not row[field] for field in fields):
-            raise ServiceFailure("service=inventory_invalid")
-        rows.append(row)
-    return tuple(rows)
 
 
 def _validate_parent(data: Mapping[str, object], parent: Resource) -> None:
