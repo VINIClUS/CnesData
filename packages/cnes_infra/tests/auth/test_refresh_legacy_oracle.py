@@ -98,7 +98,7 @@ def _wait_for_postgres(container: str, deadline: float) -> None:
         if result.returncode == 0:
             return
         time.sleep(0.2)
-    raise RuntimeError(f"postgres não ficou pronto container={container}")
+    raise RuntimeError(f"operation=wait_postgres container={container}")
 
 
 def _port(container: str) -> int:
@@ -155,7 +155,7 @@ def _wait_for_connection(engine: Engine, deadline: float) -> None:
             return
         except Exception:
             time.sleep(0.2)
-    raise RuntimeError("conexão administrativa Postgres não ficou pronta")
+    raise RuntimeError("operation=wait_admin_connection")
 
 
 def _make_app_engine(url: str) -> Engine:
