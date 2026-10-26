@@ -24,7 +24,10 @@ def _load_cursor(connection: Any) -> OutboxCursor | None:
 
 
 def read_outbox_page(store: Any, cursor: OutboxCursor | None, limit: int) -> OutboxPage:
-    """Lê uma página bruta sem alterar o cursor durável."""
+    """Args: Store, cursor opcional e limite da página bruta.
+    Returns: Eventos, token esperado e próxima geração sem escrita.
+    Raises: ValueError ou erros SQLite e de decodificação.
+    """
     if limit < 1:
         raise ValueError("limit=invalid")
     with store.read_connection() as connection:
@@ -52,7 +55,10 @@ def read_outbox_page(store: Any, cursor: OutboxCursor | None, limit: int) -> Out
 def advance_outbox_cursor(
     store: Any, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
 ) -> bool:
-    """Avança por CAS dentro da transação reservada do SQLite."""
+    """Args: Store, token esperado e próxima geração ou volta ao início.
+    Returns: True para avanço transacional; False para perda do CAS.
+    Raises: ValueError para transição inválida ou erros SQLite.
+    """
     following = validate_outbox_advance(expected, next_cursor)
     with store.write_transaction() as connection:
         if _load_cursor(connection) != expected:
@@ -67,7 +73,10 @@ def advance_outbox_cursor(
 
 
 def get_outbox_event(store: Any, event_id: str) -> OutboxEvent | None:
-    """Relê o evento pela identidade global."""
+    """Args: Store e event_id da identidade global.
+    Returns: Evento canônico ou None para identidade ausente ou divergente.
+    Raises: Erros SQLite ou de decodificação.
+    """
     with store.read_connection() as connection:
         row = connection.execute(
             "SELECT data FROM outbox_events WHERE event_id = ?", (event_id,),
@@ -77,7 +86,10 @@ def get_outbox_event(store: Any, event_id: str) -> OutboxEvent | None:
 
 
 def mark_outbox_delivered(store: Any, event_id: str, delivered_at: datetime) -> None:
-    """Marca entrega com replay idempotente e conflito de timestamp."""
+    """Args: Store, identidade global e instante UTC de entrega.
+    Returns: None após marcador ou replay do mesmo instante.
+    Raises: ValueError, NotFound, Conflict ou erros SQLite.
+    """
     if delivered_at.tzinfo is None or delivered_at.utcoffset() != timedelta(0):
         raise ValueError("datetime_not_utc")
     with store.write_transaction() as connection:

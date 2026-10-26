@@ -245,8 +245,19 @@ class DynamoDBPublication(DynamoDBHost):
             raise Conflict(ErrorCode.EVENT_ID_CONFLICT)
 
     def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
-        """Retorna um evento pela identidade global."""
-        return self._get_outbox_event(event_id)
+        """Args: event_id da identidade global.
+        Returns: Evento canônico ou None para item ausente ou incompatível.
+        Raises: Erros do SDK ou de decodificação.
+        """
+        item = self._get_item(outbox_key(event_id))
+        if item is None or item.get("entity") != {"S": "OUTBOXEVENT"}:
+            return None
+        event = decode_model(item, OutboxEvent)
+        canonical = self._outbox_item(event)
+        fields = ("pk", "sk") if event.delivered_at is not None else (
+            "pk", "sk", "gsi6pk", "gsi6sk",
+        )
+        return event if all(item.get(name) == canonical[name] for name in fields) else None
 
     def _pending_outbox_event(self, candidate: Item, key: tuple[str, str]) -> OutboxEvent | None:
         item = self._get_item(key)
@@ -260,7 +271,10 @@ class DynamoDBPublication(DynamoDBHost):
         return event
 
     def read_outbox_page(self, cursor: OutboxCursor | None, limit: int) -> OutboxPage:
-        """Consulta exatamente uma página bruta do índice pendente."""
+        """Args: Cursor opcional e limite da página bruta.
+        Returns: Eventos revalidados, token esperado e próxima geração.
+        Raises: ValueError ou erros do SDK e de decodificação.
+        """
         if limit < 1:
             raise ValueError("limit=invalid")
         durable = DynamoOutboxCursor(self._client, self._table_name)
@@ -292,11 +306,17 @@ class DynamoDBPublication(DynamoDBHost):
     def advance_outbox_cursor(
         self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
     ) -> bool:
-        """Persiste uma geração por CAS global."""
+        """Args: Token esperado e próxima geração ou volta ao início.
+        Returns: True para avanço; False para perda do CAS.
+        Raises: ValueError ou erros do SDK.
+        """
         return DynamoOutboxCursor(self._client, self._table_name).advance(expected, next_cursor)
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
-        """Marca entrega por UpdateItem condicional e remove o índice pendente."""
+        """Args: Identidade global e instante de entrega.
+        Returns: None após marcador condicional ou replay idêntico.
+        Raises: NotFound, Conflict ou erros do SDK.
+        """
         item = self._get_item(outbox_key(event_id))
         if item is None:
             raise NotFound(ErrorCode.OUTBOX_EVENT_MISSING)

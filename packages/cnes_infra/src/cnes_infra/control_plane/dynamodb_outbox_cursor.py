@@ -35,14 +35,20 @@ class DynamoOutboxCursor:
         self._table_name = table_name
 
     def load(self) -> OutboxCursor | None:
-        """Retorna o cursor durável com leitura forte, sem inicializar escrita."""
+        """Args: Nenhum.
+        Returns: Cursor durável lido fortemente ou None se ausente.
+        Raises: ValueError para item inválido ou erros do SDK.
+        """
         item = self._client.get_item(
             TableName=self._table_name, Key=_KEY, ConsistentRead=True,
         ).get("Item")
         return None if item is None else _decode(item)
 
     def advance(self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None) -> bool:
-        """Atualiza condicionalmente o token; somente perda de CAS retorna False."""
+        """Args: Token esperado e próxima geração ou volta ao início.
+        Returns: True para avanço; False somente para perda do CAS.
+        Raises: ValueError para item ou transição inválida; erros do SDK.
+        """
         following = validate_outbox_advance(expected, next_cursor)
         self.load()
         values: dict[str, Any] = {

@@ -29,14 +29,20 @@ class OutboxPage:
 
 
 def next_outbox_cursor(expected: OutboxCursor | None, position: str | None) -> OutboxCursor:
-    """Constrói a geração seguinte, incluindo a volta ao início."""
+    """Args: Token esperado e posição opaca ou início da varredura.
+    Returns: Cursor da geração seguinte.
+    Raises: ValueError para geração ou posição inválida.
+    """
     return OutboxCursor(1 if expected is None else expected.version + 1, position)
 
 
 def validate_outbox_advance(
     expected: OutboxCursor | None, proposed: OutboxCursor | None,
 ) -> OutboxCursor:
-    """Valida um avanço de exatamente uma geração."""
+    """Args: Token esperado e avanço proposto ou volta ao início.
+    Returns: Cursor validado da geração seguinte.
+    Raises: ValueError para transição de geração inválida.
+    """
     following = next_outbox_cursor(expected, None) if proposed is None else proposed
     if following.version != (1 if expected is None else expected.version + 1):
         raise ValueError("version_transition=invalid")

@@ -262,3 +262,176 @@ def test_erro_sdk_no_marcador_propaga_sem_marcar(dynamo: OutboxHarness) -> None:
         dynamo.adapter.mark_outbox_delivered("event", _NOW)
     dynamo.sdk.before = None
     assert dynamo.stored("event") == evento("event")
+
+
+def _item_da_segunda_outbox(dynamo: OutboxHarness) -> Any:
+    return dynamo.client.get_item(
+        TableName="cnesdata-control-plane", Key=item_key(*outbox_key("second")),
+        ConsistentRead=True,
+    ).get("Item")
+
+
+def _alterar_so_metadados(dynamo: OutboxHarness, state: str) -> Any:
+    before = _item_da_segunda_outbox(dynamo)
+    request: dict[str, Any] = {
+        "TableName": "cnesdata-control-plane", "Key": item_key(*outbox_key("second")),
+    }
+    if state == "unindexed":
+        request["UpdateExpression"] = "REMOVE gsi6pk, gsi6sk"
+        changed = {"gsi6pk", "gsi6sk"}
+    else:
+        field, value = {
+            "foreign": ("entity", "TENANT"),
+            "position": ("gsi6sk", "2099-01-01T00:00:00+00:00#second"),
+            "partition": ("gsi6pk", "OUTBOX#OTHER"),
+        }[state]
+        request |= {
+            "UpdateExpression": "SET #field = :value",
+            "ExpressionAttributeNames": {"#field": field},
+            "ExpressionAttributeValues": {":value": {"S": value}},
+        }
+        changed = {field}
+    dynamo.client.update_item(**request)
+    after = _item_da_segunda_outbox(dynamo)
+    differences = {key for key in before.keys() | after.keys() if before.get(key) != after.get(key)}
+    assert differences == changed
+    assert tuple(after[key] for key in ("pk", "sk", "payload")) == tuple(
+        before[key] for key in ("pk", "sk", "payload")
+    )
+    return after
+
+
+def _observar_segunda_revalidacao(dynamo: OutboxHarness, sink: Any, result: Any) -> dict[str, Any]:
+    markers = [
+        request for name, request in dynamo.sdk.calls
+        if name == "update_item" and request["Key"] == item_key(*outbox_key("second"))
+    ]
+    following = dynamo.restart().read_outbox_page(None, 1)
+    return {
+        "result": result,
+        "attempts": [event.event_id for event in sink.attempts],
+        "records": [event.event_id for event in dynamo.local_records()],
+        "second_item": _item_da_segunda_outbox(dynamo),
+        "second_markers": len(markers),
+        "cursor_version": following.expected.version,
+        "following": [event.event_id for event in following.events],
+        "allowed_operations": {name for name, _ in dynamo.sdk.calls}
+        <= {"query", "get_item", "update_item"},
+        "strong_reads": all(
+            request["ConsistentRead"] for name, request in dynamo.sdk.calls if name == "get_item"
+        ),
+    }
+
+
+@pytest.mark.parametrize("state", ["foreign", "position", "partition", "unindexed"])
+def test_get_final_rejeita_drift_so_de_metadados_sem_append_ou_marcador(
+    dynamo: OutboxHarness, state: str,
+) -> None:
+    for index, event_id in enumerate(("first", "second", "third")):
+        dynamo.put(evento(event_id, index))
+    sink = dynamo.sink()
+    changed: list[Any] = []
+    dynamo.sdk.calls.clear()
+
+    def alterar_apos_pagina(event: Any) -> None:
+        if event.event_id == "first":
+            reads = [
+                request for name, request in dynamo.sdk.calls
+                if name == "get_item" and request["Key"] == item_key(*outbox_key("second"))
+            ]
+            assert len(reads) == 1
+            assert reads[0]["ConsistentRead"] is True
+            changed.append(_alterar_so_metadados(dynamo, state))
+
+    sink.before = alterar_apos_pagina
+    result = dispatch_once(dynamo.adapter, sink, _NOW, 2)
+    assert len(changed) == 1
+    assert _observar_segunda_revalidacao(dynamo, sink, result) == {
+        "result": DispatchResult(1, 0), "attempts": ["first"], "records": ["first"],
+        "second_item": changed[0], "second_markers": 0, "cursor_version": 1,
+        "following": ["third"], "allowed_operations": True, "strong_reads": True,
+    }
+    assert dynamo.stored("first").delivered_at == _NOW
+
+
+def test_get_final_sem_drift_entrega_e_preserva_lookup_e_replay_entregue(
+    dynamo: OutboxHarness,
+) -> None:
+    for index, event_id in enumerate(("first", "second", "third")):
+        dynamo.put(evento(event_id, index))
+    sink = dynamo.sink()
+    dynamo.sdk.calls.clear()
+    result = dispatch_once(dynamo.adapter, sink, _NOW, 2)
+    delivered = evento("second", 1).model_copy(update={"delivered_at": _NOW})
+    assert dynamo.adapter.get_outbox_event("second") == delivered
+    dynamo.adapter.mark_outbox_delivered("second", _NOW)
+    stored = _item_da_segunda_outbox(dynamo)
+    assert "gsi6pk" not in stored
+    assert "gsi6sk" not in stored
+    assert _observar_segunda_revalidacao(dynamo, sink, result) == {
+        "result": DispatchResult(2, 0), "attempts": ["first", "second"],
+        "records": ["first", "second"], "second_item": stored, "second_markers": 1,
+        "cursor_version": 1, "following": ["third"],
+        "allowed_operations": True, "strong_reads": True,
+    }
+
+
+@pytest.mark.parametrize(("state", "markers"), [("delivered", 1), ("missing", 0)])
+def test_get_final_preserva_entrega_ou_remocao_concorrente(
+    dynamo: OutboxHarness, state: str, markers: int,
+) -> None:
+    for index, event_id in enumerate(("first", "second", "third")):
+        dynamo.put(evento(event_id, index))
+    sink = dynamo.sink()
+    changed: list[Any] = []
+    dynamo.sdk.calls.clear()
+
+    def alterar_apos_pagina(event: Any) -> None:
+        if event.event_id != "first":
+            return
+        if state == "delivered":
+            dynamo.adapter.mark_outbox_delivered("second", _NOW)
+        else:
+            dynamo.client.delete_item(
+                TableName="cnesdata-control-plane", Key=item_key(*outbox_key("second")),
+            )
+        changed.append(_item_da_segunda_outbox(dynamo))
+
+    sink.before = alterar_apos_pagina
+    result = dispatch_once(dynamo.adapter, sink, _NOW, 2)
+    assert len(changed) == 1
+    assert _observar_segunda_revalidacao(dynamo, sink, result) == {
+        "result": DispatchResult(1, 0), "attempts": ["first"], "records": ["first"],
+        "second_item": changed[0], "second_markers": markers,
+        "cursor_version": 1, "following": ["third"],
+        "allowed_operations": True, "strong_reads": True,
+    }
+
+
+def test_get_final_propaga_erro_sdk_e_dispatch_conta_falha_sem_append(
+    dynamo: OutboxHarness,
+) -> None:
+    for index, event_id in enumerate(("first", "second", "third")):
+        dynamo.put(evento(event_id, index))
+    original = _item_da_segunda_outbox(dynamo)
+    sink = dynamo.sink()
+    dynamo.sdk.calls.clear()
+
+    def indisponivel(name: str, request: dict[str, Any]) -> None:
+        if name == "get_item" and request["Key"] == item_key(*outbox_key("second")):
+            raise ClientError({"Error": {"Code": "InternalServerError"}}, "GetItem")
+
+    def falhar_apos_pagina(event: Any) -> None:
+        if event.event_id == "first":
+            dynamo.sdk.before = indisponivel
+
+    sink.before = falhar_apos_pagina
+    result = dispatch_once(dynamo.adapter, sink, _NOW, 2)
+    with pytest.raises(ClientError, match="InternalServerError"):
+        dynamo.adapter.get_outbox_event("second")
+    dynamo.sdk.before = None
+    assert _observar_segunda_revalidacao(dynamo, sink, result) == {
+        "result": DispatchResult(1, 1), "attempts": ["first"], "records": ["first"],
+        "second_item": original, "second_markers": 0, "cursor_version": 1,
+        "following": ["third"], "allowed_operations": True, "strong_reads": True,
+    }
