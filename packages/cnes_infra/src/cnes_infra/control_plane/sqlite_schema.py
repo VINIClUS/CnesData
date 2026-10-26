@@ -16,6 +16,19 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS provisioned_certificates (
+    tenant_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    serial TEXT NOT NULL,
+    certificate_fingerprint_sha256 TEXT NOT NULL,
+    subject_cn TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    PRIMARY KEY (tenant_id, serial)
+);
+CREATE INDEX IF NOT EXISTS ix_provisioned_certificates_agent
+ON provisioned_certificates (tenant_id, agent_id);
 CREATE TABLE IF NOT EXISTS tenants (
     tenant_id TEXT PRIMARY KEY,
     data TEXT NOT NULL
