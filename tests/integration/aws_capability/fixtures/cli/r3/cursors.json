@@ -1,0 +1,369 @@
+{
+  "valid": {
+    "v": 1,
+    "run": "a1b2c3d4",
+    "service": "s3",
+    "parent": null,
+    "kind": "s3.buckets",
+    "markers": {
+      "ContinuationToken": "bucket-next"
+    },
+    "seen": [
+      "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+    ]
+  },
+  "cycle": {
+    "v": 1,
+    "run": "a1b2c3d4",
+    "service": "s3",
+    "parent": null,
+    "kind": "s3.buckets",
+    "markers": {
+      "ContinuationToken": "bucket-other"
+    },
+    "seen": [
+      "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0",
+      "69b4181943859aa5533f1803c90ac961d58ef1b30368a5ca1d07a09c30884955"
+    ]
+  },
+  "invalid": {
+    "wrong_version": {
+      "v": 2,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "boolean_version": {
+      "v": true,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "other_run": {
+      "v": 1,
+      "run": "deadbeef",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "other_service": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "other_parent": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": "bucket",
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "other_kind": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.children",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "extra_field": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ],
+      "Private": "R1_PRIVATE_CANARY"
+    },
+    "empty_token": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": ""
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "missing_token": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {},
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "number_token": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": 1
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "null_token": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": null
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "extra_marker": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next",
+        "Other": "x"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "ddb_marker": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ExclusiveStartTableName": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "empty_seen": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": []
+    },
+    "fingerprint_missing": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    },
+    "fingerprint_not_last": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0",
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    },
+    "duplicate_seen": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0",
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "bad_hex_seen": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ]
+    },
+    "nonstring_seen": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        1
+      ]
+    },
+    "string_seen": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+    },
+    "missing_v": {
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "missing_run": {
+      "v": 1,
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "missing_service": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "missing_parent": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "missing_kind": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      },
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "missing_markers": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "seen": [
+        "beb6870fc0b02cef231338bbaf2b695c68bf21d933310053132bea240b92b5b0"
+      ]
+    },
+    "missing_seen": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "s3.buckets",
+      "markers": {
+        "ContinuationToken": "bucket-next"
+      }
+    }
+  }
+}

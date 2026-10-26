@@ -17,6 +17,7 @@ from tests.integration.aws_capability._service_dynamodb import (
 )
 from tests.integration.aws_capability._service_identity import read_identity
 from tests.integration.aws_capability._service_inventory import list_tables
+from tests.integration.aws_capability._service_s3 import inspect_bucket, list_buckets, lookup_bucket
 from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import (
     Creation,
@@ -48,6 +49,8 @@ class AwsServices:
         return read_identity(self.ports.commands, self.spec, context)
 
     def inventory(self, service: str, cursor: str | None, context: RequestContext) -> Page:
+        if service == "s3":
+            return list_buckets(self.ports.commands, self.spec, cursor, context)
         if service == "cognito":
             return list_pools(self.ports.commands, self.spec, cursor, context)
         if service != "dynamodb":
@@ -55,12 +58,16 @@ class AwsServices:
         return list_tables(self.ports.commands, self.spec, cursor, context)
 
     def inspect(self, resource: Resource, context: RequestContext) -> Ownership:
+        if resource.service == "s3":
+            return inspect_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":
             return inspect_pool(self.ports.commands, self.spec, resource, context)
         _require_dynamodb(resource)
         return inspect_table(self.ports.commands, self.spec, resource, context)
 
     def lookup(self, resource: Resource, context: RequestContext) -> Ownership | None:
+        if resource.service == "s3":
+            return lookup_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":
             return lookup_pool(self.ports.commands, self.spec, resource, context)
         _require_dynamodb(resource)

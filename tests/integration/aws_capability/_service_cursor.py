@@ -11,6 +11,7 @@ from tests.integration.aws_capability.contracts import RunSpec, ServiceFailure
 _FIELDS = {"v", "run", "service", "parent", "kind", "markers", "seen"}
 _DDB_SCOPE = ("dynamodb", "dynamodb.tables", "ExclusiveStartTableName")
 _COGNITO_SCOPE = ("cognito", "cognito.pools", "NextToken")
+_S3_SCOPE = ("s3", "s3.buckets", "ContinuationToken")
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,13 @@ def parse_cursor(value: str | None, spec: RunSpec) -> Cursor:
 
 def parse_cognito_cursor(value: str | None, spec: RunSpec) -> Cursor:
     return _parse_cursor(value, spec, _COGNITO_SCOPE)
+
+
+def parse_s3_cursor(value: str | None, spec: RunSpec) -> Cursor:
+    """Returns:
+    Cursor fechado do inventário de buckets S3.
+    """
+    return _parse_cursor(value, spec, _S3_SCOPE)
 
 
 def _parse_cursor(value: str | None, spec: RunSpec, scope: tuple[str, str, str]) -> Cursor:
@@ -49,9 +57,7 @@ def _decode(value: str) -> Mapping[str, Any]:
     return payload
 
 
-def _validate_scope(
-    payload: Mapping[str, Any], spec: RunSpec, scope: tuple[str, str, str]
-) -> None:
+def _validate_scope(payload: Mapping[str, Any], spec: RunSpec, scope: tuple[str, str, str]) -> None:
     if payload["v"] != 1 or isinstance(payload["v"], bool):
         raise ServiceFailure("service=cursor_invalid")
     if payload["run"] != spec.run_id or payload["service"] != scope[0]:
@@ -86,6 +92,13 @@ def next_cursor(marker: str | None, seen: tuple[str, ...], run_id: str) -> str |
 
 def next_cognito_cursor(marker: str | None, seen: tuple[str, ...], run_id: str) -> str | None:
     return _next_cursor(marker, seen, run_id, _COGNITO_SCOPE)
+
+
+def next_s3_cursor(marker: str | None, seen: tuple[str, ...], run_id: str) -> str | None:
+    """Returns:
+    Continuação S3 com fingerprint e histórico preservados.
+    """
+    return _next_cursor(marker, seen, run_id, _S3_SCOPE)
 
 
 def _next_cursor(

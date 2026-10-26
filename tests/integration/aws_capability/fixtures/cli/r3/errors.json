@@ -1,0 +1,62 @@
+{
+  "remote_no_bucket": [
+    254,
+    "",
+    "{\"Code\": \"NoSuchBucket\", \"Message\": \"R1_PRIVATE_CANARY\"}"
+  ],
+  "local_no_bucket": [
+    252,
+    "",
+    "{\"Code\": \"NoSuchBucket\", \"Message\": \"R1_PRIVATE_CANARY\"}"
+  ],
+  "remote_no_tags": [
+    254,
+    "",
+    "{\"Code\": \"NoSuchTagSet\", \"Message\": \"R1_PRIVATE_CANARY\"}"
+  ],
+  "local_no_tags": [
+    252,
+    "",
+    "{\"Code\": \"NoSuchTagSet\", \"Message\": \"R1_PRIVATE_CANARY\"}"
+  ],
+  "remote_denied": [
+    254,
+    "",
+    "{\"Code\": \"AccessDenied\", \"Message\": \"R1_PRIVATE_CANARY\"}"
+  ],
+  "remote_403": [
+    254,
+    "",
+    "{\"Code\": \"403\", \"Message\": \"R1_PRIVATE_CANARY\"}"
+  ],
+  "remote_404": [
+    254,
+    "",
+    "{\"Code\": \"404\", \"Message\": \"R1_PRIVATE_CANARY\"}"
+  ],
+  "bad_json": [
+    0,
+    "{R1_PRIVATE_CANARY",
+    ""
+  ],
+  "empty_stdout": [
+    0,
+    "",
+    ""
+  ],
+  "empty_object": [
+    0,
+    "{}",
+    ""
+  ],
+  "bad_stderr": [
+    254,
+    "",
+    "R1_PRIVATE_CANARY"
+  ],
+  "wrong_operation": [
+    254,
+    "",
+    "An error occurred (NoSuchBucket) when calling the ListBuckets operation: R1_PRIVATE_CANARY"
+  ]
+}
