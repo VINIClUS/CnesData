@@ -1,0 +1,11 @@
+{
+  "name": "@actions/expressions",
+  "version": "0.3.61",
+  "url": "https://registry.npmjs.org/@actions/expressions/-/expressions-0.3.61.tgz",
+  "integrity": "sha512-Ig+tXELvTjlqxQAWBQnLNn2dPpNraLMdSnT+vDzDPmJtbNUhIAH/Z9kVT8pZ8UtJi9vUGs8hwHE8JFJmbOnLEA==",
+  "sha512_hex": "220fad5c42ef4e396ac500160509cb367d9d3e936b68b31d4a74febc3cc33e626d6cd5212001ff67d9154fca59f14b498bdbd41acf21c0713c2452666ce9cb10",
+  "gitHead": "b71ac284fc6a7382c22ecbf3e0009a6ae216823b",
+  "license": "MIT",
+  "size_bytes": 37985,
+  "runtime_node": ">=20"
+}
