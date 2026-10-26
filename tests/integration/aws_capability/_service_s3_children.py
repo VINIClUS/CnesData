@@ -41,7 +41,7 @@ def lookup_s3_child(
     if kind == "s3.upload":
         request = _upload_request(spec, root, child)
         return owner if _upload_present(commands, request, context) else None
-    state = S3ChildrenCursor(_collection(kind), {}, ())
+    state = S3ChildrenCursor("s3.versions", {}, ())
     seen: set[str] = set()
     for _ in range(Limits().pages):
         data = _read_page(commands, S3Page(spec, root, state), context)
@@ -120,10 +120,6 @@ class S3Page:
     state: S3ChildrenCursor
 
 
-def _collection(kind: str) -> str:
-    return "s3.uploads" if kind == "s3.upload" else "s3.versions"
-
-
 def _read_page(
     commands: CommandPort, page: S3Page, context: RequestContext
 ) -> Mapping[str, object]:
@@ -154,12 +150,8 @@ def _operation(kind: str) -> tuple[str, str, int]:
 
 
 def _contains(data: Mapping[str, object], kind: str, child: Mapping[str, str]) -> bool:
-    if kind == "s3.upload":
-        groups = ("Uploads",)
-        value_key, wire_key = "upload_id", "UploadId"
-    else:
-        groups = ("DeleteMarkers",) if kind == "s3.marker" else ("Versions",)
-        value_key, wire_key = "version_id", "VersionId"
+    groups = ("DeleteMarkers",) if kind == "s3.marker" else ("Versions",)
+    value_key, wire_key = "version_id", "VersionId"
     for row in _group_rows(data, groups[0]):
         if row.get("Key") == child["key"] and row.get(wire_key) == child[value_key]:
             return True
