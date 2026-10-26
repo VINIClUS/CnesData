@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 from tests.integration.aws_capability._resource_ids import parse_s3_child
 from tests.integration.aws_capability._safety import owned
@@ -179,7 +180,7 @@ def _validate_page(data: Mapping[str, object], kind: str) -> None:
 
 def _next_markers(data: Mapping[str, object], kind: str) -> dict[str, str]:
     secondary = "NextVersionIdMarker" if kind == "s3.versions" else "NextUploadIdMarker"
-    markers = {"KeyMarker": data["NextKeyMarker"]}
+    markers = {"KeyMarker": cast("str", data["NextKeyMarker"])}
     if secondary in data:
-        markers[secondary.replace("Next", "")] = data[secondary]
+        markers[secondary.replace("Next", "")] = cast("str", data[secondary])
     return markers

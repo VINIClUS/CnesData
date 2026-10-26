@@ -1,7 +1,7 @@
 """Descoberta paginada de filhos S3 com prova de posse fresca."""
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from tests.integration.aws_capability._resource_ids import parse_s3_child, s3_child
 from tests.integration.aws_capability._safety import owned
@@ -66,10 +66,13 @@ def _resources(
         for row in _rows(data, group):
             if kind == "s3.uploads":
                 child_kind = "s3.upload"
-                child = {"key": row["Key"], "upload_id": row["UploadId"]}
+                child = {"key": cast("str", row["Key"]), "upload_id": cast("str", row["UploadId"])}
             else:
                 child_kind = "s3.marker" if group == "DeleteMarkers" else "s3.version"
-                child = {"key": row["Key"], "version_id": row["VersionId"]}
+                child = {
+                    "key": cast("str", row["Key"]),
+                    "version_id": cast("str", row["VersionId"]),
+                }
             output.append(s3_child(parent, spec, child_kind, child))
     return tuple(output)
 
