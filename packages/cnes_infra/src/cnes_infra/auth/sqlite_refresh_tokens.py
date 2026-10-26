@@ -20,6 +20,7 @@ _INSERT = (
     "last_used_at, revoked_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
     "ON CONFLICT (tenant_id, token_sha256) DO NOTHING"
 )
+_IDENTITY = "SELECT 1 FROM auth_refresh_tokens WHERE tenant_id = ? AND token_sha256 = ?"
 
 
 class SQLiteRefreshTokenStore:
@@ -60,16 +61,22 @@ class SQLiteRefreshTokenStore:
             raise RefreshTokenUnavailable("operation=create_secret") from None
 
     def _insert(self, record: RefreshTokenRecord) -> None:
+        occupied = False
         try:
             with closing(self._connection_factory()) as connection, connection:
                 connection.autocommit = False
                 inserted = connection.execute(_INSERT, _parameters(record)).rowcount
                 if inserted == 0:
+                    occupied = connection.execute(
+                        _IDENTITY, (record.tenant_id, record.token_sha256),
+                    ).fetchone() is not None
                     connection.rollback()
         except Exception:
             raise RefreshTokenUnavailable("operation=insert_refresh") from None
-        if inserted == 0:
+        if inserted == 0 and occupied:
             raise RefreshTokenConflict("operation=insert_refresh") from None
+        if inserted == 0:
+            raise RefreshTokenUnavailable("operation=insert_refresh") from None
 
 
 def _timestamp(value: datetime | None) -> str | None:
