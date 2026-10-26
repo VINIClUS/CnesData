@@ -9,7 +9,8 @@ from typing import Any
 from tests.integration.aws_capability.contracts import RunSpec, ServiceFailure
 
 _FIELDS = {"v", "run", "service", "parent", "kind", "markers", "seen"}
-_MARKER = "ExclusiveStartTableName"
+_DDB_SCOPE = ("dynamodb", "dynamodb.tables", "ExclusiveStartTableName")
+_COGNITO_SCOPE = ("cognito", "cognito.pools", "NextToken")
 
 
 @dataclass(frozen=True)
@@ -19,13 +20,21 @@ class Cursor:
 
 
 def parse_cursor(value: str | None, spec: RunSpec) -> Cursor:
+    return _parse_cursor(value, spec, _DDB_SCOPE)
+
+
+def parse_cognito_cursor(value: str | None, spec: RunSpec) -> Cursor:
+    return _parse_cursor(value, spec, _COGNITO_SCOPE)
+
+
+def _parse_cursor(value: str | None, spec: RunSpec, scope: tuple[str, str, str]) -> Cursor:
     if value is None:
         return Cursor(None, ())
     payload = _decode(value)
-    _validate_scope(payload, spec)
-    marker = _parse_marker(payload["markers"])
+    _validate_scope(payload, spec, scope)
+    marker = _parse_marker(payload["markers"], scope[2])
     seen = _parse_seen(payload["seen"])
-    if marker is None or not seen or marker_digest(marker) != seen[-1]:
+    if marker is None or not seen or _marker_digest(marker, scope) != seen[-1]:
         raise ServiceFailure("service=cursor_invalid")
     return Cursor(marker, seen)
 
@@ -40,19 +49,21 @@ def _decode(value: str) -> Mapping[str, Any]:
     return payload
 
 
-def _validate_scope(payload: Mapping[str, Any], spec: RunSpec) -> None:
+def _validate_scope(
+    payload: Mapping[str, Any], spec: RunSpec, scope: tuple[str, str, str]
+) -> None:
     if payload["v"] != 1 or isinstance(payload["v"], bool):
         raise ServiceFailure("service=cursor_invalid")
-    if payload["run"] != spec.run_id or payload["service"] != "dynamodb":
+    if payload["run"] != spec.run_id or payload["service"] != scope[0]:
         raise ServiceFailure("service=cursor_invalid")
-    if payload["parent"] is not None or payload["kind"] != "dynamodb.tables":
+    if payload["parent"] is not None or payload["kind"] != scope[1]:
         raise ServiceFailure("service=cursor_invalid")
 
 
-def _parse_marker(markers: object) -> str | None:
-    if not isinstance(markers, Mapping) or set(markers) not in (set(), {_MARKER}):
+def _parse_marker(markers: object, marker_key: str) -> str | None:
+    if not isinstance(markers, Mapping) or set(markers) not in (set(), {marker_key}):
         raise ServiceFailure("service=cursor_invalid")
-    marker = markers.get(_MARKER)
+    marker = markers.get(marker_key)
     if marker is not None and (not isinstance(marker, str) or not marker):
         raise ServiceFailure("service=cursor_invalid")
     return marker
@@ -70,26 +81,40 @@ def _parse_seen(raw_seen: object) -> tuple[str, ...]:
 
 
 def next_cursor(marker: str | None, seen: tuple[str, ...], run_id: str) -> str | None:
+    return _next_cursor(marker, seen, run_id, _DDB_SCOPE)
+
+
+def next_cognito_cursor(marker: str | None, seen: tuple[str, ...], run_id: str) -> str | None:
+    return _next_cursor(marker, seen, run_id, _COGNITO_SCOPE)
+
+
+def _next_cursor(
+    marker: str | None, seen: tuple[str, ...], run_id: str, scope: tuple[str, str, str]
+) -> str | None:
     if marker is None:
         return None
-    digest = marker_digest(marker)
+    digest = _marker_digest(marker, scope)
     if digest in seen:
         raise ServiceFailure("service=cursor_cycle")
     payload = {
         "v": 1,
         "run": run_id,
-        "service": "dynamodb",
+        "service": scope[0],
         "parent": None,
-        "kind": "dynamodb.tables",
-        "markers": {_MARKER: marker},
+        "kind": scope[1],
+        "markers": {scope[2]: marker},
         "seen": [*seen, digest],
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def marker_digest(marker: str) -> str:
-    encoded = json.dumps({_MARKER: marker}, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(("dynamodb.tables" + encoded).encode()).hexdigest()
+    return _marker_digest(marker, _DDB_SCOPE)
+
+
+def _marker_digest(marker: str, scope: tuple[str, str, str]) -> str:
+    encoded = json.dumps({scope[2]: marker}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256((scope[1] + encoded).encode()).hexdigest()
 
 
 def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

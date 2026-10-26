@@ -1,0 +1,12 @@
+{
+  "remote_not_found": [254, "", "{\"Code\":\"ResourceNotFoundException\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+  "local_not_found": [252, "", "{\"Code\":\"ResourceNotFoundException\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+  "remote_denied": [254, "", "{\"Code\":\"AccessDeniedException\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+  "remote_403": [254, "", "{\"Code\":\"403\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+  "remote_404": [254, "", "{\"Code\":\"404\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+  "bad_json": [0, "{R1_PRIVATE_CANARY", ""],
+  "empty_stdout": [0, "", ""],
+  "empty_object": [0, "{}", ""],
+  "bad_stderr": [254, "", "R1_PRIVATE_CANARY"],
+  "tags_denied": [254, "", "{\"Code\":\"AccessDeniedException\",\"Message\":\"R1_PRIVATE_CANARY\"}"]
+}
