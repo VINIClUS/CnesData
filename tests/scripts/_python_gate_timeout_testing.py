@@ -143,14 +143,14 @@ def _tools() -> tuple[str, str, dict[str, str]]:
     bash = shutil.which("bash")
     if bash is None:
         raise RuntimeError("prerequisite=bash")
-    versions = {"bash": subprocess.check_output(  # noqa: S603 - ferramenta local descoberta
+    versions = {"bash": subprocess.check_output(  # noqa: S603 - discovered local tool
         [bash, "--version"], text=True,
     ).splitlines()[0]}
     for name in ("timeout", "gtimeout", "gnutimeout"):
         timeout = shutil.which(name)
         if timeout is None:
             continue
-        versions[name] = subprocess.check_output(  # noqa: S603 - ferramenta local descoberta
+        versions[name] = subprocess.check_output(  # noqa: S603 - discovered local tool
             [timeout, "--version"], text=True,
         ).splitlines()[0]
         if "GNU coreutils" in versions[name]:
@@ -197,7 +197,7 @@ def run_gate(root: Path, scenario: str) -> GateRun:
     expired = False
     started = time.monotonic()
     with _adopt_orphans():
-        process = subprocess.Popen(  # noqa: S603 - Bash local e script sob teste
+        process = subprocess.Popen(  # noqa: S603 - local Bash and script under test
             [bash, "scripts/ci_python_gate.sh"], cwd=work, env=environment,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True,
         )
