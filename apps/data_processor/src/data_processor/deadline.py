@@ -14,7 +14,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class DeadlinePolicy:
-    """Descreve o modo e o orçamento de uma execução."""
+    """Política de prazo.
+    Args:
+        mode: Modo de execução.
+        seconds: Orçamento em segundos.
+    """
 
     mode: str
     seconds: float
@@ -22,7 +26,11 @@ class DeadlinePolicy:
 
 @dataclass(slots=True)
 class DeadlineWatchdog:
-    """Encerra a execução quando o orçamento da policy expira."""
+    """Watchdog de prazo.
+    Args:
+        policy: Política de prazo.
+        exit_process: Callback para encerrar o processo.
+    """
 
     policy: DeadlinePolicy
     exit_process: Callable[[int], None] = os._exit
@@ -31,7 +39,10 @@ class DeadlineWatchdog:
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def arm(self) -> None:
-        """Arma o timer principal antes do trabalho protegido."""
+        """Arma o watchdog.
+        Returns:
+            None.
+        """
         with self._lock:
             self._expired = False
             timer = threading.Timer(self.policy.seconds - 0.1, self._expire)
@@ -40,7 +51,10 @@ class DeadlineWatchdog:
             timer.start()
 
     def disarm(self) -> None:
-        """Cancela o timer apenas enquanto a expiração não começou."""
+        """Desarma o watchdog pendente.
+        Returns:
+            None.
+        """
         with self._lock:
             if self._expired or self._timer is None:
                 return
@@ -72,7 +86,12 @@ class DeadlineWatchdog:
 
 @contextmanager
 def processor_deadline(policy: DeadlinePolicy) -> Generator[None]:
-    """Arma o watchdog durante o bloco e desarma ao sair."""
+    """Contexto com prazo.
+    Args:
+        policy: Política de prazo.
+    Yields:
+        None durante o bloco protegido.
+    """
     watchdog = DeadlineWatchdog(policy)
     watchdog.arm()
     try:
