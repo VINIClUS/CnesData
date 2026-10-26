@@ -15,9 +15,12 @@ from boto3.session import Session
 
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_infra import config
+from cnes_infra.aws.settings import AwsRuntimeConfigurationError
+from cnes_infra.billing.settings import BillingConfigurationError
+from cnes_infra.executor.step_functions import IncompatibleStateMachine
 from cnes_infra.observability import configure_json_stdout
 from cnes_infra.telemetry import init_telemetry
-from data_processor.aws_entrypoint import run_aws_entrypoint
+from data_processor.aws_entrypoint import EntrypointConfigurationError, run_aws_entrypoint
 from data_processor.composition import build_processor_runtime
 
 if TYPE_CHECKING:
@@ -133,15 +136,29 @@ async def _run_local_profile() -> None:
         runtime.executor.close()
 
 
+def _aws_failure_exit_code(error: BaseException) -> int:
+    terminal = (
+        EntrypointConfigurationError,
+        AwsRuntimeConfigurationError,
+        IncompatibleStateMachine,
+        BillingConfigurationError,
+    )
+    return 2 if isinstance(error, terminal) else 1
+
+
 def _run_aws_profile() -> int:
     configure_json_stdout("data-processor")
     init_telemetry("data-processor")
     try:
         runtime = build_processor_runtime("aws", os.environ, Session())
         return run_aws_entrypoint(runtime, os.environ, sys.argv[1:])
-    except Exception:
-        logging.getLogger(__name__).exception("processor_entrypoint_failed")
-        return 1
+    except Exception as error:
+        exit_code = _aws_failure_exit_code(error)
+        logging.getLogger(__name__).exception(
+            "processor_entrypoint_failed",
+            extra={"exit_code": exit_code},
+        )
+        return exit_code
 
 
 async def main() -> int:

@@ -80,6 +80,11 @@ Fonte: `packages/cnes_infra/src/cnes_infra/aws/settings.py`. Valor inválido der
   `AWS_PROCESSOR_LEASE_SECONDS` é o lease do dispatch e o `LEASE_SECONDS` das unidades.
 - A task `recover-once` recebe o conjunto inteiro, audit incluído, porque usa a mesma
   composição.
+- Cada unidade arma o deadline com o `LEASE_SECONDS` do envelope; `recover-once` usa o
+  `AWS_PROCESSOR_LEASE_SECONDS` já validado na composição. O watchdog inicia o timer principal
+  em `D-0.1`, agenda fallback em `0.1` antes de qualquer log e encerra com exit 3. O evento
+  `processor_deadline_exceeded` é best-effort: `os._exit(3)` não garante `finally`, `atexit` ou
+  flush de telemetria.
 
 Reproduzir a validação com o ambiente exato de uma task, sem chamar a AWS (para no primeiro
 erro):
@@ -107,9 +112,10 @@ PY
   chaves de 600 s).
 - Boot falho na API: a exceção do lifespan derruba o uvicorn antes de abrir a porta, e o
   traceback sai em texto no stderr.
-- Boot falho no processor: uma linha JSON `processor_entrypoint_failed` só com
-  `exception_type`, e exit 1. O código do erro não vai para o log; diagnosticar com a
-  reprodução de settings acima e com os checks abaixo.
+- Boot falho no processor: uma linha JSON `processor_entrypoint_failed` com
+  `exception_type` e `exit_code`; configuração terminal sai com 2 e falha operacional com
+  1. O código do erro não vai para o log; diagnosticar com a reprodução de settings acima e
+  com os checks abaixo.
 
 Checks de leitura antes de subir uma revisão:
 
@@ -194,7 +200,7 @@ A state machine entrega sete variáveis ao container, sem argumentos de comando,
 Com `UNIT_ID`, a task processa exatamente uma unidade, e qualquer argumento falha com
 `unit_mode=argv_forbidden`. Variável do envelope sem `UNIT_ID` falha com
 `unit_envelope=partial`, inclusive um `TENANT_ID` herdado de um `.env` de agente. Todos esses
-erros viram `processor_entrypoint_failed` e exit 1.
+erros viram `processor_entrypoint_failed` e exit 2.
 
 ## `recover-once` agendado
 
@@ -209,6 +215,9 @@ erros viram `processor_entrypoint_failed` e exit 1.
   agendador impõe. Passadas sobrepostas são seguras (CAS do dispatch).
 - Exit 0 com a passada toda ok. Exit 1 se algum run falhou (`RecoveryFailed`, #314), depois de
   logar o resumo, inclusive quando uma passada sobreposta perde uma corrida CAS benigna.
+- Exit 2 é reservado a configuração terminal (`EntrypointConfigurationError`,
+  `AwsRuntimeConfigurationError`, `IncompatibleStateMachine` ou `BillingConfigurationError`);
+  falhas operacionais permanecem exit 1.
   Alarmar em falha repetida, não em uma.
 - É o `recover-once` que dispara a onda seguinte depois que a execução da anterior termina, e
   que retoma runs cuja última task morreu. Sem ele, os runs param em `PROCESSING` ou

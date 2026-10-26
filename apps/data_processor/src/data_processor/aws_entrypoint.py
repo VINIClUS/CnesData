@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from cnes_domain.ports.processing import RunUnitMessage
+from data_processor.deadline import DeadlinePolicy, processor_deadline
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -118,13 +119,17 @@ def run_aws_entrypoint(
         if argv:
             raise EntrypointConfigurationError("unit_mode=argv_forbidden")
         envelope = EcsUnitEnvelope.from_mapping(values)
-        runtime.unit_handler.handle(envelope.message(_utc_now()))
+        with processor_deadline(DeadlinePolicy("run-unit", envelope.lease_seconds)):
+            runtime.unit_handler.handle(envelope.message(_utc_now()))
         return 0
     if _has_partial_unit_envelope(values):
         raise EntrypointConfigurationError("unit_envelope=partial")
     if tuple(argv) != _RECOVER_ONCE:
         raise EntrypointConfigurationError("command=recover_once_required")
-    services.recovery.run_once(limit=services.recovery_batch_size)
+    with processor_deadline(
+        DeadlinePolicy("recover-once", services.processor_lease_seconds),
+    ):
+        services.recovery.run_once(limit=services.recovery_batch_size)
     return 0
 
 
