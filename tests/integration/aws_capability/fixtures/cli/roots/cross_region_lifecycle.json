@@ -1,0 +1,47 @@
+{
+  "identity": {
+    "Account": "111111111111",
+    "Arn": "arn:aws:sts::111111111111:assumed-role/synthetic/test",
+    "UserId": "synthetic"
+  },
+  "cognito_empty": {
+    "UserPools": []
+  },
+  "dynamodb_empty": {
+    "TableNames": []
+  },
+  "s3_bucket": {
+    "Buckets": [
+      {
+        "Name": "cnesdata-cap-a1b2c3d4-foreign"
+      }
+    ]
+  },
+  "iam_empty": {
+    "Roles": [],
+    "IsTruncated": false
+  },
+  "location": {
+    "LocationConstraint": "us-west-2"
+  },
+  "tags": {
+    "TagSet": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      },
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060"
+      }
+    ]
+  }
+}
