@@ -38,6 +38,77 @@ _S3_MARKERS = {
     "s3.versions": ("KeyMarker", "VersionIdMarker"),
     "s3.uploads": ("KeyMarker", "UploadIdMarker"),
 }
+_IAM_KINDS = {"iam.policies", "iam.attachments", "iam.profiles"}
+
+
+@dataclass(frozen=True)
+class IamChildrenCursor:
+    """Args:
+    kind: coleção IAM; markers: continuação privada; seen: histórico de digests.
+    """
+
+    kind: str
+    markers: Mapping[str, str] = field(repr=False)
+    seen: tuple[str, ...] = field(repr=False)
+
+
+def parse_iam_children_cursor(
+    value: str | None, parent: Resource, spec: RunSpec
+) -> IamChildrenCursor:
+    """Returns:
+    Estado IAM após validar escopo, markers e histórico.
+    Raises:
+    ServiceFailure: cursor inválido.
+    """
+    if value is None:
+        return IamChildrenCursor("iam.policies", {}, ())
+    payload = _decode(value)
+    if (
+        type(payload["v"]) is not int
+        or payload["v"] != 1
+        or payload["run"] != spec.run_id
+        or payload["service"] != "iam"
+        or payload["parent"] != parent.resource_id
+    ):
+        raise ServiceFailure("service=cursor_invalid")
+    kind = payload["kind"]
+    if not isinstance(kind, str) or kind not in _IAM_KINDS:
+        raise ServiceFailure("service=cursor_invalid")
+    raw = payload["markers"]
+    if not isinstance(raw, Mapping) or set(raw) not in (set(), {"Marker"}):
+        raise ServiceFailure("service=cursor_invalid")
+    markers: dict[str, str] = {}
+    for key, marker in raw.items():
+        if not isinstance(marker, str) or not marker:
+            raise ServiceFailure("service=cursor_invalid")
+        markers[key] = marker
+    seen = _parse_seen(payload["seen"])
+    if _digest(kind, markers) != seen[-1]:
+        raise ServiceFailure("service=cursor_invalid")
+    return IamChildrenCursor(kind, markers, seen)
+
+
+def next_iam_children_cursor(state: IamChildrenCursor, parent: Resource, spec: RunSpec) -> str:
+    """Returns:
+    Cursor IAM da próxima coleção ou página sem leitura antecipada.
+    Raises:
+    ServiceFailure: ciclo ou histórico excessivo.
+    """
+    digest = _digest(state.kind, state.markers)
+    if digest in state.seen:
+        raise ServiceFailure("service=cursor_cycle")
+    if len(state.seen) >= Limits().pages:
+        raise ServiceFailure("service=cursor_invalid")
+    payload = {
+        "v": 1,
+        "run": spec.run_id,
+        "service": "iam",
+        "parent": parent.resource_id,
+        "kind": state.kind,
+        "markers": dict(state.markers),
+        "seen": [*state.seen, digest],
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def parse_children_cursor(value: str | None, parent: Resource, spec: RunSpec) -> ChildrenCursor:

@@ -1,7 +1,9 @@
 """Validação fechada das identidades de filhos Cognito."""
 
 import json
+import re
 from collections.abc import Mapping
+from typing import TypeGuard
 
 from tests.integration.aws_capability._service_cognito import _is_regional_pool_id
 from tests.integration.aws_capability.contracts import Resource, RunSpec, ServiceFailure
@@ -216,3 +218,69 @@ def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
             raise ValueError("duplicate")
         result[key] = value
     return result
+
+
+def parse_iam_child(resource: Resource, spec: RunSpec) -> tuple[Resource, str]:
+    """Returns:
+    Root e nome da policy após validação fechada do envelope IAM.
+    Raises:
+    ServiceFailure: identidade inválida.
+    """
+    payload = _decode(resource.resource_id)
+    if (
+        resource.service != "iam"
+        or type(payload["v"]) is not int
+        or payload["v"] != 1
+        or payload["run"] != spec.run_id
+        or payload["service"] != "iam"
+        or payload["kind"] != "iam.inline-policy"
+    ):
+        raise ServiceFailure("service=resource_invalid")
+    root_id = payload["root_id"]
+    if (
+        not isinstance(root_id, str)
+        or not root_id
+        or root_id != resource.name
+        or payload["parent_id"] != root_id
+    ):
+        raise ServiceFailure("service=resource_invalid")
+    child = payload["child_id"]
+    if not isinstance(child, Mapping) or set(child) != {"policy_name"}:
+        raise ServiceFailure("service=resource_invalid")
+    name = child["policy_name"]
+    if not valid_iam_policy_name(name):
+        raise ServiceFailure("service=resource_invalid")
+    return Resource("iam", root_id, root_id), name
+
+
+def valid_iam_policy_name(value: object) -> TypeGuard[str]:
+    """Returns:
+    Indicação de nome válido conforme o modelo IAM.
+    """
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= 128
+        and bool(re.fullmatch(r"[\w+=,.@-]+", value))
+    )
+
+
+def iam_child(root: Resource, spec: RunSpec, policy_name: str) -> Resource:
+    """Returns:
+    Candidato inline-policy com envelope canônico, sem prova de posse.
+    Raises:
+    ServiceFailure: identidade inválida.
+    """
+    payload = {
+        "v": 1,
+        "run": spec.run_id,
+        "service": "iam",
+        "root_id": root.resource_id,
+        "parent_id": root.resource_id,
+        "kind": "iam.inline-policy",
+        "child_id": {"policy_name": policy_name},
+    }
+    resource = Resource(
+        root.service, json.dumps(payload, sort_keys=True, separators=(",", ":")), root.name
+    )
+    parse_iam_child(resource, spec)
+    return resource
