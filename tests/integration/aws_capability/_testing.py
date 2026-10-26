@@ -68,7 +68,7 @@ class Remote:
     calls: int = 0
     probe_requests: int = 1
     reply_name: str = NAME
-    reply_owner: Ownership | None = None
+    reply_owners: dict[str, Ownership] = field(default_factory=dict)
     request_lanes: list[str] = field(default_factory=list)
 
     def touch(self, *event: object) -> None:
@@ -82,7 +82,9 @@ class Remote:
 
     def add(self, resource: Resource, owner: Ownership | None = None) -> None:
         self.resources[resource.resource_id] = resource
-        self.ownership[resource.resource_id] = owner or Ownership(ACCOUNT, owned_tags())
+        self.ownership[resource.resource_id] = owner or Ownership(
+            ACCOUNT, owned_tags(), "aws-global" if resource.service == "iam" else "us-east-2"
+        )
 
     def identity(self, context: RequestContext) -> str:
         self.request(context)
@@ -131,7 +133,7 @@ class Remote:
         resource = Resource(service, f"synthetic-{service}", self.reply_name)
         failing = self.create_error is not None and service == self.fail_service
         if not failing or self.remote_created_on_error:
-            self.add(resource, self.reply_owner)
+            self.add(resource, self.reply_owners.get(service))
         self.after_create()
         if failing:
             assert self.create_error is not None

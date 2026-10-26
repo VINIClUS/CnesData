@@ -100,7 +100,12 @@ def test_segundo_run_valido_deriva_nome_tags_journal_e_deadline_proprios(lab: La
         "Run": "deafbeef",
         "ExpiresAt": "1130",
     }
-    lab.remote.reply_owner = Ownership("111111111111", tags)
+    lab.remote.reply_owners = {
+        "cognito": Ownership("111111111111", tags, "us-east-2"),
+        "dynamodb": Ownership("111111111111", tags, "us-east-2"),
+        "s3": Ownership("111111111111", tags, "us-east-2"),
+        "iam": Ownership("111111111111", tags, "aws-global"),
+    }
     lab.events.expected_name = "cnesdata-cap-deafbeef"
     assert lab.processes.ack is not None
     lab.processes.ack.update(run_id="deafbeef", journal=str(lab.spec.journal_dir / "deafbeef.json"))
