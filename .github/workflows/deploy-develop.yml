@@ -89,8 +89,16 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
   deploy:
-    needs: [build]
-    if: ${{ always() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    needs: [gate, build]
+    if: >-
+      ${{ !cancelled() &&
+        ((inputs.tag == '' &&
+          needs.gate.result == 'success' &&
+          needs.build.result == 'success') ||
+         (github.event_name == 'workflow_dispatch' &&
+          inputs.tag != '' &&
+          needs.gate.result == 'skipped' &&
+          needs.build.result == 'skipped')) }}
     runs-on: [self-hosted, cnesdata, deploy-dev]
     timeout-minutes: 15
     environment:

@@ -34,7 +34,7 @@ on:
       - 'docs/data-dictionary-sia.md'
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -68,6 +68,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - uses: astral-sh/setup-uv@v8.0.0
         with:
           version: "0.9.26"
@@ -77,6 +80,11 @@ jobs:
 
       - name: Run Python gate
         run: bash scripts/ci_python_gate.sh
+
+      - name: Run CI admission and timeout contract tests
+        run: >-
+          uv run --no-build pytest -q tests/scripts/test_ci_deploy_admission.py
+          tests/scripts/test_ci_python_gate_timeout.py
 
       - name: Run Phase 2 adapter conformance
         run: bash scripts/ci_phase2_adapters.sh
