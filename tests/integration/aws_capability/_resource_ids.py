@@ -14,6 +14,11 @@ _CHILD_FIELDS = {
     "cognito.user": {"username"},
     "cognito.branding": {"client_id", "branding_id"},
 }
+_S3_CHILD_FIELDS = {
+    "s3.version": {"key", "version_id"},
+    "s3.marker": {"key", "version_id"},
+    "s3.upload": {"key", "upload_id"},
+}
 
 
 def parse_cognito_client(resource: Resource, spec: RunSpec) -> tuple[Resource, str]:
@@ -78,6 +83,68 @@ def cognito_child(root: Resource, spec: RunSpec, kind: str, child: Mapping[str, 
     return resource
 
 
+def parse_s3_child(resource: Resource, spec: RunSpec) -> tuple[Resource, str, dict[str, str]]:
+    """Returns:
+    Root, tipo e identidade após validação fechada do filho S3.
+    Raises:
+    ServiceFailure: identidade inválida.
+    """
+    if resource.service != "s3" or not isinstance(resource.name, str) or not resource.name:
+        raise ServiceFailure("service=resource_invalid")
+    payload, kind, child = _s3_parts(resource.resource_id)
+    if payload["run"] != spec.run_id or payload["service"] != "s3":
+        raise ServiceFailure("service=resource_invalid")
+    root_id = payload["root_id"]
+    if not isinstance(root_id, str) or not root_id:
+        raise ServiceFailure("service=resource_invalid")
+    return Resource("s3", root_id, resource.name), kind, child
+
+
+def s3_logical_identity(resource: Resource) -> tuple[str, ...] | Resource:
+    """Returns the closed logical key used to guard S3 child collections."""
+    if (
+        resource.service != "s3"
+        or not isinstance(resource.resource_id, str)
+        or not resource.resource_id.lstrip().startswith("{")
+    ):
+        return resource
+    if not isinstance(resource.name, str) or not resource.name:
+        raise ServiceFailure("service=resource_invalid")
+    payload, kind, child = _s3_parts(resource.resource_id)
+    root_id = payload["root_id"]
+    if not isinstance(root_id, str) or not root_id:
+        raise ServiceFailure("service=resource_invalid")
+    if kind in {"s3.version", "s3.marker"}:
+        return ("s3.version", root_id, child["key"], child["version_id"])
+    return ("s3.upload", root_id, child["key"], child["upload_id"])
+
+
+def s3_child(root: Resource, spec: RunSpec, kind: str, child: Mapping[str, str]) -> Resource:
+    """Returns:
+    Candidato S3 com envelope canônico, sem prova de posse.
+    Raises:
+    ServiceFailure: identidade inválida.
+    """
+    if root.service != "s3" or not isinstance(root.resource_id, str) or not root.resource_id:
+        raise ServiceFailure("service=resource_invalid")
+    if not isinstance(root.name, str) or not root.name:
+        raise ServiceFailure("service=resource_invalid")
+    if kind not in _S3_CHILD_FIELDS:
+        raise ServiceFailure("service=resource_invalid")
+    payload = {
+        "v": 1,
+        "run": spec.run_id,
+        "service": "s3",
+        "root_id": root.resource_id,
+        "parent_id": root.resource_id,
+        "kind": kind,
+        "child_id": dict(child),
+    }
+    resource = Resource("s3", json.dumps(payload, sort_keys=True, separators=(",", ":")), root.name)
+    parse_s3_child(resource, spec)
+    return resource
+
+
 def _child_identity(kind: object, raw: object) -> tuple[str, dict[str, str]]:
     if not isinstance(kind, str) or kind not in _CHILD_FIELDS:
         raise ServiceFailure("service=resource_invalid")
@@ -100,6 +167,35 @@ def _decode(value: str) -> Mapping[str, object]:
     if not isinstance(payload, Mapping) or set(payload) != _FIELDS:
         raise ServiceFailure("service=resource_invalid")
     return payload
+
+
+def _s3_parts(value: str) -> tuple[Mapping[str, object], str, dict[str, str]]:
+    payload = _decode(value)
+    if type(payload["v"]) is not int or payload["v"] != 1:
+        raise ServiceFailure("service=resource_invalid")
+    if payload["service"] != "s3":
+        raise ServiceFailure("service=resource_invalid")
+    root_id = payload["root_id"]
+    if not isinstance(root_id, str) or not root_id:
+        raise ServiceFailure("service=resource_invalid")
+    kind = payload["kind"]
+    if not isinstance(kind, str) or kind not in _S3_CHILD_FIELDS:
+        raise ServiceFailure("service=resource_invalid")
+    if payload["parent_id"] != root_id:
+        raise ServiceFailure("service=resource_invalid")
+    return payload, kind, _s3_identity(kind, payload["child_id"])
+
+
+def _s3_identity(kind: str, raw: object) -> dict[str, str]:
+    if not isinstance(raw, Mapping) or set(raw) != _S3_CHILD_FIELDS[kind]:
+        raise ServiceFailure("service=resource_invalid")
+    child: dict[str, str] = {}
+    for key in _S3_CHILD_FIELDS[kind]:
+        value = raw[key]
+        if not isinstance(value, str) or not value:
+            raise ServiceFailure("service=resource_invalid")
+        child[key] = value
+    return child
 
 
 def _validate_scope(payload: Mapping[str, object], spec: RunSpec) -> None:
