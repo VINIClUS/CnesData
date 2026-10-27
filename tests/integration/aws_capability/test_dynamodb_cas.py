@@ -171,10 +171,14 @@ def test_cas_confirma_um_dois_e_rejeicao_remota_sem_concluir_perfil(cas_lab: Cas
     tail = json.loads(path.read_text())["steps"]
     for step in tail:
         cas_lab.read.process.outcomes.append(_outcome(step["reply"]))
+    token_path = path.with_name("ddb_token.json")
+    token_tail = json.loads(token_path.read_text())["steps"]
+    for step in token_tail:
+        cas_lab.read.process.outcomes.append(_outcome(step["reply"]))
     error = _probe(cas_lab)
     assert type(error) is ServiceFailure
     assert error.args == ("probe=not_implemented",)
-    _trace(cas_lab, 16, tail=[step["request"] for step in tail])
+    _trace(cas_lab, 24, tail=[step["request"] for step in [*tail, *token_tail]])
 
 
 @pytest.mark.parametrize(
