@@ -4,16 +4,18 @@ from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime
 from hashlib import sha256
-from sqlite3 import Connection
+from sqlite3 import LEGACY_TRANSACTION_CONTROL, Connection
 
 from cnes_domain.refresh_tokens import (
     RefreshTokenConflict,
     RefreshTokenContext,
     RefreshTokenInput,
+    RefreshTokenMutation,
     RefreshTokenRecord,
     RefreshTokenUnavailable,
     validate_refresh_token,
     validate_refresh_token_context,
+    validate_refresh_token_mutation,
 )
 
 _INSERT = (
@@ -27,6 +29,14 @@ _SELECT = (
     "SELECT token_sha256, agent_id, tenant_id, machine_fingerprint, issued_at, expires_at, "
     "last_used_at, revoked_at, version FROM auth_refresh_tokens "
     "WHERE tenant_id = ? AND token_sha256 = ?"
+)
+_MARK_USED = (
+    "UPDATE auth_refresh_tokens SET last_used_at = ?, version = version + 1 "
+    "WHERE tenant_id = ? AND token_sha256 = ? AND version = ? AND revoked_at IS NULL"
+)
+_REVOKE = (
+    "UPDATE auth_refresh_tokens SET revoked_at = ?, version = version + 1 "
+    "WHERE tenant_id = ? AND token_sha256 = ? AND version = ? AND revoked_at IS NULL"
 )
 
 
@@ -76,6 +86,23 @@ class SQLiteRefreshTokenStore:
         if record.revoked_at is not None or not record.issued_at <= context.now < record.expires_at:
             return None
         return record
+
+    def mark_used(self, token: str, mutation: RefreshTokenMutation) -> bool:
+        """Returns: uso confirmado por CAS. Raises: Invalid, Unavailable."""
+        return self._mutate(token, mutation, False)
+
+    def revoke(self, token: str, mutation: RefreshTokenMutation) -> bool:
+        """Returns: revogação confirmada por CAS. Raises: Invalid, Unavailable."""
+        return self._mutate(token, mutation, True)
+
+    def _mutate(self, token: str, mutation: RefreshTokenMutation, revoking: bool) -> bool:
+        validate_refresh_token_mutation(token, mutation)
+        try:
+            digest = sha256(token.encode()).hexdigest()
+            with closing(self._connection_factory()) as connection:
+                return _apply_mutation(connection, mutation, digest, revoking)
+        except Exception:
+            raise RefreshTokenUnavailable("operation=mutate_refresh") from None
 
     def _create_secret(self) -> tuple[str, str]:
         try:
@@ -136,3 +163,50 @@ def _parameters(record: RefreshTokenRecord) -> tuple[object, ...]:
         _timestamp(record.revoked_at),
         record.version,
     )
+
+
+def _apply_mutation(
+    connection: Connection, mutation: RefreshTokenMutation, digest: str, revoking: bool,
+) -> bool:
+    if connection.autocommit != LEGACY_TRANSACTION_CONTROL or connection.in_transaction:
+        raise RefreshTokenUnavailable("operation=refresh_connection")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        changed = _write_mutation(connection, mutation, digest, revoking)
+        if changed:
+            connection.commit()
+        else:
+            connection.rollback()
+        return changed
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _write_mutation(
+    connection: Connection, mutation: RefreshTokenMutation, digest: str, revoking: bool,
+) -> bool:
+    row = connection.execute(_SELECT, (mutation.tenant_id, digest)).fetchone()
+    if row is None:
+        return False
+    record = _decode(row)
+    validate_refresh_token(record)
+    if not _eligible_mutation(record, mutation, revoking):
+        return False
+    if record.version == 9223372036854775807:
+        raise RefreshTokenUnavailable("operation=refresh_version")
+    statement = _REVOKE if revoking else _MARK_USED
+    parameters = (_timestamp(mutation.now), mutation.tenant_id, digest, mutation.expected_version)
+    if connection.execute(statement, parameters).rowcount != 1:
+        raise RefreshTokenUnavailable("operation=refresh_update")
+    return True
+
+
+def _eligible_mutation(
+    record: RefreshTokenRecord, mutation: RefreshTokenMutation, revoking: bool,
+) -> bool:
+    if record.version != mutation.expected_version or record.revoked_at is not None:
+        return False
+    if not record.issued_at <= mutation.now < record.expires_at:
+        return False
+    return revoking or record.last_used_at is None or mutation.now >= record.last_used_at
