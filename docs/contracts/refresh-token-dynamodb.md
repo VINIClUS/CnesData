@@ -1,10 +1,10 @@
-# Persistência de refresh DynamoDB — primeira fatia
+# Persistência de refresh DynamoDB — criação, validação e CAS
 
-`DynamoDBRefreshTokenStore` oferece somente `create`, `import_hashed` e
-`validate`. Recebe um cliente de baixo nível já composto, o nome da tabela e
+`DynamoDBRefreshTokenStore` oferece `create`, `import_hashed`, `validate`,
+`mark_used` e `revoke`. Recebe um cliente de baixo nível já composto, o nome da tabela e
 uma fábrica de segredo. O cliente pertence ao chamador: o adapter não cria
 sessões, configura retentativas ou fecha o cliente. Não há wiring, migração,
-CAS, consulta de agentes ativos ou conformidade completa com `RefreshTokenStore`.
+`has_active_for_agent` ou conformidade completa com `RefreshTokenStore`.
 
 ## Duas projeções BASE
 
@@ -23,7 +23,7 @@ tenant é independente. Não há GSI, Query ou Scan nesta fatia.
 
 ## Schema1
 
-Cada escrita contém exatamente os atributos abaixo. Leitores ignoram atributos
+Criação e importação contêm exatamente os atributos abaixo. Leitores ignoram atributos
 adicionais, mas exigem todos os campos conhecidos, seus tipos individuais e a
 concordância entre identidade embutida, chaves e discriminadores.
 
@@ -103,6 +103,52 @@ inatividade, inclusive para registros expirados, revogados ou de emissão futura
 Não há limpeza na leitura. Uma revogação pode ocorrer depois do snapshot:
 validar não concede um lease.
 
+## Uso e revogação por CAS
+
+`mark_used` e `revoke` validam segredo e `RefreshTokenMutation` antes do SDK, sem
+chamar a fábrica. O segredo é opaco, inclusive whitespace. A descoberta DIGEST
+é forte e precede o mesmo snapshot atômico completo de DIGEST e AGENT usado na
+validação. DIGEST ausente retorna `False`; descoberta presente seguida de par
+parcial ou inválido produz indisponibilidade, inclusive para versão stale ou
+registro inativo. Não há busca de um endereço AGENT desconhecido nem limpeza.
+
+Só um par íntegro com versão igual a `expected_version`, não revogado e com
+`issued_at <= mutation.now < token_expires_at` é elegível. Uso também exige
+`last_used_at` nulo ou `mutation.now >= last_used_at`. Revogação pode anteceder
+um uso anterior dentro do intervalo de validade. A comparação usa datetimes e
+precisão de microssegundos, sem relógio do sistema. Pares íntegros inelegíveis
+retornam `False`, inclusive quando a versão do chamador excede o máximo do
+storage. Uma versão persistida máxima elegível produz indisponibilidade antes
+da escrita; versões persistidas inválidas falham antes das guardas.
+
+Uma única transação contém dois `Update`, DIGEST e AGENT nessa ordem. Cada
+condição compara todos os atributos conhecidos não chave com os AttributeValues
+brutos daquela projeção: discriminadores, identidade, fingerprint, timestamps,
+versão e TTL, incluindo `NULL` explícito. Isso é igualdade tipada do DynamoDB;
+não é uma garantia de representação física contra escritores externos. Somente
+o timestamp escolhido (`last_used_at` ou `revoked_at`) e `version + 1` mudam.
+O novo timestamp usa UTC com seis casas e `+00:00`. Grafias dos demais timestamps,
+TTL e atributos desconhecidos são preservados. Não há substituição integral,
+reparo, compensação, fallback ou retentativa no adapter.
+
+Somente envelope HTTP200 válido com RequestId não vazio confirma `True`. Apenas
+um `TransactionCanceledException` com dois motivos ordenados limitados a `None`
+e `ConditionalCheckFailed`, com pelo menos uma falha, permite nova leitura
+atômica do par nos endereços originais. Ela permite `False` somente para par
+válido e coerente, valores imutáveis idênticos e versão estritamente maior que
+a versão esperada. Os imutáveis são digest, tenant, agente, fingerprint, emissão
+e expiração decodificados. Isso classifica o estado observado, sem identificar
+o escritor ou provar uma cadeia histórica completa de mutações.
+
+Versão igual ou menor, imutáveis alterados, par parcial, corrupção ou releitura
+falha continuam indisponibilidade. Conflitos de serviço, capacidade e motivos
+mistos ou malformados também são indisponibilidade, sem releitura classificadora.
+Uma resposta perdida ou malformada após commit permanece indisponibilidade,
+mesmo que o par resultante exista. Uma chamada pública independente posterior
+com versão antiga pode retornar `False` por seu próprio snapshot válido; isso
+não atribui o commit anterior. Cada escrita usa um novo UUID ClientRequestToken,
+sem reutilização entre chamadas ou geração de outro segredo após incerteza.
+
 ## Integridade, privacidade e limites
 
 TTL é coleta assíncrona e não determina autorização. A exclusão de AGENT antes
@@ -113,7 +159,8 @@ pela transação e falha fechado para inconsistências encontradas; não garante
 ausência universal de órfãos nem unicidade de digest por toda a vida do sistema.
 
 Erros públicos usam somente `operation=insert_refresh`,
-`operation=validate_refresh` ou `operation=create_secret`, com encadeamento
+`operation=validate_refresh`, `operation=mutate_refresh` ou
+`operation=create_secret`, com encadeamento
 suprimido. Plaintext, fingerprint e conteúdo de registros não aparecem nos
 erros públicos, repr, traceback formatado ou diagnósticos emitidos pelo produto,
 inclusive chamadas ao logger raiz e encaminhamento de erros do SDK. O adapter
@@ -126,8 +173,8 @@ SDK estiver habilitado. Esta fatia não garante segredo em todos os logs do
 processo e não altera cliente, handlers, filtros, níveis ou eventos globais.
 Uma política de diagnóstico em runtime exige desenho e verificação separados.
 
-Moto oferece evidência em memória dos itens e formatos de requisição. Não
-certifica ordenação ou conflitos reais da AWS, coleta TTL, durabilidade,
+Moto oferece evidência em memória dos itens, condições e interleavings determinísticos
+do CAS. Não certifica ordenação ou conflitos reais da AWS, coleta TTL, durabilidade,
 reinício, isolamento de serviço ou reutilização de segredos em produção.
-Esta fatia não autoriza cutover ou migração de dados ativos; #280 e #60
-permanecem abertos.
+Faltam `has_active_for_agent`, wiring e migração; esta fatia não autoriza cutover
+ou migração de dados ativos. #280 e #60 permanecem abertos.

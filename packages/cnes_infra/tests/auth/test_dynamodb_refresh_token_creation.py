@@ -2,7 +2,6 @@
 
 import logging
 from datetime import UTC, datetime
-from threading import Barrier, Thread
 from traceback import format_exception
 from typing import Any, cast
 
@@ -301,23 +300,28 @@ def test_corrida_de_dois_clientes_tem_um_vencedor(dynamodb_case: tuple[Any, Any]
     boundary, _ = dynamodb_case
     client_boundaries = [boundary.independent(), boundary.independent()]
     stores = [fresh_store(client_boundaries[0]), fresh_store(client_boundaries[1])]
-    barrier = Barrier(2)
     results: list[str] = []
     errors: list[BaseException] = []
+    events: list[str] = []
+    original = client_boundaries[0].transact_write_items
 
     def write(store: Any) -> None:
         try:
-            barrier.wait(timeout=5)
             results.append(store.create(token_input()))
         except BaseException as error:
             errors.append(error)
 
-    threads = [Thread(target=write, args=(store,)) for store in stores]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=8)
-        assert not thread.is_alive()
+    def interleave(**kwargs: Any) -> Any:
+        events.append("A-ready")
+        write(stores[1])
+        events.extend(("B-commit", "A-forward"))
+        return original(**kwargs)
+
+    client_boundaries[0].transact_write_items = interleave
+    try:
+        write(stores[0])
+    finally:
+        client_boundaries[0].transact_write_items = original
     assert len(results) == 1
     assert results == [TOKEN]
     assert read_item(boundary, item_key(TENANT, DIGEST, "DIGEST")) == literal_item(
@@ -330,14 +334,18 @@ def test_corrida_de_dois_clientes_tem_um_vencedor(dynamodb_case: tuple[Any, Any]
     assert isinstance(errors[0], (RefreshTokenConflict, RefreshTokenUnavailable))
     assert all(len(requests_for(item, "transact_write_items")) == 1 for item in client_boundaries)
     losing_boundary = next(item for item in client_boundaries if item.forwarded_errors)
+    assert losing_boundary is client_boundaries[0]
     assert len(losing_boundary.forwarded_errors) == 1
     sdk_error = losing_boundary.forwarded_errors[0][1]
     assert isinstance(sdk_error, ClientError)
-    code = cast("Any", sdk_error.response).get("Error", {}).get("Code")
-    assert code in {
-        "TransactionCanceledException",
-        "TransactionConflict",
-    }
+    response = cast("Any", sdk_error.response)
+    assert response.get("Error", {}).get("Code") == "TransactionCanceledException"
+    assert [reason["Code"] for reason in response["CancellationReasons"]] == [
+        "ConditionalCheckFailed",
+        "ConditionalCheckFailed",
+    ]
+    events.append("A-cancel")
+    assert events == ["A-ready", "B-commit", "A-forward", "A-cancel"]
 
 
 @pytest.mark.parametrize("record", PRIVACY_POSITIVE_LOGS)
