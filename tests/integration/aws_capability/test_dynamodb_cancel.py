@@ -148,14 +148,14 @@ def _assert_call(call: Any, expected: Any, timeout: float) -> None:
     assert_environment(options["env"], region)
 
 
-def _trace(cancel: CancelLab, count: int, start: int = 0) -> None:
+def _trace(cancel: CancelLab, count: int, start: int = 0, tail: Sequence[Any] = ()) -> None:
     lab = cancel.read
     actual = len(lab.process.calls)
     timeouts = (
         [6.5 - index * 0.5 for index in range(actual)] if cancel.clock.ticks else [7] * actual
     )
     for call, expected, timeout in zip(
-        lab.process.calls, _expected()[:actual], timeouts, strict=True
+        lab.process.calls, (_expected() + list(tail))[:actual], timeouts, strict=True
     ):
         _assert_call(call, expected, timeout)
     budget = lab.context.budget
@@ -170,7 +170,7 @@ def _trace(cancel: CancelLab, count: int, start: int = 0) -> None:
     assert budget.limits.calls - budget.limits.cleanup_reserve - budget.work_used == 128 - (
         start + actual
     )
-    assert len(lab.process.outcomes) == 16 - actual
+    assert len(lab.process.outcomes) == 16 + len(tail) - actual
     assert lab.process.outcomes == list(cancel.clock.queued[actual:])
     assert actual == count, (
         f"probe=ddb_cancel_semantic_trace_missing calls={actual} expected={count}"
@@ -187,8 +187,13 @@ def _probe(cancel: CancelLab) -> BaseException:
 
 def test_cancelamento_preserva_tres_itens_sem_concluir_perfil(cancel_lab: CancelLab) -> None:
     _queue(cancel_lab)
+    path = Path(__file__).parent / "fixtures" / "cli" / "b4" / "ddb_token.json"
+    token_tail = json.loads(path.read_text())["steps"]
+    for step in token_tail:
+        cancel_lab.read.process.outcomes.append(_outcome(step["reply"]))
+    cancel_lab.clock.queued = tuple(cancel_lab.read.process.outcomes)
     error = _probe(cancel_lab)
-    _trace(cancel_lab, 16)
+    _trace(cancel_lab, 24, tail=[step["request"] for step in token_tail])
     assert type(error) is ServiceFailure
     assert error.args == ("probe=not_implemented",)
 

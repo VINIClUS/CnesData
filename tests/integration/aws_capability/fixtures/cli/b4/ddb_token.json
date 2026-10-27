@@ -1,0 +1,134 @@
+{
+  "steps": [
+    {
+      "request": ["dynamodb", "transact-write-items", "us-east-2", {
+        "TransactItems": [{"Put": {"TableName": "cnesdata-cap-a1b2c3d4",
+        "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"},
+        "version": {"N": "1"}},
+        "ConditionExpression": "attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
+        "ExpressionAttributeNames": {"#pk": "pk", "#sk": "sk"}}}],
+        "ClientRequestToken": "a1b2c3d4-token"
+      }],
+      "reply": {"exit": 0}
+    },
+    {
+      "request": ["dynamodb", "get-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"}},
+        "ConsistentRead": true
+      }],
+      "reply": {"exit": 0, "data": {"Item": {
+        "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"}, "version": {"N": "1"}},
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}}}
+    },
+    {
+      "request": ["dynamodb", "delete-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"}},
+        "ConditionExpression": "#v=:expected",
+        "ExpressionAttributeNames": {"#v": "version"},
+        "ExpressionAttributeValues": {":expected": {"N": "1"}},
+        "ReturnValues": "ALL_OLD"
+      }],
+      "reply": {"exit": 0, "data": {"Attributes": {
+        "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"}, "version": {"N": "1"}},
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}}}
+    },
+    {
+      "request": ["dynamodb", "get-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"}},
+        "ConsistentRead": true
+      }],
+      "reply": {"exit": 0}
+    },
+    {
+      "request": ["dynamodb", "transact-write-items", "us-east-2", {
+        "TransactItems": [{"Put": {"TableName": "cnesdata-cap-a1b2c3d4",
+        "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"},
+        "version": {"N": "1"}},
+        "ConditionExpression": "attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
+        "ExpressionAttributeNames": {"#pk": "pk", "#sk": "sk"}}}],
+        "ClientRequestToken": "a1b2c3d4-token"
+      }],
+      "reply": {"exit": 0}
+    },
+    {
+      "request": ["dynamodb", "get-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"}},
+        "ConsistentRead": true
+      }],
+      "reply": {"exit": 0}
+    },
+    {
+      "request": ["dynamodb", "transact-write-items", "us-east-2", {
+        "TransactItems": [{"Put": {"TableName": "cnesdata-cap-a1b2c3d4",
+        "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"},
+        "version": {"N": "2"}},
+        "ConditionExpression": "attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
+        "ExpressionAttributeNames": {"#pk": "pk", "#sk": "sk"}}}],
+        "ClientRequestToken": "a1b2c3d4-token"
+      }],
+      "reply": {"exit": 254, "error": {
+        "Code": "IdempotentParameterMismatchException", "Message": "R1_PRIVATE_CANARY",
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+      }}
+    },
+    {
+      "request": ["dynamodb", "get-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"}},
+        "ConsistentRead": true
+      }],
+      "reply": {"exit": 0}
+    }
+  ],
+  "overrides": {
+    "transacao_remota": {"index": 0, "reply": {"exit": 254, "error": {
+      "Code": "AccessDeniedException", "Message": "R1_PRIVATE_CANARY"}}},
+    "transacao_timeout": {"index": 0, "reply": {"timeout": "R1_PRIVATE_CANARY"}},
+    "leitura_inicial_ausente": {"index": 1, "reply": {"exit": 0,
+      "data": {"ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}}}},
+    "leitura_inicial_estrangeira": {"index": 1, "reply": {"exit": 0, "data": {
+      "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}, "sk": {"S": "foreign"},
+      "version": {"N": "1"}}}}},
+    "leitura_inicial_dois": {"index": 1, "reply": {"exit": 0, "data": {
+      "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"},
+      "version": {"N": "2"}}}}},
+    "delete_failed": {"index": 2, "reply": {"exit": 254, "error": {
+      "Code": "AccessDeniedException", "Message": "R1_PRIVATE_CANARY"}}},
+    "delete_missing_old": {"index": 2, "reply": {"exit": 0, "data": {
+      "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}}}},
+    "delete_wrong_old": {"index": 2, "reply": {"exit": 0, "data": {
+      "Attributes": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"},
+      "version": {"N": "2"}}}}},
+    "ausencia_item": {"index": 3, "reply": {"exit": 0, "data": {
+      "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"},
+      "version": {"N": "1"}}}}},
+    "ausencia_null": {"index": 3, "reply": {"exit": 0, "data": {"Item": null}}},
+    "ausencia_vazia": {"index": 3, "reply": {"exit": 0, "data": {"Item": {}}}},
+    "replay_remoto": {"index": 4, "reply": {"exit": 254, "error": {
+      "Code": "AccessDeniedException", "Message": "R1_PRIVATE_CANARY"}}},
+    "replay_timeout": {"index": 4, "reply": {"timeout": "R1_PRIVATE_CANARY"}},
+    "pos_replay_recriado": {"index": 5, "reply": {"exit": 0, "data": {
+      "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"},
+      "version": {"N": "1"}}}}},
+    "pos_replay_estrangeiro": {"index": 5, "reply": {"exit": 0, "data": {
+      "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}, "sk": {"S": "foreign"},
+      "version": {"N": "1"}}}}},
+    "mismatch_sucesso": {"index": 6, "reply": {"exit": 0}},
+    "mismatch_local": {"index": 6, "reply": {"exit": 252, "error": {
+      "Code": "IdempotentParameterMismatchException", "Message": "R1_PRIVATE_CANARY"}}},
+    "mismatch_remoto_errado": {"index": 6, "reply": {"exit": 254, "error": {
+      "Code": "AccessDeniedException", "Message": "R1_PRIVATE_CANARY"}}},
+    "mismatch_timeout": {"index": 6, "reply": {"timeout": "R1_PRIVATE_CANARY"}},
+    "leitura_final_dois": {"index": 7, "reply": {"exit": 0, "data": {
+      "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "token"},
+      "version": {"N": "2"}}}}},
+    "timeout_18": {"index": 1, "reply": {"timeout": "R1_PRIVATE_CANARY"}},
+    "timeout_20": {"index": 3, "reply": {"timeout": "R1_PRIVATE_CANARY"}},
+    "timeout_22": {"index": 5, "reply": {"timeout": "R1_PRIVATE_CANARY"}},
+    "timeout_24": {"index": 7, "reply": {"timeout": "R1_PRIVATE_CANARY"}}
+  }
+}
