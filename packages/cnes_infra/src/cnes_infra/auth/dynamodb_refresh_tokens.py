@@ -105,7 +105,12 @@ class DynamoDBRefreshTokenStore:
         return self._mutate(token, mutation, False)
 
     def has_active_for_agent(self, agent_id: str, context: RefreshTokenContext) -> bool:
-        """Returns: existência de par ativo. Raises: Invalid, Unavailable."""
+        """Args:
+            agent_id: UUID canônico do agente.
+            context: Tenant e instante UTC.
+        Returns: Existência de par ativo.
+        Raises: RefreshTokenInvalid, RefreshTokenUnavailable.
+        """
         validate_refresh_token_agent_context(agent_id, context)
         try:
             active = False
