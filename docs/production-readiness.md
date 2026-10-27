@@ -150,3 +150,19 @@ Green results:
 [#377](https://github.com/VINIClUS/CnesData/issues/377) collects it in CI. The current hosted runs
 validate the integrated dependencies through their existing jobs; they do not collect the new
 local gate file yet.
+
+## Runtime acceptance gate (#377)
+
+O workflow dedicado `.github/workflows/production-runtime.yml` foi implementado no
+topology Option A com três produtores hospedados e o check final
+`production-runtime-acceptance`. O gate inclui os nove validadores de fonte, os
+contratos Python e dashboard finitos e os contratos AWS/Floci com relatórios JUnit
+fail-closed. `tests/production/infra` permanece fora da coleta.
+
+Base de dependência: #375 integrado em `709394c09969001fa41df5d885f10c9e821b06c9`,
+CI `40592568935`, Deploy develop `40592568914`. O pacote de testes aceito é
+`d6d09143a9d85c91f0183c4dae564400e788fc1ccbc13dd25d9b11e7cf828eca`.
+
+Estado operacional: PENDING até observar run oficial, SHA integrado, cancelamento,
+falha, documentação e eventual enforcement no ruleset. Nenhum run futuro, check
+obrigatório, readiness AWS ou autoridade de produção é inferido desta alteração.
