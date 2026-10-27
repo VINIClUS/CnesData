@@ -1,0 +1,98 @@
+{
+  "cutoff": [
+    ["A", "identity"],
+    ["C", "empty_cognito"], ["L", "visible_ddb"],
+    ["D", "protected"], ["T", "owner"],
+    ["S", "empty_s3"], ["I", "empty_iam"],
+    ["D", "protected"], ["T", "owner"],
+    ["D", "protected"], ["T", "owner"],
+    ["D", "protected"], ["T", "owner"],
+    ["D", "protected"], ["T", "owner"], ["U", "update"]
+  ],
+  "positive": [
+    ["A", "identity"],
+    ["C", "empty_cognito"], ["L", "visible_ddb"],
+    ["D", "unprotected"], ["T", "owner"],
+    ["S", "empty_s3"], ["I", "empty_iam"],
+    ["D", "unprotected"], ["T", "owner"],
+    ["D", "unprotected"], ["T", "owner"],
+    ["D", "unprotected"], ["T", "owner"],
+    ["D", "unprotected"], ["T", "owner"], ["X", "delete"],
+    ["D", "rnf"],
+    ["C", "empty_cognito"], ["L", "empty_ddb"],
+    ["S", "empty_s3"], ["I", "empty_iam"]
+  ],
+  "negative": [
+    ["A", "identity"],
+    ["C", "empty_cognito"], ["L", "empty_ddb"],
+    ["S", "empty_s3"], ["I", "empty_iam"],
+    ["D", "rnf"],
+    ["C", "empty_cognito"], ["L", "empty_ddb"],
+    ["S", "empty_s3"], ["I", "empty_iam"]
+  ],
+  "states": {
+    "initial": {
+      "schema_version": 1,
+      "account": "111111111111",
+      "region": "us-east-2",
+      "run_id": "a1b2c3d4",
+      "deadline": 1060,
+      "phase": "cleanup_requested",
+      "baseline": [],
+      "created": [{
+        "service": "dynamodb",
+        "resource_id": "cnesdata-cap-a1b2c3d4",
+        "name": "cnesdata-cap-a1b2c3d4"
+      }],
+      "pending_service": null,
+      "operation_state": "confirmed"
+    },
+    "accepted": {
+      "schema_version": 1,
+      "account": "111111111111",
+      "region": "us-east-2",
+      "run_id": "a1b2c3d4",
+      "deadline": 1060,
+      "phase": "cleanup_requested",
+      "baseline": [],
+      "created": [{
+        "service": "dynamodb",
+        "resource_id": "cnesdata-cap-a1b2c3d4",
+        "name": "cnesdata-cap-a1b2c3d4"
+      }],
+      "pending_service": null,
+      "operation_state": "confirmed",
+      "dynamodb_delete_accepted": [{
+        "service": "dynamodb",
+        "resource_id": "cnesdata-cap-a1b2c3d4",
+        "name": "cnesdata-cap-a1b2c3d4"
+      }]
+    },
+    "complete": {
+      "schema_version": 1,
+      "account": "111111111111",
+      "region": "us-east-2",
+      "run_id": "a1b2c3d4",
+      "deadline": 1060,
+      "phase": "complete",
+      "baseline": [],
+      "created": [],
+      "pending_service": null,
+      "operation_state": "confirmed"
+    }
+  },
+  "evidence": {
+    "inventory_complete": true,
+    "counts": {"cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0}
+  },
+  "limits": {
+    "calls": 80,
+    "pages": 8,
+    "attempts": 2,
+    "cleanup_seconds": 30,
+    "cleanup_reserve": 40
+  },
+  "counts": {"cutoff": 16, "positive": 21, "negative": 10},
+  "accumulated": {"positive": 37, "negative": 26},
+  "cleanup_deadline": 1030
+}
