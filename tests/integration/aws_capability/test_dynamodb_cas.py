@@ -134,12 +134,13 @@ def _assert_call(call: Any, expected: Any, timeout: float) -> None:
     assert_environment(options["env"], region)
 
 
-def _trace(cas: CasLab, count: int, start: int = 0) -> None:
+def _trace(cas: CasLab, count: int, start: int = 0, tail: Sequence[Any] = ()) -> None:
     lab = cas.read
     actual = len(lab.process.calls)
     timeouts = [6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3] if cas.clock.ticks else [7] * actual
+    expected_calls = _expected() + list(tail)
     for call, expected, timeout in zip(
-        lab.process.calls, _expected()[:actual], timeouts[:actual], strict=True
+        lab.process.calls, expected_calls[:actual], timeouts[:actual], strict=True
     ):
         _assert_call(call, expected, timeout)
     budget = lab.context.budget
@@ -152,7 +153,7 @@ def _trace(cas: CasLab, count: int, start: int = 0) -> None:
     assert budget.limits.calls - budget.limits.cleanup_reserve - budget.work_used == 128 - (
         start + actual
     )
-    assert len(lab.process.outcomes) == 9 - actual
+    assert len(lab.process.outcomes) == 9 + len(tail) - actual
     assert actual == count, f"probe=ddb_cas_semantic_trace_missing calls={actual} expected={count}"
 
 
@@ -166,10 +167,14 @@ def _probe(cas: CasLab) -> BaseException:
 
 def test_cas_confirma_um_dois_e_rejeicao_remota_sem_concluir_perfil(cas_lab: CasLab) -> None:
     _queue(cas_lab)
+    path = Path(__file__).parent / "fixtures" / "cli" / "b4" / "ddb_cancel.json"
+    tail = json.loads(path.read_text())["steps"]
+    for step in tail:
+        cas_lab.read.process.outcomes.append(_outcome(step["reply"]))
     error = _probe(cas_lab)
     assert type(error) is ServiceFailure
     assert error.args == ("probe=not_implemented",)
-    _trace(cas_lab, 9)
+    _trace(cas_lab, 16, tail=[step["request"] for step in tail])
 
 
 @pytest.mark.parametrize(

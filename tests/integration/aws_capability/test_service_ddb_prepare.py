@@ -169,6 +169,7 @@ def test_preparo_valido_mantem_perfil_incompleto(
     if profile == "ddb-conditions":
         path = Path(__file__).parent / "fixtures" / "cli" / "b4" / "ddb_cas.json"
         tail = json.loads(path.read_text())["steps"]
+        tail.extend(json.loads(path.with_name("ddb_cancel.json").read_text())["steps"])
         for step in tail:
             expected.append(cast("ExpectedCall", tuple(step["request"])))
             reply = step["reply"]
