@@ -1,4 +1,4 @@
-"""Composição específica dos modos de unidade e recuperação AWS."""
+"""Composição específica dos modos AWS do processor."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Settings imutáveis dos modos de unidade e recuperação AWS."""
+"""Settings imutáveis dos modos AWS do processor."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -140,12 +140,19 @@ class AwsAuditDispatchSettings:
         return cls(
             region=region,
             control_plane_table=_required(values, "AWS_CONTROL_PLANE_TABLE"),
-            audit_bucket=_required(values, "AWS_AUDIT_BUCKET"),
+            audit_bucket=_audit_bucket(values),
             audit_retention_days=retention,
             dynamodb_endpoint_url=values.get("DYNAMODB_ENDPOINT_URL") or None,
             service_endpoint_url=values.get("AWS_ENDPOINT_URL") or None,
             production_policy=production,
         )
+
+
+def _audit_bucket(values: Mapping[str, str]) -> str:
+    bucket = _required(values, "AWS_AUDIT_BUCKET")
+    if "/" in bucket or "\\" in bucket:
+        raise AwsRuntimeConfigurationError("bucket=invalid")
+    return bucket
 
 
 def _positive_integer(values: Mapping[str, str], name: str) -> int:

@@ -110,8 +110,10 @@ PY
 ```
 
 Para o worker, validar `select_aws_invocation(os.environ, argv)` de
-`data_processor.aws_entrypoint`, a classe de settings do modo e `BillingSettings.from_mapping`
-antes de criar Session. Essa validação é pura; entrada inválida sai com 2 sem emitir diagnóstico.
+`data_processor.aws_entrypoint` e a classe de settings do modo antes de criar Session.
+Nos modos `run-unit` e `recover-once`, validar também `BillingSettings.from_mapping`.
+`dispatch-outbox-once` não carrega billing. Essa validação é pura; entrada inválida sai com 2
+sem emitir diagnóstico.
 
 ## Health e readiness
 
@@ -119,9 +121,10 @@ antes de criar Session. Essa validação é pura; entrada inválida sai com 2 se
   `status=ok`, sem identidade e sem sondar DynamoDB, S3 ou Step Functions. É a rota do
   `HEALTHCHECK` da imagem da API; um 200 não prova acesso atual à AWS.
 - A readiness real é o boot. A API ainda consulta `GetObjectLockConfiguration` no audit bucket
-  e `DescribeStateMachine`. Os dois modos do worker consultam somente `DescribeStateMachine`:
+  e `DescribeStateMachine`. `run-unit` e `recover-once` consultam somente `DescribeStateMachine`:
   recovery compõe coordenador e publisher, sem pipeline de unidade nem audit sink; unidade
-  acrescenta registry, stage processor e worker canônicos. Nenhum deles consulta Object Lock.
+  acrescenta registry, stage processor e worker canônicos. `dispatch-outbox-once` exige apenas
+  o control plane DynamoDB, o bucket S3 configurado e Object Lock habilitado nesse bucket.
 - DynamoDB não é sondado no boot. Discovery OIDC e JWKS são lazy: o primeiro request
   autenticado busca `<OIDC_ISSUER>/.well-known/openid-configuration` (timeout 5 s, cache de
   chaves de 600 s).

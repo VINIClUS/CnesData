@@ -17,7 +17,8 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 ## Functionalities
 
 - `local`: `build_local_processor_runtime` + loop de recuperação (`_poll_until_shutdown`)
-- `aws`: seleção/validação pura antes de I/O; `build_aws_unit_runtime` ou
+- `aws`: três modos (`run-unit`, `recover-once`, `dispatch-outbox-once`), com seleção/validação
+  pura antes de I/O; `build_aws_unit_runtime` ou
   `build_aws_recovery_runtime` ou `build_aws_audit_runtime` +
   `run_aws_entrypoint(invocation, runtime)`.
 - Unidade usa o envelope completo de sete variáveis, sem argumentos. `recover-once`
@@ -26,7 +27,8 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 - `dispatch-outbox-once` rejeita qualquer chave do envelope e aceita somente região, tabela,
   bucket de audit e retenção positiva. Compõe apenas control plane e sink Object Lock, executa
   uma página de 100 eventos e usa deadline fixo de 60 segundos.
-- Após validar modo/settings/billing, um único `DeadlinePolicy` cobre logging,
+- Após validar modo/settings (e billing somente em `run-unit`/`recover-once`), um único
+  `DeadlinePolicy` cobre logging,
   telemetria, Session, composição, execução e diagnóstico. Unidade usa `LEASE_SECONDS`;
   recovery usa 3600. O watchdog agenda o timer
   principal em `D-0.1`, o fallback em `0.1` e encerra com exit 3; o evento de expiração é

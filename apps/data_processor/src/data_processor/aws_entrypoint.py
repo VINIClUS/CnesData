@@ -133,7 +133,7 @@ def select_aws_invocation(values: Mapping[str, str], argv: Sequence[str]) -> Aws
 
 def run_aws_entrypoint(invocation: AwsInvocation, runtime: AwsModeRuntime) -> int:
     """Args: invocation: Modo validado. runtime: Runtime específico do modo.
-    Returns: 0 após uma unidade ou uma passada de recovery.
+    Returns: 0 após unidade/recovery ou despacho sem falhas; 1 se o despacho falhar.
     Raises: EntrypointConfigurationError; erros do handler ou recovery propagam.
     """
     if invocation.mode is AwsMode.RUN_UNIT:

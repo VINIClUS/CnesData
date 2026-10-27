@@ -12,6 +12,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cnes_domain.billing.models import BillingAuditEvent
+from cnes_infra.aws.processor_settings import AwsAuditDispatchSettings
+from cnes_infra.aws.settings import AwsRuntimeConfigurationError
 from cnes_infra.billing.dynamodb_items import audit_outbox_event
 from packages.cnes_infra.tests.contracts.clock import _NOW
 from packages.cnes_infra.tests.control_plane.outbox_cursor_support import OutboxHarness, evento
@@ -98,7 +100,18 @@ def _invalidos() -> list[Any]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("changes", "argv"), _invalidos())
+@pytest.mark.parametrize(
+    ("changes", "argv"),
+    [
+        *_invalidos(),
+        pytest.param(
+            {"AWS_AUDIT_BUCKET": "invalid/name"}, ["dispatch-outbox-once"], id="bucket-barra"
+        ),
+        pytest.param(
+            {"AWS_AUDIT_BUCKET": r"invalid\name"}, ["dispatch-outbox-once"], id="bucket-contrabarra"
+        ),
+    ],
+)
 async def test_configuracao_invalida_falha_antes_de_observabilidade_e_sessao(
     monkeypatch: pytest.MonkeyPatch,
     changes: dict[str, Any],
@@ -124,6 +137,29 @@ async def test_configuracao_invalida_falha_antes_de_observabilidade_e_sessao(
     ):
         assert await app.main() == 2
     for spy in [*spies, logger]:
+        spy.assert_not_called()
+
+
+@pytest.mark.parametrize("bucket", ["invalid/name", r"invalid\name"], ids=["barra", "contrabarra"])
+def test_settings_rejeitam_bucket_com_barra_antes_de_dependencias(
+    monkeypatch: pytest.MonkeyPatch,
+    bucket: str,
+) -> None:
+    boundaries = (
+        (importlib.import_module("boto3.session"), "Session"),
+        (importlib.import_module("boto3"), "client"),
+        (importlib.import_module("botocore.client").BaseClient, "_make_api_call"),
+        (importlib.import_module("cnes_infra.billing.composition"), "build_secret_provider"),
+    )
+    spies = [Mock(side_effect=AssertionError("settings=dependency_forbidden")) for _ in boundaries]
+    for (module, name), spy in zip(boundaries, spies, strict=True):
+        monkeypatch.setattr(module, name, spy)
+
+    with pytest.raises(AwsRuntimeConfigurationError) as caught:
+        AwsAuditDispatchSettings.from_mapping(_MINIMUM | {"AWS_AUDIT_BUCKET": bucket})
+
+    assert type(caught.value) is AwsRuntimeConfigurationError
+    for spy in spies:
         spy.assert_not_called()
 
 
