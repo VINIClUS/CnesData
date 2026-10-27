@@ -1,4 +1,4 @@
-"""Moto boundary and literal DynamoDB refresh-token oracles."""
+"""Fronteira moto e oráculos literais de tokens de atualização DynamoDB."""
 
 import json
 import os
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 _TABLE = "refresh-tokens"
 _FIXTURE = Path(__file__).parents[1] / "fixtures/auth/refresh_dynamodb_schema1.json"
 with _FIXTURE.open(encoding="utf-8") as _stream:
-    VALUES: dict[str, Any] = json.load(_stream)
+    VALUES: dict[str, Any] = json.loads("".join(json.load(_stream)))
 TENANT = VALUES["tenant_id"]
 OTHER_TENANT = VALUES["other_tenant_id"]
 AGENT = VALUES["agent_id"]
@@ -46,7 +46,7 @@ _OFFLINE_COUNTS: list[dict[str, Any]] = []
 
 
 class DynamoBoundary:
-    """Records low-level requests while forwarding all successful calls to moto."""
+    """Registra pedidos de baixo nível e encaminha todas as chamadas bem-sucedidas ao moto."""
 
     def __init__(self, client: Any) -> None:
         self.client = client
