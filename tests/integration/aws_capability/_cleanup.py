@@ -38,12 +38,24 @@ class Cleanup:
     def retire_confirmed(self, rows: list[tuple[Resource, Ownership]]) -> None:
         visible = {(ref.service, ref.resource_id) for ref, _ in rows}
         retired = {(ref.service, ref.resource_id) for ref in self.absent} - visible
+        accepted = {(ref.service, ref.resource_id) for ref in self.journal.dynamodb_delete_accepted}
+        retired = {key for key in retired if key[0] != "dynamodb" or key in accepted}
         retained = [
             ref for ref in self.journal.created if (ref.service, ref.resource_id) not in retired
         ]
         if retained != self.journal.created:
+            previous = self.journal.created, self.journal.dynamodb_delete_accepted
             self.journal.created = retained
-            self.journal.save()
+            self.journal.dynamodb_delete_accepted = [
+                ref
+                for ref in self.journal.dynamodb_delete_accepted
+                if (ref.service, ref.resource_id) not in retired
+            ]
+            try:
+                self.journal.save()
+            except OSError:
+                self.journal.created, self.journal.dynamodb_delete_accepted = previous
+                raise
 
     def remove_omitted(self, rows: list[tuple[Resource, Ownership]]) -> str | None:
         visible = {(ref.service, ref.resource_id) for ref, _ in rows}
@@ -52,20 +64,27 @@ class Cleanup:
             if ref in self.attempted or (ref.service, ref.resource_id) in visible:
                 continue
             try:
-                if self.journal.is_baseline(ref):
-                    raise SafetyFailure("ownership_mismatch")
-                owner = self.ports.services.lookup(ref, self.context)
-                if owner is None:
-                    if ref.service == "dynamodb":
-                        raise SafetyFailure("creation_uncertain")
-                    self.absent.add(ref)
-                else:
-                    reason = self.remove([(ref, owner)]) or reason
+                reason = self.remove_omitted_resource(ref) or reason
             except SafetyFailure as error:
                 reason = error.reason
             except ServiceFailure:
                 reason = "ownership_mismatch"
         return reason
+
+    def remove_omitted_resource(self, ref: Resource) -> str | None:
+        if self.journal.is_baseline(ref):
+            raise SafetyFailure("ownership_mismatch")
+        owner = self.ports.services.lookup(ref, self.context)
+        if ref in self.journal.dynamodb_delete_accepted:
+            self.confirm_dynamodb_absent(ref, owner)
+            self.absent.add(ref)
+        elif owner is None:
+            if ref.service == "dynamodb":
+                raise SafetyFailure("creation_uncertain")
+            self.absent.add(ref)
+        else:
+            return self.remove([(ref, owner)])
+        return None
 
     def confirm_pending(self, rows: list[tuple[Resource, Ownership]]) -> None:
         resolved = [ref for ref, owner in rows if self.resolves(ref, owner)]
@@ -110,6 +129,9 @@ class Cleanup:
         return list(reversed(order))
 
     def delete(self, resource: Resource) -> None:
+        if resource.service == "dynamodb":
+            self.delete_dynamodb(resource)
+            return
         for _ in range(self.ports.policy.limits.attempts):
             try:
                 self.ports.services.delete(resource, True, self.context)
@@ -124,6 +146,23 @@ class Cleanup:
                     return
                 raise SafetyFailure("cleanup_failed")
         raise SafetyFailure("cleanup_failed")
+
+    def delete_dynamodb(self, resource: Resource) -> None:
+        self.journal.authorize_dynamodb_delete(resource)
+        if resource not in self.journal.dynamodb_delete_accepted:
+            self.ports.services.delete(resource, True, self.context)
+            self.journal.record_dynamodb_delete(resource)
+        owner = self.ports.services.lookup(resource, self.context)
+        self.confirm_dynamodb_absent(resource, owner)
+
+    def confirm_dynamodb_absent(self, resource: Resource, owner: Ownership | None) -> None:
+        self.journal.authorize_dynamodb_delete(resource)
+        if owner is not None:
+            if not owned(resource, owner, self.journal.spec):
+                raise SafetyFailure("ownership_mismatch")
+            raise SafetyFailure("cleanup_failed")
+        if resource not in self.journal.dynamodb_delete_accepted:
+            raise SafetyFailure("creation_uncertain")
 
     def remove(self, rows: list[tuple[Resource, Ownership]]) -> str | None:
         reason = None
