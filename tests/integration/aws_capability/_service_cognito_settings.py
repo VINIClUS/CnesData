@@ -92,42 +92,11 @@ def read_snapshot(
         raise ServiceFailure("service=cognito_tags_invalid")
     fresh_tags = dict(raw_tags)
     described_tags = pool.get("UserPoolTags")
-    if described_tags is not None and described_tags != fresh_tags:
+    if "UserPoolTags" in pool and described_tags != fresh_tags:
         raise ServiceFailure("service=cognito_tags_mismatch")
     if any(fresh_tags.get(key) != value for key, value in tags(spec).items()):
         raise ServiceFailure("service=cognito_owner_invalid")
     return pool, fresh_tags
-
-
-def read_candidate(
-    commands: CommandPort, spec: RunSpec, resource: Resource, context: RequestContext
-) -> dict[str, str]:
-    reply = call_command(
-        commands,
-        Request("cognito-idp", "describe-user-pool", {"UserPoolId": resource.resource_id}),
-        context,
-    )
-    if not reply.ok:
-        require_error(reply)
-        raise ServiceFailure("service=cognito_describe_failed")
-    data = require_data(reply)
-    pool = data.get("UserPool")
-    if not isinstance(pool, Mapping):
-        raise ServiceFailure("service=cognito_describe_invalid")
-    name = pool.get("Name")
-    if not isinstance(name, str) or not name:
-        raise ServiceFailure("service=cognito_identity_invalid")
-    candidate = Resource("cognito", resource.resource_id, name)
-    _identity(pool, spec, candidate)
-    request = Request("cognito-idp", "list-tags-for-resource", {"ResourceArn": pool["Arn"]})
-    reply = call_command(commands, request, context)
-    data = require_data(reply)
-    raw_tags = data.get("Tags")
-    if not isinstance(raw_tags, Mapping) or any(
-        not isinstance(key, str) or not isinstance(value, str) for key, value in raw_tags.items()
-    ):
-        raise ServiceFailure("service=cognito_tags_invalid")
-    return dict(raw_tags)
 
 
 def validate_snapshot(
@@ -152,7 +121,7 @@ def validate_snapshot(
     ):
         raise ServiceFailure("service=cognito_settings_invalid")
     _special_fields(pool)
-    if dict(tags_value) != pool.get("UserPoolTags"):
+    if "UserPoolTags" in pool and dict(tags_value) != pool["UserPoolTags"]:
         raise ServiceFailure("service=cognito_tags_mismatch")
     if any(tags_value.get(key) != value for key, value in tags(spec).items()):
         raise ServiceFailure("service=cognito_owner_invalid")

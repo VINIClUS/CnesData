@@ -161,9 +161,6 @@ class AwsServices:
                 raise ServiceFailure("service=not_implemented")
             if type(bypass) is not bool:
                 raise ServiceFailure("service=cognito_delete_invalid")
-            expected_id = f"{self.spec.region}_{self.spec.run_id}"
-            if resource.resource_id == expected_id:
-                raise ServiceFailure("service=not_implemented")
             delete_pool(resource, self, context)
             return
         if resource.service != "dynamodb":
