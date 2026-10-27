@@ -104,7 +104,8 @@ def test_falha_audit_apos_cas_reexecuta_outbox_sem_republicar(
     session = new_session(aws_runtime.resources)
     audit = build_aws_audit_runtime(
         AwsAuditDispatchSettings.from_mapping(runtime_values(aws_runtime.resources)),
-        cast("Session", session), aws_runtime.clock.now,
+        cast("Session", session),
+        aws_runtime.clock.now,
     )
     control_plane, sink = audit.control_plane, audit.sink
     s3 = session.client("s3")
