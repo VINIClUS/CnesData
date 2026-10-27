@@ -163,6 +163,7 @@ def _process_reply(completed: subprocess.CompletedProcess[str], request: Request
     if completed.returncode == 0:
         if not completed.stdout.strip() and (
             request.operation.startswith("delete-")
+            or (request.service, request.operation) == ("cognito-idp", "update-user-pool")
             or (request.service, request.operation)
             in {("dynamodb", "transact-write-items"), ("dynamodb", "get-item")}
         ):

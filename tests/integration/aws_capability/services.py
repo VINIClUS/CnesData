@@ -13,7 +13,10 @@ from tests.integration.aws_capability._service_cognito_children import (
     inspect_cognito_child,
     lookup_cognito_child,
 )
+from tests.integration.aws_capability._service_cognito_create import create_pool
+from tests.integration.aws_capability._service_cognito_delete import delete_pool
 from tests.integration.aws_capability._service_cognito_dependents import cognito_dependents
+from tests.integration.aws_capability._service_cognito_prepare import prepare_pool
 from tests.integration.aws_capability._service_commands import call_cli
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb import (
@@ -87,13 +90,18 @@ class AwsServices:
                 return inspect_s3_child(self.ports.commands, self.spec, resource, context)
             return inspect_bucket(self.ports.commands, self.spec, resource, context)
         if resource.service == "cognito":
-            if isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith(
-                "{"
-            ):
-                return inspect_cognito_child(self.ports.commands, self.spec, resource, context)
-            return inspect_pool(self.ports.commands, self.spec, resource, context)
+            return self._inspect_cognito(resource, context)
         _require_dynamodb(resource)
         return inspect_table(self.ports.commands, self.spec, resource, context)
+
+    def _inspect_cognito(self, resource: Resource, context: RequestContext) -> Ownership:
+        if isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith("{"):
+            return inspect_cognito_child(self.ports.commands, self.spec, resource, context)
+        expected_id = f"{self.spec.region}_{self.spec.run_id}"
+        expected_name = f"cnesdata-cap-{self.spec.run_id}"
+        if resource.resource_id == expected_id and resource.name != expected_name:
+            raise ServiceFailure("service=resource_invalid")
+        return inspect_pool(self.ports.commands, self.spec, resource, context)
 
     def lookup(self, resource: Resource, context: RequestContext) -> Ownership | None:
         if resource.service == "iam":
@@ -125,11 +133,22 @@ class AwsServices:
         return leaf_dependents(self.ports.commands, self.spec, resource, context)
 
     def create(self, service: str, creation: Creation, context: RequestContext) -> Resource:
+        if service == "cognito":
+            if not _cognito_enabled(self.spec):
+                raise ServiceFailure("service=not_implemented")
+            return create_pool(self.ports.commands, self.spec, creation, context)
         if service != "dynamodb":
             raise ServiceFailure("service=not_implemented")
         return create_table(self.ports.commands, self.spec, creation, context)
 
     def probe(self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext) -> None:
+        if self.spec.probe in {"cognito-login", "cognito-pkce-negatives", "cognito-sdk"}:
+            if not _cognito_enabled(self.spec):
+                raise ServiceFailure("service=not_implemented")
+            if spec != self.spec or len(resources) != 1:
+                raise ServiceFailure("probe=cognito_prepare_invalid")
+            prepare_pool(self.ports.commands, self.spec, resources[0], context)
+            return
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:
@@ -137,6 +156,16 @@ class AwsServices:
         probe_dynamodb(resources, spec, self.ports, context)
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
+        if resource.service == "cognito":
+            if not _cognito_enabled(self.spec):
+                raise ServiceFailure("service=not_implemented")
+            if type(bypass) is not bool:
+                raise ServiceFailure("service=cognito_delete_invalid")
+            expected_id = f"{self.spec.region}_{self.spec.run_id}"
+            if resource.resource_id == expected_id:
+                raise ServiceFailure("service=not_implemented")
+            delete_pool(resource, self, context)
+            return
         if resource.service != "dynamodb":
             raise ServiceFailure("service=not_implemented")
         if type(bypass) is not bool:
@@ -149,6 +178,14 @@ def _require_dynamodb(resource: Resource) -> None:
         raise ServiceFailure("service=service_unavailable")
     if resource.resource_id != resource.name:
         raise ServiceFailure("service=resource_invalid")
+
+
+def _cognito_enabled(spec: RunSpec) -> bool:
+    return spec.allow_governance_bypass and spec.probe in {
+        "cognito-login",
+        "cognito-pkce-negatives",
+        "cognito-sdk",
+    }
 
 
 def _is_s3_child(resource: Resource) -> bool:

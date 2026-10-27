@@ -29,11 +29,16 @@ class Cleanup:
 
     def relevant(self, rows: list[tuple[Resource, Ownership]]) -> list[tuple[Resource, Ownership]]:
         references = {(ref.service, ref.resource_id) for ref in self.journal.created}
-        return [
-            (ref, owner)
-            for ref, owner in rows
-            if matches_name(ref, self.journal.spec) or (ref.service, ref.resource_id) in references
-        ]
+        return [(ref, owner) for ref, owner in rows if self._relevant_ref(ref, references)]
+
+    def _relevant_ref(self, ref: Resource, references: set[tuple[str, str]]) -> bool:
+        if (
+            ref.service == "cognito"
+            and self.journal.operation_state == "unknown"
+            and self.journal.pending_service == "cognito"
+        ):
+            return ref.name == f"cnesdata-cap-{self.journal.spec.run_id}"
+        return matches_name(ref, self.journal.spec) or (ref.service, ref.resource_id) in references
 
     def retire_confirmed(self, rows: list[tuple[Resource, Ownership]]) -> None:
         visible = {(ref.service, ref.resource_id) for ref, _ in rows}
@@ -87,6 +92,7 @@ class Cleanup:
         return None
 
     def confirm_pending(self, rows: list[tuple[Resource, Ownership]]) -> None:
+        self._guard_cognito_unknown(rows)
         resolved = [ref for ref, owner in rows if self.resolves(ref, owner)]
         if self.journal.operation_state == "unknown" and resolved:
             self.journal.created.extend(ref for ref in resolved if ref not in self.journal.created)
@@ -94,10 +100,34 @@ class Cleanup:
             self.journal.operation_state = "confirmed"
             self.journal.save()
 
+    def _guard_cognito_unknown(self, rows: list[tuple[Resource, Ownership]]) -> None:
+        if self.journal.operation_state != "unknown" or self.journal.pending_service != "cognito":
+            return
+        exact_name = f"cnesdata-cap-{self.journal.spec.run_id}"
+        candidates = [
+            (ref, owner)
+            for ref, owner in rows
+            if ref.service == "cognito"
+            and (ref.name == exact_name or ref.name.startswith(exact_name + "-"))
+        ]
+        if any(
+            self.journal.is_baseline(ref) or not self._owned_cognito(ref, owner)
+            for ref, owner in candidates
+        ):
+            raise SafetyFailure("ownership_mismatch")
+        if len(candidates) > 1:
+            raise SafetyFailure("ownership_mismatch")
+
+    def _owned_cognito(self, ref: Resource, owner: Ownership) -> bool:
+        expected = f"cnesdata-cap-{self.journal.spec.run_id}"
+        return owned(ref, owner, self.journal.spec) and ref.name == expected
+
     def reconcile(self) -> str | None:
         reason = None
         for _ in range(self.ports.policy.limits.pages):
-            rows = self.relevant(inventory(self.ports, self.context))
+            all_rows = inventory(self.ports, self.context)
+            self._guard_cognito_unknown(all_rows)
+            rows = self.relevant(all_rows)
             self.confirm_pending(rows)
             reason = self.remove(rows) or reason
             reason = self.remove_omitted(rows) or reason
@@ -106,6 +136,14 @@ class Cleanup:
         raise SafetyFailure("creation_uncertain")
 
     def resolves(self, ref: Resource, owner: Ownership) -> bool:
+        if ref.service == "cognito":
+            return (
+                self.journal.pending_service == "cognito"
+                and
+                ref.name == f"cnesdata-cap-{self.journal.spec.run_id}"
+                and self._owned_cognito(ref, owner)
+                and not self.journal.is_baseline(ref)
+            )
         return (
             ref.service == self.journal.pending_service
             and not self.journal.is_baseline(ref)
