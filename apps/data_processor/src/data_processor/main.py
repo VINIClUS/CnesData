@@ -17,17 +17,23 @@ from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_infra import config
 from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
 from cnes_infra.aws.settings import AwsRuntimeConfigurationError
-from cnes_infra.billing.settings import BillingConfigurationError
+from cnes_infra.billing.settings import BillingConfigurationError, BillingSettings
 from cnes_infra.executor.step_functions import IncompatibleStateMachine
 from cnes_infra.observability import configure_json_stdout
 from cnes_infra.telemetry import init_telemetry
+from data_processor.aws_composition import (
+    AwsExecutionPolicy,
+    build_aws_recovery_runtime,
+    build_aws_unit_runtime,
+)
 from data_processor.aws_entrypoint import (
     AwsMode,
     EntrypointConfigurationError,
     run_aws_entrypoint,
     select_aws_invocation,
 )
-from data_processor.composition import build_processor_runtime
+from data_processor.deadline import DeadlinePolicy, processor_deadline
+from data_processor.orchestration.coordinator import noop_execution_started
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -157,12 +163,24 @@ def _run_aws_profile() -> int:
     init_telemetry("data-processor")
     try:
         invocation = select_aws_invocation(os.environ, sys.argv[1:])
-        if invocation.mode is AwsMode.RUN_UNIT:
-            AwsUnitSettings.from_mapping(os.environ)
+        settings = (
+            AwsUnitSettings.from_mapping(os.environ) if invocation.mode is AwsMode.RUN_UNIT
+            else AwsRecoverySettings.from_mapping(os.environ)
+        )
+        policy = AwsExecutionPolicy(
+            BillingSettings.from_mapping(os.environ), noop_execution_started,
+        )
+        session = Session()
+        if isinstance(settings, AwsRecoverySettings):
+            runtime = build_aws_recovery_runtime(settings, session, _utc_now, policy)
+            seconds = runtime.processor_lease_seconds
         else:
-            AwsRecoverySettings.from_mapping(os.environ)
-        runtime = build_processor_runtime("aws", os.environ, Session())
-        return run_aws_entrypoint(runtime, os.environ, sys.argv[1:])
+            runtime = build_aws_unit_runtime(settings, session, _utc_now, policy)
+            if invocation.envelope is None:
+                raise EntrypointConfigurationError("unit_envelope=required")
+            seconds = invocation.envelope.lease_seconds
+        with processor_deadline(DeadlinePolicy(invocation.mode.value, seconds)):
+            return run_aws_entrypoint(invocation, runtime)
     except Exception as error:
         exit_code = _aws_failure_exit_code(error)
         logging.getLogger(__name__).exception(

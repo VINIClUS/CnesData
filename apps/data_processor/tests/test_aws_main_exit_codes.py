@@ -5,7 +5,6 @@ import io
 import json
 import logging
 from contextlib import nullcontext
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock, patch
 
@@ -18,6 +17,7 @@ from cnes_infra.executor.step_functions import (
     IncompatibleStateMachine,
     ProcessorExecutionUnavailable,
 )
+from data_processor.aws_composition import AwsRecoveryRuntime, AwsUnitRuntime
 from data_processor.aws_entrypoint import EntrypointConfigurationError
 from data_processor.orchestration.coordinator import RecoveryFailed
 
@@ -40,17 +40,16 @@ _UNIT_ENV = {
 @pytest.fixture(autouse=True)
 def _guard_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "data_processor.aws_entrypoint.processor_deadline", nullcontext, raising=False,
+        "data_processor.main.processor_deadline", nullcontext,
     )
 
 
-def _runtime() -> SimpleNamespace:
-    return SimpleNamespace(
-        unit_handler=Mock(),
-        services=SimpleNamespace(
-            recovery=Mock(), recovery_batch_size=100, processor_lease_seconds=300,
-        ),
-    )
+def _runtime() -> Any:
+    return AwsUnitRuntime(unit_handler=Mock())
+
+
+def _recovery_runtime() -> Any:
+    return AwsRecoveryRuntime(recovery=Mock(), processor_lease_seconds=3600)
 
 
 def _clear_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,6 +66,22 @@ def _set_unit_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(name, value)
 
 
+def _set_worker_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROFILE", "aws")
+    values = {
+        "AWS_REGION": "us-east-1", "AWS_CONTROL_PLANE_TABLE": "offline-control-plane",
+        "AWS_DATA_BUCKET": "offline-data",
+        "AWS_STATE_MACHINE_ARN": "arn:aws:states:us-east-1:000000000000:stateMachine:test",
+        "AWS_PROCESSOR_CONTAINER_NAME": "processor", "AWS_PROCESSOR_MAX_CONCURRENCY": "8",
+        "AWS_PROCESSOR_LEASE_SECONDS": "3600", "AWS_PROCESSOR_RECOVERY_BATCH_SIZE": "100",
+        "BILLING_MODE": "disabled", "BILLING_ENFORCEMENT_MODE": "off",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("AWS_PRODUCTION_POLICY", raising=False)
+    monkeypatch.delenv("AWS_ENVIRONMENT", raising=False)
+
+
 async def _run_main(
     monkeypatch: pytest.MonkeyPatch,
     argv: tuple[str, ...],
@@ -76,7 +91,7 @@ async def _run_main(
     import importlib
     import sys
 
-    monkeypatch.setenv("PROFILE", "aws")
+    _set_worker_settings(monkeypatch)
     monkeypatch.setenv("DB_URL", _DB_URL)
     monkeypatch.setattr(sys, "argv", ["data_processor", *argv])
     app = importlib.import_module("data_processor.main")
@@ -85,6 +100,7 @@ async def _run_main(
     output = io.StringIO()
     root = logging.getLogger()
     original_handlers = root.handlers[:]
+    build = Mock(return_value=runtime, side_effect=build_error)
     try:
         with (
             patch.object(
@@ -94,10 +110,18 @@ async def _run_main(
             patch.object(app, "init_telemetry"),
             patch.object(app, "Session"),
             patch.object(
-                app, "build_processor_runtime", return_value=runtime, side_effect=build_error,
+                app, "build_aws_unit_runtime", build,
+            ),
+            patch.object(
+                app, "build_aws_recovery_runtime", build,
             ),
         ):
             rc = await app.main()
+        if argv == ("desconhecido",) or (
+            argv == ("recover-once",) and runtime is not None
+            and isinstance(runtime, AwsUnitRuntime)
+        ):
+            build.assert_not_called()
         events = [json.loads(line) for line in output.getvalue().splitlines() if line]
     finally:
         for handler in root.handlers[:]:
@@ -151,7 +175,6 @@ async def test_modo_desconhecido_rejeita_sem_trabalho(monkeypatch: pytest.Monkey
     rc, events = await _run_main(monkeypatch, ("desconhecido",), runtime)
 
     runtime.unit_handler.handle.assert_not_called()
-    runtime.services.recovery.run_once.assert_not_called()
     _assert_failure(events, rc, 2, "EntrypointConfigurationError")
 
 
@@ -163,7 +186,6 @@ async def test_envelope_parcial_rejeita_sem_trabalho(monkeypatch: pytest.MonkeyP
     rc, events = await _run_main(monkeypatch, ("recover-once",), runtime)
 
     runtime.unit_handler.handle.assert_not_called()
-    runtime.services.recovery.run_once.assert_not_called()
     _assert_failure(events, rc, 2, "EntrypointConfigurationError")
 
 
@@ -183,7 +205,9 @@ async def test_configuracao_terminal_classificada_em_build_e_execucao(
     _clear_envelope(monkeypatch)
     runtime = _runtime()
     if phase == "build":
-        rc, events = await _run_main(monkeypatch, (), build_error=error_factory())
+        rc, events = await _run_main(
+            monkeypatch, ("recover-once",), build_error=error_factory(),
+        )
     else:
         _set_unit_envelope(monkeypatch)
         runtime.unit_handler.handle.side_effect = error_factory()
@@ -211,9 +235,12 @@ async def test_falha_operacional_classificada_em_build_e_execucao(
     _clear_envelope(monkeypatch)
     runtime = _runtime()
     if phase == "build":
-        rc, events = await _run_main(monkeypatch, (), build_error=error_factory())
+        rc, events = await _run_main(
+            monkeypatch, ("recover-once",), build_error=error_factory(),
+        )
     elif exception_type == "RecoveryFailed":
-        runtime.services.recovery.run_once.side_effect = error_factory()
+        runtime = _recovery_runtime()
+        runtime.recovery.run_once.side_effect = error_factory()
         rc, events = await _run_main(monkeypatch, ("recover-once",), runtime)
     else:
         _set_unit_envelope(monkeypatch)

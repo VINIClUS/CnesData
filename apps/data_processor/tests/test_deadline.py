@@ -7,9 +7,17 @@ import subprocess
 import sys
 import textwrap
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, cast
+from unittest.mock import Mock, patch
 
 import pytest
+
+from data_processor.aws_composition import AwsRecoveryRuntime, AwsUnitRuntime
+from data_processor.deadline import DeadlinePolicy
+
+from .test_aws_entrypoint import ENVELOPE, EXPECTED_MESSAGE, NOW
 
 _ROOT = Path(__file__).resolve().parents[3]
 _LEASE_SECONDS = 30
@@ -30,6 +38,14 @@ def _child_environment(case: str) -> dict[str, str]:
         "PROFILE": "aws",
         "PYTHONPATH": os.pathsep.join(str(path) for path in source_paths),
         "AWS_EC2_METADATA_DISABLED": "true",
+        "AWS_ACCESS_KEY_ID": "offline", "AWS_SECRET_ACCESS_KEY": "offline",
+        "PYTHON_DOTENV_DISABLED": "1",
+        "AWS_REGION": "us-east-1", "AWS_CONTROL_PLANE_TABLE": "offline-control-plane",
+        "AWS_DATA_BUCKET": "offline-data",
+        "AWS_STATE_MACHINE_ARN": "arn:aws:states:us-east-1:000000000000:stateMachine:test",
+        "AWS_PROCESSOR_CONTAINER_NAME": "processor", "AWS_PROCESSOR_MAX_CONCURRENCY": "8",
+        "AWS_PROCESSOR_LEASE_SECONDS": "3600", "AWS_PROCESSOR_RECOVERY_BATCH_SIZE": "100",
+        "BILLING_MODE": "disabled", "BILLING_ENFORCEMENT_MODE": "off",
     }
 
 
@@ -40,7 +56,6 @@ _SHORT_MAIN_CHILD = textwrap.dedent(
     import os
     import socket
     import sys
-    from types import SimpleNamespace
     from unittest.mock import Mock, patch
 
     def deny_network(*_args, **_kwargs):
@@ -49,10 +64,8 @@ _SHORT_MAIN_CHILD = textwrap.dedent(
     socket.socket.connect = deny_network
     socket.create_connection = deny_network
     app = importlib.import_module("data_processor.main")
-    runtime = SimpleNamespace(
-        unit_handler=Mock(),
-        services=SimpleNamespace(recovery=Mock(), recovery_batch_size=100),
-    )
+    from data_processor.aws_composition import AwsRecoveryRuntime
+    runtime = AwsRecoveryRuntime(recovery=Mock(), processor_lease_seconds=3600)
     case = os.environ["CASE"]
     sys.argv[:] = ["data_processor", "desconhecido" if case == "two" else "recover-once"]
     build_error = RuntimeError("aws=down") if case == "one" else None
@@ -60,15 +73,9 @@ _SHORT_MAIN_CHILD = textwrap.dedent(
         patch.object(app, "init_telemetry"),
         patch.object(app, "Session"),
         patch.object(
-            app, "build_processor_runtime", side_effect=build_error, return_value=runtime,
+            app, "build_aws_recovery_runtime", side_effect=build_error, return_value=runtime,
         ),
-        patch.object(app, "run_aws_entrypoint", return_value=0) as entrypoint,
     ):
-        if case == "two":
-            entrypoint.side_effect = None
-            app.run_aws_entrypoint = importlib.import_module(
-                "data_processor.aws_entrypoint"
-            ).run_aws_entrypoint
         raise SystemExit(asyncio.run(app.main()))
     """
 )
@@ -113,16 +120,18 @@ def _blocked_entrypoint_child(ready: Path, sentinel: Path) -> str:
         import time
         import socket
         from pathlib import Path
-        from types import SimpleNamespace
-        from unittest.mock import Mock
+        from unittest.mock import patch
 
         def deny_network(*_args, **_kwargs):
             raise RuntimeError("network=blocked")
 
         socket.socket.connect = deny_network
         socket.create_connection = deny_network
-        from cnes_infra.observability import configure_json_stdout
-        from data_processor.aws_entrypoint import run_aws_entrypoint
+        import asyncio
+        import importlib
+        import os
+        import sys
+        from data_processor.aws_composition import AwsUnitRuntime
 
         class Handler:
             def handle(self, _message):
@@ -130,11 +139,7 @@ def _blocked_entrypoint_child(ready: Path, sentinel: Path) -> str:
                 time.sleep(31.0)
                 Path({str(sentinel)!r}).write_text("continued", encoding="utf-8")
 
-        configure_json_stdout("data-processor")
-        runtime = SimpleNamespace(
-            unit_handler=Handler(),
-            services=SimpleNamespace(recovery=Mock(), recovery_batch_size=100),
-        )
+        runtime = AwsUnitRuntime(unit_handler=Handler())
         values = {{
             "TENANT_ID": "354130",
             "RUN_ID": "run-01",
@@ -144,7 +149,15 @@ def _blocked_entrypoint_child(ready: Path, sentinel: Path) -> str:
             "EXECUTION_OWNER": "arn:aws:states:us-east-1:000000000000:execution:test:run",
             "LEASE_SECONDS": "30",
         }}
-        run_aws_entrypoint(runtime, values, ())
+        os.environ.update(values)
+        sys.argv[:] = ["data_processor"]
+        app = importlib.import_module("data_processor.main")
+        with (
+            patch.object(app, "init_telemetry"),
+            patch.object(app, "Session"),
+            patch.object(app, "build_aws_unit_runtime", return_value=runtime),
+        ):
+            raise SystemExit(asyncio.run(app.main()))
         """
     )
 
@@ -198,3 +211,95 @@ def test_deadline_cancela_e_sai_nao_zero(tmp_path: Path) -> None:
         process.wait()
         if process.stdout is not None:
             process.stdout.close()
+
+
+def _record_deadline(monkeypatch: pytest.MonkeyPatch, calls: list[object]) -> None:
+    @contextmanager
+    def fake_deadline(policy: DeadlinePolicy):
+        calls.append(("arm", policy))
+        try:
+            yield
+        finally:
+            calls.append(("disarm", policy))
+
+    monkeypatch.setattr("data_processor.main.processor_deadline", fake_deadline)
+    monkeypatch.setattr(
+        "data_processor.deadline.DeadlineWatchdog",
+        Mock(side_effect=AssertionError("deadline=duplicate")),
+    )
+
+
+def _execute_profile(monkeypatch: pytest.MonkeyPatch, runtime: Any) -> int:
+    from data_processor import main as app
+
+    values = _child_environment("in-process")
+    unit = isinstance(runtime, AwsUnitRuntime)
+    if unit:
+        values.update(ENVELOPE)
+    with (
+        patch.dict(os.environ, values, clear=True),
+        patch.object(
+            sys, "argv", ["data_processor"] if unit else ["data_processor", "recover-once"],
+        ),
+        patch.object(app, "configure_json_stdout"),
+        patch.object(app, "init_telemetry"),
+        patch.object(app, "Session"),
+        patch.object(app, "build_aws_unit_runtime", return_value=runtime),
+        patch.object(app, "build_aws_recovery_runtime", return_value=runtime),
+    ):
+        monkeypatch.setattr("data_processor.aws_entrypoint._utc_now", lambda: NOW)
+        return app._run_aws_profile()
+
+
+def test_unit_arma_deadline_do_envelope_antes_do_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[Any] = []
+    _record_deadline(monkeypatch, calls)
+    runtime = AwsUnitRuntime(unit_handler=Mock())
+    cast("Any", runtime.unit_handler).handle.side_effect = (
+        lambda _: calls.append("handle")
+    )
+
+    assert _execute_profile(monkeypatch, runtime) == 0
+
+    assert calls == [
+        ("arm", DeadlinePolicy("run-unit", 300)), "handle",
+        ("disarm", DeadlinePolicy("run-unit", 300)),
+    ]
+    cast("Any", runtime.unit_handler).handle.assert_called_once_with(EXPECTED_MESSAGE)
+
+
+def test_recover_arma_deadline_do_lease_da_composicao_antes_da_passada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[Any] = []
+    _record_deadline(monkeypatch, calls)
+    runtime = AwsRecoveryRuntime(recovery=Mock(), processor_lease_seconds=3600)
+    cast("Any", runtime.recovery).run_once.side_effect = (
+        lambda *, limit: calls.append(("recovery", limit))
+    )
+
+    assert _execute_profile(monkeypatch, runtime) == 0
+
+    assert calls == [
+        ("arm", DeadlinePolicy("recover-once", 3600)), ("recovery", 100),
+        ("disarm", DeadlinePolicy("recover-once", 3600)),
+    ]
+
+
+@pytest.mark.parametrize("raises", [False, True], ids=["sucesso", "erro"])
+def test_entrypoint_desarma_deadline_apos_trabalho(
+    monkeypatch: pytest.MonkeyPatch, raises: bool,
+) -> None:
+    calls: list[Any] = []
+    _record_deadline(monkeypatch, calls)
+    runtime = AwsUnitRuntime(unit_handler=Mock())
+    if raises:
+        cast("Any", runtime.unit_handler).handle.side_effect = RuntimeError("work=failed")
+
+    assert _execute_profile(monkeypatch, runtime) == (1 if raises else 0)
+
+    assert calls == [
+        ("arm", DeadlinePolicy("run-unit", 300)),
+        ("disarm", DeadlinePolicy("run-unit", 300)),
+    ]
+    cast("Any", runtime.unit_handler).handle.assert_called_once_with(EXPECTED_MESSAGE)

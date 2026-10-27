@@ -8,12 +8,12 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from cnes_domain.ports.processing import RunUnitMessage
-from data_processor.deadline import DeadlinePolicy, processor_deadline
+from data_processor.aws_composition import AwsRecoveryRuntime, AwsUnitRuntime
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from data_processor.composition import AwsProcessorServices, ProcessorRuntimeComponents
+    from data_processor.aws_composition import AwsModeRuntime
 
 _ENVELOPE_NAMES = (
     "TENANT_ID", "RUN_ID", "WAVE_ID", "DISPATCH_ID", "UNIT_ID", "EXECUTION_OWNER",
@@ -98,12 +98,6 @@ class EcsUnitEnvelope:
         )
 
 
-def _required_aws_services(runtime: ProcessorRuntimeComponents) -> AwsProcessorServices:
-    if runtime.services is None:
-        raise EntrypointConfigurationError("aws_services=missing")
-    return runtime.services
-
-
 class AwsMode(StrEnum):
     RUN_UNIT = "run-unit"
     RECOVER_ONCE = "recover-once"
@@ -131,24 +125,19 @@ def select_aws_invocation(values: Mapping[str, str], argv: Sequence[str]) -> Aws
     return AwsInvocation(AwsMode.RECOVER_ONCE, None)
 
 
-def run_aws_entrypoint(
-    runtime: ProcessorRuntimeComponents, values: Mapping[str, str], argv: Sequence[str],
-) -> int:
-    """Args: runtime: componentes aws; values: ambiente; argv: argumentos do comando.
-    Returns: 0 após exatamente uma unidade ou uma passada de recovery.
-    Raises: EntrypointConfigurationError; erros do handler ou do recovery propagam.
+def run_aws_entrypoint(invocation: AwsInvocation, runtime: AwsModeRuntime) -> int:
+    """Args: invocation: Modo validado. runtime: Runtime específico do modo.
+    Returns: 0 após uma unidade ou uma passada de recovery.
+    Raises: EntrypointConfigurationError; erros do handler ou recovery propagam.
     """
-    invocation = select_aws_invocation(values, argv)
-    services = _required_aws_services(runtime)
-    if invocation.envelope is not None:
-        envelope = invocation.envelope
-        with processor_deadline(DeadlinePolicy("run-unit", envelope.lease_seconds)):
-            runtime.unit_handler.handle(envelope.message(_utc_now()))
+    if invocation.mode is AwsMode.RUN_UNIT:
+        if not isinstance(runtime, AwsUnitRuntime) or invocation.envelope is None:
+            raise EntrypointConfigurationError("unit_runtime=required")
+        runtime.unit_handler.handle(invocation.envelope.message(_utc_now()))
         return 0
-    with processor_deadline(
-        DeadlinePolicy("recover-once", services.processor_lease_seconds),
-    ):
-        services.recovery.run_once(limit=services.recovery_batch_size)
+    if not isinstance(runtime, AwsRecoveryRuntime) or invocation.envelope is not None:
+        raise EntrypointConfigurationError("recovery_runtime=required")
+    runtime.recovery.run_once(limit=100)
     return 0
 
 
