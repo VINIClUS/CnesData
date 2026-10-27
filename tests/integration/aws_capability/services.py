@@ -3,6 +3,7 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
 from tests.integration.aws_capability._service_cognito import (
     inspect_pool,
     list_pools,
@@ -128,7 +129,11 @@ class AwsServices:
         return create_table(self.ports.commands, self.spec, creation, context)
 
     def probe(self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext) -> None:
-        raise ServiceFailure("service=not_implemented")
+        if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
+            raise ServiceFailure("service=not_implemented")
+        if spec != self.spec:
+            raise ServiceFailure("probe=ddb_prepare_invalid")
+        probe_dynamodb(resources, spec, self.ports, context)
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
         raise ServiceFailure("service=not_implemented")
