@@ -214,7 +214,11 @@ def test_duas_instancias_disputam_mesma_versao_com_um_vencedor(
 def test_concorrente_rele_estado_apos_commit_sem_promover_snapshot(tmp_path, journal: str) -> None:
     database = cases.Database(tmp_path / "serialized.sqlite")
     database.seed(cases.ROW)
-    assert database.query(f"PRAGMA journal_mode={journal}") == [(journal.lower(),)]
+    statement, expected = {
+        "DELETE": ("PRAGMA journal_mode=DELETE", [("delete",)]),
+        "WAL": ("PRAGMA journal_mode=WAL", [("wal",)]),
+    }[journal]
+    assert database.query(statement) == expected
     gates = Gates()
     gates.hold_update = True
     workers = (WorkerDatabase(database, "a", gates), WorkerDatabase(database, "b", gates))
