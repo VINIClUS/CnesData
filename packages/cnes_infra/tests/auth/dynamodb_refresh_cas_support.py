@@ -11,6 +11,7 @@ from pathlib import Path
 from re import IGNORECASE, findall, search
 from traceback import format_exception
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 from botocore.exceptions import ClientError
@@ -169,16 +170,36 @@ class CasCase:
         for boundary in self.boundaries:
             for name in ("query", "scan", "update_item", "put_item", "delete_item"):
                 assert requests_for(boundary, name) == []
-            assert TOKEN not in repr(boundary.requests)
-            assert TOKEN not in repr(native_pair(boundary))
             tokens = [
-                write["ClientRequestToken"]
+                write.get("ClientRequestToken")
                 for write in requests_for(
                     boundary,
                     "transact_write_items",
                 )
             ]
-            all_tokens.extend(tokens)
+            for token in tokens:
+                try:
+                    canonical = type(token) is str and str(UUID(token)) == token
+                except ValueError:
+                    canonical = False
+                if not canonical:
+                    raise AssertionError("cas_request_token_invalid")
+            payloads = [
+                (
+                    name,
+                    {
+                        key: value
+                        for key, value in request.items()
+                        if name != "transact_write_items" or key != "ClientRequestToken"
+                    },
+                )
+                for name, request in boundary.requests
+            ]
+            if TOKEN in repr(payloads):
+                raise AssertionError("cas_request_payload_plaintext")
+            if TOKEN in repr(native_pair(boundary)):
+                raise AssertionError("cas_persisted_pair_plaintext")
+            all_tokens.extend(cast("list[str]", tokens))
             assert len(tokens) == len(set(tokens))
             assert all(type(token) is str and len(token) == 36 for token in tokens)
         assert len(all_tokens) == len(set(all_tokens))

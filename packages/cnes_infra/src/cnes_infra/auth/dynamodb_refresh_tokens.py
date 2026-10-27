@@ -1,6 +1,6 @@
 """Criação, importação e validação de refresh em pares DynamoDB."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC
 from hashlib import sha256
 from typing import Any, cast
@@ -17,6 +17,7 @@ from cnes_domain.refresh_tokens import (
     RefreshTokenRecord,
     RefreshTokenUnavailable,
     validate_refresh_token,
+    validate_refresh_token_agent_context,
     validate_refresh_token_context,
     validate_refresh_token_mutation,
 )
@@ -30,6 +31,7 @@ from cnes_infra.auth.dynamodb_refresh_codec import (
     refresh_key,
     require,
 )
+from cnes_infra.control_plane.dynamodb_keys import key_component
 
 type WirePair = tuple[Item, Item]
 _GUARDED_FIELDS = (
@@ -101,6 +103,51 @@ class DynamoDBRefreshTokenStore:
     def mark_used(self, token: str, mutation: RefreshTokenMutation) -> bool:
         """Returns: uso confirmado por CAS. Raises: Invalid, Unavailable."""
         return self._mutate(token, mutation, False)
+
+    def has_active_for_agent(self, agent_id: str, context: RefreshTokenContext) -> bool:
+        """Returns: existência de par ativo. Raises: Invalid, Unavailable."""
+        validate_refresh_token_agent_context(agent_id, context)
+        try:
+            active = False
+            for discovery in self._agent_candidates(agent_id, context):
+                record = self._snapshot(discovery)
+                if (
+                    record.revoked_at is None
+                    and record.issued_at <= context.now < record.expires_at
+                ):
+                    active = True
+            return active
+        except Exception:
+            raise RefreshTokenUnavailable("operation=has_active_refresh") from None
+
+    def _agent_candidates(
+        self, agent_id: str, context: RefreshTokenContext
+    ) -> Iterator[RefreshTokenRecord]:
+        partition = f"TENANT#{key_component(context.tenant_id)}#AGENT#{key_component(agent_id)}"
+        request: dict[str, Any] = {
+            "TableName": self._table_name,
+            "KeyConditionExpression": "#pk = :pk AND begins_with(#sk, :prefix)",
+            "ExpressionAttributeNames": {"#pk": "pk", "#sk": "sk"},
+            "ExpressionAttributeValues": {
+                ":pk": {"S": partition},
+                ":prefix": {"S": "REFRESH_TOKEN#"},
+            },
+            "ConsistentRead": True,
+        }
+        previous = ""
+        while True:
+            response = _success(self._client.query(**request))
+            require(isinstance(response["Items"], list))
+            for item in cast("list[object]", response["Items"]):
+                key: Item = {"pk": {"S": partition}, "sk": mapping(item)["sk"]}
+                record = decode_record(item, key, "AGENT")
+                require(record.tenant_id == context.tenant_id and record.agent_id == agent_id)
+                yield record
+            cursor = _agent_cursor(response.get("LastEvaluatedKey", {}), partition, previous)
+            if not cursor:
+                return
+            request["ExclusiveStartKey"] = cursor
+            previous = cast("str", cursor["sk"]["S"])
 
     def revoke(self, token: str, mutation: RefreshTokenMutation) -> bool:
         """Returns: revogação confirmada por CAS. Raises: Invalid, Unavailable."""
@@ -245,6 +292,22 @@ class DynamoDBRefreshTokenStore:
         else:
             require(addressed is None)
         return True
+
+
+def _agent_cursor(value: object, partition: str, previous: str) -> Item:
+    cursor = mapping(value)
+    if not cursor:
+        return {}
+    require(set(cursor) == {"pk", "sk"})
+    for component in cursor.values():
+        attribute = mapping(component)
+        require(set(attribute) == {"S"})
+        require(isinstance(attribute["S"], str) and bool(attribute["S"]))
+    require(cursor["pk"]["S"] == partition)
+    sort = cast("str", cursor["sk"]["S"])
+    require(sort.startswith("REFRESH_TOKEN#") and len(sort) > len("REFRESH_TOKEN#"))
+    require(sort.encode("utf-8") > previous.encode("utf-8"))
+    return cast("Item", cursor)
 
 
 def _success(value: object) -> Mapping[str, Any]:

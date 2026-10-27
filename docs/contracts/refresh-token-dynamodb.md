@@ -1,10 +1,11 @@
 # Persistência de refresh DynamoDB — criação, validação e CAS
 
 `DynamoDBRefreshTokenStore` oferece `create`, `import_hashed`, `validate`,
-`mark_used` e `revoke`. Recebe um cliente de baixo nível já composto, o nome da tabela e
+`mark_used`, `revoke` e `has_active_for_agent`, com conformidade completa com
+`RefreshTokenStore`. Recebe um cliente de baixo nível já composto, o nome da tabela e
 uma fábrica de segredo. O cliente pertence ao chamador: o adapter não cria
 sessões, configura retentativas ou fecha o cliente. Não há wiring, migração,
-`has_active_for_agent` ou conformidade completa com `RefreshTokenStore`.
+cutover ou migração de dados ativos.
 
 ## Duas projeções BASE
 
@@ -19,7 +20,7 @@ ocupa dois endereços distintos na mesma tabela, com chaves string `pk` e `sk`:
 
 Ambos os itens contêm o registro completo. DIGEST determina a ocupação por
 (tenant, digest), inclusive entre agentes diferentes. O mesmo digest em outro
-tenant é independente. Não há GSI, Query ou Scan nesta fatia.
+tenant é independente. A descoberta por agente usa Query BASE; não há GSI ou Scan.
 
 ## Schema1
 
@@ -103,6 +104,38 @@ inatividade, inclusive para registros expirados, revogados ou de emissão futura
 Não há limpeza na leitura. Uma revogação pode ocorrer depois do snapshot:
 validar não concede um lease.
 
+## Existência de refresh ativo por agente
+
+`has_active_for_agent` valida agente e contexto antes do SDK. Uma Query forte consulta
+exatamente a partição AGENT do tenant/agente solicitado com prefixo `REFRESH_TOKEN#`,
+sem filtro, projeção parcial ou contagem como autoridade. Cada linha completa precisa
+ser válida e corresponder à identidade solicitada antes do mesmo snapshot atômico
+DIGEST/AGENT, sem GetItem preliminar. Mesmo candidatos inativos exigem par íntegro.
+
+A atividade vem exclusivamente do snapshot: `revoked_at is None` e
+`issued_at <= context.now < token_expires_at`. Uso anterior não consome o token.
+Todas as linhas e páginas observadas são validadas antes do retorno; corrupção ou falha
+posterior vence um ativo anterior. Query vazia retorna `False` quando esgotada.
+
+Somente ausência de `LastEvaluatedKey` ou mapa vazio encerra a paginação. Um cursor
+não vazio precisa conter exatamente pk/sk, ambos AttributeValues unitários S não vazios,
+na partição solicitada e com prefixo `REFRESH_TOKEN#` seguido de sufixo. Sua sort key
+avança estritamente em bytes UTF-8; repetição/regressão falha fechado. O próximo pedido
+reutiliza exatamente o cursor recebido. Items vazio não encerra quando há cursor.
+O cursor é posição, sem exigir que corresponda a registro válido ou a linha retornada.
+Não há limite arbitrário de páginas. Envelope exige Items list e metadata de sucesso.
+
+O custo é uma Query forte por página e um TransactGetItems de dois itens por candidato,
+inclusive inativos. A atomicidade cobre cada par; não há snapshot global da enumeração.
+Mudanças coerentes entre Query e snapshot são aceitas e decididas pelo snapshot atual.
+Uma criação após a posição percorrida pode não aparecer, e uma revogação posterior ao
+snapshot não invalida retroativamente a observação. A consulta não concede lease.
+
+Um DIGEST órfão sem AGENT é indescoberto por esta Query e não impede `False` quando
+não há candidatos. AGENT descoberto sem DIGEST, par parcial ou ambos desaparecidos após
+descoberta produzem indisponibilidade. Não há reparo, escrita, limpeza, fábrica de
+segredo, retentativa ou alteração do cliente durante a consulta.
+
 ## Uso e revogação por CAS
 
 `mark_used` e `revoke` validam segredo e `RefreshTokenMutation` antes do SDK, sem
@@ -159,7 +192,7 @@ pela transação e falha fechado para inconsistências encontradas; não garante
 ausência universal de órfãos nem unicidade de digest por toda a vida do sistema.
 
 Erros públicos usam somente `operation=insert_refresh`,
-`operation=validate_refresh`, `operation=mutate_refresh` ou
+`operation=validate_refresh`, `operation=has_active_refresh`, `operation=mutate_refresh` ou
 `operation=create_secret`, com encadeamento
 suprimido. Plaintext, fingerprint e conteúdo de registros não aparecem nos
 erros públicos, repr, traceback formatado ou diagnósticos emitidos pelo produto,
@@ -176,5 +209,5 @@ Uma política de diagnóstico em runtime exige desenho e verificação separados
 Moto oferece evidência em memória dos itens, condições e interleavings determinísticos
 do CAS. Não certifica ordenação ou conflitos reais da AWS, coleta TTL, durabilidade,
 reinício, isolamento de serviço ou reutilização de segredos em produção.
-Faltam `has_active_for_agent`, wiring e migração; esta fatia não autoriza cutover
+Faltam wiring e migração; esta fatia não autoriza cutover
 ou migração de dados ativos. #280 e #60 permanecem abertos.
