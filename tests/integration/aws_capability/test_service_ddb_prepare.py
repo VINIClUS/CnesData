@@ -166,6 +166,15 @@ def test_preparo_valido_mantem_perfil_incompleto(
         index["KeySchema"].reverse()
     steps = [("describe", active), ("tags", _data()["tags"]), ("ttl", _data()["ttl"]["enabled"])]
     expected = _queue(read_lab, steps)
+    if profile == "ddb-conditions":
+        path = Path(__file__).parent / "fixtures" / "cli" / "b4" / "ddb_cas.json"
+        tail = json.loads(path.read_text())["steps"]
+        for step in tail:
+            expected.append(cast("ExpectedCall", tuple(step["request"])))
+            reply = step["reply"]
+            stdout = json.dumps(reply["data"]) if "data" in reply else ""
+            stderr = json.dumps(reply["error"]) if "error" in reply else ""
+            read_lab.process.outcomes.append((reply["exit"], stdout, stderr))
     _probe(read_lab)
     _trace(read_lab, expected)
     assert clock.sleeps == []
