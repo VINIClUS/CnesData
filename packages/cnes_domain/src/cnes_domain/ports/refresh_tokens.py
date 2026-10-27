@@ -26,3 +26,7 @@ class RefreshTokenStore(Protocol):
     def revoke(
         self, token: str, mutation: RefreshTokenMutation,
     ) -> bool: ...  # pragma: no cover - Protocol
+
+    def has_active_for_agent(
+        self, agent_id: str, context: RefreshTokenContext,
+    ) -> bool: ...  # pragma: no cover - Protocol
