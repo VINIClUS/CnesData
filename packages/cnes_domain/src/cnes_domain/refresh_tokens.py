@@ -108,3 +108,12 @@ def validate_refresh_token_mutation(token: str, mutation: RefreshTokenMutation) 
         _require(type(mutation.expected_version) is int and mutation.expected_version >= 0)
     except (AttributeError, TypeError, ValueError):
         raise RefreshTokenInvalid("field=refresh_mutation") from None
+
+
+def validate_refresh_token_agent_context(agent_id: str, context: RefreshTokenContext) -> None:
+    """Raises: RefreshTokenInvalid para agente ou contexto inválido."""
+    try:
+        validate_refresh_token_context(agent_id, context)
+        _require(bool(fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", agent_id)))
+    except (AttributeError, TypeError, ValueError):
+        raise RefreshTokenInvalid("field=refresh_agent_context") from None

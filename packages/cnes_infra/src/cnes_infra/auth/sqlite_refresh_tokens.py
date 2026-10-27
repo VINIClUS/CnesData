@@ -14,6 +14,7 @@ from cnes_domain.refresh_tokens import (
     RefreshTokenRecord,
     RefreshTokenUnavailable,
     validate_refresh_token,
+    validate_refresh_token_agent_context,
     validate_refresh_token_context,
     validate_refresh_token_mutation,
 )
@@ -29,6 +30,11 @@ _SELECT = (
     "SELECT token_sha256, agent_id, tenant_id, machine_fingerprint, issued_at, expires_at, "
     "last_used_at, revoked_at, version FROM auth_refresh_tokens "
     "WHERE tenant_id = ? AND token_sha256 = ?"
+)
+_SELECT_AGENT = (
+    "SELECT token_sha256, agent_id, tenant_id, machine_fingerprint, issued_at, expires_at, "
+    "last_used_at, revoked_at, version FROM auth_refresh_tokens "
+    "WHERE tenant_id = ? AND agent_id = ?"
 )
 _MARK_USED = (
     "UPDATE auth_refresh_tokens SET last_used_at = ?, version = version + 1 "
@@ -95,6 +101,18 @@ class SQLiteRefreshTokenStore:
         """Returns: revogação confirmada por CAS. Raises: Invalid, Unavailable."""
         return self._mutate(token, mutation, True)
 
+    def has_active_for_agent(self, agent_id: str, context: RefreshTokenContext) -> bool:
+        """Returns: existência de refresh ativo. Raises: Invalid, Unavailable."""
+        validate_refresh_token_agent_context(agent_id, context)
+        try:
+            with closing(self._connection_factory()) as connection:
+                if connection.in_transaction:
+                    raise RefreshTokenUnavailable("operation=has_active_refresh")
+                rows = connection.execute(_SELECT_AGENT, (context.tenant_id, agent_id)).fetchall()
+                return _has_active_rows(rows, context.now)
+        except Exception:
+            raise RefreshTokenUnavailable("operation=has_active_refresh") from None
+
     def _mutate(self, token: str, mutation: RefreshTokenMutation, revoking: bool) -> bool:
         validate_refresh_token_mutation(token, mutation)
         try:
@@ -134,6 +152,18 @@ def _timestamp(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.astimezone(UTC).isoformat(timespec="microseconds")
+
+
+def _has_active_rows(
+    rows: list[tuple[str, str, str, str, str, str, str | None, str | None, int]], now: datetime,
+) -> bool:
+    active = False
+    for row in rows:
+        record = _decode(row)
+        validate_refresh_token(record)
+        if record.revoked_at is None and record.issued_at <= now < record.expires_at:
+            active = True
+    return active
 
 
 def _decode(
