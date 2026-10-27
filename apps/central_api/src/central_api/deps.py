@@ -1,7 +1,6 @@
 """Dependências compartilhadas da API (engine, autenticação, composição por perfil)."""
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -19,7 +18,6 @@ from starlette.requests import Request  # noqa: TC002 - needed at runtime by Fas
 from central_api.billing_deps import install_billing
 from central_api.composition import build_runtime
 from central_api.middleware import AuthenticatedUser
-from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra import config
 from cnes_infra.auth.oidc import OidcVerifier
@@ -36,7 +34,6 @@ if TYPE_CHECKING:
 
     from central_api.composition import AwsApiServices, RuntimeComponents
     from central_api.routes.serving import ServingPrincipal
-    from cnes_domain.outbox_dispatcher import DispatchResult
     from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.auth.local_auth import LocalAuthService
@@ -47,7 +44,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _engine: Engine | None = None
-_OUTBOX_INTERVAL = 30
 _OIDC_HTTP_TIMEOUT_SECONDS = 5.0
 
 
@@ -300,25 +296,6 @@ def _install_aws_serving(app: FastAPI, runtime: RuntimeComponents) -> None:
     app.dependency_overrides[serving.get_serving_delivery] = lambda: delivery
 
 
-def _dispatch_outbox(runtime: RuntimeComponents) -> DispatchResult:
-    return dispatch_once(runtime.control_plane, runtime.audit_sink, _utc_now())
-
-
-async def _outbox_dispatch_loop(runtime: RuntimeComponents) -> None:
-    loop = asyncio.get_running_loop()
-    while True:
-        await asyncio.sleep(_OUTBOX_INTERVAL)
-        try:
-            result = await loop.run_in_executor(None, _dispatch_outbox, runtime)
-        except Exception:
-            logger.exception("outbox_dispatch_error")
-            continue
-        if result.delivered or result.failed:
-            logger.info(
-                "outbox_dispatched delivered=%d failed=%d", result.delivered, result.failed,
-            )
-
-
 @asynccontextmanager
 async def _aws_lifespan(app: FastAPI) -> AsyncGenerator[None]:
     _reject_raw_backend(os.environ)
@@ -332,12 +309,10 @@ async def _aws_lifespan(app: FastAPI) -> AsyncGenerator[None]:
         settings.oidc_issuer, settings.oidc_audience, http_client,
     )
     _install_aws_serving(app, runtime)
-    dispatcher = asyncio.create_task(_outbox_dispatch_loop(runtime))
     logger.info("aws_profile_composed region=%s", settings.region)
     try:
         yield
     finally:
-        dispatcher.cancel()
         http_client.close()
 
 

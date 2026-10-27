@@ -77,6 +77,8 @@ Valor inválido derruba o boot com `AwsRuntimeConfigurationError(<código>)`.
 - Credenciais vêm só da provider chain (role da task). A task definition não define
   `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY`: o boto3 prefere as variáveis à role.
 - A API recusa `RAW_BACKEND` e `RAW_AWS_*` no mesmo processo (`raw_backend=forbidden`).
+- A API mantém a validação de `AWS_AUDIT_BUCKET` e `AWS_AUDIT_RETENTION_DAYS`, mas não
+  constrói sink de audit nem acessa esse bucket no boot ou durante o lifespan.
 - `AWS_PROCESSOR_MAX_CONCURRENCY` é o teto de deployment de cada onda.
   `AWS_PROCESSOR_LEASE_SECONDS` é o lease do dispatch e o `LEASE_SECONDS` das unidades.
 - Worker usa `AwsUnitSettings`, `AwsRecoverySettings` ou `AwsAuditDispatchSettings` de
@@ -120,8 +122,8 @@ sem emitir diagnóstico.
 - `GET /api/v1/system/health` é só liveness. No profile `aws` responde sempre 200 com
   `status=ok`, sem identidade e sem sondar DynamoDB, S3 ou Step Functions. É a rota do
   `HEALTHCHECK` da imagem da API; um 200 não prova acesso atual à AWS.
-- A readiness real é o boot. A API ainda consulta `GetObjectLockConfiguration` no audit bucket
-  e `DescribeStateMachine`. `run-unit` e `recover-once` consultam somente `DescribeStateMachine`:
+- A readiness real é o boot. A API, `run-unit` e `recover-once` consultam somente
+  `DescribeStateMachine`, sem consultar Object Lock no audit bucket:
   recovery compõe coordenador e publisher, sem pipeline de unidade nem audit sink; unidade
   acrescenta registry, stage processor e worker canônicos. `dispatch-outbox-once` exige apenas
   o control plane DynamoDB, o bucket S3 configurado e Object Lock habilitado nesse bucket.
@@ -136,7 +138,8 @@ sem emitir diagnóstico.
   1. O código do erro não vai para o log; diagnosticar com a reprodução de settings acima e
   com os checks abaixo.
 
-Checks de leitura antes de subir uma revisão:
+Checks de leitura antes de subir uma revisão. O check de Object Lock usa a role dedicada
+de audit; a API não precisa dessa permissão:
 
 ```bash
 aws s3api get-object-lock-configuration --bucket "$AWS_AUDIT_BUCKET"
@@ -270,11 +273,13 @@ O documento de policy exato é da spec de deployment. As ações abaixo saem das
 de hoje; ninguém na aplicação chama ECS.
 
 - API (`central_api`): no DynamoDB, o conjunto de escrita na tabela e em `index/*`; no bucket
-  de dados, `s3:GetObject`, `s3:PutObject` e `s3:ListBucket`; no bucket de audit, o conjunto de
-  audit; em Step Functions, `DescribeStateMachine`, `StartExecution`, `DescribeExecution` e
+  de dados, `s3:GetObject`, `s3:PutObject` e `s3:ListBucket`; nenhuma ação no bucket de audit;
+  em Step Functions, `DescribeStateMachine`, `StartExecution`, `DescribeExecution` e
   `StopExecution`.
 - Task de unidade: DynamoDB, bucket de dados e Step Functions; nenhuma ação no bucket de audit.
 - `recover-once`: o mesmo da task de unidade.
+- `dispatch-outbox-once`: DynamoDB e o conjunto de audit no bucket de auditoria; sem bucket
+  de dados ou Step Functions.
 - Role da state machine, que inicia as tasks: `ecs:RunTask`, `ecs:StopTask`,
   `ecs:DescribeTasks`, `events:PutTargets`, `events:PutRule`, `events:DescribeRule` e
   `iam:PassRole` das roles da task.
@@ -291,25 +296,29 @@ de hoje; ninguém na aplicação chama ECS.
 - `s3:ListBucket` no bucket de dados é obrigatório: sem ela, `GetObject` de chave ausente
   devolve 403 em vez de 404, e `stat()` (que só reconhece 404, `NoSuchKey` e `NotFound`)
   propaga erro. Isso quebra o upload raw, a checagem de serving e o replay de put.
-- Conjunto de audit: `s3:GetBucketObjectLockConfiguration` no bucket; `s3:PutObject`,
+- Conjunto de audit, exclusivo do `dispatch-outbox-once`: `s3:GetBucketObjectLockConfiguration`
+  no bucket; `s3:PutObject`,
   `s3:PutObjectRetention`, `s3:GetObject` e `s3:GetObjectRetention` em `audit/*`. Nada de
-  delete, list ou bypass. A API ainda lê a configuração de Object Lock no boot e grava audit;
-  os modos de unidade/recovery não constroem sink nem precisam dessas ações.
+  delete, list ou bypass. A API e os modos de unidade/recovery não constroem sink nem
+  precisam dessas ações. A API continua usando S3 para dados e serving.
 - A URL de serving vale com a permissão de quem assina: a role da API precisa de
   `s3:GetObject` em `serving/*` no momento do uso. `s3:DeleteObject` não é usado em runtime.
 
 ## Audit: Object Lock e versioning
 
 - O bucket de audit nasce com Object Lock habilitado, o que liga o versioning de forma
-  definitiva. Sem isso a API ainda não sobe; unidade/recovery não consultam esse bucket.
+  definitiva. Sem isso o `dispatch-outbox-once` falha; API, unidade e recovery não consultam
+  esse bucket. A API não precisa de Object Lock, `PutObject` ou `PutObjectRetention` de audit.
 - Cada evento do outbox vira dois objetos em retenção `COMPLIANCE` até
   `created_at + AWS_AUDIT_RETENTION_DAYS`: `audit/<tenant>/<AAAA>/<MM>/<DD>/<event_id>.json` e o
   marcador `audit/.event-id/<event_id>.json`
   (`packages/cnes_infra/src/cnes_infra/audit/s3_object_lock_sink.py`).
 - O put usa `IfNoneMatch: *` e checksum SHA-256. Replay só é aceito com conteúdo idêntico e
   retenção suficiente (`GetObjectRetention`); senão, `Conflict`.
-- Quem grava hoje é o dispatcher de outbox dentro da API, a cada 30 s. A entrega é
-  at-least-once por `event_id`.
+- Quem publica audit AWS é o comando dedicado `dispatch-outbox-once`. A API não agenda
+  dispatcher, timer, thread ou retry de outbox. A entrega é at-least-once por `event_id`.
+  O processor local mantém a drenagem com `LocalAuditSink`. Agendamento e ativação de IAM
+  do comando dedicado seguem os gates de infraestrutura.
 - Retenção `COMPLIANCE` não pode ser encurtada nem apagada por ninguém, root incluído; o valor
   de `AWS_AUDIT_RETENTION_DAYS` é decisão da spec de deployment.
 
@@ -342,10 +351,10 @@ de hoje; ninguém na aplicação chama ECS.
   `authorization`, `token`, `signed_url`, `aws_access_key_id`, `aws_secret_access_key` e
   `email`, e qualquer campo terminado em `_<nome>` (por exemplo `refresh_token`), viram
   `[REDACTED]` (`packages/cnes_infra/src/cnes_infra/observability/json_logging.py`).
-- A API não configura logging da aplicação no profile `aws`. Eventos INFO
-  (`aws_profile_composed`, `outbox_dispatched`) não saem. WARNING e acima
-  (`dispatch_start_compensated`, `oidc_token_invalid`, `tenant_access_denied`,
-  `outbox_dispatch_error`) saem em texto puro no stderr, sem o formatter JSON e com traceback.
+- A API não configura logging da aplicação no profile `aws`. O evento INFO
+  `aws_profile_composed` não sai. WARNING e acima (`dispatch_start_compensated`,
+  `oidc_token_invalid`, `tenant_access_denied`) saem em texto puro no stderr, sem o
+  formatter JSON e com traceback.
   Filtrar a API só por texto.
 
 Métricas a derivar por metric filter (criação, limiares e alarmes são do deployment):
@@ -439,8 +448,7 @@ são o que impede replay de execução terminal, e a edição manual os contorna
 
 ## Fora do escopo deste gate
 
-- A remoção do sink/loop da API e o gate `runtime-acceptance.md` ainda pendem das próximas
-  entregas da #375/#377.
+- O gate `runtime-acceptance.md` ainda depende da #377.
   O deadline já cobre bootstrap e execução do worker; o validador de produção já exige
   `AssignPublicIp=ENABLED` e rede exata. O validador genérico mantém `DISABLED`.
 - Tabela, buckets, state machine, roles, KMS, rede, agendador e alarmes: plano de

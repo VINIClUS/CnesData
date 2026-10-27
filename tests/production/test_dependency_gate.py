@@ -26,7 +26,8 @@ from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
 from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
 from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
-from cnes_infra.aws import AwsClients, AwsRuntimeComponents, AwsRuntimeSettings, build_aws_runtime
+from cnes_infra.aws import AwsClients, AwsRuntimeSettings, build_aws_runtime
+from cnes_infra.aws.runtime import AwsProcessorCore
 from cnes_infra.billing import LOCAL_BILLING_SETTINGS
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
@@ -201,10 +202,9 @@ def test_composicao_aws_preserva_local_entitlement_e_assinatura_s3() -> None:
         s3=cast("Any", object()),
         step_functions=cast("Any", object()),
     )
-    core = AwsRuntimeComponents(
+    core = AwsProcessorCore(
         control_plane=control_plane,
         object_store=object_store,
-        audit_sink=cast("AuditSinkPort", object()),
     )
 
     entitled = entitled_serving_access(control_plane, object_store, gates)
