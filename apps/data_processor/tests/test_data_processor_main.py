@@ -3,7 +3,7 @@ import logging
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any, cast
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -16,7 +16,7 @@ def _guard_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
         "DB_URL", "postgresql+psycopg://offline:offline@127.0.0.1:1/offline",
     )
     monkeypatch.setattr(
-        "data_processor.aws_entrypoint.processor_deadline", nullcontext, raising=False,
+        "data_processor.main.processor_deadline", nullcontext,
     )
 
 
@@ -233,7 +233,7 @@ def _runtime_com_run_falho():
         ExecutionPolicyConfig,
         ProcessorExecutorPort,
     )
-    from data_processor.composition import AwsProcessorServices, ProcessorRuntimeComponents
+    from data_processor.aws_composition import AwsRecoveryRuntime
     from data_processor.orchestration.coordinator import (
         CoordinatorDependencies,
         PipelineCoordinator,
@@ -249,17 +249,10 @@ def _runtime_com_run_falho():
             control_plane=control_plane, executor=Mock(spec=ProcessorExecutorPort),
             publisher=Mock(spec=DatasetPublisher), clock=lambda: _NOW,
         ),
-        ExecutionPolicyConfig(2, 300, ExecutionCallbacks(allow_execution, noop_execution_started)),
+        ExecutionPolicyConfig(2, 3600, ExecutionCallbacks(allow_execution, noop_execution_started)),
     )
-    runtime = ProcessorRuntimeComponents(
-        control_plane=control_plane, object_store=Mock(), executor=Mock(), publisher=Mock(),
-        source_registry=Mock(), stage_processor=Mock(), coordinator=coordinator,
-        unit_worker=Mock(), unit_handler=Mock(),
-        services=AwsProcessorServices(
-            recovery=ProcessorRecovery(control_plane, coordinator, clock=lambda: _NOW),
-            recovery_batch_size=10,
-            processor_lease_seconds=300,
-        ),
+    runtime = AwsRecoveryRuntime(
+        recovery=ProcessorRecovery(control_plane, coordinator, clock=lambda: _NOW),
     )
     return runtime, control_plane
 
@@ -269,22 +262,52 @@ class TestMainProfileAws:
     def _aws_profile(self, monkeypatch):
         import sys
 
-        monkeypatch.setenv("PROFILE", "aws")
+        values = {
+            "PROFILE": "aws",
+            "BILLING_MODE": "disabled",
+            "BILLING_ENFORCEMENT_MODE": "off",
+            "AWS_REGION": "us-east-2",
+            "AWS_CONTROL_PLANE_TABLE": "cnesdata-control-plane",
+            "AWS_DATA_BUCKET": "cnesdata-data",
+            "AWS_STATE_MACHINE_ARN": (
+                "arn:aws:states:us-east-2:000000000000:stateMachine:cnesdata-processor"
+            ),
+            "AWS_PROCESSOR_CONTAINER_NAME": "processor",
+            "AWS_PROCESSOR_MAX_CONCURRENCY": "1",
+            "AWS_PROCESSOR_LEASE_SECONDS": "3600",
+            "AWS_PROCESSOR_RECOVERY_BATCH_SIZE": "100",
+            "AWS_PRODUCTION_POLICY": "true",
+            "AWS_ENVIRONMENT": "prod",
+            "AWS_PUBLIC_SUBNET_IDS": "subnet-00000000000000001,subnet-00000000000000002",
+            "AWS_SECURITY_GROUP_ID": "sg-00000000000000001",
+        }
+        for name, value in values.items():
+            monkeypatch.setenv(name, value)
+        for name in (
+            "TENANT_ID", "RUN_ID", "WAVE_ID", "DISPATCH_ID", "UNIT_ID", "EXECUTION_OWNER",
+            "LEASE_SECONDS",
+        ):
+            monkeypatch.delenv(name, raising=False)
         monkeypatch.setattr(sys, "argv", ["data_processor", "recover-once"])
 
     @pytest.mark.asyncio
     async def test_main_aws_entrega_runtime_ao_entrypoint(self):
         import os
 
-        from data_processor.composition import ProcessorRuntimeComponents
+        from cnes_infra.aws.processor_settings import AwsRecoverySettings
+        from cnes_infra.billing import BillingSettings
+        from data_processor.aws_composition import AwsExecutionPolicy, AwsRecoveryRuntime
+        from data_processor.aws_entrypoint import select_aws_invocation
+        from data_processor.main import _utc_now
+        from data_processor.orchestration.coordinator import noop_execution_started
 
-        expected = MagicMock(spec=ProcessorRuntimeComponents)
+        expected = AwsRecoveryRuntime(Mock())
         with (
             patch("data_processor.main.configure_json_stdout"),
             patch("data_processor.main.init_telemetry"),
             patch("data_processor.main.Session") as session_cls,
             patch(
-                "data_processor.main.build_processor_runtime", return_value=expected,
+                "data_processor.main.build_aws_recovery_runtime", return_value=expected,
             ) as build,
             patch("data_processor.main.run_aws_entrypoint", return_value=0) as entrypoint,
         ):
@@ -292,8 +315,15 @@ class TestMainProfileAws:
             rc = await main()
 
         assert rc == 0
-        build.assert_called_once_with("aws", os.environ, session_cls.return_value)
-        entrypoint.assert_called_once_with(expected, os.environ, ["recover-once"])
+        build.assert_called_once_with(
+            AwsRecoverySettings.from_mapping(os.environ), session_cls.return_value,
+            _utc_now, AwsExecutionPolicy(
+                BillingSettings.from_mapping(os.environ), noop_execution_started,
+            ),
+        )
+        entrypoint.assert_called_once_with(
+            select_aws_invocation(os.environ, ["recover-once"]), expected,
+        )
 
     @pytest.mark.asyncio
     async def test_main_aws_nao_instala_file_handler(self):
@@ -306,7 +336,7 @@ class TestMainProfileAws:
             patch("data_processor.main._setup_logging") as setup,
             patch("data_processor.main.init_telemetry"),
             patch("data_processor.main.Session"),
-            patch("data_processor.main.build_processor_runtime"),
+            patch("data_processor.main.build_aws_recovery_runtime"),
             patch("data_processor.main.run_aws_entrypoint", return_value=0),
         ):
             from data_processor.main import main
@@ -318,14 +348,14 @@ class TestMainProfileAws:
         assert not any(isinstance(h, RotatingFileHandler) for h in root.handlers)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("failing", ["build_processor_runtime", "run_aws_entrypoint"])
+    @pytest.mark.parametrize("failing", ["build_aws_recovery_runtime", "run_aws_entrypoint"])
     async def test_main_aws_falha_retorna_nao_zero_com_evento_json(self, failing, caplog):
         caplog.set_level(logging.ERROR, logger="data_processor.main")
         with (
             patch("data_processor.main.configure_json_stdout"),
             patch("data_processor.main.init_telemetry"),
             patch("data_processor.main.Session"),
-            patch("data_processor.main.build_processor_runtime"),
+            patch("data_processor.main.build_aws_recovery_runtime"),
             patch("data_processor.main.run_aws_entrypoint", return_value=0),
             patch(f"data_processor.main.{failing}", side_effect=RuntimeError("aws=down")),
         ):
@@ -352,7 +382,7 @@ class TestMainProfileAws:
             patch("data_processor.main.configure_json_stdout"),
             patch("data_processor.main.init_telemetry"),
             patch("data_processor.main.Session"),
-            patch("data_processor.main.build_processor_runtime", return_value=runtime),
+            patch("data_processor.main.build_aws_recovery_runtime", return_value=runtime),
         ):
             rc = await main()
 

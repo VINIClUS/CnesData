@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.environment_gate import DispatchAdmissionPort
     from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_infra.aws.processor_settings import AwsUnitSettings
     from cnes_infra.aws.settings import AwsRuntimeSettings
 
 
@@ -44,7 +45,9 @@ class AwsRuntimeComponents:
     audit_sink: AuditSinkPort
 
 
-def create_aws_clients(settings: AwsRuntimeSettings, session: Session) -> AwsClients:
+def create_aws_clients(
+    settings: AwsRuntimeSettings | AwsUnitSettings, session: Session,
+) -> AwsClients:
     """Args: settings: Configuração do profile aws. session: Sessão boto3 da provider chain.
     Returns: Clientes DynamoDB, S3 (SigV4) e Step Functions.
     """
@@ -76,6 +79,28 @@ def create_aws_clients(settings: AwsRuntimeSettings, session: Session) -> AwsCli
     )
 
 
+@dataclass(frozen=True, slots=True)
+class AwsProcessorCore:
+    control_plane: ControlPlanePort
+    object_store: ObjectStorePort
+
+
+def build_aws_processor_core(
+    settings: AwsRuntimeSettings | AwsUnitSettings, clients: AwsClients,
+    clock: Callable[[], datetime], billing: BillingSettings,
+) -> AwsProcessorCore:
+    """Args: settings: Configuração. clients: Clientes. clock: Relógio. billing: Política.
+    Returns: Control plane e object store sem sink de auditoria.
+    """
+    return AwsProcessorCore(
+        control_plane=DynamoDBControlPlane(
+            client=clients.dynamodb, table_name=settings.control_plane_table, clock=clock,
+            billing=billing,
+        ),
+        object_store=S3ObjectStore(client=clients.s3, bucket=settings.data_bucket, prefix=""),
+    )
+
+
 def build_aws_runtime(
     settings: AwsRuntimeSettings, clients: AwsClients, clock: Callable[[], datetime],
     billing: BillingSettings = LOCAL_BILLING_SETTINGS,
@@ -85,12 +110,10 @@ def build_aws_runtime(
     Returns: Adapters sobre os recursos configurados, sem provisionamento.
     Raises: ValueError: Quando o bucket de auditoria não tem Object Lock.
     """
+    core = build_aws_processor_core(settings, clients, clock, billing)
     return AwsRuntimeComponents(
-        control_plane=DynamoDBControlPlane(
-            client=clients.dynamodb, table_name=settings.control_plane_table, clock=clock,
-            billing=billing,
-        ),
-        object_store=S3ObjectStore(client=clients.s3, bucket=settings.data_bucket, prefix=""),
+        control_plane=core.control_plane,
+        object_store=core.object_store,
         audit_sink=S3ObjectLockAuditSink(
             client=clients.s3,
             bucket=settings.audit_bucket,
@@ -100,7 +123,8 @@ def build_aws_runtime(
 
 
 def build_dispatch_admission(
-    settings: AwsRuntimeSettings, clients: AwsClients, control_plane: ControlPlanePort,
+    settings: AwsRuntimeSettings | AwsUnitSettings, clients: AwsClients,
+    control_plane: ControlPlanePort,
 ) -> DispatchAdmissionPort:
     """Args: settings: Configuração. clients: Clientes boto3. control_plane: Do runtime.
     Returns: Gate do ambiente com o probe do executor sob a política de produção; sem gate
@@ -119,7 +143,9 @@ def build_dispatch_admission(
 
 __all__ = [
     "AwsClients",
+    "AwsProcessorCore",
     "AwsRuntimeComponents",
+    "build_aws_processor_core",
     "build_aws_runtime",
     "build_dispatch_admission",
     "create_aws_clients",

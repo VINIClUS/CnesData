@@ -4,15 +4,16 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from cnes_domain.ports.processing import RunUnitMessage
-from data_processor.deadline import DeadlinePolicy, processor_deadline
+from data_processor.aws_composition import AwsRecoveryRuntime, AwsUnitRuntime
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from data_processor.composition import AwsProcessorServices, ProcessorRuntimeComponents
+    from data_processor.aws_composition import AwsModeRuntime
 
 _ENVELOPE_NAMES = (
     "TENANT_ID", "RUN_ID", "WAVE_ID", "DISPATCH_ID", "UNIT_ID", "EXECUTION_OWNER",
@@ -97,40 +98,50 @@ class EcsUnitEnvelope:
         )
 
 
-def _required_aws_services(runtime: ProcessorRuntimeComponents) -> AwsProcessorServices:
-    if runtime.services is None:
-        raise EntrypointConfigurationError("aws_services=missing")
-    return runtime.services
+class AwsMode(StrEnum):
+    RUN_UNIT = "run-unit"
+    RECOVER_ONCE = "recover-once"
 
 
-def _has_partial_unit_envelope(values: Mapping[str, str]) -> bool:
-    return any(values.get(name, "").strip() for name in _ENVELOPE_NAMES)
+@dataclass(frozen=True, slots=True)
+class AwsInvocation:
+    mode: AwsMode
+    envelope: EcsUnitEnvelope | None
 
 
-def run_aws_entrypoint(
-    runtime: ProcessorRuntimeComponents, values: Mapping[str, str], argv: Sequence[str],
-) -> int:
-    """Args: runtime: componentes aws; values: ambiente; argv: argumentos do comando.
-    Returns: 0 após exatamente uma unidade ou uma passada de recovery.
-    Raises: EntrypointConfigurationError; erros do handler ou do recovery propagam.
+def select_aws_invocation(values: Mapping[str, str], argv: Sequence[str]) -> AwsInvocation:
+    """Args: values: ambiente; argv: argumentos do comando.
+    Returns: Invocação validada sem executar I/O.
+    Raises: EntrypointConfigurationError: envelope ou argumentos inválidos.
     """
-    services = _required_aws_services(runtime)
-    if values.get("UNIT_ID"):
+    if "UNIT_ID" in values:
         if argv:
             raise EntrypointConfigurationError("unit_mode=argv_forbidden")
-        envelope = EcsUnitEnvelope.from_mapping(values)
-        with processor_deadline(DeadlinePolicy("run-unit", envelope.lease_seconds)):
-            runtime.unit_handler.handle(envelope.message(_utc_now()))
-        return 0
-    if _has_partial_unit_envelope(values):
+        return AwsInvocation(AwsMode.RUN_UNIT, EcsUnitEnvelope.from_mapping(values))
+    if any(name in values for name in _ENVELOPE_NAMES):
         raise EntrypointConfigurationError("unit_envelope=partial")
     if tuple(argv) != _RECOVER_ONCE:
         raise EntrypointConfigurationError("command=recover_once_required")
-    with processor_deadline(
-        DeadlinePolicy("recover-once", services.processor_lease_seconds),
-    ):
-        services.recovery.run_once(limit=services.recovery_batch_size)
+    return AwsInvocation(AwsMode.RECOVER_ONCE, None)
+
+
+def run_aws_entrypoint(invocation: AwsInvocation, runtime: AwsModeRuntime) -> int:
+    """Args: invocation: Modo validado. runtime: Runtime específico do modo.
+    Returns: 0 após uma unidade ou uma passada de recovery.
+    Raises: EntrypointConfigurationError; erros do handler ou recovery propagam.
+    """
+    if invocation.mode is AwsMode.RUN_UNIT:
+        if not isinstance(runtime, AwsUnitRuntime) or invocation.envelope is None:
+            raise EntrypointConfigurationError("unit_runtime=required")
+        runtime.unit_handler.handle(invocation.envelope.message(_utc_now()))
+        return 0
+    if not isinstance(runtime, AwsRecoveryRuntime) or invocation.envelope is not None:
+        raise EntrypointConfigurationError("recovery_runtime=required")
+    runtime.recovery.run_once(limit=100)
     return 0
 
 
-__all__ = ["EcsUnitEnvelope", "EntrypointConfigurationError", "run_aws_entrypoint"]
+__all__ = [
+    "AwsInvocation", "AwsMode", "EcsUnitEnvelope", "EntrypointConfigurationError",
+    "run_aws_entrypoint", "select_aws_invocation",
+]

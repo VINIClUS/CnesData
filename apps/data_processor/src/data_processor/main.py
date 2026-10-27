@@ -14,14 +14,26 @@ from typing import TYPE_CHECKING
 from boto3.session import Session
 
 from cnes_domain.outbox_dispatcher import dispatch_once
-from cnes_infra import config
+from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
 from cnes_infra.aws.settings import AwsRuntimeConfigurationError
-from cnes_infra.billing.settings import BillingConfigurationError
+from cnes_infra.billing.settings import BillingConfigurationError, BillingSettings
 from cnes_infra.executor.step_functions import IncompatibleStateMachine
 from cnes_infra.observability import configure_json_stdout
 from cnes_infra.telemetry import init_telemetry
-from data_processor.aws_entrypoint import EntrypointConfigurationError, run_aws_entrypoint
-from data_processor.composition import build_processor_runtime
+from data_processor.aws_composition import (
+    AwsExecutionPolicy,
+    build_aws_recovery_runtime,
+    build_aws_unit_runtime,
+)
+from data_processor.aws_entrypoint import (
+    AwsInvocation,
+    AwsMode,
+    EntrypointConfigurationError,
+    run_aws_entrypoint,
+    select_aws_invocation,
+)
+from data_processor.deadline import DeadlinePolicy, processor_deadline
+from data_processor.orchestration.coordinator import noop_execution_started
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -37,6 +49,8 @@ fmt = logging.Formatter(
 
 
 def _setup_logging(verbose: bool = False) -> None:
+    from cnes_infra import config
+
     config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(logging.DEBUG if verbose else logging.INFO)
@@ -147,18 +161,50 @@ def _aws_failure_exit_code(error: BaseException) -> int:
 
 
 def _run_aws_profile() -> int:
-    configure_json_stdout("data-processor")
-    init_telemetry("data-processor")
     try:
-        runtime = build_processor_runtime("aws", os.environ, Session())
-        return run_aws_entrypoint(runtime, os.environ, sys.argv[1:])
-    except Exception as error:
-        exit_code = _aws_failure_exit_code(error)
-        logging.getLogger(__name__).exception(
-            "processor_entrypoint_failed",
-            extra={"exit_code": exit_code},
+        invocation = select_aws_invocation(os.environ, sys.argv[1:])
+        settings = (
+            AwsUnitSettings.from_mapping(os.environ) if invocation.mode is AwsMode.RUN_UNIT
+            else AwsRecoverySettings.from_mapping(os.environ)
         )
-        return exit_code
+        policy = AwsExecutionPolicy(
+            BillingSettings.from_mapping(os.environ), noop_execution_started,
+        )
+        seconds = settings.processor_lease_seconds
+        if invocation.mode is AwsMode.RUN_UNIT:
+            if invocation.envelope is None:
+                raise EntrypointConfigurationError("unit_envelope=required")
+            seconds = invocation.envelope.lease_seconds
+    except (EntrypointConfigurationError, AwsRuntimeConfigurationError, BillingConfigurationError):
+        return 2
+    return _run_validated_aws(
+        invocation, settings, policy, DeadlinePolicy(invocation.mode.value, seconds),
+    )
+
+
+def _run_validated_aws(
+    invocation: AwsInvocation,
+    settings: AwsUnitSettings | AwsRecoverySettings,
+    policy: AwsExecutionPolicy,
+    deadline: DeadlinePolicy,
+) -> int:
+    with processor_deadline(deadline):
+        try:
+            configure_json_stdout("data-processor")
+            init_telemetry("data-processor")
+            session = Session()
+            if isinstance(settings, AwsRecoverySettings):
+                runtime = build_aws_recovery_runtime(settings, session, _utc_now, policy)
+            else:
+                runtime = build_aws_unit_runtime(settings, session, _utc_now, policy)
+            return run_aws_entrypoint(invocation, runtime)
+        except Exception as error:
+            exit_code = _aws_failure_exit_code(error)
+            logging.getLogger(__name__).exception(
+                "processor_entrypoint_failed",
+                extra={"exit_code": exit_code},
+            )
+            return exit_code
 
 
 async def main() -> int:

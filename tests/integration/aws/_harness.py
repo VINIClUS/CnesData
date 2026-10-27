@@ -62,10 +62,10 @@ if TYPE_CHECKING:
 
     from central_api.composition import RuntimeComponents
     from cnes_domain.ports.control_plane import ControlPlanePort
-    from data_processor.composition import ProcessorRuntimeComponents
     from data_processor.orchestration.publisher import PublishResult
     from packages.cnes_infra.tests.contracts.clock import MutableClock
     from tests.integration.aws._doubles import RecordingS3Client, RecordingStepFunctionsClient
+    from tests.integration.aws._processor_view import ProcessorView
 
 TENANT = "354130"
 COMPETENCIA = "2026-01"
@@ -102,6 +102,7 @@ class EmulatorResources:
     data_bucket: str
     audit_bucket: str
     state_machine_arn: str
+    recovery_state_machine_arn: str
     dynamodb_endpoint: str
     service_endpoint: str
 
@@ -109,7 +110,7 @@ class EmulatorResources:
 @dataclass(frozen=True, slots=True)
 class AwsTestRuntime:
     api: RuntimeComponents
-    processor: ProcessorRuntimeComponents
+    processor: ProcessorView
     clock: MutableClock
     resources: EmulatorResources
     s3: RecordingS3Client
@@ -141,6 +142,16 @@ def runtime_values(
         "AWS_ENDPOINT_URL": resources.service_endpoint,
     }
     return values | (overrides or {})
+
+
+def recovery_runtime_values(
+    resources: EmulatorResources, overrides: dict[str, str] | None = None,
+) -> dict[str, str]:
+    return runtime_values(resources, {
+        "AWS_STATE_MACHINE_ARN": resources.recovery_state_machine_arn,
+        "AWS_PROCESSOR_LEASE_SECONDS": "3600",
+        "AWS_PROCESSOR_RECOVERY_BATCH_SIZE": "100",
+    } | (overrides or {}))
 
 
 def new_session(resources: EmulatorResources) -> RecordingSession:

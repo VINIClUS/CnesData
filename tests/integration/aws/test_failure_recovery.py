@@ -1,6 +1,7 @@
 """Falhas de fronteira do runtime AWS composto: pointer, outbox, outage e runs degradados."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -12,11 +13,19 @@ from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.control_plane.enums import DispatchState, RunStage, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
+from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
+from cnes_infra.billing import BillingSettings
 from cnes_infra.executor.step_functions import (
     IncompatibleStateMachine,
     ProcessorExecutionUnavailable,
 )
-from data_processor.composition import build_processor_runtime
+from data_processor.aws_composition import (
+    AwsExecutionPolicy,
+    build_aws_recovery_runtime,
+    build_aws_unit_runtime,
+)
+from data_processor.orchestration.coordinator import noop_execution_started
+from packages.cnes_infra.tests.contracts.clock import MutableClock
 from tests.integration.aws._harness import (
     DATASET,
     LOCAL,
@@ -37,6 +46,7 @@ from tests.integration.aws._harness import (
     publish_version,
     put_planned_run,
     read_run_manifest,
+    recovery_runtime_values,
     run_manifest_key,
     run_manifest_puts,
     runtime_values,
@@ -214,8 +224,21 @@ def test_state_machine_express_ou_distributed_falha_fechado(
 ) -> None:
     values = runtime_values(aws_resources, {"AWS_STATE_MACHINE_ARN": invalid_state_machines[kind]})
 
+    clock = MutableClock(datetime(2026, 1, 15, tzinfo=UTC))
+    policy = AwsExecutionPolicy(BillingSettings.from_mapping(values), noop_execution_started)
     with pytest.raises(IncompatibleStateMachine, match=code):
-        build_processor_runtime("aws", values, cast("Session", new_session(aws_resources)))
+        build_aws_unit_runtime(
+            AwsUnitSettings.from_mapping(values), cast("Session", new_session(aws_resources)),
+            clock.now, policy,
+        )
+    recovery_values = recovery_runtime_values(
+        aws_resources, {"AWS_STATE_MACHINE_ARN": invalid_state_machines[kind]},
+    )
+    with pytest.raises(IncompatibleStateMachine, match=code):
+        build_aws_recovery_runtime(
+            AwsRecoverySettings.from_mapping(recovery_values),
+            cast("Session", new_session(aws_resources)), clock.now, policy,
+        )
     with pytest.raises(IncompatibleStateMachine, match=code):
         build_runtime("aws", values, cast("Session", new_session(aws_resources)))
 

@@ -1,24 +1,27 @@
 """Fronteira ECS: envelope de sete variáveis e modo recover-once."""
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import replace
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import pytest
 
 from cnes_domain.ports.processing import RunUnitMessage
+from data_processor.aws_composition import AwsRecoveryRuntime, AwsUnitRuntime
 from data_processor.aws_entrypoint import (
+    AwsInvocation,
+    AwsMode,
     EcsUnitEnvelope,
     EntrypointConfigurationError,
     run_aws_entrypoint,
+    select_aws_invocation,
 )
-from data_processor.composition import AwsProcessorServices, ProcessorRuntimeComponents
-from data_processor.deadline import DeadlinePolicy
+from data_processor.composition import LocalProcessorRuntime
 from data_processor.recovery import ProcessorRecovery
+
+if TYPE_CHECKING:
+    from data_processor.aws_composition import AwsModeRuntime
 
 NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 EXECUTION_ARN = "arn:aws:states:us-east-1:000000000000:execution:cnesdata-test:2222222222222222"
@@ -44,121 +47,40 @@ def _frozen_clock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def runtime() -> ProcessorRuntimeComponents:
-    return ProcessorRuntimeComponents(
-        control_plane=Mock(), object_store=Mock(), executor=Mock(), publisher=Mock(),
-        source_registry=Mock(), stage_processor=Mock(), coordinator=Mock(),
-        unit_worker=Mock(), unit_handler=Mock(),
-        services=AwsProcessorServices(
-            recovery=Mock(spec=ProcessorRecovery), recovery_batch_size=100,
-            processor_lease_seconds=300,
-        ),
-    )
+def runtime() -> AwsUnitRuntime:
+    return AwsUnitRuntime(unit_handler=Mock())
 
 
 @pytest.fixture
-def runtime_with_lease() -> Any:
-    return SimpleNamespace(
-        unit_handler=Mock(),
-        services=SimpleNamespace(
-            recovery=Mock(spec=ProcessorRecovery),
-            recovery_batch_size=100,
-            processor_lease_seconds=3600,
-        ),
-    )
-
-
-def _record_deadline(monkeypatch: pytest.MonkeyPatch, calls: list[object]) -> None:
-    @contextmanager
-    def fake_deadline(policy: DeadlinePolicy):
-        calls.append(("arm", policy))
-        try:
-            yield
-        finally:
-            calls.append(("disarm", policy))
-
-    monkeypatch.setattr(
-        "data_processor.aws_entrypoint.processor_deadline", fake_deadline, raising=False,
-    )
+def recovery_runtime() -> AwsRecoveryRuntime:
+    return AwsRecoveryRuntime(recovery=Mock(spec=ProcessorRecovery))
 
 
 def test_entrypoint_ecs_converte_env_em_claim_canonico(
     runtime: Any,
 ) -> None:
-    assert run_aws_entrypoint(runtime, ENVELOPE, ()) == 0
+    assert run_aws_entrypoint(select_aws_invocation(ENVELOPE, ()), runtime) == 0
 
     runtime.unit_handler.handle.assert_called_once_with(EXPECTED_MESSAGE)
-    runtime.services.recovery.run_once.assert_not_called()
-
-
-def test_unit_arma_deadline_do_envelope_antes_do_handler(
-    runtime_with_lease: Any, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[Any] = []
-    _record_deadline(monkeypatch, calls)
-    runtime_with_lease.unit_handler.handle.side_effect = lambda _: calls.append("handle")
-
-    assert run_aws_entrypoint(runtime_with_lease, ENVELOPE, ()) == 0
-
-    assert calls == [
-        ("arm", DeadlinePolicy("run-unit", 300)), "handle",
-        ("disarm", DeadlinePolicy("run-unit", 300)),
-    ]
-    runtime_with_lease.unit_handler.handle.assert_called_once_with(EXPECTED_MESSAGE)
-
-
-def test_recover_arma_deadline_do_lease_da_composicao_antes_da_passada(
-    runtime_with_lease: Any, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[Any] = []
-    _record_deadline(monkeypatch, calls)
-    runtime_with_lease.services.recovery.run_once.side_effect = (
-        lambda *, limit: calls.append(("recovery", limit))
-    )
-
-    assert run_aws_entrypoint(runtime_with_lease, {}, ("recover-once",)) == 0
-
-    assert calls == [
-        ("arm", DeadlinePolicy("recover-once", 3600)), ("recovery", 100),
-        ("disarm", DeadlinePolicy("recover-once", 3600)),
-    ]
-
-
-@pytest.mark.parametrize("raises", [False, True], ids=["sucesso", "erro"])
-def test_entrypoint_desarma_deadline_apos_trabalho(
-    runtime_with_lease: Any, monkeypatch: pytest.MonkeyPatch, raises: bool,
-) -> None:
-    calls: list[Any] = []
-    _record_deadline(monkeypatch, calls)
-    if raises:
-        runtime_with_lease.unit_handler.handle.side_effect = RuntimeError("work=failed")
-
-    if raises:
-        with pytest.raises(RuntimeError, match="work=failed"):
-            run_aws_entrypoint(runtime_with_lease, ENVELOPE, ())
-    else:
-        assert run_aws_entrypoint(runtime_with_lease, ENVELOPE, ()) == 0
-
-    assert calls[0][0] == "arm"
-    assert calls[-1][0] == "disarm"
 
 
 def test_envelope_gera_mensagem_exata_no_instante_informado() -> None:
     assert EcsUnitEnvelope.from_mapping(ENVELOPE).message(NOW) == EXPECTED_MESSAGE
 
 
-def test_entrypoint_sem_unit_executa_recovery_once(runtime: Any) -> None:
-    assert run_aws_entrypoint(runtime, {}, ("recover-once",)) == 0
+def test_entrypoint_sem_unit_executa_recovery_once(recovery_runtime: Any) -> None:
+    assert run_aws_entrypoint(
+        select_aws_invocation({}, ("recover-once",)), recovery_runtime,
+    ) == 0
 
-    runtime.services.recovery.run_once.assert_called_once_with(limit=100)
-    runtime.unit_handler.handle.assert_not_called()
+    recovery_runtime.recovery.run_once.assert_called_once_with(limit=100)
 
 
 def test_entrypoint_propaga_falha_do_handler(runtime: Any) -> None:
     runtime.unit_handler.handle.side_effect = RuntimeError("lease=lost")
 
     with pytest.raises(RuntimeError, match="lease=lost"):
-        run_aws_entrypoint(runtime, ENVELOPE, ())
+        run_aws_entrypoint(select_aws_invocation(ENVELOPE, ()), runtime)
 
 
 @pytest.mark.parametrize(
@@ -184,7 +106,7 @@ def test_envelope_invalido_falha_sem_chamar_handler(
     runtime: Any, overrides: dict[str, str], message: str,
 ) -> None:
     with pytest.raises(EntrypointConfigurationError, match=message):
-        run_aws_entrypoint(runtime, ENVELOPE | overrides, ())
+        select_aws_invocation(ENVELOPE | overrides, ())
 
     runtime.unit_handler.handle.assert_not_called()
 
@@ -193,17 +115,17 @@ def test_envelope_invalido_falha_sem_chamar_handler(
     "name", ["TENANT_ID", "RUN_ID", "WAVE_ID", "DISPATCH_ID", "EXECUTION_OWNER", "LEASE_SECONDS"],
 )
 def test_envelope_parcial_sem_unit_falha(
-    runtime: Any, name: str,
+    recovery_runtime: Any, name: str,
 ) -> None:
     with pytest.raises(EntrypointConfigurationError, match="unit_envelope=partial"):
-        run_aws_entrypoint(runtime, {name: ENVELOPE[name]}, ("recover-once",))
+        select_aws_invocation({name: ENVELOPE[name]}, ("recover-once",))
 
-    runtime.services.recovery.run_once.assert_not_called()
+    recovery_runtime.recovery.run_once.assert_not_called()
 
 
 def test_modo_unit_rejeita_argumentos(runtime: Any) -> None:
     with pytest.raises(EntrypointConfigurationError, match="unit_mode=argv_forbidden"):
-        run_aws_entrypoint(runtime, ENVELOPE, ("recover-once",))
+        select_aws_invocation(ENVELOPE, ("recover-once",))
 
     runtime.unit_handler.handle.assert_not_called()
 
@@ -212,20 +134,46 @@ def test_modo_unit_rejeita_argumentos(runtime: Any) -> None:
     "argv", [(), ("recover",), ("recover-once", "--verbose")], ids=["vazio", "outro", "extra"],
 )
 def test_modo_recovery_exige_somente_recover_once(
-    runtime: Any, argv: tuple[str, ...],
+    recovery_runtime: Any, argv: tuple[str, ...],
 ) -> None:
     with pytest.raises(EntrypointConfigurationError, match="command=recover_once_required"):
-        run_aws_entrypoint(runtime, {}, argv)
+        select_aws_invocation({}, argv)
 
-    runtime.services.recovery.run_once.assert_not_called()
+    recovery_runtime.recovery.run_once.assert_not_called()
 
 
-def test_runtime_local_e_rejeitado_na_fronteira_aws(
-    runtime: Any,
+def test_runtime_local_e_rejeitado_na_fronteira_aws() -> None:
+    local = LocalProcessorRuntime(**{
+        name: Mock(name=name) for name in (
+            "control_plane", "object_store", "audit_sink", "executor", "publisher",
+            "source_registry", "stage_processor", "coordinator", "unit_worker", "unit_handler",
+        )
+    })
+
+    with pytest.raises(EntrypointConfigurationError):
+        run_aws_entrypoint(select_aws_invocation(ENVELOPE, ()), cast("AwsModeRuntime", local))
+
+    cast("Any", local.unit_handler).handle.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", [AwsMode.RUN_UNIT, AwsMode.RECOVER_ONCE])
+def test_modo_rejeita_runtime_incompativel_sem_executar(
+    mode: AwsMode, runtime: Any, recovery_runtime: Any,
 ) -> None:
-    local = replace(runtime, services=None)
+    invocation = select_aws_invocation(ENVELOPE, ()) if mode is AwsMode.RUN_UNIT else (
+        select_aws_invocation({}, ("recover-once",))
+    )
+    incompatible = recovery_runtime if mode is AwsMode.RUN_UNIT else runtime
 
-    with pytest.raises(EntrypointConfigurationError, match="aws_services=missing"):
-        run_aws_entrypoint(local, ENVELOPE, ())
+    with pytest.raises(EntrypointConfigurationError):
+        run_aws_entrypoint(invocation, incompatible)
+
+    runtime.unit_handler.handle.assert_not_called()
+    recovery_runtime.recovery.run_once.assert_not_called()
+
+
+def test_modo_unit_sem_envelope_falha_sem_executar(runtime: Any) -> None:
+    with pytest.raises(EntrypointConfigurationError):
+        run_aws_entrypoint(AwsInvocation(AwsMode.RUN_UNIT, None), runtime)
 
     runtime.unit_handler.handle.assert_not_called()
