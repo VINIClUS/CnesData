@@ -22,6 +22,7 @@ from tests.integration.aws_capability._service_dynamodb import (
     lookup_table,
 )
 from tests.integration.aws_capability._service_dynamodb_create import create_table
+from tests.integration.aws_capability._service_dynamodb_delete import delete_table
 from tests.integration.aws_capability._service_iam import inspect_role, list_roles, lookup_role
 from tests.integration.aws_capability._service_iam_children import (
     inspect_iam_child,
@@ -136,7 +137,11 @@ class AwsServices:
         probe_dynamodb(resources, spec, self.ports, context)
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
-        raise ServiceFailure("service=not_implemented")
+        if resource.service != "dynamodb":
+            raise ServiceFailure("service=not_implemented")
+        if type(bypass) is not bool:
+            raise ServiceFailure("service=ddb_delete_invalid")
+        delete_table(self.ports.commands, self.spec, resource, context)
 
 
 def _require_dynamodb(resource: Resource) -> None:

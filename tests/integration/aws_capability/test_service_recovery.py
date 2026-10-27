@@ -362,11 +362,14 @@ def test_lookup_presente_e_lista_visivel_limpam_com_controle_positivo(lab: Lab) 
         "invalid_cursor", "empty_response", "s3_404",
     ],
 )
-def test_delete_aceito_com_residuo_omitido_exige_lookup_e_novo_janitor(
+def test_delete_aceito_reutiliza_recibo_ate_ausencia_confirmada(
     lab: Lab, lookup_state: str
 ) -> None:
     resource = Resource("dynamodb", "pending-delete", NAME)
     key = ("dynamodb", "pending-delete")
+    expected = json.loads(
+        '[{"service":"dynamodb","resource_id":"pending-delete","name":"cnesdata-cap-a1b2c3d4"}]'
+    )
     remote = recovery(lab, resource)
     remote.store(resource)
     remote.accepted_without_removal.add(key)
@@ -377,7 +380,7 @@ def test_delete_aceito_com_residuo_omitido_exige_lookup_e_novo_janitor(
     assert_reference_retained(lab, resource)
     assert key in remote.rows
     deletes = [i for i, e in enumerate(lab.events) if e[:3] == ("delete", *key)]
-    assert 1 <= len(deletes) <= 2
+    assert len(deletes) == 1
     assert ("delete_accepted", *key) in lab.events
     result = (
         ("lookup_result", *key, Ownership(ACCOUNT, owned_tags(), "us-east-2"))
@@ -386,15 +389,29 @@ def test_delete_aceito_com_residuo_omitido_exige_lookup_e_novo_janitor(
     lookups = [i for i, e in enumerate(lab.events) if i > max(deletes) and e == result]
     assert lookups
     assert_inventory_after(lab, resource, max(deletes))
-    fresh = make_lab(lab.spec.journal_dir)
-    fresh_remote = RecoveryRemote(fresh.events)
-    fresh_remote.rows = remote.rows.copy()
-    fresh_remote.hidden = remote.hidden.copy()
-    fresh.remote = fresh_remote
-    fresh.time = 1061
-    second = lifecycle.janitor(fresh.spec, fresh.ports())
-    assert second.status == "succeeded"
-    assert saved(fresh)["created"] == []
-    assert fresh_remote.rows == {}
-    assert not any(e[0] in {"create", "probe"} for e in fresh.events)
-    assert_absence_after_delete(fresh, resource)
+    assert saved(lab)["created"] == saved(lab)["dynamodb_delete_accepted"] == expected
+    assert saved(lab)["operation_state"] == "confirmed"
+    durable = lab.journal().read_bytes()
+    for present in (True, False):
+        if not present:
+            del remote.rows[key]
+        fresh = make_lab(lab.spec.journal_dir)
+        current = RecoveryRemote(fresh.events, rows=remote.rows.copy(), hidden=remote.hidden.copy())
+        fresh.remote = current
+        fresh.time = 1061 if present else 1062
+        outcome = lifecycle.janitor(fresh.spec, fresh.ports())
+        assert outcome.status == ("incomplete" if present else "succeeded")
+        assert not any(e[0] in {"create", "delete", "probe"} for e in fresh.events)
+        if present:
+            assert key in current.rows
+            assert fresh.journal().read_bytes() == durable
+        else:
+            assert current.rows == {}
+            data = saved(fresh)
+            assert data["created"] == []
+            assert "dynamodb_delete_accepted" not in data
+            assert data["phase"] == "complete"
+            proof = ("lookup_result", "dynamodb", "pending-delete", None)
+            request = ("lookup", "dynamodb", "pending-delete", "cnesdata-cap-a1b2c3d4")
+            assert fresh.events.index(request) < fresh.events.index(proof)
+            assert_inventory_after(fresh, resource, fresh.events.index(proof))

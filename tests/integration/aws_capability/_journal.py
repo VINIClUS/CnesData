@@ -23,6 +23,7 @@ class Journal:
     created: list[Resource] = field(default_factory=list)
     pending_service: str | None = None
     operation_state: str = "confirmed"
+    dynamodb_delete_accepted: list[Resource] = field(default_factory=list)
 
     @property
     def path(self) -> Path:
@@ -43,6 +44,10 @@ class Journal:
         }
         if self.spec.probe != "all":
             data.update(schema_version=2, **PROFILES[self.spec.probe].snapshot(self.spec.probe))
+        if self.dynamodb_delete_accepted:
+            data["dynamodb_delete_accepted"] = [
+                asdict(ref) for ref in self.dynamodb_delete_accepted
+            ]
         return json.dumps(data, allow_nan=False).encode("utf-8")
 
     def save(self) -> None:
@@ -105,6 +110,56 @@ class Journal:
             raise SafetyFailure("journal_corrupt")
         self.baseline = decode_resources(data["baseline"])
         self.created = decode_resources(data["created"])
+        self.dynamodb_delete_accepted = self.decode_dynamodb_deletes(
+            data.get("dynamodb_delete_accepted", [])
+        )
+
+    def decode_dynamodb_deletes(self, rows: list) -> list[Resource]:
+        resources = decode_resources(rows)
+        identities = {(ref.service, ref.resource_id) for ref in resources}
+        if len(identities) != len(resources):
+            raise SafetyFailure("journal_corrupt")
+        if resources and (self.operation_state != "confirmed" or self.phase == "complete"):
+            raise SafetyFailure("journal_corrupt")
+        for ref in resources:
+            if ref.service != "dynamodb" or ref not in self.created or self.is_baseline(ref):
+                raise SafetyFailure("journal_corrupt")
+        return resources
+
+    def require_dynamodb_created(self, resource: Resource) -> None:
+        if (
+            resource.service != "dynamodb"
+            or resource not in self.created
+            or self.is_baseline(resource)
+            or self.operation_state != "confirmed"
+            or self.phase == "complete"
+        ):
+            raise SafetyFailure("creation_uncertain")
+
+    def authorize_dynamodb_delete(self, resource: Resource) -> None:
+        self.require_dynamodb_created(resource)
+        saved = Journal(self.spec)
+        saved.load()
+        saved.require_dynamodb_created(resource)
+        if (
+            resource in self.dynamodb_delete_accepted
+            and resource not in saved.dynamodb_delete_accepted
+        ):
+            raise SafetyFailure("creation_uncertain")
+
+    def record_dynamodb_delete(self, resource: Resource) -> None:
+        self.require_dynamodb_created(resource)
+        if resource in self.dynamodb_delete_accepted:
+            return
+        previous = self.dynamodb_delete_accepted
+        self.dynamodb_delete_accepted = self.decode_dynamodb_deletes(
+            [asdict(ref) for ref in [*previous, resource]]
+        )
+        try:
+            self.save()
+        except OSError:
+            self.dynamodb_delete_accepted = previous
+            raise
 
     def is_baseline(self, resource: Resource) -> bool:
         return any(

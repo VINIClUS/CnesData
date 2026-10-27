@@ -146,7 +146,9 @@ def test_controle_run_sem_ack_nao_cria_mesmo_com_supervisor_vivo(lab: Lab) -> No
 
 
 @pytest.mark.parametrize("pending", ["dynamodb", "s3", "iam"])
-def test_intencao_incerta_posterior_nao_retem_recursos_confirmados(lab: Lab, pending: str) -> None:
+def test_intencao_incerta_posterior_retem_ddb_e_limpa_demais_confirmados(
+    lab: Lab, pending: str
+) -> None:
     lab.remote.fail_service = pending
     lab.remote.create_error = ServiceFailure("create=response_lost")
     outcome = lifecycle.run(lab.spec, lab.ports())
@@ -157,8 +159,27 @@ def test_intencao_incerta_posterior_nao_retem_recursos_confirmados(lab: Lab, pen
     assert data["operation_state"] == "unknown"
     assert data["pending_service"] == pending
     assert data["phase"] != "complete"
-    assert lab.remote.resources == {}
-    expected = {f"synthetic-{service}" for service in SERVICES[: SERVICES.index(pending)]}
+    if pending == "dynamodb":
+        retained = {}
+        assert not any(ref["service"] == "dynamodb" for ref in data["created"])
+    else:
+        retained = {
+            "synthetic-dynamodb": Resource(
+                "dynamodb", "synthetic-dynamodb", "cnesdata-cap-a1b2c3d4"
+            )
+        }
+        known = json.loads(
+            '{"service":"dynamodb","resource_id":"synthetic-dynamodb",'
+            '"name":"cnesdata-cap-a1b2c3d4"}'
+        )
+        assert known in data["created"]
+    assert lab.remote.resources == retained
+    assert "dynamodb_delete_accepted" not in data
+    expected = {
+        "dynamodb": {"synthetic-cognito"},
+        "s3": {"synthetic-cognito"},
+        "iam": {"synthetic-cognito", "synthetic-s3"},
+    }[pending]
     assert {event[1] for event in lab.events if event[0] == "delete"} == expected
     assert lab.remote.calls <= 80
 
