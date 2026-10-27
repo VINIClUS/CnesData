@@ -186,7 +186,7 @@ def _completed_before_bind(
     control_plane: ControlPlanePort, command: BindRunDispatch, unit_ids: tuple[str, ...],
 ) -> bool:
     run = control_plane.get_run(command.tenant_id, command.run_id)
-    if run is None or run.state not in _TERMINAL_RUN_STATES:
+    if run is None or run.state not in _TERMINAL_RUN_STATES | {RunState.PUBLISHING}:
         return False
     units = control_plane.list_run_units(command.tenant_id, command.run_id)
     completed = {
