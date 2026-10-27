@@ -114,7 +114,11 @@ export function createApiFetch(config: ApiClientConfig): ApiFetch {
           : opts.accessToken
         : null;
     const { tenantId: _tenantId, accessToken: _accessToken, ...init } = opts;
-    const res = await fetch(url.href, { ...init, credentials, headers: headersFor(opts, token) });
+    const res = await fetch("/api/v1/dashboard/auth/me", {
+      ...init,
+      credentials,
+      headers: headersFor(opts, token),
+    });
     return readBody<T>(res);
   };
 }
