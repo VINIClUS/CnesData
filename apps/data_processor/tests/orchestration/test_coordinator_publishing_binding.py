@@ -70,7 +70,7 @@ class _PublishingBoundary:
     def publish(self, request: PublishRequest) -> PublishResult:
         self.entered.set()
         if not self.released.wait(timeout=_TIMEOUT):
-            raise TimeoutError("publisher_barrier_not_released")
+            raise TimeoutError("reason=publisher_barrier_not_released")
         return self.delegate(request)
 
     def start_worker(self, request: StartRunExecution) -> None:
@@ -78,7 +78,7 @@ class _PublishingBoundary:
         self.thread = Thread(target=self.execute, args=(request,), name="publishing-before-bind")
         self.thread.start()
         if not self.entered.wait(timeout=_TIMEOUT):
-            raise TimeoutError("publisher_barrier_not_entered")
+            raise TimeoutError("reason=publisher_barrier_not_entered")
 
     def execute(self, request: StartRunExecution) -> None:
         current = self.race
