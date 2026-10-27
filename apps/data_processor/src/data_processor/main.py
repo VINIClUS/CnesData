@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 from boto3.session import Session
 
 from cnes_domain.outbox_dispatcher import dispatch_once
-from cnes_infra import config
 from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
 from cnes_infra.aws.settings import AwsRuntimeConfigurationError
 from cnes_infra.billing.settings import BillingConfigurationError, BillingSettings
@@ -27,6 +26,7 @@ from data_processor.aws_composition import (
     build_aws_unit_runtime,
 )
 from data_processor.aws_entrypoint import (
+    AwsInvocation,
     AwsMode,
     EntrypointConfigurationError,
     run_aws_entrypoint,
@@ -49,6 +49,8 @@ fmt = logging.Formatter(
 
 
 def _setup_logging(verbose: bool = False) -> None:
+    from cnes_infra import config
+
     config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(logging.DEBUG if verbose else logging.INFO)
@@ -159,8 +161,6 @@ def _aws_failure_exit_code(error: BaseException) -> int:
 
 
 def _run_aws_profile() -> int:
-    configure_json_stdout("data-processor")
-    init_telemetry("data-processor")
     try:
         invocation = select_aws_invocation(os.environ, sys.argv[1:])
         settings = (
@@ -170,24 +170,41 @@ def _run_aws_profile() -> int:
         policy = AwsExecutionPolicy(
             BillingSettings.from_mapping(os.environ), noop_execution_started,
         )
-        session = Session()
-        if isinstance(settings, AwsRecoverySettings):
-            runtime = build_aws_recovery_runtime(settings, session, _utc_now, policy)
-            seconds = runtime.processor_lease_seconds
-        else:
-            runtime = build_aws_unit_runtime(settings, session, _utc_now, policy)
+        seconds = settings.processor_lease_seconds
+        if invocation.mode is AwsMode.RUN_UNIT:
             if invocation.envelope is None:
                 raise EntrypointConfigurationError("unit_envelope=required")
             seconds = invocation.envelope.lease_seconds
-        with processor_deadline(DeadlinePolicy(invocation.mode.value, seconds)):
+    except (EntrypointConfigurationError, AwsRuntimeConfigurationError, BillingConfigurationError):
+        return 2
+    return _run_validated_aws(
+        invocation, settings, policy, DeadlinePolicy(invocation.mode.value, seconds),
+    )
+
+
+def _run_validated_aws(
+    invocation: AwsInvocation,
+    settings: AwsUnitSettings | AwsRecoverySettings,
+    policy: AwsExecutionPolicy,
+    deadline: DeadlinePolicy,
+) -> int:
+    with processor_deadline(deadline):
+        try:
+            configure_json_stdout("data-processor")
+            init_telemetry("data-processor")
+            session = Session()
+            if isinstance(settings, AwsRecoverySettings):
+                runtime = build_aws_recovery_runtime(settings, session, _utc_now, policy)
+            else:
+                runtime = build_aws_unit_runtime(settings, session, _utc_now, policy)
             return run_aws_entrypoint(invocation, runtime)
-    except Exception as error:
-        exit_code = _aws_failure_exit_code(error)
-        logging.getLogger(__name__).exception(
-            "processor_entrypoint_failed",
-            extra={"exit_code": exit_code},
-        )
-        return exit_code
+        except Exception as error:
+            exit_code = _aws_failure_exit_code(error)
+            logging.getLogger(__name__).exception(
+                "processor_entrypoint_failed",
+                extra={"exit_code": exit_code},
+            )
+            return exit_code
 
 
 async def main() -> int:

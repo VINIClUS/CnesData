@@ -105,13 +105,15 @@ def test_main_em_subprocesso_converte_retorno_em_exitcode(case: str, expected: i
     result = _run_short_main(case)
 
     assert result.returncode == expected
-    if expected == 0:
+    if expected in (0, 2):
         assert result.stdout == ""
+        assert result.stderr == ""
         return
     events = [json.loads(line) for line in result.stdout.splitlines() if line]
     failures = [event for event in events if event["event"] == "processor_entrypoint_failed"]
     assert len(failures) == 1
     assert failures[0]["exit_code"] == expected
+    assert failures[0]["exception_type"] == "RuntimeError"
 
 
 def _blocked_entrypoint_child(ready: Path, sentinel: Path) -> str:

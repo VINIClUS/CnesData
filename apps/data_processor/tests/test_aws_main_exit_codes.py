@@ -175,7 +175,7 @@ async def test_modo_desconhecido_rejeita_sem_trabalho(monkeypatch: pytest.Monkey
     rc, events = await _run_main(monkeypatch, ("desconhecido",), runtime)
 
     runtime.unit_handler.handle.assert_not_called()
-    _assert_failure(events, rc, 2, "EntrypointConfigurationError")
+    assert (rc, events) == (2, [])
 
 
 @pytest.mark.asyncio
@@ -186,7 +186,7 @@ async def test_envelope_parcial_rejeita_sem_trabalho(monkeypatch: pytest.MonkeyP
     rc, events = await _run_main(monkeypatch, ("recover-once",), runtime)
 
     runtime.unit_handler.handle.assert_not_called()
-    _assert_failure(events, rc, 2, "EntrypointConfigurationError")
+    assert (rc, events) == (2, [])
 
 
 @pytest.mark.asyncio
