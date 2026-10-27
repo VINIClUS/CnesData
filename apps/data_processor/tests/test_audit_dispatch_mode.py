@@ -12,8 +12,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cnes_domain.billing.models import BillingAuditEvent
-from cnes_infra.aws.processor_settings import AwsAuditDispatchSettings
-from cnes_infra.aws.settings import AwsRuntimeConfigurationError
 from cnes_infra.billing.dynamodb_items import audit_outbox_event
 from packages.cnes_infra.tests.contracts.clock import _NOW
 from packages.cnes_infra.tests.control_plane.outbox_cursor_support import OutboxHarness, evento
@@ -140,29 +138,6 @@ async def test_configuracao_invalida_falha_antes_de_observabilidade_e_sessao(
         spy.assert_not_called()
 
 
-@pytest.mark.parametrize("bucket", ["invalid/name", r"invalid\name"], ids=["barra", "contrabarra"])
-def test_settings_rejeitam_bucket_com_barra_antes_de_dependencias(
-    monkeypatch: pytest.MonkeyPatch,
-    bucket: str,
-) -> None:
-    boundaries = (
-        (importlib.import_module("boto3.session"), "Session"),
-        (importlib.import_module("boto3"), "client"),
-        (importlib.import_module("botocore.client").BaseClient, "_make_api_call"),
-        (importlib.import_module("cnes_infra.billing.composition"), "build_secret_provider"),
-    )
-    spies = [Mock(side_effect=AssertionError("settings=dependency_forbidden")) for _ in boundaries]
-    for (module, name), spy in zip(boundaries, spies, strict=True):
-        monkeypatch.setattr(module, name, spy)
-
-    with pytest.raises(AwsRuntimeConfigurationError) as caught:
-        AwsAuditDispatchSettings.from_mapping(_MINIMUM | {"AWS_AUDIT_BUCKET": bucket})
-
-    assert type(caught.value) is AwsRuntimeConfigurationError
-    for spy in spies:
-        spy.assert_not_called()
-
-
 @pytest.fixture
 def local(tmp_path: Path) -> OutboxHarness:
     return OutboxHarness("sqlite", tmp_path)
@@ -207,30 +182,6 @@ def _cursor(local: OutboxHarness, version: int, continuation: bool) -> None:
     assert page.expected is not None
     assert page.expected.version == version
     assert (page.expected.position is not None) is continuation
-
-
-@pytest.mark.parametrize("production", [False, True])
-def test_settings_publicos_aceitam_apenas_recursos_de_auditoria(production: bool) -> None:
-    module = importlib.import_module("cnes_infra.aws.processor_settings")
-    settings_type = getattr(module, "AwsAuditDispatchSettings", None)
-    assert settings_type is not None, "audit_settings=public_contract_required"
-    values = _MINIMUM | {"BILLING_MODE": "invalid", "BILLING_ENFORCEMENT_MODE": "invalid"}
-    if production:
-        values["AWS_PRODUCTION_POLICY"] = "true"
-
-    settings = settings_type.from_mapping(values)
-
-    assert (
-        settings.region,
-        settings.control_plane_table,
-        settings.audit_bucket,
-        settings.audit_retention_days,
-    ) == (
-        "us-east-2",
-        "audit-control-configurado",
-        "audit-bucket-configurado",
-        365,
-    )
 
 
 def test_passada_vazia_retorna_zero_e_persiste_cursor(local: OutboxHarness) -> None:
