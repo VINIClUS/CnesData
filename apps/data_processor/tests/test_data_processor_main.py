@@ -253,7 +253,6 @@ def _runtime_com_run_falho():
     )
     runtime = AwsRecoveryRuntime(
         recovery=ProcessorRecovery(control_plane, coordinator, clock=lambda: _NOW),
-        processor_lease_seconds=3600,
     )
     return runtime, control_plane
 
@@ -302,7 +301,7 @@ class TestMainProfileAws:
         from data_processor.main import _utc_now
         from data_processor.orchestration.coordinator import noop_execution_started
 
-        expected = AwsRecoveryRuntime(Mock(), 3600)
+        expected = AwsRecoveryRuntime(Mock())
         with (
             patch("data_processor.main.configure_json_stdout"),
             patch("data_processor.main.init_telemetry"),

@@ -65,7 +65,7 @@ _SHORT_MAIN_CHILD = textwrap.dedent(
     socket.create_connection = deny_network
     app = importlib.import_module("data_processor.main")
     from data_processor.aws_composition import AwsRecoveryRuntime
-    runtime = AwsRecoveryRuntime(recovery=Mock(), processor_lease_seconds=3600)
+    runtime = AwsRecoveryRuntime(recovery=Mock())
     case = os.environ["CASE"]
     sys.argv[:] = ["data_processor", "desconhecido" if case == "two" else "recover-once"]
     build_error = RuntimeError("aws=down") if case == "one" else None
@@ -275,7 +275,7 @@ def test_recover_arma_deadline_do_lease_da_composicao_antes_da_passada(
 ) -> None:
     calls: list[Any] = []
     _record_deadline(monkeypatch, calls)
-    runtime = AwsRecoveryRuntime(recovery=Mock(), processor_lease_seconds=3600)
+    runtime = AwsRecoveryRuntime(recovery=Mock())
     cast("Any", runtime.recovery).run_once.side_effect = (
         lambda *, limit: calls.append(("recovery", limit))
     )

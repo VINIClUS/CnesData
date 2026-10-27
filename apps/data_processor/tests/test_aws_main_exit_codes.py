@@ -49,7 +49,7 @@ def _runtime() -> Any:
 
 
 def _recovery_runtime() -> Any:
-    return AwsRecoveryRuntime(recovery=Mock(), processor_lease_seconds=3600)
+    return AwsRecoveryRuntime(recovery=Mock())
 
 
 def _clear_envelope(monkeypatch: pytest.MonkeyPatch) -> None:

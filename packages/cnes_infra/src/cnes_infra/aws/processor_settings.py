@@ -99,8 +99,6 @@ class AwsUnitSettings:
 
 @dataclass(frozen=True, slots=True)
 class AwsRecoverySettings(AwsUnitSettings):
-    processor_recovery_batch_size: int = _RECOVERY_BATCH_SIZE
-
     @classmethod
     def from_mapping(cls, values: Mapping[str, str]) -> Self:
         """Args: values: Variáveis ambientais do worker.

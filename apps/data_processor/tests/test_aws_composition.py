@@ -183,12 +183,10 @@ def test_processor_aws_expoe_recovery_limitado(recovery_session: Mock) -> None:
     coordinator = recovery._coordinator
 
     assert isinstance(recovery, ProcessorRecovery)
-    assert runtime.processor_lease_seconds == 3600
     assert isinstance(coordinator, PipelineCoordinator)
     assert isinstance(coordinator._dependencies.executor, StepFunctionsExecutor)
     assert isinstance(coordinator._dependencies.publisher, DatasetPublisher)
     assert recovery._control_plane is coordinator._dependencies.control_plane
-    assert AwsRecoverySettings.from_mapping(values).processor_recovery_batch_size == 100
 
 
 def test_processor_aws_encadeia_execution_started_apos_o_binding(recovery_session: Mock) -> None:

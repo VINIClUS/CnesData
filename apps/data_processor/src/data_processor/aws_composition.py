@@ -58,7 +58,6 @@ class AwsUnitRuntime:
 @dataclass(frozen=True, slots=True)
 class AwsRecoveryRuntime:
     recovery: ProcessorRecovery
-    processor_lease_seconds: int
 
 
 type AwsModeRuntime = AwsUnitRuntime | AwsRecoveryRuntime
@@ -120,12 +119,11 @@ def build_aws_recovery_runtime(
     settings: AwsRecoverySettings, session: Session, clock: ClockPort, policy: AwsExecutionPolicy,
 ) -> AwsRecoveryRuntime:
     """Args: settings: Configuração. session: Sessão. clock: Relógio. policy: Billing/callback.
-    Returns: Recuperação canônica e lease validado, sem pipeline de unidade.
+    Returns: Recuperação canônica, sem pipeline de unidade.
     """
     assembly = _build_assembly(settings, create_aws_clients(settings, session), clock, policy)
     return AwsRecoveryRuntime(
         ProcessorRecovery(assembly.control_plane, assembly.coordinator, clock),
-        settings.processor_lease_seconds,
     )
 
 

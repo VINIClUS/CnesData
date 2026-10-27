@@ -126,7 +126,7 @@ def _prepare(probe: Any, mode: str, outcome: str) -> Any:
         return invoke
     work = Mock(side_effect=boundary("handle" if mode == "run-unit" else ("recover", 100)))
     runtime = AwsUnitRuntime(Mock(handle=work)) if mode == "run-unit" else (
-        AwsRecoveryRuntime(Mock(run_once=work), 3600))
+        AwsRecoveryRuntime(Mock(run_once=work)))
     for name, label in (("configure_json_stdout", "configure"), ("init_telemetry", "telemetry"),
                         ("Session", "Session")):
         monkeypatch.setattr(app, name, Mock(side_effect=boundary(label)))
@@ -327,7 +327,7 @@ def native():
         fill_pipe()
     if CASE in {"success", "error"}:
         runtime = AwsUnitRuntime(Mock(handle=work)) if MODE == "run-unit" else (
-            AwsRecoveryRuntime(Mock(run_once=work), 3600))
+            AwsRecoveryRuntime(Mock(run_once=work)))
         app.build_aws_unit_runtime = app.build_aws_recovery_runtime = lambda *args: runtime
     SEAM_ENTERED = True
     note("seam-entry")

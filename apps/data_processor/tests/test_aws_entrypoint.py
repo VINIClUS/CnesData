@@ -53,7 +53,7 @@ def runtime() -> AwsUnitRuntime:
 
 @pytest.fixture
 def recovery_runtime() -> AwsRecoveryRuntime:
-    return AwsRecoveryRuntime(recovery=Mock(spec=ProcessorRecovery), processor_lease_seconds=3600)
+    return AwsRecoveryRuntime(recovery=Mock(spec=ProcessorRecovery))
 
 
 def test_entrypoint_ecs_converte_env_em_claim_canonico(
