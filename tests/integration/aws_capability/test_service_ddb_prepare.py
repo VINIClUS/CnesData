@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 
 from tests.integration.aws_capability._dynamodb_transactions_testing import queue_transactions_tail
+from tests.integration.aws_capability._dynamodb_ttl_gsi_testing import queue_ttl_gsi_tail
 from tests.integration.aws_capability._journal import Journal
 from tests.integration.aws_capability._service_ddb_prepare_testing import (
     Privacy,
@@ -169,6 +170,7 @@ def test_preparo_valido_mantem_perfil_incompleto(
     expected = _queue(read_lab, steps)
     if profile == "ddb-transactions":
         expected += queue_transactions_tail(read_lab)
+    expected += queue_ttl_gsi_tail(read_lab) if profile == "ddb-ttl-gsi" else []
     if profile == "ddb-conditions":
         path = Path(__file__).parent / "fixtures" / "cli" / "b4" / "ddb_cas.json"
         tail = json.loads(path.read_text())["steps"]
