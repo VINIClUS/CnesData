@@ -13,7 +13,11 @@ from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.control_plane.enums import DispatchState, RunStage, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
-from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
+from cnes_infra.aws.processor_settings import (
+    AwsAuditDispatchSettings,
+    AwsRecoverySettings,
+    AwsUnitSettings,
+)
 from cnes_infra.billing import BillingSettings
 from cnes_infra.executor.step_functions import (
     IncompatibleStateMachine,
@@ -21,6 +25,7 @@ from cnes_infra.executor.step_functions import (
 )
 from data_processor.aws_composition import (
     AwsExecutionPolicy,
+    build_aws_audit_runtime,
     build_aws_recovery_runtime,
     build_aws_unit_runtime,
 )
@@ -96,8 +101,15 @@ def test_falha_audit_apos_cas_reexecuta_outbox_sem_republicar(
 ) -> None:
     request = prepare_publication(aws_runtime, "run-new")
     aws_runtime.processor.publisher.publish(request)
-    control_plane, sink = aws_runtime.api.control_plane, aws_runtime.api.audit_sink
-    with aws_runtime.s3.failing_audit_put_once():
+    session = new_session(aws_runtime.resources)
+    audit = build_aws_audit_runtime(
+        AwsAuditDispatchSettings.from_mapping(runtime_values(aws_runtime.resources)),
+        cast("Session", session),
+        aws_runtime.clock.now,
+    )
+    control_plane, sink = audit.control_plane, audit.sink
+    s3 = session.client("s3")
+    with s3.failing_audit_put_once():
         first = dispatch_once(control_plane, sink, aws_runtime.clock.now())
     assert (pending_events(aws_runtime), audit_keys(aws_runtime)) == (
         ((_PUBLISHED, "run-new"),), (),
@@ -107,7 +119,7 @@ def test_falha_audit_apos_cas_reexecuta_outbox_sem_republicar(
 
     assert first == DispatchResult(delivered=0, failed=1)
     assert second == DispatchResult(delivered=1, failed=0)
-    assert len(aws_runtime.s3.injected_failures) == 1
+    assert len(s3.injected_failures) == 1
     assert pending_events(aws_runtime) == ()
     dated = [key for key in audit_keys(aws_runtime) if not key.startswith("audit/.event-id/")]
     assert len(dated) == 1

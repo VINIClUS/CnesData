@@ -24,10 +24,9 @@ from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_infra.aws import (
     AwsRuntimeConfigurationError,
     AwsRuntimeSettings,
-    build_aws_runtime,
     create_aws_clients,
 )
-from cnes_infra.aws.runtime import build_dispatch_admission
+from cnes_infra.aws.runtime import build_aws_processor_core, build_dispatch_admission
 from cnes_infra.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingGateResources,
@@ -64,7 +63,8 @@ if TYPE_CHECKING:
         StartRunExecution,
     )
     from cnes_domain.profiles import ProfileSettings
-    from cnes_infra.aws import AwsClients, AwsRuntimeComponents
+    from cnes_infra.aws import AwsClients
+    from cnes_infra.aws.runtime import AwsProcessorCore
 
     class _RawQueryControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass
@@ -123,7 +123,7 @@ class RuntimeComponents:
     control_plane: ControlPlanePort
     object_store: ObjectStorePort
     executor: ProcessorExecutorPort
-    audit_sink: AuditSinkPort
+    audit_sink: AuditSinkPort | None
     raw_ingestion: RawIngestionService
     source_catalog: SourceCatalog
     run_planning: RunPlanningService
@@ -234,7 +234,7 @@ def build_runtime(
     settings = AwsRuntimeSettings.from_mapping(values)
     clients = create_aws_clients(settings, session)
     billing = BillingSettings.from_mapping(values)
-    core = build_aws_runtime(settings, clients, _utc_now, billing)
+    core = build_aws_processor_core(settings, clients, _utc_now, billing)
     return _build_aws_api_runtime(
         settings, clients, core, _AwsBilling(billing, execution_started),
     )
@@ -242,7 +242,7 @@ def build_runtime(
 
 def _build_aws_api_runtime(
     settings: AwsRuntimeSettings, clients: AwsClients,
-    core: AwsRuntimeComponents, billing: _AwsBilling,
+    core: AwsProcessorCore, billing: _AwsBilling,
 ) -> RuntimeComponents:
     _validate_runtime(settings, clients)
     executor = StepFunctionsExecutor(clients.step_functions, settings.state_machine_arn)
@@ -262,7 +262,7 @@ def _build_aws_api_runtime(
     gates = api_billing_gates(billing.settings, _gate_resources(settings, clients))
     return RuntimeComponents(
         control_plane=core.control_plane, object_store=core.object_store, executor=executor,
-        audit_sink=core.audit_sink, raw_ingestion=raw_ingestion, source_catalog=source_catalog,
+        audit_sink=None, raw_ingestion=raw_ingestion, source_catalog=source_catalog,
         run_planning=run_planning, services=_aws_api_services(settings, clients, core, gates),
         run_authorization=RunAuthorizationService(gates.gate, core.control_plane, run_planning),
         billing_gates=gates,
@@ -270,7 +270,7 @@ def _build_aws_api_runtime(
 
 
 def _aws_api_services(
-    settings: AwsRuntimeSettings, clients: AwsClients, core: AwsRuntimeComponents,
+    settings: AwsRuntimeSettings, clients: AwsClients, core: AwsProcessorCore,
     gates: ApiBillingGates,
 ) -> AwsApiServices:
     candidates = DynamoDBMembershipCandidates(clients.dynamodb, settings.control_plane_table)
@@ -325,7 +325,7 @@ def _gate_resources(settings: AwsRuntimeSettings, clients: AwsClients) -> Billin
 
 def _execution_config(
     settings: AwsRuntimeSettings, clients: AwsClients,
-    core: AwsRuntimeComponents, billing: _AwsBilling,
+    core: AwsProcessorCore, billing: _AwsBilling,
 ) -> ExecutionPolicyConfig:
     return ExecutionPolicyConfig(
         settings.processor_max_concurrency, settings.processor_lease_seconds,

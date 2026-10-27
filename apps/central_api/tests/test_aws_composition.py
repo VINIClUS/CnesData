@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import ast
-import asyncio
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -28,10 +27,8 @@ from central_api.services.run_planning import RunPlanningService
 from central_api.serving import S3SignedServingAccess
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.orchestration.source_catalog import SourceCatalog
-from cnes_domain.outbox_dispatcher import DispatchResult
 from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
 from cnes_domain.profiles import parse_profile
-from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_infra.auth import OidcVerifier
 from cnes_infra.aws import AwsClients, AwsRuntimeConfigurationError, AwsRuntimeSettings
 from cnes_infra.billing import BillingSettings
@@ -174,7 +171,7 @@ def test_api_aws_instala_runtime_completo_oidc_e_serving(session: Mock) -> None:
     assert isinstance(runtime.control_plane, DynamoDBControlPlane)
     assert isinstance(runtime.object_store, S3ObjectStore)
     assert isinstance(runtime.executor, StepFunctionsExecutor)
-    assert isinstance(runtime.audit_sink, S3ObjectLockAuditSink)
+    assert runtime.audit_sink is None
     assert isinstance(runtime.raw_ingestion, RawIngestionService)
     assert isinstance(runtime.source_catalog, SourceCatalog)
     assert isinstance(runtime.run_planning, RunPlanningService)
@@ -441,34 +438,3 @@ def test_raw_backend_aws_preservado_fora_do_perfil_aws(
         assert not hasattr(app.state, "oidc_verifier")
 
     build.assert_not_called()
-
-
-async def test_loop_da_outbox_entrega_eventos_e_sobrevive_a_falha(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    from central_api.deps import _outbox_dispatch_loop
-
-    runtime = _aws_components()
-    outcomes = iter([DispatchResult(delivered=2, failed=1), RuntimeError("dynamodb=unavailable")])
-
-    def _dispatch(*_: object) -> DispatchResult:
-        outcome = next(outcomes, DispatchResult(delivered=0, failed=0))
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
-
-    caplog.set_level("INFO", logger="central_api.deps")
-    with (
-        patch("central_api.deps._OUTBOX_INTERVAL", 0),
-        patch("central_api.deps.dispatch_once", side_effect=_dispatch) as dispatch,
-    ):
-        task = asyncio.create_task(_outbox_dispatch_loop(runtime))
-        while dispatch.call_count < 3:
-            await asyncio.sleep(0.01)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-    dispatch.assert_called_with(runtime.control_plane, runtime.audit_sink, ANY)
-    messages = [record.getMessage() for record in caplog.records]
-    assert messages == ["outbox_dispatched delivered=2 failed=1", "outbox_dispatch_error"]
