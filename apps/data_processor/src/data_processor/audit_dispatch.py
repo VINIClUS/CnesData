@@ -11,6 +11,9 @@ def run_audit_dispatch_once(runtime: AwsAuditRuntime) -> int:
     Returns: 0 em sucesso ou 1 quando algum evento falhou.
     """
     result = dispatch_once(
-        runtime.control_plane, runtime.sink, runtime.clock(), limit=100,
+        runtime.control_plane,
+        runtime.sink,
+        runtime.clock(),
+        limit=100,
     )
     return int(result.failed > 0)

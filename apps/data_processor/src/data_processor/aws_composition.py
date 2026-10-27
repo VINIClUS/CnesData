@@ -88,25 +88,38 @@ class _AwsAssembly:
 
 
 def _build_assembly(
-    settings: AwsUnitSettings, clients: AwsClients, clock: ClockPort, policy: AwsExecutionPolicy,
+    settings: AwsUnitSettings,
+    clients: AwsClients,
+    clock: ClockPort,
+    policy: AwsExecutionPolicy,
 ) -> _AwsAssembly:
     core = build_aws_processor_core(settings, clients, clock, policy.billing)
     resources = BillingGateResources(
-        clock, settings.processor_max_concurrency, clients.dynamodb, settings.control_plane_table,
+        clock,
+        settings.processor_max_concurrency,
+        clients.dynamodb,
+        settings.control_plane_table,
     )
     callbacks = build_execution_callbacks(
-        policy.billing, core.control_plane, resources, policy.execution_started,
+        policy.billing,
+        core.control_plane,
+        resources,
+        policy.execution_started,
     )
     publication = build_publication_policy(policy.billing, core.control_plane, resources, clock)
     _validate_runtime(settings, clients)
     executor = StepFunctionsExecutor(clients.step_functions, settings.state_machine_arn)
     publisher = DatasetPublisher(
-        store=core.object_store, control_plane=core.control_plane, publication_policy=publication,
+        store=core.object_store,
+        control_plane=core.control_plane,
+        publication_policy=publication,
     )
     coordinator = PipelineCoordinator(
         CoordinatorDependencies(core.control_plane, executor, publisher, clock),
         ExecutionPolicyConfig(
-            settings.processor_max_concurrency, settings.processor_lease_seconds, callbacks,
+            settings.processor_max_concurrency,
+            settings.processor_lease_seconds,
+            callbacks,
             build_dispatch_admission(settings, clients, core.control_plane),
         ),
     )
@@ -114,26 +127,39 @@ def _build_assembly(
 
 
 def build_aws_unit_runtime(
-    settings: AwsUnitSettings, session: Session, clock: ClockPort, policy: AwsExecutionPolicy,
+    settings: AwsUnitSettings,
+    session: Session,
+    clock: ClockPort,
+    policy: AwsExecutionPolicy,
 ) -> AwsUnitRuntime:
     """Args: settings: Configuração. session: Sessão. clock: Relógio. policy: Billing/callback.
     Returns: Handler canônico com retomada após persistência.
     """
     assembly = _build_assembly(settings, create_aws_clients(settings, session), clock, policy)
     processor = StageProcessor(
-        assembly.control_plane, assembly.object_store, build_source_registry(), clock,
+        assembly.control_plane,
+        assembly.object_store,
+        build_source_registry(),
+        clock,
     )
     worker = UnitWorker(
         UnitWorkerDependencies(assembly.control_plane, assembly.object_store, processor, clock),
-        UnitWorkerPolicy(after_persist=lambda unit: assembly.coordinator.resume(
-            unit.tenant_id, unit.run_id, settle=False,
-        )),
+        UnitWorkerPolicy(
+            after_persist=lambda unit: assembly.coordinator.resume(
+                unit.tenant_id,
+                unit.run_id,
+                settle=False,
+            )
+        ),
     )
     return AwsUnitRuntime(RunUnitCommandHandler(worker))
 
 
 def build_aws_recovery_runtime(
-    settings: AwsRecoverySettings, session: Session, clock: ClockPort, policy: AwsExecutionPolicy,
+    settings: AwsRecoverySettings,
+    session: Session,
+    clock: ClockPort,
+    policy: AwsExecutionPolicy,
 ) -> AwsRecoveryRuntime:
     """Args: settings: Configuração. session: Sessão. clock: Relógio. policy: Billing/callback.
     Returns: Recuperação canônica, sem pipeline de unidade.
@@ -145,27 +171,47 @@ def build_aws_recovery_runtime(
 
 
 def build_aws_audit_runtime(
-    settings: AwsAuditDispatchSettings, session: Session, clock: ClockPort,
+    settings: AwsAuditDispatchSettings,
+    session: Session,
+    clock: ClockPort,
 ) -> AwsAuditRuntime:
-    """Compõe somente o control plane e o sink Object Lock do despacho."""
-    dynamodb = cast("BaseClient", session.client(  # pyright: ignore[reportUnknownMemberType]
-        "dynamodb", region_name=settings.region, endpoint_url=settings.dynamodb_endpoint_url,
-    ))
-    s3 = cast("BaseClient", session.client(  # pyright: ignore[reportUnknownMemberType]
-        "s3",
-        region_name=settings.region,
-        endpoint_url=settings.service_endpoint_url,
-        config=Config(
-            signature_version="s3v4",
-            s3=({"addressing_style": "virtual"} if settings.service_endpoint_url is None else None),
+    """Args: settings: Configuração; session: Sessão AWS; clock: Relógio UTC.
+    Returns: Runtime com control plane e sink Object Lock do despacho.
+    Raises: AwsRuntimeConfigurationError: configuração local de auditoria inválida.
+    """
+    dynamodb = cast(
+        "BaseClient",
+        session.client(  # pyright: ignore[reportUnknownMemberType]
+            "dynamodb",
+            region_name=settings.region,
+            endpoint_url=settings.dynamodb_endpoint_url,
         ),
-    ))
+    )
+    s3 = cast(
+        "BaseClient",
+        session.client(  # pyright: ignore[reportUnknownMemberType]
+            "s3",
+            region_name=settings.region,
+            endpoint_url=settings.service_endpoint_url,
+            config=Config(
+                signature_version="s3v4",
+                s3=(
+                    {"addressing_style": "virtual"}
+                    if settings.service_endpoint_url is None
+                    else None
+                ),
+            ),
+        ),
+    )
     control_plane = DynamoDBControlPlane(
-        client=dynamodb, table_name=settings.control_plane_table, clock=clock,
+        client=dynamodb,
+        table_name=settings.control_plane_table,
+        clock=clock,
     )
     try:
         sink = S3ObjectLockAuditSink(
-            client=s3, bucket=settings.audit_bucket,
+            client=s3,
+            bucket=settings.audit_bucket,
             retention_days=settings.audit_retention_days,
         )
     except ValueError as error:
@@ -178,16 +224,21 @@ def build_aws_audit_runtime(
 def _validate_runtime(settings: AwsUnitSettings, clients: AwsClients) -> None:
     if not settings.production_policy:
         validate_state_machine(
-            clients.step_functions, settings.state_machine_arn,
-            settings.processor_container_name, settings.processor_lease_seconds,
+            clients.step_functions,
+            settings.state_machine_arn,
+            settings.processor_container_name,
+            settings.processor_lease_seconds,
         )
         return
     if settings.security_group_id is None:
         raise AwsRuntimeConfigurationError("production_security_group_required")
     validate_production_state_machine(
-        clients.step_functions, settings.state_machine_arn,
+        clients.step_functions,
+        settings.state_machine_arn,
         ProductionNetworkPolicy(
-            settings.processor_container_name, settings.processor_lease_seconds,
-            settings.public_subnet_ids, settings.security_group_id,
+            settings.processor_container_name,
+            settings.processor_lease_seconds,
+            settings.public_subnet_ids,
+            settings.security_group_id,
         ),
     )

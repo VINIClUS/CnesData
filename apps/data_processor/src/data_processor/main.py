@@ -1,4 +1,5 @@
 """Ponto de entrada do data_processor."""
+
 from __future__ import annotations
 
 import asyncio
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
 
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
+    from data_processor.aws_composition import AwsModeRuntime
     from data_processor.orchestration.coordinator import PipelineCoordinator
 
 fmt = logging.Formatter(
@@ -140,7 +142,8 @@ async def _run_local_profile() -> None:
     runtime = build_local_processor_runtime(settings, _utc_now)
     logging.getLogger(__name__).info(
         "local_profile_composed tenant_id=%s data_dir=%s",
-        settings.tenant_id, settings.data_dir,
+        settings.tenant_id,
+        settings.data_dir,
     )
     shutdown = asyncio.Event()
     _install_shutdown_handler(shutdown)
@@ -171,14 +174,19 @@ def _run_aws_profile() -> int:
         if invocation.mode is AwsMode.DISPATCH_OUTBOX_ONCE:
             settings = AwsAuditDispatchSettings.from_mapping(os.environ)
             return _run_validated_aws(
-                invocation, settings, None, DeadlinePolicy(invocation.mode.value, 60),
+                invocation,
+                settings,
+                None,
+                DeadlinePolicy(invocation.mode.value, 60),
             )
         settings = (
-            AwsUnitSettings.from_mapping(os.environ) if invocation.mode is AwsMode.RUN_UNIT
+            AwsUnitSettings.from_mapping(os.environ)
+            if invocation.mode is AwsMode.RUN_UNIT
             else AwsRecoverySettings.from_mapping(os.environ)
         )
         policy = AwsExecutionPolicy(
-            BillingSettings.from_mapping(os.environ), noop_execution_started,
+            BillingSettings.from_mapping(os.environ),
+            noop_execution_started,
         )
         seconds = settings.processor_lease_seconds
         if invocation.mode is AwsMode.RUN_UNIT:
@@ -188,7 +196,10 @@ def _run_aws_profile() -> int:
     except (EntrypointConfigurationError, AwsRuntimeConfigurationError, BillingConfigurationError):
         return 2
     return _run_validated_aws(
-        invocation, settings, policy, DeadlinePolicy(invocation.mode.value, seconds),
+        invocation,
+        settings,
+        policy,
+        DeadlinePolicy(invocation.mode.value, seconds),
     )
 
 
@@ -203,16 +214,7 @@ def _run_validated_aws(
             configure_json_stdout("data-processor")
             init_telemetry("data-processor")
             session = Session()
-            if isinstance(settings, AwsAuditDispatchSettings):
-                runtime = build_aws_audit_runtime(settings, session, _utc_now)
-            elif isinstance(settings, AwsRecoverySettings):
-                if policy is None:
-                    raise EntrypointConfigurationError("aws_policy=required")
-                runtime = build_aws_recovery_runtime(settings, session, _utc_now, policy)
-            else:
-                if policy is None:
-                    raise EntrypointConfigurationError("aws_policy=required")
-                runtime = build_aws_unit_runtime(settings, session, _utc_now, policy)
+            runtime = _build_aws_runtime(settings, session, policy)
             return run_aws_entrypoint(invocation, runtime)
         except Exception as error:
             exit_code = _aws_failure_exit_code(error)
@@ -221,6 +223,20 @@ def _run_validated_aws(
                 extra={"exit_code": exit_code},
             )
             return exit_code
+
+
+def _build_aws_runtime(
+    settings: AwsUnitSettings | AwsRecoverySettings | AwsAuditDispatchSettings,
+    session: Session,
+    policy: AwsExecutionPolicy | None,
+) -> AwsModeRuntime:
+    if isinstance(settings, AwsAuditDispatchSettings):
+        return build_aws_audit_runtime(settings, session, _utc_now)
+    if policy is None:
+        raise EntrypointConfigurationError("aws_policy=required")
+    if isinstance(settings, AwsRecoverySettings):
+        return build_aws_recovery_runtime(settings, session, _utc_now, policy)
+    return build_aws_unit_runtime(settings, session, _utc_now, policy)
 
 
 async def main() -> int:
@@ -235,7 +251,8 @@ async def main() -> int:
         return 0
 
     logging.getLogger(__name__).error(
-        "profile_required profile=%s", os.environ.get("PROFILE", "").strip().lower(),
+        "profile_required profile=%s",
+        os.environ.get("PROFILE", "").strip().lower(),
     )
     return 1
 

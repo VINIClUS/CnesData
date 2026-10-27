@@ -22,11 +22,19 @@ from cnes_infra.executor.step_functions import (
 )
 
 _CONCURRENCY = _Limit(
-    "AWS_PROCESSOR_MAX_CONCURRENCY", "processor_max_concurrency", 8, 1, 40,
+    "AWS_PROCESSOR_MAX_CONCURRENCY",
+    "processor_max_concurrency",
+    8,
+    1,
+    40,
     "processor_max_concurrency=invalid",
 )
 _UNIT_LEASE = _Limit(
-    "AWS_PROCESSOR_LEASE_SECONDS", "processor_lease_seconds", 300, 30, 3600,
+    "AWS_PROCESSOR_LEASE_SECONDS",
+    "processor_lease_seconds",
+    300,
+    30,
+    3600,
     "processor_lease_seconds=invalid",
 )
 _RECOVERY_BATCH_SIZE = 100

@@ -1,4 +1,5 @@
 """ECS boundary for the processor's single execution modes."""
+
 from __future__ import annotations
 
 import re
@@ -16,7 +17,12 @@ if TYPE_CHECKING:
     from data_processor.aws_composition import AwsModeRuntime
 
 _ENVELOPE_NAMES = (
-    "TENANT_ID", "RUN_ID", "WAVE_ID", "DISPATCH_ID", "UNIT_ID", "EXECUTION_OWNER",
+    "TENANT_ID",
+    "RUN_ID",
+    "WAVE_ID",
+    "DISPATCH_ID",
+    "UNIT_ID",
+    "EXECUTION_OWNER",
     "LEASE_SECONDS",
 )
 _HEX_ID = re.compile(r"[0-9a-f]{16}")
@@ -156,6 +162,10 @@ def run_aws_entrypoint(invocation: AwsInvocation, runtime: AwsModeRuntime) -> in
 
 
 __all__ = [
-    "AwsInvocation", "AwsMode", "EcsUnitEnvelope", "EntrypointConfigurationError",
-    "run_aws_entrypoint", "select_aws_invocation",
+    "AwsInvocation",
+    "AwsMode",
+    "EcsUnitEnvelope",
+    "EntrypointConfigurationError",
+    "run_aws_entrypoint",
+    "select_aws_invocation",
 ]
