@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 
+from tests.integration.aws_capability._dynamodb_transactions_testing import queue_transactions_tail
 from tests.integration.aws_capability._journal import Journal
 from tests.integration.aws_capability._service_ddb_prepare_testing import (
     Privacy,
@@ -166,6 +167,8 @@ def test_preparo_valido_mantem_perfil_incompleto(
         index["KeySchema"].reverse()
     steps = [("describe", active), ("tags", _data()["tags"]), ("ttl", _data()["ttl"]["enabled"])]
     expected = _queue(read_lab, steps)
+    if profile == "ddb-transactions":
+        expected += queue_transactions_tail(read_lab)
     if profile == "ddb-conditions":
         path = Path(__file__).parent / "fixtures" / "cli" / "b4" / "ddb_cas.json"
         tail = json.loads(path.read_text())["steps"]
@@ -192,6 +195,7 @@ def test_polls_apos_terceiro_pending_sem_confundir_not_found_com_ausencia(
     missing = tuple(_data()["failures"]["remote_not_found"])
     steps = [("describe", missing), ("describe", creating), ("describe", pending_index)]
     expected = _queue(read_lab, [*steps, *_ready(), ("ttl", _data()["ttl"]["enabled"])])
+    expected += queue_transactions_tail(read_lab)
     _probe(read_lab)
     _trace(read_lab, expected)
     assert clock.sleeps == [1, 1, 1]
@@ -205,6 +209,7 @@ def test_habilita_ttl_uma_vez_apos_revalidar_root_e_tags(
     steps += [("update", _data()["echo"])]
     steps += [("ttl", _data()["ttl"]["enabling"])] * 3
     expected = _queue(read_lab, [*steps, ("ttl", _data()["ttl"]["enabled"])])
+    expected += queue_transactions_tail(read_lab)
     _probe(read_lab)
     _trace(read_lab, expected)
     assert clock.sleeps == [1, 1, 1]
@@ -215,6 +220,7 @@ def test_ttl_ja_enabling_so_le_ate_enabled(read_lab: ReadLab, clock: Clock) -> N
         read_lab,
         [*_ready(), ("ttl", _data()["ttl"]["enabling"]), ("ttl", _data()["ttl"]["enabled"])],
     )
+    expected += queue_transactions_tail(read_lab)
     _probe(read_lab)
     _trace(read_lab, expected)
     assert clock.sleeps == [1]
@@ -291,6 +297,7 @@ def test_pagina_tags_e_preserva_expires_at_fracionario_em_ambas_leituras(read_la
     ]
     steps = [*ready, ("ttl", _data()["ttl"]["disabled"]), *ready, ("update", _data()["echo"])]
     expected = _queue(read_lab, [*steps, ("ttl", _data()["ttl"]["enabled"])])
+    expected += queue_transactions_tail(read_lab)
     _probe(read_lab)
     _trace(read_lab, expected)
 
@@ -476,6 +483,7 @@ def test_worker_persiste_root_confirmado_antes_do_primeiro_probe(
     respond(read_lab, creation["creating"])
     expected = [("dynamodb", "create-table", "us-east-2", creation["request"])]
     expected += _queue(read_lab, [*_ready(), ("ttl", _data()["ttl"]["enabled"])])
+    expected += queue_transactions_tail(read_lab)
     budget = read_lab.context.budget
     policy = Policy("111111111111", frozenset({"us-east-2"}), budget.limits)
     ports = Ports(read_lab.services, ProcessBoundary([]), budget.now, policy, budget)
