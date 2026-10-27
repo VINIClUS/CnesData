@@ -85,3 +85,6 @@ congelado foi `d6d09143a9d85c91f0183c4dae564400e788fc1ccbc13dd25d9b11e7cf828eca`
 O check ainda precisa de execução oficial no SHA integrado e de decisão posterior
 do dono sobre ruleset. Esta documentação não afirma readiness AWS, emissão de
 certificado, deploy ou fechamento da issue #377.
+
+Ensaio temporário da issue #377: esta alteração exclusivamente documental verifica
+o disparo do check em pull request. A PR de ensaio será encerrada sem merge.
