@@ -161,7 +161,11 @@ def _approved_body(body: Path) -> bool:
 
 def _process_reply(completed: subprocess.CompletedProcess[str], request: Request) -> Reply:
     if completed.returncode == 0:
-        if not completed.stdout.strip() and request.operation.startswith("delete-"):
+        if not completed.stdout.strip() and (
+            request.operation.startswith("delete-")
+            or (request.service, request.operation)
+            in {("dynamodb", "transact-write-items"), ("dynamodb", "get-item")}
+        ):
             return Reply(True, {}, None)
         data = json.loads(completed.stdout)
         return Reply(True, data, None) if isinstance(data, dict) else _local_failure("invalid_json")
