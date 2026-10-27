@@ -22,6 +22,13 @@ class RefreshTokenContext:
 
 
 @dataclass(frozen=True, slots=True)
+class RefreshTokenMutation:
+    tenant_id: str
+    now: datetime
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
 class RefreshTokenRecord:
     token_sha256: str
     agent_id: str
@@ -90,3 +97,14 @@ def _validate_record(record: RefreshTokenRecord) -> None:
             _require(timestamp >= record.issued_at)
     if record.last_used_at is not None:
         _require(record.last_used_at <= record.expires_at)
+
+
+def validate_refresh_token_mutation(token: str, mutation: RefreshTokenMutation) -> None:
+    """Raises: RefreshTokenInvalid para segredo ou mutação inválida."""
+    try:
+        validate_refresh_token_context(
+            token, RefreshTokenContext(mutation.tenant_id, mutation.now),
+        )
+        _require(type(mutation.expected_version) is int and mutation.expected_version >= 0)
+    except (AttributeError, TypeError, ValueError):
+        raise RefreshTokenInvalid("field=refresh_mutation") from None

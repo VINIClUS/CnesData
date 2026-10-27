@@ -2,7 +2,12 @@
 
 from typing import Protocol
 
-from cnes_domain.refresh_tokens import RefreshTokenContext, RefreshTokenInput, RefreshTokenRecord
+from cnes_domain.refresh_tokens import (
+    RefreshTokenContext,
+    RefreshTokenInput,
+    RefreshTokenMutation,
+    RefreshTokenRecord,
+)
 
 
 class RefreshTokenStore(Protocol):
@@ -13,3 +18,11 @@ class RefreshTokenStore(Protocol):
     def validate(
         self, token: str, context: RefreshTokenContext,
     ) -> RefreshTokenRecord | None: ...  # pragma: no cover - Protocol
+
+    def mark_used(
+        self, token: str, mutation: RefreshTokenMutation,
+    ) -> bool: ...  # pragma: no cover - Protocol
+
+    def revoke(
+        self, token: str, mutation: RefreshTokenMutation,
+    ) -> bool: ...  # pragma: no cover - Protocol
