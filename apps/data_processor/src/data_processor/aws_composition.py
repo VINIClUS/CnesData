@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+from botocore.config import Config
 
 from cnes_domain.ports.processing import ExecutionPolicyConfig
+from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_infra.aws.runtime import (
     build_aws_processor_core,
     build_dispatch_admission,
@@ -14,6 +17,7 @@ from cnes_infra.aws.runtime import (
 from cnes_infra.aws.settings import AwsRuntimeConfigurationError
 from cnes_infra.billing import build_execution_callbacks
 from cnes_infra.billing.wiring import BillingGateResources
+from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.executor.step_functions import (
     ProductionNetworkPolicy,
     StepFunctionsExecutor,
@@ -34,12 +38,18 @@ from data_processor.recovery import ProcessorRecovery
 
 if TYPE_CHECKING:
     from boto3.session import Session
+    from botocore.client import BaseClient
 
     from cnes_domain.billing.ports import ClockPort
+    from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.processing import ExecutionStarted
-    from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
+    from cnes_infra.aws.processor_settings import (
+        AwsAuditDispatchSettings,
+        AwsRecoverySettings,
+        AwsUnitSettings,
+    )
     from cnes_infra.aws.runtime import AwsClients
     from cnes_infra.billing.settings import BillingSettings
 
@@ -60,7 +70,14 @@ class AwsRecoveryRuntime:
     recovery: ProcessorRecovery
 
 
-type AwsModeRuntime = AwsUnitRuntime | AwsRecoveryRuntime
+@dataclass(frozen=True, slots=True)
+class AwsAuditRuntime:
+    control_plane: ControlPlanePort
+    sink: AuditSinkPort
+    clock: ClockPort
+
+
+type AwsModeRuntime = AwsUnitRuntime | AwsRecoveryRuntime | AwsAuditRuntime
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +142,37 @@ def build_aws_recovery_runtime(
     return AwsRecoveryRuntime(
         ProcessorRecovery(assembly.control_plane, assembly.coordinator, clock),
     )
+
+
+def build_aws_audit_runtime(
+    settings: AwsAuditDispatchSettings, session: Session, clock: ClockPort,
+) -> AwsAuditRuntime:
+    """Compõe somente o control plane e o sink Object Lock do despacho."""
+    dynamodb = cast("BaseClient", session.client(  # pyright: ignore[reportUnknownMemberType]
+        "dynamodb", region_name=settings.region, endpoint_url=settings.dynamodb_endpoint_url,
+    ))
+    s3 = cast("BaseClient", session.client(  # pyright: ignore[reportUnknownMemberType]
+        "s3",
+        region_name=settings.region,
+        endpoint_url=settings.service_endpoint_url,
+        config=Config(
+            signature_version="s3v4",
+            s3=({"addressing_style": "virtual"} if settings.service_endpoint_url is None else None),
+        ),
+    ))
+    control_plane = DynamoDBControlPlane(
+        client=dynamodb, table_name=settings.control_plane_table, clock=clock,
+    )
+    try:
+        sink = S3ObjectLockAuditSink(
+            client=s3, bucket=settings.audit_bucket,
+            retention_days=settings.audit_retention_days,
+        )
+    except ValueError as error:
+        if str(error) in {"bucket=invalid", "object_lock=disabled", "retention_days=invalid"}:
+            raise AwsRuntimeConfigurationError(str(error)) from error
+        raise
+    return AwsAuditRuntime(control_plane, sink, clock)
 
 
 def _validate_runtime(settings: AwsUnitSettings, clients: AwsClients) -> None:

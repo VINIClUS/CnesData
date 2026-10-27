@@ -14,7 +14,11 @@ from typing import TYPE_CHECKING
 from boto3.session import Session
 
 from cnes_domain.outbox_dispatcher import dispatch_once
-from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
+from cnes_infra.aws.processor_settings import (
+    AwsAuditDispatchSettings,
+    AwsRecoverySettings,
+    AwsUnitSettings,
+)
 from cnes_infra.aws.settings import AwsRuntimeConfigurationError
 from cnes_infra.billing.settings import BillingConfigurationError, BillingSettings
 from cnes_infra.executor.step_functions import IncompatibleStateMachine
@@ -22,6 +26,7 @@ from cnes_infra.observability import configure_json_stdout
 from cnes_infra.telemetry import init_telemetry
 from data_processor.aws_composition import (
     AwsExecutionPolicy,
+    build_aws_audit_runtime,
     build_aws_recovery_runtime,
     build_aws_unit_runtime,
 )
@@ -163,6 +168,11 @@ def _aws_failure_exit_code(error: BaseException) -> int:
 def _run_aws_profile() -> int:
     try:
         invocation = select_aws_invocation(os.environ, sys.argv[1:])
+        if invocation.mode is AwsMode.DISPATCH_OUTBOX_ONCE:
+            settings = AwsAuditDispatchSettings.from_mapping(os.environ)
+            return _run_validated_aws(
+                invocation, settings, None, DeadlinePolicy(invocation.mode.value, 60),
+            )
         settings = (
             AwsUnitSettings.from_mapping(os.environ) if invocation.mode is AwsMode.RUN_UNIT
             else AwsRecoverySettings.from_mapping(os.environ)
@@ -184,8 +194,8 @@ def _run_aws_profile() -> int:
 
 def _run_validated_aws(
     invocation: AwsInvocation,
-    settings: AwsUnitSettings | AwsRecoverySettings,
-    policy: AwsExecutionPolicy,
+    settings: AwsUnitSettings | AwsRecoverySettings | AwsAuditDispatchSettings,
+    policy: AwsExecutionPolicy | None,
     deadline: DeadlinePolicy,
 ) -> int:
     with processor_deadline(deadline):
@@ -193,9 +203,15 @@ def _run_validated_aws(
             configure_json_stdout("data-processor")
             init_telemetry("data-processor")
             session = Session()
-            if isinstance(settings, AwsRecoverySettings):
+            if isinstance(settings, AwsAuditDispatchSettings):
+                runtime = build_aws_audit_runtime(settings, session, _utc_now)
+            elif isinstance(settings, AwsRecoverySettings):
+                if policy is None:
+                    raise EntrypointConfigurationError("aws_policy=required")
                 runtime = build_aws_recovery_runtime(settings, session, _utc_now, policy)
             else:
+                if policy is None:
+                    raise EntrypointConfigurationError("aws_policy=required")
                 runtime = build_aws_unit_runtime(settings, session, _utc_now, policy)
             return run_aws_entrypoint(invocation, runtime)
         except Exception as error:

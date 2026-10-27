@@ -79,8 +79,9 @@ Valor inválido derruba o boot com `AwsRuntimeConfigurationError(<código>)`.
 - A API recusa `RAW_BACKEND` e `RAW_AWS_*` no mesmo processo (`raw_backend=forbidden`).
 - `AWS_PROCESSOR_MAX_CONCURRENCY` é o teto de deployment de cada onda.
   `AWS_PROCESSOR_LEASE_SECONDS` é o lease do dispatch e o `LEASE_SECONDS` das unidades.
-- Worker usa `AwsUnitSettings` ou `AwsRecoverySettings` de `aws/processor_settings.py`.
-  Ambos exigem região, tabela, data bucket, ARN States sem alias/versão e nome do container;
+- Worker usa `AwsUnitSettings`, `AwsRecoverySettings` ou `AwsAuditDispatchSettings` de
+  `aws/processor_settings.py`.
+  Unidade e recovery exigem região, tabela, data bucket, ARN States sem alias/versão e nome do container;
   validam concorrência (1–40, default 8), ambiente/rede e flags de política/billing. Não exigem
   `AUTH_MODE`, `OIDC_*`, audit bucket/retention, serving TTL ou `DB_URL`, nem carregam `.env`.
   Em produção exigem região `us-east-2`, concorrência 1, lease 3600 e subnets/SG explícitos.
@@ -88,7 +89,8 @@ Valor inválido derruba o boot com `AwsRuntimeConfigurationError(<código>)`.
   e batch 100, inclusive fora da política de produção. Omitir os dois knobs usa esses valores;
   valor explícito diferente é terminal (`fixed=<VAR> expected=<valor>`).
 - Após validação pura, um único deadline cobre logging, telemetria, Session, composição,
-  execução e diagnóstico. Unidade usa `LEASE_SECONDS` do envelope; recovery usa 3600.
+  execução e diagnóstico. Unidade usa `LEASE_SECONDS` do envelope; recovery usa 3600;
+  `dispatch-outbox-once` usa 60 segundos.
   O watchdog inicia o timer principal
   em `D-0.1`, agenda fallback em `0.1` antes de qualquer log e encerra com exit 3. O evento
   `processor_deadline_exceeded` é best-effort: `os._exit(3)` não garante `finally`, `atexit` ou
@@ -218,6 +220,20 @@ exatamente uma unidade, e qualquer argumento falha com
 erros saem com 2 antes de I/O, sem evento de falha. `recover-once` rejeita qualquer uma das
 sete chaves presente, inclusive vazia: com `UNIT_ID`, `unit_mode=argv_forbidden`;
 com outra chave, `unit_envelope=partial`.
+
+## `dispatch-outbox-once` dedicado
+
+- A task usa `command: ["dispatch-outbox-once"]` e rejeita qualquer uma das sete chaves do
+  envelope, inclusive vazia. Args extras, modo desconhecido ou configuração ausente saem com 2
+  antes de logging, telemetria, Session ou qualquer I/O.
+- O modo exige somente `AWS_REGION`, `AWS_CONTROL_PLANE_TABLE`, `AWS_AUDIT_BUCKET` e
+  `AWS_AUDIT_RETENTION_DAYS` positivo. Com `AWS_PRODUCTION_POLICY=true`, a região é
+  `us-east-2` e a retenção é 365; variáveis de unidade, API e billing permanecem irrelevantes.
+- A composição cria pela provider chain apenas clientes DynamoDB e S3 SigV4, o control plane e
+  o sink Object Lock do bucket de audit. Uma única chamada usa limite 100: vazio ou sucesso sai
+  com 0, evento falho ou erro operacional com 1, e configuração local conhecida com 2.
+- O deadline fixo de 60 segundos cobre bootstrap, composição, despacho e diagnóstico; expiração
+  encerra com 3. Não há loop, retry, sleep ou scheduler nesse comando.
 
 ## `recover-once` agendado
 
@@ -420,8 +436,8 @@ são o que impede replay de execução terminal, e a edição manual os contorna
 
 ## Fora do escopo deste gate
 
-- O modo `dispatch-outbox-once`, a remoção do sink/loop da API e o gate
-  `runtime-acceptance.md` ainda pendem das próximas entregas da #375/#377.
+- A remoção do sink/loop da API e o gate `runtime-acceptance.md` ainda pendem das próximas
+  entregas da #375/#377.
   O deadline já cobre bootstrap e execução do worker; o validador de produção já exige
   `AssignPublicIp=ENABLED` e rede exata. O validador genérico mantém `DISABLED`.
 - Tabela, buckets, state machine, roles, KMS, rede, agendador e alarmes: plano de

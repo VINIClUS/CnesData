@@ -30,6 +30,7 @@ _UNIT_LEASE = _Limit(
     "processor_lease_seconds=invalid",
 )
 _RECOVERY_BATCH_SIZE = 100
+_AUDIT_RETENTION_DAYS = 365
 
 
 def _state_machine_arn(values: Mapping[str, str]) -> str:
@@ -113,6 +114,47 @@ class AwsRecoverySettings(AwsUnitSettings):
         return _fixed(values, "AWS_PROCESSOR_LEASE_SECONDS", _PRODUCTION_LEASE_SECONDS)
 
 
+@dataclass(frozen=True, slots=True)
+class AwsAuditDispatchSettings:
+    region: str
+    control_plane_table: str
+    audit_bucket: str
+    audit_retention_days: int
+    dynamodb_endpoint_url: str | None
+    service_endpoint_url: str | None
+    production_policy: bool
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, str]) -> Self:
+        """Args: values: Variáveis ambientais do despacho de auditoria.
+        Returns: Recursos e política usados pelo modo dedicado.
+        Raises: AwsRuntimeConfigurationError: Configuração inválida.
+        """
+        production = production_policy_enabled(values)
+        retention = _positive_integer(values, "AWS_AUDIT_RETENTION_DAYS")
+        region = _required(values, "AWS_REGION")
+        if production and region != _PRODUCTION_REGION:
+            raise AwsRuntimeConfigurationError("production_region=invalid")
+        if production and retention != _AUDIT_RETENTION_DAYS:
+            raise AwsRuntimeConfigurationError("production_audit_retention=invalid")
+        return cls(
+            region=region,
+            control_plane_table=_required(values, "AWS_CONTROL_PLANE_TABLE"),
+            audit_bucket=_required(values, "AWS_AUDIT_BUCKET"),
+            audit_retention_days=retention,
+            dynamodb_endpoint_url=values.get("DYNAMODB_ENDPOINT_URL") or None,
+            service_endpoint_url=values.get("AWS_ENDPOINT_URL") or None,
+            production_policy=production,
+        )
+
+
+def _positive_integer(values: Mapping[str, str], name: str) -> int:
+    value = _integer(values, name, None)
+    if value <= 0:
+        raise AwsRuntimeConfigurationError(f"positive={name}")
+    return value
+
+
 def _validate_production(settings: AwsUnitSettings) -> None:
     violations = (
         (settings.region != _PRODUCTION_REGION, "production_region=invalid"),
@@ -129,4 +171,4 @@ def _validate_production(settings: AwsUnitSettings) -> None:
             raise AwsRuntimeConfigurationError(error)
 
 
-__all__ = ["AwsRecoverySettings", "AwsUnitSettings"]
+__all__ = ["AwsAuditDispatchSettings", "AwsRecoverySettings", "AwsUnitSettings"]
