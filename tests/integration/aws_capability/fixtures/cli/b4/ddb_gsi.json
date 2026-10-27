@@ -1,0 +1,293 @@
+{
+  "steps": [
+    {
+      "request": [
+        "dynamodb",
+        "put-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "indexed"
+            },
+            "gsi6pk": {
+              "S": "cap#a1b2c3d4#pending"
+            },
+            "gsi6sk": {
+              "S": "item#001"
+            }
+          }
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "put-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "sparse"
+            }
+          }
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "get-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "indexed"
+            }
+          },
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "indexed"
+            },
+            "gsi6pk": {
+              "S": "cap#a1b2c3d4#pending"
+            },
+            "gsi6sk": {
+              "S": "item#001"
+            }
+          },
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "get-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "sparse"
+            }
+          },
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "sparse"
+            }
+          },
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "query",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "IndexName": "gsi6",
+          "KeyConditionExpression": "#gpk=:gpk",
+          "ExpressionAttributeNames": {
+            "#gpk": "gsi6pk"
+          },
+          "ExpressionAttributeValues": {
+            ":gpk": {
+              "S": "cap#a1b2c3d4#pending"
+            }
+          },
+          "Limit": 2
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Items": [
+            {
+              "pk": {
+                "S": "cap#a1b2c3d4#gsi"
+              },
+              "sk": {
+                "S": "indexed"
+              },
+              "gsi6pk": {
+                "S": "cap#a1b2c3d4#pending"
+              },
+              "gsi6sk": {
+                "S": "item#001"
+              }
+            }
+          ],
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "update-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "indexed"
+            }
+          },
+          "UpdateExpression": "REMOVE #gpk, #gsk",
+          "ExpressionAttributeNames": {
+            "#gpk": "gsi6pk",
+            "#gsk": "gsi6sk"
+          }
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "get-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "indexed"
+            }
+          },
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#gsi"
+            },
+            "sk": {
+              "S": "indexed"
+            }
+          },
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "query",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "IndexName": "gsi6",
+          "KeyConditionExpression": "#gpk=:gpk",
+          "ExpressionAttributeNames": {
+            "#gpk": "gsi6pk"
+          },
+          "ExpressionAttributeValues": {
+            ":gpk": {
+              "S": "cap#a1b2c3d4#pending"
+            }
+          },
+          "Limit": 2
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Items": [],
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "query",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "IndexName": "gsi6",
+          "KeyConditionExpression": "#gpk=:gpk",
+          "ExpressionAttributeNames": {
+            "#gpk": "gsi6pk"
+          },
+          "ExpressionAttributeValues": {
+            ":gpk": {
+              "S": "cap#a1b2c3d4#pending"
+            }
+          },
+          "Limit": 2,
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "ValidationException",
+          "Message": "R1_PRIVATE_CANARY",
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    }
+  ]
+}
