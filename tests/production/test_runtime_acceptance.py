@@ -81,8 +81,8 @@ def _calls(tree: ast.AST, names: set[str]) -> list[ast.Call]:
 
 def relative_api_violations(root: Path) -> tuple[SourceViolation, ...]:
     env = _text(root, "apps/web_dashboard/src/lib/env.ts")
-    client = _text(root, "apps/web_dashboard/src/api/client.ts")
-    _files(root, "apps/web_dashboard/src/api/**/*.ts", {"generated.ts"})
+    _text(root, "apps/web_dashboard/src/api/client.ts")
+    paths = _files(root, "apps/web_dashboard/src/api/**/*.ts", {"generated.ts"})
     findings: list[SourceViolation] = []
     base = re.search(r"PRODUCTION_API_BASE_URL\s*=\s*([\"'])(.*?)\1", env)
     if base is None or not base.group(2).startswith("https://"):
@@ -93,14 +93,13 @@ def relative_api_violations(root: Path) -> tuple[SourceViolation, ...]:
     guard = "stripTrailingSlash(value.VITE_API_BASE_URL) !== PRODUCTION_API_BASE_URL"
     if guard not in env:
         findings.append(SourceViolation(_RULES["relative"], "apps/web_dashboard/src/lib/env.ts", 1))
-    findings.extend(
-        SourceViolation(
-            _RULES["relative"],
-            "apps/web_dashboard/src/api/client.ts",
-            client[: match.start()].count("\n") + 1,
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        source = _text(root, relative)
+        findings.extend(
+            SourceViolation(_RULES["relative"], relative, source[: match.start()].count("\n") + 1)
+            for match in re.finditer(r"\bfetch\s*\(\s*([\"'])/api(?:/|\1)", source)
         )
-        for match in re.finditer(r"\bfetch\s*\(\s*([\"'])/api(?:/|\1)", client)
-    )
     return tuple(sorted(set(findings), key=lambda item: (item.path, item.line)))
 
 
@@ -126,6 +125,8 @@ def activation_origin_violations(root: Path) -> tuple[SourceViolation, ...]:
 
 
 def _url_value(node: ast.AST) -> bool:  # noqa: PLR0911
+    if isinstance(node, ast.Name):
+        return node.id == "url"
     if isinstance(node, ast.Attribute):
         if node.attr == "path":
             return False
@@ -258,13 +259,19 @@ def _key_node(node: ast.AST) -> bool:
 
 
 def static_aws_key_violations(root: Path) -> tuple[SourceViolation, ...]:
-    paths = _files(root, _INFRA + "aws/**/*.py")
+    patterns = (
+        _INFRA + "aws/**/*.py",
+        _INFRA + "control_plane/dynamodb*.py",
+        _INFRA + "billing/dynamodb*.py",
+        _INFRA + "auth/dynamodb*.py",
+        _INFRA + "public_leads/dynamodb*.py",
+    )
+    paths = [path for pattern in patterns for path in _files(root, pattern)]
+    paths.append(root / (_INFRA + "executor/step_functions.py"))
     paths += [root / (_API + "auth/aws_oidc.py")] + _files(root, _API + "serving/**/*.py")
     paths += _files(root, "apps/data_processor/src/data_processor/aws_*.py")
     findings: list[SourceViolation] = []
     for path in sorted(set(paths)):
-        if path.name == "raw_aws_runtime.py":
-            continue
         tree = _ast(root, path)
         findings.extend(
             SourceViolation(
@@ -380,12 +387,7 @@ def require_complete_junit(path: Path) -> None:
     for suite in suites:
         children = list(suite)
         nested = [child for child in children if child.tag.rsplit("}", 1)[-1] == "testsuite"]
-        if nested:
-            continue
         testcases = [child for child in children if child.tag.rsplit("}", 1)[-1] == "testcase"]
-        if not testcases:
-            raise ValueError("junit_testcases=missing")
-        cases += len(testcases)
         for key in ("skipped", "failures", "errors"):
             if int(suite.attrib.get(key, "0")):
                 raise ValueError(f"junit_{key}=nonzero")
@@ -395,5 +397,8 @@ def require_complete_junit(path: Path) -> None:
             for child in case
         ):
             raise ValueError("junit_case=nonzero")
+        if not testcases and not nested:
+            raise ValueError("junit_testcases=missing")
+        cases += len(testcases)
     if not cases:
         raise ValueError("junit_testcases=missing")

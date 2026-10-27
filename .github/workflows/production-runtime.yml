@@ -55,7 +55,9 @@ jobs:
         run: >-
           timeout --signal=INT --kill-after=15s 600
           uv run --no-build pytest -q
-          -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only and not s3_integration and not dynamodb_local and not floci"
+          -m "not integration and not postgres and not bigquery and not e2e
+          and not stress and not soak and not spike and not windows_only
+          and not s3_integration and not dynamodb_local and not floci"
           tests/production --ignore=tests/production/infra
           apps/central_api/tests/auth/test_aws_oidc.py
           apps/central_api/tests/test_production_cors.py
@@ -92,9 +94,10 @@ jobs:
           uv run --no-build pytest -q tests/scripts/test_ci_aws_runtime.py
       - name: Validate Python report
         id: validate-python
-        run: >-
-          python -c "import runpy; from pathlib import Path;
-          runpy.run_path('tests/production/test_runtime_acceptance.py')['require_complete_junit'](Path('runtime-python.xml'))"
+        run: |
+          python -c "import runpy; from pathlib import Path; \
+          runpy.run_path('tests/production/test_runtime_acceptance.py')\
+          ['require_complete_junit'](Path('runtime-python.xml'))"
 
   runtime-dashboard:
     runs-on: ubuntu-latest
@@ -136,9 +139,10 @@ jobs:
       - name: Validate dashboard report
         id: validate-dashboard
         working-directory: .
-        run: >-
-          python -c "import runpy; from pathlib import Path;
-          runpy.run_path('tests/production/test_runtime_acceptance.py')['require_complete_junit'](Path('apps/web_dashboard/runtime-dashboard.xml'))"
+        run: |
+          python -c "import runpy; from pathlib import Path; \
+          runpy.run_path('tests/production/test_runtime_acceptance.py')\
+          ['require_complete_junit'](Path('apps/web_dashboard/runtime-dashboard.xml'))"
 
   runtime-emulators:
     runs-on: ubuntu-latest
@@ -181,9 +185,10 @@ jobs:
           tests/integration/aws --junitxml=runtime-emulators.xml
       - name: Validate AWS report
         id: validate-aws
-        run: >-
-          python -c "import runpy; from pathlib import Path;
-          runpy.run_path('tests/production/test_runtime_acceptance.py')['require_complete_junit'](Path('runtime-emulators.xml'))"
+        run: |
+          python -c "import runpy; from pathlib import Path; \
+          runpy.run_path('tests/production/test_runtime_acceptance.py')\
+          ['require_complete_junit'](Path('runtime-emulators.xml'))"
       - name: Start Floci
         id: start-floci
         env:
@@ -201,9 +206,10 @@ jobs:
           --junitxml=runtime-floci.xml
       - name: Validate Floci report
         id: validate-floci
-        run: >-
-          python -c "import runpy; from pathlib import Path;
-          runpy.run_path('tests/production/test_runtime_acceptance.py')['require_complete_junit'](Path('runtime-floci.xml'))"
+        run: |
+          python -c "import runpy; from pathlib import Path; \
+          runpy.run_path('tests/production/test_runtime_acceptance.py')\
+          ['require_complete_junit'](Path('runtime-floci.xml'))"
       - name: Stop AWS emulators
         id: stop-aws
         if: always()
@@ -239,7 +245,9 @@ jobs:
           DASHBOARD_RESULT: ${{ needs['runtime-dashboard'].result }}
           EMULATORS_RESULT: ${{ needs['runtime-emulators'].result }}
         run: |
-          if [[ "$PYTHON_RESULT" != "success" || "$DASHBOARD_RESULT" != "success" || "$EMULATORS_RESULT" != "success" ]]; then
-            printf 'runtime_producer_result python=%s dashboard=%s emulators=%s\n' "$PYTHON_RESULT" "$DASHBOARD_RESULT" "$EMULATORS_RESULT" >&2
+          if [[ "$PYTHON_RESULT" != "success" || "$DASHBOARD_RESULT" != "success" ||
+                "$EMULATORS_RESULT" != "success" ]]; then
+            printf 'runtime_producer_result python=%s dashboard=%s emulators=%s\n' \
+              "$PYTHON_RESULT" "$DASHBOARD_RESULT" "$EMULATORS_RESULT" >&2
             exit 1
           fi

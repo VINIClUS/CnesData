@@ -32,9 +32,14 @@ Use a mesma expressão de markers e os mesmos comandos do workflow. O gate de fo
 é stdlib-only e pode ser chamado sem pytest:
 
 ```bash
-uv run pytest -q tests/production/test_runtime_acceptance_validators.py tests/scripts/test_ci_aws_runtime.py
+uv run pytest -q tests/production/test_runtime_acceptance_validators.py \
+  tests/production/test_runtime_acceptance_regressions.py tests/scripts/test_ci_aws_runtime.py
 uv run pytest -q tests/production --ignore=tests/production/infra
-uv run pytest -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak and not spike and not windows_only and not s3_integration and not dynamodb_local and not floci" tests/production
+uv run pytest \
+  -m "not integration and not postgres and not bigquery and not e2e \
+and not stress and not soak and not spike and not windows_only \
+and not s3_integration and not dynamodb_local and not floci" \
+  tests/production --ignore=tests/production/infra
 ```
 
 Para os emuladores, mantenha nomes de projeto isolados e finalize cada perfil:
@@ -43,7 +48,8 @@ Para os emuladores, mantenha nomes de projeto isolados e finalize cada perfil:
 docker compose -p runtime377-aws-local --profile aws-test up -d --wait dynamodb-local localstack
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
 AWS_ENDPOINT_URL=http://127.0.0.1:4566 DYNAMODB_ENDPOINT_URL=http://127.0.0.1:18000 \
-  uv run --no-build pytest -rs -m "dynamodb_local and s3_integration" tests/integration/aws --junitxml=runtime-emulators.xml
+  uv run --no-build pytest -rs -m "dynamodb_local and s3_integration" \
+  tests/integration/aws --junitxml=runtime-emulators.xml
 docker compose -p runtime377-aws-local --profile aws-test down -v --remove-orphans
 
 docker compose -p runtime377-floci-local --profile floci up -d --wait floci
@@ -59,8 +65,9 @@ stacks. Não execute os testes de infraestrutura como substituto do runtime gate
 
 Uma falha de fonte deve indicar `rule`, caminho POSIX relativo e linha. Corrija o
 comportamento real ou registre uma alteração de allowlist revisada; não silencie a
-violação com um padrão amplo. `raw_aws_runtime.py` continua a exceção legada para
-chaves estáticas até #280. Relativo genérico `/api/v1`, `request.url.path`,
+violação com um padrão amplo. O caminho legado
+`apps/central_api/src/central_api/raw_aws_runtime.py` continua fora do inventário
+de chaves estáticas até #280. Relativo genérico `/api/v1`, `request.url.path`,
 `ScanIndexForward`, `ScanAttributes`, comentários e métricas sem decisão são
 permitidos.
 
