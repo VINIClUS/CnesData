@@ -114,6 +114,12 @@ def _resource(kind: str) -> str:
 _MUTANTS = {
     "api_base_relativa": (0, ENV, BASE, 'const PRODUCTION_API_BASE_URL = "/api/v1";'),
     "api_fetch_relativo": (0, CLIENT, "fetch(url.href,", 'fetch("/api/v1/dashboard/auth/me",'),
+    "api_fetch_template_relativo": (
+        0,
+        CLIENT,
+        "fetch(url.href,",
+        "fetch(`/api/v1/dashboard/auth/me`,",
+    ),
     "api_guarda_removida": (0, ENV, GUARD, "    if (false) {"),
     "ativacao_fetch_na_origem": (
         1,
