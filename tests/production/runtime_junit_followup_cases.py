@@ -1,4 +1,4 @@
-"""Fixtures for the runtime follow-up JUnit aggregate cases."""
+"""Casos JUnit positivos com contagens agregadas."""
 
 _FOLLOWUP_JUNIT_POSITIVE = {
     "raiz_com_suites_irmas_e_agregado": (
