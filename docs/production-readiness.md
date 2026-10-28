@@ -159,10 +159,41 @@ topology Option A com três produtores hospedados e o check final
 contratos Python e dashboard finitos e os contratos AWS/Floci com relatórios JUnit
 fail-closed. `tests/production/infra` permanece fora da coleta.
 
-Base de dependência: #375 integrado em `709394c09969001fa41df5d885f10c9e821b06c9`,
-CI `40592568935`, Deploy develop `40592568914`. O pacote de testes aceito é
-`d6d09143a9d85c91f0183c4dae564400e788fc1ccbc13dd25d9b11e7cf828eca`.
+O candidato foi executado na branch `codex/prod-012-runtime-acceptance`, no SHA
+`7c382d44f07afdff7680eaae5ce09f9342d66ce4`, com base
+`709394c09969001fa41df5d885f10c9e821b06c9`. O run oficial
+[40604640818](https://github.com/VINIClUS/CnesData/actions/runs/40604640818)
+terminou com sucesso. Ele registrou 978 contratos Python e 51 contratos CI,
+133 contratos dashboard, 28 casos AWS e 122 casos Floci, todos sem skips
+selecionados. Os checks auxiliares [CI 40604640649](https://github.com/VINIClUS/CnesData/actions/runs/40604640649),
+[quality 40604640646](https://github.com/VINIClUS/CnesData/actions/runs/40604640646),
+[Sonar 40604640618](https://github.com/VINIClUS/CnesData/actions/runs/40604640618) e
+[Trivy 40604640635](https://github.com/VINIClUS/CnesData/actions/runs/40604640635)
+também terminaram com sucesso.
 
-Estado operacional: PENDING até observar run oficial, SHA integrado, cancelamento,
-falha, documentação e eventual enforcement no ruleset. Nenhum run futuro, check
-obrigatório, readiness AWS ou autoridade de produção é inferido desta alteração.
+A prova hospedada docs-only da [PR #427](https://github.com/VINIClUS/CnesData/pull/427),
+no head `c69292d955234c37337965a36e612ce5fb7bf715`, terminou com sucesso no run
+[40605328299](https://github.com/VINIClUS/CnesData/actions/runs/40605328299) e
+reproduziu as mesmas contagens. A PR permanece não integrada (`merged=false`);
+o head candidato acima continua sendo a fonte da evidência oficial deste gate.
+O ensaio de proteção por alteração proibida, no head
+`b06e26989486bfffd32b12b0ec59a9483ae58fe3`, falhou no run
+[40703634080](https://github.com/VINIClUS/CnesData/actions/runs/40703634080),
+como esperado.
+
+O ruleset `production-runtime-acceptance-develop` (`26047506`) está ativo em
+`develop` e exige `production-runtime-acceptance` pela GitHub Actions
+(`integration_id=15368`). Os rulesets anteriores permaneceram inalterados e
+`main` permaneceu sem essa exigência. O run de cancelamento
+[40705270173](https://github.com/VINIClUS/CnesData/actions/runs/40705270173) teve
+a tentativa 1 cancelada e a tentativa 2 concluída com sucesso no SHA restaurado
+`13cd90836967f043d05141087e882e42198b4268`. Os produtores
+`122879699949`, `122879700394` e `122879700625` e o agregador final
+`122881118504` passaram todas as validações; os containers e as redes AWS e
+Floci foram explicitamente removidos. Na tentativa 1, Floci nunca iniciou.
+
+O runner é `ubuntu-latest` público. A leitura de billing retornou
+`403 UNAVAILABLE`; este documento não afirma custo medido ou uso pago zero.
+O candidato ainda não foi integrado e não há deploy, fechamento de #377,
+emissão de certificado ou readiness AWS. #398, #381, #280 e #60 continuam
+limitações do estado operacional.

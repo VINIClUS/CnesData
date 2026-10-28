@@ -12,11 +12,12 @@ Três produtores executam contratos finitos e um job final fail-closed agrega os
 resultados:
 
 - `runtime-python` executa os nove validadores de fonte, `tests/production` com
-  `--ignore=tests/production/infra` e os 28 arquivos Python aprovados.
-- `runtime-dashboard` executa os oito arquivos Vitest aprovados e grava
+  `--ignore=tests/production/infra`, 978 contratos Python e 51 contratos CI.
+- `runtime-dashboard` executa 133 contratos Vitest e grava
   `apps/web_dashboard/runtime-dashboard.xml`.
 - `runtime-emulators` executa a suíte AWS com `dynamodb-local` e LocalStack e a
-  suíte Floci em projetos Compose separados. Cada relatório é validado depois da
+  suíte Floci em projetos Compose separados. A execução oficial selecionou 28
+  casos AWS e 122 casos Floci, sem skips; cada relatório é validado depois da
   suíte e cada emulador tem limpeza independente com `if: always()`.
 - `production-runtime-acceptance` exige que os três resultados literais sejam
   `success`. Falha, cancelamento, skip, valor vazio e resultado desconhecido
@@ -78,10 +79,41 @@ remova `--remove-orphans` para obter verde.
 
 ## Evidência e limites
 
-A implementação parte de #375 integrado no SHA `709394c09969001fa41df5d885f10c9e821b06c9`,
-com CI integrado `40592568935` e Deploy develop `40592568914`. O pacote de testes
-congelado foi `d6d09143a9d85c91f0183c4dae564400e788fc1ccbc13dd25d9b11e7cf828eca`.
+A execução oficial candidata foi feita na branch `codex/prod-012-runtime-acceptance`,
+no SHA `7c382d44f07afdff7680eaae5ce09f9342d66ce4`, com base
+`709394c09969001fa41df5d885f10c9e821b06c9`. O workflow dedicado terminou com
+sucesso no run [40604640818](https://github.com/VINIClUS/CnesData/actions/runs/40604640818),
+com os três produtores e o agregador final concluídos; os checks auxiliares
+[CI 40604640649](https://github.com/VINIClUS/CnesData/actions/runs/40604640649),
+[quality 40604640646](https://github.com/VINIClUS/CnesData/actions/runs/40604640646),
+[Sonar 40604640618](https://github.com/VINIClUS/CnesData/actions/runs/40604640618) e
+[Trivy 40604640635](https://github.com/VINIClUS/CnesData/actions/runs/40604640635)
+também terminaram com sucesso.
 
-O check ainda precisa de execução oficial no SHA integrado e de decisão posterior
-do dono sobre ruleset. Esta documentação não afirma readiness AWS, emissão de
-certificado, deploy ou fechamento da issue #377.
+Uma verificação hospedada separada, baseada no head docs-only
+`c69292d955234c37337965a36e612ce5fb7bf715`, terminou com sucesso no run
+[40605328299](https://github.com/VINIClUS/CnesData/actions/runs/40605328299) e
+reproduziu as mesmas contagens selecionadas. Ela está registrada apenas como
+prova independente: a [PR #427](https://github.com/VINIClUS/CnesData/pull/427)
+permanece não integrada (`merged=false`). O ensaio de falha por alteração
+proibida, no head `b06e26989486bfffd32b12b0ec59a9483ae58fe3`, terminou com falha no
+run [40703634080](https://github.com/VINIClUS/CnesData/actions/runs/40703634080),
+como esperado para essa proteção.
+
+O run [40705270173](https://github.com/VINIClUS/CnesData/actions/runs/40705270173)
+teve uma segunda tentativa concluída com sucesso no SHA restaurado
+`13cd90836967f043d05141087e882e42198b4268`. Nessa tentativa, os produtores
+`122879699949`, `122879700394` e `122879700625` e o agregador final
+`122881118504` terminaram com sucesso; os validadores confirmaram 978 contratos
+Python, 51 CI, 133 dashboard, 28 AWS e 122 Floci, sem skips selecionados. A
+tentativa 1 deixou Floci sem iniciar; na tentativa 2 os containers e as redes
+AWS e Floci foram explicitamente removidos.
+
+O ruleset `production-runtime-acceptance-develop` (`26047506`) está ativo para
+`develop` e exige o check `production-runtime-acceptance` da GitHub Actions
+(`integration_id=15368`). O pacote de evidências registra que os rulesets
+anteriores permaneceram inalterados e que `main` permaneceu sem essa exigência.
+
+O candidato ainda não foi integrado. Esta documentação não afirma readiness AWS,
+emissão de certificado, deploy ou fechamento da issue #377; #398, #381, #280 e
+#60 continuam limitações do estado operacional.
