@@ -216,7 +216,9 @@ def test_metadata_contem_segredo(
     assert result["assertion"]["function"] == "assert_common"
 
 
-def test_plaintext_no_payload(privacy_case: PrivacyCase, caplog: pytest.LogCaptureFixture) -> None:
+def test_rejeita_segredo_em_texto_no_payload(
+    privacy_case: PrivacyCase, caplog: pytest.LogCaptureFixture
+) -> None:
     privacy_case.successful_use(SAFE_UUID)
     boundary = privacy_case.boundary
     boundary.request_token = SECOND_UUID
@@ -243,7 +245,9 @@ def test_plaintext_no_payload(privacy_case: PrivacyCase, caplog: pytest.LogCaptu
     assert result["assertion"]["function"] == "assert_common"
 
 
-def test_plaintext_no_item(privacy_case: PrivacyCase, caplog: pytest.LogCaptureFixture) -> None:
+def test_rejeita_segredo_em_texto_no_item(
+    privacy_case: PrivacyCase, caplog: pytest.LogCaptureFixture
+) -> None:
     privacy_case.successful_use(SAFE_UUID)
     expected = pair("used8")
     for item in expected.values():

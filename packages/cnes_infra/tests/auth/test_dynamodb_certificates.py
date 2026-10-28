@@ -65,10 +65,14 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
         dynamodb = boto3.client("dynamodb", region_name="us-east-1")
         dynamodb.create_table(
             TableName=_TABLE,
-            KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"},
-                       {"AttributeName": "sk", "KeyType": "RANGE"}],
-            AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"},
-                                  {"AttributeName": "sk", "AttributeType": "S"}],
+            KeySchema=[
+                {"AttributeName": "pk", "KeyType": "HASH"},
+                {"AttributeName": "sk", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "pk", "AttributeType": "S"},
+                {"AttributeName": "sk", "AttributeType": "S"},
+            ],
             ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
         )
         yield dynamodb
@@ -138,9 +142,13 @@ def test_condicao_falha_sem_revogacao_vira_indisponivel(client: Any) -> None:
     instrumented = DynamoDBCertificateRegister(cast("BaseClient", probe), _TABLE)
 
     def reject() -> None:
-        raise ClientError({"Error": {"Code": "TransactionCanceledException"},
-                           "CancellationReasons": [{"Code": "ConditionalCheckFailed"}]},
-                          "TransactWriteItems")
+        raise ClientError(
+            {
+                "Error": {"Code": "TransactionCanceledException"},
+                "CancellationReasons": [{"Code": "ConditionalCheckFailed"}],
+            },
+            "TransactWriteItems",
+        )
 
     probe.on_transaction = reject
     with pytest.raises(CertificateStoreUnavailable) as failure:
@@ -163,13 +171,19 @@ def test_falha_de_transporte_na_leitura_nao_vira_inativo(client: Any) -> None:
     assert str(failure.value) == "code=certificate_store_unavailable"
 
 
-@pytest.mark.parametrize("error", [
-    ReadTimeoutError(endpoint_url="http://127.0.0.1"),
-    ClientError({"Error": {"Code": "InternalServerError", "Message": "synthetic-private"}},
-                "TransactWriteItems"),
-])
+@pytest.mark.parametrize(
+    "error",
+    [
+        ReadTimeoutError(endpoint_url="http://127.0.0.1"),
+        ClientError(
+            {"Error": {"Code": "InternalServerError", "Message": "synthetic-private"}},
+            "TransactWriteItems",
+        ),
+    ],
+)
 def test_falha_na_escrita_de_revogacao_preserva_registro(
-    client: Any, error: Exception,
+    client: Any,
+    error: Exception,
 ) -> None:
     register = DynamoDBCertificateRegister(client, _TABLE)
     original = _certificate()

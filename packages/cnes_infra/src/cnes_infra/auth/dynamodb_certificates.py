@@ -51,7 +51,7 @@ class DynamoDBCertificateRegister:
         if item is None:
             return None
         record = decode_model(item, CertificateRecord)
-        return record if record.agent_id == key.agent_id else None
+        return record if _matches_identity(record, key) else None
 
     def is_active(
         self, key: CertificateKey, certificate_fingerprint_sha256: str, now: datetime
@@ -70,7 +70,7 @@ class DynamoDBCertificateRegister:
         if prior_item is None:
             return False
         prior = decode_model(prior_item, CertificateRecord)
-        if prior.agent_id != key.agent_id or prior.revoked_at is not None:
+        if not _matches_identity(prior, key) or prior.revoked_at is not None:
             return False
         updated = prior.model_copy(update={"revoked_at": revoked_at})
         action = put_action(self._table_name, self._encode(updated), payload(prior_item))
@@ -104,3 +104,11 @@ class DynamoDBCertificateRegister:
         return encode_model(
             certificate, "CERTIFICATE", certificate_key(certificate.tenant_id, certificate.serial)
         )
+
+
+def _matches_identity(record: CertificateRecord, key: CertificateKey) -> bool:
+    return (
+        record.tenant_id == key.tenant_id
+        and record.agent_id == key.agent_id
+        and record.serial == key.serial
+    )

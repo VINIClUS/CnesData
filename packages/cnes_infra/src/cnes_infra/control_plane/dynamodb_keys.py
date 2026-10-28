@@ -78,9 +78,7 @@ def dispatch_key(tenant_id: str, run_id: str) -> tuple[str, str]:
 
 def idempotency_key(tenant_id: str, scope: str, key: str) -> tuple[str, str]:
     """Cria a chave base de idempotência."""
-    return tenant_partition(tenant_id), (
-        f"IDEMPOTENCY#{key_component(scope)}#{key_component(key)}"
-    )
+    return tenant_partition(tenant_id), (f"IDEMPOTENCY#{key_component(scope)}#{key_component(key)}")
 
 
 def version_key(tenant_id: str, dataset_name: str, version_id: str) -> tuple[str, str]:

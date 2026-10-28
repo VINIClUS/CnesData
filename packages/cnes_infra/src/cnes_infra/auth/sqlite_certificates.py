@@ -19,8 +19,14 @@ if TYPE_CHECKING:
     from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 
 _COLUMNS = (
-    "tenant_id", "agent_id", "serial", "certificate_fingerprint_sha256",
-    "subject_cn", "issued_at", "expires_at", "revoked_at",
+    "tenant_id",
+    "agent_id",
+    "serial",
+    "certificate_fingerprint_sha256",
+    "subject_cn",
+    "issued_at",
+    "expires_at",
+    "revoked_at",
 )
 _STORAGE_ERRORS = (sqlite3.Error, OSError, RuntimeError)
 

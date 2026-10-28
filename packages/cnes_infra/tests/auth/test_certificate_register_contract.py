@@ -23,9 +23,13 @@ _FINGERPRINT = "a" * 64
 _OTHER_FINGERPRINT = "b" * 64
 _TABLE = "cnesdata-control-plane"
 _RECORD: dict[str, Any] = {
-    "tenant_id": "tenant-a", "agent_id": "agent-a", "serial": "serial-old",
-    "certificate_fingerprint_sha256": _FINGERPRINT, "subject_cn": "agent-a.example",
-    "issued_at": _NOW - timedelta(days=1), "expires_at": _NOW + timedelta(days=1),
+    "tenant_id": "tenant-a",
+    "agent_id": "agent-a",
+    "serial": "serial-old",
+    "certificate_fingerprint_sha256": _FINGERPRINT,
+    "subject_cn": "agent-a.example",
+    "issued_at": _NOW - timedelta(days=1),
+    "expires_at": _NOW + timedelta(days=1),
     "revoked_at": None,
 }
 
@@ -35,13 +39,15 @@ def _certificate(**changes: Any) -> CertificateRecord:
 
 
 def _key(**changes: str) -> CertificateKey:
-    return CertificateKey(**({"tenant_id": "tenant-a", "agent_id": "agent-a",
-                              "serial": "serial-old"} | changes))
+    return CertificateKey(
+        **({"tenant_id": "tenant-a", "agent_id": "agent-a", "serial": "serial-old"} | changes)
+    )
 
 
 @pytest.fixture(params=("sqlite", "dynamodb"))
-def register(request: pytest.FixtureRequest, tmp_path: Any,
-             monkeypatch: pytest.MonkeyPatch) -> Iterator[CertificateRegisterPort]:
+def register(
+    request: pytest.FixtureRequest, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[CertificateRegisterPort]:
     if request.param == "sqlite":
         plane = SQLiteControlPlane(tmp_path / "control.sqlite3", lambda: _NOW)
         plane.initialize()
@@ -56,10 +62,14 @@ def register(request: pytest.FixtureRequest, tmp_path: Any,
         client = boto3.client("dynamodb", region_name="us-east-1")
         client.create_table(
             TableName=_TABLE,
-            KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"},
-                       {"AttributeName": "sk", "KeyType": "RANGE"}],
-            AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"},
-                                  {"AttributeName": "sk", "AttributeType": "S"}],
+            KeySchema=[
+                {"AttributeName": "pk", "KeyType": "HASH"},
+                {"AttributeName": "sk", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "pk", "AttributeType": "S"},
+                {"AttributeName": "sk", "AttributeType": "S"},
+            ],
             ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
         )
         yield DynamoDBCertificateRegister(client, _TABLE)
@@ -98,8 +108,11 @@ def test_identidade_e_fingerprint_incorretos_nao_autorizam(
     register: CertificateRegisterPort,
 ) -> None:
     register.record(_certificate())
-    for wrong_key in (_key(tenant_id="tenant-b"), _key(agent_id="agent-b"),
-                      _key(serial="serial-unknown")):
+    for wrong_key in (
+        _key(tenant_id="tenant-b"),
+        _key(agent_id="agent-b"),
+        _key(serial="serial-unknown"),
+    ):
         assert register.get(wrong_key) is None
         assert register.is_active(wrong_key, _FINGERPRINT, _NOW) is False
     assert register.is_active(_key(), _OTHER_FINGERPRINT, _NOW) is False
@@ -117,13 +130,18 @@ def test_revogacao_individual_e_replay_preservam_outro_serial(
     assert register.get(_key()) == _certificate(revoked_at=_NOW)
 
 
-@pytest.mark.parametrize("revoked_at", [
-    pytest.param(_NOW.replace(tzinfo=None), id="naive"),
-    pytest.param(datetime(2026, 10, 26, 13, tzinfo=timezone(timedelta(hours=1))),
-                 id="offset_nao_zero"),
-])
+@pytest.mark.parametrize(
+    "revoked_at",
+    [
+        pytest.param(_NOW.replace(tzinfo=None), id="naive"),
+        pytest.param(
+            datetime(2026, 10, 26, 13, tzinfo=timezone(timedelta(hours=1))), id="offset_nao_zero"
+        ),
+    ],
+)
 def test_revogacao_rejeita_instante_nao_utc_e_preserva_registro(
-    register: CertificateRegisterPort, revoked_at: datetime,
+    register: CertificateRegisterPort,
+    revoked_at: datetime,
 ) -> None:
     original = _certificate()
     register.record(original)
@@ -212,14 +230,17 @@ def test_registro_exige_fingerprint_sha256_hexadecimal_minusculo(fingerprint: st
         _certificate(certificate_fingerprint_sha256=fingerprint)
 
 
-@pytest.mark.parametrize("change", [
-    {"issued_at": (_NOW - timedelta(days=1)).replace(tzinfo=None)},
-    {"expires_at": (_NOW + timedelta(days=1)).replace(tzinfo=None)},
-    {"issued_at": datetime(2026, 10, 25, 13, tzinfo=timezone(timedelta(hours=1)))},
-    {"expires_at": _NOW - timedelta(days=1)},
-    {"revoked_at": _NOW.replace(tzinfo=None)},
-    {"revoked_at": datetime(2026, 10, 26, 13, tzinfo=timezone(timedelta(hours=1)))},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"issued_at": (_NOW - timedelta(days=1)).replace(tzinfo=None)},
+        {"expires_at": (_NOW + timedelta(days=1)).replace(tzinfo=None)},
+        {"issued_at": datetime(2026, 10, 25, 13, tzinfo=timezone(timedelta(hours=1)))},
+        {"expires_at": _NOW - timedelta(days=1)},
+        {"revoked_at": _NOW.replace(tzinfo=None)},
+        {"revoked_at": datetime(2026, 10, 26, 13, tzinfo=timezone(timedelta(hours=1)))},
+    ],
+)
 def test_registro_exige_instantes_utc_e_expiracao_posterior(change: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
         _certificate(**change)

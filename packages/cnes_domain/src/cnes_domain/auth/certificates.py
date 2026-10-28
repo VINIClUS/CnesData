@@ -30,7 +30,6 @@ class CertificateRecord(BaseModel):
     expires_at: datetime
     revoked_at: datetime | None = None
 
-
     @field_validator("issued_at", "expires_at", "revoked_at")
     @classmethod
     def _require_utc(cls, value: datetime | None) -> datetime | None:

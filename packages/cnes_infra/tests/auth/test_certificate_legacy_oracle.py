@@ -36,8 +36,10 @@ def legacy_oracle(request: pytest.FixtureRequest) -> Any:
     finally:
         with engine.begin() as conn:
             conn.execute(
-                text("DELETE FROM auth_provisioned_certs "
-                     "WHERE tenant_id = :tenant AND ca_serial LIKE :prefix"),
+                text(
+                    "DELETE FROM auth_provisioned_certs "
+                    "WHERE tenant_id = :tenant AND ca_serial LIKE :prefix"
+                ),
                 {"tenant": expected["tenant_id"], "prefix": "cert-oracle-%"},
             )
         tenant_id_ctx.reset(token)
@@ -46,8 +48,10 @@ def legacy_oracle(request: pytest.FixtureRequest) -> Any:
 def _record(repo: ProvisionedCertsRepo, record: dict[str, Any]) -> dt.datetime:
     expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(days=record["expires_after_days"])
     repo.record(
-        agent_id=record["agent_id"], tenant_id=record["tenant_id"],
-        subject_cn=record["subject_cn"], ca_serial=record["ca_serial"],
+        agent_id=record["agent_id"],
+        tenant_id=record["tenant_id"],
+        subject_cn=record["subject_cn"],
+        ca_serial=record["ca_serial"],
         expires_at=expires_at,
     )
     return expires_at
@@ -61,8 +65,10 @@ def test_legado_preserva_overlap_e_rejeita_serial_invalido(legacy_oracle: Any) -
         expires_at = _record(repo, record)
         with engine.connect() as conn:
             row = conn.execute(
-                text("SELECT * FROM auth_provisioned_certs "
-                     "WHERE tenant_id = :tenant AND ca_serial = :serial"),
+                text(
+                    "SELECT * FROM auth_provisioned_certs "
+                    "WHERE tenant_id = :tenant AND ca_serial = :serial"
+                ),
                 {"tenant": record["tenant_id"], "serial": record["ca_serial"]},
             ).one()
         assert set(row._mapping) == set(expected["legacy_columns"])
@@ -74,19 +80,24 @@ def test_legado_preserva_overlap_e_rejeita_serial_invalido(legacy_oracle: Any) -
         assert row.revoked_at is None
     with engine.begin() as conn:
         conn.execute(
-            text("UPDATE auth_provisioned_certs SET revoked_at = now() "
-                 "WHERE tenant_id = :tenant AND ca_serial = :serial"),
+            text(
+                "UPDATE auth_provisioned_certs SET revoked_at = now() "
+                "WHERE tenant_id = :tenant AND ca_serial = :serial"
+            ),
             {"tenant": expected["tenant_id"], "serial": "cert-oracle-revoked"},
         )
         conn.execute(
-            text("UPDATE auth_provisioned_certs SET expires_at = now() "
-                 "WHERE tenant_id = :tenant AND ca_serial = :serial"),
+            text(
+                "UPDATE auth_provisioned_certs SET expires_at = now() "
+                "WHERE tenant_id = :tenant AND ca_serial = :serial"
+            ),
             {"tenant": expected["tenant_id"], "serial": "cert-oracle-expired"},
         )
     for observation in expected["observations"]:
-        assert repo.is_serial_active(
-            observation["agent_id"], observation["ca_serial"]
-        ) is observation["active"]
+        assert (
+            repo.is_serial_active(observation["agent_id"], observation["ca_serial"])
+            is observation["active"]
+        )
 
 
 @pytest.mark.postgres
@@ -98,11 +109,18 @@ def test_legado_aceita_duas_linhas_com_mesmo_serial(legacy_oracle: Any) -> None:
     _record(repo, duplicate)
     with engine.connect() as conn:
         rows = conn.execute(
-            text("SELECT agent_id, tenant_id, subject_cn, ca_serial "
-                 "FROM auth_provisioned_certs WHERE tenant_id = :tenant AND ca_serial = :serial"),
+            text(
+                "SELECT agent_id, tenant_id, subject_cn, ca_serial "
+                "FROM auth_provisioned_certs WHERE tenant_id = :tenant AND ca_serial = :serial"
+            ),
             {"tenant": duplicate["tenant_id"], "serial": duplicate["ca_serial"]},
         ).all()
     assert len(rows) == duplicate["expected_count"]
-    assert all(dict(row._mapping) == {
-        field: duplicate[field] for field in ("agent_id", "tenant_id", "subject_cn", "ca_serial")
-    } for row in rows)
+    assert all(
+        dict(row._mapping)
+        == {
+            field: duplicate[field]
+            for field in ("agent_id", "tenant_id", "subject_cn", "ca_serial")
+        }
+        for row in rows
+    )

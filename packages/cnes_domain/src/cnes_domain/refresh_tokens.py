@@ -103,7 +103,8 @@ def validate_refresh_token_mutation(token: str, mutation: RefreshTokenMutation) 
     """Raises: RefreshTokenInvalid para segredo ou mutação inválida."""
     try:
         validate_refresh_token_context(
-            token, RefreshTokenContext(mutation.tenant_id, mutation.now),
+            token,
+            RefreshTokenContext(mutation.tenant_id, mutation.now),
         )
         _require(type(mutation.expected_version) is int and mutation.expected_version >= 0)
     except (AttributeError, TypeError, ValueError):

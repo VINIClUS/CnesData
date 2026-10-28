@@ -48,7 +48,9 @@ _REVOKE = (
 
 class SQLiteRefreshTokenStore:
     def __init__(
-        self, connection_factory: Callable[[], Connection], token_factory: Callable[[], str],
+        self,
+        connection_factory: Callable[[], Connection],
+        token_factory: Callable[[], str],
     ) -> None:
         self._connection_factory = connection_factory
         self._token_factory = token_factory
@@ -125,6 +127,8 @@ class SQLiteRefreshTokenStore:
     def _create_secret(self) -> tuple[str, str]:
         try:
             token = self._token_factory()
+            if not token:
+                raise RefreshTokenUnavailable("operation=create_secret")
             return token, sha256(token.encode()).hexdigest()
         except Exception:
             raise RefreshTokenUnavailable("operation=create_secret") from None
@@ -136,9 +140,13 @@ class SQLiteRefreshTokenStore:
                 connection.autocommit = False
                 inserted = connection.execute(_INSERT, _parameters(record)).rowcount
                 if inserted == 0:
-                    occupied = connection.execute(
-                        _IDENTITY, (record.tenant_id, record.token_sha256),
-                    ).fetchone() is not None
+                    occupied = (
+                        connection.execute(
+                            _IDENTITY,
+                            (record.tenant_id, record.token_sha256),
+                        ).fetchone()
+                        is not None
+                    )
                     connection.rollback()
         except Exception:
             raise RefreshTokenUnavailable("operation=insert_refresh") from None
@@ -155,7 +163,8 @@ def _timestamp(value: datetime | None) -> str | None:
 
 
 def _has_active_rows(
-    rows: list[tuple[str, str, str, str, str, str, str | None, str | None, int]], now: datetime,
+    rows: list[tuple[str, str, str, str, str, str, str | None, str | None, int]],
+    now: datetime,
 ) -> bool:
     active = False
     for row in rows:
@@ -170,10 +179,15 @@ def _decode(
     row: tuple[str, str, str, str, str, str, str | None, str | None, int],
 ) -> RefreshTokenRecord:
     return RefreshTokenRecord(
-        token_sha256=row[0], agent_id=row[1], tenant_id=row[2], machine_fingerprint=row[3],
-        issued_at=datetime.fromisoformat(row[4]), expires_at=datetime.fromisoformat(row[5]),
+        token_sha256=row[0],
+        agent_id=row[1],
+        tenant_id=row[2],
+        machine_fingerprint=row[3],
+        issued_at=datetime.fromisoformat(row[4]),
+        expires_at=datetime.fromisoformat(row[5]),
         last_used_at=_parse_optional_timestamp(row[6]),
-        revoked_at=_parse_optional_timestamp(row[7]), version=row[8],
+        revoked_at=_parse_optional_timestamp(row[7]),
+        version=row[8],
     )
 
 
@@ -196,7 +210,10 @@ def _parameters(record: RefreshTokenRecord) -> tuple[object, ...]:
 
 
 def _apply_mutation(
-    connection: Connection, mutation: RefreshTokenMutation, digest: str, revoking: bool,
+    connection: Connection,
+    mutation: RefreshTokenMutation,
+    digest: str,
+    revoking: bool,
 ) -> bool:
     if connection.autocommit != LEGACY_TRANSACTION_CONTROL or connection.in_transaction:
         raise RefreshTokenUnavailable("operation=refresh_connection")
@@ -214,7 +231,10 @@ def _apply_mutation(
 
 
 def _write_mutation(
-    connection: Connection, mutation: RefreshTokenMutation, digest: str, revoking: bool,
+    connection: Connection,
+    mutation: RefreshTokenMutation,
+    digest: str,
+    revoking: bool,
 ) -> bool:
     row = connection.execute(_SELECT, (mutation.tenant_id, digest)).fetchone()
     if row is None:
@@ -233,7 +253,9 @@ def _write_mutation(
 
 
 def _eligible_mutation(
-    record: RefreshTokenRecord, mutation: RefreshTokenMutation, revoking: bool,
+    record: RefreshTokenRecord,
+    mutation: RefreshTokenMutation,
+    revoking: bool,
 ) -> bool:
     if record.version != mutation.expected_version or record.revoked_at is not None:
         return False

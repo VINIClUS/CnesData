@@ -34,14 +34,26 @@ _ISSUED = datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=UTC)
 _EXPIRES = datetime(2026, 1, 3, 3, 4, 5, 654321, tzinfo=UTC)
 _NOW = datetime(2026, 1, 2, 6, 0, 0, tzinfo=UTC)
 _ROW = (
-    _DIGEST, _AGENT, _TENANT, _FINGERPRINT,
-    "2026-01-02T03:04:05.123456+00:00", "2026-01-03T03:04:05.654321+00:00",
-    "2026-01-02T04:05:06.234567+00:00", None, 7,
+    _DIGEST,
+    _AGENT,
+    _TENANT,
+    _FINGERPRINT,
+    "2026-01-02T03:04:05.123456+00:00",
+    "2026-01-03T03:04:05.654321+00:00",
+    "2026-01-02T04:05:06.234567+00:00",
+    None,
+    7,
 )
 _OTHER_ROW = (
-    _DIGEST, "44444444-4444-4444-8444-444444444444", _OTHER_TENANT, "other-host",
-    "2026-01-02T03:04:05.123456+00:00", "2026-01-03T03:04:05.654321+00:00",
-    None, None, 2,
+    _DIGEST,
+    "44444444-4444-4444-8444-444444444444",
+    _OTHER_TENANT,
+    "other-host",
+    "2026-01-02T03:04:05.123456+00:00",
+    "2026-01-03T03:04:05.654321+00:00",
+    None,
+    None,
+    2,
 )
 _SCHEMA = """
 CREATE TABLE auth_refresh_tokens (
@@ -64,9 +76,14 @@ _SELECT = (
     "ORDER BY tenant_id, token_sha256"
 )
 _WRITES = {
-    sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE,
-    sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_DROP_TABLE, sqlite3.SQLITE_ALTER_TABLE,
-    sqlite3.SQLITE_CREATE_INDEX, sqlite3.SQLITE_DROP_INDEX,
+    sqlite3.SQLITE_INSERT,
+    sqlite3.SQLITE_UPDATE,
+    sqlite3.SQLITE_DELETE,
+    sqlite3.SQLITE_CREATE_TABLE,
+    sqlite3.SQLITE_DROP_TABLE,
+    sqlite3.SQLITE_ALTER_TABLE,
+    sqlite3.SQLITE_CREATE_INDEX,
+    sqlite3.SQLITE_DROP_INDEX,
 }
 
 
@@ -146,12 +163,15 @@ def database(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> Generator[_Dat
 
 def _expected() -> RefreshTokenRecord:
     return RefreshTokenRecord(
-        token_sha256=_DIGEST, agent_id=_AGENT, tenant_id=_TENANT,
+        token_sha256=_DIGEST,
+        agent_id=_AGENT,
+        tenant_id=_TENANT,
         machine_fingerprint=_FINGERPRINT,
         issued_at=datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=UTC),
         expires_at=datetime(2026, 1, 3, 3, 4, 5, 654321, tzinfo=UTC),
         last_used_at=datetime(2026, 1, 2, 4, 5, 6, 234567, tzinfo=UTC),
-        revoked_at=None, version=7,
+        revoked_at=None,
+        version=7,
     )
 
 
@@ -164,7 +184,8 @@ def _assert_sanitized(error: Exception, observations: str) -> None:
 
 
 def test_releitura_reutiliza_registro_completo_sem_alterar_uso_prazo_ou_versao(
-    database: _Database, caplog: pytest.LogCaptureFixture,
+    database: _Database,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     database.seed(_ROW)
     context = RefreshTokenContext(_TENANT, _NOW)
@@ -179,7 +200,8 @@ def test_releitura_reutiliza_registro_completo_sem_alterar_uso_prazo_ou_versao(
 
 @pytest.mark.parametrize("now", [_ISSUED, _EXPIRES - timedelta(microseconds=1)])
 def test_aceita_emissao_inclusiva_e_ultimo_microssegundo_antes_do_prazo(
-    database: _Database, now: datetime,
+    database: _Database,
+    now: datetime,
 ) -> None:
     database.seed(_ROW)
     assert database.store().validate(_PLAINTEXT, RefreshTokenContext(_TENANT, now)) == _expected()
@@ -197,7 +219,9 @@ def test_aceita_emissao_inclusiva_e_ultimo_microssegundo_antes_do_prazo(
     ],
 )
 def test_inativo_retorna_ausencia_mantendo_os_nove_campos_fisicamente_presentes(
-    database: _Database, now: datetime, revoked: str | None,
+    database: _Database,
+    now: datetime,
+    revoked: str | None,
 ) -> None:
     row = (*_ROW[:7], revoked, 7)
     database.seed(row)
@@ -213,11 +237,15 @@ def test_mesmo_hash_em_dois_tenants_retorna_somente_o_registro_do_contexto(
     store = database.store()
     assert store.validate(_PLAINTEXT, RefreshTokenContext(_TENANT, _NOW)) == _expected()
     other_expected = RefreshTokenRecord(
-        token_sha256=_DIGEST, agent_id="44444444-4444-4444-8444-444444444444",
-        tenant_id=_OTHER_TENANT, machine_fingerprint="other-host",
+        token_sha256=_DIGEST,
+        agent_id="44444444-4444-4444-8444-444444444444",
+        tenant_id=_OTHER_TENANT,
+        machine_fingerprint="other-host",
         issued_at=datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=UTC),
         expires_at=datetime(2026, 1, 3, 3, 4, 5, 654321, tzinfo=UTC),
-        last_used_at=None, revoked_at=None, version=2,
+        last_used_at=None,
+        revoked_at=None,
+        version=2,
     )
     assert store.validate(_PLAINTEXT, RefreshTokenContext(_OTHER_TENANT, _NOW)) == other_expected
     for tenant in (_TENANT, _OTHER_TENANT):
@@ -228,11 +256,15 @@ def test_mesmo_hash_em_dois_tenants_retorna_somente_o_registro_do_contexto(
 
 @pytest.mark.parametrize(
     ("token", "tenant"),
-    [pytest.param(_PLAINTEXT, _OTHER_TENANT, id="tenant-errado"),
-     pytest.param("opaque-unknown'; SELECT 1;--", _TENANT, id="hash-ausente")],
+    [
+        pytest.param(_PLAINTEXT, _OTHER_TENANT, id="tenant-errado"),
+        pytest.param("opaque-unknown'; SELECT 1;--", _TENANT, id="hash-ausente"),
+    ],
 )
 def test_identidade_desconhecida_retorna_none_com_contexto_valido(
-    database: _Database, token: str, tenant: str,
+    database: _Database,
+    token: str,
+    tenant: str,
 ) -> None:
     database.seed(_ROW)
     assert database.store().validate(token, RefreshTokenContext(tenant, _NOW)) is None
@@ -245,7 +277,8 @@ def test_segredo_whitespace_e_opaco_e_nao_e_removido_ou_rejeitado(database: _Dat
     row = (_SPACE_DIGEST, *_ROW[1:])
     database.seed(row)
     assert database.store().validate(" ", RefreshTokenContext(_TENANT, _NOW)) == replace(
-        _expected(), token_sha256=_SPACE_DIGEST,
+        _expected(),
+        token_sha256=_SPACE_DIGEST,
     )
     assert database.rows() == [row]
     database.assert_read_only_closed()
@@ -254,8 +287,7 @@ def test_segredo_whitespace_e_opaco_e_nao_e_removido_ou_rejeitado(database: _Dat
 def test_leitura_aceita_utc_valido_sem_exigir_a_grafia_canonica_do_writer(
     database: _Database,
 ) -> None:
-    row = (*_ROW[:4], "2026-01-02T03:04:05.123456Z",
-           "2026-01-03 03:04:05.654321+00:00", *_ROW[6:])
+    row = (*_ROW[:4], "2026-01-02T03:04:05.123456Z", "2026-01-03 03:04:05.654321+00:00", *_ROW[6:])
     database.seed(row)
     assert database.store().validate(_PLAINTEXT, RefreshTokenContext(_TENANT, _NOW)) == _expected()
     assert database.rows() == [row]
@@ -264,7 +296,8 @@ def test_leitura_aceita_utc_valido_sem_exigir_a_grafia_canonica_do_writer(
 
 @pytest.mark.parametrize("token", [None, b"abc", 7, ""])
 def test_token_invalido_e_rejeitado_antes_de_abrir_conexao(
-    database: _Database, token: object,
+    database: _Database,
+    token: object,
 ) -> None:
     with pytest.raises(RefreshTokenInvalid):
         database.store().validate(cast("str", token), RefreshTokenContext(_TENANT, _NOW))
@@ -274,11 +307,16 @@ def test_token_invalido_e_rejeitado_antes_de_abrir_conexao(
 
 @pytest.mark.parametrize(
     "tenant",
-    ["not-a-uuid", "11111111111141118111111111111111",
-     "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA", UUID(_TENANT)],
+    [
+        "not-a-uuid",
+        "11111111111141118111111111111111",
+        "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+        UUID(_TENANT),
+    ],
 )
 def test_tenant_nao_canonico_nao_e_coagido_e_falha_antes_da_conexao(
-    database: _Database, tenant: object,
+    database: _Database,
+    tenant: object,
 ) -> None:
     context = RefreshTokenContext(cast("str", tenant), _NOW)
     with pytest.raises(RefreshTokenInvalid):
@@ -289,11 +327,16 @@ def test_tenant_nao_canonico_nao_e_coagido_e_falha_antes_da_conexao(
 
 @pytest.mark.parametrize(
     "now",
-    [_NOW.replace(tzinfo=None), _NOW.replace(tzinfo=timezone(timedelta(hours=1))),
-     "2026-01-02T06:00:00+00:00", None],
+    [
+        _NOW.replace(tzinfo=None),
+        _NOW.replace(tzinfo=timezone(timedelta(hours=1))),
+        "2026-01-02T06:00:00+00:00",
+        None,
+    ],
 )
 def test_relogio_invalido_e_rejeitado_antes_de_abrir_conexao(
-    database: _Database, now: object,
+    database: _Database,
+    now: object,
 ) -> None:
     context = RefreshTokenContext(_TENANT, cast("datetime", now))
     with pytest.raises(RefreshTokenInvalid):
@@ -315,7 +358,9 @@ def test_relogio_invalido_e_rejeitado_antes_de_abrir_conexao(
     ],
 )
 def test_linha_corrompida_selecionada_e_unavailable_mesmo_quando_inativa(
-    database: _Database, corruption: tuple[int, object], caplog: pytest.LogCaptureFixture,
+    database: _Database,
+    corruption: tuple[int, object],
+    caplog: pytest.LogCaptureFixture,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     column, value = corruption
@@ -334,7 +379,9 @@ def test_linha_corrompida_selecionada_e_unavailable_mesmo_quando_inativa(
 
 @pytest.mark.parametrize("origin", ["factory", "read"])
 def test_falha_de_fronteira_e_sanitizada_e_conexao_entregue_e_fechada(
-    database: _Database, origin: str, caplog: pytest.LogCaptureFixture,
+    database: _Database,
+    origin: str,
+    caplog: pytest.LogCaptureFixture,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     database.seed(_ROW)

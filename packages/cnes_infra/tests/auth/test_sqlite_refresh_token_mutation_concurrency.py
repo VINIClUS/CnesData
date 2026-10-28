@@ -20,7 +20,8 @@ from . import test_sqlite_refresh_token_mutations as cases
 
 @pytest.fixture(autouse=True)
 def observacoes_sanitizadas(
-    caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> Generator[None]:
     caplog.set_level(logging.DEBUG)
     yield
@@ -51,8 +52,12 @@ def assert_write_reserved(boundary: "WorkerDatabase", selected: bool) -> None:
             code = error.sqlite_errorcode
         else:
             code = None
-        observation = (selected, boundary.gates.a_update.is_set(),
-                       boundary.gates.b_started.is_set(), code)
+        observation = (
+            selected,
+            boundary.gates.a_update.is_set(),
+            boundary.gates.b_started.is_set(),
+            code,
+        )
         boundary.gates.reservations.append(observation)
         assert observation[:3] == (False, False, False)
         assert code == sqlite3.SQLITE_BUSY, "write_reservation_missing_before_select"
@@ -152,17 +157,23 @@ def join(threads: tuple[Thread, Thread], gates: Gates) -> None:
 
 def assert_restart(database: cases.Database, revoked: bool) -> None:
     record = database.store().validate(
-        cases.PLAINTEXT, RefreshTokenContext(cases.TENANT, cases.NOW),
+        cases.PLAINTEXT,
+        RefreshTokenContext(cases.TENANT, cases.NOW),
     )
     if revoked:
         assert record is None
         expected = (*cases.ROW[:7], "2026-01-02T03:04:06.100002+00:00", 8)
     else:
         assert record == RefreshTokenRecord(
-            cases.DIGEST, "33333333-3333-4333-8333-333333333333", cases.TENANT,
-            "synthetic-cas-host", datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=UTC),
+            cases.DIGEST,
+            "33333333-3333-4333-8333-333333333333",
+            cases.TENANT,
+            "synthetic-cas-host",
+            datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=UTC),
             datetime(2026, 1, 2, 3, 4, 6, 654321, tzinfo=UTC),
-            datetime(2026, 1, 2, 3, 4, 6, 100002, tzinfo=UTC), None, 8,
+            datetime(2026, 1, 2, 3, 4, 6, 100002, tzinfo=UTC),
+            None,
+            8,
         )
         expected = (*cases.ROW[:6], "2026-01-02T03:04:06.100002+00:00", None, 8)
     assert database.rows() == [expected]
@@ -170,10 +181,12 @@ def assert_restart(database: cases.Database, revoked: bool) -> None:
 
 
 @pytest.mark.parametrize(
-    "operations", [("mark_used", "mark_used"), ("revoke", "revoke"), ("mark_used", "revoke")],
+    "operations",
+    [("mark_used", "mark_used"), ("revoke", "revoke"), ("mark_used", "revoke")],
 )
 def test_duas_instancias_disputam_mesma_versao_com_um_vencedor(
-    tmp_path, operations: tuple[str, str],
+    tmp_path,
+    operations: tuple[str, str],
 ) -> None:
     database = cases.Database(tmp_path / "race.sqlite")
     database.seed(cases.ROW)
@@ -198,15 +211,31 @@ def test_duas_instancias_disputam_mesma_versao_com_um_vencedor(
         database.assert_closed()
     if operations == ("mark_used", "revoke") and winner == "mark_used":
         assert database.store().revoke(cases.PLAINTEXT, cases.mutation(version=8)) is True
-        assert database.rows() == [(*cases.ROW[:6], "2026-01-02T03:04:06.100002+00:00",
-                                    "2026-01-02T03:04:06.100002+00:00", 9)]
-        assert database.store().validate(
-            cases.PLAINTEXT, RefreshTokenContext(cases.TENANT, cases.NOW),
-        ) is None
+        assert database.rows() == [
+            (
+                *cases.ROW[:6],
+                "2026-01-02T03:04:06.100002+00:00",
+                "2026-01-02T03:04:06.100002+00:00",
+                9,
+            )
+        ]
+        assert (
+            database.store().validate(
+                cases.PLAINTEXT,
+                RefreshTokenContext(cases.TENANT, cases.NOW),
+            )
+            is None
+        )
         assert database.store().mark_used(cases.PLAINTEXT, cases.mutation(version=9)) is False
         assert database.store().revoke(cases.PLAINTEXT, cases.mutation(version=9)) is False
-        assert database.rows() == [(*cases.ROW[:6], "2026-01-02T03:04:06.100002+00:00",
-                                    "2026-01-02T03:04:06.100002+00:00", 9)]
+        assert database.rows() == [
+            (
+                *cases.ROW[:6],
+                "2026-01-02T03:04:06.100002+00:00",
+                "2026-01-02T03:04:06.100002+00:00",
+                9,
+            )
+        ]
         database.assert_closed()
 
 
@@ -222,8 +251,10 @@ def test_concorrente_rele_estado_apos_commit_sem_promover_snapshot(tmp_path, jou
     gates = Gates()
     gates.hold_update = True
     workers = (WorkerDatabase(database, "a", gates), WorkerDatabase(database, "b", gates))
-    threads = (Thread(target=workers[0].run, args=("mark_used",)),
-               Thread(target=workers[1].run, args=("mark_used",)))
+    threads = (
+        Thread(target=workers[0].run, args=("mark_used",)),
+        Thread(target=workers[1].run, args=("mark_used",)),
+    )
     try:
         threads[0].start()
         assert gates.a_progress.wait(5), "first_worker_timeout"

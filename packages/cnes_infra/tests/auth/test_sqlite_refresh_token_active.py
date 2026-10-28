@@ -37,9 +37,15 @@ _EXPIRES = datetime(2026, 1, 3, 3, 4, 5, 654321, tzinfo=UTC)
 _NOW = datetime(2026, 1, 2, 6, 0, 0, tzinfo=UTC)
 _CONTEXT = RefreshTokenContext(_TENANT, _NOW)
 _ROW = (
-    _DIGEST, _AGENT, _TENANT, _FINGERPRINT,
-    "2026-01-02T03:04:05.123456+00:00", "2026-01-03T03:04:05.654321+00:00",
-    "2026-01-02T04:05:06.234567+00:00", None, 7,
+    _DIGEST,
+    _AGENT,
+    _TENANT,
+    _FINGERPRINT,
+    "2026-01-02T03:04:05.123456+00:00",
+    "2026-01-03T03:04:05.654321+00:00",
+    "2026-01-02T04:05:06.234567+00:00",
+    None,
+    7,
 )
 _REVOKED = (_B, *_ROW[1:7], "2026-01-02T05:00:00.345678+00:00", 7)
 _EXPIRED = (_C, *_ROW[1:5], "2026-01-02T05:00:00.000000+00:00", *_ROW[6:])
@@ -59,10 +65,17 @@ _SELECT = (
     "ORDER BY tenant_id, token_sha256"
 )
 _FORBIDDEN = {
-    sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE,
-    sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_DROP_TABLE, sqlite3.SQLITE_ALTER_TABLE,
-    sqlite3.SQLITE_CREATE_INDEX, sqlite3.SQLITE_DROP_INDEX, sqlite3.SQLITE_PRAGMA,
-    sqlite3.SQLITE_TRANSACTION, sqlite3.SQLITE_SAVEPOINT,
+    sqlite3.SQLITE_INSERT,
+    sqlite3.SQLITE_UPDATE,
+    sqlite3.SQLITE_DELETE,
+    sqlite3.SQLITE_CREATE_TABLE,
+    sqlite3.SQLITE_DROP_TABLE,
+    sqlite3.SQLITE_ALTER_TABLE,
+    sqlite3.SQLITE_CREATE_INDEX,
+    sqlite3.SQLITE_DROP_INDEX,
+    sqlite3.SQLITE_PRAGMA,
+    sqlite3.SQLITE_TRANSACTION,
+    sqlite3.SQLITE_SAVEPOINT,
 }
 
 
@@ -127,7 +140,10 @@ class _Database:
         if self.mode in {"autocommit", "transactional"}:
             options["autocommit"] = self.mode == "autocommit"
         connection = sqlite3.connect(
-            self.path.as_uri() + "?mode=ro", uri=True, factory=_ObservedConnection, **options,
+            self.path.as_uri() + "?mode=ro",
+            uri=True,
+            factory=_ObservedConnection,
+            **options,
         )
         connection.database = self
         if self.mode == "begun":
@@ -179,7 +195,9 @@ class _Database:
 
 @pytest.fixture
 def database(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> Generator[_Database]:
     caplog.set_level(logging.DEBUG)
     boundary = _Database(tmp_path / "refresh-active.sqlite")
@@ -203,13 +221,17 @@ def _assert_sanitized(error: Exception) -> None:
 
 @pytest.mark.parametrize(
     ("rows", "expected"),
-    [pytest.param((), False, id="vazio"),
-     pytest.param((_REVOKED, _EXPIRED, _FUTURE), False, id="somente-inativos"),
-     pytest.param((_REVOKED, _EXPIRED, _FUTURE, _ROW), True, id="misto-ativo"),
-     pytest.param((_ROW, (_B, *_ROW[1:])), True, id="dois-ativos")],
+    [
+        pytest.param((), False, id="vazio"),
+        pytest.param((_REVOKED, _EXPIRED, _FUTURE), False, id="somente-inativos"),
+        pytest.param((_REVOKED, _EXPIRED, _FUTURE, _ROW), True, id="misto-ativo"),
+        pytest.param((_ROW, (_B, *_ROW[1:])), True, id="dois-ativos"),
+    ],
 )
 def test_vazio_e_estados_mistos(
-    database: _Database, rows: tuple[tuple[object, ...], ...], expected: bool,
+    database: _Database,
+    rows: tuple[tuple[object, ...], ...],
+    expected: bool,
 ) -> None:
     database.seed(*rows)
     assert database.store().has_active_for_agent(_AGENT, _CONTEXT) is expected
@@ -219,14 +241,18 @@ def test_vazio_e_estados_mistos(
 
 @pytest.mark.parametrize(
     ("now", "expected"),
-    [pytest.param(_ISSUED - timedelta(microseconds=1), False, id="antes-emissao"),
-     pytest.param(_ISSUED, True, id="emissao-exata"),
-     pytest.param(_EXPIRES - timedelta(microseconds=1), True, id="ultimo-microssegundo"),
-     pytest.param(_EXPIRES, False, id="prazo-exato"),
-     pytest.param(_EXPIRES + timedelta(microseconds=1), False, id="apos-prazo")],
+    [
+        pytest.param(_ISSUED - timedelta(microseconds=1), False, id="antes-emissao"),
+        pytest.param(_ISSUED, True, id="emissao-exata"),
+        pytest.param(_EXPIRES - timedelta(microseconds=1), True, id="ultimo-microssegundo"),
+        pytest.param(_EXPIRES, False, id="prazo-exato"),
+        pytest.param(_EXPIRES + timedelta(microseconds=1), False, id="apos-prazo"),
+    ],
 )
 def test_limites_temporais_em_microssegundos(
-    database: _Database, now: datetime, expected: bool,
+    database: _Database,
+    now: datetime,
+    expected: bool,
 ) -> None:
     database.seed(_ROW)
     context = RefreshTokenContext(_TENANT, now)
@@ -250,8 +276,7 @@ def test_isola_tenant_e_agente(database: _Database) -> None:
 
 
 def test_utc_nao_depende_da_grafia(database: _Database) -> None:
-    row = (*_ROW[:4], "2026-01-02T03:04:05.123456Z",
-           "2026-01-03 03:04:05.654321+00:00", *_ROW[6:])
+    row = (*_ROW[:4], "2026-01-02T03:04:05.123456Z", "2026-01-03 03:04:05.654321+00:00", *_ROW[6:])
     database.seed(row)
     context = RefreshTokenContext(_TENANT, _EXPIRES - timedelta(microseconds=1))
     assert database.store().has_active_for_agent(_AGENT, context) is True
@@ -263,8 +288,15 @@ def test_uso_nao_consome_e_revogacao_persiste(database: _Database) -> None:
     database.seed()
     mutator = SQLiteRefreshTokenStore(lambda: sqlite3.connect(database.path), database.secret)
     record = RefreshTokenRecord(
-        _DIGEST, _AGENT, _TENANT, _FINGERPRINT, _ISSUED, _EXPIRES,
-        datetime(2026, 1, 2, 4, 5, 6, 234567, tzinfo=UTC), None, 7,
+        _DIGEST,
+        _AGENT,
+        _TENANT,
+        _FINGERPRINT,
+        _ISSUED,
+        _EXPIRES,
+        datetime(2026, 1, 2, 4, 5, 6, 234567, tzinfo=UTC),
+        None,
+        7,
     )
     mutator.import_hashed(record)
     assert database.store().has_active_for_agent(_AGENT, _CONTEXT) is True
@@ -275,8 +307,9 @@ def test_uso_nao_consome_e_revogacao_persiste(database: _Database) -> None:
     assert mutator.revoke("abc", RefreshTokenMutation(_TENANT, revoked, 8)) is True
     context = RefreshTokenContext(_TENANT, revoked)
     assert database.store().has_active_for_agent(_AGENT, context) is False
-    assert database.rows() == [(*_ROW[:6], "2026-01-02T06:00:00.000001+00:00",
-                               "2026-01-02T06:00:00.000002+00:00", 9)]
+    assert database.rows() == [
+        (*_ROW[:6], "2026-01-02T06:00:00.000001+00:00", "2026-01-02T06:00:00.000002+00:00", 9)
+    ]
     database.assert_readonly()
 
 
@@ -293,25 +326,33 @@ def test_consulta_reaberta_preserva_prazo(database: _Database) -> None:
 
 @pytest.mark.parametrize(
     ("agent", "context"),
-    [pytest.param(None, _CONTEXT, id="agente-none"),
-     pytest.param(b"33333333-3333-4333-8333-333333333333", _CONTEXT, id="agente-bytes"),
-     pytest.param("", _CONTEXT, id="agente-vazio"),
-     pytest.param("33333333333343338333333333333333", _CONTEXT, id="agente-nao-canonico"),
-     pytest.param(UUID(_AGENT), _CONTEXT, id="agente-objeto-uuid"),
-     pytest.param("'; SELECT 1;--", _CONTEXT, id="agente-sql"),
-     pytest.param(_AGENT, RefreshTokenContext("not-a-uuid", _NOW), id="tenant-invalido"),
-     pytest.param(_AGENT, RefreshTokenContext(_TENANT, _NOW.replace(tzinfo=None)), id="naive"),
-     pytest.param(_AGENT, RefreshTokenContext(
-         _TENANT, _NOW.replace(tzinfo=timezone(timedelta(hours=1)))), id="offset"),
-     pytest.param(_AGENT, RefreshTokenContext(_TENANT, cast("datetime", "now")), id="tipo-now"),
-     pytest.param(_AGENT, None, id="contexto-none")],
+    [
+        pytest.param(None, _CONTEXT, id="agente-none"),
+        pytest.param(b"33333333-3333-4333-8333-333333333333", _CONTEXT, id="agente-bytes"),
+        pytest.param("", _CONTEXT, id="agente-vazio"),
+        pytest.param("33333333333343338333333333333333", _CONTEXT, id="agente-nao-canonico"),
+        pytest.param(UUID(_AGENT), _CONTEXT, id="agente-objeto-uuid"),
+        pytest.param("'; SELECT 1;--", _CONTEXT, id="agente-sql"),
+        pytest.param(_AGENT, RefreshTokenContext("not-a-uuid", _NOW), id="tenant-invalido"),
+        pytest.param(_AGENT, RefreshTokenContext(_TENANT, _NOW.replace(tzinfo=None)), id="naive"),
+        pytest.param(
+            _AGENT,
+            RefreshTokenContext(_TENANT, _NOW.replace(tzinfo=timezone(timedelta(hours=1)))),
+            id="offset",
+        ),
+        pytest.param(_AGENT, RefreshTokenContext(_TENANT, cast("datetime", "now")), id="tipo-now"),
+        pytest.param(_AGENT, None, id="contexto-none"),
+    ],
 )
 def test_entrada_invalida_precede_io(
-    database: _Database, agent: object, context: object,
+    database: _Database,
+    agent: object,
+    context: object,
 ) -> None:
     with pytest.raises(RefreshTokenInvalid) as caught:
         database.store().has_active_for_agent(
-            cast("str", agent), cast("RefreshTokenContext", context),
+            cast("str", agent),
+            cast("RefreshTokenContext", context),
         )
     assert database.attempts == database.secret_calls == 0
     _assert_sanitized(caught.value)
@@ -319,17 +360,21 @@ def test_entrada_invalida_precede_io(
 
 @pytest.mark.parametrize(
     ("change", "now"),
-    [pytest.param((0, "bad"), _NOW, id="digest"),
-     pytest.param((3, ""), _EXPIRES, id="fingerprint-expirado"),
-     pytest.param((4, _CANARY), _NOW, id="emissao-ilegivel"),
-     pytest.param((5, "2026-01-03T04:04:05.654321+01:00"), _NOW, id="offset-revogado"),
-     pytest.param((8, -1), _ISSUED - timedelta(microseconds=1), id="versao-futuro"),
-     pytest.param((8, "invalid-version"), _NOW, id="versao-texto"),
-     pytest.param((6, "2026-01-03T03:04:05.654322+00:00"), _EXPIRES, id="uso-apos-prazo"),
-     pytest.param((7, "2026-01-02T03:04:05.123455+00:00"), _NOW, id="revogacao-antes-emissao")],
+    [
+        pytest.param((0, "bad"), _NOW, id="digest"),
+        pytest.param((3, ""), _EXPIRES, id="fingerprint-expirado"),
+        pytest.param((4, _CANARY), _NOW, id="emissao-ilegivel"),
+        pytest.param((5, "2026-01-03T04:04:05.654321+01:00"), _NOW, id="offset-revogado"),
+        pytest.param((8, -1), _ISSUED - timedelta(microseconds=1), id="versao-futuro"),
+        pytest.param((8, "invalid-version"), _NOW, id="versao-texto"),
+        pytest.param((6, "2026-01-03T03:04:05.654322+00:00"), _EXPIRES, id="uso-apos-prazo"),
+        pytest.param((7, "2026-01-02T03:04:05.123455+00:00"), _NOW, id="revogacao-antes-emissao"),
+    ],
 )
 def test_corrupcao_selecionada_nao_vira_inatividade(
-    database: _Database, change: tuple[int, object], now: datetime,
+    database: _Database,
+    change: tuple[int, object],
+    now: datetime,
 ) -> None:
     row: list[object] = list(_ROW)
     column, value = change

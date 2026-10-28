@@ -141,8 +141,7 @@ def _create_legacy_table(engine: Engine) -> None:
         connection.execute(text("GRANT USAGE ON SCHEMA public TO legacy_reader"))
         connection.execute(
             text(
-                "GRANT SELECT, INSERT, UPDATE ON TABLE auth_refresh_tokens "
-                "TO legacy_reader",
+                "GRANT SELECT, INSERT, UPDATE ON TABLE auth_refresh_tokens TO legacy_reader",
             ),
         )
 
@@ -242,9 +241,7 @@ def _cleanup_container(
         ["docker", "ps", "--all", "--filter", f"label={label}", "--format", "{{.Names}}"],
     )
     if inventory.returncode != 0:
-        cleanup_errors.append(
-            f"ps exit={inventory.returncode} stderr={inventory.stderr.strip()}"
-        )
+        cleanup_errors.append(f"ps exit={inventory.returncode} stderr={inventory.stderr.strip()}")
     elif inventory.stdout.strip():
         cleanup_errors.append(f"container órfão label={label}")
     if cleanup_errors:
