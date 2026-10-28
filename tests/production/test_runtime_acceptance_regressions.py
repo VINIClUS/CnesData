@@ -159,6 +159,16 @@ _NEGATIVE_XML = {
     + _LEAF
     + "</testsuite>",
     "contador_errors": _COUNTER_PARENT.replace('errors="0"', 'errors="1"') + _LEAF + "</testsuite>",
+    "contador_divergente": (
+        '<testsuite tests="2" skipped="0" failures="0" errors="0">'
+        '<testcase name="only"/></testsuite>'
+    ),
+    "raiz_contador_skipped": "<testsuites tests=\"1\" skipped=\"1\" failures=\"0\" errors=\"0\">"
+    + _LEAF
+    + "</testsuites>",
+    "raiz_contador_failures": "<testsuites tests=\"1\" skipped=\"0\" failures=\"1\" errors=\"0\">"
+    + _LEAF
+    + "</testsuites>",
     "caso_skipped": _PARENT + "<testcase><skipped/></testcase>" + _LEAF + "</testsuite>",
     "caso_failure": _PARENT + "<testcase><failure/></testcase>" + _LEAF + "</testsuite>",
     "caso_error": _PARENT + "<testcase><error/></testcase>" + _LEAF + "</testsuite>",
