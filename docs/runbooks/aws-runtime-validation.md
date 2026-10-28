@@ -448,7 +448,8 @@ são o que impede replay de execução terminal, e a edição manual os contorna
 
 ## Fora do escopo deste gate
 
-- O gate `runtime-acceptance.md` ainda depende da #377.
+- O gate `runtime-acceptance.md` registra a evidência candidata da #377, mas a
+  integração do candidato e os gates de deployment ainda estão pendentes.
   O deadline já cobre bootstrap e execução do worker; o validador de produção já exige
   `AssignPublicIp=ENABLED` e rede exata. O validador genérico mantém `DISABLED`.
 - Tabela, buckets, state machine, roles, KMS, rede, agendador e alarmes: plano de
