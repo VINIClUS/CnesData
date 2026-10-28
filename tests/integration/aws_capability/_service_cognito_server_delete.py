@@ -24,10 +24,9 @@ if TYPE_CHECKING:
 
 
 def delete_server(resource: Resource, services: "AwsServices", context: RequestContext) -> None:
-    """Remove server safely.
-    Args: resource, services, context are cleanup inputs.
+    """Args: resource, services e context da limpeza.
     Returns: None.
-    Raises: ServiceFailure on invalid or unsafe deletion.
+    Raises: ServiceFailure para entrada ou remoção inválida.
     """
     spec = services.spec
     if context.lane != "cleanup" or resource.service != "cognito":
