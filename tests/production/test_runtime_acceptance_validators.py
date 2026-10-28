@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import runpy
 import sys
 from dataclasses import fields, is_dataclass
 from hashlib import sha256
@@ -13,7 +14,10 @@ from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import ParseError
 
 import pytest
-from runtime_junit_followup_cases import _FOLLOWUP_JUNIT_POSITIVE
+
+_FOLLOWUP_JUNIT_POSITIVE = runpy.run_path(
+    str(Path(__file__).with_name("runtime_junit_followup_cases.py"))
+)["_FOLLOWUP_JUNIT_POSITIVE"]
 
 if TYPE_CHECKING:
     from collections.abc import Callable
