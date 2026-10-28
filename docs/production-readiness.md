@@ -165,7 +165,8 @@ O candidato foi executado na branch `codex/prod-012-runtime-acceptance`, no SHA
 [40604640818](https://github.com/VINIClUS/CnesData/actions/runs/40604640818)
 terminou com sucesso. Ele registrou 978 contratos Python e 51 contratos CI,
 133 contratos dashboard, 28 casos AWS e 122 casos Floci, todos sem skips
-selecionados. Os checks auxiliares [CI 40604640649](https://github.com/VINIClUS/CnesData/actions/runs/40604640649),
+selecionados. Os checks auxiliares
+[CI 40604640649](https://github.com/VINIClUS/CnesData/actions/runs/40604640649),
 [quality 40604640646](https://github.com/VINIClUS/CnesData/actions/runs/40604640646),
 [Sonar 40604640618](https://github.com/VINIClUS/CnesData/actions/runs/40604640618) e
 [Trivy 40604640635](https://github.com/VINIClUS/CnesData/actions/runs/40604640635)
@@ -186,11 +187,16 @@ O ruleset `production-runtime-acceptance-develop` (`26047506`) está ativo em
 (`integration_id=15368`). Os rulesets anteriores permaneceram inalterados e
 `main` permaneceu sem essa exigência. O run de cancelamento
 [40705270173](https://github.com/VINIClUS/CnesData/actions/runs/40705270173) teve
-a tentativa 1 cancelada e a tentativa 2 concluída com sucesso no SHA restaurado
+a tentativa 1 encerrada com falha do agregador, com `python=cancelled`,
+`dashboard=success` e `emulators=cancelled`; os passos `Stop AWS` e `Stop Floci`
+terminaram com `success`, embora Floci nunca tenha iniciado. A tentativa 2 foi
+concluída com sucesso no SHA restaurado
 `13cd90836967f043d05141087e882e42198b4268`. Os produtores
 `122879699949`, `122879700394` e `122879700625` e o agregador final
 `122881118504` passaram todas as validações; os containers e as redes AWS e
-Floci foram explicitamente removidos. Na tentativa 1, Floci nunca iniciou.
+Floci foram explicitamente removidos nessa segunda tentativa. Esses estados são
+o resultado observado, sem atribuir causalidade exclusiva a uma condição de
+admissão.
 
 O runner é `ubuntu-latest` público. A leitura de billing retornou
 `403 UNAVAILABLE`; este documento não afirma custo medido ou uso pago zero.

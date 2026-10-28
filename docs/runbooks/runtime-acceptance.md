@@ -106,8 +106,12 @@ teve uma segunda tentativa concluída com sucesso no SHA restaurado
 `122879699949`, `122879700394` e `122879700625` e o agregador final
 `122881118504` terminaram com sucesso; os validadores confirmaram 978 contratos
 Python, 51 CI, 133 dashboard, 28 AWS e 122 Floci, sem skips selecionados. A
-tentativa 1 deixou Floci sem iniciar; na tentativa 2 os containers e as redes
-AWS e Floci foram explicitamente removidos.
+tentativa 1 terminou com falha do agregador, com `python=cancelled`,
+`dashboard=success` e `emulators=cancelled`. Nessa tentativa, os passos
+`Stop AWS` e `Stop Floci` terminaram com `success`; Floci nunca chegou a iniciar.
+Na tentativa 2, os containers e as redes AWS e Floci foram explicitamente
+removidos. Esses estados são o resultado observado, sem atribuir causalidade
+exclusiva a uma condição de admissão.
 
 O ruleset `production-runtime-acceptance-develop` (`26047506`) está ativo para
 `develop` e exige o check `production-runtime-acceptance` da GitHub Actions
