@@ -380,61 +380,82 @@ def task_hours_start_violations(root: Path) -> tuple[SourceViolation, ...]:
     return tuple(sorted(set(findings), key=lambda item: (item.path, item.line)))
 
 
-def require_complete_junit(path: Path) -> None:
-    root = ElementTree.parse(path).getroot()  # noqa: S314
-    def tag(node: ElementTree.Element) -> str:
-        return node.tag.rsplit("}", 1)[-1]
+def _junit_tag(node: ElementTree.Element) -> str:
+    return node.tag.rsplit("}", 1)[-1]
 
-    def counter(node: ElementTree.Element, key: str) -> int | None:
-        value = node.attrib.get(key)
-        if value is None:
-            return None
-        parsed = int(value)
-        if parsed < 0:
-            raise ValueError(f"junit_{key}=negative")
-        return parsed
 
-    def visit_suite(suite: ElementTree.Element) -> int:
-        children = list(suite)
-        nested = [child for child in children if tag(child) == "testsuite"]
-        testcases = [child for child in children if tag(child) == "testcase"]
-        declared = counter(suite, "tests")
-        if declared is None:
-            raise ValueError("junit_tests=missing")
-        for key in ("skipped", "failures", "errors"):
-            if counter(suite, key):
-                raise ValueError(f"junit_{key}=nonzero")
-        if any(
-            tag(child) in {"skipped", "failure", "error"}
-            for case in testcases
-            for child in case
-        ):
-            raise ValueError("junit_case=nonzero")
-        if not testcases and not nested:
-            raise ValueError("junit_testcases=missing")
-        total = len(testcases) + sum(visit_suite(child) for child in nested)
-        if declared != total:
-            raise ValueError(f"junit_tests=mismatch:{declared}!={total}")
-        return total
+def _junit_counter(node: ElementTree.Element, key: str) -> int | None:
+    value = node.attrib.get(key)
+    if value is None:
+        return None
+    parsed = int(value)
+    if parsed < 0:
+        raise ValueError(f"junit_{key}=negative")
+    return parsed
 
-    def root_suites(node: ElementTree.Element) -> list[ElementTree.Element]:
-        suites: list[ElementTree.Element] = []
-        for child in node:
-            if tag(child) == "testsuite":
-                suites.append(child)
-            elif tag(child) == "testsuites":
-                suites.extend(root_suites(child))
-        return suites
 
-    suites = [root] if tag(root) == "testsuite" else root_suites(root)
-    if not suites:
-        raise ValueError("junit_suites=missing")
-    cases = sum(visit_suite(suite) for suite in suites)
+def _junit_visit_suite(suite: ElementTree.Element) -> int:
+    children = list(suite)
+    nested = [child for child in children if _junit_tag(child) == "testsuite"]
+    testcases = [child for child in children if _junit_tag(child) == "testcase"]
+    declared = _junit_counter(suite, "tests")
+    if declared is None:
+        raise ValueError("junit_tests=missing")
+    for key in ("skipped", "failures", "errors"):
+        if _junit_counter(suite, key):
+            raise ValueError(f"junit_{key}=nonzero")
+    if any(
+        _junit_tag(child) in {"skipped", "failure", "error"}
+        for case in testcases
+        for child in case
+    ):
+        raise ValueError("junit_case=nonzero")
+    if not testcases and not nested:
+        raise ValueError("junit_testcases=missing")
+    total = len(testcases) + sum(_junit_visit_suite(child) for child in nested)
+    if declared != total:
+        raise ValueError(f"junit_tests=mismatch:{declared}!={total}")
+    return total
+
+
+def _junit_root_suites(node: ElementTree.Element) -> list[ElementTree.Element]:
+    suites: list[ElementTree.Element] = []
+    for child in node:
+        if _junit_tag(child) == "testsuite":
+            suites.append(child)
+        elif _junit_tag(child) == "testsuites":
+            suites.extend(_junit_root_suites(child))
+    return suites
+
+
+def _junit_validate_counters(node: ElementTree.Element, cases: int) -> None:
     for key in ("tests", "skipped", "failures", "errors"):
-        value = counter(root, key)
+        value = _junit_counter(node, key)
         if value is None:
             continue
         if key == "tests" and value != cases:
             raise ValueError(f"junit_tests=mismatch:{value}!={cases}")
         if key != "tests" and value:
             raise ValueError(f"junit_{key}=nonzero")
+
+
+def _junit_validate_container(node: ElementTree.Element) -> int:
+    suites = _junit_root_suites(node)
+    if not suites:
+        raise ValueError("junit_suites=missing")
+    cases = sum(_junit_visit_suite(suite) for suite in suites)
+    _junit_validate_counters(node, cases)
+    for child in node:
+        if _junit_tag(child) == "testsuites":
+            _junit_validate_container(child)
+    return cases
+
+
+def require_complete_junit(path: Path) -> None:
+    root = ElementTree.parse(path).getroot()  # noqa: S314
+    if _junit_tag(root) == "testsuite":
+        cases = _junit_visit_suite(root)
+    else:
+        cases = _junit_validate_container(root)
+    if not cases:
+        raise ValueError("junit_testcases=missing")

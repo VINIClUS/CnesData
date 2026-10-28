@@ -169,6 +169,21 @@ _NEGATIVE_XML = {
     "raiz_contador_failures": "<testsuites tests=\"1\" skipped=\"0\" failures=\"1\" errors=\"0\">"
     + _LEAF
     + "</testsuites>",
+    "intermedio_contador_tests": (
+        '<testsuites><testsuites tests="2" skipped="0" failures="0" errors="0">'
+        + _LEAF
+        + "</testsuites></testsuites>"
+    ),
+    "intermedio_contador_skipped": (
+        '<testsuites><testsuites tests="1" skipped="1" failures="0" errors="0">'
+        + _LEAF
+        + "</testsuites></testsuites>"
+    ),
+    "intermedio_contador_failures": (
+        '<testsuites><testsuites tests="1" skipped="0" failures="1" errors="0">'
+        + _LEAF
+        + "</testsuites></testsuites>"
+    ),
     "caso_skipped": _PARENT + "<testcase><skipped/></testcase>" + _LEAF + "</testsuite>",
     "caso_failure": _PARENT + "<testcase><failure/></testcase>" + _LEAF + "</testsuite>",
     "caso_error": _PARENT + "<testcase><error/></testcase>" + _LEAF + "</testsuite>",
