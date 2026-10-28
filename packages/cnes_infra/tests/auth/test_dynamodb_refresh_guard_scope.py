@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -157,11 +158,11 @@ def _prepare_case(directory: Path, kind: str) -> tuple[Path, dict[str, str]]:
     environment = _environment(root, directory)
     for name in ("incoming-config", "incoming-credentials"):
         (directory / name).write_text("")
-    (directory / "runner.py").write_text(_RUNNER)
+    (directory / "runner.py").write_text(_RUNNER, newline="\n")
     owner = directory / "test_owner.py"
-    owner.write_text(_OWNER)
+    owner.write_text(_OWNER, newline="\n")
     foreign = directory / "test_foreign.py"
-    foreign.write_text(_FOREIGN)
+    foreign.write_text(_FOREIGN, newline="\n")
     args = [str(owner)]
     if kind != "owned":
         args += [str(foreign), "-k", "test_modulo_alheio_preserva_fronteiras"]
@@ -189,6 +190,31 @@ def _prepare_case(directory: Path, kind: str) -> tuple[Path, dict[str, str]]:
     return root, environment
 
 
+def _assert_runtime_bindings(root: Path, directory: Path, runtime: dict[str, Any]) -> None:
+    generated = {
+        str((directory / filename).resolve()): (sha256(source.encode()).hexdigest(), names)
+        for filename, source, names in (
+            ("runner.py", _RUNNER, {"__main__", "__mp_main__"}),
+            ("test_owner.py", _OWNER, {"test_owner"}),
+            ("test_foreign.py", _FOREIGN, {"test_foreign"}),
+        )
+    }
+    for name, binding in runtime["bindings"].items():
+        path = Path(binding["path"]).resolve()
+        if name.startswith(("cnes_", "packages.cnes_")):
+            assert binding["within_checkout"], (name, binding)
+            assert path.is_relative_to(root), (name, binding)
+            assert not path.is_relative_to(directory.resolve()), (name, binding)
+        elif path.is_relative_to(directory.resolve()):
+            assert str(path) in generated, (name, binding)
+            expected_hash, names = generated[str(path)]
+            assert name.rsplit(".", 1)[-1] in names, (name, binding)
+            assert binding["sha256"] == expected_hash, (name, binding)
+        else:
+            assert binding["within_checkout"], (name, binding)
+            assert path.is_relative_to(root), (name, binding)
+
+
 def _run_child(directory: Path, kind: str) -> tuple[int, dict[str, Any], Any]:
     root, environment = _prepare_case(directory, kind)
     argv = [sys.executable, "-B", str(directory / "runner.py"), str(directory)]
@@ -212,10 +238,12 @@ def _run_child(directory: Path, kind: str) -> tuple[int, dict[str, Any], Any]:
         root / "packages/cnes_infra/tests/auth/dynamodb_refresh_support.py"
     )
     assert runtime["bindings"]
-    assert all(binding["within_checkout"] for binding in runtime["bindings"].values())
+    _assert_runtime_bindings(root, directory, runtime)
     suite = ElementTree.parse(directory / "child.xml").getroot().find("testsuite")  # noqa: S314
     assert suite is not None
     assert len(runtime["items"]) == 1
+    selected = "test_owner.py" if kind == "owned" else "test_foreign.py"
+    assert runtime["items"][0]["function_path"] == str((directory / selected).resolve())
     setup = next(report for report in runtime["reports"] if report["when"] == "setup")
     assert setup["outcome"] == "passed"
     assert not suite.findall(".//error[@type='pytest.Collector.CollectError']")
