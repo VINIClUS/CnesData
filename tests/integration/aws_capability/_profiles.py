@@ -10,6 +10,7 @@ class Profile:
     services: tuple[str, ...]
     limits: Limits
     version: int = 1
+    children: tuple[str, ...] = ()
 
     def snapshot(self, probe: str) -> dict[str, object]:
         return {
@@ -20,6 +21,9 @@ class Profile:
 
 
 PROFILES = {
+    "cognito-resource-server": Profile(
+        ("cognito",), Limits(512, 8, 2, 90, 256), children=("cognito.server",)
+    ),
     "all": Profile(("cognito", "dynamodb", "s3", "iam"), Limits()),
     "cognito-login": Profile(("cognito",), Limits(512, 8, 2, 90, 256)),
     "cognito-pkce-negatives": Profile(("cognito",), Limits(512, 8, 2, 90, 256)),

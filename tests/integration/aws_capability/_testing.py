@@ -7,6 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tests.integration.aws_capability._oracle import Trace
+from tests.integration.aws_capability._profiles import PROFILES
+from tests.integration.aws_capability._resource_ids import cognito_child, parse_cognito_child
+from tests.integration.aws_capability._safety import owned, run_name
 from tests.integration.aws_capability.contracts import (
     Creation,
     Ownership,
@@ -17,6 +20,7 @@ from tests.integration.aws_capability.contracts import (
     RequestContext,
     Resource,
     RunSpec,
+    ServerLookup,
     ServiceFailure,
 )
 
@@ -70,6 +74,7 @@ class Remote:
     reply_name: str = NAME
     reply_owners: dict[str, Ownership] = field(default_factory=dict)
     request_lanes: list[str] = field(default_factory=list)
+    spec: RunSpec | None = None
 
     def touch(self, *event: object) -> None:
         self.events.append(event)
@@ -131,6 +136,8 @@ class Remote:
         self.touch("create", service, creation)
         self.at_create(creation.spec)
         resource = Resource(service, f"synthetic-{service}", self.reply_name)
+        if creation.spec.probe == "cognito-resource-server" and service == "cognito":
+            resource = Resource(service, f"{creation.spec.region}_synthetic", self.reply_name)
         failing = self.create_error is not None and service == self.fail_service
         if not failing or self.remote_created_on_error:
             self.add(resource, self.reply_owners.get(service))
@@ -140,6 +147,48 @@ class Remote:
             raise self.create_error
         self.touch("created", resource)
         return resource
+
+    def create_child(self, parent: Resource, kind: str, context: RequestContext) -> Resource:
+        spec = self.server_spec(context)
+        if (
+            context.lane != "work"
+            or kind != "cognito.server"
+            or parent.name != run_name(spec)
+            or parent.service != "cognito"
+        ):
+            raise ServiceFailure("service=cognito_creation_invalid")
+        child = cognito_child(parent, spec, kind, {"identifier": "https://api.cnesdata.com.br"})
+        owner = self.lookup(parent, context)
+        if owner is None or not owned(parent, owner, spec):
+            raise ServiceFailure("service=not_owned")
+        self.request(context)
+        self.add(child, owner)
+        self.children.setdefault(parent.resource_id, []).append(child)
+        self.touch("create_child", parent, child)
+        return child
+
+    def lookup_server_exact(self, pending: Resource, context: RequestContext) -> ServerLookup:
+        spec = self.server_spec(context)
+        root, kind, child = parse_cognito_child(pending, spec)
+        if kind != "cognito.server" or child != {"identifier": "https://api.cnesdata.com.br"}:
+            raise ServiceFailure("service=resource_invalid")
+        if root.name != run_name(spec) or pending != cognito_child(root, spec, kind, child):
+            raise ServiceFailure("service=resource_invalid")
+        owner = self.lookup(root, context)
+        if owner is None or not owned(root, owner, spec):
+            return "parent_missing"
+        return "exact_present" if self.lookup(pending, context) else "exact_absent"
+
+    def server_spec(self, context: RequestContext) -> RunSpec:
+        spec = self.spec
+        if (
+            spec is None
+            or spec.probe != "cognito-resource-server"
+            or not spec.allow_governance_bypass
+            or context.lane not in {"work", "cleanup"}
+        ):
+            raise ServiceFailure("service=resource_invalid")
+        return spec
 
     def probe(self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext) -> None:
         self.touch("probe", tuple(resources), spec)
@@ -219,6 +268,9 @@ class Lab:
         self.remote.calls = 0
         self.remote.request_lanes.clear()
         policy = Policy(ACCOUNT, frozenset({"us-east-2"}))
+        self.remote.spec = self.spec
+        if self.spec.probe == "cognito-resource-server":
+            policy = Policy(ACCOUNT, frozenset({"us-east-2"}), PROFILES[self.spec.probe].limits)
         budget = RequestBudget(policy.limits, self.spec.deadline, lambda: self.time)
         return Ports(self.remote, self.processes, lambda: self.time, policy, budget)
 

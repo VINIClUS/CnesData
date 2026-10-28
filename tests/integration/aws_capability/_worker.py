@@ -6,13 +6,16 @@ from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._journal import Journal
 from tests.integration.aws_capability._profiles import PROFILES
+from tests.integration.aws_capability._resource_ids import cognito_child
 from tests.integration.aws_capability._safety import SafetyFailure, run_name, tags
 from tests.integration.aws_capability.contracts import (
     BudgetExhausted,
     Creation,
     Ports,
     RequestContext,
+    Resource,
     RunSpec,
+    ServiceFailure,
 )
 
 
@@ -105,6 +108,8 @@ class Worker:
         try:
             for service in PROFILES[self.journal.spec.probe].services:
                 self.create(service)
+            for kind in PROFILES[self.journal.spec.probe].children:
+                self.create_child(self.journal.created[-1], kind)
             self.guard()
             self.journal.phase = "probing"
             self.journal.save()
@@ -127,3 +132,24 @@ class Worker:
         except Exception:
             return "operation_failed"
         return None
+
+    def create_child(self, parent: Resource, kind: str) -> None:
+        self.guard()
+        child = cognito_child(
+            parent, self.journal.spec, kind, {"identifier": "https://api.cnesdata.com.br"}
+        )
+        self.journal.pending_service = "cognito"
+        self.journal.pending_resource = child
+        self.journal.operation_state = "unknown"
+        self.journal.save()
+        self.mutation_attempted = True
+        result = self.ports.services.create_child(
+            parent, kind, RequestContext(self.ports.budget, "work")
+        )
+        if result != child:
+            raise ServiceFailure("service=cognito_create_invalid")
+        self.journal.created.append(child)
+        self.journal.pending_service = None
+        self.journal.pending_resource = None
+        self.journal.operation_state = "confirmed"
+        self.journal.save()

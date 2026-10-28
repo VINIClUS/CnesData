@@ -41,26 +41,39 @@ class Cleanup:
         return matches_name(ref, self.journal.spec) or (ref.service, ref.resource_id) in references
 
     def retire_confirmed(self, rows: list[tuple[Resource, Ownership]]) -> None:
-        visible = {(ref.service, ref.resource_id) for ref, _ in rows}
-        retired = {(ref.service, ref.resource_id) for ref in self.absent} - visible
-        accepted = {(ref.service, ref.resource_id) for ref in self.journal.dynamodb_delete_accepted}
-        retired = {key for key in retired if key[0] != "dynamodb" or key in accepted}
+        retired = self.retired_identities(rows)
         retained = [
             ref for ref in self.journal.created if (ref.service, ref.resource_id) not in retired
         ]
         if retained != self.journal.created:
-            previous = self.journal.created, self.journal.dynamodb_delete_accepted
+            previous = (
+                self.journal.created,
+                self.journal.dynamodb_delete_accepted,
+                self.journal.operation_state,
+            )
             self.journal.created = retained
             self.journal.dynamodb_delete_accepted = [
                 ref
                 for ref in self.journal.dynamodb_delete_accepted
                 if (ref.service, ref.resource_id) not in retired
             ]
+            if self.journal.spec.probe == "cognito-resource-server" and not retained:
+                self.journal.operation_state = "confirmed"
             try:
-                self.journal.save()
+                self.checkpoint()
             except OSError:
-                self.journal.created, self.journal.dynamodb_delete_accepted = previous
+                (
+                    self.journal.created,
+                    self.journal.dynamodb_delete_accepted,
+                    self.journal.operation_state,
+                ) = previous
                 raise
+
+    def retired_identities(self, rows: list[tuple[Resource, Ownership]]) -> set[tuple[str, str]]:
+        visible = {(ref.service, ref.resource_id) for ref, _ in rows}
+        retired = {(ref.service, ref.resource_id) for ref in self.absent} - visible
+        accepted = {(ref.service, ref.resource_id) for ref in self.journal.dynamodb_delete_accepted}
+        return {key for key in retired if key[0] != "dynamodb" or key in accepted}
 
     def remove_omitted(self, rows: list[tuple[Resource, Ownership]]) -> str | None:
         visible = {(ref.service, ref.resource_id) for ref, _ in rows}
@@ -92,24 +105,40 @@ class Cleanup:
         return None
 
     def confirm_pending(self, rows: list[tuple[Resource, Ownership]]) -> None:
+        if self.journal.pending_resource is not None:
+            self.confirm_server_pending()
+            return
         self._guard_cognito_unknown(rows)
         resolved = [ref for ref, owner in rows if self.resolves(ref, owner)]
         if self.journal.operation_state == "unknown" and resolved:
             self.journal.created.extend(ref for ref in resolved if ref not in self.journal.created)
             self.journal.pending_service = None
             self.journal.operation_state = "confirmed"
-            self.journal.save()
+            self.checkpoint()
+
+    def checkpoint(self) -> None:
+        if self.journal.spec.probe == "cognito-resource-server":
+            self.journal.phase = "cleanup_requested"
+        self.journal.save()
+
+    def confirm_server_pending(self) -> None:
+        pending = self.journal.pending_resource
+        if pending is None or self.journal.operation_state != "unknown":
+            raise SafetyFailure("creation_uncertain")
+        result = self.ports.services.lookup_server_exact(pending, self.context)
+        if result not in {"exact_present", "exact_absent"}:
+            raise SafetyFailure("creation_uncertain")
+        if result == "exact_present":
+            self.journal.created.append(pending)
+        self.journal.operation_state = "confirmed" if result == "exact_present" else "rejected"
+        self.journal.pending_service = None
+        self.journal.pending_resource = None
+        self.checkpoint()
 
     def _guard_cognito_unknown(self, rows: list[tuple[Resource, Ownership]]) -> None:
         if self.journal.operation_state != "unknown" or self.journal.pending_service != "cognito":
             return
-        exact_name = f"cnesdata-cap-{self.journal.spec.run_id}"
-        candidates = [
-            (ref, owner)
-            for ref, owner in rows
-            if ref.service == "cognito"
-            and (ref.name == exact_name or ref.name.startswith(exact_name + "-"))
-        ]
+        candidates = self.cognito_candidates(rows)
         if any(
             self.journal.is_baseline(ref) or not self._owned_cognito(ref, owner)
             for ref, owner in candidates
@@ -118,12 +147,25 @@ class Cleanup:
         if len(candidates) > 1:
             raise SafetyFailure("ownership_mismatch")
 
+    def cognito_candidates(
+        self, rows: list[tuple[Resource, Ownership]]
+    ) -> list[tuple[Resource, Ownership]]:
+        exact_name = f"cnesdata-cap-{self.journal.spec.run_id}"
+        return [
+            (ref, owner)
+            for ref, owner in rows
+            if ref.service == "cognito"
+            and (ref.name == exact_name or ref.name.startswith(exact_name + "-"))
+        ]
+
     def _owned_cognito(self, ref: Resource, owner: Ownership) -> bool:
         expected = f"cnesdata-cap-{self.journal.spec.run_id}"
         return owned(ref, owner, self.journal.spec) and ref.name == expected
 
     def reconcile(self) -> str | None:
         reason = None
+        if self.journal.pending_resource is not None:
+            self.confirm_pending([])
         for _ in range(self.ports.policy.limits.pages):
             all_rows = inventory(self.ports, self.context)
             self._guard_cognito_unknown(all_rows)
@@ -139,8 +181,7 @@ class Cleanup:
         if ref.service == "cognito":
             return (
                 self.journal.pending_service == "cognito"
-                and
-                ref.name == f"cnesdata-cap-{self.journal.spec.run_id}"
+                and ref.name == f"cnesdata-cap-{self.journal.spec.run_id}"
                 and self._owned_cognito(ref, owner)
                 and not self.journal.is_baseline(ref)
             )
@@ -171,18 +212,22 @@ class Cleanup:
             self.delete_dynamodb(resource)
             return
         for _ in range(self.ports.policy.limits.attempts):
-            try:
-                self.ports.services.delete(resource, True, self.context)
-            except ServiceFailure:
-                owner = self.ports.services.lookup(resource, self.context)
-                if owner is None:
-                    return
-                if not owned(resource, owner, self.journal.spec):
-                    raise SafetyFailure("ownership_mismatch") from None
-            else:
-                if self.ports.services.lookup(resource, self.context) is None:
-                    return
-                raise SafetyFailure("cleanup_failed")
+            if self.delete_attempt(resource):
+                return
+        raise SafetyFailure("cleanup_failed")
+
+    def delete_attempt(self, resource: Resource) -> bool:
+        try:
+            self.ports.services.delete(resource, True, self.context)
+        except ServiceFailure:
+            owner = self.ports.services.lookup(resource, self.context)
+            if owner is None:
+                return True
+            if not owned(resource, owner, self.journal.spec):
+                raise SafetyFailure("ownership_mismatch") from None
+            return False
+        if self.ports.services.lookup(resource, self.context) is None:
+            return True
         raise SafetyFailure("cleanup_failed")
 
     def delete_dynamodb(self, resource: Resource) -> None:
@@ -223,28 +268,38 @@ class Cleanup:
         for resource in self.removal_order(root):
             if dependents(resource, self.ports, self.context):
                 raise SafetyFailure("cleanup_failed")
+            self.retire_before_parent(resource)
             self.delete(resource)
+            if self.is_created_server(resource):
+                self.retire_server(resource)
+
+    def is_created_server(self, resource: Resource) -> bool:
+        return (
+            self.journal.spec.probe == "cognito-resource-server"
+            and resource in self.journal.created[1:]
+        )
+
+    def retire_before_parent(self, resource: Resource) -> None:
+        if (
+            self.journal.spec.probe == "cognito-resource-server"
+            and len(self.journal.created) == 2
+            and resource == self.journal.created[0]
+        ):
+            self.retire_server(self.journal.created[1])
+
+    def retire_server(self, resource: Resource) -> None:
+        if self.ports.services.lookup_server_exact(resource, self.context) != "exact_absent":
+            raise SafetyFailure("creation_uncertain")
+        self.attempted.add(resource)
+        self.absent.add(resource)
+        rows = inventory(self.ports, self.context)
+        self.retire_confirmed(rows)
+        if resource in self.journal.created:
+            raise SafetyFailure("inventory_incomplete")
 
     def execute(self) -> Outcome:
         try:
-            reason = self.reconcile()
-            final = self.relevant(inventory(self.ports, self.context))
-            self.retire_confirmed(final)
-            remaining = tuple(ref for ref, _ in final)
-            evidence = {
-                "inventory_complete": True,
-                "counts": {
-                    service: sum(ref.service == service for ref in remaining)
-                    for service in SERVICES
-                },
-            }
-            if remaining or reason or self.journal.created:
-                return Outcome("incomplete", reason or "cleanup_failed", remaining, evidence)
-            self.journal.phase = "complete"
-            self.journal.pending_service = None
-            self.journal.operation_state = "confirmed"
-            self.journal.save()
-            return Outcome("succeeded", "complete", (), evidence)
+            return self.final_outcome(self.reconcile())
         except SafetyFailure as error:
             return Outcome("incomplete", error.reason, None, {"inventory_complete": False})
         except BudgetExhausted:
@@ -256,3 +311,21 @@ class Cleanup:
             return Outcome("incomplete", reason, None, {"inventory_complete": False})
         except OSError:
             return Outcome("incomplete", "journal_unavailable")
+
+    def final_outcome(self, reason: str | None) -> Outcome:
+        final = self.relevant(inventory(self.ports, self.context))
+        self.retire_confirmed(final)
+        remaining = tuple(ref for ref, _ in final)
+        evidence = {
+            "inventory_complete": True,
+            "counts": {
+                service: sum(ref.service == service for ref in remaining) for service in SERVICES
+            },
+        }
+        if remaining or reason or self.journal.created:
+            return Outcome("incomplete", reason or "cleanup_failed", remaining, evidence)
+        self.journal.phase = "complete"
+        self.journal.pending_service = None
+        self.journal.operation_state = "confirmed"
+        self.journal.save()
+        return Outcome("succeeded", "complete", (), evidence)

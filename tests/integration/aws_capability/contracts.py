@@ -3,7 +3,7 @@
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 @dataclass(frozen=True)
@@ -116,12 +116,19 @@ class ServiceFailure(Exception):
     pass
 
 
+ServerLookup = Literal[
+    "exact_present", "exact_absent", "parent_missing", "transport_failure", "configuration_mismatch"
+]
+
+
 class Services(Protocol):
     def identity(self, context: RequestContext) -> str: ...
     def inventory(self, service: str, cursor: str | None, context: RequestContext) -> Page: ...
     def inspect(self, resource: Resource, context: RequestContext) -> Ownership: ...
     def lookup(self, resource: Resource, context: RequestContext) -> Ownership | None: ...
     def create(self, service: str, creation: Creation, context: RequestContext) -> Resource: ...
+    def create_child(self, parent: Resource, kind: str, context: RequestContext) -> Resource: ...
+    def lookup_server_exact(self, pending: Resource, context: RequestContext) -> ServerLookup: ...
     def probe(
         self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
     ) -> None: ...

@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
+from tests.integration.aws_capability._resource_ids import cognito_child
 from tests.integration.aws_capability._service_cognito import (
     inspect_pool,
     list_pools,
@@ -17,6 +18,10 @@ from tests.integration.aws_capability._service_cognito_create import create_pool
 from tests.integration.aws_capability._service_cognito_delete import delete_pool
 from tests.integration.aws_capability._service_cognito_dependents import cognito_dependents
 from tests.integration.aws_capability._service_cognito_prepare import prepare_pool
+from tests.integration.aws_capability._service_cognito_server_create import (
+    create_server,
+    lookup_server_exact,
+)
 from tests.integration.aws_capability._service_cognito_server_delete import delete_server
 from tests.integration.aws_capability._service_commands import call_cli
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
@@ -49,6 +54,7 @@ from tests.integration.aws_capability.contracts import (
     RequestContext,
     Resource,
     RunSpec,
+    ServerLookup,
     ServiceFailure,
 )
 
@@ -143,6 +149,9 @@ class AwsServices:
         return create_table(self.ports.commands, self.spec, creation, context)
 
     def probe(self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext) -> None:
+        if self.spec.probe == "cognito-resource-server":
+            self._probe_server(resources, spec, context)
+            return
         if self.spec.probe in {"cognito-login", "cognito-pkce-negatives", "cognito-sdk"}:
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")
@@ -155,6 +164,28 @@ class AwsServices:
         if spec != self.spec:
             raise ServiceFailure("probe=ddb_prepare_invalid")
         probe_dynamodb(resources, spec, self.ports, context)
+
+    def create_child(self, parent: Resource, kind: str, context: RequestContext) -> Resource:
+        if kind != "cognito.server":
+            raise ServiceFailure("service=cognito_creation_invalid")
+        return create_server(self.ports.commands, self.spec, parent, context)
+
+    def lookup_server_exact(self, pending: Resource, context: RequestContext) -> ServerLookup:
+        return lookup_server_exact(self.ports.commands, self.spec, pending, context)
+
+    def _probe_server(
+        self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
+    ) -> None:
+        if spec != self.spec or context.lane != "work" or len(resources) != 2:
+            raise ServiceFailure("probe=cognito_server_invalid")
+        root, child = resources
+        expected = cognito_child(
+            root, spec, "cognito.server", {"identifier": "https://api.cnesdata.com.br"}
+        )
+        if root.service != "cognito" or child != expected:
+            raise ServiceFailure("probe=cognito_server_invalid")
+        if self.lookup_server_exact(child, context) != "exact_present":
+            raise ServiceFailure("probe=cognito_server_invalid")
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
         if resource.service == "cognito":
@@ -183,6 +214,7 @@ def _require_dynamodb(resource: Resource) -> None:
 
 def _cognito_enabled(spec: RunSpec) -> bool:
     return spec.allow_governance_bypass and spec.probe in {
+        "cognito-resource-server",
         "cognito-login",
         "cognito-pkce-negatives",
         "cognito-sdk",

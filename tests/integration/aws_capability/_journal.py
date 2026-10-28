@@ -11,8 +11,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from tests.integration.aws_capability._profiles import PROFILES
-from tests.integration.aws_capability._safety import SERVICES, SafetyFailure
-from tests.integration.aws_capability.contracts import Resource, RunSpec
+from tests.integration.aws_capability._resource_ids import cognito_child
+from tests.integration.aws_capability._safety import SERVICES, SafetyFailure, run_name
+from tests.integration.aws_capability._service_cognito import _is_regional_pool_id
+from tests.integration.aws_capability.contracts import Resource, RunSpec, ServiceFailure
 
 
 @dataclass
@@ -24,6 +26,7 @@ class Journal:
     pending_service: str | None = None
     operation_state: str = "confirmed"
     dynamodb_delete_accepted: list[Resource] = field(default_factory=list)
+    pending_resource: Resource | None = None
 
     @property
     def path(self) -> Path:
@@ -44,6 +47,13 @@ class Journal:
         }
         if self.spec.probe != "all":
             data.update(schema_version=2, **PROFILES[self.spec.probe].snapshot(self.spec.probe))
+        if self.spec.probe == "cognito-resource-server":
+            data["schema_version"] = 3
+            data.pop("pending_service")
+            if self.pending_service is not None:
+                data["pending_service"] = self.pending_service
+            if self.pending_resource is not None:
+                data["pending_resource"] = asdict(self.pending_resource)
         if self.dynamodb_delete_accepted:
             data["dynamodb_delete_accepted"] = [
                 asdict(ref) for ref in self.dynamodb_delete_accepted
@@ -81,6 +91,17 @@ class Journal:
     def decode(self, data: dict) -> None:
         if not isinstance(data, dict):
             raise SafetyFailure("journal_corrupt")
+        if self.spec.probe == "cognito-resource-server":
+            candidate = Journal(self.spec)
+            try:
+                candidate.decode_server(data)
+            except (KeyError, TypeError, ValueError):
+                raise SafetyFailure("journal_corrupt") from None
+            self.__dict__.update(vars(candidate))
+            return
+        self.decode_legacy(data)
+
+    def decode_legacy(self, data: dict) -> None:
         expected = {
             "schema_version": 1 if self.spec.probe == "all" else 2,
             "account": self.spec.account,
@@ -98,6 +119,14 @@ class Journal:
         self.phase = data["phase"]
         self.pending_service = data["pending_service"]
         self.operation_state = data["operation_state"]
+        self.validate_legacy_state()
+        self.baseline = decode_resources(data["baseline"])
+        self.created = decode_resources(data["created"])
+        self.dynamodb_delete_accepted = self.decode_dynamodb_deletes(
+            data.get("dynamodb_delete_accepted", [])
+        )
+
+    def validate_legacy_state(self) -> None:
         if self.phase not in {"prepared", "creating", "probing", "cleanup_requested", "complete"}:
             raise SafetyFailure("journal_corrupt")
         if self.operation_state not in {"unknown", "confirmed", "rejected"}:
@@ -108,11 +137,95 @@ class Journal:
             raise SafetyFailure("journal_corrupt")
         if self.phase == "complete" and self.pending_service is not None:
             raise SafetyFailure("journal_corrupt")
+
+    def decode_server(self, data: dict) -> None:
+        expected = {
+            "schema_version": 3,
+            "account": self.spec.account,
+            "region": self.spec.region,
+            "run_id": self.spec.run_id,
+            "deadline": self.spec.deadline,
+            **PROFILES[self.spec.probe].snapshot(self.spec.probe),
+        }
+        if type(data.get("schema_version")) is not int:
+            raise SafetyFailure("journal_mismatch")
+        if any(data.get(key) != value for key, value in expected.items()):
+            raise SafetyFailure("journal_mismatch")
+        if any(
+            key in data and data[key] is None for key in ("pending_service", "pending_resource")
+        ):
+            raise SafetyFailure("journal_corrupt")
+        self.phase, self.operation_state = data["phase"], data["operation_state"]
         self.baseline = decode_resources(data["baseline"])
         self.created = decode_resources(data["created"])
+        self.pending_service = data.get("pending_service")
+        if "pending_resource" in data:
+            self.pending_resource = decode_resources([data["pending_resource"]])[0]
+        self.validate_server_state()
         self.dynamodb_delete_accepted = self.decode_dynamodb_deletes(
             data.get("dynamodb_delete_accepted", [])
         )
+
+    def validate_server_state(self) -> None:
+        phases = {"prepared", "creating", "probing", "cleanup_requested", "complete"}
+        if self.phase not in phases or self.operation_state not in {
+            "unknown",
+            "confirmed",
+            "rejected",
+        }:
+            raise SafetyFailure("journal_corrupt")
+        if self.created:
+            self.validate_server_created()
+        if self.operation_state == "unknown":
+            self.validate_server_pending()
+            return
+        self.validate_server_resolved()
+
+    def validate_server_resolved(self) -> None:
+        if self.pending_service is not None or self.pending_resource is not None:
+            raise SafetyFailure("journal_corrupt")
+        if self.operation_state == "rejected":
+            if self.phase != "cleanup_requested" or len(self.created) > 1:
+                raise SafetyFailure("journal_corrupt")
+            return
+        valid = {
+            "prepared": {0},
+            "creating": {1, 2},
+            "probing": {2},
+            "cleanup_requested": {0, 1, 2},
+            "complete": {0},
+        }
+        if len(self.created) not in valid[self.phase]:
+            raise SafetyFailure("journal_corrupt")
+
+    def validate_server_created(self) -> None:
+        root = self.created[0]
+        if (
+            len(self.created) > 2
+            or root.service != "cognito"
+            or root.name != run_name(self.spec)
+            or not _is_regional_pool_id(root.resource_id, self.spec.region)
+            or any(self.is_baseline(ref) for ref in self.created)
+        ):
+            raise SafetyFailure("journal_corrupt")
+        if len(self.created) == 2 and self.created[1] != self.server_child(root):
+            raise SafetyFailure("journal_corrupt")
+
+    def server_child(self, root: Resource) -> Resource:
+        try:
+            return cognito_child(
+                root, self.spec, "cognito.server", {"identifier": "https://api.cnesdata.com.br"}
+            )
+        except ServiceFailure:
+            raise SafetyFailure("journal_corrupt") from None
+
+    def validate_server_pending(self) -> None:
+        if self.phase not in {"creating", "cleanup_requested"} or self.pending_service != "cognito":
+            raise SafetyFailure("journal_corrupt")
+        if not self.created and self.pending_resource is None:
+            return
+        if len(self.created) != 1 or self.pending_resource != self.server_child(self.created[0]):
+            raise SafetyFailure("journal_corrupt")
 
     def decode_dynamodb_deletes(self, rows: list) -> list[Resource]:
         resources = decode_resources(rows)
