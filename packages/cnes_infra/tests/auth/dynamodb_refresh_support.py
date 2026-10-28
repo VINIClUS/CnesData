@@ -43,6 +43,7 @@ SECRET_CANARY = "synthetic-refresh-secret-canary-very-long"  # noqa: S105
 RECORD_CANARY = "synthetic-refresh-record-shaped-canary-very-long"
 FINGERPRINT_CANARY = "synthetic-refresh-fingerprint-canary-very-long"
 _OFFLINE_COUNTS: list[dict[str, Any]] = []
+_FOREIGN_CASES: list[str] = []
 
 
 class DynamoBoundary:
@@ -240,6 +241,13 @@ def offline_process(
     monkeypatch: pytest.MonkeyPatch,
     request: pytest.FixtureRequest,
 ) -> Iterator[list[str]]:
+    plugins = getattr(request.module, "pytest_plugins", ())
+    if isinstance(plugins, str):
+        plugins = (plugins,)
+    if __name__ not in plugins:
+        _FOREIGN_CASES.append(request.node.nodeid)
+        yield []
+        return
     for name in ("AWS_EC2_METADATA_DISABLED", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"):
         monkeypatch.setenv(name, "true" if name == "AWS_EC2_METADATA_DISABLED" else "/dev/null")
     attempts: list[str] = []
@@ -276,6 +284,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     "exitstatus": exitstatus,
                     "cases": _OFFLINE_COUNTS,
                     "case_count": len(_OFFLINE_COUNTS),
+                    "protected_case_count": len(_OFFLINE_COUNTS),
+                    "foreign_cases": _FOREIGN_CASES,
+                    "foreign_case_count": len(_FOREIGN_CASES),
                     "attempt_count": sum(item["attempts"] for item in _OFFLINE_COUNTS),
                 },
                 sort_keys=True,
