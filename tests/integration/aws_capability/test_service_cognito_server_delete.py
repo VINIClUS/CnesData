@@ -239,3 +239,28 @@ def test_cleanup_confirma_ausencia_por_leitura(root_lab: RootLab) -> None:
     Cleanup(journal, root_lab.ports).delete(SERVER)
     assert journal.path.read_bytes() == before
     _assert_trace(root_lab, trace)
+
+
+def test_rejeita_identifier_fora_do_contrato_sem_io(root_lab: RootLab) -> None:
+    foreign = Resource(
+        "cognito",
+        '{"child_id":{"identifier":"https://other.invalid"},'
+        '"kind":"cognito.server","parent_id":"us-east-2_PoolRoot123",'
+        '"root_id":"us-east-2_PoolRoot123","run":"a1b2c3d4",'
+        '"service":"cognito","v":1}',
+        "cnesdata-cap-a1b2c3d4",
+    )
+    for alias in ("D", "T", "S_identifier", "X_empty"):
+        root_lab.process.outcomes.append(_outcome(alias))
+    journal = Journal(root_lab.services.spec)
+    journal.save()
+    before = journal.path.read_bytes()
+    with pytest.raises(ServiceFailure) as captured:
+        root_lab.services.delete(foreign, True, _delete_context(root_lab))
+    _assert_failure(captured.value, root_lab, "service=cognito_delete_invalid")
+    assert root_lab.process.calls == []
+    assert root_lab.process.observed_debits == []
+    assert root_lab.context.budget.used == 0
+    assert root_lab.context.budget.work_used == 0
+    assert root_lab.lanes == []
+    assert journal.path.read_bytes() == before

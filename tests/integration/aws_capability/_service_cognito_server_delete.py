@@ -24,7 +24,11 @@ if TYPE_CHECKING:
 
 
 def delete_server(resource: Resource, services: "AwsServices", context: RequestContext) -> None:
-    """Remove um resource server após readback e posse do root."""
+    """Remove server safely.
+    Args: resource, services, context are cleanup inputs.
+    Returns: None.
+    Raises: ServiceFailure on invalid or unsafe deletion.
+    """
     spec = services.spec
     if context.lane != "cleanup" or resource.service != "cognito":
         raise ServiceFailure("service=cognito_delete_invalid")
@@ -36,11 +40,14 @@ def delete_server(resource: Resource, services: "AwsServices", context: RequestC
         raise ServiceFailure("service=cognito_delete_invalid") from None
     if kind != "cognito.server":
         raise ServiceFailure("service=cognito_delete_invalid")
+    identifier = child["identifier"]
+    if identifier != "https://api.cnesdata.com.br":
+        raise ServiceFailure("service=cognito_delete_invalid")
     owner = inspect_pool(services.ports.commands, spec, root, context)
     if not owned(root, owner, spec):
         raise ServiceFailure("service=not_owned")
-    _read_server(services.ports.commands, root, child["identifier"], context)
-    _remove_server(services.ports.commands, root, child["identifier"], context)
+    _read_server(services.ports.commands, root, identifier, context)
+    _remove_server(services.ports.commands, root, identifier, context)
 
 
 def _read_server(
