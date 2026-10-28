@@ -98,9 +98,7 @@ def relative_api_violations(root: Path) -> tuple[SourceViolation, ...]:
         source = _text(root, relative)
         findings.extend(
             SourceViolation(_RULES["relative"], relative, source[: match.start()].count("\n") + 1)
-            for match in re.finditer(
-                r"\bfetch\s*\(\s*(?:([\"'])/api(?:/|\1)|`/api(?:/|`))", source
-            )
+            for match in re.finditer(r"\bfetch\s*\(\s*(?:([\"'])/api(?:/|\1)|`/api(?:/|`))", source)
         )
     return tuple(sorted(set(findings), key=lambda item: (item.path, item.line)))
 
@@ -405,9 +403,7 @@ def _junit_visit_suite(suite: ElementTree.Element) -> int:
         if _junit_counter(suite, key):
             raise ValueError(f"junit_{key}=nonzero")
     if any(
-        _junit_tag(child) in {"skipped", "failure", "error"}
-        for case in testcases
-        for child in case
+        _junit_tag(child) in {"skipped", "failure", "error"} for case in testcases for child in case
     ):
         raise ValueError("junit_case=nonzero")
     if not testcases and not nested:

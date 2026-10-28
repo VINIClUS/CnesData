@@ -163,10 +163,10 @@ _NEGATIVE_XML = {
         '<testsuite tests="2" skipped="0" failures="0" errors="0">'
         '<testcase name="only"/></testsuite>'
     ),
-    "raiz_contador_skipped": "<testsuites tests=\"1\" skipped=\"1\" failures=\"0\" errors=\"0\">"
+    "raiz_contador_skipped": '<testsuites tests="1" skipped="1" failures="0" errors="0">'
     + _LEAF
     + "</testsuites>",
-    "raiz_contador_failures": "<testsuites tests=\"1\" skipped=\"0\" failures=\"1\" errors=\"0\">"
+    "raiz_contador_failures": '<testsuites tests="1" skipped="0" failures="1" errors="0">'
     + _LEAF
     + "</testsuites>",
     "intermedio_contador_tests": (
@@ -358,3 +358,140 @@ def test_aceita_junit_pai_verde(tmp_path: Path, xml: str) -> None:
     path.write_text(xml, encoding="utf-8")
     function = _load("require_complete_junit")
     assert function(path) is None
+
+
+_FOLLOWUP_JUNIT_NEGATIVE = {
+    "raiz_tests_negativo": (
+        '<testsuites tests="-1" skipped="0" failures="0" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "raiz_tests_malformado": (
+        '<testsuites tests="invalido" skipped="0" failures="0" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "raiz_skipped_negativo": (
+        '<testsuites tests="1" skipped="-1" failures="0" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "raiz_skipped_malformado": (
+        '<testsuites tests="1" skipped="invalido" failures="0" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "raiz_failures_negativo": (
+        '<testsuites tests="1" skipped="0" failures="-1" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "raiz_failures_malformado": (
+        '<testsuites tests="1" skipped="0" failures="invalido" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "raiz_errors_negativo": (
+        '<testsuites tests="1" skipped="0" failures="0" errors="-1">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "raiz_errors_malformado": (
+        '<testsuites tests="1" skipped="0" failures="0" errors="invalido">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "intermedio_tests_negativo": (
+        '<testsuites><testsuites tests="-1" skipped="0" failures="0" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+    "intermedio_tests_malformado": (
+        '<testsuites><testsuites tests="invalido" skipped="0" failures="0" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+    "intermedio_skipped_negativo": (
+        '<testsuites><testsuites tests="1" skipped="-1" failures="0" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+    "intermedio_skipped_malformado": (
+        '<testsuites><testsuites tests="1" skipped="invalido" failures="0" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+    "intermedio_failures_negativo": (
+        '<testsuites><testsuites tests="1" skipped="0" failures="-1" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+    "intermedio_failures_malformado": (
+        '<testsuites><testsuites tests="1" skipped="0" failures="invalido" errors="0">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+    "intermedio_errors_negativo": (
+        '<testsuites><testsuites tests="1" skipped="0" failures="0" errors="-1">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+    "intermedio_errors_malformado": (
+        '<testsuites><testsuites tests="1" skipped="0" failures="0" errors="invalido">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+    "folha_tests_negativo": (
+        '<testsuites><testsuite tests="-1" skipped="0" failures="0" errors="0">'
+        "<testcase/></testsuite></testsuites>"
+    ),
+    "folha_tests_malformado": (
+        '<testsuites><testsuite tests="invalido" skipped="0" failures="0" errors="0">'
+        "<testcase/></testsuite></testsuites>"
+    ),
+    "folha_skipped_negativo": (
+        '<testsuites><testsuite tests="1" skipped="-1" failures="0" errors="0">'
+        "<testcase/></testsuite></testsuites>"
+    ),
+    "folha_skipped_malformado": (
+        '<testsuites><testsuite tests="1" skipped="invalido" failures="0" errors="0">'
+        "<testcase/></testsuite></testsuites>"
+    ),
+    "folha_failures_negativo": (
+        '<testsuites><testsuite tests="1" skipped="0" failures="-1" errors="0">'
+        "<testcase/></testsuite></testsuites>"
+    ),
+    "folha_failures_malformado": (
+        '<testsuites><testsuite tests="1" skipped="0" failures="invalido" errors="0">'
+        "<testcase/></testsuite></testsuites>"
+    ),
+    "folha_errors_negativo": (
+        '<testsuites><testsuite tests="1" skipped="0" failures="0" errors="-1">'
+        "<testcase/></testsuite></testsuites>"
+    ),
+    "folha_errors_malformado": (
+        '<testsuites><testsuite tests="1" skipped="0" failures="0" errors="invalido">'
+        "<testcase/></testsuite></testsuites>"
+    ),
+    "raiz_errors_um": (
+        '<testsuites tests="1" skipped="0" failures="0" errors="1">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites>"
+    ),
+    "intermedio_errors_um": (
+        '<testsuites><testsuites tests="1" skipped="0" failures="0" errors="1">'
+        '<testsuite tests="1" skipped="0" failures="0" errors="0"><testcase/></testsuite>'
+        "</testsuites></testsuites>"
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "xml", _FOLLOWUP_JUNIT_NEGATIVE.values(), ids=list(_FOLLOWUP_JUNIT_NEGATIVE)
+)
+def test_recusa_junit_contadores_invalidos_no_followup(tmp_path: Path, xml: str) -> None:
+    path = tmp_path / "junit.xml"
+    path.write_text(xml, encoding="utf-8")
+    function = _load("require_complete_junit")
+    with pytest.raises(ValueError):
+        function(path)

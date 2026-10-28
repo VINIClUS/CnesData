@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import ParseError
 
 import pytest
+from runtime_junit_followup_cases import _FOLLOWUP_JUNIT_POSITIVE
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -482,3 +483,13 @@ def test_oraculo_de_violacoes(case: str) -> None:
     else:
         with pytest.raises(AssertionError):
             _findings(cases[case], "adapter-scan", DYNAMO)
+
+
+@pytest.mark.parametrize(
+    "xml", _FOLLOWUP_JUNIT_POSITIVE.values(), ids=list(_FOLLOWUP_JUNIT_POSITIVE)
+)
+def test_aceita_junit_agregado_exato_no_followup(tmp_path: Path, xml: str) -> None:
+    report = tmp_path / "report.xml"
+    report.write_text(xml, encoding="utf-8")
+    function = _callable("require_complete_junit")
+    assert function(report) is None
