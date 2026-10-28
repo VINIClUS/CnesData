@@ -1,0 +1,183 @@
+{
+  "requests": {
+    "D": {
+      "service": "cognito-idp",
+      "operation": "describe-user-pool",
+      "region": "us-east-2",
+      "stdin": {"UserPoolId": "us-east-2_PoolRoot123"}
+    },
+    "T": {
+      "service": "cognito-idp",
+      "operation": "list-tags-for-resource",
+      "region": "us-east-2",
+      "stdin": {
+        "ResourceArn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_PoolRoot123"
+      }
+    },
+    "S": {
+      "service": "cognito-idp",
+      "operation": "describe-resource-server",
+      "region": "us-east-2",
+      "stdin": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://api.cnesdata.com.br"
+      }
+    },
+    "X": {
+      "service": "cognito-idp",
+      "operation": "delete-resource-server",
+      "region": "us-east-2",
+      "stdin": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://api.cnesdata.com.br"
+      }
+    }
+  },
+  "replies": {
+    "D": {
+      "UserPool": {
+        "Id": "us-east-2_PoolRoot123",
+        "Name": "cnesdata-cap-a1b2c3d4",
+        "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_PoolRoot123"
+      }
+    },
+    "D_identity": {
+      "UserPool": {
+        "Id": "us-east-2_PoolOther999",
+        "Name": "cnesdata-cap-a1b2c3d4",
+        "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_PoolOther999"
+      }
+    },
+    "T": {
+      "Tags": {
+        "Project": "CnesData",
+        "Purpose": "aws-capability",
+        "Run": "a1b2c3d4",
+        "ExpiresAt": "1060"
+      }
+    },
+    "T_other": {
+      "Tags": {
+        "Project": "CnesData",
+        "Purpose": "aws-capability",
+        "Run": "e5f6a7b8",
+        "ExpiresAt": "1060"
+      }
+    },
+    "S": {
+      "ResourceServer": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://api.cnesdata.com.br",
+        "Name": "cnesdata-cap-a1b2c3d4-api",
+        "Scopes": [
+          {"ScopeName": "api.access", "ScopeDescription": "Access to the CnesData API"}
+        ]
+      }
+    },
+    "S_identifier": {
+      "ResourceServer": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://other.invalid",
+        "Name": "cnesdata-cap-a1b2c3d4-api",
+        "Scopes": [
+          {"ScopeName": "api.access", "ScopeDescription": "Access to the CnesData API"}
+        ]
+      }
+    },
+    "S_scope": {
+      "ResourceServer": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://api.cnesdata.com.br",
+        "Name": "cnesdata-cap-a1b2c3d4-api",
+        "Scopes": [
+          {"ScopeName": "api.admin", "ScopeDescription": "Access to the CnesData API"}
+        ]
+      }
+    },
+    "S_name": {
+      "ResourceServer": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://api.cnesdata.com.br",
+        "Name": "cnesdata-cap-other-api",
+        "Scopes": [
+          {"ScopeName": "api.access", "ScopeDescription": "Access to the CnesData API"}
+        ]
+      }
+    },
+    "S_scope_description": {
+      "ResourceServer": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://api.cnesdata.com.br",
+        "Name": "cnesdata-cap-a1b2c3d4-api",
+        "Scopes": [{"ScopeName": "api.access", "ScopeDescription": "Wrong scope"}]
+      }
+    },
+    "S_user_pool_id": {
+      "ResourceServer": {
+        "UserPoolId": "us-east-2_PoolOther999",
+        "Identifier": "https://api.cnesdata.com.br",
+        "Name": "cnesdata-cap-a1b2c3d4-api",
+        "Scopes": [
+          {"ScopeName": "api.access", "ScopeDescription": "Access to the CnesData API"}
+        ]
+      }
+    },
+    "S_missing_field": {
+      "ResourceServer": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://api.cnesdata.com.br",
+        "Scopes": [
+          {"ScopeName": "api.access", "ScopeDescription": "Access to the CnesData API"}
+        ]
+      }
+    },
+    "S_extra_field": {
+      "ResourceServer": {
+        "UserPoolId": "us-east-2_PoolRoot123",
+        "Identifier": "https://api.cnesdata.com.br",
+        "Name": "cnesdata-cap-a1b2c3d4-api",
+        "Scopes": [
+          {"ScopeName": "api.access", "ScopeDescription": "Access to the CnesData API"}
+        ],
+        "Unexpected": "unknown-configuration"
+      }
+    },
+    "X_empty": {},
+    "X_nonempty": {"Unexpected": "server-still-present"},
+    "X_error": {
+      "exit": 254,
+      "stdout": "",
+      "stderr": "{\"Code\":\"AccessDeniedException\",\"Message\":\"delete denied\"}"
+    },
+    "X_invalid": {"exit": 0, "stdout": "[]", "stderr": ""},
+    "S_missing": {
+      "exit": 254,
+      "stdout": "",
+      "stderr": "{\"Code\":\"ResourceNotFoundException\",\"Message\":\"missing\"}"
+    }
+  },
+  "traces": {
+    "owned": [["D", "D"], ["T", "T"], ["S", "S"], ["X", "X_empty"]],
+    "identity": [["D", "D_identity"]],
+    "tags": [["D", "D"], ["T", "T_other"]],
+    "identifier": [["D", "D"], ["T", "T"], ["S", "S_identifier"]],
+    "scope": [["D", "D"], ["T", "T"], ["S", "S_scope"]],
+    "name": [["D", "D"], ["T", "T"], ["S", "S_name"]],
+    "scope_description": [["D", "D"], ["T", "T"], ["S", "S_scope_description"]],
+    "user_pool_id": [["D", "D"], ["T", "T"], ["S", "S_user_pool_id"]],
+    "missing_field": [["D", "D"], ["T", "T"], ["S", "S_missing_field"]],
+    "extra_field": [["D", "D"], ["T", "T"], ["S", "S_extra_field"]],
+    "delete_error": [["D", "D"], ["T", "T"], ["S", "S"], ["X", "X_error"]],
+    "delete_timeout": [["D", "D"], ["T", "T"], ["S", "S"], ["X", "X_timeout"]],
+    "delete_invalid": [["D", "D"], ["T", "T"], ["S", "S"], ["X", "X_invalid"]],
+    "delete_nonempty": [["D", "D"], ["T", "T"], ["S", "S"], ["X", "X_nonempty"]],
+    "cleanup_present": [
+      ["D", "D"], ["T", "T"], ["S", "S"], ["X", "X_empty"],
+      ["D", "D"], ["T", "T"], ["S", "S"]
+    ],
+    "cleanup_absent": [
+      ["D", "D"], ["T", "T"], ["S", "S"], ["X", "X_empty"],
+      ["D", "D"], ["T", "T"], ["S", "S_missing"]
+    ]
+  }
+}

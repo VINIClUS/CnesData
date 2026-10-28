@@ -17,6 +17,7 @@ from tests.integration.aws_capability._service_cognito_create import create_pool
 from tests.integration.aws_capability._service_cognito_delete import delete_pool
 from tests.integration.aws_capability._service_cognito_dependents import cognito_dependents
 from tests.integration.aws_capability._service_cognito_prepare import prepare_pool
+from tests.integration.aws_capability._service_cognito_server_delete import delete_server
 from tests.integration.aws_capability._service_commands import call_cli
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb import (
@@ -161,6 +162,9 @@ class AwsServices:
                 raise ServiceFailure("service=not_implemented")
             if type(bypass) is not bool:
                 raise ServiceFailure("service=cognito_delete_invalid")
+            if _is_cognito_child(resource):
+                delete_server(resource, self, context)
+                return
             delete_pool(resource, self, context)
             return
         if resource.service != "dynamodb":
@@ -187,3 +191,7 @@ def _cognito_enabled(spec: RunSpec) -> bool:
 
 def _is_s3_child(resource: Resource) -> bool:
     return resource.resource_id != resource.name
+
+
+def _is_cognito_child(resource: Resource) -> bool:
+    return isinstance(resource.resource_id, str) and resource.resource_id.lstrip().startswith("{")
