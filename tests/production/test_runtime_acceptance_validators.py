@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import runpy
 import sys
 from dataclasses import fields, is_dataclass
 from hashlib import sha256
@@ -13,6 +14,10 @@ from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import ParseError
 
 import pytest
+
+_FOLLOWUP_JUNIT_POSITIVE = runpy.run_path(
+    str(Path(__file__).with_name("runtime_junit_followup_cases.py"))
+)["_FOLLOWUP_JUNIT_POSITIVE"]
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -114,6 +119,12 @@ def _resource(kind: str) -> str:
 _MUTANTS = {
     "api_base_relativa": (0, ENV, BASE, 'const PRODUCTION_API_BASE_URL = "/api/v1";'),
     "api_fetch_relativo": (0, CLIENT, "fetch(url.href,", 'fetch("/api/v1/dashboard/auth/me",'),
+    "api_fetch_template_relativo": (
+        0,
+        CLIENT,
+        "fetch(url.href,",
+        "fetch(`/api/v1/dashboard/auth/me`,",
+    ),
     "api_guarda_removida": (0, ENV, GUARD, "    if (false) {"),
     "ativacao_fetch_na_origem": (
         1,
@@ -476,3 +487,13 @@ def test_oraculo_de_violacoes(case: str) -> None:
     else:
         with pytest.raises(AssertionError):
             _findings(cases[case], "adapter-scan", DYNAMO)
+
+
+@pytest.mark.parametrize(
+    "xml", _FOLLOWUP_JUNIT_POSITIVE.values(), ids=list(_FOLLOWUP_JUNIT_POSITIVE)
+)
+def test_aceita_junit_agregado_exato_no_followup(tmp_path: Path, xml: str) -> None:
+    report = tmp_path / "report.xml"
+    report.write_text(xml, encoding="utf-8")
+    function = _callable("require_complete_junit")
+    assert function(report) is None
