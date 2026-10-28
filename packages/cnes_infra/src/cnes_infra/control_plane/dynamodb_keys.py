@@ -46,6 +46,16 @@ def entity_key(tenant_id: str, entity: str, identifier: str) -> tuple[str, str]:
     return tenant_partition(tenant_id), f"{entity}#{key_component(identifier)}"
 
 
+def certificate_key(tenant_id: str, serial: str) -> tuple[str, str]:
+    """Args:
+        tenant_id: identificador do tenant.
+        serial: serial opaco do certificado.
+    Returns:
+        Chave base (partição, ordenação) do certificado.
+    """
+    return entity_key(tenant_id, "CERT", serial)
+
+
 def membership_key(tenant_id: str, user_id: str) -> tuple[str, str]:
     """Cria a chave base da membership do usuário no tenant."""
     return entity_key(tenant_id, MEMBERSHIP, user_id)
@@ -68,9 +78,7 @@ def dispatch_key(tenant_id: str, run_id: str) -> tuple[str, str]:
 
 def idempotency_key(tenant_id: str, scope: str, key: str) -> tuple[str, str]:
     """Cria a chave base de idempotência."""
-    return tenant_partition(tenant_id), (
-        f"IDEMPOTENCY#{key_component(scope)}#{key_component(key)}"
-    )
+    return tenant_partition(tenant_id), (f"IDEMPOTENCY#{key_component(scope)}#{key_component(key)}")
 
 
 def version_key(tenant_id: str, dataset_name: str, version_id: str) -> tuple[str, str]:
