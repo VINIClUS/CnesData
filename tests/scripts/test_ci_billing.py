@@ -363,7 +363,7 @@ def _probe_env(tmp_path: Path) -> dict[str, str]:
 
 def _verifica_xml(report: Path, falha: bool) -> None:
     assert report.is_file(), "billing_junit=missing"
-    root = ET.parse(report).getroot()  # noqa: S314 -- XML da suite sintetica isolada.
+    root = ET.parse(report).getroot()  # noqa: S314 -- XML from the isolated synthetic suite.
     skipped = []
     for case in root.findall(".//testcase"):
         reason = case.find("skipped")
