@@ -17,13 +17,14 @@ from typing import Any
 TIME_SCALE = 0.02
 _EXTERNAL_DEADLINE = 25.0
 
-_UV = '''import json, os, shutil, signal, sys, time
+_UV = """import json, os, shutil, signal, sys, time
 from pathlib import Path
 args = sys.argv[1:]
 phase = "startup"
 def emit(event, **extra):
     with open(os.environ["GATE_EVENTS"], "a") as output:
         output.write(json.dumps({"phase": phase, "event": event, **extra}) + "\\n")
+    print(f"boundary_phase={phase} boundary_event={event}", flush=True)
 def interrupted(number, frame):
     emit("int", signal=number)
     raise SystemExit(130)
@@ -53,17 +54,27 @@ elif "pytest" in args:
         raise SystemExit(7)
     if phase == "packages" and case == "finite":
         time.sleep(520 * float(os.environ["GATE_SCALE"]))
+    if phase == "packages" and case == "finite_tail":
+        time.sleep(10 * float(os.environ["GATE_SCALE"]))
+        emit("work")
+        time.sleep(520 * float(os.environ["GATE_SCALE"]))
+        emit("summary")
     reports = [value.removeprefix("--cov-report=xml:") for value in args
                if value.startswith("--cov-report=xml:")]
     for report in reports:
         Path(report).write_text('<coverage synthetic="true"/>\\n')
+    if phase == "packages" and case == "finite_tail":
+        emit("coverage", reports=reports)
+        emit("tail")
+        time.sleep(130 * float(os.environ["GATE_SCALE"]))
+        emit("process_exit")
     emit("complete", reports=reports)
 else:
     emit("unknown", argv=args)
     raise SystemExit(92)
-'''
+"""
 
-_TIMEOUT = '''import json, os, sys
+_TIMEOUT = """import json, os, sys
 args = sys.argv[1:]
 index = next(index for index, value in enumerate(args) if value.replace(".", "", 1).isdigit())
 scaled = list(args)
@@ -71,7 +82,7 @@ scaled[index] = str(float(args[index]) * float(os.environ["GATE_SCALE"]))
 with open(os.environ["GATE_TIMEOUTS"], "a") as output:
     output.write(json.dumps({"original_argv": args, "scaled_argv": scaled}) + "\\n")
 os.execv(os.environ["REAL_GNU_TIMEOUT"], [os.environ["REAL_GNU_TIMEOUT"], *scaled])
-'''
+"""
 
 
 @dataclass(frozen=True)
@@ -83,6 +94,9 @@ class GateRun:
     reports: tuple[str, ...]
     temporary_outputs: tuple[str, ...]
     surviving_pids: tuple[int, ...]
+    stdout: str
+    pytest_argv: tuple[tuple[str, ...], ...]
+    timeout_argv: tuple[tuple[str, ...], ...]
 
 
 def _session_members(session: int) -> dict[int, int]:
@@ -129,12 +143,11 @@ def _cleanup_session(process: subprocess.Popen[str]) -> tuple[int, ...]:
                 os.killpg(group, termination)
             except ProcessLookupError:
                 pass
-        for pid in members:
-            if pid != process.pid:
-                try:
-                    os.waitpid(pid, os.WNOHANG)
-                except ChildProcessError:
-                    pass
+        for pid in members.keys() - {process.pid}:
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
         time.sleep(0.01)
     return tuple(_session_members(process.pid))
 
@@ -143,15 +156,19 @@ def _tools() -> tuple[str, str, dict[str, str]]:
     bash = shutil.which("bash")
     if bash is None:
         raise RuntimeError("prerequisite=bash")
-    versions = {"bash": subprocess.check_output(  # noqa: S603 - discovered local tool
-        [bash, "--version"], text=True,
-    ).splitlines()[0]}
+    versions = {
+        "bash": subprocess.check_output(  # noqa: S603 - discovered local tool
+            [bash, "--version"],
+            text=True,
+        ).splitlines()[0]
+    }
     for name in ("timeout", "gtimeout", "gnutimeout"):
         timeout = shutil.which(name)
         if timeout is None:
             continue
         versions[name] = subprocess.check_output(  # noqa: S603 - discovered local tool
-            [timeout, "--version"], text=True,
+            [timeout, "--version"],
+            text=True,
         ).splitlines()[0]
         if "GNU coreutils" in versions[name]:
             versions["selected_timeout_path"] = timeout
@@ -163,9 +180,12 @@ def _workspace(root: Path) -> tuple[Path, dict[str, str]]:
     work = root / "gate"
     for name in ("scripts", "bin", "temp", "docs/contracts/schemas", "packages/cnes_infra"):
         (work / name).mkdir(parents=True)
-    source = Path(os.environ.get(
-        "S3_GATE_SCRIPT", str(Path(__file__).resolve().parents[2] / "scripts/ci_python_gate.sh"),
-    ))
+    source = Path(
+        os.environ.get(
+            "S3_GATE_SCRIPT",
+            str(Path(__file__).resolve().parents[2] / "scripts/ci_python_gate.sh"),
+        )
+    )
     shutil.copyfile(source, work / "scripts/ci_python_gate.sh")
     (work / "docs/contracts/openapi.json").write_text('{"synthetic":"openapi"}\n')
     (work / "docs/contracts/schemas/fixture.json").write_text('{"synthetic":"schema"}\n')
@@ -176,8 +196,10 @@ def _workspace(root: Path) -> tuple[Path, dict[str, str]]:
     environment = os.environ.copy()
     environment.update(
         PATH=str(work / "bin") + os.pathsep + environment["PATH"],
-        TMPDIR=str(work / "temp"), GATE_EVENTS=str(root / "events.jsonl"),
-        GATE_TIMEOUTS=str(root / "timeouts.jsonl"), GATE_SCALE=str(TIME_SCALE),
+        TMPDIR=str(work / "temp"),
+        GATE_EVENTS=str(root / "events.jsonl"),
+        GATE_TIMEOUTS=str(root / "timeouts.jsonl"),
+        GATE_SCALE=str(TIME_SCALE),
     )
     return work, environment
 
@@ -198,8 +220,13 @@ def run_gate(root: Path, scenario: str) -> GateRun:
     started = time.monotonic()
     with _adopt_orphans():
         process = subprocess.Popen(  # noqa: S603 - local Bash and script under test
-            [bash, "scripts/ci_python_gate.sh"], cwd=work, env=environment,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True,
+            [bash, "scripts/ci_python_gate.sh"],
+            cwd=work,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
         )
         try:
             output, _ = process.communicate(timeout=_EXTERNAL_DEADLINE)
@@ -214,13 +241,28 @@ def run_gate(root: Path, scenario: str) -> GateRun:
     rows = _records(root / "events.jsonl")
     assert process.returncode is not None
     result = GateRun(
-        process.returncode, expired, time.monotonic() - started,
+        process.returncode,
+        expired,
+        time.monotonic() - started,
         tuple(f"{row['phase']}:{row['event']}" for row in rows),
         tuple(path.name for path in work.glob("coverage-*.xml")),
-        tuple(row["output"] for row in rows if "output" in row), survivors,
+        tuple(row["output"] for row in rows if "output" in row),
+        survivors,
+        output,
+        tuple(tuple(row["argv"]) for row in rows if row["event"] == "start"),
+        tuple(tuple(row["original_argv"]) for row in _records(root / "timeouts.jsonl")),
     )
-    evidence = {**asdict(result), "pid_session": process.pid, "versions": versions,
-                "time_scale": TIME_SCALE, "outer_deadline": _EXTERNAL_DEADLINE,
-                "timeout_calls": _records(root / "timeouts.jsonl"), "stdout": output}
-    (root / "result.json").write_text(json.dumps(evidence, indent=2) + "\n")
+    _save_result(root, result, process.pid, versions)
     return result
+
+
+def _save_result(root: Path, result: GateRun, session: int, versions: dict[str, str]) -> None:
+    evidence = {
+        **asdict(result),
+        "pid_session": session,
+        "versions": versions,
+        "time_scale": TIME_SCALE,
+        "outer_deadline": _EXTERNAL_DEADLINE,
+        "timeout_calls": _records(root / "timeouts.jsonl"),
+    }
+    (root / "result.json").write_text(json.dumps(evidence, indent=2) + "\n")
