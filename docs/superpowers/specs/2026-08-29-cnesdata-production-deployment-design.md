@@ -136,27 +136,27 @@ validation values to the shared edge change.
 
 ### 6.1 Origin and distribution
 
-- one private S3 web bucket in `us-east-2`;
-- S3 Block Public Access enabled at account and bucket level;
-- CloudFront Origin Access Control with a bucket policy limited to the exact
-  distribution;
-- CloudFront Free flat-rate plan, with no automatic upgrade;
-- one dedicated, CloudFront-scoped AWS WAF web ACL in `us-east-1`, required by
-  that plan and not shared with LimnoPulse;
-- ACM certificate in `us-east-1`, validated through Cloudflare DNS;
-- `cnesdata.com.br` as a DNS-only Cloudflare CNAME to CloudFront;
-- TLS redirect and a modern security policy;
-- compression enabled;
-- no S3 website endpoint and no public object ACL.
-
-Before DNS cutover, the account-level gate proves Free-plan eligibility and
-available quota. A separate manual, idempotent Pricing Plan Manager API step in
-`us-east-1` binds this exact distribution and WAF to an exact `FREE`
-subscription, then verifies `ACTIVE`. The current AWS provider has no supported
-subscription resource, so this step is outside OpenTofu state but inside the
-signed deployment evidence and subsequent drift checks. Failure stops rollout;
-it never selects pay-as-you-go or a paid tier implicitly.
-
+One private S3 bucket(us-east-2); account/bucket Block Public Access; exact-distribution CloudFront
+Origin Access Control policy; ownership/versioning; no public object ACL/S3 website endpoint.
+CloudFront Free flat-rate, no auto-upgrade/implicit pay-as-you-go/paid tier; required dedicated WAF
+(CloudFront scope, us-east-1), unshared with LimnoPulse; ACM(us-east-1), Cloudflare DNS validation.
+cnesdata.com.br DNS-only Cloudflare CNAME to CloudFront; TLS redirect/modern TLS policy/compression.
+Free eligibility/quota gate before DNS cutover. Separate manual idempotent Pricing Plan Manager API
+in us-east-1 binds exact distribution+WAF to FREE; verifies ACTIVE. AWS provider has no supported
+subscription resource: outside OpenTofu state; signed deploy evidence/drift checks. Failure stops.
+From 2026-10-29: retain SSE-S3 AES256 for deterministic dashboard/public config (§6.2); no secrets
+is binding; published content/inventory unproven pending release evidence. Avoid CMK policy/cost
+dependency within the existing envelope. Real AWS-0132 HIGH exception; owner repository account
+VINIClUS; expires 2026-11-29 00:00 UTC; only this file/resource:
+infra/opentofu/modules/static-web/main.tf; aws_s3_bucket_server_side_encryption_configuration.this.
+main.tf SHA256: 6f63e9e21e1ada18871afeb366c8f3073d0be94e21284109e6d97f57000f21d1. Original raw:
+task-9-static-web-provider-gates-ready/trivy-raw.json SHA256:
+d147bfe272c2a4a7c05b89cb20a69777e9202e49af2c0b52a3978fdec4cfef06; report SHA256:
+49bbdc5e8188dab1fd6408b718213a0d1917c3e7a8ffe59ef67bfe544731dafa. No customer-controlled key policy,
+revocation/rotation boundary; file scope covers future resources. Re-review before reliance on new
+resources/content, encryption/access/scanner/financial change/expiry. CI selects .trivyignore.yaml:
+exact-file static entry, independent legacy scope/expiry; no global AWS-0132. No spend/cloud change/
+live-content acceptance/CI/deploy/issue-completion approval.
 ### 6.2 Release layout and cache policy
 
 The dashboard build is deterministic and contains no secret. It receives only
