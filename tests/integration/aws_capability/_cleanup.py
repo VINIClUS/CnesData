@@ -73,7 +73,12 @@ class Cleanup:
         visible = {(ref.service, ref.resource_id) for ref, _ in rows}
         retired = {(ref.service, ref.resource_id) for ref in self.absent} - visible
         accepted = {(ref.service, ref.resource_id) for ref in self.journal.dynamodb_delete_accepted}
-        return {key for key in retired if key[0] != "dynamodb" or key in accepted}
+        retired = {key for key in retired if key[0] != "dynamodb" or key in accepted}
+        if self.journal.spec.probe == "cognito-resource-server" and len(self.journal.created) == 2:
+            root, child = self.journal.created
+            if (child.service, child.resource_id) not in retired:
+                retired.discard((root.service, root.resource_id))
+        return retired
 
     def remove_omitted(self, rows: list[tuple[Resource, Ownership]]) -> str | None:
         visible = {(ref.service, ref.resource_id) for ref, _ in rows}
