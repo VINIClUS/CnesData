@@ -1,10 +1,18 @@
 """Contrato dos workflows de CI do billing (aceitacao e E2E Stripe sandbox)."""
+
 from __future__ import annotations
 
 import configparser
 import json
 import re
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from base64 import b64decode
+from collections import Counter
+from hashlib import sha256
 from pathlib import Path
+from shlex import split
 from typing import Any, cast
 
 import pytest
@@ -260,3 +268,231 @@ def test_e2e_stripe_deriva_segredo_do_listener_com_device_fixo_e_mascarado() -> 
     assert lines[derive].startswith('STRIPE_TEST_WEBHOOK_SECRET="$(')
     assert lines[0] == "set -euo pipefail"
     assert derive < mask < export < suite
+
+
+_MATRIX_NAME = "Billing acceptance matrix without Stripe network"
+_EVIDENCE_NAME = "Emit billing acceptance JUnit evidence"
+_MATRIX_REPORT = "billing-acceptance-junit.xml"
+_SKIP_CASES = Counter(
+    {
+        ("test_probe", "test_parametrizado[primeiro]", "motivo_parametro_<&>"): 1,
+        ("test_probe", "test_parametrizado[segundo]", "motivo_parametro_<&>"): 1,
+        ("test_probe", "test_fixture", "motivo_fixture"): 1,
+    }
+)
+_PROBE_SOURCE = """
+import pytest
+
+@pytest.mark.parametrize("value", [1, 2], ids=["primeiro", "segundo"])
+@pytest.mark.skip(reason="motivo_parametro_<&>")
+def test_parametrizado(value):
+    pass
+
+@pytest.fixture
+def indisponivel():
+    pytest.skip("motivo_fixture")
+
+def test_fixture(indisponivel):
+    pass
+
+def test_passou():
+    pass
+
+@pytest.mark.parametrize("value", [
+    pytest.param(1, marks=pytest.mark.e2e),
+    pytest.param(2, marks=pytest.mark.postgres),
+    pytest.param(3, marks=pytest.mark.dynamodb_local),
+    pytest.param(4, marks=pytest.mark.stripe),
+])
+def test_excluido(value):
+    raise AssertionError("caso_excluido_executou")
+"""
+
+
+def _matrix_argv() -> list[str]:
+    job = _load(_QUALITY)["jobs"]["billing-acceptance"]
+    argv = split(_step_named(job, _MATRIX_NAME)["run"])
+    paths = {arg for arg in argv if arg.split("/")[0] in {"apps", "packages", "tests"}}
+    assert argv[:4] == ["uv", "run", "--no-build", "pytest"]
+    assert paths == set(_ACCEPTANCE_PATHS) - {"tests/scripts/test_ci_billing.py"}
+    assert argv[argv.index("-m") + 1] == (
+        "not e2e and not postgres and not dynamodb_local and not stripe"
+    )
+    return [arg for arg in argv[4:] if arg not in paths]
+
+
+def _probe(tmp_path: Path, falha: bool) -> tuple[subprocess.CompletedProcess[str], Path]:
+    suite = tmp_path / "test_probe.py"
+    suite.write_text(_PROBE_SOURCE + ("\ndef test_falhou():\n    assert False\n" if falha else ""))
+    config = tmp_path / "pytest.ini"
+    config.write_text(_PYTEST_INI.read_text(encoding="utf-8"), encoding="utf-8")
+    argv = [sys.executable, "-I", "-B", "-m", "pytest", *_matrix_argv()]
+    argv += ["-p", "no:cacheprovider", "-c", str(config)]
+    argv += ["--rootdir", str(tmp_path), "--confcutdir", str(tmp_path), str(suite)]
+    result = subprocess.run(  # noqa: S603
+        argv,
+        cwd=tmp_path,
+        env=_probe_env(tmp_path),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    (tmp_path / "stdout.txt").write_text(result.stdout, encoding="utf-8")
+    (tmp_path / "stderr.txt").write_text(result.stderr, encoding="utf-8")
+    (tmp_path / "returncode.txt").write_text(str(result.returncode), encoding="ascii")
+    assert result.returncode == int(falha), result.stdout + result.stderr
+    for outcome, count in (("passed", 1), ("skipped", 3), ("deselected", 4)):
+        assert re.search(rf"\b{count} {outcome}\b", result.stdout), result.stdout
+    assert bool(re.search(r"\b1 failed\b", result.stdout)) == falha
+    return result, tmp_path / _MATRIX_REPORT
+
+
+def _probe_env(tmp_path: Path) -> dict[str, str]:
+    return {
+        "PATH": "/usr/bin:/bin",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "BILLING_MODE": "disabled",
+        "CI": "true",
+        "TMPDIR": str(tmp_path),
+        "XDG_CONFIG_HOME": str(tmp_path),
+    }
+
+
+def _verifica_xml(report: Path, falha: bool) -> None:
+    assert report.is_file(), "billing_junit=missing"
+    root = ET.parse(report).getroot()  # noqa: S314 -- XML da suite sintetica isolada.
+    skipped = []
+    for case in root.findall(".//testcase"):
+        reason = case.find("skipped")
+        if reason is not None:
+            skipped.append(
+                (
+                    case.get("classname"),
+                    case.get("name"),
+                    reason.get("message", "").removeprefix("Skipped: "),
+                )
+            )
+    assert Counter(skipped) == _SKIP_CASES
+    assert (root.find(".//failure") is not None) == falha
+
+
+def _emitter() -> dict[str, Any]:
+    job = _load(_QUALITY)["jobs"]["billing-acceptance"]
+    steps = [step for step in _steps(job) if step.get("name") == _EVIDENCE_NAME]
+    assert len(steps) == 1, "billing_junit_emitter=missing_or_duplicate"
+    return steps[0]
+
+
+def _emit(tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    environment = _probe_env(tmp_path) | {
+        "GITHUB_RUN_ID": "123",
+        "GITHUB_RUN_ATTEMPT": "2",
+        "GITHUB_SHA": "e" * 40,
+        "GITHUB_RETENTION_DAYS": "30",
+    }
+    return subprocess.run(  # noqa: S603
+        ["/usr/bin/bash", "--noprofile", "--norc", "-c", _emitter()["run"]],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+
+@pytest.mark.parametrize("falha", [False, True], ids=["sucesso", "falha"])
+def test_billing_preserva_status_e_contagens_sinteticas(tmp_path: Path, falha: bool) -> None:
+    _probe(tmp_path, falha)
+
+
+@pytest.mark.parametrize("falha", [False, True], ids=["sucesso", "falha"])
+def test_billing_exibe_motivos_dos_skips(tmp_path: Path, falha: bool) -> None:
+    result, _ = _probe(tmp_path, falha)
+    assert "motivo_parametro_<&>" in result.stdout
+    assert "motivo_fixture" in result.stdout
+
+
+@pytest.mark.parametrize("falha", [False, True], ids=["sucesso", "falha"])
+def test_billing_relata_identidade_e_motivo_de_cada_skip(tmp_path: Path, falha: bool) -> None:
+    _, report = _probe(tmp_path, falha)
+    _verifica_xml(report, falha)
+
+
+def test_billing_mantem_selecao_permissoes_e_contratos() -> None:
+    _matrix_argv()
+    workflow = _load(_QUALITY)
+    events = _triggers(workflow)
+    assert set(events) == {"pull_request", "schedule", "workflow_dispatch"}
+    assert set(events["pull_request"]["paths"]) == set(_TRIGGER_PATHS) | {
+        "apps/data_processor/**",
+        "scripts/flag_quality_violation.py",
+        ".github/workflows/python-quality.yml",
+    }
+    assert events["schedule"] == [{"cron": "0 6 * * *"}]
+    job = workflow["jobs"]["billing-acceptance"]
+    assert job["permissions"] == {"contents": "read"}
+    assert job["runs-on"] == "ubuntu-latest"
+    assert _step_named(job, "Billing CI contract")["run"] == (
+        "uv run --no-build pytest -q tests/scripts/test_ci_billing.py "
+        "tests/scripts/test_ci_aws_runtime.py"
+    )
+    assert "continue-on-error" not in job
+    assert all("continue-on-error" not in step for step in _steps(job))
+
+
+def test_billing_preserva_canal_no_log_apos_falha() -> None:
+    step = _emitter()
+    job = _load(_QUALITY)["jobs"]["billing-acceptance"]
+    assert step["if"] == "always()"
+    assert "run" in step
+    assert "uses" not in step
+    assert _step_index(job, "Local billing has no remote dependency") < _step_index(
+        job, _EVIDENCE_NAME
+    )
+    assert not any(
+        str(item.get("uses", "")).startswith(("actions/upload-artifact", "actions/cache"))
+        for item in _steps(job)
+    )
+
+
+@pytest.mark.parametrize("falha", [False, True], ids=["sucesso", "falha"])
+def test_billing_emite_bytes_xml_com_atribuicao(tmp_path: Path, falha: bool) -> None:
+    _emitter()
+    _, report = _probe(tmp_path, falha)
+    _verifica_xml(report, falha)
+    result = _emit(tmp_path)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert len(lines) >= 3
+    assert lines[0].startswith("billing_junit_begin ")
+    assert lines[-1] == f"billing_junit_end v=1 run=123 attempt=2 sha={'e' * 40}"
+    fields = lines[0].split()[1:]
+    assert all("=" in field for field in fields)
+    header = dict(field.split("=", 1) for field in fields)
+    payload = report.read_bytes()
+    assert header == {
+        "v": "1",
+        "run": "123",
+        "attempt": "2",
+        "sha": "e" * 40,
+        "bytes": str(len(payload)),
+        "sha256": sha256(payload).hexdigest(),
+        "retention_days": "30",
+    }
+    assert all(len(line) == 76 for line in lines[1:-2])
+    assert 0 < len(lines[-2]) <= 76
+    assert b64decode("".join(lines[1:-1]), validate=True) == payload
+
+
+@pytest.mark.parametrize("caso", ["ausente", "vazio", "excessivo"])
+def test_billing_rejeita_relatorio_sem_evidencia_valida(tmp_path: Path, caso: str) -> None:
+    _emitter()
+    if caso != "ausente":
+        (tmp_path / _MATRIX_REPORT).write_bytes(b"x" * (4194305 if caso == "excessivo" else 0))
+    result = _emit(tmp_path)
+    assert result.returncode != 0
+    assert not any(line.startswith("billing_junit_") for line in result.stdout.splitlines())
