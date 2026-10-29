@@ -23,7 +23,8 @@ args = sys.argv[1:]
 phase = "startup"
 def emit(event, **extra):
     with open(os.environ["GATE_EVENTS"], "a") as output:
-        output.write(json.dumps({"phase": phase, "event": event, **extra}) + "\\n")
+        output.write(json.dumps({"phase": phase, "event": event,
+                                 "observed_monotonic": time.monotonic(), **extra}) + "\\n")
     print(f"boundary_phase={phase} boundary_event={event}", flush=True)
 def interrupted(number, frame):
     emit("int", signal=number)
@@ -97,6 +98,8 @@ class GateRun:
     stdout: str
     pytest_argv: tuple[tuple[str, ...], ...]
     timeout_argv: tuple[tuple[str, ...], ...]
+    wall_bounds: tuple[float, float]
+    phase_durations: tuple[tuple[str, float], ...]
 
 
 def _session_members(session: int) -> dict[int, int]:
@@ -208,6 +211,14 @@ def _records(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
+def _phase_durations(rows: list[dict[str, Any]]) -> tuple[tuple[str, float], ...]:
+    phases: dict[str, list[float]] = {}
+    for row in rows:
+        if row["phase"] in {"packages", "apps"}:
+            phases.setdefault(row["phase"], []).append(row["observed_monotonic"])
+    return tuple((phase, times[-1] - times[0]) for phase, times in phases.items())
+
+
 def run_gate(root: Path, scenario: str) -> GateRun:
     """Args: Diretório temporário e cenário da fronteira UV.
     Returns: Resultado do Bash, fases, artefatos e limpeza de descendentes.
@@ -217,6 +228,7 @@ def run_gate(root: Path, scenario: str) -> GateRun:
     work, environment = _workspace(root)
     environment.update(GATE_CASE=scenario, REAL_GNU_TIMEOUT=timeout)
     expired = False
+    wall_started = time.time()
     started = time.monotonic()
     with _adopt_orphans():
         process = subprocess.Popen(  # noqa: S603 - local Bash and script under test
@@ -251,6 +263,8 @@ def run_gate(root: Path, scenario: str) -> GateRun:
         output,
         tuple(tuple(row["argv"]) for row in rows if row["event"] == "start"),
         tuple(tuple(row["original_argv"]) for row in _records(root / "timeouts.jsonl")),
+        (wall_started, time.time()),
+        _phase_durations(rows),
     )
     _save_result(root, result, process.pid, versions)
     return result

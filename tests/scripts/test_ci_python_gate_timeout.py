@@ -19,6 +19,7 @@ _APPS_MARKERS = (
     "not integration and not bigquery and not e2e and not stress and not soak and not spike "
     "and not windows_only"
 )
+_CLOCK_TOLERANCE = 2.0  # Integer clock resolution plus process scheduling allowance.
 
 
 def _preparacao_e_trap_funcionaram(result: GateRun) -> None:
@@ -42,15 +43,36 @@ def _diagnosticos_expoem_fases_e_status(
     ]
     for index, (phase, status) in enumerate(expected):
         start, end = diagnostics[index * 2 : index * 2 + 2]
-        for row in (start, end):
-            assert re.fullmatch(r"\d+(?:\.\d+)?", row.get("timestamp", ""))
-        assert float(end["timestamp"]) >= float(start["timestamp"])
-        assert re.fullmatch(r"\d+(?:\.\d+)?", end.get("elapsed", ""))
-        assert 0 <= float(end["elapsed"]) <= result.elapsed + 1
+        _relogios_medem_fase_observada(result, phase, start, end)
         assert int(end["external_rc"]) == status
         boundary = [row for row in rows if row.get("boundary_phase") == phase]
         assert rows.index(start) < rows.index(boundary[0])
         assert rows.index(boundary[-1]) < rows.index(end)
+
+
+def _relogios_medem_fase_observada(
+    result: GateRun,
+    phase: str,
+    start: dict[str, str],
+    end: dict[str, str],
+) -> None:
+    for row in (start, end):
+        assert re.fullmatch(r"\d+(?:\.\d+)?", row.get("timestamp", ""))
+    assert re.fullmatch(r"\d+(?:\.\d+)?", end.get("elapsed", ""))
+    started, ended, elapsed = (
+        float(start["timestamp"]),
+        float(end["timestamp"]),
+        float(end["elapsed"]),
+    )
+    wall_start, wall_end = result.wall_bounds
+    observed = dict(result.phase_durations)[phase]
+    assert wall_start - _CLOCK_TOLERANCE <= started <= ended <= wall_end + _CLOCK_TOLERANCE
+    assert elapsed >= 0
+    assert abs(elapsed - observed) <= _CLOCK_TOLERANCE
+    assert abs((ended - started) - elapsed) <= _CLOCK_TOLERANCE
+    if observed > _CLOCK_TOLERANCE:
+        assert ended > started
+        assert elapsed > 0
 
 
 def test_suite_finita_de_520_segundos_conclui_e_executa_apps(tmp_path: Path) -> None:
