@@ -357,8 +357,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - API is unreachable at the VPS address/ports and healthy through Tunnel;
 - the collision-safe AWS-managed Cognito prefix domain serves real
   `/oauth2/authorize`, `/oauth2/token` and `/logout` endpoints; the PKCE code
-  exchange and configured logout URL succeed, with no custom Cognito domain or
-  managed login v2 dependency;
+  exchange, audience-preserving refresh and logout succeed using Essentials,
+  managed login v2 and Cognito-provided branding, with no custom Cognito domain;
 - demo user authenticates with PKCE and resolves only the demo tenant;
 - a real constrained API/VPS leaf from the external CA assumes the Roles
   Anywhere profile; a CRL-revoked leaf is denied, alerts and remains failed
@@ -419,28 +419,28 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 
 ## 8. Cost contract
 
-CnesData receives a USD 8 monthly operational envelope. Expected initial use is
-approximately USD 2-6 depending on Fargate jobs and stored data.
+CnesData retains USD 8/month; paid Actions stay USD 0. The historical USD 2-6 total is
+provisional and predates Essentials. [AWS pricing](https://aws.amazon.com/cognito/pricing/),
+consulted 2026-10-25, quotes Essentials direct sign-in at USD 0.015/MAU. Without any allowance,
+illustrative min/base/max 1/10/100 MAU costs USD 0.015/0.15/1.50 monthly; these are not quotas.
+AWS describes 10,000 direct/social MAU free per account/organization outside GovCloud, but
+this account's eligibility, remaining allowance and aggregate MAUs are unverified.
+Before production, dated manifest #388 must validate actual MAUs, allowance and all auxiliary
+costs; these scenarios do not replace that manifest or establish zero cost.
 
 Cost controls:
 
-- voluntary 5 GB operational cap for the web bucket, aligned with the
-  CloudFront Free plan's account-wide 5 GB S3 Standard credit;
-- one of the account's maximum three CloudFront Free-plan subscriptions, with
-  eligibility and `ACTIVE` status checked before cutover;
-- ECR generally below 2 GB;
-- semaphore-enforced maximum one concurrent unit Fargate task per environment;
-  recovery passes are individually bounded but have no global concurrency
-  ceiling; zero idle desired count; and a monitored 100 combined unit, recovery
-  and audit-dispatch task-hours monthly target, including every invocation;
-- Step Functions Standard and 200 execution attempts maximum, atomically shared
-  by initial and recovery starts;
-- Athena 5 GB/query and 100 GB/month;
-- DynamoDB on-demand maximum throughput;
-- short CloudWatch retention and no Container Insights;
-- no NAT Gateway, load balancer, RDS or multi-region resource;
-- monthly review for the first three months and re-baseline if the project
-  exceeds its envelope or aggregate forecast reaches USD 15.
+- voluntary web bucket cap 5 GB, aligned with CloudFront Free plan's account-wide 5 GB
+  S3 Standard credit; ECR generally below 2 GB;
+- one of at most three account CloudFront Free subscriptions; check eligibility/`ACTIVE` at cutover;
+- semaphore: at most one concurrent unit Fargate task/environment; recovery passes are individually
+  bounded; no global concurrency cap; zero idle desired count; monitor 100 combined unit, recovery
+  and audit-dispatch task-hours/month, including every invocation;
+- Step Functions Standard: max 200 execution attempts atomically shared by initial/recovery starts;
+- Athena 5 GB/query and 100 GB/month; DynamoDB on-demand maximum throughput;
+- short CloudWatch retention; no Container Insights, NAT Gateway, load balancer, RDS, multi-region;
+- monthly review for three months; re-baseline if the project exceeds USD 8 or aggregate forecast
+  reaches USD 15; freeze at USD 15 aggregate forecast.
 
 ## 9. Definition of done
 

@@ -1,0 +1,142 @@
+{
+  "steps": [
+    {
+      "request": ["dynamodb", "update-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}},
+        "UpdateExpression": "SET #v=:new",
+        "ConditionExpression": "attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
+        "ExpressionAttributeNames": {"#v": "version", "#pk": "pk", "#sk": "sk"},
+        "ExpressionAttributeValues": {":new": {"N": "1"}},
+        "ReturnValues": "ALL_NEW"
+      }],
+      "reply": {"exit": 0, "data": {
+        "Attributes": {
+          "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "1"}
+        },
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+      }}
+    },
+    {
+      "request": ["dynamodb", "get-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}},
+        "ConsistentRead": true
+      }],
+      "reply": {"exit": 0, "data": {
+        "Item": {
+          "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "1"}
+        },
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+      }}
+    },
+    {
+      "request": ["dynamodb", "update-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}},
+        "UpdateExpression": "SET #v=:new",
+        "ConditionExpression": "#v=:expected",
+        "ExpressionAttributeNames": {"#v": "version"},
+        "ExpressionAttributeValues": {":expected": {"N": "1"}, ":new": {"N": "2"}},
+        "ReturnValues": "ALL_NEW"
+      }],
+      "reply": {"exit": 0, "data": {
+        "Attributes": {
+          "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "2"}
+        },
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+      }}
+    },
+    {
+      "request": ["dynamodb", "get-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}},
+        "ConsistentRead": true
+      }],
+      "reply": {"exit": 0, "data": {
+        "Item": {
+          "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "2"}
+        },
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+      }}
+    },
+    {
+      "request": ["dynamodb", "update-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}},
+        "UpdateExpression": "SET #v=:new",
+        "ConditionExpression": "#v=:expected",
+        "ExpressionAttributeNames": {"#v": "version"},
+        "ExpressionAttributeValues": {":expected": {"N": "1"}, ":new": {"N": "3"}},
+        "ReturnValues": "ALL_NEW"
+      }],
+      "reply": {"exit": 254, "error": {
+        "Code": "ConditionalCheckFailedException", "Message": "R1_PRIVATE_CANARY",
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+      }}
+    },
+    {
+      "request": ["dynamodb", "get-item", "us-east-2", {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}},
+        "ConsistentRead": true
+      }],
+      "reply": {"exit": 0, "data": {
+        "Item": {
+          "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "2"}
+        },
+        "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+      }}
+    }
+  ],
+  "overrides": {
+    "colisao_seed": {"index": 0, "reply": {"exit": 254, "error": {
+      "Code": "ConditionalCheckFailedException", "Message": "R1_PRIVATE_CANARY"
+    }}},
+    "item_inicial_ausente": {"index": 1, "reply": {"exit": 0, "data": {
+      "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+    }}},
+    "echo_dois_readback_um": {"index": 3, "reply": {"exit": 0, "data": {
+      "Item": {
+        "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "1"}
+      },
+      "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+    }}},
+    "echo_cas_tres": {"index": 2, "reply": {"exit": 0, "data": {
+      "Attributes": {
+        "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "3"}
+      },
+      "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+    }}},
+    "chave_estrangeira": {"index": 3, "reply": {"exit": 0, "data": {
+      "Item": {
+        "pk": {"S": "R1_PRIVATE_CANARY"}, "sk": {"S": "foreign"}, "version": {"N": "2"}
+      }
+    }}},
+    "stale_aceito": {"index": 4, "reply": {"exit": 0, "data": {
+      "Attributes": {
+        "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "3"}
+      },
+      "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+    }}},
+    "conditional_local": {"index": 4, "reply": {"exit": 252, "error": {
+      "Code": "ConditionalCheckFailedException", "Message": "R1_PRIVATE_CANARY"
+    }}},
+    "stale_denied": {"index": 4, "reply": {"exit": 254, "error": {
+      "Code": "AccessDeniedException", "Message": "R1_PRIVATE_CANARY"
+    }}},
+    "ultimo_read_tres": {"index": 5, "reply": {"exit": 0, "data": {
+      "Item": {
+        "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": "3"}
+      },
+      "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+    }}},
+    "ultimo_read_numero": {"index": 5, "reply": {"exit": 0, "data": {
+      "Item": {
+        "pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cas"}, "version": {"N": 2}
+      },
+      "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+    }}},
+    "timeout_cas": {"index": 2, "reply": {"timeout": "R1_PRIVATE_CANARY"}}
+  }
+}

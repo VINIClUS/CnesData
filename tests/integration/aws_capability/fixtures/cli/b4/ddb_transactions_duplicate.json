@@ -1,0 +1,97 @@
+{
+  "steps": [
+    {
+      "request": [
+        "dynamodb",
+        "transact-write-items",
+        "us-east-2",
+        {
+          "TransactItems": [
+            {
+              "Put": {
+                "TableName": "cnesdata-cap-a1b2c3d4",
+                "Item": {
+                  "pk": {"S": "cap#a1b2c3d4#txdup"},
+                  "sk": {"S": "target"},
+                  "version": {"N": "1"}
+                }
+              }
+            },
+            {
+              "ConditionCheck": {
+                "TableName": "cnesdata-cap-a1b2c3d4",
+                "Key": {
+                  "pk": {"S": "cap#a1b2c3d4#txdup"},
+                  "sk": {"S": "target"}
+                },
+                "ConditionExpression": "attribute_not_exists(#pk)",
+                "ExpressionAttributeNames": {
+                  "#pk": "pk"
+                }
+              }
+            },
+            {
+              "Put": {
+                "TableName": "cnesdata-cap-a1b2c3d4",
+                "Item": {
+                  "pk": {"S": "cap#a1b2c3d4#txdup"},
+                  "sk": {"S": "sibling"},
+                  "version": {"N": "1"}
+                }
+              }
+            }
+          ],
+          "ClientRequestToken": "a1b2c3d4-txdup"
+        }
+      ],
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {
+              "Code": "None"
+            },
+            {
+              "Code": "ValidationError",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {
+                "secret": {"S": "R1_PRIVATE_CANARY"}
+              }
+            },
+            {
+              "Code": "None"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "query",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "KeyConditionExpression": "#pk=:pk",
+          "ExpressionAttributeNames": {
+            "#pk": "pk"
+          },
+          "ExpressionAttributeValues": {
+            ":pk": {"S": "cap#a1b2c3d4#txdup"}
+          },
+          "ConsistentRead": true,
+          "Limit": 60
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Items": [],
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,383 @@
+{
+  "requests": {
+    "describe": [
+      "dynamodb",
+      "describe-table",
+      "us-east-2",
+      {
+        "TableName": "cnesdata-cap-a1b2c3d4"
+      }
+    ],
+    "tags": [
+      "dynamodb",
+      "list-tags-of-resource",
+      "us-east-2",
+      {
+        "ResourceArn": "arn:aws:dynamodb:us-east-2:111111111111:table/cnesdata-cap-a1b2c3d4"
+      }
+    ],
+    "tags2": [
+      "dynamodb",
+      "list-tags-of-resource",
+      "us-east-2",
+      {
+        "ResourceArn": "arn:aws:dynamodb:us-east-2:111111111111:table/cnesdata-cap-a1b2c3d4",
+        "NextToken": "pagina-2"
+      }
+    ],
+    "ttl": [
+      "dynamodb",
+      "describe-time-to-live",
+      "us-east-2",
+      {
+        "TableName": "cnesdata-cap-a1b2c3d4"
+      }
+    ],
+    "update": [
+      "dynamodb",
+      "update-time-to-live",
+      "us-east-2",
+      {
+        "TableName": "cnesdata-cap-a1b2c3d4",
+        "TimeToLiveSpecification": {
+          "Enabled": true,
+          "AttributeName": "expires_at"
+        }
+      }
+    ]
+  },
+  "active": {
+    "Table": {
+      "TableName": "cnesdata-cap-a1b2c3d4",
+      "TableArn": "arn:aws:dynamodb:us-east-2:111111111111:table/cnesdata-cap-a1b2c3d4",
+      "TableId": "synthetic-table-id",
+      "TableStatus": "ACTIVE",
+      "BillingModeSummary": {
+        "BillingMode": "PAY_PER_REQUEST"
+      },
+      "DeletionProtectionEnabled": true,
+      "AttributeDefinitions": [
+        {
+          "AttributeName": "pk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "sk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi1pk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi1sk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi2pk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi2sk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi3pk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi3sk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi4pk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi4sk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi5pk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi5sk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi6pk",
+          "AttributeType": "S"
+        },
+        {
+          "AttributeName": "gsi6sk",
+          "AttributeType": "S"
+        }
+      ],
+      "KeySchema": [
+        {
+          "AttributeName": "pk",
+          "KeyType": "HASH"
+        },
+        {
+          "AttributeName": "sk",
+          "KeyType": "RANGE"
+        }
+      ],
+      "GlobalSecondaryIndexes": [
+        {
+          "IndexName": "gsi1",
+          "IndexStatus": "ACTIVE",
+          "Projection": {
+            "ProjectionType": "ALL"
+          },
+          "KeySchema": [
+            {
+              "AttributeName": "gsi1pk",
+              "KeyType": "HASH"
+            },
+            {
+              "AttributeName": "gsi1sk",
+              "KeyType": "RANGE"
+            }
+          ]
+        },
+        {
+          "IndexName": "gsi2",
+          "IndexStatus": "ACTIVE",
+          "Projection": {
+            "ProjectionType": "ALL"
+          },
+          "KeySchema": [
+            {
+              "AttributeName": "gsi2pk",
+              "KeyType": "HASH"
+            },
+            {
+              "AttributeName": "gsi2sk",
+              "KeyType": "RANGE"
+            }
+          ]
+        },
+        {
+          "IndexName": "gsi3",
+          "IndexStatus": "ACTIVE",
+          "Projection": {
+            "ProjectionType": "ALL"
+          },
+          "KeySchema": [
+            {
+              "AttributeName": "gsi3pk",
+              "KeyType": "HASH"
+            },
+            {
+              "AttributeName": "gsi3sk",
+              "KeyType": "RANGE"
+            }
+          ]
+        },
+        {
+          "IndexName": "gsi4",
+          "IndexStatus": "ACTIVE",
+          "Projection": {
+            "ProjectionType": "ALL"
+          },
+          "KeySchema": [
+            {
+              "AttributeName": "gsi4pk",
+              "KeyType": "HASH"
+            },
+            {
+              "AttributeName": "gsi4sk",
+              "KeyType": "RANGE"
+            }
+          ]
+        },
+        {
+          "IndexName": "gsi5",
+          "IndexStatus": "ACTIVE",
+          "Projection": {
+            "ProjectionType": "ALL"
+          },
+          "KeySchema": [
+            {
+              "AttributeName": "gsi5pk",
+              "KeyType": "HASH"
+            },
+            {
+              "AttributeName": "gsi5sk",
+              "KeyType": "RANGE"
+            }
+          ]
+        },
+        {
+          "IndexName": "gsi6",
+          "IndexStatus": "ACTIVE",
+          "Projection": {
+            "ProjectionType": "ALL"
+          },
+          "KeySchema": [
+            {
+              "AttributeName": "gsi6pk",
+              "KeyType": "HASH"
+            },
+            {
+              "AttributeName": "gsi6sk",
+              "KeyType": "RANGE"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "tags": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      },
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060"
+      },
+      {
+        "Key": "Extra",
+        "Value": "allowed"
+      }
+    ]
+  },
+  "tags1": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      }
+    ],
+    "NextToken": "pagina-2"
+  },
+  "tags2": {
+    "Tags": [
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060.25"
+      }
+    ]
+  },
+  "ttl": {
+    "enabled": {
+      "TimeToLiveDescription": {
+        "TimeToLiveStatus": "ENABLED",
+        "AttributeName": "expires_at"
+      }
+    },
+    "enabling": {
+      "TimeToLiveDescription": {
+        "TimeToLiveStatus": "ENABLING",
+        "AttributeName": "expires_at"
+      }
+    },
+    "disabled": {
+      "TimeToLiveDescription": {
+        "TimeToLiveStatus": "DISABLED"
+      }
+    },
+    "disabled_ours": {
+      "TimeToLiveDescription": {
+        "TimeToLiveStatus": "DISABLED",
+        "AttributeName": "expires_at"
+      }
+    },
+    "disabling": {
+      "TimeToLiveDescription": {
+        "TimeToLiveStatus": "DISABLING",
+        "AttributeName": "expires_at"
+      }
+    },
+    "foreign": {
+      "TimeToLiveDescription": {
+        "TimeToLiveStatus": "ENABLED",
+        "AttributeName": "R1_PRIVATE_CANARY"
+      }
+    },
+    "disabled_foreign": {
+      "TimeToLiveDescription": {
+        "TimeToLiveStatus": "DISABLED",
+        "AttributeName": "R1_PRIVATE_CANARY"
+      }
+    },
+    "missing": {},
+    "malformed": {
+      "TimeToLiveDescription": []
+    },
+    "unknown": {
+      "TimeToLiveDescription": {
+        "TimeToLiveStatus": "R1_PRIVATE_CANARY"
+      }
+    }
+  },
+  "echo": {
+    "TimeToLiveSpecification": {
+      "Enabled": true,
+      "AttributeName": "expires_at"
+    }
+  },
+  "bad_echo": {
+    "TimeToLiveSpecification": {
+      "Enabled": "true",
+      "AttributeName": "expires_at"
+    }
+  },
+  "failures": {
+    "remote_not_found": [
+      254,
+      "",
+      "{\"Code\":\"ResourceNotFoundException\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "local_not_found": [
+      252,
+      "",
+      "{\"Code\":\"ResourceNotFoundException\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "denied": [
+      254,
+      "",
+      "{\"Code\":\"AccessDeniedException\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "generic_404": [
+      254,
+      "",
+      "{\"Code\":\"404\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "internal": [
+      254,
+      "",
+      "{\"Code\":\"InternalServerError\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "invalid_json": [
+      0,
+      "{R1_PRIVATE_CANARY",
+      ""
+    ],
+    "empty_stdout": [
+      0,
+      "",
+      ""
+    ]
+  }
+}
