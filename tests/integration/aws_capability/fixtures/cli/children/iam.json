@@ -7,7 +7,17 @@
       "ListRolePolicies",
       "ListAttachedRolePolicies",
       "ListInstanceProfilesForRole"
-    ]
+    ],
+    "policy_document_boundary": {
+      "wire_model": "task-3-services-b2-source-iam.json",
+      "wire_sha256": "c38893871dbb08aabc02ffae18d5a3a59187f58603a642b46458c6ccddc132e5",
+      "wire_representation": "historical service-wire string",
+      "cli_reference": "https://docs.aws.amazon.com/cli/latest/reference/iam/get-role-policy.html",
+      "cli_artifact": "task-3-aws398-cli-contract-plan/context7-cli-reference.json",
+      "cli_sha256": "0b871bae2f0e19147974fff534e5e82e71d57d01a1c1bee74f0a342e7d8df6a8",
+      "cli_representation": "nonempty JSON object",
+      "authority": "task-3-aws398-cli-contract-plan-root-ruling.md"
+    }
   },
   "resources": {
     "role": {
@@ -67,7 +77,17 @@
     "policy": {
       "RoleName": "cnesdata-cap-a1b2c3d4",
       "PolicyName": "Read_Private+=,.@-",
-      "PolicyDocument": "%7B%22Statement%22%3A%22C4_PRIVATE_DOCUMENT%22%7D"
+      "PolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Sid": "C4_PRIVATE_DOCUMENT",
+            "Effect": "Allow",
+            "Action": "dynamodb:ListTables",
+            "Resource": "*"
+          }
+        ]
+      }
     },
     "policies": {
       "PolicyNames": [

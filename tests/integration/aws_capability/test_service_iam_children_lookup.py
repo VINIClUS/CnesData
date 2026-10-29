@@ -334,7 +334,17 @@ def test_documento_privado_na_resposta_cli_nao_aparece_em_repr(read_lab: ReadLab
         read_lab.context,
     )
     assert reply.ok
-    assert reply.data["PolicyDocument"] == "%7B%22Statement%22%3A%22C4_PRIVATE_DOCUMENT%22%7D"
+    assert reply.data["PolicyDocument"] == {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "C4_PRIVATE_DOCUMENT",
+                "Effect": "Allow",
+                "Action": "dynamodb:ListTables",
+                "Resource": "*",
+            }
+        ],
+    }
     assert "C4_PRIVATE_DOCUMENT" not in repr(reply)
     assert_failure(None, read_lab)
     assert_process(read_lab, trace("policy"))
