@@ -1,0 +1,27 @@
+misconfigurations:
+  - id: DS-0002
+    statement: >-
+      apps/web_dashboard/Dockerfile nginx runs as root; non-root nginx needs port
+      >1024 rearchitecture, tracked as follow-up, review 2026-12-17
+  - id: KSV-0014
+    statement: >-
+      charts/web-dashboard readOnlyRootFilesystem needs emptyDir mounts for nginx
+      cache/pid, tracked as follow-up, review 2026-12-17
+  - id: AWS-0132
+    paths:
+      - deploy/aws/raw/main.tf
+    expired_at: 2027-01-11
+    statement: >-
+      Legacy deploy/aws/raw buckets (sa-east-1, SSE-S3, raw IAM scope of #294) until
+      the raw migration (EPIC #365 gap 4); review 2027-01-11, no renewal.
+  - id: AWS-0132
+    paths:
+      - infra/opentofu/modules/static-web/main.tf
+    expired_at: 2026-11-29
+    statement: >-
+      Static-build AES256 design exception effective 2026-10-29, owned by repository
+      account VINIClUS; expires 2026-11-29 00:00 UTC. Public build/config with no secrets
+      is the content contract, not verified live inventory. Customer-key controls are
+      absent; file scope covers future resources. Resource/content, encryption/access,
+      scanner/financial changes or expiry require renewed review. See deployment
+      design section 6.1 and original raw AWS-0132 evidence, without raw GREEN claim.

@@ -1,7 +1,7 @@
 # CVE/misconfig exceptions for Trivy gates in .github/workflows/trivy.yml.
 # Format: <CVE-ID or AVD-ID> exp:YYYY-MM-DD  # reason + review date (YYYY-MM-DD); exp: is optional
 # Do not silence findings without a documented reason — this file is reviewed in PRs.
+# Config-job misconfiguration exceptions are selected from .trivyignore.yaml.
 
 DS-0002  # apps/web_dashboard/Dockerfile nginx runs as root; non-root nginx needs port >1024 rearchitecture, tracked as follow-up, review 2026-12-17
 KSV-0014  # charts/web-dashboard readOnlyRootFilesystem needs emptyDir mounts for nginx cache/pid, tracked as follow-up, review 2026-12-17
-AWS-0132 exp:2027-01-11  # legacy deploy/aws/raw buckets (sa-east-1, SSE-S3, raw IAM scope of #294) until the raw migration (EPIC #365 gap 4); an ID entry is not path-scoped, so the SSE-S3 production buckets keep their own inline ignores, review 2027-01-11
