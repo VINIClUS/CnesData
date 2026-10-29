@@ -133,7 +133,7 @@ jobs:
         run: uv run --no-build pytest -q tests/scripts/test_ci_billing.py tests/scripts/test_ci_aws_runtime.py
       - name: Billing acceptance matrix without Stripe network
         run: >-
-          uv run --no-build pytest -q
+          uv run --no-build pytest -q -rs --junitxml=billing-acceptance-junit.xml
           -m "not e2e and not postgres and not dynamodb_local and not stripe"
           packages/cnes_domain/tests/billing packages/cnes_infra/tests/billing
           apps/central_api/tests apps/billing_worker/tests
@@ -153,6 +153,22 @@ jobs:
         env:
           BILLING_MODE: disabled
         run: uv run --no-build pytest -q tests/negative/test_local_billing_has_no_remote_dependency.py
+      - name: Emit billing acceptance JUnit evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          report=billing-acceptance-junit.xml
+          test -s "$report"
+          bytes=$(wc -c < "$report")
+          test "$bytes" -le 4194304
+          digest=$(sha256sum -- "$report")
+          digest=${digest%% *}
+          printf '%s v=1 run=%s attempt=%s sha=%s bytes=%s sha256=%s retention_days=%s\n' \
+            billing_junit_begin "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" \
+            "$bytes" "$digest" "$GITHUB_RETENTION_DAYS"
+          base64 --wrap=76 -- "$report"
+          printf 'billing_junit_end v=1 run=%s attempt=%s sha=%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA"
 
   n-plus-1:
     runs-on: ubuntu-latest
