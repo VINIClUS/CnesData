@@ -1,6 +1,5 @@
 """Leituras frescas de pertença e posse de inline policies IAM."""
 
-import re
 from collections.abc import Mapping
 
 from tests.integration.aws_capability._resource_ids import parse_iam_child
@@ -64,8 +63,7 @@ def _require_policy(data: Mapping[str, object], role: str, policy: str) -> None:
     if (
         data.get("RoleName") != role
         or data.get("PolicyName") != policy
-        or not isinstance(document, str)
-        or not 1 <= len(document) <= 131072
-        or re.fullmatch(r"[\u0009\u000A\u000D\u0020-\u00FF]+", document) is None
+        or not isinstance(document, dict)
+        or not document
     ):
         raise ServiceFailure("service=describe_invalid")
