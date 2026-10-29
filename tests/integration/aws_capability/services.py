@@ -23,7 +23,6 @@ from tests.integration.aws_capability._service_cognito_server_create import (
     lookup_server_exact,
 )
 from tests.integration.aws_capability._service_cognito_server_delete import delete_server
-from tests.integration.aws_capability._service_commands import call_cli
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb import (
     inspect_table,
@@ -46,7 +45,7 @@ from tests.integration.aws_capability._service_s3_children import (
     lookup_s3_child,
 )
 from tests.integration.aws_capability._service_s3_dependents import s3_dependents
-from tests.integration.aws_capability.cli import Request
+from tests.integration.aws_capability.cli import Cli, Request
 from tests.integration.aws_capability.contracts import (
     Creation,
     Ownership,
@@ -66,7 +65,8 @@ class AwsCommands:
     timeout: float
 
     def call(self, request: Request, context: RequestContext) -> Reply:
-        return call_cli(self.region, self.environment, self.timeout, request, context)
+        service_region = "us-east-1" if request.service in {"sts", "iam"} else self.region
+        return Cli(service_region, self.timeout, self.environment, context).call(request)
 
 
 @dataclass(frozen=True)

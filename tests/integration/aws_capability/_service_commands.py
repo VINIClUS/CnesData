@@ -3,23 +3,12 @@
 from collections.abc import Mapping
 
 from tests.integration.aws_capability._service_contracts import ApiError, CommandPort, Reply
-from tests.integration.aws_capability.cli import Cli, Request
+from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import (
     BudgetExhausted,
     RequestContext,
     ServiceFailure,
 )
-
-
-def call_cli(
-    region: str,
-    environment: Mapping[str, str],
-    timeout: float,
-    request: Request,
-    context: RequestContext,
-) -> Reply:
-    service_region = "us-east-1" if request.service in {"sts", "iam"} else region
-    return Cli(service_region, timeout, environment, context).call(request)
 
 
 def require_data(reply: Reply) -> Mapping[str, object]:
