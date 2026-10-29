@@ -361,7 +361,7 @@ def _probe_env(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def _verifica_xml(report: Path, falha: bool) -> None:
+def _assert_xml(report: Path, falha: bool) -> None:
     assert report.is_file(), "billing_junit=missing"
     root = ET.parse(report).getroot()  # noqa: S314 -- XML from the isolated synthetic suite.
     skipped = []
@@ -419,7 +419,7 @@ def test_billing_exibe_motivos_dos_skips(tmp_path: Path, falha: bool) -> None:
 @pytest.mark.parametrize("falha", [False, True], ids=["sucesso", "falha"])
 def test_billing_relata_identidade_e_motivo_de_cada_skip(tmp_path: Path, falha: bool) -> None:
     _, report = _probe(tmp_path, falha)
-    _verifica_xml(report, falha)
+    _assert_xml(report, falha)
 
 
 def test_billing_mantem_selecao_permissoes_e_contratos() -> None:
@@ -463,7 +463,7 @@ def test_billing_preserva_canal_no_log_apos_falha() -> None:
 def test_billing_emite_bytes_xml_com_atribuicao(tmp_path: Path, falha: bool) -> None:
     _emitter()
     _, report = _probe(tmp_path, falha)
-    _verifica_xml(report, falha)
+    _assert_xml(report, falha)
     result = _emit(tmp_path)
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()

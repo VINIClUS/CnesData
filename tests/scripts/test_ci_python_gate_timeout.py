@@ -29,7 +29,7 @@ def _preparacao_e_trap_funcionaram(result: GateRun) -> None:
     assert result.surviving_pids == ()
 
 
-def _diagnosticos_expoem_fases_e_status(
+def _assert_phase_diagnostics(
     result: GateRun,
     expected: tuple[tuple[str, int], ...],
 ) -> None:
@@ -43,14 +43,14 @@ def _diagnosticos_expoem_fases_e_status(
     ]
     for index, (phase, status) in enumerate(expected):
         start, end = diagnostics[index * 2 : index * 2 + 2]
-        _relogios_medem_fase_observada(result, phase, start, end)
+        _assert_observed_phase_clocks(result, phase, start, end)
         assert int(end["external_rc"]) == status
         boundary = [row for row in rows if row.get("boundary_phase") == phase]
         assert rows.index(start) < rows.index(boundary[0])
         assert rows.index(boundary[-1]) < rows.index(end)
 
 
-def _relogios_medem_fase_observada(
+def _assert_observed_phase_clocks(
     result: GateRun,
     phase: str,
     start: dict[str, str],
@@ -88,7 +88,7 @@ def test_suite_finita_de_520_segundos_conclui_e_executa_apps(tmp_path: Path) -> 
         "apps:complete",
     )
     assert set(result.reports) == {"coverage-packages.xml", "coverage-apps.xml"}
-    _diagnosticos_expoem_fases_e_status(result, (("packages", 0), ("apps", 0)))
+    _assert_phase_diagnostics(result, (("packages", 0), ("apps", 0)))
 
 
 def test_resumo_e_cobertura_antes_de_600_nao_interrompem_cauda_finita(tmp_path: Path) -> None:
@@ -114,7 +114,7 @@ def test_resumo_e_cobertura_antes_de_600_nao_interrompem_cauda_finita(tmp_path: 
     assert "packages:int" not in result.events
     assert set(result.reports) == {"coverage-packages.xml", "coverage-apps.xml"}
     assert 650 * TIME_SCALE <= result.elapsed < 800 * TIME_SCALE + 2
-    _diagnosticos_expoem_fases_e_status(result, (("packages", 0), ("apps", 0)))
+    _assert_phase_diagnostics(result, (("packages", 0), ("apps", 0)))
 
 
 def test_suite_de_pacotes_sem_fim_recebe_int_e_impede_apps(tmp_path: Path) -> None:
@@ -130,7 +130,7 @@ def test_suite_de_pacotes_sem_fim_recebe_int_e_impede_apps(tmp_path: Path) -> No
     assert "packages:complete" not in result.events
     assert "apps:start" not in result.events
     assert result.reports == ()
-    _diagnosticos_expoem_fases_e_status(result, (("packages", 124),))
+    _assert_phase_diagnostics(result, (("packages", 124),))
 
 
 def test_suite_de_apps_sem_fim_permanece_interrompida(tmp_path: Path) -> None:
@@ -148,7 +148,7 @@ def test_suite_de_apps_sem_fim_permanece_interrompida(tmp_path: Path) -> None:
     assert "apps:int" in result.events
     assert "apps:complete" not in result.events
     assert result.reports == ("coverage-packages.xml",)
-    _diagnosticos_expoem_fases_e_status(result, (("packages", 0), ("apps", 124)))
+    _assert_phase_diagnostics(result, (("packages", 0), ("apps", 124)))
 
 
 def test_falha_de_pytest_de_pacotes_propaga_sem_executar_apps(tmp_path: Path) -> None:
@@ -158,7 +158,7 @@ def test_falha_de_pytest_de_pacotes_propaga_sem_executar_apps(tmp_path: Path) ->
     assert result.returncode == 7
     assert result.events == (*_PREPARED, "packages:start", "packages:failure")
     assert result.reports == ()
-    _diagnosticos_expoem_fases_e_status(result, (("packages", 7),))
+    _assert_phase_diagnostics(result, (("packages", 7),))
 
 
 def test_duas_fases_preservam_selecao_cobertura_e_motivos_de_skip(tmp_path: Path) -> None:
@@ -176,7 +176,7 @@ def test_duas_fases_preservam_selecao_cobertura_e_motivos_de_skip(tmp_path: Path
         (["apps/"], _APPS_MARKERS, ".coveragerc", "coverage-apps.xml"),
     )
     assert len(result.pytest_argv) == 2
-    _pytest_real_expoe_motivo_de_skip(tmp_path, result.pytest_argv[0])
+    _assert_real_pytest_skip_reason(tmp_path, result.pytest_argv[0])
     for args, (paths, markers, config, report) in zip(result.pytest_argv, selections, strict=True):
         assert list(args[: 4 + len(paths)]) == ["run", "--no-build", "pytest", *paths, "-m"]
         assert " ".join(args[args.index("-m") + 1].split()) == markers
@@ -187,7 +187,7 @@ def test_duas_fases_preservam_selecao_cobertura_e_motivos_de_skip(tmp_path: Path
         assert "-rs" in args
 
 
-def _pytest_real_expoe_motivo_de_skip(root: Path, args: tuple[str, ...]) -> None:
+def _assert_real_pytest_skip_reason(root: Path, args: tuple[str, ...]) -> None:
     probe = root / "skip_probe"
     probe.mkdir()
     (probe / "pytest.ini").write_text("[pytest]\n")
