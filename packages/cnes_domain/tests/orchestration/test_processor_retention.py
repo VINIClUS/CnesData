@@ -1,7 +1,7 @@
 """Exemplos fixos de admissão, proteção e recusa sem ações destrutivas."""
 
 from dataclasses import asdict, replace
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from typing import cast
 
 import pytest
@@ -24,6 +24,14 @@ NOVO = "sha256:" + "f" * 64
 EXTRA = "sha256:" + "1" * 64
 OUTRO = "sha256:" + "2" * 64
 AGORA = datetime(2026, 10, 30, 12, tzinfo=UTC)
+
+
+class _FoldDependentTimezone(tzinfo):
+    def utcoffset(self, dt: datetime | None) -> timedelta:
+        return timedelta(hours=0 if dt is None else dt.fold)
+
+    def dst(self, dt: datetime | None) -> timedelta:
+        return timedelta(0)
 
 
 def _imagem(digest: str, instante: str = "2026-10-29T12:00:00+00:00") -> RetainedProcessorDigest:
@@ -344,9 +352,19 @@ def test_rejeita_digest_malformado_sem_poda(field: str) -> None:
 
 @pytest.mark.parametrize("field", ["history", "candidate", "now"])
 @pytest.mark.parametrize(
-    "invalid_time", [None, AGORA.replace(tzinfo=None)], ids=["ausente", "naive"]
+    "invalid_time",
+    [
+        None,
+        AGORA.replace(tzinfo=None),
+        datetime.min.replace(tzinfo=timezone(timedelta(hours=1))),
+        datetime.max.replace(tzinfo=timezone(timedelta(hours=-1))),
+        AGORA.replace(tzinfo=_FoldDependentTimezone()),
+    ],
+    ids=["ausente", "naive", "min_mais_01", "max_menos_01", "fold"],
 )
-def test_rejeita_instante_ausente_ou_naive(field: str, invalid_time: datetime | None) -> None:
+def test_rejeita_instante_invalido_ou_normalizacao_ambigua(
+    field: str, invalid_time: datetime | None
+) -> None:
     timestamp = cast("datetime", invalid_time)
     snapshot = _snapshot((_imagem(ATUAL),))
     candidate = _imagem(NOVO)
@@ -357,11 +375,10 @@ def test_rejeita_instante_ausente_ou_naive(field: str, invalid_time: datetime | 
         candidate = RetainedProcessorDigest(NOVO, timestamp)
     else:
         now = timestamp
-    _recusado(
-        plan_processor_retention(snapshot, candidate, now),
-        snapshot,
-        RetentionOutcome.REJECTED_INVALID,
-    )
+    before = repr((snapshot, candidate, now))
+    decision = plan_processor_retention(snapshot, candidate, now)
+    assert repr((snapshot, candidate, now)) == before
+    _recusado(decision, snapshot, RetentionOutcome.REJECTED_INVALID)
 
 
 @pytest.mark.parametrize("field", ["history", "candidate"])
