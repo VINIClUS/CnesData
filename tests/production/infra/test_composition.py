@@ -367,7 +367,7 @@ def test_validacao_nativa_rejeita_shared_outputs_sem_account_baseline(
     assert 'attribute "account_baseline" is required' in result.stderr
 
 
-def test_inventario_de_outputs_publica_placeholders_nulos(
+def test_inventario_de_outputs_publica_interfaces_do_static_web(
     tofu_artifacts: dict[str, dict[str, object]],
 ) -> None:
     configuration = tofu_artifacts["configuration"]
@@ -375,14 +375,13 @@ def test_inventario_de_outputs_publica_placeholders_nulos(
     outputs = cast("dict[str, dict[str, object]]", root_module["outputs"])
 
     assert set(outputs) == {
-        "acm_dns_validation_records",
-        "api_loopback_contract",
-        "cloudfront_distribution_id",
-        "cloudfront_domain_name",
+        "acm_dns_validation_records", "api_loopback_contract", "dashboard_runtime_env",
+        "cloudfront_distribution_id", "cloudfront_domain_name",
     }
-    for output in outputs.values():
-        expression = cast("dict[str, object]", output["expression"])
-        assert expression["constant_value"] is None
+    assert outputs["api_loopback_contract"]["expression"] == {"constant_value": None}
+    for name in outputs.keys() - {"api_loopback_contract"}:
+        expression = cast("dict[str, object]", outputs[name]["expression"])
+        assert expression.get("references"), f"output_reference_required name={name}"
 
 
 def test_grafo_do_produto_nao_contem_recurso_compartilhado(

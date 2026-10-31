@@ -19,6 +19,7 @@ from cnes_infra.executor.step_functions import (
     validate_production_state_machine,
 )
 from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from tests.production.infra.conftest import MOCK_AWS_PROVIDERS as MOCK_PROVIDERS
 
 type Tofu = tuple[str, dict[str, str]]
 type Artifacts = dict[str, dict[str, object]]
@@ -134,7 +135,6 @@ SYNTHETIC_ROOT = (
     f'resource "{kind}" "proibido" {{\n  ' + "\n  ".join(body) + "\n}\n"
     for kind, (_, body) in SYNTHETIC.items()
 )
-MOCK_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
 OVERRIDE = "\n  override_{kind} {{\n    target = {target}\n    values = {values}\n  }}\n"
 
 

@@ -59,9 +59,9 @@ endpoint.
 
 - CND-020 through CND-025 are integrated and the exact `develop` SHA passes the
   Phase 2 gate;
-- the OpenTofu module can validate without application runtime resources;
-- shared state, KMS, GitHub OIDC and budget controls from
-  `personal-infra-live` exist;
+- offline/mock validation needs no live resources; real release still requires shared contracts;
+- `personal-infra-live` owns only Budget/freeze/backend, not DNS or other shared resources;
+- #60/PEN IANA blocks production certificate issuance/rollout, not the ACM mock contract;
 - the expected CnesData monthly base/max cost remains inside the USD 8 product
   envelope and the aggregate base remains below USD 15.
 
@@ -124,13 +124,13 @@ origin port. Fargate has no load balancer and no idle service.
 | Step Functions/ECS/ECR | CnesData OpenTofu | On-demand processing |
 | Cognito | CnesData OpenTofu | Selected generic OIDC issuer |
 | Athena workgroup | CnesData OpenTofu | Manual bounded analytics |
-| Tunnel/API DNS | `personal-infra-live` | Shared edge and routing |
+| Tunnel/API DNS | External operator (unassigned) | Handoff required before any real change |
 | VPS baseline/Nginx/deployer | `infra-ansible` via live inventory | Host runtime boundary |
 | Application images/manifests | CnesData CI | Tested immutable release |
 
-No two OpenTofu states manage the same resource. Product outputs expose only
-the CloudFront distribution domain, API loopback contract and required DNS
-validation values to the shared edge change.
+No two states manage the same resource. Product exports CloudFront domain/ID, ACM records,
+public runtime env and API loopback. External DNS ownership/configuration remain unresolved.
+Active continuation: [static-web composition](2026-10-31-static-web-composition-amendment.md).
 
 ## 6. Static frontend
 
