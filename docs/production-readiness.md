@@ -146,10 +146,11 @@ Green results:
 
 ## CI collection boundary
 
-`tests/production` remains a local dependency gate until issue
-[#377](https://github.com/VINIClUS/CnesData/issues/377) collects it in CI. The current hosted runs
-validate the integrated dependencies through their existing jobs; they do not collect the new
-local gate file yet.
+O workflow `.github/workflows/production-runtime.yml` coleta os contratos finitos de
+runtime em CI e publica `production-runtime-acceptance`, obrigatório em `develop`.
+Ele não coleta todo o diretório `tests/production`: a infraestrutura em
+`tests/production/infra` continua fora desse gate. As contagens locais acima são
+evidências históricas das dependências, não o inventário atual de coleta.
 
 ## Runtime acceptance gate (#377)
 
@@ -176,7 +177,7 @@ A prova hospedada docs-only da [PR #427](https://github.com/VINIClUS/CnesData/pu
 no head `c69292d955234c37337965a36e612ce5fb7bf715`, terminou com sucesso no run
 [40605328299](https://github.com/VINIClUS/CnesData/actions/runs/40605328299) e
 reproduziu as mesmas contagens. A PR permanece não integrada (`merged=false`);
-o head candidato acima continua sendo a fonte da evidência oficial deste gate.
+essa execução e o head candidato acima são evidências históricas deste gate.
 O ensaio de proteção por alteração proibida, no head
 `b06e26989486bfffd32b12b0ec59a9483ae58fe3`, falhou no run
 [40703634080](https://github.com/VINIClUS/CnesData/actions/runs/40703634080),
@@ -200,6 +201,11 @@ admissão.
 
 O runner é `ubuntu-latest` público. A leitura de billing retornou
 `403 UNAVAILABLE`; este documento não afirma custo medido ou uso pago zero.
-O candidato ainda não foi integrado e não há deploy, fechamento de #377,
-emissão de certificado ou readiness AWS. #398, #381, #280 e #60 continuam
-limitações do estado operacional.
+O gate foi integrado em `develop` por `f58c6b64` (PR #426) e corrigido por
+`d9883e2d` (PR #429). A execução integrada no SHA
+`d24d4f6b312405a8a3a2073e141a6c4a5a0e6335` terminou com sucesso no run
+[41148506951](https://github.com/VINIClUS/CnesData/actions/runs/41148506951).
+A issue #377 permanece aberta pela dependência formal da #398: faltam os ensaios
+reais de OAuth/PKCE, audiência no access token, refresh e cleanup AWS. Essa integração
+não comprova deploy, emissão de certificado ou readiness AWS; #381, #280 e #60
+também continuam limitações do estado operacional.

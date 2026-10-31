@@ -118,6 +118,14 @@ O ruleset `production-runtime-acceptance-develop` (`26047506`) está ativo para
 (`integration_id=15368`). O pacote de evidências registra que os rulesets
 anteriores permaneceram inalterados e que `main` permaneceu sem essa exigência.
 
-O candidato ainda não foi integrado. Esta documentação não afirma readiness AWS,
-emissão de certificado, deploy ou fechamento da issue #377; #398, #381, #280 e
-#60 continuam limitações do estado operacional.
+O gate foi integrado em `develop` por
+`f58c6b64` ([PR #426](https://github.com/VINIClUS/CnesData/pull/426)) e corrigido por
+`d9883e2d` ([PR #429](https://github.com/VINIClUS/CnesData/pull/429)). A execução integrada
+no SHA `d24d4f6b312405a8a3a2073e141a6c4a5a0e6335` terminou com sucesso no run
+[41148506951](https://github.com/VINIClUS/CnesData/actions/runs/41148506951).
+Os candidatos e ensaios anteriores acima permanecem evidências históricas.
+
+A issue #377 permanece aberta pela dependência formal da #398, que exige os ensaios
+reais de OAuth/PKCE, audiência no access token, refresh e cleanup AWS. O gate integrado
+não comprova readiness AWS, emissão de certificado ou deploy; #381, #280 e #60
+também continuam limitações do estado operacional.
