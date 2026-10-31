@@ -147,7 +147,7 @@ def _identity_overrides(plan: Node, configuration: Node, schema: Node, root: Pat
         for r in _module_resources(plan, configuration, root, "../../modules/processor-registry")
         if r["type"] == "aws_ecr_repository"
     ]
-    if len(roles) != 4 or len(repositories) != 1:
+    if len(roles) not in {4, 5} or len(repositories) != 1:
         pytest.fail(f"setup_error identity_producers roles={len(roles)} repos={len(repositories)}")
     network = [
         r
@@ -168,6 +168,62 @@ def _identity_overrides(plan: Node, configuration: Node, schema: Node, root: Pat
         + [_repository_identity(repositories[0], configuration, schema, account)]
         + network_identities
     )
+
+
+def _service_identity(resource: Node, context: tuple[Node, Node, str]) -> Node:
+    configuration, schema, account = context
+    configured = _computed_fields(resource, configuration, schema, {"arn", "id"})
+    values = resource["change"]["after"]
+    name = values.get("name")
+    provider = configuration["provider_config"][configured["provider_config_key"]]
+    region = provider.get("expressions", {}).get("region", {}).get("constant_value")
+    if (
+        resource["type"] not in {"aws_ecs_cluster", "aws_sfn_state_machine"}
+        or not isinstance(name, str)
+        or not name
+        or provider.get("name") != "aws"
+        or provider.get("alias")
+        or region != "us-east-2"
+    ):
+        pytest.fail(f"setup_error service_identity={resource['address']}")
+    if resource["type"] == "aws_ecs_cluster":
+        arn = f"arn:aws:ecs:{region}:{account}:cluster/{name}"
+    else:
+        arn = f"arn:aws:states:{region}:{account}:stateMachine:{name}"
+    return {
+        "address": resource["address"],
+        "fields": {
+            "arn": {
+                "value": arn,
+                "source": {"account_id": account, "region": region, "name": name},
+            },
+            "id": {
+                "value": arn,
+                "source": {"account_id": account, "region": region, "name": name},
+            },
+        },
+        "configured_expressions": configured.get("expressions", {}),
+        "provider": resource["provider_name"],
+        "type": resource["type"],
+    }
+
+
+def _service_identity_overrides(
+    plan: Node, configuration: Node, schema: Node, root: Path
+) -> list[Node]:
+    resources = [
+        resource
+        for resource in _module_resources(plan, configuration, root, MODULE_SOURCE)
+        if resource["type"] in {"aws_ecs_cluster", "aws_sfn_state_machine"}
+    ]
+    if len(resources) != 2 or {resource["type"] for resource in resources} != {
+        "aws_ecs_cluster",
+        "aws_sfn_state_machine",
+    }:
+        pytest.fail("setup_error service_identity_resources")
+    account = plan["variables"]["shared_outputs"]["value"]["account_id"]
+    context = (configuration, schema, account)
+    return [_service_identity(resource, context) for resource in resources]
 
 
 def _override_hcl(identities: list[Node]) -> str:

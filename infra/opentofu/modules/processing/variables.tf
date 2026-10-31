@@ -243,3 +243,17 @@ variable "processor_retained_unit_task_definition_arns" {
     error_message = "task_definition_arn_revision=expected_positive_decimal"
   }
 }
+
+variable "step_functions_role_arn" {
+  description = "Step Functions execution role ARN required for active routing."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.processor_active_unit_task_definition_arn == null || var.step_functions_role_arn != null
+    )
+    error_message = "step_functions_role_required=expected_role_for_active_machine"
+  }
+}

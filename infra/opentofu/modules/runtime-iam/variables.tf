@@ -21,3 +21,19 @@ variable "log_group_arn" {
   type        = string
   nullable    = false
 }
+
+variable "state_machine_arn" {
+  description = "Exact unqualified own state-machine ARN, or null for the base module."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.state_machine_arn == null ? true : (
+      var.state_machine_arn == format(
+        "arn:aws:states:us-east-2:%s:stateMachine:%s", var.account_id, var.name_prefix,
+      )
+    )
+    error_message = "state_machine_arn_identity=expected_own_unqualified_machine"
+  }
+}

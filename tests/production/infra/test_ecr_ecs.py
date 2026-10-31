@@ -9,6 +9,10 @@ from typing import Any, cast
 import pytest
 
 from tests.production.infra._aws_mock_defaults import MOCK_AWS_PROVIDERS
+from tests.production.infra._step_functions_iam_contracts import (
+    assert_no_step_functions_policies,
+    exact_step_functions_trust,
+)
 
 type Node = dict[str, Any]
 type Tofu = tuple[str, dict[str, str]]
@@ -270,22 +274,35 @@ def _runtime_identities(plan: Node, configuration: Node, root: Path) -> tuple[No
         for role in _managed_resources(plan, "aws_iam_role")
         if _configuration_address(role["address"]).startswith("module.runtime_iam.")
     ]
-    assert len(roles) == 4, f"iam_runtime_roles expected=4 actual={len(roles)}"
+    assert len(roles) == 5, f"iam_runtime_roles expected=5 actual={len(roles)}"
     instances = _runtime_instances(plan, configuration, root)
     assert len(instances) == 1, f"iam_runtime_instances={len(instances)}"
     module = configuration["root_module"]["module_calls"]["runtime_iam"]["module"]
     _assert_role_output_interfaces(module)
+    sfn = [r for r in roles if r["address"] == "module.runtime_iam.aws_iam_role.step_functions[0]"]
+    assert len(sfn) == 1, f"iam_step_functions_roles={len(sfn)}"
+    account = plan["variables"]["shared_outputs"]["value"]["account_id"]
+    machine = f"arn:aws:states:us-east-2:{account}:stateMachine:{PRODUCT_NAMESPACE}"
+    assert sfn[0]["change"]["after"]["name"] == f"{PRODUCT_NAMESPACE}-step-functions"
+    _assert_product_provider(sfn[0], configuration)
+    exact_step_functions_trust(sfn[0], account, machine)
+    assert_no_step_functions_policies(plan, sfn[0])
     execution, tasks = [], []
-    for role in roles:
+    for role in [r for r in roles if r not in sfn]:
+        _assert_ecs_trust(role, account)
         documents, arns = _role_policy_bindings(role, plan, configuration)
         _managed_policy_documents(plan, arns)
         (execution if documents or arns else tasks).append(role)
     assert len(execution) == 1, f"iam_execution_policy_roles expected=1 actual={len(execution)}"
     assert len(tasks) == 3, f"iam_policy_free_task_roles expected=3 actual={len(tasks)}"
+    assert execution[0]["address"] == "module.runtime_iam.aws_iam_role.execution"
+    assert {r["address"] for r in tasks} == {
+        f'module.runtime_iam.aws_iam_role.task["{mode}"]' for mode in ("unit", "recovery", "audit")
+    }
     for field in ("name", "arn"):
         identities = [role["change"]["after"][field] for role in roles]
         assert all(identities), f"iam_identity_empty_{field}={identities!r}"
-        assert len(set(identities)) == 4, f"iam_distinct_{field}={identities!r}"
+        assert len(set(identities)) == 5, f"iam_distinct_{field}={identities!r}"
     return execution[0], tasks
 
 

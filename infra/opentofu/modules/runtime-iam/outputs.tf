@@ -17,3 +17,13 @@ output "task_role_names" {
   description = "Initially policy-free task identity names by processor mode."
   value       = { for mode, role in aws_iam_role.task : mode => role.name }
 }
+
+output "step_functions_role_id" {
+  description = "Step Functions role ID, or null for the base module."
+  value       = one(aws_iam_role.step_functions[*].id)
+}
+
+output "step_functions_role_arn" {
+  description = "Step Functions role ARN, or null for the base module."
+  value       = one(aws_iam_role.step_functions[*].arn)
+}

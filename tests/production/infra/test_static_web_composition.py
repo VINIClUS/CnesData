@@ -20,6 +20,8 @@ OUTPUTS = {
     "api_loopback_contract", "dashboard_runtime_env", "processor_repository_uri",
     "processor_task_definition_arns", "processor_container_name", "processor_task_role_arns",
     "processor_task_role_names", "processor_execution_role_arn", "processor_execution_role_name",
+    "processor_cluster_arn", "processor_state_machine_arn", "processor_step_functions_role_id",
+    "processor_step_functions_role_arn",
 }
 STATIC_TYPES = {
     "aws_s3_bucket", "aws_s3_bucket_public_access_block", "aws_s3_bucket_ownership_controls",
@@ -49,7 +51,7 @@ MODULE_TYPES = {
     },
     "processor_registry": {"aws_ecr_repository", "aws_ecr_lifecycle_policy"},
     "runtime_iam": {"aws_iam_role", "aws_iam_role_policy"},
-    "processing": {"aws_ecs_task_definition"},
+    "processing": {"aws_ecs_task_definition", "aws_ecs_cluster", "aws_sfn_state_machine"},
 }
 BOUNDARIES = {
     "a": {
@@ -373,11 +375,12 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     composition = static_web_composition
     outputs = composition.plan["planned_values"].get("outputs", {})
     declared = _configured(composition)["outputs"]
-    assert len(OUTPUTS) == 12
+    assert len(OUTPUTS) == 16
     assert set(declared) == OUTPUTS, f"root_output_inventory actual={set(declared)}"
     required_outputs = OUTPUTS - {"api_loopback_contract"}
     assert required_outputs <= set(outputs), "evaluated_root_outputs_required"
     assert declared["api_loopback_contract"]["expression"] == {"constant_value": None}
+    assert outputs["processor_state_machine_arn"]["value"] is None
     if "api_loopback_contract" in outputs:
         assert "value" in outputs["api_loopback_contract"]
         assert outputs["api_loopback_contract"]["value"] is None

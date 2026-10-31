@@ -34,6 +34,12 @@ PLAN_ARGUMENTS = (
     f"-test-directory={TEST_DIRECTORY}",
 )
 OMIT = object()
+SFN_ROLE_OVERRIDE = f'''
+override_resource {{
+  target = module.runtime_iam.aws_iam_role.step_functions[0]
+  values = {{ arn = "arn:aws:iam::{ACCOUNT}:role/cnesdata-prod-step-functions" }}
+}}
+'''
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -168,7 +174,7 @@ def test_revisoes_validas_normalizam_set_e_bootstrap(
         _run_case(
             tofu_context,
             prod_root,
-            MOCK_PROVIDERS + "".join(blocks),
+            MOCK_PROVIDERS + SFN_ROLE_OVERRIDE + "".join(blocks),
             "processor-revision-valid",
         ),
         set(expected),

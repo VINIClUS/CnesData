@@ -139,9 +139,23 @@ wave ou estados NORMALIZE/RECONCILE/MATERIALIZE. `AmazonECS.Unknown` cobre a fal
 ECS `.sync` quando `RunTask.Failures` não está vazio. Os números acima são limites finitos do
 produto, escolhidos com o exemplo oficial de jitter; não são defaults exigidos pela AWS.
 
+A Task `RunProcessor` define `TimeoutSeconds = 3600`, alinhado ao lease de produção.
+O runtime usa esse lease no `DeadlinePolicy` de `run-unit`
+(`apps/data_processor/src/data_processor/main.py`). O limite da integração cobre também a
+espera externa pela task. `States.Timeout` não entra no retry e continua sem `Catch`.
+Essa decisão limita a duração externa sem alterar validators ou deadlines do runtime.
+
 ## IAM corrigido
 
 ### Roles e grafo
+
+O novo input nullable `runtime-iam.state_machine_arn` aceita somente `null` ou o ARN
+literal `arn:aws:states:us-east-2:${account_id}:stateMachine:${name_prefix}`. Conta, região,
+nome, serviço, forma e qualificação divergentes falham com
+`state_machine_arn_identity=expected_own_unqualified_machine`. Isso mantém o trust restrito
+também na composição isolada. O input não nulo e determinístico já existente de processing
+é distinto do output condicional produzido pela machine; tasks nunca dependem desse output.
+Active não nulo sem a role Step Functions falha com `step_functions_role_required`.
 
 `runtime-iam` cria a role de Step Functions e exporta `step_functions_role_id` e
 `step_functions_role_arn`; ela não referencia `module.processing` nem contém `ecs:RunTask`.
@@ -241,6 +255,10 @@ Paths de código permitidos por este amendment:
 - `infra/opentofu/modules/runtime-iam/step-functions.tf`
 - `tests/production/infra/test_processor_revision_contract.py`
 - `tests/production/infra/test_step_functions_iam.py`
+- `tests/production/infra/test_step_functions_iam_asl.py` e
+  `tests/production/infra/test_step_functions_iam_runtime.py`, somente para separar
+  os testes do mesmo contrato ASL/runtime e manter cada arquivo abaixo de 500 linhas;
+  não introduzem runner, fixture de produto ou comportamento adicional.
 - `tests/production/infra/_step_functions_iam_contracts.py` (helper isolado; mantém o teste
   principal abaixo do limite atual em vez de inflá-lo)
 - opcional, somente se o slice de revisão precisar de dados puros separados:
@@ -255,7 +273,9 @@ Paths de código permitidos por este amendment:
 - `tests/production/infra/test_composition.py` — somente inventário de outputs raiz e forwarding
   estreito dos dois módulos;
 - `tests/production/infra/test_static_web_composition.py` — somente o inventário independente de
-  outputs; preservar a lista e os oráculos de recursos static-web;
+  outputs e os tipos `aws_ecs_cluster`/`aws_sfn_state_machine` dentro da allowlist de
+  `processing`; preservar intactos a lista e os oráculos de recursos static-web. O output
+  de machine nulo no bootstrap segue o contrato de nulidade já exigido;
 - `tests/production/infra/test_processing_revisions.py` — somente valores produtores, outputs e
   contagem/identidade de roles revisados;
 - `tests/production/infra/test_processing_runtime.py` — somente wiring do ARN determinístico,

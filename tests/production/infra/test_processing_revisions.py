@@ -20,6 +20,7 @@ from tests.production.infra._processing_native import (
     _module_names,
     _module_resources,
 )
+from tests.production.infra.test_ecr_ecs import _runtime_identities
 
 PUBLIC_OUTPUTS = {
     "processor_repository_uri": ("processor_registry", "repository_uri"),
@@ -29,6 +30,10 @@ PUBLIC_OUTPUTS = {
     "processor_task_role_names": ("runtime_iam", "task_role_names"),
     "processor_execution_role_arn": ("runtime_iam", "execution_role_arn"),
     "processor_execution_role_name": ("runtime_iam", "execution_role_name"),
+    "processor_cluster_arn": ("processing", "cluster_arn"),
+    "processor_state_machine_arn": ("processing", "state_machine_arn"),
+    "processor_step_functions_role_id": ("runtime_iam", "step_functions_role_id"),
+    "processor_step_functions_role_arn": ("runtime_iam", "step_functions_role_arn"),
 }
 MODES = set(COMMAND_MODES.values())
 AWS_SOURCE = "registry.opentofu.org/hashicorp/aws"
@@ -209,18 +214,14 @@ def _producer_values(plan: Node, configuration: Node, root: Path) -> dict[str, o
         for r in _module_resources(plan, configuration, root, "../../modules/processor-registry")
         if r["type"] == "aws_ecr_repository"
     ]
-    roles = [
-        r
-        for r in _module_resources(plan, configuration, root, "../../modules/runtime-iam")
-        if r["type"] == "aws_iam_role"
-    ]
+    execution, roles = _runtime_identities(plan, configuration, root)
     assert len(repositories) == 1, "processing_public_repository_count"
-    assert len(roles) == 4, "processing_public_role_count"
-    tasks = {r["index"]: r["change"]["after"] for r in roles if "index" in r}
-    executions = [r["change"]["after"] for r in roles if "index" not in r]
+    assert len(roles) == 3, "processing_public_task_role_count"
+    tasks = {r["index"]: r["change"]["after"] for r in roles}
+    executions = [execution["change"]["after"]]
     assert set(tasks) == MODES, "processing_public_role_modes"
     assert len(executions) == 1, "processing_public_execution_count"
-    return {
+    values = {
         "processor_repository_uri": repositories[0]["change"]["after"]["repository_url"],
         "processor_task_role_arns": {mode: values["arn"] for mode, values in tasks.items()},
         "processor_task_role_names": {mode: values["name"] for mode, values in tasks.items()},
@@ -228,6 +229,24 @@ def _producer_values(plan: Node, configuration: Node, root: Path) -> dict[str, o
         "processor_execution_role_name": executions[0]["name"],
         "processor_container_name": "processor",
     }
+    for kind, output in (
+        ("aws_ecs_cluster", "cluster_arn"), ("aws_sfn_state_machine", "state_machine_arn"),
+    ):
+        producers = [
+            r for r in _module_resources(plan, configuration, root, MODULE_SOURCE)
+            if r["type"] == kind
+        ]
+        assert len(producers) == (0 if kind == "aws_sfn_state_machine" else 1)
+        values[f"processor_{output}"] = (
+            producers[0]["change"]["after"]["arn"] if producers else None
+        )
+    sfn = next(
+        r for r in _module_resources(plan, configuration, root, "../../modules/runtime-iam")
+        if r["address"] == "module.runtime_iam.aws_iam_role.step_functions[0]"
+    )
+    for field in ("id", "arn"):
+        values[f"processor_step_functions_role_{field}"] = sfn["change"]["after"][field]
+    return values
 
 
 def test_outputs_publicos_encaminham_produtores_e_nome_real_do_container(
@@ -252,7 +271,7 @@ def test_outputs_publicos_encaminham_produtores_e_nome_real_do_container(
             output = _typed_output(plan, name)
             if isinstance(value, dict):
                 _assert_string_map(output, value)
-            else:
+            elif value is not None:
                 assert output["type"] == "string", f"processing_public_type={name}"
             assert _public_value(plan, name) == value, (
                 f"processing_public_producer={name} run={run}"

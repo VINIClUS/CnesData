@@ -84,6 +84,11 @@ module "runtime_iam" {
   account_id     = var.shared_outputs.account_id
   repository_arn = module.processor_registry.repository_arn
   log_group_arn  = aws_cloudwatch_log_group.processor.arn
+  state_machine_arn = format(
+    "arn:aws:states:us-east-2:%s:stateMachine:%s",
+    var.shared_outputs.account_id,
+    local.name_prefix,
+  )
 }
 
 module "processing" {
@@ -92,18 +97,19 @@ module "processing" {
   processor_active_unit_task_definition_arn    = var.processor_active_unit_task_definition_arn
   processor_retained_unit_task_definition_arns = var.processor_retained_unit_task_definition_arns
 
-  image_digest         = var.image_digest
-  name_prefix          = local.name_prefix
-  repository_uri       = module.processor_registry.repository_uri
-  task_role_arns       = module.runtime_iam.task_role_arns
-  execution_role_arn   = module.runtime_iam.execution_role_arn
-  log_group_name       = aws_cloudwatch_log_group.processor.name
-  control_plane_table  = module.control_plane.table_name
-  data_bucket          = module.data_buckets.data_bucket_name
-  audit_bucket         = module.data_buckets.audit_bucket_name
-  audit_retention_days = module.data_buckets.audit_retention_days
-  public_subnet_ids    = module.network.public_subnet_ids
-  security_group_id    = module.network.security_group_id
+  image_digest            = var.image_digest
+  name_prefix             = local.name_prefix
+  repository_uri          = module.processor_registry.repository_uri
+  task_role_arns          = module.runtime_iam.task_role_arns
+  step_functions_role_arn = module.runtime_iam.step_functions_role_arn
+  execution_role_arn      = module.runtime_iam.execution_role_arn
+  log_group_name          = aws_cloudwatch_log_group.processor.name
+  control_plane_table     = module.control_plane.table_name
+  data_bucket             = module.data_buckets.data_bucket_name
+  audit_bucket            = module.data_buckets.audit_bucket_name
+  audit_retention_days    = module.data_buckets.audit_retention_days
+  public_subnet_ids       = module.network.public_subnet_ids
+  security_group_id       = module.network.security_group_id
   state_machine_arn = format(
     "arn:aws:states:us-east-2:%s:stateMachine:%s",
     var.shared_outputs.account_id,

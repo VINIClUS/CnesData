@@ -344,6 +344,9 @@ def test_inventario_de_outputs_publica_interfaces_do_static_web(
     }
     names = ["repository_uri", "task_definition_arns", "container_name"]
     names += ["task_role_arns", "task_role_names", "execution_role_arn", "execution_role_name"]
+    names += [
+        "cluster_arn", "state_machine_arn", "step_functions_role_id", "step_functions_role_arn",
+    ]
     expected = static | {f"processor_{name}" for name in names}
     assert set(outputs) == expected, f"processing_public_inventory={sorted(outputs)}"
     assert outputs["api_loopback_contract"]["expression"] == {"constant_value": None}

@@ -29,6 +29,17 @@ from tests.production.infra._processing_native import (
     _override_hcl,
     _suite,
 )
+from tests.production.infra._step_functions_iam_contracts import (
+    event_for,
+    native_events,
+    prepare_isolated_case,
+)
+from tests.production.infra.test_ecr_ecs import (
+    _assert_ecs_trust,
+    _assert_execution_grants,
+    _role_policy_bindings,
+    _runtime_identities,
+)
 
 
 def _producers(plan: Node, configuration: Node, root: Path) -> tuple[Node, str, dict[str, str]]:
@@ -37,16 +48,12 @@ def _producers(plan: Node, configuration: Node, root: Path) -> tuple[Node, str, 
         for r in _module_resources(plan, configuration, root, "../../modules/processor-registry")
         if r["type"] == "aws_ecr_repository"
     ]
-    roles = [
-        r
-        for r in _module_resources(plan, configuration, root, "../../modules/runtime-iam")
-        if r["type"] == "aws_iam_role"
-    ]
+    execution, roles = _runtime_identities(plan, configuration, root)
     assert len(repositories) == 1, f"processing_own_repositories={len(repositories)}"
-    tasks = {role["index"]: role["change"]["after"]["arn"] for role in roles if "index" in role}
-    executions = [role["change"]["after"]["arn"] for role in roles if "index" not in role]
+    tasks = {role["index"]: role["change"]["after"]["arn"] for role in roles}
+    executions = [execution["change"]["after"]["arn"]]
     assert set(tasks) == set(COMMAND_MODES.values()), f"processing_task_role_modes={tasks!r}"
-    assert len(roles) == 4, f"processing_role_count={len(roles)}"
+    assert len(roles) == 3, f"processing_task_role_count={len(roles)}"
     assert len(executions) == 1, f"processing_execution_role_count={len(executions)}"
     assert len(set(tasks.values()) | set(executions)) == 4, "processing_role_identities=aliased"
     return repositories[0], executions[0], tasks
@@ -150,6 +157,66 @@ def test_outro_digest_altera_imagem_dos_tres_modos(
         assert first[mode][0] == other[mode][0], f"processing_family_changed mode={mode}"
         assert first[mode][1] != other[mode][1], f"processing_digest_not_consumed mode={mode}"
         assert first[mode][2:] == other[mode][2:], f"processing_roles_changed mode={mode}"
+
+
+def _isolated_runtime_plan(tofu: Tofu, prod_root: Path, root: Path) -> Node:
+    account, prefix = "123456789012", "cnesdata-prod"
+    variables: dict[str, object] = {
+        "name_prefix": prefix,
+        "account_id": account,
+        "repository_arn": f"arn:aws:ecr:us-east-2:{account}:repository/{prefix}",
+        "log_group_arn": f"arn:aws:logs:us-east-2:{account}:log-group:/ecs/{prefix}-processor:*",
+    }
+    label = "runtime-base-omitted-machine"
+    prepare_isolated_case(root, prod_root, ("../../modules/runtime-iam", variables, label))
+    wrapper = root / "main.tf"
+    with wrapper.open("a", encoding="utf-8") as stream:
+        for field in ("id", "arn"):
+            stream.write(
+                f'\noutput "baseline_sfn_{field}" {{\n'
+                f'  value = module.subject.step_functions_role_{field}\n}}\n'
+            )
+    local = (tofu[0], tofu[1] | {"TF_DATA_DIR": str(root / ".tofu-data")})
+    init = _native_result(local, root, ("init", "-backend=false", "-input=false"), label + "-init")
+    assert init.returncode == 0, f"setup_error isolated_runtime_init={init.stderr!r}"
+    result = _native_result(
+        local, root, ("test", "-no-color", "-json", "-verbose", "-test-directory=tests"), label
+    )
+    events = native_events(result.stdout)
+    assert result.returncode == 0, f"setup_error isolated_runtime_plan={result.stdout!r}"
+    assert event_for(events, "test_run", label)["test_run"]["status"] == "pass"
+    return event_for(events, "test_plan", label)["test_plan"]
+
+
+def test_runtime_iam_isolado_sem_machine_mantem_quatro_roles_ecs(
+    tofu_context: Tofu, prod_root: Path, tmp_path: Path
+) -> None:
+    plan = _isolated_runtime_plan(tofu_context, prod_root, tmp_path / "runtime-base")
+    roles = _managed_resources(plan, "aws_iam_role")
+    expected = {
+        f"cnesdata-prod-processor-{mode}" for mode in ("execution", "unit", "recovery", "audit")
+    }
+    assert len(roles) == 4, f"isolated_runtime_role_count={len(roles)}"
+    assert {r["change"]["after"]["name"] for r in roles} == expected
+    assert {r["type"] for r in plan["resource_changes"]} == {"aws_iam_role", "aws_iam_role_policy"}
+    policies = _managed_resources(plan, "aws_iam_role_policy")
+    assert len(policies) == 1, f"isolated_runtime_policy_count={len(policies)}"
+    assert policies[0]["change"]["after"]["name"] == "cnesdata-prod-processor-pull-logs"
+    for role in roles:
+        _assert_ecs_trust(role, "123456789012")
+        documents, arns = _role_policy_bindings(role, plan, plan["configuration"])
+        assert not arns, f"isolated_runtime_managed_policies={arns!r}"
+        if role["change"]["after"]["name"].endswith("-execution"):
+            _assert_execution_grants(
+                documents,
+                "arn:aws:ecr:us-east-2:123456789012:repository/cnesdata-prod",
+                "arn:aws:logs:us-east-2:123456789012:log-group:/ecs/cnesdata-prod-processor:*",
+            )
+        else:
+            assert not documents, f"isolated_runtime_task_policies={role['address']}"
+    for field in ("id", "arn"):
+        output = plan["planned_values"]["outputs"][f"baseline_sfn_{field}"]
+        assert output["value"] is None, f"isolated_runtime_step_functions_{field}={output!r}"
 
 
 @pytest.mark.parametrize("case", INVALID_DIGESTS, ids=[case[0] for case in INVALID_DIGESTS])
