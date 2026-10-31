@@ -27,6 +27,15 @@ BOTH = ("data", "audit")
 BPA_FLAGS = (
     "block_public_acls", "block_public_policy", "ignore_public_acls", "restrict_public_buckets",
 )
+REQUIRED_PROVIDER_MARKERS = (
+    'arn = "arn:aws:acm:us-east-1:123456789012:certificate/'
+    '11111111-1111-4111-8111-111111111111"',
+    'endpoint = "cognito-idp.us-east-2.amazonaws.com/us-east-2_fixture"',
+    'bucket_regional_domain_name = "fixture-data.s3.us-east-2.amazonaws.com"',
+    'arn = "arn:aws:cloudfront::123456789012:function/fixture-spa"',
+    'region = "us-east-2"',
+    'region = "us-east-1"',
+)
 FAIL_CLOSED_AWS = {
     "AWS_CONFIG_FILE": os.devnull, "AWS_EC2_METADATA_DISABLED": "true",
     "AWS_ENDPOINT_URL": "http://127.0.0.1:9", "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
@@ -195,10 +204,19 @@ def test_suites_de_protecao_mockam_todo_provider_aws_da_raiz(tofu_artifacts: Art
 def test_suites_do_conftest_mockam_todo_provider_aws_da_raiz(
     tofu_artifacts: Artifacts, generated_suite_headers: tuple[str, ...]
 ) -> None:
-    roots = _root_aws_providers(tofu_artifacts)
-    mocked = [_mocked_providers(suite) for suite in generated_suite_headers]
+    from tests.production.infra._processing_native import (
+        MOCK_PROVIDERS as PROCESSING_MOCK_PROVIDERS,
+    )
+    from tests.production.infra.test_ecr_ecs import MOCK_PROVIDERS as REGISTRY_MOCK_PROVIDERS
 
-    assert mocked == [roots] * len(generated_suite_headers)
+    roots = _root_aws_providers(tofu_artifacts)
+    suite_headers = (*generated_suite_headers, REGISTRY_MOCK_PROVIDERS, PROCESSING_MOCK_PROVIDERS)
+    mocked = [_mocked_providers(suite) for suite in suite_headers]
+
+    assert mocked == [roots] * len(suite_headers)
+    assert all(
+        marker in suite for suite in suite_headers for marker in REQUIRED_PROVIDER_MARKERS
+    )
 
 
 def test_schema_v2_exige_os_quatro_flags_de_bpa_verdadeiros(prod_root: Path) -> None:

@@ -117,3 +117,10 @@ variable "shared_outputs" {
     error_message = "Account S3 Block Public Access evidence must enable all four flags."
   }
 }
+
+variable "image_digest" {
+  description = "Optional processor image digest for staged task registration."
+  type        = string
+  default     = null
+  nullable    = true
+}

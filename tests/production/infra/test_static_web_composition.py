@@ -17,7 +17,9 @@ ISSUER_ORIGIN = "https://cognito-idp.us-east-2.amazonaws.com"
 LOGIN_ORIGIN = "https://cnesdata-prod54qgag.auth.us-east-2.amazoncognito.com"
 OUTPUTS = {
     "cloudfront_domain_name", "cloudfront_distribution_id", "acm_dns_validation_records",
-    "api_loopback_contract", "dashboard_runtime_env",
+    "api_loopback_contract", "dashboard_runtime_env", "processor_repository_uri",
+    "processor_task_definition_arns", "processor_container_name", "processor_task_role_arns",
+    "processor_task_role_names", "processor_execution_role_arn", "processor_execution_role_name",
 }
 STATIC_TYPES = {
     "aws_s3_bucket", "aws_s3_bucket_public_access_block", "aws_s3_bucket_ownership_controls",
@@ -45,6 +47,9 @@ MODULE_TYPES = {
         "aws_route_table", "aws_route", "aws_route_table_association", "aws_vpc_endpoint",
         "aws_security_group", "aws_vpc_security_group_egress_rule",
     },
+    "processor_registry": {"aws_ecr_repository", "aws_ecr_lifecycle_policy"},
+    "runtime_iam": {"aws_iam_role", "aws_iam_role_policy"},
+    "processing": {"aws_ecs_task_definition"},
 }
 BOUNDARIES = {
     "a": {
@@ -368,6 +373,7 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     composition = static_web_composition
     outputs = composition.plan["planned_values"].get("outputs", {})
     declared = _configured(composition)["outputs"]
+    assert len(OUTPUTS) == 12
     assert set(declared) == OUTPUTS, f"root_output_inventory actual={set(declared)}"
     required_outputs = OUTPUTS - {"api_loopback_contract"}
     assert required_outputs <= set(outputs), "evaluated_root_outputs_required"
@@ -399,9 +405,15 @@ def test_composicao_nao_cria_dns_assinatura_ou_estado_compartilhado(
     for change in changes:
         address, kind = change["address"], change["type"]
         if not address.startswith("module."):
-            assert address == "aws_acm_certificate.static_web", f"root_ownership address={address}"
+            assert address in {
+                "aws_acm_certificate.static_web",
+                "aws_cloudwatch_log_group.processor",
+            }, f"root_ownership address={address}"
             continue
         module = address.split(".", 2)[1]
         message = f"product_ownership address={address} type={kind}"
         assert module in MODULE_TYPES, message
         assert kind in MODULE_TYPES[module], message
+    log_group = _resource(static_web_composition, "aws_cloudwatch_log_group.processor")
+    assert log_group["name"] == "/ecs/cnesdata-prod-processor"
+    assert log_group["retention_in_days"] == 7
