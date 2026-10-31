@@ -3,6 +3,7 @@ from typing import cast
 
 import pytest
 
+from tests.production.infra.conftest import MOCK_PROVIDER
 from tests.production.infra.test_network import (
     MODULE_DIRECTORY,
     NAT_LB_LISTENER,
@@ -15,7 +16,6 @@ from tests.production.infra.test_network import (
     _suites,
 )
 
-MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?\}$', re.MULTILINE)
 SORTED_UNIQUE_SUBNETS = "sort(distinct([for subnet in aws_subnet.public : subnet.id]))"
 SUBNET_OUTPUT = re.compile(
     r'^output "public_subnet_ids" \{\n(?:  .*\n)*?  value\s*=\s*(?P<value>.+)$', re.MULTILINE

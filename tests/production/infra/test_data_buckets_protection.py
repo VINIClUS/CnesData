@@ -9,6 +9,13 @@ from typing import NamedTuple, cast
 
 import pytest
 
+from tests.production.infra.conftest import (
+    MOCK_AWS_PROVIDERS as MOCK_PROVIDERS,
+)
+from tests.production.infra.conftest import (
+    MOCK_PROVIDER,
+)
+
 type Tofu = tuple[str, dict[str, str]]
 type Artifacts = dict[str, dict[str, object]]
 type Node = dict[str, object]
@@ -32,8 +39,6 @@ CALLER_AWS_VARIABLES = (
     "AWS_IGNORE_CONFIGURED_ENDPOINT_URLS", "AWS_ENDPOINT_URL_S3", *FAIL_CLOSED_AWS,
 )
 RUN_STATUS = re.compile(r'^\s*run "(?P<name>[^"]+)"\.\.\. (?P<status>\w+)$', re.MULTILINE)
-MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?\}$', re.MULTILINE)
-MOCK_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
 
 MODULE_RUN = """
 run "{name}" {{
@@ -204,3 +209,122 @@ def test_schema_v2_exige_os_quatro_flags_de_bpa_verdadeiros(prod_root: Path) -> 
     consts = {name: flag.get("const") for name, flag in flags.items()}
 
     assert consts == dict.fromkeys(BPA_FLAGS, True)
+
+
+def test_reconhece_mocks_aws_vazios_padrao_e_alias() -> None:
+    suite = '''mock_provider "aws" {}
+
+mock_provider "aws" {
+  alias = "global_edge"
+}
+'''
+
+    assert _mocked_providers(suite) == {"aws", "aws.global_edge"}
+
+
+def test_reconhece_mocks_aws_com_defaults_aninhados() -> None:
+    suite = '''mock_provider "aws" {
+  mock_resource "aws_s3_bucket" {
+    defaults = {
+      bucket_regional_domain_name = "example.s3.us-east-2.amazonaws.com"
+    }
+  }
+  mock_data "aws_region" {
+    defaults = {
+      region = "us-east-2"
+    }
+  }
+}
+
+mock_provider "aws" {
+  alias = "global_edge"
+  mock_resource "aws_cloudfront_function" {
+    defaults = {
+      arn = "arn:aws:cloudfront::123456789012:function/example"
+    }
+  }
+  mock_data "aws_region" {
+    defaults = {
+      region = "us-east-1"
+    }
+  }
+}
+'''
+
+    assert _mocked_providers(suite) == {"aws", "aws.global_edge"}
+
+
+@pytest.mark.parametrize(
+    "suite",
+    [
+        pytest.param('mock_provider "aws" {}\n', id="vazio"),
+        pytest.param(
+            '''mock_provider "aws" {
+  mock_data "aws_region" {
+    defaults = {
+      region = "us-east-2"
+    }
+  }
+}
+''',
+            id="com_defaults",
+        ),
+    ],
+)
+def test_nao_inventa_alias_aws_ausente(suite: str) -> None:
+    assert _mocked_providers(suite) == {"aws"}
+
+
+@pytest.mark.parametrize(
+    "suite",
+    [
+        pytest.param(
+            '''mock_provider "aws" {
+  alias = "global_edge"
+}
+''',
+            id="vazio",
+        ),
+        pytest.param(
+            '''mock_provider "aws" {
+  alias = "global_edge"
+  mock_data "aws_region" {
+    defaults = {
+      region = "us-east-1"
+    }
+  }
+}
+''',
+            id="com_defaults",
+        ),
+    ],
+)
+def test_nao_inventa_provider_aws_padrao_ausente(suite: str) -> None:
+    assert _mocked_providers(suite) == {"aws.global_edge"}
+
+
+def test_ignora_mocks_de_outro_provider() -> None:
+    suite = '''mock_provider "aws" {}
+
+mock_provider "random" {}
+
+mock_provider "random" {
+  alias = "global_edge"
+  mock_resource "random_id" {
+    defaults = {
+      hex = "01234567"
+    }
+  }
+}
+'''
+
+    assert _mocked_providers(suite) == {"aws"}
+
+
+def test_nao_inventa_mocks_em_suite_sem_mock_provider() -> None:
+    suite = '''run "verifica_saida" {
+  command = plan
+}
+'''
+
+    assert _mocked_providers(suite) == set()

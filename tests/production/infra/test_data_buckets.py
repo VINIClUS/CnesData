@@ -10,6 +10,12 @@ import pytest
 
 from cnes_infra.aws import AwsRuntimeSettings
 from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from tests.production.infra.conftest import (
+    MOCK_AWS_PROVIDERS as MOCK_PROVIDERS,
+)
+from tests.production.infra.conftest import (
+    MOCK_PROVIDER,
+)
 
 type Tofu = tuple[str, dict[str, str]]
 type Artifacts = dict[str, dict[str, object]]
@@ -51,7 +57,6 @@ INVALID_NAME_RUNS = {
 }
 ISOLATION_RUNS = ("buckets_distintos_privados_e_versionados", *INVALID_NAME_RUNS)
 RUN_STATUS = re.compile(r'^\s*run "(?P<name>[^"]+)"\.\.\. (?P<status>\w+)$', re.MULTILINE)
-MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?\}$', re.MULTILINE)
 
 MODULE_RUN = """
 run "{name}" {{
@@ -80,8 +85,6 @@ run "raiz_agenda_data_buckets" {{
 {body}}}
 """
 EXPECT_INVALID_NAMES = "\n  expect_failures = [var.bucket_names]\n"
-MOCK_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
-
 BUCKETS = """{
       for name, bucket in { data = aws_s3_bucket.data, audit = aws_s3_bucket.audit } : name => {
         bucket        = bucket.bucket

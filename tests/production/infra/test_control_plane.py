@@ -9,6 +9,12 @@ from typing import NamedTuple, cast
 import pytest
 
 from cnes_infra.control_plane.dynamodb_inventory import CONTROL_PLANE_INVENTORY
+from tests.production.infra.conftest import (
+    MOCK_AWS_PROVIDERS as MOCK_PROVIDERS,
+)
+from tests.production.infra.conftest import (
+    MOCK_PROVIDER,
+)
 
 type Tofu = tuple[str, dict[str, str]]
 type Artifacts = dict[str, dict[str, object]]
@@ -39,7 +45,6 @@ FORBIDDEN_TABLE_ARGUMENTS = frozenset({
     "write_capacity",
 })
 RUN_STATUS = re.compile(r'^\s*run "(?P<name>[^"]+)"\.\.\. (?P<status>\w+)$', re.MULTILINE)
-MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?\}$', re.MULTILINE)
 
 ACTUAL_TABLE = f"""{{
       hash_key   = {TABLE}.hash_key
@@ -67,8 +72,6 @@ ACTUAL_OUTPUTS = (
     "{ table_name = output.table_name, table_arn = output.table_arn, "
     "index_arns = output.index_arns }"
 )
-
-MOCK_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
 
 MODULE_RUN = """
 run "{name}" {{

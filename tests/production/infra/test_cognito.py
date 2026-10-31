@@ -1,5 +1,4 @@
 import json
-import re
 import shutil
 import subprocess
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -11,6 +10,12 @@ import pytest
 from cnes_infra.aws import AwsRuntimeSettings
 from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
 from tests.production.infra._cognito_dashboard import _assert_dashboard_env, _dashboard_scopes
+from tests.production.infra.conftest import (
+    MOCK_AWS_PROVIDERS as MOCK_PROVIDERS,
+)
+from tests.production.infra.conftest import (
+    MOCK_PROVIDER,
+)
 
 type Tofu = tuple[str, dict[str, str]]
 type Artifacts = dict[str, dict[str, object]]
@@ -84,8 +89,6 @@ INVALID_SUFFIXES = {
     "sufixo_com_amazon_e_rejeitado": "amazon54qg",
     "sufixo_com_cognito_e_rejeitado": "cognito54q",
 }
-MOCK_PROVIDERS = 'mock_provider "aws" {}\n\nmock_provider "aws" {\n  alias = "global_edge"\n}\n'
-MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?\}$', re.MULTILINE)
 OVERRIDE = "\n  override_{kind} {{\n    target = {target}\n    values = {values}\n  }}\n"
 REPLACE_POOL = "\n  plan_options {\n    replace = [aws_cognito_user_pool.this]\n  }\n"
 
