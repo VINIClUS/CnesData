@@ -89,6 +89,9 @@ module "runtime_iam" {
 module "processing" {
   source = "../../modules/processing"
 
+  processor_active_unit_task_definition_arn    = var.processor_active_unit_task_definition_arn
+  processor_retained_unit_task_definition_arns = var.processor_retained_unit_task_definition_arns
+
   image_digest         = var.image_digest
   name_prefix          = local.name_prefix
   repository_uri       = module.processor_registry.repository_uri
