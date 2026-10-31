@@ -31,6 +31,7 @@ from tests.production.infra.test_step_functions_iam import (
     _diagnostics,
     _isolated_module_case,
     _runtime_inputs,
+    _stateful_sequence,
     configuration_module,
     configuration_variable_names,
     event_for,
@@ -376,3 +377,46 @@ def test_oraculo_preserva_condicao_literal_e_rejeita_valor_repetido() -> None:
     statement["Condition"]["ForAllValues:StringLike"]["dynamodb:LeadingKeys"] *= 2
     with pytest.raises(AssertionError, match="duplicate_grant"):
         policy_grants(_policy_document([statement]))
+
+
+def sfn_api_grants(resources: Node) -> Grants:
+    return (
+        literal_grants(("states:DescribeStateMachine", "states:StartExecution"),
+                       (resources["machine"],), {})
+        | literal_grants(("states:DescribeExecution", "states:StopExecution"),
+                         (resources["executions"],), {})
+    )
+
+
+def _active_api_grants(plan: Node) -> Grants:
+    resources = _runtime_resources(plan)
+    table = resource_at(plan, "module.control_plane.aws_dynamodb_table.control_plane")
+    indexes = table["change"]["after"]["global_secondary_index"]
+    assert "gsi1" in {item["name"] for item in indexes}, "api_gsi1_producer_missing"
+    machine = resource_at(plan, "module.processing.aws_sfn_state_machine.processor[0]")
+    assert machine["change"]["after"]["arn"] == resources["machine"]
+    return _runtime_grants(resources)["api"] | sfn_api_grants(resources)
+
+
+def test_api_ativa_recebe_quatro_acoes_exatas_e_preserva_ddb_s3_e_role_externa(
+    processing_native: NativePlans, tofu_context: Tofu, prod_root: Path,
+) -> None:
+    _, plans, _ = _stateful_sequence(tofu_context, prod_root, processing_native)
+    for run in ("phase_b_create_plan", "phase_b_route_plan"):
+        plan = plans[run]
+        active = plan["variables"]["processor_active_unit_task_definition_arn"]["value"]
+        assert active is not None, "api_active_expected_non_null"
+        expected = _active_api_grants(plan)
+        role, specification = _runtime_actor(plan, "api")
+        assert_policy_grants(plan, role, specification, expected)
+    address = "module.runtime_iam.aws_iam_role_policy.api[0]"
+    create_plan = plans["phase_b_create_plan"]
+    create_change = resource_at(create_plan, address)["change"]
+    assert create_change["actions"] == ["update"]
+    expected_bootstrap = _runtime_grants(_runtime_resources(create_plan))["api"]
+    assert policy_grants(create_change["before"]["policy"]) == expected_bootstrap
+    for field in ("name", "role"):
+        assert create_change["before"][field] == create_change["after"][field]
+    route_change = resource_at(plans["phase_b_route_plan"], address)["change"]
+    assert route_change["actions"] == ["no-op"]
+    assert route_change["before"] == route_change["after"]

@@ -61,7 +61,10 @@ MODULE_TYPES = {
     },
     "processor_registry": {"aws_ecr_repository", "aws_ecr_lifecycle_policy"},
     "runtime_iam": {"aws_iam_role", "aws_iam_role_policy"},
-    "processing": {"aws_ecs_task_definition", "aws_ecs_cluster", "aws_sfn_state_machine"},
+    "processing": {
+        "aws_ecs_task_definition", "aws_ecs_cluster", "aws_sfn_state_machine",
+        "aws_iam_role_policy",
+    },
 }
 STATIC_BUCKET_DEFAULTS = {
     "id": "cnesdata-fixture", "arn": "arn:aws:s3:::cnesdata-fixture",

@@ -18,6 +18,13 @@ from tests.production.infra._root_native_identities import (
     _override_hcl,
     assert_root_identity_producers,
 )
+from tests.production.infra._step_functions_iam_contracts import assert_policy_grants
+from tests.production.infra.test_step_functions_iam_runtime import (
+    _runtime_actor,
+    _runtime_grants,
+    _runtime_resources,
+    sfn_api_grants,
+)
 
 type Node = dict[str, Any]
 type Tofu = tuple[str, dict[str, str]]
@@ -148,6 +155,19 @@ def test_raiz_declara_e_encaminha_revisoes(
     assert expressions[RETAINED] == {"references": [f"var.{RETAINED}"]}
 
 
+def _assert_api_policy_follows_active(name: str, plan: Node, active: object) -> None:
+    resources = _runtime_resources(plan)
+    expected = _runtime_grants(resources)["api"]
+    if active is not None:
+        expected = expected | sfn_api_grants(resources)
+    role, specification = _runtime_actor(plan, "api")
+    try:
+        assert_policy_grants(plan, role, specification, expected)
+    except AssertionError as error:
+        message = f"api_policy_active_gate run={name} active={active!r}: {error}"
+        raise AssertionError(message) from error
+
+
 def test_revisoes_validas_normalizam_set_e_bootstrap(
     tofu_context: Tofu,
     prod_root: Path,
@@ -192,6 +212,8 @@ def test_revisoes_validas_normalizam_set_e_bootstrap(
             assert values[RETAINED]["value"] is None
             continue
         assert set(values[RETAINED]["value"]) == retained, f"retained_effective_value={name}"
+    for name, (active, _) in expected.items():
+        _assert_api_policy_follows_active(name, plans[name], active)
 
 
 INVALID_VALUES = (

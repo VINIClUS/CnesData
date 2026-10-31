@@ -176,6 +176,54 @@ locals {
       },
     ]
   }
+  api_data_statements = var.runtime_grants == null ? null : [
+    {
+      Effect   = "Allow"
+      Action   = "dynamodb:Query"
+      Resource = var.runtime_grants.index_arns.gsi1
+      Condition = {
+        "ForAllValues:StringLike" = { "dynamodb:LeadingKeys" = ["USER#*"] }
+        Null                      = { "dynamodb:LeadingKeys" = "false" }
+      }
+    },
+    {
+      Effect   = "Allow"
+      Action   = "dynamodb:GetItem"
+      Resource = var.runtime_grants.table_arn
+      Condition = {
+        "ForAllValues:StringLike" = { "dynamodb:LeadingKeys" = ["TENANT#*"] }
+        Null                      = { "dynamodb:LeadingKeys" = "false" }
+      }
+    },
+    {
+      Effect = "Allow"
+      Action = "s3:GetObject"
+      Resource = [
+        "${var.runtime_grants.data_bucket_arn}/reconciliation/*",
+        "${var.runtime_grants.data_bucket_arn}/serving/*",
+      ]
+    },
+    {
+      Effect   = "Allow"
+      Action   = "s3:ListBucket"
+      Resource = var.runtime_grants.data_bucket_arn
+      Condition = {
+        StringLike = { "s3:prefix" = ["reconciliation/*", "serving/*"] }
+      }
+    },
+  ]
+  api_sfn_statements = var.state_machine_arn == null ? null : [
+    {
+      Effect   = "Allow"
+      Action   = ["states:DescribeStateMachine", "states:StartExecution"]
+      Resource = var.state_machine_arn
+    },
+    {
+      Effect   = "Allow"
+      Action   = ["states:DescribeExecution", "states:StopExecution"]
+      Resource = "${replace(var.state_machine_arn, ":stateMachine:", ":execution:")}:*"
+    },
+  ]
 }
 
 resource "aws_iam_role_policy" "runtime" {
@@ -196,41 +244,9 @@ resource "aws_iam_role_policy" "api" {
   role = try(element(reverse(split("/", var.runtime_grants.api_role_arn)), 0), null)
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = "dynamodb:Query"
-        Resource = var.runtime_grants.index_arns.gsi1
-        Condition = {
-          "ForAllValues:StringLike" = { "dynamodb:LeadingKeys" = ["USER#*"] }
-          Null                      = { "dynamodb:LeadingKeys" = "false" }
-        }
-      },
-      {
-        Effect   = "Allow"
-        Action   = "dynamodb:GetItem"
-        Resource = var.runtime_grants.table_arn
-        Condition = {
-          "ForAllValues:StringLike" = { "dynamodb:LeadingKeys" = ["TENANT#*"] }
-          Null                      = { "dynamodb:LeadingKeys" = "false" }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = "s3:GetObject"
-        Resource = [
-          "${var.runtime_grants.data_bucket_arn}/reconciliation/*",
-          "${var.runtime_grants.data_bucket_arn}/serving/*",
-        ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = "s3:ListBucket"
-        Resource = var.runtime_grants.data_bucket_arn
-        Condition = {
-          StringLike = { "s3:prefix" = ["reconciliation/*", "serving/*"] }
-        }
-      },
-    ]
+    Statement = concat(
+      local.api_data_statements,
+      [for statement in local.api_sfn_statements : statement if var.api_step_functions_enabled],
+    )
   })
 }

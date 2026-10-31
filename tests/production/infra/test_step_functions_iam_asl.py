@@ -172,7 +172,10 @@ def _assert_sequence_stages(
         for resource in create_plan.get("resource_changes", [])
         if resource.get("change", {}).get("actions") != ["no-op"]
     }
-    assert changed == {create_machine["address"]}
+    api_address = "module.runtime_iam.aws_iam_role_policy.api[0]"
+    assert create_machine["address"] == "module.processing.aws_sfn_state_machine.processor[0]"
+    assert changed == {create_machine["address"], api_address}
+    assert iam.resource_at(create_plan, api_address)["change"]["actions"] == ["update"]
     assert create_machine["change"]["actions"] == ["create"]
     create_state = states["phase_b_create_apply"]
     assert len(_state_machine_resources(create_state)) == 1
@@ -238,7 +241,8 @@ def _assert_task_contract(
     assert task["Parameters"]["TaskDefinition"] == expected_active
     assert isinstance(expected_active, str)
     assert re.fullmatch(
-        r"arn:aws:ecs:us-east-2:123456789012:task-definition/cnesdata-prod-processor-unit:[1-9][0-9]*",
+        r"arn:aws:ecs:us-east-2:123456789012:task-definition/"
+        r"cnesdata-prod-processor-unit:[1-9][0-9]*",
         expected_active,
     )
     parameters = task["Parameters"]
@@ -343,6 +347,8 @@ def test_transicao_de_routing_apos_phase_a_muda_somente_machine(
     }
     machine_address = _route_machine(route_plan)["address"]
     assert set(changed) == {machine_address}, f"routing_transition_delta={changed!r}"
+    assert machine_address == "module.processing.aws_sfn_state_machine.processor[0]"
+    assert changed[machine_address]["actions"] == ["update"]
     before = _state_resource(states["phase_a_register_b"], "aws_sfn_state_machine", "processor")
     before_definition = json.loads(before["values"]["definition"])
     after_definition = state_machine_definition(_route_machine(route_plan))
