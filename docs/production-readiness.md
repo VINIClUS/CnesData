@@ -129,7 +129,7 @@ uv run pyright
 git diff --check
 
 DB_URL=postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test \
-COD_MUN_IBGE=354130 ID_MUNICIPIO_IBGE7=3541307 CNPJ_MANTENEDORA=55293427000117 \
+COD_MUN_IBGE=354130 ID_MUNICIPIO_IBGE7=3541308 CNPJ_MANTENEDORA=55293427000117 \
   uv run pytest \
   -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak \
   and not spike and not windows_only and not s3_integration and not dynamodb_local" -q
