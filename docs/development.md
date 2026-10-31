@@ -187,6 +187,20 @@ uv run pytest tests/chaos/ -m "chaos and not chaos_infra" -v
 uv run pytest tests/negative/ -m negative -v
 ```
 
+OpenTofu native suite (`tests/production/infra`; CI job `opentofu-native` in
+`.github/workflows/infra-native.yml`, informative). Needs `tofu` (CI pins
+1.13.2) and `trivy` 0.74.0 on `PATH`; `CI=true` fails on a missing tool.
+
+```bash
+export TF_PLUGIN_CACHE_DIR=~/.cache/tofu-plugins
+export PROCESSING_SOURCE_BINDINGS=/tmp/processing-source-bindings.json
+mkdir -p "$TF_PLUGIN_CACHE_DIR"
+TF_DATA_DIR=/tmp/tofu-warm \
+  tofu -chdir=infra/opentofu/env/prod init -backend=false -input=false -lockfile=readonly
+uv run python -c "from tests.scripts.test_ci_opentofu_runner import _bind_script; exec(_bind_script())"
+CI=true uv run pytest tests/production/infra -q
+```
+
 ## Go Edge Agent
 
 ```bash
