@@ -1,5 +1,4 @@
 import json
-import re
 import shutil
 import subprocess
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -10,6 +9,8 @@ import pytest
 
 from cnes_infra.aws import AwsRuntimeSettings
 from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from tests.production.infra import _root_native_identities as roots
+from tests.production.infra._root_native_observation import NativeRootReport, observe_root_result
 from tests.production.infra.conftest import (
     MOCK_AWS_PROVIDERS as MOCK_PROVIDERS,
 )
@@ -56,7 +57,6 @@ INVALID_NAME_RUNS = {
     "nome_com_ponto_e_rejeitado": {**BUCKET_NAMES, "data": "cnesdata.prod.data"},
 }
 ISOLATION_RUNS = ("buckets_distintos_privados_e_versionados", *INVALID_NAME_RUNS)
-RUN_STATUS = re.compile(r'^\s*run "(?P<name>[^"]+)"\.\.\. (?P<status>\w+)$', re.MULTILINE)
 
 MODULE_RUN = """
 run "{name}" {{
@@ -145,11 +145,6 @@ class ModuleRun(NamedTuple):
     source: str = MODULE_SOURCE
     command: str = "plan"
     names: Mapping[str, str] = BUCKET_NAMES
-
-
-class TofuReport(NamedTuple):
-    statuses: dict[str, str]
-    result: subprocess.CompletedProcess[str]
 
 
 def _hcl(value: object) -> str:
@@ -244,7 +239,7 @@ def _expected_outputs() -> dict[str, object]:
     }
 
 
-def _root_run(shared_outputs: Mapping[str, object]) -> str:
+def _root_run(shared_outputs: Mapping[str, object], overrides: Sequence[Node]) -> str:
     expected = {
         "data_bucket_name": PRODUCTION_SETTINGS.data_bucket,
         "audit_bucket_name": PRODUCTION_SETTINGS.audit_bucket,
@@ -252,6 +247,7 @@ def _root_run(shared_outputs: Mapping[str, object]) -> str:
     }
     actual = "{ " + ", ".join(f"{name} = module.data_buckets.{name}" for name in expected) + " }"
     body = _equal(actual, expected, "root_matches_runtime_settings")
+    body += roots._override_hcl(list(overrides))
     return ROOT_RUN.format(shared_outputs=_hcl(shared_outputs), body=body)
 
 
@@ -322,7 +318,7 @@ def _suite(runs: Iterable[ModuleRun], header: str = "") -> str:
     return MOCK_PROVIDERS + header + "".join(_module_run(run) for run in runs)
 
 
-def _plan_suites(shared_outputs: Mapping[str, object]) -> dict[str, str]:
+def _plan_suites(shared: Mapping[str, object], overrides: Sequence[Node] = ()) -> dict[str, str]:
     runs = (
         ModuleRun(ISOLATION_RUNS[0], _isolation_body()),
         ModuleRun("tls_obrigatorio_e_owner_enforced", _transport_body()),
@@ -338,7 +334,7 @@ def _plan_suites(shared_outputs: Mapping[str, object]) -> dict[str, str]:
     )
     # A missing expected failure errors its whole file and skips every later run in it.
     return {
-        "data-buckets": _suite(runs, _root_run(shared_outputs)),
+        "data-buckets": _suite(runs, _root_run(shared, overrides)),
         "data-buckets-validation": _suite(rejections),
     }
 
@@ -357,12 +353,7 @@ def _require_success(result: subprocess.CompletedProcess[str], command: str) -> 
         )
 
 
-def _report(result: subprocess.CompletedProcess[str]) -> TofuReport:
-    statuses = {match["name"]: match["status"] for match in RUN_STATUS.finditer(result.stdout)}
-    return TofuReport(statuses, result)
-
-
-def _assert_runs(report: TofuReport, expected: Mapping[str, str]) -> None:
+def _assert_runs(report: NativeRootReport, expected: Mapping[str, str]) -> None:
     actual = {name: report.statuses.get(name) for name in expected}
     assert actual == dict(expected), (
         f"tofu_test runs={actual} stdout={report.result.stdout!r} "
@@ -406,22 +397,34 @@ def plan_report(
     tofu_artifacts: Artifacts,
     prod_root: Path,
     valid_shared_outputs: dict[str, object],
-) -> Iterator[TofuReport]:
+) -> Iterator[NativeRootReport]:
+    ids = cast("dict[str, list[Node]]", tofu_artifacts["root_identities"])
     test_directory = prod_root / ".terraform" / "data-buckets-tests"
     test_directory.mkdir(parents=True)
     selector = "-test-directory=.terraform/data-buckets-tests"
     try:
-        for name, suite in _plan_suites(valid_shared_outputs).items():
+        for name, suite in _plan_suites(valid_shared_outputs, ids["overrides"]).items():
             (test_directory / f"{name}.tftest.hcl").write_text(suite, encoding="utf-8")
         init = _tofu(tofu_context, prod_root, ("init", "-backend=false", "-input=false", selector))
         _require_success(init, "init")
-        yield _report(_tofu(tofu_context, prod_root, ("test", "-no-color", selector)))
+        test = ("test", "-no-color", "-json", "-verbose", selector)
+        result = _tofu(tofu_context, prod_root, test)
+        report = observe_root_result(
+            result, ids["seeds"], {"test_file": f"{selector.split("=")[1]}/data-buckets.tftest.hcl",
+                            "positive_roots": frozenset({"raiz_agenda_data_buckets"})},
+            {"directory": tofu_context[1]["TF_DATA_DIR"], "label": "data-buckets",
+             "suite": b"".join(x.read_bytes() for x in sorted(test_directory.glob("*.tftest.hcl"))),
+             "metadata": {"artifacts": tofu_artifacts}},
+        )
+        count = 8 + len(INVALID_NAME_RUNS)
+        assert report.observations["summary"]["test_summary"]["passed"] == count
+        yield report
     finally:
         shutil.rmtree(test_directory)
 
 
 def test_raiz_agenda_buckets_de_dados_e_auditoria(
-    plan_report: TofuReport, tofu_artifacts: Artifacts, prod_root: Path
+    plan_report: NativeRootReport, tofu_artifacts: Artifacts, prod_root: Path
 ) -> None:
     calls = _module_calls(tofu_artifacts)
     module = (prod_root / MODULE_SOURCE).resolve()
@@ -432,7 +435,7 @@ def test_raiz_agenda_buckets_de_dados_e_auditoria(
 
 
 def test_buckets_distintos_privados_e_versionados(
-    plan_report: TofuReport,
+    plan_report: NativeRootReport,
     tofu_artifacts: Artifacts,
 ) -> None:
     resources = _module_resources(tofu_artifacts)
@@ -452,16 +455,16 @@ def test_produto_nao_declara_block_public_access_de_conta(tofu_artifacts: Artifa
     assert ACCOUNT_PUBLIC_ACCESS_BLOCK not in set(_graph_types(root))
 
 
-def test_tls_obrigatorio_e_owner_enforced(plan_report: TofuReport) -> None:
+def test_tls_obrigatorio_e_owner_enforced(plan_report: NativeRootReport) -> None:
     _assert_runs(plan_report, {"tls_obrigatorio_e_owner_enforced": "pass"})
 
 
-def test_audit_tem_object_lock_compliance_365_na_criacao(plan_report: TofuReport) -> None:
+def test_audit_tem_object_lock_compliance_365_na_criacao(plan_report: NativeRootReport) -> None:
     _assert_runs(plan_report, {"audit_object_lock_compliance_na_criacao": "pass"})
 
 
 def test_retencao_do_audit_concorda_com_aws_audit_retention_days(
-    plan_report: TofuReport,
+    plan_report: NativeRootReport,
 ) -> None:
     _assert_runs(
         plan_report,
@@ -470,19 +473,19 @@ def test_retencao_do_audit_concorda_com_aws_audit_retention_days(
     assert PRODUCTION_SETTINGS.audit_retention_days == AUDIT_RETENTION_DAYS
 
 
-def test_audit_sem_politica_de_bypass_ou_delete(plan_report: TofuReport) -> None:
+def test_audit_sem_politica_de_bypass_ou_delete(plan_report: NativeRootReport) -> None:
     _assert_runs(plan_report, {"audit_sem_bypass_ou_delete": "pass"})
 
 
-def test_cors_exato_sem_wildcard_nem_credentials(plan_report: TofuReport) -> None:
+def test_cors_exato_sem_wildcard_nem_credentials(plan_report: NativeRootReport) -> None:
     _assert_runs(plan_report, {"cors_exato_so_no_bucket_de_dados": "pass"})
 
 
-def test_tmp_expira_e_publicado_nao_e_apagado(plan_report: TofuReport) -> None:
+def test_tmp_expira_e_publicado_nao_e_apagado(plan_report: NativeRootReport) -> None:
     _assert_runs(plan_report, {"tmp_expira_e_publicado_nao_e_apagado": "pass"})
 
 
-def test_outputs_expoem_arns_exatos_de_bucket_e_prefixo(plan_report: TofuReport) -> None:
+def test_outputs_expoem_arns_exatos_de_bucket_e_prefixo(plan_report: NativeRootReport) -> None:
     _assert_runs(plan_report, {"outputs_com_arns_exatos": "pass"})
 
 

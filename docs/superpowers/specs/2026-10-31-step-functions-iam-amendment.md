@@ -1,16 +1,16 @@
-# #385 — amendment v4: revisão de routing, bootstrap e contrato executável
+# #385 — amendment v5: IAM literal, routing e preflight nativo
 
-**Status:** contrato de planejamento. Este arquivo autoriza a revisão do plano; não autoriza
-edição de código, teste, fixture, provider, cloud ou deploy.
+**Status:** contrato de escopo aceito pelo controller para o Slice 3. Esta atualização é
+somente documental; implementação requer despacho separado. Não executa testes, cloud ou deploy.
 
 **Data:** 2026-10-31
 **Base de leitura:** `issue-385-next-plan.md`, `issue-385-root-rulings.md`,
 `issue-385-routing-contract-review.md`, `issue-385-runtime-iam-inventory.md`,
 `issue-385-aws-research.md` e `issue-385-aws-action-mapping.md`.
 
-Esta versão preserva v1, v2 e v3. Ela congela a normalização dos inputs e o driver nativo de
-verificação, além do inventário de paths de teste, para que os contratos existentes acompanhem o
-novo forwarding, outputs e roles sem apagar os oráculos atuais.
+Os drafts históricos permanecem intactos. Esta revisão incorpora as erratas do plano IAM v3,
+o preflight v4 e a correção de observação v5 aceitos; preserva normalização, oráculos e histórico.
+Readback de implementação: HEAD `610970bbb63fdcb17503c22da90a7173af0241a4` (Slice 2 integrado).
 
 ## Efeito sobre o plano anterior
 
@@ -32,7 +32,7 @@ O contrato agora separa três coisas:
   revisão recovery/audit ou ARN estrangeiro.
 
 `active` e `retained` são inputs da raiz, provenientes da activation manifest/revisão de promoção.
-A candidata unit é produzida diretamente pelo `processor_image_digest` através de
+A candidata unit é produzida diretamente pelo `image_digest` através de
 `module.processing.task_definition_arns["unit"]`; ela não é input adicional, não é descoberta AWS
 e não precisa estar no manifest antes da Phase A. A raiz passa os dois inputs ao módulo processing;
 o próprio módulo compõe candidate ∪ retained para o grant.
@@ -104,10 +104,18 @@ digest aprovado, inclui a nova revisão unit no conjunto `retained` e dual-autor
 policy. Mantém a ASL, `TaskDefinition` active, schedulers e routes exatamente iguais. Nenhum
 recurso de scheduler é criado ou ativado por #385.
 
-**Phase B — route.** Depois de verificação da mesma activation manifest, drain e fence, altera
-somente `processor_active_unit_task_definition_arn` para uma revisão já registrada e já presente
-em `retained`. Não registra revisão ECS, não muda digest, recovery, audit, env comum, cluster,
-policy, scheduler ou route. Grants antigos permanecem até drain/rollback completo.
+**Phase B — route.** Depois da mesma activation manifest, drain e fence, altera active para uma
+revisão registrada e já presente em retained. Há dois oráculos distintos:
+
+- Ativação inicial (active=null → ARN): cria
+  `module.processing.aws_sfn_state_machine.processor[0]` e atualiza
+  `module.runtime_iam.aws_iam_role_policy.api[0]` para incluir as quatro ações SFN.
+- Promoção com machine estabelecida: muda somente o routing/definição de
+  `module.processing.aws_sfn_state_machine.processor[0]`; nenhuma policy muda.
+
+Ambos mantêm digest, revisões ECS, recovery/audit, env comum, cluster, schedulers e routes.
+Retained conserva old e candidate; grants antigos permanecem até decisão explícita de
+drain/rollback. A ativação inicial não pode ser julgada pelo oráculo machine-only da promoção.
 
 O teste nativo deve provar a transição sobre uma mesma execução mockada (Phase A apply/estado,
 seguida de Phase B plan) quando o harness suportar esse seam. Dois plans independentes do zero
@@ -149,7 +157,7 @@ Essa decisão limita a duração externa sem alterar validators ou deadlines do 
 
 ### Roles e grafo
 
-O novo input nullable `runtime-iam.state_machine_arn` aceita somente `null` ou o ARN
+O input nullable existente `runtime-iam.state_machine_arn` aceita somente `null` ou o ARN
 literal `arn:aws:states:us-east-2:${account_id}:stateMachine:${name_prefix}`. Conta, região,
 nome, serviço, forma e qualificação divergentes falham com
 `state_machine_arn_identity=expected_own_unqualified_machine`. Isso mantém o trust restrito
@@ -170,60 +178,102 @@ anexa desde o bootstrap a policy DDB/S3 da API. O bloco de ações Step Function
 fica ausente enquanto `active` é nulo e inclui `DescribeStateMachine` (e as ações preparatórias de
 execution) quando a machine existe.
 
-### Matriz mínima por modo
+### Símbolos e condições exatas
 
-| role | ações permitidas | recursos/condições obrigatórios |
-|---|---|---|
-| API | `states:DescribeStateMachine`; contrato preparatório `StartExecution`, `DescribeExecution`, `StopExecution`; DDB `Query`/`GetItem`; S3 `GetObject` e `ListBucket` | machine exata; execution ARNs da machine; `gsi1`/tabela e LeadingKeys definidos; `reconciliation/*` e `serving/*`; prefixos equivalentes em `ListBucket`; nenhuma escrita audit/raw |
-| unit | boot `DescribeStateMachine`; DDB `GetItem`, `Query`, `ConditionCheckItem`, `DeleteItem`, `PutItem`, `UpdateItem`; SFN `StartExecution`, `DescribeExecution`, `StopExecution`; S3 `GetObject`, `PutObject`, `ListBucket` | machine/execution exatos; tabela e índices produzidos; namespaces de tenant/outbox/fence/semaphore; raw/tmp e destinos finais autorizados; `ListBucket` com prefixos |
-| recovery | boot/SFN e DDB da unit; os mesmos child actions transacionais necessários; S3 `GetObject`, `PutObject`, `ListBucket` | `gsi4`, tabela e namespaces do coordinator; somente `tmp/*`, `reconciliation/*`, `serving/*` no caminho de resume; sem `raw/*` |
-| audit | `s3:GetBucketObjectLockConfiguration`; DDB `Query` em `gsi6`, `GetItem`, `UpdateItem`; S3 `PutObject`, `PutObjectRetention`, `GetObject`, `GetObjectRetention` | `gsi6`, cursor/evento; bucket audit e `audit/*`; sem delete, list ou bypass |
+T = module.control_plane.table_arn; I1/I4/I6 = seus index_arns["gsi1"/"gsi4"/"gsi6"].
+D = module.data_buckets.data_bucket_arn; A = module.data_buckets.audit_bucket_arn.
+M = `arn:aws:states:us-east-2:<account_id>:stateMachine:cnesdata-prod`.
+E = `arn:aws:states:us-east-2:<account_id>:execution:cnesdata-prod:*`.
+R = `arn:aws:events:us-east-2:<account_id>:rule/StepFunctionsGetEventsForECSTaskRule`.
+U/X são os outputs ARN das roles unit/execution. Não criar nem consultar R na AWS.
 
-Não existe `dynamodb:TransactWriteItems` como grant independente. Uma transação usa somente os
-child actions correspondentes (`ConditionCheckItem`, `DeleteItem`, `PutItem`, `UpdateItem`).
-`dynamodb:EnclosingOperation` pode restringir Put/Update/Delete à chamada transacional, mas não
-substitui grants e não deve ser aplicado a `ConditionCheckItem` como se fosse universal.
-
-O sink de audit envia Object Lock inline no próprio `PutObject`; por isso a policy efetiva mantém
-`s3:PutObject` e `s3:PutObjectRetention`, mesmo sem chamada separada `put_object_retention`.
+- LKlike(values): `ForAllValues:StringLike` em `dynamodb:LeadingKeys` e
+  `Null: {"dynamodb:LeadingKeys": "false"}`.
+- LKeq(values): `ForAllValues:StringEquals` e o mesmo guard `Null=false`.
+- Prefix(values): `StringLike: {"s3:prefix": values}`.
+- Pass: `StringEquals: {"iam:PassedToService": "ecs-tasks.amazonaws.com"}`.
+- K = `["TENANT#*", "TENANT#*#RUN#*", "TENANT#_GLOBAL", "ENV#prod#FENCE",
+  "ENV#prod#SEMAPHORE"]`. Preservar a lista literal, inclusive sua sobreposição.
+- Data5 = `[raw/*, tmp/*, normalized/*, reconciliation/*, serving/*]`.
+- Publish4 = `[tmp/*, normalized/*, reconciliation/*, serving/*]`.
+  Em recursos de objeto, D/Data5 e D/Publish4 expandem cada prefixo como `${D}/<prefixo>`.
+  ListBucket usa somente D, sem `/*`, com a condição Prefix correspondente.
+- DDB6 = `dynamodb:GetItem`, `dynamodb:Query`, `dynamodb:ConditionCheckItem`,
+  `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:DeleteItem`.
+- SFN_M = `states:DescribeStateMachine`, `states:StartExecution`.
+- SFN_E = `states:DescribeExecution`, `states:StopExecution`.
+- Event3 = `events:PutTargets`, `events:PutRule`, `events:DescribeRule`.
+- Logs10 = `logs:CreateLogDelivery`, `logs:GetLogDelivery`, `logs:UpdateLogDelivery`,
+  `logs:DeleteLogDelivery`, `logs:ListLogDeliveries`, `logs:CreateLogStream`,
+  `logs:PutLogEvents`, `logs:PutResourcePolicy`, `logs:DescribeResourcePolicies`,
+  `logs:DescribeLogGroups`.
+- Audit4 = `s3:PutObject`, `s3:PutObjectRetention`, `s3:GetObject`, `s3:GetObjectRetention`.
+- Nenhuma: Condition ausente ou vazia, normalizada à mesma tupla vazia.
 
 ### Matriz efetiva independente
 
-Antes de comparar o plano, o teste deve declarar esta matriz como dados independentes da policy
-renderizada. Os nomes entre `⟨…⟩` são valores de outputs/manifest já validados; não são
-wildcards que possam ser ampliados pela implementação.
+O teste declara esta matriz antes de ler policies renderizadas. Recursos vêm dos produtores
+verificados, nunca da policy observada. API* significa somente `active != null`; esse marcador
+não é uma condição IAM. Todas as quatro ações SFN da API, incluindo DescribeStateMachine, ficam
+ausentes em active=null; a policy DDB/S3 da API permanece anexada desde o bootstrap.
 
-| role | action | resource | condition exigida |
+| Role/policy | Actions | Resources | Condition |
 |---|---|---|---|
-| Step Functions | `ecs:RunTask` | cada ARN de `⟨candidate produzido ∪ retained⟩` | nenhuma revisão fora do conjunto |
-| Step Functions | `ecs:DescribeTasks`, `ecs:StopTask` | `*` | somente esta role contém o wildcard indispensável ao endpoint |
-| Step Functions | `iam:PassRole` | exatamente `⟨unit role⟩` e `⟨execution role⟩` | `iam:PassedToService = ecs-tasks.amazonaws.com` |
-| Step Functions | `events:PutTargets`, `events:PutRule`, `events:DescribeRule` | `⟨StepFunctionsGetEventsForECSTaskRule ARN⟩` | nenhuma |
-| Step Functions | logs delivery oficial (`CreateLogDelivery`, `GetLogDelivery`, `UpdateLogDelivery`, `DeleteLogDelivery`, `ListLogDeliveries`, `CreateLogStream`, `PutLogEvents`, `PutResourcePolicy`, `DescribeResourcePolicies`, `DescribeLogGroups`) | `*` | nenhuma |
-| API | `states:DescribeStateMachine`, `states:StartExecution` | `⟨machine ARN⟩` | anexar apenas com `active != null` |
-| API | `states:DescribeExecution`, `states:StopExecution` | `arn:aws:states:us-east-2:⟨account⟩:execution:cnesdata-prod:*` | nenhuma |
-| API | `dynamodb:Query` | `⟨table ARN⟩/index/gsi1` | `dynamodb:LeadingKeys = USER#*` |
-| API | `dynamodb:GetItem` | `⟨table ARN⟩` | `dynamodb:LeadingKeys = TENANT#*` |
-| API | `s3:GetObject` | `⟨data bucket ARN⟩/reconciliation/*`, `⟨data bucket ARN⟩/serving/*` | nenhuma |
-| API | `s3:ListBucket` | `⟨data bucket ARN⟩` | `s3:prefix` somente `reconciliation/*`, `serving/*` |
-| unit | `states:DescribeStateMachine`, `states:StartExecution` | `⟨machine ARN⟩` | nenhuma |
-| unit | `states:DescribeExecution`, `states:StopExecution` | `⟨execution ARN prefix⟩` | nenhuma |
-| unit/recovery | DDB `GetItem`, `Query`, `ConditionCheckItem`, `DeleteItem`, `PutItem`, `UpdateItem` | `⟨table ARN⟩` e somente índices `⟨gsi1/gsi4 conforme modo⟩` | LeadingKeys dos namespaces usados pelo modo; sem `Scan` |
-| unit | `s3:GetObject` | `⟨data bucket ARN⟩/raw/*`, `/tmp/*` e destinos finais autorizados | nenhuma |
-| recovery | `s3:GetObject` | `⟨data bucket ARN⟩/tmp/*`, `/reconciliation/*`, `/serving/*` | não incluir `/raw/*` |
-| unit/recovery | `s3:PutObject` | somente `⟨data bucket ARN⟩` nos destinos finais do modo | nenhuma |
-| unit/recovery | `s3:ListBucket` | `⟨data bucket ARN⟩` | `s3:prefix` somente os prefixes do modo |
-| audit | `s3:GetBucketObjectLockConfiguration` | `⟨audit bucket ARN⟩` | nenhuma |
-| audit | `dynamodb:Query` | `⟨table ARN⟩/index/gsi6` | `dynamodb:LeadingKeys = OUTBOX#PENDING` |
-| audit | `dynamodb:GetItem`, `dynamodb:UpdateItem` | `⟨table ARN⟩` | somente partições cursor/evento autorizadas |
-| audit | `s3:PutObject`, `s3:PutObjectRetention`, `s3:GetObject`, `s3:GetObjectRetention` | `⟨audit bucket ARN⟩/audit/*` | sem delete, list ou bypass |
+| SFN/common | iam:PassRole | U, X | Pass |
+| SFN/common | Event3 | R | Nenhuma |
+| SFN/common | Logs10 | * | Nenhuma |
+| SFN/ECS | ecs:RunTask | candidate unit produzido ∪ retained | Nenhuma |
+| SFN/ECS | ecs:DescribeTasks, ecs:StopTask | * | Nenhuma |
+| API* | SFN_M | M | Nenhuma |
+| API* | SFN_E | E | Nenhuma |
+| API | dynamodb:Query | I1 | LKlike([USER#*]) |
+| API | dynamodb:GetItem | T | LKlike([TENANT#*]) |
+| API | s3:GetObject | D/reconciliation/*, D/serving/* | Nenhuma |
+| API | s3:ListBucket | D | Prefix([reconciliation/*, serving/*]) |
+| unit/recovery | SFN_M | M | Nenhuma |
+| unit/recovery | SFN_E | E | Nenhuma |
+| unit/recovery | DDB6 | T somente | LKlike(K) |
+| unit/recovery | dynamodb:UpdateItem | T somente | LKeq([ENV#prod#ATTEMPTS]) |
+| recovery | dynamodb:Query | I4 somente | LKeq([RUN_RECOVERABLE]) |
+| unit | s3:GetObject | D/Data5 | Nenhuma |
+| unit | s3:PutObject | D/Publish4 | Nenhuma |
+| unit | s3:ListBucket | D | Prefix(Data5) |
+| recovery | s3:GetObject, s3:PutObject | D/Publish4 | Nenhuma |
+| recovery | s3:ListBucket | D | Prefix(Publish4) |
+| audit | dynamodb:Query | I6 somente | LKeq([OUTBOX#PENDING]) |
+| audit | dynamodb:GetItem, dynamodb:UpdateItem | T | LKeq([TENANT#_GLOBAL, OUTBOX#CURSOR]) |
+| audit | s3:GetBucketObjectLockConfiguration | A | Nenhuma |
+| audit | Audit4 | A/audit/* | Nenhuma |
 
-Os patterns `/raw/*` acima são prefixos de objeto, escritos como
-`⟨data bucket ARN⟩/raw/*`; a barra inicial na célula é apenas legibilidade. O teste deve expandir
-os símbolos a partir dos outputs esperados e rejeitar qualquer statement que acrescente action,
-resource ou condition. `dynamodb:EnclosingOperation` permanece opcional: se não for escolhido
-por uma policy, não deve ser inventado pelo teste; se escolhido, só pode aparecer nos child
-actions Put/Update/Delete e com o valor transacional definido na documentação do contrato.
+Unit não recebe índice; recovery recebe Query em I4 em statement separado do grant da tabela.
+ATTEMPTS também é statement separado: somente UpdateItem, sem GetItem, Query, PutItem,
+DeleteItem ou ConditionCheckItem nessa partição. Audit não recebe SFN. Recovery não recebe raw.
+Somente audit acessa A/audit/* e a configuração de Object Lock de A. Nenhum modo recebe delete
+S3, list sem prefixo, DDB Scan ou grants implícitos fora da matriz.
+
+Nunca emitir `dynamodb:TransactWriteItems` como Action; transações usam seus child actions.
+Slice 3 omite `dynamodb:EnclosingOperation` integralmente. PutObjectRetention continua necessário
+para Object Lock inline em PutObject, mesmo sem chamada separada put_object_retention.
+Exigir Allow e Version 2012-10-17; rejeitar NotAction/NotResource/Principal e campos inesperados.
+Rejeitar grants/statements repetidos ANTES da conversão em set/frozenset; isso não altera a
+normalização por set do input retained. Comparar Actions/Resources/Conditions por igualdade exata.
+
+### Proveniência das correções de IAM
+
+Em packages/cnes_infra/src/cnes_infra/control_plane/, dynamodb_environment_gate.py:87-96 e
+dynamodb_execution_quota.py:84-105 produzem/atualizam ENV#prod#ATTEMPTS. O admission é ligado por
+aws/runtime.py:125 e consumido em domain/orchestration/dispatch_admission.py:197; unit e recovery
+são montados em apps/data_processor/src/data_processor/aws_composition.py:90-170.
+RUN_RECOVERABLE vem de dynamodb_run_codec.py:34 e da Query dynamodb_adapter.py:309-318.
+OUTBOX#PENDING está em dynamodb_publication.py:73,273-303; cursor em dynamodb_outbox_cursor.py.
+
+Unit after_persist chama coordinator.resume (aws_composition.py:148); coordinator.py:360-390
+publica unidades. publisher.py:96-110,194-196 lê todos os output_manifests e verifica destinos
+finais sem filtro de estágio. stage_processor.py:144,194,239 produz normalized/reconciliation/
+serving. Em infra/object_store/s3.py:74,157,187-191, stat/replay usam GetObject e promote lê tmp e
+grava destino. recovery.py existe, é ligado em aws_composition.py:158-170 e delega recover/resume
+sem StageProcessor; isso não exclui publicação normalized. Corrigir grants, não o runtime.
+As referências detalhadas e os arquivos AWS arquivados permanecem no plano v3 e no oráculo literal.
 
 ## Polaridade dos validators
 
@@ -246,61 +296,186 @@ Além dos outputs de #384, o contrato produz:
   `processor_step_functions_role_arn`). O state machine output é nulo no bootstrap; os demais
   existem quando seus módulos existem.
 
-Paths de código permitidos por este amendment:
+Escopo futuro: Slice 2 existente é Modificar (não Criar); esta atualização não edita fontes.
 
-**Criar:**
+**Criar**, sob `tests/production/infra/`:
 
-- `infra/opentofu/modules/processing/step_functions.tf`
-- `infra/opentofu/modules/processing/state_machine.asl.json`
-- `infra/opentofu/modules/runtime-iam/step-functions.tf`
-- `tests/production/infra/test_processor_revision_contract.py`
-- `tests/production/infra/test_step_functions_iam.py`
-- `tests/production/infra/test_step_functions_iam_asl.py` e
-  `tests/production/infra/test_step_functions_iam_runtime.py`, somente para separar
-  os testes do mesmo contrato ASL/runtime e manter cada arquivo abaixo de 500 linhas;
-  não introduzem runner, fixture de produto ou comportamento adicional.
-- `tests/production/infra/_step_functions_iam_contracts.py` (helper isolado; mantém o teste
-  principal abaixo do limite atual em vez de inflá-lo)
-- opcional, somente se o slice de revisão precisar de dados puros separados:
-  `tests/production/infra/_processor_orchestration_contracts.py`
+- `_root_native_identities.py`: seeds computed-only, checagens, merge e renderer existente.
+- `test_root_native_identities.py`: 63 casos congelados, sem edição nesta correção; SHA-256
+  `a03a6515442862a67546e5e0a326383173a6479f86af9445596f882181f6fe82`.
+- `test_root_mock_defaults.py`: novos testes puros da preservação separada; sem runner.
+- `_root_native_observation.py`: extração JSON, evidência e checagem de produtores; sem subprocess.
+- `_processor_orchestration_contracts.py`, somente se necessário para dados puros já autorizados.
 
-**Modificar:**
+**Modificar — produto**, mantendo o escopo IAM/routing existente:
 
-- `infra/opentofu/env/prod/main.tf`, `infra/opentofu/env/prod/variables.tf`,
-  `infra/opentofu/env/prod/outputs.tf`;
-- `infra/opentofu/modules/processing/variables.tf`, `outputs.tf`, `ecs.tf`;
-- `infra/opentofu/modules/runtime-iam/variables.tf`, `outputs.tf`, `task-roles.tf`;
-- `tests/production/infra/test_composition.py` — somente inventário de outputs raiz e forwarding
-  estreito dos dois módulos;
-- `tests/production/infra/test_static_web_composition.py` — somente o inventário independente de
-  outputs e os tipos `aws_ecs_cluster`/`aws_sfn_state_machine` dentro da allowlist de
-  `processing`; preservar intactos a lista e os oráculos de recursos static-web. O output
-  de machine nulo no bootstrap segue o contrato de nulidade já exigido;
-- `tests/production/infra/test_processing_revisions.py` — somente valores produtores, outputs e
-  contagem/identidade de roles revisados;
-- `tests/production/infra/test_processing_runtime.py` — somente wiring do ARN determinístico,
-  output nulo no bootstrap e igualdade após a criação da machine;
-- `tests/production/infra/test_ecr_ecs.py` — preservar o teste base do módulo runtime-iam sem
-  policies de aplicação e adicionar no root os positivos/negativos das novas policies;
-- `tests/production/infra/test_processing_ecs.py` — somente contagens/identidades de roles,
-  mapas de task roles e famílias estáveis;
-- `tests/production/infra/_processing_native.py` — somente forwarding de `active`/`retained`,
-  digest e overrides necessários ao plan nativo;
-- `tests/production/infra/_processing_identities.py` — somente identidades determinísticas para
-  novos roles/outputs no mock nativo;
-- `tests/production/infra/_composition_contracts.py` — somente se necessário para compartilhar
-  a extração de outputs, sem alterar a política de provider;
-- `tests/production/infra/conftest.py` — condicional, apenas se o fixture existente precisar
-  encaminhar os novos inputs ao harness; manter markers, isolamento e todos os defaults AWS.
-- `.trivyignore`, somente para um achado aceito por design, com motivo e expiração.
+- `infra/opentofu/env/prod/main.tf`, `variables.tf`, `outputs.tf`;
+- `infra/opentofu/modules/processing/variables.tf`, `outputs.tf`, `ecs.tf`, `step_functions.tf`,
+  `state_machine.asl.json`;
+- `infra/opentofu/modules/runtime-iam/variables.tf`, `outputs.tf`, `task-roles.tf`,
+  `step-functions.tf`.
 
-Qualquer modificação de teste/helper acima deve ser limitada a inventário, forwarding, identidade,
-output e policy da composição #385. Não apagar o oráculo base do módulo: a ausência de policies de
-aplicação no módulo isolado continua coberta, enquanto a diferença de policies anexadas no root
-ganha asserções positivas e negativas independentes. Não alterar validators, fixtures JSON,
-`ProductionNetworkPolicy`, providers, locks, módulos de rede/buckets/control-plane/registry.
-Não criar controller, scheduler, serviço ECS, segunda instância, output derivado de lookup AWS ou
-placeholder de ARN. Qualquer outro path exige novo amendment.
+**Modificar — testes/helpers**, todos sob `tests/production/infra/`:
+
+- `test_processor_revision_contract.py`: revisão/normalização e seeds em positivos e negativos.
+- `test_step_functions_iam.py`: grants comuns/ECS e merge de seeds por run stateful.
+- `test_step_functions_iam_asl.py`, `test_step_functions_iam_runtime.py`: mesmos contratos
+  ASL/runtime, isolamento e oráculos de ativação/promoção; sem novo runner/produto.
+- `_step_functions_iam_contracts.py`: extração e igualdade literal independente de grants.
+- `test_composition.py`: inventário/forwarding; tipos e acesso ao relatório nativo, escopos
+  positivos explícitos e assertions equivalentes de runs/contagens/diagnósticos abaixo.
+- `test_static_web_composition.py`: inventário; incluir aws_iam_role_policy na allowlist de
+  processing; schema próprio antes do plan e merge por fronteira; preservar STATIC_TYPES.
+- `test_processing_revisions.py`: produtores/outputs e contagem/identidade de roles.
+- `test_processing_runtime.py`: ARN determinístico, bootstrap nulo e igualdade após criação.
+- `test_ecr_ecs.py`: primeira discovery seeded, merge dos overrides IAM e grants root exatos;
+  manter execução/pull/logs e isolamento runtime-iam sem policies de aplicação.
+- `test_processing_ecs.py`: roles/mapas/famílias; seeds na chamada direta do digest inválido;
+  preservar o runner isolado de quatro inputs, sem seeds root nem novos opcionais.
+- `_processing_native.py`: schema antes da primeira discovery, merge/render, checagem de
+  produtores, forwarding e flags opcionais do init offline de schema em workspace copiado.
+- `_processing_identities.py`: reutilizar/exportar apenas checagens existentes de config/computed;
+  preservar contratos de identidade de repository/network/task/service.
+- `_composition_contracts.py`: extração compartilhada estreita, se necessária; sem mudar provider.
+- `conftest.py`: schema/seeds, JSON/verbose, SharedValidator, relatório; isolamento/markers.
+  Só native_contract_result: mkdir exclusivo ANTES try; try/finally cobre execução/observação/yield
+  e remove só diretório novo próprio. Executor hash/move stale à evidência antes de rerun; nunca
+  adotar/apagar preexistente. Persistir raws antes da rejeição; controle de produtor verifica
+  erro/raw original e remoção do diretório próprio, sem ampliar cleanup a outras fixtures.
+- `test_control_plane.py`: seeds apenas no run root, JSON/verbose e relatório do plan misto;
+  manter isolated_report textual e todos os oráculos de proteção/mutação.
+- `test_data_buckets.py`: seeds apenas no run root, JSON/verbose/relatório; substituir somente
+  scaffolding textual obsoleto, preservando casos de módulo, validação e proteção.
+- `test_cognito.py`: forwarding de identidades somente na raiz de produção, sem mudar oráculos.
+- `test_network.py`: forwarding somente na raiz de produção; raiz sintética/guards intactos.
+- `_aws_mock_defaults.py`: somente extrair constante hostname nos dois locais existentes,
+  mantendo bytes avaliados de MOCK_AWS_PROVIDERS exatos; sem parser/mutação de HCL.
+
+`.trivyignore` mantém apenas a autorização anterior: achado aceito por design, motivo e expiração.
+Nenhum outro path é autorizado. Não mudar validators, fixtures JSON, ProductionNetworkPolicy,
+providers, locks, módulos de rede/buckets/control-plane/registry, CI ou floor nesta etapa.
+Não criar controller, scheduler, serviço ECS, módulo duplicado ou lookup AWS. Runtime IAM
+isolado omite runtime_grants e conserva ausência de policies de aplicação; runtime_grants=null.
+Runtime-iam possui policies comuns/runtime/API; processing possui ECS candidate∪retained.
+A role API permanece externa. Nenhuma policy runtime-iam concede ecs:RunTask.
+
+### Preflight computed-only antes da primeira discovery
+
+Seeds puros da raiz: oito targets/quinze campos ARN/id computados; preservação de defaults é
+etapa separada abaixo. Prefixar targets com `module.`; não sobrescrever configurados ou outputs:
+
+| Target | Campos |
+|---|---|
+| control_plane.aws_dynamodb_table.control_plane | arn |
+| data_buckets.aws_s3_bucket.data | arn, id |
+| data_buckets.aws_s3_bucket.audit | arn, id |
+| runtime_iam.aws_iam_role.execution | arn, id |
+| runtime_iam.aws_iam_role.task["unit"] | arn, id |
+| runtime_iam.aws_iam_role.task["recovery"] | arn, id |
+| runtime_iam.aws_iam_role.task["audit"] | arn, id |
+| runtime_iam.aws_iam_role.step_functions[0] | arn, id |
+
+Seeds do contrato de fixture: account=123456789012 (VALID_SHARED_OUTPUTS), região us-east-2 e
+name_prefix=cnesdata-prod (prod/providers.tf). Tabela: nome cnesdata-prod-control-plane; ARN
+`arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane`.
+Buckets: cnesdata-prod-data e cnesdata-prod-audit; ARNs `arn:aws:s3:::cnesdata-prod-data` e
+`arn:aws:s3:::cnesdata-prod-audit`; id igual ao nome. Roles: cnesdata-prod-processor-execution,
+cnesdata-prod-processor-unit, cnesdata-prod-processor-recovery, cnesdata-prod-processor-audit e
+cnesdata-prod-step-functions; path=/, ARN `arn:aws:iam::123456789012:role/` + nome; id=nome,
+não unique_id. Names vêm do contrato independente de main.tf e
+runtime-iam/task-roles.tf/step-functions.tf; não alegar derivação de um plan ainda não executado.
+Negativos mantêm seus inputs malformados e usam seeds válidos canônicos; não reparar inputs.
+
+Obter show-config/version e schema ANTES de renderizar a primeira discovery. Reutilizar o
+_provider_schema provider-only existente, uma vez em tofu_artifacts; remover a chamada tardia.
+Exigir fonte registry.opentofu.org/hashicorp/aws, versão selecionada igual ao lock (6.54.0),
+lock bytes intactos. Seleção/lock são gates de _provider_schema em tofu_artifacts e na cópia
+static; seu retorno é schema puro, sem campo de versão inventado. root_identity_seeds consome
+somente schema já verificado; evidência do gate real acompanha a proveniência separadamente.
+Testes de seeds não fingem validar seleção ausente no schema nem alteram fixture_contract.
+Exigir provider default aws sem alias, região us-east-2, recurso managed/endereço exato, schema
+computed=true e type=string, sem expressão configurada para cada campo seeded.
+Registrar por campo value/source, expressões configuradas, atributo schema, seleção provider e
+origem do contrato; não fabricar original_computed_value. Copiar workspace static exige seu
+próprio config/schema/lock; usar flags do mirror offline no quarto argumento opcional do helper.
+Não reinicializar scratch exclusivo nem baixar/atualizar provider para satisfazer a fixture.
+Interfaces estreitas: root_identity_seeds(configuration, schema, fixture_contract),
+merge_identity_records(*groups), assert_root_identity_producers(plan, seeds). Reutilizar o único
+_override_hcl, movido ao helper puro com reexport em _processing_native; sem import reverso.
+Mesmo target/campo/valor coalesce preservando proveniência; divergência falha setup. Renderizar
+um bloco efetivo por target; nunca competir overrides file/run. Após cada plan root positivo,
+validar nomes/path/account avaliados, conjunto de targets e campos seeded. Para índices, observar
+o ARN real da tabela e o conjunto de nomes em global_secondary_index; não alegar index_arns
+interno avaliado, ausente no test_plan. Derivar ARN esperado como <table ARN real>/index/<nome>
+e compará-lo aos recursos concretos das policies reais nos testes IAM downstream por igualdade
+exata. Nunca fabricar outputs avaliados nem substituir essa prova IAM por source grep.
+Isso impede que seeds ocultem mutação de nome/path. Dados configurados não substituem essa prova.
+Aplicar antes de TODA discovery root: conftest composição/shared, processing inicial/tasks/null/
+digests, stateful, registry inicial, revisões positivas/negativas e static. Em suites mistas,
+injetar só no run root explícito control_plane/data_buckets/cognito/network, nunca globalmente.
+Excluir SYNTHETIC_SUITE network e módulos isolados/proteção; preservar headers/defaults/aliases.
+SFN_ROLE_OVERRIDE usa arn+id compartilhado; digest inválido mantém todos os diagnósticos originais.
+Preservação separada: preserve_root_mock_defaults(records, configuration, schema, default_context).
+Contexto explícito {value: str, source: str}; só data/audit bucket_regional_domain_name computed
+string não configurado, validado mesmo se explícito; copiar entradas sem mutação. Adicionar apenas
+campo ausente; manter value/source explícitos e rejeição normal de conflitos. Proveniência inclui
+producer_address, provider_config_key, schema_attribute, mock_default_source e expressões.
+Seeds seguem 8/15; bundle .seeds puro e .overrides 8/17 separados; render usa overrides,
+checker usa seeds, inclusive processing/stateful, sem quinto argumento ou projeção de overrides.
+Static aplica data A/B antes da preservação; audit usa default custom local, não o global. Extrair
+constantes sem alterar bytes MOCK_AWS_PROVIDERS/aliases/headers A/B; provar igualdade avaliada.
+Exigir auditoria dos testes, GO de comportamento, RED de assertion e auditoria dos helpers.
+
+### Observação estruturada da mesma invocação
+
+Usar JSON/verbose nas invocações existentes de conftest.native_contract_result,
+conftest.validate_shared_outputs, test_control_plane.plan_report e test_data_buckets.plan_report.
+Nenhuma segunda observação, runner genérico ou resumo de sucesso fabricado é permitida.
+observe_root_result(result, seeds, observation_spec, evidence_context) retorna NativeRootReport:
+result original, statuses terminais e observations (plans/summary/diagnostics reais). Não lança
+subprocesso. Salvar streams, argv/rc, suites e seeds antes de parse/check; label único por chamada.
+Rejeitar JSON inválido, runs ambíguos e terminais duplicados; reter identidade testfile/run.
+
+O spec declara os positivos root explicitamente. Cada um exige rc=0, status pass, summary real
+bem-sucedido, exatamente um plan não vazio próprio e assert_root_identity_producers antes de
+retornar a fixture. Ausência de plan positivo é setup_error, nunca missing_grants. Pass de
+expect_failures não é observação positiva. Negativos continuam na raiz completa, sem projeção.
+SharedValidator recebe (cases, positive_roots) e retorna NativeRootReport; False na tupla não
+implica positivo: null/missing-field também usam False e devem falhar nativamente.
+
+Preservar todos os nomes/runs/status/counts e diagnósticos, adaptando somente o transporte:
+
+- Composição: evaluate_composition_contract, pass, summary real 1/0/0/0 (pass/fail/error/skip).
+- Shared válido: enabled_true/false, ambos planos checados; summary real 2/0/0/0, rc=0.
+- Shared inválido: invalid_* exatos, expect_failures=[var.shared_outputs], nenhum positivo;
+  todos pass, summary real len(cases)/0/0/0, rc=0, nenhum diagnóstico error inesperado.
+- Null: rc!=0, passed=0, failed+errored=1, skipped=0 e diagnóstico nativo literal
+  `required variable may not be set to null`; não fabricar summary se estiver ausente.
+- account_baseline_ausente: rc!=0 e `attribute "account_baseline" is required`; falha pré-run
+  não exige plan/summary inexistente. Erros vêm apenas de summary/detail severity=error ou stderr
+  original, nunca texto de suite/plan/input. Não substituir falha nativa por checagem Python.
+- Control-plane: cinco runs originais pass; só raiz_agenda_control_plane exige plan de produtores.
+  Preservar isolated_report textual, prevent_destroy, mutações e todos os asserts HCL/config.
+- Data-buckets: raiz + sete positivos de módulo + INVALID_NAME_RUNS; todos pass e summary real
+  8+len(INVALID_NAME_RUNS)/0/0/0. Só raiz_agenda_data_buckets exige plan de produtores.
+
+Manter checagens de provider-header e as mensagens exatas. Relatórios negativos preservam rc,
+streams e diagnósticos, sem default de sucesso. Ausência de evidência obrigatória falha o teste.
+O laboratório provider-free 1.13.2 aceito fundamenta preservar negativos root, não prova produção.
+
+Limites: arquivos<=500/largura100, funções<=50, parâmetros<=4, nesting<=3, complexidade<=10;
+observer<=200. Recalcular budgets pós-defaults; data-buckets/network em 500, registry perto de 500.
+Não remover assertions/casos/comentários nem ampliar paths para caber; conservar relatório isolado.
+Fixture RED/GREEN antecede missing_policy/missing_grants em plan válido; 14 negativos baratos e
+auditoria nativa uma vez permanecem. Nenhum setup_error prova IAM; gate fullinfra segue abaixo.
+Extrações mecânicas só em _processing_native.py e test_ecr_ecs.py, após defaults aceitos e focados
+GREEN completos; revalidar hashes/ASTs/cinco alvos/budgets após essa correção antes de editar.
+Processing: _successful_plans→_native_plan_events; _identity_overrides→_network_identity_records.
+Registry: _successful_plan usa o coletor; _runtime_identities→_partition_runtime_roles;
+_role_policy_bindings→_assert_inline_policy_block. Preservar assinaturas/retornos/gates/mensagens,
+nomes, ordem, regex e normalização; gates processing/registry distintos, sem observer mais estrito.
+Antes de fullinfra: equivalência old/new, métricas reais, mesmos focados, Ruff/Pyright e review do
+controller. Se budgets/alvos mudarem, reavaliar; sem compressão, terceiro path ou alterar oráculos.
 
 ## Gates e fronteiras
 
@@ -317,7 +492,7 @@ placeholder de ARN. Qualquer outro path exige novo amendment.
 - #375/PROD-010 aceito: PR #425 head
   `d1dfd1f6ae90dddd1a4252a9f8bfd684f8ee26aa`, merge `709394c09969001fa41df5d885f10c9e821b06c9`,
   árvore `de30c09b98e91aba134c89a36e040a3bab2fb11f`, Deploy develop verde `40592568914`.
-- Base de pesquisa atual: `origin/develop@7dd83bc5ba27e1e1e70164f6dfdd8bee18825b74`.
+- Base da pesquisa original: `origin/develop@7dd83bc5ba27e1e1e70164f6dfdd8bee18825b74`.
   Qualquer divergência de dependência exige nova leitura e não autoriza rebase silencioso.
 
 Este amendment não executa bootstrap, apply, plan de provider real, scheduler, Docker, SDK/AWS,

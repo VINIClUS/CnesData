@@ -14,6 +14,10 @@ from tests.production.infra._processing_native import (
     _native_result,
     _successful_plans,
 )
+from tests.production.infra._root_native_identities import (
+    _override_hcl,
+    assert_root_identity_producers,
+)
 
 type Node = dict[str, Any]
 type Tofu = tuple[str, dict[str, str]]
@@ -34,12 +38,9 @@ PLAN_ARGUMENTS = (
     f"-test-directory={TEST_DIRECTORY}",
 )
 OMIT = object()
-SFN_ROLE_OVERRIDE = f'''
-override_resource {{
-  target = module.runtime_iam.aws_iam_role.step_functions[0]
-  values = {{ arn = "arn:aws:iam::{ACCOUNT}:role/cnesdata-prod-step-functions" }}
-}}
-'''
+def _records(tofu: Tofu, kind: str) -> list[Node]:
+    evidence = Path(tofu[1]["TF_DATA_DIR"]) / "root-identity-records.json"
+    return json.loads(evidence.read_text())[kind]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -87,7 +88,8 @@ def _run_invalid_cases(tofu: Tofu, root: Path, shared: Node) -> subprocess.Compl
     for name, field, value, _ in INVALID_CASES:
         active = value if field == ACTIVE else None
         retained = [value] if field == RETAINED else [OLD_REVISION]
-        suite = MOCK_PROVIDERS + _run_block(shared, active, retained, name)
+        header = MOCK_PROVIDERS + _override_hcl(_records(tofu, "overrides"))
+        suite = header + _run_block(shared, active, retained, name)
         (directory / f"{name}.tftest.hcl").write_text(suite, encoding="utf-8")
     return _native_result(tofu, root, PLAN_ARGUMENTS, "processor-revision-invalid")
 
@@ -174,11 +176,13 @@ def test_revisoes_validas_normalizam_set_e_bootstrap(
         _run_case(
             tofu_context,
             prod_root,
-            MOCK_PROVIDERS + SFN_ROLE_OVERRIDE + "".join(blocks),
+            MOCK_PROVIDERS + _override_hcl(_records(tofu_context, "overrides")) + "".join(blocks),
             "processor-revision-valid",
         ),
         set(expected),
     )
+    for plan in plans.values():
+        assert_root_identity_producers(plan, _records(tofu_context, "seeds"))
     for name, (active, retained) in expected.items():
         values = plans[name]["variables"]
         assert ACTIVE in values, f"bootstrap_active_missing={name}"

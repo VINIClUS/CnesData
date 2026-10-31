@@ -9,6 +9,13 @@ from typing import Any, cast
 import pytest
 
 from tests.production.infra._aws_mock_defaults import MOCK_AWS_PROVIDERS
+from tests.production.infra._processing_identities import _role_identity
+from tests.production.infra._processing_native import _native_plan_events
+from tests.production.infra._root_native_identities import (
+    _override_hcl,
+    assert_root_identity_producers,
+    merge_identity_records,
+)
 from tests.production.infra._step_functions_iam_contracts import (
     assert_no_step_functions_policies,
     exact_step_functions_trust,
@@ -46,16 +53,7 @@ def _successful_plan(result: subprocess.CompletedProcess[str]) -> Node:
             f"setup_error command=registry-plan rc={result.returncode} "
             f"stdout={result.stdout!r} stderr={result.stderr!r}"
         )
-    statuses, plans, diagnostics = {}, {}, []
-    for line in result.stdout.splitlines():
-        message = json.loads(line)
-        kind = message.get("type")
-        if kind == "test_run":
-            statuses[message["test_run"]["run"]] = message["test_run"]["status"]
-        if kind == "test_plan":
-            plans[message["@testrun"]] = message["test_plan"]
-        if kind == "diagnostic" and message["diagnostic"]["severity"] == "error":
-            diagnostics.append(message["diagnostic"])
+    statuses, plans, diagnostics = _native_plan_events(result.stdout)
     if statuses.get(ROOT_RUN) != "pass" or diagnostics or not plans.get(ROOT_RUN):
         pytest.fail(f"setup_error statuses={statuses!r} diagnostics={diagnostics!r}")
     plan = plans[ROOT_RUN]
@@ -64,28 +62,13 @@ def _successful_plan(result: subprocess.CompletedProcess[str]) -> Node:
     return cast("Node", plan)
 
 
-def _iam_identity_overrides(plan: Node, configuration: Node, account_id: str) -> str:
-    overrides = []
-    for role in _managed_resources(plan, "aws_iam_role"):
-        if not _configuration_address(role["address"]).startswith("module.runtime_iam."):
-            continue
-        expressions = _configured(role, configuration).get("expressions", {})
-        values = role["change"]["after"]
-        name, path = values.get("name"), values.get("path")
-        if "name" not in expressions or not isinstance(name, str) or not name:
-            pytest.fail(f"setup_error iam_identity_name={role['address']}")
-        if {"arn", "id"} & expressions.keys():
-            pytest.fail(f"setup_error iam_identity_configured={role['address']}")
-        if path is None and "path" not in expressions:
-            path = "/"
-        if not isinstance(path, str) or not path.startswith("/") or not path.endswith("/"):
-            pytest.fail(f"setup_error iam_identity_path={role['address']}")
-        identity = {"arn": f"arn:aws:iam::{account_id}:role{path}{name}", "id": name}
-        overrides.append(
-            f"override_resource {{\n  target = {role['address']}\n"
-            f"  values = {json.dumps(identity)}\n}}\n"
-        )
-    return "\n".join(overrides)
+def _iam_identity_overrides(plan: Node, configuration: Node, schema: Node) -> list[Node]:
+    account = plan["variables"]["shared_outputs"]["value"]["account_id"]
+    return [
+        _role_identity(role, configuration, schema, account)
+        for role in _managed_resources(plan, "aws_iam_role")
+        if _configuration_address(role["address"]).startswith("module.runtime_iam.")
+    ]
 
 
 def _identity_discovery(tofu: Tofu, root: Path, arguments: Sequence[str], suite: str) -> Node:
@@ -109,6 +92,7 @@ def registry_plan(
 ) -> Iterator[tuple[Node, Node]]:
     directory = prod_root / ".terraform" / "registry-tests"
     directory.mkdir(parents=True, exist_ok=False)
+    ids = cast("dict[str, list[Node]]", tofu_artifacts["root_identities"])
     inputs = json.dumps(valid_shared_outputs, separators=(",", ":"))
     suite = (
         MOCK_PROVIDERS
@@ -116,7 +100,9 @@ def registry_plan(
         + f"  variables {{\n    shared_outputs = {inputs}\n  }}\n}}\n"
     )
     try:
-        (directory / "registry.tftest.hcl").write_text(suite, encoding="utf-8")
+        (directory / "registry.tftest.hcl").write_text(
+            suite + _override_hcl(ids["overrides"]), encoding="utf-8"
+        )
         arguments = (
             "test",
             "-no-color",
@@ -125,13 +111,18 @@ def registry_plan(
             "-test-directory=.terraform/registry-tests",
         )
         configuration = cast("Node", tofu_artifacts["configuration"])
-        discovery = _identity_discovery(tofu_context, prod_root, arguments, suite)
-        suite += _iam_identity_overrides(
-            discovery, configuration, str(valid_shared_outputs["account_id"])
+        discovery = _identity_discovery(
+            tofu_context, prod_root, arguments, suite + _override_hcl(ids["overrides"])
         )
+        assert_root_identity_producers(discovery, ids["seeds"])
+        identities = merge_identity_records(ids["overrides"], _iam_identity_overrides(
+            discovery, configuration, cast("Node", tofu_artifacts["schema"])
+        ))
+        suite += _override_hcl(identities)
         (directory / "registry.tftest.hcl").write_text(suite, encoding="utf-8")
         result = _native_result(tofu_context, prod_root, arguments)
         plan = _successful_plan(result)
+        assert_root_identity_producers(plan, ids["seeds"])
         evidence = Path(tofu_context[1]["TF_DATA_DIR"])
         (evidence / "registry-normalized.tftest.hcl").write_text(suite, encoding="utf-8")
         (evidence / "registry-native.plan.json").write_text(
@@ -268,6 +259,19 @@ def _runtime_instances(plan: Node, configuration: Node, root: Path) -> list[Node
     ]
 
 
+def _partition_runtime_roles(
+    roles: list[Node], sfn: list[Node], plan: Node, configuration: Node
+) -> tuple[list[Node], list[Node]]:
+    account = plan["variables"]["shared_outputs"]["value"]["account_id"]
+    execution, tasks = [], []
+    for role in [r for r in roles if r not in sfn]:
+        _assert_ecs_trust(role, account)
+        documents, arns = _role_policy_bindings(role, plan, configuration)
+        _managed_policy_documents(plan, arns)
+        (execution if documents or arns else tasks).append(role)
+    return execution, tasks
+
+
 def _runtime_identities(plan: Node, configuration: Node, root: Path) -> tuple[Node, list[Node]]:
     roles = [
         role
@@ -287,12 +291,7 @@ def _runtime_identities(plan: Node, configuration: Node, root: Path) -> tuple[No
     _assert_product_provider(sfn[0], configuration)
     exact_step_functions_trust(sfn[0], account, machine)
     assert_no_step_functions_policies(plan, sfn[0])
-    execution, tasks = [], []
-    for role in [r for r in roles if r not in sfn]:
-        _assert_ecs_trust(role, account)
-        documents, arns = _role_policy_bindings(role, plan, configuration)
-        _managed_policy_documents(plan, arns)
-        (execution if documents or arns else tasks).append(role)
+    execution, tasks = _partition_runtime_roles(roles, sfn, plan, configuration)
     assert len(execution) == 1, f"iam_execution_policy_roles expected=1 actual={len(execution)}"
     assert len(tasks) == 3, f"iam_policy_free_task_roles expected=3 actual={len(tasks)}"
     assert execution[0]["address"] == "module.runtime_iam.aws_iam_role.execution"
@@ -370,6 +369,15 @@ def _attached_policy_bindings(plan: Node, identities: set[str]) -> Iterator[tupl
             yield resource["type"], after
 
 
+def _assert_inline_policy_block(policy: Any) -> None:
+    assert isinstance(policy, dict), f"iam_inline_policy_block={policy!r}"
+    assert set(policy) == {"name", "policy"}, f"iam_inline_policy_block={policy!r}"
+    assert all(
+        isinstance(policy[field], str) and policy[field].strip()
+        for field in ("name", "policy")
+    ), f"iam_inline_policy_block={policy!r}"
+
+
 def _role_policy_bindings(
     role: Node, plan: Node, configuration: Node
 ) -> tuple[list[str], set[str]]:
@@ -383,12 +391,7 @@ def _role_policy_bindings(
         for policy in policies:
             if policy == {"name": None, "policy": None}:
                 continue
-            assert isinstance(policy, dict), f"iam_inline_policy_block={policy!r}"
-            assert set(policy) == {"name", "policy"}, f"iam_inline_policy_block={policy!r}"
-            assert all(
-                isinstance(policy[field], str) and policy[field].strip()
-                for field in ("name", "policy")
-            ), f"iam_inline_policy_block={policy!r}"
+            _assert_inline_policy_block(policy)
             documents.append(policy["policy"])
     if "managed_policy_arns" in expressions:
         arns.update(values.get("managed_policy_arns", []))

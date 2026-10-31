@@ -22,6 +22,10 @@ from tests.production.infra._processing_native import (
     _processing_runs,
     _service_identity_overrides,
 )
+from tests.production.infra._root_native_identities import (
+    assert_root_identity_producers,
+    merge_identity_records,
+)
 from tests.production.infra._step_functions_iam_contracts import (
     actions_in_runtime_iam,
     assert_no_step_functions_policies,
@@ -144,7 +148,7 @@ def _stateful_suite(
         overrides[3],
     ]
     return MOCK_PROVIDERS + "\n".join(
-        _run_block(shared_value, spec, current)
+        _run_block(shared_value, spec, merge_identity_records(current))
         for spec, current in zip(specs, run_overrides, strict=True)
     )
 
@@ -188,12 +192,14 @@ def _sequence_inputs(
 
 
 def _sequence_observation(
-    evidence: Path, events: list[Node]
+    evidence: Path, events: list[Node], seeds: list[Node]
 ) -> tuple[dict[str, Node], dict[str, Node]]:
     plans = {
         run: event_for(events, "test_plan", run)["test_plan"]
         for run in ("bootstrap", "phase_b_create_plan", "phase_b_route_plan")
     }
+    for plan in plans.values():
+        assert_root_identity_producers(plan, seeds)
     states = {
         run: event_for(events, "test_state", run)["test_state"]
         for run in ("phase_a_register_a", "phase_b_create_apply", "phase_a_register_b")
@@ -263,7 +269,8 @@ def _stateful_sequence(
         ]
         if diagnostics:
             pytest.fail(f"setup_error stateful_sequence_diagnostics={diagnostics!r}")
-        plans, states = _sequence_observation(evidence, events)
+        seeds = json.loads((evidence / "root-identity-records.json").read_text())["seeds"]
+        plans, states = _sequence_observation(evidence, events, seeds)
         return shared, plans, states
     finally:
         shutil.rmtree(directory)

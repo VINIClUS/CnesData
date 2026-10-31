@@ -20,6 +20,11 @@ from tests.production.infra._processing_identities import (  # noqa: F401
     _role_identity,
     _task_identity,
 )
+from tests.production.infra._root_native_identities import (
+    _override_hcl,
+    assert_root_identity_producers,
+    merge_identity_records,
+)
 
 type Tofu = tuple[str, dict[str, str]]
 type Artifacts = dict[str, dict[str, object]]
@@ -69,14 +74,11 @@ def _native_result(
     return result
 
 
-def _successful_plans(result: subprocess.CompletedProcess[str], expected: set[str]) -> Plans:
-    if result.returncode != 0:
-        pytest.fail(
-            f"setup_error command=processing-plan rc={result.returncode} "
-            f"stdout={result.stdout!r} stderr={result.stderr!r}"
-        )
-    statuses, plans, diagnostics = {}, {}, []
-    for line in result.stdout.splitlines():
+def _native_plan_events(stdout: str) -> tuple[dict[str, str], Plans, list[Node]]:
+    statuses: dict[str, str] = {}
+    plans: Plans = {}
+    diagnostics: list[Node] = []
+    for line in stdout.splitlines():
         message = json.loads(line)
         kind = message.get("type")
         if kind == "test_run":
@@ -85,6 +87,16 @@ def _successful_plans(result: subprocess.CompletedProcess[str], expected: set[st
             plans[message["@testrun"]] = message["test_plan"]
         if kind == "diagnostic" and message["diagnostic"]["severity"] == "error":
             diagnostics.append(message["diagnostic"])
+    return statuses, plans, diagnostics
+
+
+def _successful_plans(result: subprocess.CompletedProcess[str], expected: set[str]) -> Plans:
+    if result.returncode != 0:
+        pytest.fail(
+            f"setup_error command=processing-plan rc={result.returncode} "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+    statuses, plans, diagnostics = _native_plan_events(result.stdout)
     if statuses != dict.fromkeys(expected, "pass") or diagnostics or set(plans) != expected:
         pytest.fail(f"setup_error statuses={statuses!r} diagnostics={diagnostics!r}")
     if not all(plan.get("resource_changes") for plan in plans.values()):
@@ -92,8 +104,8 @@ def _successful_plans(result: subprocess.CompletedProcess[str], expected: set[st
     return cast("Plans", plans)
 
 
-def _suite(shared: Node, runs: Mapping[str, Node]) -> str:
-    return MOCK_PROVIDERS + "".join(
+def _suite(shared: Node, runs: Mapping[str, Node], identities: list[Node]) -> str:
+    return MOCK_PROVIDERS + _override_hcl(identities) + "".join(
         f'\nrun "{name}" {{\n  command = plan\n  variables {{\n'
         + "\n".join(f"    {key} = {json.dumps(value)}" for key, value in (shared | inputs).items())
         + "\n  }\n}\n"
@@ -135,6 +147,21 @@ def _module_resources(plan: Node, configuration: Node, root: Path, source: str) 
     ]
 
 
+def _network_identity_records(
+    network: list[Node], configuration: Node, schema: Node, account: str
+) -> list[Node]:
+    if sum(r["type"] == "aws_security_group" for r in network) != 1 or not any(
+        r["type"] == "aws_subnet" for r in network
+    ):
+        pytest.fail("setup_error network_identity_producers")
+    network_identities = [
+        _network_identity(resource, configuration, schema, account) for resource in network
+    ]
+    if len({item["fields"]["id"]["value"] for item in network_identities}) != len(network):
+        pytest.fail("setup_error network_identity_alias")
+    return network_identities
+
+
 def _identity_overrides(plan: Node, configuration: Node, schema: Node, root: Path) -> list[Node]:
     account = plan["variables"]["shared_outputs"]["value"]["account_id"]
     roles = [
@@ -154,15 +181,9 @@ def _identity_overrides(plan: Node, configuration: Node, schema: Node, root: Pat
         for r in _module_resources(plan, configuration, root, "../../modules/network")
         if r["type"] in {"aws_security_group", "aws_subnet"}
     ]
-    if sum(r["type"] == "aws_security_group" for r in network) != 1 or not any(
-        r["type"] == "aws_subnet" for r in network
-    ):
-        pytest.fail("setup_error network_identity_producers")
-    network_identities = [
-        _network_identity(resource, configuration, schema, account) for resource in network
-    ]
-    if len({item["fields"]["id"]["value"] for item in network_identities}) != len(network):
-        pytest.fail("setup_error network_identity_alias")
+    network_identities = _network_identity_records(
+        network, configuration, schema, account
+    )
     return (
         [_role_identity(role, configuration, schema, account) for role in roles]
         + [_repository_identity(repositories[0], configuration, schema, account)]
@@ -226,16 +247,9 @@ def _service_identity_overrides(
     return [_service_identity(resource, context) for resource in resources]
 
 
-def _override_hcl(identities: list[Node]) -> str:
-    return "\n".join(
-        f"override_resource {{\n  target = {item['address']}\n  values = "
-        + json.dumps({field: data["value"] for field, data in item["fields"].items()})
-        + "\n}\n"
-        for item in identities
-    )
-
-
-def _provider_schema(tofu: Tofu, root: Path, artifacts: Artifacts) -> Node:
+def _provider_schema(
+    tofu: Tofu, root: Path, artifacts: Artifacts, init_flags: Sequence[str] = ()
+) -> Node:
     configuration = cast("Node", artifacts["configuration"])
     sources = {
         p["full_name"] for p in configuration["provider_config"].values() if p["name"] == "aws"
@@ -257,7 +271,7 @@ def _provider_schema(tofu: Tofu, root: Path, artifacts: Artifacts) -> Node:
     lock.chmod(0o444)
     results = {}
     commands = {
-        "init": ("init", "-backend=false", "-input=false", "-lockfile=readonly"),
+        "init": ("init", "-backend=false", "-input=false", "-lockfile=readonly", *init_flags),
         "schema": ("providers", "schema", "-json"),
         "version": ("version", "-json"),
     }
@@ -280,7 +294,9 @@ def _discovered_identities(
 ) -> list[Node]:
     configuration = cast("Node", artifacts["configuration"])
     evidence = Path(tofu[1]["TF_DATA_DIR"])
-    suite = _suite(shared, {ROOT_RUN: {}})
+    seeds = cast("list[Node]", artifacts["root_identities"]["seeds"])
+    records = cast("list[Node]", artifacts["root_identities"]["overrides"])
+    suite = _suite(shared, {ROOT_RUN: {}}, records)
     (root / ".terraform/processing-tests/processing.tftest.hcl").write_text(suite, encoding="utf-8")
     (evidence / "processing-discovery.tftest.hcl").write_text(suite, encoding="utf-8")
     discovery = _successful_plans(
@@ -289,8 +305,11 @@ def _discovered_identities(
     _save_plans(evidence, "processing-discovery", discovery)
     if discovery[ROOT_RUN]["configuration"] != configuration:
         pytest.fail("setup_error discovery_configuration_mismatch")
-    schema = _provider_schema(tofu, root, artifacts)
-    identities = _identity_overrides(discovery[ROOT_RUN], configuration, schema, root)
+    assert_root_identity_producers(discovery[ROOT_RUN], seeds)
+    schema = cast("Node", artifacts["schema"])
+    identities = merge_identity_records(
+        records, _identity_overrides(discovery[ROOT_RUN], configuration, schema, root)
+    )
     (evidence / "processing-identity-overrides.json").write_text(
         json.dumps(identities, indent=2) + "\n", encoding="utf-8"
     )
@@ -319,11 +338,14 @@ def _processing_runs(
     label, runs, identities = specification
     evidence = Path(tofu[1]["TF_DATA_DIR"])
     shared = json.loads((evidence / "processing-shared-input.json").read_text())
-    suite = _suite(shared, runs) + _override_hcl(identities)
+    suite = _suite(shared, runs, merge_identity_records(identities))
     (root / ".terraform/processing-tests/processing.tftest.hcl").write_text(suite, encoding="utf-8")
     (evidence / f"{label}.tftest.hcl").write_text(suite, encoding="utf-8")
     plans = _successful_plans(_native_result(tofu, root, PLAN_ARGUMENTS, label), set(runs))
     _save_plans(evidence, label, plans)
+    seeds = json.loads((evidence / "root-identity-records.json").read_text())["seeds"]
+    for plan in plans.values():
+        assert_root_identity_producers(plan, seeds)
     if label.startswith("processing-native"):
         _save_plans(evidence, "processing-native", plans)
     return plans

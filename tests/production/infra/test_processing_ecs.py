@@ -26,7 +26,6 @@ from tests.production.infra._processing_native import (
     _module_names,
     _module_resources,
     _native_result,
-    _override_hcl,
     _suite,
 )
 from tests.production.infra._step_functions_iam_contracts import (
@@ -230,7 +229,7 @@ def test_image_uri_exige_digest(
     }
     name = "digest_" + case[0].replace("-", "_")
     label = "processing-" + name
-    suite = _suite(shared, {name: {"image_digest": case[1]}}) + _override_hcl(identities)
+    suite = _suite(shared, {name: {"image_digest": case[1]}}, identities)
     directory = prod_root / ".terraform/processing-digest-tests"
     directory.mkdir(exist_ok=False)
     try:

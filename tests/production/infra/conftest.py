@@ -5,28 +5,45 @@ import shutil
 import subprocess
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import NamedTuple, TypedDict
+from typing import NamedTuple, TypedDict, cast
 
 import pytest
 
-from tests.production.infra._aws_mock_defaults import MOCK_AWS_PROVIDERS
+from tests.production.infra._aws_mock_defaults import (
+    BUCKET_REGIONAL_DOMAIN_NAME,
+    MOCK_AWS_PROVIDERS,
+)
 from tests.production.infra._processing_native import (  # noqa: F401
+    _provider_schema,
     processing_native,
     processing_plan,
 )
+from tests.production.infra._root_native_identities import (
+    _override_hcl,
+    preserve_root_mock_defaults,
+    root_identity_seeds,
+)
+from tests.production.infra._root_native_observation import NativeRootReport, observe_root_result
+
+ROOT_FIXTURE_CONTRACT = {
+    "account_id": "123456789012", "name_prefix": "cnesdata-prod", "region": "us-east-2",
+}
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROD_ROOT = REPO_ROOT / "infra" / "opentofu" / "env" / "prod"
 
 ToolLookup = Callable[[str], str | None]
 ValidationCase = tuple[str, object, bool]
-SharedValidator = Callable[[Sequence[ValidationCase]], subprocess.CompletedProcess[str]]
+SharedValidator = Callable[[Sequence[ValidationCase], frozenset[str]], NativeRootReport]
 
 
 class TofuArtifacts(TypedDict):
     validation: dict[str, object]
     configuration: dict[str, object]
     version: dict[str, object]
+    schema: dict[str, object]
+    root_identities: dict[str, object]
+    evidence: dict[str, object]
 
 
 class TofuContext(NamedTuple):
@@ -233,8 +250,9 @@ def _shared_validation_run(case: ValidationCase) -> str:
 '''
 
 
-def shared_validation_suite(cases: Sequence[ValidationCase]) -> str:
-    return MOCK_AWS_PROVIDERS + "\n" + "\n".join(_shared_validation_run(case) for case in cases)
+def shared_validation_suite(cases: Sequence[ValidationCase], seeds: Sequence[dict] = ()) -> str:
+    return (MOCK_AWS_PROVIDERS + _override_hcl(list(seeds)) + "\n"
+            + "\n".join(_shared_validation_run(case) for case in cases))
 
 
 @pytest.fixture(name="require_tool")
@@ -318,32 +336,54 @@ def tofu_artifacts(tofu_context: TofuContext) -> TofuArtifacts:
     version_result = _run_tofu(tofu_bin, ("version", "-json"), environment)
     _require_success(version_result, "version")
     version = json.loads(version_result.stdout)
-    return {"validation": validation, "configuration": configuration, "version": version}
+    artifacts = {"validation": validation, "configuration": configuration, "version": version}
+    schema = _provider_schema(tofu_context, PROD_ROOT, artifacts)
+    seeds = root_identity_seeds(configuration, schema, ROOT_FIXTURE_CONTRACT)
+    overrides = preserve_root_mock_defaults(seeds, configuration, schema, {
+        "value": BUCKET_REGIONAL_DOMAIN_NAME,
+        "source": "tests/production/infra/_aws_mock_defaults.py::BUCKET_REGIONAL_DOMAIN_NAME",
+    })
+    records = {"seeds": seeds, "overrides": overrides}
+    evidence = Path(tofu_context.environment["TF_DATA_DIR"])
+    (evidence / "root-identity-records.json").write_text(
+        json.dumps(records, indent=2), encoding="utf-8"
+    )
+    return cast("TofuArtifacts", artifacts | {"schema": schema, "root_identities": records,
+        "evidence": {"directory": str(evidence)}})
 
 
 @pytest.fixture(scope="session")
 def native_contract_result(
     tofu_context: TofuContext,
     tofu_artifacts: TofuArtifacts,
-) -> Iterator[subprocess.CompletedProcess[str]]:
+) -> Iterator[NativeRootReport]:
+    ids = cast("dict[str, list[dict]]", tofu_artifacts["root_identities"])
+    suite = NATIVE_CONTRACT_TEST + _override_hcl(ids["overrides"])
     test_directory = PROD_ROOT / ".terraform" / "contract-tests"
     test_directory.mkdir(parents=True)
-    (test_directory / "composition.tftest.hcl").write_text(
-        NATIVE_CONTRACT_TEST,
-        encoding="utf-8",
-    )
-    result = _run_tofu(
-        tofu_context.executable,
-        (
-            "test",
-            "-no-color",
-            "-test-directory=.terraform/contract-tests",
-            f"-var=shared_outputs={json.dumps(VALID_SHARED_OUTPUTS, separators=(',', ':'))}",
-        ),
-        tofu_context.environment,
-    )
-    yield result
-    shutil.rmtree(test_directory)
+    try:
+        (test_directory / "composition.tftest.hcl").write_text(
+            suite,
+            encoding="utf-8",
+        )
+        result = _run_tofu(
+            tofu_context.executable,
+            (
+                "test",
+                "-no-color", "-json", "-verbose",
+                "-test-directory=.terraform/contract-tests",
+                f"-var=shared_outputs={json.dumps(VALID_SHARED_OUTPUTS, separators=(',', ':'))}",
+            ),
+            tofu_context.environment,
+        )
+        yield observe_root_result(
+            result, ids["seeds"], {"test_file": ".terraform/contract-tests/composition.tftest.hcl",
+                            "positive_roots": frozenset({"evaluate_composition_contract"})},
+            {"directory": tofu_context.environment["TF_DATA_DIR"], "label": "composition",
+             "suite": suite.encode(), "metadata": {"artifacts": tofu_artifacts}},
+        )
+    finally:
+        shutil.rmtree(test_directory)
 
 
 @pytest.fixture(scope="session")
@@ -355,12 +395,28 @@ def validate_shared_outputs(
     test_directory.mkdir(parents=True)
     test_file = test_directory / "shared-outputs.tftest.hcl"
 
-    def validate(cases: Sequence[ValidationCase]) -> subprocess.CompletedProcess[str]:
-        test_file.write_text(shared_validation_suite(cases), encoding="utf-8")
-        return _run_tofu(
+    ids = cast("dict[str, list[dict]]", tofu_artifacts["root_identities"])
+    invocation = 0
+
+    def validate(
+        cases: Sequence[ValidationCase], positive_roots: frozenset[str]
+    ) -> NativeRootReport:
+        nonlocal invocation
+        invocation += 1
+        suite = shared_validation_suite(cases, ids["overrides"])
+        test_file.write_text(suite, encoding="utf-8")
+        result = _run_tofu(
             tofu_context.executable,
-            ("test", "-no-color", "-test-directory=.terraform/shared-output-tests"),
+            ("test", "-no-color", "-json", "-verbose",
+             "-test-directory=.terraform/shared-output-tests"),
             tofu_context.environment,
+        )
+        return observe_root_result(
+            result, ids["seeds"],
+            {"test_file": ".terraform/shared-output-tests/shared-outputs.tftest.hcl",
+                            "positive_roots": positive_roots},
+            {"directory": tofu_context.environment["TF_DATA_DIR"], "label": f"shared-{invocation}",
+             "suite": suite.encode(), "metadata": {"artifacts": tofu_artifacts}},
         )
 
     yield validate

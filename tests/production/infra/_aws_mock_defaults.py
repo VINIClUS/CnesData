@@ -1,5 +1,7 @@
 """Defaults AWS computados compartilhados pelas suites nativas."""
 
+BUCKET_REGIONAL_DOMAIN_NAME = "fixture-data.s3.us-east-2.amazonaws.com"
+
 MOCK_AWS_PROVIDERS = '''mock_provider "aws" {
   mock_resource "aws_acm_certificate" {
     defaults = {
@@ -18,7 +20,7 @@ MOCK_AWS_PROVIDERS = '''mock_provider "aws" {
   }
   mock_resource "aws_s3_bucket" {
     defaults = {
-      bucket_regional_domain_name = "fixture-data.s3.us-east-2.amazonaws.com"
+      bucket_regional_domain_name = "''' + BUCKET_REGIONAL_DOMAIN_NAME + '''"
     }
   }
   mock_data "aws_region" {
@@ -47,7 +49,7 @@ mock_provider "aws" {
   }
   mock_resource "aws_s3_bucket" {
     defaults = {
-      bucket_regional_domain_name = "fixture-data.s3.us-east-2.amazonaws.com"
+      bucket_regional_domain_name = "''' + BUCKET_REGIONAL_DOMAIN_NAME + '''"
     }
   }
   mock_data "aws_region" {
