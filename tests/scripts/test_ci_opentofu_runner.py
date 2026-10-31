@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -129,6 +130,12 @@ def test_jobs_e_passos_tem_timeout_finito() -> None:
     suite = _step(_NATIVE, _SUITE)
     assert 0 < suite["timeout-minutes"] < _job(_NATIVE)["timeout-minutes"]
     assert suite["run"].startswith("timeout --signal=INT --kill-after=15s 1800 ")
+    for name in ("Install Trivy", _WARM):
+        assert 0 < _step(_NATIVE, name)["timeout-minutes"] <= 5, name
+
+
+def test_falhas_dos_jobs_nao_sao_mascaradas_por_continue_on_error() -> None:
+    assert "continue-on-error" not in _WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_setup_opentofu_fixado_por_sha_de_release_nos_dois_jobs() -> None:
@@ -187,7 +194,7 @@ def test_job_nativo_cria_e_aquece_cache_antes_da_suite() -> None:
     assert _step(_NATIVE, "Create provider cache directory")["run"] == (
         'mkdir -p "${TF_PLUGIN_CACHE_DIR}"'
     )
-    assert _command(warm).endswith(_PROD_INIT)
+    assert _command(warm) == f"timeout --signal=INT --kill-after=15s 240 {_PROD_INIT}"
     assert warm["env"] == {"TF_DATA_DIR": "${{ runner.temp }}/tofu-warm"}
     assert names.index("Create provider cache directory") < names.index(
         "Cache OpenTofu providers"
@@ -198,7 +205,8 @@ def test_job_nativo_instala_trivy_fixado_por_versao_e_checksum() -> None:
     trivy = _step(_NATIVE, "Install Trivy")
 
     assert trivy["env"] == {"TRIVY_VERSION": _TRIVY_VERSION, "TRIVY_SHA256": _TRIVY_SHA256}
-    assert 'sha256sum -c -' in trivy["run"]
+    assert "sha256sum -c -" in trivy["run"]
+    assert "curl -fsSL --proto '=https'" in trivy["run"]
     assert _names(_NATIVE).index("Install Trivy") < _names(_NATIVE).index(_SUITE)
 
 
@@ -225,7 +233,7 @@ def test_vinculo_cobre_raizes_na_ordem_dos_namespaces_e_todo_fonte_python(
         [sys.executable, "-I", "-c", _bind_script()],
         check=True,
         cwd=_ROOT,
-        env={"PROCESSING_SOURCE_BINDINGS": str(target)},
+        env=os.environ | {"PROCESSING_SOURCE_BINDINGS": str(target)},
     )
     binding = json.loads(target.read_text(encoding="utf-8"))
     expected = {
