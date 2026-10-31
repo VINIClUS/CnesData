@@ -157,4 +157,3 @@ def test_active_sem_role_tem_diagnostico_nativo_explicito(
         or "step_functions_role_required" in item.get("diagnostic", {}).get("summary", "")
         for item in _diagnostics(events)
     )
-

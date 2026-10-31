@@ -382,5 +382,3 @@ def _runtime_inputs(state_machine_arn: str | None, name_prefix: str = PREFIX) ->
         "log_group_arn": f"arn:aws:logs:us-east-2:{ACCOUNT}:log-group:/ecs/{PREFIX}-processor:*",
         "state_machine_arn": state_machine_arn,
     }
-
-

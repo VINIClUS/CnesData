@@ -354,4 +354,3 @@ def test_transicao_de_routing_apos_phase_a_muda_somente_machine(
     _task_from_definition(before_without)["Parameters"]["TaskDefinition"] = None
     _task_from_definition(after_without)["Parameters"]["TaskDefinition"] = None
     assert before_without == after_without
-
