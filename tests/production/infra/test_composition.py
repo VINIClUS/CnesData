@@ -8,47 +8,18 @@ from typing import cast
 
 import pytest
 
+from tests.production.infra._composition_contracts import (
+    ARN_PATHS,
+    BPA,
+    INVALID_SHARED_VALUES,
+    PROHIBITED_RESOURCE_TYPES,
+    SHARED_RESOURCE_EXACT,
+    SHARED_RESOURCE_PREFIXES,
+)
+
 ToolLookup = Callable[[str], str | None]
 ValidationCase = tuple[str, object, bool]
 SharedValidator = Callable[[Sequence[ValidationCase]], CompletedProcess[str]]
-ACCOUNT_BPA = "aws_s3_account_public_access_block"
-BPA = ("account_baseline", "s3_public_access_block")
-
-ARN_PATHS = (
-    ("kms_key_arn",), ("roles_anywhere", "api_role_arn"),
-    ("roles_anywhere", "profile_arn"), ("roles_anywhere", "trust_anchor_arn"),
-    ("github", "infrastructure_plan_role_arn"), ("github", "host_deploy_role_arn"),
-    ("github", "infrastructure_deploy_role_arn"), ("budget_freeze", "budget_arn"),
-    ("budget_freeze", "action_arn"), ("budget_freeze", "policy_arn"),
-    ("storage", "state_bucket_arn"), ("storage", "evidence_bucket_arn"),
-)
-
-INVALID_SHARED_VALUES = (
-    (("schema_version",), 1), (("account_id",), "123"),
-    (("kms_key_arn",), "arn:aws:kms:us-east-2:1:key/example"),
-    (("roles_anywhere", "crl", "crl_id"), "   "),
-    (("roles_anywhere", "crl", "enabled"), None),
-    (("roles_anywhere", "crl", "next_update"), "not-a-timestamp"),
-    (("roles_anywhere", "crl", "sha256"), "ABC123"),
-    (("storage", "state_bucket_name"), "INVALID_BUCKET"),
-    (("storage", "evidence_bucket_name"), "ab"),
-    *((path, "not-an-arn") for path in ARN_PATHS),
-    ((*BPA, "block_public_acls"), False), ((*BPA, "block_public_policy"), False),
-    ((*BPA, "ignore_public_acls"), False), ((*BPA, "restrict_public_buckets"), False),
-)
-
-PROHIBITED_RESOURCE_TYPES = (
-    "aws_kms_key", "aws_kms_alias", "aws_ssm_parameter", "aws_budgets_budget", ACCOUNT_BPA,
-    "aws_rolesanywhere_profile", "aws_iam_openid_connect_provider", "cloudflare_record",
-    "hostinger_dns_record", "aws_iam_user", "aws_iam_user_policy", "aws_iam_access_key",
-)
-
-SHARED_RESOURCE_PREFIXES = (
-    "aws_kms_", "aws_ssm_", "aws_rolesanywhere_", "aws_budgets_",
-    "cloudflare_", "hostinger_", "aws_iam_user",
-)
-
-SHARED_RESOURCE_EXACT = {"aws_iam_access_key", "aws_iam_openid_connect_provider", ACCOUNT_BPA}
 
 
 def _compact_assignments(source: str) -> set[str]:
@@ -109,8 +80,9 @@ def _replace_value(
 
 
 def _synthetic_configuration(*resources: dict[str, object]) -> dict[str, object]:
-    return {"root_module": {"module_calls": {"synthetic": {
-        "module": {"resources": list(resources)}}}}}
+    return {
+        "root_module": {"module_calls": {"synthetic": {"module": {"resources": list(resources)}}}}
+    }
 
 
 def _synthetic_resource(
@@ -149,9 +121,7 @@ def _assert_product_ownership(configuration: dict[str, object]) -> None:
         shared = resource_type in SHARED_RESOURCE_EXACT or resource_type.startswith(
             SHARED_RESOURCE_PREFIXES
         )
-        assert not shared, (
-            f"shared_resource address={resource['address']} type={resource_type}"
-        )
+        assert not shared, f"shared_resource address={resource['address']} type={resource_type}"
 
 
 def _assert_resource_region(resource: dict[str, object]) -> None:
@@ -276,9 +246,7 @@ def test_tipo_shared_outputs_corresponde_ao_schema(
     root_module = cast("dict[str, object]", configuration["root_module"])
     variables = cast("dict[str, dict[str, object]]", root_module["variables"])
     shared_outputs = variables["shared_outputs"]
-    schema = json.loads(
-        (prod_root / "shared-outputs.schema.json").read_text(encoding="utf-8")
-    )
+    schema = json.loads((prod_root / "shared-outputs.schema.json").read_text(encoding="utf-8"))
 
     assert shared_outputs["required"] is True
     assert shared_outputs["type"] == expected_shared_type
@@ -286,9 +254,7 @@ def test_tipo_shared_outputs_corresponde_ao_schema(
 
 
 def test_schema_shared_outputs_e_fechado_versionado_e_formatado(prod_root: Path) -> None:
-    schema = json.loads(
-        (prod_root / "shared-outputs.schema.json").read_text(encoding="utf-8")
-    )
+    schema = json.loads((prod_root / "shared-outputs.schema.json").read_text(encoding="utf-8"))
 
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     schema_id = schema["$id"]
@@ -370,14 +336,16 @@ def test_validacao_nativa_rejeita_shared_outputs_sem_account_baseline(
 def test_inventario_de_outputs_publica_interfaces_do_static_web(
     tofu_artifacts: dict[str, dict[str, object]],
 ) -> None:
-    configuration = tofu_artifacts["configuration"]
-    root_module = cast("dict[str, object]", configuration["root_module"])
+    root_module = cast("dict[str, object]", tofu_artifacts["configuration"]["root_module"])
     outputs = cast("dict[str, dict[str, object]]", root_module["outputs"])
-
-    assert set(outputs) == {
+    static = {
         "acm_dns_validation_records", "api_loopback_contract", "dashboard_runtime_env",
         "cloudfront_distribution_id", "cloudfront_domain_name",
     }
+    names = ["repository_uri", "task_definition_arns", "container_name"]
+    names += ["task_role_arns", "task_role_names", "execution_role_arn", "execution_role_name"]
+    expected = static | {f"processor_{name}" for name in names}
+    assert set(outputs) == expected, f"processing_public_inventory={sorted(outputs)}"
     assert outputs["api_loopback_contract"]["expression"] == {"constant_value": None}
     for name in outputs.keys() - {"api_loopback_contract"}:
         expression = cast("dict[str, object]", outputs[name]["expression"])
@@ -490,9 +458,7 @@ def test_gitignore_protege_artefatos_opentofu_sem_ocultar_raiz_prod(
 def test_codeowners_define_ownership_de_infra_e_policies(repo_root: Path) -> None:
     source = (repo_root / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
     owners = {
-        parts[0]: parts[1:]
-        for line in _configuration_lines(source)
-        if (parts := line.split())
+        parts[0]: parts[1:] for line in _configuration_lines(source) if (parts := line.split())
     }
 
     assert owners["infra/**"] == ["@VINIClUS"]

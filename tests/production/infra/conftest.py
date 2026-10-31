@@ -9,6 +9,12 @@ from typing import NamedTuple, TypedDict
 
 import pytest
 
+from tests.production.infra._aws_mock_defaults import MOCK_AWS_PROVIDERS
+from tests.production.infra._processing_native import (  # noqa: F401
+    processing_native,
+    processing_plan,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROD_ROOT = REPO_ROOT / "infra" / "opentofu" / "env" / "prod"
 
@@ -34,9 +40,7 @@ VALID_SHARED_OUTPUTS: dict[str, object] = {
     "kms_key_arn": "arn:aws:kms:us-east-2:123456789012:key/example",
     "roles_anywhere": {
         "api_role_arn": "arn:aws:iam::123456789012:role/cnesdata-api",
-        "profile_arn": (
-            "arn:aws:rolesanywhere:us-east-2:123456789012:profile/0123456789abcdef0"
-        ),
+        "profile_arn": ("arn:aws:rolesanywhere:us-east-2:123456789012:profile/0123456789abcdef0"),
         "trust_anchor_arn": (
             "arn:aws:rolesanywhere:us-east-2:123456789012:trust-anchor/0123456789abcdef0"
         ),
@@ -156,64 +160,9 @@ TOFU_AWS_ENVIRONMENT = {
 
 
 MOCK_PROVIDER = re.compile(r'^mock_provider "aws" \{(?:\n  alias = "(\w+)"\n)?', re.MULTILINE)
-MOCK_AWS_PROVIDERS = '''mock_provider "aws" {
-  mock_resource "aws_acm_certificate" {
-    defaults = {
-      arn = "arn:aws:acm:us-east-1:123456789012:certificate/11111111-1111-4111-8111-111111111111"
-    }
-  }
-  mock_resource "aws_cloudfront_function" {
-    defaults = {
-      arn = "arn:aws:cloudfront::123456789012:function/fixture-spa"
-    }
-  }
-  mock_resource "aws_cognito_user_pool" {
-    defaults = {
-      endpoint = "cognito-idp.us-east-2.amazonaws.com/us-east-2_fixture"
-    }
-  }
-  mock_resource "aws_s3_bucket" {
-    defaults = {
-      bucket_regional_domain_name = "fixture-data.s3.us-east-2.amazonaws.com"
-    }
-  }
-  mock_data "aws_region" {
-    defaults = {
-      region = "us-east-2"
-    }
-  }
-}
-
-mock_provider "aws" {
-  alias = "global_edge"
-  mock_resource "aws_acm_certificate" {
-    defaults = {
-      arn = "arn:aws:acm:us-east-1:123456789012:certificate/11111111-1111-4111-8111-111111111111"
-    }
-  }
-  mock_resource "aws_cloudfront_function" {
-    defaults = {
-      arn = "arn:aws:cloudfront::123456789012:function/fixture-spa"
-    }
-  }
-  mock_resource "aws_cognito_user_pool" {
-    defaults = {
-      endpoint = "cognito-idp.us-east-2.amazonaws.com/us-east-2_fixture"
-    }
-  }
-  mock_resource "aws_s3_bucket" {
-    defaults = {
-      bucket_regional_domain_name = "fixture-data.s3.us-east-2.amazonaws.com"
-    }
-  }
-  mock_data "aws_region" {
-    defaults = {
-      region = "us-east-1"
-    }
-  }
-}
-'''
-NATIVE_CONTRACT_TEST = MOCK_AWS_PROVIDERS + """
+NATIVE_CONTRACT_TEST = (
+    MOCK_AWS_PROVIDERS
+    + """
 run "evaluate_composition_contract" {
   command = plan
 
@@ -233,6 +182,7 @@ run "evaluate_composition_contract" {
   }
 }
 """
+)
 
 
 def require_tool(name: str, lookup: ToolLookup = shutil.which) -> str:
@@ -267,9 +217,7 @@ def _run_tofu(
 def _require_success(result: subprocess.CompletedProcess[str], command: str) -> None:
     if result.returncode == 0:
         return
-    pytest.fail(
-        f"tofu_failed command={command} stdout={result.stdout!r} stderr={result.stderr!r}"
-    )
+    pytest.fail(f"tofu_failed command={command} stdout={result.stdout!r} stderr={result.stderr!r}")
 
 
 def _shared_validation_run(case: ValidationCase) -> str:
