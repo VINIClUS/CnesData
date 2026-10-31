@@ -1,0 +1,158 @@
+name: infra-native
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+      - 'tests/production/infra/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/infra-native.yml'
+  push:
+    branches: [develop, main]
+    paths:
+      - 'infra/**'
+      - 'tests/production/infra/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/infra-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  opentofu-native:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 40
+    env:
+      CI: true
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tofu-plugin-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v8.0.0
+        with:
+          version: "0.9.26"
+      # v1.0.8
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f
+        with:
+          tofu_version: "1.13.2"
+          tofu_wrapper: false
+      - name: Install Trivy
+        timeout-minutes: 5
+        env:
+          TRIVY_VERSION: "0.74.0"
+          TRIVY_SHA256: 2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a
+        run: |
+          set -euo pipefail
+          release="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          archive="${RUNNER_TEMP}/trivy.tar.gz"
+          curl -fsSL --retry 3 -o "${archive}" \
+            "${release}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/trivy-bin"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/trivy-bin" trivy
+          echo "${RUNNER_TEMP}/trivy-bin" >> "${GITHUB_PATH}"
+      - name: Create provider cache directory
+        run: mkdir -p "${TF_PLUGIN_CACHE_DIR}"
+      - name: Cache OpenTofu providers
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: >-
+            opentofu-providers-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('infra/opentofu/env/prod/.terraform.lock.hcl') }}
+      - name: Warm provider cache
+        timeout-minutes: 5
+        env:
+          TF_DATA_DIR: ${{ runner.temp }}/tofu-warm
+        run: >-
+          timeout --signal=INT --kill-after=15s 240
+          tofu -chdir=infra/opentofu/env/prod init -backend=false -input=false -lockfile=readonly
+      - name: Install dependencies
+        run: uv sync --locked --all-packages
+      - name: OpenTofu runner contract
+        run: >-
+          timeout --signal=INT --kill-after=15s 120
+          uv run --no-build pytest -q tests/scripts/test_ci_opentofu_runner.py
+      # The processing runtime and origins tests refuse to import modules that this checkout
+      # does not bind by source root and sha256; nothing in the repository produces the binding.
+      - name: Bind processing sources
+        env:
+          PROCESSING_SOURCE_BINDINGS: ${{ runner.temp }}/processing-source-bindings.json
+        run: |
+          python -I - <<'EOF'
+          import json
+          import os
+          from hashlib import sha256
+          from pathlib import Path
+
+          names = ("data_processor", "cnes_contracts", "cnes_domain", "cnes_infra")
+          roots = [Path("apps/data_processor/src"), *(Path(f"packages/{n}/src") for n in names[1:])]
+          files = {
+              str(path.resolve()): sha256(path.read_bytes()).hexdigest()
+              for root, name in zip(roots, names, strict=True)
+              for path in sorted((root / name).rglob("*.py"))
+          }
+          binding = {"roots": [str(root.resolve()) for root in roots], "files": files}
+          Path(os.environ["PROCESSING_SOURCE_BINDINGS"]).write_text(json.dumps(binding))
+          EOF
+      - name: Run OpenTofu native suite
+        id: native-suite
+        timeout-minutes: 32
+        env:
+          PROCESSING_SOURCE_BINDINGS: ${{ runner.temp }}/processing-source-bindings.json
+        run: >-
+          timeout --signal=INT --kill-after=15s 1800
+          uv run --no-build pytest -q tests/production/infra --junitxml=infra-native.xml
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infra-native-junit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: infra-native.xml
+          if-no-files-found: warn
+      - name: Validate native report
+        run: |
+          python -c "import runpy; from pathlib import Path; \
+          runpy.run_path('tests/production/test_runtime_acceptance.py')\
+          ['require_complete_junit'](Path('infra-native.xml'))"
+
+  opentofu-floor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # v1.0.8
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f
+        with:
+          tofu_version: "1.10.0"
+          tofu_wrapper: false
+      - name: Format check
+        timeout-minutes: 2
+        run: tofu -chdir=infra/opentofu fmt -check -recursive
+      - name: Init
+        timeout-minutes: 5
+        run: >-
+          timeout --signal=INT --kill-after=15s 240
+          tofu -chdir=infra/opentofu/env/prod init -backend=false -input=false -lockfile=readonly
+      - name: Validate
+        timeout-minutes: 5
+        run: >-
+          timeout --signal=INT --kill-after=15s 240
+          tofu -chdir=infra/opentofu/env/prod validate
