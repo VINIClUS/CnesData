@@ -3,13 +3,16 @@ import shutil
 import subprocess
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from re import sub
 from typing import Any, cast
 
 import pytest
 
 from tests.production.infra._aws_mock_defaults import MOCK_AWS_PROVIDERS
-from tests.production.infra._processing_identities import _role_identity
+from tests.production.infra._processing_identities import (
+    _configuration_address,
+    _configuration_resources,
+    _role_identity,
+)
 from tests.production.infra._processing_native import _native_plan_events
 from tests.production.infra._root_native_identities import (
     _override_hcl,
@@ -17,8 +20,16 @@ from tests.production.infra._root_native_identities import (
     merge_identity_records,
 )
 from tests.production.infra._step_functions_iam_contracts import (
-    assert_no_step_functions_policies,
+    POLICY_ATTACHMENT_TYPES,
+    assert_policy_grants,
+    attached_policy_resources,
     exact_step_functions_trust,
+    literal_grants,
+    policy_grants,
+    resource_at,
+)
+from tests.production.infra._step_functions_iam_contracts import (
+    managed_resources as _managed_resources,
 )
 
 type Node = dict[str, Any]
@@ -115,9 +126,12 @@ def registry_plan(
             tofu_context, prod_root, arguments, suite + _override_hcl(ids["overrides"])
         )
         assert_root_identity_producers(discovery, ids["seeds"])
-        identities = merge_identity_records(ids["overrides"], _iam_identity_overrides(
-            discovery, configuration, cast("Node", tofu_artifacts["schema"])
-        ))
+        identities = merge_identity_records(
+            ids["overrides"],
+            _iam_identity_overrides(
+                discovery, configuration, cast("Node", tofu_artifacts["schema"])
+            ),
+        )
         suite += _override_hcl(identities)
         (directory / "registry.tftest.hcl").write_text(suite, encoding="utf-8")
         result = _native_result(tofu_context, prod_root, arguments)
@@ -137,25 +151,6 @@ def registry_plan(
         yield plan, configuration
     finally:
         shutil.rmtree(directory)
-
-
-def _configuration_resources(module: Node, prefix: str = "") -> Iterator[tuple[str, Node]]:
-    for resource in module.get("resources", []):
-        yield f"{prefix}{resource['address']}", resource
-    for name, call in module.get("module_calls", {}).items():
-        yield from _configuration_resources(call["module"], f"{prefix}module.{name}.")
-
-
-def _managed_resources(plan: Node, kind: str) -> list[Node]:
-    return [
-        resource
-        for resource in plan["resource_changes"]
-        if resource["mode"] == "managed" and resource["type"] == kind
-    ]
-
-
-def _configuration_address(address: str) -> str:
-    return sub(r'\[(?:\d+|"(?:[^"\\]|\\.)*")\]', "", address)
 
 
 def _assert_product_provider(resource: Node, configuration: Node) -> None:
@@ -234,15 +229,11 @@ def _configured(resource: Node, configuration: Node) -> Node:
 
 
 def _assert_role_output_interfaces(module: Node) -> None:
-    outputs = module.get("outputs", {})
+    found = module.get("outputs", {})
     expected = {"execution_role_arn", "execution_role_name", "task_role_arns", "task_role_names"}
-    assert expected <= outputs.keys(), (
-        f"iam_output_interfaces_missing={expected - outputs.keys()!r}"
-    )
+    assert expected.issubset(found), f"iam_output_interfaces_missing={expected.difference(found)!r}"
     for output in expected:
-        assert isinstance(outputs[output].get("expression"), dict), (
-            f"iam_output_expression={output}"
-        )
+        assert isinstance(found[output].get("expression"), dict), f"iam_output_expression={output}"
 
 
 def _runtime_instances(plan: Node, configuration: Node, root: Path) -> list[Node]:
@@ -259,50 +250,30 @@ def _runtime_instances(plan: Node, configuration: Node, root: Path) -> list[Node
     ]
 
 
-def _partition_runtime_roles(
-    roles: list[Node], sfn: list[Node], plan: Node, configuration: Node
-) -> tuple[list[Node], list[Node]]:
-    account = plan["variables"]["shared_outputs"]["value"]["account_id"]
-    execution, tasks = [], []
-    for role in [r for r in roles if r not in sfn]:
-        _assert_ecs_trust(role, account)
-        documents, arns = _role_policy_bindings(role, plan, configuration)
-        _managed_policy_documents(plan, arns)
-        (execution if documents or arns else tasks).append(role)
-    return execution, tasks
-
-
 def _runtime_identities(plan: Node, configuration: Node, root: Path) -> tuple[Node, list[Node]]:
-    roles = [
-        role
-        for role in _managed_resources(plan, "aws_iam_role")
-        if _configuration_address(role["address"]).startswith("module.runtime_iam.")
-    ]
+    roles = _managed_resources(plan, "aws_iam_role")
+    prefix = "module.runtime_iam.aws_iam_role"
+    names = {"execution": "processor-execution", "step_functions[0]": "step-functions"}
+    names.update({f'task["{mode}"]': f"processor-{mode}" for mode in ("unit", "recovery", "audit")})
+    expected = {f"{prefix}.{key}": f"{PRODUCT_NAMESPACE}-{name}" for key, name in names.items()}
     assert len(roles) == 5, f"iam_runtime_roles expected=5 actual={len(roles)}"
+    assert {role["address"] for role in roles} == expected.keys(), "iam_runtime_role_addresses"
     instances = _runtime_instances(plan, configuration, root)
     assert len(instances) == 1, f"iam_runtime_instances={len(instances)}"
     module = configuration["root_module"]["module_calls"]["runtime_iam"]["module"]
     _assert_role_output_interfaces(module)
-    sfn = [r for r in roles if r["address"] == "module.runtime_iam.aws_iam_role.step_functions[0]"]
-    assert len(sfn) == 1, f"iam_step_functions_roles={len(sfn)}"
     account = plan["variables"]["shared_outputs"]["value"]["account_id"]
+    for role in roles:
+        values = role["change"]["after"]
+        name = expected[role["address"]]
+        assert values["name"] == name, f"iam_role_name={role['address']}"
+        assert values["arn"] == f"arn:aws:iam::{account}:role/{name}", "iam_role_arn"
+    sfn = next(role for role in roles if role["address"].endswith(".step_functions[0]"))
+    _assert_product_provider(sfn, configuration)
     machine = f"arn:aws:states:us-east-2:{account}:stateMachine:{PRODUCT_NAMESPACE}"
-    assert sfn[0]["change"]["after"]["name"] == f"{PRODUCT_NAMESPACE}-step-functions"
-    _assert_product_provider(sfn[0], configuration)
-    exact_step_functions_trust(sfn[0], account, machine)
-    assert_no_step_functions_policies(plan, sfn[0])
-    execution, tasks = _partition_runtime_roles(roles, sfn, plan, configuration)
-    assert len(execution) == 1, f"iam_execution_policy_roles expected=1 actual={len(execution)}"
-    assert len(tasks) == 3, f"iam_policy_free_task_roles expected=3 actual={len(tasks)}"
-    assert execution[0]["address"] == "module.runtime_iam.aws_iam_role.execution"
-    assert {r["address"] for r in tasks} == {
-        f'module.runtime_iam.aws_iam_role.task["{mode}"]' for mode in ("unit", "recovery", "audit")
-    }
-    for field in ("name", "arn"):
-        identities = [role["change"]["after"][field] for role in roles]
-        assert all(identities), f"iam_identity_empty_{field}={identities!r}"
-        assert len(set(identities)) == 5, f"iam_distinct_{field}={identities!r}"
-    return execution[0], tasks
+    exact_step_functions_trust(sfn, account, machine)
+    execution = next(role for role in roles if role["address"].endswith(".execution"))
+    return execution, [role for role in roles if role["address"].startswith(f"{prefix}.task[")]
 
 
 def _assert_trust_conditions(conditions: Node, account: str) -> None:
@@ -352,29 +323,11 @@ def _assert_inline_adoption(binding: Node, plan: Node, identities: set[str]) -> 
     assert set(binding["policy_names"]) <= known, f"iam_unresolved_inline={binding!r}"
 
 
-def _attached_policy_bindings(plan: Node, identities: set[str]) -> Iterator[tuple[str, Node]]:
-    kinds = {
-        "aws_iam_role_policy",
-        "aws_iam_role_policy_attachment",
-        "aws_iam_policy_attachment",
-        "aws_iam_role_policy_attachments_exclusive",
-        "aws_iam_role_policies_exclusive",
-    }
-    for resource in plan["resource_changes"]:
-        if resource["mode"] != "managed" or resource["type"] not in kinds:
-            continue
-        after = resource["change"]["after"]
-        targets = set(after.get("roles") or []) | {after.get("role"), after.get("role_name")}
-        if targets & identities:
-            yield resource["type"], after
-
-
 def _assert_inline_policy_block(policy: Any) -> None:
     assert isinstance(policy, dict), f"iam_inline_policy_block={policy!r}"
     assert set(policy) == {"name", "policy"}, f"iam_inline_policy_block={policy!r}"
     assert all(
-        isinstance(policy[field], str) and policy[field].strip()
-        for field in ("name", "policy")
+        isinstance(policy[field], str) and policy[field].strip() for field in ("name", "policy")
     ), f"iam_inline_policy_block={policy!r}"
 
 
@@ -396,7 +349,9 @@ def _role_policy_bindings(
     if "managed_policy_arns" in expressions:
         arns.update(values.get("managed_policy_arns", []))
     identities = {values["name"], values["id"]}
-    for kind, after in _attached_policy_bindings(plan, identities):
+    binding_role = {"change": {"after": {"name": values["name"], "id": values["id"]}}}
+    for resource in attached_policy_resources(plan, binding_role):
+        kind, after = resource["type"], resource["change"]["after"]
         if kind == "aws_iam_role_policy":
             documents.append(after["policy"])
         if kind in {"aws_iam_role_policy_attachment", "aws_iam_policy_attachment"}:
@@ -486,14 +441,58 @@ def test_execution_role_so_pull_e_logs_proprios(
     _assert_execution_grants(documents, repositories[0]["arn"], group["change"]["after"]["arn"])
 
 
-def test_task_role_nasce_sem_politica(
-    registry_plan: tuple[Node, Node], valid_shared_outputs: Node, prod_root: Path
+def _assert_root_policy_inventory(plan: Node) -> None:
+    prefix, namespace = "module.runtime_iam.aws_iam_role_policy", PRODUCT_NAMESPACE
+    sfn, processor = f"{namespace}-step-functions", f"{namespace}-processor"
+    api = plan["variables"]["shared_outputs"]["value"]["roles_anywhere"]["api_role_arn"]
+    expected = {
+        f"{prefix}.execution": (f"{processor}-pull-logs", f"{processor}-execution"),
+        f"{prefix}.step_functions[0]": (f"{sfn}-common", sfn),
+        f"{prefix}.api[0]": (f"{namespace}-api-runtime", api.rsplit("/", 1)[1]),
+        "module.processing.aws_iam_role_policy.step_functions_ecs[0]": (f"{sfn}-ecs", sfn),
+        **{
+            f'{prefix}.runtime["{mode}"]': (f"{processor}-{mode}-runtime", f"{processor}-{mode}")
+            for mode in ("unit", "recovery", "audit")
+        },
+    }
+    resources = [
+        item
+        for item in plan["resource_changes"]
+        if item["mode"] == "managed" and item["type"] in POLICY_ATTACHMENT_TYPES
+    ]
+    observed = {
+        item["address"]: (item["change"]["after"].get("name"), item["change"]["after"].get("role"))
+        for item in resources
+    }
+    assert len(resources) == len(observed), "iam_policy_inventory duplicate_address"
+    assert observed == expected, f"iam_policy_inventory expected={expected!r} observed={observed!r}"
+    for item in resources:
+        grants = policy_grants(item["change"]["after"]["policy"])
+        assert grants, f"missing_grants address={item['address']}"
+        if item["address"].startswith(prefix):
+            assert all(action != "ecs:RunTask" for action, _, _ in grants), "runtime_iam_run_task"
+
+
+def test_root_anexa_inventario_exato_de_policies_as_roles(
+    registry_plan: tuple[Node, Node], prod_root: Path
 ) -> None:
     plan, configuration = registry_plan
-    _, tasks = _runtime_identities(plan, configuration, prod_root)
-    for role in tasks:
-        _assert_product_provider(role, configuration)
-        _assert_ecs_trust(role, valid_shared_outputs["account_id"])
-        documents, arns = _role_policy_bindings(role, plan, configuration)
-        assert not documents, f"iam_task_inline role={role['address']} count={len(documents)}"
-        assert not arns, f"iam_task_managed role={role['address']} policies={arns!r}"
+    _runtime_identities(plan, configuration, prod_root)
+    for role in _managed_resources(plan, "aws_iam_role"):
+        after = role["change"]["after"]
+        assert not after.get("inline_policy"), "iam_unexpected_role_inline"
+        assert not after.get("managed_policy_arns"), "iam_unexpected_role_managed"
+    variables = plan["variables"]
+    assert variables["image_digest"]["value"] is None, "bootstrap_digest_expected_null"
+    assert variables["processor_active_unit_task_definition_arn"]["value"] is None
+    assert variables["processor_retained_unit_task_definition_arns"]["value"] == []
+    address = "module.processing.aws_iam_role_policy.step_functions_ecs[0]"
+    role = resource_at(plan, "module.runtime_iam.aws_iam_role.step_functions[0]")
+    specification = {
+        "address": address,
+        "name": f"{PRODUCT_NAMESPACE}-step-functions-ecs",
+        "allowed": [address, "module.runtime_iam.aws_iam_role_policy.step_functions[0]"],
+    }
+    expected = literal_grants(("ecs:DescribeTasks", "ecs:StopTask"), ("*",), {})
+    assert_policy_grants(plan, role, specification, expected)
+    _assert_root_policy_inventory(plan)

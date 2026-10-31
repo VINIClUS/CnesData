@@ -27,20 +27,23 @@ from tests.production.infra._root_native_identities import (
     merge_identity_records,
 )
 from tests.production.infra._step_functions_iam_contracts import (
+    Grants,
     actions_in_runtime_iam,
-    assert_no_step_functions_policies,
     assert_output_null,
+    assert_policy_grants,
     configuration_module,
     configuration_output_names,
     configuration_variable_names,
     event_for,
     exact_step_functions_trust,
     expected_machine_arn,
+    literal_grants,
     module_resources_for,
     native_events,
     one_resource,
     output_value,
     prepare_isolated_case,
+    resource_at,
     resource_named,
 )
 
@@ -341,13 +344,45 @@ def test_bootstrap_expoe_cluster_role_e_saida_nula_da_machine(
     assert role["change"]["actions"] == ["create"]
 
 
-def test_role_step_functions_tem_trust_exato_sem_policy_do_slice2(
+def _common_grants(plan: Node) -> Grants:
+    roles = output_value(plan, "processor_task_role_arns")
+    execution = output_value(plan, "processor_execution_role_arn")
+    unit = resource_at(plan, 'module.runtime_iam.aws_iam_role.task["unit"]')
+    execution_role = resource_at(plan, "module.runtime_iam.aws_iam_role.execution")
+    assert roles["unit"] == unit["change"]["after"]["arn"]
+    assert execution == execution_role["change"]["after"]["arn"]
+    account = plan["variables"]["shared_outputs"]["value"]["account_id"]
+    rule = f"arn:aws:events:us-east-2:{account}:rule/StepFunctionsGetEventsForECSTaskRule"
+    logs = (
+        "logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery",
+        "logs:DeleteLogDelivery", "logs:ListLogDeliveries", "logs:CreateLogStream",
+        "logs:PutLogEvents", "logs:PutResourcePolicy", "logs:DescribeResourcePolicies",
+        "logs:DescribeLogGroups",
+    )
+    return (
+        literal_grants(("iam:PassRole",), (roles["unit"], execution), {
+            "StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"},
+        })
+        | literal_grants(
+            ("events:PutTargets", "events:PutRule", "events:DescribeRule"), (rule,), {},
+        )
+        | literal_grants(logs, ("*",), {})
+    )
+
+
+def test_role_step_functions_tem_trust_e_grants_common_exatos_no_bootstrap(
     processing_native: NativePlans, prod_root: Path
 ) -> None:
     plan = processing_native.plans[ROOT_RUN]
+    active = plan["variables"]["processor_active_unit_task_definition_arn"]["value"]
+    assert active is None, "bootstrap_active_expected_null"
     role = _step_role(processing_native, prod_root, ROOT_RUN)
     exact_step_functions_trust(role, ACCOUNT, expected_machine_arn(plan))
-    assert_no_step_functions_policies(plan, role)
+    address = "module.runtime_iam.aws_iam_role_policy.step_functions[0]"
+    assert_policy_grants(plan, role, {
+        "address": address, "name": f"{PREFIX}-step-functions-common",
+        "allowed": [address, "module.processing.aws_iam_role_policy.step_functions_ecs[0]"],
+    }, _common_grants(plan))
     assert "ecs:RunTask" not in actions_in_runtime_iam(
         plan, processing_native.configuration, prod_root
     )

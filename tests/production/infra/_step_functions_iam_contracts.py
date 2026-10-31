@@ -13,6 +13,7 @@ from tests.production.infra._processing_native import (
 )
 
 type Node = dict[str, Any]
+type Grants = frozenset[tuple[str, str, str]]
 
 POLICY_ATTACHMENT_TYPES = {
     "aws_iam_role_policy",
@@ -249,7 +250,7 @@ module "subject" {{
     )
     shutil.copyfile(prod_root / ".terraform.lock.hcl", root / ".terraform.lock.hcl")
     literals = "\n".join(
-        f"    {name} = {json.dumps(value)}" for name, value in variables.items()
+        f"    {name} = {_input_literal(value)}" for name, value in variables.items()
     )
     (root / "tests" / f"{label}.tftest.hcl").write_text(
         MOCK_AWS_PROVIDERS
@@ -264,13 +265,145 @@ module "subject" {{
     )
 
 
+def _input_literal(value: object) -> str:
+    return json.dumps(value).replace("${", "$${").replace("%{", "%%{")
+
+
 def variable_type(value: object) -> str:
     if value is None or isinstance(value, str):
         return "string"
     if isinstance(value, dict):
-        return "map(string)"
+        return "any"
     if isinstance(value, list):
         return "list(string)"
+    if isinstance(value, bool):
+        return "bool"
     if isinstance(value, int):
         return "number"
     return "bool"
+
+
+def _unique_policy_object(pairs: list[tuple[str, Any]]) -> Node:
+    result: Node = {}
+    for key, value in pairs:
+        assert key not in result, f"policy_shape duplicate_key={key}"
+        result[key] = value
+    return result
+
+
+def _policy_strings(value: Any) -> tuple[str, ...]:
+    values = [value] if isinstance(value, str) else value
+    assert isinstance(values, list), "policy_shape expected_strings"
+    assert values, "policy_shape expected_nonempty_strings"
+    seen: list[str] = []
+    for item in values:
+        assert isinstance(item, str), "policy_shape expected_string"
+        assert item, "policy_shape empty_string"
+        assert item not in seen, f"duplicate_grant value={item}"
+        seen.append(item)
+    return tuple(sorted(seen))
+
+
+def _policy_condition(condition: Any) -> str:
+    assert isinstance(condition, dict), "policy_shape condition_object"
+    normalized: Node = {}
+    for operator, entries in condition.items():
+        assert isinstance(entries, dict), "policy_shape condition_entries"
+        assert entries, "policy_shape empty_condition_entries"
+        normalized[operator] = {}
+        for key, value in entries.items():
+            values = _policy_strings(value)
+            normalized[operator][key] = values[0] if isinstance(value, str) else list(values)
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+
+
+def literal_grants(actions: tuple[str, ...], resources: tuple[str, ...], condition: Node) -> Grants:
+    """Args: Ações, recursos e condição do oráculo literal.
+    Returns: Tuplas exatas sem interpretação de permissões.
+    """
+    encoded = _policy_condition(condition)
+    return frozenset((action, resource, encoded) for action in actions for resource in resources)
+
+
+def _statement_grants(statement: Any) -> list[tuple[str, str, str]]:
+    assert isinstance(statement, dict), "policy_shape statement_object"
+    assert {"Effect", "Action", "Resource"} <= statement.keys(), "policy_shape missing_fields"
+    assert statement.keys() <= {"Sid", "Effect", "Action", "Resource", "Condition"}, (
+        "policy_shape unexpected_fields"
+    )
+    assert statement["Effect"] == "Allow", "policy_shape effect"
+    assert isinstance(statement.get("Sid", ""), str), "policy_shape sid"
+    actions = _policy_strings(statement["Action"])
+    resources = _policy_strings(statement["Resource"])
+    condition = _policy_condition(statement.get("Condition", {}))
+    return [(action, resource, condition) for action in actions for resource in resources]
+
+
+def policy_grants(document: str) -> Grants:
+    """Args: Documento IAM observado, sem reconstruir expectativas.
+    Returns: Grants normalizados após rejeitar duplicatas.
+    Raises: AssertionError para shape ou duplicatas inválidos.
+    """
+    try:
+        parsed = json.loads(document, object_pairs_hook=_unique_policy_object)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise AssertionError("policy_shape invalid_json") from error
+    assert isinstance(parsed, dict), "policy_shape document_object"
+    assert set(parsed) == {"Version", "Statement"}, "policy_shape document_fields"
+    assert parsed["Version"] == "2012-10-17", "policy_shape version"
+    statements = parsed["Statement"]
+    assert isinstance(statements, list), "policy_shape statements_list"
+    seen: list[tuple[str, str, str]] = []
+    signatures: list[tuple[tuple[str, str, str], ...]] = []
+    for statement in statements:
+        grants = _statement_grants(statement)
+        signature = tuple(sorted(grants))
+        assert signature not in signatures, "duplicate_statement"
+        signatures.append(signature)
+        for grant in grants:
+            assert grant not in seen, f"duplicate_grant grant={grant!r}"
+            seen.append(grant)
+    return frozenset(seen)
+
+
+def resource_at(plan: Node, address: str) -> Node:
+    """Args: Plano observado e endereço literal do produtor.
+    Returns: Único recurso correspondente.
+    """
+    return one_resource(
+        [item for item in plan["resource_changes"] if item["address"] == address], address
+    )
+
+
+def assert_policy_grants(plan: Node, role: Node, specification: Node, expected: Grants) -> None:
+    """Args: Plano, role, binding literal e grants independentes.
+    Returns: None após igualdade exata.
+    Raises: AssertionError para ausência, binding ou grants divergentes.
+    """
+    address = specification["address"]
+    matches = [item for item in managed_resources(plan, "aws_iam_role_policy")
+               if item["address"] == address]
+    observed = frozenset()
+    if matches:
+        observed = policy_grants(matches[0]["change"]["after"]["policy"])
+    assert matches, f"missing_policy address={address} missing_grants={sorted(expected)!r}"
+    assert len(matches) == 1, f"binding duplicate_policy={address}"
+    values = matches[0]["change"]["after"]
+    target = role["change"]["after"]
+    assert values["role"] == target["name"], f"binding role={address}"
+    assert values["name"] == specification["name"], f"binding name={address}"
+    assert not target.get("inline_policy"), "binding unexpected_inline_policy"
+    assert not target.get("managed_policy_arns"), "binding unexpected_managed_policy"
+    attachments = attached_policy_resources(plan, role)
+    assert all(item["type"] == "aws_iam_role_policy" for item in attachments), (
+        "binding unexpected_attachment_type"
+    )
+    assert {item["address"] for item in attachments} <= set(specification["allowed"]), (
+        "binding unexpected_policy"
+    )
+    assert expected <= observed, (
+        f"missing_grants address={address} grants={sorted(expected - observed)!r}"
+    )
+    assert observed <= expected, (
+        f"extra_grants address={address} grants={sorted(observed - expected)!r}"
+    )

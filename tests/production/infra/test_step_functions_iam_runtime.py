@@ -1,7 +1,25 @@
+import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
+from tests.production.infra._step_functions_iam_contracts import (
+    Grants,
+    Node,
+    assert_no_step_functions_policies,
+    assert_policy_grants,
+    exact_step_functions_trust,
+    literal_grants,
+    managed_resources,
+    policy_grants,
+    resource_at,
+)
+from tests.production.infra.test_ecr_ecs import (
+    _assert_ecs_trust,
+    _assert_execution_grants,
+    _role_policy_bindings,
+)
 from tests.production.infra.test_step_functions_iam import (
     ACCOUNT,
     PREFIX,
@@ -157,3 +175,204 @@ def test_active_sem_role_tem_diagnostico_nativo_explicito(
         or "step_functions_role_required" in item.get("diagnostic", {}).get("summary", "")
         for item in _diagnostics(events)
     )
+
+
+def _runtime_resources(plan: Node) -> Node:
+    resources = {
+        "table": "module.control_plane.aws_dynamodb_table.control_plane",
+        "data": "module.data_buckets.aws_s3_bucket.data",
+        "audit": "module.data_buckets.aws_s3_bucket.audit",
+    }
+    result = {key: resource_at(plan, address)["change"]["after"]["arn"]
+              for key, address in resources.items()}
+    result["machine"] = expected_machine_arn(plan)
+    account = plan["variables"]["shared_outputs"]["value"]["account_id"]
+    result["executions"] = f"arn:aws:states:us-east-2:{account}:execution:{PREFIX}:*"
+    return result
+
+
+def _leading_keys(values: tuple[str, ...], operator: str = "StringLike") -> Node:
+    return {f"ForAllValues:{operator}": {"dynamodb:LeadingKeys": list(values)},
+            "Null": {"dynamodb:LeadingKeys": "false"}}
+
+
+def _object_grants(bucket: str, prefixes: tuple[str, ...], actions: tuple[str, ...]) -> Grants:
+    return literal_grants(actions, tuple(f"{bucket}/{prefix}" for prefix in prefixes), {})
+
+
+def _list_grants(bucket: str, prefixes: tuple[str, ...]) -> Grants:
+    condition = {"StringLike": {"s3:prefix": list(prefixes)}}
+    return literal_grants(("s3:ListBucket",), (bucket,), condition)
+
+
+def _runtime_grants(resources: Node) -> dict[str, Grants]:
+    table, data, audit = resources["table"], resources["data"], resources["audit"]
+    publish = ("tmp/*", "normalized/*", "reconciliation/*", "serving/*")
+    readable = ("raw/*", *publish)
+    keys = ("TENANT#*", "TENANT#*#RUN#*", "TENANT#_GLOBAL",
+            "ENV#prod#FENCE", "ENV#prod#SEMAPHORE")
+    ddb = ("dynamodb:GetItem", "dynamodb:Query", "dynamodb:ConditionCheckItem",
+           "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem")
+    shared = (
+        literal_grants(("states:DescribeStateMachine", "states:StartExecution"),
+                       (resources["machine"],), {})
+        | literal_grants(("states:DescribeExecution", "states:StopExecution"),
+                         (resources["executions"],), {})
+        | literal_grants(ddb, (table,), _leading_keys(keys))
+        | literal_grants(("dynamodb:UpdateItem",), (table,),
+                         _leading_keys(("ENV#prod#ATTEMPTS",), "StringEquals"))
+    )
+    return {
+        "unit": shared | _object_grants(data, readable, ("s3:GetObject",))
+        | _object_grants(data, publish, ("s3:PutObject",)) | _list_grants(data, readable),
+        "recovery": shared | literal_grants(("dynamodb:Query",), (table + "/index/gsi4",),
+                                            _leading_keys(("RUN_RECOVERABLE",), "StringEquals"))
+        | _object_grants(data, publish, ("s3:GetObject", "s3:PutObject"))
+        | _list_grants(data, publish),
+        "audit": literal_grants(("dynamodb:Query",), (table + "/index/gsi6",),
+                                _leading_keys(("OUTBOX#PENDING",), "StringEquals"))
+        | literal_grants(("dynamodb:GetItem", "dynamodb:UpdateItem"), (table,),
+                         _leading_keys(("TENANT#_GLOBAL", "OUTBOX#CURSOR"), "StringEquals"))
+        | literal_grants(("s3:GetBucketObjectLockConfiguration",), (audit,), {})
+        | _object_grants(audit, ("audit/*",), ("s3:PutObject", "s3:PutObjectRetention",
+                                             "s3:GetObject", "s3:GetObjectRetention")),
+        "api": literal_grants(("dynamodb:Query",), (table + "/index/gsi1",),
+                              _leading_keys(("USER#*",)))
+        | literal_grants(("dynamodb:GetItem",), (table,), _leading_keys(("TENANT#*",)))
+        | _object_grants(data, ("reconciliation/*", "serving/*"), ("s3:GetObject",))
+        | _list_grants(data, ("reconciliation/*", "serving/*")),
+    }
+
+
+def _runtime_actor(plan: Node, mode: str) -> tuple[Node, Node]:
+    if mode == "api":
+        arn = plan["variables"]["shared_outputs"]["value"]["roles_anywhere"]["api_role_arn"]
+        role = {"change": {"after": {"name": arn.rsplit("/", 1)[1], "arn": arn}}}
+        owned = managed_resources(plan, "aws_iam_role")
+        assert not any(item["change"]["after"]["arn"] == arn for item in owned), (
+            "binding api_role_owned"
+        )
+        address = "module.runtime_iam.aws_iam_role_policy.api[0]"
+        name = f"{PREFIX}-api-runtime"
+    else:
+        role = resource_at(plan, f'module.runtime_iam.aws_iam_role.task["{mode}"]')
+        address = f'module.runtime_iam.aws_iam_role_policy.runtime["{mode}"]'
+        name = f"{PREFIX}-processor-{mode}-runtime"
+    return role, {"address": address, "name": name, "allowed": [address]}
+
+
+@pytest.mark.parametrize("mode", ["unit", "recovery", "audit", "api"])
+def test_runtime_e_api_recebem_grants_literais_exatos_no_bootstrap(
+    processing_native: NativePlans, mode: str,
+) -> None:
+    plan = processing_native.plans[ROOT_RUN]
+    active = plan["variables"]["processor_active_unit_task_definition_arn"]["value"]
+    assert active is None, "bootstrap_active_expected_null"
+    expected = _runtime_grants(_runtime_resources(plan))[mode]
+    role, specification = _runtime_actor(plan, mode)
+    assert_policy_grants(plan, role, specification, expected)
+
+
+def test_runtime_isolado_com_machine_sem_grants_mantem_role_sem_policy(
+    runtime_context: tuple[NativePlans, Path, Tofu, Path],
+) -> None:
+    native, root, tofu, tmp_path = runtime_context
+    machine = expected_machine_arn(native.plans[ROOT_RUN])
+    label = "runtime-role-only"
+    events = _isolated_module_case(
+        tofu, root, (tmp_path, RUNTIME_IAM_SOURCE, _runtime_inputs(machine), label),
+    )
+    assert event_for(events, "test_run", label)["test_run"]["status"] == "pass"
+    assert not _diagnostics(events)
+    plan = event_for(events, "test_plan", label)["test_plan"]
+    roles = managed_resources(plan, "aws_iam_role")
+    assert len(roles) == 5
+    policies = managed_resources(plan, "aws_iam_role_policy")
+    addresses = [item["address"] for item in policies]
+    assert addresses == ["module.subject.aws_iam_role_policy.execution"]
+    role = resource_at(plan, "module.subject.aws_iam_role.step_functions[0]")
+    exact_step_functions_trust(role, ACCOUNT, machine)
+    assert_no_step_functions_policies(plan, role)
+    ecs_roles = [item for item in roles if item is not role]
+    assert {item["change"]["after"]["name"] for item in ecs_roles} == {
+        f"{PREFIX}-processor-{mode}" for mode in ("execution", "unit", "recovery", "audit")
+    }
+    for ecs_role in ecs_roles:
+        _assert_ecs_trust(ecs_role, ACCOUNT)
+        values = ecs_role["change"]["after"]
+        assert not values.get("inline_policy"), "isolated_runtime_inline_policies"
+        assert not values.get("managed_policy_arns"), "isolated_runtime_managed_policies"
+        documents, arns = _role_policy_bindings(ecs_role, plan, plan["configuration"])
+        assert not arns, f"isolated_runtime_managed_policies={arns!r}"
+        if values["name"] == f"{PREFIX}-processor-execution":
+            _assert_execution_grants(
+                documents,
+                f"arn:aws:ecr:us-east-2:{ACCOUNT}:repository/{PREFIX}",
+                f"arn:aws:logs:us-east-2:{ACCOUNT}:log-group:/ecs/{PREFIX}-processor:*",
+            )
+        else:
+            assert not documents, f"isolated_runtime_task_policies={ecs_role['address']}"
+
+
+def _policy_document(statements: list[Node]) -> str:
+    return json.dumps({"Version": "2012-10-17", "Statement": statements})
+
+
+@pytest.mark.parametrize("field", [
+    "NotAction", "NotResource", "Principal", "NotPrincipal", "Extra",
+])
+def test_oraculo_rejeita_campos_de_policy_fora_do_contrato(field: str) -> None:
+    statement = {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:fixture"}
+    statement[field] = "*"
+    with pytest.raises(AssertionError, match="policy_shape unexpected_fields"):
+        policy_grants(_policy_document([statement]))
+
+
+@pytest.mark.parametrize("case", ["statement", "action", "resource", "overlap"])
+def test_oraculo_rejeita_duplicatas_antes_de_converter_grants_em_set(case: str) -> None:
+    statement: Node = {"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": ["arn:fixture"]}
+    other = deepcopy(statement)
+    statements = [statement]
+    reason = "duplicate_grant"
+    if case == "statement":
+        statements.append(other)
+        reason = "duplicate_statement"
+    elif case == "overlap":
+        other["Action"].append("s3:PutObject")
+        statements.append(other)
+    else:
+        field = "Action" if case == "action" else "Resource"
+        statement[field] *= 2
+    with pytest.raises(AssertionError, match=reason):
+        policy_grants(_policy_document(statements))
+
+
+def test_oraculo_rejeita_json_invalido_e_chaves_json_repetidas() -> None:
+    for raw in ("{invalid", '{"Version":"2012-10-17","Version":"2012-10-17","Statement":[]}'):
+        with pytest.raises(AssertionError, match="policy_shape"):
+            policy_grants(raw)
+
+
+def test_oraculo_normaliza_ordem_sem_inferir_permissoes() -> None:
+    statement = {"Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"],
+                 "Resource": ["arn:second", "arn:first"], "Condition": {}}
+    expected = frozenset({("s3:GetObject", "arn:first", "{}"),
+                          ("s3:GetObject", "arn:second", "{}"),
+                          ("s3:PutObject", "arn:first", "{}"),
+                          ("s3:PutObject", "arn:second", "{}")})
+    assert policy_grants(_policy_document([statement])) == expected
+
+
+def test_oraculo_preserva_condicao_literal_e_rejeita_valor_repetido() -> None:
+    statement: Node = {
+        "Effect": "Allow", "Action": "dynamodb:GetItem", "Resource": "arn:table",
+        "Condition": {"Null": {"dynamodb:LeadingKeys": "false"},
+                      "ForAllValues:StringLike": {"dynamodb:LeadingKeys": ["TENANT#*"]}},
+    }
+    condition = ('{"ForAllValues:StringLike":{"dynamodb:LeadingKeys":["TENANT#*"]},'
+                 '"Null":{"dynamodb:LeadingKeys":"false"}}')
+    expected = frozenset({("dynamodb:GetItem", "arn:table", condition)})
+    assert policy_grants(_policy_document([statement])) == expected
+    statement["Condition"]["ForAllValues:StringLike"]["dynamodb:LeadingKeys"] *= 2
+    with pytest.raises(AssertionError, match="duplicate_grant"):
+        policy_grants(_policy_document([statement]))

@@ -256,4 +256,36 @@ variable "step_functions_role_arn" {
     )
     error_message = "step_functions_role_required=expected_role_for_active_machine"
   }
+
+  validation {
+    condition = !var.enable_step_functions_iam ? true : try(
+      var.step_functions_role_arn == format(
+        "arn:aws:iam::%s:role/%s-step-functions",
+        split(":", var.state_machine_arn)[4], var.name_prefix,
+      ),
+      false,
+    )
+    error_message = "step_functions_iam_role_arn=expected_own_role_arn"
+  }
+}
+
+variable "step_functions_role_id" {
+  description = "Step Functions role name for optional ECS integration grants."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = !var.enable_step_functions_iam ? true : (
+      var.step_functions_role_id == "${var.name_prefix}-step-functions"
+    )
+    error_message = "step_functions_iam_role_id=expected_own_role_name"
+  }
+}
+
+variable "enable_step_functions_iam" {
+  description = "Enable ECS integration grants using a known composition switch."
+  type        = bool
+  default     = false
+  nullable    = false
 }

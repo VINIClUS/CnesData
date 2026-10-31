@@ -20,3 +20,18 @@ resource "aws_sfn_state_machine" "processor" {
     security_group_id   = var.security_group_id
   })
 }
+
+resource "aws_iam_role_policy" "step_functions_ecs" {
+  count = var.enable_step_functions_iam ? 1 : 0
+
+  name = "${var.name_prefix}-step-functions-ecs"
+  role = var.step_functions_role_id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ecs:DescribeTasks", "ecs:StopTask"]
+      Resource = "*"
+    }]
+  })
+}
