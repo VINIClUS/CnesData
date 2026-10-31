@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from tests.production.infra._root_native_identities import (
     _override_hcl,
     assert_root_identity_producers,
