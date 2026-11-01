@@ -31,6 +31,7 @@ MARGIN_SECONDS = 15.0
 CYCLE_SECONDS = 1.0
 CREDENTIAL_KEYS = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")
 PROFILE_KEYS = ("AWS_PROFILE", "AWS_DEFAULT_PROFILE")
+AUTHORIZED_REGIONS = frozenset({"us-east-2"})
 
 
 def _spawn(argv: list[str], **options: Any) -> Any:
@@ -139,7 +140,7 @@ def build_ports(
         raise SafetyFailure("invalid_profile")
     commands = AwsCommands(spec.region, dict(environment), COMMAND_TIMEOUT)
     services = AwsServices(spec, ServicePorts(commands, clock))
-    policy = Policy(spec.account, frozenset({spec.region}), profile.limits)
+    policy = Policy(spec.account, AUTHORIZED_REGIONS, profile.limits)
     budget = RequestBudget(profile.limits, spec.deadline, clock)
     return Ports(services, processes, clock, policy, budget)
 
@@ -217,4 +218,5 @@ def main(argv: Sequence[str], environment: Mapping[str, str], runtime: Runtime) 
     except Exception as error:
         outcome = Outcome("incomplete", "unexpected_error", None, {"error": type(error).__name__})
     runtime.emit(render(outcome))
-    return 0 if outcome.status == ("stopped" if command == "monitor" else "succeeded") else 1
+    success = ("stopped", "succeeded") if command == "monitor" else ("succeeded",)
+    return 0 if outcome.status in success else 1

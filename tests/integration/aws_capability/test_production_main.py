@@ -188,15 +188,47 @@ def test_main_monitor_sai_zero_somente_com_stopped(lab: Lab) -> None:
     assert json.loads(console.lines[0])["status"] == "stopped"
 
 
-def test_main_monitor_com_sucesso_de_janitor_nao_sai_zero(lab: Lab) -> None:
+def test_main_monitor_com_sucesso_de_janitor_sai_zero(lab: Lab) -> None:
     resource = Resource("cognito", "pool", NAME)
     lab.remote.add(resource)
     seed_journal(lab, [resource])
     lab.processes.workers[4321] = False
     console = Console()
     argv = arguments(lab, "monitor", "--worker-pid", "4321")
-    assert production.main(argv, environment(), runtime(lab, console)) != 0
+    assert production.main(argv, environment(), runtime(lab, console)) == 0
     assert json.loads(console.lines[0])["status"] == "succeeded"
+
+
+def test_main_monitor_com_janitor_incompleto_nao_sai_zero(lab: Lab) -> None:
+    resource = Resource("cognito", "pool", NAME)
+    lab.remote.add(resource)
+    lab.remote.delete_errors[resource.resource_id] = 99
+    seed_journal(lab, [resource])
+    lab.processes.workers[4321] = False
+    console = Console()
+    argv = arguments(lab, "monitor", "--worker-pid", "4321")
+    assert production.main(argv, environment(), runtime(lab, console)) == 1
+    assert json.loads(console.lines[0])["status"] == "incomplete"
+
+
+@pytest.mark.parametrize("command", ["run", "janitor", "monitor"])
+@pytest.mark.parametrize("region", ["us-east-1", "eu-west-1"])
+def test_main_recusa_regiao_nao_autorizada_antes_de_chamar_aws(
+    lab: Lab, command: str, region: str
+) -> None:
+    seed_journal(lab)
+    console = Console()
+    config = replace(runtime(lab, console), build=production.build_ports)
+    argv = arguments(lab, command, "--worker-pid", "4321")
+    argv[argv.index("--region") + 1] = region
+    assert production.main(argv, environment(), config) == 1
+    document = json.loads(console.lines[0])
+    assert (document["status"], document["reason"]) == ("refused", "region_not_authorized")
+    assert lab.events == []
+
+
+def test_regioes_autorizadas_sao_fixas_em_us_east_2() -> None:
+    assert frozenset({"us-east-2"}) == production.AUTHORIZED_REGIONS
 
 
 def test_main_monitor_exige_pid_do_worker_valido(lab: Lab) -> None:

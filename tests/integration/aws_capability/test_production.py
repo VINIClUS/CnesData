@@ -207,7 +207,7 @@ def test_ports_reais_usam_limites_do_perfil_e_somente_a_regiao_do_spec(
     limits = PROFILES[probe].limits
     assert ports.policy.limits == limits
     assert ports.policy.account == spec.account
-    assert ports.policy.regions == frozenset({spec.region})
+    assert ports.policy.regions == production.AUTHORIZED_REGIONS
     assert ports.budget.limits == limits
     assert ports.budget.deadline == spec.deadline
     assert ports.processes is boundary
