@@ -125,6 +125,14 @@ def test_receive_retorna_none_para_ack_ausente_invalido_ou_incompleto(
     assert boundary.receive(4242) is None
 
 
+def test_receive_recusa_ack_json_valido_que_excede_o_limite_de_bytes() -> None:
+    padding = [b" " * 4096] * (production.ACK_LIMIT // 4096 + 2)
+    system = FakeSystem(chunks=[b'{"a":', *padding, b"1}\n"])
+    boundary, _ = started(system)
+    assert boundary.receive(4242) is None
+    assert system.chunks[-1] == b"1}\n"
+
+
 def test_receive_expira_sem_dados_dentro_do_limite() -> None:
     system = FakeSystem()
     boundary, _, _, selector, _ = processes(system)

@@ -242,7 +242,7 @@ def test_guard_local_rejeita_sem_io(read_lab: ReadLab, case: str) -> None:
     _trace(read_lab, [])
 
 
-@pytest.mark.parametrize("profile", ["all", "cognito-login", "s3-hold", "iam-trust", "unknown"])
+@pytest.mark.parametrize("profile", ["all", "cognito-login", "iam-trust", "unknown"])
 def test_outros_perfis_preservam_stub_e_resposta_enfileirada(
     read_lab: ReadLab, profile: str
 ) -> None:

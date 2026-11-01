@@ -4,6 +4,8 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from tests.integration.aws_capability._b1_testing import operator_environment
+
 
 @dataclass
 class FakeStream:
@@ -101,6 +103,7 @@ class ClosedOut:
 
 def environment() -> Mapping[str, str]:
     return {
+        **operator_environment(),
         "AWS_ACCESS_KEY_ID": "dummy-key-do-not-log",
         "AWS_SECRET_ACCESS_KEY": "dummy-secret-do-not-log",
         "AWS_SESSION_TOKEN": "dummy-token-do-not-log",

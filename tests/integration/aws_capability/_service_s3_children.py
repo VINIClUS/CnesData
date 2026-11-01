@@ -49,6 +49,8 @@ def lookup_s3_child(
             return owner
         next_state = _next_state(data, state)
         if data["IsTruncated"] is False or next_state is None:
+            if context.lane == "cleanup":
+                return None
             break
         digest = s3_marker_digest(next_state.kind, next_state.markers)
         if digest in seen:
@@ -199,7 +201,7 @@ def _validate_page(data: Mapping[str, object], kind: str) -> None:
         else ("NextKeyMarker", "NextUploadIdMarker")
     )
     if truncated is False:
-        if any(key in data for key in next_keys):
+        if any(key in data and data[key] != "" for key in next_keys):
             raise ServiceFailure("service=inventory_invalid")
         return
     primary = data.get("NextKeyMarker")

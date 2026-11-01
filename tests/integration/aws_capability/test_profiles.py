@@ -18,14 +18,14 @@ from tests.integration.aws_capability.contracts import (
 )
 
 PROFILES = [
-    ("cognito-login", 512, 90, 256, ("cognito",)),
-    ("cognito-pkce-negatives", 512, 90, 256, ("cognito",)),
-    ("cognito-sdk", 256, 90, 128, ("cognito",)),
-    ("ddb-transactions", 192, 60, 96, ("dynamodb",)),
-    ("ddb-conditions", 256, 60, 128, ("dynamodb",)),
-    ("ddb-ttl-gsi", 256, 60, 128, ("dynamodb",)),
-    ("s3-retention", 384, 90, 192, ("s3", "iam")),
-    ("s3-hold", 256, 90, 128, ("s3",)),
+    ("cognito-login", 512, 240, 256, ("cognito",)),
+    ("cognito-pkce-negatives", 512, 240, 256, ("cognito",)),
+    ("cognito-sdk", 256, 240, 128, ("cognito",)),
+    ("ddb-transactions", 192, 150, 96, ("dynamodb",)),
+    ("ddb-conditions", 256, 150, 128, ("dynamodb",)),
+    ("ddb-ttl-gsi", 256, 150, 128, ("dynamodb",)),
+    ("s3-retention", 384, 240, 192, ("s3", "iam")),
+    ("s3-hold", 256, 120, 128, ("s3",)),
     ("iam-trust", 256, 60, 128, ("iam",)),
     ("iam-leadingkeys", 512, 90, 256, ("dynamodb", "iam")),
     ("iam-s3", 384, 90, 192, ("s3", "iam")),
@@ -59,7 +59,7 @@ def schema2(lab: Lab, resource: Resource) -> dict:
         "profile_version": 1,
         "limits": {
             "calls": 192, "pages": 8, "attempts": 2,
-            "cleanup_seconds": 60, "cleanup_reserve": 96,
+            "cleanup_seconds": 150, "cleanup_reserve": 96,
         },
     })
     lab.journal().write_text(json.dumps(data), encoding="utf-8")
@@ -104,7 +104,7 @@ def test_schema2_persiste_mesmo_antes_da_primeira_criacao(lab: Lab) -> None:
     lab.spec = replace(lab.spec, probe="ddb-transactions")
     snapshots: list[dict] = []
     lab.remote.at_create = lambda spec: snapshots.append(json.loads(lab.journal().read_bytes()))
-    lifecycle.run(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    lifecycle.run(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert snapshots
     assert snapshots[0]["schema_version"] == 2
     assert snapshots[0]["probe"] == "ddb-transactions"
@@ -135,7 +135,7 @@ def test_default_all_mantem_roots_limites_e_bytes_schema1(lab: Lab) -> None:
 def test_probe_explicito_atravessa_cli_e_supervisor(lab: Lab) -> None:
     lab.spec = replace(lab.spec, probe="ddb-transactions")
     args = argv(lab) + ["--probe", "ddb-transactions"]
-    outcome = lifecycle.main(args, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    outcome = lifecycle.main(args, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert outcome.status == "succeeded"
     starts = [e for e in lab.events if e[0] == "start"]
     assert len(starts) == 1
@@ -166,14 +166,14 @@ def test_janitor_recupera_schema2_com_perfil_e_limites_originais(lab: Lab) -> No
     lab.remote.add(resource)
     schema2(lab, resource)
     lab.time = 1061
-    outcome = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    outcome = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert outcome.status == "succeeded"
     assert lab.remote.resources == {}
     data = json.loads(lab.journal().read_bytes())
     assert data["schema_version"] == 2
     assert data["probe"] == "ddb-transactions"
     assert data["limits"] == {
-        "calls": 192, "pages": 8, "attempts": 2, "cleanup_seconds": 60, "cleanup_reserve": 96,
+        "calls": 192, "pages": 8, "attempts": 2, "cleanup_seconds": 150, "cleanup_reserve": 96,
     }
     assert data["created"] == []
     assert not any(e[0] in {"create", "probe"} for e in lab.events)
@@ -190,12 +190,12 @@ def test_recuperacao_nao_aceita_perfil_trocado(lab: Lab, profile: str) -> None:
     schema2(lab, resource)
     before = lab.journal().read_bytes()
     changed = replace(lab.spec, probe=profile)
-    outcome = lifecycle.janitor(changed, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    outcome = lifecycle.janitor(changed, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert outcome.status == "refused"
     assert_no_mutation(lab)
     assert lab.journal().read_bytes() == before
     assert "profile-table" in lab.remote.resources
-    valid = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    valid = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert valid.status == "succeeded"
 
 
@@ -206,7 +206,7 @@ def test_schema1_recusa_perfil_real_antes_de_mutacao(lab: Lab) -> None:
     Journal(lab.spec, phase="cleanup_requested", created=[resource]).save()
     before = lab.journal().read_bytes()
     changed = replace(lab.spec, probe="ddb-transactions")
-    outcome = lifecycle.janitor(changed, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    outcome = lifecycle.janitor(changed, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert outcome.status == "refused"
     assert_no_mutation(lab)
     assert lab.journal().read_bytes() == before
@@ -216,7 +216,7 @@ def test_schema1_recusa_perfil_real_antes_de_mutacao(lab: Lab) -> None:
 
 @pytest.mark.parametrize(("field", "value"), [
     ("calls", 193), ("pages", 9), ("attempts", 3),
-    ("cleanup_seconds", 61), ("cleanup_reserve", 95),
+    ("cleanup_seconds", 151), ("cleanup_reserve", 95),
 ])
 def test_snapshot_de_limites_adulterado_recusa_sem_apagar(
     lab: Lab, field: str, value: int
@@ -229,12 +229,12 @@ def test_snapshot_de_limites_adulterado_recusa_sem_apagar(
     changed["limits"][field] = value
     lab.journal().write_text(json.dumps(changed))
     before = lab.journal().read_bytes()
-    outcome = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    outcome = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert outcome.status == "refused"
     assert_no_mutation(lab)
     assert lab.journal().read_bytes() == before
     lab.journal().write_text(json.dumps(original))
-    control = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    control = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert control.status == "succeeded"
 
 
@@ -245,12 +245,12 @@ def test_versao_de_perfil_desconhecida_nao_e_recuperada(lab: Lab) -> None:
     original = schema2(lab, resource)
     changed = dict(original, profile_version=2)
     lab.journal().write_text(json.dumps(changed))
-    outcome = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    outcome = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert outcome.status == "refused"
     assert_no_mutation(lab)
     assert json.loads(lab.journal().read_bytes()) == changed
     lab.journal().write_text(json.dumps(original))
-    control = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    control = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert control.status == "succeeded"
 
 
@@ -266,7 +266,7 @@ def test_perfil_fora_da_allowlist_recusa_antes_de_create(lab: Lab, profile: str)
 @pytest.mark.parametrize("source", ["policy", "budget", "both"])
 def test_limites_do_perfil_nao_podem_divergir_de_policy_ou_budget(lab: Lab, source: str) -> None:
     lab.spec = replace(lab.spec, probe="ddb-transactions")
-    ports = profile_ports(lab, Limits(192, 8, 2, 60, 96))
+    ports = profile_ports(lab, Limits(192, 8, 2, 150, 96))
     if source == "policy":
         ports = replace(ports, policy=replace(ports.policy, limits=Limits(256, 8, 2, 60, 128)))
     elif source == "both":
@@ -281,13 +281,13 @@ def test_limites_do_perfil_nao_podem_divergir_de_policy_ou_budget(lab: Lab, sour
 
 @pytest.mark.parametrize(("field", "value"), [
     ("calls", 513), ("pages", 9), ("attempts", 3),
-    ("cleanup_seconds", 91), ("cleanup_reserve", 1),
+    ("cleanup_seconds", 151), ("cleanup_reserve", 1),
 ])
 def test_policy_e_budget_concordantes_nao_substituem_registry(
     lab: Lab, field: str, value: int
 ) -> None:
     lab.spec = replace(lab.spec, probe="ddb-transactions")
-    limits = replace(Limits(192, 8, 2, 60, 96), **{field: value})
+    limits = replace(Limits(192, 8, 2, 150, 96), **{field: value})
     outcome = lifecycle.run(lab.spec, profile_ports(lab, limits))
     assert outcome.status == "refused"
     assert_no_mutation(lab)
@@ -325,14 +325,14 @@ def test_snapshot_policy_e_budget_adulterados_juntos_nao_burlam_registry(lab: La
     assert_no_mutation(lab)
     assert json.loads(lab.journal().read_bytes()) == changed
     lab.journal().write_text(json.dumps(original))
-    control = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    control = lifecycle.janitor(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert control.status == "succeeded"
 
 
 @pytest.mark.parametrize("seconds", [181, float("inf"), float("nan")])
 def test_perfil_recusa_deadline_de_trabalho_fora_do_teto(lab: Lab, seconds: float) -> None:
     lab.spec = replace(lab.spec, probe="ddb-transactions", deadline=1000 + seconds)
-    outcome = lifecycle.run(lab.spec, profile_ports(lab, Limits(192, 8, 2, 60, 96)))
+    outcome = lifecycle.run(lab.spec, profile_ports(lab, Limits(192, 8, 2, 150, 96)))
     assert outcome.status == "refused"
     assert_no_mutation(lab)
 

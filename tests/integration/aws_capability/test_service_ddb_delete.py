@@ -33,7 +33,7 @@ LEGACY = (
 )
 PROFILE = (
     b', "probe": "ddb-transactions", "profile_version": 1, "limits": '
-    b'{"calls": 192, "pages": 8, "attempts": 2, "cleanup_seconds": 60, "cleanup_reserve": 96}}'
+    b'{"calls": 192, "pages": 8, "attempts": 2, "cleanup_seconds": 150, "cleanup_reserve": 96}}'
 )
 
 
@@ -120,7 +120,7 @@ def test_rejeita_entrada_local_sem_io_ou_debito(delete_lab: ReadLab, case: str) 
     trace(delete_lab, [], 6)
 
 
-@pytest.mark.parametrize("service", ["cognito", "s3", "iam", "foreign"])
+@pytest.mark.parametrize("service", ["cognito", "foreign"])
 def test_preserva_stub_de_outros_servicos_sem_io(delete_lab: ReadLab, service: str) -> None:
     adapter(delete_lab)
     with pytest.raises(ServiceFailure) as error:

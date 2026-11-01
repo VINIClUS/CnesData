@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
 from tests.integration.aws_capability._resource_ids import cognito_child
+from tests.integration.aws_capability._s3_probe import probe_s3
 from tests.integration.aws_capability._service_cognito import (
     inspect_pool,
     list_pools,
@@ -30,12 +31,17 @@ from tests.integration.aws_capability._service_dynamodb import (
     lookup_table,
 )
 from tests.integration.aws_capability._service_dynamodb_create import create_table
-from tests.integration.aws_capability._service_dynamodb_delete import delete_table
+from tests.integration.aws_capability._service_dynamodb_delete import (
+    await_table_gone,
+    delete_table,
+)
 from tests.integration.aws_capability._service_iam import inspect_role, list_roles, lookup_role
 from tests.integration.aws_capability._service_iam_children import (
     inspect_iam_child,
     lookup_iam_child,
 )
+from tests.integration.aws_capability._service_iam_create import create_role
+from tests.integration.aws_capability._service_iam_delete import delete_iam
 from tests.integration.aws_capability._service_iam_dependents import iam_dependents
 from tests.integration.aws_capability._service_identity import read_identity
 from tests.integration.aws_capability._service_inventory import list_tables
@@ -44,6 +50,8 @@ from tests.integration.aws_capability._service_s3_children import (
     inspect_s3_child,
     lookup_s3_child,
 )
+from tests.integration.aws_capability._service_s3_create import create_bucket
+from tests.integration.aws_capability._service_s3_delete import delete_s3
 from tests.integration.aws_capability._service_s3_dependents import s3_dependents
 from tests.integration.aws_capability.cli import Cli, Request
 from tests.integration.aws_capability.contracts import (
@@ -56,6 +64,8 @@ from tests.integration.aws_capability.contracts import (
     ServerLookup,
     ServiceFailure,
 )
+
+S3_PROFILES = frozenset({"s3-hold", "s3-retention"})
 
 
 @dataclass(frozen=True)
@@ -144,6 +154,10 @@ class AwsServices:
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")
             return create_pool(self.ports.commands, self.spec, creation, context)
+        if service == "s3" and self.spec.probe in S3_PROFILES:
+            return create_bucket(self.ports.commands, self.spec, creation, context)
+        if service == "iam" and self.spec.probe == "s3-retention":
+            return create_role(self.ports, self.spec, creation, context)
         if service != "dynamodb":
             raise ServiceFailure("service=not_implemented")
         return create_table(self.ports.commands, self.spec, creation, context)
@@ -159,6 +173,10 @@ class AwsServices:
             if spec != self.spec or len(resources) != 1:
                 raise ServiceFailure("probe=cognito_prepare_invalid")
             prepare_pool(self.ports.commands, self.spec, resources[0], context)
+        if self.spec.probe in S3_PROFILES:
+            if spec != self.spec:
+                raise ServiceFailure("probe=s3_invalid")
+            return probe_s3(resources, spec, self.ports, context)
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:
@@ -189,7 +207,17 @@ class AwsServices:
             raise ServiceFailure("probe=cognito_server_invalid")
         return {"resource_server_lookup": lookup}
 
+    def settle_delete(self, resource: Resource, context: RequestContext) -> None:
+        if resource.service == "dynamodb":
+            await_table_gone(self.ports, self.spec, resource, context)
+
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
+        if resource.service == "s3":
+            delete_s3(resource, bypass, self, context)
+            return
+        if resource.service == "iam":
+            delete_iam(resource, bypass, self, context)
+            return
         if resource.service == "cognito":
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")

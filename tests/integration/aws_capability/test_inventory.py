@@ -246,3 +246,17 @@ def test_inventario_estranho_em_pagina_posterior_mantem_paginacao_completa(
     outcome = lifecycle.run(lab.spec, lab.ports())
     assert outcome.reason == "inventory_incomplete"
     assert_no_mutation(lab.events)
+
+
+@pytest.mark.parametrize("service", SERVICES)
+def test_pagina_com_recurso_de_outro_servico_e_incompleta_sem_inspecionar(
+    lab: Lab, service: str
+) -> None:
+    other = next(item for item in SERVICES if item != service)
+    foreign = Resource(other, "cross-service-id", NAME)
+    lab.remote.pages[service] = [Page((foreign,))]
+    lab.remote.inspect_errors.add(foreign.resource_id)
+    outcome = lifecycle.run(lab.spec, lab.ports())
+    assert outcome.reason == "inventory_incomplete"
+    assert ("inspect", "cross-service-id") not in lab.events
+    assert_no_mutation(lab.events)
