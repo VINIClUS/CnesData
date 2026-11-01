@@ -105,6 +105,9 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
 - **Supervisor:** o `run` inicia o `monitor` em sessão própria e só cria recursos depois do ack.
   O monitor repete o ciclo a cada segundo; se o worker morrer (ex.: `kill -9`) ou o deadline
   passar, ele roda o janitor sob o lock do journal e para no `deadline + cleanup + margem`.
+- **Fim anormal:** o resultado do janitor do supervisor vai ao pipe do worker, que pode já ter
+  morrido. Após `kill -9` ou `incomplete`, espere `deadline + cleanup + 15 s`, rode o janitor
+  manual e use o JSON dele como evidência final.
 - **Recuperação manual:** com o mesmo `--journal-dir`, `--run-id` e `--deadline`, rode
   `... lifecycle janitor` (mesmos argumentos, sem `--worker-pid`); `waiting/cleanup_owned`
   indica outro dono do lock.

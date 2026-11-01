@@ -1,4 +1,4 @@
-"""Prontidão e TTL preparam o root sem aprovar perfis semânticos incompletos."""
+"""Prontidão e TTL preparam o root e liberam as verificações do perfil."""
 
 import json
 import logging
@@ -17,7 +17,10 @@ from tests.integration.aws_capability._journal import Journal
 from tests.integration.aws_capability._service_ddb_prepare_testing import (
     Privacy,
     _data,
+    _disabled,
     _invalid_table,
+    _queue,
+    _ready,
 )
 from tests.integration.aws_capability._service_read_assertions import (
     FIXED_FLAGS,
@@ -45,7 +48,6 @@ from tests.integration.aws_capability.contracts import (
 )
 
 ROOT = Resource("dynamodb", "cnesdata-cap-a1b2c3d4", "cnesdata-cap-a1b2c3d4")
-Step = tuple[str, Any]
 
 
 @dataclass
@@ -84,22 +86,10 @@ def read_lab(
     return lab
 
 
-
 @pytest.fixture
 def privacy(caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]) -> Privacy:
     caplog.set_level(logging.DEBUG)
     return Privacy(caplog, capsys)
-
-
-def _queue(lab: ReadLab, steps: Sequence[Step]) -> list[ExpectedCall]:
-    expected = []
-    for operation, outcome in steps:
-        expected.append(tuple(_data()["requests"][operation]))
-        if isinstance(outcome, BaseException | tuple):
-            lab.process.outcomes.append(outcome)
-        else:
-            respond(lab, outcome)
-    return cast("list[ExpectedCall]", expected)
 
 
 def _trace(
@@ -148,14 +138,6 @@ def _probe(lab: ReadLab, reason: str | None = None) -> Any:
     assert error.value.args == (reason,)
     return error.value
 
-
-def _ready() -> list[Step]:
-    data = _data()
-    return [("describe", data["active"]), ("tags", data["tags"])]
-
-
-def _disabled() -> list[Step]:
-    return [*_ready(), ("ttl", _data()["ttl"]["disabled"]), *_ready()]
 
 
 @pytest.mark.parametrize("profile", ["ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"])

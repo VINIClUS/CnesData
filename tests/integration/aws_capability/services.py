@@ -159,7 +159,6 @@ class AwsServices:
             if spec != self.spec or len(resources) != 1:
                 raise ServiceFailure("probe=cognito_prepare_invalid")
             prepare_pool(self.ports.commands, self.spec, resources[0], context)
-            raise ServiceFailure("probe=not_implemented")
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:
