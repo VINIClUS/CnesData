@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from hashlib import sha256
 from pathlib import Path
 from typing import cast
 
@@ -83,7 +84,10 @@ def test_schedules_a_cada_30_min_sem_retry(plan: Node) -> None:
         assert schedule["name"] == f"{PREFIX}-{mode}"
         target = _block(schedule, "target")
         assert target["arn"] == CLUSTER, f"target_cluster mode={mode}"
-        assert _block(target, "retry_policy")["maximum_retry_attempts"] == 0, f"retry mode={mode}"
+        retry = _block(target, "retry_policy")
+        assert retry == {"maximum_retry_attempts": 0, "maximum_event_age_in_seconds": 900}, (
+            f"retry mode={mode} retry={retry!r}"
+        )
         ecs = _block(target, "ecs_parameters")
         assert ecs["launch_type"] == "FARGATE"
         assert ecs["task_count"] == 1
@@ -224,7 +228,7 @@ def test_sem_revisoes_cria_roles_sem_run_task_e_nenhum_schedule(bootstrap_plan: 
 def test_rejeita_revisao_de_outro_modo_conta_ou_sem_numero(
     run_case: Callable[[str, Node], SchedulersRun], variable: str, revision: str
 ) -> None:
-    label = f"invalid-{variable[:5]}-{abs(hash(revision)) % 10**6}"
+    label = f"invalid-{variable[:5]}-{sha256(revision.encode()).hexdigest()[:8]}"
     run = run_case(label, {variable: revision})
     assert run.diagnostics, f"revision_accepted variable={variable} revision={revision}"
     assert any("_revision=expected_own_" in str(item) for item in run.diagnostics)
