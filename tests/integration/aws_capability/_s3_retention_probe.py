@@ -60,9 +60,12 @@ def _denied_phase(actors: _Actors, version: str) -> dict[str, object]:
     operator, role, ports, spec = actors.operator, actors.role, actors.ports, actors.spec
     must(put_inline_policy(ports.commands, spec, ("cap-p0", P0), operator.context), "p0_policy")
     _, ready = retry_denied(lambda: role.head(KEY), ports, operator.context, "p0")
+    delete_code = role.delete(KEY, version, False).code
+    _, put_ready = retry_denied(lambda: role.put(ROLE_KEY, None), ports, operator.context, "p0_put")
     return {
         "p0_ready_seconds": ready,
-        "p0_delete_version": role.delete(KEY, version, False).code,
+        "p0_delete_version": delete_code,
+        "p0_put_ready_seconds": put_ready,
         "p0_put_lock_headers": role.put(ROLE_KEY, ports.now() + HOLD_SECONDS).code,
     }
 

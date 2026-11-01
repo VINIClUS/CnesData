@@ -19,6 +19,7 @@ from tests.integration.aws_capability.contracts import RequestContext, ServiceFa
 SECONDS = (
     "assume_seconds",
     "p0_ready_seconds",
+    "p0_put_ready_seconds",
     "p1_ready_seconds",
     "p1_delete_unretained_ready_seconds",
 )
@@ -95,6 +96,7 @@ def test_controle_positivo_antecede_cada_negacao_do_papel(lab: ProbeLab) -> None
     assert role_ops == [
         "head-object",
         "delete-object",
+        "put-object",
         "put-object",
         "put-object-retention",
         "delete-object",
@@ -251,4 +253,18 @@ def test_delete_de_versao_negado_ao_papel_falha_antes_das_negacoes_p1(tmp_path: 
     with pytest.raises(ServiceFailure) as error:
         run(lab)
     assert error.value.args == ("probe=control_failed step=p1_delete",)
-    assert len(lab.aws.operations("role")) == 4 + 12
+    assert len(lab.aws.operations("role")) == 5 + 12
+
+
+def test_put_negado_ao_papel_falha_antes_da_negacao_de_cabecalhos_de_lock(
+    tmp_path: Path,
+) -> None:
+    lab = make_probe_lab(tmp_path, "s3-retention")
+    original = lab.aws.allowed
+    lab.aws.allowed = lambda who, action: (
+        False if action == "s3:PutObject" and who == "role" else original(who, action)
+    )
+    with pytest.raises(ServiceFailure) as error:
+        run(lab)
+    assert error.value.args == ("probe=control_failed step=p0_put",)
+    assert "put-object-retention" not in lab.aws.operations("role")

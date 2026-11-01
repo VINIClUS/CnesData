@@ -125,3 +125,15 @@ def test_delete_de_versao_negado_ao_papel_falha_e_a_cleanup_remove_tudo(tmp_path
     assert (outcome.status, outcome.reason) == ("failed", "operation_failed")
     assert lab.aws.buckets == {}
     assert lab.aws.roles == {}
+
+
+def test_put_negado_ao_papel_falha_e_a_cleanup_remove_tudo(tmp_path: Path) -> None:
+    lab = make_probe_lab(tmp_path / "private", "s3-retention", seeded=False, latency=LATENCY)
+    original = lab.aws.allowed
+    lab.aws.allowed = lambda who, action: (
+        False if action == "s3:PutObject" and who == "role" else original(who, action)
+    )
+    outcome = lifecycle.run(lab.spec, janitor_ports(lab, supervised=True))
+    assert (outcome.status, outcome.reason) == ("failed", "operation_failed")
+    assert lab.aws.buckets == {}
+    assert lab.aws.roles == {}
