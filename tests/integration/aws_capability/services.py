@@ -36,6 +36,7 @@ from tests.integration.aws_capability._service_iam_children import (
     inspect_iam_child,
     lookup_iam_child,
 )
+from tests.integration.aws_capability._service_iam_create import create_role
 from tests.integration.aws_capability._service_iam_dependents import iam_dependents
 from tests.integration.aws_capability._service_identity import read_identity
 from tests.integration.aws_capability._service_inventory import list_tables
@@ -44,6 +45,7 @@ from tests.integration.aws_capability._service_s3_children import (
     inspect_s3_child,
     lookup_s3_child,
 )
+from tests.integration.aws_capability._service_s3_create import create_bucket
 from tests.integration.aws_capability._service_s3_dependents import s3_dependents
 from tests.integration.aws_capability.cli import Cli, Request
 from tests.integration.aws_capability.contracts import (
@@ -56,6 +58,8 @@ from tests.integration.aws_capability.contracts import (
     ServerLookup,
     ServiceFailure,
 )
+
+S3_PROFILES = frozenset({"s3-hold", "s3-retention"})
 
 
 @dataclass(frozen=True)
@@ -144,6 +148,10 @@ class AwsServices:
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")
             return create_pool(self.ports.commands, self.spec, creation, context)
+        if service == "s3" and self.spec.probe in S3_PROFILES:
+            return create_bucket(self.ports.commands, self.spec, creation, context)
+        if service == "iam" and self.spec.probe == "s3-retention":
+            return create_role(self.ports, self.spec, creation, context)
         if service != "dynamodb":
             raise ServiceFailure("service=not_implemented")
         return create_table(self.ports.commands, self.spec, creation, context)
