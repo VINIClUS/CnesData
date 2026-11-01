@@ -244,6 +244,7 @@ class Cleanup:
         if resource not in self.journal.dynamodb_delete_accepted:
             self.ports.services.delete(resource, True, self.context)
             self.journal.record_dynamodb_delete(resource)
+        self.ports.services.settle_delete(resource, self.context)
         owner = self.ports.services.lookup(resource, self.context)
         self.confirm_dynamodb_absent(resource, owner)
 

@@ -94,14 +94,14 @@ def finish(lab: ReadLab, protected: bool = True) -> list[str]:
         data["initial_visible"]
         + data["removal_reads"]
         + data["adapter_protected" if protected else "adapter_unprotected"]
-        + [["D", "rnf"]]
+        + [["D", "rnf"], ["D", "rnf"]]
         + data["empty_inventory"]
     )
     queue(lab, steps)
     return [name for name, _ in steps]
 
 
-@pytest.mark.parametrize(("protected", "calls"), [(True, 23), (False, 20)])
+@pytest.mark.parametrize(("protected", "calls"), [(True, 24), (False, 21)])
 def test_cleanup_completo_exige_aceitacao_e_inventario_final(
     recovery_lab: ReadLab, protected: bool, calls: int
 ) -> None:
@@ -149,7 +149,7 @@ def test_recibo_e_fsync_antecedem_primeira_ausencia_e_janitor_recarrega(
         engine.execute()
     durable(engine.journal)
     assert_durable(durability, engine.journal.path)
-    trace(recovery_lab, names[:19], 5)
+    trace(recovery_lab, names[:19], 6)
     recovery_lab.process.outcomes.clear()
     loaded = Journal(engine.journal.spec)
     loaded.load()
@@ -427,10 +427,10 @@ def test_delete_aceito_com_presenca_posterior_preserva_recibo_sem_repetir(
 ) -> None:
     engine = cleanup(recovery_lab)
     queue(recovery_lab, fixture()["adapter_unprotected"] + [["D", "unprotected"], ["T", "owner"]])
-    with pytest.raises(SafetyFailure) as error:
+    with pytest.raises(ServiceFailure) as error:
         engine.delete(ROOT)
-    assert error.value.args == ("lifecycle=cleanup_failed",)
-    trace(recovery_lab, ["D", "T", "X", "D", "T"])
+    assert error.value.args == ("service=ddb_delete_state",)
+    trace(recovery_lab, ["D", "T", "X", "D"], 1)
     assert engine.absent == set()
     assert engine.journal.created == [ROOT]
     durable(engine.journal)
@@ -451,6 +451,6 @@ def test_save_incerto_apos_replace_mantem_invocacao_incompleta(
     names = finish(recovery_lab)
     outcome = engine.execute()
     assert (outcome.status, outcome.reason) == ("incomplete", "journal_unavailable")
-    trace(recovery_lab, names[:18], 5)
+    trace(recovery_lab, names[:18], 6)
     assert json.loads(engine.journal.content()) == fixture()["journal"]
     durable(engine.journal)

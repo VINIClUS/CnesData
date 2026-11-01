@@ -30,7 +30,10 @@ from tests.integration.aws_capability._service_dynamodb import (
     lookup_table,
 )
 from tests.integration.aws_capability._service_dynamodb_create import create_table
-from tests.integration.aws_capability._service_dynamodb_delete import delete_table
+from tests.integration.aws_capability._service_dynamodb_delete import (
+    await_table_gone,
+    delete_table,
+)
 from tests.integration.aws_capability._service_iam import inspect_role, list_roles, lookup_role
 from tests.integration.aws_capability._service_iam_children import (
     inspect_iam_child,
@@ -198,6 +201,10 @@ class AwsServices:
         if lookup != "exact_present":
             raise ServiceFailure("probe=cognito_server_invalid")
         return {"resource_server_lookup": lookup}
+
+    def settle_delete(self, resource: Resource, context: RequestContext) -> None:
+        if resource.service == "dynamodb":
+            await_table_gone(self.ports, self.spec, resource, context)
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
         if resource.service == "s3":

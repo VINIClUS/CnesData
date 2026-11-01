@@ -220,6 +220,9 @@ class Remote:
         if resource.resource_id not in self.delete_noop:
             self.resources.pop(resource.resource_id, None)
 
+    def settle_delete(self, resource: Resource, context: RequestContext) -> None:
+        return None
+
     def paginate(self, rows: list[Resource], cursor: str | None) -> Page:
         offset = int(cursor or "0")
         end = offset + self.page_size
