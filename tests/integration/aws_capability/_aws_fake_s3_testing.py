@@ -73,13 +73,33 @@ class S3Handlers:
         bucket = self._bucket(payload)
         if bucket is None:
             return denied("NoSuchBucket")
-        rows = [{"Key": v.key, "VersionId": v.version_id} for v in bucket.versions]
-        return good(
-            {"Name": payload["Bucket"], "IsTruncated": False, "Versions": rows, "DeleteMarkers": []}
-        )
+        reply: dict[str, object] = {
+            "EncodingType": "url",
+            "IsTruncated": False,
+            "KeyMarker": "",
+            "MaxKeys": 1000,
+            "Name": payload["Bucket"],
+            "Prefix": "",
+            "VersionIdMarker": "",
+        }
+        if bucket.versions:
+            reply["Versions"] = [{"Key": v.key, "VersionId": v.version_id} for v in bucket.versions]
+        return good(reply)
 
     def _s3api_list_multipart_uploads(self, payload: dict, who: str) -> Reply:
-        return good({"Bucket": payload["Bucket"], "IsTruncated": False, "Uploads": []})
+        if self._bucket(payload) is None:
+            return denied("NoSuchBucket")
+        return good(
+            {
+                "Bucket": payload["Bucket"],
+                "KeyMarker": "",
+                "UploadIdMarker": "",
+                "NextKeyMarker": "",
+                "NextUploadIdMarker": "",
+                "MaxUploads": 1000,
+                "IsTruncated": False,
+            }
+        )
 
     def _s3api_put_object(self, payload: dict, who: str) -> Reply:
         bucket = self._bucket(payload)

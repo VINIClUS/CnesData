@@ -201,7 +201,7 @@ def _validate_page(data: Mapping[str, object], kind: str) -> None:
         else ("NextKeyMarker", "NextUploadIdMarker")
     )
     if truncated is False:
-        if any(key in data for key in next_keys):
+        if any(key in data and data[key] != "" for key in next_keys):
             raise ServiceFailure("service=inventory_invalid")
         return
     primary = data.get("NextKeyMarker")
