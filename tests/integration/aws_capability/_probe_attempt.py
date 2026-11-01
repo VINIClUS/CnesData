@@ -20,6 +20,7 @@ class Attempt:
     ok: bool
     code: str
     data: Mapping[str, object] = field(default_factory=dict, repr=False)
+    message: str = field(default="", repr=False)
 
 
 def attempt(commands: CommandPort, request: Request, context: RequestContext) -> Attempt:
@@ -33,7 +34,11 @@ def attempt(commands: CommandPort, request: Request, context: RequestContext) ->
     if reply.error is None or reply.error.origin != "service":
         raise ServiceFailure("probe=transport_failed")
     code = reply.error.code
-    return Attempt(False, code if re.fullmatch(r"[A-Za-z0-9]{1,64}", code) else "Other")
+    text = reply.error.details.get("Message")
+    message = text if isinstance(text, str) else ""
+    return Attempt(
+        False, code if re.fullmatch(r"[A-Za-z0-9]{1,64}", code) else "Other", {}, message
+    )
 
 
 def must(result: Attempt, step: str) -> Attempt:

@@ -53,7 +53,7 @@ PROFILES = {
     "s3-retention": Profile(("s3", "iam"), Limits(384, 8, 2, 240, 192)),
     "s3-hold": Profile(("s3",), Limits(256, 8, 2, 120, 128)),
     "iam-trust": Profile(
-        ("iam",), Limits(512, 8, 2, 120, 256), roots=(Root("iam"), Root("iam", "r2"))
+        ("iam",), Limits(176, 8, 2, 150, 104), roots=(Root("iam"), Root("iam", "r2"))
     ),
     "iam-leadingkeys": Profile(("dynamodb", "iam"), Limits(512, 8, 2, 90, 256)),
     "iam-s3": Profile(("s3", "iam"), Limits(384, 8, 2, 90, 192)),

@@ -91,9 +91,10 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
 ```
 
 - **Perfis com probe concluído:** `ddb-transactions`, `ddb-conditions`, `ddb-ttl-gsi`,
-  `cognito-resource-server`, `s3-hold` e `s3-retention`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
+  `ddb-throughput`, `iam-trust`, `cognito-resource-server`, `s3-hold` e `s3-retention`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
   terminam em `probe=not_implemented`.
-- **Deadline:** no máximo 180 s à frente; `<uuid8>` são 8 hex minúsculos novos a cada execução.
+- **Deadline:** no máximo a janela de trabalho do perfil à frente (180 s por padrão; `ddb-throughput`
+  usa 140 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
 - **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
   (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
@@ -113,9 +114,36 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
 - **Janela de cleanup:** cada chamada da AWS CLI custa cerca de 1,2 a 1,4 s (início do processo).
   `cleanup_seconds` dos perfis usa esse custo medido: 240 s nos quatro `cognito-*` e em
   `s3-retention`, 150 s nos três `ddb-*` (inclui a espera por `DELETING`), 120 s em `s3-hold`;
-  a janela de trabalho segue limitada a 180 s. No modelo com 1,3 s por chamada, `s3-hold`
-  gasta cerca de 40 s e `s3-retention` cerca de 135 s de cleanup (29 e 104 chamadas), com a
+  a janela de trabalho é `Profile.window` (padrão 180 s). No modelo com 1,3 s por chamada, `s3-hold`
+  gasta cerca de 38 s e `s3-retention` cerca de 156 s de cleanup (29 e 120 chamadas), com a
   janela medida na primeira execução real.
+- **`ddb-throughput` (evidência do #379):** cria a tabela do control-plane (pk/sk, `gsi1`..`gsi6`,
+  sob demanda) com `OnDemandThroughput` 100 leituras / 25 escritas na tabela e em cada GSI, espera
+  `ACTIVE` e lê os tetos de volta (divergência reprova o probe). Depois observa, sem afirmar:
+  uma `TransactWriteItems` de 100 puts (`tx_code`, `tx_reason_codes` como mapa código para
+  contagem), quatro `BatchWriteItem` de 25 puts (`batch_N_code`, `batch_N_unprocessed`, que vale 25
+  quando a chamada falha; `batch_accepted_items`, `batch_elapsed_seconds`,
+  `batch_rate_items_per_second`) e um `Scan` `COUNT` consistente (`readback_code`,
+  `readback_count`). Throttle é observação; `AccessDeniedException` e falha de transporte reprovam.
+  A AWS CLI roda com `AWS_MAX_ATTEMPTS=1`, então nada é reenviado. Janela 140 s; limites
+  128 chamadas, reserva 64, `cleanup_seconds` 150.
+- **`iam-trust`:** dois roles no mesmo run (`cnesdata-cap-<run>` = R, trust no operador, e
+  `cnesdata-cap-<run>-r2` = R2, trust em R), ambos com boundary e `MaxSessionDuration` 3600. R ganha
+  a inline `cap-assume` (`sts:AssumeRole` em `role/cnesdata-cap/cnesdata-cap-<run>*`). Chaves
+  observadas: `assume_seconds`, `chain_seconds`, `self_assume`, `duration_3601`,
+  `duration_3601_category` (`role_chaining`, `max_session_duration`, `other` ou `none`),
+  `session_tags_before`, `source_identity_before`, `session_tags_after`,
+  `session_tags_ready_seconds`, `source_identity_after`, `source_identity_ready_seconds`. Cada
+  negação só é gravada ao lado de um sucesso da mesma ação pelo mesmo principal: operador assume R
+  antes de `duration_3601`, `session_tags_before` e `source_identity_before`; a sessão de R assume
+  R2 antes de `self_assume`; o trust ampliado (mesmo principal, só ganha `sts:TagSession` e
+  `sts:SetSourceIdentity`) faz o par A/B dos passos de tags e `SourceIdentity`. Controles passam
+  por `retry_denied` (12 tentativas, 2 s). Tags de sessão e `SourceIdentity` são constantes
+  sintéticas, nunca evidenciadas além de ok/código. Janela 180 s; limites 176 chamadas, reserva 104,
+  `cleanup_seconds` 150. Ações novas do operador: `iam:UpdateAssumeRolePolicy`,
+  `sts:TagSession`, `sts:SetSourceIdentity`, `dynamodb:BatchWriteItem`, `dynamodb:Scan` e
+  `dynamodb:PutItem` (a transação é avaliada por item); o boundary precisa cobrir também o ARN de R
+  para `sts:AssumeRole`.
 - **Saída:** uma linha JSON em stdout com `status`, `reason`, `remaining` (serviço e nome) e
   `evidence` (`initial_counts`, `probe`, `counts`, `final_counts_all_cap`). Exit 0 só com
   `succeeded`; o IAM do próprio operador (`/cnesdata-cap/`) aparece na contagem global bruta.
