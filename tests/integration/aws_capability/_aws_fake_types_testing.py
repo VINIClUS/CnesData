@@ -12,8 +12,9 @@ SECRET = "FAKE_SESSION_SECRET_CANARY"  # noqa: S105
 TOKEN = "FAKE_SESSION_TOKEN_CANARY"  # noqa: S105
 
 
-def denied(code: str = "AccessDenied") -> Reply:
-    return Reply(False, {}, ApiError(code, {"Code": code}, "service"))
+def denied(code: str = "AccessDenied", message: str = "") -> Reply:
+    details = {"Code": code, "Message": message} if message else {"Code": code}
+    return Reply(False, {}, ApiError(code, details, "service"))
 
 
 def good(data: Mapping[str, object] | None = None) -> Reply:
@@ -47,3 +48,12 @@ class FakeRole:
     tags: dict[str, str]
     trust: object
     policies: dict[str, tuple[frozenset[str], int, object]] = field(default_factory=dict)
+    pending_trust: tuple[int, object] | None = None
+
+    def trust_at(self, counter: int) -> object:
+        if self.pending_trust is not None and counter >= self.pending_trust[0]:
+            return self.pending_trust[1]
+        return self.trust
+
+    def newest_trust(self) -> object:
+        return self.trust if self.pending_trust is None else self.pending_trust[1]

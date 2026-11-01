@@ -14,6 +14,9 @@ from tests.integration.aws_capability.contracts import (
     ServiceFailure,
 )
 
+ON_DEMAND_THROUGHPUT = {"MaxReadRequestUnits": 100, "MaxWriteRequestUnits": 25}
+THROUGHPUT_PROFILE = "ddb-throughput"
+
 
 def create_table(
     commands: CommandPort, spec: RunSpec, creation: Creation, context: RequestContext
@@ -41,7 +44,7 @@ def create_table(
 
 def _payload(spec: RunSpec) -> dict[str, object]:
     prefixes = ["", *(f"gsi{index}" for index in range(1, 7))]
-    return {
+    payload: dict[str, object] = {
         "TableName": run_name(spec),
         "BillingMode": "PAY_PER_REQUEST",
         "DeletionProtectionEnabled": True,
@@ -61,6 +64,17 @@ def _payload(spec: RunSpec) -> dict[str, object]:
         ],
         "Tags": [{"Key": key, "Value": value} for key, value in tags(spec).items()],
     }
+    if spec.probe == THROUGHPUT_PROFILE:
+        _cap_throughput(payload)
+    return payload
+
+
+def _cap_throughput(payload: dict[str, object]) -> None:
+    payload["OnDemandThroughput"] = dict(ON_DEMAND_THROUGHPUT)
+    indexes = payload["GlobalSecondaryIndexes"]
+    assert isinstance(indexes, list)
+    for index in indexes:
+        index["OnDemandThroughput"] = dict(ON_DEMAND_THROUGHPUT)
 
 
 def _key_schema(prefix: str) -> list[dict[str, str]]:

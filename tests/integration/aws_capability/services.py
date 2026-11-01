@@ -53,6 +53,8 @@ from tests.integration.aws_capability._service_s3_children import (
 from tests.integration.aws_capability._service_s3_create import create_bucket
 from tests.integration.aws_capability._service_s3_delete import delete_s3
 from tests.integration.aws_capability._service_s3_dependents import s3_dependents
+from tests.integration.aws_capability._throughput_probe import probe_throughput
+from tests.integration.aws_capability._trust_probe import probe_trust
 from tests.integration.aws_capability.cli import Cli, Request
 from tests.integration.aws_capability.contracts import (
     Creation,
@@ -66,6 +68,7 @@ from tests.integration.aws_capability.contracts import (
 )
 
 S3_PROFILES = frozenset({"s3-hold", "s3-retention"})
+IAM_ROLE_PROFILES = frozenset({"s3-retention", "iam-trust"})
 
 
 @dataclass(frozen=True)
@@ -156,7 +159,7 @@ class AwsServices:
             return create_pool(self.ports.commands, self.spec, creation, context)
         if service == "s3" and self.spec.probe in S3_PROFILES:
             return create_bucket(self.ports.commands, self.spec, creation, context)
-        if service == "iam" and self.spec.probe == "s3-retention":
+        if service == "iam" and self.spec.probe in IAM_ROLE_PROFILES:
             return create_role(self.ports, self.spec, creation, context)
         if service != "dynamodb":
             raise ServiceFailure("service=not_implemented")
@@ -177,6 +180,15 @@ class AwsServices:
             if spec != self.spec:
                 raise ServiceFailure("probe=s3_invalid")
             return probe_s3(resources, spec, self.ports, context)
+        return self._probe_other(resources, spec, context)
+
+    def _probe_other(
+        self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
+    ) -> Mapping[str, object]:
+        if self.spec.probe == "iam-trust":
+            return probe_trust(resources, spec, self.ports, context)
+        if self.spec.probe == "ddb-throughput":
+            return probe_throughput(resources, spec, self.ports, context)
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:

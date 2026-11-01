@@ -25,6 +25,7 @@ EMPTY_SUCCESS = frozenset(
         ("s3api", "put-object-legal-hold"),
         ("s3api", "put-object-retention"),
         ("iam", "put-role-policy"),
+        ("iam", "update-assume-role-policy"),
         ("cognito-idp", "update-user-pool"),
         ("dynamodb", "transact-write-items"),
         ("dynamodb", "get-item"),

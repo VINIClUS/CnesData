@@ -6,14 +6,17 @@ from dataclasses import dataclass, field
 from tests.integration.aws_capability._aws_fake_ddb_testing import DdbHandlers, FakeTable
 from tests.integration.aws_capability._aws_fake_iam_testing import IamHandlers
 from tests.integration.aws_capability._aws_fake_s3_testing import S3Handlers
+from tests.integration.aws_capability._aws_fake_sts_testing import (
+    StsHandlers,
+    name_for,
+    who_of_token,
+)
 from tests.integration.aws_capability._aws_fake_types_testing import (
     ACCESS_KEY,
     OPERATOR,
     SECRET,
-    TOKEN,
     FakeBucket,
     FakeRole,
-    denied,
     good,
 )
 from tests.integration.aws_capability._b1_testing import ACCOUNT
@@ -21,17 +24,30 @@ from tests.integration.aws_capability._service_contracts import Reply
 from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import RequestContext
 
-ROLE_SESSION = "role"
+CHAINING_MESSAGE = (
+    "The requested DurationSeconds exceeds the 1 hour session limit "
+    "for roles assumed by role chaining."
+)
 
 
 @dataclass
-class FakeAws(S3Handlers, IamHandlers, DdbHandlers):
+class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers):
     clock: Callable[[], float]
     advance: Callable[[float], None]
     latency: float = 1.0
     policy_lag: int = 0
     assume_denials: int = 0
     malformed_creates: int = 0
+    trust_lag: int = 0
+    ddb_ready_describes: int = 0
+    ddb_deleting_describes: int = 0
+    ddb_tx_reasons: dict[str, int] | None = None
+    ddb_errors: dict[str, str] = field(default_factory=dict)
+    batch_unprocessed: dict[int, int] = field(default_factory=dict)
+    batch_errors: dict[int, str] = field(default_factory=dict)
+    batch_calls: int = 0
+    scan_page_size: int | None = None
+    duration_message: str = CHAINING_MESSAGE
     buckets: dict[str, FakeBucket] = field(default_factory=dict)
     roles: dict[str, FakeRole] = field(default_factory=dict)
     tables: dict[str, FakeTable] = field(default_factory=dict)
@@ -47,8 +63,7 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers):
     def session(self, credentials: Mapping[str, str]) -> "FakeSession":
         assert credentials["AWS_ACCESS_KEY_ID"] == ACCESS_KEY
         assert credentials["AWS_SECRET_ACCESS_KEY"] == SECRET
-        assert credentials["AWS_SESSION_TOKEN"] == TOKEN
-        return FakeSession(self, ROLE_SESSION)
+        return FakeSession(self, who_of_token(credentials["AWS_SESSION_TOKEN"]))
 
     def dispatch(self, request: Request, context: RequestContext, who: str) -> Reply:
         context.budget.acquire(context.lane)
@@ -64,7 +79,9 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers):
     def allowed(self, who: str, action: str) -> bool:
         if who == OPERATOR:
             return True
-        role = next(iter(self.roles.values()))
+        role = self.roles.get(name_for(who))
+        if role is None:
+            return False
         return any(
             action in actions and self.counter >= effective
             for actions, effective, _ in role.policies.values()
@@ -76,15 +93,6 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers):
     def _sts_get_caller_identity(self, payload: dict, who: str) -> Reply:
         arn = f"arn:aws:sts::{ACCOUNT}:assumed-role/cnesdata-cap-operator-0a1b2c3d/session"
         return good({"Account": ACCOUNT, "Arn": arn, "UserId": "synthetic"})
-
-    def _sts_assume_role(self, payload: dict, who: str) -> Reply:
-        self.assumes += 1
-        role = self.roles.get(str(payload["RoleArn"]).rsplit("/", 1)[1])
-        if role is None or self.assumes <= self.assume_denials:
-            return denied()
-        assert payload["DurationSeconds"] == 900
-        credentials = {"AccessKeyId": ACCESS_KEY, "SecretAccessKey": SECRET, "SessionToken": TOKEN}
-        return good({"Credentials": {**credentials, "Expiration": "2099-01-01T00:00:00Z"}})
 
     def _cognito_idp_list_user_pools(self, payload: dict, who: str) -> Reply:
         return good({"UserPools": []})

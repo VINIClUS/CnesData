@@ -23,22 +23,31 @@ def assume_role_session(
 
     Raises: ServiceFailure sem detalhes de credencial.
     """
-    if ports.session is None:
-        raise ServiceFailure("probe=session_unavailable")
-    name = run_name(spec)
-    request = Request(
-        "sts",
-        "assume-role",
-        {
-            "RoleArn": f"arn:aws:iam::{spec.account}:role/cnesdata-cap/{name}",
-            "RoleSessionName": f"cap-{spec.run_id}",
-            "DurationSeconds": SESSION_SECONDS,
-        },
-    )
+    request = assume_request(spec, run_name(spec))
     result, seconds = retry_denied(
         lambda: attempt(ports.commands, request, context), ports, context, "assume"
     )
-    return ports.session(_credentials(result.data)), seconds
+    return open_session(ports, result.data), seconds
+
+
+def assume_request(
+    spec: RunSpec, name: str, override: Mapping[str, object] | None = None
+) -> Request:
+    """Returns: AssumeRole base de 900 s; override troca ou acrescenta chaves."""
+    payload: dict[str, object] = {
+        "RoleArn": f"arn:aws:iam::{spec.account}:role/cnesdata-cap/{name}",
+        "RoleSessionName": f"cap-{spec.run_id}",
+        "DurationSeconds": SESSION_SECONDS,
+    }
+    payload.update(override or {})
+    return Request("sts", "assume-role", payload)
+
+
+def open_session(ports: ServicePorts, data: Mapping[str, object]) -> CommandPort:
+    """Raises: ServiceFailure sem porta de sessão ou com credenciais inválidas."""
+    if ports.session is None:
+        raise ServiceFailure("probe=session_unavailable")
+    return ports.session(_credentials(data))
 
 
 def _credentials(data: Mapping[str, object]) -> dict[str, str]:
