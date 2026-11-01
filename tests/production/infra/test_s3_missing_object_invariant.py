@@ -140,6 +140,21 @@ def test_oraculo_nao_conta_condicao_com_chave_extra() -> None:
     assert uncovered_get_prefixes(grants, DATA) == ("tmp/*",)
 
 
+def test_oraculo_nao_conta_string_like_acompanhado_de_outro_operador() -> None:
+    condition: Node = {
+        "StringLike": {PREFIX_KEY: ["tmp/*"]},
+        "StringEquals": {"s3:delimiter": ["/"]},
+    }
+    grants = _get(DATA, "tmp/*") | literal_grants(("s3:ListBucket",), (DATA,), condition)
+    assert uncovered_get_prefixes(grants, DATA) == ("tmp/*",)
+
+
+@pytest.mark.parametrize(("listed", "read"), [("tmp/", "tmp/*"), ("tmp/x", "tmp/x*")])
+def test_oraculo_nao_trata_valor_literal_como_prefixo(listed: str, read: str) -> None:
+    grants = _get(DATA, read) | _list(DATA, [listed])
+    assert uncovered_get_prefixes(grants, DATA) == (read,)
+
+
 def test_oraculo_nao_conta_list_bucket_de_outro_bucket() -> None:
     grants = _get(DATA, "tmp/*") | _list(AUDIT, ["tmp/*"])
     assert uncovered_get_prefixes(grants, DATA) == ("tmp/*",)
