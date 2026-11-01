@@ -195,6 +195,7 @@ OpenTofu native suite (`tests/production/infra`; CI job `opentofu-native` in
 `apps/data_processor/src` or `packages/cnes_{contracts,domain,infra}/src`.
 
 ```bash
+uv sync --locked --all-packages
 export TF_PLUGIN_CACHE_DIR=~/.cache/tofu-plugins
 export PROCESSING_SOURCE_BINDINGS=/tmp/processing-source-bindings.json
 mkdir -p "$TF_PLUGIN_CACHE_DIR"
