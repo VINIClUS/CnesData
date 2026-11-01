@@ -50,7 +50,7 @@ output "canary_verifier_role_arn" {
 
 output "canary_verifier_role_id" {
   description = "Canary verifier role name for the processing RunTask grant, or null."
-  value       = one(aws_iam_role.canary_verifier[*].id)
+  value       = one(aws_iam_role.canary_verifier[*].name)
 }
 
 output "promotion_fence_operator_role_arn" {

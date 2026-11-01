@@ -163,7 +163,7 @@ resource "aws_iam_role_policy" "canary_verifier" {
   count = local.canary_count
 
   name = "${var.name_prefix}-canary-verifier-read"
-  role = aws_iam_role.canary_verifier[0].id
+  role = aws_iam_role.canary_verifier[0].name
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [

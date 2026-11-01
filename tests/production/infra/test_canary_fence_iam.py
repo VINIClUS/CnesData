@@ -94,10 +94,11 @@ def _role_overrides() -> str:
     roles = {f"{SUBJECT}.aws_iam_role.{role}[0]": ROLE_NAMES[role] for role in ROLES}
     roles |= {f'{SUBJECT}.aws_iam_role.task["{m}"]': f"{PREFIX}-processor-{m}"
               for m in ("unit", "recovery", "audit")}
+    unknown_id = f"{SUBJECT}.aws_iam_role.canary_verifier[0]"
     return "".join(
-        _override(target, {"id": name, "arn": f"arn:aws:iam::{ACCOUNT}:role/{name}"})
-        for target, name in roles.items()
-    )
+        _override(target, {"arn": f"arn:aws:iam::{ACCOUNT}:role/{name}"}
+                  | ({} if target == unknown_id else {"id": name}))
+        for target, name in roles.items())
 
 
 def _processing_overrides() -> str:
