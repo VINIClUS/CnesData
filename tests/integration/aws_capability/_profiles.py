@@ -49,6 +49,7 @@ PROFILES = {
     "ddb-transactions": Profile(("dynamodb",), Limits(192, 8, 2, 150, 96)),
     "ddb-conditions": Profile(("dynamodb",), Limits(256, 8, 2, 150, 128)),
     "ddb-ttl-gsi": Profile(("dynamodb",), Limits(256, 8, 2, 150, 128)),
+    "ddb-throughput": Profile(("dynamodb",), Limits(128, 8, 2, 150, 64), window=140.0),
     "s3-retention": Profile(("s3", "iam"), Limits(384, 8, 2, 240, 192)),
     "s3-hold": Profile(("s3",), Limits(256, 8, 2, 120, 128)),
     "iam-trust": Profile(

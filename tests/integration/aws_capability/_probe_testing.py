@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tests.integration.aws_capability._aws_fake_ddb_testing import FakeTable
 from tests.integration.aws_capability._aws_fake_testing import FakeAws
 from tests.integration.aws_capability._aws_fake_types_testing import FakeBucket, FakeRole
 from tests.integration.aws_capability._b1_testing import (
@@ -18,6 +19,7 @@ from tests.integration.aws_capability._b1_testing import (
 )
 from tests.integration.aws_capability._operator_inputs import OperatorInputs
 from tests.integration.aws_capability._profiles import PROFILES
+from tests.integration.aws_capability._safety import tags
 from tests.integration.aws_capability._service_contracts import ServicePorts
 from tests.integration.aws_capability._testing import ProcessBoundary
 from tests.integration.aws_capability._worker import acknowledgement
@@ -33,6 +35,9 @@ from tests.integration.aws_capability.services import AwsServices
 
 BUCKET = Resource("s3", NAME, NAME)
 ROLE = Resource("iam", NAME, NAME)
+TABLE = Resource("dynamodb", NAME, NAME)
+THROUGHPUT = {"MaxReadRequestUnits": 100, "MaxWriteRequestUnits": 25}
+INDEXES = tuple(f"gsi{index}" for index in range(1, 7))
 ROLE2 = Resource("iam", f"{NAME}-r2", f"{NAME}-r2")
 START = 1000.0
 DEADLINE = 1180.0
@@ -56,6 +61,8 @@ class ProbeLab:
     def resources(self) -> list[Resource]:
         if self.spec.probe == "iam-trust":
             return [ROLE, ROLE2]
+        if self.spec.probe == "ddb-throughput":
+            return [TABLE]
         return [BUCKET, ROLE] if self.spec.probe == "s3-retention" else [BUCKET]
 
 
@@ -73,23 +80,34 @@ def make_probe_lab(
         advance(seconds)
 
     aws = FakeAws(lambda: clock[0], advance, **options)
-    if seeded:
-        if probe != "iam-trust":
-            aws.buckets[NAME] = FakeBucket(dict(TAGS))
-        if probe in {"s3-retention", "iam-trust"}:
-            aws.roles[NAME] = FakeRole(dict(TAGS), TRUST)
-        if probe == "iam-trust":
-            aws.roles[ROLE2.name] = FakeRole(dict(TAGS), TRUST2)
     deadline = START + PROFILES[probe].window
     spec = RunSpec(
         ACCOUNT, "us-east-2", "a1b2c3d4", deadline, tmp_path, allow_governance_bypass=True,
         probe=probe,
     )
+    if seeded:
+        if probe not in {"iam-trust", "ddb-throughput"}:
+            aws.buckets[NAME] = FakeBucket(dict(TAGS))
+        if probe in {"s3-retention", "iam-trust"}:
+            aws.roles[NAME] = FakeRole(dict(TAGS), TRUST)
+        if probe == "iam-trust":
+            aws.roles[ROLE2.name] = FakeRole(dict(TAGS), TRUST2)
+        if probe == "ddb-throughput":
+            aws.tables[NAME] = seeded_table(spec)
     limits = PROFILES[probe].limits
     budget = RequestBudget(limits, deadline, lambda: clock[0])
     operator = OperatorInputs(OPERATOR_ARN, BOUNDARY_ARN)
     ports = ServicePorts(aws, lambda: clock[0], pause, aws.session, operator)
     return ProbeLab(aws, AwsServices(spec, ports), budget, spec, pauses, clock)
+
+
+def seeded_table(spec: RunSpec) -> FakeTable:
+    return FakeTable(
+        tags(spec),
+        protection=True,
+        throughput=dict(THROUGHPUT),
+        index_throughput={name: dict(THROUGHPUT) for name in INDEXES},
+    )
 
 
 def payload_text(lab: ProbeLab) -> str:

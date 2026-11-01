@@ -39,6 +39,14 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers):
     assume_denials: int = 0
     malformed_creates: int = 0
     trust_lag: int = 0
+    ddb_ready_describes: int = 0
+    ddb_deleting_describes: int = 0
+    ddb_tx_reasons: dict[str, int] | None = None
+    ddb_errors: dict[str, str] = field(default_factory=dict)
+    batch_unprocessed: dict[int, int] = field(default_factory=dict)
+    batch_errors: dict[int, str] = field(default_factory=dict)
+    batch_calls: int = 0
+    scan_page_size: int | None = None
     duration_message: str = CHAINING_MESSAGE
     buckets: dict[str, FakeBucket] = field(default_factory=dict)
     roles: dict[str, FakeRole] = field(default_factory=dict)

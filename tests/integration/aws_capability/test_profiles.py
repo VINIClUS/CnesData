@@ -24,6 +24,7 @@ PROFILES = [
     ("ddb-transactions", 192, 150, 96, ("dynamodb",)),
     ("ddb-conditions", 256, 150, 128, ("dynamodb",)),
     ("ddb-ttl-gsi", 256, 150, 128, ("dynamodb",)),
+    ("ddb-throughput", 128, 150, 64, ("dynamodb",)),
     ("s3-retention", 384, 240, 192, ("s3", "iam")),
     ("s3-hold", 256, 120, 128, ("s3",)),
     ("iam-trust", 512, 120, 256, ("iam", "iam")),

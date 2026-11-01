@@ -53,6 +53,7 @@ from tests.integration.aws_capability._service_s3_children import (
 from tests.integration.aws_capability._service_s3_create import create_bucket
 from tests.integration.aws_capability._service_s3_delete import delete_s3
 from tests.integration.aws_capability._service_s3_dependents import s3_dependents
+from tests.integration.aws_capability._throughput_probe import probe_throughput
 from tests.integration.aws_capability.cli import Cli, Request
 from tests.integration.aws_capability.contracts import (
     Creation,
@@ -178,6 +179,8 @@ class AwsServices:
             if spec != self.spec:
                 raise ServiceFailure("probe=s3_invalid")
             return probe_s3(resources, spec, self.ports, context)
+        if self.spec.probe == "ddb-throughput":
+            return probe_throughput(resources, spec, self.ports, context)
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:
