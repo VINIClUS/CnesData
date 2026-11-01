@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
 from tests.integration.aws_capability._resource_ids import cognito_child
+from tests.integration.aws_capability._s3_probe import probe_s3
 from tests.integration.aws_capability._service_cognito import (
     inspect_pool,
     list_pools,
@@ -172,6 +173,10 @@ class AwsServices:
             if spec != self.spec or len(resources) != 1:
                 raise ServiceFailure("probe=cognito_prepare_invalid")
             prepare_pool(self.ports.commands, self.spec, resources[0], context)
+        if self.spec.probe in S3_PROFILES:
+            if spec != self.spec:
+                raise ServiceFailure("probe=s3_invalid")
+            return probe_s3(resources, spec, self.ports, context)
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:

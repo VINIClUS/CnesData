@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from tests.integration.aws_capability._aws_fake_testing import FakeAws
 from tests.integration.aws_capability._aws_fake_types_testing import FakeBucket, FakeRole
@@ -52,7 +53,7 @@ class ProbeLab:
 
 
 def make_probe_lab(
-    tmp_path: Path, probe: str, *, seeded: bool = True, **options: float
+    tmp_path: Path, probe: str, *, seeded: bool = True, **options: Any
 ) -> ProbeLab:
     clock = [START]
     pauses: list[float] = []

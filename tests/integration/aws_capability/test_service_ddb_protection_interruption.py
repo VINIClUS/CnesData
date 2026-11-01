@@ -268,10 +268,12 @@ def test_interrupcao_apos_desproteger_retoma_sem_repetir_update(
     assert [snapshot.operation for snapshot in recorder.snapshots] == [
         "delete-table",
         "describe-table",
+        "describe-table",
     ]
     assert recorder.snapshots[0].data == interruption_lab.before
     assert recorder.snapshots[0].events == ()
     assert_receipt_durable(recorder.snapshots[1], lab)
+    assert_receipt_durable(recorder.snapshots[2], lab)
     assert_final(lab, "complete")
     privacy.check(ProtectionInterruption(repr(outcome)), lab)
 

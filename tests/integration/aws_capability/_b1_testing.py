@@ -3,6 +3,7 @@
 import json
 from collections.abc import Mapping
 from dataclasses import replace
+from typing import Protocol
 
 from tests.integration.aws_capability._operator_inputs import OperatorInputs
 from tests.integration.aws_capability._service_contracts import CommandPort, ServicePorts, no_pause
@@ -69,5 +70,10 @@ def creation_for(lab: ReadLab) -> Creation:
     return Creation(lab.services.spec, NAME, dict(TAGS))
 
 
-def cleanup_context(lab: ReadLab) -> RequestContext:
+class HasContext(Protocol):
+    @property
+    def context(self) -> RequestContext: ...
+
+
+def cleanup_context(lab: HasContext) -> RequestContext:
     return RequestContext(lab.context.budget, "cleanup")

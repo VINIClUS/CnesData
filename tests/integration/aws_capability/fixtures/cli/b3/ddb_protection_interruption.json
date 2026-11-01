@@ -18,7 +18,7 @@
     ["D", "unprotected"], ["T", "owner"],
     ["D", "unprotected"], ["T", "owner"],
     ["D", "unprotected"], ["T", "owner"], ["X", "delete"],
-    ["D", "rnf"],
+    ["D", "rnf"], ["D", "rnf"],
     ["C", "empty_cognito"], ["L", "empty_ddb"],
     ["S", "empty_s3"], ["I", "empty_iam"]
   ],
@@ -93,7 +93,7 @@
     "cleanup_seconds": 30,
     "cleanup_reserve": 40
   },
-  "counts": {"cutoff": 16, "positive": 21, "negative": 10},
-  "accumulated": {"positive": 37, "negative": 26},
+  "counts": {"cutoff": 16, "positive": 22, "negative": 10},
+  "accumulated": {"positive": 38, "negative": 26},
   "cleanup_deadline": 1030
 }
