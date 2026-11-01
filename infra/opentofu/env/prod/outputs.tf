@@ -110,3 +110,28 @@ output "scheduler_alarm_names" {
   description = "Scheduler alarm names by kind and mode."
   value       = module.schedulers.alarm_names
 }
+
+output "athena_workgroup_name" {
+  description = "Operator Athena workgroup name."
+  value       = module.athena.workgroup_name
+}
+
+output "athena_cutoff_topic_arn" {
+  description = "Cutoff SNS topic ARN: the Athena freeze hook for the shared Budget."
+  value       = module.athena.cutoff_topic_arn
+}
+
+output "operator_alarm_topic_arn" {
+  description = "Operator SNS topic ARN; humans subscribe through the infra-ansible handoff."
+  value       = module.observability.operator_topic_arn
+}
+
+output "freeze_target_role_arns" {
+  description = "Exact role ARNs the shared cost freeze may restrict."
+  value       = local.freeze_target_role_arns
+}
+
+output "freeze_excluded_role_arns" {
+  description = "Exact role ARNs the shared cost freeze must not restrict (audit, health, backup)."
+  value       = local.freeze_excluded_role_arns
+}

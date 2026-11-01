@@ -8,6 +8,7 @@ from tests.production.infra._athena_contracts import (
     ALARM_NAMES,
     CUTOFF_NAME,
     OPERATOR_TOPIC,
+    OPERATOR_TOPIC_ARN,
     PREFIX,
     REPO_ROOT,
     alarm_metric_count,
@@ -103,7 +104,8 @@ def _metrics(alarm: Node) -> set[tuple[str, str, tuple[tuple[str, str], ...]]]:
 
 
 def _operator_arn(plan: Node) -> str:
-    return str(by_name(plan, "aws_sns_topic", "name", OPERATOR_TOPIC)["arn"])
+    by_name(plan, "aws_sns_topic", "name", OPERATOR_TOPIC)
+    return OPERATOR_TOPIC_ARN
 
 
 def test_alarmes_de_observabilidade_leem_as_metricas_exatas(scheduled_plan: Node) -> None:
@@ -214,16 +216,16 @@ def test_regras_de_evento_da_task_unit_filtram_o_cluster_e_a_familia(
 def test_topico_do_operador_aceita_publicacao_so_do_cloudwatch_da_conta(
     scheduled_plan: Node,
 ) -> None:
-    topic = by_name(scheduled_plan, "aws_sns_topic", "name", OPERATOR_TOPIC)
+    by_name(scheduled_plan, "aws_sns_topic", "name", OPERATOR_TOPIC)
     policy = at(scheduled_plan, "module.observability.aws_sns_topic_policy.operator")
-    assert policy["arn"] == topic["arn"]
+    assert policy["arn"] == OPERATOR_TOPIC_ARN
     (statement,) = document(policy["policy"])["Statement"]
     statement.pop("Sid", None)
     assert statement == {
         "Effect": "Allow",
         "Principal": {"Service": "cloudwatch.amazonaws.com"},
         "Action": "sns:Publish",
-        "Resource": topic["arn"],
+        "Resource": OPERATOR_TOPIC_ARN,
         "Condition": {
             "StringEquals": {"aws:SourceAccount": ACCOUNT},
             "ArnLike": {"aws:SourceArn": ALARM_ARN_PATTERN},

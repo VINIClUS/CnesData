@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cnesdata.com.br/schemas/cost-manifest.schema.json",
+  "title": "CnesData production cost manifest",
+  "description": "Dated unit prices and min/base/max quantities; totals are recomputed, never stored.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "as_of", "region", "currency", "limits", "lines"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "as_of": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "region": {"const": "us-east-2"},
+    "currency": {"const": "USD"},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product_usd", "aggregate_usd"],
+      "properties": {
+        "product_usd": {"const": 8},
+        "aggregate_usd": {"const": 15}
+      }
+    },
+    "lines": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/line"}
+    }
+  },
+  "$defs": {
+    "scenarios": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "base", "max"],
+      "properties": {
+        "min": {"type": ["number", "null"], "minimum": 0},
+        "base": {"type": ["number", "null"], "minimum": 0},
+        "max": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "scope", "service", "description", "unit", "unit_price_usd", "quantity",
+        "free_allowance", "status", "max_basis", "source"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+        "scope": {"enum": ["product", "shared"]},
+        "service": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "unit": {"type": "string", "minLength": 1},
+        "unit_price_usd": {"type": ["number", "null"], "minimum": 0},
+        "quantity": {"$ref": "#/$defs/scenarios"},
+        "free_allowance": {"$ref": "#/$defs/scenarios"},
+        "status": {"enum": ["verified", "unverified"]},
+        "max_basis": {"enum": ["cap", "hypothesis"]},
+        "binding": {"type": "string", "minLength": 1},
+        "assumption": {"type": "string", "minLength": 1},
+        "precondition": {"type": "string", "minLength": 1},
+        "exposure_usd": {"type": "number", "minimum": 0},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "term"],
+          "properties": {
+            "url": {"type": "string", "pattern": "^https://"},
+            "term": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  }
+}

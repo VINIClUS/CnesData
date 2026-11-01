@@ -8,6 +8,8 @@ from tests.production.infra._athena_contracts import (
     CUTOFF_ALARM_ARN,
     CUTOFF_NAME,
     CUTOFF_POLICY_ADDRESS,
+    CUTOFF_ROLE_ARN,
+    CUTOFF_TOPIC_ARN,
     MODULES,
     OVERSHOOT_QUERIES,
     PER_QUERY_CUTOFF_BYTES,
@@ -100,23 +102,21 @@ def test_lambda_de_cutoff_tem_ambiente_exato_sem_concorrencia_reservada(
     assert not function.get("tracing_config") or function["tracing_config"][0]["mode"] != "Active"
     assert function["source_code_hash"]
     assert ".terraform" in str(function["filename"]).split("/"), "zip_inside_versioned_tree"
-    assert function["role"] == at(scheduled_plan, "module.athena.aws_iam_role.cutoff")["arn"]
+    assert function["role"] == CUTOFF_ROLE_ARN
 
 
 def test_assinatura_do_topico_de_cutoff_invoca_a_lambda(scheduled_plan: Node) -> None:
     permission = at(scheduled_plan, "module.athena.aws_lambda_permission.cutoff")
-    topic = at(scheduled_plan, "module.athena.aws_sns_topic.cutoff")
     function = at(scheduled_plan, "module.athena.aws_lambda_function.cutoff")
     assert permission["action"] == "lambda:InvokeFunction"
     assert permission["principal"] == "sns.amazonaws.com"
-    assert permission["source_arn"] == topic["arn"]
+    assert permission["source_arn"] == CUTOFF_TOPIC_ARN
     assert permission["function_name"] == function["function_name"]
 
 
 def test_politica_do_topico_de_cutoff_aceita_so_o_alarme_e_o_budget(scheduled_plan: Node) -> None:
-    topic = at(scheduled_plan, "module.athena.aws_sns_topic.cutoff")
     policy = at(scheduled_plan, "module.athena.aws_sns_topic_policy.cutoff")
-    assert policy["arn"] == topic["arn"]
+    assert policy["arn"] == CUTOFF_TOPIC_ARN
     statements = document(policy["policy"])["Statement"]
     assert len(statements) == 2
 
@@ -125,7 +125,7 @@ def test_politica_do_topico_de_cutoff_aceita_so_o_alarme_e_o_budget(scheduled_pl
             "Effect": "Allow",
             "Principal": {"Service": service},
             "Action": "sns:Publish",
-            "Resource": topic["arn"],
+            "Resource": CUTOFF_TOPIC_ARN,
             "Condition": {
                 "StringEquals": {"aws:SourceAccount": ACCOUNT},
                 "ArnEquals": {"aws:SourceArn": source},

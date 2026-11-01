@@ -64,8 +64,8 @@ limitada a 5 GB por `bytes_scanned_cutoff_per_query` com `enforce_workgroup_conf
 Logo mês ≤ 5·W + k·cutoff.
 
 - Decimais: cutoff por query 5.000.000.000 bytes (menor que 5 GiB, então conservador sob as duas
-  leituras de "5 GB"); W = 18.000.000.000 bytes; limite 100.000.000.000.
-- k = 2 queries completando durante a latência: 5·18 + 2·5 = 100 GB. **Pressuposto não imposto
+  leituras de "5 GB"); W = 16.000.000.000 bytes (16 GB decimal); limite 100.000.000.000.
+- k = 4 queries completando durante a latência: 5·16 + 4·5 = 100 GB. **Pressuposto não imposto
   pela AWS** (workgroup não limita taxa de queries; o uso é manual de operador). O teste fixa W,
   cutoff, k e a desigualdade lida do plan; mudar W ou o cutoff quebra o teste.
 - **Desvio** do texto "100 GB/mês": o limite vira "teto de 100 GB por 5·W + k·cutoff com disable
@@ -155,12 +155,40 @@ Limitações registradas:
 - Cada métrica em alarme custa ~USD 0,10/mês; o conjunto soma 25 métricas de alarme (contado do
   plan) e 2 métricas customizadas.
 
-## Pendência: lock somente leitura da suíte nativa
+## Edição autorizada de `_processing_native._provider_schema`
 
-Com a entrada `hashicorp/archive` no lock da raiz, `_processing_native._provider_schema` (que copia
-o lock, o torna somente leitura e roda `init -lockfile=readonly` numa raiz de ferramenta que exige só
-`aws`) passa a falhar com "Provider dependency changes detected" e o `setup_error` derruba todos os
-testes nativos. Provado em diretório isolado: o lock atual passa; o lock com `archive` falha. A
-correção mínima é incluir `archive` no `required_providers` da raiz de ferramenta e ajustar a checagem
-`provider_selections` de `_processing_native.py`, arquivo que este amendment não estende. Exige
-autorização explícita do coordenador antes da fase 2; a alternativa é abrir mão do `archive_file`.
+Com a entrada `hashicorp/archive` no lock da raiz, a raiz de ferramenta da suíte nativa (lock
+somente leitura, `init -lockfile=readonly`, só `aws`) falhava com "Provider dependency changes
+detected". O coordenador autorizou a edição mínima em `tests/production/infra/_processing_native.py`
+(2026-11-01): a raiz de ferramenta exige todos os providers de `provider_selections` do artefato,
+nas versões exatas; a checagem final compara a igualdade com as seleções da raiz; o schema aws e a
+checagem byte a byte do lock ficam. Nada mais nesse arquivo muda. O lock ganha só a entrada
+`archive` (mesmas 15 plataformas, zero remoções).
+
+## Gate de aceitação do conftest
+
+`conftest test tests/fixtures/plans/accepted --policy policies` (ou a árvore inteira com
+`--ignore rejected`) sai com 0. O comando literal da issue sobre `tests/fixtures/plans` inclui as
+fixtures rejeitadas e sai com código diferente de 0 por construção; as rejeições são afirmadas pelo
+pytest com as mensagens exatas. O CI instala conftest 0.71.1 com sha256 fixo, só no job hospedado.
+
+## WAF: precondição e gate de cutover
+
+A linha `waf_dedicated` vale 0 com `precondition: "cloudfront_free_plan_active"` e
+`exposure_usd: 7`. O teste exige os dois campos e o rego rejeita linha com preço zero sem eles
+(`waf_unbound_exposure`). Limitação: o manifesto não prova o plano ACTIVE; isso é gate de cutover
+da #382 (binding do plano), registrado aqui e no PR.
+
+## Base da quantidade máxima por linha (`max_basis`)
+
+Cada linha declara `max_basis`: `cap` quando o máximo é um teto imposto ou derivado do plan
+(testes amarram aos valores do plan), ou `hypothesis` quando é uma estimativa documentada.
+Hipóteses, todas de uso estimado sem teto imposto pelo código: `cloudwatch_logs_ingestion`,
+`cloudwatch_logs_storage`, `lambda_requests`, `lambda_compute`, `sns_requests`,
+`step_functions_transitions`, `dynamodb_read_units`, `dynamodb_write_units`,
+`dynamodb_pitr_storage`, `dynamodb_storage`, `s3_data_storage`, `s3_audit_storage`,
+`s3_athena_results_storage`, `s3_requests`, `cognito_allowance`, `data_transfer_out`.
+Compartilhadas, fora do controle do produto: `state_backend`, `budget_actions`,
+`other_projects_spend`. O produto fecha em 2,54 (min), 3,91 (base) e 7,91 (max) e o agregado em
+3,54, 4,91 e 12,01, sob 8 e 15; o máximo do produto fica perto do limite por causa das hipóteses,
+não de tetos, e a margem é consumida primeiro por elas.

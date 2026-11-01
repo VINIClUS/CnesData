@@ -19,15 +19,19 @@ RESULTS_BUCKET = f"{PREFIX}-athena-results"
 CUTOFF_NAME = f"{PREFIX}-athena-cutoff"
 CUTOFF_ALARM_ARN = f"arn:aws:cloudwatch:us-east-2:{ACCOUNT}:alarm:{CUTOFF_NAME}"
 OPERATOR_TOPIC = f"{PREFIX}-operator-alarms"
+OPERATOR_TOPIC_ARN = f"arn:aws:sns:us-east-2:{ACCOUNT}:{OPERATOR_TOPIC}"
+CUTOFF_TOPIC_ARN = f"arn:aws:sns:us-east-2:{ACCOUNT}:{CUTOFF_NAME}"
+CUTOFF_ROLE_ARN = f"arn:aws:iam::{ACCOUNT}:role/{CUTOFF_NAME}"
+CUTOFF_FUNCTION_ARN = f"arn:aws:lambda:us-east-2:{ACCOUNT}:function:{CUTOFF_NAME}"
 BUDGET_ARN = f"arn:aws:budgets::{ACCOUNT}:budget/cnesdata-prod"
 SHARED_API_ROLE = f"arn:aws:iam::{ACCOUNT}:role/cnesdata-api"
 
 PER_QUERY_CUTOFF_BYTES = 5_000_000_000
-WINDOW_BYTES = 18_000_000_000
+WINDOW_BYTES = 16_000_000_000
 WINDOW_SECONDS = 604_800
 MONTH_LIMIT_BYTES = 100_000_000_000
 WINDOWS_PER_MONTH = 5
-OVERSHOOT_QUERIES = 2
+OVERSHOOT_QUERIES = 4
 
 MODULE_ADDRESSES = frozenset({
     "module.athena.aws_s3_bucket.results",

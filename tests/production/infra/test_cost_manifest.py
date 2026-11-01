@@ -9,6 +9,7 @@ from tests.production.infra._athena_contracts import (
     MONTH_LIMIT_BYTES,
     OVERSHOOT_QUERIES,
     PER_QUERY_CUTOFF_BYTES,
+    REPO_ROOT,
     SCHEMA_PATH,
     WINDOW_BYTES,
     WINDOWS_PER_MONTH,
@@ -31,6 +32,9 @@ from tests.production.infra._processing_native import A_RUN, NativePlans
 from tests.production.infra._step_functions_iam_contracts import output_value
 
 AS_OF = "2026-11-01"
+AMENDMENT = (
+    REPO_ROOT / "docs/superpowers/specs/2026-11-01-athena-observability-cost-amendment.md"
+)
 PRODUCT_IDS = frozenset({
     "fargate_vcpu_hours", "fargate_memory_gb_hours", "public_ipv4_hours",
     "cloudwatch_alarm_metrics", "cloudwatch_custom_metrics", "cloudwatch_logs_ingestion",
@@ -40,6 +44,12 @@ PRODUCT_IDS = frozenset({
     "s3_audit_storage", "s3_athena_results_storage", "s3_requests", "athena_scanned",
     "cognito_essentials_mau", "cognito_allowance", "cloudfront_free_plan", "waf_dedicated",
     "data_transfer_out", "secrets_manager",
+})
+CAP_IDS = frozenset({
+    "fargate_vcpu_hours", "fargate_memory_gb_hours", "public_ipv4_hours",
+    "cloudwatch_alarm_metrics", "cloudwatch_custom_metrics", "athena_scanned",
+    "cognito_essentials_mau", "ecr_storage", "s3_web_storage", "secrets_manager",
+    "cloudfront_free_plan", "waf_dedicated", "kms_envelope",
 })
 SHARED_IDS = frozenset({"kms_envelope", "state_backend", "budget_actions", "other_projects_spend"})
 UNVERIFIED_IDS = frozenset({"cognito_allowance", "other_projects_spend"})
@@ -81,13 +91,24 @@ def test_manifest_tem_o_conjunto_exato_de_linhas() -> None:
     assert len(_manifest()["lines"]) == len(lines), "duplicate_line_id"
 
 
+def test_cada_linha_declara_a_base_da_quantidade_maxima() -> None:
+    lines = _lines(_manifest())
+    caps = {name for name, item in lines.items() if item["max_basis"] == "cap"}
+    assert caps == CAP_IDS
+    assert {item["max_basis"] for item in lines.values()} == {"cap", "hypothesis"}
+    amendment = AMENDMENT.read_text(encoding="utf-8")
+    for name in set(lines) - CAP_IDS:
+        assert f"`{name}`" in amendment, f"hypothesis_not_documented line={name}"
+
+
 def test_manifest_nao_armazena_totais_e_cita_fonte_datada() -> None:
     manifest = _manifest()
     assert manifest["as_of"] == AS_OF
     assert manifest["region"] == "us-east-2"
     assert set(manifest) == {"schema_version", "as_of", "region", "currency", "limits", "lines"}
     for line in manifest["lines"]:
-        assert not {key for key in line if "total" in key or "sum" in key}, line["id"]
+        stored = {key for key in line if key in {"total", "totals", "sum", "sums", "subtotal"}}
+        assert not stored, line["id"]
         assert line["source"]["url"].startswith(SOURCE_PREFIXES), line["id"]
         assert line["source"]["term"], line["id"]
 
@@ -182,7 +203,7 @@ def test_limites_fixos_do_produto_cognito_e_waf() -> None:
     waf = lines["waf_dedicated"]
     assert waf["unit_price_usd"] == 0
     assert waf["exposure_usd"] == 7
-    assert waf["binding"] == "cloudfront_free_plan_active"
+    assert waf["precondition"] == "cloudfront_free_plan_active"
     assert lines["secrets_manager"]["binding"] == "BILLING_MODE=disabled"
     assert lines["step_functions_transitions"]["binding"] == "monthly_attempt_limit=200"
     assert lines["ecr_storage"]["quantity"]["max"] == 2

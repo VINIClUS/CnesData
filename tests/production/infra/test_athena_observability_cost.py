@@ -3,11 +3,13 @@ import json
 from tests.production.infra._athena_contracts import (
     ACCOUNT,
     ALARM_NAMES,
+    CUTOFF_FUNCTION_ARN,
     CUTOFF_NAME,
     CUTOFF_POLICY_ADDRESS,
+    CUTOFF_TOPIC_ARN,
     MANIFEST_PATH,
     MODULE_ADDRESSES,
-    OPERATOR_TOPIC,
+    OPERATOR_TOPIC_ARN,
     RESULTS_BUCKET,
     SCHEMA_PATH,
     SHARED_API_ROLE,
@@ -103,22 +105,25 @@ def test_workgroup_com_cutoff_por_query_e_configuracao_forcada(bootstrap_plan: N
 
 def test_alarme_de_cutoff_aciona_sns_da_lambda(scheduled_plan: Node) -> None:
     alarm = alarms(scheduled_plan)[f"{CUTOFF_NAME}"]
-    topic = at(scheduled_plan, "module.athena.aws_sns_topic.cutoff")
     function = at(scheduled_plan, "module.athena.aws_lambda_function.cutoff")
     subscription = at(scheduled_plan, "module.athena.aws_sns_topic_subscription.cutoff")
-    assert topic["name"] == CUTOFF_NAME
-    assert alarm["alarm_actions"] == [topic["arn"]]
+    assert at(scheduled_plan, "module.athena.aws_sns_topic.cutoff")["name"] == CUTOFF_NAME
+    assert alarm["alarm_actions"] == [CUTOFF_TOPIC_ARN]
     assert not alarm["ok_actions"]
     assert not alarm["insufficient_data_actions"]
-    assert subscription["topic_arn"] == topic["arn"]
+    assert subscription["topic_arn"] == CUTOFF_TOPIC_ARN
     assert subscription["protocol"] == "lambda"
-    assert subscription["endpoint"] == function["arn"]
+    assert subscription["endpoint"] == CUTOFF_FUNCTION_ARN
     assert function["handler"] == "cutoff_handler.handler"
     assert function["runtime"] == "python3.13"
     others = {name: item for name, item in alarms(scheduled_plan).items() if name != CUTOFF_NAME}
     for name, other in others.items():
-        used = [*other["alarm_actions"], *other["ok_actions"], *other["insufficient_data_actions"]]
-        assert topic["arn"] not in used, f"cutoff_topic_reused alarm={name}"
+        used = [
+            item
+            for key in ("alarm_actions", "ok_actions", "insufficient_data_actions")
+            for item in (other.get(key) or [])
+        ]
+        assert CUTOFF_TOPIC_ARN not in used, f"cutoff_topic_reused alarm={name}"
 
 
 def test_manifest_do_produto_ate_8_e_agregado_ate_15() -> None:
@@ -158,11 +163,10 @@ def test_plan_agenda_workgroup_e_alarmes(
         assert {item["address"] for item in scheduled} == MODULE_ADDRESSES
         assert all(item["change"]["actions"] == ["create"] for item in scheduled)
         assert set(alarms(plan)) >= ALARM_NAMES
-        topic = by_name(plan, "aws_sns_topic", "name", OPERATOR_TOPIC)
-        athena_topic = by_name(plan, "aws_sns_topic", "name", CUTOFF_NAME)
+        by_name(plan, "aws_sns_topic", "name", CUTOFF_NAME)
         assert output_value(plan, "athena_workgroup_name") == WORKGROUP
-        assert output_value(plan, "operator_alarm_topic_arn") == topic["arn"]
-        assert output_value(plan, "athena_cutoff_topic_arn") == athena_topic["arn"]
+        assert output_value(plan, "operator_alarm_topic_arn") == OPERATOR_TOPIC_ARN
+        assert output_value(plan, "athena_cutoff_topic_arn") == CUTOFF_TOPIC_ARN
     assert set(alarms(bootstrap_plan)) == ALARM_NAMES
     scheduler_alarms = output_value(scheduled_plan, "scheduler_alarm_names")
     names = {name for group in scheduler_alarms.values() for name in _flatten(group)}

@@ -1,6 +1,7 @@
 import hashlib
 import re
 import subprocess
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -60,7 +61,8 @@ def test_ci_instala_conftest_fixado_so_no_job_hospedado_nativo() -> None:
 
 
 def test_ci_dispara_nos_novos_caminhos_de_politica_schema_e_fixtures() -> None:
-    triggers = _workflow().get("on", _workflow().get(True))
+    workflow = cast("dict[Any, Any]", _workflow())
+    triggers = workflow.get("on", workflow.get(True))
     assert isinstance(triggers, dict)
     for event in ("pull_request", "push"):
         for path in NEW_PATHS:

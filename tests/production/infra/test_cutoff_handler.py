@@ -91,7 +91,7 @@ def test_handler_falha_fechado_em_erro_da_api(
     with pytest.raises(ClientError) as raised:
         _module(monkeypatch).handler(SNS_EVENT, None, client)
 
-    assert raised.value.response["Error"]["Code"] == "AccessDeniedException"
+    assert raised.value.response.get("Error", {}).get("Code") == "AccessDeniedException"
     stubber.assert_no_pending_responses()
 
 

@@ -130,6 +130,7 @@ resource "aws_cloudwatch_metric_alarm" "repeated_failure" {
   threshold           = 1
   comparison_operator = "GreaterThanOrEqualToThreshold"
   treat_missing_data  = "notBreaching"
+  alarm_actions       = var.alarm_actions
 }
 
 resource "aws_cloudwatch_metric_alarm" "lost_invocation" {
@@ -141,6 +142,7 @@ resource "aws_cloudwatch_metric_alarm" "lost_invocation" {
   threshold           = 1
   comparison_operator = "GreaterThanOrEqualToThreshold"
   treat_missing_data  = "notBreaching"
+  alarm_actions       = var.alarm_actions
 
   metric_query {
     id          = "lost"
@@ -181,4 +183,5 @@ resource "aws_cloudwatch_metric_alarm" "outbox_backlog" {
   threshold           = 1
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "breaching"
+  alarm_actions       = var.alarm_actions
 }
