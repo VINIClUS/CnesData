@@ -124,15 +124,18 @@ def _stateful_suite(
     shared_value = json.dumps(shared["shared_outputs"], separators=(",", ":"))
     digest_a, digest_b = json.dumps(DIGEST_A), json.dumps(DIGEST_B)
     candidate_a = "run.phase_a_register_a.processor_task_definition_arns.unit"
-    candidate_b = "run.phase_b_create_apply.processor_task_definition_arns.unit"
-    route_b = "run.phase_a_register_b.processor_task_definition_arns.unit"
+    unit_a = "run.phase_b_create_apply.processor_task_definition_arns.unit"
+    unit_b = "run.phase_a_register_b.processor_task_definition_arns.unit"
+    produced_a = next(item for item in task_identities[A_RUN] if item["mode_index"] == "unit")
+    retained_route = json.dumps(produced_a["fields"]["arn"]["value"])
     specs = [
         ("bootstrap", "plan", "null", "null", "[]"),
         ("phase_a_register_a", "apply", digest_a, "null", "[]"),
         ("phase_b_create_plan", "plan", digest_a, candidate_a, f"[{candidate_a}]"),
         ("phase_b_create_apply", "apply", digest_a, candidate_a, f"[{candidate_a}]"),
-        ("phase_a_register_b", "apply", digest_b, candidate_b, f"[{candidate_b}]"),
-        ("phase_b_route_plan", "plan", digest_b, route_b, f"[{route_b}]"),
+        ("phase_a_plan_b", "plan", digest_b, unit_a, f"[{unit_a}]"),
+        ("phase_a_register_b", "apply", digest_b, unit_a, f"[{unit_a}]"),
+        ("phase_b_route_plan", "plan", digest_b, unit_b, f"[{retained_route}, {unit_b}]"),
     ]
     machine = [item for item in identities if item["type"] == "aws_sfn_state_machine"]
     base = [item for item in identities if item not in machine]
@@ -147,6 +150,7 @@ def _stateful_suite(
         overrides[1],
         overrides[2],
         overrides[2],
+        overrides[3],
         overrides[3],
         overrides[3],
     ]
@@ -199,7 +203,7 @@ def _sequence_observation(
 ) -> tuple[dict[str, Node], dict[str, Node]]:
     plans = {
         run: event_for(events, "test_plan", run)["test_plan"]
-        for run in ("bootstrap", "phase_b_create_plan", "phase_b_route_plan")
+        for run in ("bootstrap", "phase_b_create_plan", "phase_a_plan_b", "phase_b_route_plan")
     }
     for plan in plans.values():
         assert_root_identity_producers(plan, seeds)
@@ -256,6 +260,7 @@ def _stateful_sequence(
             "phase_a_register_a",
             "phase_b_create_plan",
             "phase_b_create_apply",
+            "phase_a_plan_b",
             "phase_a_register_b",
             "phase_b_route_plan",
         ]
@@ -414,6 +419,50 @@ def test_interfaces_publicas_de_processing_runtime_e_raiz_sao_estendidas(
         "processor_step_functions_role_id",
         "processor_step_functions_role_arn",
     } <= root_outputs
+
+
+def test_policy_ecs_depende_somente_dos_locals_de_decisao_e_recursos_run_task(
+    processing_native: NativePlans, prod_root: Path
+) -> None:
+    module = configuration_module(processing_native.configuration, prod_root, PROCESSING_SOURCE)
+    address = "aws_iam_role_policy.step_functions_ecs"
+    policy = one_resource(
+        [item for item in module["resources"] if item["address"] == address],
+        "ecs_policy_configuration",
+    )
+    assert set(policy["count_expression"]["references"]) == {"var.enable_step_functions_iam"}
+    references = set(policy["expressions"]["policy"].get("references", []))
+    required = {"local.run_task_enabled", "local.run_task_resources"}
+    assert required <= references, f"run_task_locals_missing={sorted(required - references)!r}"
+    direct = {item for item in references if item.startswith(("var.", "aws_ecs_task_definition"))}
+    assert not direct, f"run_task_direct_references={sorted(direct)!r}"
+
+
+def _call_references(call: Node) -> set[str]:
+    found: set[str] = set(call.get("depends_on", []))
+    pending: list[object] = [call.get(key) for key in ("expressions", "count_expression",
+                                                       "for_each_expression")]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            found.update(node.get("references", []))
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+    return found
+
+
+def test_raiz_nao_passa_saida_de_processing_para_runtime_iam(
+    processing_native: NativePlans,
+) -> None:
+    calls = processing_native.configuration["root_module"]["module_calls"]
+    leaked = {item for item in _call_references(calls["runtime_iam"])
+              if item.startswith("module.processing")}
+    assert not leaked, f"runtime_iam_references_processing={sorted(leaked)!r}"
+    expected = {"module.runtime_iam.step_functions_role_id",
+                "module.runtime_iam.step_functions_role_arn"}
+    observed = _call_references(calls["processing"])
+    assert expected <= observed, f"processing_runtime_iam_edge={sorted(expected - observed)!r}"
 
 
 def _runtime_inputs(state_machine_arn: str | None, name_prefix: str = PREFIX) -> dict[str, object]:

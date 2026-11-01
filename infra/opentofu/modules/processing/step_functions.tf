@@ -21,6 +21,16 @@ resource "aws_sfn_state_machine" "processor" {
   })
 }
 
+locals {
+  run_task_enabled = (
+    var.image_digest != null || length(var.processor_retained_unit_task_definition_arns) > 0
+  )
+  run_task_resources = sort(setunion(
+    [for key, definition in aws_ecs_task_definition.processor : definition.arn if key == "unit"],
+    var.processor_retained_unit_task_definition_arns,
+  ))
+}
+
 resource "aws_iam_role_policy" "step_functions_ecs" {
   count = var.enable_step_functions_iam ? 1 : 0
 
@@ -28,10 +38,17 @@ resource "aws_iam_role_policy" "step_functions_ecs" {
   role = var.step_functions_role_id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["ecs:DescribeTasks", "ecs:StopTask"]
-      Resource = "*"
-    }]
+    Statement = concat(
+      [{
+        Effect   = "Allow"
+        Action   = ["ecs:DescribeTasks", "ecs:StopTask"]
+        Resource = "*"
+      }],
+      [for resources in [local.run_task_resources] : {
+        Effect   = "Allow"
+        Action   = "ecs:RunTask"
+        Resource = resources
+      } if local.run_task_enabled],
+    )
   })
 }

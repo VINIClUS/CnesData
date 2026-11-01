@@ -2,6 +2,7 @@
 
 import json
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,9 @@ from tests.production.infra._processing_native import (
 type Node = dict[str, Any]
 type Grants = frozenset[tuple[str, str, str]]
 
+ECS_POLICY_ADDRESS = "module.processing.aws_iam_role_policy.step_functions_ecs[0]"
+COMMON_POLICY_ADDRESS = "module.runtime_iam.aws_iam_role_policy.step_functions[0]"
+STEP_FUNCTIONS_ROLE_ADDRESS = "module.runtime_iam.aws_iam_role.step_functions[0]"
 POLICY_ATTACHMENT_TYPES = {
     "aws_iam_role_policy",
     "aws_iam_role_policy_attachment",
@@ -407,3 +411,31 @@ def assert_policy_grants(plan: Node, role: Node, specification: Node, expected: 
     assert observed <= expected, (
         f"extra_grants address={address} grants={sorted(observed - expected)!r}"
     )
+
+
+def ecs_policy_grants(run_task: Iterable[str]) -> Grants:
+    """Args: Revisões unit esperadas para ecs:RunTask, vazio no bootstrap.
+    Returns: Grants literais da policy ECS de Step Functions, sem condição.
+    """
+    return literal_grants(("ecs:DescribeTasks", "ecs:StopTask"), ("*",), {}) | literal_grants(
+        ("ecs:RunTask",), tuple(sorted(set(run_task))), {}
+    )
+
+
+def assert_ecs_policy(plan: Node, run_task: Iterable[str]) -> str:
+    """Args: Plano observado e revisões unit esperadas de producers independentes.
+    Returns: Documento da policy ECS após igualdade exata e statement único de RunTask.
+    Raises: AssertionError para grants ou binding divergentes.
+    """
+    expected = set(run_task)
+    specification = {
+        "address": ECS_POLICY_ADDRESS,
+        "name": "cnesdata-prod-step-functions-ecs",
+        "allowed": [ECS_POLICY_ADDRESS, COMMON_POLICY_ADDRESS],
+    }
+    role = resource_at(plan, STEP_FUNCTIONS_ROLE_ADDRESS)
+    assert_policy_grants(plan, role, specification, ecs_policy_grants(expected))
+    document = resource_at(plan, ECS_POLICY_ADDRESS)["change"]["after"]["policy"]
+    statements = json.loads(document)["Statement"]
+    assert len(statements) == 1 + bool(expected), f"ecs_policy_statements={len(statements)}"
+    return document

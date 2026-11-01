@@ -24,8 +24,13 @@ from tests.production.infra._processing_native import (
     _configuration_address,
 )
 from tests.production.infra._step_functions_iam_contracts import (
+    ECS_POLICY_ADDRESS,
+    assert_ecs_policy,
+    ecs_policy_grants,
     expected_machine_arn,
     one_resource,
+    policy_grants,
+    resource_at,
     state_machine_definition,
 )
 
@@ -360,3 +365,70 @@ def test_transicao_de_routing_apos_phase_a_muda_somente_machine(
     _task_from_definition(before_without)["Parameters"]["TaskDefinition"] = None
     _task_from_definition(after_without)["Parameters"]["TaskDefinition"] = None
     assert before_without == after_without
+
+
+MACHINE_ADDRESS = "module.processing.aws_sfn_state_machine.processor[0]"
+
+
+def _applied_unit(state: Node) -> str:
+    unit = one_resource(
+        [item for item in _state_task_definitions(state) if item.get("index") == "unit"],
+        "state_unit_task_definition",
+    )["values"]["arn"]
+    outputs = _state_outputs(state)["processor_task_definition_arns"]
+    assert isinstance(outputs, dict)
+    assert outputs["unit"] == unit
+    return unit
+
+
+def _applied_ecs_grants(state: Node) -> frozenset[tuple[str, str, str]]:
+    policy = _state_resource(state, "aws_iam_role_policy", "step_functions_ecs")
+    return policy_grants(policy["values"]["policy"])
+
+
+def _assert_plan_ecs_action(plans: dict[str, Node], run: str, action: str) -> None:
+    actions = resource_at(plans[run], ECS_POLICY_ADDRESS)["change"]["actions"]
+    assert actions == [action], f"ecs_policy_action run={run} actions={actions!r}"
+
+
+def _changed_addresses(plan: Node) -> set[str]:
+    return {
+        item["address"]
+        for item in plan["resource_changes"]
+        if item["change"]["actions"] != ["no-op"]
+    }
+
+
+def test_run_task_acompanha_candidata_e_retained_na_sequencia_stateful(
+    processing_stateful_context: tuple[NativePlans, Tofu, Path],
+) -> None:
+    _assert_stateful_interfaces(processing_stateful_context)
+    native, tofu, root = processing_stateful_context
+    _, plans, states = _stateful_sequence(tofu, root, native)
+    unit_a = _applied_unit(states["phase_b_create_apply"])
+    unit_b = _applied_unit(states["phase_a_register_b"])
+    assert _applied_unit(states["phase_a_register_a"]) == unit_a != unit_b
+    plan_b = plans["phase_a_plan_b"]
+    machine = resource_at(plan_b, MACHINE_ADDRESS)
+    assert machine["change"]["actions"] == ["no-op"], "phase_a_machine_changed"
+    task = _task_from_definition(state_machine_definition(machine))
+    assert task["Parameters"]["TaskDefinition"] == unit_a, "phase_a_routing_changed"
+    _assert_plan_ecs_action(plans, "phase_b_create_plan", "no-op")
+    _assert_plan_ecs_action(plans, "phase_b_route_plan", "no-op")
+    expected = {
+        "phase_a_register_a": {unit_a},
+        "phase_b_create_apply": {unit_a},
+        "phase_a_register_b": {unit_a, unit_b},
+    }
+    for run, run_task in expected.items():
+        assert _applied_ecs_grants(states[run]) == ecs_policy_grants(run_task), f"run={run}"
+    assert_ecs_policy(plans["phase_b_create_plan"], {unit_a})
+    assert_ecs_policy(plan_b, {unit_a, unit_b})
+    _assert_plan_ecs_action(plans, "phase_a_plan_b", "update")
+    tasks = {
+        f'module.processing.aws_ecs_task_definition.processor["{mode}"]'
+        for mode in ("unit", "recovery", "audit")
+    }
+    changed = _changed_addresses(plan_b)
+    assert changed == tasks | {ECS_POLICY_ADDRESS}, f"phase_a_delta={sorted(changed)!r}"
+    assert_ecs_policy(plans["phase_b_route_plan"], {unit_a, unit_b})

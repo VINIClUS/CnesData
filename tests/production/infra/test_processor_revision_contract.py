@@ -10,20 +10,30 @@ from typing import Any
 import pytest
 
 from tests.production.infra._processing_native import (
+    A_RUN,
+    B_RUN,
     MOCK_PROVIDERS,
+    RUN_INPUTS,
+    NativePlans,
+    Plans,
     _native_result,
+    _processing_runs,
     _successful_plans,
 )
 from tests.production.infra._root_native_identities import (
     _override_hcl,
     assert_root_identity_producers,
 )
-from tests.production.infra._step_functions_iam_contracts import assert_policy_grants
+from tests.production.infra._step_functions_iam_contracts import (
+    assert_ecs_policy,
+    assert_policy_grants,
+    resource_at,
+)
 from tests.production.infra.test_step_functions_iam_runtime import (
     _runtime_actor,
     _runtime_grants,
     _runtime_resources,
-    sfn_api_grants,
+    sfn_grants,
 )
 
 type Node = dict[str, Any]
@@ -36,6 +46,7 @@ REGION = "us-east-2"
 FAMILY = "cnesdata-prod-processor-unit"
 REVISION = f"arn:aws:ecs:{REGION}:{ACCOUNT}:task-definition/{FAMILY}:7"
 OLD_REVISION = f"arn:aws:ecs:{REGION}:{ACCOUNT}:task-definition/{FAMILY}:6"
+THIRD_REVISION = f"arn:aws:ecs:{REGION}:{ACCOUNT}:task-definition/{FAMILY}:8"
 TEST_DIRECTORY = ".terraform/processor-revision-tests"
 PLAN_ARGUMENTS = (
     "test",
@@ -159,7 +170,7 @@ def _assert_api_policy_follows_active(name: str, plan: Node, active: object) -> 
     resources = _runtime_resources(plan)
     expected = _runtime_grants(resources)["api"]
     if active is not None:
-        expected = expected | sfn_api_grants(resources)
+        expected = expected | sfn_grants(resources)
     role, specification = _runtime_actor(plan, "api")
     try:
         assert_policy_grants(plan, role, specification, expected)
@@ -214,6 +225,82 @@ def test_revisoes_validas_normalizam_set_e_bootstrap(
         assert set(values[RETAINED]["value"]) == retained, f"retained_effective_value={name}"
     for name, (active, _) in expected.items():
         _assert_api_policy_follows_active(name, plans[name], active)
+
+
+RETAINED_RUNS = (
+    ("bootstrap_vazio", None, []),
+    ("phase_a_unica", None, [OLD_REVISION]),
+    ("tres_ordem_a", OLD_REVISION, [OLD_REVISION, REVISION, THIRD_REVISION, OLD_REVISION]),
+    ("tres_ordem_b", OLD_REVISION, [THIRD_REVISION, OLD_REVISION, REVISION]),
+)
+
+
+def _retained_plans(tofu: Tofu, root: Path, shared: Node) -> Plans:
+    blocks = "".join(
+        _run_block(shared, active, retained, name) for name, active, retained in RETAINED_RUNS
+    )
+    suite = MOCK_PROVIDERS + _override_hcl(_records(tofu, "overrides")) + blocks
+    plans = _successful_plans(
+        _run_case(tofu, root, suite, "processor-revision-run-task"),
+        {name for name, _, _ in RETAINED_RUNS},
+    )
+    for plan in plans.values():
+        assert_root_identity_producers(plan, _records(tofu, "seeds"))
+    return plans
+
+
+def test_run_task_sem_digest_espelha_retained_exato_e_ignora_ordem(
+    tofu_context: Tofu, prod_root: Path, valid_shared_outputs: Node
+) -> None:
+    plans = _retained_plans(tofu_context, prod_root, valid_shared_outputs)
+    expected = {
+        "bootstrap_vazio": set(),
+        "phase_a_unica": {OLD_REVISION},
+        "tres_ordem_a": {OLD_REVISION, REVISION, THIRD_REVISION},
+        "tres_ordem_b": {OLD_REVISION, REVISION, THIRD_REVISION},
+    }
+    for name in expected:
+        assert plans[name]["variables"]["image_digest"]["value"] is None, f"digest_null={name}"
+    documents = {name: assert_ecs_policy(plans[name], arns) for name, arns in expected.items()}
+    assert documents["tres_ordem_a"] == documents["tres_ordem_b"], "run_task_order_sensitive"
+
+
+def _task_arn(plan: Node, mode: str) -> str:
+    address = f'module.processing.aws_ecs_task_definition.processor["{mode}"]'
+    return resource_at(plan, address)["change"]["after"]["arn"]
+
+
+def test_run_task_so_tem_unit_candidata_do_digest_com_retained_vazio(
+    processing_native: NativePlans,
+) -> None:
+    for run in (A_RUN, B_RUN):
+        plan = processing_native.plans[run]
+        assert plan["variables"][RETAINED]["value"] == []
+        document = assert_ecs_policy(plan, {_task_arn(plan, "unit")})
+        for mode in ("recovery", "audit"):
+            assert _task_arn(plan, mode) not in document, f"run_task_mode_leak={mode}"
+
+
+@pytest.mark.usefixtures("processing_native")
+def test_run_task_une_candidata_e_retained_sem_duplicar(
+    tofu_context: Tofu, prod_root: Path
+) -> None:
+    evidence = Path(tofu_context[1]["TF_DATA_DIR"])
+    identities = json.loads((evidence / "processing-identity-overrides.json").read_text())
+    tasks = json.loads((evidence / "processing-task-identities.json").read_text())[A_RUN]
+    candidate = next(item for item in tasks if item["mode_index"] == "unit")
+    arn = candidate["fields"]["arn"]["value"]
+    assert arn not in {OLD_REVISION, REVISION}
+    runs = {
+        "uniao_nova": RUN_INPUTS[A_RUN] | {RETAINED: [OLD_REVISION, REVISION]},
+        "uniao_dedup": RUN_INPUTS[A_RUN] | {RETAINED: [arn, OLD_REVISION]},
+    }
+    specification = ("processing-union", runs, identities + tasks)
+    plans = _processing_runs(tofu_context, prod_root, specification)
+    for plan in plans.values():
+        assert _task_arn(plan, "unit") == arn, "candidate_producer_mismatch"
+    assert_ecs_policy(plans["uniao_nova"], {arn, OLD_REVISION, REVISION})
+    assert_ecs_policy(plans["uniao_dedup"], {arn, OLD_REVISION})
 
 
 INVALID_VALUES = (

@@ -206,6 +206,15 @@ def _list_grants(bucket: str, prefixes: tuple[str, ...]) -> Grants:
     return literal_grants(("s3:ListBucket",), (bucket,), condition)
 
 
+def sfn_grants(resources: Node) -> Grants:
+    return (
+        literal_grants(("states:DescribeStateMachine", "states:StartExecution"),
+                       (resources["machine"],), {})
+        | literal_grants(("states:DescribeExecution", "states:StopExecution"),
+                         (resources["executions"],), {})
+    )
+
+
 def _runtime_grants(resources: Node) -> dict[str, Grants]:
     table, data, audit = resources["table"], resources["data"], resources["audit"]
     publish = ("tmp/*", "normalized/*", "reconciliation/*", "serving/*")
@@ -215,10 +224,7 @@ def _runtime_grants(resources: Node) -> dict[str, Grants]:
     ddb = ("dynamodb:GetItem", "dynamodb:Query", "dynamodb:ConditionCheckItem",
            "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem")
     shared = (
-        literal_grants(("states:DescribeStateMachine", "states:StartExecution"),
-                       (resources["machine"],), {})
-        | literal_grants(("states:DescribeExecution", "states:StopExecution"),
-                         (resources["executions"],), {})
+        sfn_grants(resources)
         | literal_grants(ddb, (table,), _leading_keys(keys))
         | literal_grants(("dynamodb:UpdateItem",), (table,),
                          _leading_keys(("ENV#prod#ATTEMPTS",), "StringEquals"))
@@ -379,15 +385,6 @@ def test_oraculo_preserva_condicao_literal_e_rejeita_valor_repetido() -> None:
         policy_grants(_policy_document([statement]))
 
 
-def sfn_api_grants(resources: Node) -> Grants:
-    return (
-        literal_grants(("states:DescribeStateMachine", "states:StartExecution"),
-                       (resources["machine"],), {})
-        | literal_grants(("states:DescribeExecution", "states:StopExecution"),
-                         (resources["executions"],), {})
-    )
-
-
 def _active_api_grants(plan: Node) -> Grants:
     resources = _runtime_resources(plan)
     table = resource_at(plan, "module.control_plane.aws_dynamodb_table.control_plane")
@@ -395,7 +392,7 @@ def _active_api_grants(plan: Node) -> Grants:
     assert "gsi1" in {item["name"] for item in indexes}, "api_gsi1_producer_missing"
     machine = resource_at(plan, "module.processing.aws_sfn_state_machine.processor[0]")
     assert machine["change"]["after"]["arn"] == resources["machine"]
-    return _runtime_grants(resources)["api"] | sfn_api_grants(resources)
+    return _runtime_grants(resources)["api"] | sfn_grants(resources)
 
 
 def test_api_ativa_recebe_quatro_acoes_exatas_e_preserva_ddb_s3_e_role_externa(
