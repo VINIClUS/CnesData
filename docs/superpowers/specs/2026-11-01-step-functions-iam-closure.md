@@ -34,6 +34,23 @@ Não executa apply, plan com provider real, deploy ou chamada AWS.
   `var.enable_step_functions_iam`, e a policy depende apenas dos locals de decisão e de
   recursos. A resolução após o apply mockado é verificada no estado da sequência stateful.
 
+## Paths adicionais
+
+- `tests/production/infra/test_step_functions_iam_inputs.py` (criado em `b5bd7698`) concentra
+  os testes de transporte e validação dos inputs active/retained/runtime_grants. Ele existe
+  porque `test_step_functions_iam.py` e `test_ecr_ecs.py` estão perto do limite de 500 linhas;
+  não altera produto, validators ou fixtures.
+- Esta nota de fechamento, em `docs/superpowers/specs/`.
+
+## Riscos a verificar antes da ativação
+
+- O `s3:ListBucket` de unit/recovery/API é condicionado por `s3:prefix`, como manda a matriz.
+  O runtime distingue 404 de 403 em `get_object` de chave ausente
+  (`cnes_infra/object_store/s3.py`). Se o S3 não considerar a permissão condicionada ao
+  decidir 404 versus 403, a chave ausente retorna 403. O smoke real de #386–#389 precisa
+  provar o 404 antes de ativar; mudar a condição exige novo amendment, porque
+  `StringLikeIfExists` liberaria listagem sem prefixo.
+
 ## Rastreabilidade dos testes nomeados na issue
 
 Os nomes da issue não existem literalmente; o amendment v5 redistribuiu os oráculos.
