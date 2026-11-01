@@ -17,6 +17,19 @@ from tests.integration.aws_capability._service_contracts import ApiError, Reply
 from tests.integration.aws_capability.contracts import RequestContext
 
 SHARED_MEMORY = Path("/dev/shm")  # noqa: S108
+BODY_FIXTURE = Path(__file__).parent / "fixtures" / "body.json"
+EMPTY_SUCCESS = frozenset(
+    {
+        ("s3api", "put-bucket-tagging"),
+        ("s3api", "put-bucket-versioning"),
+        ("s3api", "put-object-legal-hold"),
+        ("s3api", "put-object-retention"),
+        ("iam", "put-role-policy"),
+        ("cognito-idp", "update-user-pool"),
+        ("dynamodb", "transact-write-items"),
+        ("dynamodb", "get-item"),
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -153,15 +166,18 @@ def _local_failure(code: str) -> Reply:
 
 
 def _input_payload(request: Request) -> str | None:
+    if (request.service, request.operation) == ("s3api", "put-object-lock-configuration"):
+        return None
     payload = dict(request.payload)
     if "Body" in payload:
-        body = Path(__file__).parent / "fixtures" / "body.json"
+        body = BODY_FIXTURE
         if (request.service, request.operation) != ("s3api", "put-object"):
             return None
         if payload["Body"] != str(body) or not _approved_body(body):
             return None
         del payload["Body"]
-    return json.dumps(payload)
+    text = json.dumps(payload)
+    return None if "compliance" in text.lower() else text
 
 
 def _approved_body(body: Path) -> bool:
@@ -183,9 +199,7 @@ def _process_reply(completed: subprocess.CompletedProcess[str], request: Request
     if completed.returncode == 0:
         if not completed.stdout.strip() and (
             request.operation.startswith("delete-")
-            or (request.service, request.operation) == ("cognito-idp", "update-user-pool")
-            or (request.service, request.operation)
-            in {("dynamodb", "transact-write-items"), ("dynamodb", "get-item")}
+            or (request.service, request.operation) in EMPTY_SUCCESS
         ):
             return Reply(True, {}, None)
         data = json.loads(completed.stdout)

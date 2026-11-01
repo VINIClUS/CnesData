@@ -10,9 +10,14 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from tests.integration.aws_capability._operator_inputs import read_operator_inputs
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._safety import SafetyFailure
-from tests.integration.aws_capability._service_contracts import ServicePorts
+from tests.integration.aws_capability._service_contracts import (
+    CommandPort,
+    ServicePorts,
+    SessionFactory,
+)
 from tests.integration.aws_capability.contracts import (
     Outcome,
     Policy,
@@ -129,6 +134,14 @@ def require_session_credentials(environment: Mapping[str, str]) -> None:
         raise SafetyFailure("session_credentials_required")
 
 
+def session_factory(spec: RunSpec, environment: Mapping[str, str]) -> SessionFactory:
+    def build(credentials: Mapping[str, str]) -> CommandPort:
+        merged = {**environment, **{key: credentials[key] for key in CREDENTIAL_KEYS}}
+        return AwsCommands(spec.region, merged, COMMAND_TIMEOUT)
+
+    return build
+
+
 def build_ports(
     spec: RunSpec,
     environment: Mapping[str, str],
@@ -139,7 +152,11 @@ def build_ports(
     if profile is None:
         raise SafetyFailure("invalid_profile")
     commands = AwsCommands(spec.region, dict(environment), COMMAND_TIMEOUT)
-    services = AwsServices(spec, ServicePorts(commands, clock))
+    operator = read_operator_inputs(spec, environment) if "iam" in profile.services else None
+    service_ports = ServicePorts(
+        commands, clock, time.sleep, session_factory(spec, environment), operator
+    )
+    services = AwsServices(spec, service_ports)
     policy = Policy(spec.account, AUTHORIZED_REGIONS, profile.limits)
     budget = RequestBudget(profile.limits, spec.deadline, clock)
     return Ports(services, processes, clock, policy, budget)
