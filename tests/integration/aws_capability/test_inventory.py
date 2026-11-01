@@ -209,3 +209,40 @@ def test_segundo_janitor_ve_novo_recurso_e_nao_reutiliza_inventario_anterior(lab
     assert_complete(second, lab.events)
     assert lab.remote.resources == {}
     assert ("delete", "late-after-first-janitor", True) in lab.events
+
+
+@pytest.mark.parametrize("service", SERVICES)
+def test_inventario_nunca_descreve_nem_retorna_recurso_fora_do_prefixo(
+    lab: Lab, service: str
+) -> None:
+    foreign = Resource(service, "foreign-id", "outro-projeto-recurso")
+    lab.remote.add(foreign)
+    lab.remote.inspect_errors.add(foreign.resource_id)
+    lab.remote.page_size = 5
+    outcome = lifecycle.run(lab.spec, lab.ports())
+    assert_complete(outcome, lab.events)
+    assert ("inspect", "foreign-id") not in lab.events
+    assert ("lookup", service, "foreign-id") not in lab.events
+    assert "foreign-id" in lab.remote.resources
+    assert outcome.remaining == ()
+
+
+@pytest.mark.parametrize("service", SERVICES)
+def test_inventario_estranho_duplicado_ainda_e_incompleto(lab: Lab, service: str) -> None:
+    foreign = Resource(service, "foreign-id", "outro-projeto-recurso")
+    lab.remote.pages[service] = [Page((foreign,), "next"), Page((foreign,))]
+    outcome = lifecycle.run(lab.spec, lab.ports())
+    assert outcome.reason == "inventory_incomplete"
+    assert ("inspect", "foreign-id") not in lab.events
+    assert_no_mutation(lab.events)
+
+
+@pytest.mark.parametrize("service", SERVICES)
+def test_inventario_estranho_em_pagina_posterior_mantem_paginacao_completa(
+    lab: Lab, service: str
+) -> None:
+    foreign = Resource(service, "foreign-id", "outro-projeto-recurso")
+    lab.remote.pages[service] = [Page((foreign,), "next"), Page(cursor="next")]
+    outcome = lifecycle.run(lab.spec, lab.ports())
+    assert outcome.reason == "inventory_incomplete"
+    assert_no_mutation(lab.events)

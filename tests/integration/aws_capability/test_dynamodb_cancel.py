@@ -11,7 +11,11 @@ from typing import Any
 
 import pytest
 
-from tests.integration.aws_capability._service_ddb_prepare_testing import Privacy, _data
+from tests.integration.aws_capability._service_ddb_prepare_testing import (
+    CONDITIONS_EVIDENCE,
+    Privacy,
+    _data,
+)
 from tests.integration.aws_capability._service_read_assertions import (
     FIXED_FLAGS,
     assert_environment,
@@ -185,17 +189,25 @@ def _probe(cancel: CancelLab) -> BaseException:
     return error.value
 
 
-def test_cancelamento_preserva_tres_itens_sem_concluir_perfil(cancel_lab: CancelLab) -> None:
+def _probe_ok(cancel: CancelLab) -> Any:
+    lab = cancel.read
+    result = lab.services.probe([ROOT], replace(lab.services.spec), lab.context)
+    cancel.privacy.check_value(result, lab)
+    return result
+
+
+def test_cancelamento_preserva_tres_itens_e_devolve_observacoes_do_perfil(
+    cancel_lab: CancelLab,
+) -> None:
     _queue(cancel_lab)
     path = Path(__file__).parent / "fixtures" / "cli" / "b4" / "ddb_token.json"
     token_tail = json.loads(path.read_text())["steps"]
     for step in token_tail:
         cancel_lab.read.process.outcomes.append(_outcome(step["reply"]))
     cancel_lab.clock.queued = tuple(cancel_lab.read.process.outcomes)
-    error = _probe(cancel_lab)
+    evidence = _probe_ok(cancel_lab)
     _trace(cancel_lab, 24, tail=[step["request"] for step in token_tail])
-    assert type(error) is ServiceFailure
-    assert error.args == ("probe=not_implemented",)
+    assert evidence == CONDITIONS_EVIDENCE
 
 
 @pytest.mark.parametrize(

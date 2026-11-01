@@ -1,4 +1,4 @@
-"""TTL registra presença e GSI esparso exige propagação limitada sem concluir perfil."""
+"""TTL registra presença e GSI esparso exige propagação limitada e devolve observações do perfil."""
 
 import logging
 from copy import deepcopy
@@ -36,6 +36,7 @@ INDEXED = {
 S = {"pk": {"S": "cap#a1b2c3d4#gsi"}, "sk": {"S": "sparse"}}
 BASE = {"pk": {"S": "cap#a1b2c3d4#gsi"}, "sk": {"S": "indexed"}}
 CURSOR = {"pk": {"S": "cap#a1b2c3d4#ttl"}, "sk": {"S": "expired"}}
+COMPLETED = "probe=completed"
 GET = "probe=ddb_ttl_gsi observation=ttl_get expired_present=%s current_present=%s"
 QUERY = "probe=ddb_ttl_gsi observation=ttl_query expired_present=%s current_present=%s"
 SCAN = "probe=ddb_ttl_gsi observation=ttl_scan expired_present=%s current_present=%s"
@@ -155,9 +156,31 @@ def _remote(code: str) -> Any:
     return {"exit": 254, "error": {"Code": code, "Message": CANARY, "Private": CANARY}}
 
 
+def _evidence(safe: list[Any]) -> dict[str, Any]:
+    get, query, scan, include, remove = (row[1] for row in safe[:5])
+    return {
+        "ttl_expired_get_present": get[0],
+        "ttl_expired_query_present": query[0],
+        "ttl_expired_scan_present": scan[0],
+        "ttl_current_present": True,
+        "gsi_include_status": include[0],
+        "gsi_include_polls": include[1],
+        "gsi_remove_status": remove[0],
+        "gsi_remove_polls": remove[1],
+        "gsi_consistent_read_code": "ValidationException",
+    }
+
+
 def _run(lab: TtlGsiLab, steps: list[Any], expectation: Any) -> None:
     count, reason, safe, sleeps = expectation
     queue(lab, steps)
+    if reason == COMPLETED:
+        evidence = lab.read.services.probe([ROOT], lab.read.services.spec, lab.read.context)
+        lab.privacy.check_value(evidence, lab.read)
+        equal(evidence, _evidence(safe))
+        trace(lab, count, sleeps)
+        assert_records(lab.privacy.caplog, safe)
+        return
     with pytest.raises((ServiceFailure, BudgetExhausted)) as error:
         lab.read.services.probe([ROOT], lab.read.services.spec, lab.read.context)
     lab.privacy.check(error.value, lab.read)
@@ -191,7 +214,7 @@ def test_registra_presenca_expirada_sem_exigir_remocao(ttl_lab: TtlGsiLab, case:
                 ("observed", 2, 2),
             )
             sleeps.append(1.0)
-    _run(ttl_lab, steps, (len(steps) + 3, "probe=not_implemented", safe, sleeps))
+    _run(ttl_lab, steps, (len(steps) + 3, COMPLETED, safe, sleeps))
     assert ttl_lab.anchor_calls == 1
 
 
@@ -227,7 +250,7 @@ def test_paginacao_segue_cursor_exato_e_limita_duas_paginas(ttl_lab: TtlGsiLab, 
     first, second = deepcopy(steps[index]), deepcopy(steps[index])
     first["reply"] = _data({"Items": [], "LastEvaluatedKey": CURSOR, "Count": 2})
     second["request"][3]["ExclusiveStartKey"] = CURSOR
-    reason, count, safe = "probe=not_implemented", 19, NOMINAL
+    reason, count, safe = COMPLETED, 19, NOMINAL
     if case in {"repetido", "query_esgotada", "scan_esgotada"}:
         cursor = CURSOR if case == "repetido" else V | {}
         cursor = {key: cursor[key] for key in ("pk", "sk")}
@@ -369,7 +392,7 @@ def test_registros_info_sao_observacoes_seguras_e_dependem_de_captura(
         root, previous = logging.getLogger(), logging.getLogger().level
         root.addHandler(handler)
         try:
-            _run(ttl_lab, steps, (18, "probe=not_implemented", NOMINAL, []))
+            _run(ttl_lab, steps, (18, COMPLETED, NOMINAL, []))
             assert len(records(ttl_lab.privacy.caplog)) == 6
             assert handler.buffer == []
         finally:
@@ -449,7 +472,7 @@ def test_gsi_paginado_separa_paginas_polls_e_limites(ttl_lab: TtlGsiLab, case: s
     if case == "maximo34":
         safe = deepcopy(NOMINAL)
         safe[3:5] = [(INCLUDE, ("observed", 4, 8)), (REMOVE, ("observed", 4, 8))]
-        _run(ttl_lab, _maximum_pages(steps), (34, "probe=not_implemented", safe, [1.0] * 6))
+        _run(ttl_lab, _maximum_pages(steps), (34, COMPLETED, safe, [1.0] * 6))
         assert ttl_lab.anchor_calls == 1
     else:
         index = 13 if case == "remocao_esgotada" else 10

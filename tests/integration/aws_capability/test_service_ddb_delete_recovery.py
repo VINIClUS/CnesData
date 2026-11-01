@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from tests.integration.aws_capability._cleanup import Cleanup
+from tests.integration.aws_capability._cli_testing import capture_input
 from tests.integration.aws_capability._durability import DurabilityTrace, assert_durable
 from tests.integration.aws_capability._inventory import inventory
 from tests.integration.aws_capability._journal import Journal, prepare_directory
@@ -111,6 +112,7 @@ def test_cleanup_completo_exige_aceitacao_e_inventario_final(
     assert outcome.evidence == {
         "inventory_complete": True,
         "counts": {"cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0},
+        "final_counts_all_cap": {"cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0},
     }
     trace(recovery_lab, names)
     assert recovery_lab.context.budget.used == calls
@@ -135,7 +137,7 @@ def test_recibo_e_fsync_antecedem_primeira_ausencia_e_janitor_recarrega(
 
     def stopped(argv: list[str], **options: Any) -> Any:
         if len(recovery_lab.process.calls) == 18:
-            recovery_lab.process.calls.append((list(argv), options))
+            recovery_lab.process.calls.append(capture_input(argv, options))
             recovery_lab.process.observed_debits.append(recovery_lab.context.budget.used)
             durable(engine.journal)
             assert_durable(durability, engine.journal.path)

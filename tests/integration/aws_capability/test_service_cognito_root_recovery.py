@@ -102,7 +102,7 @@ def test_estrangeiro_irrelevante_nao_bloqueia_recuperacao(root_lab: RootLab) -> 
     outcome = janitor(journal.spec, root_lab.ports)
     assert [outcome.status, outcome.reason] == trace["result"]
     assert_journal(root_lab, "j_complete")
-    assert_trace(root_lab, trace["steps"], ["cleanup"] * 60)
+    assert_trace(root_lab, trace["steps"], ["cleanup"] * 56)
     mutations = [
         (argv[2], json.loads(options["input"]))
         for argv, options in root_lab.process.calls
@@ -113,10 +113,8 @@ def test_estrangeiro_irrelevante_nao_bloqueia_recuperacao(root_lab: RootLab) -> 
         ("delete-user-pool", {"UserPoolId": "us-east-2_PoolRoot123"}),
     ]
     assert all(payload["UserPoolId"] == "us-east-2_PoolRoot123" for _, payload in mutations)
-    assert trace["steps"][-6:] == [
+    assert trace["steps"][-4:] == [
         ["L", "q"],
-        ["D_OTHER", "f"],
-        ["T_OTHER", "t"],
         ["LDDB", "d"],
         ["LS3", "b"],
         ["LIAM", "r"],
@@ -343,9 +341,13 @@ def test_lifecycle_root_limpo_mantem_falha_terminal(root_lab: RootLab) -> None:
     outcome = run(root_lab.services.spec, root_lab.ports)
     assert [outcome.status, outcome.reason] == trace["result"]
     assert outcome.remaining == ()
+    zeros = {"cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0}
     assert outcome.evidence == {
         "inventory_complete": True,
-        "counts": {"cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0},
+        "counts": zeros,
+        "final_counts_all_cap": zeros,
+        "initial_counts": zeros,
+        "probe": {},
     }
     assert_journal(root_lab, "j_complete")
     assert_trace(root_lab, trace["steps"], ["work"] * 8 + ["cleanup"] * 55)

@@ -203,7 +203,8 @@ def _rejected(lab: RootLab, aliases: list[str], changes: dict[str, Any] | None =
 def _probe_rejected(lab: RootLab, changes: dict[str, Any]) -> None:
     _control(lab)
     _queue(lab, ["D", "T", "S"])
-    assert lab.services.probe([ROOT, CHILD], lab.services.spec, lab.context) is None
+    observed = lab.services.probe([ROOT, CHILD], lab.services.spec, lab.context)
+    assert observed == {"resource_server_lookup": "exact_present"}
     values = {"resources": [ROOT, CHILD], "spec": lab.services.spec, "context": lab.context}
     values.update(changes)
     with pytest.raises(ServiceFailure) as captured:

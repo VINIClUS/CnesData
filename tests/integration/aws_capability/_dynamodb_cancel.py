@@ -15,8 +15,9 @@ from tests.integration.aws_capability.contracts import (
 
 def verify_cancel(
     commands: CommandPort, spec: RunSpec, root: Resource, context: RequestContext
-) -> None:
-    """Raises: ServiceFailure para cancelamento inválido; BudgetExhausted ao esgotar work."""
+) -> Mapping[str, object]:
+    """Returns: observações não sensíveis.
+    Raises: ServiceFailure para cancelamento inválido; BudgetExhausted ao esgotar work."""
     keys = [
         {"pk": {"S": f"cap#{spec.run_id}"}, "sk": {"S": f"cancel#{index}"}} for index in range(1, 4)
     ]
@@ -25,7 +26,7 @@ def verify_cancel(
         if data.get("Attributes") != {**key, "version": {"N": "1"}}:
             raise ServiceFailure("probe=ddb_cancel_response_invalid")
     reply = call_command(commands, _transaction_request(root, keys, spec.run_id), context)
-    _verify_cancellation(reply)
+    codes = _verify_cancellation(reply)
     for key in keys:
         request = Request(
             "dynamodb", "get-item", {"TableName": root.name, "Key": key, "ConsistentRead": True}
@@ -33,6 +34,11 @@ def verify_cancel(
         data = require_data(call_command(commands, request, context))
         if data.get("Item") != {**key, "version": {"N": "1"}}:
             raise ServiceFailure("probe=ddb_cancel_readback_invalid")
+    return {
+        "cancel_error_code": "TransactionCanceledException",
+        "cancel_reason_codes": codes,
+        "cancel_readback_count": len(keys),
+    }
 
 
 def _seed_request(root: Resource, key: Mapping[str, object]) -> Request:
@@ -80,7 +86,7 @@ def _transaction_update(
     }
 
 
-def _verify_cancellation(reply: Reply) -> None:
+def _verify_cancellation(reply: Reply) -> list[str]:
     if (
         reply.ok
         or reply.error is None
@@ -94,3 +100,4 @@ def _verify_cancellation(reply: Reply) -> None:
     codes = [reason.get("Code") if isinstance(reason, Mapping) else None for reason in reasons]
     if codes != ["None", "ConditionalCheckFailed", "None"]:
         raise ServiceFailure("probe=ddb_cancel_reasons_invalid")
+    return ["None", "ConditionalCheckFailed", "None"]

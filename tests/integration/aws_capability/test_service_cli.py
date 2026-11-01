@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.integration.aws_capability._cli_testing import PRIVATE_INPUT
 from tests.integration.aws_capability._service_testing import (
     BODY,
     CANARIES,
@@ -157,7 +158,7 @@ def test_flags_deterministas_e_json_privado_so_em_stdin(cli_lab: CliLab) -> None
         ("--color", "off"),
         ("--output", "json"),
         ("--region", "us-east-2"),
-        ("--cli-input-json", "file:///dev/stdin"),
+        ("--cli-input-json", PRIVATE_INPUT),
     ]:
         assert argv.count(flag) == 1
         assert argv[argv.index(flag) + 1] == value

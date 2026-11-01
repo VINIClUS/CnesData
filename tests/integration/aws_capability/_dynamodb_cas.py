@@ -15,8 +15,9 @@ from tests.integration.aws_capability.contracts import (
 
 def verify_cas(
     commands: CommandPort, spec: RunSpec, root: Resource, context: RequestContext
-) -> None:
-    """Raises: ServiceFailure para CAS inválido; BudgetExhausted ao esgotar work."""
+) -> Mapping[str, object]:
+    """Returns: observações não sensíveis.
+    Raises: ServiceFailure para CAS inválido; BudgetExhausted ao esgotar work."""
     key = {"pk": {"S": f"cap#{spec.run_id}"}, "sk": {"S": "cas"}}
     item_one = {**key, "version": {"N": "1"}}
     item_two = {**key, "version": {"N": "2"}}
@@ -36,6 +37,11 @@ def verify_cas(
     ):
         raise ServiceFailure("probe=ddb_cas_rejection_invalid")
     _verify_read(commands, read, item_two, context)
+    return {
+        "cas_write_versions": [1, 2],
+        "cas_stale_error_code": reply.error.code,
+        "cas_final_version": 2,
+    }
 
 
 def _update_request(root: Resource, key: Mapping[str, object], version: str) -> Request:

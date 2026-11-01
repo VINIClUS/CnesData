@@ -15,8 +15,9 @@ from tests.integration.aws_capability.contracts import (
 
 def verify_token(
     commands: CommandPort, spec: RunSpec, root: Resource, context: RequestContext
-) -> None:
-    """Raises: ServiceFailure para token inválido; BudgetExhausted ao esgotar work."""
+) -> Mapping[str, object]:
+    """Returns: observações não sensíveis.
+    Raises: ServiceFailure para token inválido; BudgetExhausted ao esgotar work."""
     key = {"pk": {"S": f"cap#{spec.run_id}"}, "sk": {"S": "token"}}
     item = {**key, "version": {"N": "1"}}
     original = _transaction_request(root, spec.run_id, "1")
@@ -41,6 +42,11 @@ def verify_token(
     ):
         raise ServiceFailure("probe=ddb_token_rejection_invalid")
     _verify_read(commands, read, None, context)
+    return {
+        "token_replay_accepted": True,
+        "token_mismatch_error_code": reply.error.code,
+        "token_item_absent_after_replay": True,
+    }
 
 
 def _transaction_request(root: Resource, run_id: str, version: str) -> Request:

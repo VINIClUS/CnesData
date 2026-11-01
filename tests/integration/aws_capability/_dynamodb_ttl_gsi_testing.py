@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from tests.integration.aws_capability._cli_testing import capture_input
 from tests.integration.aws_capability._service_ddb_prepare_testing import Privacy, _data
 from tests.integration.aws_capability._service_read_assertions import (
     FIXED_FLAGS,
@@ -136,7 +137,7 @@ def make_lab(monkeypatch: pytest.MonkeyPatch, path: Path, privacy: Privacy) -> T
         assert index < len(lab.expected), "boundary=unexpected_call"
         timeout = min(7, lab.original.budget.deadline - lab.current)
         lab.timeouts.append(timeout)
-        assert_call((list(argv), options), lab.expected[index], timeout)
+        assert_call(capture_input(argv, options), lab.expected[index], timeout)
         try:
             return read.process.run(argv, **options)
         finally:

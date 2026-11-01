@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 
 def verify_gsi(
     commands: CommandPort, spec: RunSpec, root: Resource, context: RequestContext
-) -> None:
+) -> Mapping[str, object]:
     """Args: commands, spec, root, context: porta, execução, tabela e orçamento.
-    Returns: None após observações parciais.
+    Returns: estado e polls da inclusão e da remoção; código da leitura forte rejeitada.
     Raises: ServiceFailure para resposta inválida; BudgetExhausted ao esgotar work.
     """
     partition = f"cap#{spec.run_id}"
@@ -34,7 +34,7 @@ def verify_gsi(
     for item in (indexed, sparse):
         _get(commands, root, item, context)
     request = Request("dynamodb", "query", _query(root, partition))
-    _poll(commands, request, (indexed, False), context)
+    include = _poll(commands, request, (indexed, False), context)
     key = {name: indexed[name] for name in ("pk", "sk")}
     remove = Request(
         "dynamodb",
@@ -48,8 +48,15 @@ def verify_gsi(
     )
     require_data(call_command(commands, remove, context))
     _get(commands, root, key, context)
-    _poll(commands, request, (indexed, True), context)
+    removal = _poll(commands, request, (indexed, True), context)
     _reject_strong(commands, request, context)
+    return {
+        "gsi_include_status": "observed",
+        "gsi_include_polls": include,
+        "gsi_remove_status": "observed",
+        "gsi_remove_polls": removal,
+        "gsi_consistent_read_code": "ValidationException",
+    }
 
 
 def _indexed(partition: str) -> dict[str, object]:
@@ -94,7 +101,7 @@ def _poll(
     request: Request,
     target: tuple[Mapping[str, object], bool],
     context: RequestContext,
-) -> None:
+) -> int:
     indexed, removal = target
     pages = 0
     for poll in range(1, 5):
@@ -103,7 +110,7 @@ def _poll(
         present = _validate_rows(rows, indexed)
         if present != removal:
             _observe(removal, "observed", poll, pages)
-            return
+            return poll
         if poll < 4:
             _sleep(context)
     _observe(removal, "unobserved", 4, pages)

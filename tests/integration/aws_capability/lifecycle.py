@@ -1,13 +1,15 @@
 """Entradas explícitas do lifecycle com serviços e processos injetados."""
 
 import argparse
-import logging
+import os
+import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import NoReturn
 
 from tests.integration.aws_capability._cleanup import Cleanup
-from tests.integration.aws_capability._inventory import inventory
+from tests.integration.aws_capability._inventory import inventory, service_counts
 from tests.integration.aws_capability._journal import Journal, lease, prepare_directory
 from tests.integration.aws_capability._safety import SafetyFailure, matches_name, validate
 from tests.integration.aws_capability._worker import Worker, acknowledgement, start_supervisor
@@ -38,6 +40,7 @@ def run_locked(journal: Journal, ports: Ports) -> Outcome:
     if any(matches_name(ref, journal.spec) for ref, _ in baseline):
         return refusal("run_collision")
     journal.baseline = [ref for ref, _ in baseline]
+    initial_counts = service_counts(journal.baseline)
     journal.save()
     supervisor_pid = start_supervisor(journal.spec, ports)
     worker = Worker(journal, ports, supervisor_pid)
@@ -49,9 +52,14 @@ def run_locked(journal: Journal, ports: Ports) -> Outcome:
         status = "incomplete" if worker.mutation_attempted else "refused"
         return Outcome(status, "journal_unavailable", None, {"inventory_complete": False})
     outcome = Cleanup(journal, ports).execute()
+    evidence = {
+        **outcome.evidence,
+        "initial_counts": initial_counts,
+        "probe": dict(worker.observations),
+    }
     if reason and outcome.status == "succeeded":
-        return Outcome("failed", reason, outcome.remaining, outcome.evidence)
-    return outcome
+        return Outcome("failed", reason, outcome.remaining, evidence)
+    return replace(outcome, evidence=evidence)
 
 
 def run(spec: RunSpec, ports: Ports) -> Outcome:
@@ -153,5 +161,7 @@ def main(argv: Sequence[str], ports: Ports) -> Outcome:
 
 
 if __name__ == "__main__":
-    logging.error("lifecycle=service_adapters_unavailable cycle=3a")
-    raise SystemExit(2)
+    from tests.integration.aws_capability._production import default_runtime
+    from tests.integration.aws_capability._production import main as serve
+
+    raise SystemExit(serve(sys.argv[1:], os.environ, default_runtime()))

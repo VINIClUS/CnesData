@@ -410,10 +410,10 @@ def test_j03_aposenta_antes_do_pai(server_lab: RootLab) -> None:
 def test_j04_probe_readback_exato(server_lab: RootLab) -> None:
     c._control(server_lab)
     c._queue(server_lab, ["D", "T", "S"])
-    assert (
-        server_lab.services.probe([c.ROOT, c.CHILD], server_lab.services.spec, server_lab.context)
-        is None
+    observed = server_lab.services.probe(
+        [c.ROOT, c.CHILD], server_lab.services.spec, server_lab.context
     )
+    assert observed == {"resource_server_lookup": "exact_present"}
     c._trace(server_lab, ["D", "T", "C", "S", "D", "T", "S"], ["work"] * 7)
 
 

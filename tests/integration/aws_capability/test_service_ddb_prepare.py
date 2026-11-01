@@ -1,10 +1,10 @@
-"""Prontidão e TTL preparam o root sem aprovar perfis semânticos incompletos."""
+"""Prontidão e TTL preparam o root e liberam as verificações do perfil."""
 
 import json
 import logging
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
@@ -17,7 +17,10 @@ from tests.integration.aws_capability._journal import Journal
 from tests.integration.aws_capability._service_ddb_prepare_testing import (
     Privacy,
     _data,
+    _disabled,
     _invalid_table,
+    _queue,
+    _ready,
 )
 from tests.integration.aws_capability._service_read_assertions import (
     FIXED_FLAGS,
@@ -45,7 +48,6 @@ from tests.integration.aws_capability.contracts import (
 )
 
 ROOT = Resource("dynamodb", "cnesdata-cap-a1b2c3d4", "cnesdata-cap-a1b2c3d4")
-Step = tuple[str, Any]
 
 
 @dataclass
@@ -84,22 +86,10 @@ def read_lab(
     return lab
 
 
-
 @pytest.fixture
 def privacy(caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]) -> Privacy:
     caplog.set_level(logging.DEBUG)
     return Privacy(caplog, capsys)
-
-
-def _queue(lab: ReadLab, steps: Sequence[Step]) -> list[ExpectedCall]:
-    expected = []
-    for operation, outcome in steps:
-        expected.append(tuple(_data()["requests"][operation]))
-        if isinstance(outcome, BaseException | tuple):
-            lab.process.outcomes.append(outcome)
-        else:
-            respond(lab, outcome)
-    return cast("list[ExpectedCall]", expected)
 
 
 def _trace(
@@ -136,7 +126,12 @@ def _trace(
     assert lab.process.outcomes == []
 
 
-def _probe(lab: ReadLab, reason: str = "probe=not_implemented") -> ServiceFailure:
+def _probe(lab: ReadLab, reason: str | None = None) -> Any:
+    if reason is None:
+        result = lab.services.probe([ROOT], replace(lab.services.spec), lab.context)
+        assert_private(ValueError(repr(result)), lab, "")
+        assert isinstance(result, Mapping)
+        return result
     with pytest.raises(ServiceFailure) as error:
         lab.services.probe([ROOT], replace(lab.services.spec), lab.context)
     assert_rejected(error.value)
@@ -144,17 +139,9 @@ def _probe(lab: ReadLab, reason: str = "probe=not_implemented") -> ServiceFailur
     return error.value
 
 
-def _ready() -> list[Step]:
-    data = _data()
-    return [("describe", data["active"]), ("tags", data["tags"])]
-
-
-def _disabled() -> list[Step]:
-    return [*_ready(), ("ttl", _data()["ttl"]["disabled"]), *_ready()]
-
 
 @pytest.mark.parametrize("profile", ["ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"])
-def test_preparo_valido_mantem_perfil_incompleto(
+def test_preparo_valido_conclui_perfil_com_observacoes(
     read_lab: ReadLab, profile: str, clock: Clock
 ) -> None:
     read_lab.services = replace(
@@ -182,9 +169,11 @@ def test_preparo_valido_mantem_perfil_incompleto(
             stdout = json.dumps(reply["data"]) if "data" in reply else ""
             stderr = json.dumps(reply["error"]) if "error" in reply else ""
             read_lab.process.outcomes.append((reply["exit"], stdout, stderr))
-    _probe(read_lab)
+    evidence = _probe(read_lab)
     _trace(read_lab, expected)
     assert clock.sleeps == []
+    prefix = {"ddb-transactions": "tx_", "ddb-conditions": "cas_", "ddb-ttl-gsi": "ttl_"}[profile]
+    assert any(key.startswith(prefix) for key in evidence)
 
 
 def test_polls_apos_terceiro_pending_sem_confundir_not_found_com_ausencia(
@@ -489,7 +478,9 @@ def test_worker_persiste_root_confirmado_antes_do_primeiro_probe(
     budget = read_lab.context.budget
     policy = Policy("111111111111", frozenset({"us-east-2"}), budget.limits)
     ports = Ports(read_lab.services, ProcessBoundary([]), budget.now, policy, budget)
-    assert Worker(journal, ports, 9876).execute() == "operation_failed"
+    worker = Worker(journal, ports, 9876)
+    assert worker.execute() is None
+    assert worker.observations["tx_100_accepted"] is True
     assert len(observed) == 1
     saved = Journal(journal.spec)
     saved.load()

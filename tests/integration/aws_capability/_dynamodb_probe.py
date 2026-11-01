@@ -1,6 +1,6 @@
-"""Preparo DynamoDB com falha explícita dos perfis ainda incompletos."""
+"""Preparo e verificação DynamoDB com observações não sensíveis."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from tests.integration.aws_capability._dynamodb_cancel import verify_cancel
 from tests.integration.aws_capability._dynamodb_cas import verify_cas
@@ -21,20 +21,23 @@ from tests.integration.aws_capability.contracts import (
 
 def probe_dynamodb(
     resources: Sequence[Resource], spec: RunSpec, ports: ServicePorts, context: RequestContext
-) -> None:
-    """Raises: ServiceFailure após preparo ou para entrada/preparo inválido."""
+) -> Mapping[str, object]:
+    """Returns: observações não sensíveis do perfil.
+    Raises: ServiceFailure para entrada, preparo ou verificação inválidos."""
     name = run_name(spec)
     root = Resource("dynamodb", name, name)
     if context.lane != "work" or len(resources) != 1 or resources[0] != root:
         raise ServiceFailure("probe=ddb_prepare_invalid")
     prepare_table(ports.commands, spec, root, context)
     if spec.probe == "ddb-conditions":
-        verify_cas(ports.commands, spec, root, context)
-        verify_cancel(ports.commands, spec, root, context)
-        verify_token(ports.commands, spec, root, context)
+        return {
+            **verify_cas(ports.commands, spec, root, context),
+            **verify_cancel(ports.commands, spec, root, context),
+            **verify_token(ports.commands, spec, root, context),
+        }
     if spec.probe == "ddb-transactions":
-        verify_transactions(ports.commands, spec, root, context)
-    if spec.probe == "ddb-ttl-gsi":
-        verify_ttl(ports, spec, root, context)
-        verify_gsi(ports.commands, spec, root, context)
-    raise ServiceFailure("probe=not_implemented")
+        return verify_transactions(ports.commands, spec, root, context)
+    return {
+        **verify_ttl(ports, spec, root, context),
+        **verify_gsi(ports.commands, spec, root, context),
+    }

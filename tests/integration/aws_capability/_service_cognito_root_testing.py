@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from tests.integration.aws_capability._cli_testing import capture_input
 from tests.integration.aws_capability._durability import DurabilityTrace, assert_durable
 from tests.integration.aws_capability._journal import Journal, prepare_directory
 from tests.integration.aws_capability._profiles import PROFILES
@@ -80,7 +81,7 @@ def root_lab(
         lab.lanes.append("work" if work > lab.last_work else "cleanup")
         lab.last_work = work
         if lab.at_request is not None:
-            lab.at_request(argv, options)
+            lab.at_request(*capture_input(argv, options))
         return lab.process.run(argv, **options)
 
     monkeypatch.setattr(subprocess, "run", recorded)

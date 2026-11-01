@@ -1,7 +1,10 @@
 """Contrato do transporte CLI com subprocessos gravados e credenciais fictícias."""
 
 import json
+import os
+import stat
 import subprocess
+import tempfile
 import traceback
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -9,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.integration.aws_capability import cli as cli_module
 from tests.integration.aws_capability._testing import SECRETS
 from tests.integration.aws_capability.cli import Cli, CliFailure, Request
 from tests.integration.aws_capability.contracts import Limits, RequestBudget, RequestContext
@@ -21,14 +25,41 @@ class ProcessRecorder:
     timeout: bool = False
     returncode: int = 0
     stderr: str = ""
+    inputs: list["InputFile | None"] = field(default_factory=list)
+    error: BaseException | None = None
 
     def run(self, argv: Sequence[str], **options: object) -> subprocess.CompletedProcess:
         self.calls.append((argv, options))
+        self.inputs.append(_observe_input(argv))
+        if self.error is not None:
+            raise self.error
         if self.timeout:
             raise subprocess.TimeoutExpired(argv, 1, self.response, self.stderr)
         if self.returncode and options.get("check"):
             raise subprocess.CalledProcessError(self.returncode, argv, self.response, self.stderr)
         return subprocess.CompletedProcess(argv, self.returncode, self.response, self.stderr)
+
+
+@dataclass(frozen=True)
+class InputFile:
+    path: Path
+    content: str
+    file_mode: int
+    directory_mode: int
+
+
+def _observe_input(argv: Sequence[str]) -> InputFile | None:
+    if "--cli-input-json" not in argv:
+        return None
+    location = argv[list(argv).index("--cli-input-json") + 1]
+    assert location.startswith("file:///"), "transport=file_uri_required"
+    path = Path(location.removeprefix("file://"))
+    return InputFile(
+        path,
+        path.read_text(encoding="utf-8"),
+        stat.S_IMODE(path.stat().st_mode),
+        stat.S_IMODE(path.parent.stat().st_mode),
+    )
 
 
 def transport(timeout: float = 7) -> Cli:
@@ -53,31 +84,108 @@ def environment() -> dict[str, str]:
     }
 
 
-def test_transporte_json_sensivel_usa_stdin_sem_shell(
+def test_transporte_json_sensivel_usa_arquivo_privado_sem_stdin_nem_shell(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     recorder = ProcessRecorder()
     monkeypatch.setattr(subprocess, "run", recorder.run)
     monkeypatch.chdir(tmp_path)
+    previous = os.umask(0)
     payload: Mapping[str, object] = {"synthetic_secret": SECRETS[0]}
-    result = transport().invoke(Request("sts", "get-caller-identity", payload))
+    try:
+        result = transport().invoke(Request("sts", "get-caller-identity", payload))
+    finally:
+        os.umask(previous)
     assert result == {"ok": True}
     assert len(recorder.calls) == 1
     argv, options = recorder.calls[0]
     assert not isinstance(argv, str)
-    assert argv[:3] == ["aws", "sts", "get-caller-identity"] or tuple(argv[:3]) == (
-        "aws",
-        "sts",
-        "get-caller-identity",
-    )
-    assert "--cli-input-json" in argv
-    assert argv[argv.index("--cli-input-json") + 1] == "file:///dev/stdin"
-    assert json.loads(options["input"]) == payload
+    assert tuple(argv[:3]) == ("aws", "sts", "get-caller-identity")
+    observed = recorder.inputs[0]
+    assert observed is not None
+    assert argv[argv.index("--cli-input-json") + 1] == f"file://{observed.path}"
+    assert json.loads(observed.content) == payload
+    assert observed.file_mode == 0o600
+    assert observed.directory_mode == 0o700
+    assert "input" not in options
+    assert options["stdin"] == subprocess.DEVNULL
     assert SECRETS[0] not in repr(argv)
     assert options.get("shell", False) is False
     assert options["timeout"] == 7
     assert options.get("capture_output") is True
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "failure", ["sucesso", "returncode", "timeout", "oserror", "json_invalido", "erro_inesperado"]
+)
+def test_arquivo_privado_e_removido_em_qualquer_desfecho(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    recorder = ProcessRecorder()
+    if failure == "returncode":
+        recorder.returncode, recorder.stderr = 254, '{"Code": "Denied"}'
+    elif failure == "timeout":
+        recorder.timeout = True
+    elif failure == "oserror":
+        recorder.error = OSError("boundary=down")
+    elif failure == "json_invalido":
+        recorder.response = "not-json"
+    elif failure == "erro_inesperado":
+        recorder.error = KeyboardInterrupt()
+    monkeypatch.setattr(subprocess, "run", recorder.run)
+    try:
+        transport().call(Request("sts", "get-caller-identity", {"k": SECRETS[0]}))
+    except KeyboardInterrupt:
+        assert failure == "erro_inesperado"
+    except Exception:
+        assert failure == "json_invalido"
+    observed = recorder.inputs[0]
+    assert observed is not None
+    assert not observed.path.exists()
+    assert not observed.path.parent.exists()
+
+
+def test_arquivo_privado_prefere_memoria_compartilhada_quando_existe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    shared = tmp_path / "shm"
+    shared.mkdir()
+    monkeypatch.setattr(cli_module, "SHARED_MEMORY", shared)
+    recorder = ProcessRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder.run)
+    transport().call(Request("sts", "get-caller-identity", {}))
+    assert recorder.inputs[0] is not None
+    assert recorder.inputs[0].path.parent.parent == shared
+    assert list(shared.iterdir()) == []
+
+
+def test_arquivo_privado_usa_temporario_padrao_sem_memoria_compartilhada(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    default = tmp_path / "tmp"
+    default.mkdir()
+    monkeypatch.setattr(cli_module, "SHARED_MEMORY", tmp_path / "ausente")
+    monkeypatch.setattr(tempfile, "tempdir", str(default))
+    recorder = ProcessRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder.run)
+    transport().call(Request("sts", "get-caller-identity", {}))
+    assert recorder.inputs[0] is not None
+    assert recorder.inputs[0].path.parent.parent == default
+    assert recorder.inputs[0].directory_mode == 0o700
+    assert list(default.iterdir()) == []
+
+
+def test_falha_ao_criar_arquivo_privado_nao_inicia_subprocesso(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli_module, "SHARED_MEMORY", tmp_path / "ausente")
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "inexistente"))
+    recorder = ProcessRecorder()
+    monkeypatch.setattr(subprocess, "run", recorder.run)
+    with pytest.raises(CliFailure, match="operation_failed"):
+        transport().invoke(Request("sts", "get-caller-identity", {}))
+    assert recorder.calls == []
 
 
 def test_cli_fixa_regiao_e_desabilita_endpoints_pager_debug_e_retries_ilimitados(

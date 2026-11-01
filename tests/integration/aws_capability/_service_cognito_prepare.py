@@ -1,6 +1,7 @@
 """Readback de prontidão do pool Cognito."""
 
 from collections.abc import Mapping
+from typing import NoReturn
 
 from tests.integration.aws_capability._safety import run_name
 from tests.integration.aws_capability._service_cognito_settings import (
@@ -18,7 +19,7 @@ from tests.integration.aws_capability.contracts import (
 
 def prepare_pool(
     commands: CommandPort, spec: RunSpec, resource: Resource, context: RequestContext
-) -> None:
+) -> NoReturn:
     if (
         context.lane != "work"
         or spec.probe not in {"cognito-login", "cognito-pkce-negatives", "cognito-sdk"}
