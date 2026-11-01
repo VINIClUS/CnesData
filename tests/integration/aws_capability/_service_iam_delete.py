@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 from tests.integration.aws_capability._resource_ids import parse_iam_child
-from tests.integration.aws_capability._safety import owned, run_name
+from tests.integration.aws_capability._safety import owned, root_names
 from tests.integration.aws_capability._service_commands import call_command, require_data
 from tests.integration.aws_capability._service_iam import inspect_role
 from tests.integration.aws_capability._service_polling import (
@@ -28,7 +28,8 @@ def delete_iam(
         root, policy = resource, None
     else:
         root, policy = parse_iam_child(resource, services.spec)
-    if root.resource_id != run_name(services.spec) or root.name != root.resource_id:
+    declared = root_names(services.spec, "iam")
+    if root.resource_id not in declared or root.name != root.resource_id:
         raise ServiceFailure("service=iam_delete_invalid")
     _require_owned(root, services, context)
     if policy is None:

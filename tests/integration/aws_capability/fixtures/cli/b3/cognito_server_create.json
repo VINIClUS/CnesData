@@ -12,7 +12,7 @@
     "ddb-ttl-gsi": [["dynamodb"],1,[256,8,2,150,128]],
     "s3-retention": [["s3","iam"],1,[384,8,2,240,192]],
     "s3-hold": [["s3"],1,[256,8,2,120,128]],
-    "iam-trust": [["iam"],1,[256,8,2,60,128]],
+    "iam-trust": [["iam"],1,[512,8,2,120,256]],
     "iam-leadingkeys": [["dynamodb","iam"],1,[512,8,2,90,256]],
     "iam-s3": [["s3","iam"],1,[384,8,2,90,192]]
   },
@@ -107,7 +107,7 @@
     "ddb-ttl-gsi": {"probe":"ddb-ttl-gsi","profile_version":1,"limits":{"calls":256,"pages":8,"attempts":2,"cleanup_seconds":150,"cleanup_reserve":128}},
     "s3-retention": {"probe":"s3-retention","profile_version":1,"limits":{"calls":384,"pages":8,"attempts":2,"cleanup_seconds":240,"cleanup_reserve":192}},
     "s3-hold": {"probe":"s3-hold","profile_version":1,"limits":{"calls":256,"pages":8,"attempts":2,"cleanup_seconds":120,"cleanup_reserve":128}},
-    "iam-trust": {"probe":"iam-trust","profile_version":1,"limits":{"calls":256,"pages":8,"attempts":2,"cleanup_seconds":60,"cleanup_reserve":128}},
+    "iam-trust": {"probe":"iam-trust","profile_version":1,"limits":{"calls":512,"pages":8,"attempts":2,"cleanup_seconds":120,"cleanup_reserve":256}},
     "iam-leadingkeys": {"probe":"iam-leadingkeys","profile_version":1,"limits":{"calls":512,"pages":8,"attempts":2,"cleanup_seconds":90,"cleanup_reserve":256}},
     "iam-s3": {"probe":"iam-s3","profile_version":1,"limits":{"calls":384,"pages":8,"attempts":2,"cleanup_seconds":90,"cleanup_reserve":192}}
   },

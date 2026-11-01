@@ -14,6 +14,7 @@ from tests.integration.aws_capability._b1_testing import (
     OPERATOR_ARN,
     TAGS,
     TRUST,
+    TRUST2,
 )
 from tests.integration.aws_capability._operator_inputs import OperatorInputs
 from tests.integration.aws_capability._profiles import PROFILES
@@ -32,6 +33,7 @@ from tests.integration.aws_capability.services import AwsServices
 
 BUCKET = Resource("s3", NAME, NAME)
 ROLE = Resource("iam", NAME, NAME)
+ROLE2 = Resource("iam", f"{NAME}-r2", f"{NAME}-r2")
 START = 1000.0
 DEADLINE = 1180.0
 
@@ -51,6 +53,8 @@ class ProbeLab:
 
     @property
     def resources(self) -> list[Resource]:
+        if self.spec.probe == "iam-trust":
+            return [ROLE, ROLE2]
         return [BUCKET, ROLE] if self.spec.probe == "s3-retention" else [BUCKET]
 
 
@@ -69,9 +73,12 @@ def make_probe_lab(
 
     aws = FakeAws(lambda: clock[0], advance, **options)
     if seeded:
-        aws.buckets[NAME] = FakeBucket(dict(TAGS))
-        if probe == "s3-retention":
+        if probe != "iam-trust":
+            aws.buckets[NAME] = FakeBucket(dict(TAGS))
+        if probe in {"s3-retention", "iam-trust"}:
             aws.roles[NAME] = FakeRole(dict(TAGS), TRUST)
+        if probe == "iam-trust":
+            aws.roles[ROLE2.name] = FakeRole(dict(TAGS), TRUST2)
     spec = RunSpec(
         ACCOUNT, "us-east-2", "a1b2c3d4", DEADLINE, tmp_path, allow_governance_bypass=True,
         probe=probe,

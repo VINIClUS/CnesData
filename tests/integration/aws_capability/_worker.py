@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from tests.integration.aws_capability._journal import Journal
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._resource_ids import cognito_child
-from tests.integration.aws_capability._safety import SafetyFailure, run_name, tags
+from tests.integration.aws_capability._safety import SafetyFailure, root_name, tags
 from tests.integration.aws_capability.contracts import (
     BudgetExhausted,
     Creation,
@@ -87,14 +87,14 @@ class Worker:
             raise SafetyFailure("supervisor_unavailable")
         self.ports.budget.check("work")
 
-    def create(self, service: str) -> None:
+    def create(self, service: str, suffix: str = "") -> None:
         self.guard()
         self.journal.phase = "creating"
         self.journal.pending_service = service
         self.journal.operation_state = "unknown"
         self.journal.save()
         spec = self.journal.spec
-        creation = Creation(spec, run_name(spec), tags(spec))
+        creation = Creation(spec, root_name(spec, suffix), tags(spec))
         self.mutation_attempted = True
         resource = self.ports.services.create(
             service,
@@ -108,8 +108,8 @@ class Worker:
 
     def execute(self) -> str | None:
         try:
-            for service in PROFILES[self.journal.spec.probe].services:
-                self.create(service)
+            for root in PROFILES[self.journal.spec.probe].planned_roots():
+                self.create(root.service, root.suffix)
             for kind in PROFILES[self.journal.spec.probe].children:
                 self.create_child(self.journal.created[-1], kind)
             self.guard()

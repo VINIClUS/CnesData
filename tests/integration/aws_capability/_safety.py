@@ -57,6 +57,15 @@ def run_name(spec: RunSpec) -> str:
     return f"{CAP_PREFIX}{spec.run_id}"
 
 
+def root_name(spec: RunSpec, suffix: str) -> str:
+    return f"{run_name(spec)}-{suffix}" if suffix else run_name(spec)
+
+
+def root_names(spec: RunSpec, service: str) -> frozenset[str]:
+    roots = PROFILES[spec.probe].planned_roots() if spec.probe in PROFILES else ()
+    return frozenset(root_name(spec, root.suffix) for root in roots if root.service == service)
+
+
 def tags(spec: RunSpec) -> dict[str, str]:
     return {
         "Project": "CnesData",

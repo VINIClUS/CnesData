@@ -26,7 +26,7 @@ PROFILES = [
     ("ddb-ttl-gsi", 256, 150, 128, ("dynamodb",)),
     ("s3-retention", 384, 240, 192, ("s3", "iam")),
     ("s3-hold", 256, 120, 128, ("s3",)),
-    ("iam-trust", 256, 60, 128, ("iam",)),
+    ("iam-trust", 512, 120, 256, ("iam", "iam")),
     ("iam-leadingkeys", 512, 90, 256, ("dynamodb", "iam")),
     ("iam-s3", 384, 90, 192, ("s3", "iam")),
 ]
@@ -150,7 +150,7 @@ def test_probe_explicito_atravessa_cli_e_supervisor(lab: Lab) -> None:
 
 def test_supervisor_de_run_por_perfil_recebe_probe_duravel(lab: Lab) -> None:
     lab.spec = replace(lab.spec, probe="iam-trust")
-    outcome = lifecycle.run(lab.spec, profile_ports(lab, Limits(256, 8, 2, 60, 128)))
+    outcome = lifecycle.run(lab.spec, profile_ports(lab, Limits(512, 8, 2, 120, 256)))
     assert outcome.status == "succeeded"
     starts = [e for e in lab.events if e[0] == "start"]
     assert len(starts) == 1

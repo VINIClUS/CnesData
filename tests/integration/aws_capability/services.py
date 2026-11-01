@@ -66,6 +66,7 @@ from tests.integration.aws_capability.contracts import (
 )
 
 S3_PROFILES = frozenset({"s3-hold", "s3-retention"})
+IAM_ROLE_PROFILES = frozenset({"s3-retention", "iam-trust"})
 
 
 @dataclass(frozen=True)
@@ -156,7 +157,7 @@ class AwsServices:
             return create_pool(self.ports.commands, self.spec, creation, context)
         if service == "s3" and self.spec.probe in S3_PROFILES:
             return create_bucket(self.ports.commands, self.spec, creation, context)
-        if service == "iam" and self.spec.probe == "s3-retention":
+        if service == "iam" and self.spec.probe in IAM_ROLE_PROFILES:
             return create_role(self.ports, self.spec, creation, context)
         if service != "dynamodb":
             raise ServiceFailure("service=not_implemented")

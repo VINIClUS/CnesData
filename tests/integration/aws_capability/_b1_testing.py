@@ -38,6 +38,10 @@ TRUST = {
     ],
 }
 ROLE_ARN = f"arn:aws:iam::{ACCOUNT}:role/cnesdata-cap/{NAME}"
+TRUST2 = {
+    "Version": "2012-10-17",
+    "Statement": [{"Effect": "Allow", "Principal": {"AWS": ROLE_ARN}, "Action": "sts:AssumeRole"}],
+}
 
 
 def b1_lab(base: ReadLab, probe: str, pauses: list[float] | None = None) -> ReadLab:
