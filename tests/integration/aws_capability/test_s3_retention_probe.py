@@ -20,6 +20,7 @@ SECONDS = (
     "assume_seconds",
     "p0_ready_seconds",
     "p1_ready_seconds",
+    "p1_delete_unretained_ready_seconds",
 )
 EXPECTED = {
     "retained_delete": "AccessDenied",
@@ -96,6 +97,7 @@ def test_controle_positivo_antecede_cada_negacao_do_papel(lab: ProbeLab) -> None
         "delete-object",
         "put-object",
         "put-object-retention",
+        "delete-object",
         "delete-object",
         "delete-object",
     ]
@@ -233,3 +235,20 @@ def test_head_negado_com_403_ate_propagar_completa_o_ciclo(tmp_path: Path) -> No
     assert observed["p0_delete_version"] == "AccessDenied"
     assert observed["p0_put_lock_headers"] == "AccessDenied"
     assert float(str(observed["p0_ready_seconds"])) > 0
+
+
+def deny_version_delete(lab: ProbeLab) -> None:
+    original = lab.aws.allowed
+    lab.aws.allowed = lambda who, action: (
+        False if action == "s3:DeleteObjectVersion" and who == "role"
+        else original(who, action)
+    )
+
+
+def test_delete_de_versao_negado_ao_papel_falha_antes_das_negacoes_p1(tmp_path: Path) -> None:
+    lab = make_probe_lab(tmp_path, "s3-retention")
+    deny_version_delete(lab)
+    with pytest.raises(ServiceFailure) as error:
+        run(lab)
+    assert error.value.args == ("probe=control_failed step=p1_delete",)
+    assert len(lab.aws.operations("role")) == 4 + 12

@@ -4,13 +4,14 @@ from dataclasses import dataclass
 
 from tests.integration.aws_capability._assumed_session import assume_role_session
 from tests.integration.aws_capability._iam_policy_ops import put_inline_policy
-from tests.integration.aws_capability._probe_attempt import must, retry_denied, version_of
+from tests.integration.aws_capability._probe_attempt import Attempt, must, retry_denied, version_of
 from tests.integration.aws_capability._s3_actor import Actor
 from tests.integration.aws_capability._service_contracts import ServicePorts
 from tests.integration.aws_capability.contracts import RunSpec
 
 KEY = "cap-locked"
 ROLE_KEY = "cap-role-locked"
+UNRETAINED_KEY = "cap-unretained"
 P0 = ("s3:GetObject", "s3:DeleteObject", "s3:PutObject")
 P1 = ("s3:DeleteObjectVersion", "s3:PutObjectRetention")
 HOLD_SECONDS = 600
@@ -76,8 +77,21 @@ def _bypass_phase(actors: _Actors, retained: tuple[str, float]) -> dict[str, obj
         operator.context,
         "p1",
     )
+    _, delete_ready = _prove_version_delete(actors)
     return {
         "p1_ready_seconds": ready,
+        "p1_delete_unretained_ready_seconds": delete_ready,
         "p1_delete_bypass": role.delete(KEY, version, True).code,
         "p1_delete_retained": role.delete(KEY, version, False).code,
     }
+
+
+def _prove_version_delete(actors: _Actors) -> tuple[Attempt, float]:
+    operator, role = actors.operator, actors.role
+    unretained = version_of(must(operator.put(UNRETAINED_KEY, None), "p1_unretained"))
+    return retry_denied(
+        lambda: role.delete(UNRETAINED_KEY, unretained, False),
+        actors.ports,
+        operator.context,
+        "p1_delete",
+    )
