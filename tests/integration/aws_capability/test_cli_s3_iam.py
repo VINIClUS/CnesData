@@ -108,7 +108,8 @@ def test_escrita_dynamodb_com_return_values_sem_documento_continua_invalida(
     cli_lab: CliLab, operation: str, returns: str
 ) -> None:
     cli_lab.respond((0, "", ""))
-    reply = cli_lab.call(Request("dynamodb", operation, {"TableName": "t", "ReturnValues": returns}))
+    payload = {"TableName": "t", "ReturnValues": returns}
+    reply = cli_lab.call(Request("dynamodb", operation, payload))
     assert reply.ok is False
 
 
