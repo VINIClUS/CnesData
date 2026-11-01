@@ -87,27 +87,13 @@ jobs:
           timeout --signal=INT --kill-after=15s 120
           uv run --no-build pytest -q tests/scripts/test_ci_opentofu_runner.py
       # The processing runtime and origins tests refuse to import modules that this checkout
-      # does not bind by source root and sha256; nothing in the repository produces the binding.
+      # does not bind by source root and sha256; the producer lives next to those tests.
       - name: Bind processing sources
         env:
           PROCESSING_SOURCE_BINDINGS: ${{ runner.temp }}/processing-source-bindings.json
-        run: |
-          python -I - <<'EOF'
-          import json
-          import os
-          from hashlib import sha256
-          from pathlib import Path
-
-          names = ("data_processor", "cnes_contracts", "cnes_domain", "cnes_infra")
-          roots = [Path("apps/data_processor/src"), *(Path(f"packages/{n}/src") for n in names[1:])]
-          files = {
-              str(path.resolve()): sha256(path.read_bytes()).hexdigest()
-              for root, name in zip(roots, names, strict=True)
-              for path in sorted((root / name).rglob("*.py"))
-          }
-          binding = {"roots": [str(root.resolve()) for root in roots], "files": files}
-          Path(os.environ["PROCESSING_SOURCE_BINDINGS"]).write_text(json.dumps(binding))
-          EOF
+        run: >-
+          python -I tests/production/infra/bind_processing_sources.py
+          "${PROCESSING_SOURCE_BINDINGS}"
       - name: Run OpenTofu native suite
         id: native-suite
         timeout-minutes: 32

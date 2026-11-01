@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 import json
-import os
 import re
+import shutil
 import subprocess
 import sys
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +42,9 @@ _TRIGGER_PATHS = [
 ]
 _MAX_JOB_MINUTES = 40
 _BIND = "Bind processing sources"
+_PRODUCER = "tests/production/infra/bind_processing_sources.py"
+_BIND_COMMAND = "python -I " + _PRODUCER + ' "${PROCESSING_SOURCE_BINDINGS}"'
+_DOCS = _ROOT / "docs/development.md"
 _BINDINGS_ENV = {
     "PROCESSING_SOURCE_BINDINGS": "${{ runner.temp }}/processing-source-bindings.json"
 }
@@ -210,31 +214,44 @@ def test_job_nativo_instala_trivy_fixado_por_versao_e_checksum() -> None:
     assert _names(_NATIVE).index("Install Trivy") < _names(_NATIVE).index(_SUITE)
 
 
-def _bind_script() -> str:
-    run = _step(_NATIVE, _BIND)["run"]
-    assert run.startswith("python -I - <<'EOF'\n"), "bind_heredoc"
-    return run.split("<<'EOF'\n", 1)[1].rsplit("EOF", 1)[0]
+def _produce(producer: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603
+        [sys.executable, "-I", str(producer), *args],
+        check=False,
+        capture_output=True,
+        cwd=cwd,
+        text=True,
+    )
 
 
 def test_job_nativo_vincula_fontes_de_processamento_antes_da_suite() -> None:
     names = _names(_NATIVE)
+    bind = _step(_NATIVE, _BIND)
 
-    assert _step(_NATIVE, _BIND)["env"] == _BINDINGS_ENV
+    assert _command(bind) == _BIND_COMMAND
+    assert "<<" not in bind["run"]
+    assert bind["env"] == _BINDINGS_ENV
     assert _step(_NATIVE, _SUITE)["env"] == _BINDINGS_ENV
     assert names.index("Install dependencies") < names.index(_BIND) < names.index(_SUITE)
 
 
+def test_documentacao_local_gera_vinculo_com_o_mesmo_produtor() -> None:
+    docs = _DOCS.read_text(encoding="utf-8")
+
+    assert f"uv run {_BIND_COMMAND}\n" in docs
+    assert "_bind_script" not in docs
+
+
+@pytest.mark.parametrize("origem", ["raiz", "fora_do_repositorio"])
 def test_vinculo_cobre_raizes_na_ordem_dos_namespaces_e_todo_fonte_python(
-    tmp_path: Path,
+    tmp_path: Path, origem: str
 ) -> None:
     target = tmp_path / "bindings.json"
+    cwd = _ROOT if origem == "raiz" else tmp_path
 
-    subprocess.run(  # noqa: S603
-        [sys.executable, "-I", "-c", _bind_script()],
-        check=True,
-        cwd=_ROOT,
-        env=os.environ | {"PROCESSING_SOURCE_BINDINGS": str(target)},
-    )
+    result = _produce(_ROOT / _PRODUCER, cwd, str(target))
+
+    assert result.returncode == 0, result.stderr
     binding = json.loads(target.read_text(encoding="utf-8"))
     expected = {
         str(path.resolve()): sha256(path.read_bytes()).hexdigest()
@@ -246,6 +263,27 @@ def test_vinculo_cobre_raizes_na_ordem_dos_namespaces_e_todo_fonte_python(
     assert binding["files"] == expected
     manifests = _ROOT / "packages/cnes_contracts/src/cnes_contracts/manifests/processing.py"
     assert str(manifests.resolve()) in binding["files"]
+
+
+def test_produtor_exige_destino_explicito(tmp_path: Path) -> None:
+    result = _produce(_ROOT / _PRODUCER, tmp_path)
+
+    assert result.returncode != 0
+    assert "usage=bind_processing_sources.py" in result.stderr
+    assert not list(tmp_path.iterdir())
+
+
+def test_produtor_recusa_raiz_de_fontes_ausente(tmp_path: Path) -> None:
+    producer = tmp_path / _PRODUCER
+    producer.parent.mkdir(parents=True)
+    shutil.copyfile(_ROOT / _PRODUCER, producer)
+    target = tmp_path / "bindings.json"
+
+    result = _produce(producer, tmp_path, str(target))
+
+    assert result.returncode != 0
+    assert "processing_source_root=missing" in result.stderr
+    assert not target.exists()
 
 
 def test_job_nativo_roda_suite_infra_completa_com_junit() -> None:
