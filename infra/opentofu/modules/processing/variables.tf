@@ -289,3 +289,24 @@ variable "enable_step_functions_iam" {
   default     = false
   nullable    = false
 }
+
+variable "canary_storage_enabled" {
+  description = "Provision the persistent canary table and bucket, independent of any release."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "canary_verifier_role_id" {
+  description = "Canary verifier role name receiving the audit RunTask grant, or null."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.canary_verifier_role_id == null ? true : (
+      var.canary_verifier_role_id == "${var.name_prefix}-canary-verifier"
+    )
+    error_message = "canary_verifier_role_id=expected_own_role_name"
+  }
+}
