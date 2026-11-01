@@ -107,6 +107,7 @@ def test_crash_com_r2_remoto_e_journal_incerto_o_janitor_remove_as_duas_raizes(
     journal.created = [ROLE]
     journal.phase = "creating"
     journal.pending_service = "iam"
+    journal.pending_name = ROLE2.name
     journal.operation_state = "unknown"
     journal.save()
     outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))

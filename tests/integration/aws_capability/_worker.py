@@ -90,11 +90,12 @@ class Worker:
     def create(self, service: str, suffix: str = "") -> None:
         self.guard()
         self.journal.phase = "creating"
-        self.journal.pending_service = service
-        self.journal.operation_state = "unknown"
-        self.journal.save()
         spec = self.journal.spec
         creation = Creation(spec, root_name(spec, suffix), tags(spec))
+        self.journal.pending_service = service
+        self.journal.pending_name = creation.name
+        self.journal.operation_state = "unknown"
+        self.journal.save()
         self.mutation_attempted = True
         resource = self.ports.services.create(
             service,
@@ -103,6 +104,7 @@ class Worker:
         )
         self.journal.created.append(resource)
         self.journal.pending_service = None
+        self.journal.pending_name = None
         self.journal.operation_state = "confirmed"
         self.journal.save()
 

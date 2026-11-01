@@ -122,6 +122,7 @@ class Cleanup:
         if self.journal.operation_state == "unknown" and resolved:
             self.journal.created.extend(ref for ref in resolved if ref not in self.journal.created)
             self.journal.pending_service = None
+            self.journal.pending_name = None
             self.journal.operation_state = "confirmed"
             self.checkpoint()
 
@@ -196,6 +197,7 @@ class Cleanup:
             )
         return (
             ref.service == self.journal.pending_service
+            and self.journal.pending_name in {None, ref.name}
             and not self.journal.is_baseline(ref)
             and owned(ref, owner, self.journal.spec)
         )
@@ -336,6 +338,7 @@ class Cleanup:
             return Outcome("incomplete", reason or "cleanup_failed", remaining, evidence)
         self.journal.phase = "complete"
         self.journal.pending_service = None
+        self.journal.pending_name = None
         self.journal.operation_state = "confirmed"
         self.journal.save()
         return Outcome("succeeded", "complete", (), evidence)
