@@ -38,7 +38,7 @@ Aprovados pelo coordenador em 2026-11-01, além da lista da issue.
 
 - PutMetricAlarm: período × avaliações ≤ 604.800 s; período < 1 h limita a 1 dia; no máximo 5
   ações de alarme. Alarme com período × avaliações > 1 dia é avaliado uma vez por hora
-  ([alarm-evaluation](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/alarm-evaluation.html)).
+  (guia CloudWatch, página alarm-evaluation).
   Janela alinhada ao relógio só existe para hora, dia e semana ISO e reflete o dado após o período
   fechar; não há janela mensal. Usa-se janela deslizante.
 - Métricas Athena só existem com `publish_cloudwatch_metrics_enabled = true`. `ProcessedBytes` é só
@@ -48,7 +48,7 @@ Aprovados pelo coordenador em 2026-11-01, além da lista da issue.
 - DynamoDB publica `SystemErrors` só no par `TableName`+`Operation`; alarme só com `TableName`
   fica em `INSUFFICIENT_DATA`.
 - Plano CloudFront Free cobre a web ACL, regras gerenciadas e requisições do WAF associado
-  ([flat-rate](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html)),
+  (guia CloudFront, página flat-rate-pricing-plan),
   com limite de 5 regras (o static-web usa 2). A conta não pode estar usando o AWS Free Tier para
   assinar o plano. Sem o plano ACTIVE, a web ACL custa USD 5 + USD 1 por regra por mês (Price
   List, SKUs `2R9CM7WJ2KQ6AWDQ` e `D2BYWPHKSXKTQSXA`): USD 7, que estouraria o envelope. O
@@ -76,9 +76,10 @@ Logo mês ≤ 5·W + k·cutoff.
 ## Decisões
 
 - **Workgroup** `cnesdata-prod-operator`: `enforce_workgroup_configuration = true`, publicação de
-  métricas ligada, `requester_pays` desligado, resultado em `s3://cnesdata-prod-athena-results/results/`
-  com SSE-S3 e `expected_bucket_owner`. `lifecycle { ignore_changes = [state] }`, para que um apply
-  qualquer não reative o workgroup desabilitado. É o único `ignore_changes` do repositório (a
+  métricas ligada, `requester_pays` desligado, resultado em
+  `s3://cnesdata-prod-athena-results/results/` com SSE-S3 e `expected_bucket_owner`.
+  `lifecycle { ignore_changes = [state] }`, para que um apply qualquer não reative o workgroup
+  desabilitado. É o único `ignore_changes` do repositório (a
   proibição da spec é sobre roteamento) e um teste varre a árvore.
 - **Bucket de resultados**: PAB completo, `BucketOwnerEnforced`, política só-TLS, expiração de 7
   dias, abort-multipart de 1 dia, `force_destroy = false`. `AVD-AWS-0132` (AES256) com
@@ -133,9 +134,10 @@ Logo mês ≤ 5·W + k·cutoff.
 Alarmes da #388 (sem criar novo shipper): cutoff Athena; Step Functions failed/timed out/aborted
 no ARN `arn:aws:states:us-east-2:<conta>:stateMachine:cnesdata-prod`; DynamoDB throttles do teto
 on-demand (`Read/WriteMaxOnDemandThroughputThrottleEvents`, nível de tabela; a tabela é
-on-demand com teto 100/25), `SystemErrors` (GetItem, Query, UpdateItem) e consumo sustentado de escrita (80% do teto de 25
-WRU/s por 1 h); falha de task unit e proxy semanal de tasks unit (EventBridge `TriggeredRules`);
-erros da Lambda e falhas de entrega do SNS de cutoff; dois metric filters sobre o log group
+on-demand com teto 100/25), `SystemErrors` (GetItem, Query, UpdateItem) e consumo sustentado
+de escrita (80% do teto de 25 WRU/s por 1 h); falha de task unit e proxy semanal de tasks unit
+(EventBridge `TriggeredRules`); erros da Lambda e falhas de entrega do SNS de cutoff; dois
+metric filters sobre o log group
 `/ecs/cnesdata-prod-processor`, com campos reais do `JsonLogFormatter` (`event` + `extra`):
 `processor_execution_probe_failed`, `processor_entrypoint_failed`, `processor_recovery_completed`
 (`failed > 0` ou `reconcile_failed`) e `dispatch_deferred ... reason=monthly_attempts_exhausted`
@@ -164,6 +166,11 @@ detected". O coordenador autorizou a edição mínima em `tests/production/infra
 nas versões exatas; a checagem final compara a igualdade com as seleções da raiz; o schema aws e a
 checagem byte a byte do lock ficam. Nada mais nesse arquivo muda. O lock ganha só a entrada
 `archive` (mesmas 15 plataformas, zero remoções).
+
+## Largura de linha em dados
+
+Dado JSON e fixtures ficam isentos do limite de 100 colunas por causa das URLs da Price List
+(`cost-manifest.json`, `tests/fixtures/plans/**`). Código, HCL e docs respeitam o limite.
 
 ## Gate de aceitação do conftest
 

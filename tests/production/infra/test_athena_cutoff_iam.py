@@ -202,4 +202,3 @@ def test_unico_ignore_changes_e_o_estado_do_workgroup() -> None:
     block = re.search(r'resource "aws_athena_workgroup" "operator" \{(.*?)\n\}\n', text, re.S)
     assert block is not None
     assert "ignore_changes = [state]" in block.group(1)
-

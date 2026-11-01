@@ -1,4 +1,5 @@
 import json
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -53,6 +54,7 @@ CAP_IDS = frozenset({
 })
 SHARED_IDS = frozenset({"kms_envelope", "state_backend", "budget_actions", "other_projects_spend"})
 UNVERIFIED_IDS = frozenset({"cognito_allowance", "other_projects_spend"})
+STORED_TOTAL_KEY = re.compile(r"(^|_)(sub)?totals?(_|$)|(^|_)sums?(_|$)")
 SOURCE_PREFIXES = (
     "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/",
     "https://docs.aws.amazon.com/",
@@ -107,8 +109,8 @@ def test_manifest_nao_armazena_totais_e_cita_fonte_datada() -> None:
     assert manifest["region"] == "us-east-2"
     assert set(manifest) == {"schema_version", "as_of", "region", "currency", "limits", "lines"}
     for line in manifest["lines"]:
-        stored = {key for key in line if key in {"total", "totals", "sum", "sums", "subtotal"}}
-        assert not stored, line["id"]
+        stored = {key for key in line if STORED_TOTAL_KEY.search(key)}
+        assert not stored, f"stored_total line={line['id']} keys={sorted(stored)}"
         assert line["source"]["url"].startswith(SOURCE_PREFIXES), line["id"]
         assert line["source"]["term"], line["id"]
 

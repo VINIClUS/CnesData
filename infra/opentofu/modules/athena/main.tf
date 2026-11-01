@@ -177,7 +177,7 @@ resource "aws_sns_topic_policy" "cutoff" {
 
 resource "aws_cloudwatch_metric_alarm" "cutoff" {
   alarm_name          = local.cutoff_name
-  alarm_description   = "Athena ProcessedBytes (DML) reached the sliding 7-day window; disables the workgroup."
+  alarm_description   = "Athena DML bytes reached the 7-day window; disables the workgroup."
   evaluation_periods  = 1
   threshold           = local.window_bytes
   comparison_operator = "GreaterThanOrEqualToThreshold"

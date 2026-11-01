@@ -76,7 +76,7 @@ locals {
       threshold   = 1
     }
     unit-task-hours-proxy = {
-      description = "Weekly unit task count above the pace of the 4 h unit reserve (monitoring only)."
+      description = "Weekly unit task count above the 4 h unit reserve pace (monitoring only)."
       namespace   = "AWS/Events"
       metric      = "TriggeredRules"
       dimension   = ["RuleName", aws_cloudwatch_event_rule.unit["stopped"].name]

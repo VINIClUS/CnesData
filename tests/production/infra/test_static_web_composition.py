@@ -8,6 +8,11 @@ from typing import Any, NamedTuple
 
 import pytest
 
+from tests.production.infra._athena_contracts import (
+    ATHENA_MODULE_TYPES,
+    OBSERVABILITY_MODULE_TYPES,
+    ROOT_OUTPUTS,
+)
 from tests.production.infra._processing_native import _provider_schema
 from tests.production.infra._root_native_identities import (
     _override_hcl,
@@ -33,7 +38,7 @@ OUTPUTS = {
     "processor_cluster_arn", "processor_state_machine_arn", "processor_step_functions_role_id",
     "processor_step_functions_role_arn", "scheduler_schedule_arns", "scheduler_role_arns",
     "scheduler_freeze_target_role_names", "scheduler_task_hour_budget", "scheduler_alarm_names",
-}
+} | ROOT_OUTPUTS
 STATIC_TYPES = {
     "aws_s3_bucket", "aws_s3_bucket_public_access_block", "aws_s3_bucket_ownership_controls",
     "aws_s3_bucket_versioning", "aws_s3_bucket_server_side_encryption_configuration",
@@ -70,6 +75,8 @@ MODULE_TYPES = {
         "aws_ecs_task_definition", "aws_ecs_cluster", "aws_sfn_state_machine",
         "aws_iam_role_policy",
     },
+    "athena": ATHENA_MODULE_TYPES,
+    "observability": OBSERVABILITY_MODULE_TYPES,
 }
 STATIC_BUCKET_DEFAULTS = {
     "id": "cnesdata-fixture", "arn": "arn:aws:s3:::cnesdata-fixture",
@@ -418,7 +425,7 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     composition = static_web_composition
     outputs = composition.plan["planned_values"].get("outputs", {})
     declared = _configured(composition)["outputs"]
-    assert len(OUTPUTS) == 21
+    assert len(OUTPUTS) == 26
     assert set(declared) == OUTPUTS, f"root_output_inventory actual={set(declared)}"
     required_outputs = OUTPUTS - {"api_loopback_contract"}
     assert required_outputs <= set(outputs), "evaluated_root_outputs_required"

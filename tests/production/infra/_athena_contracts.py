@@ -33,6 +33,23 @@ MONTH_LIMIT_BYTES = 100_000_000_000
 WINDOWS_PER_MONTH = 5
 OVERSHOOT_QUERIES = 4
 
+ROOT_OUTPUTS = frozenset({
+    "athena_workgroup_name", "athena_cutoff_topic_arn", "operator_alarm_topic_arn",
+    "freeze_target_role_arns", "freeze_excluded_role_arns",
+})
+ATHENA_MODULE_TYPES = frozenset({
+    "aws_athena_workgroup", "aws_cloudwatch_metric_alarm", "aws_iam_role", "aws_iam_role_policy",
+    "aws_lambda_function", "aws_lambda_permission", "aws_s3_bucket",
+    "aws_s3_bucket_lifecycle_configuration", "aws_s3_bucket_ownership_controls",
+    "aws_s3_bucket_policy", "aws_s3_bucket_public_access_block",
+    "aws_s3_bucket_server_side_encryption_configuration", "aws_sns_topic",
+    "aws_sns_topic_policy", "aws_sns_topic_subscription",
+})
+OBSERVABILITY_MODULE_TYPES = frozenset({
+    "aws_cloudwatch_event_rule", "aws_cloudwatch_log_metric_filter",
+    "aws_cloudwatch_metric_alarm", "aws_sns_topic", "aws_sns_topic_policy",
+})
+
 MODULE_ADDRESSES = frozenset({
     "module.athena.aws_s3_bucket.results",
     "module.athena.aws_s3_bucket_public_access_block.results",

@@ -7,6 +7,7 @@ from typing import cast
 
 import pytest
 
+from tests.production.infra._athena_contracts import ROOT_OUTPUTS
 from tests.production.infra._composition_contracts import (
     ARN_PATHS,
     BPA,
@@ -367,7 +368,7 @@ def test_inventario_de_outputs_publica_interfaces_do_static_web(
         "scheduler_schedule_arns", "scheduler_role_arns", "scheduler_freeze_target_role_names",
         "scheduler_task_hour_budget", "scheduler_alarm_names",
     }
-    expected = static | scheduler | {f"processor_{name}" for name in names}
+    expected = static | scheduler | ROOT_OUTPUTS | {f"processor_{name}" for name in names}
     assert set(outputs) == expected, f"processing_public_inventory={sorted(outputs)}"
     assert outputs["api_loopback_contract"]["expression"] == {"constant_value": None}
     for name in outputs.keys() - {"api_loopback_contract"}:

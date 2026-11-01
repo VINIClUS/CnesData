@@ -76,7 +76,8 @@ jobs:
           CONFTEST_SHA256: c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985
         run: |
           set -euo pipefail
-          release="https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}"
+          repo="https://github.com/open-policy-agent/conftest"
+          release="${repo}/releases/download/v${CONFTEST_VERSION}"
           archive="${RUNNER_TEMP}/conftest.tar.gz"
           curl --fail --silent --show-error --location --output "${archive}" \
             "${release}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"

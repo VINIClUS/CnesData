@@ -81,7 +81,7 @@ variable "security_group_id" {
 }
 
 variable "alarm_actions" {
-  description = "Action ARNs (at most 5) invoked when a scheduler alarm enters ALARM; empty keeps them silent."
+  description = "Action ARNs (at most 5) run when a scheduler alarm enters ALARM; empty is silent."
   type        = list(string)
   default     = []
   nullable    = false
