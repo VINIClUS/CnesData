@@ -63,8 +63,8 @@ PROFILES = {
     ),
     "iam-s3": Profile(
         ("s3", "iam"),
-        Limits(310, 8, 2, 335, 220),
+        Limits(330, 8, 2, 335, 220),
         roots=(Root("s3"), Root("iam", "audit"), Root("iam", "api")),
-        window=220.0,
+        window=275.0,
     ),
 }

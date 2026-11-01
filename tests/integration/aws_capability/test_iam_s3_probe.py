@@ -19,7 +19,7 @@ SEEDS = ["serving/x", "serving/blocked/x", "raw/x", "reconciliation/x"]
 SECONDS = {
     "assume_audit_seconds", "audit_put_ready_seconds", "audit_retention_extend_ready_seconds",
     "audit_get_ready_seconds", "assume_api_seconds", "api_get_ready_seconds",
-    "api_list_ready_seconds",
+    "api_list_ready_seconds", "blocked_flip_seconds",
 }
 CODES = {
     "audit_put_lock": "ok",
@@ -34,6 +34,10 @@ CODES = {
     "api_get_raw": "403",
     "api_list_raw": DENIED,
     "api_put_object_ungranted": DENIED,
+    "blocked_before": "ok",
+    "policy_put_attempts": 1,
+    "blocked_after": "403",
+    "serving_after_flip": "ok",
 }
 LOCK, EXTEND, SHORTEN = 300, 540, 360
 
@@ -54,7 +58,7 @@ def row(call: Call) -> tuple:
     if operation == "put-role-policy":
         role = str(payload["RoleName"]).rsplit("-", 1)[1]
         return call.who, operation, role, payload["PolicyName"]
-    if operation == "get-object-lock-configuration":
+    if operation in {"get-object-lock-configuration", "put-bucket-policy"}:
         return call.who, operation
     found = dims(call)
     return call.who, operation, found["key"]
@@ -85,6 +89,10 @@ STEPS = [
     ("role-api", "list-objects-v2", "raw/"),
     ("role-api", "head-object", "serving/x"),
     ("role-api", "put-object", "serving/y"),
+    ("role-api", "head-object", "serving/blocked/x"),
+    ("operator", "put-bucket-policy"),
+    ("role-api", "head-object", "serving/blocked/x"),
+    ("role-api", "head-object", "serving/x"),
 ]
 
 
@@ -109,6 +117,7 @@ def test_negacoes_de_prefixo_e_de_retencao_tem_controle_anterior_com_uma_unica_t
     denials = [
         i for i, c in enumerate(calls)
         if not c.ok and c.who != "operator" and "missing" not in str(dims(c).get("key"))
+        and dims(c).get("key") != "serving/blocked/x"
         and c.operation not in {"delete-object", "put-object"}
         and not (c.operation == "list-objects-v2" and c.who == "role-audit")
     ]

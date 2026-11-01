@@ -94,7 +94,7 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   `ddb-throughput`, `iam-trust`, `iam-leadingkeys`, `iam-s3`, `cognito-resource-server`, `s3-hold` e `s3-retention`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
   terminam em `probe=not_implemented`.
 - **Deadline:** no máximo a janela de trabalho do perfil à frente (180 s por padrão; `ddb-throughput`
-  usa 140 s `iam-leadingkeys` 330 s e `iam-s3` 220 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
+  usa 140 s `iam-leadingkeys` 330 s e `iam-s3` 275 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
 - **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
   (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
@@ -188,12 +188,26 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   `audit_get_retention`, `audit_delete_version_ungranted`, `audit_list_ungranted`,
   `assume_api_seconds`, `api_get_ready_seconds`, `api_get_missing` (observação: `404` por causa do
   `ListBucket` no prefixo, cruza o #441), `api_get_raw`, `api_list_ready_seconds`, `api_list_raw`,
-  `api_put_object_ungranted`. Se o `PutObject` com lock for negado, as três chaves de retenção
-  valem `skipped`. Cleanup: versões retidas saem com bypass antes do bucket e das policies dos
-  roles. Janela 220 s; limites 310 chamadas, reserva 220, `cleanup_seconds` 335, do ciclo
-  simulado do pior caso (1,3 s por chamada mais pausas, vezes 1,2). O boundary precisa cobrir
-  `s3:GetObject`, `PutObject`, `PutObjectRetention`, `GetObjectRetention` e `ListBucket` no
-  bucket do run.
+  `api_put_object_ungranted`, `blocked_before`, `policy_put_attempts`, `blocked_after`,
+  `blocked_flip_seconds`, `serving_after_flip`. Se o `PutObject` com lock for negado, as três
+  chaves de retenção valem `skipped`. Cleanup: versões retidas saem com bypass; depois a bucket
+  policy (`delete-bucket-policy`, só neste perfil, `NoSuchBucketPolicy` conta como ok) e o bucket;
+  os roles saem com suas policies. Janela 275 s; limites 330 chamadas, reserva 220,
+  `cleanup_seconds` 335, do ciclo simulado do pior caso (1,3 s por chamada mais pausas, vezes
+  1,2). O boundary precisa cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
+  `GetObjectRetention` e `ListBucket` no bucket do run.
+- **Bucket policy A/B (dentro do `iam-s3`, depois da matriz do api):** (A) o api lê
+  `serving/blocked/x` e recebe 200, sem bucket policy (`blocked_before`, controle obrigatório).
+  O operador então grava uma única statement `Deny` de `s3:GetObject` com `Principal.AWS` igual ao
+  ARN completo do role api (com `/cnesdata-cap/`) e `Resource`
+  `arn:aws:s3:::<bucket>/serving/blocked/*`; nunca `NotPrincipal`, nunca `Principal: "*"`. O IAM
+  pode recusar um principal recém-criado (`MalformedPolicy`); o put repete até 4 vezes, 2 s entre
+  elas (`policy_put_attempts`). (B) o api repete a leitura de `serving/blocked/x` até receber
+  negação, no máximo 12 leituras com 2 s de pausa; `blocked_after` guarda o código final e
+  `blocked_flip_seconds` a propagação. Nunca virar é observação (`blocked_after` fica `ok`), não
+  queda. Por fim `serving/x` segue legível (`serving_after_flip`, controle obrigatório depois da
+  virada). A bucket policy é a única policy removida pelo ensaio, e só pelo cleanup, antes do
+  bucket; o `Deny` nomeia só o role api e não alcança o operador.
 - **Saída:** uma linha JSON em stdout com `status`, `reason`, `remaining` (serviço e nome) e
   `evidence` (`initial_counts`, `probe`, `counts`, `final_counts_all_cap`). Exit 0 só com
   `succeeded`; o IAM do próprio operador (`/cnesdata-cap/`) aparece na contagem global bruta.

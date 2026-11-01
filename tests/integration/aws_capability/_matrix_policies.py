@@ -89,4 +89,3 @@ def api_s3(bucket: str) -> list[dict[str, Any]]:
             "Condition": {"StringLike": {"s3:prefix": prefixes}},
         },
     ]
-

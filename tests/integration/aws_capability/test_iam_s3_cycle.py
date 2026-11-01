@@ -35,11 +35,16 @@ from tests.integration.aws_capability.test_iam_s3_probe import CODES, SECONDS
 
 PROFILE = PROFILES["iam-s3"]
 SCENARIOS = {
-    "tipico": {"policy_lag": 3},
-    "lento": {"assume_denials": 6, "policy_lag": 7},
-    "pior_caso_limitado": {"assume_denials": 11, "policy_lag": 12, "malformed_creates": 3},
+    "tipico": {"policy_lag": 3, "bucket_policy_lag": 3},
+    "lento": {
+        "assume_denials": 6, "policy_lag": 7, "bucket_policy_lag": 7, "bucket_policy_malformed": 1,
+    },
+    "pior_caso_limitado": {
+        "assume_denials": 11, "policy_lag": 12, "malformed_creates": 3,
+        "bucket_policy_lag": 11, "bucket_policy_malformed": 3,
+    },
 }
-LIMITS = (310, 220, 335, 220.0)
+LIMITS = (330, 220, 335, 275.0)
 
 
 def cycle(tmp_path: Path, scenario: str, **options: object) -> ProbeLab:
@@ -153,3 +158,31 @@ def test_crash_com_journal_incerto_no_meio_da_criacao_remove_todas_as_raizes(
     assert (lab.aws.buckets, lab.aws.roles) == ({}, {})
     assert cleanup_calls(lab) <= PROFILE.limits.cleanup_reserve
     assert set(lab.aws.lanes) == {"cleanup"}
+
+
+def test_evidencia_do_ab_nao_carrega_arn_nem_documento_de_policy(tmp_path: Path) -> None:
+    lab = cycle(tmp_path, "tipico")
+    outcome = lifecycle.run(lab.spec, janitor_ports(lab, supervised=True))
+    text = repr(outcome) + lab.spec.journal_dir.joinpath("a1b2c3d4.json").read_text()
+    assert "arn:" not in text
+    assert "Deny" not in text
+    assert probe_of(outcome)["blocked_after"] == "403"
+
+
+def test_falha_depois_da_policy_anexada_ainda_remove_bucket_policy_e_roles(
+    tmp_path: Path,
+) -> None:
+    lab = cycle(tmp_path, "tipico")
+    original = lab.aws.permits
+
+    def broken(who: str, action: str, resource: str, keys: object = None) -> bool:
+        policy = lab.aws.buckets[NAME].policy
+        if who != "operator" and policy is not None and resource.endswith("/serving/x"):
+            return False
+        return original(who, action, resource, keys)  # type: ignore[arg-type]
+
+    lab.aws.permits = broken  # type: ignore[method-assign]
+    outcome = lifecycle.run(lab.spec, janitor_ports(lab, supervised=True))
+    assert (outcome.status, outcome.reason) == ("failed", "operation_failed")
+    assert (lab.aws.buckets, lab.aws.roles) == ({}, {})
+    assert "delete-bucket-policy" in lab.aws.operations()

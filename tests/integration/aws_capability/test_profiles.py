@@ -29,7 +29,7 @@ PROFILES = [
     ("s3-hold", 256, 120, 128, ("s3",)),
     ("iam-trust", 176, 150, 104, ("iam", "iam")),
     ("iam-leadingkeys", 270, 285, 150, ("dynamodb", "iam", "iam")),
-    ("iam-s3", 310, 335, 220, ("s3", "iam", "iam")),
+    ("iam-s3", 330, 335, 220, ("s3", "iam", "iam")),
 ]
 ProfileCase = tuple[str, int, int, int, tuple[str, ...]]
 

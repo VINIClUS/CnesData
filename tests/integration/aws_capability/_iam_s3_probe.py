@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from tests.integration.aws_capability import _matrix_policies as policies
 from tests.integration.aws_capability._assumed_session import assume_role_session
+from tests.integration.aws_capability._bucket_policy_probe import BucketPolicyAB
 from tests.integration.aws_capability._iam_policy_ops import put_statements
 from tests.integration.aws_capability._probe_attempt import (
     Attempt,
@@ -128,6 +129,8 @@ class _Matrix:
         observed["api_list_raw"] = actor.list("raw/").code
         must(actor.head(SERVING), "api_live_control")
         observed["api_put_object_ungranted"] = actor.put("serving/y", None).code
+        policy = BucketPolicyAB(self.ports, self.spec, self.context, self.bucket)
+        observed.update(policy.run(self.actor(self.ports.commands), actor))
         return observed
 
 
