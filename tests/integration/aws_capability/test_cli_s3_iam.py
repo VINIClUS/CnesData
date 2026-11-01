@@ -89,3 +89,35 @@ def test_leitura_ou_criacao_sem_documento_continua_invalida(
     cli_lab.respond((0, "", ""))
     reply = cli_lab.call(Request(service, operation, {"Bucket": "b"}))
     assert reply.ok is False
+
+
+@pytest.mark.parametrize("operation", ["put-item", "update-item"])
+@pytest.mark.parametrize("returns", [{}, {"ReturnValues": "NONE"}])
+def test_escrita_dynamodb_sem_return_values_e_sucesso_vazio(
+    cli_lab: CliLab, operation: str, returns: dict
+) -> None:
+    cli_lab.respond((0, "", ""))
+    reply = cli_lab.call(Request("dynamodb", operation, {"TableName": "t", **returns}))
+    assert reply.ok is True
+    assert dict(reply.data) == {}
+
+
+@pytest.mark.parametrize("operation", ["put-item", "update-item"])
+@pytest.mark.parametrize("returns", ["ALL_OLD", "ALL_NEW", "UPDATED_NEW"])
+def test_escrita_dynamodb_com_return_values_sem_documento_continua_invalida(
+    cli_lab: CliLab, operation: str, returns: str
+) -> None:
+    cli_lab.respond((0, "", ""))
+    reply = cli_lab.call(Request("dynamodb", operation, {"TableName": "t", "ReturnValues": returns}))
+    assert reply.ok is False
+
+
+@pytest.mark.parametrize(
+    "operation", ["query", "scan", "batch-write-item", "update-table", "create-table"]
+)
+def test_outras_operacoes_dynamodb_sem_documento_continuam_invalidas(
+    cli_lab: CliLab, operation: str
+) -> None:
+    cli_lab.respond((0, "", ""))
+    reply = cli_lab.call(Request("dynamodb", operation, {"TableName": "t"}))
+    assert reply.ok is False

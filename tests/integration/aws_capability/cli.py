@@ -161,6 +161,14 @@ def _private_input(payload: str) -> Iterator[Path]:
         shutil.rmtree(directory, ignore_errors=True)
 
 
+def _empty_is_success(request: Request) -> bool:
+    key = (request.service, request.operation)
+    if request.operation.startswith("delete-") or key in EMPTY_SUCCESS:
+        return True
+    quiet = request.payload.get("ReturnValues", "NONE") == "NONE"
+    return quiet and key in {("dynamodb", "put-item"), ("dynamodb", "update-item")}
+
+
 def _local_failure(code: str) -> Reply:
     return Reply(False, {}, ApiError(code, {}, "local"))
 
@@ -197,10 +205,7 @@ def _approved_body(body: Path) -> bool:
 
 def _process_reply(completed: subprocess.CompletedProcess[str], request: Request) -> Reply:
     if completed.returncode == 0:
-        if not completed.stdout.strip() and (
-            request.operation.startswith("delete-")
-            or (request.service, request.operation) in EMPTY_SUCCESS
-        ):
+        if not completed.stdout.strip() and _empty_is_success(request):
             return Reply(True, {}, None)
         data = json.loads(completed.stdout)
         return Reply(True, data, None) if isinstance(data, dict) else _local_failure("invalid_json")
