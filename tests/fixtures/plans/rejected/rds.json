@@ -1,0 +1,74 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.data",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "data",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "force_destroy": false
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_db_instance.main",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "main",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "identifier": "example"
+        },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.opentofu.org/hashicorp/aws",
+        "alias": null,
+        "expressions": {
+          "region": {
+            "constant_value": "us-east-2"
+          }
+        }
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_s3_bucket.data",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "data",
+          "provider_config_key": "aws"
+        },
+        {
+          "address": "aws_db_instance.main",
+          "mode": "managed",
+          "type": "aws_db_instance",
+          "name": "main",
+          "provider_config_key": "aws"
+        }
+      ]
+    }
+  }
+}

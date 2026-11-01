@@ -49,11 +49,17 @@ def schedulers_entries(plan: Node) -> Inventory:
     }
 
 
+def athena_entries(plan: Node) -> Inventory:
+    cutoff = f"{PRODUCT_NAMESPACE}-athena-cutoff"
+    return {"module.athena.aws_iam_role_policy.cutoff": (f"{cutoff}-workgroup", cutoff)}
+
+
 def expected_root_policy_inventory(plan: Node) -> Inventory:
     return {
         **runtime_iam_entries(plan),
         **processing_entries(plan),
         **schedulers_entries(plan),
+        **athena_entries(plan),
     }
 
 
