@@ -114,3 +114,74 @@ variable "api_step_functions_enabled" {
   default     = false
   nullable    = false
 }
+
+locals {
+  canary_release_id_shape = "^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"
+  canary_role_suffix_max  = 25
+}
+
+variable "canary_release" {
+  description = "Explicit release activation for canary and promotion identities, or null."
+  type = object({
+    release_id            = string
+    trusted_principal_arn = string
+    table_arn             = string
+    index_arn             = string
+    bucket_arn            = string
+  })
+  default  = null
+  nullable = true
+
+  validation {
+    condition = var.canary_release == null ? true : try(
+      can(regex(local.canary_release_id_shape, var.canary_release.release_id)), false
+    )
+    error_message = "canary_release_id=expected_lowercase_alnum_hyphen_max32"
+  }
+
+  validation {
+    condition = var.canary_release == null ? true : (
+      length(var.name_prefix) + local.canary_role_suffix_max <= 64
+    )
+    error_message = "canary_role_name=expected_max64_chars"
+  }
+
+  validation {
+    condition     = var.canary_release == null ? true : var.runtime_grants != null
+    error_message = "canary_release_runtime_grants=required"
+  }
+
+  validation {
+    condition = var.canary_release == null ? true : try(
+      can(regex(
+        "^arn:aws:iam::[0-9]{12}:role/([^/*?]+/)*[A-Za-z0-9_+=,.@-]{1,64}$",
+        var.canary_release.trusted_principal_arn,
+      )) &&
+      can(regex("^[!-~]+$", var.canary_release.trusted_principal_arn)) &&
+      split(":", var.canary_release.trusted_principal_arn)[4] == var.account_id,
+      false,
+    )
+    error_message = "canary_principal_arn_identity=expected_own_iam_role"
+  }
+
+  validation {
+    condition = var.canary_release == null ? true : try(
+      var.canary_release.table_arn == format(
+        "arn:aws:dynamodb:us-east-2:%s:table/%s-canary", var.account_id, var.name_prefix,
+      ) &&
+      var.canary_release.index_arn == format(
+        "arn:aws:dynamodb:us-east-2:%s:table/%s-canary/index/gsi6",
+        var.account_id, var.name_prefix,
+      ),
+      false,
+    )
+    error_message = "canary_release_table=expected_own_canary_table_and_gsi6"
+  }
+
+  validation {
+    condition = var.canary_release == null ? true : (
+      var.canary_release.bucket_arn == "arn:aws:s3:::${var.name_prefix}-canary"
+    )
+    error_message = "canary_release_bucket=expected_own_canary_bucket"
+  }
+}
