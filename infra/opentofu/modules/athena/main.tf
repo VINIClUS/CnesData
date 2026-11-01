@@ -15,8 +15,12 @@ locals {
   cutoff_name            = "${var.name_prefix}-athena-cutoff"
   results_bucket         = "${var.name_prefix}-athena-results"
   per_query_cutoff_bytes = 5000000000
-  window_bytes           = 16000000000
-  window_seconds         = 604800
+  window_bytes           = 2500000000
+  window_seconds         = 86400
+  windows_per_month      = 31
+  overshoot_queries      = 4
+  detection_latency_s    = 300
+  month_limit_bytes      = 100000000000
   results_expiration     = 7
   abort_multipart_days   = 1
 
@@ -177,7 +181,7 @@ resource "aws_sns_topic_policy" "cutoff" {
 
 resource "aws_cloudwatch_metric_alarm" "cutoff" {
   alarm_name          = local.cutoff_name
-  alarm_description   = "Athena DML bytes reached the 7-day window; disables the workgroup."
+  alarm_description   = "Athena DML bytes reached the 1-day window; disables the workgroup."
   evaluation_periods  = 1
   threshold           = local.window_bytes
   comparison_operator = "GreaterThanOrEqualToThreshold"

@@ -1,5 +1,4 @@
 import json
-import math
 import re
 
 from tests.production.infra._athena_contracts import (
@@ -10,7 +9,9 @@ from tests.production.infra._athena_contracts import (
     CUTOFF_POLICY_ADDRESS,
     CUTOFF_ROLE_ARN,
     CUTOFF_TOPIC_ARN,
+    DETECTION_LATENCY_SECONDS,
     MODULES,
+    MONTH_LIMIT_BYTES,
     OVERSHOOT_QUERIES,
     PER_QUERY_CUTOFF_BYTES,
     REPO_ROOT,
@@ -29,7 +30,7 @@ from tests.production.infra._athena_root_plan import (  # noqa: F401
     fixture_bootstrap_plan,
     fixture_scheduled_plan,
 )
-from tests.production.infra._step_functions_iam_contracts import policy_grants
+from tests.production.infra._step_functions_iam_contracts import output_value, policy_grants
 
 ROLE_TRUST = {
     "Version": "2012-10-17",
@@ -146,7 +147,7 @@ def _without_sid(statement: dict[str, object]) -> str:
     return json.dumps(kept, sort_keys=True)
 
 
-def test_alarme_de_cutoff_soma_tres_estados_dml_em_janela_deslizante_de_7_dias(
+def test_alarme_de_cutoff_soma_tres_estados_dml_em_janela_deslizante_de_1_dia(
     scheduled_plan: Node,
 ) -> None:
     alarm = alarms(scheduled_plan)[CUTOFF_NAME]
@@ -177,15 +178,32 @@ def test_janela_e_corte_por_query_cabem_nos_100_gb_do_mes(scheduled_plan: Node) 
     alarm = alarms(scheduled_plan)[CUTOFF_NAME]
     workgroup = at(scheduled_plan, "module.athena.aws_athena_workgroup.operator")
     (configuration,) = workgroup["configuration"]
-    window = alarm["threshold"]
+    contract = output_value(scheduled_plan, "athena_cutoff_contract")
+    periods = {
+        query["metric"][0]["period"] for query in alarm["metric_query"] if query.get("metric")
+    }
+    (period,) = periods
     cutoff = configuration["bytes_scanned_cutoff_per_query"]
-    month_days = 31
-    windows = math.ceil(month_days / (WINDOW_SECONDS // 86_400))
-    assert windows == WINDOWS_PER_MONTH
-    assert (window, cutoff) == (WINDOW_BYTES, PER_QUERY_CUTOFF_BYTES)
+    assert contract == {
+        "window_bytes": WINDOW_BYTES,
+        "window_seconds": WINDOW_SECONDS,
+        "per_query_cutoff_bytes": PER_QUERY_CUTOFF_BYTES,
+        "windows_per_month": WINDOWS_PER_MONTH,
+        "overshoot_queries": OVERSHOOT_QUERIES,
+        "detection_latency_s": DETECTION_LATENCY_SECONDS,
+        "month_limit_bytes": MONTH_LIMIT_BYTES,
+    }
+    assert alarm["threshold"] == contract["window_bytes"]
+    assert period == contract["window_seconds"]
+    assert cutoff == contract["per_query_cutoff_bytes"]
     assert configuration["enforce_workgroup_configuration"] is True
-    worst_case = windows * window + OVERSHOOT_QUERIES * cutoff
-    assert worst_case <= 100_000_000_000, f"month_bound_bytes={worst_case}"
+    assert period * alarm["evaluation_periods"] <= 86_400, "evaluation_not_per_minute"
+    assert contract["windows_per_month"] * period >= 31 * 86_400
+    worst_case = (
+        contract["windows_per_month"] * alarm["threshold"]
+        + contract["overshoot_queries"] * cutoff
+    )
+    assert worst_case <= contract["month_limit_bytes"], f"month_bound_bytes={worst_case}"
 
 
 def test_unico_ignore_changes_e_o_estado_do_workgroup() -> None:

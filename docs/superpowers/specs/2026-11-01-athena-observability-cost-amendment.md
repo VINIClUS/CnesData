@@ -54,24 +54,37 @@ Aprovados pelo coordenador em 2026-11-01, além da lista da issue.
   List, SKUs `2R9CM7WJ2KQ6AWDQ` e `D2BYWPHKSXKTQSXA`): USD 7, que estouraria o envelope. O
   gate de cutover da spec (binding ACTIVE) é o que protege; o manifesto registra a exposição.
 
-## Cutoff mensal: derivação de W
+## Cutoff mensal: derivação de W_d
 
-Cinco janelas disjuntas de 7 dias cobrem qualquer mês de 31 dias (35 ≥ 31). Se nenhuma janela
-alcança W, o mês soma menos que 5·W. Se uma alcança, o disable trava (reativação manual), de modo
-que o mês soma menos que 4·W (janelas anteriores) + W + sobra. A sobra é o que completa entre o
-cruzamento e o disable efetivo: avaliação horária, atraso da métrica, SNS e Lambda, cada query
-limitada a 5 GB por `bytes_scanned_cutoff_per_query` com `enforce_workgroup_configuration = true`.
-Logo mês ≤ 5·W + k·cutoff.
+Histórico: a primeira proposta usava janela de 7 dias (W = 16 GB, avaliação horária); a decisão do
+coordenador trocou por 1 dia para cair na avaliação por minuto.
 
-- Decimais: cutoff por query 5.000.000.000 bytes (menor que 5 GiB, então conservador sob as duas
-  leituras de "5 GB"); W = 16.000.000.000 bytes (16 GB decimal); limite 100.000.000.000.
-- k = 4 queries completando durante a latência: 5·16 + 4·5 = 100 GB. **Pressuposto não imposto
-  pela AWS** (workgroup não limita taxa de queries; o uso é manual de operador). O teste fixa W,
-  cutoff, k e a desigualdade lida do plan; mudar W ou o cutoff quebra o teste.
-- **Desvio** do texto "100 GB/mês": o limite vira "teto de 100 GB por 5·W + k·cutoff com disable
-  travado", não um contador de mês-calendário. O custo máximo do Athena é ~USD 0,50 (USD 5/TB).
-- Latência: alarme avaliado 1×/h; o disable ocorre até ~1 h mais o atraso de publicação após o
-  cruzamento.
+Na doc AWS (alarm-evaluation), alarme com período × avaliações > 1 dia é avaliado a cada hora;
+até 1 dia é avaliado a cada minuto. O alarme usa as 3 métricas DML (`SUCCEEDED`, `FAILED`,
+`CANCELED`), `period = 86400` em cada `metric_query`, `evaluation_periods = 1` e janela deslizante.
+
+Prova: 31 janelas disjuntas de 1 dia cobrem qualquer mês de 31 dias. Se nenhuma janela alcança
+W_d, o mês soma menos que 31·W_d. Se uma alcança, o disable trava (reativação manual), de modo que
+o mês soma menos que 30·W_d (janelas anteriores) + W_d + sobra. Logo
+mês ≤ 31·W_d + k·cutoff = 31·2,5 + 4·5 = 77,5 + 20 = 97,5 GB ≤ 100 GB.
+
+- Decimais: W_d = 2.500.000.000 bytes; cutoff por query 5.000.000.000 (menor que 5 GiB, então
+  conservador sob as duas leituras de "5 GB"); limite 100.000.000.000.
+- Latência de detecção, teto `detection_latency_seconds = 300`: avaliação a cada 60 s, mais o atraso
+  de publicação da métrica (que só sai na conclusão da query), mais SNS e Lambda.
+- k = 4 é o número de queries que podem completar dentro dessa latência mais as que estiverem em
+  voo no disable. Cada uma lê no máximo 5 GB porque `enforce_workgroup_configuration = true` força
+  o cutoff por query. A AWS não oferece limite de concorrência por workgroup sem capacity
+  reservation, que é paga e proibida pela política. Por isso k é um parâmetro operacional fixado no
+  contrato (o operador roda queries em série), não uma garantia da AWS.
+- Contrato imposto e testado: W_d, período, cutoff, k, `windows_per_month = 31`,
+  `detection_latency_s` e o limite mensal são locals do módulo `athena`, saem no output
+  `cutoff_contract` (raiz: `athena_cutoff_contract`). O teste lê threshold e period do recurso do
+  alarme e o cutoff do recurso do workgroup, exige igualdade com o contrato, exige
+  período × avaliações ≤ 86400 e prova 31·W_d + k·cutoff ≤ 100e9. Mutações cobertas: W_d 3 GB,
+  k 5, período 172800, cutoff 6 GB e `evaluation_periods = 2`.
+- **Desvio** do texto "100 GB/mês": o limite vira "teto de 97,5 GB por 31·W_d + k·cutoff com
+  disable travado", não um contador de mês-calendário. Custo máximo do Athena ~USD 0,49 (USD 5/TB).
 
 ## Decisões
 
@@ -125,7 +138,7 @@ Logo mês ≤ 5·W + k·cutoff.
   unitário com URL da Price List e SKU, `min/base/max` por linha, cenário `max` sem franquia de
   free tier (a franquia é da conta, compartilhada com outros projetos). Quantidades amarradas ao
   plan: Fargate = `monthly_limit_hours` × vCPU/memória reais das task definitions; métricas de
-  alarme contadas do plan; Athena = 5·W + k·cutoff. `unverified`: franquia do Cognito e gasto de
+  alarme contadas do plan; Athena = 31·W_d + k·cutoff. `unverified`: franquia do Cognito e gasto de
   outros projetos da conta, sem número. Schema próprio validado por um subconjunto de JSON Schema
   no teste (sem nova dependência).
 
@@ -179,12 +192,17 @@ Dado JSON e fixtures ficam isentos do limite de 100 colunas por causa das URLs d
 fixtures rejeitadas e sai com código diferente de 0 por construção; as rejeições são afirmadas pelo
 pytest com as mensagens exatas. O CI instala conftest 0.71.1 com sha256 fixo, só no job hospedado.
 
-## WAF: precondição e gate de cutover
+## WAF: precondição bloqueia a ativação
 
-A linha `waf_dedicated` vale 0 com `precondition: "cloudfront_free_plan_active"` e
-`exposure_usd: 7`. O teste exige os dois campos e o rego rejeita linha com preço zero sem eles
-(`waf_unbound_exposure`). Limitação: o manifesto não prova o plano ACTIVE; isso é gate de cutover
-da #382 (binding do plano), registrado aqui e no PR.
+A linha `waf_dedicated` vale 0 com `precondition: "cloudfront_free_plan_active"`,
+`blocking: "activation"` e `exposure_usd: 7`; `cloudfront_free_plan` também declara
+`blocking: "activation"`. O schema aceita `blocking` em `activation` ou `advisory`. O rego rejeita
+linha com `precondition` sem `blocking` (`precondition_without_blocking`) e linha cujo máximo do
+produto mais `exposure_usd` passa de 8 sem `blocking: "activation"`
+(`exposure_requires_activation_block`); o teste do manifesto repete as duas regras. A raiz publica
+`activation_blocking_preconditions = ["cloudfront_free_plan_active"]`, consumido pela ativação da
+delivery (#382). Limitação: o manifesto não prova o plano ACTIVE; a ativação deve esperar a
+confirmação humana.
 
 ## Base da quantidade máxima por linha (`max_basis`)
 

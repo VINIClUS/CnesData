@@ -206,11 +206,25 @@ def test_limites_fixos_do_produto_cognito_e_waf() -> None:
     assert waf["unit_price_usd"] == 0
     assert waf["exposure_usd"] == 7
     assert waf["precondition"] == "cloudfront_free_plan_active"
+    assert waf["blocking"] == "activation"
     assert lines["secrets_manager"]["binding"] == "BILLING_MODE=disabled"
     assert lines["step_functions_transitions"]["binding"] == "monthly_attempt_limit=200"
     assert lines["ecr_storage"]["quantity"]["max"] == 2
     assert lines["s3_web_storage"]["quantity"]["max"] == 5
     assert "365" in lines["s3_audit_storage"]["description"]
+
+
+def test_toda_precondicao_declara_bloqueio_e_exposicao_acima_do_limite_bloqueia_ativacao() -> None:
+    manifest = _manifest()
+    product_max = totals(manifest)["product"]["max"]
+    for name, line in _lines(manifest).items():
+        if "precondition" not in line:
+            continue
+        blocking = line.get("blocking")
+        assert blocking in {"activation", "advisory"}, f"blocking_missing line={name}"
+        exposure = Decimal(str(line.get("exposure_usd", 0)))
+        if product_max + exposure > Decimal(manifest["limits"]["product_usd"]):
+            assert line["blocking"] == "activation", f"activation_block_required line={name}"
 
 
 def test_manifest_fica_fora_da_raiz_aplicada() -> None:

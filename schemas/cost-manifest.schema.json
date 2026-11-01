@@ -58,6 +58,7 @@
         "binding": {"type": "string", "minLength": 1},
         "assumption": {"type": "string", "minLength": 1},
         "precondition": {"type": "string", "minLength": 1},
+        "blocking": {"enum": ["activation", "advisory"]},
         "exposure_usd": {"type": "number", "minimum": 0},
         "source": {
           "type": "object",

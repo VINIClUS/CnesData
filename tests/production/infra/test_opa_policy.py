@@ -80,6 +80,10 @@ REJECTIONS |= {
     name: [f"forbidden_resource reason={reason} type={kind} address={address}"]
     for name, (reason, kind, address) in FORBIDDEN.items()
 }
+REJECTIONS["precondicao_sem_bloqueio.json"] = ["precondition_without_blocking line=gated"]
+REJECTIONS["exposicao_sem_bloqueio_de_ativacao.json"] = [
+    "exposure_requires_activation_block line=gated"
+]
 REJECTIONS["regiao_em_modulo.json"] = [
     "forbidden_region region=us-west-2 type=aws_s3_bucket address=module.child.aws_s3_bucket.west"
 ]

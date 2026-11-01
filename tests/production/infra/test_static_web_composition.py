@@ -425,7 +425,7 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     composition = static_web_composition
     outputs = composition.plan["planned_values"].get("outputs", {})
     declared = _configured(composition)["outputs"]
-    assert len(OUTPUTS) == 26
+    assert len(OUTPUTS) == 28
     assert set(declared) == OUTPUTS, f"root_output_inventory actual={set(declared)}"
     required_outputs = OUTPUTS - {"api_loopback_contract"}
     assert required_outputs <= set(outputs), "evaluated_root_outputs_required"

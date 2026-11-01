@@ -116,6 +116,16 @@ output "athena_workgroup_name" {
   value       = module.athena.workgroup_name
 }
 
+output "athena_cutoff_contract" {
+  description = "Athena cutoff contract: window, per-query cutoff, in-flight bound, monthly limit."
+  value       = module.athena.cutoff_contract
+}
+
+output "activation_blocking_preconditions" {
+  description = "Preconditions that block activation until a human confirms them."
+  value       = local.activation_blocking_preconditions
+}
+
 output "athena_cutoff_topic_arn" {
   description = "Cutoff SNS topic ARN: the Athena freeze hook for the shared Budget."
   value       = module.athena.cutoff_topic_arn

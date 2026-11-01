@@ -154,6 +154,22 @@ deny contains msg if {
 	msg := "waf_unbound_exposure line=waf_dedicated reason=missing_precondition_or_exposure"
 }
 
+deny contains msg if {
+	some line in input.lines
+	line.precondition
+	not line.blocking
+	msg := sprintf("precondition_without_blocking line=%s", [line.id])
+}
+
+deny contains msg if {
+	some line in input.lines
+	line.precondition
+	line.blocking
+	line.blocking != "activation"
+	cents("product", "max") + round(100 * line.exposure_usd) > limits.product * 100
+	msg := sprintf("exposure_requires_activation_block line=%s", [line.id])
+}
+
 waf_gated(line) if {
 	line.precondition == "cloudfront_free_plan_active"
 	line.exposure_usd > 0

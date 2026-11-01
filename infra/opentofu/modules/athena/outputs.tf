@@ -1,3 +1,16 @@
+output "cutoff_contract" {
+  description = "Enforced Athena cutoff contract: window, per-query cutoff, in-flight bound, limit."
+  value = {
+    window_bytes           = local.window_bytes
+    window_seconds         = local.window_seconds
+    per_query_cutoff_bytes = local.per_query_cutoff_bytes
+    windows_per_month      = local.windows_per_month
+    overshoot_queries      = local.overshoot_queries
+    detection_latency_s    = local.detection_latency_s
+    month_limit_bytes      = local.month_limit_bytes
+  }
+}
+
 output "workgroup_name" {
   description = "Operator Athena workgroup name."
   value       = aws_athena_workgroup.operator.name

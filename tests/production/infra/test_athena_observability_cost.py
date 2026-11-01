@@ -3,6 +3,7 @@ import json
 from tests.production.infra._athena_contracts import (
     ACCOUNT,
     ALARM_NAMES,
+    BLOCKING_PRECONDITIONS,
     CUTOFF_FUNCTION_ARN,
     CUTOFF_NAME,
     CUTOFF_POLICY_ADDRESS,
@@ -167,6 +168,7 @@ def test_plan_agenda_workgroup_e_alarmes(
         assert output_value(plan, "athena_workgroup_name") == WORKGROUP
         assert output_value(plan, "operator_alarm_topic_arn") == OPERATOR_TOPIC_ARN
         assert output_value(plan, "athena_cutoff_topic_arn") == CUTOFF_TOPIC_ARN
+        assert output_value(plan, "activation_blocking_preconditions") == BLOCKING_PRECONDITIONS
     assert set(alarms(bootstrap_plan)) == ALARM_NAMES
     scheduler_alarms = output_value(scheduled_plan, "scheduler_alarm_names")
     names = {name for group in scheduler_alarms.values() for name in _flatten(group)}

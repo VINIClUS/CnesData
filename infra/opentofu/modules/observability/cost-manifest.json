@@ -305,15 +305,15 @@
       "id": "athena_scanned",
       "scope": "product",
       "service": "Athena",
-      "description": "Bytes scanned up to the cutoff ceiling 5*W + 4*per-query cutoff",
+      "description": "Bytes scanned up to the cutoff ceiling 31*W_d + 4*per-query cutoff = 97.5 GB",
       "unit": "TB",
       "unit_price_usd": 5.0,
-      "quantity": {"min": 0.01, "base": 0.04, "max": 0.1},
+      "quantity": {"min": 0.01, "base": 0.04, "max": 0.0975},
       "free_allowance": {"min": 0, "base": 0, "max": 0},
       "status": "verified",
       "max_basis": "cap",
       "source": {"url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonAthena/current/us-east-2/index.json", "term": "sku E24RR3GXPVGYBMFP USE2-DataScannedInTB"},
-      "binding": "5*window_bytes+4*cutoff_bytes"
+      "binding": "31*window_bytes+4*cutoff_bytes"
     },
     {
       "id": "cognito_essentials_mau",
@@ -354,7 +354,8 @@
       "status": "verified",
       "max_basis": "cap",
       "source": {"url": "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html", "term": "Free plan"},
-      "precondition": "cloudfront_free_plan_active"
+      "precondition": "cloudfront_free_plan_active",
+      "blocking": "activation"
     },
     {
       "id": "waf_dedicated",
@@ -369,7 +370,8 @@
       "max_basis": "cap",
       "source": {"url": "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html", "term": "Plan covers the associated web ACL, rules and requests; unbound exposure is sku 2R9CM7WJ2KQ6AWDQ 5 USD + 2 rules sku D2BYWPHKSXKTQSXA 1 USD"},
       "precondition": "cloudfront_free_plan_active",
-      "exposure_usd": 7
+      "exposure_usd": 7,
+      "blocking": "activation"
     },
     {
       "id": "data_transfer_out",
