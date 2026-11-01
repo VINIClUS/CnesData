@@ -226,6 +226,7 @@ def test_actions_pagas_custam_zero_com_repositorio_publico_e_runners_padrao() ->
         "product", "verified", "hypothesis",
     )
     assert line["binding"] == "repository_visibility=public runners=standard,self-hosted"
+    assert (line["unit_price_usd"], line["quantity"]) == (0, {"min": 0, "base": 0, "max": 0})
     assert [line_cost(line, scenario) for scenario in SCENARIOS] == [0, 0, 0]
     workflows = (REPO_ROOT / ".github" / "workflows").glob("*.yml")
     labels = {
