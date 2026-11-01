@@ -14,6 +14,7 @@ from tests.integration.aws_capability._probe_testing import (
     make_probe_lab,
     payload_text,
 )
+from tests.integration.aws_capability._s3_retention_probe import ROLE_KEY
 from tests.integration.aws_capability.contracts import RequestContext, ServiceFailure
 
 SECONDS = (
@@ -105,6 +106,14 @@ def test_controle_positivo_antecede_cada_negacao_do_papel(lab: ProbeLab) -> None
     ]
     assert lab.aws.operations("operator").count("put-role-policy") == 2
 
+
+def test_upload_sem_lock_do_papel_antecede_o_upload_com_lock_na_mesma_chave(lab: ProbeLab) -> None:
+    run(lab)
+    pairs = zip(lab.aws.calls, lab.aws.requests, strict=True)
+    puts = [r.payload for (_, op, who), r in pairs if who == "role" and op == "put-object"]
+    assert [payload["Key"] for payload in puts] == [ROLE_KEY, ROLE_KEY]
+    assert "ObjectLockMode" not in puts[0]
+    assert puts[1]["ObjectLockMode"] == "GOVERNANCE"
 
 def test_propagacao_lenta_repete_controle_e_registra_segundos(tmp_path: Path) -> None:
     lab = make_probe_lab(tmp_path, "s3-retention", policy_lag=4)
