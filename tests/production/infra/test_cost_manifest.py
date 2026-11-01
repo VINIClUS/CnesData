@@ -6,11 +6,13 @@ from pathlib import Path
 import pytest
 
 from tests.production.infra._athena_contracts import (
+    BILLED_QUERIES_PER_MONTH,
     CROSSING_QUERIES,
     MANIFEST_PATH,
     MONTH_LIMIT_BYTES,
     OVERSHOOT_QUERIES,
     PER_QUERY_CUTOFF_BYTES,
+    PER_QUERY_OVERHEAD_BYTES,
     REPO_ROOT,
     SCHEMA_PATH,
     WINDOW_BYTES,
@@ -194,7 +196,10 @@ def test_contagem_de_metricas_de_alarme_e_filtros_vem_do_plano(scheduled_plan: N
 
 def test_athena_no_manifesto_chega_ao_teto_do_cutoff() -> None:
     in_flight = OVERSHOOT_QUERIES + CROSSING_QUERIES
-    ceiling = WINDOWS_PER_MONTH * WINDOW_BYTES + in_flight * PER_QUERY_CUTOFF_BYTES
+    overhead = BILLED_QUERIES_PER_MONTH * PER_QUERY_OVERHEAD_BYTES
+    ceiling = (
+        WINDOWS_PER_MONTH * WINDOW_BYTES + in_flight * PER_QUERY_CUTOFF_BYTES + overhead
+    )
     assert ceiling <= MONTH_LIMIT_BYTES
     line = _lines(_manifest())["athena_scanned"]
     assert line["unit_price_usd"] == 5

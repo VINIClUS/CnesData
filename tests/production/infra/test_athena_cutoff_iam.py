@@ -3,6 +3,7 @@ import re
 
 from tests.production.infra._athena_contracts import (
     ACCOUNT,
+    BILLED_QUERIES_PER_MONTH,
     BUDGET_ARN,
     CROSSING_QUERIES,
     CUTOFF_ALARM_ARN,
@@ -15,6 +16,7 @@ from tests.production.infra._athena_contracts import (
     MONTH_LIMIT_BYTES,
     OVERSHOOT_QUERIES,
     PER_QUERY_CUTOFF_BYTES,
+    PER_QUERY_OVERHEAD_BYTES,
     REPO_ROOT,
     WINDOW_BYTES,
     WINDOW_SECONDS,
@@ -184,6 +186,8 @@ def test_contrato_de_cutoff_exposto_na_raiz_tem_os_valores_fixados(scheduled_pla
         "windows_per_month": WINDOWS_PER_MONTH,
         "overshoot_queries": OVERSHOOT_QUERIES,
         "crossing_queries": CROSSING_QUERIES,
+        "billed_queries_per_month": BILLED_QUERIES_PER_MONTH,
+        "per_query_overhead_bytes": PER_QUERY_OVERHEAD_BYTES,
         "detection_latency_s": DETECTION_LATENCY_SECONDS,
         "month_limit_bytes": MONTH_LIMIT_BYTES,
     }
@@ -205,7 +209,8 @@ def test_janela_e_corte_por_query_cabem_nos_100_gb_do_mes(scheduled_plan: Node) 
     assert period * alarm["evaluation_periods"] <= 86_400, "evaluation_not_per_minute"
     assert contract["windows_per_month"] * period >= 31 * 86_400
     in_flight = contract["overshoot_queries"] + contract["crossing_queries"]
-    worst_case = contract["windows_per_month"] * window + in_flight * cutoff
+    overhead = contract["billed_queries_per_month"] * contract["per_query_overhead_bytes"]
+    worst_case = contract["windows_per_month"] * window + in_flight * cutoff + overhead
     assert worst_case <= contract["month_limit_bytes"], f"month_bound_bytes={worst_case}"
 
 

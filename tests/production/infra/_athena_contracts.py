@@ -35,6 +35,8 @@ DETECTION_LATENCY_SECONDS = 300
 BLOCKING_PRECONDITIONS = ["cloudfront_free_plan_active"]
 OVERSHOOT_QUERIES = 4
 CROSSING_QUERIES = 1
+BILLED_QUERIES_PER_MONTH = 1000
+PER_QUERY_OVERHEAD_BYTES = 10_485_760
 
 ROOT_OUTPUTS = frozenset({
     "athena_workgroup_name", "athena_cutoff_topic_arn", "operator_alarm_topic_arn",

@@ -6,7 +6,11 @@ from typing import Any, cast
 import pytest
 import yaml
 
-from tests.production.infra._athena_contracts import REPO_ROOT
+from tests.production.infra._athena_contracts import (
+    BILLED_QUERIES_PER_MONTH,
+    OVERSHOOT_QUERIES,
+    REPO_ROOT,
+)
 from tests.production.infra.conftest import require_tool
 
 PROD = REPO_ROOT / "infra" / "opentofu" / "env" / "prod"
@@ -16,6 +20,15 @@ CONFTEST_SHA256 = "c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7
 AWS_LOCK_BLOCK_SHA256 = "97d8a5b4cc70cce4ae2578d2f8b2c9534ea0e851f328c1ff97f4357c007a00c9"
 PLATFORM_HASHES = 15
 NEW_PATHS = ("policies/**", "schemas/**", "tests/fixtures/**")
+RUNBOOK = REPO_ROOT / "docs" / "runbooks" / "athena-operator.md"
+ALARM_STATE = (
+    "aws cloudwatch describe-alarms --alarm-names cnesdata-prod-athena-cutoff "
+    "--query 'MetricAlarms[0].StateValue' --output text"
+)
+WORKGROUP_STATE = "aws athena update-work-group --work-group cnesdata-prod-operator --state"
+CUTOFF_PATH_ALARMS = (
+    "cnesdata-prod-cutoff-lambda-errors", "cnesdata-prod-cutoff-sns-delivery-failures",
+)
 
 
 def _lock_block(provider: str) -> str:
@@ -24,6 +37,10 @@ def _lock_block(provider: str) -> str:
     match = re.search(rf"{re.escape(header)} \{{.*?\n\}}\n", text, re.S)
     assert match is not None, f"lock_entry_missing provider={provider}"
     return match.group(0)
+
+
+def _runbook() -> str:
+    return re.sub(r"\\\n\s*", "", RUNBOOK.read_text(encoding="utf-8"))
 
 
 def _workflow() -> dict[str, object]:
@@ -86,3 +103,24 @@ def test_guia_de_desenvolvimento_documenta_o_conftest() -> None:
 @pytest.mark.parametrize("path", ["policies/cnesdata.rego", "schemas/cost-manifest.schema.json"])
 def test_artefatos_de_politica_existem(path: str) -> None:
     assert (REPO_ROOT / path).is_file()
+
+
+def test_runbook_so_reativa_com_o_alarme_de_cutoff_em_ok() -> None:
+    text = _runbook()
+    enable = text.index(f"{WORKGROUP_STATE} ENABLED")
+    gate = text.index(ALARM_STATE)
+    assert gate < enable
+    assert "`OK`" in text[gate:enable]
+
+
+def test_runbook_desabilita_a_mao_quando_o_caminho_do_cutoff_falha() -> None:
+    text = _runbook()
+    assert f"{WORKGROUP_STATE} DISABLED" in text
+    for alarm in CUTOFF_PATH_ALARMS:
+        assert f"`{alarm}`" in text, f"alarm={alarm}"
+
+
+def test_runbook_declara_as_premissas_do_teto_mensal() -> None:
+    text = _runbook()
+    assert f"k = {OVERSHOOT_QUERIES}" in text
+    assert f"{BILLED_QUERIES_PER_MONTH} queries cobradas" in text
