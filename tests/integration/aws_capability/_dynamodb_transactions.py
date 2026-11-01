@@ -16,9 +16,9 @@ from tests.integration.aws_capability.contracts import (
 
 def verify_transactions(
     commands: CommandPort, spec: RunSpec, root: Resource, context: RequestContext
-) -> None:
+) -> Mapping[str, object]:
     """Args: commands, spec, root, context: porta, execução, tabela e contexto.
-    Returns: None após verificações parciais.
+    Returns: observações não sensíveis (códigos e contagens).
     Raises: ServiceFailure para resposta inválida; BudgetExhausted ao esgotar work.
     """
     partition = f"cap#{spec.run_id}"
@@ -27,10 +27,31 @@ def verify_transactions(
     require_data(call_command(commands, request, context))
     _verify_readback(_read_group(commands, root, f"{partition}#tx100", context), hundred)
     request = _write_request(root, _items(f"{partition}#tx101", 101), f"{spec.run_id}-tx101")
-    _verify_rejection(call_command(commands, request, context), False)
+    rejected = call_command(commands, request, context)
+    _verify_rejection(rejected, False)
     request = _duplicate_request(root, f"{partition}#txdup", f"{spec.run_id}-txdup")
-    _verify_rejection(call_command(commands, request, context), True)
+    duplicate = call_command(commands, request, context)
+    _verify_rejection(duplicate, True)
     _verify_readback(_read_group(commands, root, f"{partition}#txdup", context), [])
+    return {
+        "tx_100_accepted": True,
+        "tx_100_readback_count": len(hundred),
+        "tx_101_error_code": _code(rejected),
+        "tx_duplicate_error_code": _code(duplicate),
+        "tx_duplicate_reason_codes": _reason_codes(duplicate),
+        "tx_duplicate_readback_count": 0,
+    }
+
+
+def _code(reply: Reply) -> str:
+    return reply.error.code if reply.error is not None else ""
+
+
+def _reason_codes(reply: Reply) -> list[str]:
+    reasons = reply.error.details.get("CancellationReasons") if reply.error is not None else None
+    if not isinstance(reasons, list):
+        return []
+    return [str(reason["Code"]) for reason in reasons if isinstance(reason, Mapping)]
 
 
 def _items(partition: str, count: int) -> list[Mapping[str, object]]:

@@ -10,7 +10,11 @@ from typing import Any
 
 import pytest
 
-from tests.integration.aws_capability._service_ddb_prepare_testing import Privacy, _data
+from tests.integration.aws_capability._service_ddb_prepare_testing import (
+    CONDITIONS_EVIDENCE,
+    Privacy,
+    _data,
+)
 from tests.integration.aws_capability._service_read_assertions import (
     FIXED_FLAGS,
     assert_environment,
@@ -165,7 +169,16 @@ def _probe(cas: CasLab) -> BaseException:
     return error.value
 
 
-def test_cas_confirma_um_dois_e_rejeicao_remota_sem_concluir_perfil(cas_lab: CasLab) -> None:
+def _probe_ok(cas: CasLab) -> Any:
+    lab = cas.read
+    result = lab.services.probe([ROOT], replace(lab.services.spec), lab.context)
+    cas.privacy.check_value(result, lab)
+    return result
+
+
+def test_cas_confirma_um_dois_e_rejeicao_remota_e_devolve_observacoes_do_perfil(
+    cas_lab: CasLab,
+) -> None:
     _queue(cas_lab)
     path = Path(__file__).parent / "fixtures" / "cli" / "b4" / "ddb_cancel.json"
     tail = json.loads(path.read_text())["steps"]
@@ -175,9 +188,8 @@ def test_cas_confirma_um_dois_e_rejeicao_remota_sem_concluir_perfil(cas_lab: Cas
     token_tail = json.loads(token_path.read_text())["steps"]
     for step in token_tail:
         cas_lab.read.process.outcomes.append(_outcome(step["reply"]))
-    error = _probe(cas_lab)
-    assert type(error) is ServiceFailure
-    assert error.args == ("probe=not_implemented",)
+    evidence = _probe_ok(cas_lab)
+    assert evidence == CONDITIONS_EVIDENCE
     _trace(cas_lab, 24, tail=[step["request"] for step in [*tail, *token_tail]])
 
 

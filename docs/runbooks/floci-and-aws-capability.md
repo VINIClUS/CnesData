@@ -56,7 +56,8 @@ Executar pela AWS CLI autorizada, em `us-east-2`, sem `apply` de produção. Rec
 entram no envelope de USD 8 do produto; inventário final deve estar vazio.
 
 1. **Identificação.** Run id `<uuid8>`; nomes `cnesdata-cap-<uuid8>[-sufixo]`; tags
-   `Project=cnesdata`, `Purpose=capability-check` e `Run=<uuid8>` onde o serviço aceita tag.
+   `Project=CnesData`, `Purpose=aws-capability`, `Run=<uuid8>` e `ExpiresAt=<epoch do deadline>`
+   (formato `.15g`) onde o serviço aceita tag; a fonte de verdade é `_safety.tags`.
 2. **Inventário inicial.** Listar `cnesdata-cap-*` em DynamoDB, S3, IAM (usuários e roles) e
    Cognito (pools e domínios) e registrar as contagens.
 3. **Cenários.** Espelhar o módulo aprovado: Essentials, managed login v2, branding padrão,
@@ -77,6 +78,39 @@ entram no envelope de USD 8 do produto; inventário final deve estar vazio.
    sensíveis (`token_use`, `scope`, presença de `aud`). Trocar account ID, ARNs, IDs de pool e
    client e domínios por `<conta>`, `<arn>`, `<pool>`. Nunca registrar access key, secret, session
    token, senha, JWT, código de autorização ou URL assinada.
+
+### Rodar um perfil
+
+Da raiz do repositório, com sessão temporária no ambiente (ver credenciais abaixo):
+
+```bash
+uv run python -m tests.integration.aws_capability.lifecycle run \
+  --account <conta> --region us-east-2 --run-id <uuid8> --deadline <epoch> \
+  --journal-dir <diretório privado> --retention GOVERNANCE --allow-governance-bypass \
+  --probe <perfil>
+```
+
+- **Perfis com probe concluído:** `ddb-transactions`, `ddb-conditions`, `ddb-ttl-gsi` e
+  `cognito-resource-server`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
+  terminam em `probe=not_implemented`.
+- **Deadline:** no máximo 180 s à frente; `<uuid8>` são 8 hex minúsculos novos a cada execução.
+- **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
+  `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
+  (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
+  `AWS_DEFAULT_PROFILE` existir ou se faltar qualquer uma das três variáveis. O operador só
+  precisa ler e escrever em `cnesdata-cap-*`; recursos de outros nomes nunca são descritos.
+- **Saída:** uma linha JSON em stdout com `status`, `reason`, `remaining` (serviço e nome) e
+  `evidence` (`initial_counts`, `probe`, `counts`, `final_counts_all_cap`). Exit 0 só com
+  `succeeded`; o IAM do próprio operador (`/cnesdata-cap/`) aparece na contagem global bruta.
+- **Supervisor:** o `run` inicia o `monitor` em sessão própria e só cria recursos depois do ack.
+  O monitor repete o ciclo a cada segundo; se o worker morrer (ex.: `kill -9`) ou o deadline
+  passar, ele roda o janitor sob o lock do journal e para no `deadline + cleanup + margem`.
+- **Recuperação manual:** com o mesmo `--journal-dir`, `--run-id` e `--deadline`, rode
+  `... lifecycle janitor` (mesmos argumentos, sem `--worker-pid`); `waiting/cleanup_owned`
+  indica outro dono do lock.
+- **Redação:** a saída traz só códigos, contagens e booleanos; ARNs, IDs, tokens e payloads nunca
+  são impressos. O JSON de cada chamada vai a um arquivo 0600 efêmero (`/dev/shm` quando
+  existe) removido ao fim da chamada, nunca em argv nem stdin.
 
 ## Matriz de divergências
 

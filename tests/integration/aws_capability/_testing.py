@@ -63,6 +63,7 @@ class Remote:
     create_error: BaseException | None = None
     fail_service: str = "cognito"
     probe_error: BaseException | None = None
+    probe_result: Mapping[str, object] = field(default_factory=dict)
     remote_created_on_error: bool = False
     after_create: Callable[[], None] = lambda: None
     at_create: Callable[[RunSpec], None] = lambda spec: None
@@ -190,13 +191,16 @@ class Remote:
             raise ServiceFailure("service=resource_invalid")
         return spec
 
-    def probe(self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext) -> None:
+    def probe(
+        self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
+    ) -> Mapping[str, object]:
         self.touch("probe", tuple(resources), spec)
         self.at_probe()
         for _ in range(self.probe_requests):
             self.request(context)
         if self.probe_error:
             raise self.probe_error
+        return self.probe_result
 
     def dependents(self, resource: Resource, cursor: str | None, context: RequestContext) -> Page:
         self.request(context)

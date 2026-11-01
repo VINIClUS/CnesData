@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from tests.integration.aws_capability._cli_testing import capture_input
 from tests.integration.aws_capability.cli import Cli, Request
 from tests.integration.aws_capability.contracts import Limits, RequestBudget, RequestContext
 
@@ -35,7 +36,8 @@ class ProcessScript:
     budget: RequestBudget | None = None
 
     def run(self, argv: Sequence[str], **options: Any) -> subprocess.CompletedProcess[str]:
-        self.calls.append((list(argv), options))
+        recorded_argv, recorded = capture_input(argv, options)
+        self.calls.append((recorded_argv, recorded))
         if self.budget is not None:
             self.observed_debits.append(self.budget.used)
         assert self.outcomes, "recorder=unexpected_request"

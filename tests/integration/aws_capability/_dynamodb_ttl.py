@@ -17,9 +17,11 @@ from tests.integration.aws_capability.contracts import (
 logger = logging.getLogger(__name__)
 
 
-def verify_ttl(ports: ServicePorts, spec: RunSpec, root: Resource, context: RequestContext) -> None:
+def verify_ttl(
+    ports: ServicePorts, spec: RunSpec, root: Resource, context: RequestContext
+) -> Mapping[str, object]:
     """Args: ports, spec, root, context: portas, execução, tabela e orçamento.
-    Returns: None após observações parciais.
+    Returns: presença do item expirado por leitura; o item atual deve estar presente.
     Raises: ServiceFailure para resposta inválida; BudgetExhausted ao esgotar work.
     """
     anchor = int(ports.now())
@@ -42,10 +44,13 @@ def verify_ttl(ports: ServicePorts, spec: RunSpec, root: Resource, context: Requ
         "ExpressionAttributeNames": {"#pk": "pk"},
         "ExpressionAttributeValues": {":pk": {"S": partition}},
     }
+    observed = {"ttl_expired_get_present": present, "ttl_current_present": True}
     for operation, body in (("query", query), ("scan", payload)):
         rows = _read(ports.commands, Request("dynamodb", operation, body), partition, context)
         present = _validate_rows(rows, (expired, current))
         _observe(operation, present)
+        observed[f"ttl_expired_{operation}_present"] = present
+    return observed
 
 
 def _item(partition: str, sort_key: str, expires: int) -> Mapping[str, object]:

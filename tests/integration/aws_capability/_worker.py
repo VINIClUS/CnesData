@@ -2,6 +2,7 @@
 
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._journal import Journal
@@ -77,6 +78,7 @@ class Worker:
     ports: Ports
     supervisor_pid: int
     mutation_attempted: bool = field(default=False, init=False)
+    observations: Mapping[str, object] = field(default_factory=dict, init=False)
 
     def guard(self) -> None:
         if self.ports.now() >= self.journal.spec.deadline:
@@ -113,10 +115,12 @@ class Worker:
             self.guard()
             self.journal.phase = "probing"
             self.journal.save()
-            self.ports.services.probe(
-                self.journal.created,
-                self.journal.spec,
-                RequestContext(self.ports.budget, "work"),
+            self.observations = dict(
+                self.ports.services.probe(
+                    self.journal.created,
+                    self.journal.spec,
+                    RequestContext(self.ports.budget, "work"),
+                )
             )
             self.guard()
         except SafetyFailure as error:

@@ -17,6 +17,7 @@ from tests.integration.aws_capability._dynamodb_transactions_testing import (
     tx_lab,
 )
 from tests.integration.aws_capability._service_contracts import ApiError, Reply
+from tests.integration.aws_capability._service_ddb_prepare_testing import transactions_evidence
 from tests.integration.aws_capability._service_read_testing import CANARY
 from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import BudgetExhausted, Resource, ServiceFailure
@@ -280,7 +281,9 @@ def _probe(lab: TransactionLab) -> BaseException:
 @pytest.mark.parametrize(
     "case", ["nominal", "fim_vazio", "ordem", "validacao", "primeiro", "ambos"]
 )
-def test_nominal_exige_nove_chamadas_sem_concluir(tx_lab: TransactionLab, case: str) -> None:
+def test_nominal_exige_nove_chamadas_e_devolve_observacoes(
+    tx_lab: TransactionLab, case: str
+) -> None:
     steps = fixture_steps()
     if case == "fim_vazio":
         steps[2]["reply"]["data"]["LastEvaluatedKey"] = {}
@@ -294,10 +297,16 @@ def test_nominal_exige_nove_chamadas_sem_concluir(tx_lab: TransactionLab, case: 
         middle = "ValidationError" if case == "ambos" else "None"
         steps[4]["reply"] = _canceled(["ValidationError", middle, "None"])
     queue(tx_lab, steps)
-    error = _probe(tx_lab)
+    lab = tx_lab.read
+    evidence = lab.services.probe([ROOT], replace(lab.services.spec), lab.context)
+    tx_lab.privacy.check_value(evidence, lab)
     trace(tx_lab, 9)
-    assert type(error) is ServiceFailure
-    assert error.args == ("probe=not_implemented",)
+    expected = {
+        "validacao": transactions_evidence("ValidationException", ()),
+        "primeiro": transactions_evidence(reasons=("ValidationError", "None", "None")),
+        "ambos": transactions_evidence(reasons=("ValidationError", "ValidationError", "None")),
+    }.get(case, transactions_evidence())
+    assert evidence == expected
 
 
 @pytest.mark.parametrize("case", [pytest.param(row, id=row[0]) for row in _negative_cases()])

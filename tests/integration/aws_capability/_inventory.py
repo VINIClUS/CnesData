@@ -1,9 +1,9 @@
 """Varreduras completas com paginação limitada e inspeção obrigatória."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from tests.integration.aws_capability._resource_ids import s3_logical_identity
-from tests.integration.aws_capability._safety import SERVICES, SafetyFailure
+from tests.integration.aws_capability._safety import CAP_PREFIX, SERVICES, SafetyFailure
 from tests.integration.aws_capability.contracts import (
     Ownership,
     Page,
@@ -41,29 +41,40 @@ def pages(fetch: Callable[[str | None], Page], limit: int) -> list[Resource]:
     raise SafetyFailure("inventory_incomplete")
 
 
-def inventory(ports: Ports, context: RequestContext) -> list[tuple[Resource, Ownership]]:
+def service_counts(resources: Iterable[Resource]) -> dict[str, int]:
+    refs = list(resources)
+    return {service: sum(ref.service == service for ref in refs) for service in SERVICES}
+
+
+def inventory(
+    ports: Ports, context: RequestContext, known: frozenset[tuple[str, str]] = frozenset()
+) -> list[tuple[Resource, Ownership]]:
     rows: list[tuple[Resource, Ownership]] = []
     try:
         for service in SERVICES:
-            rows.extend(inventory_service(service, ports, context))
+            rows.extend(inventory_service(service, ports, context, known))
     except ServiceFailure:
         raise SafetyFailure("inventory_incomplete") from None
     return rows
 
 
 def inventory_service(
-    service: str, ports: Ports, context: RequestContext
+    service: str,
+    ports: Ports,
+    context: RequestContext,
+    known: frozenset[tuple[str, str]] = frozenset(),
 ) -> list[tuple[Resource, Ownership]]:
     resources = pages(
         lambda cursor: ports.services.inventory(service, cursor, context),
         ports.policy.limits.pages,
     )
-    rows = []
-    for resource in resources:
-        if resource.service != service:
-            raise SafetyFailure("inventory_incomplete")
-        rows.append((resource, ports.services.inspect(resource, context)))
-    return rows
+    if any(resource.service != service for resource in resources):
+        raise SafetyFailure("inventory_incomplete")
+    return [
+        (resource, ports.services.inspect(resource, context))
+        for resource in resources
+        if resource.name.startswith(CAP_PREFIX) or (resource.service, resource.resource_id) in known
+    ]
 
 
 def dependents(resource: Resource, ports: Ports, context: RequestContext) -> list[Resource]:

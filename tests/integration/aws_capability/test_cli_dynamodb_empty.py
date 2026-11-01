@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.integration.aws_capability._cli_testing import PRIVATE_INPUT
 from tests.integration.aws_capability._service_contracts import Reply
 from tests.integration.aws_capability._service_testing import (
     CANARIES,
@@ -103,7 +104,7 @@ def _rastro(lab: CliLab, request: Request) -> None:
         "--region",
         "us-east-2",
         "--cli-input-json",
-        "file:///dev/stdin",
+        PRIVATE_INPUT,
         "--output",
         "json",
         "--cli-error-format",

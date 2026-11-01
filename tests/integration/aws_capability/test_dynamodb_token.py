@@ -13,7 +13,11 @@ from typing import Any
 
 import pytest
 
-from tests.integration.aws_capability._service_ddb_prepare_testing import Privacy, _data
+from tests.integration.aws_capability._service_ddb_prepare_testing import (
+    CONDITIONS_EVIDENCE,
+    Privacy,
+    _data,
+)
 from tests.integration.aws_capability._service_read_assertions import (
     FIXED_FLAGS,
     assert_environment,
@@ -246,13 +250,16 @@ def _assert_transport_replies(replies: Sequence[Any]) -> None:
     assert (error.origin, error.code) == ("service", "IdempotentParameterMismatchException")
 
 
-def test_token_nominal_exige_oito_chamadas_sem_concluir_perfil(token_lab: TokenLab) -> None:
+def test_token_nominal_exige_oito_chamadas_e_devolve_observacoes_do_perfil(
+    token_lab: TokenLab,
+) -> None:
     _queue(token_lab)
-    error = _probe(token_lab)
+    lab = token_lab.read
+    evidence = lab.services.probe([ROOT], replace(lab.services.spec), lab.context)
+    token_lab.privacy.check_value(evidence, lab)
     _trace(token_lab, 24)
     _assert_token_shape(token_lab)
-    assert type(error) is ServiceFailure
-    assert error.args == ("probe=not_implemented",)
+    assert evidence == CONDITIONS_EVIDENCE
 
 
 @pytest.mark.parametrize(

@@ -4,14 +4,19 @@ import json
 import math
 import os
 import re
+import shutil
 import stat
 import subprocess
-from collections.abc import Mapping
+import tempfile
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from tests.integration.aws_capability._service_contracts import ApiError, Reply
 from tests.integration.aws_capability.contracts import RequestContext
+
+SHARED_MEMORY = Path("/dev/shm")  # noqa: S108
 
 
 @dataclass(frozen=True)
@@ -65,22 +70,23 @@ class Cli:
         if timeout <= 0:
             return _local_failure("deadline")
         try:
-            completed = subprocess.run(  # noqa: S603
-                self.argv(request, timeout),
-                input=payload,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-                shell=False,
-                env=self.child_environment(),
-            )
-            return _process_reply(completed, request)
+            with _private_input(payload) as location:
+                completed = subprocess.run(  # noqa: S603
+                    self.argv(request, timeout, location),
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    shell=False,
+                    env=self.child_environment(),
+                )
+                return _process_reply(completed, request)
         except (OSError, subprocess.SubprocessError, ValueError, TypeError):
             pass
         return _local_failure("operation_failed")
 
-    def argv(self, request: Request, timeout: float) -> list[str]:
+    def argv(self, request: Request, timeout: float, location: Path) -> list[str]:
         seconds = str(max(1, math.floor(timeout)))
         return [
             "aws",
@@ -89,7 +95,7 @@ class Cli:
             "--region",
             self.region,
             "--cli-input-json",
-            "file:///dev/stdin",
+            f"file://{location}",
             "--output",
             "json",
             "--cli-error-format",
@@ -126,6 +132,20 @@ class Cli:
             }
         )
         return environment
+
+
+@contextmanager
+def _private_input(payload: str) -> Iterator[Path]:
+    parent = str(SHARED_MEMORY) if SHARED_MEMORY.is_dir() else None
+    directory = Path(tempfile.mkdtemp(prefix="cnesdata-cap-", dir=parent))
+    try:
+        location = directory / "input.json"
+        descriptor = os.open(location, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        yield location
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def _local_failure(code: str) -> Reply:

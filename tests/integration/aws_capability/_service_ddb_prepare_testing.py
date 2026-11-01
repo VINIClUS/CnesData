@@ -20,6 +20,36 @@ class Privacy:
         captured = self.capsys.readouterr()
         assert_private(error, lab, self.caplog.text + captured.out + captured.err)
 
+    def check_value(self, value: object, lab: ReadLab) -> None:
+        self.check(ValueError(repr(value)), lab)
+
+
+CONDITIONS_EVIDENCE: dict[str, Any] = {
+    "cas_write_versions": [1, 2],
+    "cas_stale_error_code": "ConditionalCheckFailedException",
+    "cas_final_version": 2,
+    "cancel_error_code": "TransactionCanceledException",
+    "cancel_reason_codes": ["None", "ConditionalCheckFailed", "None"],
+    "cancel_readback_count": 3,
+    "token_replay_accepted": True,
+    "token_mismatch_error_code": "IdempotentParameterMismatchException",
+    "token_item_absent_after_replay": True,
+}
+
+
+def transactions_evidence(
+    code: str = "TransactionCanceledException",
+    reasons: tuple[str, ...] = ("None", "ValidationError", "None"),
+) -> dict[str, Any]:
+    return {
+        "tx_100_accepted": True,
+        "tx_100_readback_count": 100,
+        "tx_101_error_code": "ValidationException",
+        "tx_duplicate_error_code": code,
+        "tx_duplicate_reason_codes": list(reasons),
+        "tx_duplicate_readback_count": 0,
+    }
+
 
 def _data() -> Any:
     path = Path(__file__).parent / "fixtures" / "cli" / "b3" / "ddb_prepare.json"

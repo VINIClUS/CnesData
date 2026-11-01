@@ -47,10 +47,9 @@
     "cleanup":9,"result":["incomplete","ownership_mismatch"],"steps":[
     ["A","A"],["L","W"],["D","a"],["T","o"],["D_SECOND","x"],
     ["T_SECOND","t"],["LDDB","d"],["LS3","b"],["LIAM","r"]]},
-  "recover_unrelated_foreign":{"initial":"j_unknown","final":"j_complete","calls":60,
-    "work":0,"cleanup":60,"result":["succeeded","complete"],"steps":[
-    ["A","A"],["L","p"],["D","a"],["T","o"],["D_OTHER","f"],
-    ["T_OTHER","t"],["LDDB","d"],["LS3","b"],["LIAM","r"],["D","a"],
+  "recover_unrelated_foreign":{"initial":"j_unknown","final":"j_complete","calls":56,
+    "work":0,"cleanup":56,"result":["succeeded","complete"],"steps":[
+    ["A","A"],["L","p"],["D","a"],["T","o"],["LDDB","d"],["LS3","b"],["LIAM","r"],["D","a"],
     ["T","o"],["D","a"],["T","o"],["D","a"],["D","a"],
     ["T","o"],["LC","c"],["D","a"],["T","o"],["LS","s"],
     ["D","a"],["T","o"],["LU","u"],["D","a"],["T","o"],
@@ -60,7 +59,7 @@
     ["LC","c"],["D","a"],["T","o"],["LS","s"],["D","a"],
     ["T","o"],["LU","u"],["D","a"],["T","o"],["U","z"],
     ["D","i"],["T","o"],["X","z"],["D","n"],["L","q"],
-    ["D_OTHER","f"],["T_OTHER","t"],["LDDB","d"],["LS3","b"],["LIAM","r"]]},
+    ["LDDB","d"],["LS3","b"],["LIAM","r"]]},
   "unknown_omitted":{"initial":"j_unknown","final":"j_unknown","calls":33,"work":0,
     "cleanup":33,"result":["incomplete","creation_uncertain"],"steps":[
     ["A","A"],["L","e"],["LDDB","d"],["LS3","b"],["LIAM","r"],

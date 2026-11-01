@@ -148,22 +148,23 @@ class AwsServices:
             raise ServiceFailure("service=not_implemented")
         return create_table(self.ports.commands, self.spec, creation, context)
 
-    def probe(self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext) -> None:
+    def probe(
+        self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
+    ) -> Mapping[str, object]:
         if self.spec.probe == "cognito-resource-server":
-            self._probe_server(resources, spec, context)
-            return
+            return self._probe_server(resources, spec, context)
         if self.spec.probe in {"cognito-login", "cognito-pkce-negatives", "cognito-sdk"}:
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")
             if spec != self.spec or len(resources) != 1:
                 raise ServiceFailure("probe=cognito_prepare_invalid")
             prepare_pool(self.ports.commands, self.spec, resources[0], context)
-            return
+            raise ServiceFailure("probe=not_implemented")
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:
             raise ServiceFailure("probe=ddb_prepare_invalid")
-        probe_dynamodb(resources, spec, self.ports, context)
+        return probe_dynamodb(resources, spec, self.ports, context)
 
     def create_child(self, parent: Resource, kind: str, context: RequestContext) -> Resource:
         if kind != "cognito.server":
@@ -175,7 +176,7 @@ class AwsServices:
 
     def _probe_server(
         self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
-    ) -> None:
+    ) -> Mapping[str, object]:
         if spec != self.spec or context.lane != "work" or len(resources) != 2:
             raise ServiceFailure("probe=cognito_server_invalid")
         root, child = resources
@@ -184,8 +185,10 @@ class AwsServices:
         )
         if root.service != "cognito" or child != expected:
             raise ServiceFailure("probe=cognito_server_invalid")
-        if self.lookup_server_exact(child, context) != "exact_present":
+        lookup = self.lookup_server_exact(child, context)
+        if lookup != "exact_present":
             raise ServiceFailure("probe=cognito_server_invalid")
+        return {"resource_server_lookup": lookup}
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
         if resource.service == "cognito":

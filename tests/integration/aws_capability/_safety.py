@@ -7,6 +7,7 @@ from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability.contracts import Ownership, Ports, Resource, RunSpec
 
 SERVICES = ("cognito", "dynamodb", "s3", "iam")
+CAP_PREFIX = "cnesdata-cap-"
 
 
 class SafetyFailure(Exception):
@@ -53,7 +54,7 @@ def validate_profile(spec: RunSpec, ports: Ports, *, recovery: bool) -> None:
 
 
 def run_name(spec: RunSpec) -> str:
-    return f"cnesdata-cap-{spec.run_id}"
+    return f"{CAP_PREFIX}{spec.run_id}"
 
 
 def tags(spec: RunSpec) -> dict[str, str]:

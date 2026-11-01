@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass, field
 
-from tests.integration.aws_capability._inventory import dependents, inventory
+from tests.integration.aws_capability._inventory import dependents, inventory, service_counts
 from tests.integration.aws_capability._journal import Journal
-from tests.integration.aws_capability._safety import SERVICES, SafetyFailure, matches_name, owned
+from tests.integration.aws_capability._safety import SafetyFailure, matches_name, owned
 from tests.integration.aws_capability.contracts import (
     BudgetExhausted,
     Outcome,
@@ -26,6 +26,10 @@ class Cleanup:
     @property
     def context(self) -> RequestContext:
         return RequestContext(self.ports.budget, "cleanup")
+
+    def inventory(self) -> list[tuple[Resource, Ownership]]:
+        known = frozenset((ref.service, ref.resource_id) for ref in self.journal.created)
+        return inventory(self.ports, self.context, known)
 
     def relevant(self, rows: list[tuple[Resource, Ownership]]) -> list[tuple[Resource, Ownership]]:
         references = {(ref.service, ref.resource_id) for ref in self.journal.created}
@@ -172,7 +176,7 @@ class Cleanup:
         if self.journal.pending_resource is not None:
             self.confirm_pending([])
         for _ in range(self.ports.policy.limits.pages):
-            all_rows = inventory(self.ports, self.context)
+            all_rows = self.inventory()
             self._guard_cognito_unknown(all_rows)
             rows = self.relevant(all_rows)
             self.confirm_pending(rows)
@@ -297,7 +301,7 @@ class Cleanup:
             raise SafetyFailure("creation_uncertain")
         self.attempted.add(resource)
         self.absent.add(resource)
-        rows = inventory(self.ports, self.context)
+        rows = self.inventory()
         self.retire_confirmed(rows)
         if resource in self.journal.created:
             raise SafetyFailure("inventory_incomplete")
@@ -318,14 +322,14 @@ class Cleanup:
             return Outcome("incomplete", "journal_unavailable")
 
     def final_outcome(self, reason: str | None) -> Outcome:
-        final = self.relevant(inventory(self.ports, self.context))
+        rows = self.inventory()
+        final = self.relevant(rows)
         self.retire_confirmed(final)
         remaining = tuple(ref for ref, _ in final)
         evidence = {
             "inventory_complete": True,
-            "counts": {
-                service: sum(ref.service == service for ref in remaining) for service in SERVICES
-            },
+            "counts": service_counts(remaining),
+            "final_counts_all_cap": service_counts(ref for ref, _ in rows),
         }
         if remaining or reason or self.journal.created:
             return Outcome("incomplete", reason or "cleanup_failed", remaining, evidence)

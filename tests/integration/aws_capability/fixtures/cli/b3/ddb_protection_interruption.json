@@ -83,7 +83,8 @@
   },
   "evidence": {
     "inventory_complete": true,
-    "counts": {"cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0}
+    "counts": {"cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0},
+    "final_counts_all_cap": {"cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0}
   },
   "limits": {
     "calls": 80,

@@ -5,13 +5,14 @@ import os
 import traceback
 from collections.abc import Mapping, Sequence
 
+from tests.integration.aws_capability._cli_testing import PRIVATE_INPUT
 from tests.integration.aws_capability._service_read_testing import CANARY, ReadLab
 from tests.integration.aws_capability.contracts import ServiceFailure
 
 ExpectedCall = tuple[str, str, str, Mapping[str, object]]
 FIXED_FLAGS = [
     "--cli-input-json",
-    "file:///dev/stdin",
+    PRIVATE_INPUT,
     "--output",
     "json",
     "--cli-error-format",
