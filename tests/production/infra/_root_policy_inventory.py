@@ -38,8 +38,23 @@ def processing_entries(plan: Node) -> Inventory:
     return {"module.processing.aws_iam_role_policy.step_functions_ecs[0]": (f"{sfn}-ecs", sfn)}
 
 
+def schedulers_entries(plan: Node) -> Inventory:
+    namespace = PRODUCT_NAMESPACE
+    return {
+        f'module.schedulers.aws_iam_role_policy.run["{mode}"]': (
+            f"{namespace}-scheduler-{mode}-run",
+            f"{namespace}-scheduler-{mode}",
+        )
+        for mode in ("recovery", "audit")
+    }
+
+
 def expected_root_policy_inventory(plan: Node) -> Inventory:
-    return {**runtime_iam_entries(plan), **processing_entries(plan)}
+    return {
+        **runtime_iam_entries(plan),
+        **processing_entries(plan),
+        **schedulers_entries(plan),
+    }
 
 
 def assert_root_policy_inventory(plan: Node) -> None:

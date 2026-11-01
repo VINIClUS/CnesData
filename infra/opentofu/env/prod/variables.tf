@@ -285,3 +285,17 @@ variable "processor_retained_unit_task_definition_arns" {
     error_message = "task_definition_arn_revision=expected_positive_decimal"
   }
 }
+
+variable "scheduler_recovery_task_definition_arn" {
+  description = "Exact recovery revision for its schedule; null creates no schedule."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "scheduler_audit_task_definition_arn" {
+  description = "Exact audit revision for its schedule; null creates no schedule."
+  type        = string
+  default     = null
+  nullable    = true
+}

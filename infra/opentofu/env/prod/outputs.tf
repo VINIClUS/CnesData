@@ -85,3 +85,28 @@ output "processor_step_functions_role_arn" {
   description = "Processor Step Functions execution role ARN."
   value       = module.runtime_iam.step_functions_role_arn
 }
+
+output "scheduler_schedule_arns" {
+  description = "Recovery and audit schedule ARNs; empty until revisions are supplied."
+  value       = module.schedulers.schedule_arns
+}
+
+output "scheduler_role_arns" {
+  description = "Scheduler execution role ARNs by mode."
+  value       = module.schedulers.scheduler_role_arns
+}
+
+output "scheduler_freeze_target_role_names" {
+  description = "Scheduler roles a cost freeze may restrict (recovery only; audit excluded)."
+  value       = module.schedulers.freeze_target_role_names
+}
+
+output "scheduler_task_hour_budget" {
+  description = "Scheduled task-hours per 30 days (48 recovery + 48 audit) for the cost alarm."
+  value       = module.schedulers.task_hour_budget
+}
+
+output "scheduler_alarm_names" {
+  description = "Scheduler alarm names by kind and mode."
+  value       = module.schedulers.alarm_names
+}

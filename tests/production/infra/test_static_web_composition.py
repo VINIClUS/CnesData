@@ -31,7 +31,8 @@ OUTPUTS = {
     "processor_task_definition_arns", "processor_container_name", "processor_task_role_arns",
     "processor_task_role_names", "processor_execution_role_arn", "processor_execution_role_name",
     "processor_cluster_arn", "processor_state_machine_arn", "processor_step_functions_role_id",
-    "processor_step_functions_role_arn",
+    "processor_step_functions_role_arn", "scheduler_schedule_arns", "scheduler_role_arns",
+    "scheduler_freeze_target_role_names", "scheduler_task_hour_budget", "scheduler_alarm_names",
 }
 STATIC_TYPES = {
     "aws_s3_bucket", "aws_s3_bucket_public_access_block", "aws_s3_bucket_ownership_controls",
@@ -61,6 +62,10 @@ MODULE_TYPES = {
     },
     "processor_registry": {"aws_ecr_repository", "aws_ecr_lifecycle_policy"},
     "runtime_iam": {"aws_iam_role", "aws_iam_role_policy"},
+    "schedulers": {
+        "aws_iam_role", "aws_iam_role_policy", "aws_scheduler_schedule_group",
+        "aws_scheduler_schedule", "aws_cloudwatch_event_rule", "aws_cloudwatch_metric_alarm",
+    },
     "processing": {
         "aws_ecs_task_definition", "aws_ecs_cluster", "aws_sfn_state_machine",
         "aws_iam_role_policy",
@@ -413,7 +418,7 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     composition = static_web_composition
     outputs = composition.plan["planned_values"].get("outputs", {})
     declared = _configured(composition)["outputs"]
-    assert len(OUTPUTS) == 16
+    assert len(OUTPUTS) == 21
     assert set(declared) == OUTPUTS, f"root_output_inventory actual={set(declared)}"
     required_outputs = OUTPUTS - {"api_loopback_contract"}
     assert required_outputs <= set(outputs), "evaluated_root_outputs_required"

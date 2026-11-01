@@ -130,3 +130,17 @@ module "processing" {
     local.name_prefix,
   )
 }
+
+module "schedulers" {
+  source = "../../modules/schedulers"
+
+  name_prefix                  = local.name_prefix
+  account_id                   = var.shared_outputs.account_id
+  cluster_arn                  = module.processing.cluster_arn
+  recovery_task_definition_arn = var.scheduler_recovery_task_definition_arn
+  audit_task_definition_arn    = var.scheduler_audit_task_definition_arn
+  task_role_arns               = module.runtime_iam.task_role_arns
+  execution_role_arn           = module.runtime_iam.execution_role_arn
+  public_subnet_ids            = module.network.public_subnet_ids
+  security_group_id            = module.network.security_group_id
+}
