@@ -1,7 +1,7 @@
 """Trilha de chamadas dos probes de matriz: quem chamou o quê, com qual chave, e o resultado."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._probe_testing import ProbeLab
 from tests.integration.aws_capability._service_contracts import Reply
@@ -18,6 +18,8 @@ class Call:
     request: Request
     ok: bool
     code: str
+    at: float = 0.0
+    data: Mapping[str, object] = field(default_factory=dict, repr=False)
 
     @property
     def operation(self) -> str:
@@ -33,9 +35,10 @@ def record(lab: ProbeLab) -> list[Call]:
     original = lab.aws.dispatch
 
     def traced(request: Request, context: RequestContext, who: str) -> Reply:
+        start = lab.clock[0]
         reply = original(request, context, who)
         code = "ok" if reply.ok or reply.error is None else reply.error.code
-        calls.append(Call(who, request, reply.ok, code))
+        calls.append(Call(who, request, reply.ok, code, start, reply.data))
         return reply
 
     lab.aws.dispatch = traced  # type: ignore[method-assign]
@@ -53,7 +56,11 @@ def dims(call: Call) -> dict[str, object]:
         item = payload.get("Key") or payload.get("Item")
         return {"key": item["pk"]["S"]} if isinstance(item, Mapping) else {}
     if call.request.service == "s3api":
-        return {"key": payload.get("Key", payload.get("Prefix"))}
+        found: dict[str, object] = {"key": payload.get("Key", payload.get("Prefix"))}
+        retention = payload.get("Retention")
+        if isinstance(retention, Mapping):
+            found["until"] = retention["RetainUntilDate"]
+        return found
     return {}
 
 

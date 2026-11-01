@@ -50,6 +50,12 @@ class Actor:
     def read_retention(self, key: str, version: str) -> Attempt:
         return self._run("get-object-retention", {"Key": key, "VersionId": version})
 
+    def lock_config(self) -> Attempt:
+        return self._run("get-object-lock-configuration", {})
+
+    def list(self, prefix: str) -> Attempt:
+        return self._run("list-objects-v2", {"Prefix": prefix, "MaxKeys": 1})
+
     def suspend(self) -> Attempt:
         payload: dict[str, object] = {"VersioningConfiguration": {"Status": "Suspended"}}
         return self._run("put-bucket-versioning", payload)

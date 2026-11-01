@@ -53,3 +53,18 @@ def test_payload_diferente_fora_da_chave_nao_e_cobertura() -> None:
     control = get("a", "K1", True)
     assert not single_flip(control, get("a", "K2", False, table="outra"))
     assert dims(control) == {"key": "K1"}
+
+
+def retention(who: str, key: str, until: str, ok: bool) -> Call:
+    payload = {
+        "Bucket": "b", "Key": key, "VersionId": "v",
+        "Retention": {"Mode": "GOVERNANCE", "RetainUntilDate": until},
+    }
+    return Call(who, Request("s3api", "put-object-retention", payload), ok, "ok" if ok else "D")
+
+
+def test_retencao_so_cobre_a_negacao_que_troca_apenas_a_data() -> None:
+    extend = retention("a", "audit/b", "2030-01-01T00:09:00Z", True)
+    assert single_flip(extend, retention("a", "audit/b", "2030-01-01T00:06:00Z", False))
+    assert not single_flip(extend, retention("a", "audit/b", "2030-01-01T00:09:00Z", False))
+    assert not single_flip(extend, retention("a", "audit/c", "2030-01-01T00:06:00Z", False))

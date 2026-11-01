@@ -41,6 +41,8 @@ class FakeVersion:
 class FakeBucket:
     tags: dict[str, str] = field(default_factory=dict)
     versions: list[FakeVersion] = field(default_factory=list)
+    policy: Mapping[str, object] | None = None
+    policy_effective: int = 0
 
 
 @dataclass

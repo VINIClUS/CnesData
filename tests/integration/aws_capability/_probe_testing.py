@@ -86,6 +86,8 @@ def make_probe_lab(
         pauses.append(seconds)
         advance(seconds)
 
+    if probe == "iam-s3":
+        options.setdefault("list_gates_missing", True)
     aws = FakeAws(lambda: clock[0], advance, **options)
     deadline = START + PROFILES[probe].window
     spec = RunSpec(

@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
+from tests.integration.aws_capability._iam_s3_probe import probe_iam_s3
 from tests.integration.aws_capability._leadingkeys_probe import probe_leadingkeys
 from tests.integration.aws_capability._resource_ids import cognito_child
 from tests.integration.aws_capability._s3_probe import probe_s3
@@ -193,6 +194,8 @@ class AwsServices:
             return probe_throughput(resources, spec, self.ports, context)
         if self.spec.probe == "iam-leadingkeys":
             return probe_leadingkeys(resources, spec, self.ports, context)
+        if self.spec.probe == "iam-s3":
+            return probe_iam_s3(resources, spec, self.ports, context)
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:

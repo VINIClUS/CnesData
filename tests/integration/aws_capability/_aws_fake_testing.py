@@ -40,6 +40,9 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers, PolicyHandlers)
     assume_denials: int = 0
     malformed_creates: int = 0
     trust_lag: int = 0
+    bucket_policy_lag: int = 0
+    bucket_policy_malformed: int = 0
+    list_gates_missing: bool = False
     ddb_ready_describes: int = 0
     ddb_deleting_describes: int = 0
     ddb_tx_reasons: dict[str, int] | None = None
