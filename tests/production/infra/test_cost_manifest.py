@@ -25,6 +25,7 @@ from tests.production.infra._athena_root_plan import (  # noqa: F401
 )
 from tests.production.infra._cost_manifest_model import (
     SCENARIOS,
+    line_cost,
     totals,
     unsupported_keywords,
     validate,
@@ -45,7 +46,7 @@ PRODUCT_IDS = frozenset({
     "dynamodb_pitr_storage", "dynamodb_storage", "s3_web_storage", "s3_data_storage",
     "s3_audit_storage", "s3_athena_results_storage", "s3_requests", "athena_scanned",
     "cognito_essentials_mau", "cognito_allowance", "cloudfront_free_plan", "waf_dedicated",
-    "data_transfer_out", "secrets_manager",
+    "data_transfer_out", "secrets_manager", "github_actions",
 })
 CAP_IDS = frozenset({
     "fargate_vcpu_hours", "fargate_memory_gb_hours", "public_ipv4_hours",
@@ -54,12 +55,14 @@ CAP_IDS = frozenset({
     "cloudfront_free_plan", "waf_dedicated", "kms_envelope",
 })
 SHARED_IDS = frozenset({"kms_envelope", "state_backend", "budget_actions", "other_projects_spend"})
+STANDARD_RUNNERS = frozenset({"ubuntu-latest", "windows-latest"})
 UNVERIFIED_IDS = frozenset({"cognito_allowance", "other_projects_spend"})
 STORED_TOTAL_KEY = re.compile(r"(^|_)(sub)?totals?(_|$)|(^|_)sums?(_|$)")
 SOURCE_PREFIXES = (
     "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/",
     "https://docs.aws.amazon.com/",
     "https://aws.amazon.com/",
+    "https://docs.github.com/",
 )
 
 
@@ -209,12 +212,29 @@ def test_limites_fixos_do_produto_cognito_e_waf() -> None:
     assert waf["exposure_usd"] == 7
     assert waf["precondition"] == "cloudfront_free_plan_active"
     assert waf["blocking"] == "activation"
+    assert waf["evidence"] == "pending"
     assert lines["secrets_manager"]["binding"] == "BILLING_MODE=disabled"
     assert lines["step_functions_transitions"]["binding"] == "monthly_attempt_limit=200"
     assert lines["ecr_storage"]["quantity"]["max"] == 2
     assert lines["s3_web_storage"]["quantity"]["max"] == 5
     assert "365" in lines["s3_audit_storage"]["description"]
 
+
+def test_actions_pagas_custam_zero_com_repositorio_publico_e_runners_padrao() -> None:
+    line = _lines(_manifest())["github_actions"]
+    assert (line["scope"], line["status"], line["max_basis"]) == (
+        "product", "verified", "hypothesis",
+    )
+    assert line["binding"] == "repository_visibility=public runners=standard,self-hosted"
+    assert [line_cost(line, scenario) for scenario in SCENARIOS] == [0, 0, 0]
+    workflows = (REPO_ROOT / ".github" / "workflows").glob("*.yml")
+    labels = {
+        match.strip()
+        for path in workflows
+        for match in re.findall(r"runs-on:(.*)", path.read_text(encoding="utf-8"))
+    }
+    paid = {label for label in labels if not label.startswith("[self-hosted,")}
+    assert paid <= STANDARD_RUNNERS, f"paid_runner_labels={sorted(paid - STANDARD_RUNNERS)}"
 
 def test_toda_precondicao_declara_bloqueio_e_exposicao_acima_do_limite_bloqueia_ativacao() -> None:
     manifest = _manifest()

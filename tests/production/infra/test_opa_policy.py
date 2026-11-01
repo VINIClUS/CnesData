@@ -21,6 +21,7 @@ PRODUCT_COST = (
 AGGREGATE_COST = (
     "cost_over_limit scope=aggregate scenario={} total_usd=15.01 limit_usd=15.00"
 )
+WAF_UNGATED = "waf_unbound_exposure line=waf_dedicated reason=activation_gate_incomplete"
 REJECTIONS = {
     "nat_gateway.json": [
         "forbidden_resource reason=nat_gateway type=aws_nat_gateway address=aws_nat_gateway.main"
@@ -84,6 +85,9 @@ REJECTIONS["precondicao_sem_bloqueio.json"] = ["precondition_without_blocking li
 REJECTIONS["exposicao_sem_bloqueio_de_ativacao.json"] = [
     "exposure_requires_activation_block line=gated"
 ]
+REJECTIONS["manifesto_sem_waf.json"] = ["waf_line_missing line=waf_dedicated"]
+REJECTIONS["waf_sem_evidencia_pendente.json"] = [WAF_UNGATED]
+REJECTIONS["waf_com_bloqueio_consultivo.json"] = [WAF_UNGATED]
 REJECTIONS["regiao_em_modulo.json"] = [
     "forbidden_region region=us-west-2 type=aws_s3_bucket address=module.child.aws_s3_bucket.west"
 ]
