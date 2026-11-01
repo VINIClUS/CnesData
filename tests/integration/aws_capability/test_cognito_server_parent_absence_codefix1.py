@@ -108,7 +108,7 @@ def _seed(directory: Path, include_child: bool) -> bytes:
             "calls": 512,
             "pages": 8,
             "attempts": 2,
-            "cleanup_seconds": 90,
+            "cleanup_seconds": 240,
             "cleanup_reserve": 256,
         },
     }

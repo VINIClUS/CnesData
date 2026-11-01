@@ -49,6 +49,8 @@ def lookup_s3_child(
             return owner
         next_state = _next_state(data, state)
         if data["IsTruncated"] is False or next_state is None:
+            if context.lane == "cleanup":
+                return None
             break
         digest = s3_marker_digest(next_state.kind, next_state.markers)
         if digest in seen:

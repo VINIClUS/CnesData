@@ -39,7 +39,7 @@ def test_confere_root_antes_terminal(root_lab: RootLab, profile: str) -> None:
         "calls": 256 if profile == "cognito-sdk" else 512,
         "pages": 8,
         "attempts": 2,
-        "cleanup_seconds": 90,
+        "cleanup_seconds": 240,
         "cleanup_reserve": 128 if profile == "cognito-sdk" else 256,
     }
     assert list(root_lab.directory.iterdir()) == []

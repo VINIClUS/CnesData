@@ -33,7 +33,7 @@ LEGACY = (
 )
 PROFILE = (
     b', "probe": "ddb-transactions", "profile_version": 1, "limits": '
-    b'{"calls": 192, "pages": 8, "attempts": 2, "cleanup_seconds": 60, "cleanup_reserve": 96}}'
+    b'{"calls": 192, "pages": 8, "attempts": 2, "cleanup_seconds": 150, "cleanup_reserve": 96}}'
 )
 
 

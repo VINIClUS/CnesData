@@ -1,5 +1,6 @@
 """Laboratório de probes S3: serviços reais sobre a fronteira de comandos com estado."""
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from tests.integration.aws_capability._operator_inputs import OperatorInputs
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._service_contracts import ServicePorts
 from tests.integration.aws_capability._testing import ProcessBoundary
+from tests.integration.aws_capability._worker import acknowledgement
 from tests.integration.aws_capability.contracts import (
     Policy,
     Ports,
@@ -85,7 +87,10 @@ def payload_text(lab: ProbeLab) -> str:
     return " ".join(repr((r.service, r.operation, dict(r.payload))) for r in lab.aws.requests)
 
 
-def janitor_ports(lab: ProbeLab) -> Ports:
+def janitor_ports(lab: ProbeLab, *, supervised: bool = False) -> Ports:
     limits = PROFILES[lab.spec.probe].limits
     policy = Policy(ACCOUNT, frozenset({"us-east-2"}), limits)
-    return Ports(lab.services, ProcessBoundary([]), lambda: lab.clock[0], policy, lab.budget)
+    processes = ProcessBoundary([])
+    if supervised:
+        processes.ack = acknowledgement(lab.spec, os.getpid())
+    return Ports(lab.services, processes, lambda: lab.clock[0], policy, lab.budget)

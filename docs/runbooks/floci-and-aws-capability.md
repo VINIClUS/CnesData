@@ -58,8 +58,8 @@ entram no envelope de USD 8 do produto; inventário final deve estar vazio.
 1. **Identificação.** Run id `<uuid8>`; nomes `cnesdata-cap-<uuid8>[-sufixo]`; tags
    `Project=CnesData`, `Purpose=aws-capability`, `Run=<uuid8>` e `ExpiresAt=<epoch do deadline>`
    (formato `.15g`) onde o serviço aceita tag; a fonte de verdade é `_safety.tags`.
-2. **Inventário inicial.** Listar `cnesdata-cap-*` em DynamoDB, S3, IAM (usuários e roles) e
-   Cognito (pools e domínios) e registrar as contagens.
+2. **Inventário inicial.** Listar em DynamoDB, S3, IAM (roles) e Cognito (pools) apenas
+   `cnesdata-cap-*` e os ids criados pelo próprio journal da execução; registrar as contagens.
 3. **Cenários.** Espelhar o módulo aprovado: Essentials, managed login v2, branding padrão,
    client público, code/PKCE, scopes e callbacks exatos. A decisão D-B foi fixada pelo dono em
    2026-10-25; não rebaixar para UI1 nem ampliar flows para acomodar helpers do emulador.
@@ -90,15 +90,28 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   --probe <perfil>
 ```
 
-- **Perfis com probe concluído:** `ddb-transactions`, `ddb-conditions`, `ddb-ttl-gsi` e
-  `cognito-resource-server`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
+- **Perfis com probe concluído:** `ddb-transactions`, `ddb-conditions`, `ddb-ttl-gsi`,
+  `cognito-resource-server`, `s3-hold` e `s3-retention`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
   terminam em `probe=not_implemented`.
 - **Deadline:** no máximo 180 s à frente; `<uuid8>` são 8 hex minúsculos novos a cada execução.
 - **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
   (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
   `AWS_DEFAULT_PROFILE` existir ou se faltar qualquer uma das três variáveis. O operador só
-  precisa ler e escrever em `cnesdata-cap-*`; recursos de outros nomes nunca são descritos.
+  precisa ler e escrever em `cnesdata-cap-*`; o inventário só descreve `cnesdata-cap-*` e ids
+  do journal da execução.
+- **Entradas do operador (perfis com IAM, ex.: `s3-retention`):** `CAP_OPERATOR_ROLE_ARN`
+  (`arn:aws:iam::<conta>:role/cnesdata-cap/cnesdata-cap-operator-<8hex>`, igual ao role da sessão
+  em `get-caller-identity`) e `CAP_PERMISSIONS_BOUNDARY_ARN`
+  (`arn:aws:iam::<conta>:policy/cnesdata-cap/cnesdata-cap-boundary-<8hex>`). Faltando ou fora do
+  formato, o comando recusa antes de qualquer chamada. O supervisor herda o ambiente; um
+  `janitor` manual do mesmo perfil precisa das duas variáveis.
+- **Janela de cleanup:** cada chamada da AWS CLI custa cerca de 1,2 a 1,4 s (início do processo).
+  `cleanup_seconds` dos perfis usa esse custo medido: 240 s nos quatro `cognito-*` e em
+  `s3-retention`, 150 s nos três `ddb-*` (inclui a espera por `DELETING`), 120 s em `s3-hold`;
+  a janela de trabalho segue limitada a 180 s. No modelo com 1,3 s por chamada, `s3-hold`
+  gasta cerca de 40 s e `s3-retention` cerca de 135 s de cleanup (29 e 104 chamadas), com a
+  janela medida na primeira execução real.
 - **Saída:** uma linha JSON em stdout com `status`, `reason`, `remaining` (serviço e nome) e
   `evidence` (`initial_counts`, `probe`, `counts`, `final_counts_all_cap`). Exit 0 só com
   `succeeded`; o IAM do próprio operador (`/cnesdata-cap/`) aparece na contagem global bruta.

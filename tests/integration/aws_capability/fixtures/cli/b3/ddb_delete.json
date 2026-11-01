@@ -350,7 +350,7 @@
       "calls": 192,
       "pages": 8,
       "attempts": 2,
-      "cleanup_seconds": 60,
+      "cleanup_seconds": 150,
       "cleanup_reserve": 96
     }
   }

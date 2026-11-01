@@ -44,8 +44,8 @@ def server_lab(root_lab: RootLab) -> RootLab:
     root_lab.services = replace(
         root_lab.services, spec=replace(root_lab.services.spec, probe="cognito-resource-server")
     )
-    root_lab.context.budget.limits = Limits(512, 8, 2, 90, 256)
-    policy = replace(root_lab.ports.policy, limits=Limits(512, 8, 2, 90, 256))
+    root_lab.context.budget.limits = Limits(512, 8, 2, 240, 256)
+    policy = replace(root_lab.ports.policy, limits=Limits(512, 8, 2, 240, 256))
     root_lab.ports = replace(root_lab.ports, services=root_lab.services, policy=policy)
     _watch(root_lab)
     return root_lab
