@@ -1,0 +1,67 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "module.child.aws_s3_bucket.west",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "west",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-west"
+        },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.opentofu.org/hashicorp/aws",
+        "alias": null,
+        "expressions": {
+          "region": {
+            "constant_value": "us-east-2"
+          }
+        }
+      },
+      "aws.west": {
+        "name": "aws",
+        "full_name": "registry.opentofu.org/hashicorp/aws",
+        "alias": "west",
+        "expressions": {
+          "region": {
+            "constant_value": "us-west-2"
+          }
+        }
+      }
+    },
+    "root_module": {
+      "resources": [],
+      "module_calls": {
+        "child": {
+          "source": "./child",
+          "module": {
+            "resources": [
+              {
+                "address": "aws_s3_bucket.west",
+                "mode": "managed",
+                "type": "aws_s3_bucket",
+                "name": "west",
+                "provider_config_key": "aws.west"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

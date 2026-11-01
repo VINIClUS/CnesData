@@ -143,4 +143,54 @@ module "schedulers" {
   execution_role_arn           = module.runtime_iam.execution_role_arn
   public_subnet_ids            = module.network.public_subnet_ids
   security_group_id            = module.network.security_group_id
+  alarm_actions                = [module.observability.operator_topic_arn]
+}
+
+module "athena" {
+  source = "../../modules/athena"
+
+  name_prefix = local.name_prefix
+  account_id  = var.shared_outputs.account_id
+  budget_arn  = var.shared_outputs.budget_freeze.budget_arn
+}
+
+module "observability" {
+  source = "../../modules/observability"
+
+  name_prefix = local.name_prefix
+  account_id  = var.shared_outputs.account_id
+  table_name  = module.control_plane.table_name
+  state_machine_arn = format(
+    "arn:aws:states:us-east-2:%s:stateMachine:%s",
+    var.shared_outputs.account_id,
+    local.name_prefix,
+  )
+  log_group_name       = aws_cloudwatch_log_group.processor.name
+  cluster_arn          = module.processing.cluster_arn
+  cutoff_function_name = module.athena.cutoff_function_name
+  cutoff_topic_name    = module.athena.cutoff_topic_name
+}
+
+locals {
+  role_arn_prefix = "arn:aws:iam::${var.shared_outputs.account_id}:role/"
+
+  activation_blocking_preconditions = ["cloudfront_free_plan_active"]
+
+  freeze_target_role_arns = sort(concat(
+    [var.shared_outputs.roles_anywhere.api_role_arn],
+    [for name in concat(
+      [module.runtime_iam.task_role_names["recovery"], module.runtime_iam.step_functions_role_id],
+      module.schedulers.freeze_target_role_names,
+    ) : "${local.role_arn_prefix}${name}"],
+  ))
+
+  freeze_excluded_role_arns = sort([for name in concat(
+    [
+      module.runtime_iam.task_role_names["audit"],
+      module.runtime_iam.task_role_names["unit"],
+      module.runtime_iam.execution_role_name,
+      module.athena.cutoff_role_name,
+    ],
+    module.schedulers.freeze_excluded_role_names,
+  ) : "${local.role_arn_prefix}${name}"])
 }

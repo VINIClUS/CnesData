@@ -190,6 +190,11 @@ uv run pytest tests/negative/ -m negative -v
 OpenTofu native suite (`tests/production/infra`; CI job `opentofu-native` in
 `.github/workflows/infra-native.yml`, informative). Needs `tofu` (CI pins
 1.13.2) and `trivy` 0.74.0 on `PATH`; `CI=true` fails on a missing tool.
+The OPA policy tests also need `conftest` 0.71.1 (CI installs it with a pinned sha256 in the same
+job; locally download the release tarball, check it against `checksums.txt`, extract only the
+`conftest` binary into `~/.local/bin`). Acceptance gate:
+`conftest test tests/fixtures/plans --policy policies --ignore rejected`; the literal command
+without `--ignore` exits 1 by design because the rejection fixtures live in the same tree.
 `PROCESSING_SOURCE_BINDINGS` pins the processing sources by sha256: rerun
 `bind_processing_sources.py` after editing any file under
 `apps/data_processor/src` or `packages/cnes_{contracts,domain,infra}/src`.

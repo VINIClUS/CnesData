@@ -35,6 +35,9 @@ _PROD_INIT = (
 _LOCK = "infra/opentofu/env/prod/.terraform.lock.hcl"
 _TRIGGER_PATHS = [
     "infra/**",
+    "policies/**",
+    "schemas/**",
+    "tests/fixtures/**",
     "tests/production/infra/**",
     "pyproject.toml",
     "uv.lock",

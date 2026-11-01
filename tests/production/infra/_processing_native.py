@@ -257,14 +257,19 @@ def _provider_schema(
     if len(sources) != 1:
         pytest.fail(f"setup_error schema_provider_sources={sources!r}")
     source = sources.pop()
-    version = cast("Node", artifacts["version"])["provider_selections"][source]
     directory = Path(tofu[1]["TF_DATA_DIR"]) / "processing-provider-schema"
     directory.mkdir(exist_ok=False)
     data = directory / "data"
     data.mkdir()
     context = (tofu[0], tofu[1] | {"TF_DATA_DIR": str(data)})
-    required = json.dumps({"source": source, "version": f"={version}"})
-    tooling = f"terraform {{\n  required_providers {{\n    aws = {required}\n  }}\n}}\n"
+    selections = cast("dict[str, str]", cast("Node", artifacts["version"])["provider_selections"])
+    entries = "".join(
+        f"    {name.rsplit('/', 1)[-1]} = "
+        + json.dumps({"source": name, "version": f"={chosen}"})
+        + "\n"
+        for name, chosen in selections.items()
+    )
+    tooling = f"terraform {{\n  required_providers {{\n{entries}  }}\n}}\n"
     (directory / "main.tf").write_text(tooling, encoding="utf-8")
     lock = directory / ".terraform.lock.hcl"
     shutil.copyfile(root / ".terraform.lock.hcl", lock)
@@ -282,7 +287,7 @@ def _provider_schema(
         results[label] = result.stdout
     schema = json.loads(results["schema"])
     selected = json.loads(results["version"])["provider_selections"]
-    if selected != {source: version} or source not in schema["provider_schemas"]:
+    if selected != selections or source not in schema["provider_schemas"]:
         pytest.fail(f"setup_error schema_provider_selection={selected!r}")
     if lock.read_bytes() != (root / ".terraform.lock.hcl").read_bytes():
         pytest.fail("setup_error schema_lock_changed")

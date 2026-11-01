@@ -1,0 +1,61 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.dynamic",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "dynamic",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example"
+        },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.opentofu.org/hashicorp/aws",
+        "alias": null,
+        "expressions": {
+          "region": {
+            "constant_value": "us-east-2"
+          }
+        }
+      },
+      "aws.dyn": {
+        "name": "aws",
+        "full_name": "registry.opentofu.org/hashicorp/aws",
+        "alias": "dyn",
+        "expressions": {
+          "region": {
+            "references": [
+              "var.region"
+            ]
+          }
+        }
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_s3_bucket.dynamic",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "dynamic",
+          "provider_config_key": "aws.dyn"
+        }
+      ]
+    }
+  }
+}

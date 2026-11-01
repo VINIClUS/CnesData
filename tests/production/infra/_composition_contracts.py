@@ -1,5 +1,7 @@
 """Contratos estáticos de composição, preservados da suíte existente."""
 
+from tests.production.infra._athena_contracts import ROOT_OUTPUTS
+
 ACCOUNT_BPA = "aws_s3_account_public_access_block"
 BPA = ("account_baseline", "s3_public_access_block")
 
@@ -61,3 +63,8 @@ SHARED_RESOURCE_PREFIXES = (
 )
 
 SHARED_RESOURCE_EXACT = {"aws_iam_access_key", "aws_iam_openid_connect_provider", ACCOUNT_BPA}
+
+OPERATIONS_OUTPUTS = frozenset({
+    "scheduler_schedule_arns", "scheduler_role_arns", "scheduler_freeze_target_role_names",
+    "scheduler_task_hour_budget", "scheduler_alarm_names",
+}) | ROOT_OUTPUTS

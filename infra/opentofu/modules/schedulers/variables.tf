@@ -79,3 +79,15 @@ variable "security_group_id" {
   type        = string
   nullable    = false
 }
+
+variable "alarm_actions" {
+  description = "Action ARNs (at most 5) run when a scheduler alarm enters ALARM; empty is silent."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = length(var.alarm_actions) <= 5
+    error_message = "alarm_actions=expected_at_most_5"
+  }
+}
