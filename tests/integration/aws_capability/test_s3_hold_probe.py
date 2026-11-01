@@ -15,7 +15,7 @@ from tests.integration.aws_capability._probe_testing import (
     payload_text,
 )
 from tests.integration.aws_capability._service_contracts import ApiError, Reply
-from tests.integration.aws_capability.contracts import RequestContext, ServiceFailure
+from tests.integration.aws_capability.contracts import RequestContext, RunSpec, ServiceFailure
 
 
 @pytest.fixture
@@ -97,19 +97,21 @@ def test_falha_de_transporte_nao_vira_negacao(lab: ProbeLab) -> None:
     assert error.value.args == ("probe=transport_failed",)
 
 
+def _invalid_inputs(lab: ProbeLab, case: str) -> tuple[list, RunSpec, RequestContext]:
+    spec = lab.spec.__class__(**{**lab.spec.__dict__, "run_id": "ffffffff"})
+    cases = {
+        "extra": ([BUCKET, BUCKET], lab.spec, lab.context),
+        "iam": ([ROLE], lab.spec, lab.context),
+        "outro_nome": ([BUCKET.__class__("s3", "outro", "outro")], lab.spec, lab.context),
+        "spec": (lab.resources, spec, lab.context),
+        "lane": (lab.resources, lab.spec, RequestContext(lab.budget, "cleanup")),
+    }
+    return cases[case]
+
+
 @pytest.mark.parametrize("case", ["extra", "iam", "outro_nome", "spec", "lane"])
 def test_recusa_entrada_invalida_sem_io(lab: ProbeLab, case: str) -> None:
-    resources, spec, context = lab.resources, lab.spec, lab.context
-    if case == "extra":
-        resources = [BUCKET, BUCKET]
-    elif case == "iam":
-        resources = [ROLE]
-    elif case == "outro_nome":
-        resources = [BUCKET.__class__("s3", "outro", "outro")]
-    elif case == "spec":
-        spec = lab.spec.__class__(**{**lab.spec.__dict__, "run_id": "ffffffff"})
-    else:
-        context = RequestContext(lab.budget, "cleanup")
+    resources, spec, context = _invalid_inputs(lab, case)
     with pytest.raises(ServiceFailure) as error:
         lab.services.probe(resources, spec, context)
     assert error.value.args == ("probe=s3_invalid",)

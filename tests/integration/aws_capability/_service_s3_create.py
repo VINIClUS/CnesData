@@ -62,8 +62,12 @@ def _confirmed(
     commands: CommandPort, spec: RunSpec, resource: Resource, context: RequestContext
 ) -> bool:
     owner = lookup_bucket(commands, spec, resource, context)
-    versioning = _read(commands, spec, resource, "get-bucket-versioning", context)
-    lock = _read(commands, spec, resource, "get-object-lock-configuration", context)
+    scope: dict[str, object] = {
+        "Bucket": resource.resource_id,
+        "ExpectedBucketOwner": spec.account,
+    }
+    versioning = _read(commands, scope, "get-bucket-versioning", context)
+    lock = _read(commands, scope, "get-object-lock-configuration", context)
     configuration = lock.get("ObjectLockConfiguration")
     return (
         owner is not None
@@ -78,14 +82,7 @@ def _confirmed(
 
 
 def _read(
-    commands: CommandPort,
-    spec: RunSpec,
-    resource: Resource,
-    operation: str,
-    context: RequestContext,
+    commands: CommandPort, scope: Mapping[str, object], operation: str, context: RequestContext
 ) -> Mapping[str, object]:
-    payload: dict[str, object] = {
-        "Bucket": resource.resource_id,
-        "ExpectedBucketOwner": spec.account,
-    }
-    return require_data(call_command(commands, Request("s3api", operation, payload), context))
+    request = Request("s3api", operation, dict(scope))
+    return require_data(call_command(commands, request, context))

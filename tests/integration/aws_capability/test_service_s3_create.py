@@ -23,6 +23,7 @@ from tests.integration.aws_capability._service_read_assertions import (
 )
 from tests.integration.aws_capability._service_read_testing import ReadLab, make_read_lab
 from tests.integration.aws_capability.contracts import (
+    Creation,
     RequestContext,
     Resource,
     ServiceFailure,
@@ -103,22 +104,22 @@ def test_outros_perfis_preservam_stub_de_s3_sem_io(lab: ReadLab, probe: str) -> 
     assert_process(lab, [])
 
 
-@pytest.mark.parametrize(
-    "case", ["spec", "name", "tags", "account", "lane"]
-)
-def test_recusa_criacao_divergente_sem_io(lab: ReadLab, case: str) -> None:
+def _divergent(lab: ReadLab, case: str) -> tuple[Creation, RequestContext]:
     creation = creation_for(lab)
-    context = lab.context
-    if case == "spec":
-        creation = replace(creation, spec=replace(creation.spec, run_id="ffffffff"))
-    elif case == "name":
-        creation = replace(creation, name="cnesdata-cap-ffffffff")
-    elif case == "tags":
-        creation = replace(creation, tags={**TAGS, "Run": "ffffffff"})
-    elif case == "account":
-        creation = replace(creation, spec=replace(creation.spec, account="222222222222"))
-    else:
-        context = RequestContext(lab.context.budget, "cleanup")
+    cases = {
+        "spec": replace(creation, spec=replace(creation.spec, run_id="ffffffff")),
+        "name": replace(creation, name="cnesdata-cap-ffffffff"),
+        "tags": replace(creation, tags={**TAGS, "Run": "ffffffff"}),
+        "account": replace(creation, spec=replace(creation.spec, account="222222222222")),
+        "lane": creation,
+    }
+    context = RequestContext(lab.context.budget, "cleanup") if case == "lane" else lab.context
+    return cases[case], context
+
+
+@pytest.mark.parametrize("case", ["spec", "name", "tags", "account", "lane"])
+def test_recusa_criacao_divergente_sem_io(lab: ReadLab, case: str) -> None:
+    creation, context = _divergent(lab, case)
     with pytest.raises(ServiceFailure) as error:
         lab.services.create("s3", creation, context)
     assert_rejected(error.value)
@@ -165,8 +166,15 @@ def test_falha_ao_etiquetar_interrompe_antes_do_readback(lab: ReadLab) -> None:
         },
     ],
     ids=[
-        "regiao", "tag_ausente", "tag_trocada", "tag_extra", "versionamento_suspenso",
-        "versionamento_ausente", "lock_desabilitado", "lock_vazio", "lock_ausente",
+        "regiao",
+        "tag_ausente",
+        "tag_trocada",
+        "tag_extra",
+        "versionamento_suspenso",
+        "versionamento_ausente",
+        "lock_desabilitado",
+        "lock_vazio",
+        "lock_ausente",
         "retencao_padrao",
     ],
 )

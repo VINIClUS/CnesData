@@ -1,5 +1,7 @@
 """Probe s3-retention: GOVERNANCE, permissões aditivas e bypass com controles positivos."""
 
+from dataclasses import dataclass
+
 from tests.integration.aws_capability._assumed_session import assume_role_session
 from tests.integration.aws_capability._iam_policy_ops import put_inline_policy
 from tests.integration.aws_capability._probe_attempt import must, retry_denied, version_of
@@ -17,6 +19,14 @@ EXTEND_SECONDS = 900
 ROLE_EXTEND_SECONDS = 1200
 
 
+@dataclass(frozen=True)
+class _Actors:
+    operator: Actor
+    role: Actor
+    ports: ServicePorts
+    spec: RunSpec
+
+
 def probe_retention(operator: Actor, ports: ServicePorts, spec: RunSpec) -> dict[str, object]:
     """Returns: códigos e segundos observados; Raises: ServiceFailure sem negação inválida."""
     base = ports.now()
@@ -24,8 +34,9 @@ def probe_retention(operator: Actor, ports: ServicePorts, spec: RunSpec) -> dict
     session, seconds = assume_role_session(ports, spec, operator.context)
     observed["assume_seconds"] = seconds
     role = Actor(session, operator.bucket, operator.account, operator.context)
-    observed.update(_denied_phase(operator, role, ports, spec, second))
-    observed.update(_bypass_phase(operator, role, ports, spec, (first, base)))
+    actors = _Actors(operator, role, ports, spec)
+    observed.update(_denied_phase(actors, second))
+    observed.update(_bypass_phase(actors, (first, base)))
     observed["operator_bypass_delete"] = operator.delete(KEY, first, True).code
     return observed
 
@@ -44,9 +55,8 @@ def _operator_phase(operator: Actor, base: float) -> tuple[str, str, dict[str, o
     return first, second, observed
 
 
-def _denied_phase(
-    operator: Actor, role: Actor, ports: ServicePorts, spec: RunSpec, version: str
-) -> dict[str, object]:
+def _denied_phase(actors: _Actors, version: str) -> dict[str, object]:
+    operator, role, ports, spec = actors.operator, actors.role, actors.ports, actors.spec
     must(put_inline_policy(ports.commands, spec, ("cap-p0", P0), operator.context), "p0_policy")
     _, ready = retry_denied(lambda: role.head(KEY), ports, operator.context, "p0")
     return {
@@ -56,13 +66,8 @@ def _denied_phase(
     }
 
 
-def _bypass_phase(
-    operator: Actor,
-    role: Actor,
-    ports: ServicePorts,
-    spec: RunSpec,
-    retained: tuple[str, float],
-) -> dict[str, object]:
+def _bypass_phase(actors: _Actors, retained: tuple[str, float]) -> dict[str, object]:
+    operator, role, ports, spec = actors.operator, actors.role, actors.ports, actors.spec
     version, base = retained
     must(put_inline_policy(ports.commands, spec, ("cap-p1", P1), operator.context), "p1_policy")
     _, ready = retry_denied(

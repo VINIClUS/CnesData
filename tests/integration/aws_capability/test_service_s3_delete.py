@@ -19,7 +19,7 @@ from tests.integration.aws_capability._b1_testing import (
 from tests.integration.aws_capability._resource_ids import s3_child
 from tests.integration.aws_capability._service_read_assertions import assert_private, assert_process
 from tests.integration.aws_capability._service_read_testing import ReadLab, make_read_lab
-from tests.integration.aws_capability.contracts import Resource, ServiceFailure
+from tests.integration.aws_capability.contracts import RequestContext, Resource, ServiceFailure
 
 ROOT = Resource("s3", NAME, NAME)
 OWNER = {"Bucket": NAME, "ExpectedBucketOwner": ACCOUNT}
@@ -86,6 +86,15 @@ def test_versao_sem_configuracao_de_hold_conta_como_desligada(lab: ReadLab) -> N
     assert_process(lab, [*OWNERSHIP, HOLD, DELETE])
 
 
+def test_status_de_hold_desconhecido_falha_sem_remover(lab: ReadLab) -> None:
+    owner_replies(lab)
+    ok(lab, {"LegalHold": {"Status": "WEIRD"}})
+    with pytest.raises(ServiceFailure) as error:
+        lab.services.delete(version(lab), True, cleanup_context(lab))
+    assert error.value.args == ("service=delete_failed",)
+    assert_process(lab, [*OWNERSHIP, HOLD])
+
+
 def test_marker_pula_leitura_de_hold(lab: ReadLab) -> None:
     owner_replies(lab)
     ok(lab, {})
@@ -147,21 +156,23 @@ def test_root_ausente_falha_como_nao_encontrado(lab: ReadLab) -> None:
     assert error.value.args == ("service=not_found",)
 
 
+def _invalid_delete(lab: ReadLab, case: str) -> tuple[Resource, bool, RequestContext]:
+    other = replace(lab.services.spec, run_id="ffffffff")
+    upload = s3_child(ROOT, lab.services.spec, "s3.upload", {"key": "k", "upload_id": "U1"})
+    foreign = s3_child(ROOT, other, "s3.version", {"key": "k", "version_id": "v"})
+    cases = {
+        "work": (version(lab), True, lab.context),
+        "bypass_int": (version(lab), cast("bool", 1), cleanup_context(lab)),
+        "upload": (upload, True, cleanup_context(lab)),
+        "outro_run": (foreign, True, cleanup_context(lab)),
+        "outro_root": (Resource("s3", "outro-bucket", "outro-bucket"), True, cleanup_context(lab)),
+    }
+    return cases[case]
+
+
 @pytest.mark.parametrize("case", ["work", "bypass_int", "upload", "outro_run", "outro_root"])
 def test_recusa_entrada_invalida_sem_io(lab: ReadLab, case: str) -> None:
-    resource, bypass, context = version(lab), cast("bool", True), cleanup_context(lab)
-    if case == "work":
-        context = lab.context
-    elif case == "bypass_int":
-        bypass = cast("bool", 1)
-    elif case == "upload":
-        child = {"key": "k", "upload_id": "U1"}
-        resource = s3_child(ROOT, lab.services.spec, "s3.upload", child)
-    elif case == "outro_run":
-        other = replace(lab.services.spec, run_id="ffffffff")
-        resource = s3_child(ROOT, other, "s3.version", {"key": "k", "version_id": "v"})
-    else:
-        resource = Resource("s3", "outro-bucket", "outro-bucket")
+    resource, bypass, context = _invalid_delete(lab, case)
     with pytest.raises(ServiceFailure) as error:
         lab.services.delete(resource, bypass, context)
     assert error.value.args != ("service=not_implemented",)

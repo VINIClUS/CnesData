@@ -92,3 +92,11 @@ def test_erro_diferente_de_ausencia_durante_a_espera_e_falha(lab: ProbeLab) -> N
 def test_servicos_sem_espera_nao_fazem_io(lab: ProbeLab) -> None:
     lab.services.settle_delete(Resource("s3", NAME, NAME), cleanup_context(lab))
     assert lab.aws.calls == []
+
+
+def test_tabela_ainda_deleting_nao_conta_como_ausente_no_inventario_final(lab: ProbeLab) -> None:
+    lab.aws.tables[NAME].deleting_describes = 10**6
+    lab.budget.limits = lab.budget.limits.__class__(192, 8, 2, 1000, 96)
+    outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
+    assert outcome.status != "succeeded"
+    assert NAME in lab.aws.tables
