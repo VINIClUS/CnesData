@@ -146,7 +146,7 @@ def test_erro_diferente_de_acesso_negado_no_controle_nao_repete(lab: ProbeLab) -
     lab.aws.allowed = missing_object_after_policy
     lab.aws._s3api_head_object = lambda payload, who: __import__(  # type: ignore[method-assign]
         "tests.integration.aws_capability._aws_fake_types_testing", fromlist=["denied"]
-    ).denied("NotFound") if who == "role" else None
+    ).denied("404") if who == "role" else None
     with pytest.raises(ServiceFailure) as error:
         run(lab)
     assert error.value.args == ("probe=control_failed step=p0",)
@@ -212,3 +212,24 @@ def test_sessao_ausente_falha_sem_io(lab: ProbeLab) -> None:
     with pytest.raises(ServiceFailure) as error:
         services.probe(lab.resources, lab.spec, lab.context)
     assert error.value.args[0].startswith("probe=")
+
+
+def test_head_negado_com_403_ate_propagar_completa_o_ciclo(tmp_path: Path) -> None:
+    lab = make_probe_lab(tmp_path, "s3-retention", policy_lag=4)
+    heads: list[str] = []
+    original = lab.aws._s3api_head_object
+
+    def recording(payload: dict, who: str):
+        reply = original(payload, who)
+        if who == "role":
+            heads.append("ok" if reply.error is None else reply.error.code)
+        return reply
+
+    lab.aws._s3api_head_object = recording  # type: ignore[method-assign]
+    observed = run(lab)
+    assert heads[:-1]
+    assert set(heads[:-1]) == {"403"}
+    assert heads[-1] == "ok"
+    assert observed["p0_delete_version"] == "AccessDenied"
+    assert observed["p0_put_lock_headers"] == "AccessDenied"
+    assert float(str(observed["p0_ready_seconds"])) > 0

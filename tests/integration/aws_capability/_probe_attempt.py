@@ -12,6 +12,7 @@ from tests.integration.aws_capability.contracts import RequestContext, ServiceFa
 
 CONTROL_ATTEMPTS = 12
 CONTROL_SECONDS = 2.0
+PROPAGATION_DENIALS = frozenset({"AccessDenied", "403"})
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,7 @@ def retry_denied(
         if result.ok:
             return result, round(ports.now() - start, 1)
         out_of_time = context.budget.remaining_seconds(context.lane) <= CONTROL_SECONDS + 1
-        if result.code != "AccessDenied" or out_of_time or index == CONTROL_ATTEMPTS - 1:
+        if result.code not in PROPAGATION_DENIALS or out_of_time or index == CONTROL_ATTEMPTS - 1:
             break
         ports.pause(CONTROL_SECONDS)
     raise ServiceFailure(f"probe=control_failed step={step}")

@@ -119,8 +119,8 @@ class S3Handlers:
         bucket = self._bucket(payload)
         found = None if bucket is None else self._version(bucket, payload)
         if not self.allowed(who, "s3:GetObject"):
-            return denied()
-        return denied("NotFound") if found is None else good({"ContentLength": 2})
+            return denied("403")
+        return denied("404") if found is None else good({"ContentLength": 2})
 
     def _blocked(self, version: FakeVersion, header: bool, who: str) -> bool:
         if version.hold == "ON":

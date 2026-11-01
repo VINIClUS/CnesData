@@ -106,6 +106,10 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   (`arn:aws:iam::<conta>:policy/cnesdata-cap/cnesdata-cap-boundary-<8hex>`). Faltando ou fora do
   formato, o comando recusa antes de qualquer chamada. O supervisor herda o ambiente; um
   `janitor` manual do mesmo perfil precisa das duas variáveis.
+- **Permissões extras do operador:** `iam:GetRole` também em `arn:aws:iam::<conta>:role/cnesdata-cap-*`
+  sem path, além do ARN com `/cnesdata-cap/`; para role inexistente o IAM autoriza pelo ARN sem
+  path e responde `AccessDenied` em vez de `NoSuchEntity`, e o cleanup não prova a ausência.
+  Negações de `head-object` chegam como `403` (sem corpo) e o controle positivo as repete.
 - **Janela de cleanup:** cada chamada da AWS CLI custa cerca de 1,2 a 1,4 s (início do processo).
   `cleanup_seconds` dos perfis usa esse custo medido: 240 s nos quatro `cognito-*` e em
   `s3-retention`, 150 s nos três `ddb-*` (inclui a espera por `DELETING`), 120 s em `s3-hold`;
