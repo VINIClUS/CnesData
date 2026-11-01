@@ -14,10 +14,10 @@ locals {
   hours_per_mode_30_days  = local.runs_per_30_days * local.billed_minutes_per_run / 60
   monthly_task_hour_limit = 100
 
-  schedule_arns_by_mode = {
+  schedule_group_arns_by_mode = {
     for mode in keys(local.modes) : mode => format(
-      "arn:aws:scheduler:%s:%s:schedule/%s/%s-%s",
-      local.region, var.account_id, "${var.name_prefix}-${mode}", var.name_prefix, mode,
+      "arn:aws:scheduler:%s:%s:schedule-group/%s-%s",
+      local.region, var.account_id, var.name_prefix, mode,
     )
   }
 

@@ -11,7 +11,7 @@ resource "aws_iam_role" "scheduler" {
       Condition = {
         StringEquals = {
           "aws:SourceAccount" = var.account_id
-          "aws:SourceArn"     = local.schedule_arns_by_mode[each.key]
+          "aws:SourceArn"     = local.schedule_group_arns_by_mode[each.key]
         }
       }
     }]

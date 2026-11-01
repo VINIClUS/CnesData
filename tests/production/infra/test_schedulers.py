@@ -116,8 +116,8 @@ def test_modos_com_revisao_e_role_proprias(plan: Node) -> None:
     assert groups == {f"{PREFIX}-recovery", f"{PREFIX}-audit"}
 
 
-def _schedule_arn(mode: str) -> str:
-    return f"arn:aws:scheduler:us-east-2:{ACCOUNT}:schedule/{PREFIX}-{mode}/{PREFIX}-{mode}"
+def _schedule_group_arn(mode: str) -> str:
+    return f"arn:aws:scheduler:us-east-2:{ACCOUNT}:schedule-group/{PREFIX}-{mode}"
 
 
 def test_scheduler_trust_exato_e_pass_role_restrito(plan: Node) -> None:
@@ -133,7 +133,7 @@ def test_scheduler_trust_exato_e_pass_role_restrito(plan: Node) -> None:
                     "Condition": {
                         "StringEquals": {
                             "aws:SourceAccount": ACCOUNT,
-                            "aws:SourceArn": _schedule_arn(mode),
+                            "aws:SourceArn": _schedule_group_arn(mode),
                         }
                     },
                 }
