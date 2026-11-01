@@ -4,6 +4,7 @@ import re
 from tests.production.infra._athena_contracts import (
     ACCOUNT,
     BUDGET_ARN,
+    CROSSING_QUERIES,
     CUTOFF_ALARM_ARN,
     CUTOFF_NAME,
     CUTOFF_POLICY_ADDRESS,
@@ -27,6 +28,7 @@ from tests.production.infra._athena_contracts import (
 )
 from tests.production.infra._athena_root_plan import (  # noqa: F401
     Node,
+    fixture_all_root_plans,
     fixture_bootstrap_plan,
     fixture_scheduled_plan,
 )
@@ -174,36 +176,52 @@ def test_alarme_de_cutoff_soma_tres_estados_dml_em_janela_deslizante_de_1_dia(
         assert not queries[identifier]["return_data"]
 
 
-def test_janela_e_corte_por_query_cabem_nos_100_gb_do_mes(scheduled_plan: Node) -> None:
-    alarm = alarms(scheduled_plan)[CUTOFF_NAME]
-    workgroup = at(scheduled_plan, "module.athena.aws_athena_workgroup.operator")
-    (configuration,) = workgroup["configuration"]
-    contract = output_value(scheduled_plan, "athena_cutoff_contract")
-    periods = {
-        query["metric"][0]["period"] for query in alarm["metric_query"] if query.get("metric")
-    }
-    (period,) = periods
-    cutoff = configuration["bytes_scanned_cutoff_per_query"]
-    assert contract == {
+def test_contrato_de_cutoff_exposto_na_raiz_tem_os_valores_fixados(scheduled_plan: Node) -> None:
+    assert output_value(scheduled_plan, "athena_cutoff_contract") == {
         "window_bytes": WINDOW_BYTES,
         "window_seconds": WINDOW_SECONDS,
         "per_query_cutoff_bytes": PER_QUERY_CUTOFF_BYTES,
         "windows_per_month": WINDOWS_PER_MONTH,
         "overshoot_queries": OVERSHOOT_QUERIES,
+        "crossing_queries": CROSSING_QUERIES,
         "detection_latency_s": DETECTION_LATENCY_SECONDS,
         "month_limit_bytes": MONTH_LIMIT_BYTES,
     }
-    assert alarm["threshold"] == contract["window_bytes"]
-    assert period == contract["window_seconds"]
-    assert cutoff == contract["per_query_cutoff_bytes"]
+
+
+def test_janela_e_corte_por_query_cabem_nos_100_gb_do_mes(scheduled_plan: Node) -> None:
+    alarm = alarms(scheduled_plan)[CUTOFF_NAME]
+    workgroup = at(scheduled_plan, "module.athena.aws_athena_workgroup.operator")
+    (configuration,) = workgroup["configuration"]
+    contract = output_value(scheduled_plan, "athena_cutoff_contract")
+    (period,) = {
+        query["metric"][0]["period"] for query in alarm["metric_query"] if query.get("metric")
+    }
+    window, cutoff = alarm["threshold"], configuration["bytes_scanned_cutoff_per_query"]
+    assert (window, period, cutoff) == (
+        contract["window_bytes"], contract["window_seconds"], contract["per_query_cutoff_bytes"],
+    )
     assert configuration["enforce_workgroup_configuration"] is True
     assert period * alarm["evaluation_periods"] <= 86_400, "evaluation_not_per_minute"
     assert contract["windows_per_month"] * period >= 31 * 86_400
-    worst_case = (
-        contract["windows_per_month"] * alarm["threshold"]
-        + contract["overshoot_queries"] * cutoff
-    )
+    in_flight = contract["overshoot_queries"] + contract["crossing_queries"]
+    worst_case = contract["windows_per_month"] * window + in_flight * cutoff
     assert worst_case <= contract["month_limit_bytes"], f"month_bound_bytes={worst_case}"
+
+
+def test_unico_par_role_acao_athena_e_o_update_work_group_do_cutoff(
+    all_root_plans: dict[str, Node],
+) -> None:
+    for label, plan in all_root_plans.items():
+        pairs = set()
+        for kind in ("aws_iam_role_policy", "aws_iam_policy"):
+            for item in of_type(plan, kind):
+                after = item["change"]["after"]
+                holder = after.get("role") or item["address"]
+                for action, _, _ in policy_grants(after["policy"]):
+                    if action == "*" or action.lower().startswith("athena:"):
+                        pairs.add((holder, action))
+        assert pairs == {(CUTOFF_NAME, "athena:UpdateWorkGroup")}, f"plan={label} pairs={pairs!r}"
 
 
 def test_unico_ignore_changes_e_o_estado_do_workgroup() -> None:

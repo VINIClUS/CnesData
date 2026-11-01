@@ -6,6 +6,7 @@ output "cutoff_contract" {
     per_query_cutoff_bytes = local.per_query_cutoff_bytes
     windows_per_month      = local.windows_per_month
     overshoot_queries      = local.overshoot_queries
+    crossing_queries       = local.crossing_queries
     detection_latency_s    = local.detection_latency_s
     month_limit_bytes      = local.month_limit_bytes
   }

@@ -27,13 +27,14 @@ BUDGET_ARN = f"arn:aws:budgets::{ACCOUNT}:budget/cnesdata-prod"
 SHARED_API_ROLE = f"arn:aws:iam::{ACCOUNT}:role/cnesdata-api"
 
 PER_QUERY_CUTOFF_BYTES = 5_000_000_000
-WINDOW_BYTES = 2_500_000_000
+WINDOW_BYTES = 2_000_000_000
 WINDOW_SECONDS = 86_400
 MONTH_LIMIT_BYTES = 100_000_000_000
 WINDOWS_PER_MONTH = 31
 DETECTION_LATENCY_SECONDS = 300
 BLOCKING_PRECONDITIONS = ["cloudfront_free_plan_active"]
 OVERSHOOT_QUERIES = 4
+CROSSING_QUERIES = 1
 
 ROOT_OUTPUTS = frozenset({
     "athena_workgroup_name", "athena_cutoff_topic_arn", "operator_alarm_topic_arn",
