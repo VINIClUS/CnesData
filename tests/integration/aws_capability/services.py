@@ -37,6 +37,7 @@ from tests.integration.aws_capability._service_iam_children import (
     lookup_iam_child,
 )
 from tests.integration.aws_capability._service_iam_create import create_role
+from tests.integration.aws_capability._service_iam_delete import delete_iam
 from tests.integration.aws_capability._service_iam_dependents import iam_dependents
 from tests.integration.aws_capability._service_identity import read_identity
 from tests.integration.aws_capability._service_inventory import list_tables
@@ -46,6 +47,7 @@ from tests.integration.aws_capability._service_s3_children import (
     lookup_s3_child,
 )
 from tests.integration.aws_capability._service_s3_create import create_bucket
+from tests.integration.aws_capability._service_s3_delete import delete_s3
 from tests.integration.aws_capability._service_s3_dependents import s3_dependents
 from tests.integration.aws_capability.cli import Cli, Request
 from tests.integration.aws_capability.contracts import (
@@ -198,6 +200,12 @@ class AwsServices:
         return {"resource_server_lookup": lookup}
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
+        if resource.service == "s3":
+            delete_s3(resource, bypass, self, context)
+            return
+        if resource.service == "iam":
+            delete_iam(resource, bypass, self, context)
+            return
         if resource.service == "cognito":
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")

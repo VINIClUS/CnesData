@@ -120,7 +120,7 @@ def test_rejeita_entrada_local_sem_io_ou_debito(delete_lab: ReadLab, case: str) 
     trace(delete_lab, [], 6)
 
 
-@pytest.mark.parametrize("service", ["cognito", "s3", "iam", "foreign"])
+@pytest.mark.parametrize("service", ["cognito", "foreign"])
 def test_preserva_stub_de_outros_servicos_sem_io(delete_lab: ReadLab, service: str) -> None:
     adapter(delete_lab)
     with pytest.raises(ServiceFailure) as error:

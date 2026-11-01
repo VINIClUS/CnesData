@@ -7,7 +7,7 @@ from dataclasses import replace
 from tests.integration.aws_capability._operator_inputs import OperatorInputs
 from tests.integration.aws_capability._service_contracts import CommandPort, ServicePorts, no_pause
 from tests.integration.aws_capability._service_read_testing import ReadLab
-from tests.integration.aws_capability.contracts import Creation
+from tests.integration.aws_capability.contracts import Creation, RequestContext
 from tests.integration.aws_capability.services import AwsCommands, AwsServices
 
 ACCOUNT = "111111111111"
@@ -67,3 +67,7 @@ def ok(lab: ReadLab, data: object = None) -> None:
 
 def creation_for(lab: ReadLab) -> Creation:
     return Creation(lab.services.spec, NAME, dict(TAGS))
+
+
+def cleanup_context(lab: ReadLab) -> RequestContext:
+    return RequestContext(lab.context.budget, "cleanup")

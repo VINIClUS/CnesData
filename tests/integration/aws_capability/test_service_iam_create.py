@@ -5,6 +5,7 @@ import logging
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -203,7 +204,7 @@ def test_nao_repete_outros_erros_nem_falhas_locais(lab: ReadLab, outcome: tuple)
 
 def mutated(path: list[str | int], value: object) -> dict:
     role = deepcopy(FULL_ROLE)
-    target = role
+    target: Any = role
     for key in path[:-1]:
         target = target[key]
     if value is None:
