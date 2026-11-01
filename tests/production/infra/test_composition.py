@@ -363,7 +363,11 @@ def test_inventario_de_outputs_publica_interfaces_do_static_web(
     names += [
         "cluster_arn", "state_machine_arn", "step_functions_role_id", "step_functions_role_arn",
     ]
-    expected = static | {f"processor_{name}" for name in names}
+    scheduler = {
+        "scheduler_schedule_arns", "scheduler_role_arns", "scheduler_freeze_target_role_names",
+        "scheduler_task_hour_budget", "scheduler_alarm_names",
+    }
+    expected = static | scheduler | {f"processor_{name}" for name in names}
     assert set(outputs) == expected, f"processing_public_inventory={sorted(outputs)}"
     assert outputs["api_loopback_contract"]["expression"] == {"constant_value": None}
     for name in outputs.keys() - {"api_loopback_contract"}:

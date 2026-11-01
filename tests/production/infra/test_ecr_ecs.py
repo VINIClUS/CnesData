@@ -250,8 +250,12 @@ def _runtime_instances(plan: Node, configuration: Node, root: Path) -> list[Node
 
 
 def _runtime_identities(plan: Node, configuration: Node, root: Path) -> tuple[Node, list[Node]]:
-    roles = _managed_resources(plan, "aws_iam_role")
     prefix = "module.runtime_iam.aws_iam_role"
+    roles = [
+        role
+        for role in _managed_resources(plan, "aws_iam_role")
+        if role["address"].startswith("module.runtime_iam.")
+    ]
     names = {"execution": "processor-execution", "step_functions[0]": "step-functions"}
     names.update({f'task["{mode}"]': f"processor-{mode}" for mode in ("unit", "recovery", "audit")})
     expected = {f"{prefix}.{key}": f"{PRODUCT_NAMESPACE}-{name}" for key, name in names.items()}
