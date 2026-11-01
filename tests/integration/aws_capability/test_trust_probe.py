@@ -10,6 +10,7 @@ from tests.integration.aws_capability._aws_fake_types_testing import (
     ACCESS_KEY,
     SECRET,
     TOKEN,
+    denied,
     good,
 )
 from tests.integration.aws_capability._b1_testing import NAME, OPERATOR_ARN, ROLE_ARN
@@ -246,6 +247,16 @@ def test_widening_ineficaz_falha_no_passo_5_pareado(tmp_path: Path) -> None:
         run(lab)
     assert error.value.args == ("probe=control_failed step=tags_flip",)
 
+
+def test_widening_negado_falha_no_proprio_passo_sem_assumir_depois(tmp_path: Path) -> None:
+    lab = make_probe_lab(tmp_path, "iam-trust")
+    lab.aws._iam_update_assume_role_policy = lambda payload, who: denied()  # type: ignore[method-assign]
+    with pytest.raises(ServiceFailure) as error:
+        run(lab)
+    assert error.value.args == ("probe=step_failed step=widen_trust",)
+    operations = [operation for _, operation, _ in lab.aws.calls]
+    after = operations[operations.index("update-assume-role-policy") + 1 :]
+    assert "assume-role" not in after
 
 def test_widening_so_com_tag_session_falha_no_passo_6_pareado(tmp_path: Path) -> None:
     lab = make_probe_lab(tmp_path, "iam-trust")

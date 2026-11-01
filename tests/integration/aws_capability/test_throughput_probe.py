@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -240,6 +241,41 @@ def test_tabela_ainda_inexistente_na_espera_e_tentada_de_novo(tmp_path: Path) ->
     assert run(lab)["tx_code"] == "ok"
     assert operations(lab)[:3] == ["describe-table"] * 3
 
+
+def lagging_gsi(lab: ProbeLab, polls: int) -> None:
+    original = lab.aws._dynamodb_describe_table
+    seen: list[int] = []
+
+    def lagging(payload: dict, who: str) -> Reply:
+        reply = original(payload, who)
+        seen.append(1)
+        if not reply.ok or len(seen) > polls:
+            return reply
+        table = cast("dict[str, object]", reply.data["Table"])
+        indexes = cast("list[dict[str, object]]", table["GlobalSecondaryIndexes"])
+        rows = [*indexes[:-1], {**indexes[-1], "IndexStatus": "UPDATING"}]
+        return Reply(True, {"Table": {**table, "GlobalSecondaryIndexes": rows}}, None)
+
+    lab.aws._dynamodb_describe_table = lagging  # type: ignore[method-assign]
+
+
+def test_gsi_ainda_nao_active_com_tabela_active_adia_a_carga(tmp_path: Path) -> None:
+    lab = make_probe_lab(tmp_path, "ddb-throughput")
+    lagging_gsi(lab, 3)
+    assert run(lab)["tx_code"] == "ok"
+    assert operations(lab)[:5] == ["describe-table"] * 4 + ["transact-write-items"]
+    assert len(lab.pauses) == 3
+
+
+def test_gsi_que_nunca_fica_active_esgota_a_espera_sem_escrever(tmp_path: Path) -> None:
+    lab = make_probe_lab(tmp_path, "ddb-throughput")
+    lagging_gsi(lab, 10**6)
+    lab.budget.deadline = lab.clock[0] + 10**6
+    with pytest.raises(ServiceFailure) as error:
+        run(lab)
+    assert error.value.args == ("probe=table_not_ready",)
+    assert set(operations(lab)) == {"describe-table"}
+    assert len(lab.aws.calls) == 30
 
 def broken(breakage: str) -> dict[str, object] | None:
     if breakage == "ausente":

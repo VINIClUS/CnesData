@@ -64,8 +64,8 @@ def test_run_completo_remove_tudo_dentro_do_orcamento_e_da_janela(
     assert lab.aws.tables == {}
     assert work_calls(lab) <= limits.calls - limits.cleanup_reserve
     assert cleanup_calls(lab) <= limits.cleanup_reserve
-    assert work_seconds(lab) <= PROFILE.window
-    assert cleanup_seconds(lab) <= limits.cleanup_seconds
+    assert work_seconds(lab) * 1.2 <= PROFILE.window
+    assert cleanup_seconds(lab) * 1.2 <= limits.cleanup_seconds
     assert set(probe_of(outcome)) >= PROBE_KEYS
     assert outcome.evidence["final_counts_all_cap"] == {
         "cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0,
