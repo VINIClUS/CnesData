@@ -90,6 +90,14 @@ def test_transporte_json_sensivel_usa_arquivo_privado_sem_stdin_nem_shell(
     recorder = ProcessRecorder()
     monkeypatch.setattr(subprocess, "run", recorder.run)
     monkeypatch.chdir(tmp_path)
+    opened: list[tuple[int, int]] = []
+    real_open = os.open
+
+    def recording_open(path: str | Path, flags: int, mode: int = 0o777, **kwargs: int) -> int:
+        opened.append((flags, mode))
+        return real_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", recording_open)
     previous = os.umask(0)
     payload: Mapping[str, object] = {"synthetic_secret": SECRETS[0]}
     try:
@@ -98,6 +106,13 @@ def test_transporte_json_sensivel_usa_arquivo_privado_sem_stdin_nem_shell(
         os.umask(previous)
     assert result == {"ok": True}
     assert len(recorder.calls) == 1
+    creations = [item for item in opened if item[0] & os.O_CREAT]
+    assert len(creations) == 1
+    flags, creation_mode = creations[0]
+    assert flags & (os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW) == (
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    )
+    assert creation_mode == 0o600
     argv, options = recorder.calls[0]
     assert not isinstance(argv, str)
     assert tuple(argv[:3]) == ("aws", "sts", "get-caller-identity")

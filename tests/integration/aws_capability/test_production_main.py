@@ -126,17 +126,16 @@ def runtime(lab: Lab, console: Console, built: list[RunSpec] | None = None) -> p
 
 def arguments(lab: Lab, command: str, *extra: str) -> list[str]:
     spec = lab.spec
-    return [
-        command,
-        "--account", spec.account,
-        "--region", spec.region,
-        "--run-id", spec.run_id,
-        "--deadline", str(spec.deadline),
-        "--journal-dir", str(spec.journal_dir),
-        "--retention", "GOVERNANCE",
-        "--allow-governance-bypass",
-        *extra,
-    ]  # fmt: skip
+    flags = {
+        "--account": spec.account,
+        "--region": spec.region,
+        "--run-id": spec.run_id,
+        "--deadline": str(spec.deadline),
+        "--journal-dir": str(spec.journal_dir),
+        "--retention": "GOVERNANCE",
+    }
+    pairs = [part for item in flags.items() for part in item]
+    return [command, *pairs, "--allow-governance-bypass", *extra]
 
 
 def test_main_run_emite_uma_linha_json_sem_segredos_e_sai_zero(lab: Lab) -> None:
