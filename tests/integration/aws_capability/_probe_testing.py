@@ -36,6 +36,7 @@ ROLE = Resource("iam", NAME, NAME)
 ROLE2 = Resource("iam", f"{NAME}-r2", f"{NAME}-r2")
 START = 1000.0
 DEADLINE = 1180.0
+LATENCY = 1.3
 
 
 @dataclass
@@ -79,12 +80,13 @@ def make_probe_lab(
             aws.roles[NAME] = FakeRole(dict(TAGS), TRUST)
         if probe == "iam-trust":
             aws.roles[ROLE2.name] = FakeRole(dict(TAGS), TRUST2)
+    deadline = START + PROFILES[probe].window
     spec = RunSpec(
-        ACCOUNT, "us-east-2", "a1b2c3d4", DEADLINE, tmp_path, allow_governance_bypass=True,
+        ACCOUNT, "us-east-2", "a1b2c3d4", deadline, tmp_path, allow_governance_bypass=True,
         probe=probe,
     )
     limits = PROFILES[probe].limits
-    budget = RequestBudget(limits, DEADLINE, lambda: clock[0])
+    budget = RequestBudget(limits, deadline, lambda: clock[0])
     operator = OperatorInputs(OPERATOR_ARN, BOUNDARY_ARN)
     ports = ServicePorts(aws, lambda: clock[0], pause, aws.session, operator)
     return ProbeLab(aws, AwsServices(spec, ports), budget, spec, pauses, clock)
@@ -101,3 +103,23 @@ def janitor_ports(lab: ProbeLab, *, supervised: bool = False) -> Ports:
     if supervised:
         processes.ack = acknowledgement(lab.spec, os.getpid())
     return Ports(lab.services, processes, lambda: lab.clock[0], policy, lab.budget)
+
+
+def cleanup_calls(lab: ProbeLab) -> int:
+    return lab.aws.lanes.count("cleanup")
+
+
+def work_calls(lab: ProbeLab) -> int:
+    return lab.aws.lanes.count("work")
+
+
+def cleanup_seconds(lab: ProbeLab) -> float:
+    deadline = lab.budget.cleanup_deadline
+    assert deadline is not None
+    return PROFILES[lab.spec.probe].limits.cleanup_seconds - (deadline - lab.clock[0])
+
+
+def work_seconds(lab: ProbeLab) -> float:
+    deadline = lab.budget.cleanup_deadline
+    assert deadline is not None
+    return deadline - PROFILES[lab.spec.probe].limits.cleanup_seconds - START

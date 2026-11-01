@@ -49,7 +49,7 @@ def validate_profile(spec: RunSpec, ports: Ports, *, recovery: bool) -> None:
         raise SafetyFailure("profile_limits_mismatch")
     if ports.budget.deadline != spec.deadline:
         raise SafetyFailure("invalid_deadline")
-    if not recovery and spec.deadline - ports.now() > 180:
+    if not recovery and spec.deadline - ports.now() > profile.window:
         raise SafetyFailure("invalid_deadline")
 
 

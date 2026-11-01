@@ -25,6 +25,7 @@ class Profile:
     version: int = 1
     children: tuple[str, ...] = ()
     roots: tuple[Root, ...] = ()
+    window: float = 180.0
 
     def planned_roots(self) -> tuple[Root, ...]:
         return self.roots or tuple(Root(service) for service in self.services)
