@@ -96,7 +96,7 @@ def test_servicos_sem_espera_nao_fazem_io(lab: ProbeLab) -> None:
 
 def test_tabela_ainda_deleting_nao_conta_como_ausente_no_inventario_final(lab: ProbeLab) -> None:
     lab.aws.tables[NAME].deleting_describes = 10**6
-    lab.budget.limits = lab.budget.limits.__class__(192, 8, 2, 1000, 96)
     outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
-    assert outcome.status != "succeeded"
-    assert NAME in lab.aws.tables
+    assert (outcome.status, outcome.reason) == ("incomplete", "inventory_incomplete")
+    assert outcome.evidence == {"inventory_complete": False}
+    assert lab.aws.tables[NAME].status == "DELETING"
