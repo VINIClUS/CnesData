@@ -1,14 +1,16 @@
 output "cutoff_contract" {
-  description = "Enforced Athena cutoff contract: window, per-query cutoff, in-flight bound, limit."
+  description = "Athena cutoff contract: window, per-query cutoff, in-flight and billing bounds."
   value = {
-    window_bytes           = local.window_bytes
-    window_seconds         = local.window_seconds
-    per_query_cutoff_bytes = local.per_query_cutoff_bytes
-    windows_per_month      = local.windows_per_month
-    overshoot_queries      = local.overshoot_queries
-    crossing_queries       = local.crossing_queries
-    detection_latency_s    = local.detection_latency_s
-    month_limit_bytes      = local.month_limit_bytes
+    window_bytes             = local.window_bytes
+    window_seconds           = local.window_seconds
+    per_query_cutoff_bytes   = local.per_query_cutoff_bytes
+    windows_per_month        = local.windows_per_month
+    overshoot_queries        = local.overshoot_queries
+    crossing_queries         = local.crossing_queries
+    billed_queries_per_month = local.billed_queries_per_month
+    per_query_overhead_bytes = local.per_query_overhead_bytes
+    detection_latency_s      = local.detection_latency_s
+    month_limit_bytes        = local.month_limit_bytes
   }
 }
 

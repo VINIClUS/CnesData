@@ -32,8 +32,9 @@ Aprovados pelo coordenador em 2026-11-01, além da lista da issue.
 - `infra/opentofu/modules/observability/cost-manifest.json`: o manifesto fica no módulo e não em
   `env/prod/`, porque a raiz aplicada não deve conter dado de revisão e o módulo é path permitido.
   Nenhum recurso o lê; testes e rego o recomputam.
-- `docs/runbooks/athena-operator.md`: runbook do operador (premissa k, reativação manual,
-  precondição de ativação).
+- `docs/runbooks/athena-operator.md`: runbook do operador (premissas k e Q, reativação manual só
+  com o alarme de cutoff em `OK`, disable manual se o caminho do cutoff falhar, precondição de
+  ativação).
 - Este amendment.
 
 ## Fatos AWS verificados (2026-11-01)
@@ -59,7 +60,8 @@ Aprovados pelo coordenador em 2026-11-01, além da lista da issue.
 ## Cutoff mensal: derivação de W_d
 
 Histórico: janela de 7 dias (W = 16 GB, avaliação horária), depois 1 dia com W_d = 2,5 GB, que
-estourava (102,5 GB) por não contar a query que cruza o limiar; W_d = 2 GB fecha em 87 GB.
+estourava (102,5 GB) por não contar a query que cruza o limiar; W_d = 2 GB fecha em 87 GB lidos
+e, com o mínimo de cobrança por query, em 97,49 GB cobrados.
 
 Na doc AWS (alarm-evaluation), alarme com período × avaliações > 1 dia é avaliado a cada hora;
 até 1 dia é avaliado a cada minuto. O alarme usa as 3 métricas DML (`SUCCEEDED`, `FAILED`,
@@ -72,6 +74,19 @@ mês ≤ 31·W_d + (k+1)·cutoff = 31·2 + 5·5 = 62 + 25 = 87 GB ≤ 100 GB. O 
 cruza o limiar: ela conclui, publica a métrica e só então o alarme dispara; as k seguintes são as
 que completam durante a latência ou estão em voo no disable.
 
+Cobrança: a AWS arredonda cada query para cima ao megabyte, com mínimo de 10 MB (whitepaper Big
+Data Analytics Options, seção Amazon Athena), e `ProcessedBytes` mede só os bytes lidos. Cada
+query cobrada soma no máximo m = 10 MiB além do que leu: abaixo de 10 MB paga 10 MB e, acima, o
+arredondamento soma menos de 1 MB. Queries `FAILED` não são cobradas (FAQ do Athena). Com
+Q = 1000 queries cobradas por mês, premissa do operador como k, o mês cobra no máximo
+87 GB + Q·m = 87 GB + 1000 × 10.485.760 bytes = 97,49 GB ≤ 100 GB. Contar queries no alarme por
+`SampleCount` custaria uma métrica de alarme a mais por estado (USD 0,10 cada no cenário max) e
+dependeria de um datapoint por query, que a doc não garante.
+
+O alarme só aciona o SNS ao mudar de estado (doc AWS CloudWatch_Alarms). O disable trava
+enquanto o operador só reativa com o alarme em `OK`, e uma falha da Lambda ou da entrega do SNS
+deixa o alarme em `ALARM` sem novo disparo: o runbook manda desabilitar à mão.
+
 - Decimais: W_d = 2.000.000.000 bytes (2 GB; com 2,5 GB a soma daria 102,5 GB); cutoff por query
   5.000.000.000 (menor que 5 GiB, então conservador sob as duas leituras de "5 GB"); limite
   100.000.000.000.
@@ -83,14 +98,15 @@ que completam durante a latência ou estão em voo no disable.
   reservation, que é paga e proibida pela política. Por isso k é um parâmetro operacional fixado no
   contrato (o operador roda queries em série), não uma garantia da AWS.
 - Contrato imposto e testado: W_d, período, cutoff, k, `windows_per_month = 31`,
-  `crossing_queries = 1`, `detection_latency_s` e o limite mensal são locals do módulo
-  `athena`, saem no output
+  `crossing_queries = 1`, `billed_queries_per_month = 1000`, `per_query_overhead_bytes = 10485760`,
+  `detection_latency_s` e o limite mensal são locals do módulo `athena`, saem no output
   `cutoff_contract` (raiz: `athena_cutoff_contract`). O teste lê threshold e period do recurso do
   alarme e o cutoff do recurso do workgroup, exige igualdade com o contrato, exige período ×
-  avaliações ≤ 86400 e prova 31·W_d + (k+1)·cutoff ≤ 100e9 com valores lidos do plan. Mutações
+  avaliações ≤ 86400 e prova 31·W_d + (k+1)·cutoff + Q·m ≤ 100e9 com valores lidos do plan. Mutações
   cobertas: W_d 2,5 GB, k 5, tirar o +1, período 172800, cutoff 6 GB e `evaluation_periods = 2`.
-- **Desvio** do texto "100 GB/mês": o limite vira "teto de 87 GB por 31·W_d + (k+1)·cutoff com
-  disable travado", não um contador de mês-calendário. Custo máximo do Athena ~USD 0,44 (USD 5/TB).
+- **Desvio** do texto "100 GB/mês": o limite vira "teto de 97,49 GB cobrados por
+  31·W_d + (k+1)·cutoff + Q·m com disable travado", não um contador de mês-calendário. Custo
+  máximo do Athena ~USD 0,49 (USD 5/TB).
 
 ## Decisões
 
@@ -141,12 +157,12 @@ que completam durante a latência ou estão em voo no disable.
   `conftest test tests/fixtures/plans --policy policies --ignore rejected` (aceitas) mais o teste
   pytest, que afirma as mensagens exatas das rejeitadas e zero falhas no plan vivo da raiz.
 - **Manifesto**: IDs de linha, limites 8/15 e totais recomputados (nunca armazenados), preço
-  unitário com URL da Price List e SKU, `min/base/max` por linha, cenário `max` sem franquia de
-  free tier (a franquia é da conta, compartilhada com outros projetos). Quantidades amarradas ao
-  plan: Fargate = `monthly_limit_hours` × vCPU/memória reais das task definitions; métricas de
-  alarme contadas do plan; Athena = 31·W_d + (k+1)·cutoff. `unverified`: franquia do Cognito e
-  gasto de outros projetos da conta, sem número. Schema próprio validado por um subconjunto de
-  JSON Schema no teste (sem nova dependência).
+  unitário com URL da Price List e SKU, `min/base/max` por linha, cenário `max` sem franquia de free
+  tier (a franquia é da conta, compartilhada com outros projetos). Quantidades amarradas ao plan:
+  Fargate = `monthly_limit_hours` × vCPU/memória reais das task definitions; métricas de alarme
+  contadas do plan; Athena = 31·W_d + (k+1)·cutoff + Q·m. `unverified`: franquia do Cognito e gasto
+  de outros projetos da conta, sem número. Schema próprio validado por um subconjunto de JSON Schema
+  no teste (sem nova dependência).
 
 ## Alarmes: sinais reais e limitações
 
@@ -222,8 +238,8 @@ Hipóteses, todas de uso estimado sem teto imposto pelo código: `cloudwatch_log
 `dynamodb_pitr_storage`, `dynamodb_storage`, `s3_data_storage`, `s3_audit_storage`,
 `s3_athena_results_storage`, `s3_requests`, `cognito_allowance`, `data_transfer_out`,
 `github_actions`. Compartilhadas, fora do controle do produto: `state_backend`, `budget_actions`,
-`other_projects_spend`. O produto fecha em 2,54 (min), 3,91 (base) e 7,84 (max) e o agregado em
-3,54, 4,91 e 11,95, sob 8 e 15; o máximo do produto fica perto do limite por causa das hipóteses,
+`other_projects_spend`. O produto fecha em 2,54 (min), 3,91 (base) e 7,90 (max) e o agregado em
+3,54, 4,91 e 12,00, sob 8 e 15; o máximo do produto fica perto do limite por causa das hipóteses,
 não de tetos, e a margem é consumida primeiro por elas.
 
 ## Actions pagas: USD 0

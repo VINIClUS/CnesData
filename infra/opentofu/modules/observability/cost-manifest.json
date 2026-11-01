@@ -305,15 +305,16 @@
       "id": "athena_scanned",
       "scope": "product",
       "service": "Athena",
-      "description": "Bytes scanned up to the cutoff ceiling 31*W_d + (4+1)*per-query cutoff = 87 GB",
+      "description": "Billed bytes up to 31*W_d + (4+1)*per-query cutoff + 1000 billed queries * 10 MiB = 97.49 GB",
       "unit": "TB",
       "unit_price_usd": 5.0,
-      "quantity": {"min": 0.01, "base": 0.04, "max": 0.087},
+      "quantity": {"min": 0.01, "base": 0.04, "max": 0.09748576},
       "free_allowance": {"min": 0, "base": 0, "max": 0},
       "status": "verified",
       "max_basis": "cap",
       "source": {"url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonAthena/current/us-east-2/index.json", "term": "sku E24RR3GXPVGYBMFP USE2-DataScannedInTB"},
-      "binding": "31*window_bytes+(4+1)*cutoff_bytes"
+      "binding": "31*window_bytes+(4+1)*cutoff_bytes+1000*per_query_overhead_bytes",
+      "assumption": "At most 1000 billed queries per month (SUCCEEDED or CANCELED; FAILED is free), each billed at most 10 MiB above its scanned bytes"
     },
     {
       "id": "cognito_essentials_mau",

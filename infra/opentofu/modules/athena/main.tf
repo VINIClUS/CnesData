@@ -10,20 +10,22 @@ terraform {
 }
 
 locals {
-  region                 = "us-east-2"
-  workgroup_name         = "${var.name_prefix}-operator"
-  cutoff_name            = "${var.name_prefix}-athena-cutoff"
-  results_bucket         = "${var.name_prefix}-athena-results"
-  per_query_cutoff_bytes = 5000000000
-  window_bytes           = 2000000000
-  window_seconds         = 86400
-  windows_per_month      = 31
-  overshoot_queries      = 4
-  crossing_queries       = 1
-  detection_latency_s    = 300
-  month_limit_bytes      = 100000000000
-  results_expiration     = 7
-  abort_multipart_days   = 1
+  region                   = "us-east-2"
+  workgroup_name           = "${var.name_prefix}-operator"
+  cutoff_name              = "${var.name_prefix}-athena-cutoff"
+  results_bucket           = "${var.name_prefix}-athena-results"
+  per_query_cutoff_bytes   = 5000000000
+  window_bytes             = 2000000000
+  window_seconds           = 86400
+  windows_per_month        = 31
+  overshoot_queries        = 4
+  crossing_queries         = 1
+  billed_queries_per_month = 1000
+  per_query_overhead_bytes = 10485760
+  detection_latency_s      = 300
+  month_limit_bytes        = 100000000000
+  results_expiration       = 7
+  abort_multipart_days     = 1
 
   workgroup_arn = format(
     "arn:aws:athena:%s:%s:workgroup/%s", local.region, var.account_id, local.workgroup_name,

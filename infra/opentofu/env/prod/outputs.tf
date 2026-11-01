@@ -117,7 +117,7 @@ output "athena_workgroup_name" {
 }
 
 output "athena_cutoff_contract" {
-  description = "Athena cutoff contract: window, per-query cutoff, in-flight bound, monthly limit."
+  description = "Athena cutoff contract: window, per-query cutoff, in-flight and billing bounds."
   value       = module.athena.cutoff_contract
 }
 
