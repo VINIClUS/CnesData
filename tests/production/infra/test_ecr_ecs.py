@@ -19,13 +19,12 @@ from tests.production.infra._root_native_identities import (
     assert_root_identity_producers,
     merge_identity_records,
 )
+from tests.production.infra._root_policy_inventory import assert_root_policy_inventory
 from tests.production.infra._step_functions_iam_contracts import (
-    POLICY_ATTACHMENT_TYPES,
     assert_policy_grants,
     attached_policy_resources,
     exact_step_functions_trust,
     literal_grants,
-    policy_grants,
     resource_at,
 )
 from tests.production.infra._step_functions_iam_contracts import (
@@ -441,38 +440,6 @@ def test_execution_role_so_pull_e_logs_proprios(
     _assert_execution_grants(documents, repositories[0]["arn"], group["change"]["after"]["arn"])
 
 
-def _assert_root_policy_inventory(plan: Node) -> None:
-    prefix, namespace = "module.runtime_iam.aws_iam_role_policy", PRODUCT_NAMESPACE
-    sfn, processor = f"{namespace}-step-functions", f"{namespace}-processor"
-    api = plan["variables"]["shared_outputs"]["value"]["roles_anywhere"]["api_role_arn"]
-    expected = {
-        f"{prefix}.execution": (f"{processor}-pull-logs", f"{processor}-execution"),
-        f"{prefix}.step_functions[0]": (f"{sfn}-common", sfn),
-        f"{prefix}.api[0]": (f"{namespace}-api-runtime", api.rsplit("/", 1)[1]),
-        "module.processing.aws_iam_role_policy.step_functions_ecs[0]": (f"{sfn}-ecs", sfn),
-        **{
-            f'{prefix}.runtime["{mode}"]': (f"{processor}-{mode}-runtime", f"{processor}-{mode}")
-            for mode in ("unit", "recovery", "audit")
-        },
-    }
-    resources = [
-        item
-        for item in plan["resource_changes"]
-        if item["mode"] == "managed" and item["type"] in POLICY_ATTACHMENT_TYPES
-    ]
-    observed = {
-        item["address"]: (item["change"]["after"].get("name"), item["change"]["after"].get("role"))
-        for item in resources
-    }
-    assert len(resources) == len(observed), "iam_policy_inventory duplicate_address"
-    assert observed == expected, f"iam_policy_inventory expected={expected!r} observed={observed!r}"
-    for item in resources:
-        grants = policy_grants(item["change"]["after"]["policy"])
-        assert grants, f"missing_grants address={item['address']}"
-        if item["address"].startswith(prefix):
-            assert all(action != "ecs:RunTask" for action, _, _ in grants), "runtime_iam_run_task"
-
-
 def test_root_anexa_inventario_exato_de_policies_as_roles(
     registry_plan: tuple[Node, Node], prod_root: Path
 ) -> None:
@@ -495,4 +462,4 @@ def test_root_anexa_inventario_exato_de_policies_as_roles(
     }
     expected = literal_grants(("ecs:DescribeTasks", "ecs:StopTask"), ("*",), {})
     assert_policy_grants(plan, role, specification, expected)
-    _assert_root_policy_inventory(plan)
+    assert_root_policy_inventory(plan)
