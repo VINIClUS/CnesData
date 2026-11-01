@@ -65,3 +65,23 @@ output "processor_execution_role_name" {
   description = "Shared execution identity name for processor tasks."
   value       = module.runtime_iam.execution_role_name
 }
+
+output "processor_cluster_arn" {
+  description = "Own ECS processor cluster ARN."
+  value       = module.processing.cluster_arn
+}
+
+output "processor_state_machine_arn" {
+  description = "Active processor state-machine ARN, or null during bootstrap."
+  value       = module.processing.state_machine_arn
+}
+
+output "processor_step_functions_role_id" {
+  description = "Processor Step Functions execution role ID."
+  value       = module.runtime_iam.step_functions_role_id
+}
+
+output "processor_step_functions_role_arn" {
+  description = "Processor Step Functions execution role ARN."
+  value       = module.runtime_iam.step_functions_role_arn
+}

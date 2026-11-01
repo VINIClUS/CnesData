@@ -19,6 +19,7 @@ from cnes_infra.executor.step_functions import (
     validate_production_state_machine,
 )
 from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from tests.production.infra import _root_native_identities as roots
 from tests.production.infra.conftest import MOCK_AWS_PROVIDERS as MOCK_PROVIDERS
 
 type Tofu = tuple[str, dict[str, str]]
@@ -33,9 +34,8 @@ ASL_FIXTURES = REPO_ROOT / "packages/cnes_infra/tests/fixtures/step_functions"
 MODULE_SOURCE = "../../modules/network"
 PUBLIC_SUBNETS = {"use2-az1": "10.42.0.0/26"}
 OVERLAPPING_SUBNETS = {"use2-az1": "10.42.0.0/26", "use2-az2": "10.42.0.32/27"}
-NETWORK = {
-    "name_prefix": "cnesdata-prod", "vpc_cidr": "10.42.0.0/24", "public_subnets": PUBLIC_SUBNETS,
-}
+NETWORK = {"name_prefix": "cnesdata-prod", "vpc_cidr": "10.42.0.0/24",
+           "public_subnets": PUBLIC_SUBNETS}
 ROOT_INPUTS = {
     "name_prefix": {"references": ["local.name_prefix"]},
     **{name: {"constant_value": value} for name, value in NETWORK.items() if name != "name_prefix"},
@@ -147,9 +147,8 @@ class TofuReport(NamedTuple):
 
 def _run(name: str, variables: Mapping[str, object], body: str, source: str | None) -> str:
     module = f'\n  module {{\n    source = "{source}"\n  }}\n' if source else "\n"
-    assigned = "".join(f"\n    {key} = {json.dumps(value)}" for key, value in variables.items())
-    header = f'\nrun "{name}" {{\n  command = plan\n{module}'
-    return f"{header}  variables {{{assigned}\n  }}\n{body}}}\n"
+    values = "".join(f"\n    {key} = {json.dumps(value)}" for key, value in variables.items())
+    return f'\nrun "{name}" {{\n  command = plan\n{module}  variables {{{values}\n  }}\n{body}}}\n'
 
 
 def _overrides(prefix: str = "") -> str:
@@ -162,12 +161,10 @@ def _overrides(prefix: str = "") -> str:
 SYNTHETIC_SUITE = MOCK_PROVIDERS + _run("raiz_sintetica", {}, _overrides("module.network."), None)
 
 
-def _suites(shared_outputs: Mapping[str, object]) -> dict[str, str]:
-    modules = "".join(
-        _run(name, variables, _overrides(), MODULE_SOURCE)
-        for name, variables in MODULE_RUNS.items()
-    )
-    root = _run(ROOT_RUN, {"shared_outputs": shared_outputs}, _overrides("module.network."), None)
+def _suites(shared_outputs: Mapping[str, object], overrides: Sequence[Node] = ()) -> dict[str, str]:
+    modules = "".join(_run(n, v, _overrides(), MODULE_SOURCE) for n, v in MODULE_RUNS.items())
+    body = _overrides("module.network.") + roots._override_hcl(list(overrides))
+    root = _run(ROOT_RUN, {"shared_outputs": shared_outputs}, body, None)
     rejections = "".join(
         _run(name, NETWORK | bad, f"\n  expect_failures = [var.{next(iter(bad))}]\n", MODULE_SOURCE)
         for name, bad in INVALID_RUNS.items()
@@ -336,16 +333,19 @@ def plan_report(
     prod_root: Path,
     valid_shared_outputs: dict[str, object],
 ) -> Iterator[TofuReport]:
+    ids = cast("dict[str, list[Node]]", tofu_artifacts["root_identities"])
     test_directory = prod_root / ".terraform" / "network-tests"
     test_directory.mkdir(parents=True)
     selector = "-test-directory=.terraform/network-tests"
     try:
-        for name, suite in _suites(valid_shared_outputs).items():
+        for name, suite in _suites(valid_shared_outputs, ids["overrides"]).items():
             (test_directory / f"{name}.tftest.hcl").write_text(suite, encoding="utf-8")
         init = _tofu(tofu_context, prod_root, ("init", "-backend=false", "-input=false", selector))
         _require_success(init, "init")
         test = ("test", "-no-color", "-json", "-verbose", selector)
-        yield _report(_tofu(tofu_context, prod_root, test))
+        report = _report(_tofu(tofu_context, prod_root, test))
+        roots.assert_root_identity_producers(report.plans[ROOT_RUN], ids["seeds"])
+        yield report
     finally:
         shutil.rmtree(test_directory)
 

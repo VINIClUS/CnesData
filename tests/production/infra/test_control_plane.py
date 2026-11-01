@@ -9,6 +9,8 @@ from typing import NamedTuple, cast
 import pytest
 
 from cnes_infra.control_plane.dynamodb_inventory import CONTROL_PLANE_INVENTORY
+from tests.production.infra import _root_native_identities as roots
+from tests.production.infra._root_native_observation import NativeRootReport, observe_root_result
 from tests.production.infra.conftest import (
     MOCK_AWS_PROVIDERS as MOCK_PROVIDERS,
 )
@@ -178,11 +180,12 @@ def _expected_outputs() -> dict[str, object]:
     }
 
 
-def _root_run(shared_outputs: Mapping[str, object]) -> str:
+def _root_run(shared_outputs: Mapping[str, object], overrides: Sequence[Node]) -> str:
     names = sorted(index.name for index in CONTROL_PLANE_INVENTORY.indexes)
     body = _assertion(
         f'module.control_plane.table_name == "{TABLE_NAME}"', "root_table_name"
     ) + _equal("keys(module.control_plane.index_arns)", names, "root_index_names")
+    body += roots._override_hcl(list(overrides))
     return f"""
 run "raiz_agenda_control_plane" {{
   command = plan
@@ -205,7 +208,7 @@ def _bounded_capacity_body() -> str:
     )
 
 
-def _plan_suite(shared_outputs: Mapping[str, object]) -> str:
+def _plan_suite(shared_outputs: Mapping[str, object], overrides: Sequence[Node] = ()) -> str:
     unreplicated = (
         _assertion(f"length({TABLE}.replica) == 0", "replica")
         + _assertion(f"length({TABLE}.global_table_witness) == 0", "global_table_witness")
@@ -220,7 +223,7 @@ def _plan_suite(shared_outputs: Mapping[str, object]) -> str:
   }}
 """
     return MOCK_PROVIDERS + "".join((
-        _root_run(shared_outputs),
+        _root_run(shared_outputs, overrides),
         _module_run(
             "inventario_de_chaves_e_indices",
             _equal(ACTUAL_TABLE, _expected_table(), "table_inventory")
@@ -276,7 +279,7 @@ def _report(result: subprocess.CompletedProcess[str]) -> TofuReport:
     return TofuReport(statuses, result)
 
 
-def _assert_runs(report: TofuReport, expected: Mapping[str, str]) -> None:
+def _assert_runs(report: TofuReport | NativeRootReport, expected: Mapping[str, str]) -> None:
     actual = {name: report.statuses.get(name) for name in expected}
     assert actual == dict(expected), (
         f"tofu_test runs={actual} stdout={report.result.stdout!r} "
@@ -345,17 +348,29 @@ def plan_report(
     tofu_artifacts: Artifacts,
     prod_root: Path,
     valid_shared_outputs: dict[str, object],
-) -> Iterator[TofuReport]:
+) -> Iterator[NativeRootReport]:
+    ids = cast("dict[str, list[Node]]", tofu_artifacts["root_identities"])
     test_directory = prod_root / ".terraform" / "control-plane-tests"
     test_directory.mkdir(parents=True)
     selector = "-test-directory=.terraform/control-plane-tests"
     try:
         (test_directory / "control-plane.tftest.hcl").write_text(
-            _plan_suite(valid_shared_outputs), encoding="utf-8"
+            _plan_suite(valid_shared_outputs, ids["overrides"]), encoding="utf-8"
         )
         init = _tofu(tofu_context, prod_root, ("init", "-backend=false", "-input=false", selector))
         _require_success(init, "init")
-        yield _report(_tofu(tofu_context, prod_root, ("test", "-no-color", selector)))
+        test = ("test", "-no-color", "-json", "-verbose", selector)
+        result = _tofu(tofu_context, prod_root, test)
+        report = observe_root_result(
+            result, ids["seeds"],
+            {"test_file": f"{selector.split("=")[1]}/control-plane.tftest.hcl",
+                            "positive_roots": frozenset({"raiz_agenda_control_plane"})},
+            {"directory": tofu_context[1]["TF_DATA_DIR"], "label": "control-plane",
+             "suite": b"".join(x.read_bytes() for x in sorted(test_directory.glob("*.tftest.hcl"))),
+             "metadata": {"artifacts": tofu_artifacts}},
+        )
+        assert report.observations["summary"]["test_summary"]["passed"] == 5
+        yield report
     finally:
         shutil.rmtree(test_directory)
 
@@ -377,7 +392,7 @@ def isolated_report(
 
 
 def test_raiz_agenda_tabela_do_control_plane(
-    plan_report: TofuReport, tofu_artifacts: Artifacts, prod_root: Path
+    plan_report: NativeRootReport, tofu_artifacts: Artifacts, prod_root: Path
 ) -> None:
     calls = _module_calls(_root_module(tofu_artifacts))
     module = (prod_root / MODULE_SOURCE).resolve()
@@ -388,19 +403,19 @@ def test_raiz_agenda_tabela_do_control_plane(
     assert calls["control_plane"]["source"] == MODULE_SOURCE
 
 
-def test_tabela_tem_inventario_exato_de_chaves_e_indices(plan_report: TofuReport) -> None:
+def test_tabela_tem_inventario_exato_de_chaves_e_indices(plan_report: NativeRootReport) -> None:
     _assert_runs(
         plan_report,
         {"inventario_de_chaves_e_indices": "pass", "arns_exatos_dos_indices": "pass"},
     )
 
 
-def test_tabela_sob_demanda_com_pitr_35_e_teto_de_throughput(plan_report: TofuReport) -> None:
+def test_tabela_sob_demanda_com_pitr_35_e_teto_de_throughput(plan_report: NativeRootReport) -> None:
     _assert_runs(plan_report, {"capacidade_sob_demanda_limitada": "pass"})
 
 
 def test_tabela_sem_replica_insights_ou_autoscaling(
-    plan_report: TofuReport,
+    plan_report: NativeRootReport,
     tofu_artifacts: Artifacts,
 ) -> None:
     root = _root_module(tofu_artifacts)

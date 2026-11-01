@@ -8,6 +8,16 @@ from typing import Any, NamedTuple
 
 import pytest
 
+from tests.production.infra._processing_native import _provider_schema
+from tests.production.infra._root_native_identities import (
+    _override_hcl,
+    assert_root_identity_producers,
+    merge_identity_records,
+    preserve_root_mock_defaults,
+    root_identity_seeds,
+)
+from tests.production.infra.conftest import ROOT_FIXTURE_CONTRACT
+
 type Node = dict[str, Any]
 type Tofu = tuple[str, dict[str, str]]
 
@@ -20,6 +30,8 @@ OUTPUTS = {
     "api_loopback_contract", "dashboard_runtime_env", "processor_repository_uri",
     "processor_task_definition_arns", "processor_container_name", "processor_task_role_arns",
     "processor_task_role_names", "processor_execution_role_arn", "processor_execution_role_name",
+    "processor_cluster_arn", "processor_state_machine_arn", "processor_step_functions_role_id",
+    "processor_step_functions_role_arn",
 }
 STATIC_TYPES = {
     "aws_s3_bucket", "aws_s3_bucket_public_access_block", "aws_s3_bucket_ownership_controls",
@@ -49,7 +61,14 @@ MODULE_TYPES = {
     },
     "processor_registry": {"aws_ecr_repository", "aws_ecr_lifecycle_policy"},
     "runtime_iam": {"aws_iam_role", "aws_iam_role_policy"},
-    "processing": {"aws_ecs_task_definition"},
+    "processing": {
+        "aws_ecs_task_definition", "aws_ecs_cluster", "aws_sfn_state_machine",
+        "aws_iam_role_policy",
+    },
+}
+STATIC_BUCKET_DEFAULTS = {
+    "id": "cnesdata-fixture", "arn": "arn:aws:s3:::cnesdata-fixture",
+    "bucket_regional_domain_name": "fixture-other.s3.us-east-2.amazonaws.com",
 }
 BOUNDARIES = {
     "a": {
@@ -79,6 +98,7 @@ class Workspace(NamedTuple):
     root: Path
     tofu: Tofu
     boundary: Node
+    artifacts: Node
 
 
 class Composition(NamedTuple):
@@ -89,10 +109,7 @@ class Composition(NamedTuple):
 
 def _mock_provider(boundary: Node, alias: bool = False) -> str:
     defaults = {
-        "aws_s3_bucket": {
-            "id": "cnesdata-fixture", "arn": "arn:aws:s3:::cnesdata-fixture",
-            "bucket_regional_domain_name": "fixture-other.s3.us-east-2.amazonaws.com",
-        },
+        "aws_s3_bucket": STATIC_BUCKET_DEFAULTS,
         "aws_cognito_user_pool": {
             "id": "us-east-2_aBcD3fGh1",
             "endpoint": "cognito-idp.us-east-2.amazonaws.com/us-east-2_aBcD3fGh1",
@@ -124,18 +141,25 @@ def _mock_provider(boundary: Node, alias: bool = False) -> str:
     return f'mock_provider "aws" {{\n{alias_line}{blocks}}}\n'
 
 
-def _suite(boundary: Node, shared_outputs: Node) -> str:
-    providers = _mock_provider(boundary) + _mock_provider(boundary, alias=True)
-    data = {
-        "id": "cnesdata-prod-data", "arn": "arn:aws:s3:::cnesdata-prod-data",
-        "bucket_regional_domain_name": boundary["serving_host"],
-    }
-    return providers + (
-        '\nrun "composicao_static_web" {\n  command = plan\n  variables {\n'
-        f'    shared_outputs = {json.dumps(shared_outputs)}\n  }}\n'
-        '  override_resource {\n    target = module.data_buckets.aws_s3_bucket.data\n'
-        f'    values = {json.dumps(data)}\n  }}\n}}\n'
+def _static_overrides(boundary: Node, artifacts: Node) -> list[Node]:
+    seeds = artifacts["seeds"]
+    record = dict(next(item for item in seeds if item["address"].endswith("aws_s3_bucket.data")))
+    data = {"id": "cnesdata-prod-data", "arn": "arn:aws:s3:::cnesdata-prod-data",
+            "bucket_regional_domain_name": boundary["serving_host"]}
+    record["fields"] = {name: {"value": value, "source": {"boundary": boundary}}
+                        for name, value in data.items()}
+    return preserve_root_mock_defaults(
+        merge_identity_records(seeds, [record]), artifacts["configuration"], artifacts["schema"],
+        {"value": STATIC_BUCKET_DEFAULTS["bucket_regional_domain_name"],
+         "source": "tests/production/infra/test_static_web_composition.py::STATIC_BUCKET_DEFAULTS"},
     )
+
+
+def _suite(boundary: Node, shared_outputs: Node, overrides: list[Node]) -> str:
+    providers = _mock_provider(boundary) + _mock_provider(boundary, alias=True)
+    return (providers + '\nrun "composicao_static_web" {\n  command = plan\n  variables {\n'
+            + f'    shared_outputs = {json.dumps(shared_outputs)}\n  }}\n'
+            + _override_hcl(overrides) + "}\n")
 
 
 def _tofu(workspace: Workspace, label: str, arguments: tuple[str, ...]) -> Node:
@@ -194,10 +218,24 @@ def static_web_workspace(
     assert mirror, "native_provider_mirror_required"
     assert Path(mirror).is_dir(), "native_provider_mirror_required"
     environment.update({"TF_DATA_DIR": str(directory / "data"), "TF_CLI_CONFIG_FILE": os.devnull})
-    workspace = Workspace(root, (tofu_context[0], environment), static_web_boundary)
+    workspace = Workspace(root, (tofu_context[0], environment), static_web_boundary, {})
     _tofu(workspace, "init", (
         "init", "-backend=false", "-input=false", "-lockfile=readonly", f"-plugin-dir={mirror}",
     ))
+    workspace.artifacts.update({
+        "configuration": _tofu(workspace, "configuration", ("show", "-json", "-config")),
+        "version": _tofu(workspace, "version", ("version", "-json")),
+    })
+    schema = _provider_schema(workspace.tofu, root, workspace.artifacts, (f"-plugin-dir={mirror}",))
+    workspace.artifacts["schema"] = schema
+    workspace.artifacts["seeds"] = root_identity_seeds(
+        workspace.artifacts["configuration"], schema, ROOT_FIXTURE_CONTRACT
+    )
+    workspace.artifacts["overrides"] = _static_overrides(static_web_boundary, workspace.artifacts)
+    records = {name: workspace.artifacts[name] for name in ("seeds", "overrides")}
+    (Path(environment["TF_DATA_DIR"]) / "root-identity-records.json").write_text(
+        json.dumps(records, indent=2), encoding="utf-8",
+    )
     return workspace
 
 
@@ -209,12 +247,14 @@ def static_web_composition(
     tests = root / "tests"
     tests.mkdir(exist_ok=True)
     (tests / "composition.tftest.hcl").write_text(
-        _suite(static_web_workspace.boundary, valid_shared_outputs), encoding="utf-8",
+        _suite(static_web_workspace.boundary, valid_shared_outputs,
+               static_web_workspace.artifacts["overrides"]), encoding="utf-8",
     )
     validation = _tofu(static_web_workspace, "validation", ("validate", "-json"))
     assert validation.get("valid") is True, f"native_validation_failed diagnostics={validation}"
-    configuration = _tofu(static_web_workspace, "configuration", ("show", "-json", "-config"))
+    configuration = static_web_workspace.artifacts["configuration"]
     plan = _tofu(static_web_workspace, "test", ("test", "-no-color", "-json", "-verbose"))
+    assert_root_identity_producers(plan, static_web_workspace.artifacts["seeds"])
     return Composition(static_web_workspace, configuration, plan)
 
 
@@ -373,11 +413,12 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     composition = static_web_composition
     outputs = composition.plan["planned_values"].get("outputs", {})
     declared = _configured(composition)["outputs"]
-    assert len(OUTPUTS) == 12
+    assert len(OUTPUTS) == 16
     assert set(declared) == OUTPUTS, f"root_output_inventory actual={set(declared)}"
     required_outputs = OUTPUTS - {"api_loopback_contract"}
     assert required_outputs <= set(outputs), "evaluated_root_outputs_required"
     assert declared["api_loopback_contract"]["expression"] == {"constant_value": None}
+    assert outputs["processor_state_machine_arn"]["value"] is None
     if "api_loopback_contract" in outputs:
         assert "value" in outputs["api_loopback_contract"]
         assert outputs["api_loopback_contract"]["value"] is None

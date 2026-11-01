@@ -3,7 +3,6 @@ from collections.abc import Callable, Iterator, Sequence
 from copy import deepcopy
 from pathlib import Path
 from re import fullmatch
-from subprocess import CompletedProcess
 from typing import cast
 
 import pytest
@@ -16,10 +15,30 @@ from tests.production.infra._composition_contracts import (
     SHARED_RESOURCE_EXACT,
     SHARED_RESOURCE_PREFIXES,
 )
+from tests.production.infra._root_native_observation import NativeRootReport
 
 ToolLookup = Callable[[str], str | None]
 ValidationCase = tuple[str, object, bool]
-SharedValidator = Callable[[Sequence[ValidationCase]], CompletedProcess[str]]
+SharedValidator = Callable[[Sequence[ValidationCase], frozenset[str]], NativeRootReport]
+
+
+def _assert_native_runs(report: NativeRootReport, names: set[str]) -> None:
+    assert report.result.returncode == 0, repr(report.result)
+    assert report.statuses == dict.fromkeys(names, "pass")
+    counts = report.observations["summary"]["test_summary"]
+    expected = {"passed": len(names), "failed": 0, "errored": 0, "skipped": 0, "status": "pass"}
+    assert {key: counts[key] for key in expected} == expected
+    assert not any(e["diagnostic"].get("severity") == "error"
+                   for e in report.observations["diagnostics"])
+
+
+def _native_errors(report: NativeRootReport, run: str) -> str:
+    events = [e for e in report.observations["diagnostics"]
+              if e["diagnostic"].get("severity") == "error"]
+    assert all(e.get("@testrun") in {None, run} for e in events)
+    return report.result.stderr + "\n".join(
+        e["diagnostic"].get("summary", "") + " " + e["diagnostic"].get("detail", "") for e in events
+    )
 
 
 def _compact_assignments(source: str) -> set[str]:
@@ -229,12 +248,9 @@ def test_providers_definem_regioes_e_tags_nativas(
 
 
 def test_locals_de_nome_e_tags_sao_avaliados_pelo_opentofu(
-    native_contract_result: CompletedProcess[str],
+    native_contract_result: NativeRootReport,
 ) -> None:
-    assert native_contract_result.returncode == 0, (
-        f"stdout={native_contract_result.stdout!r} stderr={native_contract_result.stderr!r}"
-    )
-    assert "1 passed, 0 failed" in native_contract_result.stdout
+    _assert_native_runs(native_contract_result, {"evaluate_composition_contract"})
 
 
 def test_tipo_shared_outputs_corresponde_ao_schema(
@@ -289,10 +305,8 @@ def test_validacao_nativa_aceita_shared_outputs_valido(
             False,
         ),
     )
-    result = validate_shared_outputs(cases)
-
-    assert result.returncode == 0
-    assert "2 passed, 0 failed" in result.stdout
+    report = validate_shared_outputs(cases, frozenset({"enabled_true", "enabled_false"}))
+    _assert_native_runs(report, {"enabled_true", "enabled_false"})
 
 
 def test_validacao_nativa_rejeita_shared_outputs_invalido(
@@ -307,30 +321,32 @@ def test_validacao_nativa_rejeita_shared_outputs_invalido(
         )
         for index, (path, invalid_value) in enumerate(INVALID_SHARED_VALUES)
     )
-    result = validate_shared_outputs(cases)
-
-    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
-    assert f"{len(cases)} passed, 0 failed" in result.stdout
+    report = validate_shared_outputs(cases, frozenset())
+    _assert_native_runs(report, {case[0] for case in cases})
 
 
 def test_validacao_nativa_rejeita_shared_outputs_nulo(
     validate_shared_outputs: SharedValidator,
 ) -> None:
-    result = validate_shared_outputs((("null", None, False),))
-
-    assert result.returncode != 0
-    assert "0 passed, 1 failed" in result.stdout
-    assert "required variable may not be set to null" in result.stderr
+    report = validate_shared_outputs((("null", None, False),), frozenset())
+    assert report.result.returncode != 0
+    assert report.statuses == {"null": "error"}
+    counts = report.observations["summary"]["test_summary"]
+    assert counts["passed"] == counts["skipped"] == 0
+    assert counts["failed"] + counts["errored"] == 1
+    assert counts["status"] != "pass"
+    assert "required variable may not be set to null" in _native_errors(report, "null")
 
 
 def test_validacao_nativa_rejeita_shared_outputs_sem_account_baseline(
     validate_shared_outputs: SharedValidator, valid_shared_outputs: dict[str, object]
 ) -> None:
     absent = {key: value for key, value in valid_shared_outputs.items() if key != BPA[0]}
-    result = validate_shared_outputs((("account_baseline_ausente", absent, False),))
+    report = validate_shared_outputs((("account_baseline_ausente", absent, False),), frozenset())
 
-    assert result.returncode != 0
-    assert 'attribute "account_baseline" is required' in result.stderr
+    assert report.result.returncode != 0
+    errors = _native_errors(report, "account_baseline_ausente")
+    assert 'attribute "account_baseline" is required' in errors
 
 
 def test_inventario_de_outputs_publica_interfaces_do_static_web(
@@ -344,6 +360,9 @@ def test_inventario_de_outputs_publica_interfaces_do_static_web(
     }
     names = ["repository_uri", "task_definition_arns", "container_name"]
     names += ["task_role_arns", "task_role_names", "execution_role_arn", "execution_role_name"]
+    names += [
+        "cluster_arn", "state_machine_arn", "step_functions_role_id", "step_functions_role_arn",
+    ]
     expected = static | {f"processor_{name}" for name in names}
     assert set(outputs) == expected, f"processing_public_inventory={sorted(outputs)}"
     assert outputs["api_loopback_contract"]["expression"] == {"constant_value": None}

@@ -9,6 +9,7 @@ import pytest
 
 from cnes_infra.aws import AwsRuntimeSettings
 from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from tests.production.infra import _root_native_identities as roots
 from tests.production.infra._cognito_dashboard import _assert_dashboard_env, _dashboard_scopes
 from tests.production.infra.conftest import (
     MOCK_AWS_PROVIDERS as MOCK_PROVIDERS,
@@ -122,13 +123,14 @@ def _overrides(prefix: str = "") -> str:
     )
 
 
-def _suites(shared_outputs: Mapping[str, object]) -> dict[str, str]:
+def _suites(shared_outputs: Mapping[str, object], overrides: Sequence[Node] = ()) -> dict[str, str]:
     accepted = {MODULE_RUN: REVIEWED_SUFFIX, **VALID_SUFFIXES}
     modules = "".join(
         _run(Run(name, COGNITO | {"domain_suffix": suffix}, _overrides()))
         for name, suffix in accepted.items()
     )
-    root = _run(Run(ROOT_RUN, {"shared_outputs": shared_outputs}, source=None))
+    body = roots._override_hcl(list(overrides))
+    root = _run(Run(ROOT_RUN, {"shared_outputs": shared_outputs}, body, None))
     expected = "\n  expect_failures = [var.domain_suffix]\n"
     rejections = "".join(
         _run(Run(name, COGNITO | {"domain_suffix": suffix}, expected))
@@ -243,16 +245,19 @@ def plan_report(
     prod_root: Path,
     valid_shared_outputs: dict[str, object],
 ) -> Iterator[TofuReport]:
+    ids = cast("dict[str, list[Node]]", tofu_artifacts["root_identities"])
     test_directory = prod_root / ".terraform" / "cognito-tests"
     test_directory.mkdir(parents=True)
     selector = "-test-directory=.terraform/cognito-tests"
     try:
-        for name, suite in _suites(valid_shared_outputs).items():
+        for name, suite in _suites(valid_shared_outputs, ids["overrides"]).items():
             (test_directory / f"{name}.tftest.hcl").write_text(suite, encoding="utf-8")
         init = _tofu(tofu_context, prod_root, ("init", "-backend=false", "-input=false", selector))
         _require_success(init, "init")
         test = ("test", "-no-color", "-json", "-verbose", selector)
-        yield _report(_tofu(tofu_context, prod_root, test))
+        report = _report(_tofu(tofu_context, prod_root, test))
+        roots.assert_root_identity_producers(report.plans[ROOT_RUN], ids["seeds"])
+        yield report
     finally:
         shutil.rmtree(test_directory)
 

@@ -82,3 +82,210 @@ variable "security_group_id" {
   type        = string
   nullable    = false
 }
+
+locals {
+  processor_unit_revision_shape = join("", [
+    "^arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:",
+    "task-definition/[A-Za-z0-9_-]+:[^:]+$",
+  ])
+}
+
+variable "processor_active_unit_task_definition_arn" {
+  description = "Explicit unit routing revision, separate from the registered candidate."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.processor_active_unit_task_definition_arn == null ? true : (
+      can(regex(
+        local.processor_unit_revision_shape,
+        var.processor_active_unit_task_definition_arn,
+      ))
+    )
+    error_message = "task_definition_arn_shape=expected_qualified_ecs_task_definition"
+  }
+
+  validation {
+    condition = var.processor_active_unit_task_definition_arn == null ? true : (
+      !can(regex(
+        local.processor_unit_revision_shape,
+        var.processor_active_unit_task_definition_arn,
+        )) || try(
+        split(":", var.processor_active_unit_task_definition_arn)[4] ==
+        split(":", var.state_machine_arn)[4],
+        false,
+      )
+    )
+    error_message = "task_definition_arn_account=expected_production_account"
+  }
+
+  validation {
+    condition = var.processor_active_unit_task_definition_arn == null ? true : (
+      !can(regex(
+        local.processor_unit_revision_shape,
+        var.processor_active_unit_task_definition_arn,
+        )) || try(
+        split(":", var.processor_active_unit_task_definition_arn)[3] == "us-east-2",
+        false,
+      )
+    )
+    error_message = "task_definition_arn_region=expected_us_east_2"
+  }
+
+  validation {
+    condition = var.processor_active_unit_task_definition_arn == null ? true : (
+      !can(regex(
+        local.processor_unit_revision_shape,
+        var.processor_active_unit_task_definition_arn,
+        )) || try(
+        split("/", split(":", var.processor_active_unit_task_definition_arn)[5])[1] ==
+        "${var.name_prefix}-processor-unit",
+        false,
+      )
+    )
+    error_message = "task_definition_arn_family=expected_unit_family"
+  }
+
+  validation {
+    condition = var.processor_active_unit_task_definition_arn == null ? true : (
+      !can(regex(
+        local.processor_unit_revision_shape,
+        var.processor_active_unit_task_definition_arn,
+        )) || try(
+        can(regex("^[1-9][0-9]*$", split(":", var.processor_active_unit_task_definition_arn)[6])),
+        false,
+      )
+    )
+    error_message = "task_definition_arn_revision=expected_positive_decimal"
+  }
+
+  validation {
+    condition = var.processor_active_unit_task_definition_arn == null ? true : contains(
+      var.processor_retained_unit_task_definition_arns,
+      var.processor_active_unit_task_definition_arn,
+    )
+    error_message = "active_must_be_retained=expected_authorized_unit_revision"
+  }
+}
+
+variable "processor_retained_unit_task_definition_arns" {
+  description = "Exact unit revisions retained for promotion, drain and rollback."
+  type        = set(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for arn in var.processor_retained_unit_task_definition_arns :
+      can(regex(
+        local.processor_unit_revision_shape,
+        arn,
+      ))
+    ])
+    error_message = "task_definition_arn_shape=expected_qualified_ecs_task_definition"
+  }
+
+  validation {
+    condition = alltrue([
+      for arn in var.processor_retained_unit_task_definition_arns :
+      !can(regex(
+        local.processor_unit_revision_shape,
+        arn,
+        )) || try(
+        split(":", arn)[4] == split(":", var.state_machine_arn)[4],
+        false,
+      )
+    ])
+    error_message = "task_definition_arn_account=expected_production_account"
+  }
+
+  validation {
+    condition = alltrue([
+      for arn in var.processor_retained_unit_task_definition_arns :
+      !can(regex(
+        local.processor_unit_revision_shape,
+        arn,
+        )) || try(
+        split(":", arn)[3] == "us-east-2",
+        false,
+      )
+    ])
+    error_message = "task_definition_arn_region=expected_us_east_2"
+  }
+
+  validation {
+    condition = alltrue([
+      for arn in var.processor_retained_unit_task_definition_arns :
+      !can(regex(
+        local.processor_unit_revision_shape,
+        arn,
+        )) || try(
+        split("/", split(":", arn)[5])[1] ==
+        "${var.name_prefix}-processor-unit",
+        false,
+      )
+    ])
+    error_message = "task_definition_arn_family=expected_unit_family"
+  }
+
+  validation {
+    condition = alltrue([
+      for arn in var.processor_retained_unit_task_definition_arns :
+      !can(regex(
+        local.processor_unit_revision_shape,
+        arn,
+        )) || try(
+        can(regex("^[1-9][0-9]*$", split(":", arn)[6])),
+        false,
+      )
+    ])
+    error_message = "task_definition_arn_revision=expected_positive_decimal"
+  }
+}
+
+variable "step_functions_role_arn" {
+  description = "Step Functions execution role ARN required for active routing."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.processor_active_unit_task_definition_arn == null || var.step_functions_role_arn != null
+    )
+    error_message = "step_functions_role_required=expected_role_for_active_machine"
+  }
+
+  validation {
+    condition = !var.enable_step_functions_iam ? true : try(
+      var.step_functions_role_arn == format(
+        "arn:aws:iam::%s:role/%s-step-functions",
+        split(":", var.state_machine_arn)[4], var.name_prefix,
+      ),
+      false,
+    )
+    error_message = "step_functions_iam_role_arn=expected_own_role_arn"
+  }
+}
+
+variable "step_functions_role_id" {
+  description = "Step Functions role name for optional ECS integration grants."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = !var.enable_step_functions_iam ? true : (
+      var.step_functions_role_id == "${var.name_prefix}-step-functions"
+    )
+    error_message = "step_functions_iam_role_id=expected_own_role_name"
+  }
+}
+
+variable "enable_step_functions_iam" {
+  description = "Enable ECS integration grants using a known composition switch."
+  type        = bool
+  default     = false
+  nullable    = false
+}
