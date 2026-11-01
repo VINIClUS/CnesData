@@ -355,7 +355,8 @@
       "max_basis": "cap",
       "source": {"url": "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html", "term": "Free plan"},
       "precondition": "cloudfront_free_plan_active",
-      "blocking": "activation"
+      "blocking": "activation",
+      "evidence": "pending"
     },
     {
       "id": "waf_dedicated",
@@ -371,7 +372,8 @@
       "source": {"url": "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html", "term": "Plan covers the associated web ACL, rules and requests; unbound exposure is sku 2R9CM7WJ2KQ6AWDQ 5 USD + 2 rules sku D2BYWPHKSXKTQSXA 1 USD"},
       "precondition": "cloudfront_free_plan_active",
       "exposure_usd": 7,
-      "blocking": "activation"
+      "blocking": "activation",
+      "evidence": "pending"
     },
     {
       "id": "data_transfer_out",
@@ -400,6 +402,21 @@
       "max_basis": "cap",
       "source": {"url": "https://aws.amazon.com/secrets-manager/pricing/", "term": "no secret created"},
       "binding": "BILLING_MODE=disabled"
+    },
+    {
+      "id": "github_actions",
+      "scope": "product",
+      "service": "GitHub Actions",
+      "description": "Paid Actions minutes: none, public repository on standard and self-hosted runners",
+      "unit": "minute",
+      "unit_price_usd": 0,
+      "quantity": {"min": 0, "base": 0, "max": 0},
+      "free_allowance": {"min": 0, "base": 0, "max": 0},
+      "status": "verified",
+      "max_basis": "hypothesis",
+      "source": {"url": "https://docs.github.com/en/billing/concepts/product-billing/github-actions", "term": "The use of standard GitHub-hosted runners is free in public repositories; self-hosted runners remain free"},
+      "binding": "repository_visibility=public runners=standard,self-hosted",
+      "assumption": "The repository stays public and no larger runner label is used"
     },
     {
       "id": "kms_envelope",

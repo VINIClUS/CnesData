@@ -151,7 +151,18 @@ deny contains msg if {
 	some line in input.lines
 	line.id == "waf_dedicated"
 	not waf_gated(line)
-	msg := "waf_unbound_exposure line=waf_dedicated reason=missing_precondition_or_exposure"
+	msg := "waf_unbound_exposure line=waf_dedicated reason=activation_gate_incomplete"
+}
+
+deny contains msg if {
+	input.lines
+	not waf_line_present
+	msg := "waf_line_missing line=waf_dedicated"
+}
+
+waf_line_present if {
+	some line in input.lines
+	line.id == "waf_dedicated"
 }
 
 deny contains msg if {
@@ -173,4 +184,6 @@ deny contains msg if {
 waf_gated(line) if {
 	line.precondition == "cloudfront_free_plan_active"
 	line.exposure_usd > 0
+	line.blocking == "activation"
+	line.evidence == "pending"
 }

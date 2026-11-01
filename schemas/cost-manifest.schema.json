@@ -60,6 +60,7 @@
         "precondition": {"type": "string", "minLength": 1},
         "blocking": {"enum": ["activation", "advisory"]},
         "exposure_usd": {"type": "number", "minimum": 0},
+        "evidence": {"enum": ["pending"]},
         "source": {
           "type": "object",
           "additionalProperties": false,

@@ -200,15 +200,17 @@ pytest com as mensagens exatas. O CI instala conftest 0.71.1 com sha256 fixo, s�
 
 ## WAF: precondição bloqueia a ativação
 
-A linha `waf_dedicated` vale 0 com `precondition: "cloudfront_free_plan_active"`,
-`blocking: "activation"` e `exposure_usd: 7`; `cloudfront_free_plan` também declara
-`blocking: "activation"`. O schema aceita `blocking` em `activation` ou `advisory`. O rego rejeita
-linha com `precondition` sem `blocking` (`precondition_without_blocking`) e linha cujo máximo do
-produto mais `exposure_usd` passa de 8 sem `blocking: "activation"`
-(`exposure_requires_activation_block`); o teste do manifesto repete as duas regras. A raiz publica
-`activation_blocking_preconditions = ["cloudfront_free_plan_active"]`, consumido pela ativação da
-delivery (#382). Limitação: o manifesto não prova o plano ACTIVE; a ativação deve esperar a
-confirmação humana.
+A linha `waf_dedicated` vale 0 com `precondition: "cloudfront_free_plan_active"`, `blocking:
+"activation"`, `exposure_usd: 7` e `evidence: "pending"`; `cloudfront_free_plan` também declara
+`blocking: "activation"` e `evidence: "pending"`, porque o plano Free ACTIVE não está provado. O
+schema aceita `blocking` em `activation` ou `advisory` e `evidence` só em `pending`. O rego rejeita
+manifesto sem a linha `waf_dedicated` (`waf_line_missing`), linha WAF sem a precondição, a
+exposição, `blocking: "activation"` ou `evidence: "pending"` (`waf_unbound_exposure`), linha com
+`precondition` sem `blocking` (`precondition_without_blocking`) e linha cujo máximo do produto mais
+`exposure_usd` passa de 8 sem `blocking: "activation"` (`exposure_requires_activation_block`); o
+teste do manifesto repete as regras. A raiz publica `activation_blocking_preconditions =
+["cloudfront_free_plan_active"]`, consumido pela ativação da delivery (#382). Limitação: o manifesto
+não prova o plano ACTIVE; a ativação deve esperar a confirmação humana.
 
 ## Base da quantidade máxima por linha (`max_basis`)
 
@@ -218,8 +220,16 @@ Hipóteses, todas de uso estimado sem teto imposto pelo código: `cloudwatch_log
 `cloudwatch_logs_storage`, `lambda_requests`, `lambda_compute`, `sns_requests`,
 `step_functions_transitions`, `dynamodb_read_units`, `dynamodb_write_units`,
 `dynamodb_pitr_storage`, `dynamodb_storage`, `s3_data_storage`, `s3_audit_storage`,
-`s3_athena_results_storage`, `s3_requests`, `cognito_allowance`, `data_transfer_out`.
-Compartilhadas, fora do controle do produto: `state_backend`, `budget_actions`,
-`other_projects_spend`. O produto fecha em 2,54 (min), 3,91 (base) e 7,91 (max) e o agregado em
-3,54, 4,91 e 12,01, sob 8 e 15; o máximo do produto fica perto do limite por causa das hipóteses,
+`s3_athena_results_storage`, `s3_requests`, `cognito_allowance`, `data_transfer_out`,
+`github_actions`. Compartilhadas, fora do controle do produto: `state_backend`, `budget_actions`,
+`other_projects_spend`. O produto fecha em 2,54 (min), 3,91 (base) e 7,84 (max) e o agregado em
+3,54, 4,91 e 11,95, sob 8 e 15; o máximo do produto fica perto do limite por causa das hipóteses,
 não de tetos, e a margem é consumida primeiro por elas.
+
+## Actions pagas: USD 0
+
+A linha `github_actions` vale 0 em min, base e max: o repositório é público e a documentação de
+billing do GitHub declara gratuitos os runners hospedados padrão em repositório público e os
+self-hosted. A premissa é `hypothesis`: vale enquanto o repositório for público e nenhum workflow
+usar label de runner maior. O teste da linha lê todo `runs-on:` de `.github/workflows` e só aceita
+`ubuntu-latest`, `windows-latest` e listas que começam com `self-hosted`.
