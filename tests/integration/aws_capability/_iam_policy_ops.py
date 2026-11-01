@@ -1,7 +1,7 @@
 """Inline policies aditivas do role de teste, restritas aos objetos do bucket."""
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from tests.integration.aws_capability._probe_attempt import Attempt, attempt
 from tests.integration.aws_capability._safety import run_name
@@ -21,23 +21,32 @@ def put_inline_policy(
     name = run_name(spec)
     policy_name, actions = policy
     statement = {"Effect": "Allow", "Action": list(actions), "Resource": f"arn:aws:s3:::{name}/*"}
-    return _put(commands, (name, policy_name), statement, context)
+    return _put(commands, (name, policy_name), [statement], context)
+
+
+def put_statements(
+    commands: CommandPort,
+    target: tuple[str, str],
+    statements: Sequence[Mapping[str, object]],
+    context: RequestContext,
+) -> Attempt:
+    return _put(commands, target, list(statements), context)
 
 
 def put_assume_policy(commands: CommandPort, spec: RunSpec, context: RequestContext) -> Attempt:
     name = run_name(spec)
     resource = f"arn:aws:iam::{spec.account}:role/cnesdata-cap/{name}*"
     statement = {"Effect": "Allow", "Action": ["sts:AssumeRole"], "Resource": resource}
-    return _put(commands, (name, ASSUME_POLICY), statement, context)
+    return _put(commands, (name, ASSUME_POLICY), [statement], context)
 
 
 def _put(
     commands: CommandPort,
     target: tuple[str, str],
-    statement: dict[str, object],
+    statements: list[Mapping[str, object]],
     context: RequestContext,
 ) -> Attempt:
-    document = {"Version": "2012-10-17", "Statement": [statement]}
+    document = {"Version": "2012-10-17", "Statement": statements}
     payload: dict[str, object] = {
         "RoleName": target[0],
         "PolicyName": target[1],

@@ -3,6 +3,7 @@
 import json
 from collections.abc import Callable
 
+from tests.integration.aws_capability._aws_fake_policy_testing import listed
 from tests.integration.aws_capability._aws_fake_types_testing import (
     FakeRole,
     denied,
@@ -46,7 +47,7 @@ class IamHandlers:
             return denied("MalformedPolicyDocument")
         trust = json.loads(payload["AssumeRolePolicyDocument"])
         principal = trust["Statement"][0]["Principal"]["AWS"]
-        assert principal == (OPERATOR_ARN if payload["RoleName"] == NAME else ROLE_ARN)
+        assert principal == (ROLE_ARN if payload["RoleName"] == f"{NAME}-r2" else OPERATOR_ARN)
         assert payload["PermissionsBoundary"] == BOUNDARY_ARN
         assert payload["MaxSessionDuration"] == 3600
         if payload["RoleName"] in self.roles:
@@ -87,7 +88,9 @@ class IamHandlers:
             return denied("NoSuchEntity")
         document = json.loads(payload["PolicyDocument"])
         actions = frozenset(
-            action for statement in document["Statement"] for action in statement["Action"]
+            action
+            for statement in document["Statement"]
+            for action in listed(statement["Action"])
         )
         role.policies[payload["PolicyName"]] = (actions, self.counter + self.policy_lag, document)
         return good()

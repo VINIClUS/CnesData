@@ -100,7 +100,7 @@ def test_trust_e_somente_o_operador_com_assume_role(lab: ReadLab) -> None:
     assert len(trust["Statement"]) == 1
 
 
-@pytest.mark.parametrize("probe", ["s3-hold", "all", "iam-s3", "iam-leadingkeys"])
+@pytest.mark.parametrize("probe", ["s3-hold", "all"])
 def test_outros_perfis_preservam_stub_de_iam_sem_io(lab: ReadLab, probe: str) -> None:
     lab = b1_lab(lab, probe)
     with pytest.raises(ServiceFailure) as error:
@@ -274,3 +274,59 @@ def test_nao_vaza_canary_nem_cria_arquivos(lab: ReadLab, caplog: pytest.LogCaptu
     lab.services.create("iam", creation_for(lab), lab.context)
     assert list(lab.directory.iterdir()) == []
     assert_private(ServiceFailure("service=read_ok"), lab, caplog.text)
+
+
+MATRIX_PROFILES = ["iam-leadingkeys", "iam-s3"]
+
+
+def matrix_script(lab: ReadLab, name: str, trust: dict) -> None:
+    role = {"RoleName": name, "Path": "/cnesdata-cap/", "Arn": f"{ROLE_ARN[:-len(NAME)]}{name}"}
+    full = {**FULL_ROLE, **role, "AssumeRolePolicyDocument": trust}
+    ok(lab, IDENTITY)
+    ok(lab, {"Role": role})
+    ok(lab, {"Role": full})
+    ok(lab, {"Tags": TAG_SET, "IsTruncated": False})
+
+
+@pytest.mark.parametrize("probe", MATRIX_PROFILES)
+@pytest.mark.parametrize("suffix", ["audit", "api"])
+def test_roles_de_matriz_confiam_no_operador_e_nao_em_outro_role_do_run(
+    lab: ReadLab, probe: str, suffix: str
+) -> None:
+    lab = b1_lab(lab, probe, [])
+    name = f"{NAME}-{suffix}"
+    matrix_script(lab, name, TRUST)
+    creation = replace(creation_for(lab), name=name)
+    assert lab.services.create("iam", creation, lab.context) == Resource("iam", name, name)
+    payload = json.loads(lab.process.calls[1][1]["input"])
+    trust = json.loads(payload["AssumeRolePolicyDocument"])
+    assert payload["RoleName"] == name
+    assert trust["Statement"] == [
+        {"Effect": "Allow", "Principal": {"AWS": OPERATOR_ARN}, "Action": "sts:AssumeRole"}
+    ]
+    assert payload["PermissionsBoundary"] == BOUNDARY_ARN
+    assert payload["MaxSessionDuration"] == 3600
+
+
+@pytest.mark.parametrize("probe", MATRIX_PROFILES)
+def test_perfis_de_matriz_recusam_o_role_sem_sufixo_sem_io(lab: ReadLab, probe: str) -> None:
+    lab = b1_lab(lab, probe, [])
+    with pytest.raises(ServiceFailure) as error:
+        lab.services.create("iam", creation_for(lab), lab.context)
+    assert_rejected(error.value)
+
+
+def test_iam_trust_mantem_o_encadeamento_so_para_r2(lab: ReadLab) -> None:
+    lab = b1_lab(lab, "iam-trust", [])
+    name = f"{NAME}-r2"
+    chained = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {"Effect": "Allow", "Principal": {"AWS": ROLE_ARN}, "Action": "sts:AssumeRole"}
+        ],
+    }
+    matrix_script(lab, name, chained)
+    lab.services.create("iam", replace(creation_for(lab), name=name), lab.context)
+    payload = json.loads(lab.process.calls[1][1]["input"])
+    trust = json.loads(payload["AssumeRolePolicyDocument"])
+    assert trust["Statement"][0]["Principal"] == {"AWS": ROLE_ARN}

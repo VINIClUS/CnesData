@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
+from tests.integration.aws_capability._leadingkeys_probe import probe_leadingkeys
 from tests.integration.aws_capability._resource_ids import cognito_child
 from tests.integration.aws_capability._s3_probe import probe_s3
 from tests.integration.aws_capability._service_cognito import (
@@ -68,7 +69,8 @@ from tests.integration.aws_capability.contracts import (
 )
 
 S3_PROFILES = frozenset({"s3-hold", "s3-retention"})
-IAM_ROLE_PROFILES = frozenset({"s3-retention", "iam-trust"})
+S3_CREATE_PROFILES = S3_PROFILES | {"iam-s3"}
+IAM_ROLE_PROFILES = frozenset({"s3-retention", "iam-trust", "iam-leadingkeys", "iam-s3"})
 
 
 @dataclass(frozen=True)
@@ -157,7 +159,7 @@ class AwsServices:
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")
             return create_pool(self.ports.commands, self.spec, creation, context)
-        if service == "s3" and self.spec.probe in S3_PROFILES:
+        if service == "s3" and self.spec.probe in S3_CREATE_PROFILES:
             return create_bucket(self.ports.commands, self.spec, creation, context)
         if service == "iam" and self.spec.probe in IAM_ROLE_PROFILES:
             return create_role(self.ports, self.spec, creation, context)
@@ -189,6 +191,8 @@ class AwsServices:
             return probe_trust(resources, spec, self.ports, context)
         if self.spec.probe == "ddb-throughput":
             return probe_throughput(resources, spec, self.ports, context)
+        if self.spec.probe == "iam-leadingkeys":
+            return probe_leadingkeys(resources, spec, self.ports, context)
         if self.spec.probe not in ("ddb-transactions", "ddb-conditions", "ddb-ttl-gsi"):
             raise ServiceFailure("service=not_implemented")
         if spec != self.spec:

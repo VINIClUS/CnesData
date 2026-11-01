@@ -55,6 +55,15 @@ PROFILES = {
     "iam-trust": Profile(
         ("iam",), Limits(176, 8, 2, 150, 104), roots=(Root("iam"), Root("iam", "r2"))
     ),
-    "iam-leadingkeys": Profile(("dynamodb", "iam"), Limits(512, 8, 2, 90, 256)),
-    "iam-s3": Profile(("s3", "iam"), Limits(384, 8, 2, 90, 192)),
+    "iam-leadingkeys": Profile(
+        ("dynamodb", "iam"),
+        Limits(270, 8, 2, 285, 150),
+        roots=(Root("dynamodb"), Root("iam", "audit"), Root("iam", "api")),
+        window=330.0,
+    ),
+    "iam-s3": Profile(
+        ("s3", "iam"),
+        Limits(384, 8, 2, 90, 192),
+        roots=(Root("s3"), Root("iam", "audit"), Root("iam", "api")),
+    ),
 }
