@@ -14,6 +14,7 @@ from tests.integration.aws_capability._login_claims import (
 )
 from tests.integration.aws_capability._login_http import Http
 from tests.integration.aws_capability._login_oauth import (
+    Grant,
     TokenReply,
     exchange_code,
     label,
@@ -59,7 +60,7 @@ def _outcome(prefix: str, reply: TokenReply, kit: Kit) -> Observed:
 
 
 def check_primary(kit: Kit, plan: Plan, chain: Chain) -> tuple[Observed, TokenReply]:
-    reply = exchange_code(kit.http, kit.endpoint, chain.codes["a"], plan.auths["a"].verifier)
+    reply = exchange_code(kit.http, kit.endpoint, _grant(plan, chain, "a"))
     observed = _outcome("a", reply, kit)
     claims = claims_of(reply.access)
     identity = claims_of(reply.identity)
@@ -107,18 +108,21 @@ def _sdk_access(data: Mapping[str, object]) -> str | None:
 
 
 def check_without_resource(kit: Kit, plan: Plan, chain: Chain) -> Observed:
-    reply = exchange_code(kit.http, kit.endpoint, chain.codes["b"], plan.auths["b"].verifier)
+    reply = exchange_code(kit.http, kit.endpoint, _grant(plan, chain, "b"))
     return _outcome("b", reply, kit)
+
+
+def _grant(plan: Plan, chain: Chain, name: str, verifier: str | None = None) -> Grant:
+    return Grant(chain.codes[name], verifier or plan.auths[name].verifier)
 
 
 def check_negatives(kit: Kit, plan: Plan, chain: Chain) -> Observed:
     endpoint, http = kit.endpoint, kit.http
-    wrong = exchange_code(http, endpoint, chain.codes["c"], plan.auths["d"].verifier)
-    right = exchange_code(http, endpoint, chain.codes["c"], plan.auths["c"].verifier)
-    moved = exchange_code(
-        http, endpoint, chain.codes["d"], plan.auths["d"].verifier, CALLBACK_URL + "x"
-    )
-    reuse = exchange_code(http, endpoint, chain.codes["a"], plan.auths["a"].verifier)
+    wrong = exchange_code(http, endpoint, _grant(plan, chain, "c", plan.auths["d"].verifier))
+    right = exchange_code(http, endpoint, _grant(plan, chain, "c"))
+    moved_grant = Grant(chain.codes["d"], plan.auths["d"].verifier, CALLBACK_URL + "x")
+    moved = exchange_code(http, endpoint, moved_grant)
+    reuse = exchange_code(http, endpoint, _grant(plan, chain, "a"))
     return {
         "neg_wrong_verifier_status": wrong.status,
         "neg_wrong_verifier_error": wrong.error,

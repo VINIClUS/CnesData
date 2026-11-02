@@ -18,6 +18,7 @@ from tests.integration.aws_capability._login_fake_testing import _PRIVATE, JWK, 
 from tests.integration.aws_capability._login_http import Http, HttpReply
 from tests.integration.aws_capability._login_oauth import (
     READY_ATTEMPTS,
+    Grant,
     TokenReply,
     await_ready,
     exchange_code,
@@ -94,7 +95,7 @@ def test_exchange_nunca_expoe_tokens_nem_codigo_no_repr() -> None:
         )
 
     http, _ = http_for(ok)
-    reply = exchange_code(http, ENDPOINT, "CODE-CANARY", "VERIFIER-CANARY")
+    reply = exchange_code(http, ENDPOINT, Grant("CODE-CANARY", "VERIFIER-CANARY"))
     text = repr(reply)
     assert reply.access == "ACCESS-C"
     assert not any(s in text for s in ("ACCESS-C", "ID-C", "REFRESH-C", "CODE-CANARY"))
@@ -103,7 +104,7 @@ def test_exchange_nunca_expoe_tokens_nem_codigo_no_repr() -> None:
 
 def test_erro_do_endpoint_nunca_vem_do_corpo_livre() -> None:
     http, _ = http_for(lambda r: httpx.Response(400, json={"error": "Bad thing: SECRET"}))
-    assert exchange_code(http, ENDPOINT, "c", "v").error == "other"
+    assert exchange_code(http, ENDPOINT, Grant("c", "v")).error == "other"
 
 
 def test_prontidao_para_no_primeiro_200_e_registra_tentativas() -> None:

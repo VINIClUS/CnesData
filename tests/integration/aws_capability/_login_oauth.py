@@ -45,15 +45,20 @@ def _token_reply(reply: HttpReply) -> TokenReply:
     )
 
 
-def exchange_code(
-    http: Http, endpoint: Endpoint, code: str, verifier: str, redirect_uri: str = CALLBACK_URL
-) -> TokenReply:
+@dataclass(frozen=True)
+class Grant:
+    code: str = field(repr=False)
+    verifier: str = field(repr=False)
+    redirect_uri: str = CALLBACK_URL
+
+
+def exchange_code(http: Http, endpoint: Endpoint, grant: Grant) -> TokenReply:
     form = {
         "grant_type": "authorization_code",
         "client_id": endpoint.client_id,
-        "code": code,
-        "redirect_uri": redirect_uri,
-        "code_verifier": verifier,
+        "code": grant.code,
+        "redirect_uri": grant.redirect_uri,
+        "code_verifier": grant.verifier,
     }
     return _token_reply(http.post_form(f"{endpoint.origin}/oauth2/token", form))
 
