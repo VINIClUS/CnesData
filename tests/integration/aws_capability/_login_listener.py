@@ -15,6 +15,7 @@ from tests.integration.aws_capability.contracts import ServiceFailure
 
 HOSTS = ("127.0.0.1", "::1")
 ANSWER_SECONDS = 900.0
+TEXT = "text/plain; charset=utf-8"
 
 
 @dataclass
@@ -45,6 +46,7 @@ class _Handler(BaseHTTPRequestHandler):
         callback = parse_callback(self.path)
         if callback is None:
             self.send_response(404)
+            self.send_header("Content-Type", TEXT)
             self.end_headers()
             return
         exchange: Exchange = cast("_Server", self.server).exchange
@@ -53,6 +55,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         if location is not None:
             self.send_header("Location", location)
+        else:
+            self.send_header("Content-Type", TEXT)
         self.end_headers()
         self.wfile.write(body.encode("utf-8"))
 
