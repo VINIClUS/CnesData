@@ -187,9 +187,11 @@ uv run pytest tests/chaos/ -m "chaos and not chaos_infra" -v
 uv run pytest tests/negative/ -m negative -v
 ```
 
-OpenTofu native suite (`tests/production/infra`; CI job `opentofu-native` in
-`.github/workflows/infra-native.yml`, informative). Needs `tofu` (CI pins
-1.13.2) and `trivy` 0.74.0 on `PATH`; `CI=true` fails on a missing tool.
+OpenTofu native suite and non-mutating infrastructure acceptance gate (`tests/production/infra`;
+CI job `opentofu-native` in `.github/workflows/infra-native.yml`, eligible as a required check:
+`pull_request` has no path filter and a git-only step skips the job body when no infra path
+changed; single command and capability matrix in `docs/runbooks/infrastructure-plan.md`).
+Needs `tofu` (CI pins 1.13.2) and `trivy` 0.74.0 on `PATH`; `CI=true` fails on a missing tool.
 The OPA policy tests also need `conftest` 0.71.1 (CI installs it with a pinned sha256 in the same
 job; locally download the release tarball, check it against `checksums.txt`, extract only the
 `conftest` binary into `~/.local/bin`). Acceptance gate:

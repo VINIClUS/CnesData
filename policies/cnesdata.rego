@@ -187,3 +187,259 @@ waf_gated(line) if {
 	line.blocking == "activation"
 	line.evidence == "pending"
 }
+
+protected_types := {
+	"aws_s3_bucket",
+	"aws_dynamodb_table",
+	"aws_cognito_user_pool",
+	"aws_cognito_user_pool_client",
+	"aws_cognito_user_pool_domain",
+}
+
+deny contains msg if {
+	some rc in changes
+	protected_types[rc.type]
+	"delete" in rc.change.actions
+	msg := sprintf(
+		"protected_change type=%s address=%s actions=%s",
+		[rc.type, rc.address, concat(",", rc.change.actions)],
+	)
+}
+
+live_changes contains rc if {
+	some rc in changes
+	is_object(rc.change.after)
+}
+
+is_unknown(rc, key) if object.get(object.get(rc.change, "after_unknown", {}), key, false) == true
+
+bpa_flags := {
+	"block_public_acls",
+	"block_public_policy",
+	"ignore_public_acls",
+	"restrict_public_buckets",
+}
+
+deny contains resource_msg("bpa_disabled", rc) if {
+	some rc in live_changes
+	rc.type == "aws_s3_bucket_public_access_block"
+	some flag in bpa_flags
+	object.get(rc.change.after, flag, null) != true
+	not is_unknown(rc, flag)
+}
+
+public_acls := {"public-read", "public-read-write", "authenticated-read"}
+
+deny contains resource_msg("public_acl", rc) if {
+	some rc in live_changes
+	rc.type in {"aws_s3_bucket_acl", "aws_s3_bucket"}
+	public_acls[rc.change.after.acl]
+}
+
+public_grantee := `^https?://acs\.amazonaws\.com/groups/global/(AllUsers|AuthenticatedUsers)$`
+
+deny contains resource_msg("public_acl", rc) if {
+	some rc in live_changes
+	rc.type in {"aws_s3_bucket_acl", "aws_s3_bucket"}
+	walk(rc.change.after, [path, value])
+	path[count(path) - 1] == "uri"
+	is_string(value)
+	regex.match(public_grantee, value)
+}
+
+statements(document) := document.Statement if is_array(document.Statement)
+
+statements(document) := [document.Statement] if is_object(document.Statement)
+
+open_principal(principal) if principal == "*"
+
+open_principal(principal) if {
+	is_object(principal)
+	principal.AWS == "*"
+}
+
+open_principal(principal) if {
+	is_object(principal)
+	is_array(principal.AWS)
+	"*" in principal.AWS
+}
+
+principal_boundary_keys := {
+	"aws:principalorgid",
+	"aws:principalaccount",
+	"aws:principalarn",
+	"aws:sourceaccount",
+	"aws:sourcearn",
+	"aws:sourceorgid",
+	"aws:sourcevpc",
+	"aws:sourcevpce",
+}
+
+boundary_operators := {"StringEquals", "StringEqualsIgnoreCase", "StringLike", "ArnEquals", "ArnLike"}
+
+fixed_value(value) if {
+	is_string(value)
+	value != ""
+	not regex.match(`[*?]`, value)
+}
+
+fixed_values(value) if fixed_value(value)
+
+fixed_values(values) if {
+	is_array(values)
+	count(values) > 0
+	every value in values {
+		fixed_value(value)
+	}
+}
+
+bounds_principal(statement) if {
+	is_object(statement.Condition)
+	some operator, entries in statement.Condition
+	boundary_operators[operator]
+	is_object(entries)
+	some key, value in entries
+	principal_boundary_keys[lower(key)]
+	fixed_values(value)
+}
+
+deny contains resource_msg("public_policy", rc) if {
+	some rc in live_changes
+	rc.type in {"aws_s3_bucket_policy", "aws_s3_bucket"}
+	is_string(rc.change.after.policy)
+	json.is_valid(rc.change.after.policy)
+	some statement in statements(json.unmarshal(rc.change.after.policy))
+	statement.Effect == "Allow"
+	open_principal(statement.Principal)
+	not bounds_principal(statement)
+}
+
+deny contains resource_msg("ingress", rc) if {
+	some rc in live_changes
+	rc.type in {"aws_security_group", "aws_default_security_group"}
+	is_array(rc.change.after.ingress)
+	count(rc.change.after.ingress) > 0
+}
+
+deny contains resource_msg("ingress", rc) if {
+	some rc in live_changes
+	rc.type == "aws_vpc_security_group_ingress_rule"
+}
+
+deny contains resource_msg("ingress", rc) if {
+	some rc in live_changes
+	rc.type == "aws_security_group_rule"
+	rc.change.after.type == "ingress"
+}
+
+paid_cloudfront_types := {
+	"aws_cloudfront_monitoring_subscription",
+	"aws_cloudfront_realtime_log_config",
+}
+
+deny contains resource_msg("paid_cloudfront", rc) if {
+	some rc in live_changes
+	paid_cloudfront_types[rc.type]
+}
+
+deny contains resource_msg("cloudfront_dedicated_ip", rc) if {
+	some rc in live_changes
+	rc.type == "aws_cloudfront_distribution"
+	some certificate in rc.change.after.viewer_certificate
+	certificate.ssl_support_method == "vip"
+}
+
+deny contains resource_msg("cloudfront_origin_shield", rc) if {
+	some rc in live_changes
+	rc.type == "aws_cloudfront_distribution"
+	some origin in rc.change.after.origin
+	some shield in origin.origin_shield
+	shield.enabled == true
+}
+
+deny contains resource_msg("mutable_image_tag", rc) if {
+	some rc in live_changes
+	rc.type == "aws_ecr_repository"
+	object.get(rc.change.after, "image_tag_mutability", null) != "IMMUTABLE"
+	not is_unknown(rc, "image_tag_mutability")
+}
+
+digest_pinned(image) if regex.match(`@sha256:[0-9a-f]{64}$`, image)
+
+deny contains resource_msg("image_without_digest", rc) if {
+	some rc in live_changes
+	rc.type == "aws_ecs_task_definition"
+	is_string(rc.change.after.container_definitions)
+	json.is_valid(rc.change.after.container_definitions)
+	some container in json.unmarshal(rc.change.after.container_definitions)
+	not digest_pinned(object.get(container, "image", ""))
+}
+
+secret_key_pattern := `(?i)(password|passwd|secret|token|private_key|api_key|secret_key)$`
+
+secret_exempt_keys := {"token_validity_units", "lock_token"}
+
+secret_exempt(_, path) if secret_exempt_keys[path[_]]
+
+secret_exempt(rc, path) if {
+	rc.type == "aws_cognito_user_pool_client"
+	path == ["client_secret"]
+}
+
+deny contains msg if {
+	some rc in live_changes
+	walk(rc.change.after, [path, value])
+	is_string(value)
+	value != ""
+	key := path[count(path) - 1]
+	is_string(key)
+	regex.match(secret_key_pattern, key)
+	not secret_exempt(rc, path)
+	msg := sprintf(
+		"secret_literal type=%s address=%s key=%s",
+		[rc.type, rc.address, concat(".", [sprintf("%v", [part]) | some part in path])],
+	)
+}
+
+deny contains msg if {
+	some rc in live_changes
+	rc.type == "aws_ecs_task_definition"
+	is_string(rc.change.after.container_definitions)
+	json.is_valid(rc.change.after.container_definitions)
+	some index, container in json.unmarshal(rc.change.after.container_definitions)
+	some entry in object.get(container, "environment", [])
+	is_string(entry.name)
+	regex.match(secret_key_pattern, entry.name)
+	is_string(entry.value)
+	entry.value != ""
+	msg := sprintf(
+		"secret_literal type=%s address=%s key=container_definitions.%d.environment.%s",
+		[rc.type, rc.address, index, entry.name],
+	)
+}
+
+secret_value_patterns := {
+	"private_key": `-----BEGIN [A-Z ]*PRIVATE KEY-----`,
+	"aws_access_key": `\b(AKIA|ASIA)[0-9A-Z]{16}\b`,
+}
+
+deny contains msg if {
+	some rc in live_changes
+	walk(rc.change.after, [_, value])
+	is_string(value)
+	some reason, pattern in secret_value_patterns
+	regex.match(pattern, value)
+	msg := sprintf("secret_value reason=%s type=%s address=%s", [reason, rc.type, rc.address])
+}
+
+ignore_changes_allowed := {"aws_athena_workgroup": ["${state}"]}
+
+deny contains msg if {
+	some kind, named in input.resource
+	some name, blocks in named
+	some block in blocks
+	some lifecycle in object.get(block, "lifecycle", [])
+	ignored := lifecycle.ignore_changes
+	not ignore_changes_allowed[kind] == ignored
+	msg := sprintf("ignore_changes_forbidden type=%s name=%s", [kind, name])
+}

@@ -1,0 +1,76 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_cloudfront_distribution.web",
+      "mode": "managed",
+      "type": "aws_cloudfront_distribution",
+      "name": "web",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "enabled": true,
+          "viewer_certificate": [
+            {
+              "acm_certificate_arn": "arn:aws:acm:us-east-1:123456789012:certificate/example",
+              "ssl_support_method": "vip"
+            }
+          ],
+          "origin": [
+            {
+              "origin_id": "web",
+              "origin_shield": [
+                {
+                  "enabled": true,
+                  "origin_shield_region": "us-east-2"
+                }
+              ]
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_cloudfront_monitoring_subscription.web",
+      "mode": "managed",
+      "type": "aws_cloudfront_monitoring_subscription",
+      "name": "web",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "distribution_id": "EEXAMPLE"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_cloudfront_realtime_log_config.web",
+      "mode": "managed",
+      "type": "aws_cloudfront_realtime_log_config",
+      "name": "web",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "example",
+          "sampling_rate": 100
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}

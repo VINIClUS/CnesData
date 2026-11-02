@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -43,6 +44,8 @@ _TRIGGER_PATHS = [
     "uv.lock",
     ".github/workflows/infra-native.yml",
 ]
+_DETECT = "Detect infrastructure changes"
+_GATE = "steps.changes.outputs.infra == 'true'"
 _MAX_JOB_MINUTES = 40
 _BIND = "Bind processing sources"
 _PRODUCER = "tests/production/infra/bind_processing_sources.py"
@@ -90,10 +93,14 @@ def _command(step: dict[str, Any]) -> str:
     return " ".join(step["run"].split())
 
 
-def test_workflow_dispara_em_pr_e_push_somente_nos_caminhos_de_infra() -> None:
+def _gated(step: dict[str, Any]) -> bool:
+    return step.get("name") != _DETECT
+
+
+def test_workflow_dispara_em_todo_pr_e_filtra_somente_o_push() -> None:
     events = _events()
 
-    assert events["pull_request"] == {"paths": _TRIGGER_PATHS}
+    assert events["pull_request"] is None
     assert events["push"] == {"branches": ["develop", "main"], "paths": _TRIGGER_PATHS}
     assert "workflow_dispatch" in events
     assert set(events) == {"pull_request", "push", "workflow_dispatch"}
@@ -174,7 +181,7 @@ def test_piso_do_ci_acompanha_required_version_do_ambiente_prod() -> None:
 
 
 def test_job_piso_roda_somente_fmt_init_e_validate() -> None:
-    runs = [_command(step) for step in _job(_FLOOR)["steps"] if "run" in step]
+    runs = [_command(step) for step in _job(_FLOOR)["steps"] if "run" in step and _gated(step)]
 
     assert runs == [
         "tofu -chdir=infra/opentofu fmt -check -recursive",
@@ -304,7 +311,7 @@ def test_job_nativo_publica_e_valida_junit_completo() -> None:
     upload = _step(_NATIVE, "Upload JUnit report")
     validate = _step(_NATIVE, "Validate native report")
 
-    assert upload["if"] == "always()"
+    assert upload["if"] == f"always() && {_GATE}"
     assert upload["with"]["path"] == "infra-native.xml"
     assert "require_complete_junit" in validate["run"]
     assert "Path('infra-native.xml')" in validate["run"]
@@ -318,3 +325,144 @@ def test_job_nativo_valida_o_proprio_contrato_antes_da_suite() -> None:
 
     assert "pytest -q tests/scripts/test_ci_opentofu_runner.py" in contract["run"]
     assert names.index("OpenTofu runner contract") < names.index(_SUITE)
+
+
+def _detection(job: str) -> dict[str, Any]:
+    return _step(job, _DETECT)
+
+
+def _patterns(job: str) -> list[str]:
+    body = re.search(r"patterns=\(\n(.*?)\n\s*\)", _detection(job)["run"], re.DOTALL)
+    assert body is not None
+    return re.findall(r"'([^']+)'", body[1])
+
+
+@pytest.mark.parametrize("job", [_NATIVE, _FLOOR])
+def test_deteccao_de_infra_e_o_primeiro_passo_apos_o_checkout_raso(job: str) -> None:
+    steps = _job(job)["steps"]
+    detection = _detection(job)
+
+    assert steps[0]["uses"].startswith("actions/checkout@")
+    assert steps[0]["with"] == {"persist-credentials": False, "fetch-depth": 2}
+    assert steps[1] == detection
+    assert 0 < detection["timeout-minutes"] <= 2
+    assert detection["id"] == "changes"
+    assert detection["env"] == {"EVENT_NAME": "${{ github.event_name }}"}
+    assert "${{" not in detection["run"]
+    assert "name" not in _job(job)
+    assert "token" not in detection["run"].lower()
+
+
+def test_deteccao_e_identica_nos_dois_jobs() -> None:
+    assert _detection(_FLOOR) == _detection(_NATIVE)
+
+
+@pytest.mark.parametrize("job", [_NATIVE, _FLOOR])
+def test_deteccao_usa_a_mesma_lista_de_caminhos_do_filtro_de_push(job: str) -> None:
+    assert _patterns(job) == _TRIGGER_PATHS == _events()["push"]["paths"]
+
+
+@pytest.mark.parametrize("job", [_NATIVE, _FLOOR])
+def test_todo_passo_apos_a_deteccao_so_roda_com_infra_alterada(job: str) -> None:
+    after = _job(job)["steps"][2:]
+
+    assert after
+    for step in after:
+        condition = step.get("if", "")
+        assert _GATE in condition, step.get("name", step.get("uses"))
+        if "always()" in condition:
+            assert condition == f"always() && {_GATE}"
+
+
+def _git(cwd: Path, *arguments: str) -> None:
+    subprocess.run(  # noqa: S603
+        [str(shutil.which("git")), "-c", "user.name=teste",
+         "-c", "user.email=teste@example.invalid", "-c", "commit.gpgsign=false",
+         "-c", "init.defaultBranch=main", *arguments],
+        check=True, capture_output=True, cwd=cwd, text=True,
+    )
+
+
+def _start_pr(repo: Path, *seeded: str) -> None:
+    repo.mkdir()
+    _git(repo, "init")
+    for path in ("LEIAME.txt", *seeded):
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"conteudo estavel de {path}\n" * 8, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "base")
+    _git(repo, "checkout", "-b", "pr")
+
+
+def _merge_pr(repo: Path) -> None:
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "pr")
+    _git(repo, "checkout", "main")
+    _git(repo, "merge", "--no-ff", "-m", "merge", "pr")
+
+
+def _merge_commit(repo: Path, changed: str) -> None:
+    _start_pr(repo)
+    target = repo / changed
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("alterado", encoding="utf-8")
+    _merge_pr(repo)
+
+
+def _detected(repo: Path, event: str, output: Path) -> str:
+    script = _detection(_NATIVE)["run"]
+    environment = {"PATH": os.environ["PATH"], "EVENT_NAME": event, "GITHUB_OUTPUT": str(output)}
+    subprocess.run(  # noqa: S603
+        [str(shutil.which("bash")), "-e", "-c", script],
+        check=True, capture_output=True, cwd=repo, env=environment,
+    )
+    return output.read_text(encoding="utf-8").strip()
+
+
+@pytest.mark.parametrize(
+    ("changed", "expected"),
+    [
+        ("infra/opentofu/env/prod/main.tf", "infra=true"),
+        ("policies/cnesdata.rego", "infra=true"),
+        ("schemas/cost-manifest.schema.json", "infra=true"),
+        ("tests/fixtures/plans/accepted/x.json", "infra=true"),
+        ("tests/production/infra/test_x.py", "infra=true"),
+        ("pyproject.toml", "infra=true"),
+        ("uv.lock", "infra=true"),
+        (".github/workflows/infra-native.yml", "infra=true"),
+        ("infra/opentofu/env/prod/configuração.tf", "infra=true"),
+        ('policies/aspas"e\\barra.rego', "infra=true"),
+        ("docs/runbooks/x.md", "infra=false"),
+        ("tests/production/test_runtime_acceptance.py", "infra=false"),
+        (".github/workflows/outro.yml", "infra=false"),
+        ("apps/central_api/main.py", "infra=false"),
+    ],
+)
+def test_deteccao_em_pull_request_olha_so_o_diff_do_merge(
+    tmp_path: Path, changed: str, expected: str
+) -> None:
+    _merge_commit(tmp_path / "repo", changed)
+
+    assert _detected(tmp_path / "repo", "pull_request", tmp_path / "saida") == expected
+
+
+@pytest.mark.parametrize("seeded", ["policies/cnesdata.rego", "tests/production/infra/test_x.py"])
+@pytest.mark.parametrize("operation", ["rm", "mv"])
+def test_deteccao_ve_infra_removida_ou_renomeada_para_fora(
+    tmp_path: Path, seeded: str, operation: str
+) -> None:
+    repo = tmp_path / "repo"
+    _start_pr(repo, seeded)
+    (repo / "docs").mkdir()
+    _git(repo, operation, seeded, *(["docs/fora.txt"] if operation == "mv" else []))
+    _merge_pr(repo)
+
+    assert _detected(repo, "pull_request", tmp_path / "saida") == "infra=true"
+
+
+@pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
+def test_deteccao_fora_de_pull_request_sempre_roda(tmp_path: Path, event: str) -> None:
+    _merge_commit(tmp_path / "repo", "docs/runbooks/x.md")
+
+    assert _detected(tmp_path / "repo", event, tmp_path / "saida") == "infra=true"
