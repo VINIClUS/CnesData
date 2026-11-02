@@ -20,7 +20,6 @@ from tests.integration.aws_capability.contracts import (
 
 _MIRRORED = (
     "ClientName",
-    "GenerateSecret",
     "AllowedOAuthFlowsUserPoolClient",
     "AllowedOAuthFlows",
     "AllowedOAuthScopes",
@@ -104,11 +103,17 @@ def _create_client(
         {"UserPoolId": root.resource_id, "ClientId": client_id},
     )
     described = _step(commands, read, context, "client_readback").get("UserPoolClient")
-    if not isinstance(described, Mapping) or any(
-        described.get(key) != payload[key] for key in _MIRRORED
+    if (
+        not isinstance(described, Mapping)
+        or "ClientSecret" in described
+        or any(_unordered(described.get(key)) != _unordered(payload[key]) for key in _MIRRORED)
     ):
         raise ServiceFailure("probe=step_failed step=client_readback")
     return client_id
+
+
+def _unordered(value: object) -> object:
+    return sorted(value) if isinstance(value, list) else value
 
 
 def _create_user(

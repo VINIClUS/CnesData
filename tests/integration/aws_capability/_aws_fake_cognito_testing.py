@@ -144,7 +144,7 @@ class CognitoHandlers:
         if pool is None:
             return denied(MISSING)
         client_id = f"client{self.counter:04d}"
-        row = {**payload, "ClientId": client_id}
+        row = _described_client(payload, client_id)
         pool.clients[client_id] = row
         return good({"UserPoolClient": row})
 
@@ -267,6 +267,18 @@ class CognitoHandlers:
         if self.idp is None:
             return denied("InvalidParameterException")
         return self.idp(payload)
+
+
+def _described_client(payload: Mapping[str, object], client_id: str) -> dict[str, object]:
+    row: dict[str, object] = {
+        key: sorted(value, reverse=True) if isinstance(value, list) else value
+        for key, value in payload.items()
+        if key != "GenerateSecret"
+    }
+    row["ClientId"] = client_id
+    if payload.get("GenerateSecret") is True:
+        row["ClientSecret"] = f"secret-{client_id}"
+    return row
 
 
 def _client_row(client: Mapping[str, object]) -> dict[str, object]:

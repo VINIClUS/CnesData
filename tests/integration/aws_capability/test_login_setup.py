@@ -135,6 +135,55 @@ def test_readback_do_client_com_fluxo_ampliado_aborta_antes_do_usuario(
     assert "admin-create-user" not in lab.aws.operations()
 
 
+def test_readback_real_sem_generate_secret_e_com_listas_reordenadas_e_aceito(
+    tmp_path: Path,
+) -> None:
+    lab, root, env, _ = run_setup(tmp_path)
+    described = lab.aws.pools[root.resource_id].clients[env.client_id]
+    assert "GenerateSecret" not in described
+    assert "ClientSecret" not in described
+    assert described["AllowedOAuthScopes"] == sorted(SCOPES, reverse=True) != list(SCOPES)
+
+
+def test_readback_do_client_com_secret_gerado_aborta_antes_do_usuario(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = make_login_lab(tmp_path)
+    root = create_root(lab)
+    original = lab.aws._cognito_idp_describe_user_pool_client
+
+    def with_secret(payload: dict, who: str) -> Reply:
+        reply = original(payload, who)
+        row: dict[str, object] = dict(cast("Mapping[str, Any]", reply.data["UserPoolClient"]))
+        row["ClientSecret"] = "segredo-gerado-pelo-cognito"
+        return good({"UserPoolClient": row})
+
+    monkeypatch.setattr(lab.aws, "_cognito_idp_describe_user_pool_client", with_secret)
+    with pytest.raises(ServiceFailure) as error:
+        provision(lab.services.ports.commands, lab.spec, root, lab.context)
+    assert error.value.args == ("probe=step_failed step=client_readback",)
+    assert "admin-create-user" not in lab.aws.operations()
+
+
+def test_readback_do_client_com_lista_a_menos_aborta_antes_do_usuario(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = make_login_lab(tmp_path)
+    root = create_root(lab)
+    original = lab.aws._cognito_idp_describe_user_pool_client
+
+    def narrowed(payload: dict, who: str) -> Reply:
+        reply = original(payload, who)
+        row: dict[str, object] = dict(cast("Mapping[str, Any]", reply.data["UserPoolClient"]))
+        row["AllowedOAuthScopes"] = list(SCOPES[:-1])
+        return good({"UserPoolClient": row})
+
+    monkeypatch.setattr(lab.aws, "_cognito_idp_describe_user_pool_client", narrowed)
+    with pytest.raises(ServiceFailure) as error:
+        provision(lab.services.ports.commands, lab.spec, root, lab.context)
+    assert error.value.args == ("probe=step_failed step=client_readback",)
+
+
 def test_resposta_de_client_sem_id_aborta_sem_domain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
