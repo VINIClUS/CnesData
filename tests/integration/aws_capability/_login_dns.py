@@ -2,7 +2,6 @@
 
 import secrets
 from dataclasses import dataclass, field
-from typing import Protocol
 
 from tests.integration.aws_capability._login_dns_wire import (
     RCODE_NOERROR,
@@ -14,17 +13,12 @@ from tests.integration.aws_capability._login_dns_wire import (
     encode_query,
     normalize,
 )
+from tests.integration.aws_capability._login_ports import DnsPort
 from tests.integration.aws_capability.contracts import RequestContext
 
 CONFIRMATIONS = 2
 DISCOVERY_TRIES = 3
 PROBE_PREFIX = "cnesdata-cap-probe-"
-
-
-class DnsPort(Protocol):
-    def resolvers(self) -> tuple[str, ...]: ...
-    def addresses(self, host: str) -> tuple[str, ...]: ...
-    def exchange(self, server: str, packet: bytes) -> bytes | None: ...
 
 
 @dataclass(frozen=True)

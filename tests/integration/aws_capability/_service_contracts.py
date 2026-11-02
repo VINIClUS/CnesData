@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 import httpx
 
-from tests.integration.aws_capability._login_ports import ListenerPort
+from tests.integration.aws_capability._login_ports import DnsPort, ListenerPort
 from tests.integration.aws_capability._operator_inputs import OperatorInputs
 
 if TYPE_CHECKING:
@@ -48,3 +48,4 @@ class ServicePorts:
     operator: OperatorInputs | None = None
     http: httpx.Client | None = field(default=None, repr=False)
     listener: Callable[[], ListenerPort] | None = field(default=None, repr=False)
+    dns: DnsPort | None = field(default=None, repr=False)

@@ -73,13 +73,16 @@ def refresh_tokens(http: Http, endpoint: Endpoint, refresh_token: str) -> TokenR
 
 
 def await_ready(
-    http: Http, endpoint: Endpoint, pause: Callable[[float], None]
-) -> tuple[int, bool]:
-    """Returns: tentativas feitas e se a página de login respondeu 200."""
+    http: Http, endpoint: Endpoint, pause: Callable[[float], None], published: Callable[[], bool]
+) -> tuple[int, int | None, bool]:
+    """Returns: tentativas, a tentativa em que o DNS publicou e se a página respondeu 200."""
     url = authorize_url(endpoint, new_authorize(API_ORIGIN))
+    published_at: int | None = None
     for attempt in range(1, READY_ATTEMPTS + 1):
-        if http.get(url).status == 200:
-            return attempt, True
+        if published_at is None and published():
+            published_at = attempt
+        if published_at is not None and http.get(url).status == 200:
+            return attempt, published_at, True
         if attempt < READY_ATTEMPTS:
             pause(READY_PAUSE)
-    return READY_ATTEMPTS, False
+    return READY_ATTEMPTS, published_at, False

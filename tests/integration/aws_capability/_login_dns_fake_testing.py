@@ -79,9 +79,11 @@ class FakeDns:
     log: list[Query] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
     address_lookups: list[str] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
 
     def create(self, name: str) -> None:
         self.target, self.created_at = name.lower(), self.now()
+        self.events.append("create")
 
     def authorities(self) -> set[str]:
         return set(self.hosts.values())
@@ -109,6 +111,7 @@ class FakeDns:
         query = _parse(packet)
         _, recursion, name, qtype = query
         self.log.append(Query(server, name, qtype, recursion))
+        self.events.append("query")
         if name == self.target and (server not in self.authorities() or recursion):
             raise EarlyLookup(f"dns=target_outside_authorities recursion={recursion}")
         if server in self.silent and server not in self.authorities():
