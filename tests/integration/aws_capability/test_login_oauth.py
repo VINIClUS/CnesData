@@ -1,6 +1,7 @@
 """Porta HTTP, rótulos OAuth, prontidão e veredito do verifier, com repr sem segredos."""
 
 import time
+from collections.abc import Callable
 
 import httpx
 import pytest
@@ -107,20 +108,70 @@ def test_erro_do_endpoint_nunca_vem_do_corpo_livre() -> None:
     assert exchange_code(http, ENDPOINT, Grant("c", "v")).error == "other"
 
 
+def published_after(checks: int) -> tuple[list[int], Callable[[], bool]]:
+    calls = [0]
+
+    def published() -> bool:
+        calls[0] += 1
+        return calls[0] > checks
+
+    return calls, published
+
+
 def test_prontidao_para_no_primeiro_200_e_registra_tentativas() -> None:
     answers = iter([404, 403, 200])
     http, _ = http_for(lambda r: httpx.Response(next(answers), text="x"))
     pauses: list[float] = []
-    assert await_ready(http, ENDPOINT, pauses.append) == (3, True)
+    assert await_ready(http, ENDPOINT, pauses.append, lambda: True) == (3, 1, True)
     assert pauses == [5.0, 5.0]
 
 
 def test_prontidao_e_limitada_a_36_tentativas_com_35_pausas() -> None:
     http, ctx = http_for(lambda r: httpx.Response(404, text="x"))
     pauses: list[float] = []
-    assert await_ready(http, ENDPOINT, pauses.append) == (READY_ATTEMPTS, False)
+    assert await_ready(http, ENDPOINT, pauses.append, lambda: True) == (READY_ATTEMPTS, 1, False)
     assert len(pauses) == READY_ATTEMPTS - 1
     assert ctx.budget.work_used == READY_ATTEMPTS
+
+
+def test_prontidao_nao_busca_a_pagina_antes_do_dns_publicar() -> None:
+    gets: list[int] = []
+    calls, published = published_after(3)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        gets.append(calls[0])
+        return httpx.Response(200 if len(gets) == 2 else 404, text="x")
+
+    http, _ = http_for(handler)
+    pauses: list[float] = []
+    assert await_ready(http, ENDPOINT, pauses.append, published) == (5, 4, True)
+    assert gets == [4, 4]
+    assert calls == [4]
+    assert pauses == [5.0] * 4
+
+
+def test_dns_que_nunca_publica_esgota_as_tentativas_sem_http() -> None:
+    gets: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        gets.append(str(request.url))
+        return httpx.Response(200, text="x")
+
+    http, ctx = http_for(handler)
+    pauses: list[float] = []
+    result = await_ready(http, ENDPOINT, pauses.append, lambda: False)
+    assert result == (READY_ATTEMPTS, None, False)
+    assert gets == []
+    assert ctx.budget.work_used == 0
+    assert len(pauses) == READY_ATTEMPTS - 1
+
+
+def test_dns_publicado_na_ultima_tentativa_ainda_tenta_uma_vez_a_pagina() -> None:
+    _, published = published_after(READY_ATTEMPTS - 1)
+    http, ctx = http_for(lambda r: httpx.Response(200, text="x"))
+    result = await_ready(http, ENDPOINT, lambda seconds: None, published)
+    assert result == (READY_ATTEMPTS, READY_ATTEMPTS, True)
+    assert ctx.budget.work_used == 1
 
 
 def test_repr_de_plano_cadeia_e_callback_nao_mostra_state_nem_codigo() -> None:

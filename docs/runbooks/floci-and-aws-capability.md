@@ -221,7 +221,23 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   senha permanente aleatória). O teste de drift compara esses campos com `main.tf`; as únicas
   diferenças são callback, logout e o prefixo do domain. `DeletionProtection` segue o B1 (ativa na
   criação, desligada pela limpeza antes de apagar o pool).
-  - **Passo humano:** depois que o login gerenciado responde 200 (até 36 tentativas, 5 s), o probe
+  - **Gate DNS (antes do primeiro lookup recursivo do domain):** um NXDOMAIN obtido antes de o nome
+    existir fica em cache negativo pelo SOA da zona (TTL 900 s) no roteador, no resolver público e no
+    systemd-resolved, e a prontidão estoura; foi o que travou o ensaio de 02/11/2026. Por isso o nome
+    novo só vai aos NS autoritativos, sem recursão:
+    - antes de criar os filhos, o probe pede o NS de `auth.<região>.amazoncognito.com` ao resolver do
+      `/etc/resolv.conf` (a zona já existe), resolve os hosts em IPv4 e prova cada NS com uma consulta
+      sem recursão a um nome aleatório inexistente, que precisa voltar NXDOMAIN com `aa`;
+    - falha grava `dns_gate` (`no_resolver`, `no_nameservers`, `unaddressed` ou `unverified`), e
+      nenhum filho é criado;
+    - na prontidão, cada tentativa consulta só os NS ainda pendentes; um NS confirma com NOERROR,
+      `aa` e um A do nome exato em duas tentativas seguidas (resposta negativa zera, timeout não
+      conta), e o GET do authorize só sai com todos confirmados;
+    - UDP/53 em IPv4, 1 s de timeout por consulta; cada consulta e cada resolução de host consomem
+      o orçamento. O primeiro lookup recursivo só acontece com o nome já publicado, então o
+      resolver local deve voltar a servir sem trocar o DNS da máquina; o próximo ensaio real confirma.
+  - **Passo humano:** depois que todos os NS confirmam e o login gerenciado responde 200 (até 36
+    tentativas no total, 5 s entre elas), o probe
     grava `<journal-dir>/<run>.login` (modo 0600, atômico) com três linhas `url=`, `username=` e
     `password=` e abre o listener em `127.0.0.1` e `::1`, porta 53682. O operador lê o arquivo e
     passa a URL e as credenciais ao humano na conversa. O humano abre a URL no navegador da mesma
@@ -234,8 +250,11 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
     os negativos), cada um com `state` e verifier PKCE S256 próprios. `state` divergente grava
     `login=state_mismatch` e o código não é usado. Os códigos ficam só em memória e são trocados
     logo depois da cadeia.
-  - **Chaves:** `discovery_status`, `discovery_issuer_ok`, `discovery_jwks_https`, `domain_ready`
-    (segundos ou `timeout`), `domain_ready_polls`, `login` (`ok`, `timeout`, `state_mismatch`,
+  - **Chaves:** `discovery_status`, `discovery_issuer_ok`, `discovery_jwks_https`, `dns_gate` (`ok`
+    ou o código da falha), `dns_nameservers` (contagem), `domain_published` (segundos até o gate
+    abrir ou `timeout`), `domain_published_polls` (tentativa em que abriu; 36 se não abriu),
+    `domain_ready` (segundos ou `timeout`), `domain_ready_polls` (tentativas totais, DNS e HTTP),
+    `login` (`ok`, `timeout`, `state_mismatch`,
     `callback_error`, `missing_code`), `listener` (`unavailable` quando a porta ou o IPv6 não abrem; nesse caso nada é criado), `login_error` (só no `callback_error`, código OAuth curto), `login_seconds`, `a_status`, `a_error`, `a_token_use`, `a_scope_api`,
     `a_client_id_ok`, `a_aud` (a origem da API, `absent` ou `other`), `a_claims` (só nomes),
     `a_verifier` (`ok` ou o código do `OidcVerifier`), `a_id_aud_is_client`, `refresh_*`
@@ -243,13 +262,21 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
     (`InitiateAuth REFRESH_TOKEN_AUTH`, só observados), `b_*` (código sem `resource`),
     `neg_wrong_verifier_*`, `neg_right_after_wrong_*` e `neg_right_after_wrong_consumed`,
     `neg_redirect_*`, `neg_reuse_*` e `sdk_password_auth` (código de `USER_PASSWORD_AUTH`).
-    Nenhum token, código, verifier, state, id, usuário, senha, URL com query ou conteúdo de JWKS.
+    Nenhum token, código, verifier, state, id, usuário, senha, URL com query, conteúdo de JWKS,
+    endereço de NS ou nome de domínio.
   - **Janela e limites:** janela 1100 s; 512 chamadas, reserva 256, `cleanup_seconds` 360, de modo
-    que janela mais limpeza ficam abaixo de 2400 s. As chamadas HTTP consomem o mesmo orçamento.
-    Ciclo simulado (1,3 s por chamada, vezes 1,2): típico 32 chamadas de trabalho (20 da CLI, 12 de
-    HTTP) em 107 s; lento (domain pronto na 31a tentativa, login em 580 s) 59 chamadas em 812 s;
-    pior caso (35 pausas de 5 s, login em 592 s) 63 chamadas em 853 s; limpeza 142 chamadas em
-    185 s nos três.
+    que janela mais limpeza ficam abaixo de 2400 s. As chamadas HTTP e as consultas DNS consomem o
+    mesmo orçamento. Modelo: 1,3 s por chamada da CLI ou de HTTP, 0,5 s por consulta DNS
+    respondida e 1 s por consulta perdida; os segundos abaixo são do ciclo simulado, e o teste
+    exige vezes 1,2 dentro da janela:
+    - típico: 49 chamadas de trabalho (20 da CLI, 12 de HTTP, 17 de DNS) em 122 s;
+    - lento (domain pronto na 32a tentativa, login em 580 s): 76 chamadas em 827 s;
+    - pior caso (36 tentativas, login em 592 s): 80 chamadas em 867 s;
+    - DNS tardio (publicação em 150 s): 137 chamadas em 276 s;
+    - DNS com perda (um NS publica em 60 s, metade das consultas perdidas): 65 chamadas em 186 s;
+    - pior caso com DNS (publicação em 200 s, metade das consultas perdidas, login em 592 s): 151
+      chamadas em 869 s, ou 1043 s vezes 1,2;
+    - limpeza: 142 chamadas em 185 s em todos.
   - **O primeiro ensaio real decide:** a ordem de remoção domain, branding, client, server, usuário e
     pool (o brief pedia branding antes do domain; ambas mantêm domain antes do pool e branding antes
     do client, e o janitor repete em falha alta); o branding criado logo após o domain; se um

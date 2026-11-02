@@ -23,6 +23,9 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "Popen", _forbid)
     monkeypatch.setattr(socket.socket, "connect", _forbid)
     monkeypatch.setattr(socket.socket, "connect_ex", _forbid)
+    monkeypatch.setattr(socket.socket, "sendto", _forbid)
+    monkeypatch.setattr(socket.socket, "recvfrom", _forbid)
+    monkeypatch.setattr(socket, "getaddrinfo", _forbid)
 
 
 @pytest.fixture

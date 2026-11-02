@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from tests.integration.aws_capability import _production as production
+from tests.integration.aws_capability._login_dns_udp import UdpDns
 from tests.integration.aws_capability._login_listener import (
     LoopbackListener,
     listener_factory,
@@ -115,7 +116,7 @@ def test_cliente_http_nao_loga_urls_com_query(caplog: pytest.LogCaptureFixture) 
     assert client.follow_redirects is False
 
 
-def test_ports_reais_so_ligam_http_e_listener_no_perfil_de_login(lab: Lab) -> None:
+def test_ports_reais_so_ligam_http_listener_e_dns_no_perfil_de_login(lab: Lab) -> None:
     boundary, *_ = processes()
     login = production.build_ports(
         replace(lab.spec, probe="cognito-login"), environment(), boundary, FakeClock()
@@ -129,3 +130,5 @@ def test_ports_reais_so_ligam_http_e_listener_no_perfil_de_login(lab: Lab) -> No
     assert isinstance(other.services, production.AwsServices)
     assert other.services.ports.http is None
     assert other.services.ports.listener is None
+    assert other.services.ports.dns is None
+    assert login.services.ports.dns == UdpDns()

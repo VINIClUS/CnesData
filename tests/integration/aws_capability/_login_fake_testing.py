@@ -14,6 +14,7 @@ from jose import jwk, jwt
 
 from tests.integration.aws_capability._aws_fake_cognito_testing import REGION, FakePool
 from tests.integration.aws_capability._aws_fake_types_testing import denied, good
+from tests.integration.aws_capability._login_dns_fake_testing import EarlyLookup, FakeDns
 from tests.integration.aws_capability._login_ports import API_ORIGIN, CALLBACK_URL
 from tests.integration.aws_capability._service_contracts import Reply
 
@@ -57,6 +58,7 @@ class FakeIdp:
     token_codes: list[str] = field(default_factory=list)
     issued: int = 0
     requests: list[tuple[str, str]] = field(default_factory=list)
+    dns: FakeDns | None = None
 
     @property
     def pool(self) -> FakePool:
@@ -83,6 +85,7 @@ class FakeIdp:
         self.requests.append((request.method, path))
         if request.url.host == HOST:
             return self._metadata(path)
+        self._require_published(path)
         if path == "/oauth2/authorize":
             return self._authorize_page()
         if path == "/login":
@@ -91,6 +94,10 @@ class FakeIdp:
             form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
             return self._token(form)
         return httpx.Response(404, json={})
+
+    def _require_published(self, path: str) -> None:
+        if self.dns is not None and not self.dns.fully_published():
+            raise EarlyLookup(f"dns=early_http path={path}")
 
     def _metadata(self, path: str) -> httpx.Response:
         if path.endswith("/openid-configuration"):
@@ -110,6 +117,7 @@ class FakeIdp:
         return httpx.Response(302, headers={"Location": f"{self.origin}/login?client=x"})
 
     def authorize(self, query: Mapping[str, str]) -> str | None:
+        self._require_published("/oauth2/authorize")
         valid = (
             query.get("client_id") == self.client_id
             and query.get("redirect_uri") == CALLBACK_URL

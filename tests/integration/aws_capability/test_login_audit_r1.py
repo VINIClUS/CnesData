@@ -65,8 +65,10 @@ def test_adaptador_http_segue_redirect_na_prontidao() -> None:
 
 def test_segundos_de_prontidao_e_de_login_sao_os_do_modelo(tmp_path: Path) -> None:
     observed = observe(make_login_world(tmp_path, ready_after=2, human_seconds=45.0))
-    assert observed["domain_ready"] == 15.2
-    assert observed["domain_ready_polls"] == 3
+    assert observed["domain_published"] == 9.0
+    assert observed["domain_published_polls"] == 2
+    assert observed["domain_ready"] == 24.2
+    assert observed["domain_ready_polls"] == 4
     assert observed["login_seconds"] == 48.0
 
 

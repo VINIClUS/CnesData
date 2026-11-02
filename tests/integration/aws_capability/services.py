@@ -180,7 +180,7 @@ class AwsServices:
             if spec != self.spec or len(resources) != 1:
                 raise ServiceFailure("probe=cognito_prepare_invalid")
             prepare_pool(self.ports.commands, self.spec, resources[0], context)
-            if self.ports.http is None or self.ports.listener is None:
+            if self.ports.http is None or self.ports.listener is None or self.ports.dns is None:
                 raise ServiceFailure("probe=login_ports_unavailable")
             return probe_login(resources, spec, self.ports, context)
         if self.spec.probe in S3_PROFILES:

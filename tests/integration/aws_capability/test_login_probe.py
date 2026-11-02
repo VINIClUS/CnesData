@@ -13,7 +13,8 @@ from tests.integration.aws_capability._login_lab_testing import (
 from tests.integration.aws_capability.contracts import ServiceFailure
 
 STRING_KEYS = {
-    "discovery_status", "discovery_issuer_ok", "discovery_jwks_https", "domain_ready",
+    "discovery_status", "discovery_issuer_ok", "discovery_jwks_https", "dns_gate",
+    "dns_nameservers", "domain_published", "domain_published_polls", "domain_ready",
     "domain_ready_polls", "login", "login_seconds", "a_status", "a_error", "a_token_use",
     "a_scope_api", "a_client_id_ok", "a_aud", "a_claims", "a_verifier", "a_id_aud_is_client",
     "refresh_status", "refresh_error", "refresh_aud", "refresh_verifier", "sdk_refresh",
@@ -147,7 +148,9 @@ def test_state_divergente_e_registrado_e_o_codigo_nao_e_usado(tmp_path: Path) ->
     observed = run_probe(world)
     assert observed == {
         "discovery_status": 200, "discovery_issuer_ok": True, "discovery_jwks_https": True,
-        "domain_ready": observed["domain_ready"], "domain_ready_polls": 3,
+        "dns_gate": "ok", "dns_nameservers": 4, "domain_published": 9.0,
+        "domain_published_polls": 2, "domain_ready": observed["domain_ready"],
+        "domain_ready_polls": 4,
         "login": "state_mismatch", "login_seconds": observed["login_seconds"],
     }
     assert not any(record["used"] for record in world.idp.codes.values())

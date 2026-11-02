@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 
+from tests.integration.aws_capability._login_dns_udp import UdpDns
 from tests.integration.aws_capability._login_listener import listener_factory
 from tests.integration.aws_capability._operator_inputs import read_operator_inputs
 from tests.integration.aws_capability._profiles import PROFILES
@@ -173,6 +174,7 @@ def build_ports(
         operator,
         build_http_client() if login else None,
         listener_factory() if login else None,
+        UdpDns() if login else None,
     )
     services = AwsServices(spec, service_ports)
     policy = Policy(spec.account, AUTHORIZED_REGIONS, profile.limits)

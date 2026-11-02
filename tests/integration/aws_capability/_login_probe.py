@@ -1,6 +1,7 @@
 """Probe cognito-login: um login humano, códigos em memória e verificações empíricas."""
 
 from collections.abc import Callable, Mapping, Sequence
+from urllib.parse import urlsplit
 
 from tests.integration.aws_capability._login_chain import (
     LOGIN_SECONDS,
@@ -21,6 +22,7 @@ from tests.integration.aws_capability._login_checks import (
     check_without_resource,
 )
 from tests.integration.aws_capability._login_claims import make_verifier
+from tests.integration.aws_capability._login_dns import Dns, Gate, discover, zone_of
 from tests.integration.aws_capability._login_handoff import remove_handoff, write_handoff
 from tests.integration.aws_capability._login_http import Http
 from tests.integration.aws_capability._login_oauth import await_ready
@@ -43,7 +45,7 @@ def probe_login(
     """Returns: observações do login; Raises: ServiceFailure para entrada ou etapa inválida."""
     if context.lane != "work" or len(resources) != 1 or ports.http is None:
         raise ServiceFailure("probe=login_invalid")
-    if ports.listener is None:
+    if ports.listener is None or ports.dns is None:
         raise ServiceFailure("probe=login_ports_unavailable")
     try:
         listener = ports.listener()
@@ -64,12 +66,18 @@ def _observe(
 ) -> Observed:
     ports, listener = wiring
     assert ports.http is not None
-    http = Http(ports.http, context)
+    assert ports.dns is not None
+    http, dns = Http(ports.http, context), Dns(ports.dns, context)
     issuer = f"https://cognito-idp.{spec.region}.amazonaws.com/{root.resource_id}"
     observed = check_discovery(http, issuer)
+    discovery = discover(dns, zone_of(spec.region))
+    observed.update({"dns_gate": discovery.code, "dns_nameservers": len(discovery.servers)})
+    if discovery.code != "ok":
+        return observed
     env = provision(ports.commands, spec, root, context)
     kit = Kit(http, env.endpoint, make_verifier(issuer, ports.http), ports.commands, context)
-    observed.update(_ready(kit, ports))
+    host = urlsplit(env.endpoint.origin).hostname or ""
+    observed.update(_ready(kit, ports, Gate(dns, discovery.servers, host)))
     if observed["domain_ready"] == "timeout":
         return observed
     plan = make_plan(env.endpoint)
@@ -82,11 +90,22 @@ def _observe(
     return observed
 
 
-def _ready(kit: Kit, ports: ServicePorts) -> Observed:
+def _ready(kit: Kit, ports: ServicePorts, gate: Gate) -> Observed:
     start = ports.now()
-    polls, ready = await_ready(kit.http, kit.endpoint, ports.pause)
-    seconds: object = round(ports.now() - start, 1) if ready else "timeout"
-    return {"domain_ready": seconds, "domain_ready_polls": polls}
+    opened: list[float] = []
+
+    def published() -> bool:
+        if not opened and gate.step():
+            opened.append(ports.now())
+        return bool(opened)
+
+    polls, published_at, ready = await_ready(kit.http, kit.endpoint, ports.pause, published)
+    return {
+        "domain_published": round(opened[0] - start, 1) if opened else "timeout",
+        "domain_published_polls": polls if published_at is None else published_at,
+        "domain_ready": round(ports.now() - start, 1) if ready else "timeout",
+        "domain_ready_polls": polls,
+    }
 
 
 def _login(
