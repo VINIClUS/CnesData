@@ -3,6 +3,7 @@
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
+from tests.integration.aws_capability._aws_fake_cognito_testing import CognitoHandlers, FakePool
 from tests.integration.aws_capability._aws_fake_ddb_testing import DdbHandlers, FakeTable
 from tests.integration.aws_capability._aws_fake_iam_testing import IamHandlers
 from tests.integration.aws_capability._aws_fake_policy_testing import PolicyHandlers
@@ -32,7 +33,9 @@ CHAINING_MESSAGE = (
 
 
 @dataclass
-class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers, PolicyHandlers):
+class FakeAws(
+    S3Handlers, IamHandlers, DdbHandlers, StsHandlers, PolicyHandlers, CognitoHandlers
+):
     clock: Callable[[], float]
     advance: Callable[[float], None]
     latency: float = 1.0
@@ -58,6 +61,8 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers, PolicyHandlers)
     buckets: dict[str, FakeBucket] = field(default_factory=dict)
     roles: dict[str, FakeRole] = field(default_factory=dict)
     tables: dict[str, FakeTable] = field(default_factory=dict)
+    pools: dict[str, FakePool] = field(default_factory=dict)
+    idp: Callable[[Mapping[str, object]], Reply] | None = None
     calls: list[tuple[str, str, str]] = field(default_factory=list)
     lanes: list[str] = field(default_factory=list)
     requests: list[Request] = field(default_factory=list)
@@ -100,9 +105,6 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers, PolicyHandlers)
     def _sts_get_caller_identity(self, payload: dict, who: str) -> Reply:
         arn = f"arn:aws:sts::{ACCOUNT}:assumed-role/cnesdata-cap-operator-0a1b2c3d/session"
         return good({"Account": ACCOUNT, "Arn": arn, "UserId": "synthetic"})
-
-    def _cognito_idp_list_user_pools(self, payload: dict, who: str) -> Reply:
-        return good({"UserPools": []})
 
 
 

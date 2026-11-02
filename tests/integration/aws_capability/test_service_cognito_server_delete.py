@@ -41,7 +41,7 @@ SERVER = Resource(
 )
 CLIENT = Resource(
     "cognito",
-    '{"child_id":{"client_id":"synthetic-client"},"kind":"cognito.client",'
+    '{"child_id":{"client_id":"synthetic-client"},"kind":"cognito.gadget",'
     '"parent_id":"us-east-2_PoolRoot123","root_id":"us-east-2_PoolRoot123",'
     '"run":"a1b2c3d4","service":"cognito","v":1}',
     ROOT.name,

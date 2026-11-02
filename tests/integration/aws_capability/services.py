@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
 from tests.integration.aws_capability._iam_s3_probe import probe_iam_s3
 from tests.integration.aws_capability._leadingkeys_probe import probe_leadingkeys
+from tests.integration.aws_capability._login_probe import probe_login
 from tests.integration.aws_capability._resource_ids import cognito_child
 from tests.integration.aws_capability._s3_probe import probe_s3
 from tests.integration.aws_capability._service_cognito import (
@@ -20,12 +21,12 @@ from tests.integration.aws_capability._service_cognito_children import (
 from tests.integration.aws_capability._service_cognito_create import create_pool
 from tests.integration.aws_capability._service_cognito_delete import delete_pool
 from tests.integration.aws_capability._service_cognito_dependents import cognito_dependents
+from tests.integration.aws_capability._service_cognito_login_delete import delete_cognito_child
 from tests.integration.aws_capability._service_cognito_prepare import prepare_pool
 from tests.integration.aws_capability._service_cognito_server_create import (
     create_server,
     lookup_server_exact,
 )
-from tests.integration.aws_capability._service_cognito_server_delete import delete_server
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb import (
     inspect_table,
@@ -173,12 +174,15 @@ class AwsServices:
     ) -> Mapping[str, object]:
         if self.spec.probe == "cognito-resource-server":
             return self._probe_server(resources, spec, context)
-        if self.spec.probe in {"cognito-login", "cognito-pkce-negatives", "cognito-sdk"}:
+        if self.spec.probe == "cognito-login":
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")
             if spec != self.spec or len(resources) != 1:
                 raise ServiceFailure("probe=cognito_prepare_invalid")
             prepare_pool(self.ports.commands, self.spec, resources[0], context)
+            if self.ports.http is None or self.ports.listener is None:
+                raise ServiceFailure("probe=login_ports_unavailable")
+            return probe_login(resources, spec, self.ports, context)
         if self.spec.probe in S3_PROFILES:
             if spec != self.spec:
                 raise ServiceFailure("probe=s3_invalid")
@@ -243,7 +247,7 @@ class AwsServices:
             if type(bypass) is not bool:
                 raise ServiceFailure("service=cognito_delete_invalid")
             if _is_cognito_child(resource):
-                delete_server(resource, self, context)
+                delete_cognito_child(resource, self, context)
                 return
             delete_pool(resource, self, context)
             return
@@ -265,8 +269,6 @@ def _cognito_enabled(spec: RunSpec) -> bool:
     return spec.allow_governance_bypass and spec.probe in {
         "cognito-resource-server",
         "cognito-login",
-        "cognito-pkce-negatives",
-        "cognito-sdk",
     }
 
 

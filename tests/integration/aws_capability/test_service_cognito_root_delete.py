@@ -235,7 +235,7 @@ def test_rejeita_entrada_de_delete(root_lab: RootLab, case: str) -> None:
         resource = replace(
             ROOT,
             resource_id=(
-                '{"child_id":{"username":"synthetic-user"},"kind":"cognito.user",'
+                '{"child_id":{"username":"synthetic-user"},"kind":"cognito.gadget",'
                 '"parent_id":"us-east-2_PoolRoot123","root_id":"us-east-2_PoolRoot123",'
                 '"run":"a1b2c3d4","service":"cognito","v":1}'
             ),

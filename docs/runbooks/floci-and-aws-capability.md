@@ -91,10 +91,11 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
 ```
 
 - **Perfis com probe concluído:** `ddb-transactions`, `ddb-conditions`, `ddb-ttl-gsi`,
-  `ddb-throughput`, `iam-trust`, `iam-leadingkeys`, `iam-s3`, `cognito-resource-server`, `s3-hold` e `s3-retention`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
-  terminam em `probe=not_implemented`.
+  `ddb-throughput`, `iam-trust`, `iam-leadingkeys`, `iam-s3`, `cognito-resource-server`, `cognito-login`, `s3-hold` e `s3-retention`. Os placeholders
+  `cognito-pkce-negatives` e `cognito-sdk` deixaram de existir: seus checks usam códigos e refresh
+  token do mesmo login do `cognito-login`.
 - **Deadline:** no máximo a janela de trabalho do perfil à frente (180 s por padrão; `ddb-throughput`
-  usa 140 s, `iam-leadingkeys` 330 s e `iam-s3` 275 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
+  usa 140 s, `iam-leadingkeys` 330 s, `iam-s3` 275 s e `cognito-login` 1100 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
 - **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
   (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
@@ -112,8 +113,8 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   path e responde `AccessDenied` em vez de `NoSuchEntity`, e o cleanup não prova a ausência.
   Negações de `head-object` chegam como `403` (sem corpo) e o controle positivo as repete.
 - **Janela de cleanup:** cada chamada da AWS CLI custa cerca de 1,2 a 1,4 s (início do processo).
-  `cleanup_seconds` dos perfis usa esse custo medido: 240 s nos quatro `cognito-*` e em
-  `s3-retention`, 150 s nos três `ddb-*` (inclui a espera por `DELETING`), 120 s em `s3-hold`;
+  `cleanup_seconds` dos perfis usa esse custo medido: 240 s em `cognito-resource-server` e
+  `s3-retention`, 360 s em `cognito-login`, 150 s nos três `ddb-*` (inclui a espera por `DELETING`), 120 s em `s3-hold`;
   a janela de trabalho é `Profile.window` (padrão 180 s). No modelo com 1,3 s por chamada, `s3-hold`
   gasta cerca de 38 s e `s3-retention` cerca de 156 s de cleanup (29 e 120 chamadas), com a
   janela medida na primeira execução real.
@@ -210,6 +211,62 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   queda. Por fim `serving/x` segue legível (`serving_after_flip`, controle obrigatório depois da
   virada). A bucket policy é a única policy removida pelo ensaio, e só pelo cleanup, antes do
   bucket; o `Deny` nomeia só o role api e não alcança o operador.
+- **`cognito-login` (login gerenciado v2 com um login humano):** um pool (ESSENTIALS, MFA off,
+  senha de 14 caracteres com as quatro classes, e-mail como username, sem diferenciar caixa),
+  o resource server `https://api.cnesdata.com.br` com o escopo `api.access`, o client público do
+  módulo (sem secret, só `code`, `ALLOW_REFRESH_TOKEN_AUTH`, `PreventUserExistenceErrors`
+  `ENABLED`, revogação ligada; callback `http://localhost:53682/callback` e logout
+  `http://localhost:53682/`), domain `cnesdata-cap-<run>` com `ManagedLoginVersion=2`, branding com
+  `UseCognitoProvidedValues` e um usuário `cap-<run>@example.invalid` (`MessageAction=SUPPRESS`,
+  senha permanente aleatória). O teste de drift compara esses campos com `main.tf`; as únicas
+  diferenças são callback, logout e o prefixo do domain. `DeletionProtection` segue o B1 (ativa na
+  criação, desligada pela limpeza antes de apagar o pool).
+  - **Passo humano:** depois que o login gerenciado responde 200 (até 36 tentativas, 5 s), o probe
+    grava `<journal-dir>/<run>.login` (modo 0600, atômico) com três linhas `url=`, `username=` e
+    `password=` e abre o listener em `127.0.0.1` e `::1`, porta 53682. O operador lê o arquivo e
+    passa a URL e as credenciais ao humano na conversa. O humano abre a URL no navegador da mesma
+    máquina do listener, entra uma vez (os authorizes seguintes são silenciosos pelo cookie do login
+    gerenciado) e avisa quando aparecer a página final. Espera de até 600 s; estouro grava
+    `login=timeout`, apaga o arquivo e segue para a limpeza. O arquivo também some quando a cadeia
+    termina, em toda limpeza e no início do janitor, mesmo com journal corrompido. Nunca vai ao
+    journal, à evidência, ao stdout ou a logs.
+  - **Cadeia:** quatro authorizes (A com `resource` e escopos completos, B sem `resource`, C e D para
+    os negativos), cada um com `state` e verifier PKCE S256 próprios. `state` divergente grava
+    `login=state_mismatch` e o código não é usado. Os códigos ficam só em memória e são trocados
+    logo depois da cadeia.
+  - **Chaves:** `discovery_status`, `discovery_issuer_ok`, `discovery_jwks_https`, `domain_ready`
+    (segundos ou `timeout`), `domain_ready_polls`, `login` (`ok`, `timeout`, `state_mismatch`,
+    `callback_error`, `missing_code`), `listener` (`unavailable` quando a porta ou o IPv6 não abrem; nesse caso nada é criado), `login_error` (só no `callback_error`, código OAuth curto), `login_seconds`, `a_status`, `a_error`, `a_token_use`, `a_scope_api`,
+    `a_client_id_ok`, `a_aud` (a origem da API, `absent` ou `other`), `a_claims` (só nomes),
+    `a_verifier` (`ok` ou o código do `OidcVerifier`), `a_id_aud_is_client`, `refresh_*`
+    (endpoint de token), `sdk_refresh`, `sdk_refresh_aud`, `sdk_refresh_verifier`
+    (`InitiateAuth REFRESH_TOKEN_AUTH`, só observados), `b_*` (código sem `resource`),
+    `neg_wrong_verifier_*`, `neg_right_after_wrong_*` e `neg_right_after_wrong_consumed`,
+    `neg_redirect_*`, `neg_reuse_*` e `sdk_password_auth` (código de `USER_PASSWORD_AUTH`).
+    Nenhum token, código, verifier, state, id, usuário, senha, URL com query ou conteúdo de JWKS.
+  - **Janela e limites:** janela 1100 s; 512 chamadas, reserva 256, `cleanup_seconds` 360, de modo
+    que janela mais limpeza ficam abaixo de 2400 s. As chamadas HTTP consomem o mesmo orçamento.
+    Ciclo simulado (1,3 s por chamada, vezes 1,2): típico 32 chamadas de trabalho (20 da CLI, 12 de
+    HTTP) em 107 s; lento (domain pronto na 31a tentativa, login em 580 s) 59 chamadas em 812 s;
+    pior caso (35 pausas de 5 s, login em 592 s) 63 chamadas em 853 s; limpeza 142 chamadas em
+    185 s nos três.
+  - **O primeiro ensaio real decide:** a ordem de remoção domain, branding, client, server, usuário e
+    pool (o brief pedia branding antes do domain; ambas mantêm domain antes do pool e branding antes
+    do client, e o janitor repete em falha alta); o branding criado logo após o domain; se um
+    verifier errado consome o código; se o refresh mantém `aud`. O listener abre antes de qualquer
+    recurso, e arquivos temporários `.handoff-<run>-*` também são removidos pela limpeza.
+  - **Ações do operador:** nenhuma fora do escopo já concedido: `cognito-idp:Create*`, `Delete*`,
+    `Update*`, `Describe*`, `List*` e `Admin*` por `ResourceTag` em `userpool/*`, `ListUserPools` e
+    `DescribeUserPoolDomain` sem escopo. Usadas: `CreateUserPool`, `CreateResourceServer`,
+    `CreateUserPoolClient`, `CreateUserPoolDomain`, `CreateManagedLoginBranding`, `AdminCreateUser`,
+    `AdminSetUserPassword`, `DescribeUserPool`, `DescribeResourceServer`,
+    `DescribeUserPoolClient`, `DescribeUserPoolDomain`,
+    `DescribeManagedLoginBrandingByClient`, `AdminGetUser`, `ListTagsForResource`,
+    `ListUserPools`, `ListUserPoolClients`, `ListResourceServers`, `ListUsers`, `UpdateUserPool`,
+    `DeleteManagedLoginBranding`, `DeleteUserPoolDomain`, `DeleteUserPoolClient`,
+    `AdminDeleteUser`, `DeleteResourceServer` e `DeleteUserPool`. `InitiateAuth` e os endpoints
+    OAuth do domain não são autenticados e não precisam de IAM. A ordem de remoção é domain,
+    branding, client, server, usuário, pool.
 - **Saída:** uma linha JSON em stdout com `status`, `reason`, `remaining` (serviço e nome) e
   `evidence` (`initial_counts`, `probe`, `counts`, `final_counts_all_cap`). Exit 0 só com
   `succeeded`; o IAM do próprio operador (`/cnesdata-cap/`) aparece na contagem global bruta.

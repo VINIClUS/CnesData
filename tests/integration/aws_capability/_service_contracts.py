@@ -4,6 +4,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Protocol
 
+import httpx
+
+from tests.integration.aws_capability._login_ports import ListenerPort
 from tests.integration.aws_capability._operator_inputs import OperatorInputs
 
 if TYPE_CHECKING:
@@ -43,3 +46,5 @@ class ServicePorts:
     pause: Callable[[float], None] = no_pause
     session: SessionFactory | None = field(default=None, repr=False)
     operator: OperatorInputs | None = None
+    http: httpx.Client | None = field(default=None, repr=False)
+    listener: Callable[[], ListenerPort] | None = field(default=None, repr=False)

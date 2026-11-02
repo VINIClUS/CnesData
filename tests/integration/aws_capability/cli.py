@@ -28,6 +28,8 @@ EMPTY_SUCCESS = frozenset(
         ("iam", "put-role-policy"),
         ("iam", "update-assume-role-policy"),
         ("cognito-idp", "update-user-pool"),
+        ("cognito-idp", "admin-set-user-password"),
+        ("cognito-idp", "admin-delete-user"),
         ("dynamodb", "transact-write-items"),
         ("dynamodb", "get-item"),
     }

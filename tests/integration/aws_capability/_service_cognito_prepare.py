@@ -1,7 +1,6 @@
 """Readback de prontidão do pool Cognito."""
 
 from collections.abc import Mapping
-from typing import NoReturn
 
 from tests.integration.aws_capability._safety import run_name
 from tests.integration.aws_capability._service_cognito_settings import (
@@ -19,10 +18,10 @@ from tests.integration.aws_capability.contracts import (
 
 def prepare_pool(
     commands: CommandPort, spec: RunSpec, resource: Resource, context: RequestContext
-) -> NoReturn:
+) -> None:
     if (
         context.lane != "work"
-        or spec.probe not in {"cognito-login", "cognito-pkce-negatives", "cognito-sdk"}
+        or spec.probe != "cognito-login"
         or resource.service != "cognito"
         or resource.name != run_name(spec)
     ):
@@ -33,4 +32,3 @@ def prepare_pool(
     policy = policies.get("PasswordPolicy") if isinstance(policies, Mapping) else None
     if not isinstance(policy, Mapping) or policy.get("MinimumLength") != 14:
         raise ServiceFailure("service=cognito_settings_invalid")
-    raise ServiceFailure("probe=not_implemented")

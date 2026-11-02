@@ -57,11 +57,11 @@ def root_lab(
     lab = RootLab(
         base.services, base.process, base.context, base.directory, monkeypatch, (caplog, capsys)
     )
-    lab.context.budget.limits = PROFILES["cognito-sdk"].limits
+    lab.context.budget.limits = PROFILES["cognito-login"].limits
     lab.context.budget.now = lambda: lab.clock[0]
     lab.services = replace(
         base.services,
-        spec=replace(base.services.spec, probe="cognito-sdk", allow_governance_bypass=True),
+        spec=replace(base.services.spec, probe="cognito-login", allow_governance_bypass=True),
     )
     processes = ProcessBoundary([])
     processes.ack = {

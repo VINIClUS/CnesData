@@ -363,7 +363,7 @@ def test_a02_rejeita_kind(server_lab: RootLab) -> None:
 
 
 def test_a03_rejeita_perfil(server_lab: RootLab) -> None:
-    _rejected(server_lab, [], {"spec": replace(server_lab.services.spec, probe="cognito-login")})
+    _rejected(server_lab, [], {"spec": replace(server_lab.services.spec, probe="iam-trust")})
 
 
 def test_a04_rejeita_bypass(server_lab: RootLab) -> None:

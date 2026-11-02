@@ -2,8 +2,10 @@
 
 import argparse
 import os
+import re
 import sys
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 from typing import NoReturn
@@ -11,6 +13,7 @@ from typing import NoReturn
 from tests.integration.aws_capability._cleanup import Cleanup
 from tests.integration.aws_capability._inventory import inventory, service_counts
 from tests.integration.aws_capability._journal import Journal, lease, prepare_directory
+from tests.integration.aws_capability._login_handoff import remove_handoff
 from tests.integration.aws_capability._safety import SafetyFailure, matches_name, validate
 from tests.integration.aws_capability._worker import Worker, acknowledgement, start_supervisor
 from tests.integration.aws_capability.contracts import (
@@ -81,6 +84,20 @@ def run(spec: RunSpec, ports: Ports) -> Outcome:
 
 
 def janitor(spec: RunSpec, ports: Ports) -> Outcome:
+    try:
+        return recover(spec, ports)
+    finally:
+        _remove_unleased_handoff(spec)
+
+
+def _remove_unleased_handoff(spec: RunSpec) -> None:
+    if re.fullmatch(r"[0-9a-f]{8}", spec.run_id) is None or not spec.journal_dir.is_dir():
+        return
+    with suppress(OSError, SafetyFailure), lease(spec):
+        remove_handoff(spec)
+
+
+def recover(spec: RunSpec, ports: Ports) -> Outcome:
     try:
         validate(spec, ports, recovery=True)
         journal = Journal(spec)

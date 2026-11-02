@@ -71,7 +71,7 @@ def lookup_server_exact(
 
 def _guard_root(spec: RunSpec, root: Resource, context: RequestContext) -> None:
     if (
-        spec.probe != "cognito-resource-server"
+        spec.probe not in {"cognito-resource-server", "cognito-login"}
         or not spec.allow_governance_bypass
         or context.lane not in {"work", "cleanup"}
         or root.service != "cognito"

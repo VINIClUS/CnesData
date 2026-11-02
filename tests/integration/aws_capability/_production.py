@@ -1,6 +1,7 @@
 """Portas reais de processo, credenciais de sessão e laço do supervisor."""
 
 import json
+import logging
 import os
 import select
 import subprocess
@@ -10,6 +11,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
+
+from tests.integration.aws_capability._login_listener import listener_factory
 from tests.integration.aws_capability._operator_inputs import read_operator_inputs
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._safety import SafetyFailure
@@ -32,6 +36,7 @@ from tests.integration.aws_capability.services import AwsCommands, AwsServices
 ACK_TIMEOUT = 15.0
 ACK_LIMIT = 65536
 COMMAND_TIMEOUT = 25.0
+HTTP_TIMEOUT = 15.0
 MARGIN_SECONDS = 15.0
 CYCLE_SECONDS = 1.0
 CREDENTIAL_KEYS = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")
@@ -142,6 +147,12 @@ def session_factory(spec: RunSpec, environment: Mapping[str, str]) -> SessionFac
     return build
 
 
+def build_http_client(transport: httpx.BaseTransport | None = None) -> httpx.Client:
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+    return httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=False, transport=transport)
+
+
 def build_ports(
     spec: RunSpec,
     environment: Mapping[str, str],
@@ -153,8 +164,15 @@ def build_ports(
         raise SafetyFailure("invalid_profile")
     commands = AwsCommands(spec.region, dict(environment), COMMAND_TIMEOUT)
     operator = read_operator_inputs(spec, environment) if "iam" in profile.services else None
+    login = spec.probe == "cognito-login"
     service_ports = ServicePorts(
-        commands, clock, time.sleep, session_factory(spec, environment), operator
+        commands,
+        clock,
+        time.sleep,
+        session_factory(spec, environment),
+        operator,
+        build_http_client() if login else None,
+        listener_factory() if login else None,
     )
     services = AwsServices(spec, service_ports)
     policy = Policy(spec.account, AUTHORIZED_REGIONS, profile.limits)

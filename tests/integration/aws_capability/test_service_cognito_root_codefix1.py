@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from tests.integration.aws_capability._service_cognito_prepare import prepare_pool
 from tests.integration.aws_capability._service_cognito_root_testing import (
     ROOT,
     RootLab,
@@ -252,11 +253,11 @@ def test_describe_sem_tags_usa_list_tags(root_lab: RootLab, phase: str) -> None:
     name = "optional_tags_prepare" if phase == "preparo" else "optional_tags_cleanup"
     _queue_literals(root_lab, name)
     if phase == "preparo":
-        with pytest.raises(ServiceFailure) as error:
-            root_lab.services.probe([ROOT], root_lab.services.spec, root_lab.context)
-        assert_private_channels(root_lab, error.value)
+        prepare_pool(
+            root_lab.services.ports.commands, root_lab.services.spec, ROOT, root_lab.context
+        )
+        assert_private_channels(root_lab, None)
         _assert_literal_trace(root_lab, name)
-        assert error.value.args == ("probe=not_implemented",), "contract=describe_tags_optional"
     else:
         observed = None
         result = None

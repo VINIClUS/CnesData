@@ -18,9 +18,7 @@ from tests.integration.aws_capability.contracts import (
 )
 
 PROFILES = [
-    ("cognito-login", 512, 240, 256, ("cognito",)),
-    ("cognito-pkce-negatives", 512, 240, 256, ("cognito",)),
-    ("cognito-sdk", 256, 240, 128, ("cognito",)),
+    ("cognito-login", 512, 360, 256, ("cognito",)),
     ("ddb-transactions", 192, 150, 96, ("dynamodb",)),
     ("ddb-conditions", 256, 150, 128, ("dynamodb",)),
     ("ddb-ttl-gsi", 256, 150, 128, ("dynamodb",)),
