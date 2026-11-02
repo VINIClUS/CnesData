@@ -30,7 +30,7 @@ def test_confere_root_antes_de_criar_filhos(root_lab: RootLab) -> None:
         "calls": 512,
         "pages": 8,
         "attempts": 2,
-        "cleanup_seconds": 240,
+        "cleanup_seconds": 360,
         "cleanup_reserve": 256,
     }
     assert list(root_lab.directory.iterdir()) == []
