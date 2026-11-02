@@ -23,6 +23,15 @@ SCENARIOS = {
     "tipico": {"ready_after": 3, "human_seconds": 45.0},
     "lento": {"ready_after": 30, "human_seconds": 580.0, "policy_lag": 0},
     "pior_caso": {"ready_after": 34, "human_seconds": 592.0, "silent_seconds": 2.0},
+    "dns_tardio": {"ready_after": 3, "human_seconds": 45.0, "dns_delay": 150.0},
+    "dns_com_perda": {
+        "ready_after": 3, "human_seconds": 45.0, "dns_delay": {"192.0.2.4": 60.0},
+        "dns_drop_every": 2,
+    },
+    "pior_caso_dns": {
+        "ready_after": 1, "human_seconds": 592.0, "silent_seconds": 2.0, "dns_delay": 200.0,
+        "dns_drop_every": 2,
+    },
 }
 LIMITS = (512, 256, 360, 1100.0)
 
@@ -60,6 +69,7 @@ def test_run_completo_remove_tudo_dentro_do_orcamento_e_da_janela(
     assert (outcome.status, outcome.reason) == ("succeeded", "complete")
     assert lab.aws.pools == {}
     assert probe_of(outcome)["login"] == "ok"
+    assert probe_of(outcome)["dns_gate"] == "ok"
     assert lab.budget.work_used <= limits.calls - limits.cleanup_reserve
     assert cleanup_calls(lab) <= limits.cleanup_reserve
     assert work_seconds(lab) * 1.2 <= PROFILE.window
@@ -67,6 +77,21 @@ def test_run_completo_remove_tudo_dentro_do_orcamento_e_da_janela(
     assert outcome.evidence["final_counts_all_cap"] == {
         "cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0,
     }
+    assert not handoff_path(lab.spec).exists()
+
+
+def test_dns_que_nunca_publica_limpa_dentro_do_orcamento_sem_login(tmp_path: Path) -> None:
+    world = make_login_world(tmp_path, dns_delay=10_000.0, dns_drop_every=2)
+    outcome = lifecycle.run(world.lab.spec, janitor_ports(world.lab, supervised=True))
+    lab, limits = world.lab, PROFILE.limits
+    probe = probe_of(outcome)
+    assert (outcome.status, outcome.reason) == ("succeeded", "complete")
+    assert (probe["domain_published"], probe["domain_ready"]) == ("timeout", "timeout")
+    assert "login" not in probe
+    assert lab.budget.work_used <= limits.calls - limits.cleanup_reserve
+    assert work_seconds(lab) * 1.2 <= PROFILE.window
+    assert cleanup_calls(lab) <= limits.cleanup_reserve
+    assert lab.aws.pools == {}
     assert not handoff_path(lab.spec).exists()
 
 
