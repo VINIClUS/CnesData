@@ -141,6 +141,7 @@ def test_crash_com_journal_incerto_no_meio_da_criacao_remove_todas_as_raizes(
     journal.created = [TABLE, ROLE_AUDIT]
     journal.phase = "creating"
     journal.pending_service = "iam"
+    journal.pending_name = ROLE_API.name
     journal.operation_state = "unknown"
     journal.save()
     outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
