@@ -137,7 +137,8 @@ class FakeDns:
             if self.zone_answer == "empty"
             else [(owner, TYPE_NS, _qname(host)) for host in self.hosts]
         )
-        return self._answer(query, 0, False, records)
+        rcode = 2 if self.zone_answer == "servfail" else 0
+        return self._answer(query, rcode, False, records)
 
     def _authoritative(self, server: str, query: tuple[int, bool, str, int]) -> bytes | None:
         self.counts[server] = self.counts.get(server, 0) + 1

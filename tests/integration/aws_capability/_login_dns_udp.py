@@ -74,6 +74,6 @@ class UdpDns:
         while (remaining := deadline - self.clock()) > 0:
             sock.settimeout(remaining)
             data, source = sock.recvfrom(MAX_REPLY)
-            if source[0] == server:
+            if tuple(source[:2]) == (server, DNS_PORT):
                 return data
         return None

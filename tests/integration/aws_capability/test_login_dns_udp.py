@@ -69,6 +69,11 @@ def test_ignora_datagrama_de_outra_origem_e_aceita_o_do_servidor() -> None:
     assert adapter(sock).exchange(SERVER, b"query") == b"reply"
 
 
+def test_ignora_datagrama_do_servidor_vindo_de_outra_porta() -> None:
+    sock = FakeSocket([(b"stray", (SERVER, 5353)), (b"reply", (SERVER, DNS_PORT))])
+    assert adapter(sock).exchange(SERVER, b"query") == b"reply"
+
+
 def test_datagramas_alheios_ate_o_prazo_viram_none() -> None:
     clock = [0.0]
     foreign = [(b"spoof", ("203.0.113.9", DNS_PORT))] * 10

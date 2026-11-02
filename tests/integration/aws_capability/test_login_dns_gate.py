@@ -76,7 +76,7 @@ def test_sem_resolver_configurado_falha_fechado_sem_consultar_nada() -> None:
     assert fake.log == []
 
 
-@pytest.mark.parametrize("zone_answer", ["drop", "nxdomain", "empty", "other_owner"])
+@pytest.mark.parametrize("zone_answer", ["drop", "nxdomain", "empty", "other_owner", "servfail"])
 def test_zona_sem_ns_utilizavel_vira_no_nameservers(zone_answer: str) -> None:
     fake, dns, _ = world(zone_answer=zone_answer)
     assert discover(dns, ZONE) == Discovery("no_nameservers")

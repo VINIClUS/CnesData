@@ -139,6 +139,26 @@ def test_descarta_resposta_com_mais_de_uma_pergunta() -> None:
     assert decode_reply(bytes(packet), 7, "x.example.com", TYPE_A) is None
 
 
+def test_descarta_bytes_sobrando_depois_dos_registros() -> None:
+    reply, txid, name, qtype = capture("apex_a_authoritative")
+    assert decode_reply(reply + b"\x00", txid, name, qtype) is None
+
+
+def test_descarta_ns_com_bytes_sobrando_dentro_do_rdata() -> None:
+    rdata = qname("ns-1.example.net") + b"\x00"
+    packet = synthetic(answers=a_record(rdata, rtype=TYPE_NS), count=1)
+    assert decode_reply(packet, 7, "x.example.com", TYPE_A) is None
+
+
+def test_nomes_da_resposta_viram_minusculos() -> None:
+    header = struct.pack(">HHHHHH", 7, 0x8400, 1, 1, 0, 0)
+    question = qname("X.Example.COM") + struct.pack(">HH", TYPE_A, 1)
+    packet = header + question + a_record(b"\x01\x02\x03\x04")
+    answer = decode_reply(packet, 7, "x.example.com", TYPE_A)
+    assert answer is not None
+    assert answer.records == (Record("x.example.com", TYPE_A, "1.2.3.4"),)
+
+
 def test_descarta_registro_a_com_tamanho_diferente_de_quatro() -> None:
     packet = synthetic(answers=a_record(b"\x01\x02\x03"), count=1)
     assert decode_reply(packet, 7, "x.example.com", TYPE_A) is None
