@@ -104,7 +104,7 @@ def lookup_cognito_child(
     request = _child_request(root, kind, child)
     missing = "UserNotFoundException" if kind == "cognito.user" else "ResourceNotFoundException"
     data = _read_child(commands, request, "" if kind == "cognito.domain" else missing, context)
-    if data is None:
+    if data is None or (kind == "cognito.domain" and data.get("DomainDescription") == {}):
         return None
     _require_child(data, (kind, root.resource_id, spec.account), child)
     return owner

@@ -20,12 +20,12 @@ from tests.integration.aws_capability._service_cognito_children import (
 from tests.integration.aws_capability._service_cognito_create import create_pool
 from tests.integration.aws_capability._service_cognito_delete import delete_pool
 from tests.integration.aws_capability._service_cognito_dependents import cognito_dependents
+from tests.integration.aws_capability._service_cognito_login_delete import delete_cognito_child
 from tests.integration.aws_capability._service_cognito_prepare import prepare_pool
 from tests.integration.aws_capability._service_cognito_server_create import (
     create_server,
     lookup_server_exact,
 )
-from tests.integration.aws_capability._service_cognito_server_delete import delete_server
 from tests.integration.aws_capability._service_contracts import Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb import (
     inspect_table,
@@ -244,7 +244,7 @@ class AwsServices:
             if type(bypass) is not bool:
                 raise ServiceFailure("service=cognito_delete_invalid")
             if _is_cognito_child(resource):
-                delete_server(resource, self, context)
+                delete_cognito_child(resource, self, context)
                 return
             delete_pool(resource, self, context)
             return
