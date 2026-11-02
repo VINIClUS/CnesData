@@ -49,6 +49,8 @@ class FakeIdp:
     wrong_id_aud: bool = False
     bad_issuer: bool = False
     http_jwks: bool = False
+    access_kind: str = "access"
+    access_scope: str | None = None
     codes: dict[str, dict[str, object]] = field(default_factory=dict)
     refreshes: dict[str, str | None] = field(default_factory=dict)
     polls: int = 0
@@ -177,11 +179,11 @@ class FakeIdp:
     def _issue(self, resource: str | None, with_refresh: bool) -> dict[str, str]:
         now = int(time.time())
         base = {"sub": "sub-1", "iss": self.issuer, "iat": now, "exp": now + 3600}
-        scope = f"openid email profile {API_ORIGIN}/api.access"
+        scope = self.access_scope or f"openid email profile {API_ORIGIN}/api.access"
         access: dict[str, object] = {
             **base,
             "client_id": "other-client" if self.wrong_client_id else self.client_id,
-            "token_use": "access",
+            "token_use": self.access_kind,
             "scope": scope,
             "jti": f"jti-{self.issued}",
         }

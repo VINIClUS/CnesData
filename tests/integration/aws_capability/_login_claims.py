@@ -44,9 +44,7 @@ def aud_label(claims: Mapping[str, object]) -> str:
 
 def scope_has_api(claims: Mapping[str, object]) -> bool:
     scope = claims.get("scope")
-    return isinstance(scope, str) and any(
-        item.endswith("api.access") for item in scope.split()
-    )
+    return isinstance(scope, str) and f"{API_ORIGIN}/api.access" in scope.split()
 
 
 def claim_names(claims: Mapping[str, object]) -> list[str]:
