@@ -144,6 +144,11 @@ def test_descarta_bytes_sobrando_depois_dos_registros() -> None:
     assert decode_reply(reply + b"\x00", txid, name, qtype) is None
 
 
+def test_descarta_rdata_que_passa_do_fim_do_pacote() -> None:
+    packet = synthetic(answers=a_record(b"\x01\x02\x03\x04"), count=1)[:-1]
+    assert decode_reply(packet, 7, "x.example.com", TYPE_A) is None
+
+
 def test_descarta_ns_com_bytes_sobrando_dentro_do_rdata() -> None:
     rdata = qname("ns-1.example.net") + b"\x00"
     packet = synthetic(answers=a_record(rdata, rtype=TYPE_NS), count=1)
