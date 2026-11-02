@@ -17,25 +17,16 @@ from tests.integration.aws_capability._b1_testing import NAME, TRUST
 from tests.integration.aws_capability._journal import Journal, prepare_directory
 from tests.integration.aws_capability._probe_testing import (
     BUCKET,
+    LATENCY,
     ROLE,
-    ProbeLab,
+    cleanup_calls,
+    cleanup_seconds,
     janitor_ports,
     make_probe_lab,
+    work_seconds,
 )
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._safety import tags
-
-LATENCY = 1.3
-
-
-def cleanup_calls(lab: ProbeLab) -> int:
-    return lab.aws.lanes.count("cleanup")
-
-
-def cleanup_seconds(lab: ProbeLab) -> float:
-    deadline = lab.budget.cleanup_deadline
-    assert deadline is not None
-    return PROFILES[lab.spec.probe].limits.cleanup_seconds - (deadline - lab.clock[0])
 
 
 @pytest.mark.parametrize("probe", ["s3-hold", "s3-retention"])
@@ -49,6 +40,7 @@ def test_run_completo_remove_tudo_dentro_do_orcamento_do_perfil(tmp_path: Path, 
     assert lab.aws.lanes.count("work") <= limits.calls - limits.cleanup_reserve
     assert cleanup_calls(lab) <= limits.cleanup_reserve
     assert cleanup_seconds(lab) < limits.cleanup_seconds * 0.7
+    assert work_seconds(lab) <= PROFILES[probe].window
     assert outcome.evidence["final_counts_all_cap"] == {
         "cognito": 0, "dynamodb": 0, "s3": 0, "iam": 0,
     }

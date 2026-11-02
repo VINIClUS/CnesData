@@ -49,12 +49,21 @@ def validate_profile(spec: RunSpec, ports: Ports, *, recovery: bool) -> None:
         raise SafetyFailure("profile_limits_mismatch")
     if ports.budget.deadline != spec.deadline:
         raise SafetyFailure("invalid_deadline")
-    if not recovery and spec.deadline - ports.now() > 180:
+    if not recovery and spec.deadline - ports.now() > profile.window:
         raise SafetyFailure("invalid_deadline")
 
 
 def run_name(spec: RunSpec) -> str:
     return f"{CAP_PREFIX}{spec.run_id}"
+
+
+def root_name(spec: RunSpec, suffix: str) -> str:
+    return f"{run_name(spec)}-{suffix}" if suffix else run_name(spec)
+
+
+def root_names(spec: RunSpec, service: str) -> frozenset[str]:
+    roots = PROFILES[spec.probe].planned_roots() if spec.probe in PROFILES else ()
+    return frozenset(root_name(spec, root.suffix) for root in roots if root.service == service)
 
 
 def tags(spec: RunSpec) -> dict[str, str]:

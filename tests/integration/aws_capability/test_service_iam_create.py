@@ -100,7 +100,7 @@ def test_trust_e_somente_o_operador_com_assume_role(lab: ReadLab) -> None:
     assert len(trust["Statement"]) == 1
 
 
-@pytest.mark.parametrize("probe", ["s3-hold", "all", "iam-trust", "iam-s3", "iam-leadingkeys"])
+@pytest.mark.parametrize("probe", ["s3-hold", "all", "iam-s3", "iam-leadingkeys"])
 def test_outros_perfis_preservam_stub_de_iam_sem_io(lab: ReadLab, probe: str) -> None:
     lab = b1_lab(lab, probe)
     with pytest.raises(ServiceFailure) as error:

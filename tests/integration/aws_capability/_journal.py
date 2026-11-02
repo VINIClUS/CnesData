@@ -12,7 +12,7 @@ from pathlib import Path
 
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._resource_ids import cognito_child
-from tests.integration.aws_capability._safety import SERVICES, SafetyFailure, run_name
+from tests.integration.aws_capability._safety import SERVICES, SafetyFailure, root_names, run_name
 from tests.integration.aws_capability._service_cognito import _is_regional_pool_id
 from tests.integration.aws_capability.contracts import Resource, RunSpec, ServiceFailure
 
@@ -27,6 +27,7 @@ class Journal:
     operation_state: str = "confirmed"
     dynamodb_delete_accepted: list[Resource] = field(default_factory=list)
     pending_resource: Resource | None = None
+    pending_name: str | None = None
 
     @property
     def path(self) -> Path:
@@ -54,11 +55,16 @@ class Journal:
                 data["pending_service"] = self.pending_service
             if self.pending_resource is not None:
                 data["pending_resource"] = asdict(self.pending_resource)
+        if self.pending_name is not None and self.persists_pending_name():
+            data["pending_name"] = self.pending_name
         if self.dynamodb_delete_accepted:
             data["dynamodb_delete_accepted"] = [
                 asdict(ref) for ref in self.dynamodb_delete_accepted
             ]
         return json.dumps(data, allow_nan=False).encode("utf-8")
+
+    def persists_pending_name(self) -> bool:
+        return len(root_names(self.spec, self.pending_service or "")) > 1
 
     def save(self) -> None:
         descriptor, temporary = tempfile.mkstemp(dir=self.spec.journal_dir, prefix=".journal-")
@@ -118,8 +124,10 @@ class Journal:
             raise SafetyFailure("journal_mismatch")
         self.phase = data["phase"]
         self.pending_service = data["pending_service"]
+        self.pending_name = data.get("pending_name")
         self.operation_state = data["operation_state"]
         self.validate_legacy_state()
+        self.validate_pending_name()
         self.baseline = decode_resources(data["baseline"])
         self.created = decode_resources(data["created"])
         self.dynamodb_delete_accepted = self.decode_dynamodb_deletes(
@@ -136,6 +144,15 @@ class Journal:
         if (self.operation_state == "unknown") != (self.pending_service is not None):
             raise SafetyFailure("journal_corrupt")
         if self.phase == "complete" and self.pending_service is not None:
+            raise SafetyFailure("journal_corrupt")
+
+    def validate_pending_name(self) -> None:
+        planned = root_names(self.spec, self.pending_service or "")
+        if self.pending_name is None:
+            if len(planned) > 1:
+                raise SafetyFailure("journal_corrupt")
+            return
+        if self.pending_service is None or self.pending_name not in planned:
             raise SafetyFailure("journal_corrupt")
 
     def decode_server(self, data: dict) -> None:
