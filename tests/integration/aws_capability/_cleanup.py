@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._inventory import dependents, inventory, service_counts
 from tests.integration.aws_capability._journal import Journal
+from tests.integration.aws_capability._login_handoff import remove_handoff
 from tests.integration.aws_capability._safety import SafetyFailure, matches_name, owned
 from tests.integration.aws_capability.contracts import (
     BudgetExhausted,
@@ -311,6 +312,7 @@ class Cleanup:
 
     def execute(self) -> Outcome:
         try:
+            remove_handoff(self.journal.spec)
             return self.final_outcome(self.reconcile())
         except SafetyFailure as error:
             return Outcome("incomplete", error.reason, None, {"inventory_complete": False})

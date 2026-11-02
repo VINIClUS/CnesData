@@ -1,6 +1,7 @@
 """Handoff privado com URL, usuário e senha sintéticos para o humano."""
 
 import os
+import re
 import secrets
 import tempfile
 from pathlib import Path
@@ -39,4 +40,5 @@ def write_handoff(spec: RunSpec, url: str, username: str, password: str) -> None
 
 
 def remove_handoff(spec: RunSpec) -> None:
-    handoff_path(spec).unlink(missing_ok=True)
+    if re.fullmatch(r"[0-9a-f]{8}", spec.run_id) is not None:
+        handoff_path(spec).unlink(missing_ok=True)

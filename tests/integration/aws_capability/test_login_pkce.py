@@ -134,3 +134,12 @@ def test_handoff_recusa_quebra_de_linha(tmp_path: Path, field: str) -> None:
     values = {"url": "u", "username": "n", "password": "p", field: "a\nb"}
     with pytest.raises(ValueError, match="handoff=invalid_field"):
         write_handoff(spec, values["url"], values["username"], values["password"])
+
+
+def test_remove_handoff_ignora_run_id_fora_do_formato(tmp_path: Path) -> None:
+    spec = _spec(tmp_path / "private")
+    alvo = tmp_path / "private" / "x.login"
+    alvo.write_text("mantido")
+    hostil = RunSpec("111111111111", "us-east-2", "../private/x", 2000.0, spec.journal_dir)
+    remove_handoff(hostil)
+    assert alvo.read_text() == "mantido"
