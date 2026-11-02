@@ -38,13 +38,15 @@ SCENARIOS = {
     "tipico": {"policy_lag": 3, "bucket_policy_lag": 3},
     "lento": {
         "assume_denials": 6, "policy_lag": 7, "bucket_policy_lag": 7, "bucket_policy_malformed": 1,
+        "bucket_absent_polls": 2, "role_absent_polls": 2,
     },
     "pior_caso_limitado": {
         "assume_denials": 11, "policy_lag": 12, "malformed_creates": 3,
         "bucket_policy_lag": 11, "bucket_policy_malformed": 3,
+        "bucket_absent_polls": 4, "role_absent_polls": 4,
     },
 }
-LIMITS = (330, 220, 335, 275.0)
+LIMITS = (350, 240, 390, 275.0)
 
 
 def cycle(tmp_path: Path, scenario: str, **options: object) -> ProbeLab:

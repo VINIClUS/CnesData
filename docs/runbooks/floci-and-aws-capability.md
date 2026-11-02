@@ -94,7 +94,7 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   `ddb-throughput`, `iam-trust`, `iam-leadingkeys`, `iam-s3`, `cognito-resource-server`, `s3-hold` e `s3-retention`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
   terminam em `probe=not_implemented`.
 - **Deadline:** no máximo a janela de trabalho do perfil à frente (180 s por padrão; `ddb-throughput`
-  usa 140 s `iam-leadingkeys` 330 s e `iam-s3` 275 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
+  usa 140 s, `iam-leadingkeys` 330 s e `iam-s3` 275 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
 - **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
   (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
@@ -192,9 +192,11 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   `blocked_flip_seconds`, `serving_after_flip`. Se o `PutObject` com lock for negado, as três
   chaves de retenção valem `skipped`. Cleanup: versões retidas saem com bypass; depois a bucket
   policy (`delete-bucket-policy`, só neste perfil, `NoSuchBucketPolicy` conta como ok) e o bucket;
-  os roles saem com suas policies. Janela 275 s; limites 330 chamadas, reserva 220,
-  `cleanup_seconds` 335, do ciclo simulado do pior caso (1,3 s por chamada mais pausas, vezes
-  1,2). O boundary precisa cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
+  os roles saem com suas policies. Janela 275 s; limites 350 chamadas, reserva 240,
+  `cleanup_seconds` 390, do ciclo simulado do pior caso (1,3 s por chamada mais pausas, vezes
+  1,2) com lag de cleanup: até 4 leituras do bucket e de cada role ainda visíveis depois da
+  remoção (5 sondagens por recurso). Pior caso medido: cleanup 232 chamadas e 321,6 s (x1,2 =
+  385,9 s); típico 212 chamadas e 275,6 s (x1,2 = 330,7 s). O boundary precisa cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
   `GetObjectRetention` e `ListBucket` no bucket do run.
 - **Bucket policy A/B (dentro do `iam-s3`, depois da matriz do api):** (A) o api lê
   `serving/blocked/x` e recebe 200, sem bucket policy (`blocked_before`, controle obrigatório).

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from tests.integration.aws_capability import lifecycle
-from tests.integration.aws_capability._aws_fake_types_testing import FakeBucket, FakeRole
+from tests.integration.aws_capability._aws_fake_types_testing import FakeBucket, FakeRole, denied
 from tests.integration.aws_capability._b1_testing import ACCOUNT, NAME, TRUST
 from tests.integration.aws_capability._journal import Journal, prepare_directory
 from tests.integration.aws_capability._matrix_testing import Call, dims, record
@@ -22,7 +22,9 @@ from tests.integration.aws_capability._probe_testing import (
 )
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._safety import tags
-from tests.integration.aws_capability.contracts import ServiceFailure
+from tests.integration.aws_capability._service_contracts import Reply
+from tests.integration.aws_capability.cli import Request
+from tests.integration.aws_capability.contracts import RequestContext, ServiceFailure
 
 API_ARN = f"arn:aws:iam::{ACCOUNT}:role/cnesdata-cap/{NAME}-api"
 BLOCKED = "serving/blocked/x"
@@ -94,7 +96,7 @@ def test_lado_a_nao_verde_falha_sem_gravar_a_policy(tmp_path: Path) -> None:
     calls = record(lab)
     with pytest.raises(ServiceFailure) as error:
         run(lab)
-    assert error.value.args == ("probe=step_failed step=blocked_before",)
+    assert error.value.args == ("probe=control_failed step=blocked_before",)
     assert not [c for c in calls if c.operation == "put-bucket-policy"]
 
 
@@ -232,3 +234,57 @@ def test_cleanup_de_bucket_sem_policy_aceita_no_such_bucket_policy(tmp_path: Pat
     assert (outcome.status, outcome.reason) == ("succeeded", "complete")
     codes = [r.operation for r in lab.aws.requests if r.operation == "delete-bucket-policy"]
     assert codes == ["delete-bucket-policy"]
+
+
+def script_blocked_reads(lab: ProbeLab, codes: list[str | None]) -> None:
+    original = lab.aws.dispatch
+    pending = list(codes)
+
+    def scripted(request: Request, context: RequestContext, who: str) -> Reply:
+        reply = original(request, context, who)
+        is_read = request.operation == "head-object" and request.payload.get("Key") == BLOCKED
+        if not is_read or who == "operator" or not pending:
+            return reply
+        code = pending.pop(0)
+        return reply if code is None else denied(code)
+
+    lab.aws.dispatch = scripted  # type: ignore[method-assign]
+
+
+def api_heads(calls: list[Call]) -> list[str]:
+    return [c.code for c in calls if dims(c).get("key") == BLOCKED and c.who == "role-api"]
+
+
+@pytest.mark.parametrize("transient", ["SlowDown", "503"])
+def test_codigo_transitorio_depois_da_policy_nao_encerra_a_virada(
+    tmp_path: Path, transient: str
+) -> None:
+    lab = make_probe_lab(tmp_path, "iam-s3")
+    script_blocked_reads(lab, [None, transient])
+    calls = record(lab)
+    observed = run(lab)
+    assert api_heads(calls) == ["ok", transient, "403"]
+    assert observed["blocked_after"] == "403"
+    assert observed["serving_after_flip"] == "ok"
+
+
+def test_transitorio_persistente_registra_o_ultimo_codigo_dentro_do_limite(
+    tmp_path: Path,
+) -> None:
+    lab = make_probe_lab(tmp_path, "iam-s3")
+    script_blocked_reads(lab, [None, *["SlowDown"] * 12])
+    calls = record(lab)
+    observed = run(lab)
+    assert api_heads(calls) == ["ok", *["SlowDown"] * 12]
+    assert observed["blocked_after"] == "SlowDown"
+
+
+def test_lado_a_nega_antes_de_propagar_e_ainda_chega_ao_put(tmp_path: Path) -> None:
+    lab = make_probe_lab(tmp_path, "iam-s3")
+    script_blocked_reads(lab, ["403"])
+    calls = record(lab)
+    observed = run(lab)
+    assert api_heads(calls) == ["403", "ok", "403"]
+    assert observed["blocked_before"] == "ok"
+    assert [c.operation for c in calls].count("put-bucket-policy") == 1
+    assert len(lab.pauses) >= 1

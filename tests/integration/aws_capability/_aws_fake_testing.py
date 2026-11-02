@@ -42,6 +42,9 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers, PolicyHandlers)
     trust_lag: int = 0
     bucket_policy_lag: int = 0
     bucket_policy_malformed: int = 0
+    bucket_absent_polls: int = 0
+    role_absent_polls: int = 0
+    lingering: dict[str, int] = field(default_factory=dict)
     list_gates_missing: bool = False
     ddb_ready_describes: int = 0
     ddb_deleting_describes: int = 0

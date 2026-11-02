@@ -8,6 +8,8 @@ from tests.integration.aws_capability._aws_fake_types_testing import (
     FakeRole,
     denied,
     good,
+    linger,
+    still_visible,
 )
 from tests.integration.aws_capability._b1_testing import (
     ACCOUNT,
@@ -25,6 +27,8 @@ class IamHandlers:
     policy_lag: int
     malformed_creates: int
     trust_lag: int
+    role_absent_polls: int
+    lingering: dict[str, int]
     allowed: Callable[[str, str], bool]
 
     def _role_row(self, name: str) -> dict:
@@ -67,8 +71,11 @@ class IamHandlers:
         return good()
 
     def _iam_get_role(self, payload: dict, who: str) -> Reply:
-        if payload["RoleName"] not in self.roles:
+        gone = payload["RoleName"] not in self.roles
+        if gone and not still_visible(self.lingering, f"role/{payload['RoleName']}"):
             return denied("NoSuchEntity")
+        if gone:
+            return good({"Role": {"RoleName": payload["RoleName"]}})
         return good({"Role": self._role_row(payload["RoleName"])})
 
     def _iam_list_role_tags(self, payload: dict, who: str) -> Reply:
@@ -98,6 +105,9 @@ class IamHandlers:
     def _iam_get_role_policy(self, payload: dict, who: str) -> Reply:
         role = self.roles.get(payload["RoleName"])
         stored = None if role is None else role.policies.get(payload["PolicyName"])
+        name = f"policy/{payload['RoleName']}/{payload['PolicyName']}"
+        if stored is None and still_visible(self.lingering, name):
+            return good({**payload, "PolicyDocument": {}})
         if stored is None:
             return denied("NoSuchEntity")
         return good({**payload, "PolicyDocument": stored[2]})
@@ -119,6 +129,8 @@ class IamHandlers:
         if role is None or payload["PolicyName"] not in role.policies:
             return denied("NoSuchEntity")
         del role.policies[payload["PolicyName"]]
+        name = f"policy/{payload['RoleName']}/{payload['PolicyName']}"
+        linger(self.lingering, name, self.role_absent_polls)
         return good()
 
     def _iam_delete_role(self, payload: dict, who: str) -> Reply:
@@ -128,4 +140,5 @@ class IamHandlers:
         if role.policies:
             return denied("DeleteConflict")
         del self.roles[payload["RoleName"]]
+        linger(self.lingering, f"role/{payload['RoleName']}", self.role_absent_polls)
         return good()

@@ -3,7 +3,12 @@
 import json
 from dataclasses import dataclass
 
-from tests.integration.aws_capability._probe_attempt import CONTROL_SECONDS, must
+from tests.integration.aws_capability._probe_attempt import (
+    CONTROL_SECONDS,
+    PROPAGATION_DENIALS,
+    must,
+    retry_denied,
+)
 from tests.integration.aws_capability._s3_actor import Actor
 from tests.integration.aws_capability._safety import root_name
 from tests.integration.aws_capability._service_contracts import ServicePorts
@@ -42,7 +47,7 @@ class BucketPolicyAB:
 
     def run(self, operator: Actor, api: Actor) -> dict[str, object]:
         """Returns: códigos e segundos; Raises: ServiceFailure se um controle não ficar verde."""
-        must(api.head(BLOCKED), "blocked_before")
+        retry_denied(lambda: api.head(BLOCKED), self.ports, self.context, "blocked_before")
         attempts = self.put(operator)
         code, seconds = self.flip(api)
         must(api.head(CONTROL), "serving_after_flip")
@@ -70,7 +75,7 @@ class BucketPolicyAB:
         start = self.ports.now()
         result = api.head(BLOCKED)
         for _ in range(FLIP_ATTEMPTS - 1):
-            if not result.ok or self.out_of_time():
+            if result.code in PROPAGATION_DENIALS or self.out_of_time():
                 break
             self.ports.pause(FLIP_SECONDS)
             result = api.head(BLOCKED)

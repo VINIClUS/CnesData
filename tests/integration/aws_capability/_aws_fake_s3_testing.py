@@ -13,7 +13,9 @@ from tests.integration.aws_capability._aws_fake_types_testing import (
     denied,
     good,
     iso,
+    linger,
     parse_iso,
+    still_visible,
 )
 from tests.integration.aws_capability._service_contracts import Reply
 
@@ -24,6 +26,8 @@ class S3Handlers(S3PolicyHandlers):
     counter: int
     allowed: Callable[[str, str], bool]
     list_gates_missing: bool
+    bucket_absent_polls: int
+    lingering: dict[str, int]
 
     def _bucket(self, payload: dict) -> FakeBucket | None:
         return self.buckets.get(payload["Bucket"])
@@ -51,7 +55,8 @@ class S3Handlers(S3PolicyHandlers):
         return good()
 
     def _s3api_get_bucket_location(self, payload: dict, who: str) -> Reply:
-        if self._bucket(payload) is None:
+        gone = self._bucket(payload) is None
+        if gone and not still_visible(self.lingering, f"bucket/{payload['Bucket']}"):
             return denied("NoSuchBucket")
         return good({"LocationConstraint": "us-east-2"})
 
@@ -222,4 +227,5 @@ class S3Handlers(S3PolicyHandlers):
         if bucket.versions:
             return denied("BucketNotEmpty")
         del self.buckets[payload["Bucket"]]
+        linger(self.lingering, f"bucket/{payload['Bucket']}", self.bucket_absent_polls)
         return good()
