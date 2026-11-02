@@ -56,14 +56,14 @@ jobs:
               'uv.lock'
               '.github/workflows/infra-native.yml'
             )
-            while IFS= read -r changed; do
+            while IFS= read -r -d '' changed; do
               for pattern in "${patterns[@]}"; do
                 # shellcheck disable=SC2053
                 if [[ ${changed} == ${pattern} ]]; then
                   infra=true
                 fi
               done
-            done < <(git diff --no-renames --name-only HEAD^1 HEAD)
+            done < <(git diff -z --no-renames --name-only HEAD^1 HEAD)
           fi
           echo "infra=${infra}" >> "${GITHUB_OUTPUT}"
       - uses: actions/setup-python@v5
@@ -201,14 +201,14 @@ jobs:
               'uv.lock'
               '.github/workflows/infra-native.yml'
             )
-            while IFS= read -r changed; do
+            while IFS= read -r -d '' changed; do
               for pattern in "${patterns[@]}"; do
                 # shellcheck disable=SC2053
                 if [[ ${changed} == ${pattern} ]]; then
                   infra=true
                 fi
               done
-            done < <(git diff --no-renames --name-only HEAD^1 HEAD)
+            done < <(git diff -z --no-renames --name-only HEAD^1 HEAD)
           fi
           echo "infra=${infra}" >> "${GITHUB_OUTPUT}"
       # v1.0.8

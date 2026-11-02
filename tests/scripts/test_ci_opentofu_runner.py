@@ -431,6 +431,8 @@ def _detected(repo: Path, event: str, output: Path) -> str:
         ("pyproject.toml", "infra=true"),
         ("uv.lock", "infra=true"),
         (".github/workflows/infra-native.yml", "infra=true"),
+        ("infra/opentofu/env/prod/configuração.tf", "infra=true"),
+        ('policies/aspas"e\\barra.rego', "infra=true"),
         ("docs/runbooks/x.md", "infra=false"),
         ("tests/production/test_runtime_acceptance.py", "infra=false"),
         (".github/workflows/outro.yml", "infra=false"),
