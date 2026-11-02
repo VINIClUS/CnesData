@@ -377,6 +377,7 @@ deny contains msg if {
 	some name, blocks in named
 	some block in blocks
 	some lifecycle in object.get(block, "lifecycle", [])
-	not ignore_changes_allowed[kind] == lifecycle.ignore_changes
+	ignored := lifecycle.ignore_changes
+	not ignore_changes_allowed[kind] == ignored
 	msg := sprintf("ignore_changes_forbidden type=%s name=%s", [kind, name])
 }

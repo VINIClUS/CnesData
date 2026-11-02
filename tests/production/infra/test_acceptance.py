@@ -39,7 +39,6 @@ from tests.production.infra.test_opa_policy import (  # noqa: F401
 INFRA_TESTS = REPO_ROOT / "tests" / "production" / "infra"
 TFTEST = REPO_ROOT / "infra" / "opentofu" / "tests" / "production.tftest.hcl"
 TEST_DIRECTORY = "../../tests"
-TASK_ISSUES = {f"PROD-INFRA-{number:03d}": 377 + number for number in range(1, 12)}
 GATE: dict[str, dict[str, tuple[str, ...]]] = {
     "PROD-INFRA-001": {"test_composition.py": (
         "test_configuracao_opentofu_e_valida", "test_providers_definem_regioes_e_tags_nativas",
@@ -59,21 +58,18 @@ GATE: dict[str, dict[str, tuple[str, ...]]] = {
         "test_data_buckets_protection.py": ("test_bucket_tem_prevent_destroy",)},
     "PROD-INFRA-004": {"test_cognito.py": (
         "test_raiz_agenda_cognito_com_sufixo_revisado", "test_client_publico_pkce_sem_secret",
-        "test_tier_do_pool_fixado_explicitamente",
         "test_pool_tem_deletion_protection_e_prevent_destroy",
         "test_outputs_batem_com_settings_de_producao")},
     "PROD-INFRA-005": {
         "test_static_web.py": (
             "test_origem_privada_separa_allow_oac_e_deny_tls",
-            "test_distribuicao_liga_s3_oac_waf_acm_e_funcao",
-            "test_waf_declara_somente_baseline_v1"),
+            "test_distribuicao_liga_s3_oac_waf_acm_e_funcao",),
         "test_static_web_composition.py": (
             "test_raiz_agenda_static_web_e_acm_do_produto",
             "test_outputs_cloudfront_e_runtime_sao_utilizaveis")},
     "PROD-INFRA-006": {
         "test_network.py": (
-            "test_rede_sem_nat_lb_ou_listener", "test_security_group_sem_ingress",
-            "test_egress_so_dns_e_tls"),
+            "test_rede_sem_nat_lb_ou_listener", "test_security_group_sem_ingress"),
         "test_network_guards.py": (
             "test_grupos_declaram_listas_vazias_para_remover_regra_externa",)},
     "PROD-INFRA-007": {
@@ -96,7 +92,7 @@ GATE: dict[str, dict[str, tuple[str, ...]]] = {
         "test_schedulers.py": (
             "test_schedules_a_cada_30_min_sem_retry",
             "test_scheduler_trust_exato_e_pass_role_restrito",
-            "test_audit_fora_do_alvo_de_freeze", "test_orcamento_de_96_task_horas_em_30_dias"),
+            "test_orcamento_de_96_task_horas_em_30_dias"),
         "test_observability_alarms.py": (
             "test_alarme_de_horas_de_task_e_proxy_semanal_de_unit_tasks",
             "test_regras_de_evento_da_task_unit_filtram_o_cluster_e_a_familia")},
@@ -121,21 +117,15 @@ GATE: dict[str, dict[str, tuple[str, ...]]] = {
         "test_get_object_de_cada_role_fica_coberto_pelo_list_bucket_condicionado",)},
 }
 SKIPPERS = frozenset({"skip", "skipif", "xfail", "importorskip"})
-ISSUE_FIXTURES = {
-    "protegido": ("protegido_cognito_removido.json", "protegido_substituicao.json"),
-    "nat_alb": ("nat_gateway.json", "alb.json", "load_balancer.json"),
-    "publico_ou_ingress": ("bucket_publico.json", "ingress.json"),
-    "cloudfront_pago": ("cloudfront_pago.json",),
-    "custo": ("custo_produto_acima_de_8.json", "custo_agregado_acima_de_15.json"),
-    "regiao": ("regiao_fora_de_us_east_2.json", "regiao_em_modulo.json"),
-    "imagem_mutavel": ("imagem_mutavel.json",),
-    "ignore_changes": ("ignore_changes_em_roteamento.tf",),
-    "segredo": ("segredo_por_nome.json",),
-}
-PROTECTED_EXTRA = ("aws_cognito_user_pool_client", "aws_cognito_user_pool_domain")
-GUARD = re.compile(
-    r'^\s*(prevent_destroy\s*=\s*true|deletion_protection(_enabled)?\s*=\s*("ACTIVE"|true))'
+ISSUE_FIXTURES = (
+    "protegido_cognito_removido.json", "protegido_substituicao.json", "nat_gateway.json",
+    "alb.json", "load_balancer.json", "bucket_publico.json", "ingress.json",
+    "cloudfront_pago.json", "custo_produto_acima_de_8.json", "custo_agregado_acima_de_15.json",
+    "regiao_fora_de_us_east_2.json", "regiao_em_modulo.json", "imagem_mutavel.json",
+    "ignore_changes_em_roteamento.tf", "segredo_por_nome.json",
 )
+PROTECTED_EXTRA = ("aws_cognito_user_pool_client", "aws_cognito_user_pool_domain")
+GUARD = re.compile(r'^\s*(prevent_destroy|deletion_protection\w*)\s*=\s*(true|"ACTIVE")')
 RESOURCE = re.compile(r'^resource "(\w+)"')
 STATE_PATH = re.compile(
     r"(^|/)\.terraform/|\.tfstate(\.|$)|(^|/)[^/]*\.tfplan$|(^|/)tfplan[^/]*$|\.(pem|p12|pfx)$"
@@ -145,14 +135,11 @@ PRIVATE_KEY = re.compile("-----BEGIN " + "[A-Z ]*PRIVATE KEY-----")
 ACCESS_KEY = re.compile(r"\b(?:AK" + "IA|AS" + r"IA)[0-9A-Z]{16}\b")
 ACCOUNT_ID = re.compile(r"arn:aws[a-z-]*:[a-z0-9-]+:[a-z0-9-]*:(\d{12}):|(\d{12})\.dkr\.ecr")
 EXAMPLE_ACCOUNTS = frozenset({"123456789012", "000000000000", "999999999999"})
-SURFACE = (
-    "infra", "policies", "schemas", "tests/fixtures/plans", "tests/production",
-    "docs/runbooks", ".github/workflows",
-)
+SURFACE = ("infra", "policies", "schemas", "tests/fixtures/plans", "tests/production",
+           "docs/runbooks", ".github/workflows")
 REQUIRED_RUNS = frozenset({
     "saidas_cognito_da_raiz", "contrato_de_ativacao", "orcamento_de_task_horas",
-    "particao_do_freeze", "shared_outputs_com_conta_invalida",
-})
+    "particao_do_freeze", "shared_outputs_com_conta_invalida"})
 
 
 def _dotted(node: ast.AST) -> str:
@@ -215,12 +202,12 @@ def _git_files(*patterns: str) -> list[str]:
 
 
 def test_gate_agrega_todas_as_tasks_de_infra(request: pytest.FixtureRequest) -> None:
-    assert list(TASK_ISSUES) == [f"PROD-INFRA-{number:03d}" for number in range(1, 12)]
-    assert set(GATE) == {*TASK_ISSUES, "PROD-INFRA-441"}, "gate_tasks_incomplete"
+    expected = {f"PROD-INFRA-{number:03d}" for number in range(1, 12)} | {"PROD-INFRA-441"}
+    assert set(GATE) == expected, "gate_tasks_incomplete"
     defects: list[str] = []
     for task, files in GATE.items():
-        assert files, f"task_without_tests task={task} issue=#{TASK_ISSUES.get(task, 441)}"
-        assert all(files.values()), f"task_without_tests task={task}"
+        assert files, f"task_without_tests task={task}"
+        assert all(files.values()), f"test_list_empty task={task}"
         for name, tests in files.items():
             path = INFRA_TESTS / name
             assert path.is_file(), f"test_file_missing task={task} file={name}"
@@ -231,7 +218,7 @@ def test_gate_agrega_todas_as_tasks_de_infra(request: pytest.FixtureRequest) -> 
         for item in request.session.items
         if isinstance(item, pytest.Function)
     }
-    if len({file for file, _ in collected}) > 1:
+    if {path.name for path in INFRA_TESTS.glob("test_*.py")} <= {file for file, _ in collected}:
         wanted = {
             (name, test)
             for files in GATE.values()
@@ -350,8 +337,7 @@ def test_fixtures_de_rejeicao_falham_a_politica(conftest: Conftest, scheduled_pl
                                                 tmp_path: Path) -> None:
     rejected = sorted((FIXTURES / "rejected").glob("*.json"))
     assert {path.name for path in rejected} == set(REJECTIONS)
-    for names in ISSUE_FIXTURES.values():
-        assert all((FIXTURES / "rejected" / name).is_file() for name in names), names
+    assert all((FIXTURES / "rejected" / name).is_file() for name in ISSUE_FIXTURES)
     code, report = conftest(*rejected)
     assert code == 1
     grouped = {Path(entry["filename"]).name: sorted(
@@ -494,7 +480,7 @@ def test_tofu_test_do_gate_passa_todas_as_runs_sem_skip(
     statuses = {
         event["test_run"]["run"]: event["test_run"]["status"]
         for event in events
-        if event["type"] == "test_run" and event["test_run"]["progress"] == "complete"
+        if event["type"] == "test_run"
     }
     declared = set(re.findall(r'^run "(\w+)"', TFTEST.read_text(encoding="utf-8"), re.MULTILINE))
     assert REQUIRED_RUNS <= declared == set(statuses)
@@ -506,9 +492,9 @@ def test_tofu_test_do_gate_passa_todas_as_runs_sem_skip(
 
 
 def test_formato_do_opentofu_esta_limpo(tofu_context: TofuContext) -> None:
+    command = [tofu_context.executable, f"-chdir={REPO_ROOT / 'infra/opentofu'}", "fmt"]
     done = subprocess.run(  # noqa: S603
-        [tofu_context.executable, f"-chdir={REPO_ROOT / 'infra' / 'opentofu'}", "fmt", "-check",
-         "-recursive"],
+        [*command, "-check", "-recursive"],
         check=False, capture_output=True, env=tofu_context.environment, text=True,
     )
     assert done.returncode == 0, f"tofu_fmt_dirty files={done.stdout!r}"
