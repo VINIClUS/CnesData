@@ -145,3 +145,33 @@ output "freeze_excluded_role_arns" {
   description = "Exact role ARNs the shared cost freeze must not restrict (audit, health, backup)."
   value       = local.freeze_excluded_role_arns
 }
+
+output "cognito_issuer" {
+  description = "OIDC issuer of the Cognito pool: OIDC_ISSUER and the dashboard authority."
+  value       = module.cognito.issuer
+}
+
+output "cognito_client_id" {
+  description = "Public SPA client ID: the dashboard VITE_OIDC_CLIENT_ID."
+  value       = module.cognito.client_id
+}
+
+output "cognito_domain" {
+  description = "Managed prefix domain origin of the hosted UI."
+  value       = module.cognito.domain
+}
+
+output "cognito_authorize_url" {
+  description = "Absolute authorization endpoint of the hosted UI."
+  value       = module.cognito.authorize_url
+}
+
+output "cognito_token_url" {
+  description = "Absolute token endpoint of the hosted UI."
+  value       = module.cognito.token_url
+}
+
+output "cognito_logout_url" {
+  description = "Absolute logout endpoint of the hosted UI."
+  value       = module.cognito.logout_url
+}
