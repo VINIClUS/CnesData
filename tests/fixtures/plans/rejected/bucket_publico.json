@@ -229,6 +229,24 @@
         },
         "after_unknown": {}
       }
+    },
+    {
+      "address": "aws_s3_bucket_policy.org_interrogacao",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "org_interrogacao",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"*\"},\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::example-data/*\",\"Condition\":{\"StringLike\":{\"aws:PrincipalOrgID\":\"o-abc?efghij\"}}}]}"
+        },
+        "after_unknown": {}
+      }
     }
   ]
 }

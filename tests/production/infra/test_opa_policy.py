@@ -129,6 +129,7 @@ EXPOSED = {
         ("public_policy", "aws_s3_bucket_policy", "org_curinga"),
         ("public_policy", "aws_s3_bucket_policy", "org_se_existir"),
         ("public_policy", "aws_s3_bucket_policy", "org_negada"),
+        ("public_policy", "aws_s3_bucket_policy", "org_interrogacao"),
     ),
     "ingress.json": (
         ("ingress", "aws_security_group", "tasks"),
