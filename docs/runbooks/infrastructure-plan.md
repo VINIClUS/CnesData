@@ -50,8 +50,9 @@ O pytest acima já executa os itens 4 e 5. Para depurar um por vez:
 Job `opentofu-native` do workflow `infra-native` (runner hospedado, `contents: read`, sem
 secrets, sem apply). Roda a suíte acima e valida o JUnit; `opentofu-floor` roda fmt, init e
 validate no OpenTofu 1.10.0. O gatilho de `pull_request` não filtra caminhos: um step de
-detecção, só com `git`, compara `HEAD^1` com `HEAD` do merge commit e pula os demais steps
-quando nada de infra mudou. Assim o job pode ser check obrigatório sem ficar "Expected". O
+detecção, só com `git`, compara `HEAD^1` com `HEAD` do merge commit (`--no-renames`, para que
+deleções e o caminho antigo de uma renomeação também contem) e pula os demais steps quando
+nada de infra mudou. Assim o job pode ser check obrigatório sem ficar "Expected". O
 ruleset de `develop` é decisão separada.
 
 ## Antes de qualquer apply (pré-apply)

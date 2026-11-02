@@ -353,6 +353,10 @@ def test_deteccao_de_infra_e_o_primeiro_passo_apos_o_checkout_raso(job: str) -> 
     assert "token" not in detection["run"].lower()
 
 
+def test_deteccao_e_identica_nos_dois_jobs() -> None:
+    assert _detection(_FLOOR) == _detection(_NATIVE)
+
+
 @pytest.mark.parametrize("job", [_NATIVE, _FLOOR])
 def test_deteccao_usa_a_mesma_lista_de_caminhos_do_filtro_de_push(job: str) -> None:
     assert _patterns(job) == _TRIGGER_PATHS == _events()["push"]["paths"]
@@ -379,20 +383,31 @@ def _git(cwd: Path, *arguments: str) -> None:
     )
 
 
-def _merge_commit(repo: Path, changed: str) -> None:
+def _start_pr(repo: Path, *seeded: str) -> None:
     repo.mkdir()
     _git(repo, "init")
-    (repo / "LEIAME.txt").write_text("base", encoding="utf-8")
+    for path in ("LEIAME.txt", *seeded):
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"conteudo estavel de {path}\n" * 8, encoding="utf-8")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "base")
     _git(repo, "checkout", "-b", "pr")
-    target = repo / changed
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("alterado", encoding="utf-8")
+
+
+def _merge_pr(repo: Path) -> None:
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "pr")
     _git(repo, "checkout", "main")
     _git(repo, "merge", "--no-ff", "-m", "merge", "pr")
+
+
+def _merge_commit(repo: Path, changed: str) -> None:
+    _start_pr(repo)
+    target = repo / changed
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("alterado", encoding="utf-8")
+    _merge_pr(repo)
 
 
 def _detected(repo: Path, event: str, output: Path) -> str:
@@ -428,6 +443,20 @@ def test_deteccao_em_pull_request_olha_so_o_diff_do_merge(
     _merge_commit(tmp_path / "repo", changed)
 
     assert _detected(tmp_path / "repo", "pull_request", tmp_path / "saida") == expected
+
+
+@pytest.mark.parametrize("seeded", ["policies/cnesdata.rego", "tests/production/infra/test_x.py"])
+@pytest.mark.parametrize("operation", ["rm", "mv"])
+def test_deteccao_ve_infra_removida_ou_renomeada_para_fora(
+    tmp_path: Path, seeded: str, operation: str
+) -> None:
+    repo = tmp_path / "repo"
+    _start_pr(repo, seeded)
+    (repo / "docs").mkdir()
+    _git(repo, operation, seeded, *(["docs/fora.txt"] if operation == "mv" else []))
+    _merge_pr(repo)
+
+    assert _detected(repo, "pull_request", tmp_path / "saida") == "infra=true"
 
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])

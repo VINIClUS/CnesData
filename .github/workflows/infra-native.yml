@@ -63,7 +63,7 @@ jobs:
                   infra=true
                 fi
               done
-            done < <(git diff --name-only HEAD^1 HEAD)
+            done < <(git diff --no-renames --name-only HEAD^1 HEAD)
           fi
           echo "infra=${infra}" >> "${GITHUB_OUTPUT}"
       - uses: actions/setup-python@v5
@@ -208,7 +208,7 @@ jobs:
                   infra=true
                 fi
               done
-            done < <(git diff --name-only HEAD^1 HEAD)
+            done < <(git diff --no-renames --name-only HEAD^1 HEAD)
           fi
           echo "infra=${infra}" >> "${GITHUB_OUTPUT}"
       # v1.0.8
