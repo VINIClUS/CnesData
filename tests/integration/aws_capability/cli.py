@@ -24,6 +24,7 @@ EMPTY_SUCCESS = frozenset(
         ("s3api", "put-bucket-versioning"),
         ("s3api", "put-object-legal-hold"),
         ("s3api", "put-object-retention"),
+        ("s3api", "put-bucket-policy"),
         ("iam", "put-role-policy"),
         ("iam", "update-assume-role-policy"),
         ("cognito-idp", "update-user-pool"),

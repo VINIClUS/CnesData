@@ -1,5 +1,6 @@
 """Exclusão de versões, markers e bucket com hold desligado e bypass explícito."""
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from tests.integration.aws_capability._resource_ids import parse_s3_child
@@ -9,6 +10,8 @@ from tests.integration.aws_capability._service_polling import await_absent
 from tests.integration.aws_capability._service_s3 import lookup_bucket
 from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import RequestContext, Resource, ServiceFailure
+
+POLICY_PROFILE = "iam-s3"
 
 if TYPE_CHECKING:
     from tests.integration.aws_capability.services import AwsServices
@@ -39,10 +42,23 @@ def delete_s3(
 def _delete_root(root: Resource, services: "AwsServices", context: RequestContext) -> None:
     _require_owned_root(root, services, context)
     owner = {"Bucket": root.resource_id, "ExpectedBucketOwner": services.spec.account}
+    if services.spec.probe == POLICY_PROFILE:
+        _delete_bucket_policy(owner, services, context)
     request = Request("s3api", "delete-bucket", owner)
     require_data(call_command(services.ports.commands, request, context))
     probe = Request("s3api", "get-bucket-location", owner)
     await_absent(services.ports, probe, "NoSuchBucket", context)
+
+
+def _delete_bucket_policy(
+    owner: Mapping[str, object], services: "AwsServices", context: RequestContext
+) -> None:
+    reply = call_command(
+        services.ports.commands, Request("s3api", "delete-bucket-policy", owner), context
+    )
+    absent = reply.error is not None and reply.error.code == "NoSuchBucketPolicy"
+    if not reply.ok and not absent:
+        raise ServiceFailure("service=delete_failed")
 
 
 def _require_owned_root(root: Resource, services: "AwsServices", context: RequestContext) -> None:

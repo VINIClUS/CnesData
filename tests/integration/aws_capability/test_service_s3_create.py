@@ -88,14 +88,14 @@ def test_cria_bucket_com_object_lock_tags_e_readback_completo(lab: ReadLab) -> N
     assert lab.context.budget.work_used == 6
 
 
-@pytest.mark.parametrize("probe", ["s3-hold", "s3-retention"])
+@pytest.mark.parametrize("probe", ["s3-hold", "s3-retention", "iam-s3"])
 def test_habilita_criacao_de_s3_nos_perfis_s3(lab: ReadLab, probe: str) -> None:
     lab = b1_lab(lab, probe)
     script(lab)
     assert lab.services.create("s3", creation_for(lab), lab.context) == ROOT
 
 
-@pytest.mark.parametrize("probe", ["all", "iam-s3", "iam-trust", "iam-leadingkeys", "ddb-ttl-gsi"])
+@pytest.mark.parametrize("probe", ["all", "iam-trust", "iam-leadingkeys", "ddb-ttl-gsi"])
 def test_outros_perfis_preservam_stub_de_s3_sem_io(lab: ReadLab, probe: str) -> None:
     lab = b1_lab(lab, probe)
     with pytest.raises(ServiceFailure) as error:

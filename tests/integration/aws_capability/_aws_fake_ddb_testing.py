@@ -1,28 +1,16 @@
 """Operações DynamoDB da fronteira com estado: criação, ACTIVE, escritas, contagem e DELETING."""
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
-
+from tests.integration.aws_capability._aws_fake_ddb_data_testing import (
+    DdbDataHandlers,
+    FakeTable,
+)
 from tests.integration.aws_capability._aws_fake_types_testing import denied, good
-from tests.integration.aws_capability._b1_testing import ACCOUNT
 from tests.integration.aws_capability._service_contracts import ApiError, Reply
 
 TRANSACTION_LIMIT = 100
 
 
-@dataclass
-class FakeTable:
-    tags: dict[str, str]
-    status: str = "ACTIVE"
-    deleting_describes: int = 0
-    protection: bool = False
-    throughput: Mapping[str, object] | None = None
-    index_throughput: dict[str, Mapping[str, object] | None] = field(default_factory=dict)
-    ready_in: int = 0
-    items: set[tuple[str, str]] = field(default_factory=set)
-
-
-class DdbHandlers:
+class DdbHandlers(DdbDataHandlers):
     tables: dict[str, FakeTable]
     ddb_ready_describes: int
     ddb_deleting_describes: int
@@ -33,9 +21,6 @@ class DdbHandlers:
     batch_calls: int
     scan_page_size: int | None
 
-    def _arn(self, name: str) -> str:
-        return f"arn:aws:dynamodb:us-east-2:{ACCOUNT}:table/{name}"
-
     def _description(self, name: str) -> dict:
         table = self.tables[name]
         description: dict = {
@@ -45,8 +30,9 @@ class DdbHandlers:
             "DeletionProtectionEnabled": table.protection,
         }
         if table.throughput is not None:
-            index_status = "ACTIVE" if table.status == "ACTIVE" else "CREATING"
             description["OnDemandThroughput"] = table.throughput
+        if table.index_throughput:
+            index_status = "ACTIVE" if table.status == "ACTIVE" else "CREATING"
             description["GlobalSecondaryIndexes"] = [
                 {
                     "IndexName": index,
@@ -115,21 +101,10 @@ class DdbHandlers:
         self.tables[name].status = "DELETING"
         return good({"TableDescription": self._description(name)})
 
-    def _writable(self, name: str, operation: str) -> FakeTable | Reply:
-        table = self.tables.get(name)
-        assert table is None or table.status == "ACTIVE", f"write_before_active op={operation}"
-        if table is None:
-            return denied("ResourceNotFoundException")
-        if operation in self.ddb_errors:
-            return denied(self.ddb_errors[operation])
-        return table
-
-    @staticmethod
-    def _key(item: dict) -> tuple[str, str]:
-        return item["pk"]["S"], item["sk"]["S"]
-
     def _dynamodb_transact_write_items(self, payload: dict, who: str) -> Reply:
         actions = payload["TransactItems"]
+        if "Update" in actions[0]:
+            return self._transact_updates(actions, who)
         table = self._writable(actions[0]["Put"]["TableName"], "transact-write-items")
         if isinstance(table, Reply):
             return table
@@ -161,6 +136,9 @@ class DdbHandlers:
         table = self._writable(payload["TableName"], "scan")
         if isinstance(table, Reply):
             return table
+        denial = self._guard(who, "dynamodb:Scan", self._arn(payload["TableName"]))
+        if denial is not None:
+            return denial
         total = len(table.items)
         size = self.scan_page_size or max(total, 1)
         start = int(payload.get("ExclusiveStartKey", {}).get("offset", {}).get("N", "0"))

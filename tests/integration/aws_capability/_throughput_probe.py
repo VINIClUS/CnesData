@@ -4,13 +4,10 @@ import re
 from collections.abc import Mapping, Sequence
 
 from tests.integration.aws_capability._safety import run_name
-from tests.integration.aws_capability._service_commands import (
-    call_command,
-    is_remote_not_found,
-    require_data,
-)
+from tests.integration.aws_capability._service_commands import call_command
 from tests.integration.aws_capability._service_contracts import CommandPort, Reply, ServicePorts
 from tests.integration.aws_capability._service_dynamodb_create import ON_DEMAND_THROUGHPUT
+from tests.integration.aws_capability._table_ready import await_active_table
 from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import (
     RequestContext,
@@ -23,8 +20,6 @@ INDEXES = tuple(f"gsi{index}" for index in range(1, 7))
 TRANSACTION_ITEMS = 100
 BATCHES = 4
 BATCH_ITEMS = 25
-READY_POLLS = 30
-READY_SECONDS = 2.0
 MINIMUM_ELAPSED = 0.001
 AUTH_CODES = frozenset(
     {
@@ -49,33 +44,11 @@ def probe_throughput(
     root = Resource("dynamodb", name, name)
     if context.lane != "work" or list(resources) != [root]:
         raise ServiceFailure("probe=throughput_invalid")
-    _await_throughput(ports, root, context)
+    _require_throughput(await_active_table(ports, root.name, context))
     observed: dict[str, object] = _transaction(ports.commands, spec, root, context)
     observed.update(_batches(ports, spec, root, context))
     observed.update(_readback(ports.commands, root, context))
     return observed
-
-
-def _await_throughput(ports: ServicePorts, root: Resource, context: RequestContext) -> None:
-    request = Request("dynamodb", "describe-table", {"TableName": root.name})
-    for poll in range(READY_POLLS):
-        reply = call_command(ports.commands, request, context)
-        if reply.ok or not is_remote_not_found(reply):
-            table = require_data(reply).get("Table")
-            if isinstance(table, Mapping) and _active(table):
-                _require_throughput(table)
-                return
-        if poll < READY_POLLS - 1:
-            ports.pause(READY_SECONDS)
-    raise ServiceFailure("probe=table_not_ready")
-
-
-def _active(table: Mapping[str, object]) -> bool:
-    indexes = table.get("GlobalSecondaryIndexes")
-    rows = indexes if isinstance(indexes, list) else []
-    return table.get("TableStatus") == "ACTIVE" and all(
-        isinstance(row, Mapping) and row.get("IndexStatus") == "ACTIVE" for row in rows
-    )
 
 
 def _require_throughput(table: Mapping[str, object]) -> None:

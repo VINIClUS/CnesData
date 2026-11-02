@@ -91,10 +91,10 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
 ```
 
 - **Perfis com probe concluído:** `ddb-transactions`, `ddb-conditions`, `ddb-ttl-gsi`,
-  `ddb-throughput`, `iam-trust`, `cognito-resource-server`, `s3-hold` e `s3-retention`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
+  `ddb-throughput`, `iam-trust`, `iam-leadingkeys`, `iam-s3`, `cognito-resource-server`, `s3-hold` e `s3-retention`. `cognito-login`, `cognito-pkce-negatives` e `cognito-sdk` ainda
   terminam em `probe=not_implemented`.
 - **Deadline:** no máximo a janela de trabalho do perfil à frente (180 s por padrão; `ddb-throughput`
-  usa 140 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
+  usa 140 s, `iam-leadingkeys` 330 s e `iam-s3` 275 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
 - **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
   (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
@@ -144,6 +144,72 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   `sts:TagSession`, `sts:SetSourceIdentity`, `dynamodb:BatchWriteItem`, `dynamodb:Scan` e
   `dynamodb:PutItem` (a transação é avaliada por item); o boundary precisa cobrir também o ARN de R
   para `sts:AssumeRole`.
+- **`iam-leadingkeys` (evidência do #379):** tabela do control-plane (pk/sk, `gsi1`..`gsi6`) mais dois
+  roles, `cnesdata-cap-<run>-audit` e `cnesdata-cap-<run>-api`, ambos com boundary, trust exato no
+  operador e `MaxSessionDuration` 3600. Cada role ganha uma inline que espelha `task-roles.tf`
+  (`audit`: Query no ARN do `gsi6` com `LeadingKeys` `OUTBOX#PENDING`, GetItem/UpdateItem na tabela
+  com `TENANT#_GLOBAL` e `OUTBOX#CURSOR`; `api`: Query no `gsi1` com `USER#*`, GetItem na tabela com
+  `TENANT#*`; mesmos operadores e `Null`); só os ARNs mudam. Depois de tabela e GSIs `ACTIVE` o
+  operador grava cinco itens sintéticos. Regra de evidência: toda negação de condição ou de recurso
+  só é gravada depois de um sucesso da mesma ação, pela mesma sessão, com uma única troca (a chave,
+  o índice ou a tabela), e o controle passa por `retry_denied` (12 tentativas, 2 s;
+  `AccessDeniedException` do DynamoDB conta como negação de propagação). Ações que a policy nunca
+  concede (`PutItem`, `DeleteItem` e `Scan` do audit, em chave permitida) ganham o sufixo
+  `_ungranted` e vêm logo depois de um `GetItem` verde novo. Chaves: `assume_audit_seconds`,
+  `audit_get_ready_seconds`, `audit_get_other`, `audit_update_ready_seconds`,
+  `audit_update_tenant`, `audit_update_attempts`, `audit_query_ready_seconds`,
+  `audit_query_other_key`, `audit_query_gsi1`, `audit_query_table`, `audit_put_item_ungranted`,
+  `audit_delete_item_ungranted`, `audit_scan_ungranted`, `tx_allowed_code`, `tx_allowed_category`,
+  `tx_mixed_code`, `tx_mixed_category` (`TransactWriteItems` só observada: código e categoria
+  `not_authorized`, `transaction_canceled`, `other` ou `none`), `assume_api_seconds`,
+  `api_get_ready_seconds`, `api_get_other`, `api_query_ready_seconds`, `api_query_admin`,
+  `api_query_gsi6`. As negações de recurso usam `OUTBOX#PENDING` (audit) e `USER#1` (api) para que
+  só o índice (ou a tabela) mude. Janela 330 s; limites 270 chamadas, reserva 150,
+  `cleanup_seconds` 285, dimensionados pelo ciclo simulado do pior caso (1,3 s por chamada mais
+  pausas, vezes 1,2). Ações novas do operador: `dynamodb:PutItem` e `sts:AssumeRole` nos dois
+  roles; o boundary precisa cobrir `dynamodb:Query` nos ARNs `.../index/*` e `GetItem`/`UpdateItem`
+  na tabela, além do `AssumeRole`.
+- **`iam-s3` (prefixos e retenção com sessões de role):** bucket Object Lock (B1, só GOVERNANCE,
+  toda retenção até 10 min) e os roles `-audit` e `-api` (boundary, trust exato no operador,
+  `MaxSessionDuration` 3600), cada um com a inline que espelha o S3 de `task-roles.tf`
+  (`audit`: `GetBucketObjectLockConfiguration` no bucket e `PutObject`, `PutObjectRetention`,
+  `GetObject`, `GetObjectRetention` em `audit/*`; `api`: `GetObject` em `reconciliation/*` e
+  `serving/*` e `ListBucket` com `s3:prefix` desses dois prefixos). O operador semeia `serving/x`,
+  `serving/blocked/x`, `raw/x` e `reconciliation/x`. `GetObject` é checado com `head-object`
+  (negação chega como `403`). Mesma regra de evidência do `iam-leadingkeys`: toda negação fica
+  depois de um sucesso retentado da mesma ação, pela mesma sessão, com uma única troca (a chave, o
+  prefixo ou a data da retenção); ações nunca concedidas ganham `_ungranted` e vêm logo depois de
+  um `head-object` verde da mesma sessão. O delete ungranted do audit mira `audit/a`, sem
+  retenção, para que a negação só possa vir da falta da ação. Chaves: `assume_audit_seconds`,
+  `audit_put_ready_seconds`, `audit_put_lock` (PutObject com GOVERNANCE a 300 s),
+  `audit_lock_config`, `audit_retention_extend_ready_seconds` (estende a 540 s, o controle),
+  `audit_retention_shorten` (encurta a 360 s sem bypass), `audit_get_ready_seconds`,
+  `audit_get_raw`, `audit_get_missing` (observação: sem `ListBucket` o ausente é `403`),
+  `audit_get_retention`, `audit_delete_version_ungranted`, `audit_list_ungranted`,
+  `assume_api_seconds`, `api_get_ready_seconds`, `api_get_missing` (observação: `404` por causa do
+  `ListBucket` no prefixo, cruza o #441), `api_get_raw`, `api_list_ready_seconds`, `api_list_raw`,
+  `api_put_object_ungranted`, `blocked_before`, `policy_put_attempts`, `blocked_after`,
+  `blocked_flip_seconds`, `serving_after_flip`. Se o `PutObject` com lock for negado, as três
+  chaves de retenção valem `skipped`. Cleanup: versões retidas saem com bypass; depois a bucket
+  policy (`delete-bucket-policy`, só neste perfil, `NoSuchBucketPolicy` conta como ok) e o bucket;
+  os roles saem com suas policies. Janela 275 s; limites 350 chamadas, reserva 240,
+  `cleanup_seconds` 390, do ciclo simulado do pior caso (1,3 s por chamada mais pausas, vezes
+  1,2) com lag de cleanup: até 4 leituras do bucket e de cada role ainda visíveis depois da
+  remoção (5 sondagens por recurso). Pior caso medido: cleanup 232 chamadas e 321,6 s (x1,2 =
+  385,9 s); típico 212 chamadas e 275,6 s (x1,2 = 330,7 s). O boundary precisa cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
+  `GetObjectRetention` e `ListBucket` no bucket do run.
+- **Bucket policy A/B (dentro do `iam-s3`, depois da matriz do api):** (A) o api lê
+  `serving/blocked/x` e recebe 200, sem bucket policy (`blocked_before`, controle obrigatório).
+  O operador então grava uma única statement `Deny` de `s3:GetObject` com `Principal.AWS` igual ao
+  ARN completo do role api (com `/cnesdata-cap/`) e `Resource`
+  `arn:aws:s3:::<bucket>/serving/blocked/*`; nunca `NotPrincipal`, nunca `Principal: "*"`. O IAM
+  pode recusar um principal recém-criado (`MalformedPolicy`); o put repete até 4 vezes, 2 s entre
+  elas (`policy_put_attempts`). (B) o api repete a leitura de `serving/blocked/x` até receber
+  negação, no máximo 12 leituras com 2 s de pausa; `blocked_after` guarda o código final e
+  `blocked_flip_seconds` a propagação. Nunca virar é observação (`blocked_after` fica `ok`), não
+  queda. Por fim `serving/x` segue legível (`serving_after_flip`, controle obrigatório depois da
+  virada). A bucket policy é a única policy removida pelo ensaio, e só pelo cleanup, antes do
+  bucket; o `Deny` nomeia só o role api e não alcança o operador.
 - **Saída:** uma linha JSON em stdout com `status`, `reason`, `remaining` (serviço e nome) e
   `evidence` (`initial_counts`, `probe`, `counts`, `final_counts_all_cap`). Exit 0 só com
   `succeeded`; o IAM do próprio operador (`/cnesdata-cap/`) aparece na contagem global bruta.

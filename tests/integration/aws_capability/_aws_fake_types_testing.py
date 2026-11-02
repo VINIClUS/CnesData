@@ -17,6 +17,19 @@ def denied(code: str = "AccessDenied", message: str = "") -> Reply:
     return Reply(False, {}, ApiError(code, details, "service"))
 
 
+def linger(table: dict[str, int], key: str, polls: int) -> None:
+    if polls > 0:
+        table[key] = polls
+
+
+def still_visible(table: dict[str, int], key: str) -> bool:
+    remaining = table.get(key, 0)
+    if remaining <= 0:
+        return False
+    table[key] = remaining - 1
+    return True
+
+
 def good(data: Mapping[str, object] | None = None) -> Reply:
     return Reply(True, data or {}, None)
 
@@ -41,6 +54,8 @@ class FakeVersion:
 class FakeBucket:
     tags: dict[str, str] = field(default_factory=dict)
     versions: list[FakeVersion] = field(default_factory=list)
+    policy: Mapping[str, object] | None = None
+    policy_effective: int = 0
 
 
 @dataclass

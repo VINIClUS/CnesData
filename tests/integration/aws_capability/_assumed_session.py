@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 
 from tests.integration.aws_capability._probe_attempt import attempt, retry_denied
-from tests.integration.aws_capability._safety import run_name
+from tests.integration.aws_capability._safety import root_name
 from tests.integration.aws_capability._service_contracts import CommandPort, ServicePorts
 from tests.integration.aws_capability.cli import Request
 from tests.integration.aws_capability.contracts import RequestContext, RunSpec, ServiceFailure
@@ -17,15 +17,16 @@ _KEYS = {
 
 
 def assume_role_session(
-    ports: ServicePorts, spec: RunSpec, context: RequestContext
+    ports: ServicePorts, spec: RunSpec, context: RequestContext, suffix: str = ""
 ) -> tuple[CommandPort, float]:
-    """Returns: porta de comandos do role e segundos até o trust propagar.
+    """Returns: porta de comandos do role (raiz ou com sufixo) e segundos até o trust propagar.
 
     Raises: ServiceFailure sem detalhes de credencial.
     """
-    request = assume_request(spec, run_name(spec))
+    request = assume_request(spec, root_name(spec, suffix))
+    step = f"assume_{suffix}" if suffix else "assume"
     result, seconds = retry_denied(
-        lambda: attempt(ports.commands, request, context), ports, context, "assume"
+        lambda: attempt(ports.commands, request, context), ports, context, step
     )
     return open_session(ports, result.data), seconds
 

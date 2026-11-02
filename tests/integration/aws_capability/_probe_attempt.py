@@ -12,7 +12,7 @@ from tests.integration.aws_capability.contracts import RequestContext, ServiceFa
 
 CONTROL_ATTEMPTS = 12
 CONTROL_SECONDS = 2.0
-PROPAGATION_DENIALS = frozenset({"AccessDenied", "403"})
+PROPAGATION_DENIALS = frozenset({"AccessDenied", "AccessDeniedException", "403"})
 
 
 @dataclass(frozen=True)

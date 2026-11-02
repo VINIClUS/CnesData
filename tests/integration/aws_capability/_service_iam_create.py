@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from tests.integration.aws_capability._operator_inputs import OperatorInputs
-from tests.integration.aws_capability._safety import root_names, run_name, tags
+from tests.integration.aws_capability._safety import root_name, root_names, run_name, tags
 from tests.integration.aws_capability._service_commands import call_command, require_data
 from tests.integration.aws_capability._service_contracts import CommandPort, Reply, ServicePorts
 from tests.integration.aws_capability._service_iam import _read_tags
@@ -20,6 +20,7 @@ from tests.integration.aws_capability.contracts import (
 )
 
 PATH = "/cnesdata-cap/"
+CHAINED_SUFFIX = "r2"
 ATTEMPTS = 4
 RETRY_SECONDS = 2.0
 SESSION_SECONDS = 3600
@@ -74,9 +75,9 @@ def create_role(
 
 
 def _principal(spec: RunSpec, operator: OperatorInputs, name: str) -> str:
-    if name == run_name(spec):
-        return operator.role_arn
-    return f"arn:aws:iam::{spec.account}:role/cnesdata-cap/{run_name(spec)}"
+    if name == root_name(spec, CHAINED_SUFFIX):
+        return f"arn:aws:iam::{spec.account}:role/cnesdata-cap/{run_name(spec)}"
+    return operator.role_arn
 
 
 def _require_operator_caller(

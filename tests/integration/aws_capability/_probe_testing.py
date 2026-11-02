@@ -39,6 +39,9 @@ TABLE = Resource("dynamodb", NAME, NAME)
 THROUGHPUT = {"MaxReadRequestUnits": 100, "MaxWriteRequestUnits": 25}
 INDEXES = tuple(f"gsi{index}" for index in range(1, 7))
 ROLE2 = Resource("iam", f"{NAME}-r2", f"{NAME}-r2")
+ROLE_AUDIT = Resource("iam", f"{NAME}-audit", f"{NAME}-audit")
+ROLE_API = Resource("iam", f"{NAME}-api", f"{NAME}-api")
+MATRIX_PROFILES = frozenset({"iam-leadingkeys", "iam-s3"})
 START = 1000.0
 DEADLINE = 1180.0
 LATENCY = 1.3
@@ -63,6 +66,10 @@ class ProbeLab:
             return [ROLE, ROLE2]
         if self.spec.probe == "ddb-throughput":
             return [TABLE]
+        if self.spec.probe == "iam-leadingkeys":
+            return [TABLE, ROLE_AUDIT, ROLE_API]
+        if self.spec.probe == "iam-s3":
+            return [BUCKET, ROLE_AUDIT, ROLE_API]
         return [BUCKET, ROLE] if self.spec.probe == "s3-retention" else [BUCKET]
 
 
@@ -79,6 +86,8 @@ def make_probe_lab(
         pauses.append(seconds)
         advance(seconds)
 
+    if probe == "iam-s3":
+        options.setdefault("list_gates_missing", True)
     aws = FakeAws(lambda: clock[0], advance, **options)
     deadline = START + PROFILES[probe].window
     spec = RunSpec(
@@ -86,19 +95,30 @@ def make_probe_lab(
         probe=probe,
     )
     if seeded:
-        if probe not in {"iam-trust", "ddb-throughput"}:
-            aws.buckets[NAME] = FakeBucket(dict(TAGS))
-        if probe in {"s3-retention", "iam-trust"}:
-            aws.roles[NAME] = FakeRole(dict(TAGS), TRUST)
-        if probe == "iam-trust":
-            aws.roles[ROLE2.name] = FakeRole(dict(TAGS), TRUST2)
-        if probe == "ddb-throughput":
-            aws.tables[NAME] = seeded_table(spec)
+        seed_remote(aws, spec, probe)
     limits = PROFILES[probe].limits
     budget = RequestBudget(limits, deadline, lambda: clock[0])
     operator = OperatorInputs(OPERATOR_ARN, BOUNDARY_ARN)
     ports = ServicePorts(aws, lambda: clock[0], pause, aws.session, operator)
     return ProbeLab(aws, AwsServices(spec, ports), budget, spec, pauses, clock)
+
+
+def seed_remote(aws: FakeAws, spec: RunSpec, probe: str) -> None:
+    if probe not in {"iam-trust", "ddb-throughput", "iam-leadingkeys"}:
+        aws.buckets[NAME] = FakeBucket(dict(TAGS))
+    if probe in {"s3-retention", "iam-trust"}:
+        aws.roles[NAME] = FakeRole(dict(TAGS), TRUST)
+    if probe == "iam-trust":
+        aws.roles[ROLE2.name] = FakeRole(dict(TAGS), TRUST2)
+    if probe in MATRIX_PROFILES:
+        for role in (ROLE_AUDIT, ROLE_API):
+            aws.roles[role.name] = FakeRole(dict(TAGS), TRUST)
+    if probe == "ddb-throughput":
+        aws.tables[NAME] = seeded_table(spec)
+    if probe == "iam-leadingkeys":
+        aws.tables[NAME] = FakeTable(
+            tags(spec), protection=True, index_throughput=dict.fromkeys(INDEXES)
+        )
 
 
 def seeded_table(spec: RunSpec) -> FakeTable:

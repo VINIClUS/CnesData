@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._aws_fake_ddb_testing import DdbHandlers, FakeTable
 from tests.integration.aws_capability._aws_fake_iam_testing import IamHandlers
+from tests.integration.aws_capability._aws_fake_policy_testing import PolicyHandlers
 from tests.integration.aws_capability._aws_fake_s3_testing import S3Handlers
 from tests.integration.aws_capability._aws_fake_sts_testing import (
     StsHandlers,
@@ -31,7 +32,7 @@ CHAINING_MESSAGE = (
 
 
 @dataclass
-class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers):
+class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers, PolicyHandlers):
     clock: Callable[[], float]
     advance: Callable[[float], None]
     latency: float = 1.0
@@ -39,6 +40,12 @@ class FakeAws(S3Handlers, IamHandlers, DdbHandlers, StsHandlers):
     assume_denials: int = 0
     malformed_creates: int = 0
     trust_lag: int = 0
+    bucket_policy_lag: int = 0
+    bucket_policy_malformed: int = 0
+    bucket_absent_polls: int = 0
+    role_absent_polls: int = 0
+    lingering: dict[str, int] = field(default_factory=dict)
+    list_gates_missing: bool = False
     ddb_ready_describes: int = 0
     ddb_deleting_describes: int = 0
     ddb_tx_reasons: dict[str, int] | None = None

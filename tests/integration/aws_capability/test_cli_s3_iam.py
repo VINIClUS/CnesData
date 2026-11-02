@@ -66,6 +66,8 @@ def test_leitura_da_configuracao_de_lock_continua_permitida(cli_lab: CliLab) -> 
         ("s3api", "put-bucket-versioning"),
         ("s3api", "put-object-legal-hold"),
         ("s3api", "put-object-retention"),
+        ("s3api", "put-bucket-policy"),
+        ("s3api", "delete-bucket-policy"),
         ("iam", "put-role-policy"),
     ],
 )

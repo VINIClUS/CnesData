@@ -2,22 +2,32 @@
 
 from collections.abc import Callable
 
+from tests.integration.aws_capability._aws_fake_s3_policy_testing import (
+    S3PolicyHandlers,
+    bucket_arn,
+    object_arn,
+)
 from tests.integration.aws_capability._aws_fake_types_testing import (
     FakeBucket,
     FakeVersion,
     denied,
     good,
     iso,
+    linger,
     parse_iso,
+    still_visible,
 )
 from tests.integration.aws_capability._service_contracts import Reply
 
 
-class S3Handlers:
+class S3Handlers(S3PolicyHandlers):
     buckets: dict[str, FakeBucket]
     clock: Callable[[], float]
     counter: int
     allowed: Callable[[str, str], bool]
+    list_gates_missing: bool
+    bucket_absent_polls: int
+    lingering: dict[str, int]
 
     def _bucket(self, payload: dict) -> FakeBucket | None:
         return self.buckets.get(payload["Bucket"])
@@ -45,7 +55,8 @@ class S3Handlers:
         return good()
 
     def _s3api_get_bucket_location(self, payload: dict, who: str) -> Reply:
-        if self._bucket(payload) is None:
+        gone = self._bucket(payload) is None
+        if gone and not still_visible(self.lingering, f"bucket/{payload['Bucket']}"):
             return denied("NoSuchBucket")
         return good({"LocationConstraint": "us-east-2"})
 
@@ -61,6 +72,8 @@ class S3Handlers:
         return good({"Status": "Enabled"})
 
     def _s3api_get_object_lock_configuration(self, payload: dict, who: str) -> Reply:
+        if not self.permits(who, "s3:GetBucketObjectLockConfiguration", bucket_arn(payload)):
+            return denied()
         return good({"ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}})
 
     def _s3api_put_bucket_versioning(self, payload: dict, who: str) -> Reply:
@@ -106,9 +119,12 @@ class S3Handlers:
         if bucket is None:
             return denied("NoSuchBucket")
         locked = "ObjectLockMode" in payload
-        if not self.allowed(who, "s3:PutObject"):
+        target = object_arn(payload)
+        if self._bucket_denies(bucket, who, "s3:PutObject", target):
             return denied()
-        if locked and not self.allowed(who, "s3:PutObjectRetention"):
+        if not self.permits(who, "s3:PutObject", target):
+            return denied()
+        if locked and not self.permits(who, "s3:PutObjectRetention", target):
             return denied()
         until = parse_iso(payload["ObjectLockRetainUntilDate"]) if locked else 0.0
         version = FakeVersion(payload["Key"], f"VERSION_ID_CANARY_{self.counter}", None, until)
@@ -118,9 +134,22 @@ class S3Handlers:
     def _s3api_head_object(self, payload: dict, who: str) -> Reply:
         bucket = self._bucket(payload)
         found = None if bucket is None else self._version(bucket, payload)
-        if not self.allowed(who, "s3:GetObject"):
+        target = object_arn(payload)
+        if bucket is not None and self._bucket_denies(bucket, who, "s3:GetObject", target):
             return denied("403")
-        return denied("404") if found is None else good({"ContentLength": 2})
+        if not self.permits(who, "s3:GetObject", target):
+            return denied("403")
+        if found is None:
+            return denied(self._missing_code(payload, who))
+        return good({"ContentLength": 2})
+
+    def _missing_code(self, payload: dict, who: str) -> str:
+        listing = {"s3:prefix": [payload["Key"]]}
+        if self.list_gates_missing and not self.permits(
+            who, "s3:ListBucket", bucket_arn(payload), listing
+        ):
+            return "403"
+        return "404"
 
     def _blocked(self, version: FakeVersion, header: bool, who: str) -> bool:
         if version.hold == "ON":
@@ -135,7 +164,7 @@ class S3Handlers:
         header = payload.get("BypassGovernanceRetention") is True
         action = "s3:DeleteObjectVersion" if "VersionId" in payload else "s3:DeleteObject"
         bypass_missing = header and not self.allowed(who, "s3:BypassGovernanceRetention")
-        if not self.allowed(who, action) or bypass_missing:
+        if not self.permits(who, action, object_arn(payload)) or bypass_missing:
             return denied()
         version = self._version(bucket, payload)
         if version is None:
@@ -165,6 +194,8 @@ class S3Handlers:
     def _s3api_get_object_retention(self, payload: dict, who: str) -> Reply:
         bucket = self._bucket(payload)
         version = None if bucket is None else self._version(bucket, payload)
+        if not self.permits(who, "s3:GetObjectRetention", object_arn(payload)):
+            return denied()
         if version is None:
             return denied("NoSuchVersion")
         if version.until == 0.0:
@@ -176,7 +207,7 @@ class S3Handlers:
         bucket = self._bucket(payload)
         version = None if bucket is None else self._version(bucket, payload)
         header = payload.get("BypassGovernanceRetention") is True
-        if not self.allowed(who, "s3:PutObjectRetention"):
+        if not self.permits(who, "s3:PutObjectRetention", object_arn(payload)):
             return denied()
         if version is None:
             return denied("NoSuchVersion")
@@ -191,7 +222,10 @@ class S3Handlers:
         bucket = self._bucket(payload)
         if bucket is None:
             return denied("NoSuchBucket")
+        if self._bucket_denies(bucket, who, "s3:DeleteBucket", bucket_arn(payload)):
+            return denied()
         if bucket.versions:
             return denied("BucketNotEmpty")
         del self.buckets[payload["Bucket"]]
+        linger(self.lingering, f"bucket/{payload['Bucket']}", self.bucket_absent_polls)
         return good()
