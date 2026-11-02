@@ -116,4 +116,3 @@ def _checks(kit: Kit, plan: Plan, chain: Chain, env: LoginEnv) -> Observed:
     observed.update(check_negatives(kit, plan, chain))
     observed.update(check_password_auth(kit, env.username, env.password))
     return observed
-
