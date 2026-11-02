@@ -81,9 +81,9 @@ def test_ci_dispara_nos_novos_caminhos_de_politica_schema_e_fixtures() -> None:
     workflow = cast("dict[Any, Any]", _workflow())
     triggers = workflow.get("on", workflow.get(True))
     assert isinstance(triggers, dict)
-    for event in ("pull_request", "push"):
-        for path in NEW_PATHS:
-            assert path in triggers[event]["paths"], f"event={event} path={path}"
+    assert triggers["pull_request"] is None
+    for path in NEW_PATHS:
+        assert path in triggers["push"]["paths"], f"path={path}"
 
 
 def test_conftest_local_e_a_versao_fixada() -> None:
