@@ -173,12 +173,13 @@ class AwsServices:
     ) -> Mapping[str, object]:
         if self.spec.probe == "cognito-resource-server":
             return self._probe_server(resources, spec, context)
-        if self.spec.probe in {"cognito-login", "cognito-pkce-negatives", "cognito-sdk"}:
+        if self.spec.probe == "cognito-login":
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")
             if spec != self.spec or len(resources) != 1:
                 raise ServiceFailure("probe=cognito_prepare_invalid")
             prepare_pool(self.ports.commands, self.spec, resources[0], context)
+            raise ServiceFailure("probe=not_implemented")
         if self.spec.probe in S3_PROFILES:
             if spec != self.spec:
                 raise ServiceFailure("probe=s3_invalid")
@@ -265,8 +266,6 @@ def _cognito_enabled(spec: RunSpec) -> bool:
     return spec.allow_governance_bypass and spec.probe in {
         "cognito-resource-server",
         "cognito-login",
-        "cognito-pkce-negatives",
-        "cognito-sdk",
     }
 
 

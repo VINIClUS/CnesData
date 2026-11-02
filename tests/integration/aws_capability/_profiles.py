@@ -44,8 +44,6 @@ PROFILES = {
     ),
     "all": Profile(("cognito", "dynamodb", "s3", "iam"), Limits()),
     "cognito-login": Profile(("cognito",), Limits(512, 8, 2, 240, 256)),
-    "cognito-pkce-negatives": Profile(("cognito",), Limits(512, 8, 2, 240, 256)),
-    "cognito-sdk": Profile(("cognito",), Limits(256, 8, 2, 240, 128)),
     "ddb-transactions": Profile(("dynamodb",), Limits(192, 8, 2, 150, 96)),
     "ddb-conditions": Profile(("dynamodb",), Limits(256, 8, 2, 150, 128)),
     "ddb-ttl-gsi": Profile(("dynamodb",), Limits(256, 8, 2, 150, 128)),

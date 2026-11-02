@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from tests.integration.aws_capability._profiles import PROFILES
+from tests.integration.aws_capability._service_cognito_prepare import prepare_pool
 from tests.integration.aws_capability._service_cognito_root_testing import (
     ROOT,
     RootLab,
@@ -19,30 +20,25 @@ from tests.integration.aws_capability.contracts import ServiceFailure
 __all__ = ["root_lab"]
 
 
-@pytest.mark.parametrize(
-    "profile",
-    ["cognito-login", "cognito-pkce-negatives", "cognito-sdk"],
-    ids=["login", "pkce", "sdk"],
-)
-def test_confere_root_antes_terminal(root_lab: RootLab, profile: str) -> None:
-    root_lab.services = replace(
-        root_lab.services, spec=replace(root_lab.services.spec, probe=profile)
-    )
-    root_lab.context.budget.limits = PROFILES[profile].limits
+def test_confere_root_antes_de_criar_filhos(root_lab: RootLab) -> None:
     steps = [["D", "pool_active"], ["T", "tags_owner"]]
     queue_trace(root_lab, steps)
-    with pytest.raises(ServiceFailure) as error:
-        root_lab.services.probe([ROOT], root_lab.services.spec, root_lab.context)
+    spec = root_lab.services.spec
+    prepare_pool(root_lab.services.ports.commands, spec, ROOT, root_lab.context)
     assert_trace(root_lab, steps, ["work", "work"])
-    assert error.value.args == ("probe=not_implemented",)
-    assert PROFILES[profile].snapshot(profile)["limits"] == {
-        "calls": 256 if profile == "cognito-sdk" else 512,
+    assert PROFILES["cognito-login"].snapshot("cognito-login")["limits"] == {
+        "calls": 512,
         "pages": 8,
         "attempts": 2,
         "cleanup_seconds": 240,
-        "cleanup_reserve": 128 if profile == "cognito-sdk" else 256,
+        "cleanup_reserve": 256,
     }
     assert list(root_lab.directory.iterdir()) == []
+
+
+def test_perfis_substituidos_nao_existem_mais() -> None:
+    assert "cognito-pkce-negatives" not in PROFILES
+    assert "cognito-sdk" not in PROFILES
 
 
 @pytest.mark.parametrize(
