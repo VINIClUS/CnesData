@@ -236,6 +236,17 @@ deny contains resource_msg("public_acl", rc) if {
 	public_acls[rc.change.after.acl]
 }
 
+public_grantee := `^https?://acs\.amazonaws\.com/groups/global/(AllUsers|AuthenticatedUsers)$`
+
+deny contains resource_msg("public_acl", rc) if {
+	some rc in live_changes
+	rc.type in {"aws_s3_bucket_acl", "aws_s3_bucket"}
+	walk(rc.change.after, [path, value])
+	path[count(path) - 1] == "uri"
+	is_string(value)
+	regex.match(public_grantee, value)
+}
+
 statements(document) := document.Statement if is_array(document.Statement)
 
 statements(document) := [document.Statement] if is_object(document.Statement)

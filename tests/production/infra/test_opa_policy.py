@@ -122,6 +122,8 @@ EXPOSED = {
         ("bpa_disabled", "aws_s3_bucket_public_access_block", "data"),
         ("bpa_disabled", "aws_s3_bucket_public_access_block", "audit"),
         ("public_acl", "aws_s3_bucket_acl", "data"),
+        ("public_acl", "aws_s3_bucket_acl", "explicita"),
+        ("public_acl", "aws_s3_bucket", "legado"),
         ("public_policy", "aws_s3_bucket_policy", "data"),
         ("public_policy", "aws_s3_bucket_policy", "transporte"),
         ("public_policy", "aws_s3_bucket_policy", "org_curinga"),

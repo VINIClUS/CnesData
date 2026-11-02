@@ -316,6 +316,57 @@
         },
         "after_unknown": {}
       }
+    },
+    {
+      "address": "aws_s3_bucket_acl.entrega_de_logs",
+      "mode": "managed",
+      "type": "aws_s3_bucket_acl",
+      "name": "entrega_de_logs",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "access_control_policy": [
+            {
+              "owner": [
+                {
+                  "id": "example-owner",
+                  "display_name": ""
+                }
+              ],
+              "grant": [
+                {
+                  "permission": "FULL_CONTROL",
+                  "grantee": [
+                    {
+                      "type": "CanonicalUser",
+                      "id": "example-owner",
+                      "uri": "",
+                      "email_address": ""
+                    }
+                  ]
+                },
+                {
+                  "permission": "READ",
+                  "grantee": [
+                    {
+                      "type": "Group",
+                      "id": "",
+                      "uri": "http://acs.amazonaws.com/groups/s3/LogDelivery",
+                      "email_address": ""
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
     }
   ]
 }

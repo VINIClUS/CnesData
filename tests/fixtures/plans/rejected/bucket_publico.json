@@ -151,6 +151,84 @@
         },
         "after_unknown": {}
       }
+    },
+    {
+      "address": "aws_s3_bucket_acl.explicita",
+      "mode": "managed",
+      "type": "aws_s3_bucket_acl",
+      "name": "explicita",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "access_control_policy": [
+            {
+              "owner": [
+                {
+                  "id": "example-owner",
+                  "display_name": ""
+                }
+              ],
+              "grant": [
+                {
+                  "permission": "FULL_CONTROL",
+                  "grantee": [
+                    {
+                      "type": "CanonicalUser",
+                      "id": "example-owner",
+                      "uri": "",
+                      "email_address": ""
+                    }
+                  ]
+                },
+                {
+                  "permission": "READ",
+                  "grantee": [
+                    {
+                      "type": "Group",
+                      "id": "",
+                      "uri": "http://acs.amazonaws.com/groups/global/AllUsers",
+                      "email_address": ""
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_s3_bucket.legado",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "legado",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-legacy",
+          "grant": [
+            {
+              "type": "Group",
+              "id": "",
+              "uri": "http://acs.amazonaws.com/groups/global/AuthenticatedUsers",
+              "permissions": [
+                "READ"
+              ]
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
     }
   ]
 }
