@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import re
 import sys
 from collections.abc import Sequence
 from contextlib import suppress
@@ -86,8 +87,14 @@ def janitor(spec: RunSpec, ports: Ports) -> Outcome:
     try:
         return recover(spec, ports)
     finally:
-        with suppress(OSError):
-            remove_handoff(spec)
+        _remove_unleased_handoff(spec)
+
+
+def _remove_unleased_handoff(spec: RunSpec) -> None:
+    if re.fullmatch(r"[0-9a-f]{8}", spec.run_id) is None or not spec.journal_dir.is_dir():
+        return
+    with suppress(OSError, SafetyFailure), lease(spec):
+        remove_handoff(spec)
 
 
 def recover(spec: RunSpec, ports: Ports) -> Outcome:

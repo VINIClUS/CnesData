@@ -1,12 +1,13 @@
 """O handoff com a senha some em toda limpeza, mesmo após crash com journal incerto."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from tests.integration.aws_capability import lifecycle
 from tests.integration.aws_capability._cleanup import Cleanup
-from tests.integration.aws_capability._journal import Journal
+from tests.integration.aws_capability._journal import Journal, lease
 from tests.integration.aws_capability._login_handoff import handoff_path, write_handoff
 from tests.integration.aws_capability._login_lab_testing import (
     LoginWorld,
@@ -91,3 +92,42 @@ def test_run_completo_com_crash_no_meio_da_cadeia_nao_deixa_handoff(
     assert not handoff_path(world.lab.spec).exists()
     assert world.lab.aws.pools == {}
     assert world.listener.closed is True
+
+
+def temp_of(world: LoginWorld) -> Path:
+    path = world.lab.spec.journal_dir / f".handoff-{world.lab.spec.run_id}-abc"
+    path.write_text("PASSWORD-CANARY")
+    return path
+
+
+def test_janitor_com_lease_do_worker_preserva_o_handoff_ativo(tmp_path: Path) -> None:
+    world = make_login_world(tmp_path)
+    journal_with_root(world)
+    path, temp = stale(world), temp_of(world)
+    with lease(world.lab.spec):
+        outcome = lifecycle.janitor(world.lab.spec, janitor_ports(world.lab))
+    assert (outcome.status, outcome.reason) == ("waiting", "cleanup_owned")
+    assert path.exists()
+    assert temp.exists()
+
+
+def test_janitor_com_journal_corrompido_e_lease_do_worker_preserva_o_handoff(
+    tmp_path: Path,
+) -> None:
+    world = make_login_world(tmp_path)
+    journal = journal_with_root(world)
+    journal.path.write_text("{corrompido")
+    path = stale(world)
+    with lease(world.lab.spec):
+        outcome = lifecycle.janitor(world.lab.spec, janitor_ports(world.lab))
+    assert outcome.status == "refused"
+    assert path.exists()
+
+
+def test_janitor_com_run_id_invalido_nao_cria_lock_fora_do_formato(tmp_path: Path) -> None:
+    world = make_login_world(tmp_path)
+    spec = replace(world.lab.spec, run_id="../fora")
+    outcome = lifecycle.janitor(spec, janitor_ports(world.lab))
+    assert outcome.status == "refused"
+    assert not (tmp_path / "fora.lock").exists()
+    assert not any(p.name.endswith(".lock") for p in tmp_path.rglob("*fora*"))
