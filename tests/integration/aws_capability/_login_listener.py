@@ -107,7 +107,7 @@ def open_listener(bind: Callable[[str, int], Server] = _bind) -> LoopbackListene
         servers.extend(bind(host, LISTEN_PORT) for host in HOSTS)
     except OSError:
         for server in servers:
-            server.shutdown()
+            server.server_close()
         raise
     listener = LoopbackListener(servers, [])
     for server in servers:

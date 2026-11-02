@@ -25,16 +25,20 @@ class StubServer:
     host: str
     port: int
     stopped: bool = False
+    closed: bool = False
+    serving: bool = False
     exchange: object = field(default=None, repr=False)
 
     def serve_forever(self) -> None:
-        return None
+        self.serving = True
 
     def shutdown(self) -> None:
+        if not self.serving:
+            raise RuntimeError("shutdown=blocks_forever_when_not_serving")
         self.stopped = True
 
     def server_close(self) -> None:
-        return None
+        self.closed = True
 
 
 def test_callback_so_existe_em_caminho_exato_e_so_leva_code_state_e_error() -> None:
@@ -62,6 +66,8 @@ def test_listener_liga_127_0_0_1_e_ipv6_loopback_na_porta_fixa() -> None:
 
     listener = open_listener(bind)
     assert bound == [("127.0.0.1", LISTEN_PORT), ("::1", LISTEN_PORT)]
+    for thread in listener.threads:
+        thread.join(timeout=2)
     listener.close()
 
 
@@ -77,15 +83,18 @@ def test_falha_ao_ligar_um_dos_enderecos_fecha_o_outro_e_vira_service_failure() 
     with pytest.raises(ServiceFailure) as error:
         listener_factory(bind)()
     assert error.value.args == ("probe=listener_unavailable",)
-    assert servers[0].stopped is True
+    assert servers[0].closed is True
+    assert servers[0].stopped is False
 
 
 def test_espera_sem_chamada_devolve_none_e_close_para_os_servidores() -> None:
     servers = [StubServer("a", 1), StubServer("b", 1)]
+    for server in servers:
+        server.serving = True
     listener = LoopbackListener(servers, [])
     assert listener.wait(0.01) is None
     listener.close()
-    assert all(server.stopped for server in servers)
+    assert all(server.stopped and server.closed for server in servers)
 
 
 def test_respostas_seguem_a_ordem_redirect_depois_pagina() -> None:

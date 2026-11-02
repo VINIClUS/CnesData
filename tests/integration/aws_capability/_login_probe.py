@@ -24,6 +24,7 @@ from tests.integration.aws_capability._login_claims import make_verifier
 from tests.integration.aws_capability._login_handoff import remove_handoff, write_handoff
 from tests.integration.aws_capability._login_http import Http
 from tests.integration.aws_capability._login_oauth import await_ready
+from tests.integration.aws_capability._login_ports import ListenerPort
 from tests.integration.aws_capability._login_setup import LoginEnv, provision
 from tests.integration.aws_capability._service_contracts import ServicePorts
 from tests.integration.aws_capability.contracts import (
@@ -42,7 +43,27 @@ def probe_login(
     """Returns: observações do login; Raises: ServiceFailure para entrada ou etapa inválida."""
     if context.lane != "work" or len(resources) != 1 or ports.http is None:
         raise ServiceFailure("probe=login_invalid")
-    root = resources[0]
+    if ports.listener is None:
+        raise ServiceFailure("probe=login_ports_unavailable")
+    try:
+        listener = ports.listener()
+    except ServiceFailure:
+        return {"listener": "unavailable"}
+    try:
+        return _observe(resources[0], spec, (ports, listener), context)
+    finally:
+        listener.close()
+        remove_handoff(spec)
+
+
+def _observe(
+    root: Resource,
+    spec: RunSpec,
+    wiring: tuple[ServicePorts, ListenerPort],
+    context: RequestContext,
+) -> Observed:
+    ports, listener = wiring
+    assert ports.http is not None
     http = Http(ports.http, context)
     issuer = f"https://cognito-idp.{spec.region}.amazonaws.com/{root.resource_id}"
     observed = check_discovery(http, issuer)
@@ -52,7 +73,7 @@ def probe_login(
     if observed["domain_ready"] == "timeout":
         return observed
     plan = make_plan(env.endpoint)
-    chain, seconds = _login(spec, ports, (env, plan), context)
+    chain, seconds = _login(spec, listener, (env, plan), (ports.now, context))
     observed.update({"login": chain.outcome, "login_seconds": seconds})
     if chain.error != "none":
         observed["login_error"] = chain.error
@@ -69,21 +90,17 @@ def _ready(kit: Kit, ports: ServicePorts) -> Observed:
 
 
 def _login(
-    spec: RunSpec, ports: ServicePorts, material: tuple[LoginEnv, Plan], context: RequestContext
+    spec: RunSpec,
+    listener: ListenerPort,
+    material: tuple[LoginEnv, Plan],
+    clock: tuple[Callable[[], float], RequestContext],
 ) -> tuple[Chain, float]:
     env, plan = material
-    if ports.listener is None:
-        raise ServiceFailure("probe=login_ports_unavailable")
-    start = ports.now()
-    listener = ports.listener()
-    try:
-        write_handoff(spec, plan.urls["a"], env.username, env.password)
-        limit = _limit(context)
-        chain = follow(listener, plan, limit, ports.now)
-    finally:
-        listener.close()
-        remove_handoff(spec)
-    return chain, round(ports.now() - start, 1)
+    now, context = clock
+    start = now()
+    write_handoff(spec, plan.urls["a"], env.username, env.password)
+    chain = follow(listener, plan, _limit(context), now)
+    return chain, round(now() - start, 1)
 
 
 def _limit(context: RequestContext) -> float:
@@ -100,5 +117,3 @@ def _checks(kit: Kit, plan: Plan, chain: Chain, env: LoginEnv) -> Observed:
     observed.update(check_password_auth(kit, env.username, env.password))
     return observed
 
-
-Pause = Callable[[float], None]

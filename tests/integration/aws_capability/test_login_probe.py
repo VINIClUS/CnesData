@@ -215,3 +215,80 @@ def test_evidencia_nao_carrega_segredos_nem_ids_nem_urls(tmp_path: Path) -> None
     secrets_ += [str(row["password"]) for row in pool.users.values()]
     assert not any(secret in text for secret in secrets_)
     assert "https://" not in text.replace(API, "")
+
+
+def test_listener_abre_antes_de_criar_qualquer_recurso(tmp_path: Path) -> None:
+    world = make_login_world(tmp_path)
+    opened_at: list[int] = []
+    lab = world.lab
+    original = world.listener.factory
+
+    def spy() -> object:
+        opened_at.append(len(lab.aws.requests))
+        return original()
+
+    from dataclasses import replace
+
+    from tests.integration.aws_capability.services import AwsServices
+
+    lab.services = AwsServices(lab.spec, replace(lab.services.ports, listener=spy))
+    root = create_root(lab)
+    mark = len(lab.aws.requests)
+    lab.services.probe([root], lab.spec, lab.context)
+    assert len(opened_at) == 1
+    assert opened_at[0] == mark + 2
+    before = [r.operation for r in lab.aws.requests[: opened_at[0]]]
+    assert "create-resource-server" not in before
+    assert "create-user-pool-client" not in before
+
+
+def test_porta_ocupada_falha_rapido_sem_criar_filhos_nem_handoff(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from tests.integration.aws_capability.contracts import ServiceFailure as Failure
+    from tests.integration.aws_capability.services import AwsServices
+
+    world = make_login_world(tmp_path)
+    lab = world.lab
+
+    def busy() -> object:
+        raise Failure("probe=listener_unavailable")
+
+    lab.services = AwsServices(lab.spec, replace(lab.services.ports, listener=busy))
+    root = create_root(lab)
+    observed = dict(lab.services.probe([root], lab.spec, lab.context))
+    assert observed == {"listener": "unavailable"}
+    ops = lab.aws.operations()
+    assert not any(op.startswith(("create-user-pool-", "admin-", "create-resource")) for op in ops)
+    assert not handoff_path(lab.spec).exists()
+    assert world.idp.requests == []
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        {},
+        {"ready_after": 10_000},
+        {"human_seconds": 10_000.0},
+        {"wrong_state_at": 1},
+        {"error_at": 1},
+    ],
+)
+def test_listener_e_fechado_em_todo_caminho(tmp_path: Path, option: dict) -> None:
+    world = make_login_world(tmp_path, **option)
+    run_probe(world)
+    assert world.listener.closed is True
+
+
+def test_listener_e_fechado_quando_o_provisionamento_falha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.integration.aws_capability._aws_fake_types_testing import denied
+
+    world = make_login_world(tmp_path)
+    monkeypatch.setattr(
+        world.lab.aws, "_cognito_idp_create_user_pool_client", lambda payload, who: denied("X")
+    )
+    with pytest.raises(ServiceFailure):
+        run_probe(world)
+    assert world.listener.closed is True
