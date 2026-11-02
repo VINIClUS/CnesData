@@ -315,10 +315,11 @@ def test_todo_tipo_protegido_nos_modulos_falha_delete_e_replacement(
     assert (code, failures) == (1, expected)
 
 
+@pytest.mark.parametrize("prefix", ["AK", "AS"])
 def test_valores_com_padrao_de_segredo_falham_sem_literal_no_repositorio(
-    conftest: Conftest, tmp_path: Path
+    conftest: Conftest, tmp_path: Path, prefix: str
 ) -> None:
-    key = "AK" + "IA" + "0123456789ABCDEF"
+    key = prefix + "IA" + "0123456789ABCDEF"
     pem = "-----BEGIN " + "RSA PRIVATE KEY" + "-----\nexemplo\n-----END " + "RSA PRIVATE KEY-----"
     plan = _plan(
         ("aws_lambda_function", "chave", ["create"], {"description": f"usa {key} aqui"}),
@@ -444,10 +445,9 @@ def test_tftest_usa_mocks_e_valores_iguais_as_constantes_do_harness() -> None:
         kind = address.split(".")[2]
         name = f"{ROOT_FIXTURE_CONTRACT['name_prefix']}-{suffix}"
         values = _seed_values(kind, name, ROOT_FIXTURE_CONTRACT)
-        expected[address] = values | (
-            {"bucket_regional_domain_name": BUCKET_REGIONAL_DOMAIN_NAME}
-            if kind == "aws_s3_bucket" else {}
-        )
+        if kind == "aws_s3_bucket":
+            values = values | {"bucket_regional_domain_name": BUCKET_REGIONAL_DOMAIN_NAME}
+        expected[address] = values
     assert overrides == expected
     assert [body for name, body in blocks if name == "variables"] == [
         {"shared_outputs": VALID_SHARED_OUTPUTS}

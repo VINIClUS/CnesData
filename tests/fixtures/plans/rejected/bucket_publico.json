@@ -25,6 +25,26 @@
       }
     },
     {
+      "address": "aws_s3_bucket_public_access_block.audit",
+      "mode": "managed",
+      "type": "aws_s3_bucket_public_access_block",
+      "name": "audit",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-audit",
+          "block_public_acls": true,
+          "block_public_policy": true,
+          "ignore_public_acls": true
+        },
+        "after_unknown": {}
+      }
+    },
+    {
       "address": "aws_s3_bucket_acl.data",
       "mode": "managed",
       "type": "aws_s3_bucket_acl",

@@ -120,6 +120,7 @@ REJECTIONS["protegido_substituicao.json"] = [
 EXPOSED = {
     "bucket_publico.json": (
         ("bpa_disabled", "aws_s3_bucket_public_access_block", "data"),
+        ("bpa_disabled", "aws_s3_bucket_public_access_block", "audit"),
         ("public_acl", "aws_s3_bucket_acl", "data"),
         ("public_policy", "aws_s3_bucket_policy", "data"),
     ),

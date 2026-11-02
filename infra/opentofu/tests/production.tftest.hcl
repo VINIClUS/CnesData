@@ -166,6 +166,18 @@ variables {
 run "saidas_cognito_da_raiz" {
   command = plan
 
+  override_resource {
+    target = module.cognito.aws_cognito_user_pool_client.dashboard
+    values = {
+      id = "fixture-dashboard-client"
+    }
+  }
+
+  assert {
+    condition     = output.cognito_client_id == "fixture-dashboard-client"
+    error_message = "cognito_client_id must be the dashboard client id"
+  }
+
   assert {
     condition     = output.cognito_issuer == module.cognito.issuer
     error_message = "cognito_issuer must forward module.cognito.issuer"
