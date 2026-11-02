@@ -1,0 +1,58 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "module.cognito.aws_cognito_user_pool.this",
+      "mode": "managed",
+      "type": "aws_cognito_user_pool",
+      "name": "this",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "name": "example"
+        },
+        "after": null,
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.cognito.aws_cognito_user_pool_client.dashboard",
+      "mode": "managed",
+      "type": "aws_cognito_user_pool_client",
+      "name": "dashboard",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "name": "example"
+        },
+        "after": null,
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.cognito.aws_cognito_user_pool_domain.this",
+      "mode": "managed",
+      "type": "aws_cognito_user_pool_domain",
+      "name": "this",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "domain": "example"
+        },
+        "after": null,
+        "after_unknown": {}
+      }
+    }
+  ]
+}

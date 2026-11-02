@@ -95,6 +95,62 @@ REJECTIONS["regiao_sem_constante.json"] = [
     "forbidden_region region=unset type=aws_s3_bucket address=aws_s3_bucket.dynamic"
 ]
 
+PROTECTED = "protected_change type={} address={} actions={}"
+REJECTIONS["protegido_cognito_removido.json"] = [
+    PROTECTED.format(
+        "aws_cognito_user_pool", "module.cognito.aws_cognito_user_pool.this", "delete"
+    ),
+    PROTECTED.format(
+        "aws_cognito_user_pool_client",
+        "module.cognito.aws_cognito_user_pool_client.dashboard",
+        "delete",
+    ),
+    PROTECTED.format(
+        "aws_cognito_user_pool_domain", "module.cognito.aws_cognito_user_pool_domain.this", "delete"
+    ),
+]
+REJECTIONS["protegido_substituicao.json"] = [
+    PROTECTED.format("aws_s3_bucket", "module.data_buckets.aws_s3_bucket.audit", "delete,create"),
+    PROTECTED.format(
+        "aws_dynamodb_table",
+        "module.control_plane.aws_dynamodb_table.control_plane",
+        "create,delete",
+    ),
+]
+EXPOSED = {
+    "bucket_publico.json": (
+        ("bpa_disabled", "aws_s3_bucket_public_access_block", "data"),
+        ("public_acl", "aws_s3_bucket_acl", "data"),
+        ("public_policy", "aws_s3_bucket_policy", "data"),
+    ),
+    "ingress.json": (
+        ("ingress", "aws_security_group", "tasks"),
+        ("ingress", "aws_vpc_security_group_ingress_rule", "https"),
+        ("ingress", "aws_security_group_rule", "legacy"),
+        ("ingress", "aws_default_security_group", "this"),
+    ),
+    "cloudfront_pago.json": (
+        ("cloudfront_dedicated_ip", "aws_cloudfront_distribution", "web"),
+        ("cloudfront_origin_shield", "aws_cloudfront_distribution", "web"),
+        ("paid_cloudfront", "aws_cloudfront_monitoring_subscription", "web"),
+        ("paid_cloudfront", "aws_cloudfront_realtime_log_config", "web"),
+    ),
+    "imagem_mutavel.json": (
+        ("mutable_image_tag", "aws_ecr_repository", "processor"),
+        ("image_without_digest", "aws_ecs_task_definition", "processor"),
+        ("image_without_digest", "aws_ecs_task_definition", "digest_curto"),
+    ),
+}
+REJECTIONS |= {
+    name: [f"forbidden_resource reason={reason} type={kind} address={kind}.{label}"
+           for reason, kind, label in entries]
+    for name, entries in EXPOSED.items()
+}
+REJECTIONS["segredo_por_nome.json"] = [
+    "secret_literal type=aws_lambda_function address=aws_lambda_function.main "
+    "key=environment.0.variables.DB_PASSWORD"
+]
+
 
 @pytest.fixture(name="conftest", scope="module")
 def fixture_conftest() -> Conftest:

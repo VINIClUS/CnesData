@@ -1,0 +1,32 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_lambda_function.main",
+      "mode": "managed",
+      "type": "aws_lambda_function",
+      "name": "main",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "function_name": "example",
+          "environment": [
+            {
+              "variables": {
+                "DB_PASSWORD": "valor-de-exemplo",
+                "LOG_LEVEL": "info"
+              }
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}
