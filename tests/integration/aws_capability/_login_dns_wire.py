@@ -85,8 +85,6 @@ def _read_record(reply: bytes, offset: int) -> tuple[Record, int]:
     rtype, _, _, length = _FIXED.unpack_from(reply, offset)
     start = offset + _FIXED.size
     end = start + length
-    if end > len(reply):
-        raise _Malformed
     return Record(owner, rtype, _rdata(reply, rtype, start, end)), end
 
 
