@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from tests.integration.aws_capability._journal import prepare_directory
 from tests.integration.aws_capability._login_fake_testing import FakeIdp
 from tests.integration.aws_capability._login_listener_testing import FakeListener
 from tests.integration.aws_capability._probe_testing import LATENCY, ProbeLab, make_probe_lab
@@ -16,7 +17,9 @@ API = "https://api.cnesdata.com.br"
 
 
 def make_login_lab(tmp_path: Path, **options: Any) -> ProbeLab:
-    return make_probe_lab(tmp_path / "private", "cognito-login", seeded=False, **options)
+    lab = make_probe_lab(tmp_path / "private", "cognito-login", seeded=False, **options)
+    prepare_directory(lab.spec.journal_dir)
+    return lab
 
 
 def cleanup_context(lab: ProbeLab) -> RequestContext:

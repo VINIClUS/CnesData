@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
 from tests.integration.aws_capability._iam_s3_probe import probe_iam_s3
 from tests.integration.aws_capability._leadingkeys_probe import probe_leadingkeys
+from tests.integration.aws_capability._login_probe import probe_login
 from tests.integration.aws_capability._resource_ids import cognito_child
 from tests.integration.aws_capability._s3_probe import probe_s3
 from tests.integration.aws_capability._service_cognito import (
@@ -179,7 +180,9 @@ class AwsServices:
             if spec != self.spec or len(resources) != 1:
                 raise ServiceFailure("probe=cognito_prepare_invalid")
             prepare_pool(self.ports.commands, self.spec, resources[0], context)
-            raise ServiceFailure("probe=not_implemented")
+            if self.ports.http is None or self.ports.listener is None:
+                raise ServiceFailure("probe=login_ports_unavailable")
+            return probe_login(resources, spec, self.ports, context)
         if self.spec.probe in S3_PROFILES:
             if spec != self.spec:
                 raise ServiceFailure("probe=s3_invalid")

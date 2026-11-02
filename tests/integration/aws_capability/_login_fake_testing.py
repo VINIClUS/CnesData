@@ -106,6 +106,7 @@ class FakeIdp:
         if not valid:
             return None
         self.issued += 1
+        self.requests.append(("AUTHORIZE", "/oauth2/authorize"))
         code = f"code-{self.issued}"
         resource = query.get("resource")
         self.codes[code] = {
