@@ -262,6 +262,60 @@
         },
         "after_unknown": {}
       }
+    },
+    {
+      "address": "aws_s3_bucket_policy.vpce",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "vpce",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::example-data/*\",\"Condition\":{\"StringEquals\":{\"aws:SourceVpce\":\"vpce-0example\"}}}]}"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_s3_bucket_policy.contas",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "contas",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"*\"},\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::example-data/*\",\"Condition\":{\"StringEquals\":{\"aws:PrincipalAccount\":[\"123456789012\"]}}}]}"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_ecs_task_definition.segredo_referenciado",
+      "mode": "managed",
+      "type": "aws_ecs_task_definition",
+      "name": "segredo_referenciado",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "family": "example",
+          "container_definitions": "[{\"name\":\"processor\",\"image\":\"123456789012.dkr.ecr.us-east-2.amazonaws.com/cnesdata-prod-processor@sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"essential\":true,\"environment\":[{\"name\":\"LOG_LEVEL\",\"value\":\"INFO\"},{\"name\":\"API_TOKEN\",\"value\":\"\"}],\"secrets\":[{\"name\":\"DB_PASSWORD\",\"valueFrom\":\"arn:aws:ssm:us-east-2:123456789012:parameter/example\"}]}]"
+        },
+        "after_unknown": {}
+      }
     }
   ]
 }

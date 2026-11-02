@@ -123,6 +123,10 @@ EXPOSED = {
         ("bpa_disabled", "aws_s3_bucket_public_access_block", "audit"),
         ("public_acl", "aws_s3_bucket_acl", "data"),
         ("public_policy", "aws_s3_bucket_policy", "data"),
+        ("public_policy", "aws_s3_bucket_policy", "transporte"),
+        ("public_policy", "aws_s3_bucket_policy", "org_curinga"),
+        ("public_policy", "aws_s3_bucket_policy", "org_se_existir"),
+        ("public_policy", "aws_s3_bucket_policy", "org_negada"),
     ),
     "ingress.json": (
         ("ingress", "aws_security_group", "tasks"),
@@ -149,7 +153,9 @@ REJECTIONS |= {
 }
 REJECTIONS["segredo_por_nome.json"] = [
     "secret_literal type=aws_lambda_function address=aws_lambda_function.main "
-    "key=environment.0.variables.DB_PASSWORD"
+    "key=environment.0.variables.DB_PASSWORD",
+    "secret_literal type=aws_ecs_task_definition address=aws_ecs_task_definition.processamento "
+    "key=container_definitions.0.environment.DB_PASSWORD",
 ]
 
 

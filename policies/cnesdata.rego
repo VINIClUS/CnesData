@@ -253,9 +253,43 @@ open_principal(principal) if {
 	"*" in principal.AWS
 }
 
-has_condition(statement) if {
+principal_boundary_keys := {
+	"aws:principalorgid",
+	"aws:principalaccount",
+	"aws:principalarn",
+	"aws:sourceaccount",
+	"aws:sourcearn",
+	"aws:sourceorgid",
+	"aws:sourcevpc",
+	"aws:sourcevpce",
+}
+
+boundary_operators := {"StringEquals", "StringEqualsIgnoreCase", "StringLike", "ArnEquals", "ArnLike"}
+
+fixed_value(value) if {
+	is_string(value)
+	value != ""
+	not regex.match(`[*?]`, value)
+}
+
+fixed_values(value) if fixed_value(value)
+
+fixed_values(values) if {
+	is_array(values)
+	count(values) > 0
+	every value in values {
+		fixed_value(value)
+	}
+}
+
+bounds_principal(statement) if {
 	is_object(statement.Condition)
-	count(statement.Condition) > 0
+	some operator, entries in statement.Condition
+	boundary_operators[operator]
+	is_object(entries)
+	some key, value in entries
+	principal_boundary_keys[lower(key)]
+	fixed_values(value)
 }
 
 deny contains resource_msg("public_policy", rc) if {
@@ -266,7 +300,7 @@ deny contains resource_msg("public_policy", rc) if {
 	some statement in statements(json.unmarshal(rc.change.after.policy))
 	statement.Effect == "Allow"
 	open_principal(statement.Principal)
-	not has_condition(statement)
+	not bounds_principal(statement)
 }
 
 deny contains resource_msg("ingress", rc) if {
@@ -353,6 +387,23 @@ deny contains msg if {
 	msg := sprintf(
 		"secret_literal type=%s address=%s key=%s",
 		[rc.type, rc.address, concat(".", [sprintf("%v", [part]) | some part in path])],
+	)
+}
+
+deny contains msg if {
+	some rc in live_changes
+	rc.type == "aws_ecs_task_definition"
+	is_string(rc.change.after.container_definitions)
+	json.is_valid(rc.change.after.container_definitions)
+	some index, container in json.unmarshal(rc.change.after.container_definitions)
+	some entry in object.get(container, "environment", [])
+	is_string(entry.name)
+	regex.match(secret_key_pattern, entry.name)
+	is_string(entry.value)
+	entry.value != ""
+	msg := sprintf(
+		"secret_literal type=%s address=%s key=container_definitions.%d.environment.%s",
+		[rc.type, rc.address, index, entry.name],
 	)
 }
 

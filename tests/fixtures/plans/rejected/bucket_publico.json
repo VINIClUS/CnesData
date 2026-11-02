@@ -79,6 +79,78 @@
         },
         "after_unknown": {}
       }
+    },
+    {
+      "address": "aws_s3_bucket_policy.transporte",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "transporte",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":\"*\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::example-data/*\",\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"true\"}}}]}"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_s3_bucket_policy.org_curinga",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "org_curinga",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"*\"},\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::example-data/*\",\"Condition\":{\"StringLike\":{\"aws:PrincipalOrgID\":\"o-*\"}}}]}"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_s3_bucket_policy.org_se_existir",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "org_se_existir",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"*\"},\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::example-data/*\",\"Condition\":{\"StringEqualsIfExists\":{\"aws:PrincipalOrgID\":\"o-example\"}}}]}"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_s3_bucket_policy.org_negada",
+      "mode": "managed",
+      "type": "aws_s3_bucket_policy",
+      "name": "org_negada",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"*\"},\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::example-data/*\",\"Condition\":{\"StringNotEquals\":{\"aws:PrincipalOrgID\":\"o-example\"}}}]}"
+        },
+        "after_unknown": {}
+      }
     }
   ]
 }
