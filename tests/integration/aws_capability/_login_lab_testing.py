@@ -54,8 +54,11 @@ def _pick(options: dict[str, Any], keys: set[str]) -> dict[str, Any]:
 
 
 def make_login_world(tmp_path: Path, **options: Any) -> LoginWorld:
-    idp_keys = {"ready_after", "consume_on_bad_verifier", "refresh_keeps_aud", "sdk_refresh_aud"}
-    human_keys = {"human_seconds", "silent_seconds", "wrong_state_at", "error_at"}
+    idp_keys = {
+        "ready_after", "consume_on_bad_verifier", "refresh_keeps_aud", "sdk_refresh_aud",
+        "wrong_client_id", "wrong_id_aud", "bad_issuer", "http_jwks",
+    }
+    human_keys = {"human_seconds", "silent_seconds", "wrong_state_at", "error_at", "empty_code_at"}
     aws_options = {k: v for k, v in options.items() if k not in idp_keys | human_keys}
     lab = make_login_lab(tmp_path, latency=LATENCY, **aws_options)
     advance = lab.aws.advance

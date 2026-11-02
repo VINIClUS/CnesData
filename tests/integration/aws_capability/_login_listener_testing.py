@@ -18,6 +18,7 @@ class FakeListener:
     silent_seconds: float = 1.0
     wrong_state_at: int | None = None
     error_at: int | None = None
+    empty_code_at: int | None = None
     steps: int = 0
     pending: str | None = None
     handoff_text: str | None = None
@@ -46,7 +47,7 @@ class FakeListener:
         query = query_of(self.pending)
         if self.error_at == self.steps:
             return Callback(error="access_denied")
-        code = self.idp.authorize(query)
+        code = "" if self.empty_code_at == self.steps else self.idp.authorize(query)
         state = "wrong" if self.wrong_state_at == self.steps else query["state"]
         return Callback(code, state)
 

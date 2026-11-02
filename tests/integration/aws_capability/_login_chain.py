@@ -55,9 +55,12 @@ def follow(
         if callback.error is not None:
             listener.finish(REFUSED_PAGE)
             return Chain("callback_error", codes, _short(callback.error))
-        if callback.state != plan.auths[name].state or not callback.code:
+        if callback.state != plan.auths[name].state:
             listener.finish(REFUSED_PAGE)
             return Chain("state_mismatch", codes)
+        if not callback.code:
+            listener.finish(REFUSED_PAGE)
+            return Chain("missing_code", codes)
         codes[name] = callback.code
         if index + 1 < len(names):
             listener.redirect(plan.urls[names[index + 1]])

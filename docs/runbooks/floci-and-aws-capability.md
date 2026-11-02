@@ -236,7 +236,7 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
     logo depois da cadeia.
   - **Chaves:** `discovery_status`, `discovery_issuer_ok`, `discovery_jwks_https`, `domain_ready`
     (segundos ou `timeout`), `domain_ready_polls`, `login` (`ok`, `timeout`, `state_mismatch`,
-    `callback_error`), `login_error` (só no `callback_error`, código OAuth curto), `login_seconds`, `a_status`, `a_error`, `a_token_use`, `a_scope_api`,
+    `callback_error`, `missing_code`), `listener` (`unavailable` quando a porta ou o IPv6 não abrem; nesse caso nada é criado), `login_error` (só no `callback_error`, código OAuth curto), `login_seconds`, `a_status`, `a_error`, `a_token_use`, `a_scope_api`,
     `a_client_id_ok`, `a_aud` (a origem da API, `absent` ou `other`), `a_claims` (só nomes),
     `a_verifier` (`ok` ou o código do `OidcVerifier`), `a_id_aud_is_client`, `refresh_*`
     (endpoint de token), `sdk_refresh`, `sdk_refresh_aud`, `sdk_refresh_verifier`
@@ -250,6 +250,11 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
     HTTP) em 107 s; lento (domain pronto na 31a tentativa, login em 580 s) 59 chamadas em 812 s;
     pior caso (35 pausas de 5 s, login em 592 s) 63 chamadas em 853 s; limpeza 142 chamadas em
     185 s nos três.
+  - **O primeiro ensaio real decide:** a ordem de remoção domain, branding, client, server, usuário e
+    pool (o brief pedia branding antes do domain; ambas mantêm domain antes do pool e branding antes
+    do client, e o janitor repete em falha alta); o branding criado logo após o domain; se um
+    verifier errado consome o código; se o refresh mantém `aud`. O listener abre antes de qualquer
+    recurso, e arquivos temporários `.handoff-<run>-*` também são removidos pela limpeza.
   - **Ações do operador:** nenhuma fora do escopo já concedido: `cognito-idp:Create*`, `Delete*`,
     `Update*`, `Describe*`, `List*` e `Admin*` por `ResourceTag` em `userpool/*`, `ListUserPools` e
     `DescribeUserPoolDomain` sem escopo. Usadas: `CreateUserPool`, `CreateResourceServer`,

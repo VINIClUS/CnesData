@@ -29,7 +29,9 @@ def write_handoff(spec: RunSpec, url: str, username: str, password: str) -> None
     if any("\n" in value or "\r" in value for _, value in values):
         raise ValueError("handoff=invalid_field")
     content = "".join(f"{key}={value}\n" for key, value in values).encode("utf-8")
-    descriptor, temporary = tempfile.mkstemp(dir=spec.journal_dir, prefix=".handoff-")
+    descriptor, temporary = tempfile.mkstemp(
+        dir=spec.journal_dir, prefix=f".handoff-{spec.run_id}-"
+    )
     try:
         os.write(descriptor, content)
         os.fsync(descriptor)
@@ -42,3 +44,5 @@ def write_handoff(spec: RunSpec, url: str, username: str, password: str) -> None
 def remove_handoff(spec: RunSpec) -> None:
     if re.fullmatch(r"[0-9a-f]{8}", spec.run_id) is not None:
         handoff_path(spec).unlink(missing_ok=True)
+        for orphan in spec.journal_dir.glob(f".handoff-{spec.run_id}-*"):
+            orphan.unlink(missing_ok=True)

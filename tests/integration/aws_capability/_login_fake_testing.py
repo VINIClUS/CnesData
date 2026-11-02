@@ -45,9 +45,14 @@ class FakeIdp:
     consume_on_bad_verifier: bool = False
     refresh_keeps_aud: bool = True
     sdk_refresh_aud: bool = False
+    wrong_client_id: bool = False
+    wrong_id_aud: bool = False
+    bad_issuer: bool = False
+    http_jwks: bool = False
     codes: dict[str, dict[str, object]] = field(default_factory=dict)
     refreshes: dict[str, str | None] = field(default_factory=dict)
     polls: int = 0
+    token_codes: list[str] = field(default_factory=list)
     issued: int = 0
     requests: list[tuple[str, str]] = field(default_factory=list)
 
@@ -78,6 +83,8 @@ class FakeIdp:
             return self._metadata(path)
         if path == "/oauth2/authorize":
             return self._authorize_page()
+        if path == "/login":
+            return httpx.Response(200, text="<html>login</html>")
         if path == "/oauth2/token" and request.method == "POST":
             form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
             return self._token(form)
@@ -85,7 +92,11 @@ class FakeIdp:
 
     def _metadata(self, path: str) -> httpx.Response:
         if path.endswith("/openid-configuration"):
-            document = {"issuer": self.issuer, "jwks_uri": f"{self.issuer}/.well-known/jwks.json"}
+            jwks = f"{self.issuer}/.well-known/jwks.json"
+            document = {
+                "issuer": "https://other.example" if self.bad_issuer else self.issuer,
+                "jwks_uri": jwks.replace("https:", "http:") if self.http_jwks else jwks,
+            }
             return httpx.Response(200, json=document)
         return httpx.Response(200, json={"keys": [JWK]})
 
@@ -94,7 +105,7 @@ class FakeIdp:
         if pool.domain is None or not pool.brandings or self.polls < self.ready_after:
             self.polls += 1
             return httpx.Response(404, json={})
-        return httpx.Response(200, text="<html>login</html>")
+        return httpx.Response(302, headers={"Location": f"{self.origin}/login?client=x"})
 
     def authorize(self, query: Mapping[str, str]) -> str | None:
         valid = (
@@ -118,8 +129,20 @@ class FakeIdp:
         return code
 
     def _token(self, form: Mapping[str, str]) -> httpx.Response:
-        if form.get("grant_type") == "refresh_token":
+        grant = form.get("grant_type")
+        keys = {
+            "authorization_code": {
+                "grant_type", "client_id", "code", "redirect_uri", "code_verifier",
+            },
+            "refresh_token": {"grant_type", "client_id", "refresh_token"},
+        }
+        if grant not in keys:
+            return httpx.Response(400, json={"error": "unsupported_grant_type"})
+        if set(form) != keys[grant] or not all(form.values()):
+            return httpx.Response(400, json={"error": "invalid_request"})
+        if grant == "refresh_token":
             return self._refresh(form)
+        self.token_codes.append(form["code"])
         record = self.codes.get(form.get("code", ""))
         error = self._grant_error(record, form)
         if error is not None:
@@ -143,6 +166,8 @@ class FakeIdp:
         return None
 
     def _refresh(self, form: Mapping[str, str]) -> httpx.Response:
+        if form["client_id"] != self.client_id:
+            return httpx.Response(400, json={"error": "invalid_client"})
         token = form.get("refresh_token", "")
         if token not in self.refreshes:
             return httpx.Response(400, json={"error": "invalid_grant"})
@@ -155,14 +180,15 @@ class FakeIdp:
         scope = f"openid email profile {API_ORIGIN}/api.access"
         access: dict[str, object] = {
             **base,
-            "client_id": self.client_id,
+            "client_id": "other-client" if self.wrong_client_id else self.client_id,
             "token_use": "access",
             "scope": scope,
             "jti": f"jti-{self.issued}",
         }
         if resource is not None:
             access["aud"] = resource
-        identity = {**base, "aud": self.client_id, "token_use": "id", "email": "x"}
+        audience = "other-aud" if self.wrong_id_aud else self.client_id
+        identity = {**base, "aud": audience, "token_use": "id", "email": "x"}
         tokens = {
             "access_token": jwt.encode(access, _PRIVATE, "RS256", headers={"kid": KID}),
             "id_token": jwt.encode(identity, _PRIVATE, "RS256", headers={"kid": KID}),
@@ -177,6 +203,10 @@ class FakeIdp:
         flow = payload.get("AuthFlow")
         params = payload.get("AuthParameters")
         if flow != "REFRESH_TOKEN_AUTH" or not isinstance(params, Mapping):
+            return denied("InvalidParameterException")
+        if set(payload) != {"AuthFlow", "ClientId", "AuthParameters"}:
+            return denied("InvalidParameterException")
+        if payload["ClientId"] != self.client_id or set(params) != {"REFRESH_TOKEN"}:
             return denied("InvalidParameterException")
         token = str(params.get("REFRESH_TOKEN", ""))
         if token not in self.refreshes:
