@@ -336,6 +336,39 @@ def test_espelho_sem_get_falha_fechado_sem_head_de_chave_ausente(
     assert {dims(c)["key"] for c in calls if c.who == f"role-{role}"} == {first}
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("unit", "tmp/x", 1, "unit_get_control", "tmp/missing"),
+        ("recovery", "serving/x", 2, "recovery_live_control", "raw/missing"),
+        ("api", "reconciliation/x", 1, "api_reconciliation_control", "reconciliation/missing"),
+    ],
+    ids=["unit", "recovery", "api"],
+)
+def test_controle_posterior_negado_falha_fechado_sem_head_de_chave_ausente(
+    tmp_path: Path, case: tuple[str, str, int, str, str]
+) -> None:
+    role, key, nth, step, skipped = case
+    lab = make_probe_lab(tmp_path, "iam-s3")
+    original, seen = lab.aws.permits, [0]
+
+    def deny_nth(who: str, action: str, resource: str, keys: object = None) -> bool:
+        if who == f"role-{role}" and action == "s3:GetObject" and resource.endswith(f"/{key}"):
+            seen[0] += 1
+            if seen[0] >= nth:
+                return False
+        return original(who, action, resource, keys)  # type: ignore[arg-type]
+
+    lab.aws.permits = deny_nth  # type: ignore[method-assign]
+    calls = record(lab)
+    with pytest.raises(ServiceFailure) as error:
+        run(lab)
+    assert error.value.args == (f"probe=step_failed step={step}",)
+    heads = [(c.ok, dims(c)["key"]) for c in calls if c.who == f"role-{role}"]
+    assert heads[-1] == (False, key)
+    assert skipped not in {called for _, called in heads}
+
+
 def test_lock_negado_registra_o_codigo_e_pula_a_retencao(tmp_path: Path) -> None:
     lab = make_probe_lab(tmp_path, "iam-s3")
     original = lab.aws.permits
